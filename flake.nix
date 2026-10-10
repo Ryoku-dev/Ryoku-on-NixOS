@@ -274,6 +274,23 @@
             touch "$out"
           '';
 
+        ryoku-installer-disk-identity = pkgs.runCommand "ryoku-installer-disk-identity-check"
+          {
+            nativeBuildInputs = with pkgs; [
+              bash
+              coreutils
+              gawk
+              gnugrep
+              gnused
+              python3
+            ];
+          }
+          ''
+            RYOKU_INSTALL_BACKEND_SOURCE=${./nix/apps/ryoku-install-backend.sh} \
+              bash ${./nix/tests/test-installer-disk-identity.sh}
+            touch "$out"
+          '';
+
         ryoku-installer-iso = pkgs.runCommand "ryoku-installer-iso-check"
           { nativeBuildInputs = [ pkgs.python3 pkgs.gnugrep ]; }
           ''

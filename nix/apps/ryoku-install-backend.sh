@@ -14,6 +14,7 @@ default_apps="prompt,fastfetch,yazi,cli-tools,pavucontrol,songrec,openrgb,upscal
 
 iso_mode=0
 install_disk=""
+validated_disk_identity=""
 filesystem=""
 target_hostname=""
 target_username=""
@@ -264,6 +265,43 @@ detect_live_disk() {
   done
 }
 
+disk_identity() {
+  local disk="$1"
+  local props wwn serial size model majmin
+
+  props="$(udevadm info --query=property --name "$disk" 2>/dev/null || true)"
+  wwn="$(sed -n 's/^ID_WWN_WITH_EXTENSION=//p; s/^ID_WWN=//p' <<< "$props" | head -n 1)"
+  serial="$(sed -n 's/^ID_SERIAL=//p' <<< "$props" | head -n 1)"
+  size="$(lsblk -bdnro SIZE "$disk" 2>/dev/null || true)"
+  model="$(lsblk -dnro MODEL "$disk" 2>/dev/null | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' || true)"
+  majmin="$(lsblk -dnro MAJ:MIN "$disk" 2>/dev/null || true)"
+
+  [ -n "$size" ] && [ -n "$majmin" ] || return 1
+
+  if [ -n "$wwn" ] || [ -n "$serial" ]; then
+    printf 'wwn=%s|serial=%s|size=%s\n' "$wwn" "$serial" "$size"
+  else
+    printf 'dev=%s|model=%s|size=%s\n' "$majmin" "$model" "$size"
+  fi
+}
+
+revalidate_install_disk() {
+  local expected_path="$1"
+  local expected_identity="$2"
+  local current_identity
+
+  validate_install_disk "$expected_path"
+  [ "$install_disk" = "$expected_path" ] ||
+    die "installation disk path changed before erase ($expected_path -> $install_disk)"
+
+  current_identity="$(disk_identity "$install_disk" || true)"
+  [ -n "$current_identity" ] ||
+    die "could not re-identify $install_disk immediately before erase"
+
+  [ "$current_identity" = "$expected_identity" ] ||
+    die "installation disk identity changed before erase; refusing to wipe $install_disk"
+}
+
 validate_install_disk() {
   local disk="$1"
   local resolved type ro live_disk size mounts
@@ -451,6 +489,10 @@ install_iso() {
     choose_install_disk
   fi
   validate_install_disk "$install_disk"
+  if [ "$dry_run" -eq 0 ]; then
+    validated_disk_identity="$(disk_identity "$install_disk" || true)"
+    [ -n "$validated_disk_identity" ] || die "could not identify $install_disk for destructive-install safety"
+  fi
 
   if [ -z "$filesystem" ]; then
     if [ "$assume_yes" -eq 1 ]; then
@@ -643,6 +685,11 @@ install_iso() {
       return 0
     fi
   fi
+
+  # Re-run every disk safety check after the destructive confirmation and
+  # compare the underlying hardware identity. A hotplug/re-enumeration must
+  # never let a reused /dev path point wipefs at a different disk.
+  revalidate_install_disk "$install_disk" "$validated_disk_identity"
 
   # shellcheck disable=SC2329 # invoked through the EXIT trap below
   iso_cleanup() {
