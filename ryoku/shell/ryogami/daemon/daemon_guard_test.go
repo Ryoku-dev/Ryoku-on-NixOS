@@ -40,3 +40,19 @@ func TestDaemonLiveFalseOnStaleSocket(t *testing.T) {
 		t.Error("daemonLive() reported a stale socket as live")
 	}
 }
+
+func TestSocketPathFallbackIsPerUser(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv("XDG_CACHE_HOME", "")
+
+	got := socketPath()
+	wantDir := filepath.Join(home, ".cache", "ryogami", "runtime")
+	if filepath.Dir(got) != wantDir {
+		t.Fatalf("socket fallback dir = %q, want %q", filepath.Dir(got), wantDir)
+	}
+	if got == filepath.Join(os.TempDir(), "ryogami.sock") {
+		t.Fatalf("socket fallback must not use the shared temp namespace: %q", got)
+	}
+}
