@@ -3,6 +3,7 @@ package wm
 import (
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -60,6 +61,21 @@ func hyprlandSockets(sig string) []string {
 
 // handleAlive dials the handle's socket. A refused or missing socket means the
 // session it names has exited.
+var managerEnvironment = func() map[string]string {
+	out := map[string]string{}
+	b, err := exec.Command("systemctl", "--user", "show-environment").Output()
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if ok && key != "" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
 func handleAlive(sockets []string) bool {
 	for _, p := range sockets {
 		if p == "" {
@@ -217,6 +233,12 @@ func Detect() Detection {
 	for _, p := range envProviders {
 		if h := os.Getenv(p.env); h != "" && handleAlive(p.socket(h)) {
 			return Detection{Name: p.name, Live: true, Source: p.env}
+		}
+	}
+	managerEnv := managerEnvironment()
+	for _, p := range envProviders {
+		if h := managerEnv[p.env]; h != "" && handleAlive(p.socket(h)) {
+			return Detection{Name: p.name, Live: true, Source: "systemd:" + p.env}
 		}
 	}
 	// Colon-separated and case-inconsistent across greeters, so match a
