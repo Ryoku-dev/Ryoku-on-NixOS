@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -87,7 +88,15 @@ func strsParam(p map[string]interface{}, key string) []string {
 func socketPath() string {
 	dir := os.Getenv("XDG_RUNTIME_DIR")
 	if dir == "" {
-		dir = "/tmp"
+		// A manual/non-systemd launch still needs a common client/daemon path,
+		// but never place the socket directly in the shared /tmp namespace.
+		// Prefer the user's cache tree; only fall back to a UID-specific temp
+		// directory if the platform cannot resolve a user cache directory.
+		if cache, err := os.UserCacheDir(); err == nil && cache != "" {
+			dir = filepath.Join(cache, "ryogami", "runtime")
+		} else {
+			dir = filepath.Join(os.TempDir(), fmt.Sprintf("ryogami-%d", os.Geteuid()))
+		}
 	}
 	return filepath.Join(dir, "ryogami.sock")
 }

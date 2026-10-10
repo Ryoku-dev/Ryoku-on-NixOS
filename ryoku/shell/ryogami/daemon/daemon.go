@@ -104,7 +104,9 @@ func daemonLive(sock string) bool {
 func runDaemon() error {
 	cfg := loadConfig()
 	sock := socketPath()
-	_ = os.MkdirAll(filepath.Dir(sock), 0o755)
+	if err := os.MkdirAll(filepath.Dir(sock), 0o700); err != nil {
+		return fmt.Errorf("prepare socket directory: %w", err)
+	}
 	// A bare `ryogami` in a terminal must not steal the session daemon's
 	// socket: the interloper restores the saved wallpaper over the live one
 	// and dies with the terminal, leaving the picker with no daemon at all.
