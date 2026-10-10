@@ -358,6 +358,16 @@ status_json() {
         }'
 }
 
+rollback_activation() {
+    previous_system="$1"
+    [ -n "$previous_system" ] || return 1
+
+    switcher="$previous_system/bin/switch-to-configuration"
+    [ -x "$switcher" ] || return 1
+
+    "$sudo_bin" "$switcher" switch
+}
+
 resolve_host() {
     if [ -n "${RYOKU_NIX_HOST:-}" ]; then
         printf '%s\n' "$RYOKU_NIX_HOST"
@@ -500,6 +510,8 @@ update_nix() {
     cp "$lock" "$backup"
 
     restore_lock=true
+    activation_started=false
+    previous_system=""
 
     cleanup() {
         if [ "$restore_lock" = true ]; then
@@ -516,6 +528,13 @@ update_nix() {
 
             printf 'Restoring the previous Ryoku flake lock.\n' >&2
             "$sudo_bin" "$cp_bin" "$backup" "$lock" || true
+        fi
+
+        if [ "$activation_started" = true ]; then
+            printf 'Restoring the previous NixOS runtime generation.\n' >&2
+            if ! rollback_activation "$previous_system"; then
+                printf 'ryoku-nix-update: warning: the failed activation could not be switched back automatically; select the previous NixOS generation if the live system is inconsistent.\n' >&2
+            fi
         fi
 
         rm -f "$backup"
@@ -542,6 +561,7 @@ update_nix() {
         "${flake_root}#nixosConfigurations.${host}.config.system.build.toplevel" \
         --no-link
 
+    previous_system="$(readlink -f /run/current-system 2>/dev/null || true)"
     printf 'Switching to the new NixOS generation.\n'
 
     shell_expected=false
@@ -549,8 +569,10 @@ update_nix() {
         shell_expected=true
     fi
 
+    activation_started=true
     "$sudo_bin" "$nixos_rebuild_bin" switch \
         --flake "${flake_root}#${host}"
+    activation_started=false
 
     restore_lock=false
     rm -f "$backup"
@@ -692,6 +714,7 @@ track_nix() {
         die "channel switch build failed; previous flake files restored"
     fi
 
+    previous_system="$(readlink -f /run/current-system 2>/dev/null || true)"
     printf 'Switching to the new NixOS generation.\n'
 
     shell_expected=false
@@ -702,6 +725,12 @@ track_nix() {
     if ! "$sudo_bin" "$nixos_rebuild_bin" switch \
         --flake "${flake_root}#${host}"; then
         restore_track_files
+        if [ -n "$previous_system" ]; then
+            printf 'Restoring the previous NixOS runtime generation.\n' >&2
+            if ! rollback_activation "$previous_system"; then
+                printf 'ryoku-nix-update: warning: the failed activation could not be switched back automatically; select the previous NixOS generation if the live system is inconsistent.\n' >&2
+            fi
+        fi
         rm -rf "$work"
         die "channel switch activation failed; previous flake files restored"
     fi

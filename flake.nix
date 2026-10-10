@@ -511,6 +511,25 @@
             touch "$out"
           '';
 
+        # Nix update failed-activation rollback
+        ryoku-nix-update-activation-rollback = pkgs.runCommand
+          "ryoku-nix-update-activation-rollback-check"
+          {
+            nativeBuildInputs = with pkgs; [
+              bash
+              coreutils
+              git
+              gnugrep
+              jq
+              util-linux
+            ];
+          }
+          ''
+            RYOKU_NIX_UPDATE_TEST_HELPER=${./nix/scripts/ryoku-nix-update} \
+              bash ${./nix/tests/test-nix-update-activation-rollback.sh}
+            touch "$out"
+          '';
+
         ryoku-nix-update-refresh = pkgs.runCommand
           "ryoku-nix-update-refresh-check"
           {
