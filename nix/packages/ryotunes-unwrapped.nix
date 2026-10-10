@@ -15,6 +15,7 @@ pkgs.rustPlatform.buildRustPackage rec {
     ../patches/ryotunes-youtube-session-cookie-rotation.patch
     ../patches/ryotunes-youtube-auth-resilience.patch
     ../patches/ryotunes-youtube-auth-persistence.patch
+    ../patches/ryotunes-youtube-cookie-durability.patch
   ];
 
   # Cargo dependencies include pinned librespot Git revisions.
