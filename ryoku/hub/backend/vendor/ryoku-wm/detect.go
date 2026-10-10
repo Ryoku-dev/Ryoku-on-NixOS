@@ -102,6 +102,27 @@ func hyprlandSockets(sig string) []string {
 
 // handleAlive dials the handle's socket. A refused or missing socket means the
 // session it names has exited.
+// managerEnvironment reads the systemd user manager environment. Ryoku's
+// compositor bootstrap deliberately imports the live session there before it
+// starts shell services, while commands launched later can lack the compositor
+// variables in their own inherited environment. Keep this best-effort so
+// chroots, non-systemd sessions and install-time tools retain the normal
+// process-environment/config-tree fallbacks. A var keeps detection testable.
+var managerEnvironment = func() map[string]string {
+	out := map[string]string{}
+	b, err := exec.Command("systemctl", "--user", "show-environment").Output()
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if ok && key != "" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
 func handleAlive(sockets []string) bool {
 	for _, p := range sockets {
 		if p == "" {
@@ -330,6 +351,18 @@ func Detect() Detection {
 	for _, p := range envProviders {
 		if h := os.Getenv(p.env); h != "" && handleAlive(p.socket(h)) {
 			return Detection{Name: p.name, Live: true, Source: p.env}
+		}
+	}
+	// A graphical command can be launched without the compositor variables even
+	// though Ryoku already imported them into systemd --user. Consult that
+	// authoritative session environment before falling back to a config tree;
+	// otherwise a machine carrying all three provider configs always reports the
+	// first one (Hyprland), regardless of what is actually running. Require the
+	// advertised IPC handle to answer so stale manager variables cannot win.
+	managerEnv := managerEnvironment()
+	for _, p := range envProviders {
+		if h := managerEnv[p.env]; h != "" && handleAlive(p.socket(h)) {
+			return Detection{Name: p.name, Live: true, Source: "systemd:" + p.env}
 		}
 	}
 	// Colon-separated and case-inconsistent across greeters, so match a

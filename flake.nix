@@ -610,6 +610,16 @@
               grep -Fq 'systemctl --user restart ryoku-session.target' "$autostart"
             done
 
+            niri_module=${./nix/modules/ryoku.nix}
+            niri_wrapper="$TMPDIR/niri-session-wrapper-source"
+            sed -n '/cat > "$out\/bin\/ryoku-niri-session"/,/chmod 0755/p' "$niri_module" > "$niri_wrapper"
+            grep -Fq "''${materializer}/bin/ryoku-materialize" "$niri_wrapper"
+            grep -Fq 'exec ''${ryokuNiri}/bin/niri-session' "$niri_wrapper"
+            if grep -Fq '[ ! -f "$config_home/niri/config.kdl" ]' "$niri_wrapper"; then
+              echo 'Niri session wrapper still conditionally skips generation materialization' >&2
+              exit 1
+            fi
+
             touch "$out"
           '';
 

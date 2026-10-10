@@ -118,12 +118,10 @@ let
 #!${pkgs.runtimeShell}
 set -eu
 
-config_home="''${XDG_CONFIG_HOME:-$HOME/.config}"
-
-if [ ! -f "$config_home/niri/config.kdl" ] ||
-   [ ! -f "$config_home/niri/autostart.kdl" ]; then
-  ${materializer}/bin/ryoku-materialize
-fi
+# config.kdl and autostart.kdl are generation-owned entrypoints. Refresh them
+# before Niri parses either file so a branch/generation switch cannot boot with
+# stale compositor config and deadlock before ryoku-materialize.service starts.
+${materializer}/bin/ryoku-materialize
 
 export PATH="${lib.makeBinPath [
   ryokuNiri

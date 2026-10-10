@@ -444,6 +444,12 @@ void activate(GtkApplication *application, gpointer data) {
 } // namespace
 
 int main(int argc, char **argv) {
+    // Rashin is a small local dashboard, so stability matters more than WebKit's
+    // accelerated compositing path. WebKitGTK 2.52 can crash its web process in
+    // Skia GPU drawing on the NVIDIA Wayland stack; keep this app on the stable
+    // software-composited path without changing WebKit behavior system-wide.
+    g_setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1", FALSE);
+
     AppState state;
     state.application = gtk_application_new(
         "dev.ryoku.rashin", G_APPLICATION_DEFAULT_FLAGS);
