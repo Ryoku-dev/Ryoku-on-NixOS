@@ -370,7 +370,7 @@ Item {
     function rollback() {
         if (pg.snapshot === "")
             return;
-        Spawn.run(["kitty", "--class=dev.ryoku.update", "-e", "sh", "-c", "ryoku rollback \"$1\"; printf '\\npress enter to close '; read -r _", "sh", pg.snapshot]);
+        Spawn.runApp(["kitty", "--class=dev.ryoku.update", "-e", "sh", "-c", "ryoku rollback \"$1\"; printf '\\npress enter to close '; read -r _", "sh", pg.snapshot]);
         pg.dismiss();
     }
 

@@ -496,10 +496,10 @@ Item {
         var s = pg.model.logo.source;
         if (!s || s.length === 0)
             return;
-        Spawn.run(["kitty", "-e", "nvim", s]);
+        Spawn.runApp(["kitty", "-e", "nvim", s]);
     }
-    function previewInTerminal() { Spawn.run(["kitty", "-e", "sh", "-c", "ryoku-fastfetch; read -n1"]); }
-    function openConfig() { Spawn.run(["kitty", "-e", "nvim", "-O", pg.configPath]); }
+    function previewInTerminal() { Spawn.runApp(["kitty", "-e", "sh", "-c", "ryoku-fastfetch; read -n1"]); }
+    function openConfig() { Spawn.runApp(["kitty", "-e", "nvim", "-O", pg.configPath]); }
 
     // ---- emblem dither + imported-emblem removal ----------------------------
     // the 1-bit bake toggles through the backend so it can read/write the sibling

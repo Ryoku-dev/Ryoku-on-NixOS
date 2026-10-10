@@ -7,6 +7,7 @@ import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
 import Ryoku.Ui.Singletons
+import shell.services
 import "../../../bar/barstyles/python"
 import "../../../bar/barstyles/python/reusables"
 import "../../../bar/barstyles/python/WindowRegistry.js" as WindowRegistry
@@ -964,7 +965,7 @@ PanelWindow {
     function launchApp(appName, desktopId) {
         let entry = DesktopEntries.byId(desktopId);
         if (entry) {
-            entry.execute();
+            AppLaunch.run(entry, null);
         }
         if (Caching.qsDir) {
             Quickshell.execDetached(["python3", Qt.resolvedUrl("app_rank.py").toString().replace("file://", ""), "--log-launch", "--name", appName]);

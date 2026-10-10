@@ -346,7 +346,7 @@ PanelWindow {
         var url = String(selMeta.repo)
             .replace(/^git@github\.com:/, "https://github.com/")
             .replace(/\.git$/, "")
-        Spawn.run(["xdg-open", url])
+        Spawn.runApp(["xdg-open", url])
     }
 
     // ── bulk meta pre-warm: author/repo/palette for ALL themes in one background

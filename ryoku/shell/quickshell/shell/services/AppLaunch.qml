@@ -21,12 +21,12 @@ Singleton {
             return;
         const argv = entry && entry.runInTerminal ? (target.command || []) : [];
         if (argv.length === 0) {
-            Spawn.run(target.command, entry ? entry.workingDirectory : "");
+            Spawn.runApp(target.command, entry ? entry.workingDirectory : "");
             return;
         }
         const command = ["ryoku-app", "terminal", "--"];
         for (let i = 0; i < argv.length; i++)
             command.push(String(argv[i]));
-        Spawn.run(command);
+        Spawn.runApp(command);
     }
 }

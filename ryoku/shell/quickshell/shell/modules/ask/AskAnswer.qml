@@ -77,9 +77,9 @@ Item {
             return;
         }
         if (kind === "file")
-            Spawn.run(["kitty", "-e", "nvim", String(chip.value || "")]);
+            Spawn.runApp(["kitty", "-e", "nvim", String(chip.value || "")]);
         else if (kind === "dir" || kind === "url")
-            Spawn.run(["xdg-open", String(chip.value || "")]);
+            Spawn.runApp(["xdg-open", String(chip.value || "")]);
         else if (kind === "chat")
             root.switchToChat();
         else if (kind === "app")
@@ -223,7 +223,7 @@ Item {
                     clip: true
                     Image { anchors.fill: parent; source: "file://" + imageFrame.modelData; fillMode: Image.PreserveAspectCrop; asynchronous: true }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: Spawn.run(["xdg-open", imageFrame.modelData]) }
+                    TapHandler { onTapped: Spawn.runApp(["xdg-open", imageFrame.modelData]) }
                 }
             }
         }

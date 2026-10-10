@@ -146,7 +146,7 @@ Item {
         } catch (e) {}
     }
     function runSetup() {
-        Spawn.run(["kitty", "--class", "ryoku-rashin-setup", "-e", "ryoku-rashin", "setup"]);
+        Spawn.runApp(["kitty", "--class", "ryoku-rashin-setup", "-e", "ryoku-rashin", "setup"]);
     }
     // Open the dashboard the daemon actually serves. If a systemd user unit is
     // installed, it is the sole owner of the daemon. Spawning another `serve`
@@ -157,7 +157,7 @@ Item {
     function openDashboard() {
         var url = "http://127.0.0.1:" + pg.port;
         if (pg.running) {
-            Spawn.run(["xdg-open", url]);
+            Spawn.runApp(["xdg-open", url]);
             return;
         }
         openProc.command = ["sh", "-c",

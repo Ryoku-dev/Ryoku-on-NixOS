@@ -2163,12 +2163,10 @@ in
         Restart = "always";
         RestartSec = 2;
 
-        # Do not tear down the whole service cgroup when the shell restarts:
-        # applications launched from shell actions may still be descendants on
-        # an existing session. The daemon now reaps stale Quickshell instances
-        # and their helper trees itself, so KillMode=process avoids killing user
-        # applications without bringing the old watcher leaks back.
-        KillMode = "process";
+        # User applications are launched into independent app.slice scopes,
+        # so the shell can safely own and clean up its complete process tree.
+        # This prevents stale shell helpers from surviving generation changes.
+        KillMode = "control-group";
         Slice = "session.slice";
       };
     };

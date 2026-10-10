@@ -158,7 +158,7 @@ Item {
             bundleProc.running = true;
     }
     function browseStore() {
-        Spawn.run(["ryostore", "open", pg.tab === "Bundles" ? "bundles" : "plugins"]);
+        Spawn.runApp(["ryostore", "open", pg.tab === "Bundles" ? "bundles" : "plugins"]);
     }
     function removeBundle(id, item) {
         if (!id || bundleMutProc.running)

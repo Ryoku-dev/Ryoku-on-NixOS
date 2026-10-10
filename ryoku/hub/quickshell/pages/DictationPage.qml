@@ -134,14 +134,14 @@ Item {
     // gpk (GlazePKG, the RyokuArch package manager) needs a tty for its AUR
     // build and sudo prompts; --hold keeps any error on screen after it exits.
     function installVoxtype() {
-        Spawn.run(["kitty", "--hold", "-e", "gpk", "install", "voxtype-bin", "--manager", "aur"]);
+        Spawn.runApp(["kitty", "--hold", "-e", "gpk", "install", "voxtype-bin", "--manager", "aur"]);
     }
 
     // remove: gpk drops the package (tty for sudo), then we disable and delete
     // the user service so no dead unit lingers; config and models stay for a
     // reinstall.
     function removeVoxtype() {
-        Spawn.run(["kitty", "--hold", "-e", "sh", "-c",
+        Spawn.runApp(["kitty", "--hold", "-e", "sh", "-c",
             "gpk remove voxtype-bin && { systemctl --user disable --now voxtype.service 2>/dev/null; rm -f ~/.config/systemd/user/voxtype.service; systemctl --user daemon-reload 2>/dev/null; }"]);
     }
 

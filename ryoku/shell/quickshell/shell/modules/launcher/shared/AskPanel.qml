@@ -118,11 +118,11 @@ Item {
             root.finished();
             return;
         case "file":
-            Spawn.run(["kitty", "-e", "nvim", String(chip.value)]);
+            Spawn.runApp(["kitty", "-e", "nvim", String(chip.value)]);
             break;
         case "dir":
         case "url":
-            Spawn.run(["xdg-open", String(chip.value)]);
+            Spawn.runApp(["xdg-open", String(chip.value)]);
             break;
         case "chat":
             Svc.ShellState.requestSurfaceActive("ask#chat", undefined);
@@ -310,7 +310,7 @@ Item {
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler {
                         onTapped: {
-                            Spawn.run(["xdg-open", thumb.modelData]);
+                            Spawn.runApp(["xdg-open", thumb.modelData]);
                             root.finished();
                         }
                     }

@@ -309,7 +309,7 @@ Item {
                                     fillMode: Image.PreserveAspectCrop
                                 }
                                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-                                TapHandler { onTapped: Spawn.run(["xdg-open", messageImage.modelData]) }
+                                TapHandler { onTapped: Spawn.runApp(["xdg-open", messageImage.modelData]) }
                             }
                         }
                     }

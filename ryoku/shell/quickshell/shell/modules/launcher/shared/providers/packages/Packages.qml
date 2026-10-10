@@ -163,7 +163,7 @@ Provider {
                 icon: "",
                 execute: function () {
                     var gpkOp = op === "remove" ? "remove" : "install";
-                    Spawn.run([packages.terminal, "-e", "gpk", gpkOp, pkg.name]);
+                    Spawn.runApp([packages.terminal, "-e", "gpk", gpkOp, pkg.name]);
                     // the install/remove will change what a re-search should
                     // show; drop the cached rows so the next query refetches.
                     packages.invalidateSearch();

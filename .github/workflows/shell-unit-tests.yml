@@ -11,6 +11,9 @@ on:
     paths:
       - 'ryoku/shell/**/*.mjs'
       - 'ryoku/shell/**/*.js'
+      - 'ryoku/ui/Singletons/Spawn.qml'
+      - 'nix/modules/ryoku.nix'
+      - 'tests/shell-app-scope.sh'
       - 'ryoku/hub/**/*.mjs'
       - 'ryoku/hub/**/*.js'
       - 'tests/shell-unit-tests.sh'
@@ -22,6 +25,9 @@ on:
     paths:
       - 'ryoku/shell/**/*.mjs'
       - 'ryoku/shell/**/*.js'
+      - 'ryoku/ui/Singletons/Spawn.qml'
+      - 'nix/modules/ryoku.nix'
+      - 'tests/shell-app-scope.sh'
       - 'ryoku/hub/**/*.mjs'
       - 'ryoku/hub/**/*.js'
       - 'tests/shell-unit-tests.sh'
@@ -47,3 +53,7 @@ jobs:
       - name: Run shell unit tests
         shell: bash
         run: RYOKU_PATH="$PWD" tests/shell-unit-tests.sh
+
+      - name: Check application scope isolation
+        shell: bash
+        run: bash tests/shell-app-scope.sh

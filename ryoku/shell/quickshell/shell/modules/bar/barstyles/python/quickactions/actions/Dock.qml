@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import "../../"
 
 Item {
@@ -72,7 +73,7 @@ Item {
         let loggedCmd = execStr + " > \"" + logFile + "\" 2>&1";
 
         Quickshell.execDetached(["python3", Caching.qsDir + "/applauncher/app_fetcher.py", "--log", appName]);
-        Quickshell.execDetached(["bash", "-c", loggedCmd]);
+        Spawn.runApp(["bash", "-c", loggedCmd]);
         Quickshell.execDetached(["bash", Caching.scriptsPath + "/qs_manager.sh", "close"]);
     }
 

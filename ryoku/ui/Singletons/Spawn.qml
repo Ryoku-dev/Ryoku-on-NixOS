@@ -28,6 +28,35 @@ Singleton {
             "__QUICKSHELL_CRASH_SIGNAL": null
         })
 
+    // NixOS exposes generation-owned systemd-run here. User applications go
+    // into independent app.slice scopes so ryoku-shell.service can retain
+    // KillMode=control-group without taking normal desktop apps down with it.
+    readonly property string systemdRun:
+        Quickshell.env("RYOKU_SYSTEMD_RUN") || ""
+
+    function appCommand(command) {
+        if (!command || command.length === 0)
+            return [];
+
+        if (spawn.systemdRun === "")
+            return command;
+
+        const argv = [
+            spawn.systemdRun,
+            "--user",
+            "--scope",
+            "--collect",
+            "--quiet",
+            "--slice=app.slice",
+            "--"
+        ];
+
+        for (let i = 0; i < command.length; i++)
+            argv.push(String(command[i]));
+
+        return argv;
+    }
+
     // run(argv) launches and forgets, like Quickshell.execDetached. The optional
     // working directory is a desktop entry's Path=; empty keeps our own.
     function run(command, workingDirectory) {
@@ -40,5 +69,17 @@ Singleton {
         if (workingDirectory)
             ctx.workingDirectory = String(workingDirectory);
         Quickshell.execDetached(ctx);
+    }
+
+    // runApp() is specifically for user-facing applications. Shell-owned
+    // helpers, capture processes and Ryoku surfaces must continue using run().
+    function runApp(command, workingDirectory) {
+        if (!command || command.length === 0)
+            return;
+
+        spawn.run(
+            spawn.appCommand(command),
+            workingDirectory || ""
+        );
     }
 }
