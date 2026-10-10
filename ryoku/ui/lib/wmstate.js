@@ -36,7 +36,8 @@ function applyFrame(target, frame) {
             if (JSON.stringify(target[key]) !== JSON.stringify(value))
                 target[key] = value;
         }
-        target.versions = null;
+        if (target.versions !== null)
+            target.versions = null;
         return;
     }
 

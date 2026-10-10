@@ -36,15 +36,18 @@ build() {
 package() {
   install -Dm755 "$srcdir/ryoku-shell" "$pkgdir/usr/bin/ryoku-shell"
   install -Dm755 "$srcdir/ryoku-livewall" "$pkgdir/usr/bin/ryoku-livewall"
-  install -Dm755 "$_repo/ryoku/shell/scripts/ryoku-reload-cover" \
-    "$pkgdir/usr/bin/ryoku-reload-cover"
+  # Shell leaf scripts are called by bare name from the launcher, Hub, bar and
+  # daemon. Ship the whole ryoku-* family so adding a compositor-neutral helper
+  # cannot silently create a launcher action that is absent from PATH.
+  local s
+  for s in "$_repo"/ryoku/shell/scripts/ryoku-*; do
+    [[ -f $s ]] || continue
+    install -Dm755 "$s" "$pkgdir/usr/bin/${s##*/}"
+  done
   install -Dm755 "$_repo/ryoku/shell/scripts/ryostage" \
     "$pkgdir/usr/bin/ryostage"
-  install -Dm755 "$_repo/ryoku/shell/scripts/ryoku-eq" \
-    "$pkgdir/usr/bin/ryoku-eq"
   # the Stash sidebar's helpers: shell scripts, so they ship with the shell and
   # resolve on PATH with no compositor config tree.
-  local s
   for s in "$_repo"/ryoku/shell/scripts/stash-*.sh; do
     install -Dm755 "$s" "$pkgdir/usr/bin/${s##*/}"
   done

@@ -73,7 +73,7 @@ Item {
   }
 
   z: 102
-  width: Math.min(((settingsPanel.activeTab === "performance" ? 1080 : (settingsPanel.activeTab === "general" || settingsPanel.activeTab === "edit") ? 900 : 760) * Config.uiScale) + _keybindsColW + _s(24), Screen.width - _s(48))
+  width: Math.min((((settingsPanel.activeTab === "performance" || settingsPanel.activeTab === "matugen") ? 1080 : (settingsPanel.activeTab === "general" || settingsPanel.activeTab === "edit") ? 900 : 760) * Config.uiScale) + _keybindsColW + _s(24), Screen.width - _s(48))
   Behavior on width { NumberAnimation { duration: Style.animFast; easing.type: Easing.OutCubic } }
   // A tab taller than the screen scrolls inside contentLoader instead of
   // running off the bottom edge. The budget is the screen minus the panel's
