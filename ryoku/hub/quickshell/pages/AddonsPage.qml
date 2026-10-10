@@ -85,11 +85,11 @@ Item {
     function loadCatalog() { catProc.running = false; catProc.running = true; }
     function loadBundles() { bundleProc.running = false; bundleProc.running = true; }
     function browseStore() {
-        Quickshell.execDetached(["ryostore", "open", pg.tab === "Bundles" ? "bundles" : "plugins"]);
+        Spawn.runApp(["ryostore", "open", pg.tab === "Bundles" ? "bundles" : "plugins"]);
     }
     function removeBundle(id, item) {
         const scope = item ? ["item", id, item] : ["bundle", id];
-        Spawn.run(["kitty", "--class", "ryostore", "-e", "ryostore-install", "remove"].concat(scope));
+        Spawn.runApp(["kitty", "--class", "ryostore", "-e", "ryostore-install", "remove"].concat(scope));
     }
     function catalogEntry(id) {
         for (var i = 0; i < pg.catalog.length; i++)

@@ -323,7 +323,7 @@ Item {
             return;
         pg.skError = I18n.tr("Finish security-key setup in the terminal window, then return here.");
         pg.skEnrollPolls = 0;
-        Quickshell.execDetached(["sh", "-c", "exec \"${TERMINAL:-kitty}\" --class ryoku-passkey -e sh -c 'ryoku security-key enroll; printf \"\\n── press enter to close ──\\n\"; read _'"]);
+        Spawn.runApp(["sh", "-c", "exec \"${TERMINAL:-kitty}\" --class ryoku-passkey -e sh -c 'ryoku security-key enroll; printf \"\\n── press enter to close ──\\n\"; read _'"]);
         skEnrollRefresh.restart();
     }
     function skremove(id) {
@@ -540,7 +540,7 @@ Item {
     }
 
     function browseStore() {
-        Quickshell.execDetached(["ryostore", "open", "lockscreens"]);
+        Spawn.runApp(["ryostore", "open", "lockscreens"]);
     }
     function reload() {
         pg.loading = pg.skins.length === 0;

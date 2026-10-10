@@ -596,7 +596,7 @@ Rectangle {
         if (e.seed)
             sh += "[ -e \"" + e.path + "\" ] || printf \"" + e.seed + "\" > \"" + e.path + "\"; ";
         sh += "xdg-open \"" + e.path + "\"";
-        Spawn.run(["sh", "-c", sh]);
+        Spawn.runApp(["sh", "-c", sh]);
     }
 
     function snapshot() {

@@ -173,15 +173,15 @@ Item {
             root.finished();
             return;
         case "file":
-            Spawn.run(["kitty", "-e", "nvim", String(chip.value)]);
+            Spawn.runApp(["kitty", "-e", "nvim", String(chip.value)]);
             break;
         case "dir":
         case "url":
-            Spawn.run(["xdg-open", String(chip.value)]);
+            Spawn.runApp(["xdg-open", String(chip.value)]);
             break;
         case "dash":
             // Leave the turn running on the daemon; just go watch it.
-            Spawn.run(["xdg-open", "http://127.0.0.1:3600/#/chat"]);
+            Spawn.runApp(["xdg-open", "http://127.0.0.1:3600/#/chat"]);
             break;
         }
         root.finished();
@@ -416,7 +416,7 @@ Item {
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler {
                         onTapped: {
-                            Spawn.run(["xdg-open", thumb.modelData]);
+                            Spawn.runApp(["xdg-open", thumb.modelData]);
                             root.finished();
                         }
                     }

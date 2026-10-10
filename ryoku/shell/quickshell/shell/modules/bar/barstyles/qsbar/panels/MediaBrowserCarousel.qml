@@ -180,7 +180,7 @@ PanelWindow {
     function openSelected() {
         if (!loaded || imageArray.length === 0) return
         var path = imageArray[selectedIndex] ? imageArray[selectedIndex].filePath : ""; if (!path) return
-        Spawn.run(["xdg-open", path])
+        Spawn.runApp(["xdg-open", path])
         root.mediaBrowserVisible = false
     }
 

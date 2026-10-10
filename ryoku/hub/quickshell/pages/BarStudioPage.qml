@@ -56,7 +56,7 @@ Item {
     property string updatingId: ""    // the style whose update is in flight
 
     function browseBarStyles() {
-        Quickshell.execDetached(["ryostore", "open", "barstyles"]);
+        Spawn.runApp(["ryostore", "open", "barstyles"]);
     }
 
     // Settings owns updates (docs/store.md); RyoStore only installs. The same

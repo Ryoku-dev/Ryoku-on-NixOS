@@ -133,7 +133,7 @@ Singleton {
     }
 
     function openDashboard() {
-        Spawn.run(["xdg-open", "http://127.0.0.1:3600/#/chat"]);
+        Spawn.runApp(["xdg-open", "http://127.0.0.1:3600/#/chat"]);
     }
 
     function loadModels() { modelsProc.running = true; }

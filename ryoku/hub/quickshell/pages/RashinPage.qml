@@ -165,7 +165,7 @@ Item {
         } catch (e) {}
     }
     function runSetup() {
-        Spawn.run(["kitty", "--class", "ryoku-rashin-setup", "-e", "ryoku-rashin", "setup"]);
+        Spawn.runApp(["kitty", "--class", "ryoku-rashin-setup", "-e", "ryoku-rashin", "setup"]);
     }
     // Open the dashboard the daemon actually serves. Two things used to send a
     // user to a browser error they read as a 404: the port was hardcoded here
@@ -176,7 +176,7 @@ Item {
     function openDashboard() {
         var url = "http://127.0.0.1:" + pg.port;
         if (pg.running) {
-            Spawn.run(["xdg-open", url]);
+            Spawn.runApp(["xdg-open", url]);
             return;
         }
         openProc.command = ["sh", "-c",
