@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,31 +33,128 @@ type installedKernel struct {
 // limineBootKernel is one generated "//<name>" kernel entry and the state of
 // the image it boots.
 type limineBootKernel struct {
-	name        string
-	version     string
-	image       string
-	imageExists bool
-	imageOlder  bool
+	name              string
+	version           string
+	image             string
+	imageExists       bool
+	imageOlder        bool
+	imageInaccessible bool
+}
+
+var (
+	limineKernelImageStat  = os.Stat
+	limineInstalledKernels = installedKernelVersions
+	limineRebuildInitramfs = rebuildInitramfs
+	liminePruneStrayImages = pruneLimineStrayImages
+	limineModulesDir       = "/usr/lib/modules"
+	limineReadFile         = os.ReadFile
+	limineStat             = os.Stat
+)
+
+type incompleteKernel struct {
+	dir     string
+	pkgbase string
+	reason  string
 }
 
 // installedKernelVersions: pkgbase -> module-tree version and vmlinuz mtime.
-// A module tree without a vmlinuz is not a kernel and is skipped.
-func installedKernelVersions() map[string]installedKernel {
+// A module tree without a vmlinuz or pkgbase is incomplete.
+// Symlinks to directories are followed; broken links, non-ENOENT inspection errors,
+// or an unavailable modules directory are returned as errors.
+func installedKernelVersions() (map[string]installedKernel, []incompleteKernel, error) {
+	if xbpsHost() {
+		return installedVoidKernelVersions(), nil, nil
+	}
 	out := map[string]installedKernel{}
-	pkgbases, _ := filepath.Glob("/usr/lib/modules/*/pkgbase")
-	for _, pb := range pkgbases {
-		name := strings.TrimSpace(readFileSafe(pb))
-		if name == "" || strings.HasPrefix(name, "(") {
+	ents, err := os.ReadDir(limineModulesDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	var incomplete []incompleteKernel
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		dir := strings.TrimSuffix(pb, "/pkgbase")
-		fi, err := os.Stat(dir + "/vmlinuz")
+		dir := filepath.Join(limineModulesDir, e.Name())
+		if !e.IsDir() {
+			if e.Type()&os.ModeSymlink == 0 {
+				continue
+			}
+			fi, err := limineStat(dir)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !fi.IsDir() {
+				continue
+			}
+		}
+		pb := filepath.Join(dir, "pkgbase")
+		b, err := limineReadFile(pb)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, nil, err
+			}
+			incomplete = append(incomplete, incompleteKernel{dir: e.Name(), reason: "missing pkgbase"})
+			continue
+		}
+		name := strings.TrimSpace(string(b))
+		if name == "" || strings.ContainsAny(name, " \t\n\r/") {
+			incomplete = append(incomplete, incompleteKernel{dir: e.Name(), reason: "empty pkgbase"})
+			continue
+		}
+		fi, err := limineKernelImageStat(filepath.Join(dir, "vmlinuz"))
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, nil, err
+			}
+			incomplete = append(incomplete, incompleteKernel{dir: e.Name(), pkgbase: name, reason: "missing vmlinuz"})
+			continue
+		}
+		out[name] = installedKernel{version: e.Name(), vmlinuz: fi.ModTime()}
+	}
+	return out, incomplete, nil
+}
+
+func installedVoidKernelVersions() map[string]installedKernel {
+	out := map[string]installedKernel{}
+	dirs, _ := filepath.Glob("/usr/lib/modules/*")
+	for _, dir := range dirs {
+		version := filepath.Base(dir)
+		name := voidKernelEntryName(version)
+		if name == "" {
+			continue
+		}
+		fi, err := os.Stat("/boot/vmlinuz-" + version)
 		if err != nil {
 			continue
 		}
-		out[name] = installedKernel{version: filepath.Base(dir), vmlinuz: fi.ModTime()}
+		if previous, ok := out[name]; ok && previous.version > version {
+			continue
+		}
+		out[name] = installedKernel{version: version, vmlinuz: fi.ModTime()}
 	}
 	return out
+}
+
+func voidKernelEntryName(version string) string {
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	major := leadingDigits(parts[0])
+	minor := leadingDigits(parts[1])
+	if major == "" || minor == "" {
+		return ""
+	}
+	return "linux" + major + "." + minor
+}
+
+func leadingDigits(value string) string {
+	at := 0
+	for at < len(value) && value[at] >= '0' && value[at] <= '9' {
+		at++
+	}
+	return value[:at]
 }
 
 // gatherLimineBootKernels reads the kernel entries directly under the OS
@@ -70,11 +168,13 @@ func gatherLimineBootKernels(conf, esp string, installed map[string]installedKer
 		}
 		e := *cur
 		if e.image != "" {
-			if fi, err := os.Stat(e.image); err == nil {
+			if fi, err := limineKernelImageStat(e.image); err == nil {
 				e.imageExists = true
 				if k, ok := installed[e.name]; ok && !k.vmlinuz.IsZero() && fi.ModTime().Before(k.vmlinuz) {
 					e.imageOlder = true
 				}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				e.imageInaccessible = true
 			}
 		}
 		out = append(out, e)
@@ -147,7 +247,7 @@ func planLimineKernelImages(installed map[string]installedKernel, entries []limi
 			stray = append(stray, e.name)
 			continue
 		}
-		if (e.version != "" && e.version != inst.version) || (e.image != "" && !e.imageExists) || e.imageOlder {
+		if (e.version != "" && e.version != inst.version) || (e.image != "" && !e.imageExists && !e.imageInaccessible) || e.imageOlder {
 			stale = append(stale, e.name)
 		}
 	}
@@ -164,6 +264,13 @@ func planLimineKernelImages(installed map[string]installedKernel, entries []limi
 // pruneLimineStrayImages removes the images of kernels the box no longer has
 // and regenerates the menu so their entries drop out.
 func pruneLimineStrayImages(names []string) error {
+	if xbpsHost() {
+		const hook = "/etc/kernel.d/post-install/50-ryoku-limine"
+		if !sys.Exists(hook) {
+			return fmt.Errorf(i18n.T("Void Limine kernel hook is missing"))
+		}
+		return sys.Sudo(hook)
+	}
 	want := map[string]bool{}
 	for _, n := range names {
 		want[n] = true
@@ -202,17 +309,47 @@ func reconcileLimineKernelImages(checkOnly bool) recResult {
 	if sys.NixBackend() {
 		return okRes("kernel boot images are owned by the NixOS generation")
 	}
+	if !limineManagedBoot() {
+		return unmanagedBootResult()
+	}
 
-	if !sys.PkgInstalled("limine") {
+	if !liminePkgInstalled("limine") {
 		return okRes(i18n.T("not a limine-managed boot on this box"))
 	}
-	installed := installedKernelVersions()
+	b, err := os.ReadFile(limineESPConf)
+	if err != nil {
+		return noteRes(i18n.T("no readable %s; the layout reconciler owns that"), limineESPConf)
+	}
+	installed, incomplete, err := limineInstalledKernels()
+	if err != nil {
+		return warnRes(i18n.T("cannot inspect installed kernel metadata: %v"), err).
+			withFix("sudo ryoku doctor --check")
+	}
+	if len(incomplete) > 0 {
+		var dirs []string
+		for _, inc := range incomplete {
+			dirs = append(dirs, inc.dir)
+		}
+		sort.Strings(dirs)
+		return warnRes(i18n.T("cannot verify installed kernel metadata: incomplete module tree(s) under %s: %s"), limineModulesDir, strings.Join(dirs, ", ")).
+			withFix("sudo ryoku doctor --check")
+	}
 	if len(installed) == 0 {
 		return okRes(i18n.T("no installed kernels to check"))
 	}
-	entries := gatherLimineBootKernels(readFileSafe(limineESPConf), "/boot", installed)
+	entries := gatherLimineBootKernels(string(b), "/boot", installed)
 	if len(entries) == 0 {
 		return okRes(i18n.T("no tool-generated kernel entries yet; the boot tree reconciler owns that"))
+	}
+	var inaccessible []string
+	for _, e := range entries {
+		if e.imageInaccessible {
+			inaccessible = append(inaccessible, e.name)
+		}
+	}
+	if len(inaccessible) > 0 {
+		return warnRes(i18n.T("cannot inspect kernel boot images on /boot to verify versions: %s"), strings.Join(inaccessible, ", ")).
+			withFix("sudo ryoku doctor --check")
 	}
 	stale, stray := planLimineKernelImages(installed, entries)
 	if len(stale) == 0 && len(stray) == 0 {
@@ -231,14 +368,14 @@ func reconcileLimineKernelImages(checkOnly bool) recResult {
 	}
 	var done, problems []string
 	if len(stale) > 0 {
-		if err := rebuildInitramfs(); err != nil {
+		if err := limineRebuildInitramfs(); err != nil {
 			return failRes(i18n.T("kernel boot image stale for %s but the rebuild failed: %v"), strings.Join(stale, ", "), err).
-				withFix(i18n.T("sudo limine-mkinitcpio  (or: sudo mkinitcpio -P)"))
+				withFix(nvidiaInitramfsAdvice())
 		}
 		done = append(done, fmt.Sprintf(i18n.T("rebuilt the boot image for %s to match the installed kernel"), strings.Join(stale, ", ")))
 	}
 	if len(stray) > 0 {
-		if err := pruneLimineStrayImages(stray); err != nil {
+		if err := liminePruneStrayImages(stray); err != nil {
 			problems = append(problems, fmt.Sprintf(i18n.T("could not prune the stray entry for %s: %v"), strings.Join(stray, ", "), err))
 		} else {
 			done = append(done, fmt.Sprintf(i18n.T("pruned the stray boot entry for %s (kernel not installed)"), strings.Join(stray, ", ")))

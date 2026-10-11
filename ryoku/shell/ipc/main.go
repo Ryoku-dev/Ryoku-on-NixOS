@@ -88,6 +88,10 @@ func main() {
 func sendCommand(line string) error {
 	conn, err := net.DialTimeout("unix", sockPath(), 2*time.Second)
 	if err != nil {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == "powerprofiles" {
+			return directPowerProfilesCLI(fields[1:])
+		}
 		return fmt.Errorf("daemon not reachable at %s (is `ryoku-shell daemon` running?)", sockPath())
 	}
 	defer conn.Close()
@@ -127,6 +131,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  ryoku-shell gtk apply <light|dark>")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell voice")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell bar <list|catalog|move|show|hide|set|position|form|defaults|settings>")
+	fmt.Fprintln(os.Stderr, "  ryoku-shell powerprofiles <state|set PROFILE>")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell dock <show|hide|edge|autohide|pin|unpin|list>")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell <reload|status|ping|quit>")
 }

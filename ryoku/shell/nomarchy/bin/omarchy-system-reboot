@@ -4,6 +4,12 @@ set -euo pipefail
 name=${0##*/}
 unavailable() { printf '%s: not available on Ryoku\n' "$name" >&2; exit 1; }
 need_arg() { [[ -n ${2:-} ]] || { printf '%s: %s\n' "$name" "$1" >&2; exit 2; }; }
+powerprofiles_state() {
+  ryoku-shell powerprofiles state 2>/dev/null | jq -e .
+}
+powerprofiles_set() {
+  ryoku-shell powerprofiles set "$1"
+}
 
 case $name in
   omarchy-menu)
@@ -74,10 +80,15 @@ case $name in
     ;;
   omarchy-bluetooth-device) action=${1:-}; address=${2:-}; [[ $action =~ ^(pair|connect|disconnect|forget)$ && $address =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] || { echo 'Usage: omarchy-bluetooth-device <pair|connect|disconnect|forget> <address>' >&2; exit 2; }; [[ $action != forget ]] || action=remove; exec bluetoothctl "$action" "$address" ;;
   omarchy-network-status) nmcli -t -f TYPE,STATE connection show --active | awk -F: '$2=="activated"{print $1; exit}' ;;
-  # A profile is a heading line ("* performance:"); its indented detail lines
-  # (CpuDriver:, PlatformDriver:, Degraded:) carry a value after the colon.
-  omarchy-powerprofiles-list) powerprofilesctl list | awk -v state="${1:+1}" '/^[*[:space:]]*[[:alnum:]-]+:[[:space:]]*$/{active=($1=="*"); gsub(/^[*[:space:]]+|:[[:space:]]*$/,""); print $0 (state?"\t" active:"")}' ;;
-  omarchy-powerprofiles-set) profile=${2:-${1:-balanced}}; [[ $profile != autodetect && $profile != ac && $profile != battery ]] || profile=balanced; exec powerprofilesctl set "$profile" ;;
+  omarchy-powerprofiles-list)
+    state=$(powerprofiles_state)
+    case ${1:-} in
+      current) jq -r '.active_profile' <<<"$state" ;;
+      '') jq -r '.profiles[]' <<<"$state" ;;
+      *) jq -r '.active_profile as $active | .profiles[] | . as $profile | $profile + "\t" + (if $profile == $active then "1" else "" end)' <<<"$state" ;;
+    esac
+    ;;
+  omarchy-powerprofiles-set) profile=${2:-${1:-balanced}}; [[ $profile != autodetect && $profile != ac && $profile != battery ]] || profile=balanced; powerprofiles_set "$profile" ;;
   omarchy-bar-text-color)
     position=${1:-top}; text=${3:-}; contrast=${4:-}; tone=${XDG_CACHE_HOME:-$HOME/.cache}/ryoku/wallpaper-tone.json
     [[ $text =~ ^#[0-9A-Fa-f]{6}$ && $contrast =~ ^#[0-9A-Fa-f]{6}$ ]] || exit 1
@@ -159,8 +170,20 @@ case $name in
     ;;
   omarchy-cmd-present) command -v "${1:-}" >/dev/null 2>&1 ;;
   omarchy-cmd-missing) ! command -v "${1:-}" >/dev/null 2>&1 ;;
-  omarchy-pkg-present) pacman -Q "${1:-}" >/dev/null 2>&1 ;;
-  omarchy-pkg-missing) ! pacman -Q "${1:-}" >/dev/null 2>&1 ;;
+  omarchy-pkg-present)
+    if [[ $(ryoku-host pkgmgr 2>/dev/null) == dnf ]]; then
+      ryoku-host pkg installed "${1:-}" >/dev/null 2>&1
+    else
+      pacman -Q "${1:-}" >/dev/null 2>&1
+    fi
+    ;;
+  omarchy-pkg-missing)
+    if [[ $(ryoku-host pkgmgr 2>/dev/null) == dnf ]]; then
+      ! ryoku-host pkg installed "${1:-}" >/dev/null 2>&1
+    else
+      ! pacman -Q "${1:-}" >/dev/null 2>&1
+    fi
+    ;;
   omarchy-capture-screenshot) exec ryoku-shell screenshot ;;
   omarchy-capture-screenrecording) if (($#)); then exec ryoku-shell record "$@"; else exec ryoku-shell screenshot; fi ;;
   omarchy-menu-emoji|omarchy-menu-emoji-insert) exec omarchy-shell nomarchy toggle omarchy.emojis '{}' ;;

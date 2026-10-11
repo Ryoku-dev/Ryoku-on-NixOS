@@ -1,9 +1,11 @@
-// Package ryotunesrelease consumes official Ryotunes GitHub release packages.
+// Package ryotunesrelease consumes official Ryotunes Arch release packages.
 // Ryoku's pacman repository mirrors and signs the same packages independently.
+// Fedora and Void install and update Ryotunes through their native Ryoku
+// repositories and never use this package.
 //
 // Check reports availability without installing. Upgrade updates an existing
-// installation but respects absence. Ensure also installs an absent package
-// when Doctor is reconciling a managed Ryoku desktop.
+// Arch installation but respects absence. Ensure also installs an absent
+// package when Doctor is reconciling a managed Arch desktop.
 //
 // All operations are context-bounded. Installation resolves the release fresh,
 // verifies its checksum and package metadata, and never downgrades.
@@ -12,6 +14,8 @@ package ryotunesrelease
 import (
 	"context"
 	"time"
+
+	"ryoku-cli/internal/host"
 )
 
 // Status is the outcome of a Check, Upgrade or Ensure.
@@ -59,17 +63,29 @@ const wantEpoch = "1"
 const checkCacheTTL = time.Hour
 
 // Check reports the installed and latest Ryotunes versions without mutating any
-// package. It performs a bounded, cached release lookup; when Ryotunes is not
+// package. The published asset is an Arch package, so DNF and XBPS hosts return
+// without querying its release channel; their native repository owns updates.
+// On Arch it performs a bounded, cached release lookup. When Ryotunes is not
 // installed it returns a zero Status and does no network at all. A lookup that
 // fails with nothing cached returns an error rather than a false "up to date".
-func Check(ctx context.Context) (Status, error) { return defaultClient().Check(ctx) }
+func Check(ctx context.Context) (Status, error) {
+	if manager, _ := host.Default().PackageManager(); manager != host.Pacman {
+		return Status{}, nil
+	}
+	return defaultClient().Check(ctx)
+}
 
 // Upgrade installs the latest published Ryotunes when it is strictly newer than
 // the installed build, and does nothing otherwise. It is a no-op (Updated false,
 // no network, no install) when Ryotunes is not installed, so it never resurrects
 // a removed app and never downgrades. The candidate package is verified by
 // sha256 and by its own pacman metadata before it is installed through pacman.
-func Upgrade(ctx context.Context) (Status, error) { return defaultClient().Upgrade(ctx) }
+func Upgrade(ctx context.Context) (Status, error) {
+	if manager, _ := host.Default().PackageManager(); manager != host.Pacman {
+		return Status{}, nil
+	}
+	return defaultClient().Upgrade(ctx)
+}
 
 // Ensure installs the latest published Ryotunes on a box that is meant to have
 // it (a fresh install, or a reconcile after the user removed it) and moves an
@@ -77,7 +93,12 @@ func Upgrade(ctx context.Context) (Status, error) { return defaultClient().Upgra
 // absent -- it is the install path, not just the update path -- while still
 // verifying the candidate by sha256 and its own pacman metadata, refusing a
 // downgrade, and pulling only from the official GitHub release.
-func Ensure(ctx context.Context) (Status, error) { return defaultClient().Ensure(ctx) }
+func Ensure(ctx context.Context) (Status, error) {
+	if manager, _ := host.Default().PackageManager(); manager != host.Pacman {
+		return Status{}, nil
+	}
+	return defaultClient().Ensure(ctx)
+}
 
 // Check is the Client-scoped implementation behind the package-level Check.
 func (c *Client) Check(ctx context.Context) (Status, error) {

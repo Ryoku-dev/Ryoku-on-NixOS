@@ -161,7 +161,7 @@ var desktopMap = []desktopMapRow{
 	{"Hub state", "~/.config/ryoku/hub.toml", "ryoku-hub (Ryoku Settings)", "written by Ryoku Settings; no reload"},
 	{"Theme + colour source", "~/.config/ryoku/theme.json", "ryoku-hub", "ryogami wallpaper repaint"},
 	{"Palette", "~/.cache/ryoku/colors.json", "ryoku-shell daemon (matugen)", "ryogami wallpaper repaint"},
-	{"Packages", "pacman + yay database", "pacman, yay", "ryoku update"},
+	{"Packages", "native package database", "ryoku-host", "ryoku update"},
 	{"System vault", "~/.local/share/ryoku/rashin/", "ryoku-rashin", "ryoku-rashin index"},
 }
 
@@ -264,7 +264,7 @@ func desktopBody() string {
 	b.WriteString("\n## Ryoku package versions\n\n")
 	any := false
 	for _, pkg := range ryokuPackages {
-		if v := pacmanVersion(pkg); v != "" {
+		if v := packageVersion(pkg); v != "" {
 			fmt.Fprintf(&b, "- %s %s\n", pkg, v)
 			any = true
 		} else {
@@ -442,24 +442,18 @@ func barSectionBody() string {
 
 func packagesBody() string {
 	var b strings.Builder
-	if out, ok := probe(5, "pacman", "-Qq"); ok {
-		fmt.Fprintf(&b, "## Total installed\n\n%d packages\n\n", len(nonEmptyLines(out)))
+	if out, ok := probe(5, "ryoku-host", "pkg", "count"); ok {
+		fmt.Fprintf(&b, "## Total installed\n\n%s packages\n\n", strings.TrimSpace(out))
 	} else {
-		b.WriteString("## Total installed\n\n(pacman unavailable)\n\n")
+		b.WriteString("## Total installed\n\n(native package database unavailable)\n\n")
 	}
-	if out, ok := probe(5, "pacman", "-Qqe"); ok {
-		lines := nonEmptyLines(out)
-		b.WriteString("## Explicitly installed\n\n")
-		fmt.Fprintf(&b, "<details><summary>%d explicit packages</summary>\n\n", len(lines))
-		for _, l := range lines {
-			fmt.Fprintf(&b, "- %s\n", l)
+	if out, ok := probe(8, "ryoku", "status", "--json"); ok {
+		var status struct {
+			SystemUpdates int `json:"systemUpdates"`
 		}
-		b.WriteString("\n</details>\n\n")
-	}
-	// checkupdates exits non-zero (2) when nothing is pending; skip the section
-	// on any error or a missing tool rather than reporting a misleading zero.
-	if out, ok := probe(5, "checkupdates"); ok {
-		fmt.Fprintf(&b, "## Pending updates\n\n%d packages\n", len(nonEmptyLines(out)))
+		if json.Unmarshal([]byte(out), &status) == nil {
+			fmt.Fprintf(&b, "## Pending system updates\n\n%d packages\n", status.SystemUpdates)
+		}
 	}
 	return strings.TrimRight(b.String(), "\n") + "\n"
 }
@@ -538,16 +532,12 @@ func diskRows() []string {
 	return rows
 }
 
-func pacmanVersion(pkg string) string {
-	out, ok := probe(5, "pacman", "-Q", pkg)
+func packageVersion(pkg string) string {
+	out, ok := probe(5, "ryoku-host", "pkg", "version", pkg)
 	if !ok {
 		return ""
 	}
-	fields := strings.Fields(strings.TrimSpace(out))
-	if len(fields) >= 2 {
-		return fields[1]
-	}
-	return ""
+	return strings.TrimSpace(out)
 }
 
 // probe runs a command with a timeout, returning its stdout and whether it

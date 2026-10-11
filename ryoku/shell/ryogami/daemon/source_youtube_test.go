@@ -1,9 +1,24 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestYoutubeMissingToolUsesHostAdvice(t *testing.T) {
+	bin := t.TempDir()
+	host := filepath.Join(bin, "ryoku-host")
+	if err := os.WriteFile(host, []byte("#!/bin/sh\n[ \"$1 $2 $3\" = 'pkg advice yt-dlp' ] || exit 2\nprintf 'sudo xbps-install -S yt-dlp\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	got := youtubeMissingTool("browse")
+	if !strings.Contains(got, "sudo xbps-install -S yt-dlp") || strings.Contains(got, "pacman") {
+		t.Fatalf("missing-tool advice = %q", got)
+	}
+}
 
 const ytFixture = `{"id":"vid00000001","title":"Nice 4k","duration":120,"channel":"Chan","thumbnails":[{"url":"https://i.ytimg.com/vi/vid00000001/hq.jpg","width":480,"height":360},{"url":"https://i.ytimg.com/vi/vid00000001/max.jpg","width":1280,"height":720}]}
 {"id":"livestream1","title":"Live","live_status":"is_live"}

@@ -37,6 +37,11 @@ icon_ttl_days=14                 # refresh a cached OS logo after this many days
 
 die() { printf '%s\n' "$1" >&2; exit "${2:-1}"; }
 have() { command -v "$1" >/dev/null 2>&1; }
+install_advice() {
+	local advice
+	advice="$(ryoku-host pkg advice "$@" 2>/dev/null || true)"
+	printf '%s' "${advice:-install $*}"
+}
 
 # read one scalar key from a quickemu conf without sourcing it (the confs are
 # ours or quickget's, but parsing beats executing arbitrary shell either way).
@@ -137,19 +142,14 @@ cmd_caps() {
 }
 
 # ---- setup -----------------------------------------------------------------
-# quickemu is AUR-only; spice-gtk (spicy) is in the official repos. Route both
-# through the Ryoku package helpers so the install matches every other one.
 cmd_setup() {
-	# shellcheck disable=SC2015  # pacman fallback runs if the helper is absent or fails; both are fine
-	have ryoku-pkg-add && ryoku-pkg-add --needed spice-gtk libisoburn || sudo pacman -S --needed --noconfirm spice-gtk libisoburn
-	if have ryoku-pkg-aur-add; then
-		ryoku-pkg-aur-add quickemu
-	elif have yay; then
-		yay -S --needed --noconfirm quickemu
-	elif have paru; then
-		paru -S --needed --noconfirm quickemu
-	else
-		die "no AUR helper found (expected yay or paru) to install quickemu"
+	have ryoku-host || die "ryoku-host is required to install VM dependencies"
+	ryoku-pkg-add --needed spice-gtk libisoburn
+	if ! ryoku-pkg-aur-add quickemu; then
+		local why
+		why="$(ryoku-host pkg why quickemu 2>/dev/null || true)"
+		[ -n "$why" ] || why="quickemu is not available from the system package sources"
+		die "$why"
 	fi
 	have quickemu || die "the install finished but quickemu is still missing; see the output above"
 	echo "Done — quickemu is installed. Close this window; ryovm lights up in a few seconds."
@@ -718,7 +718,10 @@ cmd_instant() {
 	# the clip helper is always baked; spice-vdagent gives console clipboard.
 	# both are cheap; a user who wants nothing else still gets clipboard.
 	[ -n "$os" ] || { emit '{"phase":"error","message":"instant needs an OS (e.g. debian)"}'; exit 1; }
-	have_iso_builder || { emit '{"phase":"error","message":"no ISO builder — install xorriso: sudo pacman -S libisoburn"}'; exit 1; }
+	have_iso_builder || {
+		emit "$(jq -cn --arg message "no ISO builder; install xorriso: $(install_advice libisoburn)" '{phase:"error",message:$message}')"
+		exit 1
+	}
 	have qemu-img || { emit '{"phase":"error","message":"qemu-img is missing"}'; exit 1; }
 
 	local entry; entry="$(cloud_catalog | jq -c --arg q "$os" 'first(.[] | select(.os==$q))')"

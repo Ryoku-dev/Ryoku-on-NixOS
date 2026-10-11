@@ -38,6 +38,11 @@ func TestReadOnlyCommand(t *testing.T) {
 		{"pacman -Sl core", true},
 		{"pacman -Ql mesa", true},
 		{"checkupdates", true},
+		{"dnf5 repoquery --installed mesa", true},
+		{"dnf history info 7", true},
+		{"rpm -q --whatprovides mesa", true},
+		{"rpm -V mesa", false},
+		{"xbps-query -S mesa", true},
 		{"git status", true},
 		{"git log --oneline -20", true},
 		{"git diff HEAD~1", true},
@@ -90,6 +95,12 @@ func TestReadOnlyCommand(t *testing.T) {
 		{"pacman -Syu", false},
 		{"pacman -S foo", false},
 		{"pacman -Rns foo", false},
+		{"dnf5 install mesa", false},
+		{"dnf history undo 7", false},
+		{"rpm -Uvh package.rpm", false},
+		{"rpm --erase mesa", false},
+		{"xbps-install -S mesa", false},
+		{"xbps-remove mesa", false},
 		{"curl -o f https://x", false},
 		{"curl -d name=x https://x", false},
 		{"curl -X POST https://x", false},
@@ -178,6 +189,73 @@ func TestReadOnlyCommand(t *testing.T) {
 		}
 		if !got && reason == "" {
 			t.Errorf("readOnlyCommand(%q) rejected without a reason", c.cmd)
+		}
+	}
+}
+
+func TestNativePackageReadOnlyAllowlist(t *testing.T) {
+	allowed := []string{
+		"dnf list installed",
+		"dnf5 info bash",
+		"dnf search terminal",
+		"dnf repoquery --installed bash",
+		"dnf check-update",
+		"dnf history list",
+		"dnf history info 7",
+		"rpm -q bash",
+		"rpm --query -a",
+		"rpm -q -i bash",
+		"rpm -q -l bash",
+		"rpm -q -f /usr/bin/bash",
+		"rpm -q --whatprovides libm.so.6",
+		"rpm -q --whatrequires libm.so.6",
+		`rpm -q --qf '%{NAME} %{VERSION}-%{RELEASE}\n' bash`,
+		"xbps-query -S bash",
+		"xbps-query -p pkgver bash",
+	}
+	rejected := []string{
+		"dnf --setopt=pluginconfpath=/tmp info bash",
+		"dnf --config /tmp/dnf.conf list",
+		"dnf -c/tmp/dnf.conf list",
+		"dnf --installroot /tmp/root list",
+		"dnf --enableplugin evil list",
+		"dnf --pluginpath /tmp/plugins list",
+		"dnf --exec /tmp/hook list",
+		"dnf shell",
+		"dnf repoquery --download bash",
+		"rpm --eval '%{lua:os.execute(\"id\")}'",
+		"rpm -E '%{lua:os.execute(\"id\")}'",
+		"rpm --define 'x %{lua:os.execute(\"id\")}' -q bash",
+		"rpm -D 'x y' -q bash",
+		"rpm --undefine x -q bash",
+		"rpm --load /tmp/macros -q bash",
+		"rpm --macros /tmp/macros -q bash",
+		"rpm --rcfile /tmp/rpmrc -q bash",
+		"rpm --rebuild package.src.rpm",
+		"rpm --resign package.rpm",
+		"rpm --addsign package.rpm",
+		"rpm --import key.asc",
+		"rpm --delete key",
+		"rpm --setperms bash",
+		"rpm --dbpath /tmp/rpmdb -q bash",
+		"rpm --root /tmp/root -q bash",
+		"rpm -U package.rpm",
+		"rpm -i package.rpm",
+		"rpm -e bash",
+		"rpm -F package.rpm",
+		`rpm -q --qf '%{lua:os.execute("id")}' bash`,
+		`rpm -q --queryformat '%(id)' bash`,
+		"xbps-query -r /tmp/root -S bash",
+		"xbps-query -C /tmp/xbps.d -S bash",
+	}
+	for _, cmd := range allowed {
+		if ok, reason := readOnlyCommand(cmd); !ok {
+			t.Errorf("allowed %q rejected: %s", cmd, reason)
+		}
+	}
+	for _, cmd := range rejected {
+		if ok, _ := readOnlyCommand(cmd); ok {
+			t.Errorf("dangerous %q was accepted", cmd)
 		}
 	}
 }

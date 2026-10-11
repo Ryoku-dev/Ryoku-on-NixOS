@@ -26,9 +26,15 @@ Item {
     property string bundleBusyId: ""
     property bool confirmRemove: false
     property bool loaded: false
-    property string tab: "Plugins"
     property var bundles: []
     property bool bundlesLoaded: false
+    property var omarchyPlugins: []
+    property bool omarchyLoaded: false
+    property string omarchyBusyId: ""
+    property string omarchyMutation: ""
+    property string confirmKind: ""
+    property string confirmId: ""
+    property string confirmName: ""
 
     property string errorMessage: ""
     property string errorRetry: ""
@@ -42,9 +48,15 @@ Item {
     property var activeSettingsCommand: []
     property string bundleMutationId: ""
     property string bundleMutationItem: ""
+    property string bundleMutationAction: ""
     property string statusTarget: ""
     property bool statusQueued: false
     property string queuedStatusTarget: ""
+    property var bundleStatusLoaded: ({})
+    property string bundleSheetId: ""
+    property var bundleSheetData: ({})
+    property bool bundleSheetOpen: false
+    property bool bundleSheetLoading: false
 
     readonly property string query: (pg.hub && pg.hub.query) ? ("" + pg.hub.query) : ""
 
@@ -77,6 +89,22 @@ Item {
             return hay.indexOf(q) !== -1;
         });
     }
+    readonly property var shownOmarchy: {
+        const q = pg.query.trim().toLowerCase();
+        if (q === "")
+            return pg.omarchyPlugins;
+        return pg.omarchyPlugins.filter(plugin => {
+            const hay = [plugin.id, plugin.name, plugin.description, (plugin.kinds || []).join(" ")]
+                .join(" ").toLowerCase();
+            return hay.indexOf(q) !== -1;
+        });
+    }
+    readonly property string barStyle: shellAdapter.barStyle
+    readonly property bool allLoaded: pg.loaded && pg.bundlesLoaded
+        && (pg.barStyle !== "nomarchy" || pg.omarchyLoaded)
+    readonly property bool allSectionsEmpty: pg.plugins.length === 0
+        && pg.bundles.length === 0
+        && (pg.barStyle !== "nomarchy" || pg.omarchyPlugins.length === 0)
 
     readonly property string shellDir: Quickshell.env("RYOKU_SHELL_DIR")
     readonly property string script: (pg.shellDir && pg.shellDir.length > 0)
@@ -97,6 +125,46 @@ Item {
             : label === I18n.tr("Desktop widget") ? "desktopWidget"
             : label === I18n.tr("Bar") ? "topbarGlyph"
             : label === I18n.tr("Sidebar card") ? "sidebarCard" : label;
+    }
+
+    function manifestHosts(manifest) {
+        const raw = manifest.hosts !== undefined ? manifest.hosts : manifest.host;
+        if (Array.isArray(raw))
+            return raw;
+        return raw ? [raw] : [];
+    }
+    function isDesktopWidget(plugin) {
+        return pg.manifestHosts((plugin || {}).manifest || {}).indexOf("desktopWidget") !== -1;
+    }
+    function bundleStatusIsLoaded(id) {
+        return id && pg.bundleStatusLoaded[id] === true;
+    }
+    function setBundleStatusLoaded(id, loaded) {
+        if (!id)
+            return;
+        var next = {};
+        for (var key in pg.bundleStatusLoaded)
+            next[key] = pg.bundleStatusLoaded[key];
+        next[id] = loaded;
+        pg.bundleStatusLoaded = next;
+    }
+    function openBundle(bundle) {
+        if (!bundle || !bundle.id)
+            return;
+        pg.bundleSheetId = bundle.id;
+        pg.bundleSheetData = bundle;
+        pg.bundleSheetOpen = true;
+        pg.bundleSheetLoading = !pg.bundleStatusIsLoaded(bundle.id);
+        if (pg.bundleSheetLoading)
+            pg.loadBundleStatus(bundle.id);
+    }
+    function finishBundleStatus(target) {
+        if (!pg.bundleSheetOpen)
+            return;
+        if (pg.bundleStatusIsLoaded(pg.bundleSheetId)
+                || target === pg.bundleSheetId
+                || (target === "" && !pg.statusQueued))
+            pg.bundleSheetLoading = false;
     }
 
     function clearError(kind) {
@@ -129,6 +197,7 @@ Item {
         case "bundles-read": pg.loadBundles(); break;
         case "bundle-status": pg.loadBundleStatus(pg.errorTarget); break;
         case "bundle-remove": pg.removeBundle(pg.errorTarget, pg.errorItem); break;
+        case "bundle-repair": pg.repairBundle(pg.errorTarget); break;
         case "plugin-install": pg.install(pg.errorTarget); break;
         case "plugin-remove":
             pg.busyId = pg.errorTarget;
@@ -142,6 +211,12 @@ Item {
             break;
         case "placement": pg.enqueuePlace(pg.errorCommand); break;
         case "setting": pg.enqueueSetting(pg.errorCommand); break;
+        case "omarchy-read": pg.loadOmarchy(); break;
+        case "omarchy-mutation":
+            pg.omarchyBusyId = pg.errorTarget;
+            omarchyMutProc.command = pg.errorCommand.slice();
+            omarchyMutProc.running = true;
+            break;
         }
     }
 
@@ -157,6 +232,10 @@ Item {
         if (!bundleProc.running)
             bundleProc.running = true;
     }
+    function loadOmarchy() {
+        if (pg.barStyle === "nomarchy" && !omarchyListProc.running)
+            omarchyListProc.running = true;
+    }
     function browseStore() {
         Spawn.runApp(["ryostore", "open", pg.tab === "Bundles" ? "bundles" : "plugins"]);
     }
@@ -166,9 +245,21 @@ Item {
         pg.bundleBusyId = id;
         pg.bundleMutationId = id;
         pg.bundleMutationItem = item || "";
+        pg.bundleMutationAction = "remove";
         const scope = item ? ["item", id, item] : ["bundle", id];
         bundleMutProc.command = ["kitty", "--class", "ryostore", "-e",
             "ryostore-install", "remove"].concat(scope);
+        bundleMutProc.running = true;
+    }
+    function repairBundle(id) {
+        if (!id || bundleMutProc.running)
+            return;
+        pg.bundleBusyId = id;
+        pg.bundleMutationId = id;
+        pg.bundleMutationItem = "";
+        pg.bundleMutationAction = "repair";
+        bundleMutProc.command = ["kitty", "--class", "ryostore", "-e",
+            "ryostore-install", "install", "bundle", id];
         bundleMutProc.running = true;
     }
     function catalogEntry(id) {
@@ -261,10 +352,6 @@ Item {
         rmProc.running = true;
     }
 
-    function bundlePartRemovable(part) {
-        const type = String((part || {}).type || "");
-        return type === "package" || type === "plugin" || type === "nautilus-pack";
-    }
     function bundleWithStatus(base, status) {
         var result = JSON.parse(JSON.stringify(base || {}));
         var metadata = result.metadata || {};
@@ -304,8 +391,13 @@ Item {
     }
     function applyBundleStatuses(rows) {
         var byId = {};
-        for (var i = 0; i < rows.length; ++i)
+        var loaded = {};
+        for (var key in pg.bundleStatusLoaded)
+            loaded[key] = pg.bundleStatusLoaded[key];
+        for (var i = 0; i < rows.length; ++i) {
             byId[rows[i].id] = rows[i];
+            loaded[rows[i].id] = true;
+        }
         var current = {};
         for (var j = 0; j < pg.bundles.length; ++j)
             current[pg.bundles[j].id] = pg.bundles[j];
@@ -315,13 +407,23 @@ Item {
             var item = byId[base.id] !== undefined
                 ? pg.bundleWithStatus(base, byId[base.id])
                 : (current[base.id] || base);
+            if (base.id === pg.bundleSheetId)
+                pg.bundleSheetData = item;
             if (Number(item.installedCount || 0) > 0)
                 next.push(item);
         }
+        pg.bundleStatusLoaded = loaded;
         pg.bundles = next;
+        if (pg.bundleStatusIsLoaded(pg.bundleSheetId))
+            pg.bundleSheetLoading = false;
     }
     function loadBundleStatus(id) {
         const target = id || "";
+        if (target.length > 0) {
+            pg.setBundleStatusLoaded(target, false);
+            if (target === pg.bundleSheetId)
+                pg.bundleSheetLoading = true;
+        }
         if (statusProc.running) {
             pg.statusQueued = true;
             pg.queuedStatusTarget = target;
@@ -342,7 +444,36 @@ Item {
         Qt.callLater(() => pg.loadBundleStatus(target));
     }
 
-    Component.onCompleted: { pg.refresh(); pg.loadCatalog(); pg.loadBundles(); }
+    FileView {
+        id: shellFile
+        path: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config"))
+            + "/ryoku/shell.json"
+        blockLoading: true
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+
+        JsonAdapter {
+            id: shellAdapter
+            property string barStyle: "qsbar"
+        }
+    }
+
+    onBarStyleChanged: {
+        if (pg.barStyle === "nomarchy")
+            pg.loadOmarchy();
+        else {
+            pg.omarchyPlugins = [];
+            pg.omarchyLoaded = false;
+        }
+    }
+
+    Component.onCompleted: {
+        pg.refresh();
+        pg.loadCatalog();
+        pg.loadBundles();
+        pg.loadOmarchy();
+    }
 
     Process {
         id: listProc
@@ -360,11 +491,12 @@ Item {
                 const parsed = JSON.parse(listOut.text || "[]");
                 if (!Array.isArray(parsed))
                     throw new Error("not an array");
-                pg.plugins = parsed;
+                const addOns = parsed.filter(plugin => !pg.isDesktopWidget(plugin));
+                pg.plugins = addOns;
                 if (pg.selId !== "") {
                     var selectedStillExists = false;
-                    for (var i = 0; i < parsed.length; ++i)
-                        if (parsed[i].id === pg.selId)
+                    for (var i = 0; i < addOns.length; ++i)
+                        if (addOns[i].id === pg.selId)
                             selectedStillExists = true;
                     if (!selectedStillExists)
                         pg.selId = "";
@@ -529,6 +661,7 @@ Item {
         onExited: code => {
             const target = pg.statusTarget;
             if (code !== 0) {
+                pg.finishBundleStatus(target);
                 pg.showError("bundle-status",
                     pg.compactError(statusErr.text, I18n.tr("Couldn't check bundle state (exit %1)."), code),
                     statusProc.command, target);
@@ -546,9 +679,11 @@ Item {
                 pg.applyBundleStatuses(rows);
                 pg.clearError("bundle-status");
             } catch (error) {
+                pg.finishBundleStatus(target);
                 pg.showError("bundle-status", I18n.tr("Couldn't read bundle state."),
                     statusProc.command, target);
             }
+            pg.finishBundleStatus(target);
             pg.runQueuedStatus();
         }
     }
@@ -559,15 +694,77 @@ Item {
         onExited: code => {
             const id = pg.bundleMutationId;
             const item = pg.bundleMutationItem;
+            const action = pg.bundleMutationAction;
+            const retry = action === "repair" ? "bundle-repair" : "bundle-remove";
             pg.bundleBusyId = "";
             if (code !== 0) {
-                pg.showError("bundle-remove",
-                    pg.compactError(bundleMutErr.text, I18n.tr("Couldn't remove bundle content (exit %1)."), code),
+                pg.showError(retry,
+                    pg.compactError(bundleMutErr.text,
+                        action === "repair"
+                            ? I18n.tr("Couldn't repair bundle (exit %1).")
+                            : I18n.tr("Couldn't remove bundle content (exit %1)."),
+                        code),
                     bundleMutProc.command, id, item);
             } else {
-                pg.clearError("bundle-remove");
+                pg.clearError(retry);
             }
             pg.loadBundleStatus(id);
+        }
+    }
+    Process {
+        id: omarchyListProc
+        command: ["omarchy", "plugin", "list", "--json"]
+        environment: Spawn.env
+        stdout: StdioCollector { id: omarchyListOut }
+        stderr: StdioCollector { id: omarchyListErr }
+        onExited: code => {
+            if (code !== 0) {
+                pg.showError("omarchy-read",
+                    pg.compactError(omarchyListErr.text,
+                        I18n.tr("Couldn't read Omarchy add-ons (exit %1)."), code));
+                return;
+            }
+            try {
+                const rows = JSON.parse(omarchyListOut.text || "[]");
+                if (!Array.isArray(rows))
+                    throw new Error("not an array");
+                pg.omarchyPlugins = rows.filter(plugin => plugin.firstParty !== true)
+                    .map(plugin => {
+                        const item = Object.assign({}, plugin);
+                        item.kinds = plugin.kinds || [];
+                        item.enabled = plugin.enabled === true;
+                        item.canDisable = plugin.canDisable !== false;
+                        item.blocked = plugin.blocked === true;
+                        item.blockedReason = plugin.blockedReason || "";
+                        return item;
+                    });
+                pg.omarchyLoaded = true;
+                pg.clearError("omarchy-read");
+            } catch (error) {
+                pg.showError("omarchy-read", I18n.tr("Couldn't read Omarchy add-ons."));
+            }
+        }
+    }
+    Process {
+        id: omarchyMutProc
+        environment: Spawn.env
+        stderr: StdioCollector { id: omarchyMutErr }
+        onExited: code => {
+            const id = pg.omarchyBusyId;
+            const action = pg.omarchyMutation;
+            pg.omarchyBusyId = "";
+            if (code !== 0) {
+                pg.showError("omarchy-mutation",
+                    pg.compactError(omarchyMutErr.text,
+                        action === "remove"
+                            ? I18n.tr("Couldn't remove Omarchy add-on (exit %1).")
+                            : I18n.tr("Couldn't change Omarchy add-on (exit %1)."),
+                        code),
+                    omarchyMutProc.command, id);
+            } else {
+                pg.clearError("omarchy-mutation");
+                pg.loadOmarchy();
+            }
         }
     }
     // ── head: eyebrow, Fraunces title, blurb (matches every page) ───────────
@@ -578,7 +775,7 @@ Item {
         // the head sits on the body's grid: left-inset and body-wide, so the
         // title starts over the first card column instead of floating centred
         x: Tokens.s6
-        width: Math.max(320, pg.width - Tokens.s6 * 2 - Tokens.s3)
+        width: Math.max(320, pg.width - Tokens.s6 * 2)
         // the register row sits off the title: a rule over a 32px
         // title needs more than the gap between two lines of body text
         spacing: Tokens.s3
@@ -622,30 +819,59 @@ Item {
         }
         Text {
             width: Math.min(parent.width, 720)
-            text: I18n.tr("Installed plugins and bundles. RyoStore installs new ones.")
-            color: Tokens.inkMuted; font.family: Tokens.ui
-            font.pixelSize: Tokens.fBody; wrapMode: Text.WordWrap
+            text: I18n.tr("Shell add-ons and bundles you've installed.")
+            color: Tokens.inkMuted
+            font.family: Tokens.ui
+            font.pixelSize: Tokens.fBody
+            wrapMode: Text.WordWrap
+        }
+        Row {
+            spacing: Tokens.s2
+            Rectangle {
+                width: addOnStat.implicitWidth + Tokens.s3 * 2
+                height: 22
+                radius: Tokens.radius
+                color: "transparent"
+                border.width: Tokens.border
+                border.color: Tokens.line
+                Text {
+                    id: addOnStat
+                    anchors.centerIn: parent
+                    text: (pg.plugins.length === 1
+                        ? I18n.tr("%1 add-on") : I18n.tr("%1 add-ons"))
+                        .arg(pg.plugins.length)
+                    color: Tokens.inkMuted
+                    font.family: Tokens.ui
+                    font.pixelSize: Tokens.fTiny
+                }
+            }
+            Rectangle {
+                width: bundleStat.implicitWidth + Tokens.s3 * 2
+                height: 22
+                radius: Tokens.radius
+                color: "transparent"
+                border.width: Tokens.border
+                border.color: Tokens.line
+                Text {
+                    id: bundleStat
+                    anchors.centerIn: parent
+                    text: (pg.bundles.length === 1
+                        ? I18n.tr("%1 bundle") : I18n.tr("%1 bundles"))
+                        .arg(pg.bundles.length)
+                    color: Tokens.inkMuted
+                    font.family: Tokens.ui
+                    font.pixelSize: Tokens.fTiny
+                }
+            }
         }
     }
 
-    Tabs {
-        id: tabs
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: head.bottom
-        anchors.leftMargin: Tokens.s6
-        anchors.rightMargin: Tokens.s6
-        anchors.topMargin: Tokens.s4
-        options: ["Plugins", "Bundles"]
-        current: pg.tab
-        onChose: label => { pg.tab = label; pg.selId = ""; }
-    }
 
     Rectangle {
         id: errorBanner
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: tabs.bottom
+        anchors.top: head.bottom
         anchors.leftMargin: Tokens.s6
         anchors.rightMargin: Tokens.s6
         anchors.topMargin: visible ? Tokens.s3 : 0
@@ -685,13 +911,13 @@ Item {
         id: body
         anchors {
             left: parent.left; right: parent.right
-            top: errorBanner.visible ? errorBanner.bottom : tabs.bottom
+            top: errorBanner.visible ? errorBanner.bottom : head.bottom
             bottom: parent.bottom
             leftMargin: Tokens.s6; rightMargin: Tokens.s6
             topMargin: errorBanner.visible ? Tokens.s3 : Tokens.s5
             bottomMargin: Tokens.s6
         }
-        sourceComponent: pg.tab === "Bundles" ? bundleComp : (pg.selId === "" ? masterComp : detailComp)
+        sourceComponent: pg.selId === "" ? masterComp : detailComp
         onLoaded: {
             if (!item)
                 return;
@@ -710,351 +936,269 @@ Item {
     Component {
         id: masterComp
 
-        Item {
-            id: master
+        Flickable {
+            id: libraryFlick
+            contentWidth: width
+            contentHeight: libraryContent.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollRail { policy: ScrollBar.AsNeeded }
+            WheelScroll { }
 
-            // section head: dot + PLUGINS + leader + count + refresh.
-            Item {
-                id: sect
-                anchors { left: parent.left; right: parent.right; top: parent.top }
-                height: 32
+            Column {
+                id: libraryContent
+                width: libraryFlick.width
+                spacing: Tokens.s5
 
-                Row {
-                    id: sectLabel
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: Tokens.s2
-                    Rectangle {
-                        width: 4; height: 4; color: Tokens.ink
-                        anchors.verticalCenter: parent.verticalCenter
+                Column {
+                    width: parent.width
+                    spacing: Tokens.s3
+
+                    AddonSectionHeader {
+                        width: parent.width
+                        title: I18n.tr("SHELL ADD-ONS")
+                        countText: (pg.plugins.length === 1
+                            ? I18n.tr("%1 ADD-ON") : I18n.tr("%1 ADD-ONS"))
+                            .arg(pg.plugins.length)
+                        onRefreshRequested: pg.refresh()
                     }
+
+                    AddonGrid {
+                        id: pluginGrid
+                        width: parent.width
+                        visible: pg.shown.length > 0
+
+                        Repeater {
+                            model: pg.shown
+                            delegate: AddonPluginCard {
+                                id: pluginCard
+                                required property var modelData
+                                readonly property var man: pluginCard.modelData.manifest || ({})
+                                readonly property var place: pluginCard.modelData.placement || ({})
+                                readonly property string hostKey: pluginCard.place.host
+                                    || ((pluginCard.man.defaults && pluginCard.man.defaults.host)
+                                        ? pluginCard.man.defaults.host : "framePopout")
+
+                                width: pluginGrid.cardWidth
+                                plugin: pluginCard.modelData
+                                hostText: pg.hostLabel(pluginCard.hostKey)
+                                updateVersion: pg.updateFor(pluginCard.modelData)
+                                busy: pg.busyId === pluginCard.modelData.id
+                                onSettingsRequested: pg.selId = pluginCard.modelData.id
+                                onEnabledRequested: enabled =>
+                                    pg.place(pluginCard.modelData.id, "enabled", enabled ? "true" : "false")
+                                onRemoveRequested: pg.requestPluginRemove(
+                                    pluginCard.modelData.id,
+                                    pluginCard.man.name || pluginCard.modelData.id)
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 42
+                        visible: !pg.allSectionsEmpty && pg.loaded
+                            && pg.plugins.length === 0
+                            && pg.errorRetry !== "plugins-read"
+                        radius: Tokens.radius
+                        color: "transparent"
+                        border.width: Tokens.border
+                        border.color: Tokens.line
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: Tokens.s3
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: I18n.tr("No shell add-ons yet.")
+                            color: Tokens.inkMuted
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fSmall
+                        }
+                    }
+
                     Text {
-                        text: I18n.tr("PLUGINS"); color: Tokens.ink; font.family: Tokens.ui
-                        font.pixelSize: Tokens.fMicro; font.weight: Font.Medium
-                        font.letterSpacing: Tokens.trackMark
-                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width
+                        visible: pg.query.trim() !== "" && pg.plugins.length > 0
+                            && pg.shown.length === 0
+                        text: I18n.tr("No shell add-ons match your search.")
+                        color: Tokens.inkMuted
+                        font.family: Tokens.ui
+                        font.pixelSize: Tokens.fSmall
                     }
                 }
 
-                Row {
-                    id: sectActions
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
+                Column {
+                    width: parent.width
                     spacing: Tokens.s3
 
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        // an entry count is file-truth chrome, so mono.
-                        text: (pg.plugins.length === 1 ? I18n.tr("%1 PLUGIN") : I18n.tr("%1 PLUGINS")).arg(pg.plugins.length)
-                        color: Tokens.inkFaint; font.family: Tokens.mono; font.pixelSize: Tokens.fTiny
+                    AddonSectionHeader {
+                        width: parent.width
+                        title: I18n.tr("BUNDLES")
+                        countText: (pg.bundles.length === 1
+                            ? I18n.tr("%1 BUNDLE") : I18n.tr("%1 BUNDLES"))
+                            .arg(pg.bundles.length)
+                        onRefreshRequested: pg.loadBundles()
                     }
-                    // Re-scan installed plugins after external RyoStore changes.
-                    IconBtn {
-                        anchors.verticalCenter: parent.verticalCenter
-                        glyph: "\u21bb"
-                        onAct: pg.refresh()
+
+                    AddonGrid {
+                        id: bundleGrid
+                        width: parent.width
+                        visible: pg.shownBundles.length > 0
+
+                        Repeater {
+                            model: pg.shownBundles
+                            delegate: AddonBundleCard {
+                                id: installedBundleCard
+                                required property var modelData
+                                width: bundleGrid.cardWidth
+                                bundle: installedBundleCard.modelData
+                                busy: pg.bundleBusyId === installedBundleCard.modelData.id
+                                onOpenRequested: pg.openBundle(installedBundleCard.modelData)
+                                onRepairRequested: pg.repairBundle(installedBundleCard.modelData.id)
+                                onRemoveRequested: pg.removeBundle(installedBundleCard.modelData.id, "")
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 42
+                        visible: !pg.allSectionsEmpty && pg.bundlesLoaded
+                            && pg.bundles.length === 0
+                            && pg.errorRetry !== "bundles-read"
+                            && pg.errorRetry !== "bundle-status"
+                        radius: Tokens.radius
+                        color: "transparent"
+                        border.width: Tokens.border
+                        border.color: Tokens.line
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: Tokens.s3
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: I18n.tr("No bundles yet.")
+                            color: Tokens.inkMuted
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fSmall
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        visible: pg.query.trim() !== "" && pg.bundles.length > 0
+                            && pg.shownBundles.length === 0
+                        text: I18n.tr("No bundles match your search.")
+                        color: Tokens.inkMuted
+                        font.family: Tokens.ui
+                        font.pixelSize: Tokens.fSmall
+                    }
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: Tokens.s3
+                    visible: pg.barStyle === "nomarchy"
+
+                    AddonSectionHeader {
+                        width: parent.width
+                        title: I18n.tr("OMARCHY")
+                        countText: (pg.omarchyPlugins.length === 1
+                            ? I18n.tr("%1 ADD-ON") : I18n.tr("%1 ADD-ONS"))
+                            .arg(pg.omarchyPlugins.length)
+                        actionText: I18n.tr("OPEN MARKET")
+                        onActionRequested: pg.browseOmarchyMarket()
+                        onRefreshRequested: pg.loadOmarchy()
+                    }
+
+                    AddonGrid {
+                        id: omarchyGrid
+                        width: parent.width
+                        visible: pg.shownOmarchy.length > 0
+
+                        Repeater {
+                            model: pg.shownOmarchy
+                            delegate: AddonOmarchyCard {
+                                id: omarchyCard
+                                required property var modelData
+                                width: omarchyGrid.cardWidth
+                                plugin: omarchyCard.modelData
+                                busy: pg.omarchyBusyId === omarchyCard.modelData.id
+                                onEnabledRequested: enabled => pg.mutateOmarchy(
+                                    omarchyCard.modelData.id, enabled ? "enable" : "disable")
+                                onRemoveRequested: pg.requestOmarchyRemove(
+                                    omarchyCard.modelData.id,
+                                    omarchyCard.modelData.name || omarchyCard.modelData.id)
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 42
+                        visible: !pg.allSectionsEmpty && pg.omarchyLoaded
+                            && pg.omarchyPlugins.length === 0
+                            && pg.errorRetry !== "omarchy-read"
+                        radius: Tokens.radius
+                        color: "transparent"
+                        border.width: Tokens.border
+                        border.color: Tokens.line
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: Tokens.s3
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: I18n.tr("No Omarchy add-ons yet.")
+                            color: Tokens.inkMuted
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fSmall
+                        }
                     }
                 }
 
                 Rectangle {
-                    anchors.left: sectLabel.right; anchors.right: sectActions.left
-                    anchors.leftMargin: Tokens.s3; anchors.rightMargin: Tokens.s3
-                    anchors.verticalCenter: parent.verticalCenter
-                    height: 1; color: Tokens.lineSoft
-                }
-            }
+                    width: parent.width
+                    height: 132
+                    visible: pg.allLoaded && pg.allSectionsEmpty
+                        && pg.errorMessage.length === 0
+                    radius: Tokens.radius
+                    color: "transparent"
+                    border.width: Tokens.border
+                    border.color: Tokens.line
 
-            Flickable {
-                id: flick
-                anchors {
-                    left: parent.left; right: parent.right
-                    top: sect.bottom; bottom: parent.bottom
-                    topMargin: Tokens.s4; bottomMargin: Tokens.s4
-                }
-                contentWidth: width
-                contentHeight: Math.max(col.height, height)
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                ScrollBar.vertical: ScrollRail { policy: ScrollBar.AsNeeded }
-                WheelScroll { }
-
-                CardColumns {
-
-                id: col
-            // a body of cards fills the measure and splits into balanced columns
-            width: flick.width - Tokens.s3
-                    spacing: Tokens.s2
-
-                    Repeater {
-                        model: pg.shown
-
-                        delegate: Rectangle {
-                            id: card
-                            required property var modelData
-                            readonly property var man: card.modelData.manifest || ({})
-                            readonly property var place: card.modelData.placement || ({})
-                            readonly property bool on: card.place.enabled === true
-                            readonly property string host: (card.place.host)
-                                ? card.place.host
-                                : ((card.man.defaults && card.man.defaults.host) ? card.man.defaults.host : "framePopout")
-                            readonly property int settingsCount: (card.man.metadata && card.man.metadata.settings)
-                                ? card.man.metadata.settings.length : 0
-                            readonly property string upd: pg.updateFor(card.modelData)
-
-                            width: col.colWidth
-                            height: 64
-                            radius: Tokens.radius
-                            color: ch.hovered ? Tokens.tint5 : "transparent"
-                            border.width: Tokens.border
-                            border.color: ch.hovered ? Tokens.lineStrong : Tokens.line
-                            Behavior on color { ColorAnimation { duration: Tokens.snap } }
-                            Behavior on border.color { ColorAnimation { duration: Tokens.snap } }
-
-                            HoverHandler { id: ch; cursorShape: Qt.PointingHandCursor }
-                            TapHandler { onTapped: pg.selId = card.modelData.id }
-
-                            // name + meta.
-                            Column {
-                                anchors.left: parent.left; anchors.leftMargin: Tokens.s4
-                                anchors.right: right.left; anchors.rightMargin: Tokens.s3
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: Tokens.s1
-
-                                Text {
-                                    width: parent.width
-                                    text: card.man.name || card.modelData.id
-                                    color: Tokens.ink; font.family: Tokens.ui
-                                    font.pixelSize: Tokens.fRow; font.weight: Font.Medium
-                                    elide: Text.ElideRight
-                                }
-                                Text {
-                                    width: parent.width
-                                    text: pg.hostLabel(card.host)
-                                        + (card.settingsCount > 0 ? "  ·  " + (card.settingsCount === 1 ? I18n.tr("%1 setting") : I18n.tr("%1 settings")).arg(card.settingsCount) : "")
-                                    color: Tokens.inkMuted; font.family: Tokens.ui
-                                    font.pixelSize: Tokens.fMicro
-                                    elide: Text.ElideRight
-                                }
-                            }
-
-                            // right cluster: update marker, status chip, caret.
-                            Row {
-                                id: right
-                                anchors.right: parent.right; anchors.rightMargin: Tokens.s4
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: Tokens.s3
-
-                                // a version string is file-truth, so mono. This
-                                // only flags availability; the action is in detail.
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    visible: card.upd !== ""
-                                    text: I18n.tr("UPDATE %1").arg(card.upd)
-                                    color: Tokens.ink; font.family: Tokens.mono; font.pixelSize: Tokens.fTiny
-                                }
-
-                                // status: enabled inverts (the ON member of a set).
-                                Rectangle {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: pip.implicitWidth + 16
-                                    height: 20
-                                    radius: Tokens.radius
-                                    color: card.on ? Tokens.bone : "transparent"
-                                    border.width: card.on ? 0 : Tokens.border
-                                    border.color: Tokens.line
-                                    Text {
-                                        id: pip
-                                        anchors.centerIn: parent
-                                        text: card.on ? I18n.tr("ON") : I18n.tr("OFF")
-                                        color: card.on ? Tokens.inkOnBone : Tokens.inkFaint
-                                        font.family: Tokens.ui; font.pixelSize: Tokens.fTiny
-                                        font.weight: Font.Medium; font.letterSpacing: 0.6
-                                    }
-                                }
-
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: "\u203a"
-                                    color: Tokens.inkFaint; font.family: Tokens.ui; font.pixelSize: Tokens.fBody
-                                }
-                            }
+                    Column {
+                        anchors.left: parent.left
+                        anchors.leftMargin: Tokens.s5
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.min(560,
+                            parent.width - Tokens.s5 * 2 - emptyBrowse.width - Tokens.s5)
+                        spacing: Tokens.s2
+                        Text {
+                            width: parent.width
+                            text: I18n.tr("No add-ons installed")
+                            color: Tokens.ink
+                            font.family: Tokens.display
+                            font.pixelSize: Tokens.fValue
+                        }
+                        Text {
+                            width: parent.width
+                            text: I18n.tr("Add-ons bring small tools, app bundles and new shell surfaces to Ryoku.")
+                            color: Tokens.inkMuted
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fSmall
+                            wrapMode: Text.WordWrap
                         }
                     }
+                    Btn {
+                        id: emptyBrowse
+                        anchors.right: parent.right
+                        anchors.rightMargin: Tokens.s5
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: I18n.tr("BROWSE RYOSTORE")
+                        onAct: pg.browseStore()
+                    }
                 }
-            }
 
-            // empty state, gated on load so it does not flash before data lands.
-            Text {
-                anchors.centerIn: flick
-                visible: pg.loaded && pg.plugins.length === 0 && pg.errorRetry !== "plugins-read"
-                text: I18n.tr("No add-ons installed. Browse RyoStore to install one.")
-                color: Tokens.inkMuted; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
             }
-            // no-results state, when a search filters everything out.
-            Text {
-                anchors.centerIn: flick
-                visible: pg.plugins.length > 0 && pg.shown.length === 0
-                text: I18n.tr("No add-ons match your search.")
-                color: Tokens.inkMuted; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
-            }
-
         }
     }
 
-    Component {
-        id: bundleComp
-
-        Item {
-            Item {
-                id: bundleHead
-                anchors { left: parent.left; right: parent.right; top: parent.top }
-                height: Tokens.ctlH
-                Text {
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: (pg.bundles.length === 1 ? I18n.tr("%1 BUNDLE") : I18n.tr("%1 BUNDLES")).arg(pg.bundles.length)
-                    color: Tokens.inkFaint
-                    font.family: Tokens.mono
-                    font.pixelSize: Tokens.fTiny
-                }
-                IconBtn {
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    glyph: "\u21bb"
-                    onAct: pg.loadBundles()
-                }
-            }
-
-            Flickable {
-                id: bundleFlick
-                anchors { left: parent.left; right: parent.right; top: bundleHead.bottom; bottom: parent.bottom; topMargin: Tokens.s3 }
-                contentWidth: width
-                contentHeight: bundleList.implicitHeight
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                ScrollBar.vertical: ScrollRail { policy: ScrollBar.AsNeeded }
-                WheelScroll { }
-
-                Column {
-                    id: bundleList
-                    width: bundleFlick.width - Tokens.s3
-                    spacing: Tokens.s3
-
-                    Repeater {
-                        model: pg.shownBundles
-                        delegate: Rectangle {
-                            id: bundleCard
-                            required property var modelData
-                            readonly property var parts: (modelData.metadata || {}).items || []
-                            readonly property var removableParts: bundleCard.parts.filter(part =>
-                                part.installed === true && pg.bundlePartRemovable(part))
-                            readonly property bool hasManualParts: bundleCard.parts.some(part =>
-                                part.installed === true && !pg.bundlePartRemovable(part))
-                            width: bundleList.width
-                            implicitHeight: bundleBody.implicitHeight + Tokens.s4 * 2
-                            color: "transparent"
-                            radius: Tokens.radius
-                            border.width: Tokens.border
-                            border.color: Tokens.line
-
-                            Column {
-                                id: bundleBody
-                                anchors { left: parent.left; right: parent.right; top: parent.top; margins: Tokens.s4 }
-                                spacing: Tokens.s2
-
-                                Row {
-                                    width: parent.width
-                                    spacing: Tokens.s3
-                                    Column {
-                                        width: Math.max(0, parent.width
-                                            - (removeAll.visible ? removeAll.width + Tokens.s3 : 0))
-                                        Text {
-                                            width: parent.width
-                                            text: bundleCard.modelData.name || bundleCard.modelData.id
-                                            color: Tokens.ink
-                                            font.family: Tokens.display
-                                            font.pixelSize: Tokens.fRow
-                                            elide: Text.ElideRight
-                                        }
-                                        Text {
-                                            width: parent.width
-                                            text: I18n.tr("%1 / %2 INSTALLED").arg(Number(bundleCard.modelData.installedCount || 0)).arg(Number(bundleCard.modelData.totalCount || bundleCard.parts.length))
-                                            color: Tokens.inkMuted
-                                            font.family: Tokens.mono
-                                            font.pixelSize: Tokens.fTiny
-                                        }
-                                    }
-                                    Btn {
-                                        id: removeAll
-                                        visible: bundleCard.removableParts.length > 0
-                                        text: pg.bundleBusyId === bundleCard.modelData.id
-                                            ? I18n.tr("REMOVING")
-                                            : (bundleCard.hasManualParts ? I18n.tr("REMOVE MANAGED") : I18n.tr("REMOVE BUNDLE"))
-                                        armed: pg.bundleBusyId === ""
-                                        onAct: pg.removeBundle(bundleCard.modelData.id, "")
-                                    }
-                                }
-
-                                Repeater {
-                                    model: bundleCard.parts
-                                    delegate: Item {
-                                        id: partRow
-                                        required property var modelData
-                                        width: bundleBody.width
-                                        height: Tokens.rowH
-                                        Text {
-                                            anchors.left: parent.left
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            width: Math.max(0, parent.width - state.width
-                                                - (removeOne.visible ? removeOne.width + Tokens.s5 : Tokens.s2))
-                                            text: partRow.modelData.name + (partRow.modelData.summary ? "  ·  " + partRow.modelData.summary : "")
-                                            color: Tokens.ink
-                                            font.family: Tokens.ui
-                                            font.pixelSize: Tokens.fSmall
-                                            elide: Text.ElideRight
-                                        }
-                                        Text {
-                                            id: state
-                                            anchors.right: removeOne.visible ? removeOne.left : parent.right
-                                            anchors.rightMargin: removeOne.visible ? Tokens.s3 : 0
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: partRow.modelData.installed === true
-                                                ? (pg.bundlePartRemovable(partRow.modelData) ? I18n.tr("INSTALLED") : I18n.tr("MANUAL REMOVE"))
-                                                : I18n.tr("ABSENT")
-                                            color: partRow.modelData.installed === true ? Tokens.ink : Tokens.inkFaint
-                                            font.family: Tokens.mono
-                                            font.pixelSize: Tokens.fTiny
-                                        }
-                                        Btn {
-                                            id: removeOne
-                                            anchors.right: parent.right
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: pg.bundleBusyId === bundleCard.modelData.id
-                                                ? I18n.tr("REMOVING") : I18n.tr("REMOVE")
-                                            visible: partRow.modelData.installed === true
-                                                && pg.bundlePartRemovable(partRow.modelData)
-                                            armed: pg.bundleBusyId === ""
-                                            onAct: pg.removeBundle(bundleCard.modelData.id, partRow.modelData.name)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Text {
-                anchors.centerIn: parent
-                visible: pg.bundlesLoaded && pg.bundles.length === 0
-                    && pg.errorRetry !== "bundles-read" && pg.errorRetry !== "bundle-status"
-                text: I18n.tr("No bundle components are installed.")
-                color: Tokens.inkMuted
-                font.family: Tokens.ui
-                font.pixelSize: Tokens.fSmall
-            }
-        }
-    }
 
     // ── detail: one plugin's placement + settings ───────────────────────────
     Component {
@@ -1111,7 +1255,8 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         text: pg.busyId === detail.sel.id ? I18n.tr("REMOVING") : I18n.tr("REMOVE")
                         armed: pg.busyId === ""
-                        onAct: pg.confirmRemove = true
+                        onAct: pg.requestPluginRemove(
+                            detail.sel.id, detail.man.name || detail.sel.id)
                     }
                 }
 
@@ -1891,6 +2036,18 @@ Item {
         }
     }
 
+    AddonBundleSheet {
+        anchors.fill: parent
+        z: 90
+        open: pg.bundleSheetOpen
+        bundle: pg.bundleSheetData
+        loading: pg.bundleSheetLoading
+        busy: pg.bundleBusyId === pg.bundleSheetId
+        onDismissed: pg.bundleSheetOpen = false
+        onRepairRequested: pg.repairBundle(pg.bundleSheetId)
+        onRemoveRequested: pg.removeBundle(pg.bundleSheetId, "")
+    }
+
     // ── destructive confirm: a bone plate, 2px border, an unambiguous verb ──
     // No red anywhere: inversion and the word carry the weight (DESIGN.md
     // sections 1 and 4). The scrim has no fill (translucency is banned); the
@@ -1923,15 +2080,16 @@ Item {
 
                 Text {
                     width: parent.width
-                    text: I18n.tr("Remove %1?").arg(pg.sel && pg.sel.manifest && pg.sel.manifest.name
-                        ? pg.sel.manifest.name : (pg.sel ? pg.sel.id : I18n.tr("add-on")))
+                    text: I18n.tr("Remove %1?").arg(pg.confirmName || pg.confirmId || I18n.tr("add-on"))
                     color: Tokens.inkOnBone; font.family: Tokens.ui
                     font.pixelSize: Tokens.fValue; font.weight: Font.Medium
                     wrapMode: Text.WordWrap
                 }
                 Text {
                     width: parent.width
-                    text: I18n.tr("This deletes the add-on and its settings from your desktop. You can reinstall it from RyoStore.")
+                    text: pg.confirmKind === "omarchy"
+                        ? I18n.tr("This removes the add-on from the Omarchy bar. You can install it again from the market.")
+                        : I18n.tr("This deletes the add-on and its settings from your desktop. You can reinstall it from RyoStore.")
                     color: Tokens.inkOnBoneDim; font.family: Tokens.ui
                     font.pixelSize: Tokens.fSmall; wrapMode: Text.WordWrap
                 }
@@ -1967,7 +2125,7 @@ Item {
                             font.weight: Font.Medium; font.letterSpacing: Tokens.trackLabel
                         }
                         HoverHandler { id: rmH; cursorShape: Qt.PointingHandCursor }
-                        TapHandler { onTapped: pg.removePlugin(pg.selId) }
+                        TapHandler { onTapped: pg.confirmRemoval() }
                     }
                 }
             }

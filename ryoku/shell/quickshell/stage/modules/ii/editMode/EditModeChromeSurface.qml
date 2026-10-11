@@ -7,6 +7,7 @@ import stage.modules.common
 import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.modules.ii.editMode
+import shell.services as ShellServices
 
 /**
  * One screen's worth of Edit Mode's chrome: a full-screen layer surface that is
@@ -577,6 +578,18 @@ PanelWindow {
             GlobalStates.editHistoryPush({
                 "undo": () => { for (const name of buckets) Config.options.bar.layouts[name] = before[name]; },
                 "redo": () => { for (const name of buckets) Config.options.bar.layouts[name] = after[name]; }
+            });
+            return;
+        }
+        if (what === "dock") {
+            const before = ShellServices.Dock.pinnedOrStarter().slice();
+            const after = ShellServices.Dock.normalizedPins(ShellServices.Dock.starterPins());
+            if (JSON.stringify(before) === JSON.stringify(after))
+                return;
+            ShellServices.Dock.setPinned(after);
+            GlobalStates.editHistoryPush({
+                "undo": () => ShellServices.Dock.setPinned(before),
+                "redo": () => ShellServices.Dock.setPinned(after)
             });
             return;
         }

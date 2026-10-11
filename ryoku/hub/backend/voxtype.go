@@ -23,6 +23,8 @@ import (
 //	ryoku-hub voxtype download <key>  download a preset's model (streams progress)
 //	ryoku-hub voxtype rmmodel <key>   delete a preset's downloaded model
 
+const voxtypePackage = "voxtype-bin"
+
 // voxtypePreset is one dictation option the page offers. Lower-case fields map
 // it to config.toml and the model store; exported ones drive the UI.
 type voxtypePreset struct {
@@ -127,12 +129,15 @@ func voxtypeGet() error {
 	for i := range presets {
 		presets[i].Present = presets[i].Cloud || fileExists(modelFilePath(presets[i]))
 	}
+	available, reason := voxtypePackageAvailability()
 	out := map[string]any{
-		"installed":    onPath("voxtype"),
-		"selected":     selectedPreset(text),
-		"enabled":      voxtypeServiceEnabled(),
-		"openaiKeySet": extractConfigString(text, "remote_api_key") != "" || os.Getenv("VOXTYPE_WHISPER_API_KEY") != "",
-		"presets":      presets,
+		"installed":        onPath("voxtype"),
+		"packageAvailable": available,
+		"packageReason":    reason,
+		"selected":         selectedPreset(text),
+		"enabled":          voxtypeServiceEnabled(),
+		"openaiKeySet":     extractConfigString(text, "remote_api_key") != "" || os.Getenv("VOXTYPE_WHISPER_API_KEY") != "",
+		"presets":          presets,
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
@@ -170,10 +175,10 @@ func voxtypeSet(arg string) error {
 	}
 	if req.Enabled {
 		ensureVoxtypeUnit()
-		_ = userctl("enable", "voxtype.service")
-		_ = userctl("restart", "voxtype.service")
+		_ = userService("enable", "voxtype")
+		_ = userService("restart", "voxtype")
 	} else {
-		_ = userctl("disable", "--now", "voxtype.service")
+		_ = userService("disable", "--now", "voxtype")
 	}
 	fmt.Println("ok")
 	return nil
@@ -194,7 +199,7 @@ func voxtypeEnsure() error {
 	}
 	ensureVoxtypeUnit()
 	if voxtypeServiceEnabled() {
-		_ = userctl("start", "voxtype.service")
+		_ = userService("start", "voxtype")
 	}
 	return nil
 }
@@ -290,6 +295,23 @@ func onPath(bin string) bool {
 	return err == nil
 }
 
+func voxtypePackageAvailability() (bool, string) {
+	if exec.Command("ryoku-host", "pkg", "available", "--aur", voxtypePackage).Run() == nil {
+		return true, ""
+	}
+	out, err := exec.Command("ryoku-host", "pkg", "why", voxtypePackage).Output()
+	if err != nil {
+		return false, ""
+	}
+	reason, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	return false, strings.TrimSpace(reason)
+}
+
+func hostUsesSystemd() bool {
+	out, err := exec.Command("ryoku-host", "init").Output()
+	return err == nil && strings.TrimSpace(string(out)) == "systemd"
+}
+
 func selectedPreset(configText string) string {
 	for _, ln := range strings.Split(configText, "\n") {
 		ln = strings.TrimSpace(ln)
@@ -312,12 +334,12 @@ func extractConfigString(configText, key string) string {
 	return ""
 }
 
-func userctl(args ...string) error {
-	return exec.Command("systemctl", append([]string{"--user"}, args...)...).Run()
+func userService(args ...string) error {
+	return exec.Command("ryoku-host", append([]string{"svc", "--user"}, args...)...).Run()
 }
 
 func voxtypeServiceEnabled() bool {
-	return userctl("is-enabled", "--quiet", "voxtype.service") == nil
+	return userService("is-enabled", "voxtype") == nil
 }
 
 // ensureVoxtypeUnit installs the user service (voxtype setup systemd writes and
@@ -325,6 +347,9 @@ func voxtypeServiceEnabled() bool {
 // crash-loop (the mic getting killed over and over) can't trip systemd's restart
 // rate-limit and leave dictation dead until the next login.
 func ensureVoxtypeUnit() {
+	if !hostUsesSystemd() {
+		return
+	}
 	if !onPath("voxtype") {
 		return
 	}
@@ -336,6 +361,6 @@ func ensureVoxtypeUnit() {
 		"# must not permanently disable dictation.\n" +
 		"[Unit]\nStartLimitIntervalSec=0\n\n[Service]\nRestart=always\nRestartSec=2\n"
 	if readFileString(dropin) != want && atomicWrite(dropin, []byte(want), 0o644) == nil {
-		_ = userctl("daemon-reload")
+		_ = userService("daemon-reload")
 	}
 }

@@ -121,6 +121,21 @@ class Pack:
         return []
 
 
+def install_advice(package):
+    try:
+        result = subprocess.run(
+            ["ryoku-host", "pkg", "advice", package],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.stdout.strip():
+            return result.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return f"install {package}"
+
 def main():
     args = sys.argv[1:]
     name, to = None, os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "ryoku", "keysounds")
@@ -136,7 +151,7 @@ def main():
     if len(rest) != 1:
         die("usage: ryoku-keysounds-import <pack-dir> [--name <profile>] [--to <dir>]")
     if not shutil.which("ffmpeg"):
-        die("ffmpeg not found (pacman -S ffmpeg)")
+        die(f"ffmpeg not found ({install_advice('ffmpeg')})")
 
     pack = Pack(rest[0])
     profile = name or slug(pack.name)

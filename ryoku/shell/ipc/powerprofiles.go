@@ -14,13 +14,13 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-// powerprofiles.go owns the power-profile daemon integration: it reads the
-// active profile and the ordered profile list from power-profiles-daemon over
-// the system bus, streams them to QML on the "powerprofiles" state topic, and
-// sets the active profile on request. The bus name, object path, and interface
-// are the freedesktop PowerProfiles spec, reproduced as-is; they are
-// third-party protocol, not reference API. Contract 06 sec 2.9 / contract 11
-// sec 3.1 (power profiles): the list is service order with no client sort, and
+// powerprofiles.go owns the power-profile provider integration: it reads the
+// active profile and ordered profile list over the system bus, streams them to
+// QML on the "powerprofiles" state topic, and exposes the same state and setter
+// over the control socket. The bus name, object path, and interface are the
+// freedesktop PowerProfiles spec, reproduced as-is; they are third-party
+// protocol, not reference API. Contract 06 sec 2.9 / contract 11 sec 3.1
+// (power profiles): the list is service order with no client sort, and
 // "Unknown" maps to the balanced icon on the QML side.
 const (
 	ppBusName = "org.freedesktop.UPower.PowerProfiles"
@@ -28,11 +28,16 @@ const (
 	ppIface   = "org.freedesktop.UPower.PowerProfiles"
 )
 
+type powerProfilesObject interface {
+	GetProperty(string) (dbus.Variant, error)
+	Call(string, dbus.Flags, ...any) *dbus.Call
+}
+
 // powerProfilesState holds the one system-bus connection and the topic the
 // active-profile and profile-list frames publish to.
 type powerProfilesState struct {
 	conn  *dbus.Conn
-	obj   dbus.BusObject
+	obj   powerProfilesObject
 	topic *stateTopic
 
 	applyTimer   *time.Timer // debounce for re-applying the active profile after a ppd switch
@@ -91,7 +96,8 @@ func (d *daemon) startPowerProfiles() {
 
 	// A pick that came through this call is the user's by construction, so it is
 	// banked here rather than inferred from the signal: it must not be mistaken
-	// for ppd's boot default and re-asserted away inside the restore window.
+	// for the provider's boot default and re-asserted away inside the restore
+	// window.
 	d.registerCall("powerprofiles.setProfile", func(raw json.RawMessage) (any, error) {
 		var a struct {
 			Profile string `json:"profile"`
@@ -99,14 +105,13 @@ func (d *daemon) startPowerProfiles() {
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return nil, err
 		}
-		if err := p.setProfile(a.Profile); err != nil {
+		if err := p.setUserProfile(a.Profile); err != nil {
 			return nil, err
 		}
-		if !gameModeActive() {
-			p.saved.Store(a.Profile)
-			p.persistProfile(a.Profile)
-		}
 		return nil, nil
+	})
+	d.registerCall("powerprofiles.state", func(json.RawMessage) (any, error) {
+		return p.state(), nil
 	})
 
 	// Restore the last pick: ppd resets to a platform default on reboot.
@@ -134,16 +139,25 @@ func (d *daemon) startPowerProfiles() {
 	p.publish()
 }
 
+type powerProfilesFrame struct {
+	ActiveProfile string   `json:"active_profile"`
+	Profiles      []string `json:"profiles"`
+}
+
+func (p *powerProfilesState) state() powerProfilesFrame {
+	return powerProfilesFrame{
+		ActiveProfile: p.activeProfile(),
+		Profiles:      p.profiles(),
+	}
+}
+
 // publish marshals the whole power-profile state and hands it to the topic,
 // which drops it if byte-identical to the last frame.
 func (p *powerProfilesState) publish() {
 	if p.topic == nil {
 		return
 	}
-	frame, err := json.Marshal(map[string]any{
-		"active_profile": p.activeProfile(),
-		"profiles":       p.profiles(),
-	})
+	frame, err := json.Marshal(p.state())
 	if err != nil {
 		return
 	}
@@ -190,6 +204,66 @@ func (p *powerProfilesState) setProfile(name string) error {
 	}
 	return p.obj.Call("org.freedesktop.DBus.Properties.Set", 0,
 		ppIface, "ActiveProfile", dbus.MakeVariant(name)).Err
+}
+
+func (p *powerProfilesState) setUserProfile(name string) error {
+	if err := p.setProfile(name); err != nil {
+		return err
+	}
+	if !gameModeActive() {
+		p.saved.Store(name)
+		p.persistProfile(name)
+	}
+	return nil
+}
+
+func (d *daemon) powerProfilesCLI(args []string) string {
+	if d.pp == nil {
+		return "err power profiles unavailable"
+	}
+	switch {
+	case len(args) == 1 && args[0] == "state":
+		body, err := json.Marshal(d.pp.state())
+		if err != nil {
+			return "err powerprofiles: " + err.Error()
+		}
+		return string(body)
+	case len(args) == 2 && args[0] == "set":
+		if err := d.pp.setUserProfile(args[1]); err != nil {
+			return "err powerprofiles: " + err.Error()
+		}
+		return "ok"
+	default:
+		return "err powerprofiles: expected state or set <profile>"
+	}
+}
+
+var openDirectPowerProfiles = func() (*powerProfilesState, func(), error) {
+	conn, err := dbus.ConnectSystemBus()
+	if err != nil {
+		return nil, nil, err
+	}
+	p := &powerProfilesState{
+		conn: conn,
+		obj:  conn.Object(ppBusName, dbus.ObjectPath(ppPath)),
+	}
+	return p, func() { conn.Close() }, nil
+}
+
+func directPowerProfilesCLI(args []string) error {
+	p, closeConn, err := openDirectPowerProfiles()
+	if err != nil {
+		return fmt.Errorf("power profiles unavailable: %w", err)
+	}
+	defer closeConn()
+	reply := (&daemon{pp: p}).powerProfilesCLI(args)
+	if len(reply) >= 4 && reply[:4] == "err " {
+		return fmt.Errorf("%s", reply[4:])
+	}
+	if reply != "" && reply != "ok" {
+		fmt.Println(reply)
+	}
+	return nil
 }
 
 // persistedProfilePath is the daemon-owned store for the user's last explicit

@@ -15,6 +15,7 @@ import (
 // unprivileged before a cached-credential sudo, so a machine that granted
 // ALLOW_USERS never needs sudo at all.
 func TestSnapshotCountDistinguishesUnavailableFromEmpty(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
 	header := "number,type,date,description,cleanup\n"
 	base := "0,single,,current,\n" // dropped by parseSnapshotRows
 	two := "12,pre,2026-08-20 14:03:11,ryoku-update,number\n" +
@@ -49,6 +50,18 @@ func TestSnapshotCountDistinguishesUnavailableFromEmpty(t *testing.T) {
 				t.Fatalf("snapshotCount() = (%d, %v), want (%d, %v)", n, known, c.wantN, c.wantKnown)
 			}
 		})
+	}
+}
+
+func TestSnapshotCountXBPSUsesSnapper(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "xbps")
+	bin := t.TempDir()
+	writeExec(t, filepath.Join(bin, "snapper"),
+		"#!/bin/sh\nprintf '%s' 'number,type,date,description,cleanup\n0,single,,current,\n12,pre,2026-10-10 02:53:22,ryoku-update,number\n13,post,2026-10-10 02:54:22,ryoku-update,number\n'\n")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if n, known := snapshotCount(); n != 2 || !known {
+		t.Fatalf("snapshotCount() = (%d, %v), want (2, true)", n, known)
 	}
 }
 

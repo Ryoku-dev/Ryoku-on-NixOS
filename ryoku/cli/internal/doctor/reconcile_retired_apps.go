@@ -3,6 +3,7 @@ package doctor
 import (
 	"strings"
 
+	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
 
 	i18n "ryoku-i18n"
@@ -28,11 +29,18 @@ var retiredApps = []retiredApp{
 
 // Seams: the live box's answers, replaced in tests.
 var (
-	retiredAppInstalled = func(pkg string) bool { return sys.PkgInstalled(pkg) }
-	removeRetiredApp    = func(pkg string) error { return sys.Sudo(retiredAppRemovalArgs(pkg)...) }
+	retiredAppInstalled = func(pkg string) bool { return doctorPackageInstalled(pkg) }
+	removeRetiredApp    = func(pkg string) error { return sys.Sudo("ryoku-host", "pkg", "remove", pkg) }
 )
 
 func retiredAppRemovalArgs(pkg string) []string {
+	manager, err := doctorPackageManager()
+	if err == nil && manager == host.XBPS {
+		return []string{"xbps-remove", "-y", pkg}
+	}
+	if err == nil && manager == host.DNF {
+		return []string{host.DNFCommand(), "remove", "-y", pkg}
+	}
 	return []string{"pacman", "-Rns", "--noconfirm", pkg}
 }
 

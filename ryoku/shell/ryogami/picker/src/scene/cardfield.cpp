@@ -111,6 +111,7 @@ void CardField::connectSource()
     if (n) {
         connect(n, &CardSourceNotifier::cardsChanged, this, &CardField::onSourceChanged);
         connect(n, &CardSourceNotifier::cardUpdated, this, &CardField::onCardUpdated);
+        connect(n, &CardSourceNotifier::cardsAppended, this, &CardField::onCardsAppended);
     } else if (m_sourceObj) {
         connect(m_sourceObj, SIGNAL(cardsChanged()), this, SLOT(onSourceChanged()));
     }
@@ -213,6 +214,14 @@ void CardField::onSourceChanged()
     if (m_current != before)
         emit currentIndexChanged();
     schedulePreview();
+    kick();
+}
+
+void CardField::onCardsAppended()
+{
+    if (!m_source)
+        return;
+    m_generation = m_source->cardGeneration();
     kick();
 }
 
@@ -370,6 +379,14 @@ void CardField::setColumns(int columns)
     kick();
 }
 
+void CardField::setActivateOnClick(bool activate)
+{
+    if (activate == m_activateOnClick)
+        return;
+    m_activateOnClick = activate;
+    emit activateOnClickChanged();
+}
+
 void CardField::setBarReserve(const QSizeF &reserve)
 {
     if (reserve == m_barReserve)
@@ -409,6 +426,20 @@ void CardField::end()
 void CardField::select(int row)
 {
     setCurrentIndex(row);
+}
+
+void CardField::setScrollPosition(qreal position)
+{
+    if (!m_layout)
+        return;
+    LayoutContext ctx = makeContext();
+    m_layout->setScrollPosition(ctx, position);
+    kick();
+}
+
+void CardField::scrollBy(qreal delta)
+{
+    setScrollPosition(m_layout ? m_layout->scrollPosition() + delta : delta);
 }
 
 void CardField::flip(int row)
@@ -563,6 +594,12 @@ void CardField::mousePressEvent(QMouseEvent *event)
         }
         if (row < 0) {
             emit backgroundClicked();
+            event->accept();
+            return;
+        }
+        if (m_activateOnClick) {
+            setCurrentIndex(row);
+            emit activated(row);
             event->accept();
             return;
         }
@@ -868,7 +905,8 @@ void CardField::resolveTexture(CardRenderNode *node, const LayoutContext &ctx,
     if (preview) {
         inst.misc[0] = CardTex::Preview;
         inst.misc[1] = 0;
-        setVec4(inst.uv, 0.0f, 0.0f, 1.0f, 1.0f);
+        const QRectF uv = node->previewUv();
+        setVec4(inst.uv, float(uv.x()), float(uv.y()), float(uv.width()), float(uv.height()));
     } else {
         const TextureTier::Slot *slot = nullptr;
         if (wantNear && (slot = node->nearTier().find(key)))
@@ -1070,6 +1108,24 @@ void CardField::publishVisibleEnd(int end)
     }, Qt::QueuedConnection);
 }
 
+void CardField::publishScrollMetrics(qreal position, qreal extent)
+{
+    m_pendingScrollPosition = position;
+    m_pendingScrollExtent = extent;
+    if (m_scrollQueued)
+        return;
+    m_scrollQueued = true;
+    QMetaObject::invokeMethod(this, [this] {
+        m_scrollQueued = false;
+        if (!qFuzzyCompare(m_scrollPosition + 1.0, m_pendingScrollPosition + 1.0)
+                || !qFuzzyCompare(m_scrollExtent + 1.0, m_pendingScrollExtent + 1.0)) {
+            m_scrollPosition = m_pendingScrollPosition;
+            m_scrollExtent = m_pendingScrollExtent;
+            emit scrollMetricsChanged();
+        }
+    }, Qt::QueuedConnection);
+}
+
 QSGNode *CardField::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
 {
     auto *node = static_cast<CardRenderNode *>(old);
@@ -1084,11 +1140,14 @@ QSGNode *CardField::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
     m_wanted.clear();
     if (m_layout && m_source && m_source->cardCount() > 0) {
         LayoutContext ctx = makeContext();
-        QImage previewImage;
+        // The frame goes to the node first: resolve() reads back the part of
+        // the preview texture it covers.
         if (m_previewActive && m_preview->active()) {
-            previewImage = m_preview->takeFrame();
-            if (!previewImage.isNull())
+            const QImage previewImage = m_preview->takeFrame();
+            if (!previewImage.isNull()) {
                 m_previewHasFrame = true;
+                node->setPreviewImage(previewImage);
+            }
         }
 
         m_visuals.clear();
@@ -1105,19 +1164,19 @@ QSGNode *CardField::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
             if (v.texture != CardVisual::TextureNone && v.row > visEnd)
                 visEnd = v.row;
         publishVisibleEnd(visEnd);
+        publishScrollMetrics(m_layout->scrollPosition(), m_layout->scrollExtent());
 
         node->setInstances(std::move(instances));
         resolveTransition(node, ctx);
         node->setSandyPass(m_layout->sandyPass());
         const QRectF clip = m_layout->clip(ctx);
         node->setScene(boundingRect(), clip.isValid() ? clip : boundingRect(), float(m_time), 1.0f);
-        if (!previewImage.isNull())
-            node->setPreviewImage(previewImage);
     } else {
         node->setInstances({});
         node->setTransition({}, 1.0f, 0);
         node->setScene(boundingRect(), boundingRect(), float(m_time), 1.0f);
         publishVisibleEnd(-1);
+        publishScrollMetrics(0, 0);
         if (m_layout)
             publishRects(m_pendingRect, m_pendingShear, m_layout->stageRect(makeContext()));
     }

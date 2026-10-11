@@ -301,6 +301,12 @@ Item {
                     text: Translation.tr("Style")
                     tooltip: Translation.tr("Presets, theme and colours")
                 }
+                SectionChip {
+                    section: "dock"
+                    iconText: "dock"
+                    text: Translation.tr("Dock")
+                    tooltip: Translation.tr("Dock design, apps and behaviour")
+                }
                 // Whatever the provider folds in beside them (Config.extraSections).
                 Repeater {
                     model: root.visibleExtraSections

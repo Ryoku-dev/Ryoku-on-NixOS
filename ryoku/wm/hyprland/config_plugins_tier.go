@@ -28,7 +28,7 @@ type pluginDef struct {
 	Repo    string // upstream git URL; "" for a plugin authored in this repo
 	Plugin  string // the [table] in the repo's hyprpm.toml
 	Local   string // in-tree source dir for a Ryoku-authored plugin
-	Package string // the pacman package that ships the .so
+	Package string // the native package that ships the .so
 	Docs    string
 	Sounds  string
 	Loaded  string // the name the plugin reports in `hyprctl plugins list`
@@ -703,20 +703,16 @@ func pluginEnabled(o Overrides, id string) bool {
 	return o.Plugins.Extra[id].Enabled
 }
 
-// packageVersion is what pacman holds for a package, "" when not installed.
+// packageVersion is what the host package database holds, "" when not installed.
 func packageVersion(pkg string) string {
 	if pkg == "" {
 		return ""
 	}
-	out, err := exec.Command("pacman", "-Q", pkg).Output()
+	out, err := exec.Command("ryoku-host", "pkg", "version", pkg).Output()
 	if err != nil {
 		return ""
 	}
-	f := strings.Fields(string(out))
-	if len(f) < 2 {
-		return ""
-	}
-	return f[1]
+	return strings.TrimSpace(string(out))
 }
 
 // pluginRosterNow builds the full roster against the live compositor. An enabled,

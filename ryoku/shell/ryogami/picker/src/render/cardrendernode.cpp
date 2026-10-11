@@ -1,6 +1,7 @@
 #include "cardrendernode.h"
 #include "cardinstancesanitize.h"
 #include "gpupoison.h"
+#include "previewvideo.h"
 
 #include <QFile>
 #include <QMatrix4x4>
@@ -89,34 +90,43 @@ void CardRenderNode::setScene(const QRectF &bounds, const QRectF &clip, float ti
 void CardRenderNode::setPreviewImage(const QImage &image)
 {
     m_previewImage = image;
+    const QSize cap = PreviewVideo::kMaxSize;
+    if (m_previewImage.width() > cap.width() || m_previewImage.height() > cap.height())
+        m_previewImage = m_previewImage.scaled(cap, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    // Half a texel in from the frame's edges: the sampler then never blends
+    // with what an earlier, larger frame left in the rest of the texture.
+    const QSize s = m_previewImage.size();
+    m_previewUv = QRectF(0.5 / cap.width(), 0.5 / cap.height(),
+                         (s.width() - 1.0) / cap.width(), (s.height() - 1.0) / cap.height());
 }
 
 bool CardRenderNode::ensurePreview(QRhi *rhi, QRhiResourceUpdateBatch *batch)
 {
+    // One texture for the node's life, sized for the largest frame PreviewVideo
+    // delivers; each frame lands in its top-left corner and the instance uv
+    // selects the covered part. Recreating it per clip size meant new bindings
+    // and pipelines mid-frame on every hover across clips of different
+    // aspects, and on the NVIDIA GL driver that is where the field tore.
     bool changed = false;
-    const QSize wanted = m_previewImage.isNull() ? (m_preview ? m_preview->pixelSize() : QSize(1, 1))
-                                                 : m_previewImage.size();
-    if (!m_preview || m_preview->pixelSize() != wanted) {
-        if (m_preview)
-            m_preview.release()->deleteLater();
+    if (!m_preview) {
         m_previewUploaded = false;
-        m_preview.reset(rhi->newTexture(QRhiTexture::RGBA8, wanted));
+        m_preview.reset(rhi->newTexture(QRhiTexture::RGBA8, PreviewVideo::kMaxSize));
         if (!m_preview->create()) {
             // A failed texture must not enter the bindings: leave nothing
-            // bound and retry the size next frame.
+            // bound and retry next frame.
             m_preview.reset();
             return changed;
         }
-        GpuPoison::texture(batch, m_preview.get(), wanted);
+        GpuPoison::texture(batch, m_preview.get(), PreviewVideo::kMaxSize);
         changed = true;
-        if (m_previewImage.isNull()) {
-            QImage blank(wanted, QImage::Format_RGBA8888);
-            blank.fill(Qt::black);
-            batch->uploadTexture(m_preview.get(), blank);
-        }
+        QImage blank(PreviewVideo::kMaxSize, QImage::Format_RGBA8888);
+        blank.fill(Qt::black);
+        batch->uploadTexture(m_preview.get(), blank);
     }
-    if (!m_previewImage.isNull() && m_preview) {
-        batch->uploadTexture(m_preview.get(), m_previewImage);
+    if (!m_previewImage.isNull()) {
+        QRhiTextureSubresourceUploadDescription frame(m_previewImage);
+        frame.setDestinationTopLeft(QPoint(0, 0));
+        batch->uploadTexture(m_preview.get(), QRhiTextureUploadDescription({0, 0, frame}));
         m_previewImage = QImage();
         m_previewUploaded = true;
     }
@@ -324,7 +334,7 @@ void CardRenderNode::prepare()
 
     // Runs after the node's own batch; it borrows the live preview texture as the incoming layer.
     if (m_sandyPassActive) {
-        m_sandy.setPreviewTextures(m_previewUploaded ? m_preview.get() : nullptr, nullptr);
+        m_sandy.setPreviewTextures(m_previewUploaded ? m_preview.get() : nullptr, nullptr, m_previewUv);
         m_sandy.prepare(rhi, commandBuffer(), renderTarget(), m_sandyPassData, m_near, m_far, mvp, float(inheritedOpacity()));
     }
 

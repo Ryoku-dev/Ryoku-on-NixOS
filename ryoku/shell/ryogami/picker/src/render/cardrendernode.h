@@ -55,6 +55,8 @@ public:
     void setScene(const QRectF &bounds, const QRectF &clip, float time, float vis);
     void setPreviewImage(const QImage &image);
     bool hasPreview() const { return !m_previewImage.isNull() || m_previewUploaded; }
+    // The part of the preview texture the latest frame covers, in texture space.
+    QRectF previewUv() const { return m_previewUv; }
 
     void prepare() override;
     void render(const RenderState *state) override;
@@ -91,6 +93,7 @@ private:
     bool m_didTransition = false;
 
     QImage m_previewImage;
+    QRectF m_previewUv{0, 0, 1, 1};
     bool m_previewUploaded = false;
 
     std::unique_ptr<QRhiBuffer> m_instanceBuffer;

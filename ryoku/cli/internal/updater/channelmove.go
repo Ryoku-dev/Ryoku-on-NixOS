@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
 	i18n "ryoku-i18n"
 	wm "ryoku-wm"
@@ -54,9 +55,18 @@ var privileged = func(argv ...string) error {
 // pair and the guard wants no snapshot noise; --overwrite adopts the paths the
 // installer and deploy.sh seed unowned (see RyokuOverwriteGlob).
 func ryokuMoveArgs(set []string) []string {
-	args := []string{"env", "SNAP_PAC_SKIP=y", "RYOKU_MANAGED_UPDATE=1",
-		"pacman", "-S", "--needed", "--noconfirm", "--overwrite", RyokuOverwriteGlob}
-	return append(args, set...)
+	switch updatePackageManager() {
+	case host.XBPS:
+		args := []string{"env", "RYOKU_MANAGED_UPDATE=1", "xbps-install", "-Sfy"}
+		return append(args, set...)
+	case host.DNF:
+		args := []string{"env", "RYOKU_MANAGED_UPDATE=1", host.DNFCommand(), "distro-sync", "-y"}
+		return append(args, set...)
+	default:
+		args := []string{"env", "SNAP_PAC_SKIP=y", "RYOKU_MANAGED_UPDATE=1",
+			"pacman", "-S", "--needed", "--noconfirm", "--overwrite", RyokuOverwriteGlob}
+		return append(args, set...)
+	}
 }
 
 func prependMissingMoveTargets(set []string, targets ...string) []string {
@@ -73,6 +83,19 @@ func prependMissingMoveTargets(set []string, targets ...string) []string {
 	}
 	return append(prefix, set...)
 }
+func ryokuTarget(name string) string {
+	switch updatePackageManager() {
+	case host.XBPS:
+		return name
+	case host.DNF:
+		if version := repoAvailableVersion(name); version != "" {
+			return name + "-" + version
+		}
+		return name
+	default:
+		return ryokuRepo + "/" + name
+	}
+}
 
 // moveRyokuSetToChannel performs the pacman side of a channel move against the
 // currently pointed [ryoku] repo. The pin is the caller's job (retargetChannel);
@@ -80,10 +103,7 @@ func prependMissingMoveTargets(set []string, targets ...string) []string {
 // it from the system lane.
 func moveRyokuSetToChannel() ([]string, error) {
 	clearStalePacmanLock()
-	// -Syy, forced: pacman skips a db that is not newer than its cached copy,
-	// and a frozen release directory is older than the channel the box just
-	// left, so a plain -Sy keeps the stale db against the new signature.
-	if err := privileged("pacman", "-Syy", "--noconfirm"); err != nil {
+	if err := syncRepoForMove(true); err != nil {
 		return nil, fmt.Errorf("%w: %v", errChannelUnreachable, err)
 	}
 	set, err := ryokuSetForMove()
@@ -112,7 +132,7 @@ func moveRyokuSetToChannel() ([]string, error) {
 		if name == "" {
 			name = wm.Providers()[0]
 		}
-		set = prependMissingMoveTargets(set, ryokuRepo+"/"+ryokuDesktopPkg+"-"+name)
+		set = prependMissingMoveTargets(set, ryokuTarget(ryokuDesktopPkg+"-"+name))
 	}
 	// A box migrating onto packages (a checkout retired by `ryoku track`) has
 	// no ryoku-desktop installed, and the set above is installed-only: without
@@ -128,8 +148,8 @@ func moveRyokuSetToChannel() ([]string, error) {
 			name = wm.Providers()[0] // the shipped default variant
 		}
 		set = prependMissingMoveTargets(set,
-			ryokuRepo+"/"+ryokuDesktopPkg,
-			ryokuRepo+"/"+ryokuDesktopPkg+"-"+name,
+			ryokuTarget(ryokuDesktopPkg),
+			ryokuTarget(ryokuDesktopPkg+"-"+name),
 		)
 	}
 	// A channel that predates the compositor split carries no
@@ -156,12 +176,15 @@ func moveRyokuSetToChannel() ([]string, error) {
 const ryokuDesktopPkg = "ryoku-desktop"
 
 var (
+	syncRepoForMove = repoSync
 	ryokuSetForMove = func() ([]string, error) {
 		set, _, err := installedRyokuSet(true)
 		return set, err
 	}
-	servedSetForMove        = repoServedSet
-	pkgInstalledForMove     = sys.PkgInstalled
+	servedSetForMove    = repoServedSet
+	pkgInstalledForMove = func(name string) bool {
+		return host.Default().Package([]string{"installed", name}) == host.ExitOK
+	}
 	detectCompositorForMove = func() string { return wm.Detect().Name }
 )
 
@@ -190,9 +213,9 @@ var runRyokuMove = func(set []string) error {
 // installed set never disagree (the #291 invariant). Used by both `ryoku track`
 // and the boot guard's revert.
 func retargetChannel(channel string, move func() error) error {
-	prev := sys.RyokuServer()
+	prev := packagedRepoURL()
 	lastDroppedMetas = nil
-	if err := sys.SetPackagedChannel(channel); err != nil {
+	if err := repoSetChannel(channel); err != nil {
 		return err
 	}
 	if err := move(); err != nil {
@@ -213,10 +236,10 @@ func retargetChannel(channel string, move func() error) error {
 // db simply refetches on the next online -Sy, so nothing is left disagreeing.
 func restorePreviousServer(prev string) {
 	if prev == "" {
-		return // nothing recorded to restore
+		return
 	}
-	_ = sys.SetRyokuServer(prev)
-	_ = privileged("pacman", "-Syy", "--noconfirm")
+	_ = repoSetURL(prev)
+	_ = syncRepoForMove(true)
 }
 
 // reinstallDroppedMetas puts the split metas a failed move removed back from the
@@ -229,8 +252,8 @@ func reinstallDroppedMetas() {
 		return
 	}
 	targets := make([]string, 0, len(lastDroppedMetas))
-	for _, m := range lastDroppedMetas {
-		targets = append(targets, ryokuRepo+"/"+m)
+	for _, name := range lastDroppedMetas {
+		targets = append(targets, ryokuTarget(name))
 	}
 	if err := privileged(ryokuMoveArgs(targets)...); err != nil {
 		progress.logf(i18n.T("could not reinstall %s after the failed move; run `ryoku update`: %v"), strings.Join(lastDroppedMetas, ", "), err)

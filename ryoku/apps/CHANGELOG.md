@@ -39,14 +39,33 @@
   `ryovm-mon` reports disk, network and uptime, `ryossh` samples CPU and I/O,
   and `ryovm lg stats` covers passthrough VMs
   (`ryovm/quickshell/Dashboard.qml`, `ryovm/quickshell/Singletons/{Vm,Remotes}.qml`).
+- `ryovm/`: **Ryoport handles passwords, shows its alerts, and opens non-SSH
+  consoles.** The health probe now tells a dead box from a box that merely
+  wants a credential: a host that answers on the SSH port but needs a password
+  reads "authentication required" with a SAVE-password action beside every
+  empty graph, so the dashboard never shows a silent wall of flat lines. The
+  Alerts count on the dashboard and the new rail annunciator open the harbour
+  log: every alert with its reason, every fleet event newest-first, and a
+  one-tap jump to the machine behind it. A new experimental Consoles section
+  reaches switches and desktops straight from the harbour: serial console
+  cables through picocom, telnet logins through inetutils, RDP desktops
+  through FreeRDP, and VNC screens through TigerVNC - each a saved berth with
+  its own reachability probe. Passwords live only in the login keyring and are
+  fed to the client at launch (FreeRDP over a private fd, TigerVNC through the
+  child's environment), never in argv, a file, or the profile book; a missing
+  client shows the install command instead of a dead button
+  (`ryovm/remote/ryossh.go`, `ryovm/quickshell/{HarbourLog,ConsolesPage,AddConsole}.qml`,
+  `ryovm/quickshell/Singletons/Remotes.qml`).
 - `starship/`, `fastfetch/`: **Prompt layouts, and colours that follow the
   wallpaper.** Starship ships five layouts (Pill, Minimal, Two line, Powerline,
   Lean), picked in Ryoku Hub > Keybinds with rendered previews, and either keeps
-  its fixed palette or follows the wallpaper through matugen. Fastfetch can
-  follow the wallpaper too: matugen writes `fastfetch/ryoku-colors.json` and
-  `ryoku-fastfetch` merges it into a cached copy of your config, so Hub and
-  store edits to `config.jsonc` are never overwritten. Both choices survive
-  updates (`../hub/backend/starship.go`, `../hub/backend/fastfetch.go`).
+  its fixed palette or follows the wallpaper through matugen. Fastfetch follows
+  the wallpaper by default: matugen writes `fastfetch/ryoku-colors.json` and
+  `ryoku-fastfetch` merges it into a cached copy of your config, so the readout
+  matches the theme out of the box and Hub and store edits to `config.jsonc` are
+  never overwritten. Pin a fixed palette in Ryoku Hub > Fastfetch to keep the
+  brand colours; both choices survive updates
+  (`../hub/backend/starship.go`, `../hub/backend/fastfetch.go`).
 - `rashin-app/`: **The window opens on the Ryoku lane.** The first sheet is the
   machine agent; Chat and the new Wiki sheet sit beside it.
 - `rashin-app/`: **The window carries Rashin's own icon.** `logo.svg` links to
@@ -98,6 +117,12 @@
   v0.56.0-beta.19") via `ryoku version --pretty` (`config.jsonc`).
 
 ### Fixed
+- `fastfetch/`: **The readout names the distribution it runs on.** The tagline
+  said "a hand-built Arch desktop" on every system. It now reads the base
+  distribution through `ryoku-base-os` (Arch and CachyOS still say Arch, Void
+  says Void), whether it runs through `ryoku-fastfetch`, as a plain
+  `fastfetch`, or in the Hub preview (`fastfetch/config.jsonc`,
+  `terminal-shell/env.sh`, `fish/config.fish`).
 - `ryovm/`: **Ryoport's OS logos stop going blank.** The catalogue prefetch and
   the logos on screen could fetch the same OS at once into one temp file, and
   both tinted it, so the cached SVG carried `fill` twice. That is not valid XML,

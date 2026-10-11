@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/ryokumanifest"
 	"ryoku-cli/internal/sys"
 )
@@ -32,12 +33,21 @@ var ManifestPath = func() string {
 // is not a packaged install on a published channel, the fetch failed, and
 // nothing is cached.
 func FetchManifest() (ryokumanifest.Manifest, error) {
-	channel := sys.PackagedChannel()
+	channel := packagedChannel()
+	url := repoReleaseURL(channel)
+	cache := "manifest-" + sanitize(channel) + "-" + string(updatePackageManager()) + ".json"
+	if updatePackageManager() == host.Pacman {
+		channel = sys.PackagedChannel()
+		url = sys.ChannelURL(channel)
+		cache = "manifest-" + sanitize(channel) + ".json"
+	}
 	if channel == "" {
 		return ryokumanifest.Manifest{}, fmt.Errorf("not a packaged channel")
 	}
-	url := sys.ChannelURL(channel) + "/manifest.json"
-	b := fetchCached("manifest-"+sanitize(channel)+".json", url, manifestFetchTTL)
+	if url == "" {
+		return ryokumanifest.Manifest{}, fmt.Errorf("manifest URL for channel %s cannot be expanded", channel)
+	}
+	b := fetchCached(cache, url+"/manifest.json", manifestFetchTTL)
 	if b == nil {
 		return ryokumanifest.Manifest{}, fmt.Errorf("manifest for channel %s unreachable", channel)
 	}
@@ -295,22 +305,55 @@ func Verify(m ryokumanifest.Manifest, installed, explicit, present map[string]bo
 	return r
 }
 
-// PacmanInstalled / PacmanExplicit read the box. They are vars so the
-// reconciler and `ryoku verify` are testable without pacman.
+// PacmanInstalled / PacmanExplicit retain their API names for callers, but
+// read the native package database on both packaged editions.
 var (
-	PacmanInstalled = func() (map[string]bool, error) { return pacmanSet("-Qq") }
-	PacmanExplicit  = func() (map[string]bool, error) { return pacmanSet("-Qqe") }
+	PacmanInstalled = func() (map[string]bool, error) { return packageSet(false) }
+	PacmanExplicit  = func() (map[string]bool, error) { return packageSet(true) }
 )
 
-func pacmanSet(flag string) (map[string]bool, error) {
-	out, err := sys.RunOut("pacman", flag)
+func packageSet(explicit bool) (map[string]bool, error) {
+	manager := updatePackageManager()
+	command := "pacman"
+	args := []string{"-Qq"}
+	switch manager {
+	case host.XBPS:
+		command = "xbps-query"
+		args = []string{"-l"}
+		if explicit {
+			args = []string{"-m"}
+		}
+	case host.DNF:
+		if explicit {
+			command = host.DNFCommand()
+			args = []string{"repoquery", "-y", "--userinstalled", "--queryformat", "%{name}\\n"}
+		} else {
+			command = "rpm"
+			args = []string{"-qa", "--qf", "%{NAME}\\n"}
+		}
+	default:
+		if explicit {
+			args = []string{"-Qqe"}
+		}
+	}
+	out, err := sys.RunOut(command, args...)
 	if err != nil {
-		return nil, fmt.Errorf("pacman %s: %w", flag, err)
+		return nil, fmt.Errorf("%s %s: %w", command, strings.Join(args, " "), err)
 	}
 	set := map[string]bool{}
-	for _, ln := range strings.Split(out, "\n") {
-		if n := strings.TrimSpace(ln); n != "" {
-			set[n] = true
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		name := fields[len(fields)-1]
+		if manager == host.XBPS {
+			if match := xbpsPkgverPattern.FindStringSubmatch(name); len(match) == 3 {
+				name = match[1]
+			}
+		}
+		if name != "" {
+			set[name] = true
 		}
 	}
 	return set, nil

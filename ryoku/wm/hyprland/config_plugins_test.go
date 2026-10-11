@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+func TestPackageVersionUsesHostPackageSeam(t *testing.T) {
+	bin := t.TempDir()
+	host := filepath.Join(bin, "ryoku-host")
+	if err := os.WriteFile(host, []byte("#!/bin/sh\n[ \"$1 $2 $3\" = 'pkg version hyprglass' ] || exit 2\nprintf '0:1.2.3-4.fc44\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if got := packageVersion("hyprglass"); got != "0:1.2.3-4.fc44" {
+		t.Fatalf("packageVersion = %q", got)
+	}
+}
+
 // The ABI string a plugin is built against must round-trip exactly as Hyprland
 // composes it, and a mismatch must name the library that moved.
 func TestABIParseAndDiff(t *testing.T) {

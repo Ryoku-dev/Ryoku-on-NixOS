@@ -31,6 +31,24 @@ Singleton {
     property alias osdRadius:  adapter.osdRadius
     property alias osdOpacity: adapter.osdOpacity
 
+    // deckFrost: the haze the desktop takes while a window owns the workspace —
+    // wallpaper, widgets and the bar body sit under it, windows render above on
+    // their own layers. 0 clears it, 1 is solid black. The background scrim
+    // reads the same shell.json key generically.
+    property alias deckFrost: adapter.deckFrost
+
+    // The frost's depth under a stack of n windows: the deckFrost knob plus
+    // 0.25 for every window behind the front, uncapped. One window reads as
+    // the knob itself; past 1.0 the surplus stops dimming the corners (they
+    // are already solid) and lifts the haze floor instead, so every window
+    // keeps showing all the way to a deep stack. Consumers clamp for their
+    // own range: the desktop reads the surplus as its floor, the bar as
+    // translucency. Both ask here, so depth means the same thing on both.
+    function deckFrostIntensity(n: int): real {
+        const base = Math.max(0, Math.min(1, Number(root.deckFrost) || 0));
+        return base + 0.25 * (Math.max(1, n) - 1);
+    }
+
     property alias frameBars: adapter.frameBars
     readonly property var normalizedFrameBars: FrameBars.normalize(frameBars, BarCatalog, MenuCatalog)
 
@@ -38,6 +56,7 @@ Singleton {
     // (a shipped folder style under modules/bar/barstyles/qsbar); "sumi" is the
     // built-in painted left rail; any other id is an installed store folder
     // style. Each owns its own bar, popouts and settings. Default qsbar.
+    property alias batteryAlerts: adapter.batteryAlerts
     property alias barStyle: adapter.barStyle
 
     // obi: per-widget visibility for the Obi bar style, edited in Bar Studio.
@@ -333,6 +352,7 @@ Singleton {
             property real frameCorner: 8
             property real osdRadius: 0
             property real osdOpacity: 1
+            property real deckFrost: 0.45
             property real fontScale: 1.3
             property string fontFamily: "Space Grotesk"
             property int fontSize: 11
@@ -341,6 +361,7 @@ Singleton {
             property string formatLocale: ""
             property string screenShader: ""
             property var frameBars: FrameBars.defaultConfig()
+            property var batteryAlerts: ({ enabled: true, warningEnabled: true, criticalEnabled: true, warningPercent: 25, criticalPercent: 10 })
             property string barStyle: "qsbar"
             property string launcherTarget: "studio"
             property var obi: ({})

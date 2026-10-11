@@ -4,11 +4,11 @@ import Quickshell
 import Quickshell.Io
 import "../utils/menupoll.js" as MenuPoll
 
-// QML view of the daemon `powerprofiles` topic. power-profiles-daemon lives in
-// ryoku-shell (powerprofiles.go), so QML never shells out to powerprofilesctl:
+// QML view of the daemon `powerprofiles` topic. The D-Bus provider lives behind
+// ryoku-shell (powerprofiles.go), so QML never starts a second client:
 // `subscribe powerprofiles` streams {active_profile, profiles} on every change,
-// and `call powerprofiles.setProfile` sends the intent back. The list is
-// service order with no client sort (contract 06 sec 2.9 / contract 11 sec 3.1).
+// and `call powerprofiles.setProfile` sends the intent back. The list is service
+// order with no client sort (contract 06 sec 2.9 / contract 11 sec 3.1).
 Singleton {
     id: root
 

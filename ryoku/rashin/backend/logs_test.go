@@ -173,3 +173,20 @@ func TestJournalSince(t *testing.T) {
 		t.Errorf("absolute changed: %q", got)
 	}
 }
+
+func TestUpdatesSectionsUseNativeTransactionSource(t *testing.T) {
+	cfg := logsConfig{lines: 5}
+	for manager, want := range map[string]string{
+		"pacman": pacmanLogPath,
+		"xbps":   xbpsLogPath,
+	} {
+		sections := updatesSectionsFor(manager, cfg)
+		if got := sections[len(sections)-1].head; !strings.HasPrefix(got, want) {
+			t.Errorf("%s transaction section = %q, want %q", manager, got, want)
+		}
+	}
+	sections := updatesSectionsFor("", cfg)
+	if got := sections[len(sections)-1].head; strings.Contains(got, "pacman") {
+		t.Fatalf("unknown manager fell through to pacman: %q", got)
+	}
+}

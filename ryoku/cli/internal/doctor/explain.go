@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"ryoku-cli/internal/sys"
 	"strings"
 	"time"
+
+	"ryoku-cli/internal/host"
+	"ryoku-cli/internal/sys"
 
 	i18n "ryoku-i18n"
 	wm "ryoku-wm"
@@ -40,6 +42,34 @@ func aiSystemPrompt() string {
 	if n := wm.Detect().Name; n != "" {
 		comp = "the " + n + " Wayland compositor"
 	}
+
+	app := host.Default()
+	manager, _ := app.PackageManager()
+	if manager == host.DNF {
+		return "You are the diagnostic brain for Ryoku on Fedora Linux with DNF and systemd, running " +
+			comp + ". Fedora uses GRUB and Ryoku snapshots are not available on this edition. " +
+			"The `ryoku` CLI manages signed RPM updates and config. You are given a `ryoku doctor` report: " +
+			"deterministic findings plus system state (packages, services, journal errors, and hardware: GPU and backlight). " +
+			"Name the single most likely root cause and give the exact, safe Fedora fix, preferring precise shell commands. " +
+			"When the cause is hardware, firmware, or BIOS, say so plainly: software cannot fix it, so tell the user what to change. " +
+			"Never give a destructive command without a clear warning. Be brief: lead with the cause, then the fix."
+	}
+	if manager == host.XBPS {
+		initSystem, _ := app.Init()
+		initDescription := string(initSystem)
+		if initSystem == host.Runit {
+			initDescription = "runit and Turnstile"
+		}
+		return "You are the diagnostic brain for Ryoku on Void Linux with XBPS, " + initDescription +
+			", a btrfs root protected by snapper and limine-snapper-sync, with snapshots restored from the Limine boot menu, running " +
+			comp + ". The `ryoku` CLI manages updates and config. " +
+			"You are given a `ryoku doctor` report: deterministic findings plus system state (packages, " +
+			"services, journal errors, and hardware: GPU and backlight). Name the single most likely root " +
+			"cause and give the exact, safe fix, preferring precise shell commands. When the cause is hardware, " +
+			"firmware, or BIOS, say so plainly: software cannot fix it, so tell the user what to change. Never give a " +
+			"destructive command without a clear warning. Be brief: lead with the cause, then the fix."
+	}
+
 	return "You are the diagnostic brain for Ryoku, an Arch-based Linux distro running " + comp +
 		" (btrfs root with snapper; the `ryoku` CLI manages updates, snapshots, and " +
 		"config). You are given a `ryoku doctor` report: deterministic findings plus system state (btrfs, " +

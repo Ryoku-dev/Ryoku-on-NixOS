@@ -37,14 +37,14 @@ Item {
         triggeredOnStart: true
         onTriggered: pg.now = new Date()
     }
-    readonly property string clockTime: Qt.formatDateTime(pg.now, "HH:mm")
+    readonly property string clockTime: TimeFormat.format(pg.now)
 
     property string machineId: ""
     property string installDate: ""
     Process {
         id: idp
         running: true
-        command: ["sh", "-c", "id=$(cat /etc/machine-id 2>/dev/null); echo $id; b=$(stat -c %W / 2>/dev/null); if [ ${b:-0} -gt 0 ]; then date -d @$b +%Y%m%d; else head -1 /var/log/pacman.log 2>/dev/null | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1 | tr -d -; fi"]
+        command: ["sh", "-c", "id=$(cat /etc/machine-id 2>/dev/null); echo $id; b=$(stat -c %W / 2>/dev/null); if [ ${b:-0} -gt 0 ]; then date -d @$b +%Y%m%d; else manager=$(ryoku-host pkgmgr 2>/dev/null); case \"$manager\" in dnf) t=$(rpm -q --qf '%{INSTALLTIME}' ryoku-desktop 2>/dev/null); [ -n \"$t\" ] && date -d @$t +%Y%m%d ;; xbps) t=$(xbps-query -p install-date ryoku-desktop 2>/dev/null); [ -n \"$t\" ] && date -d \"$t\" +%Y%m%d ;; pacman) head -1 /var/log/pacman.log 2>/dev/null | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1 | tr -d - ;; esac; fi"]
         stdout: StdioCollector {
             onStreamFinished: {
                 const l = text.split("\n");

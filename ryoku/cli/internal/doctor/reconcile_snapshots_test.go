@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"reflect"
+	"ryoku-cli/internal/host"
 	"strconv"
 	"testing"
 )
@@ -21,6 +22,37 @@ func TestConfigTimelineOff(t *testing.T) {
 		if got := configTimelineOff(c.body); got != c.want {
 			t.Errorf("%s: configTimelineOff = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestConfigTimelineLeak(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"ryoku root", "TIMELINE_CREATE=\"no\"\nTIMELINE_CLEANUP=\"yes\"\n", false},
+		{"leaks", "TIMELINE_CREATE=\"yes\"\nTIMELINE_CLEANUP=\"no\"\n", true},
+		{"creates and cleans", "TIMELINE_CREATE=\"yes\"\nTIMELINE_CLEANUP=\"yes\"\n", false},
+		{"cleanup absent", "TIMELINE_CREATE=\"yes\"\n", true},
+		{"number-only shipped root", "SUBVOLUME=\"/\"\nTIMELINE_CREATE=\"no\"\nTIMELINE_CLEANUP=\"yes\"\n", false},
+	}
+	for _, c := range cases {
+		if got := configTimelineLeak(c.body); got != c.want {
+			t.Errorf("%s: configTimelineLeak = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestDisableTimelineInConfigTouchesOnlyTheKey(t *testing.T) {
+	in := "# comment\nTIMELINE_CREATE=\"yes\"\nTIMELINE_CLEANUP=\"no\"\nTIMELINE_LIMIT_HOURLY=\"10\"\n"
+	want := "# comment\nTIMELINE_CREATE=\"no\"\nTIMELINE_CLEANUP=\"no\"\nTIMELINE_LIMIT_HOURLY=\"10\"\n"
+	if got := disableTimelineInConfig(in); got != want {
+		t.Fatalf("disableTimelineInConfig = %q, want %q", got, want)
+	}
+	numberOnly := "TIMELINE_CREATE=\"no\"\nTIMELINE_CLEANUP=\"yes\"\n"
+	if got := disableTimelineInConfig(numberOnly); got != numberOnly {
+		t.Fatal("a number-only config must be left alone")
 	}
 }
 
@@ -76,6 +108,31 @@ func TestChunk(t *testing.T) {
 	}
 }
 
+func TestVoidSnapshotCleanupUsesRunitServiceOnly(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "xbps")
+	oldManager := doctorPackageManager
+	oldService := doctorService
+	doctorPackageManager = func() (host.PackageManager, error) { return host.XBPS, nil }
+	var calls [][]string
+	doctorService = func(args ...string) int {
+		calls = append(calls, append([]string(nil), args...))
+		return host.ExitFalse
+	}
+	t.Cleanup(func() {
+		doctorPackageManager = oldManager
+		doctorService = oldService
+	})
+
+	cleanupOff, timelineOn := snapperCleanupServiceState()
+	if !cleanupOff || timelineOn {
+		t.Fatalf("cleanupOff=%t timelineOn=%t, want true,false", cleanupOff, timelineOn)
+	}
+	want := [][]string{{"--system", "is-enabled", "snapper-cleanup.timer"}}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("service calls = %q, want %q", calls, want)
+	}
+}
+
 func TestAddUpdatedbPrunePath(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -122,5 +179,25 @@ func TestAddUpdatedbPrunePath(t *testing.T) {
 		if out != c.want {
 			t.Errorf("%s: output = %q, want %q", c.name, out, c.want)
 		}
+	}
+}
+
+func TestSnapshotCleanupReconcilersAreNeutralWhenUnsupported(t *testing.T) {
+	old := doctorSnapshots
+	doctorSnapshots = func() (bool, string) {
+		return false, "Snapshots are not available on this system."
+	}
+	t.Cleanup(func() { doctorSnapshots = old })
+
+	for name, run := range map[string]func(bool) recResult{
+		"cleanup":        reconcileSnapperCleanup,
+		"updatedb prune": reconcileUpdatedbPrune,
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := run(false)
+			if got.status != recNote || got.detail != "Snapshots are not available on this system." {
+				t.Fatalf("result = %#v, want unsupported note", got)
+			}
+		})
 	}
 }

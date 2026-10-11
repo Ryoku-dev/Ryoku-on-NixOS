@@ -1,9 +1,9 @@
 #!/bin/bash
 # stash app installer: makes whatever the user dropped in the Ryoku stash
 # launchable. an AppImage or self-contained tarball gets a synthesized XDG
-# desktop entry under ~/.local; a pacman package (.pkg.tar.zst) is handed to
-# `pacman -U` via pkexec so it installs the normal way and the launcher reads
-# the entry the package itself ships.
+# desktop entry under ~/.local; an Arch package is handed to the host package
+# seam through pkexec so it installs the normal way and the launcher reads the
+# entry the package itself ships.
 # on success we drop the source from the stash so it doesn't sit there as a
 # duplicate (RYOKU_STASH_KEEP=1 keeps it).
 # usage: stash-install.sh [file]   (no arg = install every supported file in $STASH)
@@ -301,10 +301,10 @@ install_tarball() {
 }
 
 # install_deb / install_rpm SRC: pull a foreign package's payload (its usr/ tree)
-# and synthesize an entry from it. bsdtar (libarchive, always around via pacman)
-# reads both: .deb nests its payload in data.tar.*, .rpm exposes the cpio tree
-# directly. best-effort, like the tarball path; a native pacman package or
-# flatpak is the better route for an app that hardcodes system paths.
+# and synthesize an entry from it. On Fedora, an RPM is native and goes through
+# the host package seam instead. bsdtar reads Debian payloads and foreign RPMs;
+# this stays best-effort because a native package or Flatpak is the better route
+# for an app that hardcodes system paths.
 install_deb() {
   local src rawname name dst tmp data
   src="$1"
@@ -321,8 +321,18 @@ install_deb() {
 }
 
 install_rpm() {
-  local src rawname name dst
+  local src rawname name dst status
   src="$1"
+  if [ "$(ryoku-host pkgmgr 2>/dev/null)" = dnf ]; then
+    command -v pkexec >/dev/null 2>&1 || return 1
+    printf '@AUTH\n'
+    pkexec ryoku-host pkg install-file "$src" >/dev/null 2>&1
+    status=$?
+    [ "$status" -eq 0 ] || return 1
+    name=$(rpm -qp --qf '%{NAME}' "$src" 2>/dev/null)
+    LAST_NAME="${name:-$(slug "$(basename "$src" .rpm)")}"
+    return 0
+  fi
   rawname=$(basename "$src" .rpm)
   name=$(slug "$rawname"); [ -n "$name" ] || name="app"
   command -v bsdtar >/dev/null 2>&1 || return 1
@@ -343,19 +353,25 @@ install_flatpak() {
   LAST_NAME=$(slug "$(basename "$src" .flatpak)")
 }
 
-# install_pacman SRC: install an Arch package via `pacman -U`. the stash runs
-# with no tty, so escalate through pkexec (polkit agent raises the GUI prompt).
-# the package ships its own /usr/share/applications entry, which the launcher
-# reads, so nothing's synthesized here. sets LAST_NAME.
+# install_pacman SRC: install an Arch package through the host package seam. the
+# stash runs with no tty, so escalate through pkexec (polkit agent raises the GUI
+# prompt). the package ships its own /usr/share/applications entry, which the
+# launcher reads, so nothing's synthesized here. sets LAST_NAME.
 install_pacman() {
-  local src="$1" name
-  command -v pacman >/dev/null 2>&1 || return 1
+  local src="$1" name status
+  command -v ryoku-host >/dev/null 2>&1 || return 1
   command -v pkexec >/dev/null 2>&1 || return 1
   # tell the shell to step the control deck aside before the polkit prompt.
   # the deck is a top overlay layer with a keyboard grab, so the prompt would
   # land behind it and could not take the password. shell reads this off stdout.
   printf '@AUTH\n'
-  pkexec pacman -U --noconfirm "$src" >/dev/null 2>&1 || return 1
+  pkexec ryoku-host pkg install-file "$src" >/dev/null 2>&1
+  status=$?
+  if [ "$status" -eq 5 ]; then
+    printf 'Arch packages cannot be installed on this system.\n' >&2
+    return 1
+  fi
+  [ "$status" -eq 0 ] || return 1
   name=$(pacman_pkgname "$src")
   LAST_NAME="${name:-$(slug "$(basename "$src")")}"
 }

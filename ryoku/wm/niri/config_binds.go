@@ -77,7 +77,7 @@ func defaultBinds() map[string]niriBind {
 		// Windows
 		// The iRiS frame can ask before a window closes; only when that is on and
 		// iRiS is the bar style does the close go through the shell.
-		"window.close":      {action: spawnSh(irisCloseCheck + " && qs -c shell ipc call closeConfirm trigger || niri msg action close-window"), noRepeat: true},
+		"window.close":      {action: spawnSh(wm.IrisCloseCheck + " && qs -c shell ipc call closeConfirm trigger || niri msg action close-window"), noRepeat: true},
 		"window.fullscreen": {action: "fullscreen-window"},
 		// The catalogue names this "Float or tile", which is niri's mechanic too.
 		"window.float": {action: "toggle-window-floating"},
@@ -166,12 +166,12 @@ func defaultBinds() map[string]niriBind {
 		"shell.launcher":          {action: spawnArgs("ryoku-shell", "launcher")},
 		"shell.ask":               {action: spawnArgs("ryoku-shell", "ask")},
 		"shell.rashin":            {action: spawnSh("ryoku-summon Rashin flock -n -o /tmp/rashin-app.lock rashin-app")},
-		"shell.cheatsheet":        {action: spawnSh("pkill -x -f 'qs -c keys' 2>/dev/null || " + qmlEnv + " flock -n -o /tmp/ryoku-keys.lock qs -c keys")},
+		"shell.cheatsheet":        {action: spawnSh("pkill -x -f 'qs -c keys' 2>/dev/null || " + wm.QmlEnv + " flock -n -o /tmp/ryoku-keys.lock qs -c keys")},
 		"shell.lock":              {action: spawnArgs("ryoku-shell", "lock")},
 		"shell.quicksettings":     {action: spawnArgs("ryoku-shell", "quicksettings")},
 		"shell.wallpaper":         {action: spawnArgs("ryogami", "wallpaper", "ui")},
 		"shell.wallpaperRandom":   {action: spawnArgs("ryogami", "wallpaper", "random")},
-		"shell.ryovm":             {action: spawnSh("ryoku-summon ryovm " + qmlEnv + " flock -n -o /tmp/ryovm.lock qs -c ryovm")},
+		"shell.ryovm":             {action: spawnSh("ryoku-summon ryovm " + wm.QmlEnv + " flock -n -o /tmp/ryovm.lock qs -c ryovm")},
 		"shell.clipboard":         {action: spawnArgs("ryoku-shell", "clipboard")},
 		"shell.visualizer":        {action: spawnArgs("ryoku-shell", "visualizer")},
 		"shell.visualizerOverlay": {action: spawnArgs("ryoku-shell", "visualizer-overlay")},

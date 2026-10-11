@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
 	i18n "ryoku-i18n"
 )
@@ -143,8 +144,7 @@ func localeCountry(locale string) string {
 
 var x11LayoutRe = regexp.MustCompile(`(?i)Option\s+"XkbLayout"\s+"([^"]*)"`)
 
-// X11Path and VconsolePath are package vars so a test can point them at temp
-// files; both are fixed by the system otherwise.
+// Paths are package vars so tests can use an isolated filesystem.
 var (
 	X11Path      = "/etc/X11/xorg.conf.d/00-keyboard.conf"
 	VconsolePath = "/etc/vconsole.conf"
@@ -248,16 +248,19 @@ func (l Layout) Primary() string {
 	return strings.TrimSpace(strings.SplitN(l.Layout, ",", 2)[0])
 }
 
-// ApplySystem writes the layout to the greeter and the console. localectl
-// converts the X11 layout to the nearest console keymap, so one call covers
-// both. It escalates through polkit on its own.
+var applySystemKeymap = func(layout, variant, options string) int {
+	return host.Default().Keymap([]string{"set", layout, variant, options})
+}
+
+// ApplySystem writes the layout to the greeter and console through the host
+// seam so the same caller works with localectl and Void's rc.conf.
 func ApplySystem(l Layout) error {
 	p := l.Primary()
 	if p == "" {
 		return fmt.Errorf(i18n.T("no layout to apply"))
 	}
-	if err := sys.Run("localectl", "set-x11-keymap", p, "", l.Variant, l.Options); err != nil {
-		return fmt.Errorf(i18n.T("set the greeter and console keymap: %w"), err)
+	if code := applySystemKeymap(p, l.Variant, l.Options); code != host.ExitOK {
+		return fmt.Errorf(i18n.T("set the greeter and console keymap: ryoku-host exited %d"), code)
 	}
 	return nil
 }

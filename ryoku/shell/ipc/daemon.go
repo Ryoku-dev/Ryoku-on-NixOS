@@ -1308,6 +1308,8 @@ func (d *daemon) dispatch(line string) string {
 		return d.barToggle(edge, action)
 	case "dock":
 		return d.dockCLI(args)
+	case "powerprofiles":
+		return d.powerProfilesCLI(args)
 	}
 	if config, target, fn, ok := route(routeCmd); ok {
 		if componentDisabled(config) {

@@ -99,6 +99,9 @@ func repairBootRW(st bootRWState) (fixed bool, detail string) {
 }
 
 func reconcileBootRW(checkOnly bool) recResult {
+	if !limineManagedBoot() {
+		return unmanagedBootResult()
+	}
 	var ro []bootRWState
 	for _, target := range bootRWMounts {
 		out, err := bootRWFindmnt(target)

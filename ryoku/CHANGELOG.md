@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- **The desktop now has a Fedora host path.** Package and service actions use
+  DNF and systemd through `ryoku-host`, the Hub reflects Fedora's unavailable
+  snapshot and AUR capabilities, and updates and compositor package switches
+  avoid pacman-only commands. Update, status, and doctor name an unpublished
+  Fedora release instead of reporting an empty package set.
 - **The window-manager seam can vet plugins and read foreign configs.** Each
   provider declares which foreign shell interfaces it serves, and
   `ryoku wm compat <dir>` scans a plugin folder for the ones it needs and says
@@ -208,6 +213,21 @@
   `hub/quickshell/schema/DesktopScenePage.js`, `shell/ipc/control.go`).
 
 ### Fixed
+- **Power profile controls work with Fedora's default provider.** The Hub,
+  Nomarchy, game mode, and `ryoku-power` send profile reads and writes through
+  the shell daemon's provider-neutral D-Bus client, so tuned-ppd works alongside
+  the existing power-profiles-daemon path.
+- **Fedora and Void desktop helpers stay on their native package managers.**
+  Package search, update counters, build hints, Ryovm, Rashin package history,
+  compositor reclaim, and Ryotunes installation no longer fall through to
+  pacman-only commands. Screen recording also falls back to an encoder the
+  machine supports when H.264 is unavailable.
+- **Ryostore finds script installers published under their bundle.** Bundles
+  that ship their installer at `bundles/<id>/installers/<name>.sh` (Ryoku for
+  Zed, The Influencer) failed to install with "the installer exited with an
+  error" because the store only looked in the catalogue root; the owning
+  bundle's directory is checked first now, with the root kept as the legacy
+  fallback (`apps/ryostore/backend/extras_assets.go`).
 - **The Prowl pages fit their window.** Overview's traffic and live-route cards
   span the page again instead of squeezing into half of it, where numbers ran
   past the card edge and left a tall empty card. Activity stacks its platform

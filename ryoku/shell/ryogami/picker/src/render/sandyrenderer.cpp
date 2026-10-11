@@ -36,8 +36,9 @@ struct SandyUniform {
     float layerIdx[4];
     float layerTier[4];
     float uvRect[4][4];
+    float prevUv[4];
 };
-static_assert(sizeof(SandyUniform) == 304);
+static_assert(sizeof(SandyUniform) == 320);
 
 QRhiGraphicsPipeline::TargetBlend premultipliedBlend()
 {
@@ -59,10 +60,11 @@ SandyRenderer::~SandyRenderer()
     releaseResources();
 }
 
-void SandyRenderer::setPreviewTextures(QRhiTexture *incoming, QRhiTexture *outgoing)
+void SandyRenderer::setPreviewTextures(QRhiTexture *incoming, QRhiTexture *outgoing, const QRectF &incomingUv)
 {
     m_prevIncoming = incoming;
     m_prevOutgoing = outgoing;
+    m_prevIncomingUv = incomingUv;
 }
 
 SandyRenderer::Resolved SandyRenderer::resolve(TextureTier &near, TextureTier &far, const QString &key) const
@@ -345,6 +347,10 @@ void SandyRenderer::prepare(QRhi *rhi, QRhiCommandBuffer *cb, QRhiRenderTarget *
     std::memcpy(u.uvRect[1], rB.uv, sizeof(rB.uv));
     std::memcpy(u.uvRect[2], rB2.uv, sizeof(rB2.uv));
     std::memcpy(u.uvRect[3], rB3.uv, sizeof(rB3.uv));
+    u.prevUv[0] = float(m_prevIncomingUv.x());
+    u.prevUv[1] = float(m_prevIncomingUv.y());
+    u.prevUv[2] = float(m_prevIncomingUv.width());
+    u.prevUv[3] = float(m_prevIncomingUv.height());
     batch->updateDynamicBuffer(m_uniform.get(), 0, sizeof(u), &u);
 
     QRhiTexture *prevTex = m_prevIncoming ? m_prevIncoming : m_dummy.get();

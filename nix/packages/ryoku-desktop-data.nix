@@ -54,20 +54,22 @@ pkgs.stdenv.mkDerivation {
     cp -a ryoku/mango/. "$cfg/mango/"
 
     # NixOS owns graphical-session lifecycle through its declarative user
-    # units. Upstream's package cutover helper is Arch transaction machinery,
-    # so each compositor login uses the Nix-native session handoff instead.
-    for autostart in \
-      "$cfg/hypr/modules/autostart.lua" \
-      "$cfg/niri/autostart.kdl" \
-      "$cfg/mango/autostart.conf"
-    do
-      [ -f "$autostart" ] || continue
+    # units. Route every compositor's upstream session handoff through the
+    # Nix-native bootstrap instead of package-manager cutover machinery.
+    substituteInPlace "$cfg/hypr/modules/autostart.lua" \
+      --replace-fail \
+        'ryoku-host session start xdg-desktop-portal-hyprland.service xdg-desktop-portal-gtk.service' \
+        'ryoku-nix-session-start'
 
-      substituteInPlace "$autostart" \
-        --replace-fail \
-          'ryoku-power-cutover session-start-logged' \
-          'if command -v ryoku-nix-session-start >/dev/null 2>&1; then ryoku-nix-session-start; elif command -v ryoku-power-cutover >/dev/null 2>&1; then ryoku-power-cutover session-start-logged; else systemctl --user restart ryoku-session.target; fi'
-    done
+    substituteInPlace "$cfg/niri/autostart.kdl" \
+      --replace-fail \
+        'ryoku-host session start xdg-desktop-portal-gnome.service xdg-desktop-portal-gtk.service' \
+        'ryoku-nix-session-start'
+
+    substituteInPlace "$cfg/mango/autostart.conf" \
+      --replace-fail \
+        'ryoku-power-cutover session-start-logged' \
+        'ryoku-nix-session-start'
 
 
     # ── Shared translation catalog ─────────────────────────────

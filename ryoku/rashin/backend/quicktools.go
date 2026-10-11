@@ -105,11 +105,11 @@ func toolSystemQuery(ctx context.Context, topic, arg string) string {
 	switch topic {
 	case "packages":
 		if arg != "" {
-			return runCapped(ctx, 4096, "pacman", "-Qi", arg)
+			return runCapped(ctx, 4096, "ryoku-host", "pkg", "version", arg)
 		}
-		return runCapped(ctx, 2048, "sh", "-c", "pacman -Qq | wc -l")
+		return runCapped(ctx, 2048, "ryoku-host", "pkg", "count")
 	case "updates":
-		return runCapped(ctx, 4096, "sh", "-c", "checkupdates 2>/dev/null | head -50 || echo 'no updates or checkupdates unavailable'")
+		return runCapped(ctx, 4096, "ryoku", "status", "--json")
 	case "service":
 		if arg == "" {
 			return "error: service topic needs a name in arg"

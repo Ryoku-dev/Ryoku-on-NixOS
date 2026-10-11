@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
 	"ryoku-cli/internal/updater"
 	"strconv"
@@ -35,6 +37,118 @@ import (
 // ledger.
 
 const ryokuIssuesURL = "https://github.com/ryoku-dev/ryoku-arch/issues"
+
+var (
+	doctorPackageManager = func() (host.PackageManager, error) {
+		return host.Default().PackageManager()
+	}
+	doctorInitSystem = func() (host.InitSystem, error) {
+		return host.Default().Init()
+	}
+	doctorSnapshots = func() (bool, string) {
+		return host.Default().Snapshots()
+	}
+	doctorPackageInstalled = func(name string) bool {
+		return host.Default().Package([]string{"installed", name}) == host.ExitOK
+	}
+	doctorPackageAvailability = func(name string) int {
+		return host.Default().Package([]string{"available", name})
+	}
+	doctorPackageInstall = func(names ...string) int {
+		return host.Default().Package(append([]string{"install"}, names...))
+	}
+	doctorInstallAdvice = func(names ...string) string {
+		return host.Default().InstallAdvice(names...)
+	}
+	doctorService = func(args ...string) int {
+		return host.Default().Service(args)
+	}
+	doctorFailedServices = failedServices
+	doctorOrphans        = func() ([]string, error) {
+		return host.Default().Orphans()
+	}
+	doctorFindPendingConfig = func(pattern string) []string {
+		out, _ := sys.RunOut("find", "/etc", "-type", "f", "-name", pattern)
+		return nonEmptyLines(out)
+	}
+	doctorMaterialSymbolsVisible = func() bool {
+		out, err := exec.Command("fc-list", ":family=Material Symbols Rounded", "family").Output()
+		return err == nil && strings.Contains(string(out), "Material Symbols Rounded")
+	}
+)
+
+var errSystemServiceHealthUnavailable = errors.New("system service health unavailable")
+
+func failedServices() ([]host.ServiceFailure, error) {
+	userFailures, err := host.Default().FailedServicesFor("--user")
+	if err != nil {
+		return nil, err
+	}
+	hostBin := os.Getenv("RYOKU_HOST_BIN")
+	if hostBin == "" {
+		hostBin = "/usr/bin/ryoku-host"
+	}
+	out, err := sys.RunOut("sudo", "-n", hostBin, "svc", "--system", "failed")
+	if err != nil {
+		return userFailures, errSystemServiceHealthUnavailable
+	}
+	systemFailures := make([]host.ServiceFailure, 0)
+	for _, name := range nonEmptyLines(out) {
+		systemFailures = append(systemFailures, host.ServiceFailure{Scope: "--system", Name: name})
+	}
+	return append(systemFailures, userFailures...), nil
+}
+
+func pacmanHost(subject string) (recResult, bool) {
+	if !hasPacman() {
+		return noteRes(i18n.T("%s is not applicable on this host"), subject), false
+	}
+	return recResult{}, true
+}
+
+func xbpsHost() bool {
+	manager, err := doctorPackageManager()
+	return err == nil && manager == host.XBPS
+}
+
+func dnfHost() bool {
+	manager, err := doctorPackageManager()
+	return err == nil && manager == host.DNF
+}
+
+func doctorPackageUnavailable(manager host.PackageManager, name string) bool {
+	return manager != host.Pacman && doctorPackageAvailability(name) == host.ExitNotProvided
+}
+
+func systemServiceEnabled(name string) bool {
+	return doctorService("--system", "is-enabled", name) == host.ExitOK
+}
+
+func runSystemService(args ...string) error {
+	if xbpsHost() {
+		hostBin := os.Getenv("RYOKU_HOST_BIN")
+		if hostBin == "" {
+			hostBin = "/usr/bin/ryoku-host"
+		}
+		command := append([]string{hostBin, "svc", "--system"}, args...)
+		return sys.Sudo(command...)
+	}
+	command := append([]string{"systemctl"}, args...)
+	return sys.Sudo(command...)
+}
+
+func systemServiceEnableAdvice(name string, now bool) string {
+	if xbpsHost() {
+		if now {
+			return i18n.Tf("sudo ryoku-host svc --system enable --now %s", name)
+		}
+		return i18n.Tf("sudo ryoku-host svc --system enable %s", name)
+	}
+	if now {
+		return i18n.Tf("sudo systemctl enable --now %s", name)
+	}
+	return i18n.Tf("sudo systemctl enable %s", name)
+}
 
 type recStatus int
 
@@ -101,29 +215,45 @@ type reconciler struct {
 }
 
 func reconcilers() []reconciler {
-	return []reconciler{
+	fedora := dnfHost()
+	checks := []reconciler{
 		{i18n.T("interface language"), reconcileShellLanguage},
-		{i18n.T("swap kept out of snapshots"), reconcileSwapSubvolume},
-		{i18n.T("snapper configuration"), reconcileSnapper},
-		{i18n.T("snapshot read access"), reconcileSnapperAccess},
-		{i18n.T("snapshot cleanup"), reconcileSnapperCleanup},
-		{i18n.T("limine boot menu layout"), reconcileLimineLayout},
-		{i18n.T("limine boot entry"), reconcileLimineBootEntry},
-		{i18n.T("alongside boot entry"), reconcileAlongsideBootEntry},
-		{i18n.T("limine UKI boot tree"), reconcileLimineUKITree},
-		{i18n.T("limine kernel boot images"), reconcileLimineKernelImages},
-		{i18n.T("boot menu dead entries"), reconcileLimineDeadEntries},
-		{i18n.T("boot partition headroom"), reconcileBootSpace},
-		{i18n.T("boot volume writability"), reconcileBootRW},
-		{i18n.T("initramfs GPU trim"), reconcileInitramfsGPUTrim},
-		{i18n.T("initramfs console keys"), reconcileInitramfsConsoleKeys},
-		{i18n.T("limine autoboot"), reconcileLimineAutoboot},
-		{i18n.T("limine snapshot sync"), reconcileLimineOSName},
-		{i18n.T("updatedb snapshot prune"), reconcileUpdatedbPrune},
-		{i18n.T("pacman database lock"), reconcilePacmanLock},
-		{i18n.T("pacman progress bar"), reconcilePacmanCandy},
-		{i18n.T("multilib repository"), reconcileMultilibRepo},
-		{i18n.T("conflicting Ryoku files"), reconcileConflictingRyokuFiles},
+	}
+	if fedora {
+		checks = append(checks, reconciler{i18n.T("Fedora release"), reconcileFedoraRelease})
+	}
+	if !fedora {
+		checks = append(checks,
+			reconciler{i18n.T("swap kept out of snapshots"), reconcileSwapSubvolume},
+		)
+	}
+	checks = append(checks,
+		reconciler{i18n.T("snapper configuration"), reconcileSnapper},
+		reconciler{i18n.T("snapshot read access"), reconcileSnapperAccess},
+		reconciler{i18n.T("snapshot cleanup"), reconcileSnapperCleanup},
+	)
+	if !fedora {
+		checks = append(checks,
+			reconciler{i18n.T("limine boot menu layout"), reconcileLimineLayout},
+			reconciler{i18n.T("limine boot entry"), reconcileLimineBootEntry},
+			reconciler{i18n.T("alongside boot entry"), reconcileAlongsideBootEntry},
+			reconciler{i18n.T("limine UKI boot tree"), reconcileLimineUKITree},
+			reconciler{i18n.T("limine kernel boot images"), reconcileLimineKernelImages},
+			reconciler{i18n.T("boot menu dead entries"), reconcileLimineDeadEntries},
+			reconciler{i18n.T("boot partition headroom"), reconcileBootSpace},
+			reconciler{i18n.T("boot volume writability"), reconcileBootRW},
+			reconciler{i18n.T("initramfs GPU trim"), reconcileInitramfsGPUTrim},
+			reconciler{i18n.T("initramfs console keys"), reconcileInitramfsConsoleKeys},
+			reconciler{i18n.T("limine autoboot"), reconcileLimineAutoboot},
+			reconciler{i18n.T("limine snapshot sync"), reconcileLimineOSName},
+			reconciler{i18n.T("updatedb snapshot prune"), reconcileUpdatedbPrune},
+			reconciler{i18n.T("pacman database lock"), reconcilePacmanLock},
+			reconciler{i18n.T("pacman progress bar"), reconcilePacmanCandy},
+			reconciler{i18n.T("multilib repository"), reconcileMultilibRepo},
+			reconciler{i18n.T("conflicting Ryoku files"), reconcileConflictingRyokuFiles},
+		)
+	}
+	checks = append(checks, []reconciler{
 		{i18n.T("stale update run-state"), reconcileStaleUpdateRun},
 		{i18n.T("leaked update sleep guard"), reconcileLeakedSleepGuard},
 		{i18n.T("stale install crypt mapper"), reconcileStaleCryptMapper},
@@ -138,6 +268,7 @@ func reconcilers() []reconciler {
 		{i18n.T("desktop settings store"), reconcileDesktopStore},
 		{i18n.T("retired cursor keys"), reconcileRetiredCursorLeaf},
 		{i18n.T("session target units"), reconcileSessionTarget},
+		{i18n.T("Turnstile session bus"), reconcileTurnstile},
 		{i18n.T("desktop session components"), reconcileSessionComponents},
 		{i18n.T("desktop portal routing"), reconcilePortalRouting},
 		{i18n.T("desktop portal session"), reconcilePortalSession},
@@ -229,9 +360,10 @@ func reconcilers() []reconciler {
 		{i18n.T("NVIDIA boot reliability"), reconcileNvidiaModeset},
 		{i18n.T("NVIDIA update guard hook"), reconcileNvidiaGuardHook},
 		{i18n.T("NVIDIA sleep units"), reconcileNvidiaSleepUnits},
-		{i18n.T("pending config (.pacnew)"), reconcilePacnew},
+		{pendingConfigCheckName(), reconcilePacnew},
 		{i18n.T("orphaned packages"), reconcileOrphans},
-	}
+	}...)
+	return checks
 }
 
 type finding struct {
@@ -240,9 +372,9 @@ type finding struct {
 }
 
 func runReconcilers(checkOnly bool) []finding {
-	out := make([]finding, 0, len(reconcilers()))
+	var out []finding
 	for _, r := range reconcilers() {
-		out = append(out, finding{r.name, r.run(checkOnly)})
+		out = append(out, finding{name: r.name, res: r.run(checkOnly)})
 	}
 	return out
 }
@@ -449,6 +581,9 @@ func emitFindingsJSON(findings []finding) error {
 // already sits in its own subvolume. skipped on machines that don't snapshot
 // root.
 func reconcileSwapSubvolume(checkOnly bool) recResult {
+	if supported, reason := doctorSnapshots(); !supported {
+		return noteRes("%s", reason)
+	}
 	if !sys.Exists("/etc/snapper/configs/root") {
 		return okRes(i18n.T("root snapshots not configured, nothing to keep out of them"))
 	}
@@ -540,6 +675,7 @@ const (
 // to a value so planSnapper is unit-testable without real /etc or running
 // snapper/btrfs.
 type snapperState struct {
+	manager             host.PackageManager
 	rootIsBtrfs         bool
 	configExists        bool
 	optedOut            bool
@@ -559,6 +695,10 @@ type snapperState struct {
 // "configured" branch runs the same consistency checks the old reconciler
 // did, so a healthy box still reads ok.
 func planSnapper(s snapperState) (snapperOutcome, []string) {
+	manager := s.manager
+	if manager == "" {
+		manager = host.Pacman
+	}
 	if !s.configExists {
 		if !s.rootIsBtrfs {
 			return snapperWarnNotBtrfs, nil
@@ -586,18 +726,22 @@ func planSnapper(s snapperState) (snapperOutcome, []string) {
 		problems = append(problems, i18n.T("/etc/conf.d/snapper does not list the root config (timers and hooks will skip it)"))
 	}
 	if !s.snapperInstalled {
-		problems = append(problems, i18n.T("snapper is not installed; the root config exists but cannot be used (sudo pacman -S snapper)"))
+		problems = append(problems, fmt.Sprintf(i18n.T("snapper is not installed; the root config exists but cannot be used (%s)"), doctorInstallAdvice("snapper")))
 	}
-	if !s.snapPacInstalled {
+	if manager == host.Pacman && !s.snapPacInstalled {
 		problems = append(problems, i18n.T("snap-pac is not installed, so pacman transactions are not auto-snapshotted (sudo pacman -S snap-pac)"))
 	}
 	// only meaningful under Limine; a GRUB box (converted CachyOS and the
 	// like) is healthy without it and must not warn forever.
 	if s.limineInstalled {
 		if !s.limineSyncInstalled {
-			problems = append(problems, i18n.T("limine-snapper-sync is not installed, so snapshots are not in the Limine boot menu (ryoku-pkg-aur-add limine-snapper-sync)"))
+			advice := "ryoku-pkg-aur-add limine-snapper-sync"
+			if manager == host.XBPS {
+				advice = doctorInstallAdvice("limine-snapper-sync")
+			}
+			problems = append(problems, fmt.Sprintf(i18n.T("limine-snapper-sync is not installed, so snapshots are not in the Limine boot menu (%s)"), advice))
 		} else if !s.limineSyncEnabled {
-			problems = append(problems, i18n.T("limine-snapper-sync.service is disabled, so new snapshots never reach the Limine boot menu (sudo systemctl enable --now limine-snapper-sync.service)"))
+			problems = append(problems, fmt.Sprintf(i18n.T("limine-snapper-sync.service is disabled, so new snapshots never reach the Limine boot menu (%s)"), systemServiceEnableAdvice("limine-snapper-sync.service", true)))
 		}
 	}
 	if len(problems) == 0 {
@@ -610,15 +754,17 @@ func planSnapper(s snapperState) (snapperOutcome, []string) {
 // non-privileged stats and world-readable files; privileged writes happen
 // later in the create branch under sudo, like every other reconciler.
 func gatherSnapperState() snapperState {
+	manager, _ := doctorPackageManager()
 	s := snapperState{
+		manager:             manager,
 		rootIsBtrfs:         sys.IsBtrfs("/"),
 		configExists:        sys.Exists("/etc/snapper/configs/root"),
 		optedOut:            sys.Exists("/etc/ryoku/snapshots-disabled"),
-		snapperInstalled:    sys.Has("snapper"),
-		snapPacInstalled:    sys.PkgInstalled("snap-pac"),
-		limineInstalled:     sys.PkgInstalled("limine"),
-		limineSyncInstalled: sys.PkgInstalled("limine-snapper-sync"),
-		limineSyncEnabled:   sys.UnitEnabled("limine-snapper-sync.service"),
+		snapperInstalled:    doctorPackageInstalled("snapper"),
+		snapPacInstalled:    manager == host.Pacman && doctorPackageInstalled("snap-pac"),
+		limineInstalled:     doctorPackageInstalled("limine"),
+		limineSyncInstalled: doctorPackageInstalled("limine-snapper-sync"),
+		limineSyncEnabled:   systemServiceEnabled("limine-snapper-sync.service"),
 	}
 	if fi, err := os.Stat("/.snapshots"); err == nil {
 		s.snapshotsExists = true
@@ -647,7 +793,7 @@ func reconcileSnapper(checkOnly bool) recResult {
 		return warnRes(i18n.T("root filesystem is not btrfs; snapshot and rollback are unavailable on this machine"))
 	case snapperWarnMissingPkgs:
 		return warnRes(i18n.T("root is btrfs but snapper is not installed; snapshots and rollback are off")).
-			withFix(i18n.T("sudo pacman -S snapper snap-pac, then ryoku doctor"))
+			withFix(i18n.T("%s, then ryoku doctor"), doctorInstallAdvice("snapper"))
 	case snapperOptedOut:
 		return okRes(i18n.T("snapshots were declined at install (/etc/ryoku/snapshots-disabled); delete the marker and run `ryoku doctor` to enable them"))
 	case snapperCreate:
@@ -657,8 +803,11 @@ func reconcileSnapper(checkOnly bool) recResult {
 		}
 		return createSnapperRootConfig(st)
 	case snapperWarnInconsistent:
-		return warnRes("%s", strings.Join(problems, "; ")).
-			withFix(i18n.T("see https://wiki.archlinux.org/title/Snapper"))
+		remedy := i18n.T("see https://wiki.archlinux.org/title/Snapper")
+		if st.manager == host.XBPS {
+			remedy = i18n.T("run `sudo ryoku doctor`; use `ryoku-host pkg advice <package>` for a missing snapshot package")
+		}
+		return warnRes("%s", strings.Join(problems, "; ")).withFix(remedy)
 	}
 	return okRes(i18n.T("snapper root config is consistent"))
 }
@@ -671,6 +820,9 @@ func reconcileSnapper(checkOnly bool) recResult {
 // the safety net is fine. Idempotent and gated on whether an unprivileged read
 // already works, so it never has to read the 0640 config to know.
 func reconcileSnapperAccess(checkOnly bool) recResult {
+	if supported, reason := doctorSnapshots(); !supported {
+		return noteRes("%s", reason)
+	}
 	if !sys.Has("snapper") || !sys.Exists("/etc/snapper/configs/root") {
 		return okRes(i18n.T("root snapshots not configured, no access to grant"))
 	}
@@ -760,12 +912,12 @@ func createSnapperRootConfig(st snapperState) recResult {
 		actions = append(actions, "/etc/conf.d/snapper")
 	}
 
-	// services: best-effort. a healthy install has both; an offline AUR install
-	// can be missing limine-snapper-sync, and a failure here doesn't undo the
-	// config we just wrote.
-	_ = sys.Run("sudo", "systemctl", "enable", "--now", "snapper-cleanup.timer")
-	if sys.Exists("/usr/lib/systemd/system/limine-snapper-sync.service") {
-		_ = sys.Run("sudo", "systemctl", "enable", "--now", "limine-snapper-sync.service")
+	// Service enablement is best-effort. A healthy install has both; a package
+	// mirror outage can leave limine-snapper-sync absent without invalidating
+	// the root config just written.
+	_ = runSystemService("enable", "--now", "snapper-cleanup.timer")
+	if doctorPackageInstalled("limine-snapper-sync") {
+		_ = runSystemService("enable", "--now", "limine-snapper-sync.service")
 	}
 
 	return fixedRes(i18n.T("created snapper root config: %s"), strings.Join(actions, ", "))
@@ -1070,6 +1222,8 @@ func reconcileRyokuChannel(checkOnly bool) recResult {
 			return okRes(i18n.T("ryoku channel: unstable packages (rebuilt on every push); `ryoku track stable` returns to stable releases"))
 		case sys.IsReleaseTag(ch):
 			return okRes(i18n.T("ryoku channel: pinned to release %s (packages); `ryoku track stable` follows releases again"), ch)
+		case sys.IsUnstableBuild(ch):
+			return okRes(i18n.T("ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` follows unstable builds again"), ch)
 		default:
 			return warnRes(i18n.T("the [ryoku] repo points at %s, which Ryoku does not publish; releases will not arrive from it"), sys.RyokuServer()).
 				withFix("ryoku track stable")
@@ -1090,6 +1244,144 @@ func reconcileRyokuChannel(checkOnly bool) recResult {
 	// re-populating is idempotent and cheap.
 	_ = sys.Sudo("pacman-key", "--populate", "ryoku")
 	return fixedRes(i18n.T("re-added the [ryoku] repo to pacman.conf so updates arrive again"))
+}
+
+func reconcileVoidRyokuChannel(checkOnly bool) recResult {
+	if !doctorPackageInstalled("ryoku-desktop") {
+		return okRes(i18n.T("not a packaged install (desktop runs from a checkout)"))
+	}
+	if !doctorPackageInstalled("ryoku-keyring") {
+		return warnRes(i18n.T("ryoku-keyring is missing, so the Ryoku XBPS repository cannot be trusted; updates will fail signature checks")).
+			withFix(i18n.T("sudo xbps-install -S ryoku-keyring, then run ryoku doctor"))
+	}
+	app := host.Default()
+	repository, err := app.RepoURL()
+	if err != nil || repository == "" {
+		if checkOnly {
+			return wouldRes(i18n.T("ryoku-desktop is installed but the Ryoku XBPS repository is not configured; updates will not arrive")).
+				withFix("ryoku doctor")
+		}
+		stable := sys.VoidChannelURL(sys.ChannelStable)
+		if err := sys.Sudo("ryoku-host", "repo", "set-url", stable); err != nil {
+			return warnRes(i18n.T("the Ryoku XBPS repository is missing and could not be restored: %v"), err).
+				withFix(i18n.T("add repository=%s to /etc/xbps.d/20-ryoku.conf"), stable)
+		}
+		return fixedRes(i18n.T("restored the signed Ryoku XBPS repository so updates arrive again"))
+	}
+	channel, _ := app.RepoChannel()
+	switch {
+	case channel == sys.ChannelStable:
+		return okRes(i18n.T("ryoku channel: stable packages (named releases); `ryoku track unstable` follows the unstable channel"))
+	case channel == sys.ChannelTesting:
+		return okRes(i18n.T("ryoku channel: unstable packages (rebuilt on every push); `ryoku track stable` returns to stable releases"))
+	case sys.IsReleaseTag(channel):
+		return okRes(i18n.T("ryoku channel: pinned to release %s (packages); `ryoku track stable` follows releases again"), channel)
+	case sys.IsUnstableBuild(channel):
+		return okRes(i18n.T("ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` follows unstable builds again"), channel)
+	default:
+		return warnRes(i18n.T("the Ryoku XBPS repository points at %s, which Ryoku does not publish; releases will not arrive from it"), repository).
+			withFix("ryoku track stable")
+	}
+}
+
+func dnfRepoConfigPath() string {
+	if path := strings.TrimSpace(os.Getenv("RYOKU_DNF_REPO_CONFIG")); path != "" {
+		return path
+	}
+	return "/etc/yum.repos.d/ryoku.repo"
+}
+
+func dnfRepoConfig(channel string) string {
+	return fmt.Sprintf("[ryoku]\nname=Ryoku\nbaseurl=%s\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ryoku\n",
+		host.RepoURLFor(host.DNF, channel))
+}
+
+var writeDNFRepoConfig = func(path, contents string) error {
+	return writeRootFile(path, contents, "0644")
+}
+
+func reconcileFedoraRyokuChannel(checkOnly bool) recResult {
+	if !doctorPackageInstalled("ryoku-desktop") {
+		return okRes(i18n.T("not a packaged install (desktop runs from a checkout)"))
+	}
+	app := host.Default()
+	repository, err := app.RepoURL()
+	if err != nil || repository == "" {
+		if checkOnly {
+			return wouldRes(i18n.T("ryoku-desktop is installed but the signed Ryoku RPM repository is not configured; updates will not arrive")).
+				withFix("ryoku doctor")
+		}
+		if err := writeDNFRepoConfig(dnfRepoConfigPath(), dnfRepoConfig(sys.ChannelStable)); err != nil {
+			return warnRes(i18n.T("the signed Ryoku RPM repository is missing and could not be restored: %v"), err).
+				withFix(i18n.T("restore %s, then run `%s makecache -y --refresh --repo=ryoku`"), dnfRepoConfigPath(), host.DNFCommand())
+		}
+		if err := refreshDNFRepoMetadata(); err != nil {
+			return warnRes(i18n.T("restored the signed Ryoku RPM repository, but its metadata could not be refreshed: %v"), err).
+				withFix(dnfRepoRefreshAdvice())
+		}
+		return fixedRes(i18n.T("restored the signed Ryoku RPM repository so updates arrive again"))
+	}
+	channel, _ := app.RepoChannel()
+	switch {
+	case channel == sys.ChannelStable:
+		return okRes(i18n.T("ryoku channel: stable packages (named releases); `ryoku track unstable` follows the unstable channel"))
+	case channel == sys.ChannelTesting:
+		return okRes(i18n.T("ryoku channel: unstable packages (rebuilt on every push); `ryoku track stable` returns to stable releases"))
+	case sys.IsReleaseTag(channel):
+		return okRes(i18n.T("ryoku channel: pinned to release %s (packages); `ryoku track stable` follows releases again"), channel)
+	case sys.IsUnstableBuild(channel):
+		return okRes(i18n.T("ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` follows unstable builds again"), channel)
+	default:
+		return warnRes(i18n.T("the Ryoku RPM repository points at %s, which Ryoku does not publish; releases will not arrive from it"), repository).
+			withFix("ryoku track stable")
+	}
+}
+
+var (
+	checkDNFRepoMetadata = func() (string, error) {
+		return sys.RunOut(host.DNFCommand(), "repoquery", "-y", "--repo=ryoku", "--available", "ryoku-desktop")
+	}
+	refreshDNFRepoMetadata = func() error {
+		return sys.Run("sudo", host.DNFCommand(), "makecache", "-y", "--refresh", "--repo=ryoku")
+	}
+)
+
+func dnfRepoRefreshAdvice() string {
+	return fmt.Sprintf("sudo %s makecache -y --refresh --repo=ryoku", host.DNFCommand())
+}
+
+func reconcileFedoraRyokuSyncDB(checkOnly bool) recResult {
+	if !doctorPackageInstalled("ryoku-desktop") {
+		return okRes(i18n.T("not a packaged install (desktop runs from a checkout)"))
+	}
+	if _, err := host.Default().RepoURL(); err != nil {
+		return okRes(i18n.T("Ryoku RPM repository absent; nothing to verify"))
+	}
+	out, err := checkDNFRepoMetadata()
+	if err == nil {
+		return okRes(i18n.T("the Ryoku RPM repository metadata loads and verifies"))
+	}
+	detail := firstLine(out)
+	if detail == "" {
+		detail = err.Error()
+	}
+	if checkOnly {
+		return wouldRes(i18n.T("the Ryoku RPM repository metadata does not load: %s"), detail).
+			withFix(dnfRepoRefreshAdvice())
+	}
+	if err := refreshDNFRepoMetadata(); err != nil {
+		return failRes(i18n.T("could not refresh the Ryoku RPM repository metadata: %v"), err).
+			withFix(dnfRepoRefreshAdvice())
+	}
+	if out, err := checkDNFRepoMetadata(); err != nil {
+		detail := firstLine(out)
+		if detail == "" {
+			detail = err.Error()
+		}
+		return failRes(i18n.T("the Ryoku RPM repository metadata still does not load after refresh: %s"), detail).
+			withFix(dnfRepoRefreshAdvice())
+	}
+	return fixedRes(i18n.T("refreshed the Ryoku RPM repository metadata"))
 }
 
 // ---- reconciler: ryoku sync database health ----------------------------------
@@ -1143,6 +1435,30 @@ func reconcileRyokuSyncDB(checkOnly bool) recResult {
 	return fixedRes(i18n.T("dropped the stale [ryoku] sync db so pacman refetches a matched db and signature"))
 }
 
+func reconcileVoidRyokuSyncDB(checkOnly bool) recResult {
+	if !doctorPackageInstalled("ryoku-desktop") {
+		return okRes(i18n.T("not a packaged install (desktop runs from a checkout)"))
+	}
+	app := host.Default()
+	if _, err := app.RepoURL(); err != nil {
+		return okRes(i18n.T("Ryoku XBPS repository absent; the channel check owns its repair"))
+	}
+	if _, err := app.RepoPackages(); err == nil {
+		return okRes(i18n.T("the Ryoku XBPS repository index loads and verifies"))
+	} else if !strings.Contains(strings.ToLower(err.Error()), "signature") {
+		return noteRes(i18n.T("the Ryoku XBPS repository index could not be checked: %v"), err)
+	}
+	if checkOnly {
+		return wouldRes(i18n.T("the cached Ryoku XBPS repository index fails signature verification")).
+			withFix("ryoku doctor")
+	}
+	if err := sys.Sudo("ryoku-host", "repo", "sync", "--force"); err != nil {
+		return failRes(i18n.T("could not refresh the signed Ryoku XBPS repository index: %v"), err).
+			withFix("sudo xbps-install -S")
+	}
+	return fixedRes(i18n.T("refreshed the signed Ryoku XBPS repository index"))
+}
+
 // ---- reconciler: Material Symbols icon font ------------------------------------
 
 // reconcileIconFont converges the icon font onto boxes that predate it being a
@@ -1159,16 +1475,21 @@ func reconcileIconFont(checkOnly bool) recResult {
 	if wm.Detect().Name == "" {
 		return okRes(i18n.T("no window manager provider"))
 	}
-	if anyPkgInstalled("ttf-material-symbols-variable", "ttf-material-symbols-variable-git") {
+	if doctorMaterialSymbolsVisible() {
 		return okRes(i18n.T("Material Symbols icon font installed"))
 	}
+	advice := doctorInstallAdvice("ttf-material-symbols-variable")
 	if checkOnly {
 		return wouldRes(i18n.T("Material Symbols font missing; every shell icon renders as its ligature name")).
-			withFix(i18n.T("ryoku doctor installs ttf-material-symbols-variable"))
+			withFix("%s", advice)
 	}
-	if err := sys.Sudo("pacman", "-S", "--needed", "--noconfirm", "ttf-material-symbols-variable"); err != nil {
-		return failRes(i18n.T("could not install ttf-material-symbols-variable: %v"), err).
-			withFix("sudo pacman -S ttf-material-symbols-variable")
+	if code := doctorPackageInstall("ttf-material-symbols-variable"); code != host.ExitOK {
+		return failRes(i18n.T("could not install ttf-material-symbols-variable (exit %d)"), code).
+			withFix("%s", advice)
+	}
+	if !doctorMaterialSymbolsVisible() {
+		return warnRes(i18n.T("installed the Material Symbols font, but fontconfig cannot see it")).
+			withFix("fc-cache -f")
 	}
 	return fixedRes(i18n.T("installed the Material Symbols icon font; `ryoku reload` picks it up"))
 }
@@ -2078,36 +2399,51 @@ func migrateShellConfig(raw []byte) ([]byte, []string, error) {
 
 // ---- reconciler: desktop session components ----------------------------------
 
-// portalFrontends maps a declared backend to the frontend package that serves
-// it, keyed by the seam's own provider constant so no bare compositor name is
-// branched on here.
-var portalFrontends = map[string]struct {
-	fix  string
-	pkgs []string
-}{
-	wm.ProviderHyprland: {"sudo pacman -S xdg-desktop-portal-hyprland", []string{"xdg-desktop-portal-hyprland"}},
-	"gnome":             {"sudo pacman -S xdg-desktop-portal-gnome", []string{"xdg-desktop-portal-gnome"}},
-	"kde":               {"sudo pacman -S xdg-desktop-portal-kde", []string{"xdg-desktop-portal-kde"}},
-	"wlr":               {"sudo pacman -S xdg-desktop-portal-wlr", []string{"xdg-desktop-portal-wlr"}},
+// portalFrontends maps the backend declared by the running provider to the
+// package that implements it.
+var portalFrontends = map[string][]string{
+	wm.ProviderHyprland: {"xdg-desktop-portal-hyprland"},
+	"gnome":             {"xdg-desktop-portal-gnome"},
+	"kde":               {"xdg-desktop-portal-kde"},
+	"wlr":               {"xdg-desktop-portal-wlr"},
 }
 
-// portalFrontendCheck resolves the xdg-desktop-portal frontend this session
-// needs from the live provider's declared backend, with the command to install
-// it. With no provider answering (a broken or headless box) every frontend is
-// accepted rather than pointing at one compositor's, which is what the check
-// did before the backend was read.
 func portalFrontendCheck() (fix string, pkgs []string) {
-	backend := ""
-	if caps, err := wm.Open().Caps(); err == nil {
-		backend = caps.PortalBackend
+	caps, err := wm.Open().Caps()
+	if err != nil {
+		return "", nil
 	}
-	if f, ok := portalFrontends[backend]; ok {
-		return f.fix, f.pkgs
+	pkgs = portalFrontends[caps.PortalBackend]
+	if len(pkgs) == 0 {
+		return "", nil
 	}
-	return "", []string{
-		"xdg-desktop-portal-hyprland", "xdg-desktop-portal-gnome",
-		"xdg-desktop-portal-kde", "xdg-desktop-portal-wlr",
+	return doctorInstallAdvice(pkgs...), pkgs
+}
+
+type sessionService struct {
+	scope string
+	name  string
+}
+
+type sessionComponent struct {
+	role     string
+	fix      string
+	packages []string
+	services []sessionService
+}
+
+func sessionComponentPresent(packages []string, services ...sessionService) bool {
+	for _, name := range packages {
+		if doctorPackageInstalled(name) {
+			return true
+		}
 	}
+	for _, service := range services {
+		if doctorService(service.scope, "is-active", service.name) == host.ExitOK {
+			return true
+		}
+	}
+	return false
 }
 
 func reconcileSessionComponents(_ bool) recResult {
@@ -2119,22 +2455,36 @@ func reconcileSessionComponents(_ bool) recResult {
 		return okRes(i18n.T("no window manager provider"))
 	}
 	portalFix, portalPkgs := portalFrontendCheck()
-	checks := []struct {
-		role, fix string
-		any       []string
-	}{
-		{i18n.T("authentication agent"), "sudo pacman -S hyprpolkitagent", []string{"hyprpolkitagent", "polkit-gnome", "polkit-kde-agent", "lxsession"}},
-		// The frontend the session needs is the one its compositor declares
-		// (Caps.PortalBackend): checking Hyprland's on a niri box reported the
-		// portal missing and told the user to install the wrong backend.
-		{i18n.T("desktop portal"), portalFix, portalPkgs},
-		{i18n.T("audio server"), "sudo pacman -S pipewire wireplumber", []string{"pipewire"}},
-		{i18n.T("network manager"), "sudo pacman -S networkmanager", []string{"networkmanager"}},
+	checks := []sessionComponent{
+		{i18n.T("authentication agent"), doctorInstallAdvice("polkit-gnome"), []string{"hyprpolkitagent", "polkit-gnome", "polkit-kde-agent", "lxsession"}, nil},
 	}
+	if len(portalPkgs) > 0 {
+		checks = append(checks, sessionComponent{
+			i18n.T("desktop portal"), portalFix, portalPkgs,
+			[]sessionService{{"--user", "xdg-desktop-portal"}},
+		})
+	}
+	checks = append(checks,
+		sessionComponent{
+			i18n.T("audio server"), doctorInstallAdvice("pipewire", "wireplumber"),
+			[]string{"pipewire"},
+			[]sessionService{{"--user", "pipewire"}, {"--user", "wireplumber"}},
+		},
+		sessionComponent{
+			i18n.T("network manager"), doctorInstallAdvice("networkmanager"),
+			[]string{"networkmanager"},
+			[]sessionService{{"--system", "NetworkManager"}},
+		},
+	)
 	var missing []string
-	for _, c := range checks {
-		if !anyPkgInstalled(c.any...) {
-			missing = append(missing, fmt.Sprintf("%s [%s]", c.role, c.fix))
+	for _, check := range checks {
+		if sessionComponentPresent(check.packages, check.services...) {
+			continue
+		}
+		if check.fix == "" {
+			missing = append(missing, check.role)
+		} else {
+			missing = append(missing, fmt.Sprintf("%s [%s]", check.role, check.fix))
 		}
 	}
 	if len(missing) == 0 {
@@ -2275,8 +2625,12 @@ func reconcilePortalRouting(checkOnly bool) recResult {
 		return okRes(i18n.T("portal routing follows %s"), healthy)
 	}
 	if healthy == "" {
-		return warnRes(i18n.T("no config routes portals to the %s backend; screenshare and portal dialogs cannot work"), backend).
-			withFix(i18n.T("sudo pacman -S xdg-desktop-portal-%s"), backend)
+		advice := doctorInstallAdvice(portalFrontends[backend]...)
+		result := warnRes(i18n.T("no config routes portals to the %s backend; screenshare and portal dialogs cannot work"), backend)
+		if advice != "" {
+			result = result.withFix("%s", advice)
+		}
+		return result
 	}
 	list := strings.Join(offenders, ", ")
 	if checkOnly {
@@ -2297,11 +2651,11 @@ func reconcilePortalRouting(checkOnly bool) recResult {
 	}
 	// a hung foreign backend keeps its stall alive until it dies. best-effort
 	// and quiet: outside a session the next login picks the routing up anyway.
-	for _, u := range []string{"xdg-desktop-portal-gnome.service", "xdg-desktop-portal-kde.service",
+	for _, service := range []string{"xdg-desktop-portal-gnome.service", "xdg-desktop-portal-kde.service",
 		"xdg-desktop-portal-wlr.service", "xdg-desktop-portal-lxqt.service"} {
-		_ = exec.Command("systemctl", "--user", "stop", u).Run()
+		_ = doctorService("--user", "stop", service)
 	}
-	_ = exec.Command("systemctl", "--user", "try-restart", "xdg-desktop-portal.service").Run()
+	_ = doctorService("--user", "try-restart", "xdg-desktop-portal.service")
 	return fixedRes(i18n.T("moved %s aside; the portal now follows %s"), list, healthy)
 }
 
@@ -2408,7 +2762,7 @@ func reconcileCursorTheme(checkOnly bool) recResult {
 		// the package default is missing too: no config edit can conjure the
 		// theme files, and doctor never drives pacman.
 		return warnRes(i18n.T("cursor theme %q is missing on disk and so is the default %q; the pointer falls back to a bitmap"), theme, defaultCursorTheme).
-			withFix(i18n.T("install ryoku-cursors (it ships the Bibata family and is a ryoku-desktop dependency)"))
+			withFix("%s", doctorInstallAdvice("ryoku-cursors"))
 	}
 	if checkOnly {
 		return wouldRes(i18n.T("cursor theme %q missing on disk; would reset to %s"), theme, defaultCursorTheme).
@@ -3345,9 +3699,13 @@ func startShellDaemon() error {
 	// if login's import never reached the user manager, the unit's
 	// ConditionEnvironment=WAYLAND_DISPLAY skips it and restart "succeeds"
 	// while starting nothing.
-	_ = exec.Command("dbus-update-activation-environment", "--systemd", "--all").Run()
-	_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
-	if exec.Command("systemctl", "--user", "restart", "ryoku-shell").Run() == nil {
+	if initSystem, _ := doctorInitSystem(); initSystem == host.Systemd {
+		_ = exec.Command("dbus-update-activation-environment", "--systemd", "--all").Run()
+	} else {
+		_ = exec.Command("dbus-update-activation-environment", "--all").Run()
+	}
+	_ = doctorService("--user", "daemon-reload")
+	if doctorService("--user", "restart", "ryoku-shell") == host.ExitOK {
 		return nil
 	}
 	shell := "ryoku-shell"
@@ -3782,9 +4140,40 @@ func balancedRunes(s string, open, shut rune) bool {
 	return depth == 0
 }
 
-// ---- reconciler: failed systemd units ----------------------------------------
+// ---- reconciler: failed services ---------------------------------------------
+
+func reconcileRunitFailures() recResult {
+	failures, err := doctorFailedServices()
+	systemUnavailable := errors.Is(err, errSystemServiceHealthUnavailable)
+	if err != nil && !systemUnavailable {
+		return noteRes(i18n.T("service health could not be checked: %v"), err)
+	}
+	if len(failures) == 0 {
+		if systemUnavailable {
+			return noteRes(i18n.T("system service health could not be checked without passwordless sudo; no failed user services"))
+		}
+		return okRes(i18n.T("no failed services"))
+	}
+	details := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		details = append(details, fmt.Sprintf("%s (%s)", failure.Name, strings.TrimPrefix(failure.Scope, "--")))
+	}
+	if systemUnavailable {
+		return warnRes(i18n.T("failed: %s; system service health could not be checked without passwordless sudo"), strings.Join(details, ", ")).
+			withFix(i18n.T("inspect with `sv status /var/service/<service>` or `sv status ~/.config/service/<service>` and check the service log"))
+	}
+	return warnRes(i18n.T("failed: %s"), strings.Join(details, ", ")).
+		withFix(i18n.T("inspect with `sv status /var/service/<service>` or `sv status ~/.config/service/<service>` and check the service log"))
+}
 
 func reconcileFailedUnits(checkOnly bool) recResult {
+	initSystem, err := doctorInitSystem()
+	if err != nil {
+		return noteRes(i18n.T("service health could not be checked: %v"), err)
+	}
+	if initSystem == host.Runit {
+		return reconcileRunitFailures()
+	}
 	// Clear the lingering transient app scopes (safe: the app is already gone)
 	// and the TPM units that failed only for want of NvPCRs (reconcile_tpm_nvpcr.go),
 	// then report whatever real failures remain.
@@ -3975,6 +4364,13 @@ var boxInstalledAt = func() time.Time {
 // update. it never overwrites a config written on this box. genuine merges are
 // reported for `sudo pacdiff`. idempotent: once the safe ones are gone a
 // re-run only sees (and reports) the conflicts.
+func pendingConfigCheckName() string {
+	if dnfHost() {
+		return i18n.T("pending package config updates")
+	}
+	return i18n.T("pending config (.pacnew)")
+}
+
 func reconcilePacnew(checkOnly bool) recResult {
 	if sys.NixBackend() {
 		return okRes("pacman configuration repair is not applicable on NixOS")
@@ -4034,13 +4430,25 @@ func reconcilePacnew(checkOnly bool) recResult {
 // ---- reconciler: orphaned packages -------------------------------------------
 
 func reconcileOrphans(_ bool) recResult {
-	out, err := sys.RunOut("pacman", "-Qtdq")
-	orphans := nonEmptyLines(out)
-	if err != nil || len(orphans) == 0 {
+	orphans, err := doctorOrphans()
+	if err != nil {
+		return noteRes(i18n.T("could not check orphaned packages: %v"), err)
+	}
+	if len(orphans) == 0 {
 		return okRes(i18n.T("no orphaned packages"))
 	}
-	return noteRes(i18n.T("%d orphaned package(s)"), len(orphans)).
-		withFix(i18n.T("review `pacman -Qtd`, then `sudo pacman -Rns $(pacman -Qtdq)` if unneeded"))
+	result := noteRes(i18n.T("%d orphaned package(s)"), len(orphans))
+	manager, managerErr := doctorPackageManager()
+	if managerErr != nil {
+		return result
+	}
+	if manager == host.XBPS {
+		return result.withFix(i18n.T("review `xbps-query -O`, then `sudo xbps-remove -o` if unneeded"))
+	}
+	if manager == host.DNF {
+		return result.withFix(i18n.T("review the list, then run `sudo %s autoremove` if unneeded"), host.DNFCommand())
+	}
+	return result.withFix(i18n.T("review `pacman -Qtd`, then `sudo pacman -Rns $(pacman -Qtdq)` if unneeded"))
 }
 
 // ---- swap helpers ------------------------------------------------------------
@@ -4119,8 +4527,8 @@ func firstLine(s string) string {
 }
 
 func anyPkgInstalled(names ...string) bool {
-	for _, n := range names {
-		if sys.PkgInstalled(n) {
+	for _, name := range names {
+		if doctorPackageInstalled(name) {
 			return true
 		}
 	}

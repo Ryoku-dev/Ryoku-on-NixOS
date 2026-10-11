@@ -2,7 +2,22 @@
 
 ## Unreleased
 
+### Added
+- The built-in in-session clockwork lockscreen follows the global 12/24-hour preference, including AM/PM.
+
 ### Fixed
+- **A lock client cannot spill into the next login.** Its crash-recovery wrapper
+  now stops when the login1 session that started it has ended, so a reused
+  Wayland socket cannot let an old lock take over a new session.
+- **Unlock preparation and the lock's reboot and power off work under
+  elogind.** `ryoku-qylock-unlock-prepare` reads sleep inhibitors from login1
+  over D-Bus instead of `systemd-inhibit`, and the lock screen's reboot and
+  power off call `loginctl`, so both work on Void as on Arch.
+- **The login screen on a source install matches Arch.** Only the
+  `ryoku-desktop` package laid the `ryoku-greeter` launcher, so Void and other
+  source installs ran SDDM's greeter in plain weston: wrong refresh rate, no
+  output pinning, no Bibata pointer. Deploy now installs it, and `sddm/setup`
+  writes the same greeter config on runit as on systemd.
 - **`install-qylock` says what it is waiting for.** When a lock screen or a
   qylock guard holds one of its locks, it names the lock file and how to find
   the holder before waiting, instead of hanging silently.

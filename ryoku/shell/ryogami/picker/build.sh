@@ -8,7 +8,8 @@ build="${RYOGAMI_PICKER_BUILD:-$here/build}"
 
 for tool in cmake ninja; do
   command -v "$tool" >/dev/null 2>&1 || {
-    printf 'build.sh: error: %s is required (pacman -S cmake ninja qt6-shadertools)\n' "$tool" >&2
+    advice="$(ryoku-host pkg advice cmake ninja qt6-shadertools 2>/dev/null || printf '%s' 'install cmake, ninja, and Qt shader tools')"
+    printf 'build.sh: error: %s is required (%s)\n' "$tool" "$advice" >&2
     exit 1
   }
 done

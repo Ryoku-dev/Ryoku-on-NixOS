@@ -23,11 +23,13 @@ Singleton {
     property string latestName: ""
     property string branch: "main"
     property int behind: 0
+    property bool snapshotsSupported: false
+    property string snapshotReason: ""
 
     // Ryoku channel commits (when behind) and recent history (when current).
     property var updates: []
     property var recent: []
-    // system packages a `pacman -Syu` would pull: [{ name, old, new }].
+    // system packages the host distribution's full upgrade would pull: [{ name, old, new }].
     property var packages: []
 
     property var lastChecked: null
@@ -48,6 +50,23 @@ Singleton {
         if (h < 24)
             return h + "h ago";
         return Math.floor(h / 24) + "d ago";
+    }
+
+    Process {
+        id: snapshotsProbe
+        command: ["ryoku-host", "snapshots"]
+        running: true
+        stdout: StdioCollector { id: snapshotsOut }
+        stderr: StdioCollector {}
+        onExited: (code) => {
+            if (code === 0) {
+                root.snapshotsSupported = true;
+                root.snapshotReason = "";
+            } else if (code === 5) {
+                root.snapshotsSupported = false;
+                root.snapshotReason = snapshotsOut.text.trim();
+            }
+        }
     }
 
     function check() { root.send("updates.check", {}); }

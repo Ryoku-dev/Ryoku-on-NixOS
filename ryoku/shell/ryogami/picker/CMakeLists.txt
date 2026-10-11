@@ -15,8 +15,10 @@ qt_standard_project_setup(REQUIRES 6.6)
 file(GLOB_RECURSE picker_sources CONFIGURE_DEPENDS
     RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
     src/*.cpp src/*.h)
-set(picker_test_source "src/tests/cardinstancesanitize_test.cpp")
-list(REMOVE_ITEM picker_sources "${picker_test_source}")
+set(picker_test_sources
+    "src/tests/cardinstancesanitize_test.cpp"
+    "src/tests/previewyuv_test.cpp")
+list(REMOVE_ITEM picker_sources ${picker_test_sources})
 file(GLOB_RECURSE picker_qml CONFIGURE_DEPENDS
     RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
     qml/*.qml qml/*.js)
@@ -76,10 +78,15 @@ option(RYOGAMI_PICKER_TESTS "Build Ryogami picker CPU invariant tests" OFF)
 if(RYOGAMI_PICKER_TESTS)
     enable_testing()
     add_executable(ryogami-cardinstancesanitize-test
-        "${picker_test_source}"
+        src/tests/cardinstancesanitize_test.cpp
         src/render/cardinstancesanitize.cpp)
     target_include_directories(ryogami-cardinstancesanitize-test PRIVATE src/render)
     add_test(NAME ryogami-cardinstancesanitize COMMAND ryogami-cardinstancesanitize-test)
+    add_executable(ryogami-previewyuv-test
+        src/tests/previewyuv_test.cpp
+        src/render/previewyuv.cpp)
+    target_link_libraries(ryogami-previewyuv-test PRIVATE Qt6::Gui)
+    add_test(NAME ryogami-previewyuv COMMAND ryogami-previewyuv-test)
 endif()
 
 # Relocatable: the plugin finds its backing library through an $ORIGIN rpath.

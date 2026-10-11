@@ -1697,7 +1697,7 @@ Item {
                         ? Translation.tr("Restore tablet dock defaults")
                         : Translation.tr("The pins and the order the shell ships with")
                     trailingKind: "none"
-                    onActivated: ShellServices.Dock.setPinned(ShellServices.Dock.starterPins())
+                    onActivated: root.resetRequested("dock")
                 }
 
                 EditPanelSectionLabel {

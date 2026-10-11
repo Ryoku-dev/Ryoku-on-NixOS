@@ -541,6 +541,7 @@ Item {
         var e = barCat.byId(id)
         if (e) {
             if (_isVisKeySetting(id, key)) { _setVisByKey(key, value === true); return }
+            if (key === "clock12h") { TimeFormat.set24h(!value); return }
             theme[key] = value   // the change handler persists through saveWidgets
             return
         }
@@ -1280,7 +1281,7 @@ Item {
         var day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
         var resetDay0 = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
         var dayDelta = Math.round((resetDay0 - day0) / 86400000)
-        var time = aiPad2(d.getHours()) + ":" + aiPad2(d.getMinutes())
+        var time = TimeFormat.format(d)
         if (dayDelta <= 0) return time
         var days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
         return days[d.getDay()] + " " + time
@@ -1457,7 +1458,7 @@ Item {
     // periodic Timer below only re-reads; this is the only path that refetches.
     Process {
         id: aiCollectProc
-        command: ["systemctl", "--user", "start", "ryoku-ai-usage.service"]
+        command: ["ryoku-host", "svc", "--user", "start", "ryoku-ai-usage.service"]
         onExited: {
             aiRefreshTimeout.stop()
             theme.refreshAiUsage(false)
@@ -2175,6 +2176,7 @@ Item {
     property real _screenRecordingBaseMs: 0
     readonly property string screenRecordingStatePath: (Quickshell.env("RYOKU_STATE_PATH") || (Quickshell.env("HOME") + "/.local/state/ryoku")) + "/recorder-status.json"
     property bool _recordingRefreshPending: false
+    property bool _gsrAvailable: true
     property string voxState: "idle"          // idle/recording/transcribing
     property string voxHint: ""
     property bool voxAvailable: true
@@ -2253,6 +2255,7 @@ Item {
         if (_makoAvailable && !dndProc.running) dndProc.running = true
     }
     function refreshRecordingStatus() {
+        if (!_gsrAvailable) return
         if (recordingPidProc.running) {
             _recordingRefreshPending = true
             return
@@ -2425,10 +2428,12 @@ Item {
     Process {
         id: recordingPidProc
         command: ["sh", "-c",
-            "gsr-cli -ipc \"${XDG_RUNTIME_DIR:-/tmp}/ryoku-gsr.sock\" status >/dev/null 2>&1 || exit 1; "
+            "command -v gsr-cli >/dev/null 2>&1 || exit 127; "
+            + "gsr-cli -ipc \"${XDG_RUNTIME_DIR:-/tmp}/ryoku-gsr.sock\" status >/dev/null 2>&1 || exit 1; "
             + "cat \"${RYOKU_STATE_PATH:-$HOME/.local/state/ryoku}/recorder-status.json\" 2>/dev/null"]
         running: false
         onExited: (exitCode) => {
+            if (exitCode === 127) theme._gsrAvailable = false
             if (exitCode !== 0) theme.setScreenRecordingPid("")
             if (theme._recordingRefreshPending) {
                 theme._recordingRefreshPending = false
@@ -2534,7 +2539,7 @@ Item {
     // so it shows an "open nmtui" button instead of an empty list
     property bool useNM: false
     Process {
-        command: ["bash", "-c", "systemctl is-active --quiet NetworkManager && echo 1 || echo 0"]
+        command: ["bash", "-c", "ryoku-host svc --system is-active NetworkManager >/dev/null 2>&1 && echo 1 || echo 0"]
         running: true
         stdout: StdioCollector { onStreamFinished: theme.useNM = this.text.trim() === "1" }
     }
@@ -2639,7 +2644,7 @@ Item {
     // Legacy launcher-logo text values migrated to the current text mode.
     readonly property var legacyLogoTextValues: ["omarchy", "hyprland"]
     property bool   weatherImperial: false   // false = °C / km·h, true = °F / mph
-    property bool   clock12h:        false   // false = 24h, true = 12h (AM/PM)
+    readonly property bool clock12h: !TimeFormat.is24h
 
     // ── widget/workspace state persistence ──
     property var barSeps: []
@@ -2934,7 +2939,6 @@ Item {
     onLauncherLogoTextChanged: if (_widgetsLoaded) saveWidgets()
     onLauncherLogoIconChanged: if (_widgetsLoaded) saveWidgets()
     onWeatherImperialChanged: if (_widgetsLoaded) saveWidgets()
-    onClock12hChanged:        if (_widgetsLoaded) saveWidgets()
     onWorkspaceStyleChanged:   if (_widgetsLoaded) saveWidgets()
     onBarPositionChanged:      if (_widgetsLoaded) saveWidgets()
     onBarScaleChanged:         if (_widgetsLoaded) saveWidgets()
@@ -3120,7 +3124,6 @@ Item {
                     }
                     // weatherImperial / clock12h follow pickerStyle
                     if (parts.length > wsField + 2) theme.weatherImperial = parts[wsField + 2] === "1"
-                    if (parts.length > wsField + 3) theme.clock12h        = parts[wsField + 3] === "1"
                     if (parts.length > wsField + 4) theme.modNetwork      = parts[wsField + 4] === "1"
                     // style tokens - appended after modNetwork, each guarded
                     // +5 is the retired V2 shadow field and is intentionally ignored.
@@ -3400,10 +3403,9 @@ Item {
     // ── Power Profile state ──
     property bool powerProfileVisible: false
     onPowerProfileVisibleChanged: popupOpened("powerProfileVisible")
-    // The shell daemon owns power-profiles-daemon (ryoku-shell powerprofiles.go)
-    // and streams the live pick on the powerprofiles topic; these read that
-    // stream. A second poller of powerprofilesctl here would drift from the
-    // daemon's banked profile and make a switch look like it did nothing.
+    // The shell daemon owns the power-profile provider and streams the live pick
+    // on the powerprofiles topic. A second provider poller here would drift from
+    // the daemon's banked profile and make a switch look like it did nothing.
     readonly property string powerProfileCurrent: PowerProfiles.profile
     readonly property var powerProfileAvailable: PowerProfiles.available
         ? PowerProfiles.profiles

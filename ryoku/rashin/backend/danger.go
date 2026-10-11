@@ -94,11 +94,13 @@ var sudoLike = map[string]bool{"sudo": true, "doas": true, "pkexec": true, "run0
 
 // systemLevel change packages, services, or machine state.
 var systemLevel = map[string]bool{
-	"pacman": true, "yay": true, "paru": true, "systemctl": true, "mount": true,
-	"umount": true, "modprobe": true, "sysctl": true, "timedatectl": true,
-	"hostnamectl": true, "localectl": true, "mkinitcpio": true, "grub-mkconfig": true,
-	"useradd": true, "usermod": true, "groupadd": true, "passwd": true,
-	"ryoku": true, "snapper": true, "reboot": true, "poweroff": true, "shutdown": true, "halt": true,
+	"pacman": true, "yay": true, "paru": true, "dnf": true, "dnf5": true,
+	"rpm": true, "xbps-install": true, "xbps-remove": true,
+	"systemctl": true, "mount": true, "umount": true, "modprobe": true,
+	"sysctl": true, "timedatectl": true, "hostnamectl": true, "localectl": true,
+	"mkinitcpio": true, "grub-mkconfig": true, "useradd": true, "usermod": true,
+	"groupadd": true, "passwd": true, "ryoku": true, "snapper": true,
+	"reboot": true, "poweroff": true, "shutdown": true, "halt": true,
 }
 
 // wipers destroy data by design; any invocation is danger.
@@ -218,6 +220,20 @@ func classifyArgv(argv []string) (dangerTier, string) {
 				return tierRead, ""
 			}
 		}
+		return tierSystem, "changes installed packages"
+	case name == "dnf" || name == "dnf5":
+		if ok, _ := roDNF(argv[1:]); ok {
+			return tierRead, ""
+		}
+		return tierSystem, "changes installed packages"
+	case name == "rpm":
+		if ok, _ := roRPM(argv[1:]); ok {
+			return tierRead, ""
+		}
+		return tierSystem, "changes installed packages"
+	case name == "xbps-query":
+		return tierRead, ""
+	case name == "xbps-install" || name == "xbps-remove":
 		return tierSystem, "changes installed packages"
 	case name == "curl" || name == "wget":
 		for _, a := range argv[1:] {

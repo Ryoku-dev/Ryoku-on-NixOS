@@ -83,6 +83,32 @@ func TestLayoutPrimary(t *testing.T) {
 	}
 }
 
+func TestApplySystemDelegatesToHostKeymap(t *testing.T) {
+	old := applySystemKeymap
+	t.Cleanup(func() { applySystemKeymap = old })
+	var layout, variant, options string
+	applySystemKeymap = func(gotLayout, gotVariant, gotOptions string) int {
+		layout, variant, options = gotLayout, gotVariant, gotOptions
+		return 0
+	}
+
+	if err := ApplySystem(Layout{Layout: "de,us", Variant: "nodeadkeys", Options: "ctrl:nocaps"}); err != nil {
+		t.Fatal(err)
+	}
+	if layout != "de" || variant != "nodeadkeys" || options != "ctrl:nocaps" {
+		t.Fatalf("host keymap args = %q %q %q", layout, variant, options)
+	}
+}
+
+func TestApplySystemReportsHostFailure(t *testing.T) {
+	old := applySystemKeymap
+	t.Cleanup(func() { applySystemKeymap = old })
+	applySystemKeymap = func(string, string, string) int { return 1 }
+	if err := ApplySystem(Layout{Layout: "fr"}); err == nil {
+		t.Fatal("host keymap failure was ignored")
+	}
+}
+
 // `keyboard apply` escalates through pkexec from the Hub (no tty for sudo, so the
 // boot-image rebuild used to fail and the apply reported FAILED, #177). The
 // re-exec hands the fully-resolved layout across with --resolved so the root

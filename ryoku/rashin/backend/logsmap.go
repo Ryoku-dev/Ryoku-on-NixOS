@@ -95,8 +95,17 @@ func logsMapBody() string {
 		}
 		fmt.Fprintf(&b, "- `%s`: %s%s\n", f.path, f.what, mark)
 	}
-	b.WriteString("- `/var/log/pacman.log`: every package transaction; an upgrade right before a breakage is the classic cause.\n")
-	b.WriteString("- `ryoku-rashin logs updates` bundles all three.\n\n")
+	switch logsPackageManager() {
+	case "dnf":
+		b.WriteString("- `dnf history list`: package transactions; an upgrade right before a breakage is the classic cause.\n")
+	case "xbps":
+		b.WriteString("- `/var/log/xbps.log`: package transactions; an upgrade right before a breakage is the classic cause.\n")
+	case "pacman":
+		b.WriteString("- `/var/log/pacman.log`: package transactions; an upgrade right before a breakage is the classic cause.\n")
+	default:
+		b.WriteString("- Native package history is unavailable until `ryoku-host pkgmgr` identifies the host.\n")
+	}
+	b.WriteString("- `ryoku-rashin logs updates` bundles the doctor report, update log, and native package history.\n\n")
 
 	b.WriteString("## Crashes\n\n")
 	b.WriteString("`coredumpctl list` lists every dump; `coredumpctl info <binary>` heads the newest. `ryoku-rashin logs <app>` folds in a binary's dumps and any OOM kills naming it.\n")

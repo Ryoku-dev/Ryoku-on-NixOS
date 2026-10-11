@@ -3,6 +3,28 @@
 ## Unreleased
 
 ### Added
+- **Package actions use DNF on Fedora.** Package search, install, remove,
+  updates, stash dependencies, and the Nomarchy compatibility commands now go
+  through the host seam instead of assuming pacman. Unsupported AUR-only
+  actions stay unavailable rather than running a dead command.
+- **The session starts the same way on systemd and on Void's runit.** Both
+  compositors now call `ryoku-host session start` at login. On systemd it runs
+  the exact chain the configs ran before; on Void it publishes the session
+  environment to Turnstile and D-Bus activation and brings the Ryoku services
+  up under runit, so nothing has to wrap the compositor in `dbus-run-session`.
+  Reboot and power off go through login1 directly, so they work under elogind
+  too, and Keep Awake, the lid policy, the Hub's timezone picker and the
+  system keymap all have a runit path.
+- **Bar power, service and time-zone actions now use `ryoku-host`.** The same
+  controls work on systemd and Void's runit.
+- Missing-dependency hints and the stash installer follow the system package manager on Void.
+- Shell clocks, notification timestamps, weather and launcher clocks follow one global 12/24-hour preference; Super+Esc defaults to 12-hour time.
+- Warning and critical battery alerts can each be enabled independently in
+  Graphics & Power → Battery, including warning-only or critical-only modes.
+- **Native battery alerts.** Every bar style warns once per discharge session at
+  configurable warning and critical levels (25% and 10% by default). Configure
+  or test them in Ryoku Settings → Graphics & Power → Battery. Alerts respect
+  Do Not Disturb and retry notification delivery failures.
 - **One dock for every bar style, in any design.** The dock is no longer tied
   to a bar style: pick the Ryoku, Python or Shima dock (or none) and it runs
   the same under QS Bar, Kairos, Shima, Python, Sumi and Nomarchy, on both
@@ -260,6 +282,25 @@
   own seconds so the shell no longer ticks per second for nobody. Orbit,
   upstream's on-screen keyboard and lock-screen work, and its niri-only pages
   stay out (`quickshell/inir/`).
+- **Shima takes iNiR 2.33's independent work.** A curated sync of upstream's
+  2.33 line, keeping every change that stands on its own and leaving the parts
+  Ryoku cannot ship: an empty player now offers to open the music app you use
+  most (ranked by listening time and Screen Time), the battery bubble draws a
+  real battery with its charge, widget faces rest while nothing moves so idle
+  desktops stop redrawing, settings sliders preview live and write once on
+  release, glass dithers instead of banding, tiles light their top edge and
+  chips fit large text, the Discord-overlay row only shows where it is
+  installed, a notification action sent without a label reads Open, the update
+  check keeps its last count when a check fails, Spotlight keeps up while you
+  type, day and month names follow the shell's language, widgets keep their
+  places across a scale change, blur keeps up with an opening body, the power
+  menu blurs the whole wallpaper, and a busy I2C bus at login no longer loses
+  the monitor. The package-manager probes now also read XBPS, and battery,
+  network and Bluetooth gained simulate verbs for testing. What stays out is
+  upstream's washi palette solver and Afterglow texture (they drive the app
+  theming Ryoku owns through matugen), the iRiS login screen, Void distro
+  support, the settings-as-window host, Orbit, and the lock and niri-only
+  pages (`quickshell/inir/`).
 - **Per-widget Depth: in front or behind.** Right-clicking a desktop widget or
   a store tile, and the visualiser's own editor, now offer a Depth control
   that lifts just that widget above the subject cut-out or drops it behind
@@ -386,6 +427,37 @@
   Ryoku's seams (`../inir/`).
 
 ### Changed
+- **Python catches up with serpantinum's fixes.** A curated sync of the
+  upstream shell's bug fixes and small features that stand on their own,
+  leaving its rearchitecture out: the clock stops re-evaluating its date string
+  every tick and the keyboard-lock watcher keeps its LED files open, so the
+  style idles cooler; the weather and calendar pills read Offline instead of
+  showing a stale forecast when updates keep failing; a hidden image box stops
+  decoding its GIF; the lyrics search matches better and fixes word spacing for
+  non-Latin scripts; battery notifications deduplicate and wait for the
+  language files; the draw action exports and copies again; song art caches one
+  thumbnail per player instead of mixing them up; the equalizer runs; an input
+  that loses focus no longer strands the arrow keys; the popup stage hides only
+  after its close animation; and the guide can search the OSD and notification
+  rows. With no language chosen the style now follows the system locale, and
+  its buttons draw their glyphs from Ryoku's own icon face. What stays out is
+  upstream's bar-module and widget-face registry, its canvas-to-shader rewrite
+  and the features hung on that structure, the emoji picker, and the lock,
+  clipboard and launcher work Ryoku owns (`barstyles/python/`).
+- **Picker style lives in QS Bar Settings.** Tanzaku, Hearthstone or Carousel
+  for the theme, wallpaper and media pickers is chosen on the Bar route of QS
+  Bar Settings, next to the rest of how the bar looks, and switches the pickers
+  live (`quickshell/shell/modules/bar/barstyles/qsbar/controlcenter/routes/BarsRoute.qml`).
+- **The picker's Download browser is a store.** Providers sit in a rail on the
+  left with the selected provider's filters under them; the results fill the
+  whole height in a grid that sizes its columns to the width, with a real
+  scrollbar and a page strip (page N of M, Previous, Next, Load more) instead
+  of invisible auto-paging. Loading more no longer jumps the grid back to the
+  top. Opening a result slides in a side pane sized to the picture, with the
+  live clip for video sources, the metadata, and Save, Apply and Copy id
+  right under it; the grid reflows beside it. Hover actions are a bar on the
+  card (`ryogami/picker/qml/browser/`, `ryogami/picker/src/layouts/walllayout.cpp`,
+  `ryogami/picker/src/scene/cardfield.cpp`).
 - **The Ask bar's Fast lane lists Prowl routes.** Its model drawer offers the
   active set, the capability axes and your routing sets instead of provider
   names (`quickshell/shell/modules/ask/AskSurface.qml`,
@@ -509,8 +581,85 @@
   (`services/Config.qml`, `../../hub/quickshell/pages/BarStudioPage.qml`,
   `../../apps/ryostore/backend/provider_bars.go`, `../../wm/niri/config_binds.go`,
   `../../hyprland/modules/binds.lua`).
-
 ### Fixed
+- **Power profiles work with either system provider.** Nomarchy, game mode and
+  `ryoku-power` now read and switch profiles through ryoku-shell's PowerProfiles
+  D-Bus client instead of requiring a provider-specific command.
+  The same controls work with tuned-ppd and power-profiles-daemon.
+- **The AI usage pill sees OpenCode 2.x sessions.** The collector only knew
+  the pre-2.x message store, so every 2.x install read as stale with zero
+  tokens and the OpenCode card stayed empty (#365). It now reads the
+  `session_message` table, detecting the blob, role and time columns from the
+  live schema so a future rename degrades to the old layouts instead of going
+  silent again (`bin/opencode-usage`).
+- **The dock stays in view while the Stage Editor edits it.** Opening the Dock
+  catalogue hid the dock itself, so every setting was applied blind. The dock
+  now holds visible and clickable on the edited screen for all three designs,
+  and the mode's viewport shrinks around the edge it occupies
+  (`quickshell/shell/modules/dock/`, `barstyles/python/dock/`,
+  `inir/modules/iris/dock/`).
+- **The chosen dock design card is readable on every palette.** Its plate is
+  the inverted one, but the labels and the miniature kept the paper ink, which
+  vanished against it on a light theme; they now follow the plate
+  (`quickshell/stage/modules/ii/editMode/EditDockDesignPicker.qml`).
+- **A fast boot still gets the polkit prompt.** The shell registered its
+  authentication agent once at login and gave up if logind had not yet marked
+  the session the display one; polkitd then rejected it ("the session and the
+  caller differ") and the whole session ran with no agent, so `pkexec` failed
+  with no dialog until a manual shell restart (#336). The registration now
+  retries that transient rejection off the startup path, and still stops on a
+  real second agent holding the slot.
+- **Turning a monitor off and on no longer crashes the shell.** The volume
+  panel, the popout, the framebar menus and the sidebar mixer listed the
+  settled audio devices straight to a Repeater. When PipeWire destroyed a
+  monitor's audio sink on unplug, that dead entry could still sit in the list
+  while the bar rebuilt for the new screen, and Quickshell segfaulted
+  initialising its delegate (#345). Every one of these views now drops a
+  device whose node is gone before it reaches the model.
+- **Void relogins restart the desktop cleanly.** The Turnstile services now bind
+  to each graphical login and stop with it, so the shell, bar, and video
+  wallpaper return after logout even when another user session keeps runit up.
+- **Recording stays quiet when `gsr-cli` is missing.** The status checks stop
+  instead of filling the shell log every few seconds (`services/Recorder.qml`).
+- **The plugin widget menu loads again.** Its opacity signal shared a name
+  with the built-in `opacityChanged`, which current Qt rejects, so the menu
+  never appeared (`modules/desktop/PluginWidgetMenu.qml`).
+- **Void installs have sound.** Nothing started PipeWire on a runit system, so
+  the session had no audio at all. PipeWire, WirePlumber and pipewire-pulse now
+  run as login services under Turnstile (`../../void/init/user/`), and a
+  service that waits for the session bus no longer mistakes the system bus
+  service of the same name for it; a wait that gives up now says so in the
+  system log (`../../void/init/lib/wait-for`).
+- **The terminal readout draws the Ryoku emblem on source installs.** Only the
+  `ryoku-desktop` package laid `fastfetch-emblem.png`, so a source deploy
+  (Void, Debian) fell back to the wide distro ASCII logo and every long row
+  wrapped into it.
+- **A source deploy onto a brand-new account no longer stops at the fish
+  config.** The deploy copied `config.fish` before creating `~/.config/fish`,
+  so it only worked for accounts that already had the directory.
+- Nomarchy bar documentation links resolve to the shipped Ryoku guide and default configuration.
+- **Spotlight opens under every bar style.** The launcher only flipped a
+  search flag that Shima's frame listens for, so with any other bar style
+  Super+Space did nothing. Without the frame it now mounts the same palette
+  on its own layer, on the focused screen, on Hyprland and niri alike
+  (`quickshell/shell/modules/launcher/variants/spotlight/`,
+  `quickshell/inir/modules/iris/palette/IrisPalette.qml`).
+- **The Stage Editor has a Dock button.** The dock's design, placement,
+  behaviour and pinned apps were built into the editor's drawer with nothing
+  in the toolbar to open them. Dock sits after Style now, and its reset is one
+  undoable step (`quickshell/stage/modules/ii/editMode/`).
+- **Live wallpaper previews no longer shred the picker on NVIDIA.** Selecting
+  a MotionBGs, MoeWalls or YouTube result plays its clip in the card, and
+  turning each decoded frame into an image went through Qt's GPU converter,
+  which brought a second OpenGL context of its own into the picker's render
+  thread. On the NVIDIA driver that left the wrong context current under the
+  scene graph, and the whole picker tore into giant triangles and scrambled
+  text while you browsed. Frames are now converted on the CPU on a worker of
+  their own, the preview texture is allocated once instead of per clip, and
+  previews decode in software like the shell's own clips
+  (`ryogami/picker/src/render/previewvideo.cpp`,
+  `ryogami/picker/src/render/previewyuv.cpp`,
+  `ryogami/picker/src/render/cardrendernode.cpp`, `ryogami/daemon/process.go`).
 - **Switching workspaces no longer replays the wallpaper transition.** Since
   per-workspace wallpapers, every switch (a three-finger swipe included)
   repainted the output with a reveal even when both workspaces show the same
@@ -565,18 +714,15 @@
   with "bad interpreter" while models already on disk kept working. It now
   runs pip through the environment's own Python (`scripts/ryostage`).
 - **The wallpaper picker's download browser no longer tears into shards.**
-  Switching providers and pages rapidly could eventually corrupt thumbnails,
-  panels and text on NVIDIA's OpenGL RHI. The same damage remained when the
-  picker submitted no custom draw or resource-update commands, while Vulkan
-  stayed clean under the identical workload. On proprietary NVIDIA systems
-  with a usable Vulkan ICD, the resident picker now chooses Qt's Vulkan RHI;
-  explicit backend choices and machines without Vulkan remain untouched. The
-  renderer also draws only the instances uploaded for the
-  current frame, clears offscreen targets before sampling them, drops the old
-  provider's transitions on reset, keys thumbnails by provider and clamps
-  layout values. `RYOGAMI_POISON_GPU=1` fills fresh allocations with garbage
-  for regression runs (`ryogami/daemon/process.go`,
-  `ryogami/picker/src/render/cardrendernode.cpp`, `src/scene/cardfield.cpp`).
+  Switching between Wallhaven, MoeWalls, MotionBGs and YouTube while results
+  loaded could draw the new card count from the previous frame's buffer; on
+  GPUs that do not clear fresh memory (most NVIDIA cards) that came out as
+  giant textured triangles and a shredded header. The card renderer now draws
+  only what it uploaded that frame, clears every offscreen target before it is
+  sampled, drops the old provider's transitions on a reset, keys thumbnails by
+  provider, and clamps layout values. `RYOGAMI_POISON_GPU=1` fills new GPU
+  memory with garbage so this class of bug shows on any GPU
+  (`ryogami/picker/src/render/cardrendernode.cpp`, `src/scene/cardfield.cpp`).
 - **The Stage Editor's toolbar and catalogue answer clicks on Hyprland.** While
   the editor was open the desktop held the keyboard exclusively, and Hyprland
   hands a surface holding that grab every click too, so only the desktop's own

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -406,6 +407,19 @@ func voxtypeRecord(verb string) {
 	go func() { _ = cmd.Wait() }()
 }
 
+func hostUserServiceActive(unit string) bool {
+	return exec.Command("ryoku-host", "svc", "is-active", unit).Run() == nil
+}
+
+func stopHostUserService(unit string) error {
+	err := exec.Command("ryoku-host", "svc", "stop", unit).Run()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 4 {
+		return nil
+	}
+	return err
+}
+
 // dictationReady reports whether a Super+` tap can actually dictate: Voxtype
 // installed and its user service running. When it can't, the pill shows an
 // "off" note instead of a listening wave that would capture nothing.
@@ -413,7 +427,7 @@ func dictationReady() bool {
 	if _, err := exec.LookPath("voxtype"); err != nil {
 		return false
 	}
-	return exec.Command("systemctl", "--user", "is-active", "--quiet", "voxtype.service").Run() == nil
+	return hostUserServiceActive("voxtype.service")
 }
 
 func currentUserProcessRunning(pattern string) bool {

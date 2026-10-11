@@ -3,6 +3,53 @@
 ## Unreleased
 
 ### Added
+- **Updates, channels, rollback, and doctor now work on Fedora.** The host seam
+  detects dnf5 or dnf, translates the shared package catalogue, reads and
+  rewrites `/etc/yum.repos.d/ryoku.repo`, and moves the exact RPM set served by
+  stable, testing, or a frozen target in one transaction. The boot guard can
+  downgrade a failed update; snapshot commands explain that Fedora's GRUB path
+  has no Ryoku snapshot support. Doctor repairs repository metadata and uses
+  RPM-specific health advice.
+- **Unstable builds now have the same rollback path as stable releases.**
+  The latest ten testing builds are listed on unstable boxes and can be pinned
+  with `ryoku track <build>` or restored with `ryoku rollback --to <build>`.
+  Pacman and XBPS use their frozen build repositories, and the boot guard can
+  return to the previous unstable build after a failed boot.
+- **The host seam now publishes capabilities and portable system actions.**
+  `ryoku-host` can explain unavailable Void packages, print native install
+  advice, distinguish AUR availability, pass pacman overwrite rules through
+  package installs, list time zones, drive power actions through systemd or
+  elogind, and report package, init, snapshot, and AUR capabilities as JSON
+  (`internal/host/`).
+- **Void updates now use the signed Ryoku XBPS repository end to end.**
+  `ryoku update`, channel tracking, status, manifest convergence, shipped-app
+  repair, and retired-package cleanup use the same host seams as Arch, mapped
+  to `xbps-query`, `xbps-install`, and `xbps-remove`. Managed transactions
+  carry `RYOKU_MANAGED_UPDATE=1` so the package hook does not run a second
+  power cutover. The old installer-created Void source-update fallback is gone;
+  explicit development checkouts still work.
+- **Void updates now have the same snapshot and rollback safety net as Arch.**
+  Updates create snapper pre/post pairs, frozen-release rollback moves the XBPS
+  set transactionally, and the boot guard can revert a bad release or select the
+  pre-update Limine snapshot.
+- **`ryoku-host` answers "how does this machine do it" for everything else.**
+  One small binary names the init system and package manager and runs service,
+  package, inhibitor, timezone and keymap actions through systemd and pacman
+  on Arch or runit and xbps on Void, with the same exit codes everywhere: 3 for
+  "no", 4 for "not here", 5 for "this host has no such thing". Scripts, the Hub
+  and the shell call it instead of `systemctl` or `pacman`, so a fix lands once
+  for every distro (`internal/host/`, `cmd/ryoku-host/`).
+- **Void's Turnstile and D-Bus setup is automatic and self-healing.**
+  `ryoku-host session ensure` enables turnstiled and dbus, sets
+  `manage_rundir = no` for elogind, keeps `pam_turnstile` in
+  `/etc/pam.d/system-login` (backing the file up before the one-line insert),
+  and gives the user a dbus service Turnstile waits for at login. Every deploy
+  and update runs it. `ryoku-host session check` lists what is missing, and
+  `session fix-wrappers` removes `dbus-run-session` and `dbus-launch` wrappers
+  from login files and user session entries, keeping a backup, because they
+  start a second bus that portals, PipeWire and polkit never see. `ryoku
+  doctor` runs the check on runit machines and repairs what it finds
+  (`internal/host/turnstile.go`, `internal/doctor/reconcile_turnstile.go`).
 - **`ryoku doctor` keeps Prowl's gateway up for Rashin.** When Rashin runs but
   the gateway on port 8788 (`RYOKU_PROWL_PORT`) does not answer, the doctor runs
   `ryoku-rashin ensure` and checks again
@@ -97,6 +144,47 @@
   `internal/sys/release.go`, `internal/updater/release.go`).
 
 ### Fixed
+- **Doctor skips the AMD action audit under tuned-ppd.** It reads
+  power-profiles-daemon's optional action metadata over D-Bus and reports the
+  row as not applicable when the active provider does not expose those actions.
+- **Boot fallback and channel overrides now survive the last mile.** The guard
+  writes complete nested Limine paths and clears remembered EFI entries,
+  including when it returns to the restored system after
+  `limine-snapper-restore`. Stable channel selection also keeps an explicit
+  release-base override on pacman and XBPS.
+- **Void updates complete over SSH when no desktop session is active.** The
+  updater skips the session cutover sleep inhibitor when there are no live
+  desktop suspend owners to replace, while keeping the guard for desktop
+  updates (`internal/updater/update.go`).
+- **Void package and service health checks now inspect the real installed
+  system.** Ryoku-owned `@repo` package names map to their native XBPS names,
+  and the doctor reads system runit state through one passwordless,
+  fixed-argument host query while continuing to inspect Turnstile services
+  directly (`internal/host/`, `internal/doctor/`).
+
+- **Void service failures are visible in `ryoku doctor`.** The runit host seam
+  reads system and Turnstile supervise state, reports services that want up but
+  are down or repeatedly restarting, and leaves parked services alone
+  (`internal/host/service.go`, `internal/doctor/doctor.go`).
+- **The doctor understands Void's full snapshot and boot stack.** Snapshot,
+  snapper cleanup, Limine and boot-guard checks now use XBPS, runit, dracut and
+  Void's kernel hook while keeping Arch's answers unchanged
+  (`internal/doctor/`).
+- **Switching desktops says why a target is missing.** `ryoku wm` checks,
+  installs and removes desktop packages through `ryoku-host`, so a desktop
+  this system cannot install is refused up front with the reason (`wm.go`).
+- **Keyring status recognizes standard optional PAM lines.** SDDM stacks often
+  prefix optional module types with `-`, and those `-auth` and `-session` lines
+  now count as login-keyring wiring instead of being misreported as
+  `never-ask` (`internal/keyring/pam.go`).
+- **`ryoku doctor` warns when boot state cannot be verified.** Inaccessible
+  boot files, incomplete kernel metadata, and failed free-space measurements
+  now produce warnings instead of misleading success reports. Doctor also
+  avoids pruning boot entries or rebuilding kernel images when the required
+  state cannot be verified (`internal/doctor/reconcile_limine.go`,
+  `internal/doctor/reconcile_boot_space.go`,
+  `internal/doctor/reconcile_limine_images.go`,
+  `internal/doctor/reconcile_limine_entries.go`).
 - **Existing installs use their console layout at the disk unlock prompt.** The
   doctor adds the `ryoku-console-keys` initramfs hook right after `udev` in
   `/etc/mkinitcpio.conf.d/ryoku.conf` once ryoku-desktop ships it, and rebuilds

@@ -157,13 +157,13 @@ type Caps struct {
 	// provider knows which client it starts; the daemon scans /proc for this
 	// name and the neutral script pgreps it. Empty when CapNightLight is absent.
 	NightLightProcess string `json:"nightLightProcess,omitempty"`
-	// Packages are the pacman packages this compositor is made of: the
-	// compositor package and the satellites ryoku-desktop-<name> installs for
-	// it, most significant first. Provider-owned because only a provider knows
-	// what it is made of, and it is what lets a switch reclaim a compositor's
-	// space without the CLI or the Hub ever spelling a package name. The
-	// private dependencies these orphan with are pacman's to cascade, so they
-	// are not listed here.
+	// Packages are the native catalogue packages this compositor is made of:
+	// the compositor package and the satellites ryoku-desktop-<name> installs,
+	// most significant first. Provider-owned because only a provider knows what
+	// it is made of, and it is what lets a switch reclaim a compositor's space
+	// without the CLI or the Hub ever spelling a package name. Private
+	// dependencies are left to the native package manager's removal plan, so
+	// they are not listed here.
 	Packages []string `json:"packages,omitempty"`
 	// WindowRuleActions are the neutral window-rule action ids this provider's
 	// config writer honours, in the order the Hub should offer them. Each

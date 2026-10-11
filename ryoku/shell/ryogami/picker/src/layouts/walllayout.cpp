@@ -239,6 +239,8 @@ void WallLayout::configure(const LayoutContext &ctx, bool animate)
 {
     const Params np = readParams(ctx);
     m_settingsCols = np.cols;
+    m_preferredThumbW = np.thumbW;
+    m_preferredThumbH = np.thumbH;
     if (animate && m_haveParams) {
         m_target = np;
         // Topology jumps at once; the scene crossfade hides the reflow.
@@ -266,7 +268,7 @@ void WallLayout::reset(const LayoutContext &ctx)
 void WallLayout::gridFollow(int idx)
 {
     const Params &p = m_live;
-    const float viewH = p.totalH();
+    const float viewH = m_viewHeight > 0 ? m_viewHeight : p.totalH();
     float rowTop;
     float itemH;
     if (p.layout == Editorial) {
@@ -459,14 +461,21 @@ void WallLayout::build(const LayoutContext &ctx, std::vector<CardVisual> &out)
     if (!m_haveParams)
         configure(ctx, false);
 
-    // Set live and target together so the param morph agrees with a pinned column count.
-    // A pinned count (the download browser) is a ceiling: the grid drops columns rather
-    // than spill past a results pane narrower than the count at the card size wants.
     int effectiveCols = m_settingsCols;
+    const float vw = float(ctx.viewport.width());
+    const float vh = float(ctx.viewport.height());
     if (ctx.columnsOverride > 0) {
-        const float room = float(ctx.viewport.width()) - 2.0f * kPinnedMargin + m_target.gapX;
-        const int fit = std::max(1, int(room / std::max(m_target.cellW(), 1.0f)));
-        effectiveCols = std::min(ctx.columnsOverride, fit);
+        const float room = std::max(vw - 2.0f * kPinnedMargin, 1.0f);
+        const float preferredCell = std::max(m_preferredThumbW + m_target.gapX, 1.0f);
+        effectiveCols = std::max(1, int((room + m_target.gapX) / preferredCell));
+        const float stretchedW =
+            std::max((room - m_target.gapX * float(effectiveCols - 1)) / float(effectiveCols), 1.0f);
+        const float aspect = m_preferredThumbW / std::max(m_preferredThumbH, 1.0f);
+        const float stretchedH = stretchedW / std::max(aspect, 0.1f);
+        m_live.thumbW = stretchedW;
+        m_target.thumbW = stretchedW;
+        m_live.thumbH = stretchedH;
+        m_target.thumbH = stretchedH;
     }
     m_live.cols = effectiveCols;
     m_target.cols = effectiveCols;
@@ -479,13 +488,14 @@ void WallLayout::build(const LayoutContext &ctx, std::vector<CardVisual> &out)
     }
 
     const Params &p = m_live;
-    const float vw = float(ctx.viewport.width());
-    const float vh = float(ctx.viewport.height());
     const float entrance = float(ctx.entrance);
     const int current = std::clamp(ctx.current, 0, count - 1);
 
     const float totalW = p.totalW();
-    const float viewH = p.totalH();
+    m_viewHeight = ctx.columnsOverride > 0
+        ? std::max(vh - 2.0f * kPinnedMargin, p.thumbH)
+        : p.totalH();
+    const float viewH = m_viewHeight;
     const QPointF center = compositionCenter(ctx);
     const float cx = float(center.x());
     const float cy = float(center.y());
@@ -611,7 +621,7 @@ QRectF WallLayout::stageRect(const LayoutContext &ctx) const
 {
     const QPointF c = compositionCenter(ctx);
     const double w = m_live.totalW();
-    const double h = m_live.totalH();
+    const double h = m_viewHeight > 0 ? m_viewHeight : m_live.totalH();
     return QRectF(c.x() - w * 0.5, c.y() - h * 0.5, w, h);
 }
 
@@ -645,7 +655,8 @@ int WallLayout::step(const LayoutContext &ctx, int dx, int dy) const
 int WallLayout::page(const LayoutContext &ctx, int dir) const
 {
     Q_UNUSED(ctx)
-    return dir * std::max(m_live.rows, 1) * std::max(m_live.cols, 1);
+    const int visibleRows = std::max(1, int(m_viewHeight / std::max(m_live.cellH(), 1.0f)));
+    return dir * visibleRows * std::max(m_live.cols, 1);
 }
 
 int WallLayout::wheel(const LayoutContext &ctx, QPointF angle, QPointF pixels)
@@ -655,4 +666,10 @@ int WallLayout::wheel(const LayoutContext &ctx, QPointF angle, QPointF pixels)
     if (amount != 0.0f)
         m_camera.target += double(-amount * m_live.cellH());
     return 0;
+}
+
+void WallLayout::setScrollPosition(const LayoutContext &ctx, qreal position)
+{
+    Q_UNUSED(ctx)
+    m_camera.target = std::clamp(double(position), 0.0, double(m_maxScroll));
 }

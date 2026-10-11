@@ -75,15 +75,19 @@ PopupWindow {
 
 
   anchor {
-    id: popupAnchor
     window: anchorItem ? anchorItem.QsWindow.window : null
     adjustment: PopupAdjustment.Slide
     edges: Edges.Top | Edges.Left
     gravity: Edges.Bottom | Edges.Right
     rect.width: 1
     rect.height: 1
+  }
 
-    onAnchoring: {
+  // Quickshell's window module describes PopupAnchor as an opaque type, so a
+  // handler inside the anchor block reads as unresolved to the QML gate.
+  Connections {
+    target: root.anchor
+    function onAnchoring() {
       if (!root.anchorItem || !root.bar) return
 
       var target = root.anchorItem
@@ -118,8 +122,8 @@ PopupWindow {
           cy = Math.max(root.margin, Math.min(cy, window.height - popupHeight - root.margin))
         }
 
-        popupAnchor.rect.x = Math.round(cx)
-        popupAnchor.rect.y = Math.round(cy)
+        root.anchor.rect.x = Math.round(cx)
+        root.anchor.rect.y = Math.round(cy)
         return
       }
 
@@ -131,8 +135,8 @@ PopupWindow {
         point.y = Math.max(root.margin, Math.min(point.y, window.height - popupHeight - root.margin))
       }
 
-      popupAnchor.rect.x = Math.round(point.x)
-      popupAnchor.rect.y = Math.round(point.y)
+      root.anchor.rect.x = Math.round(point.x)
+      root.anchor.rect.y = Math.round(point.y)
     }
   }
 

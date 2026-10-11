@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
 
 	i18n "ryoku-i18n"
@@ -31,28 +32,50 @@ var (
 	qmlFileErrRe = regexp.MustCompile(`caused by file://([^\[\s]+)(?:\[(-?\d+):-?\d+\])?: (.+)$`)
 	// ERROR: caused by @shell.qml[13:1]: module "shell.services" is not installed
 	qmlModuleErrRe = regexp.MustCompile(`module "([\w.]+)" is not installed`)
+	// The plugin '/usr/lib/qt6/qml/Ryoku/Blobs/libryoku-blobsplugin.so' uses incompatible Qt library. (6.12.0) [release]
+	qtPluginMismatchRe = regexp.MustCompile(`The plugin '([^']+)' uses incompatible Qt library\. \((\d+\.\d+)[\d.]*\)`)
 )
 
 // swapped in tests, which cannot fake /proc
-var liveShells = liveShellInstances
+var (
+	liveShells            = liveShellInstances
+	shellLoadStableWindow = 3 * time.Second
+)
 
 func reconcileShellLoad(checkOnly bool) recResult {
-	if len(liveShells()) > 0 {
-		return okRes(i18n.T("the desktop is loaded"))
-	}
-	// The updater runs this right after restarting the shell, so give the surface
-	// time to come up before calling it dead: a slow start is not a failure.
+	// A process in /proc is not proof that the desktop loaded: the supervisor
+	// publishes a Quickshell child while it is parsing QML, then respawns it
+	// after an immediate load failure. The current attempt's log is authoritative;
+	// without its success marker, require the child to survive the daemon's
+	// three-second crash window.
 	report := ""
 	deadline := time.Now().Add(8 * time.Second)
+	liveSince := time.Time{}
+	livePID := 0
 	for {
-		if len(liveShells()) > 0 {
-			return okRes(i18n.T("the desktop is loaded"))
-		}
-		if r := loggedFailure(); r != "" {
-			report = r
+		log := shellLoadLog()
+		if isLoadFailure(log) {
+			report = log
 			break
 		}
-		if time.Now().After(deadline) {
+		now := time.Now()
+		shells := liveShells()
+		if len(shells) > 0 {
+			if strings.Contains(log, "Configuration Loaded") {
+				return okRes(i18n.T("the desktop is loaded"))
+			}
+			if livePID != shells[0].pid {
+				livePID = shells[0].pid
+				liveSince = now
+			}
+			if now.Sub(liveSince) >= shellLoadStableWindow {
+				return okRes(i18n.T("the desktop is loaded"))
+			}
+		} else {
+			livePID = 0
+			liveSince = time.Time{}
+		}
+		if now.After(deadline) {
 			break
 		}
 		time.Sleep(400 * time.Millisecond)
@@ -62,6 +85,14 @@ func reconcileShellLoad(checkOnly bool) recResult {
 	}
 	if report == "" {
 		return okRes(i18n.T("no desktop is running and no load error was reported"))
+	}
+	// A compiled module built against a newer Qt than the one running is refused
+	// by Qt itself: the QML tree is fine, the box is behind its distribution.
+	// Only the system update fixes that, and the updater leaves the base system
+	// alone on purpose, so say exactly which command does.
+	if plugin, built := qtPluginMismatch(report); plugin != "" {
+		return warnRes(i18n.T("the desktop cannot load: %s was built against Qt %s but this system runs Qt %s"), plugin, built, runningQt()).
+			withFix(systemPackageUpgradeAdvice())
 	}
 
 	// "quickshell/shell/services" when the loader named the module, the whole
@@ -95,14 +126,12 @@ func reconcileShellLoad(checkOnly bool) recResult {
 		repairSummary(overrides, restored))
 }
 
-// loggedFailure is the load failure the shell daemon captured. The log is
-// truncated on every start, so a stale failure cannot outlive its attempt.
-func loggedFailure() string {
+// shellLoadLog is the current supervised attempt's combined output. The daemon
+// truncates it on every start, so a stale failure cannot outlive its attempt.
+func shellLoadLog() string {
 	log := filepath.Join(sys.Xdg("XDG_STATE_HOME", ".local/state"), "ryoku", "surfaces", "shell.log")
-	if b, err := os.ReadFile(log); err == nil && isLoadFailure(string(b)) {
-		return string(b)
-	}
-	return ""
+	b, _ := os.ReadFile(log)
+	return string(b)
 }
 
 // probeConfig loads the config once, for a box whose daemon kept no log.
@@ -119,7 +148,40 @@ func probeConfig() string {
 }
 
 func isLoadFailure(s string) bool {
-	return strings.Contains(s, "Failed to load configuration")
+	return strings.Contains(s, "Failed to load configuration") ||
+		strings.Contains(s, "Unrecognized pragma")
+}
+
+// qtPluginMismatch is the plugin Qt refused for being built against a newer Qt
+// minor, and that minor, or "" when the report holds no such refusal.
+func qtPluginMismatch(report string) (plugin, built string) {
+	m := qtPluginMismatchRe.FindStringSubmatch(report)
+	if m == nil {
+		return "", ""
+	}
+	return m[1], m[2]
+}
+
+func systemPackageUpgradeAdvice() string {
+	manager, _ := doctorPackageManager()
+	switch manager {
+	case host.DNF:
+		return i18n.Tf("sudo %s upgrade --refresh brings Qt up to date, then the shell loads again", host.DNFCommand())
+	case host.XBPS:
+		return i18n.T("sudo xbps-install -Su brings Qt up to date, then the shell loads again")
+	default:
+		return i18n.T("sudo pacman -Syu brings Qt up to date, then the shell loads again")
+	}
+}
+
+// runningQt is the installed qt6-base version, or "an older one" when the
+// native package database cannot say.
+func runningQt() string {
+	version, err := host.Default().PackageVersion("qt6-base")
+	if err == nil && strings.TrimSpace(version) != "" {
+		return strings.SplitN(strings.TrimSpace(version), "-", 2)[0]
+	}
+	return i18n.T("an older one")
 }
 
 // failingScope is the config-relative directory to repair.
@@ -274,5 +336,5 @@ func plural(n int, noun string) string {
 // restartShell saves the user knowing the command; a failure here is not fatal,
 // the repair still stands. A var so a test never restarts the desktop it runs on.
 var restartShell = func() {
-	_ = exec.Command("systemctl", "--user", "restart", "ryoku-shell").Run()
+	_ = host.Default().Service([]string{"--user", "restart", "ryoku-shell"})
 }

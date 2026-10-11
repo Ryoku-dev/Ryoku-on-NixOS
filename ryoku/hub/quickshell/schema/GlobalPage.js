@@ -31,6 +31,14 @@ var rows = [
         "set": "locales"
     }, {
         "tab": "",
+        "group": "LANGUAGE & REGION",
+        "key": "general.clock_format_24_h",
+        "label": "24-hour time",
+        "desc": "Use 24-hour time everywhere in Ryoku. Turn off for 12-hour time with AM/PM.",
+        "ctl": "sw",
+        "src": "shell"
+    }, {
+        "tab": "",
         "group": "LOCATION",
         "key": "weatherLocation",
         "label": "Location",
@@ -73,5 +81,16 @@ var rows = [
         "lo": 8,
         "hi": 24,
         "unit": " pt"
+    }, {
+        "tab": "",
+        "group": "FONT",
+        "key": "fontScale",
+        "label": "Interface scale",
+        "desc": "Scales the shell surfaces and popouts together.",
+        "ctl": "slid",
+        "src": "shell",
+        "lo": 0.8,
+        "hi": 1.5,
+        "pct": true
     }
 ];

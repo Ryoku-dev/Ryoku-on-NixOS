@@ -22,8 +22,8 @@ Item {
     // what this machine can render. Injected into the fontFamily row's options,
     // so the shared "pick" control shows the searchable font list.
     property var fontList: []
-    // the live system time zone, read via timedatectl and injected into the
-    // timezone row (like fontList above); refreshed after an apply.
+    // the live system time zone, injected into the timezone row and refreshed
+    // after an apply.
     property string currentTimezone: ""
     readonly property var schema: {
         var out = [];
@@ -58,7 +58,7 @@ Item {
     function readTz() { tzRead.running = false; tzRead.running = true; }
     function applyTimezone(z) {
         if (!z) return;
-        tzApply.command = ["timedatectl", "set-timezone", z];
+        tzApply.command = ["ryoku-host", "time", "set-zone", z];
         tzApply.running = false;
         tzApply.running = true;
         tzMap.close();
@@ -75,15 +75,23 @@ Item {
     }
     Process {
         id: tzRead
-        command: ["timedatectl", "show", "-p", "Timezone", "--value"]
+        command: ["ryoku-host", "time", "zone"]
         stdout: StdioCollector { onStreamFinished: pg.currentTimezone = ("" + text).trim() }
     }
     Process {
         id: shellRestart
-        command: ["systemctl", "--user", "restart", "ryoku-shell.service"]
+        command: ["ryoku-host", "svc", "restart", "ryoku-shell"]
+        onExited: function(code) {
+            if (code === 4) {
+                shellReload.running = false;
+                shellReload.running = true;
+            }
+        }
     }
-    // set-timezone talks to systemd-timedated over D-Bus; the shipped polkit
-    // rule authorises it for the active user, so no password prompt.
+    Process {
+        id: shellReload
+        command: ["ryoku-shell", "reload"]
+    }
     Process {
         id: tzApply
         stdout: StdioCollector { onStreamFinished: pg.applyDone() }

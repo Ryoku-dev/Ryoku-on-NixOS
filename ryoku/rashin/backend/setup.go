@@ -64,6 +64,16 @@ func runInteractive(name string, args ...string) error {
 	return cmd.Run()
 }
 
+func setupInstallAdvice(pkg string) string {
+	out, err := exec.Command("ryoku-host", "pkg", "advice", pkg).Output()
+	if err == nil {
+		if advice := strings.TrimSpace(string(out)); advice != "" {
+			return advice
+		}
+	}
+	return "install " + pkg
+}
+
 func cmdSetup() error {
 	if err := RunSetup(); err != nil {
 		reportPhase("error", err.Error(), false)
@@ -81,10 +91,10 @@ func RunSetup() error {
 	// "uv lock missing" a broken or offline install throws) into one clear line.
 	reportPhase("preflight", "checking tools, connectivity, and disk space", true)
 	if !haveCmd("curl") {
-		return errors.New("curl is required for the Hermes installer (sudo pacman -S curl)")
+		return fmt.Errorf("curl is required for the Hermes installer (%s)", setupInstallAdvice("curl"))
 	}
 	if !haveCmd("uv") && !haveCmd("python3") {
-		return errors.New("Hermes needs uv or python3 to install (sudo pacman -S uv), then re-run setup")
+		return fmt.Errorf("Hermes needs uv or python3 to install (%s), then re-run setup", setupInstallAdvice("uv"))
 	}
 	if !setupOnline() {
 		return errors.New("Hermes setup needs an internet connection: it downloads the agent and its Python dependencies from GitHub and PyPI")

@@ -75,7 +75,7 @@ func TestWindowOpenQueriesOnlyClientsAndWorkspaces(t *testing.T) {
 		case "workspaces":
 			return []byte(`[{"id":1,"name":"1","monitor":"DP-1","windows":1}]`), nil
 		case "clients":
-			return []byte(`[{"address":"0xa","class":"kitty","monitor":0,"workspace":{"id":1,"name":"1"},"focusHistoryID":0}]`), nil
+			return []byte(`[{"address":"0xa","class":"kitty","pid":4242,"monitor":0,"workspace":{"id":1,"name":"1"},"focusHistoryID":0}]`), nil
 		default:
 			t.Fatalf("unexpected query %v", args)
 			return nil, nil
@@ -89,7 +89,7 @@ func TestWindowOpenQueriesOnlyClientsAndWorkspaces(t *testing.T) {
 	if !reflect.DeepEqual(calls, []string{"workspaces", "clients"}) {
 		t.Fatal(calls)
 	}
-	if len(frames) != 2 || frames[1].Windows[0].Output != "DP-1" {
+	if len(frames) != 2 || frames[1].Windows[0].Output != "DP-1" || frames[1].Windows[0].Pid != 4242 {
 		t.Fatal(frames)
 	}
 	s.refresh(refreshWindows | refreshWorkspaces)

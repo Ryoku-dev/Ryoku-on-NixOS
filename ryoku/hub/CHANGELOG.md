@@ -2,7 +2,41 @@
 
 ## Unreleased
 
+### Added
+- Global > Language & Region offers a 24-hour time switch for all Ryoku clocks; off selects 12-hour time with AM/PM.
+- Battery settings include low-battery alerts, independent warning and critical
+  switches and percentages, and a test notification. Either reminder can run
+  alone. Changes apply immediately and critical always stays
+  below warning (`quickshell/pages/BatteryAlertsSettings.qml`).
+
 ### Changed
+- **Fedora settings use the host's real capabilities.** Updates run through
+  DNF, package-backed controls use the host seam, AUR actions stay unavailable,
+  and the Updates page hides snapshot rollback with the Fedora GRUB reason
+  instead of offering a dead action. Power profile controls go through the shell
+  daemon, so they work with tuned-ppd or power-profiles-daemon.
+- **Updates stays clear when snapshots are unavailable.** The page shows the
+  host's short snapshot note near its header and hides snapshot ids, rollback
+  copy and the rollback action. GPU changes and config imports keep their file
+  backups but skip their best-effort snapper calls on those hosts
+  (`quickshell/Singletons/Updates.qml`, `quickshell/pages/UpdatesPage.qml`,
+  `quickshell/pages/UpdateRun.qml`, `backend/gpuapply.go`,
+  `backend/import_apply.go`).
+- **The fastfetch readout's palette is owned by the Hub backend.** `ryoku-hub
+  fastfetch effective` copies the user's config verbatim in fixed mode and
+  rebuilds it tinted with the live Material palette in wallpaper mode, so the
+  terminal readout follows the wallpaper like the other themed surfaces and a
+  retint never rewrites the user's layout. A sidecar records which mode produced
+  the effective config, so returning to the default rebuilds it (`backend/fastfetch.go`).
+- **Add-ons is a library of what you installed, not a wall of toggles.**
+  Desktop widgets no longer appear there; they are managed in Desktop. Shell
+  add-ons (bar glyphs, popouts, panels) and bundles are cards in a grid with
+  their kind, version or component count, state, settings and remove or
+  repair, under a header that counts what is installed. Clicking a bundle
+  opens a sheet listing every component, installed and missing, with Repair
+  and Remove. With Nomarchy as the bar style an Omarchy section lists the
+  installed Omarchy plugins with enable, remove and a link to the market
+  (`quickshell/pages/AddonsPage.qml`, `quickshell/pages/Addon*.qml`).
 - **Rices can ship with Ryoku.** The picker merges packaged looks from
   `/usr/share/ryoku/rices` with the user's library, prefers a user rice when
   slugs match, and copies a packaged rice into the user library before applying
@@ -12,8 +46,23 @@
   Prowl's gateway (running and its address, or why it is not) instead of
   Hermes's model, and connecting an agent now says it routes that agent's models
   through Prowl (`quickshell/pages/RashinPage.qml`).
-
 ### Fixed
+- **Interface scale is editable in Global.** The whole shell reads the one
+  `fontScale` value that scales every surface and popout, but no Hub control
+  reached it: a hand-set value silently reverted to the factory 1.3 on a stale
+  save, and a 1440p desktop popped its surfaces to 1.73x with nothing to fix it
+  from (#333). Global > Font now carries an Interface scale slider, stored
+  through the same shell preference the launcher and sidebar read, so a Save
+  keeps the user's value and nothing resurrects the factory default.
+- **Unavailable desktops no longer start a switch.** The Hub keeps them visible
+  and says why they cannot be installed on this system.
+- On Void, Dictation and GPU passthrough say why they are unavailable instead of failing when you try them.
+- **Hub settings that touch services and packages work on Void.** The
+  keyboard layout, GPU mode, lighting, the palette bridge, the shell
+  preference and the Window Manager page go through `ryoku-host` instead of
+  `systemctl` and `pacman`. Voxtype, which only exists in the AUR, shows as
+  unavailable on Void instead of failing (`backend/`). The sidebar header
+  reads RYOKU VOID there instead of RYOKU ARCH (`quickshell/Hub.qml`).
 - **Mouse macros take a lone Shift, Ctrl, Alt or Super, and the side grid
   stops double-acting.** Holding just a modifier while recording a macro showed
   it but never added the step; it now commits when you let go. The MACRO and
@@ -73,6 +122,10 @@
   (`quickshell/SchemaPage.qml`, `quickshell/AppPicker.qml`)
 
 ### Removed
+- **The Desktop page drops Brand and Pickers.** Renaming the desktop and
+  swapping its mark are gone, and the picker style moved to QS Bar Settings,
+  the bar it belongs to. General keeps the reload cover
+  (`quickshell/pages/DesktopPage.qml`, `quickshell/schema/DesktopPage.js`).
 - **Desktop Scene is no longer a Hub page.** Wallpaper depth, visualizers, and
   desktop widgets now open directly in the shell's Stage Editor. Retired links
   skip Hub and open the matching catalogue, while direct navigation to an

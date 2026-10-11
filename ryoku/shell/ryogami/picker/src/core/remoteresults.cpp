@@ -188,7 +188,10 @@ void RemoteResults::applyPage(const QVariantMap &result, int page, bool append)
         Q_EMIT lastPageChanged();
     }
     Q_EMIT countChanged();
-    Q_EMIT m_notifier->cardsChanged();
+    if (append)
+        Q_EMIT m_notifier->cardsAppended();
+    else
+        Q_EMIT m_notifier->cardsChanged();
 }
 
 RemoteResults::Row RemoteResults::rowFromItem(const QVariantMap &item)

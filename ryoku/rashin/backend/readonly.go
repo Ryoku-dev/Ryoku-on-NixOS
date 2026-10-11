@@ -728,6 +728,10 @@ func init() {
 	roAllow["pacman"] = roPacman
 	roAllow["yay"] = roPacman
 	roAllow["paru"] = roPacman
+	roAllow["dnf"] = roDNF
+	roAllow["dnf5"] = roDNF
+	roAllow["rpm"] = roRPM
+	roAllow["xbps-query"] = roXBPSQuery
 	roAllow["ip"] = roIP
 	roAllow["nmcli"] = roNmcli
 	roAllow["resolvectl"] = roResolvectl
@@ -1299,6 +1303,124 @@ func roPacman(args []string) (bool, string) {
 		return true, ""
 	}
 	return false, "`" + op + "` is not a query"
+}
+
+func roDNF(args []string) (bool, string) {
+	for _, arg := range args {
+		flag := strings.SplitN(arg, "=", 2)[0]
+		switch flag {
+		case "--setopt", "--config", "-c", "--installroot", "--pluginpath",
+			"--enableplugin", "--disableplugin", "--exec", "--downloaddir",
+			"--destdir", "--downloadonly", "--download":
+			return false, "`dnf " + flag + "` can load code, change configuration, or write files"
+		}
+		if strings.HasPrefix(arg, "-c") && !strings.HasPrefix(arg, "--") {
+			return false, "`dnf -c` loads an alternate configuration"
+		}
+	}
+	parts := roNonFlags(args)
+	if len(parts) == 0 {
+		return false, "needs a read-only subcommand"
+	}
+	switch parts[0] {
+	case "list", "info", "search", "repoquery", "check-update":
+		return true, ""
+	case "history":
+		if len(parts) == 1 || parts[1] == "list" || parts[1] == "info" || parts[1] == "userinstalled" {
+			return true, ""
+		}
+	}
+	return false, "`dnf " + parts[0] + "` is not a read-only command"
+}
+
+func roRPM(args []string) (bool, string) {
+	query := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		flag := strings.SplitN(arg, "=", 2)[0]
+		switch flag {
+		case "--eval", "-E", "--define", "-D", "--undefine", "--load", "--macros",
+			"--rcfile", "--rebuild", "--rebuilddb", "--resign", "--addsign",
+			"--import", "--initdb", "--install", "--upgrade", "--freshen",
+			"--erase", "--restore", "--dbpath", "--root", "--pipe":
+			return false, "`rpm " + flag + "` can execute macros, load configuration, or change the RPM database"
+		}
+		if strings.HasPrefix(flag, "--delete") || strings.HasPrefix(flag, "--set") ||
+			strings.HasPrefix(arg, "-U") || strings.HasPrefix(arg, "-F") ||
+			strings.HasPrefix(arg, "-e") || strings.HasPrefix(arg, "-D") ||
+			strings.HasPrefix(arg, "-i") && arg != "-i" {
+			return false, "`rpm " + flag + "` is not a query"
+		}
+		switch {
+		case arg == "-q" || arg == "--query":
+			query = true
+		case arg == "-qa" || arg == "-qi" || arg == "-ql" || arg == "-qf":
+			query = true
+		case arg == "-a" || arg == "--all" || arg == "-i" || arg == "--info" ||
+			arg == "-l" || arg == "--list" || arg == "-f" || arg == "--file" ||
+			arg == "--whatprovides" || arg == "--whatrequires" ||
+			arg == "--requires" || arg == "--provides" || arg == "--changelog" ||
+			arg == "--filesbypkg" || arg == "--scripts" || arg == "--triggers" ||
+			arg == "--dump" || arg == "--docfiles" || arg == "--configfiles":
+		case arg == "--qf" || arg == "--queryformat":
+			if i+1 >= len(args) || !roSafeRPMQueryFormat(args[i+1]) {
+				return false, "unsafe or missing RPM query format"
+			}
+			i++
+		case strings.HasPrefix(arg, "--qf=") || strings.HasPrefix(arg, "--queryformat="):
+			if !roSafeRPMQueryFormat(strings.SplitN(arg, "=", 2)[1]) {
+				return false, "unsafe RPM query format"
+			}
+		case strings.HasPrefix(arg, "-"):
+			return false, "`rpm " + arg + "` is not an allowed query flag"
+		}
+	}
+	if !query {
+		return false, "needs `-q` or `--query`"
+	}
+	return true, ""
+}
+
+func roSafeRPMQueryFormat(format string) bool {
+	if strings.Contains(format, "%(") || strings.Contains(format, "%[") || strings.Contains(format, "%|") {
+		return false
+	}
+	for rest := format; ; {
+		start := strings.Index(rest, "%{")
+		if start < 0 {
+			return true
+		}
+		rest = rest[start+2:]
+		end := strings.IndexByte(rest, '}')
+		if end < 0 {
+			return false
+		}
+		tag := strings.TrimPrefix(rest[:end], "=")
+		name, suffix, _ := strings.Cut(tag, ":")
+		if name == "" || strings.Trim(name, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != "" {
+			return false
+		}
+		if suffix != "" {
+			switch suffix {
+			case "arraysize", "date", "day", "depflags", "hex", "humaniec", "humansi", "json", "octal", "perms", "shescape", "xml":
+			default:
+				return false
+			}
+		}
+		rest = rest[end+1:]
+	}
+}
+
+func roXBPSQuery(args []string) (bool, string) {
+	for _, arg := range args {
+		flag := strings.SplitN(arg, "=", 2)[0]
+		if flag == "-r" || flag == "--rootdir" || flag == "-C" || flag == "--config" ||
+			strings.HasPrefix(arg, "-r") && !strings.HasPrefix(arg, "--") ||
+			strings.HasPrefix(arg, "-C") && !strings.HasPrefix(arg, "--") {
+			return false, "`xbps-query " + flag + "` reads an alternate root or configuration"
+		}
+	}
+	return true, ""
 }
 
 func roIP(args []string) (bool, string) {

@@ -4,6 +4,7 @@
 #include "texturetier.h"
 
 #include <QMatrix4x4>
+#include <QRectF>
 #include <QSize>
 
 #include <cstdint>
@@ -34,8 +35,9 @@ public:
     void releaseResources();
     bool active() const { return m_hasPass; }
 
-    // Not owned; nullptr clears and binds a transparent dummy.
-    void setPreviewTextures(QRhiTexture *incoming, QRhiTexture *outgoing);
+    // Not owned; nullptr clears and binds a transparent dummy. incomingUv is
+    // the part of the incoming texture a frame covers, in texture space.
+    void setPreviewTextures(QRhiTexture *incoming, QRhiTexture *outgoing, const QRectF &incomingUv);
 
 private:
     struct Resolved {
@@ -65,6 +67,7 @@ private:
 
     QRhiTexture *m_prevIncoming = nullptr;  // not owned
     QRhiTexture *m_prevOutgoing = nullptr;  // not owned
+    QRectF m_prevIncomingUv{0, 0, 1, 1};
 
     std::unique_ptr<QRhiBuffer> m_uniform;
     std::unique_ptr<QRhiSampler> m_sampler;

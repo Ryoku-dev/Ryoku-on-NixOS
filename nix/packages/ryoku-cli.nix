@@ -29,6 +29,12 @@ pkgs.stdenv.mkDerivation {
       -o ryoku \
       .
 
+    CGO_ENABLED=0 go build \
+      -mod=vendor \
+      -trimpath \
+      -o ryoku-host \
+      ./cmd/ryoku-host
+
     runHook postBuild
   '';
 
@@ -40,6 +46,10 @@ pkgs.stdenv.mkDerivation {
     install -Dm755 \
       ryoku \
       "$out/bin/.ryoku-wrapped"
+
+    install -Dm755 \
+      ryoku-host \
+      "$out/bin/ryoku-host"
 
     makeWrapper \
       "$out/bin/.ryoku-wrapped" \

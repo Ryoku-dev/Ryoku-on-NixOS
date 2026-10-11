@@ -39,6 +39,63 @@ is_truthy() {
   case "$1" in true | yes | 1) return 0 ;; *) return 1 ;; esac
 }
 
+
+codec_is_listed() {
+  local info="$1" wanted="$2" line
+  while IFS= read -r line; do
+    [[ $line == "$wanted" ]] && return 0
+  done <<<"$info"
+  return 1
+}
+
+choose_available_codec() {
+  local -n selected_codec="$1" selected_container="$2" selected_encoder="$3"
+  local info wanted fallback
+  local requested_codec="$selected_codec"
+  local switch_to_gpu=false
+
+  info="$(gpu-screen-recorder --info 2>/dev/null || true)"
+  if [[ $selected_encoder == cpu ]]; then
+    if [[ $requested_codec == h264 ]] && codec_is_listed "$info" h264_software; then
+      return 0
+    fi
+    switch_to_gpu=true
+    if codec_is_listed "$info" "$requested_codec"; then
+      selected_encoder=gpu
+      notify "Recorder encoder fallback" "Using $requested_codec with GPU encoding because CPU encoding is not available for $requested_codec on this system."
+      return 0
+    fi
+  else
+    wanted="$requested_codec"
+    codec_is_listed "$info" "$wanted" && return 0
+  fi
+
+  for fallback in av1 vp9 vp8; do
+    if codec_is_listed "$info" "$fallback"; then
+      selected_codec="$fallback"
+      if [[ ($fallback == vp8 || $fallback == vp9) && $selected_container != webm ]]; then
+        selected_container=webm
+      fi
+      if $switch_to_gpu; then
+        selected_encoder=gpu
+        notify "Recorder encoder fallback" "Using $fallback with GPU encoding because CPU encoding is not available for $requested_codec on this system."
+      else
+        notify "Recorder codec fallback" "Using $fallback because $wanted is not available on this system."
+      fi
+      return 0
+    fi
+  done
+
+  if $switch_to_gpu; then
+    notify -u critical "Screen recording failed" "CPU encoding is unavailable for $requested_codec, and no supported GPU video encoder was found."
+    echo "ryoku-cmd-record: CPU encoding is unavailable for $requested_codec and no supported GPU codec was reported" >&2
+  else
+    notify -u critical "Screen recording failed" "No supported video encoder was found."
+    echo "ryoku-cmd-record: no supported video encoder reported by gpu-screen-recorder" >&2
+  fi
+  return 1
+}
+
 # ── GSR's per-recording IPC socket (one Ryoku capture at a time). gsr-cli talks
 # to the running recorder through it for status, pause/resume, and a clean stop.
 GSR_SOCKET="${XDG_RUNTIME_DIR:-/tmp}/ryoku-gsr.sock"
@@ -422,6 +479,8 @@ start_recording() {
   1440p) res_args=(-s 2560x1440) ;;
   2160p) res_args=(-s 3840x2160) ;;
   esac
+
+  choose_available_codec codec container encoder || exit 1
 
   prepare_audio
 

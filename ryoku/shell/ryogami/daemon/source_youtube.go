@@ -175,9 +175,19 @@ func lastNonEmptyLine(text string) string {
 	return ""
 }
 
+func youtubeMissingTool(action string) string {
+	advice := "install yt-dlp"
+	if out, err := exec.Command("ryoku-host", "pkg", "advice", "yt-dlp").Output(); err == nil {
+		if value := strings.TrimSpace(string(out)); value != "" {
+			advice = value
+		}
+	}
+	return fmt.Sprintf("yt-dlp not found - %s to %s YouTube", advice, action)
+}
+
 func (s *sources) youtubeSearch(ctx context.Context, p map[string]interface{}) (sourcePage, error) {
 	if !toolPresent(youtubeBin) {
-		return sourcePage{}, fmt.Errorf("yt-dlp not found - install it to browse YouTube (e.g. pacman -S yt-dlp)")
+		return sourcePage{}, errors.New(youtubeMissingTool("browse"))
 	}
 	query := strings.TrimSpace(strParam(p, "query", ""))
 	if query == "" {
@@ -201,7 +211,7 @@ func (s *sources) youtubeSearch(ctx context.Context, p map[string]interface{}) (
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return sourcePage{}, fmt.Errorf("yt-dlp not found - install it to browse YouTube (e.g. pacman -S yt-dlp)")
+			return sourcePage{}, errors.New(youtubeMissingTool("browse"))
 		}
 		return sourcePage{}, fmt.Errorf("yt-dlp search failed: %s", lastNonEmptyLine(stderr.String()))
 	}
@@ -358,7 +368,7 @@ func (s *sources) emitDownloadError(id, msg string) {
 
 func (s *sources) youtubeDownload(reqID int64, p map[string]interface{}) response {
 	if !toolPresent(youtubeBin) {
-		return errResp(reqID, -1, "yt-dlp not found - install it to download YouTube (e.g. pacman -S yt-dlp)")
+		return errResp(reqID, -1, youtubeMissingTool("download from"))
 	}
 	id := strParam(p, "id", "")
 	if !youtubeSafeID(id) {
@@ -418,7 +428,7 @@ func (s *sources) runYoutubeDownload(ctx context.Context, id, videoDir string, m
 	s.emitDownload(downloadEvent{ID: id, Status: dlDownloading, Progress: &zero, Message: &msg})
 	if err := cmd.Start(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			s.emitDownloadError(id, "yt-dlp not found - install it to download YouTube (e.g. pacman -S yt-dlp)")
+			s.emitDownloadError(id, youtubeMissingTool("download from"))
 			return
 		}
 		s.emitDownloadError(id, "yt-dlp failed to start")

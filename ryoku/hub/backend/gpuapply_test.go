@@ -54,6 +54,24 @@ func TestApplyPlanDryRunWritesNothing(t *testing.T) {
 		t.Error("a dry-run must not write any file")
 	}
 }
+func TestSnapshotWritersSkipUnsupportedHost(t *testing.T) {
+	bin := t.TempDir()
+	marker := filepath.Join(bin, "snapper-called")
+	if err := os.WriteFile(filepath.Join(bin, "ryoku-host"), []byte("#!/bin/sh\nexit 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "snapper"), []byte("#!/bin/sh\nprintf called >> "+marker+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	snapshot("gpu change")
+	snapshotBestEffort("import")
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("snapper ran on an unsupported host (stat err %v)", err)
+	}
+}
+
 func containsFile(files []managedFile, rel, want string) bool {
 	for _, f := range files {
 		if f.rel == rel {
@@ -71,5 +89,69 @@ func TestMissingPkgs(t *testing.T) {
 	}
 	if none := missingPkgs([]string{"a", "b"}, func(string) bool { return true }); len(none) != 0 {
 		t.Errorf("all installed should be empty, got %v", none)
+	}
+}
+
+func TestPassthroughAvailabilityUsesAURGateOnArch(t *testing.T) {
+	bin := t.TempDir()
+	host := filepath.Join(bin, "ryoku-host")
+	script := `#!/bin/sh
+if [ "$1" = pkgmgr ]; then
+	printf 'pacman\n'
+	exit 0
+fi
+if [ "$1" = pkg ] && [ "$2" = available ] && [ "$3" = --aur ]; then
+	exit 0
+fi
+if [ "$1" = pkg ] && [ "$2" = available ] && { [ "$3" = looking-glass ] || [ "$3" = looking-glass-module-dkms ]; }; then
+	exit 3
+fi
+exit 0
+`
+	if err := os.WriteFile(host, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	got := passthroughAvailability()
+	if !got.Available || got.Package != "" || got.Reason != "" {
+		t.Fatalf("availability = %#v, want available", got)
+	}
+}
+
+func TestPassthroughAvailabilityReportsFirstVoidReason(t *testing.T) {
+	bin := t.TempDir()
+	host := filepath.Join(bin, "ryoku-host")
+	script := `#!/bin/sh
+if [ "$1" = pkgmgr ]; then
+	printf 'xbps\n'
+	exit 0
+fi
+if [ "$1" = pkg ] && [ "$2" = available ] && [ "$3" = --aur ] && [ "$4" = looking-glass ]; then
+	exit 3
+fi
+if [ "$1" = pkg ] && [ "$2" = why ] && [ "$3" = looking-glass ]; then
+	printf '%s\n' "Looking Glass is not packaged for this system."
+	exit 0
+fi
+exit 0
+`
+	if err := os.WriteFile(host, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	got := passthroughAvailability()
+	if got.Available {
+		t.Fatal("passthrough reported available")
+	}
+	if got.Package != "looking-glass" {
+		t.Fatalf("package = %q, want looking-glass", got.Package)
+	}
+	if got.Reason != "Looking Glass is not packaged for this system." {
+		t.Fatalf("reason = %q", got.Reason)
+	}
+	if err := runGpuApply([]string{"enable", "--dry-run"}); err == nil || err.Error() != got.Reason {
+		t.Fatalf("enable error = %v, want host reason %q", err, got.Reason)
 	}
 }

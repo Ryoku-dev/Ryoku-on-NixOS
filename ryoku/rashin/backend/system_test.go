@@ -1,9 +1,23 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestPackageOwnsFileUsesHostSeam(t *testing.T) {
+	bin := t.TempDir()
+	host := filepath.Join(bin, "ryoku-host")
+	if err := os.WriteFile(host, []byte("#!/bin/sh\n[ \"$1 $2 $3\" = 'pkg owner /usr/bin/tool' ] || exit 2\nprintf 'tool-package\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if !packageOwnsFile("/usr/bin/tool") {
+		t.Fatal("host-owned file reported unowned")
+	}
+}
 
 func TestParseUnitJSON(t *testing.T) {
 	out := `[{"unit":"ssh.service","load":"loaded","active":"active","sub":"running","description":"OpenSSH daemon"},` +
@@ -183,6 +197,38 @@ func TestDeriveTipsGrounded(t *testing.T) {
 		if tip.Command == "" || tip.Title == "" {
 			t.Errorf("tip without actionable content: %+v", tip)
 		}
+	}
+}
+
+func TestCronOffActIgnoresPackageOwnedScripts(t *testing.T) {
+	off := false
+	// snapper's packaged cron.hourly fallback alone: no daemon act (#356).
+	sc := ScheduleSection{CronActive: &off, Anacron: []CronEntry{
+		{Schedule: "hourly", Command: "/etc/cron.hourly/snapper", Origin: "/etc/cron.hourly", PackageOwned: true},
+	}}
+	if scheduledWorkWaiting(sc) != 0 {
+		t.Fatal("a package-owned script is not waiting work")
+	}
+	tips := DeriveTips(&SystemInventory{Schedules: sc})
+	for _, tip := range tips {
+		if tip.ID == "cron-off" {
+			t.Fatal("cron-off act must not fire for a packaged fallback")
+		}
+	}
+	// a hand-dropped script still counts and still tips.
+	sc.Anacron = append(sc.Anacron, CronEntry{Schedule: "daily", Command: "/etc/cron.daily/mine"})
+	if scheduledWorkWaiting(sc) != 1 {
+		t.Fatalf("waiting = %d, want 1", scheduledWorkWaiting(sc))
+	}
+	tips = DeriveTips(&SystemInventory{Schedules: sc})
+	found := false
+	for _, tip := range tips {
+		if tip.ID == "cron-off" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a user script with no cron daemon must tip")
 	}
 }
 

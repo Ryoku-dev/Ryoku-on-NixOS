@@ -223,6 +223,15 @@ func runShellPref(args []string) error {
 		}
 		syncSessionShell(path)
 		return nil
+	case "loaders":
+		// The installer's login-shell step: wire the Ryoku rc loader without the
+		// escalation and live-session sync that the Hub picker does, since the
+		// installer runs from a terminal before any session exists.
+		if len(args) != 2 {
+			return fmt.Errorf("shell loaders needs fish, bash, or zsh")
+		}
+		_, err := ensureShellLoaders(current.HomeDir, args[1])
+		return err
 	case "prompt":
 		if len(args) != 2 {
 			return fmt.Errorf("shell prompt needs starship or oh-my-zsh")
@@ -260,8 +269,7 @@ var runSessionCommand = func(name string, args ...string) error {
 
 func syncSessionShell(path string) {
 	_ = os.Setenv("SHELL", path)
-	_ = runSessionCommand("systemctl", "--user", "set-environment", "SHELL="+path)
-	_ = runSessionCommand("dbus-update-activation-environment", "--systemd", "SHELL="+path)
+	_ = runSessionCommand("ryoku-host", "svc", "env", "SHELL="+path)
 	// SHELL is a persisted setting: the provider emits it into the compositor's
 	// env config and a reload makes newly spawned processes read it.
 	persistShellEnv(path)
