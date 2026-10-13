@@ -231,22 +231,20 @@ EOF
     chmod -R u+w "$tmp"
     chmod 700 "$tmp/lock.sh"
 
-    # NixOS does not ship Arch's pam_fprintd_grosshack module.
-    # Replace qylock's bundled Arch-oriented PAM stack with a
-    # password-only stack using absolute modules from Nix's PAM package.
+    # NixOS does not provide Ryoku's Arch-only fingerprint grosshack.
+    # Keep the fingerprint conversation fail-closed and give typed passwords
+    # their own PAM service, matching qylock's parallel auth design. Every
+    # module path points into the active NixOS PAM package.
     pam_dir="$tmp/assets/pam"
     mkdir -p "$pam_dir"
 
     cat > "$pam_dir/ryoku-lock" <<'EOF'
 #%PAM-1.0
 #
-# Ryoku qylock — NixOS PAM stack
-#
-# Fingerprint grosshack support is intentionally omitted until it has
-# a proper Nix package. Password authentication remains fully native.
+# Fingerprint authentication is unavailable in the NixOS qylock runtime.
+# Deny it explicitly while retaining valid account and session handling.
 
-auth       required  ${config.security.pam.package}/lib/security/pam_unix.so try_first_pass
-auth       optional  ${config.security.pam.package}/lib/security/pam_env.so
+auth       required  ${config.security.pam.package}/lib/security/pam_deny.so
 account    required  ${config.security.pam.package}/lib/security/pam_unix.so
 password   required  ${config.security.pam.package}/lib/security/pam_deny.so
 session    required  ${config.security.pam.package}/lib/security/pam_unix.so
@@ -254,10 +252,21 @@ EOF
 
     chmod 600 "$pam_dir/ryoku-lock"
 
+    cat > "$pam_dir/ryoku-lock-pw" <<'EOF'
+#%PAM-1.0
+#
+# Password authentication runs separately from the fingerprint conversation.
 
-    # Linux-PAM also probes the fallback "other" service when using a
-    # custom config directory. Provide a deny-by-default fallback so the
-    # lock journal stays clean and unknown PAM services fail securely.
+auth       required  ${config.security.pam.package}/lib/security/pam_unix.so nullok
+account    required  ${config.security.pam.package}/lib/security/pam_unix.so
+password   required  ${config.security.pam.package}/lib/security/pam_deny.so
+session    required  ${config.security.pam.package}/lib/security/pam_unix.so
+EOF
+
+    chmod 600 "$pam_dir/ryoku-lock-pw"
+
+    # Linux-PAM probes this fallback service for a custom config directory.
+    # Unknown services must fail closed.
     cat > "$pam_dir/other" <<'EOF'
 #%PAM-1.0
 auth       required  ${config.security.pam.package}/lib/security/pam_deny.so
@@ -2060,6 +2069,7 @@ in
     };
 
     systemd.user.services.ryoku-shell = {
+      restartTriggers = [ qylockMaterializer ];
 
       requires = [
         "ryoku-materialize.service"
@@ -2143,6 +2153,7 @@ in
           "-${pkgs.systemd}/bin/systemctl --user stop mako.service"
           "-${pkgs.procps}/bin/pkill -f /bin/mako([[:space:]]|$)"
 
+          "${qylockMaterializer}"
           "${ryokuHelpers}/bin/ryoku-qylock-activate"
         ];
 

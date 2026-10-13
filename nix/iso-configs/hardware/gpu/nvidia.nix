@@ -1,5 +1,5 @@
 # NVIDIA graphics defaults for Ryoku on NixOS.
-{ config, lib, ... }:
+{ install, lib, ... }:
 
 {
   services.xserver.videoDrivers = [ "nvidia" ];
@@ -9,11 +9,12 @@
     powerManagement.enable = true;
     powerManagement.finegrained = false;
 
-    # The proprietary kernel module remains the broadest-compatible default.
-    # Users with hardware supported by NVIDIA's open module can opt into it.
-    open = lib.mkDefault false;
+    # The installer selects the driver generation from the detected GPU. This
+    # matters now that current NVIDIA releases no longer support Maxwell,
+    # Pascal, or Volta while modern GPUs prefer the open kernel modules.
+    branch = lib.mkDefault install.nvidiaBranch;
+    open = lib.mkDefault install.nvidiaOpen;
 
     nvidiaSettings = true;
-    package = config.boot.kernelPackages.nvidiaPackages.latest;
   };
 }

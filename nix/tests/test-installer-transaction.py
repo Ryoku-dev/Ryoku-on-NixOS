@@ -19,7 +19,7 @@ FLAKE = """{
 
 
 class TransactionTests(unittest.TestCase):
-    def run_case(self, failure, existing=False):
+    def run_case(self, failure, existing=False, baseline_valid=True):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             host = root / "host"
@@ -41,7 +41,18 @@ class TransactionTests(unittest.TestCase):
                 path.chmod(0o755)
                 return path
 
-            script("nix", 'echo lock >> "$TEST_CALLS"\n[ "$TEST_FAILURE" != lock ]\n')
+            script(
+                "nix",
+                'while [ "$#" -gt 0 ]; do\n'
+                '  case "$1" in\n'
+                '    --extra-experimental-features) shift 2 ;;\n'
+                '    eval) echo validate >> "$TEST_CALLS"; [ "$TEST_BASELINE_VALID" = 1 ]; exit $? ;;\n'
+                '    flake) echo lock >> "$TEST_CALLS"; [ "$TEST_FAILURE" != lock ]; exit $? ;;\n'
+                '    *) shift ;;\n'
+                '  esac\n'
+                'done\n'
+                'exit 2\n',
+            )
             script("nixos-rebuild", 'echo "$1" >> "$TEST_CALLS"\n'
                    'if [ "$TEST_FAILURE" = interrupt ]; then kill -TERM "$PPID"; exit 1; fi\n'
                    '[ "$TEST_FAILURE" != "$1" ]\n')
@@ -61,12 +72,23 @@ class TransactionTests(unittest.TestCase):
             )
             test_backend = script("backend", backend.partition("\n")[2])
             calls = root / "calls"
-            env = dict(os.environ, TEST_CALLS=str(calls), TEST_FAILURE=failure)
+            env = dict(
+                os.environ,
+                TEST_CALLS=str(calls),
+                TEST_FAILURE=failure,
+                TEST_BASELINE_VALID="1" if baseline_valid else "0",
+            )
             result = subprocess.run([str(test_backend), "--flake", str(host) + "#host",
                                      "--compositor", "niri", "--browser", "firefox",
                                      "--shell", "zsh", "--apps", "none", "--yes"],
                                     env=env, capture_output=True, text=True, timeout=20)
-            if failure:
+            if not baseline_valid:
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                after = {p.name: p.read_bytes() for p in host.iterdir()}
+                self.assertEqual(after, before, result.stdout + result.stderr)
+                self.assertEqual(calls.read_text().splitlines(), ["validate"])
+                self.assertIn("existing NixOS host does not evaluate", result.stderr)
+            elif failure:
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 after = {p.name: p.read_bytes() for p in host.iterdir()}
                 self.assertEqual(after, before, result.stdout + result.stderr)
@@ -74,11 +96,16 @@ class TransactionTests(unittest.TestCase):
                     self.assertNotIn("switch", calls.read_text().splitlines())
             else:
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(calls.read_text().splitlines(), ["lock", "build", "switch"])
+                self.assertEqual(calls.read_text().splitlines(), ["validate", "lock", "build", "switch"])
                 self.assertIn('defaultCompositor = "niri"', (host / "ryoku.nix").read_text())
 
     def test_success(self):
         self.run_case("")
+
+    def test_broken_existing_host_aborts_before_transaction(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                self.run_case("", existing=existing, baseline_valid=False)
 
     def test_failures_restore_new_and_existing_configs(self):
         for failure in ("lock", "build", "switch", "interrupt"):

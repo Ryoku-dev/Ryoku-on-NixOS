@@ -118,15 +118,17 @@ func (s *isoInstallStream) kill() {
 	if s == nil || s.cmd == nil || s.cmd.Process == nil {
 		return
 	}
-	if err := syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL); err != nil {
-		_ = s.cmd.Process.Kill()
+	if err := syscall.Kill(-s.cmd.Process.Pid, syscall.SIGTERM); err != nil {
+		_ = s.cmd.Process.Signal(syscall.SIGTERM)
 	}
 	if s.procDone != nil {
 		select {
 		case <-s.procDone:
+			return
 		case <-time.After(3 * time.Second):
 		}
 	}
+	_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
 }
 
 func newISOModel(opts options) isoModel {
@@ -366,7 +368,6 @@ func isoChoices(key string) []choice {
 			{"default", "NixOS default", "LTS-oriented default from the pinned nixpkgs"},
 			{"latest", "Latest", "newest kernel package exposed by the pinned nixpkgs"},
 			{"zen", "Zen", "desktop-focused tuning from linuxPackages_zen"},
-			{"hardened", "Hardened", "security-focused kernel from linuxPackages_hardened"},
 		}
 	case "compositor":
 		return []choice{{"hyprland", "Hyprland", "dynamic tiling · effects · broad ecosystem"}, {"niri", "niri", "scrollable tiling · clean columns"}, {"mango", "MangoWM", "dynamic tiling · lightweight"}}
@@ -508,7 +509,11 @@ func (m isoModel) backendArgs() []string {
 	}
 	args := []string{
 		"--iso", "--yes",
-		"--source", m.opts.source,
+	}
+	if m.opts.sourceExplicit {
+		args = append(args, "--source", m.opts.source)
+	}
+	args = append(args,
 		"--disk", m.picks["disk"],
 		"--confirm-disk", m.picks["disk"],
 		"--filesystem", m.picks["filesystem"],
@@ -525,7 +530,7 @@ func (m isoModel) backendArgs() []string {
 		"--shell", m.picks["shell"],
 		"--apps", appArg,
 		"--config-mode", m.picks["configuration"],
-	}
+	)
 	if m.picks["configuration"] == "import" {
 		args = append(args, "--import-flake", strings.TrimSpace(m.text["import-path"]))
 		if host := strings.TrimSpace(m.text["import-host"]); host != "" {
@@ -539,7 +544,7 @@ func (m isoModel) backendArgs() []string {
 }
 
 func isoInstallStepIndex(id string) (int, bool) {
-	order := []string{"partition", "filesystems", "configuration", "lock", "install", "finalize"}
+	order := []string{"lock", "validate", "partition", "filesystems", "configuration", "install", "finalize"}
 	for i, step := range order {
 		if step == id {
 			return i, true
@@ -682,7 +687,7 @@ func (m isoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.done = true
-			m.installAt = 6
+			m.installAt = len(isoInstallSteps())
 		}
 		return m, nil
 	case tea.KeyPressMsg:
@@ -717,8 +722,13 @@ func (m isoModel) onKey(k string) (tea.Model, tea.Cmd) {
 	if m.busy {
 		return m, nil
 	}
-	if k == "q" && m.current().key != "password" {
-		return m, tea.Quit
+	if k == "q" {
+		switch m.current().key {
+		case "password", "hostname", "username", "timezone", "locale", "keyboard", "import-path", "import-host", "confirm":
+			// q is normal text while the user is typing into a field.
+		default:
+			return m, tea.Quit
+		}
 	}
 	if k == "esc" {
 		m.err = nil
@@ -1075,7 +1085,7 @@ func (m isoModel) confirmBody() string {
 }
 
 func isoInstallSteps() []string {
-	return []string{"Partition disk", "Create filesystems", "Write configuration", "Lock flake inputs", "Install NixOS", "Finalize"}
+	return []string{"Resolve flake inputs", "Validate target config", "Partition disk", "Create filesystems", "Write configuration", "Install NixOS", "Finalize"}
 }
 
 func (m isoModel) installBody() string {

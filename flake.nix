@@ -123,7 +123,13 @@
           ryokuNixpkgs = pkgs;
         };
 
-      mkIsoConfigSystem = gpuVendors:
+      mkIsoConfigSystem = {
+        gpuVendors ? [ ],
+        firmware ? "uefi",
+        nvidiaBranch ? "stable",
+        nvidiaOpen ? true,
+        kernel ? "default",
+      }:
         nixpkgs.lib.nixosSystem {
           inherit system;
           specialArgs = {
@@ -132,13 +138,12 @@
               hostname = "ryoku-ci";
               username = "ryoku";
               passwordHash = "*";
-              firmware = "uefi";
+              inherit firmware gpuVendors nvidiaBranch nvidiaOpen;
               installDisk = "/dev/vda";
-              inherit gpuVendors;
               timeZone = "UTC";
               locale = "en_US.UTF-8";
               keyboardLayout = "us";
-              kernel = "default";
+              inherit kernel;
               compositor = "hyprland";
               browser = "chromium";
               shell = "fish";
@@ -295,6 +300,7 @@
           { nativeBuildInputs = [ pkgs.python3 pkgs.gnugrep ]; }
           ''
             RYOKU_INSTALL_TEST_BACKEND=${ryokuInstallBackend}/bin/ryoku-install-backend \
+            RYOKU_INSTALL_BACKEND_SOURCE=${./nix/apps/ryoku-install-backend.sh} \
               python3 ${./nix/tests/test-installer-iso.py}
 
             backend=${./nix/apps/ryoku-install-backend.sh}
@@ -302,10 +308,11 @@
             grep -Fq 'nixos-install' "$backend"
             grep -Fq 'Type the exact disk path' "$backend"
             grep -Fq 'refusing to erase the disk backing the live installer' "$backend"
-            grep -Fq 'target_root/etc/nixos/ryoku-source' "$backend"
+            grep -Fq 'iso_work/ryoku-source' "$backend"
             grep -Fq 'path:./ryoku-source' "$backend"
             grep -Fq 'detect_gpu_vendors' "$backend"
             grep -Fq 'nixos-generate-config --root "$target_root" --show-hardware-config' "$backend"
+            grep -Fq 'chown -R root:root "$target_root/etc/nixos"' "$backend"
             grep -Fq 'cp -a "$iso_config_templates/."' "$backend"
             grep -Fq 'user-password.hash' "$backend"
             grep -Fq 'install -m 0600 -o root -g root' "$backend"
@@ -323,11 +330,24 @@
 
         ryoku-iso-configs =
           let
-            generic = mkIsoConfigSystem [ ];
-            nvidia = mkIsoConfigSystem [ "nvidia" ];
-            amd = mkIsoConfigSystem [ "amd" ];
-            intel = mkIsoConfigSystem [ "intel" ];
-            hybrid = mkIsoConfigSystem [ "nvidia" "intel" ];
+            generic = mkIsoConfigSystem { };
+            nvidia = mkIsoConfigSystem { gpuVendors = [ "nvidia" ]; };
+            nvidiaLegacy580 = mkIsoConfigSystem {
+              gpuVendors = [ "nvidia" ];
+              nvidiaBranch = "legacy_580";
+              nvidiaOpen = false;
+            };
+            nvidiaLegacy470 = mkIsoConfigSystem {
+              gpuVendors = [ "nvidia" ];
+              nvidiaBranch = "legacy_470";
+              nvidiaOpen = false;
+            };
+            amd = mkIsoConfigSystem { gpuVendors = [ "amd" ]; };
+            intel = mkIsoConfigSystem { gpuVendors = [ "intel" ]; };
+            hybrid = mkIsoConfigSystem { gpuVendors = [ "nvidia" "intel" ]; };
+            bios = mkIsoConfigSystem { firmware = "bios"; };
+            latestKernel = mkIsoConfigSystem { kernel = "latest"; };
+            zenKernel = mkIsoConfigSystem { kernel = "zen"; };
           in
           assert generic.config.networking.hostName == "ryoku-ci";
           assert generic.config.programs.ryoku.enable;
@@ -335,12 +355,22 @@
           assert generic.config.nix.package == nixpkgs.legacyPackages.${system}.nixVersions.latest;
           assert nvidia.config.services.xserver.videoDrivers == [ "nvidia" ];
           assert nvidia.config.hardware.nvidia.modesetting.enable;
-          assert !nvidia.config.hardware.nvidia.open;
+          assert nvidia.config.hardware.nvidia.branch == "stable";
+          assert nvidia.config.hardware.nvidia.open;
+          assert nvidiaLegacy580.config.hardware.nvidia.branch == "legacy_580";
+          assert !nvidiaLegacy580.config.hardware.nvidia.open;
+          assert nvidiaLegacy470.config.hardware.nvidia.branch == "legacy_470";
+          assert !nvidiaLegacy470.config.hardware.nvidia.open;
           assert builtins.elem "amdgpu" amd.config.boot.initrd.kernelModules;
           assert builtins.elem "i915" intel.config.boot.initrd.kernelModules;
           assert builtins.length intel.config.hardware.graphics.extraPackages >= 2;
           assert hybrid.config.services.xserver.videoDrivers == [ "nvidia" ];
           assert builtins.elem "i915" hybrid.config.boot.initrd.kernelModules;
+          assert bios.config.boot.loader.grub.enable;
+          assert bios.config.boot.loader.grub.devices == [ "/dev/vda" ];
+          assert !bios.config.boot.loader.systemd-boot.enable;
+          assert latestKernel.config.boot.kernelPackages.kernel.version == nixpkgs.legacyPackages.${system}.linuxPackages_latest.kernel.version;
+          assert zenKernel.config.boot.kernelPackages.kernel.version == nixpkgs.legacyPackages.${system}.linuxPackages_zen.kernel.version;
           pkgs.runCommand "ryoku-iso-configs-check" { } ''
             touch "$out"
           '';
@@ -605,10 +635,13 @@
                              ${ryoku.desktopData}/share/ryoku/config/niri/autostart.kdl \
                              ${ryoku.desktopData}/share/ryoku/config/mango/autostart.conf
             do
-              grep -Fq 'command -v ryoku-nix-session-start' "$autostart"
-              grep -Fq 'command -v ryoku-power-cutover' "$autostart"
-              grep -Fq 'systemctl --user restart ryoku-session.target' "$autostart"
+              grep -Fq 'ryoku-nix-session-start' "$autostart"
             done
+
+            session_module=${./nix/modules/ryoku.nix}
+            grep -Fq 'dbus-update-activation-environment --systemd --all' "$session_module"
+            grep -Fq "''${materializer}/bin/ryoku-materialize || true" "$session_module"
+            grep -Fq 'systemctl --user restart ryoku-session.target' "$session_module"
 
             niri_module=${./nix/modules/ryoku.nix}
             niri_wrapper="$TMPDIR/niri-session-wrapper-source"
@@ -674,6 +707,16 @@
           ''
             RYOKU_QYLOCK_TEST_INSTALLER=${./ryoku/lockscreen/install-qylock} \
               python3 ${./nix/tests/test-qylock-staging-cleanup.py}
+
+            touch "$out"
+          '';
+
+        ryoku-qylock-pam-materialization = pkgs.runCommand
+          "ryoku-qylock-pam-materialization-check"
+          { nativeBuildInputs = [ pkgs.python3 ]; }
+          ''
+            RYOKU_QYLOCK_NIX_MODULE=${./nix/modules/ryoku.nix} \
+              python3 ${./nix/tests/test-qylock-pam-materialization.py}
 
             touch "$out"
           '';

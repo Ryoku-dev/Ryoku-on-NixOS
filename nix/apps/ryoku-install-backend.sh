@@ -1,6 +1,7 @@
 set -euo pipefail
 
 source_ref="${RYOKU_INSTALL_SOURCE:-github:aethctl/Ryoku-on-NixOS/main}"
+source_explicit=0
 flake_arg="/etc/nixos"
 assume_yes=0
 dry_run=0
@@ -29,6 +30,8 @@ import_flake=""
 import_host=""
 gpu_spec="auto"
 gpu_vendors=()
+nvidia_branch="stable"
+nvidia_open=true
 target_root="${RYOKU_INSTALL_TARGET_ROOT:-/mnt}"
 iso_work=""
 iso_config_templates="@ISO_CONFIGS@"
@@ -110,7 +113,12 @@ PY_QUOTE
 # pure evaluation. Persist that source beside the installed flake and use a
 # relative path instead. Clean release ISOs still keep their exact Git revision.
 target_source_ref_for_install() {
-  local ref="${RYOKU_INSTALL_TARGET_SOURCE:-$source_ref}"
+  local ref
+  if [ "$source_explicit" -eq 1 ]; then
+    ref="$source_ref"
+  else
+    ref="${RYOKU_INSTALL_TARGET_SOURCE:-$source_ref}"
+  fi
   case "$ref" in
     path:/etc/ryoku/source|path:/etc/static/ryoku/source)
       printf '%s\n' 'path:./ryoku-source'
@@ -158,14 +166,22 @@ validate_import_flake() {
 
 resolve_import_host() {
   local root="$1" show
+
+  # An explicit host is validated by the exact nixosConfigurations.<host>
+  # preflight evaluation after the staged flake is locked. Avoid resolving the
+  # imported flake twice (and requiring network access before lock preflight).
   if [ -n "$import_host" ]; then
     return 0
   fi
-  show="$(nix flake show "path:$root" --json --no-write-lock-file 2>/dev/null || true)"
+
+  if ! show="$(nix flake show "path:$root" --json --no-write-lock-file 2>/dev/null)"; then
+    die "could not inspect import flake to discover its NixOS host"
+  fi
   mapfile -t import_hosts < <(printf '%s\n' "$show" | jq -r '.nixosConfigurations // {} | keys[]' 2>/dev/null || true)
+
   case "${#import_hosts[@]}" in
     1) import_host="${import_hosts[0]}" ;;
-    0) die "import flake exposes no nixosConfigurations; pass --import-host only after fixing the flake" ;;
+    0) die "import flake exposes no nixosConfigurations; fix the flake before importing it" ;;
     *) die "import flake exposes multiple NixOS hosts; pass --import-host NAME" ;;
   esac
 }
@@ -196,6 +212,42 @@ detect_gpu_vendors() {
       else if (vendor == "8086") print "intel"
     }
   ' | awk '!seen[$0]++'
+}
+
+resolve_nvidia_policy() {
+  local info has_kepler=0 has_legacy580=0 has_modern=0
+
+  # Reuse Ryoku's existing generation policy: Kepler uses 470, Maxwell/Pascal/
+  # Volta use NVIDIA's final compatible 580 branch, and Turing+ uses the current
+  # stable branch with the open kernel modules. pciutils' database exposes the
+  # GK/GM/GP/GV chip prefixes even when the marketing name varies by laptop/OEM.
+  info="$(lspci 2>/dev/null | grep -Ei 'VGA|3D|Display' | grep -i 'NVIDIA' || true)"
+  if [ -z "$info" ]; then
+    nvidia_branch="stable"
+    nvidia_open=true
+    return 0
+  fi
+
+  grep -Eq '(^|[^[:alnum:]])GK[0-9]+' <<< "$info" && has_kepler=1
+  grep -Eq '(^|[^[:alnum:]])G(M|P|V)[0-9]+' <<< "$info" && has_legacy580=1
+  if grep -Evq '(^|[^[:alnum:]])G(K|M|P|V)[0-9]+' <<< "$info"; then
+    has_modern=1
+  fi
+
+  if [ "$has_kepler" -eq 1 ] && { [ "$has_legacy580" -eq 1 ] || [ "$has_modern" -eq 1 ]; }; then
+    die "mixed Kepler and newer NVIDIA GPUs require manual driver configuration"
+  fi
+
+  if [ "$has_kepler" -eq 1 ]; then
+    nvidia_branch="legacy_470"
+    nvidia_open=false
+  elif [ "$has_legacy580" -eq 1 ]; then
+    nvidia_branch="legacy_580"
+    nvidia_open=false
+  else
+    nvidia_branch="stable"
+    nvidia_open=true
+  fi
 }
 
 resolve_gpu_vendors() {
@@ -457,6 +509,8 @@ PY_FLAKE
   gpuVendors = [
 $gpu_block
   ];
+  nvidiaBranch = "${nvidia_branch}";
+  nvidiaOpen = ${nvidia_open};
 
   timeZone = $nix_timezone;
   locale = $nix_locale;
@@ -544,6 +598,7 @@ install_iso() {
     fi
   fi
   valid_timezone "$target_timezone" || die "invalid timezone: $target_timezone"
+  [ -e "@ZONEINFO_ROOT@/$target_timezone" ] || die "unknown timezone: $target_timezone"
 
   if [ -z "$target_locale" ]; then
     if [ "$assume_yes" -eq 1 ]; then
@@ -568,8 +623,8 @@ install_iso() {
   valid_keyboard "$target_keyboard" || die "invalid keyboard layout: $target_keyboard"
 
   case "$kernel_choice" in
-    default|latest|zen|hardened) ;;
-    *) die "invalid kernel: $kernel_choice (expected default, latest, zen, or hardened)" ;;
+    default|latest|zen) ;;
+    *) die "invalid kernel: $kernel_choice (expected default, latest, or zen)" ;;
   esac
 
   case "$config_mode" in
@@ -581,6 +636,12 @@ install_iso() {
   esac
 
   resolve_gpu_vendors
+  for item in "${gpu_vendors[@]}"; do
+    if [ "$item" = "nvidia" ]; then
+      resolve_nvidia_policy
+      break
+    fi
+  done
 
   case "$firmware_choice" in
     auto)
@@ -618,7 +679,28 @@ install_iso() {
   target_source_ref="$(target_source_ref_for_install)"
   target_nixpkgs_ref="${RYOKU_INSTALL_NIXPKGS_SOURCE:-github:NixOS/nixpkgs/nixos-unstable}"
 
+  # Arm cleanup as soon as the staging tree exists. Preflight intentionally
+  # happens before the destructive confirmation, so failures here must still
+  # remove the temporary tree without relying on later partitioning setup.
+  # shellcheck disable=SC2329 # invoked indirectly through EXIT/INT/TERM traps
+  iso_cleanup() {
+    local status=$?
+    trap - EXIT INT TERM
+    if findmnt -rn "$target_root" >/dev/null 2>&1; then
+      run_root umount -R "$target_root" >/dev/null 2>&1 || true
+    fi
+    if [ -n "${iso_work:-}" ]; then
+      chmod -R u+w "$iso_work" 2>/dev/null || true
+      rm -rf "$iso_work" 2>/dev/null || true
+    fi
+    exit "$status"
+  }
+
   iso_work="$(mktemp -d)"
+  trap iso_cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
   if [ "$config_mode" = "import" ]; then
     render_import_target "$iso_work"
   else
@@ -641,6 +723,9 @@ install_iso() {
     printf 'Import     %s#%s\n' "$import_flake" "$import_host"
   fi
   printf 'GPU        %s\n' "$(IFS=,; echo "${gpu_vendors[*]:-auto/none}")"
+  if [[ " ${gpu_vendors[*]} " == *" nvidia "* ]]; then
+    printf 'NVIDIA     %s (%s modules)\n' "$nvidia_branch" "$([ "$nvidia_open" = true ] && printf open || printf proprietary)"
+  fi
   printf 'WM         %s\n' "$compositor"
   printf 'Browser    %s\n' "$browser"
   printf 'Shell      %s\n' "$shell_choice"
@@ -658,29 +743,65 @@ install_iso() {
     else
       printf '\nImported configuration is otherwise unchanged. hardware-configuration.nix is regenerated only during a real install.\n'
     fi
+    trap - EXIT INT TERM
     rm -rf "$iso_work"
+    iso_work=""
     printf '\nDry run complete. No disks or files were changed.\n'
     return 0
   fi
 
   if findmnt -rn "$target_root" >/dev/null 2>&1; then
-    rm -rf "$iso_work"
-    iso_work=""
     die "$target_root is already mounted; unmount it before installing"
+  fi
+
+  # Resolve every flake input before asking to erase the target disk. A missing
+  # network route or unavailable upstream must never leave the machine wiped.
+  if [ "$target_source_ref" = "path:./ryoku-source" ]; then
+    [ -e /etc/ryoku/source ] || die "embedded Ryoku source is missing from the live ISO"
+    mkdir -p "$iso_work/ryoku-source"
+    cp -a /etc/ryoku/source/. "$iso_work/ryoku-source/"
+    chmod -R u+w "$iso_work/ryoku-source"
+  fi
+
+  local install_host="ryoku"
+  if [ "$config_mode" = "import" ]; then
+    install_host="$import_host"
+  fi
+
+  echo "@@RYOKU_STEP lock"
+  local -a lock_args=(nix flake lock "path:$iso_work")
+  # The generated Ryoku configuration deliberately pins both installer inputs.
+  # An imported flake keeps the user's nixpkgs and other inputs untouched.
+  if [ "$config_mode" = "ryoku" ]; then
+    lock_args+=(--override-input nixpkgs "$target_nixpkgs_ref")
+    if [ "$target_source_ref" != "path:./ryoku-source" ]; then
+      lock_args+=(--override-input ryoku "$target_source_ref")
+    fi
+  fi
+  if ! "${lock_args[@]}"; then
+    die "flake input resolution failed before disk changes; check the network and input references, then retry"
+  fi
+
+  echo "@@RYOKU_STEP validate"
+  if ! nix eval --raw \
+    "path:$iso_work#nixosConfigurations.$install_host.config.system.build.toplevel.drvPath" \
+    >/dev/null
+  then
+    die "target NixOS configuration does not evaluate; no disk changes were made"
   fi
 
   printf '\n%s\n' "WARNING: ALL DATA ON $install_disk WILL BE PERMANENTLY ERASED."
   if [ "$assume_yes" -eq 1 ]; then
     [ "$confirm_disk" = "$install_disk" ] || {
-      rm -rf "$iso_work"
-      iso_work=""
       die "--iso --yes requires --confirm-disk $install_disk"
     }
   else
     printf 'Type the exact disk path (%s) to continue: ' "$install_disk"
     read -r typed
     if [ "$typed" != "$install_disk" ]; then
+      trap - EXIT INT TERM
       rm -rf "$iso_work"
+      iso_work=""
       printf 'Cancelled. Nothing was changed.\n'
       return 0
     fi
@@ -690,22 +811,6 @@ install_iso() {
   # compare the underlying hardware identity. A hotplug/re-enumeration must
   # never let a reused /dev path point wipefs at a different disk.
   revalidate_install_disk "$install_disk" "$validated_disk_identity"
-
-  # shellcheck disable=SC2329 # invoked through the EXIT trap below
-  iso_cleanup() {
-    local status=$?
-    trap - EXIT INT TERM
-    if findmnt -rn "$target_root" >/dev/null 2>&1; then
-      run_root umount -R "$target_root" >/dev/null 2>&1 || true
-    fi
-    if [ -n "${iso_work:-}" ]; then
-      rm -rf "$iso_work"
-    fi
-    exit "$status"
-  }
-  trap iso_cleanup EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
 
   echo "@@RYOKU_STEP partition"
   run_root wipefs -af "$install_disk"
@@ -751,6 +856,10 @@ install_iso() {
   run_root mkdir -p "$target_root/etc/nixos"
   run_root nixos-generate-config --root "$target_root" --show-hardware-config > "$iso_work/hardware-configuration.nix"
   run_root cp -a "$iso_work/." "$target_root/etc/nixos/"
+  # The staging tree belongs to the live `nixos` user. `cp -a` would preserve
+  # that numeric ownership into the installed system, making /etc/nixos
+  # writable by the first UID 1000 account. System configuration stays root-owned.
+  run_root chown -R root:root "$target_root/etc/nixos"
 
   if [ "$config_mode" = "ryoku" ]; then
     # Password hashes are credentials too. Keep them out of flake source and the
@@ -762,27 +871,6 @@ install_iso() {
       "$target_root/etc/ryoku/user-password.hash"
   fi
 
-  if [ "$target_source_ref" = "path:./ryoku-source" ]; then
-    [ -e /etc/ryoku/source ] || die "embedded Ryoku source is missing from the live ISO"
-    run_root mkdir -p "$target_root/etc/nixos/ryoku-source"
-    # Preserve source-tree symlinks exactly. Dereferencing them breaks on
-    # intentionally relative compatibility links in the repository.
-    run_root cp -a /etc/ryoku/source/. "$target_root/etc/nixos/ryoku-source/"
-  fi
-
-  echo "@@RYOKU_STEP lock"
-  local -a lock_args=(nix flake lock "path:$target_root/etc/nixos")
-  # A generated Ryoku configuration deliberately pins both installer inputs.
-  # An imported flake keeps the user's nixpkgs and other inputs untouched; the
-  # only dependency this installer adds is Ryoku itself.
-  if [ "$config_mode" = "ryoku" ]; then
-    lock_args+=(--override-input nixpkgs "$target_nixpkgs_ref")
-    if [ "$target_source_ref" != "path:./ryoku-source" ]; then
-      lock_args+=(--override-input ryoku "$target_source_ref")
-    fi
-  fi
-  run_root "${lock_args[@]}"
-
   echo "@@RYOKU_STEP install"
   local install_jobs install_cores
   read -r install_jobs install_cores <<EOF
@@ -790,10 +878,6 @@ $(choose_install_parallelism)
 EOF
   printf 'Ryoku installer: nix build parallelism: %s job(s), %s core(s) per job\n' \
     "$install_jobs" "$install_cores"
-  local install_host="ryoku"
-  if [ "$config_mode" = "import" ]; then
-    install_host="$import_host"
-  fi
   run_root nixos-install \
     --max-jobs "$install_jobs" \
     --cores "$install_cores" \
@@ -835,7 +919,7 @@ Options:
   --timezone ZONE       Target timezone (default: UTC)
   --locale LOCALE       Target locale (default: en_US.UTF-8)
   --keyboard LAYOUT     XKB keyboard layout (default: us)
-  --kernel NAME         default, latest, zen, or hardened
+  --kernel NAME         default, latest, or zen
   --config-mode MODE    ryoku or import (default: ryoku)
   --import-flake PATH   Existing flake directory for advanced import mode
   --import-host NAME    NixOS host from imported flake; auto when exactly one exists
@@ -865,6 +949,7 @@ while [ "$#" -gt 0 ]; do
         exit 2
       }
       source_ref="$2"
+      source_explicit=1
       shift 2
       ;;
     --compositor)
@@ -1172,6 +1257,24 @@ then
   echo "ryoku-install: $module_file already exists and is not installer-managed" >&2
   echo "Refusing to overwrite it." >&2
   exit 1
+fi
+
+# Prove the selected host evaluates before a real install touches its flake or
+# lock file. Dry-run remains side-effect/network-light and only renders the
+# proposed integration. This catches pre-existing broken imports separately
+# from Ryoku failures without making preview mode depend on Nix store access.
+if [ "$dry_run" -eq 0 ]; then
+  echo "@@RYOKU_STEP validate"
+  printf '\nValidating existing NixOS host...\n'
+  if ! nix --extra-experimental-features "nix-command flakes" eval --raw \
+    "path:$flake_root#nixosConfigurations.\"$host\".config.system.build.toplevel.drvPath" \
+    --no-write-lock-file \
+    >/dev/null
+  then
+    echo "ryoku-install: existing NixOS host does not evaluate; no files were changed" >&2
+    echo "Fix the flake error above, then re-run ryoku-install." >&2
+    exit 1
+  fi
 fi
 
 work_dir="$(mktemp -d)"

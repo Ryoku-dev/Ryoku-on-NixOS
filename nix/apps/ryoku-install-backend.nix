@@ -27,12 +27,14 @@ let
       "@COREUTILS_ENV@"
       "@INSTALL_EDIT@"
       "@ISO_CONFIGS@"
+      "@ZONEINFO_ROOT@"
     ]
     [
       trustedRootPath
       "${pkgs.coreutils}/bin/env"
       "${./ryoku-install-edit.py}"
       "${../iso-configs}"
+      "${pkgs.tzdata}/share/zoneinfo"
     ]
     (builtins.readFile ./ryoku-install-backend.sh);
 in

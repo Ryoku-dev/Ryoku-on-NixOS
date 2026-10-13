@@ -31,7 +31,6 @@ in
     default = pkgs.linuxPackages;
     latest = pkgs.linuxPackages_latest;
     zen = pkgs.linuxPackages_zen;
-    hardened = pkgs.linuxPackages_hardened;
   }.${install.kernel};
 
   # ──────────────────────────────────────────────────────────────────────────

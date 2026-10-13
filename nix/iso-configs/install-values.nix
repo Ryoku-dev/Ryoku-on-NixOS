@@ -10,6 +10,8 @@
   firmware = "uefi";
   installDisk = "/dev/sda";
   gpuVendors = [ ];
+  nvidiaBranch = "stable";
+  nvidiaOpen = true;
 
   timeZone = "UTC";
   locale = "en_US.UTF-8";

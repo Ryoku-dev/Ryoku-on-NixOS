@@ -104,10 +104,11 @@ var flow = []step{
 }
 
 type options struct {
-	flake, source string
-	dryRun        bool
-	noCache       bool
-	iso           bool
+	flake, source  string
+	sourceExplicit bool
+	dryRun         bool
+	noCache        bool
+	iso            bool
 }
 
 func defaultOptions() options {
@@ -187,11 +188,14 @@ func (m *model) startInstall() tea.Cmd {
 	if len(apps) > 0 {
 		appArg = strings.Join(apps, ",")
 	}
-	args := []string{
-		"--flake", m.opts.flake, "--source", m.opts.source,
+	args := []string{"--flake", m.opts.flake}
+	if m.opts.sourceExplicit {
+		args = append(args, "--source", m.opts.source)
+	}
+	args = append(args,
 		"--compositor", m.picks["compositor"], "--browser", m.picks["browser"],
 		"--shell", m.picks["shell"], "--apps", appArg,
-	}
+	)
 	if m.opts.iso {
 		args = append(args, "--iso")
 	} else {
@@ -638,6 +642,7 @@ func parseOptions(args []string) (options, bool, []string, error) {
 				o.flake = v
 			} else {
 				o.source = v
+				o.sourceExplicit = true
 			}
 		case "--no-cache":
 			o.noCache = true

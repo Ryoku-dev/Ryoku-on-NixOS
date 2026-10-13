@@ -45,7 +45,7 @@ func TestParseOptionsDirectBackendCompatibility(t *testing.T) {
 	if !direct {
 		t.Fatal("--cli/-y should select direct backend mode")
 	}
-	if opts.flake != "/tmp/nixos#host" || opts.source != "path:/tmp/ryoku" || !opts.dryRun {
+	if opts.flake != "/tmp/nixos#host" || opts.source != "path:/tmp/ryoku" || !opts.sourceExplicit || !opts.dryRun {
 		t.Fatalf("parsed options = %+v", opts)
 	}
 	if len(args) == 0 || args[0] != "--flake" {
@@ -139,7 +139,7 @@ func TestMangoChoiceIsAvailable(t *testing.T) {
 }
 
 func TestISOKernelChoicesMatchBackendContract(t *testing.T) {
-	want := []string{"default", "latest", "zen", "hardened"}
+	want := []string{"default", "latest", "zen"}
 	choices := isoChoices("kernel")
 	if len(choices) != len(want) {
 		t.Fatalf("kernel choices = %d, want %d", len(choices), len(want))
@@ -239,5 +239,56 @@ func TestISORealInstallDoesNotInventDisk(t *testing.T) {
 	got := model.(isoModel)
 	if got.syntheticDisk || got.picks["disk"] != "" {
 		t.Fatalf("real install invented a disk: synthetic=%v disk=%q", got.syntheticDisk, got.picks["disk"])
+	}
+}
+
+func TestDefaultSourceIsNotForwardedAsExplicitOverride(t *testing.T) {
+	opts := defaultOptions()
+	if opts.sourceExplicit {
+		t.Fatal("environment/default source must not be treated as an explicit CLI override")
+	}
+	m := newISOModel(opts)
+	m.picks["disk"] = "/dev/vda"
+	args := m.backendArgs()
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--source" {
+			t.Fatalf("implicit source leaked into ISO backend args: %v", args)
+		}
+	}
+}
+
+func TestISOTextFieldsAcceptQ(t *testing.T) {
+	o := defaultOptions()
+	o.iso = true
+	for _, key := range []string{"hostname", "username", "timezone", "locale", "keyboard", "import-path", "import-host"} {
+		m := newISOModel(o)
+		m.gotoKey(key)
+		before := m.text[key]
+		model, cmd := m.onKey("q")
+		got := model.(isoModel)
+		if cmd != nil {
+			t.Fatalf("%s: q unexpectedly returned a command", key)
+		}
+		if got.text[key] != before+"q" {
+			t.Fatalf("%s: q was not entered as text: before=%q after=%q", key, before, got.text[key])
+		}
+	}
+
+	m := newISOModel(o)
+	m.gotoKey("confirm")
+	model, cmd := m.onKey("q")
+	got := model.(isoModel)
+	if cmd != nil || got.text["disk-confirm"] != "q" {
+		t.Fatalf("confirm: q was not entered into disk confirmation: %q", got.text["disk-confirm"])
+	}
+}
+
+func TestISOInstallStepContractIncludesPreflightValidation(t *testing.T) {
+	steps := isoInstallSteps()
+	if len(steps) != 7 || steps[0] != "Resolve flake inputs" || steps[1] != "Validate target config" {
+		t.Fatalf("unexpected install steps: %v", steps)
+	}
+	if idx, ok := isoInstallStepIndex("validate"); !ok || idx != 1 {
+		t.Fatalf("validate step index = %d, %v", idx, ok)
 	}
 }

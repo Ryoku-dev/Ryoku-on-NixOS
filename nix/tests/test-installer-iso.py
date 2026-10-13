@@ -16,6 +16,69 @@ class ISOInstallerTests(unittest.TestCase):
             timeout=30,
         )
 
+    def test_flake_inputs_resolve_before_disk_mutation(self):
+        backend = Path(os.environ["RYOKU_INSTALL_BACKEND_SOURCE"]).read_text()
+        lock = backend.index('echo "@@RYOKU_STEP lock"')
+        validate = backend.index('echo "@@RYOKU_STEP validate"')
+        partition = backend.index('echo "@@RYOKU_STEP partition"')
+        lock_call = backend.index('if ! "${lock_args[@]}"; then')
+        eval_call = backend.index('nix eval --raw', lock_call)
+        wipe = backend.index('run_root wipefs -af "$install_disk"')
+
+        self.assertLess(lock, validate)
+        self.assertLess(validate, partition)
+        self.assertLess(lock_call, eval_call)
+        self.assertLess(eval_call, wipe)
+        self.assertIn("flake input resolution failed before disk changes", backend)
+        self.assertIn('chown -R root:root "$target_root/etc/nixos"', backend)
+
+    def test_explicit_source_overrides_iso_target_environment(self):
+        env = dict(
+            os.environ,
+            RYOKU_INSTALL_TARGET_SOURCE="github:aethctl/Ryoku-on-NixOS/pinned-release",
+        )
+        result = self.run_backend(
+            "--iso", "--dry-run", "--yes",
+            "--source", "github:aethctl/Ryoku-on-NixOS/unstable-dev",
+            "--disk", "/dev/vda", "--confirm-disk", "/dev/vda",
+            "--gpu", "none",
+            env=env,
+        )
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("Ryoku      github:aethctl/Ryoku-on-NixOS/unstable-dev", output)
+        self.assertIn(
+            'ryokuSource = "github:aethctl/Ryoku-on-NixOS/unstable-dev"',
+            output,
+        )
+        self.assertNotIn("pinned-release", output)
+
+    def test_preflight_cleanup_is_armed_before_lock_resolution(self):
+        backend = Path(os.environ["RYOKU_INSTALL_BACKEND_SOURCE"]).read_text()
+        trap = backend.index("trap iso_cleanup EXIT")
+        lock = backend.index('echo "@@RYOKU_STEP lock"')
+        self.assertLess(trap, lock)
+        self.assertIn('chmod -R u+w "$iso_work/ryoku-source"', backend)
+        self.assertIn('if ! "${lock_args[@]}"; then', backend)
+
+
+    def test_import_host_is_validated_by_preflight_before_disk_mutation(self):
+        backend = Path(os.environ["RYOKU_INSTALL_BACKEND_SOURCE"]).read_text()
+        host = backend.index('install_host="$import_host"')
+        evaluate = backend.index('nix eval --raw', host)
+        wipe = backend.index('run_root wipefs -af "$install_disk"')
+        self.assertLess(host, evaluate)
+        self.assertLess(evaluate, wipe)
+        self.assertIn('nixosConfigurations.$install_host.config.system.build.toplevel.drvPath', backend)
+
+    def test_nvidia_policy_matches_supported_driver_generations(self):
+        backend = Path(os.environ["RYOKU_INSTALL_BACKEND_SOURCE"]).read_text()
+        self.assertIn('nvidia_branch="legacy_470"', backend)
+        self.assertIn('nvidia_branch="legacy_580"', backend)
+        self.assertIn('nvidia_branch="stable"', backend)
+        self.assertIn('nvidia_open=true', backend)
+        self.assertIn('nvidia_open=false', backend)
+
     def test_dry_run_uses_canonical_iso_configs(self):
         env = dict(
             os.environ,
@@ -95,6 +158,8 @@ class ISOInstallerTests(unittest.TestCase):
         self.assertIn('kernel = "default"', output)
         self.assertIn('"nvidia"', output)
         self.assertIn('"intel"', output)
+        self.assertIn('nvidiaBranch = "', output)
+        self.assertIn('nvidiaOpen = ', output)
         self.assertIn('compositor = "mango"', output)
         self.assertIn('browser = "firefox"', output)
         self.assertIn('shell = "zsh"', output)
@@ -104,6 +169,16 @@ class ISOInstallerTests(unittest.TestCase):
         self.assertIn("Dry run complete. No disks or files were changed.", output)
         self.assertNotIn("@@RYOKU_STEP partition", output)
         self.assertNotIn("@@RYOKU_STEP install", output)
+
+    def test_unknown_timezone_is_rejected_before_install(self):
+        result = self.run_backend(
+            "--iso", "--dry-run", "--yes",
+            "--disk", "/dev/vda", "--confirm-disk", "/dev/vda",
+            "--timezone", "Mars/Olympus", "--gpu", "none",
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("unknown timezone: Mars/Olympus", output)
 
     def test_kernel_choice_is_written_to_install_values(self):
         result = self.run_backend(
@@ -115,6 +190,17 @@ class ISOInstallerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, output)
         self.assertIn("Kernel     zen", output)
         self.assertIn('kernel = "zen"', output)
+
+    def test_removed_hardened_kernel_is_rejected(self):
+        result = self.run_backend(
+            "--iso", "--dry-run", "--yes",
+            "--disk", "/dev/vda", "--confirm-disk", "/dev/vda",
+            "--kernel", "hardened", "--gpu", "none",
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("invalid kernel: hardened", output)
+        self.assertIn("expected default, latest, or zen", output)
 
     def test_import_mode_adds_only_ryoku_input(self):
         with tempfile.TemporaryDirectory() as directory:
