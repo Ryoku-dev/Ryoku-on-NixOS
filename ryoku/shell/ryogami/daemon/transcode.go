@@ -19,6 +19,7 @@ import (
 type videoEncoder struct {
 	nvenc bool
 	vaapi string // AMD render node; unused when NVENC is available
+	cpu   string
 }
 
 type transcodeSpec struct {
@@ -37,33 +38,42 @@ var (
 
 func pickVideoEncoder() videoEncoder {
 	videoEncoderOnce.Do(func() {
-		encoders, _ := exec.Command("ffmpeg", "-hide_banner", "-encoders").Output()
+		codecs := ffmpegCodecs()
 		videoEncoderPick = detectVideoEncoder("/sys/class/drm",
 			fileExists("/proc/driver/nvidia/version"),
-			fileExists("/usr/lib/dri/radeonsi_drv_video.so"),
-			string(encoders))
+			vaapiDriverAvailable(os.Getenv("LIBVA_DRIVERS_PATH"), defaultVAAPIDriverDirs),
+			codecs.encoders)
 	})
 	return videoEncoderPick
 }
 
-func detectVideoEncoder(drm string, nvidia, radeonsi bool, encoders string) videoEncoder {
-	if nvidia {
-		// The NVIDIA card is the strong one: without NVENC the CPU encodes, not the iGPU.
-		return videoEncoder{nvenc: ffmpegLists(encoders, "h264_nvenc")}
-	}
-	if radeonsi && ffmpegLists(encoders, "h264_vaapi") {
-		return videoEncoder{vaapi: strongestAMDRenderNode(drm)}
-	}
-	return videoEncoder{}
+var defaultVAAPIDriverDirs = []string{
+	"/usr/lib/dri",
+	"/usr/lib64/dri",
+	"/usr/lib/x86_64-linux-gnu/dri",
 }
 
-func ffmpegLists(encoders, name string) bool {
-	for _, line := range strings.Split(encoders, "\n") {
-		if f := strings.Fields(line); len(f) > 1 && f[1] == name {
+func vaapiDriverAvailable(driverPath string, fallbackDirs []string) bool {
+	dirs := filepath.SplitList(driverPath)
+	dirs = append(dirs, fallbackDirs...)
+	for _, dir := range dirs {
+		if dir != "" && fileExists(filepath.Join(dir, "radeonsi_drv_video.so")) {
 			return true
 		}
 	}
 	return false
+}
+
+func detectVideoEncoder(drm string, nvidia, radeonsi bool, encoders codecSet) videoEncoder {
+	cpu, _ := pickCPUH264Encoder(encoders)
+	if nvidia {
+		// The NVIDIA card is the strong one: without NVENC the CPU encodes, not the iGPU.
+		return videoEncoder{nvenc: encoders["h264_nvenc"], cpu: cpu}
+	}
+	if radeonsi && encoders["h264_vaapi"] {
+		return videoEncoder{vaapi: strongestAMDRenderNode(drm), cpu: cpu}
+	}
+	return videoEncoder{cpu: cpu}
 }
 
 // strongestAMDRenderNode is the amdgpu render node with the most VRAM: on a machine with
@@ -84,7 +94,7 @@ func strongestAMDRenderNode(drm string) string {
 	return best
 }
 
-func (e videoEncoder) attempts(s transcodeSpec) [][]string {
+func (e videoEncoder) attempts(s transcodeSpec) ([][]string, error) {
 	width := fmt.Sprintf("trunc(min(%d,iw)/2)*2", s.maxWidth)
 	rate := "fps=" + strconv.Itoa(s.fps)
 	audio := []string{"-an"}
@@ -114,17 +124,32 @@ func (e videoEncoder) attempts(s transcodeSpec) [][]string {
 				rate+",scale_vaapi=w='"+width+"':h=-2:format=nv12",
 				[]string{"-c:v", "h264_vaapi", "-qp", qp, "-bf", "0"}))
 	}
-	cpu := run(nil, rate+",scale='"+width+"':-2:flags=bicubic",
-		[]string{"-c:v", "libx264", "-preset", "veryfast", "-crf", strconv.Itoa(s.crf), "-bf", "0",
-			"-threads", "4", "-pix_fmt", "yuv420p"})
-	return append(runs, append([]string{"nice", "-n", "19"}, cpu...))
+	if e.cpu != "" {
+		cpuCodec, err := h264CPUArgs(e.cpu, s.maxWidth, s.fps,
+			"-preset", "veryfast", "-crf", strconv.Itoa(s.crf), "-bf", "0",
+			"-threads", "4", "-pix_fmt", "yuv420p")
+		if err != nil {
+			return nil, err
+		}
+		cpu := run(nil, rate+",scale='"+width+"':-2:flags=bicubic", cpuCodec)
+		runs = append(runs, append([]string{"nice", "-n", "19"}, cpu...))
+	}
+	if len(runs) == 0 {
+		_, err := pickCPUH264Encoder(codecSet{})
+		return nil, err
+	}
+	return runs, nil
 }
 
 // transcodeH264 writes s.dst, trying each encoder in turn; the error carries the last
 // attempt's output.
 func transcodeH264(ctx context.Context, s transcodeSpec) error {
+	attempts, err := pickVideoEncoder().attempts(s)
+	if err != nil {
+		return err
+	}
 	var last error
-	for _, argv := range pickVideoEncoder().attempts(s) {
+	for _, argv := range attempts {
 		out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput()
 		if err == nil && fileExists(s.dst) {
 			return nil

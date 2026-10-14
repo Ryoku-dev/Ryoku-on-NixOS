@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import Ryoku.Ui.Singletons as RyokuUi
 import QtQuick.Layouts
 import Quickshell
 import inir
@@ -88,7 +89,7 @@ Item {
                     }
                     Item { Layout.fillWidth: true }
                     IrisNumber {
-                        text: Translation.locale.toString(DateTime.clock.date, "hh:mm")
+                        text: RyokuUi.TimeFormat.format(DateTime.clock.date)
                         pixelSize: 30 * IrisStyle.typeScale
                         weight: IrisStyle.figureWeight
                     }

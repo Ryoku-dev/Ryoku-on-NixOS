@@ -4,6 +4,9 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,7 +28,39 @@ const (
 
 var ErrRepoAbsent = errors.New("no Ryoku package repository is configured")
 
-var xbpsPackagePattern = regexp.MustCompile(`^(.+)-([^-]+_[0-9]+)$`)
+const FilteredDNSAdvice = "DNS for ryoku.dev is being filtered on this network; see https://github.com/Ryoku-dev/ryoku/blob/main/docs/updates.md#filtered-dns"
+
+var (
+	xbpsPackagePattern      = regexp.MustCompile(`^(.+)-([^-]+_[0-9]+)$`)
+	lookupRepoIPs           = net.LookupIP
+	filteredDNSSinkholeIPv6 = netip.MustParsePrefix("2001:4188:2:600:10:10:34:0/112")
+)
+
+func FilteredRyokuDNS(repository string) bool {
+	parsed, err := url.Parse(repository)
+	if err != nil {
+		return false
+	}
+	name := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if name != "ryoku.dev" && !strings.HasSuffix(name, ".ryoku.dev") {
+		return false
+	}
+	addresses, err := lookupRepoIPs(name)
+	if err != nil {
+		return false
+	}
+	for _, ip := range addresses {
+		address, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			continue
+		}
+		address = address.Unmap()
+		if address.IsPrivate() || address.IsLoopback() || filteredDNSSinkholeIPv6.Contains(address) {
+			return true
+		}
+	}
+	return false
+}
 
 func repoBaseFor(manager PackageManager) string {
 	if base := strings.TrimSpace(os.Getenv("RYOKU_RELEASE_BASE")); base != "" {
@@ -393,7 +428,10 @@ func (a *App) RepoSetURL(url string) error {
 		if !ok {
 			return ErrRepoAbsent
 		}
-		return replaceFile(path, rewritten, 0o644)
+		if err := replaceFile(path, rewritten, 0o644); err != nil {
+			return err
+		}
+		return a.clearDNFRepoCache()
 	}
 	if manager == XBPS {
 		path := filepath.Join(a.xbpsConfigDir(), xbpsRepoConfig)
@@ -507,22 +545,14 @@ func (a *App) RepoPackages() ([]RepoPackage, error) {
 		return nil, err
 	}
 	if manager == DNF {
-		command := a.dnfCommand()
-		args := []string{"repoquery", "-y"}
-		if command == "dnf5" {
-			args = append(args, "--available")
+		if a.cfg.UID != 0 {
+			if packages, err := a.dnfSystemRepoPackages(); err == nil {
+				return packages, nil
+			}
 		}
-		args = append(args, "--repo="+ryokuRepoName, "--qf", dnfRepoQueryFormat)
-		result := a.query(command, args...)
-		if result.Code != 0 {
-			return nil, commandError(command, args, result)
-		}
-		packages := parseDNFRepoPackages(result.Output)
-		if len(packages) == 0 {
-			return nil, fmt.Errorf("the Ryoku DNF repository package list is empty")
-		}
-		return packages, nil
+		return a.dnfRepoPackages(false)
 	}
+
 	if manager == Pacman {
 		result := a.query("pacman", "-Sl", ryokuRepoName)
 		if result.Code != 0 {
@@ -551,6 +581,47 @@ func (a *App) RepoPackages() ([]RepoPackage, error) {
 	packages := parseXBPSRepoPackages(result.Output, url)
 	if len(packages) == 0 {
 		return nil, fmt.Errorf("the Ryoku XBPS repository package list is empty")
+	}
+	return packages, nil
+}
+func dnfRepoArgs(command string) []string {
+	args := []string{"repoquery", "-y"}
+	if command == "dnf5" {
+		args = append(args, "--available")
+	}
+	return append(args, "--repo="+ryokuRepoName, "--qf", dnfRepoQueryFormat)
+}
+
+func (a *App) dnfRepoPackages(privileged bool) ([]RepoPackage, error) {
+	command := a.dnfCommand()
+	args := dnfRepoArgs(command)
+	if privileged && a.cfg.UID != 0 {
+		args = append([]string{command}, args...)
+		command = "sudo"
+	}
+	return a.queryDNFRepoPackages(command, args)
+}
+
+// Status reads the root-refreshed cache without escalating or writing it. If
+// the system cache is absent, RepoPackages falls back to the user's DNF view.
+func (a *App) dnfSystemRepoPackages() ([]RepoPackage, error) {
+	command := a.dnfCommand()
+	cacheDir := "/var/cache/dnf"
+	if command == "dnf5" {
+		cacheDir = "/var/cache/libdnf5"
+	}
+	args := append([]string{"-C", "--setopt=cachedir=" + cacheDir}, dnfRepoArgs(command)...)
+	return a.queryDNFRepoPackages(command, args)
+}
+
+func (a *App) queryDNFRepoPackages(command string, args []string) ([]RepoPackage, error) {
+	result := a.query(command, args...)
+	if result.Code != 0 {
+		return nil, commandError(command, args, result)
+	}
+	packages := parseDNFRepoPackages(result.Output)
+	if len(packages) == 0 {
+		return nil, fmt.Errorf("the Ryoku DNF repository package list is empty")
 	}
 	return packages, nil
 }
@@ -594,11 +665,7 @@ func parseDNFRepoPackages(output string) []RepoPackage {
 	return packages
 }
 
-func (a *App) RepoAvailableVersion(name string) (string, error) {
-	packages, err := a.RepoPackages()
-	if err != nil {
-		return "", err
-	}
+func repoPackageVersion(packages []RepoPackage, name string) (string, error) {
 	for _, pkg := range packages {
 		if pkg.Name == name {
 			return pkg.Version, nil
@@ -607,12 +674,44 @@ func (a *App) RepoAvailableVersion(name string) (string, error) {
 	return "", fmt.Errorf("%s is not served by the Ryoku repository", name)
 }
 
+func (a *App) RepoAvailableVersion(name string) (string, error) {
+	packages, err := a.RepoPackages()
+	if err != nil {
+		return "", err
+	}
+	return repoPackageVersion(packages, name)
+}
+
+// RepoTransactionVersion reads through the same privilege boundary as the
+// package transaction. DNF keeps separate metadata caches per user.
+func (a *App) RepoTransactionVersion(name string) (string, error) {
+	manager, err := a.PackageManager()
+	if err != nil {
+		return "", err
+	}
+	if manager != DNF {
+		return a.RepoAvailableVersion(name)
+	}
+	packages, err := a.dnfRepoPackages(true)
+	if err != nil {
+		return "", err
+	}
+	return repoPackageVersion(packages, name)
+}
+
 func (a *App) RepoInstalledSet(allowDowngrade bool, excluded map[string]bool) ([]string, int, error) {
 	manager, err := a.PackageManager()
 	if err != nil {
 		return nil, 0, err
 	}
-	packages, err := a.RepoPackages()
+	var packages []RepoPackage
+	if manager == DNF {
+		// Updates and channel moves refresh and transact as root. Read the same
+		// cache so the decision cannot lag behind the transaction.
+		packages, err = a.dnfRepoPackages(true)
+	} else {
+		packages, err = a.RepoPackages()
+	}
 	if err != nil {
 		return nil, 0, err
 	}

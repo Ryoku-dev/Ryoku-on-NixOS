@@ -1,6 +1,9 @@
 #include "blobgroup.hpp"
 #include "blobinvertedrect.hpp"
+#include "blobwave.hpp"
 #include "blobshape.hpp"
+
+#include <qdebug.h>
 
 BlobGroup::BlobGroup(QObject* parent)
     : QObject(parent) {}
@@ -60,6 +63,14 @@ void BlobGroup::setBorderWidth(qreal v) {
     markDirty();
 }
 
+void BlobGroup::setWaveColor(const QColor& c) {
+    if (m_waveColor == c)
+        return;
+    m_waveColor = c;
+    emit waveColorChanged();
+    markDirty();
+}
+
 void BlobGroup::addShape(BlobShape* shape) {
     if (!shape || m_shapes.contains(shape))
         return;
@@ -84,6 +95,22 @@ void BlobGroup::clearInvertedRect(BlobInvertedRect* rect) {
         return;
     m_invertedRect = nullptr;
     markDirty();
+}
+
+void BlobGroup::addWave(BlobWave* wave) {
+    if (!wave || m_waves.contains(wave))
+        return;
+    if (m_waves.size() >= 4) {
+        qWarning() << "BlobGroup accepts at most four BlobWaves";
+        return;
+    }
+    m_waves.append(wave);
+    markDirty();
+}
+
+void BlobGroup::removeWave(BlobWave* wave) {
+    if (m_waves.removeOne(wave))
+        markDirty();
 }
 
 void BlobGroup::markDirty() {

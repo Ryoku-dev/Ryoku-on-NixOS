@@ -15,10 +15,12 @@ type qmkStatus struct {
 	installed bool
 }
 
+const qmkPackage = "qmk_hid"
+
 var (
 	readQMKStatus       = probeQMKStatus
 	qmkPackageInstalled = func() bool {
-		return host.Default().Package([]string{"installed", "qmk-hid"}) == host.ExitOK
+		return host.Default().Package([]string{"installed", qmkPackage}) == host.ExitOK
 	}
 	qmkProviderAvailable = func() bool {
 		app := host.Default()
@@ -29,11 +31,11 @@ var (
 		if manager == host.Pacman {
 			return true
 		}
-		return app.Package([]string{"available", "qmk-hid"}) == host.ExitOK
+		return app.Package([]string{"available", qmkPackage}) == host.ExitOK
 	}
-	qmkInstallAdvice = func() string { return host.Default().InstallAdvice("qmk-hid") }
+	qmkInstallAdvice = func() string { return host.Default().InstallAdvice(qmkPackage) }
 	installQMK       = func() error {
-		if code := host.Default().Package([]string{"install", "--aur", "qmk-hid"}); code != host.ExitOK {
+		if code := host.Default().Package([]string{"install", "--aur", qmkPackage}); code != host.ExitOK {
 			return fmt.Errorf("package install exited %d", code)
 		}
 		return nil
@@ -81,12 +83,12 @@ func reconcileQMK(checkOnly bool) recResult {
 	}
 	if checkOnly {
 		return wouldRes(i18n.T("QMK/VIA keyboard lighting provider is missing")).
-			withFix(i18n.T("ryoku doctor installs qmk-hid so the keyboard follows the theme"))
+			withFix(i18n.T("ryoku doctor installs qmk_hid so the keyboard follows the theme"))
 	}
 	if err := installQMK(); err != nil {
 		return failRes(i18n.T("could not install the QMK lighting provider: %v"), err).
 			withFix(qmkInstallAdvice())
 	}
 	_ = reloadQMKUdev()
-	return fixedRes(i18n.T("installed qmk-hid; the QMK/VIA keyboard is available in Appearance"))
+	return fixedRes(i18n.T("installed qmk_hid; the QMK/VIA keyboard is available in Ryogami lighting settings"))
 }

@@ -16,7 +16,7 @@ Rectangle {
     implicitHeight: 760
 
     property int step: 0
-    property string barStyle: "qsbar"
+    property string barStyle: "orpheus"
     property real arrival: 0
     readonly property int lastStep: steps.length - 1
     readonly property string socketPath:
@@ -65,7 +65,7 @@ Rectangle {
             const frame = JSON.parse(line)
             const liveStyle = frame && typeof frame.barStyle === "string"
                 ? frame.barStyle : ""
-            if (["sumi", "qsbar", "kairos", "iris", "python"].indexOf(liveStyle) >= 0)
+            if (["sumi", "qsbar", "kairos", "orpheus", "iris", "python"].indexOf(liveStyle) >= 0)
                 barStyle = liveStyle
         } catch (e) {
         }

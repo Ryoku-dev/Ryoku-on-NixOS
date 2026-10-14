@@ -133,8 +133,12 @@ func TestBarProviderUsesRegistryReceiptsAndDerivedIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != len(builtinBarStyles())+1 || items[0].ID != "sumi" || !items[0].Installed || !items[0].Active {
+	sumi := barStyleByID(items, "sumi")
+	if len(items) != len(builtinBarStyles())+1 || sumi == nil || !sumi.Installed || !sumi.Active {
 		t.Fatalf("initial items = %+v", items)
+	}
+	if orpheus := barStyleByID(items, "orpheus"); orpheus == nil || orpheus.Active {
+		t.Fatalf("an uninstalled selection must not mark Orpheus active: %+v", orpheus)
 	}
 	if obi := barStyleByID(items, "obi"); obi == nil || obi.Installed || obi.Active {
 		t.Fatalf("initial external item = %+v", obi)
@@ -321,6 +325,16 @@ func TestBarProviderLoadRecoversInterruptedTransaction(t *testing.T) {
 func TestBarProviderRefusesBuiltinRemoval(t *testing.T) {
 	if err := (barProvider{}).Remove(context.Background(), "sumi"); err == nil {
 		t.Fatal("built-in Sumi was removable")
+	}
+}
+
+func TestBarProviderRefusesOrpheusInstallAndRemoval(t *testing.T) {
+	provider := barProvider{}
+	if err := provider.Install(context.Background(), "orpheus"); err == nil {
+		t.Fatal("built-in Orpheus was installable")
+	}
+	if err := provider.Remove(context.Background(), "orpheus"); err == nil {
+		t.Fatal("built-in Orpheus was removable")
 	}
 }
 

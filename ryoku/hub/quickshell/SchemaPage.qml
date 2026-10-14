@@ -54,14 +54,14 @@ Item {
     // a search jump forwards here; the sheet switches tab, scrolls, and flashes.
     function focusKey(k) { sheet.focusKey(k) }
 
-    // A row the active compositor cannot back is dropped, not shown dead. Three
-    // gates: caps (a behavioural capability), modelsKey (a store leaf nothing
-    // would write), and the tiling illustration -- a bespoke keyless control the
-    // key gate cannot see, which needs a tiled layout to mean anything. Empty
-    // groups and tabs fall away on their own, both being derived from what
-    // survives here.
+    // A row the active host or compositor cannot back is dropped, not shown
+    // dead. Four gates: hostCaps, compositor caps, modelsKey (a store leaf
+    // nothing would write), and the tiling illustration, a bespoke keyless
+    // control the key gate cannot see which needs a tiled layout to mean
+    // anything. Empty groups and tabs fall away on their own, both being
+    // derived from what survives here.
     readonly property var capsSchema: (schema || []).filter(function (r) {
-        if (!Settings.supports(r.caps)) return false;
+        if (!Settings.supports(r.caps, r.hostCaps)) return false;
         if (r.ctl === "layoutdemo" && !Settings.supports("tiledLayout")) return false;
         return Settings.modelsKey(r.key);
     })

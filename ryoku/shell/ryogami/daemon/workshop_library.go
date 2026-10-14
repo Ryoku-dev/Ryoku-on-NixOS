@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 const workshopAppID = "431960"
@@ -21,6 +23,10 @@ const maxPresetDepth = 32
 type workshopLib struct {
 	d     *daemon
 	props *wePropStore
+
+	libMu    sync.Mutex
+	libStamp string
+	libDirs  []string
 }
 
 func newWorkshopLib(d *daemon) *workshopLib {
@@ -72,7 +78,33 @@ func (w *workshopLib) workshopDir() string {
 	if p := wkString(w.d.setting("paths.steamWorkshop")); p != "" {
 		return resolvePath(p)
 	}
-	return filepath.Join(w.steamRoot(), "steamapps", "workshop", "content", workshopAppID)
+	return filepath.Join(w.weLibrary(), "steamapps", "workshop", "content", workshopAppID)
+}
+
+// The renderer guesses only the native Steam paths, so a Flatpak Steam or a second
+// library would leave scenes without Wallpaper Engine's shared shaders and materials.
+func (w *workshopLib) weAssetsDir() string {
+	if p := wkString(w.d.setting("paths.steamWeAssets")); p != "" {
+		return resolvePath(p)
+	}
+	dir := filepath.Join(w.weLibrary(), "steamapps", "common", "wallpaper_engine", "assets")
+	if dirExists(dir) {
+		return dir
+	}
+	return ""
+}
+
+func (w *workshopLib) weLibrary() string {
+	root := w.steamRoot()
+	vdf, stamp := libraryFoldersFile(root)
+	w.libMu.Lock()
+	if w.libDirs == nil || stamp != w.libStamp {
+		w.libDirs = steamLibraryDirs(root, vdf)
+		w.libStamp = stamp
+	}
+	dirs := w.libDirs
+	w.libMu.Unlock()
+	return pickWeLibrary(dirs)
 }
 
 func detectSteamRoot(homeDir string, exists func(string) bool) string {
@@ -362,7 +394,8 @@ func findPreview(itemDir string, doc map[string]interface{}) string {
 }
 
 func (w *workshopLib) downloadedIDs() []string {
-	entries, err := os.ReadDir(w.workshopDir())
+	dir := w.workshopDir()
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
@@ -375,7 +408,7 @@ func (w *workshopLib) downloadedIDs() []string {
 		if !validWeID(id) {
 			continue
 		}
-		if _, err := validateProject(filepath.Join(w.workshopDir(), id)); err == nil {
+		if _, err := validateProject(filepath.Join(dir, id)); err == nil {
 			ids = append(ids, id)
 		}
 	}
@@ -489,15 +522,66 @@ func generateWeThumb(preview, thumb, thumbSm string) error {
 	return genSmallThumb(thumb, thumbSm)
 }
 
-func (w *workshopLib) downloadedSet() map[string]bool {
-	set := map[string]bool{}
-	for _, id := range w.downloadedIDs() {
-		set[id] = true
+func (w *workshopLib) workshopSignature() string {
+	dir := w.workshopDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
 	}
-	return set
+	var parts []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		parts = append(parts, e.Name()+":"+strconv.FormatInt(fileMtime(filepath.Join(dir, e.Name(), "project.json")), 10))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "|")
+}
+
+// Steam writes an item through many temporary files, so a slow poll sees only settled downloads.
+func (w *workshopLib) watch() {
+	if !w.d.featureSteam() {
+		return
+	}
+	last := w.workshopSignature()
+	for {
+		time.Sleep(3 * time.Second)
+		if !w.d.featureSteam() {
+			continue
+		}
+		sig := w.workshopSignature()
+		if sig == last {
+			continue
+		}
+		last = sig
+		w.d.rescan(false)
+		w.d.broadcast("ryogami.workshop.changed", map[string]interface{}{})
+	}
+}
+
+func (d *daemon) allowWorkshopDownloadEvent(id, status string, now time.Time) bool {
+	d.workshopProgressMu.Lock()
+	defer d.workshopProgressMu.Unlock()
+	if d.workshopProgress == nil {
+		d.workshopProgress = map[string]progressEventState{}
+	}
+	last, has := d.workshopProgress[id]
+	if status != "downloading" {
+		delete(d.workshopProgress, id)
+		return true
+	}
+	if !has || last.status != status || now.Sub(last.at) >= progressMinInterval {
+		d.workshopProgress[id] = progressEventState{status: status, at: now}
+		return true
+	}
+	return false
 }
 
 func (d *daemon) emitWorkshopDownload(id, status string, progress float64, message, path string) {
+	if !d.allowWorkshopDownloadEvent(id, status, time.Now()) {
+		return
+	}
 	data := map[string]interface{}{"id": id, "status": status}
 	if progress > 0 {
 		data["progress"] = progress
@@ -509,6 +593,9 @@ func (d *daemon) emitWorkshopDownload(id, status string, progress float64, messa
 		data["path"] = path
 	}
 	d.broadcast("ryogami.workshop.download", data)
+	if d.tasks == nil {
+		return
+	}
 	// Steam and steamcmd own the transfer, so the chip reports it but cannot stop it.
 	task := "download:we-" + id
 	switch status {

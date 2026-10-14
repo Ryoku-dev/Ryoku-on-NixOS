@@ -678,6 +678,23 @@ Singleton {
                 property int lastPort: 4747
             }
 
+            // The dock's scrcpy launcher keeps its recent packages at the top
+            // level; the sidebar's phone tab state lives nested under policies.
+            property JsonObject phone: JsonObject {
+                property JsonObject scrcpy: JsonObject {
+                    property list<string> recentPackages: []
+                }
+            }
+
+            property JsonObject dockUtilities: JsonObject {
+                // Files and Screenshots: when their panel was last opened (ms);
+                // anything newer counts as new.
+                property real filesSeen: 0
+                property real screenshotsSeen: 0
+                property list<string> shelf: []
+                property list<string> colors: []
+            }
+
             property JsonObject phoneMic: JsonObject {
                 property string originalDefaultSink: ""
                 property string lastBackend: ""     // "scrcpy" | "droidcam"
@@ -724,6 +741,9 @@ Singleton {
                     property int start: 0
                     property bool isBreak: false
                     property int cycle: 0
+                    // Focus sessions finished today (the dock tile marks them).
+                    property string todayDate: ""
+                    property int todayCount: 0
                 }
                 property JsonObject stopwatch: JsonObject {
                     property bool running: false

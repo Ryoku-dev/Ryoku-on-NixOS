@@ -90,7 +90,7 @@ PanelWindow {
             return
         }
         const key = String(notification?.appName ?? "").toLowerCase()
-        if (key.length > 0 && CompositorService.nativeOverview) {
+        if (key.length > 0) {
             const window = (WorkspaceService.windows ?? []).find(w => String(w.app_id ?? "").toLowerCase().includes(key))
             if (window) WorkspaceService.focusWindow(window.id)
         }

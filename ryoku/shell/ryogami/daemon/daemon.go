@@ -10,8 +10,17 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 )
+
+const (
+	perConnectionAsyncLimit       = 6
+	perConnectionAsyncQueue       = 24
+	perConnectionSerialAsyncQueue = 8
+)
+
+var connectionSequence atomic.Uint64
 
 // daemon wires the pieces: the wallpaper surface (rendered by the shell QML),
 // the catalog store (served to the picker), the event hub, and the managed
@@ -47,6 +56,11 @@ type daemon struct {
 
 	// previous transition preset index (-1 = none); guards the no-repeat pick.
 	lastTransition int
+
+	previewRPCMu sync.Mutex
+
+	workshopProgressMu sync.Mutex
+	workshopProgress   map[string]progressEventState
 
 	scanMu   sync.Mutex // one rescan at a time; rescans are idempotent
 	scanning bool
@@ -159,6 +173,7 @@ func runDaemon() error {
 			go d.rescan(true)
 		}
 	})
+	d.warmAvailability()
 
 	// livewall children must not outlive the daemon, and a previous daemon's
 	// orphans must not play under a fresh restore.
@@ -222,9 +237,9 @@ func runDaemon() error {
 }
 
 // handle serves one connection: a `subscribe <topic>` line streams that topic;
-// anything else enters the request loop, which answers verb lines and JSON
-// requests in order and, after a JSON `subscribe`, pushes broadcast events on
-// the same connection. One-shot clients just close after their reply.
+// anything else enters the request loop, which preserves order for state changes,
+// permits independent slow replies out of order, and pushes subscribed events on
+// the same connection. One-shot clients close after their reply.
 func (d *daemon) handle(conn net.Conn) {
 	r := bufio.NewReaderSize(conn, 64*1024)
 	first, err := r.ReadString('\n')
@@ -277,16 +292,41 @@ func (d *daemon) serveTopic(conn net.Conn, r *bufio.Reader, name string) {
 	}
 }
 
-// Requests run in order on their own goroutine while this one delivers events, so
-// a slow or stuck request never holds back a toggle meant for the same picker.
+// Network, subprocess, and preview RPCs use a small worker pool. Mutating calls
+// stay on the ordered lane, while replies from independent work may arrive out
+// of order (the wire IDs make that safe).
 func (d *daemon) serveRequests(conn net.Conn, r *bufio.Reader, first string) {
-	quit := make(chan struct{})
-	defer close(quit)
+	connectionID := connectionSequence.Add(1)
+	if d.ui != nil {
+		defer d.ui.unsubscribed(connectionID)
+	}
+	if d.sources != nil {
+		d.sources.openSearchConnection(connectionID)
+		defer d.sources.dropSearchConnection(connectionID)
+	}
+	closed := make(chan struct{})
+	var closeOnce sync.Once
+	stop := func() {
+		closeOnce.Do(func() {
+			close(closed)
+			_ = conn.Close()
+		})
+	}
 
 	var writeMu sync.Mutex
 	write := func(line string) error {
+		select {
+		case <-closed:
+			return net.ErrClosed
+		default:
+		}
 		writeMu.Lock()
 		defer writeMu.Unlock()
+		select {
+		case <-closed:
+			return net.ErrClosed
+		default:
+		}
 		_, err := fmt.Fprintf(conn, "%s\n", line)
 		return err
 	}
@@ -299,15 +339,47 @@ func (d *daemon) serveRequests(conn net.Conn, r *bufio.Reader, first string) {
 			if l != "" {
 				select {
 				case lines <- l:
-				case <-quit:
+				case <-closed:
 					return
 				}
 			}
 			if err != nil {
+				stop()
 				return
 			}
 		}
 	}()
+
+	type asyncJob struct {
+		line   string
+		method string
+	}
+	var asyncJobs chan asyncJob
+	var serialAsyncJobs chan asyncJob
+	runWorker := func(jobs <-chan asyncJob) {
+		for job := range jobs {
+			select {
+			case <-closed:
+				continue
+			default:
+			}
+			reply := d.dispatchAsyncJSON(job.line, job.method, connectionID)
+			if err := write(reply); err != nil {
+				stop()
+			}
+		}
+	}
+	startAsyncWorkers := func() {
+		if asyncJobs != nil {
+			return
+		}
+		asyncJobs = make(chan asyncJob, perConnectionAsyncQueue)
+		serialAsyncJobs = make(chan asyncJob, perConnectionSerialAsyncQueue)
+		for range perConnectionAsyncLimit {
+			go runWorker(asyncJobs)
+		}
+		go runWorker(serialAsyncJobs)
+	}
 
 	subscribed := make(chan chan string, 1)
 	// Carries whether this connection painted a hover preview, which it restores on leaving.
@@ -315,7 +387,13 @@ func (d *daemon) serveRequests(conn net.Conn, r *bufio.Reader, first string) {
 	go func() {
 		var events chan string
 		hovered := false
-		defer func() { finished <- hovered }()
+		defer func() {
+			if asyncJobs != nil {
+				close(asyncJobs)
+				close(serialAsyncJobs)
+			}
+			finished <- hovered
+		}()
 		serve := func(line string) bool {
 			cmd := strings.TrimSpace(line)
 			if cmd == "" {
@@ -324,9 +402,26 @@ func (d *daemon) serveRequests(conn net.Conn, r *bufio.Reader, first string) {
 			if !strings.HasPrefix(cmd, "{") {
 				return write(d.dispatchVerb(cmd)) == nil
 			}
-			hovered = hovered || strings.Contains(cmd, `"palette.hover"`)
+			var req request
+			if json.Unmarshal([]byte(cmd), &req) == nil {
+				hovered = hovered || req.Method == "palette.hover"
+				if asyncRPCMethod(req.Method) {
+					startAsyncWorkers()
+					jobs := asyncJobs
+					if serialAsyncRPCMethod(req.Method) {
+						jobs = serialAsyncJobs
+					}
+					select {
+					case jobs <- asyncJob{line: cmd, method: req.Method}:
+						return true
+					default:
+						b, _ := json.Marshal(errResp(req.ID, -32000, "connection work queue is full; retry shortly"))
+						return write(string(b)) == nil
+					}
+				}
+			}
 			was := events
-			reply := d.dispatchJSON(cmd, &events)
+			reply := d.dispatchJSON(cmd, &events, connectionID)
 			if err := write(reply); err != nil {
 				if was == nil && events != nil {
 					d.events.unsubscribe(events)
@@ -334,20 +429,34 @@ func (d *daemon) serveRequests(conn net.Conn, r *bufio.Reader, first string) {
 				return false
 			}
 			if was == nil && events != nil {
+				if d.ui != nil {
+					d.ui.subscribed(connectionID, func(name string, data map[string]interface{}) {
+						b, err := json.Marshal(event{Event: name, Data: data})
+						if err != nil {
+							return
+						}
+						select {
+						case events <- string(b):
+						default:
+						}
+					})
+				}
 				subscribed <- events
 			}
 			return true
 		}
 		if !serve(first) {
+			stop()
 			return
 		}
 		for {
 			select {
 			case l, open := <-lines:
 				if !open || !serve(l) {
+					stop()
 					return
 				}
-			case <-quit:
+			case <-closed:
 				return
 			}
 		}
@@ -368,8 +477,7 @@ func (d *daemon) serveRequests(conn net.Conn, r *bufio.Reader, first string) {
 			if write(ev) != nil {
 				d.events.unsubscribe(events)
 				events = nil
-				// The reader and a waiting request see the close and wind the worker down.
-				conn.Close()
+				stop()
 			}
 		case hovered := <-finished:
 			select {
@@ -385,13 +493,47 @@ func (d *daemon) serveRequests(conn net.Conn, r *bufio.Reader, first string) {
 	}
 }
 
+func asyncRPCMethod(method string) bool {
+	switch method {
+	case "source.search",
+		"wallhaven.collections",
+		"workshop.search",
+		"semantic.query",
+		"effects.preview",
+		"grade.preview",
+		"theme.previews",
+		"palette.preview":
+		return true
+	}
+	return false
+}
+
+func serialAsyncRPCMethod(method string) bool {
+	switch method {
+	case "semantic.query", "effects.preview", "grade.preview", "theme.previews", "palette.preview":
+		return true
+	}
+	return false
+}
+
+func (d *daemon) dispatchAsyncJSON(cmd, method string, connectionID uint64) string {
+	switch method {
+	case "effects.preview", "grade.preview", "theme.previews", "palette.preview":
+		d.previewRPCMu.Lock()
+		defer d.previewRPCMu.Unlock()
+	}
+	var events chan string
+	return d.dispatchJSON(cmd, &events, connectionID)
+}
+
 // dispatchJSON answers one JSON-RPC line with the full serialized Response. A
 // `subscribe` request attaches this connection to the event hub.
-func (d *daemon) dispatchJSON(cmd string, events *chan string) string {
+func (d *daemon) dispatchJSON(cmd string, events *chan string, connectionID uint64) string {
 	var req request
 	if err := json.Unmarshal([]byte(cmd), &req); err != nil {
 		return fmt.Sprintf("err parse: %v", err)
 	}
+	req.ConnectionID = connectionID
 	var resp response
 	if req.Method == "subscribe" {
 		if *events == nil {

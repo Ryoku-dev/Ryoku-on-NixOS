@@ -150,7 +150,7 @@ Item {
     // The running bar style; an absent key renders the shipped QS Bar, the
     // shell's own default. The frame, rails and zone editors below are Sumi's;
     // a folder style owns its own layout.
-    readonly property string activeStyle: page.fval("barStyle", "qsbar")
+    readonly property string activeStyle: page.fval("barStyle", "orpheus")
     readonly property bool sumiActive: page.activeStyle === "sumi"
     readonly property string activeName: {
         for (let i = 0; i < page.barStyles.length; i++)
@@ -873,7 +873,7 @@ Item {
             SettingCard {
                 id: folderNote
                 width: col.colWidth
-                visible: !page.sumiActive && ["qsbar", "iris", "python", "nomarchy"].indexOf(page.activeStyle) === -1
+                visible: !page.sumiActive && ["qsbar", "orpheus", "iris", "python", "nomarchy"].indexOf(page.activeStyle) === -1
                 title: I18n.tr("LAYOUT")
 
                 Text {

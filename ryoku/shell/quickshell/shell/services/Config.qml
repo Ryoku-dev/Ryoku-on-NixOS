@@ -31,31 +31,24 @@ Singleton {
     property alias osdRadius:  adapter.osdRadius
     property alias osdOpacity: adapter.osdOpacity
 
-    // deckFrost: the haze the desktop takes while a window owns the workspace —
-    // wallpaper, widgets and the bar body sit under it, windows render above on
-    // their own layers. 0 clears it, 1 is solid black. The background scrim
-    // reads the same shell.json key generically.
+    // The desktop and the bar read one shell.json value, so their haze agrees.
+    // Zero is a hard off switch even when several windows are stacked.
     property alias deckFrost: adapter.deckFrost
 
-    // The frost's depth under a stack of n windows: the deckFrost knob plus
-    // 0.25 for every window behind the front, uncapped. One window reads as
-    // the knob itself; past 1.0 the surplus stops dimming the corners (they
-    // are already solid) and lifts the haze floor instead, so every window
-    // keeps showing all the way to a deep stack. Consumers clamp for their
-    // own range: the desktop reads the surplus as its floor, the bar as
-    // translucency. Both ask here, so depth means the same thing on both.
     function deckFrostIntensity(n: int): real {
         const base = Math.max(0, Math.min(1, Number(root.deckFrost) || 0));
+        if (base === 0)
+            return 0;
         return base + 0.25 * (Math.max(1, n) - 1);
     }
 
     property alias frameBars: adapter.frameBars
     readonly property var normalizedFrameBars: FrameBars.normalize(frameBars, BarCatalog, MenuCatalog)
 
-    // barStyle: which bar design renders. "qsbar" is the default QS Bar top bar
-    // (a shipped folder style under modules/bar/barstyles/qsbar); "sumi" is the
-    // built-in painted left rail; any other id is an installed store folder
-    // style. Each owns its own bar, popouts and settings. Default qsbar.
+    // barStyle: which bar design renders. "orpheus" is the shipped default,
+    // provided by modules/bar/barstyles/orpheus. "sumi" is the built-in painted
+    // left rail; other ids select another shipped or installed folder style.
+    // Each style owns its own bar, popouts and settings.
     property alias batteryAlerts: adapter.batteryAlerts
     property alias barStyle: adapter.barStyle
 
@@ -68,6 +61,10 @@ Singleton {
     property alias qsbar: adapter.qsbar
     property alias kairos: adapter.kairos
     property alias chroma: adapter.chroma
+    property alias orpheus: adapter.orpheus
+
+    // python: the serpantinum bar style's own settings namespace (shell.json
+    // "python"), read and written by the style's own Config mirror.
     property alias python: adapter.python
     property alias nomarchy: adapter.nomarchy
     property alias displays: adapter.displays
@@ -231,10 +228,11 @@ Singleton {
     // and the surfaces around it), keeping the readout legible without overflow.
     property alias fontScale:  adapter.fontScale
 
-    // fontFamily: the single system font. Empty resolves to Space Grotesk (UI)
-    // and SpaceMono (monospace/terminal); when set, the daemon mirrors it to GTK,
-    // Qt and the terminal so everything matches. Set from Hub -> Global.
-    property alias fontFamily: adapter.fontFamily
+    // The UI and terminal families are independent: proportional choices stay
+    // in the shell and apps, while terminals keep an explicitly monospace face.
+    // Both are set from Hub -> Global and applied system-wide by the daemon.
+    property alias fontFamily:         adapter.fontFamily
+    property alias terminalFontFamily: adapter.terminalFontFamily
 
     // fontSize: the base point size the daemon mirrors system-wide (apps and the
     // terminal). Set from Hub -> Global.
@@ -355,6 +353,7 @@ Singleton {
             property real deckFrost: 0.45
             property real fontScale: 1.3
             property string fontFamily: "Space Grotesk"
+            property string terminalFontFamily: "JetBrainsMono Nerd Font"
             property int fontSize: 11
             property string weatherLocation: ""
             property string weatherUnit: "auto"
@@ -362,13 +361,14 @@ Singleton {
             property string screenShader: ""
             property var frameBars: FrameBars.defaultConfig()
             property var batteryAlerts: ({ enabled: true, warningEnabled: true, criticalEnabled: true, warningPercent: 25, criticalPercent: 10 })
-            property string barStyle: "qsbar"
+            property string barStyle: "orpheus"
             property string launcherTarget: "studio"
             property var obi: ({})
             property var nacre: NacreConfig.defaultConfig()
             property var qsbar: ({})
             property var kairos: ({})
             property var chroma: ({})
+            property var orpheus: ({})
             property var python: ({})
             property var nomarchy: ({
                 "notifications": true,

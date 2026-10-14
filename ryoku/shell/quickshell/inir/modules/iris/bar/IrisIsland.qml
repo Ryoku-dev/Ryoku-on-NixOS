@@ -1,12 +1,12 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import Quickshell.Widgets
+import Ryoku.Ui as RyokuUi
 import inir
 import inir.services
 import inir.modules.common
@@ -306,13 +306,13 @@ Item {
         root.expanded = false
         avatarDialog.open()
     }
-    FileDialog {
+    RyokuUi.FileDialogHost {
         id: avatarDialog
+        currentFolder: "file://" + Directories.homePath
         title: Translation.tr("Profile picture")
-        fileMode: FileDialog.OpenFile
         nameFilters: [Translation.tr("Images") + " (*.png *.jpg *.jpeg *.webp *.bmp *.avif)"]
         onAccepted: {
-            setAvatar.command = [Directories.payloadPath("scripts/accounts/set-avatar.sh"), FileUtils.trimFileProtocol(String(selectedFile))]
+            setAvatar.command = [Directories.payloadPath("scripts/accounts/set-avatar.sh"), FileUtils.trimFileProtocol(String(avatarDialog.selectedFile))]
             setAvatar.running = true
         }
     }
@@ -781,8 +781,7 @@ Item {
     property bool pointerHeld: false
     onPointerHeldChanged: if (!root.pointerHeld && !root.pointerOnIsland && root.expanded && !root.pinned) leaveDelay.restart()
 
-    readonly property bool fullscreenCovered: CompositorService.nativeOverview
-        && GameMode.hasFullscreenOnOutput(root.targetScreen?.name ?? "")
+    readonly property bool fullscreenCovered: GameMode.hasFullscreenOnOutput(root.targetScreen?.name ?? "")
         && !WorkspaceService.inOverview
     readonly property bool suppressed: root.fullscreenCovered && !root.feedback && !root.expanded
     opacity: root.suppressed ? 0 : 1

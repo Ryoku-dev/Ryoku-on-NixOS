@@ -18,6 +18,11 @@ Rectangle {
     readonly property int totalCount: Number(card.bundle.totalCount
         || ((card.bundle.metadata || {}).items || []).length)
     readonly property int missingCount: Math.max(0, totalCount - installedCount)
+    readonly property var unavailableComponents: ((card.bundle.metadata || {}).items || [])
+        .filter(item => item.available === false && item.installed !== true)
+    readonly property int unavailableCount: card.unavailableComponents.length
+    readonly property int repairableMissingCount: Math.max(0,
+        card.missingCount - card.unavailableCount)
     readonly property string summary: card.bundle.summary || card.bundle.description
         || I18n.tr("Installed add-on bundle.")
 
@@ -171,7 +176,10 @@ Rectangle {
                 id: statusLabel
                 anchors.centerIn: parent
                 text: card.missingCount === 0
-                    ? I18n.tr("Complete") : I18n.tr("%1 missing").arg(card.missingCount)
+                    ? I18n.tr("Complete")
+                    : (card.unavailableCount === card.missingCount
+                        ? I18n.tr("%1 unavailable").arg(card.unavailableCount)
+                        : I18n.tr("%1 missing").arg(card.missingCount))
                 color: card.missingCount === 0 ? Tokens.inkOnBone : Tokens.inkMuted
                 font.family: Tokens.ui
                 font.pixelSize: Tokens.fTiny
@@ -185,7 +193,7 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Tokens.s2
             Btn {
-                visible: card.missingCount > 0
+                visible: card.repairableMissingCount > 0
                 compact: true
                 text: card.busy ? I18n.tr("WORKING") : I18n.tr("REPAIR")
                 armed: !card.busy

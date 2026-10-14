@@ -13,6 +13,7 @@ class BlobRect : public BlobShape {
     Q_PROPERTY(qreal stiffness READ stiffness WRITE setStiffness NOTIFY stiffnessChanged)
     Q_PROPERTY(qreal damping READ damping WRITE setDamping NOTIFY dampingChanged)
     Q_PROPERTY(qreal deformScale READ deformScale WRITE setDeformScale NOTIFY deformScaleChanged)
+    Q_PROPERTY(qreal taper READ taper WRITE setTaper NOTIFY taperChanged)
     Q_PROPERTY(QQmlListProperty<BlobRect> exclude READ exclude NOTIFY excludeChanged)
     Q_PROPERTY(qreal topLeftRadius READ topLeftRadius WRITE setTopLeftRadius NOTIFY topLeftRadiusChanged)
     Q_PROPERTY(qreal topRightRadius READ topRightRadius WRITE setTopRightRadius NOTIFY topRightRadiusChanged)
@@ -50,6 +51,10 @@ public:
             emit deformScaleChanged();
         }
     }
+    qreal taper() const { return m_taper; }
+
+    void setTaper(qreal t);
+
 
     QQmlListProperty<BlobRect> exclude();
 
@@ -76,6 +81,7 @@ signals:
     void stiffnessChanged();
     void dampingChanged();
     void deformScaleChanged();
+    void taperChanged();
     void excludeChanged();
     void topLeftRadiusChanged();
     void topRightRadiusChanged();
@@ -109,6 +115,8 @@ private:
     qreal m_stiffness = 200.0;
     qreal m_damping = 16.0;
     qreal m_deformScale = 0.0005;
+    qreal m_taper = 0;
+
 
     qreal m_topLeftRadius = -1;
     qreal m_topRightRadius = -1;

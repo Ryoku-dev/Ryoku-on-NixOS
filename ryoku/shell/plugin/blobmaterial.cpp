@@ -31,7 +31,7 @@ bool BlobMaterialShader::updateUniformData(RenderState& state, QSGMaterial* newM
     Q_UNUSED(oldMaterial);
     auto* mat = static_cast<BlobMaterial*>(newMaterial);
     QByteArray* buf = state.uniformData();
-    Q_ASSERT(buf->size() >= 1460);
+    Q_ASSERT(buf->size() >= 2576);
 
     if (state.isMatrixDirty()) {
         const QMatrix4x4 m = state.combinedMatrix();
@@ -92,7 +92,7 @@ bool BlobMaterialShader::updateUniformData(RenderState& state, QSGMaterial* newM
         memcpy(&maskAsFloat, &r.excludeMask, sizeof(float));
         const float d0[4] = { r.cx, r.cy, r.hw, r.hh };
         const float d1[4] = { maskAsFloat, r.offsetX, r.offsetY, r.minEig };
-        const float d3[4] = { r.screenHalfX, r.screenHalfY, r.sinkWeight, 0.0f };
+        const float d3[4] = { r.screenHalfX, r.screenHalfY, r.sinkWeight, r.taper };
         memcpy(buf->data() + base, d0, 16);
         memcpy(buf->data() + base + 16, d1, 16);
         memcpy(buf->data() + base + 32, r.invDeform, 16);
@@ -109,6 +109,17 @@ bool BlobMaterialShader::updateUniformData(RenderState& state, QSGMaterial* newM
     };
     memcpy(buf->data() + 1440, border, 16);
     memcpy(buf->data() + 1456, &mat->m_borderWidth, 4);
+
+    // std140 offsets: waveInfo 1472, waveData 1536, waveColor 2560
+    memcpy(buf->data() + 1472, mat->m_waveInfo, 64);
+    memcpy(buf->data() + 1536, mat->m_waveData, 1024);
+    const float wave[4] = {
+        static_cast<float>(mat->m_waveColor.redF()),
+        static_cast<float>(mat->m_waveColor.greenF()),
+        static_cast<float>(mat->m_waveColor.blueF()),
+        static_cast<float>(mat->m_waveColor.alphaF()),
+    };
+    memcpy(buf->data() + 2560, wave, 16);
 
     return true;
 }

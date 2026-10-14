@@ -16,6 +16,14 @@ Rectangle {
     signal filtersChanged(var next)
     signal applyPressed()
 
+    function submitManual(event) {
+        if (drawer.manual && drawer.hasFilters) {
+            drawer.applyPressed()
+            event.accepted = true
+        }
+    }
+    Keys.onReturnPressed: function(event) { drawer.submitManual(event) }
+    Keys.onEnterPressed: function(event) { drawer.submitManual(event) }
     color: Theme.withAlpha(Theme.surfaceVariant, 0.3)
     border.width: 1
     border.color: Theme.withAlpha(Theme.outline, 0.34)

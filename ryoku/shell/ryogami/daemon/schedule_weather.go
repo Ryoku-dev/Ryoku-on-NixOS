@@ -174,7 +174,8 @@ var (
 	reachDone bool
 )
 
-// Cached for a minute so the folio's availability probe never waits on a fresh dial.
+// The availability cache calls this off the schema path. The extra minute cache
+// avoids opening a new probe socket on every background refresh.
 func weatherReachable() bool {
 	reachMu.Lock()
 	if reachDone && time.Since(reachAt) < weatherReachTTL {

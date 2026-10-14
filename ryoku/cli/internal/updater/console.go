@@ -59,6 +59,9 @@ type conStep struct {
 	took       time.Duration
 	meta       string
 	printed    bool
+	open       bool
+	pieces     int
+	pieceLabel string
 }
 
 // errStopped is the failure a signal-driven stop records.
@@ -246,6 +249,53 @@ func span(left, right string, width int) (string, string, int) {
 	return left, right, width - utf8.RuneCountInString(left) - utf8.RuneCountInString(right)
 }
 
+type pieceLineLayout struct {
+	branch string
+	glyph  string
+	label  string
+	right  string
+	gap    int
+}
+
+func (l pieceLineLayout) text() string {
+	return "     " + l.branch + " " + l.glyph + "  " + l.label + pad(l.gap) + l.right
+}
+
+// layoutPieceLine keeps the status at the right edge and gives the label
+// whatever remains. Compiler names can be long, but the useful timing must
+// stay visible on a narrow terminal.
+func layoutPieceLine(branch, glyph, label, right string, width int) pieceLineLayout {
+	prefixText := "     " + branch + " " + glyph + "  "
+	prefix := utf8.RuneCountInString(prefixText)
+	room := width - prefix - utf8.RuneCountInString(right) - 2
+	switch {
+	case room <= 0:
+		label = ""
+	case utf8.RuneCountInString(label) > room:
+		if room == 1 {
+			label = "…"
+		} else {
+			label = clip(label, room)
+		}
+	}
+	left, right, gap := span(prefixText+label, right, width)
+	label = strings.TrimPrefix(left, prefixText)
+	return pieceLineLayout{branch: branch, glyph: glyph, label: label, right: right, gap: gap}
+}
+
+func closingPieceLine(state stepState, count int, label, right string, width int) pieceLineLayout {
+	glyph := "✓"
+	text := fmt.Sprintf(i18n.T("%d pieces built"), count)
+	switch state {
+	case stepSkipped:
+		glyph = "–"
+	case stepFailed:
+		glyph = "✗"
+		text = fmt.Sprintf(i18n.T("stopped while building %s"), label)
+	}
+	return layoutPieceLine("╰─", glyph, text, right, width)
+}
+
 // human renders a duration the way a person reads one: 0.8s, 42s, 3m 05s.
 func human(d time.Duration) string {
 	switch {
@@ -301,10 +351,11 @@ func (c *console) animate() {
 			return
 		case <-t.C:
 			frac := progress.currentFraction()
+			pieces := progress.currentPieces()
 			c.mu.Lock()
 			if !c.paused && !c.closed {
 				c.frame++
-				c.drawLive(frac)
+				c.drawLive(frac, pieces)
 			}
 			c.mu.Unlock()
 		}
@@ -313,13 +364,69 @@ func (c *console) animate() {
 
 var spinFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
-// drawLive redraws the step in flight, its latest line, and the bar. The
-// caller holds the lock.
-func (c *console) drawLive(frac float64) {
+// inner removes four terminal columns, so 56 is the compact-view boundary for
+// a 60-column terminal.
+const (
+	pieceBarMinInner = 56
+	pieceBarCells    = 14
+	pieceBarBlank    = "              "
+)
+
+// drawLive redraws the work in flight and the overall bar. The caller holds
+// the lock.
+func (c *console) drawLive(frac float64, v pieceView) {
 	if c.mode != conLive || c.held {
 		return
 	}
 	in := c.inner()
+	overall := "  " + c.bar(frac, in-18) + "  " + c.bold(fmt.Sprintf("%3d%%", int(frac*100+0.5))) + c.dim("  ·  "+human(time.Since(c.started)))
+	if c.cur >= 0 && c.steps[c.cur].open {
+		if v.Step == c.steps[c.cur].key && v.Running >= 0 && v.Running < len(v.Pieces) {
+			p := v.Pieces[v.Running]
+			elapsed := time.Duration(0)
+			if p.Began > 0 {
+				elapsed = time.Since(time.UnixMilli(p.Began))
+				if elapsed < 0 {
+					elapsed = 0
+				}
+			}
+			gauge := p.Frac
+			if gauge <= 0 && p.Typical > 0 {
+				gauge = min(0.95, float64(elapsed)/float64(time.Duration(p.Typical)*time.Millisecond))
+			}
+			showProgress := p.Frac > 0 || p.Typical > 0
+			times := human(elapsed)
+			if p.Typical > 0 {
+				times += " / ~" + human(time.Duration(p.Typical)*time.Millisecond)
+			}
+			right, paintedRight := times, c.dim(times)
+			if showProgress {
+				percent := fmt.Sprintf("%3d%%", int(gauge*100+0.5))
+				right, paintedRight = percent+"  "+times, c.bold(percent)+"  "+c.dim(times)
+				if in >= pieceBarMinInner {
+					right = pieceBarBlank + "  " + right
+					paintedRight = c.bar(gauge, pieceBarCells) + "  " + paintedRight
+				}
+			}
+			line := layoutPieceLine("├─", string(spinFrames[c.frame%len(spinFrames)]), p.Label, right, in)
+			pieceLine := "     " + c.dim(line.branch+" ") + c.brand(line.glyph) + "  " + c.bold(line.label) + pad(line.gap) + paintedRight
+			detail := p.Detail
+			if detail == "" {
+				detail = p.Note
+			}
+			if detail == "" {
+				detail = i18n.T("starting…")
+			}
+			lines := []string{pieceLine, "     " + c.dim("│       "+clip(detail, in-13)), "", overall}
+			c.redraw(lines)
+			return
+		}
+		// The permanent header stands for the step even in the short gap
+		// between one compiler finishing and the next one starting.
+		c.redraw([]string{"", "", overall})
+		return
+	}
+
 	label, took := i18n.T("Starting"), ""
 	if c.cur >= 0 {
 		s := c.steps[c.cur]
@@ -351,9 +458,13 @@ func (c *console) drawLive(frac float64) {
 	} else {
 		lines = append(lines, "")
 	}
+	lines = append(lines, overall)
+	c.redraw(lines)
+}
 
-	lines = append(lines, "", "  "+c.bar(frac, in-18)+"  "+c.bold(fmt.Sprintf("%3d%%", int(frac*100+0.5)))+c.dim("  ·  "+human(time.Since(c.started))))
-
+// redraw replaces the complete animated region. Keeping this in one place
+// makes c.live the exact number of terminal rows that clearLive walks back.
+func (c *console) redraw(lines []string) {
 	c.clearLive()
 	// autowrap off for the redraw: a line that ever outgrows the terminal is
 	// cut at its edge instead of pushing the region a row taller than the
@@ -470,6 +581,41 @@ func (c *console) printStep(s *conStep, own bool) {
 		}
 		return
 	}
+	if s.open {
+		warn := own && c.hasWarn()
+		if own {
+			c.printOpenNotes()
+		}
+		right := ""
+		if s.took > 0 {
+			right = human(s.took)
+		}
+		if s.state == stepSkipped {
+			right = i18n.T("skipped")
+		}
+		label := s.pieceLabel
+		if label == "" {
+			label = s.label
+		}
+		line := closingPieceLine(s.state, s.pieces, label, right, c.inner())
+		glyph := c.green(line.glyph)
+		switch s.state {
+		case stepSkipped:
+			glyph = c.dim(line.glyph)
+		case stepFailed:
+			glyph = c.red(line.glyph)
+		default:
+			if warn {
+				glyph = c.amber("!")
+			}
+		}
+		text := line.label
+		if s.state == stepSkipped {
+			text = c.dim(text)
+		}
+		c.println("     " + c.dim(line.branch+" ") + glyph + "  " + text + pad(line.gap) + c.dim(line.right))
+		return
+	}
 	glyph := c.green("✓")
 	switch s.state {
 	case stepSkipped:
@@ -511,6 +657,14 @@ func (c *console) hasWarn() bool {
 // printNotes prints and clears the running step's notes as a small tree under
 // it. The caller holds the lock.
 func (c *console) printNotes() {
+	c.printNotesTree(true)
+}
+
+func (c *console) printOpenNotes() {
+	c.printNotesTree(false)
+}
+
+func (c *console) printNotesTree(closeLast bool) {
 	defer func() { c.notes, c.hidden = nil, 0 }()
 	if c.mode == conPlain {
 		return // plain mode printed each note as it came
@@ -523,7 +677,7 @@ func (c *console) printNotes() {
 	in := c.inner()
 	for i, note := range c.notes {
 		branch := "├─ "
-		if i == n-1 && extra == "" {
+		if closeLast && i == n-1 && extra == "" {
 			branch = "╰─ "
 		}
 		text := clip(note.text, in-9)
@@ -540,7 +694,11 @@ func (c *console) printNotes() {
 		c.println("     " + c.dim(branch) + text)
 	}
 	if extra != "" {
-		c.println("     " + c.dim("╰─ "+extra))
+		branch := "╰─ "
+		if !closeLast {
+			branch = "├─ "
+		}
+		c.println("     " + c.dim(branch+extra))
 	}
 }
 
@@ -566,6 +724,101 @@ func (c *console) enter(key string) {
 		fmt.Fprintln(c.w)
 		fmt.Fprintln(c.w, c.brand("==> ")+c.bold(c.steps[idx].label))
 	}
+}
+
+// piecesOpen replaces the running step spinner with one permanent source-build
+// header. The publisher calls without its lock held.
+func (c *console) piecesOpen(v pieceView) {
+	if c == nil || c.mode == conVerbose {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	i := c.index(v.Step)
+	if i < 0 || c.steps[i].open {
+		return
+	}
+	s := &c.steps[i]
+	s.open = true
+	if c.mode != conLive {
+		return
+	}
+	right := i18n.T("building from source")
+	if !v.First {
+		right = fmt.Sprintf(i18n.T("%d pieces · usually %s"), len(v.Pieces), human(time.Duration(v.Typical)*time.Millisecond))
+	}
+	l, r, gap := span(s.label, right, c.inner()-4)
+	c.println("  " + c.brand("◆") + "  " + c.bold(l) + pad(gap) + c.dim(r))
+	// The first source build is the slow one. Said here, under the header,
+	// it is read before the first bar moves; as a note it would surface
+	// only when the step settles.
+	if v.First {
+		for _, line := range wrap(firstBuildExplainer(), c.inner()-9) {
+			c.println("     " + c.dim("│  "+line))
+		}
+	}
+}
+
+// wrap breaks s into lines of at most n runes on word boundaries; a word
+// longer than n stands on its own line.
+func wrap(s string, n int) []string {
+	if n < 10 {
+		n = 10
+	}
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(s) {
+		switch {
+		case line == "":
+			line = word
+		case utf8.RuneCountInString(line)+1+utf8.RuneCountInString(word) <= n:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// pieceSettled makes completed compiler work permanent above the live region.
+// The publisher calls without its lock held.
+func (c *console) pieceSettled(p piece) {
+	if c == nil || c.mode == conVerbose {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.mode == conPlain {
+		fmt.Fprintf(c.w, "    %s: %s\n", p.Label, human(time.Duration(p.Took)*time.Millisecond))
+		return
+	}
+	if c.cur < 0 || !c.steps[c.cur].open {
+		return
+	}
+	s := &c.steps[c.cur]
+	if p.State == stepDone {
+		s.pieces++
+	}
+	s.pieceLabel = p.Label
+	right := human(time.Duration(p.Took) * time.Millisecond)
+	glyph := c.green("✓")
+	switch p.State {
+	case stepSkipped:
+		glyph = c.dim("–")
+		right = i18n.T("skipped")
+	case stepFailed:
+		glyph = c.red("✗")
+	}
+	line := layoutPieceLine("├─", "✓", p.Label, right, c.inner())
+	label := line.label
+	if p.State == stepSkipped {
+		label = c.dim(label)
+	}
+	c.println("     " + c.dim(line.branch+" ") + glyph + "  " + label + pad(line.gap) + c.dim(line.right))
 }
 
 func (c *console) skip(key string) {
@@ -671,7 +924,11 @@ func (c *console) captured(line string) {
 	if strings.HasPrefix(line, "▸ ") {
 		return
 	}
+	marker := strings.HasPrefix(line, "::piece:: ")
 	progress.observe(line)
+	if marker {
+		return
+	}
 	c.mu.Lock()
 	c.tail = append(c.tail, line)
 	if len(c.tail) > 8 {
@@ -689,8 +946,9 @@ func (c *console) captured(line string) {
 }
 
 // classifyCaptured picks out the captured lines worth a note: a tool's own
-// "error:", "warning:" and "note:" lines, a .pacnew left behind, and, while
-// the doctor runs, its findings. Everything else stays in the log. The doctor
+// "error:", "warning:" and "note:" lines, a .pacnew left behind, the packages
+// pacman names when it refuses a transaction (pacmanDetail), and, while the
+// doctor runs, its findings. Everything else stays in the log. The doctor
 // speaks its own format (a glyph, the check's name, then indented detail), so
 // its output is read only that way: a finding's detail mentioning a .pacnew is
 // part of the finding already on screen, not a second one. pure.
@@ -721,6 +979,9 @@ func classifyCaptured(step, line string) (noteKind, string, bool) {
 		return noteInfo, strings.TrimSpace(line[len("note:"):]), true
 	case strings.Contains(low, ".pacnew"), strings.Contains(low, ".pacsave"):
 		return noteWarn, line, true
+	}
+	if detail := pacmanDetail(line); detail != "" {
+		return noteErr, detail, true
 	}
 	return 0, "", false
 }

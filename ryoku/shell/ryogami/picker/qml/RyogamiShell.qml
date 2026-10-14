@@ -10,6 +10,7 @@ Scope {
 
     readonly property bool _startVisible: Quickshell.env("RYOGAMI_START_VISIBLE") === "1"
     readonly property var _startSettings: Quickshell.env("RYOGAMI_START_SETTINGS")
+    property bool _startupPending: false
 
     property SettingValue _releaseSetting: SettingValue { key: "performance.releaseAfterHideSeconds" }
     readonly property int _releaseSecs: {
@@ -21,13 +22,16 @@ Scope {
 
     function show() { picker.show() }
     function hide() { picker.hide() }
-    function toggle() {
-        if (picker.shown)
-            picker.hide()
-        else
-            picker.show()
-    }
+    function toggle() { picker.toggle() }
     function settings(tab) { picker.openSettings(tab) }
+
+    function completeStartup() {
+        shell._startupPending = false
+        if (typeof shell._startSettings === "string")
+            shell.settings(shell._startSettings)
+        else if (shell._startVisible)
+            shell.show()
+    }
 
     Timer {
         id: releaseTimer
@@ -57,6 +61,10 @@ Scope {
             else if (name === "ryogami.wall.settings")
                 shell.settings(data && data.tab ? data.tab : "")
         }
+        function onReconnected() {
+            if (shell._startupPending)
+                shell.completeStartup()
+        }
     }
 
     IpcHandler {
@@ -68,9 +76,11 @@ Scope {
     }
 
     Component.onCompleted: {
-        if (typeof shell._startSettings === "string")
-            shell.settings(shell._startSettings)
-        else if (shell._startVisible)
-            picker.show()
+        if (typeof shell._startSettings !== "string" && !shell._startVisible)
+            return
+        if (Daemon.connected)
+            shell.completeStartup()
+        else
+            shell._startupPending = true
     }
 }

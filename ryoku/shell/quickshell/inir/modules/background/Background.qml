@@ -349,8 +349,7 @@ Scope {
 
         // Hide the widget canvas while a fullscreen window owns the output. The
         // seam answers this per output on whichever compositor is running.
-        readonly property bool hasFullscreenWindow: CompositorService.nativeOverview
-            && GameMode.hasFullscreenOnOutput(bgRoot.modelData?.name ?? "")
+        readonly property bool hasFullscreenWindow: GameMode.hasFullscreenOnOutput(bgRoot.modelData?.name ?? "")
             && !WorkspaceService.inOverview
         visible: GlobalStates.screenLocked
             || !hasFullscreenWindow

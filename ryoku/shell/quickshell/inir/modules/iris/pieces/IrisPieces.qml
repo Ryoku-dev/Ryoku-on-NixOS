@@ -286,7 +286,7 @@ QtObject {
     function appPieceId(appId: string): string { return root.appPrefix + appId }
     function appIcon(appId: string): string {
         const id = String(appId ?? "")
-        const entry = AppSearch.lookupDesktopEntry(id)
+        const entry = AppSearch.lookupDesktopEntry(id, true)
         const icon = entry?.icon || AppSearch.guessIcon(id)
         return IconThemeService.smartIconName(icon, id)
     }

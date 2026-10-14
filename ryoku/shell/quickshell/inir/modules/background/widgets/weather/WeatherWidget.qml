@@ -61,8 +61,8 @@ AbstractBackgroundWidget {
         push("air", d.wind);
         push("visibility", d.visib);
         push("rainy", d.precip);
-        push("wb_sunny", d.sunrise);
-        push("bedtime", d.sunset);
+        push("wb_sunny", Weather.displayTime(d.sunrise));
+        push("bedtime", Weather.displayTime(d.sunset));
         return items;
     }
     readonly property int visibleContentCount: Number(showTemp) + Number(showIcon) + Number(showCondition)
@@ -667,7 +667,7 @@ AbstractBackgroundWidget {
                             font.letterSpacing: root.widgetIris ? 0 : Math.round(1.1 * root.scaleFactor)
                         }
                         StyledText {
-                            text: Weather.data?.sunrise ?? ""
+                            text: Weather.displayTime(Weather.data?.sunrise)
                             color: root.widgetInk
                             font.family: root.widgetNumbersFamily
                             font.pixelSize: Math.round(10 * root.scaleFactor)
@@ -688,7 +688,7 @@ AbstractBackgroundWidget {
                         }
                         StyledText {
                             Layout.alignment: Qt.AlignRight
-                            text: Weather.data?.sunset ?? ""
+                            text: Weather.displayTime(Weather.data?.sunset)
                             color: root.widgetInk
                             font.family: root.widgetNumbersFamily
                             font.pixelSize: Math.round(10 * root.scaleFactor)

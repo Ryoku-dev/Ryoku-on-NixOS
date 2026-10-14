@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 
 namespace {
 
@@ -256,6 +257,7 @@ void WallLayout::configure(const LayoutContext &ctx, bool animate)
     }
     m_camera.setDuration(cameraMs(ctx));
     m_haveParams = true;
+    m_placementsValid = false;
 }
 
 void WallLayout::reset(const LayoutContext &ctx)
@@ -263,6 +265,7 @@ void WallLayout::reset(const LayoutContext &ctx)
     Q_UNUSED(ctx)
     m_hoverFades.clear();
     m_snapCamera = true;
+    m_placementsValid = false;
 }
 
 void WallLayout::gridFollow(int idx)
@@ -341,6 +344,11 @@ void WallLayout::placements(const LayoutContext &ctx, float totalW)
     const int count = ctx.count;
     const int cols = std::max(p.cols, 1);
     const CardSource *src = ctx.source;
+    const quint64 generation = src ? src->cardGeneration() : 0;
+    if (m_placementsValid && m_placementCount == count
+        && m_placementGeneration == generation && geom::feq(m_placementWidth, totalW)
+        && m_placementParams.settledTo(p))
+        return;
     m_places.clear();
 
     auto aspectOf = [&](int idx, float lo, float hi) -> float {
@@ -454,6 +462,23 @@ void WallLayout::placements(const LayoutContext &ctx, float totalW)
             pl.h = nh;
         }
     }
+    m_placeOrderY.resize(m_places.size());
+    std::iota(m_placeOrderY.begin(), m_placeOrderY.end(), 0);
+    std::sort(m_placeOrderY.begin(), m_placeOrderY.end(), [this](int a, int b) {
+        return m_places[size_t(a)].y < m_places[size_t(b)].y;
+    });
+    m_maxPlaceHeight = 0;
+    m_contentHeight = 0;
+    for (const Place &place : m_places) {
+        m_maxPlaceHeight = std::max(m_maxPlaceHeight, place.h);
+        m_contentHeight = std::max(m_contentHeight, place.y + place.h);
+    }
+
+    m_placementParams = p;
+    m_placementCount = count;
+    m_placementGeneration = generation;
+    m_placementWidth = totalW;
+    m_placementsValid = true;
 }
 
 void WallLayout::build(const LayoutContext &ctx, std::vector<CardVisual> &out)
@@ -501,10 +526,7 @@ void WallLayout::build(const LayoutContext &ctx, std::vector<CardVisual> &out)
     const float cy = float(center.y());
 
     placements(ctx, totalW);
-    float contentH = 0;
-    for (const auto &pl : m_places)
-        contentH = std::max(contentH, pl.y + pl.h);
-    m_maxScroll = std::max(contentH - viewH, 0.0f);
+    m_maxScroll = std::max(m_contentHeight - viewH, 0.0f);
 
     if (m_snapCamera) {
         float snapTo = 0;
@@ -529,7 +551,7 @@ void WallLayout::build(const LayoutContext &ctx, std::vector<CardVisual> &out)
     const float fB = std::min(top + viewH, vh);
     m_frame = QRectF(fL, fT, std::max(fR - fL, 0.0f), std::max(fB - fT, 0.0f));
 
-    for (const auto &pl : m_places) {
+    const auto emitPlace = [&](const Place &pl) {
         const float rawX = left + pl.x + pl.w * 0.5f;
         const float rawY = top + pl.y - cam + pl.h * 0.5f;
         float sx, sy, ss;
@@ -540,9 +562,29 @@ void WallLayout::build(const LayoutContext &ctx, std::vector<CardVisual> &out)
         const float hw = pl.w * stageScale * ss * focus * 0.5f;
         const float hh = pl.h * stageScale * ss * focus * 0.5f;
         if (ex + hw <= fL || ex - hw >= fR || ey + hh <= fT || ey - hh >= fB)
-            continue;
+            return;
         m_cells.push_back({pl.idx, ex, ey, hw, hh});
         emitCell(ctx, out, pl.idx, ex, ey, hw, hh, entrance);
+    };
+
+    const bool stableY = geom::feq(p.stage.offsetY, 0.0f) && geom::feq(p.stage.scale, 1.0f)
+        && geom::feq(p.stage.rotation, 0.0f) && geom::feq(p.stage.shearY, 0.0f)
+        && geom::feq(p.stage.perspective, 0.0f);
+    if (stableY) {
+        const float minY = cam - m_maxPlaceHeight - 8.0f;
+        const float maxY = cam + viewH + m_maxPlaceHeight + 8.0f;
+        const auto first = std::lower_bound(m_placeOrderY.cbegin(), m_placeOrderY.cend(), minY,
+            [this](int idx, float y) { return m_places[size_t(idx)].y < y; });
+        const auto last = std::upper_bound(first, m_placeOrderY.cend(), maxY,
+            [this](float y, int idx) { return y < m_places[size_t(idx)].y; });
+        m_visiblePlaces.clear();
+        m_visiblePlaces.insert(m_visiblePlaces.end(), first, last);
+        std::sort(m_visiblePlaces.begin(), m_visiblePlaces.end());
+        for (int idx : m_visiblePlaces)
+            emitPlace(m_places[size_t(idx)]);
+    } else {
+        for (const Place &pl : m_places)
+            emitPlace(pl);
     }
 }
 

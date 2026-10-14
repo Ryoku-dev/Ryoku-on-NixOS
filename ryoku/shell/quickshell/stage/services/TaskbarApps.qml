@@ -15,14 +15,14 @@ Singleton {
         if (!appId) return null
         if (_desktopEntryCache.hasOwnProperty(appId))
             return _desktopEntryCache[appId]
-        const entry = DesktopEntries.heuristicLookup(appId)
+        const entry = AppSearch.lookupDesktopEntry(appId, true)
         _desktopEntryCache[appId] = entry ?? null
         return _desktopEntryCache[appId]
     }
 
     function getCachedIcon(appId) {
         if (!appId) return ""
-        return AppSearch.guessIcon(appId)
+        return AppSearch.lookupDesktopEntry(appId, true)?.icon || AppSearch.guessIcon(appId)
     }
 
     function invalidateDesktopEntryCache() {

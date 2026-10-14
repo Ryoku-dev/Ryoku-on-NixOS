@@ -35,13 +35,14 @@ Item {
         { "name": "noctalia",     "by": "noctalia-dev",   "role": I18n.tr("shell polish"),         "url": "https://github.com/noctalia-dev/noctalia-shell" },
         { "name": "DankMaterial", "by": "AvengeMedia",    "role": I18n.tr("material shell"),       "url": "https://github.com/AvengeMedia/DankMaterialShell" },
         { "name": "Omarchy",      "by": "37signals / DHH", "role": I18n.tr("Nomarchy shell source (MIT)"), "url": "https://github.com/basecamp/omarchy" },
-        { "name": "CachyOS",      "by": "CachyOS team",   "role": I18n.tr("performance Arch"),     "url": "" },
+        { "name": "CachyOS",      "by": "CachyOS team",   "role": I18n.tr("performance-focused distribution"), "url": "" },
         { "name": "Ricelin",      "by": "Gakuseei",       "role": I18n.tr("washi warping pill"),   "url": "https://github.com/Gakuseei/Ricelin" },
         { "name": "nixos-configuration", "by": "ilyamiro", "role": I18n.tr("legacy island bar"),   "url": "https://github.com/ilyamiro/nixos-configuration" },
         { "name": "dotfiles",     "by": "Jules3182",     "role": I18n.tr("dyad dual-edge bar"),   "url": "https://github.com/Jules3182/dotfiles" },
         { "name": "NibrasShell",  "by": "Ahmed Saadi",    "role": I18n.tr("depth effect engine"),  "url": "https://github.com/AhmedSaadi0/NibrasShell" },
         { "name": "skwd-wall",    "by": "liixini",        "role": I18n.tr("ryogami wallpaper engine"), "url": "https://github.com/liixini/skwd-wall" },
-        { "name": "ii-p3drovfx",  "by": "P3DROVFX",       "role": I18n.tr("Stage Editor (GPL-3.0)"), "url": "https://github.com/P3DROVFX/ii-p3drovfx" }
+        { "name": "ii-p3drovfx",  "by": "P3DROVFX",       "role": I18n.tr("Stage Editor and ii dock (GPL-3.0)"), "url": "https://github.com/P3DROVFX/ii-p3drovfx" },
+        { "name": "Quickshell Rise", "by": "HANCORE-linux", "role": I18n.tr("QS Bar source (MIT)"), "url": "https://github.com/HANCORE-linux/quickshell-dots" }
     ]
 
     // the alpha/beta crew, constantly stress-testing and filing bugs. each name

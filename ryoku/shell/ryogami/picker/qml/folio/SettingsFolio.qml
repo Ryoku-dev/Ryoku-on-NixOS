@@ -35,7 +35,7 @@ FocusScope {
         }
     }
 
-    // Pure data, so all thirteen tabs can live at once.
+    // Pure data, so every tab can live at once.
     PickerTab { id: tPicker }
     FilterTab { id: tFilter }
     PositionTab { id: tPosition }
@@ -47,10 +47,16 @@ FocusScope {
     SourcesTab { id: tSources }
     AutomationTab { id: tAutomation }
     ThemeTab { id: tTheme }
+    LightingTab { id: tLighting }
     IntegrationsTab { id: tIntegrations }
     LanguageTab { id: tLanguage }
     readonly property var tabs: [tPicker, tFilter, tPosition, tDisplays, tMotion, tPlayback,
-        tPerformance, tLibrary, tSources, tAutomation, tTheme, tIntegrations, tLanguage]
+        tPerformance, tLibrary, tSources, tAutomation, tTheme, tLighting, tIntegrations, tLanguage]
+    readonly property var lightingController: lighting
+    LightingController {
+        id: lighting
+        active: folio.shown && folio.activeTab && folio.activeTab.tabKey === "lighting"
+    }
 
     property int activeTabIndex: 0
     property int activeSectionIndex: 0

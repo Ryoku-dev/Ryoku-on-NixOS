@@ -5,9 +5,9 @@ import Ryoku.Ui.Singletons
 import ".."
 import "../schema/GlobalPage.js" as GlobalSchema
 
-// Global: the cross-cutting preferences that are not tied to one surface -- the
-// interface language, the regional formats used for dates and numbers, the
-// machine location, and the system font. Rendered through the shared SchemaPage;
+// Global: the cross-cutting preferences that are not tied to one surface: the
+// interface language, regional formats used for dates and numbers, machine
+// location, UI font and terminal font. Rendered through the shared SchemaPage;
 // the ledger and action bar belong to the shell.
 Item {
     id: pg
@@ -15,12 +15,21 @@ Item {
 
     readonly property string pTitle: I18n.tr("Global")
     readonly property string pEyebrow: I18n.tr("GLOBAL")
-    readonly property string pBlurb: I18n.tr("Language, regional formats, location and the system font.")
+    readonly property string pBlurb: I18n.tr("Language, regional formats, location and fonts.")
     function focusKey(k) { sp.focusKey(k) }
+    function resetDefaults() {
+        if (!pg.hub)
+            return;
+        for (var i = 0; i < pg.schema.length; i++) {
+            var key = pg.schema[i].key;
+            if (key && pg.hub.defs[key] !== undefined)
+                pg.hub.edit(key, JSON.parse(JSON.stringify(pg.hub.defs[key])));
+        }
+    }
 
-    // Installed font families, read live so the System font drawer offers exactly
-    // what this machine can render. Injected into the fontFamily row's options,
-    // so the shared "pick" control shows the searchable font list.
+    // Installed font families, read live so both font drawers offer exactly what
+    // this machine can render. Injected into the font rows' options so the shared
+    // "pick" control shows the searchable font list.
     property var fontList: []
     // the live system time zone, injected into the timezone row and refreshed
     // after an apply.
@@ -29,11 +38,11 @@ Item {
         var out = [];
         for (var i = 0; i < GlobalSchema.rows.length; i++) {
             var r = GlobalSchema.rows[i];
-            if (r.key === "fontFamily" || r.key === "timezone") {
+            if (r.key === "fontFamily" || r.key === "terminalFontFamily" || r.key === "timezone") {
                 var c = {};
                 for (var k in r)
                     c[k] = r[k];
-                if (r.key === "fontFamily") c.opts = pg.fontList;
+                if (r.key === "fontFamily" || r.key === "terminalFontFamily") c.opts = pg.fontList;
                 else c.tzCurrent = pg.currentTimezone;
                 out.push(c);
             } else {

@@ -1,8 +1,12 @@
 package doctor
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	i18n "ryoku-i18n"
 )
 
 // stubDgpu swaps the one seam the reconciler reads (the whole gathered state)
@@ -147,6 +151,35 @@ func TestDgpuPanelWattageOnlyWhenMeasured(t *testing.T) {
 	}
 	if strings.Contains(unread.detail, " W") {
 		t.Errorf("an unreadable draw must not fabricate a wattage, got %q", unread.detail)
+	}
+}
+
+func TestDgpuPanelDetailUsesOneTranslatableSentence(t *testing.T) {
+	got := dgpuNeverSuspendedDetail(dgpuState{
+		watts: 13.3, rtd3: "Enabled (fine-grained)", holders: []string{"Hyprland", "Xwayland", "qs"},
+	})
+	want := "the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing 13.3 W, with the card open in Hyprland, Xwayland, qs"
+	if got != want {
+		t.Fatalf("detail = %q, want %q", got, want)
+	}
+}
+
+func TestDgpuPanelDetailTranslatesAsOneSentence(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("RYOKU_I18N_DIR", root)
+	key := "the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing %.1f W, with the card open in %s"
+	body := `{"` + key + `":"ayrık GPU paneli sürmüyor, %.1f W tüketiyor; işlemler: %s"}`
+	if err := os.WriteFile(filepath.Join(root, "tr.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	i18n.Use("tr")
+	t.Cleanup(func() { i18n.Use("en") })
+
+	got := dgpuNeverSuspendedDetail(dgpuState{watts: 13.3, holders: []string{"Xwayland", "qs"}})
+	if got != "ayrık GPU paneli sürmüyor, 13.3 W tüketiyor; işlemler: Xwayland, qs" {
+		t.Fatalf("detail = %q", got)
 	}
 }
 

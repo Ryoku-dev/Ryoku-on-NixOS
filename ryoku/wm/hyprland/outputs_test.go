@@ -15,7 +15,7 @@ func TestLayoutToSpecs(t *testing.T) {
 		{Name: "eDP-1", Enabled: true, Mode: "2560x1600@165", Scale: 1.5, X: 0, Y: 0, Transform: 1, VRR: true, Mirror: "DP-1", ColorMode: "hdr", SdrBrightness: 1.5},
 		{Name: "DP-1", Enabled: true},                // auto everything
 		{Name: "HDMI-A-1", Enabled: false, Scale: 2}, // disabled
-		{Name: ""},                                   // nameless: dropped
+		{Name: ""}, // nameless: dropped
 	})
 	if len(specs) != 3 {
 		t.Fatalf("got %d specs, want 3 (the nameless one is dropped)", len(specs))

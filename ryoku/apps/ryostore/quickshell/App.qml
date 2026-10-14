@@ -432,7 +432,7 @@ Rectangle {
         onFileChanged: reload()
         JsonAdapter {
             id: shellSettings
-            property string barStyle: "qsbar"
+            property string barStyle: "orpheus"
         }
     }
 
@@ -649,10 +649,12 @@ Rectangle {
             anchors { left: parent.left; leftMargin: Tokens.s6; verticalCenter: parent.verticalCenter }
             text: Store.busyKey !== ""
                     ? I18n.tr(Store.installStage)
-                    : (app.view === "library" && app.updateCount > 0
-                       ? I18n.tr("%1 UPDATES READY").arg(app.updateCount)
-                       : I18n.tr("READY"))
-            color: Store.busyKey !== "" || app.updateCount > 0 ? Tokens.ink : Tokens.inkMuted
+                    : (Store.offline
+                       ? I18n.tr("OFFLINE · REFRESH TO RETRY")
+                       : (app.view === "library" && app.updateCount > 0
+                          ? I18n.tr("%1 UPDATES READY").arg(app.updateCount)
+                          : I18n.tr("READY")))
+            color: Store.busyKey !== "" || Store.offline || app.updateCount > 0 ? Tokens.ink : Tokens.inkMuted
             font.family: Tokens.mono
             font.pixelSize: Tokens.fMicro
             font.letterSpacing: Tokens.trackLabel

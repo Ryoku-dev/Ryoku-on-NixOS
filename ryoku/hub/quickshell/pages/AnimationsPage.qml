@@ -54,7 +54,7 @@ Item {
             if (!r || !r.key) continue;
             if (String(r.key).indexOf("[") >= 0) continue;
             if (r.ctl === "action" || r.ctl === "list") continue;
-            if (r.caps && !Settings.supports(r.caps)) continue;
+            if (!Settings.supports(r.caps, r.hostCaps)) continue;
             if (!Settings.modelsKey(r.key)) continue;
             out.push(r);
         }

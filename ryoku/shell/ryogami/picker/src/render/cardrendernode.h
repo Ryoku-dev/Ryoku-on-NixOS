@@ -37,6 +37,7 @@ public:
     TextureTier &farTier() { return m_far; }
     QSize nearTileSize() const { return m_near.tileSize(); }
     void beginFrame();
+    void invalidateTexture(const QString &key);
     void setInstances(std::vector<CardInstance> &&instances);
     // An empty set means no transition.
     void setTransition(std::vector<CardInstance> &&from, float progress, int kind);

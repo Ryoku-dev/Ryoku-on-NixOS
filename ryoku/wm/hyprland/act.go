@@ -137,6 +137,19 @@ func runAct(args []string) error {
 		}
 		return dispatch(`hl.dsp.workspace.toggle_special(` + luaStr(name) + `)`)
 
+	case wm.ActionWindowHide:
+		id, err := arg(rest, 0, "window id or focused")
+		if err != nil {
+			return err
+		}
+		if id == "focused" {
+			// The workspace helper owns the focused case: a silent move still
+			// pulls focus into the scratchpad, so it closes the special
+			// workspace again and refocuses where the window came from.
+			return runWorkspaceHelper("hide")
+		}
+		return dispatch(`hl.dsp.window.move({ workspace = "special:` + scratchName + `", window = ` + luaStr("address:"+id) + `, follow = false })`)
+
 	case wm.ActionSessionExit:
 		return dispatch(`hl.dsp.exit()`)
 
@@ -744,4 +757,14 @@ func nightlightStop(name string) {
 			_ = syscall.Kill(pid, syscall.SIGTERM)
 		}
 	}
+}
+
+// scratchName is the special workspace the shipped scratchpad binds use; the
+// workspace helper names it the same way.
+const scratchName = "scratch"
+
+// runWorkspaceHelper runs the shipped workspace helper the scratchpad binds
+// call, so window.hide on the focused window behaves exactly like Super+H.
+var runWorkspaceHelper = func(args ...string) error {
+	return exec.Command(filepath.Join(hyprConfigDir(), "scripts", "ryoku-workspace"), args...).Run()
 }

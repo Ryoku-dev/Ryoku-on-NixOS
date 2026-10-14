@@ -117,6 +117,9 @@
   v0.56.0-beta.19") via `ryoku version --pretty` (`config.jsonc`).
 
 ### Fixed
+- `ryostore/`: **An offline catalogue no longer claims it is ready.** Built-in
+  bars no longer mask a failed remote fetch with no cache, and the action bar
+  reports the offline state with a refresh hint.
 - `fastfetch/`: **The readout names the distribution it runs on.** The tagline
   said "a hand-built Arch desktop" on every system. It now reads the base
   distribution through `ryoku-base-os` (Arch and CachyOS still say Arch, Void
@@ -171,6 +174,8 @@
   that lands while the picker is open shows up on user boxes too.
 
 ### Removed
+- `rashin-app/`: **The Rashin window moved out of the desktop apps.** It now
+  lives in `ryoku/rashin/app/` and ships with `ryoku-rashin`.
 - `ryotunes/`: **The Chromium app-window wrapper is gone; Ryotunes is now a real
   app.** YouTube Music ran as a Chromium `--app` window in its own profile
   because the Tauri/Electron clients of the time crashed on this compositor or

@@ -54,7 +54,7 @@ Item {
     }
     function usable(kind: string): bool {
         if (kind === "island" || kind === "window" || kind === "time" || kind === "|") return true
-        if (kind === "workspaces") return CompositorService.nativeOverview && !zones.taken(kind)
+        if (kind === "workspaces") return (WorkspaceService.allWorkspaces?.length ?? 0) > 0 && !zones.taken(kind)
         return IrisPieces.extraIds.includes(kind) && IrisPieces.available(kind) && !zones.taken(kind)
     }
     readonly property var entries: {

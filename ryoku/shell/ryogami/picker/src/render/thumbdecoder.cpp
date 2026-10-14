@@ -133,20 +133,28 @@ void ThumbDecoder::request(const QString &key, const QString &path, Tier tier, i
 void ThumbDecoder::request(const QString &key, const QString &path, const QString &fallback, Tier tier, int priority)
 {
     const QString token = tokenFor(key, tier);
+    quint64 requestId;
+    int generation;
     {
         QMutexLocker lock(&m_mutex);
         if (!wantedLocked(key) || m_inflight.contains(token))
             return;
         m_inflight.insert(token);
+        requestId = ++m_nextRequest;
+        m_requests.insert(token, requestId);
+        generation = m_generation.load();
     }
     const QSize box = tier == Near ? m_nearTile : m_farTile;
     const int levels = tier == Near ? mipCount(m_nearTile) : 1;
-    const int generation = m_generation.load();
-    m_pool.start([this, key, path, fallback, tier, box, levels, token, generation] {
+    m_pool.start([this, key, path, fallback, tier, box, levels, token, requestId, generation] {
         {
             QMutexLocker lock(&m_mutex);
-            if (generation != m_generation.load() || !m_inflight.contains(token) || !wantedLocked(key)) {
-                m_inflight.remove(token);
+            if (generation != m_generation.load() || m_requests.value(token) != requestId
+                || !m_inflight.contains(token) || !wantedLocked(key)) {
+                if (m_requests.value(token) == requestId) {
+                    m_requests.remove(token);
+                    m_inflight.remove(token);
+                }
                 return;
             }
         }
@@ -156,7 +164,10 @@ void ThumbDecoder::request(const QString &key, const QString &path, const QStrin
             image = decodeScaled(fallback, box, source);
         if (image.isNull()) {
             QMutexLocker lock(&m_mutex);
-            m_inflight.remove(token);
+            if (m_requests.value(token) == requestId) {
+                m_requests.remove(token);
+                m_inflight.remove(token);
+            }
             return;
         }
         const QSize content = image.size();
@@ -169,15 +180,16 @@ void ThumbDecoder::request(const QString &key, const QString &path, const QStrin
             result.image.levels.push_back(result.image.levels[size_t(level - 1)].scaled(
                 next, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
         }
-        finish(std::move(result), token);
+        finish(std::move(result), token, requestId, generation);
     }, priority);
 }
 
-void ThumbDecoder::finish(Result &&result, const QString &token)
+void ThumbDecoder::finish(Result &&result, const QString &token, quint64 requestId, int generation)
 {
     {
         QMutexLocker lock(&m_mutex);
-        if (!m_inflight.contains(token))
+        if (generation != m_generation.load() || !m_inflight.contains(token)
+            || m_requests.value(token) != requestId)
             return;
         m_results.push_back(std::move(result));
     }
@@ -191,7 +203,9 @@ std::vector<ThumbDecoder::Result> ThumbDecoder::take(int maxCount)
     std::vector<Result> out;
     out.reserve(n);
     for (size_t i = 0; i < n; ++i) {
-        m_inflight.remove(tokenFor(m_results[i].image.key, m_results[i].tier));
+        const QString token = tokenFor(m_results[i].image.key, m_results[i].tier);
+        m_inflight.remove(token);
+        m_requests.remove(token);
         out.push_back(std::move(m_results[i]));
     }
     m_results.erase(m_results.begin(), m_results.begin() + qsizetype(n));
@@ -204,9 +218,26 @@ bool ThumbDecoder::hasResults() const
     return !m_results.empty();
 }
 
+void ThumbDecoder::invalidate(const QString &key)
+{
+    QMutexLocker lock(&m_mutex);
+    for (Tier tier : {Near, Far}) {
+        const QString token = tokenFor(key, tier);
+        m_inflight.remove(token);
+        m_requests.remove(token);
+    }
+    m_results.erase(std::remove_if(m_results.begin(), m_results.end(),
+                                   [&key](const Result &r) { return r.image.key == key; }),
+                    m_results.end());
+}
+
 void ThumbDecoder::cancelQueued()
 {
+    QMutexLocker lock(&m_mutex);
     ++m_generation;
+    m_inflight.clear();
+    m_requests.clear();
+    m_results.clear();
 }
 
 void ThumbDecoder::retain(const QSet<QString> &keys)
@@ -214,12 +245,14 @@ void ThumbDecoder::retain(const QSet<QString> &keys)
     QMutexLocker lock(&m_mutex);
     m_retaining = true;
     m_wanted = keys;
-    // Clearing the inflight token makes a finishing worker discard its result.
+    // Clearing the request identity makes a finishing worker discard its result.
     for (auto it = m_inflight.begin(); it != m_inflight.end();) {
-        if (keys.contains(keyFor(*it)))
+        if (keys.contains(keyFor(*it))) {
             ++it;
-        else
+        } else {
+            m_requests.remove(*it);
             it = m_inflight.erase(it);
+        }
     }
     m_results.erase(std::remove_if(m_results.begin(), m_results.end(),
                                    [&keys](const Result &r) { return !keys.contains(r.image.key); }),

@@ -448,6 +448,11 @@ Item {
     property string infoBackend: ""
     property string infoEncoder: ""
     property string infoVersion: ""
+    property bool recorderProbeDone: false
+    property bool recorderAvailable: false
+    property string recorderUnavailableReason: ""
+    property var supportedCodecs: ["h264", "hevc", "av1"]
+    property var supportedEncoders: ["gpu", "cpu"]
 
     // Whether apps can actually be offered a source to pick. Screen sharing can
     // be entirely dead with nothing on screen to show for it, so ask the portal
@@ -493,6 +498,42 @@ Item {
                     pg.infoVersion = j.version || "";
                 } catch (e) {}
             }
+        }
+    }
+    Process {
+        id: recorderProbe
+        command: ["sh", "-c", "command -v gpu-screen-recorder >/dev/null && exec gpu-screen-recorder --info"]
+        running: true
+        stdout: StdioCollector { id: recorderProbeOut }
+        stderr: StdioCollector {}
+        onExited: code => {
+            var codecs = [];
+            var encoders = [];
+            var lines = recorderProbeOut.text.split("\n").map(line => line.trim());
+            function add(list, value) {
+                if (list.indexOf(value) < 0)
+                    list.push(value);
+            }
+            for (var i = 0; i < lines.length; ++i) {
+                var value = lines[i];
+                if (value === "h264" || value === "h264_software")
+                    add(codecs, "h264");
+                else if (value === "hevc")
+                    add(codecs, "hevc");
+                else if (value === "av1")
+                    add(codecs, "av1");
+                if (value === "h264_software")
+                    add(encoders, "cpu");
+                else if (value === "h264" || value === "hevc" || value === "av1"
+                        || value === "vp8" || value === "vp9")
+                    add(encoders, "gpu");
+            }
+            pg.supportedCodecs = codecs.length > 0 ? codecs : ["h264", "hevc", "av1"];
+            pg.supportedEncoders = encoders.length > 0 ? encoders : ["gpu", "cpu"];
+            pg.recorderAvailable = code === 0 && codecs.length > 0 && encoders.length > 0;
+            pg.recorderUnavailableReason = pg.recorderAvailable ? ""
+                : I18n.tr("GPU Screen Recorder is missing or no supported video encoder was detected.");
+            pg.recorderProbeDone = true;
         }
     }
 
@@ -693,9 +734,26 @@ Item {
                 }
             }
 
+            SettingCard {
+                visible: pg.recordStatus === "ready" && pg.recorderProbeDone && !pg.recorderAvailable
+                width: col.colWidth
+                title: I18n.tr("RECORDING UNAVAILABLE")
+                Text {
+                    width: parent.width
+                    leftPadding: Tokens.s4; rightPadding: Tokens.s4
+                    topPadding: Tokens.s3; bottomPadding: Tokens.s3
+                    wrapMode: Text.WordWrap
+                    text: pg.recorderUnavailableReason
+                    color: Tokens.inkMuted; font.family: Tokens.ui
+                    font.pixelSize: Tokens.fSmall
+                }
+            }
+
             // ── QUALITY ──────────────────────────────────────────────────────
             SettingCard {
                 visible: pg.recordStatus === "ready"
+                enabled: pg.recorderAvailable
+                opacity: enabled ? 1 : 0.45
                 width: col.colWidth
                 title: I18n.tr("QUALITY")
                 Text {
@@ -818,6 +876,8 @@ Item {
             // ── FILE ─────────────────────────────────────────────────────────
             SettingCard {
                 visible: pg.recordStatus === "ready"
+                enabled: pg.recorderAvailable
+                opacity: enabled ? 1 : 0.45
                 width: col.colWidth
                 title: I18n.tr("FILE")
                 Text {
@@ -866,6 +926,8 @@ Item {
             // ── ENCODER ──────────────────────────────────────────────────────
             SettingCard {
                 visible: pg.recordStatus === "ready"
+                enabled: pg.recorderAvailable
+                opacity: enabled ? 1 : 0.45
                 width: col.colWidth
                 title: I18n.tr("ENCODER")
                 Text {
@@ -888,7 +950,7 @@ Item {
                     Seg {
                         anchors.left: parent.left; anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        options: ["h264", "hevc", "av1"]
+                        options: pg.supportedCodecs
                         current: pg.draft ? String(pg.draft.codec) : ""
                         onChose: (k) => pg.edit("codec", k)
                     }
@@ -904,7 +966,7 @@ Item {
                     controlWidth: 124
                     Seg {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        options: ["gpu", "cpu"]
+                        options: pg.supportedEncoders
                         current: pg.draft ? String(pg.draft.encoder) : ""
                         onChose: (k) => pg.edit("encoder", k)
                     }
@@ -964,6 +1026,8 @@ Item {
             // ── AUDIO ────────────────────────────────────────────────────────
             SettingCard {
                 visible: pg.recordStatus === "ready"
+                enabled: pg.recorderAvailable
+                opacity: enabled ? 1 : 0.45
                 width: col.colWidth
                 title: I18n.tr("AUDIO")
                 Text {

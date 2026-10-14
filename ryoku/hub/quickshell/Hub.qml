@@ -264,7 +264,7 @@ Rectangle {
             for (var ri = 0; ri < rows.length; ri++) {
                 var r = rows[ri];
                 if (!isSetting(r)) continue;
-                if (r.caps && !Settings.supports(r.caps)) continue;
+                if (!Settings.supports(r.caps, r.hostCaps)) continue;
                 if (!Settings.modelsKey(r.key)) continue;
                 // a setting also matches its option values (h264, dwindle, dark,
                 // fahrenheit): index the lowercase ones (skips DisplaysPage's
@@ -283,7 +283,7 @@ Rectangle {
             if (!isSetting(pr)) continue;
             var psec = pr.page || "windowmanager";
             if (!hub.sectionAvailable(psec)) continue;
-            if (pr.caps && !Settings.supports(pr.caps)) continue;
+            if (!Settings.supports(pr.caps, pr.hostCaps)) continue;
             if (!Settings.modelsKey(pr.key)) continue;
             var poptkw = (pr.keywords || "") + " " + (pr.opts ? pr.opts.filter(function (o) { return typeof o === "string" && /^[a-z0-9][a-z0-9 ._/-]*$/.test(o); }).join(" ") : "");
             out.push({ section: psec, sectionName: nameOf[psec] || psec, group: cleanGroup(pr.group), tab: pr.tab || "", label: pr.label, desc: pr.desc || "", kw: poptkw, key: pr.key || "", isPage: false });
@@ -502,7 +502,7 @@ Rectangle {
         for (var i = 0; i < rows.length; i++) {
             var r = rows[i];
             if (!r || !r.key) continue;
-            if (r.caps && !Settings.supports(r.caps)) continue;
+            if (!Settings.supports(r.caps, r.hostCaps)) continue;
             if (Settings.modelsKey(r.key)) return true;
         }
         return false;
@@ -565,12 +565,13 @@ Rectangle {
         "frameSmoothing": 8, "frameOpacity": 1, "shadowStrength": 0.63, "shadowSize": 12,
         "frameThickness": 2, "frameCorner": 8,
         "surfaceColor": "#0f1115", "osdRadius": 28, "osdOpacity": 1,
-        "fontFamily": "Space Grotesk", "fontSize": 11, "fontScale": 1.3,
+        "fontFamily": "Space Grotesk", "terminalFontFamily": "JetBrainsMono Nerd Font",
+        "fontSize": 11, "fontScale": 1.3,
         "frameBars": FrameBars.defaultConfig(),
         "weatherLocation": "", "weatherUnit": "auto", "formatLocale": "",
         "general.clock_format_24_h": false,
         "reloadCover": ReloadCoverModel.empty(),
-        "language": "Auto", "barStyle": "sumi", "obi": {}, "nacre": NacreConfig.defaultConfig(), "qsbar": {}, "dock": {},
+        "language": "Auto", "barStyle": "orpheus", "obi": {}, "nacre": NacreConfig.defaultConfig(), "qsbar": {}, "dock": {},
         "clipboard.widthPercent": 65, "clipboard.heightPercent": 42, "clipboard.bottomPercent": 0,
         "clipboard.panelRadius": 18, "clipboard.paneRadius": 12, "clipboard.cardRadius": 9,
         "clipboard.pruneWeekly": false
@@ -680,7 +681,7 @@ Rectangle {
     // against liveBaseline: the state at open, re-snapshotted on every Save.
     // Quit and Revert walk the desktop back to that baseline through the same
     // channel, so an unsaved close leaves no residue.
-    readonly property var liveKeys: ["frameBars", "frameEnabled", "frameOpacity", "frameThickness", "frameCorner", "fontFamily", "fontSize", "barStyle", "obi", "nacre", "qsbar", "dock", "clipboard.widthPercent", "clipboard.heightPercent", "clipboard.bottomPercent", "clipboard.panelRadius", "clipboard.paneRadius", "clipboard.cardRadius"]
+    readonly property var liveKeys: ["frameBars", "frameEnabled", "frameOpacity", "frameThickness", "frameCorner", "fontFamily", "terminalFontFamily", "fontSize", "barStyle", "obi", "nacre", "qsbar", "dock", "clipboard.widthPercent", "clipboard.heightPercent", "clipboard.bottomPercent", "clipboard.panelRadius", "clipboard.paneRadius", "clipboard.cardRadius"]
     property var liveBaseline: null
     property var livePending: ({})
     function captureLiveBaseline() {
@@ -1600,6 +1601,8 @@ Rectangle {
         onReset: {
             if (pageHost.shown === "controls" && pageHost.front && pageHost.front.item)
                 pageHost.front.item.resetLayout();
+            else if (pageHost.shown === "global" && pageHost.front && pageHost.front.item)
+                pageHost.front.item.resetDefaults();
             else
                 hub.resetDefaults();
         }

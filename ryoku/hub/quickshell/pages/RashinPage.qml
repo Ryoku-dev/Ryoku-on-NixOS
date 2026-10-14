@@ -30,6 +30,8 @@ Item {
     property bool installed: true
     property bool daemonEnabled: false
     property bool running: false
+    property bool serviceBusy: false
+    property string serviceError: ""
     // the port the daemon reports, not a literal: a user who changed it in
     // ~/.config/ryoku/rashin.json still gets a link that resolves.
     property int port: 3600
@@ -118,9 +120,44 @@ Item {
         }
     }
 
-    Process { id: enableProc; onExited: pg.refresh() }
-    Process { id: disableProc; onExited: pg.refresh() }
+    Process {
+        id: enableProc
+        stderr: StdioCollector { id: enableError }
+        onExited: code => pg.finishServiceToggle(true, code, enableError.text)
+    }
+    Process {
+        id: disableProc
+        stderr: StdioCollector { id: disableError }
+        onExited: code => pg.finishServiceToggle(false, code, disableError.text)
+    }
+    Process {
+        id: hostServiceProc
+        stderr: StdioCollector { id: hostServiceError }
+        onExited: code => {
+            pg.serviceBusy = false;
+            if (code !== 0)
+                pg.serviceError = hostServiceError.text.trim()
+                    || I18n.tr("The service manager could not save this change.");
+            pg.refresh();
+        }
+    }
+    function finishServiceToggle(on, code, detail) {
+        if (code !== 0) {
+            pg.serviceBusy = false;
+            pg.serviceError = String(detail || "").trim()
+                || I18n.tr("Rashin could not change its service state.");
+            pg.refresh();
+            return;
+        }
+        hostServiceProc.command = ["ryoku-host", "svc", "--user",
+            on ? "enable" : "disable", "ryoku-rashin.service"];
+        hostServiceProc.running = true;
+    }
     function setEnabled(on) {
+        if (pg.serviceBusy)
+            return;
+        pg.serviceBusy = true;
+        pg.serviceError = "";
         var p = on ? enableProc : disableProc;
         p.command = ["ryoku-rashin", on ? "enable" : "disable"];
         p.running = true;
@@ -561,17 +598,18 @@ Item {
                         }
                         Text {
                             width: parent.width
-                            text: pg.installed
-                                ? (pg.running ? I18n.tr("Running \u00b7 127.0.0.1:%1").arg(pg.port)
-                                   : (pg.daemonEnabled ? I18n.tr("Enabled \u00b7 starting\u2026") : I18n.tr("Off \u00b7 switch on to start it with the desktop")))
-                                : I18n.tr("Not installed \u00b7 install ryoku-rashin")
+                            text: pg.serviceError !== "" ? pg.serviceError
+                                : (pg.installed
+                                    ? (pg.running ? I18n.tr("Running \u00b7 127.0.0.1:%1").arg(pg.port)
+                                       : (pg.daemonEnabled ? I18n.tr("Enabled \u00b7 starting\u2026") : I18n.tr("Off \u00b7 switch on to start it with the desktop")))
+                                    : I18n.tr("Not installed \u00b7 install ryoku-rashin"))
                             color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 11; elide: Text.ElideRight
                         }
                     }
                     Sw {
                         id: sw
                         anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
-                        enabled: pg.installed
+                        enabled: pg.installed && !pg.serviceBusy
                         on: pg.daemonEnabled
                         onToggled: (c) => { pg.daemonEnabled = c; pg.setEnabled(c); }
                     }

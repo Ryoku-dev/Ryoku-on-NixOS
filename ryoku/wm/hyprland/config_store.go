@@ -328,6 +328,12 @@ type Overrides struct {
 	// shadowing a shipped one wins. Rendered before the keybinds.
 	Unbinds []string `json:"unbinds,omitempty"`
 
+	// KeybindDisabled: shipped chords the user switched off in Settings, keyed by
+	// the shipped default. Kept apart from Unbinds, which an import writes for its
+	// own reasons: folding them into one list would let a re-import silently undo
+	// the user's choice. Both end up in the same emitted hl.unbind block.
+	KeybindDisabled []string `json:"keybindDisabled,omitempty"`
+
 	// inputSaved: the store carries an explicit input section, so genConfig pins
 	// the kb_* keys unconditionally (keyboard.lua loads earlier and would win).
 	inputSaved bool
@@ -366,7 +372,7 @@ func defaultOverrides() Overrides {
 			LeftHanded: false, MouseNaturalScroll: false, MouseScrollFactor: 1,
 			MiddleClickPaste: true,
 			NaturalScroll:    false, TapToClick: true, TapAndDrag: true,
-			Clickfinger: false, MiddleEmulation: false, TouchScrollFactor: 1,
+			Clickfinger: true, MiddleEmulation: false, TouchScrollFactor: 1,
 			DisableWhileTyping: true,
 			RepeatRate:         25, RepeatDelay: 600,
 			WorkspaceSwipe: false, SwipeFingers: 3,

@@ -4,7 +4,7 @@
   "name": "Battery",
   "version": "1.0.0",
   "author": "Omarchy",
-  "description": "Low battery warning service",
+  "description": "Battery power-profile service",
   "kinds": [
     "service"
   ],

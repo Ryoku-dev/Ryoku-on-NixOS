@@ -128,9 +128,7 @@ func serverPage(out []sourceResult, page int) sourcePage {
 	return sourcePage{results: out, lastPage: last, currentPage: page}
 }
 
-func (s *sources) ryowallsSearch(source string, p map[string]interface{}) (sourcePage, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), remoteFetchTimeout)
-	defer cancel()
+func (s *sources) ryowallsSearch(ctx context.Context, source string, p map[string]interface{}) (sourcePage, error) {
 	query := strParam(p, "query", "")
 	page := int(intParam(p, "page", 1))
 	if page < 1 {

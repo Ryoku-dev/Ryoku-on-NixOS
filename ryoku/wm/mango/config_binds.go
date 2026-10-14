@@ -166,6 +166,7 @@ func defaultBinds() map[string]mangoBind {
 		"media.volumeUp":   {cmd: "spawn,ryoku-volume up", kind: "bindl"},
 		"media.volumeDown": {cmd: "spawn,ryoku-volume down", kind: "bindl"},
 		"media.mute":       {cmd: "spawn,wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle", kind: "bindl"},
+		"media.micMute":    {cmd: "spawn,wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle", kind: "bindl"},
 		"media.play":       {cmd: "spawn,playerctl play-pause", kind: "bindl"},
 		"media.next":       {cmd: "spawn,playerctl next", kind: "bindl"},
 		"media.prev":       {cmd: "spawn,playerctl previous", kind: "bindl"},

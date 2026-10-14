@@ -39,6 +39,11 @@ type limineBootKernel struct {
 	imageExists       bool
 	imageOlder        bool
 	imageInaccessible bool
+	// Why the image could not be read. A root-only /boot denies every one of
+	// them on a normal `ryoku update`, which is nothing the user has to act on;
+	// anything else is a real finding. Without the distinction both read as a
+	// warning and every update ends on one.
+	imagePermissionDenied bool
 }
 
 var (
@@ -57,10 +62,11 @@ type incompleteKernel struct {
 	reason  string
 }
 
-// installedKernelVersions: pkgbase -> module-tree version and vmlinuz mtime.
-// A module tree without a vmlinuz or pkgbase is incomplete.
-// Symlinks to directories are followed; broken links, non-ENOENT inspection errors,
-// or an unavailable modules directory are returned as errors.
+// installedKernelVersions maps pkgbase to module-tree version and vmlinuz
+// mtime. Trees with neither pkgbase nor vmlinuz are module-only leftovers, not
+// installed kernels. A tree with one but not the other remains incomplete.
+// Symlinks to directories are followed; broken links, non-ENOENT inspection
+// errors, or an unavailable modules directory are returned as errors.
 func installedKernelVersions() (map[string]installedKernel, []incompleteKernel, error) {
 	if xbpsHost() {
 		return installedVoidKernelVersions(), nil, nil
@@ -93,6 +99,12 @@ func installedKernelVersions() (map[string]installedKernel, []incompleteKernel, 
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return nil, nil, err
+			}
+			if _, imageErr := limineKernelImageStat(filepath.Join(dir, "vmlinuz")); imageErr != nil {
+				if errors.Is(imageErr, os.ErrNotExist) {
+					continue
+				}
+				return nil, nil, imageErr
 			}
 			incomplete = append(incomplete, incompleteKernel{dir: e.Name(), reason: "missing pkgbase"})
 			continue
@@ -175,6 +187,7 @@ func gatherLimineBootKernels(conf, esp string, installed map[string]installedKer
 				}
 			} else if !errors.Is(err, os.ErrNotExist) {
 				e.imageInaccessible = true
+				e.imagePermissionDenied = errors.Is(err, os.ErrPermission)
 			}
 		}
 		out = append(out, e)
@@ -261,6 +274,34 @@ func planLimineKernelImages(installed map[string]installedKernel, entries []limi
 	return stale, stray
 }
 
+func incompleteEntryNames(incomplete []incompleteKernel, entries []limineBootKernel) []string {
+	byName := map[string]bool{}
+	for _, kernel := range incomplete {
+		if kernel.pkgbase != "" {
+			byName[kernel.pkgbase] = true
+		}
+	}
+	var names []string
+	for _, entry := range entries {
+		if byName[entry.name] {
+			names = append(names, entry.name)
+			delete(byName, entry.name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func withoutKernelNames(names []string, blocked map[string]bool) []string {
+	out := names[:0]
+	for _, name := range names {
+		if !blocked[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // pruneLimineStrayImages removes the images of kernels the box no longer has
 // and regenerates the menu so their entries drop out.
 func pruneLimineStrayImages(names []string) error {
@@ -322,51 +363,71 @@ func reconcileLimineKernelImages(checkOnly bool) recResult {
 	}
 	installed, incomplete, err := limineInstalledKernels()
 	if err != nil {
-		return warnRes(i18n.T("cannot inspect installed kernel metadata: %v"), err).
+		return inspectionRes(errors.Is(err, os.ErrPermission),
+			i18n.T("cannot inspect installed kernel metadata: %v"), err).
 			withFix("sudo ryoku doctor --check")
-	}
-	if len(incomplete) > 0 {
-		var dirs []string
-		for _, inc := range incomplete {
-			dirs = append(dirs, inc.dir)
-		}
-		sort.Strings(dirs)
-		return warnRes(i18n.T("cannot verify installed kernel metadata: incomplete module tree(s) under %s: %s"), limineModulesDir, strings.Join(dirs, ", ")).
-			withFix("sudo ryoku doctor --check")
-	}
-	if len(installed) == 0 {
-		return okRes(i18n.T("no installed kernels to check"))
 	}
 	entries := gatherLimineBootKernels(string(b), "/boot", installed)
 	if len(entries) == 0 {
 		return okRes(i18n.T("no tool-generated kernel entries yet; the boot tree reconciler owns that"))
 	}
+	blocked := incompleteEntryNames(incomplete, entries)
+	if len(installed) == 0 && len(blocked) == 0 {
+		return okRes(i18n.T("no installed kernels to check"))
+	}
 	var inaccessible []string
+	permissionOnly := true
 	for _, e := range entries {
 		if e.imageInaccessible {
 			inaccessible = append(inaccessible, e.name)
+			permissionOnly = permissionOnly && e.imagePermissionDenied
 		}
 	}
 	if len(inaccessible) > 0 {
-		return warnRes(i18n.T("cannot inspect kernel boot images on /boot to verify versions: %s"), strings.Join(inaccessible, ", ")).
+		return inspectionRes(permissionOnly,
+			i18n.T("cannot inspect kernel boot images on /boot to verify versions: %s"), strings.Join(inaccessible, ", ")).
 			withFix("sudo ryoku doctor --check")
 	}
 	stale, stray := planLimineKernelImages(installed, entries)
+	blockedSet := map[string]bool{}
+	for _, name := range blocked {
+		blockedSet[name] = true
+	}
+	stale = withoutKernelNames(stale, blockedSet)
+	stray = withoutKernelNames(stray, blockedSet)
+	blockedProblem := ""
+	if len(blocked) > 0 {
+		blockedProblem = fmt.Sprintf(i18n.T("cannot verify installed kernel metadata for %s; its module tree is incomplete"), strings.Join(blocked, ", "))
+	}
 	if len(stale) == 0 && len(stray) == 0 {
+		if blockedProblem != "" {
+			return warnRes("%s", blockedProblem).withFix("sudo ryoku doctor --check")
+		}
 		return okRes(i18n.T("every installed kernel has a current boot image"))
 	}
 	if checkOnly {
 		var parts []string
+		if blockedProblem != "" {
+			parts = append(parts, blockedProblem)
+		}
 		if len(stale) > 0 {
 			parts = append(parts, fmt.Sprintf(i18n.T("boot image missing, older than its kernel, or built for a version no longer installed: %s (boots into an emergency shell)"), strings.Join(stale, ", ")))
 		}
 		if len(stray) > 0 {
 			parts = append(parts, fmt.Sprintf(i18n.T("boot entry for a kernel that is not installed: %s (a dead menu item)"), strings.Join(stray, ", ")))
 		}
-		return wouldRes("%s", strings.Join(parts, "; ")).
-			withFix(i18n.T("ryoku doctor rebuilds the stale image(s) and prunes the stray entry"))
+		detail := strings.Join(parts, "; ")
+		remedy := i18n.T("ryoku doctor rebuilds the stale image(s) and prunes the stray entry")
+		if blockedProblem != "" {
+			return warnRes("%s", detail).withFix(remedy)
+		}
+		return wouldRes("%s", detail).withFix(remedy)
 	}
-	var done, problems []string
+	var done []string
+	var problems []string
+	if blockedProblem != "" {
+		problems = append(problems, blockedProblem)
+	}
 	if len(stale) > 0 {
 		if err := limineRebuildInitramfs(); err != nil {
 			return failRes(i18n.T("kernel boot image stale for %s but the rebuild failed: %v"), strings.Join(stale, ", "), err).
@@ -383,7 +444,7 @@ func reconcileLimineKernelImages(checkOnly bool) recResult {
 	}
 	if len(problems) > 0 {
 		return warnRes("%s", strings.Join(append(done, problems...), "; ")).
-			withFix(i18n.T("check the ESP and rerun sudo ryoku doctor"))
+			withFix(i18n.T("check the ESP and rerun ryoku doctor"))
 	}
 	return fixedRes("%s", strings.Join(done, "; "))
 }

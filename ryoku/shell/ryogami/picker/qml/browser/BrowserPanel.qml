@@ -28,7 +28,7 @@ Item {
     property var collections: []
 
     readonly property bool manual: panel.provider.length > 0
-        && sourceData.showApplyButton(panel.provider, Settings)
+        && sourceData.manualSearch(panel.provider, Settings)
     readonly property bool searchable: {
         var d = sourceData.descriptor(panel.provider)
         return d ? d.searchable !== false : true
@@ -41,10 +41,10 @@ Item {
         return d ? d.label : panel.provider
     }
 
-    property var pathMap: ({})
     property bool pendingApply: false
     property var applyItem: null
     property var applyingId: undefined
+    property string applyProvider: ""
     property string steamUrl: ""
     property bool steamInstalled: true
     property bool steamPromptOpen: false
@@ -54,6 +54,13 @@ Item {
     property var previewItem: null
     property string previewFull: ""
 
+
+    Timer {
+        id: filterSearchDebounce
+        interval: 250
+        repeat: false
+        onTriggered: panel.runSearch()
+    }
     RemoteResults { id: remote }
 
     function _num(key, fb) { var v = Number(Settings.value(key)); return (isNaN(v) || v <= 0) ? fb : v }
@@ -114,11 +121,10 @@ Item {
         return Library.fileUrl(it ? it.thumb : "")
     }
     property string atmosphereArt: ""
-    property string heroArt: ""
-    function _refreshArt() {
-        panel.atmosphereArt = panel._artOf(0)
-        var r = results.field ? results.field.currentIndex : 0
-        panel.heroArt = panel._artOf(r >= 0 ? r : 0)
+    function _refreshAtmosphere() {
+        var next = panel._artOf(0)
+        if (panel.atmosphereArt !== next)
+            panel.atmosphereArt = next
     }
 
     function refreshProviders() {
@@ -182,6 +188,9 @@ Item {
     }
 
     function switchTo(id, doSearch) {
+        filterSearchDebounce.stop()
+        if (panel.previewOpen)
+            panel.closePreview()
         if (panel.provider.length > 0)
             panel.stateCache[panel.provider] = panel.chipState
         panel.provider = id
@@ -208,6 +217,7 @@ Item {
     readonly property bool needsRepo: panel.provider === "repos" && !(panel.chipState && panel.chipState.repo)
 
     function runSearch() {
+        filterSearchDebounce.stop()
         if (!Daemon.connected)
             return
         remote.provider = panel.provider
@@ -223,7 +233,7 @@ Item {
     function onFilters(next) {
         panel.chipState = next
         if (!panel.manual)
-            panel.runSearch()
+            filterSearchDebounce.restart()
     }
 
     function _youtubeClip(it) {
@@ -243,31 +253,51 @@ Item {
         if (!it) return
         panel.doDownload(row, panel.provider === "youtube" ? panel._youtubeClip(it) : null)
     }
-    function applyRow(row) {
+    function _clearPendingApply() {
+        panel.pendingApply = false
+        panel.applyingId = undefined
+        panel.applyItem = null
+        panel.applyProvider = ""
+    }
+    function applyRow(row, clip) {
         var it = remote.get(row)
+        if (panel.pendingApply)
+            return
         if (!it) return
-        if (it.downloaded === true) {
-            panel.performApply(it, panel.pathMap[String(it.id)])
+        if (panel.provider === "steam" && it.downloaded === true) {
+            panel.performApply(it, "", panel.provider)
             return
         }
         panel.applyingId = it.id
         panel.applyItem = it
+        panel.applyProvider = panel.provider
         panel.pendingApply = true
-        panel.saveRow(row)
+        var chosenClip = clip
+        if (chosenClip === undefined && panel.provider === "youtube")
+            chosenClip = panel._youtubeClip(it)
+        panel.doDownload(row, chosenClip || null)
     }
     // Search results carry no wallpaper type: Workshop items apply as scenes, and every
     // other download is a file whose extension tells the daemon still from video.
-    function performApply(it, path) {
+    function performApply(it, path, provider) {
+        panel.pendingApply = true
+        panel.applyingId = it.id
+        panel.applyItem = it
+        panel.applyProvider = provider
         var outs = (Settings.value("general.applyOnPickerMonitor") === true && panel.state.monitor)
             ? [panel.state.monitor] : []
         var params = { outputs: outs }
-        if (panel.provider === "steam") { params.type = "we"; params.we_id = it.id }
+        if (provider === "steam") { params.type = "we"; params.we_id = it.id }
         else params.path = path || ""
         Daemon.call("wall.apply", params, function(result, error) {
+            panel._clearPendingApply()
             if (error) {
                 panel.state.toast(error.message || I18n.tr("This wallpaper could not be applied."), "error")
             } else {
-                panel.state.toast(I18n.tr("Wallpaper applied."), "success")
+                var live = provider === "steam" || (it
+                    && (String(it.type) === "video" || String(it.type) === "we"))
+                panel.state.toast(live ? I18n.tr("Live wallpaper applied.")
+                                       : I18n.tr("Wallpaper applied."), "success")
                 if (Settings.value("general.closeOnSelection") === true)
                     panel.closeRequested()
             }
@@ -304,13 +334,9 @@ Item {
                 return
             if (!data) return
             var id = String(data.id)
-            if (data.status === "done" && data.path)
-                panel.pathMap[id] = data.path
-            if ((data.status === "error" || data.status === "auth_error")) {
-                if (panel.applyingId !== undefined && String(panel.applyingId) === id) {
-                    panel.pendingApply = false
-                    panel.applyingId = undefined
-                }
+            if (data.status === "error" || data.status === "auth_error") {
+                if (panel.applyingId !== undefined && String(panel.applyingId) === id)
+                    panel._clearPendingApply()
                 if (data.error === "cancelled")
                     panel.state.toast(I18n.tr("Download cancelled."), "info")
                 else
@@ -318,10 +344,7 @@ Item {
             }
             if (data.status === "done" && panel.pendingApply
                     && panel.applyingId !== undefined && String(panel.applyingId) === id) {
-                var it = panel.applyItem
-                panel.pendingApply = false
-                panel.applyingId = undefined
-                panel.performApply(it, data.path)
+                panel.performApply(panel.applyItem, data.path, panel.applyProvider)
             }
         }
         function onReconnected() { if (panel.shown) panel.runSearch() }
@@ -330,46 +353,50 @@ Item {
     Connections {
         target: remote
         ignoreUnknownSignals: true
-        // The preview holds a copy of its row; refresh it as downloads move it along.
-        function onDataChanged(topLeft, bottomRight, roles) {
-            if (panel.previewOpen && panel.previewRow >= topLeft.row && panel.previewRow <= bottomRight.row)
-                panel.previewItem = remote.get(panel.previewRow)
+        // Copies are refreshed only for the one card surfaced in the status/preview UI.
+        function onDownloadChanged(row, tallyChanged) {
+            var changed = remote.get(row)
+            if (panel.applyingId !== undefined && changed
+                    && String(panel.applyingId) === String(changed.id))
+                panel.applyItem = changed
+            if (panel.previewOpen && panel.previewRow === row)
+                panel.previewItem = changed
+        }
+        function onDownloadFailed(id, message) {
+            if (panel.applyingId !== undefined && String(panel.applyingId) === String(id))
+                panel._clearPendingApply()
+            panel.state.toast(message || I18n.tr("That download failed."), "error")
         }
         function onOpenInSteam(id, url, steamInstalled) {
             panel.steamUrl = url
             panel.steamInstalled = steamInstalled
             panel.steamPromptOpen = true
-            if (panel.applyingId !== undefined && String(panel.applyingId) === String(id)) {
-                panel.pendingApply = false
-                panel.applyingId = undefined
-            }
+            if (panel.applyingId !== undefined && String(panel.applyingId) === String(id))
+                panel._clearPendingApply()
         }
         function onPreviewReady(id, path) {
             if (panel.previewItem && String(panel.previewItem.id) === String(id))
                 panel.previewFull = path
         }
-        // The header asks for a thumbnail before it has downloaded; one that failed loads again once it lands.
         function onThumbArrived(row) {
-            if (row === 0 && atmosphere.status === Image.Error) {
-                var a = panel.atmosphereArt
+            if (row !== 0)
+                return
+            var next = panel._artOf(0)
+            if (next !== panel.atmosphereArt) {
+                panel.atmosphereArt = next
+            } else if (atmosphere.status === Image.Error) {
                 panel.atmosphereArt = ""
-                panel.atmosphereArt = a
+                panel.atmosphereArt = next
             }
-            var heroRow = results.field ? Math.max(results.field.currentIndex, 0) : 0
-            if (row === heroRow)
-                panel._refreshArt()
+            if (panel.previewOpen && panel.previewRow === row)
+                panel.previewItem = remote.get(row)
         }
         function onCountChanged() {
-            panel._refreshArt()
+            panel._refreshAtmosphere()
             if (panel.shown && !panel.previewOpen && remote.count > 0
                     && results.field && results.field.visible && !results.searchEditing)
                 results.field.forceActiveFocus()
         }
-    }
-    Connections {
-        target: results.field
-        ignoreUnknownSignals: true
-        function onCurrentIndexChanged() { panel._refreshArt() }
     }
     Connections {
         target: Settings
@@ -382,6 +409,7 @@ Item {
             panel.applyArgs()
             panel.forceActiveFocus()
         } else {
+            filterSearchDebounce.stop()
             panel.previewOpen = false
             panel.steamPromptOpen = false
         }
@@ -513,7 +541,6 @@ Item {
                             sortText: panel.sortLabel
                             searchable: panel.searchable
                             columns: panel.grid.cols
-                            showApply: panel.manual
                             palette: panel.cardPalette
                             reveal: panel.ease
                             pendingApply: panel.pendingApply
@@ -540,7 +567,6 @@ Item {
                             item: panel.previewItem
                             provider: panel.provider
                             fullPath: panel.previewFull
-                            showApply: panel.manual
                             applying: panel.applyingId !== undefined && panel.previewItem
                                 && String(panel.applyingId) === String(panel.previewItem.id)
                             maxMinutes: panel._num("sources.youtube.maxMinutes", 3)
@@ -553,7 +579,12 @@ Item {
                                     ? { start: preview.clipStartSecs, dur: preview.clipLenSecs } : null
                                 panel.doDownload(panel.previewRow, clip)
                             }
-                            onApply: if (panel.previewRow >= 0) panel.applyRow(panel.previewRow)
+                            onApply: {
+                                if (panel.previewRow < 0) return
+                                var clip = (panel.provider === "youtube")
+                                    ? { start: preview.clipStartSecs, dur: preview.clipLenSecs } : null
+                                panel.applyRow(panel.previewRow, clip)
+                            }
                             cancellable: panel.provider !== "steam"
                             onCancel: if (panel.previewRow >= 0) remote.cancelDownload(panel.previewRow)
                             Behavior on width {
@@ -567,7 +598,8 @@ Item {
             MouseArea {
                 z: 5
                 visible: panel.previewOpen
-                anchors.top: masthead.bottom
+                anchors.top: parent.top
+                anchors.topMargin: masthead.height
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom

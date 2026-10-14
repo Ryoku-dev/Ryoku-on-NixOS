@@ -26,9 +26,9 @@ Column {
         return null;
     }
     function cap(name) { return name.length ? name.charAt(0).toUpperCase() + name.slice(1) : name; }
-    function hasAvailableAlternative() {
+    function hasSelectableAlternative() {
         for (var i = 0; i < ctl.providers.length; i++)
-            if (!ctl.providers[i].active && ctl.providers[i].available === true)
+            if (!ctl.providers[i].active && ctl.providers[i].selectable === true)
                 return true;
         return false;
     }
@@ -62,12 +62,11 @@ Column {
                     id: row
                     required property var modelData
                     readonly property bool isActive: row.modelData.active === true
-                    readonly property bool isAvailable: row.modelData.available === true
-                    readonly property bool isSelectable: !row.isActive && row.isAvailable
+                    readonly property bool isSelectable: !row.isActive && row.modelData.selectable === true
                     width: parent.width
                     height: 62
                     radius: Tokens.radius
-                    opacity: row.isActive || row.isAvailable ? 1 : 0.62
+                    opacity: row.isActive || row.isSelectable ? 1 : 0.62
                     color: row.isActive ? Tokens.tint5
                         : (row.isSelectable && rowTap.pressed ? Tokens.tint16
                         : (row.isSelectable && rowHov.hovered ? Tokens.tint10 : "transparent"))
@@ -80,7 +79,7 @@ Column {
                         spacing: 3
                         Text {
                             text: ctl.cap(row.modelData.name)
-                            color: row.isAvailable || row.isActive ? Tokens.ink : Tokens.inkMuted
+                            color: row.isSelectable || row.isActive ? Tokens.ink : Tokens.inkMuted
                             font.family: Tokens.display
                             font.pixelSize: Tokens.fRow
                             font.weight: Font.Medium
@@ -89,7 +88,7 @@ Column {
                             width: parent.width
                             elide: Text.ElideRight
                             text: row.isActive ? I18n.tr("RUNNING NOW")
-                                : (!row.isAvailable
+                                : (!row.isSelectable
                                 ? (row.modelData.reason
                                     ? I18n.tr("Not available on this system: %1").arg(row.modelData.reason)
                                     : I18n.tr("Not available on this system."))
@@ -156,7 +155,7 @@ Column {
             Text {
                 width: parent.width
                 wrapMode: Text.WordWrap
-                text: ctl.hasAvailableAlternative()
+                text: ctl.hasSelectableAlternative()
                     ? I18n.tr("A switch takes effect at your next login, installing the chosen compositor first if it is not already on the machine. Every setting lives in one store, so a switch never loses your preferences.")
                     : I18n.tr("This system runs one desktop. Other desktops are listed here when they become available.")
                 color: Tokens.inkFaint

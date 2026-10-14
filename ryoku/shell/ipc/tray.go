@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+
+	wm "ryoku-wm"
 )
 
 // tray.go owns the system tray: the daemon runs the StatusNotifierWatcher
@@ -162,6 +164,9 @@ func (d *daemon) startTray() {
 
 	d.registerCall("tray.activate", func(raw json.RawMessage) (any, error) {
 		a := trayPoint(raw)
+		if id := d.trayWindow(t.itemPid(a.Service)); id != "" {
+			return nil, d.wmc.Act(wm.ActionWindowFocus, id)
+		}
 		return nil, t.itemCall(a.Service, itemIface+".Activate", int32(a.X), int32(a.Y))
 	})
 	d.registerCall("tray.secondaryActivate", func(raw json.RawMessage) (any, error) {
@@ -515,6 +520,49 @@ func (t *trayState) itemCall(service, method string, args ...any) error {
 		return fmt.Errorf("no tray item %s", service)
 	}
 	return t.conn.Object(it.busName, it.path).Call(method, 0, args...).Err
+}
+
+// itemPid is the process owning a tray item's bus name, 0 when unknown.
+func (t *trayState) itemPid(service string) int {
+	t.mu.Lock()
+	it := t.items[service]
+	t.mu.Unlock()
+	if it == nil {
+		return 0
+	}
+	name := it.owner
+	if name == "" {
+		name = it.busName
+	}
+	var pid uint32
+	if t.conn.BusObject().Call("org.freedesktop.DBus.GetConnectionUnixProcessID", 0, name).Store(&pid) != nil {
+		return 0
+	}
+	return int(pid)
+}
+
+// trayWindow is the unfocused window a tray click should bring forward. An app
+// cannot raise its own window without an activation token, so a window on
+// another workspace stayed hidden; a focused window keeps the app's own toggle.
+func (d *daemon) trayWindow(pid int) string {
+	if pid <= 0 {
+		return ""
+	}
+	d.wmMu.Lock()
+	defer d.wmMu.Unlock()
+	id, order := "", -1
+	for _, w := range d.wmWindows {
+		if w.Pid != pid {
+			continue
+		}
+		if w.FocusOrder == 0 {
+			return ""
+		}
+		if order < 0 || w.FocusOrder < order {
+			id, order = w.ID, w.FocusOrder
+		}
+	}
+	return id
 }
 
 func (t *trayState) menuEvent(service string, id int) error {

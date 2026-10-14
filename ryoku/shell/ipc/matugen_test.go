@@ -650,9 +650,15 @@ func TestNearestGnomeAccent(t *testing.T) {
 	}
 }
 
-// TestApplyFont: the system font pushes to GTK live via gsettings font-name and
-// falls back to the shipped face when empty; fontSig reads the frame's key.
+// TestApplyFont proves a proportional UI choice never leaks into terminal
+// configuration, while an explicit terminal family is still honoured.
 func TestApplyFont(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	if err := os.MkdirAll(filepath.Join(configHome, "kitty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	var got [][]string
 	orig := runCommand
 	t.Cleanup(func() { runCommand = orig })
@@ -668,28 +674,41 @@ func TestApplyFont(t *testing.T) {
 		}
 		return false
 	}
-
-	applyFont([]byte(`{"fontFamily":"Maple Mono NF","fontSize":13}`))
-	if !has("gsettings", "set", "org.gnome.desktop.interface", "font-name", "Maple Mono NF 13") {
-		t.Errorf("font-name not set to Maple Mono NF 13; got %v", got)
+	kittyFont := func() string {
+		data, err := os.ReadFile(filepath.Join(configHome, "kitty", "current-font.conf"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
 	}
-	if !has("gsettings", "set", "org.gnome.desktop.interface", "monospace-font-name", "Maple Mono NF 13") {
-		t.Errorf("the one system font must also drive monospace-font-name; got %v", got)
+
+	applyFont([]byte(`{"fontFamily":"Space Grotesk","fontSize":13}`))
+	if !has("gsettings", "set", "org.gnome.desktop.interface", "font-name", "Space Grotesk 13") {
+		t.Errorf("UI font did not stay Space Grotesk 13; got %v", got)
+	}
+	if !has("gsettings", "set", "org.gnome.desktop.interface", "monospace-font-name", "JetBrainsMono Nerd Font 13") {
+		t.Errorf("monospace font did not use the shipped terminal face; got %v", got)
+	}
+	if got := kittyFont(); got != "font_family JetBrainsMono Nerd Font\nfont_size 13\n" {
+		t.Errorf("kitty font = %q, want shipped terminal face", got)
 	}
 
 	got = nil
-	applyFont([]byte(`{}`))
-	if !has("gsettings", "set", "org.gnome.desktop.interface", "font-name", "Space Grotesk 11") {
-		t.Errorf("empty font did not fall back to Space Grotesk 11; got %v", got)
+	applyFont([]byte(`{"fontFamily":"Space Grotesk","terminalFontFamily":"Maple Mono NF","fontSize":12}`))
+	if !has("gsettings", "set", "org.gnome.desktop.interface", "font-name", "Space Grotesk 12") {
+		t.Errorf("explicit terminal choice changed the UI font; got %v", got)
 	}
-	if !has("gsettings", "set", "org.gnome.desktop.interface", "monospace-font-name", "SpaceMono Nerd Font 11") {
-		t.Errorf("empty mono did not fall back to SpaceMono Nerd Font 11; got %v", got)
+	if !has("gsettings", "set", "org.gnome.desktop.interface", "monospace-font-name", "Maple Mono NF 12") {
+		t.Errorf("explicit terminal choice was not applied to monospace-font-name; got %v", got)
+	}
+	if got := kittyFont(); got != "font_family Maple Mono NF\nfont_size 12\n" {
+		t.Errorf("kitty font = %q, want explicit terminal face", got)
 	}
 
-	if fontSig([]byte(`{"fontFamily":"Fira Sans","fontSize":12}`)) != "Fira Sans\x1f12" {
-		t.Errorf("fontSig did not compose family/size")
+	if fontSig([]byte(`{"fontFamily":"Fira Sans","terminalFontFamily":"Maple Mono NF","fontSize":12}`)) != "Fira Sans\x1fMaple Mono NF\x1f12" {
+		t.Errorf("fontSig did not compose both families and size")
 	}
-	if fontSig([]byte(`{}`)) != "\x1f0" {
+	if fontSig([]byte(`{}`)) != "\x1f\x1f0" {
 		t.Errorf("fontSig should be the empty composite when keys are absent")
 	}
 }

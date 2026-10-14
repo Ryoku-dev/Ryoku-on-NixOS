@@ -139,6 +139,77 @@ func TestRetargetChannelReinstallsDroppedMetaOnFailure(t *testing.T) {
 	}
 }
 
+func TestRetargetChannelKeepsTargetWhenDNFTransactionApplied(t *testing.T) {
+	isolateHome(t)
+	packagedConf(t, "stable")
+	synced := false
+	stubMoveRepoSync(t, func(bool) error {
+		synced = true
+		return nil
+	})
+	oldApplied := channelMoveApplied
+	channelMoveApplied = func(channel string) bool { return channel == sys.ChannelTesting }
+	t.Cleanup(func() { channelMoveApplied = oldApplied })
+
+	err := retargetChannel(sys.ChannelTesting, func() error {
+		lastDroppedMetas = []string{"ryoku-desktop-hyprland"}
+		return fmt.Errorf("post-transaction scriptlet failed")
+	})
+	if err != nil {
+		t.Fatalf("committed DNF transaction surfaced as a failed channel move: %v", err)
+	}
+	if got := sys.PackagedChannel(); got != sys.ChannelTesting {
+		t.Fatalf("channel = %q, want target %q kept", got, sys.ChannelTesting)
+	}
+	if synced {
+		t.Fatal("committed DNF transaction restored and synced the previous channel")
+	}
+	if len(lastDroppedMetas) != 0 {
+		t.Fatalf("dropped target metas were retained for rollback: %v", lastDroppedMetas)
+	}
+}
+
+func TestDNFMoveReachedTargetUsesInstalledState(t *testing.T) {
+	targetBuild := "v0.95.9-beta.20.dev.5+g90673ad"
+	tests := []struct {
+		name      string
+		channel   string
+		installed string
+		target    string
+		release   sys.Release
+		want      bool
+	}{
+		{
+			name:      "package EVR reached target",
+			channel:   sys.ChannelTesting,
+			installed: "0:0.95.9-1.fc44",
+			target:    "0:0.95.9-1.fc44",
+			want:      true,
+		},
+		{
+			name:    "frozen marker reached target",
+			channel: targetBuild,
+			release: sys.Release{Release: targetBuild},
+			want:    true,
+		},
+		{
+			name:      "nothing moved",
+			channel:   sys.ChannelTesting,
+			installed: "0:0.95.8-1.fc44",
+			target:    "0:0.95.9-1.fc44",
+			release:   sys.Release{Channel: sys.ChannelTesting},
+			want:      false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := dnfMoveReachedTarget(tc.channel, tc.installed, tc.target, tc.release); got != tc.want {
+				t.Fatalf("dnfMoveReachedTarget() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // A box migrating onto packages from a retired checkout has no ryoku-desktop
 // installed, and the installed-only set would move nothing: the track message
 // promises the switch installs the base. The move must add the umbrella plus

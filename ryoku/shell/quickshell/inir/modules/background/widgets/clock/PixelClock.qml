@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import Ryoku.Ui.Singletons as RyokuUi
 import inir.modules.common
 import inir.modules.common.widgets
 
@@ -20,7 +21,7 @@ Item {
     implicitWidth: root.desiredImplicitWidth
     implicitHeight: root.desiredImplicitHeight
 
-    readonly property string digits: Qt.formatDateTime(root.currentDate, "HHmm")
+    readonly property string digits: RyokuUi.TimeFormat.digits(root.currentDate)
     readonly property string glyphTopLeft: root.digits.charAt(0)
     readonly property string glyphTopRight: root.digits.charAt(1)
     readonly property string glyphBottomLeft: root.digits.charAt(2)

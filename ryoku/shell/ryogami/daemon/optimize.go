@@ -14,6 +14,22 @@ import (
 	"time"
 )
 
+func init() {
+	registerAvailability("videoOptimize", func(*daemon) bool {
+		return hasEncoder("libx265")
+	})
+}
+
+// A listed hardware HEVC encoder is not enough: Fedora advertises VA-API and
+// QSV encoders even when the installed driver rejects HEVC at runtime.
+func videoOptimizeAvailable(encoders codecSet) bool {
+	return hasEncoderIn(encoders, "libx265")
+}
+
+func videoOptimizeUnavailableError() error {
+	return errors.New("Video optimisation is unavailable because this system's ffmpeg has no libx265 encoder")
+}
+
 // Optimizer runs the two batch media pipelines the picker drives: re-encoding
 // wallpaper images to webp (optimize) and transcoding videos to HEVC/mp4
 // (convert). It is a faithful port of the Rust daemon's wall/optimize module,
@@ -120,6 +136,9 @@ func (o *Optimizer) Start(kind, preset, resolutionKey string, files []string) er
 	case kindConvert:
 		if _, ok := videoPresets[preset]; !ok {
 			return fmt.Errorf("unknown preset: %s", preset)
+		}
+		if !videoOptimizeAvailable(ffmpegCodecs().encoders) {
+			return videoOptimizeUnavailableError()
 		}
 	default:
 		return fmt.Errorf("unknown kind: %s", kind)

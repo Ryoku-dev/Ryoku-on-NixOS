@@ -6,7 +6,7 @@ func (d *daemon) dispatchSources(req *request, p map[string]interface{}) (respon
 	case "source.providers":
 		return s.providers(req.ID), true
 	case "source.search":
-		return s.search(req.ID, p), true
+		return s.search(req.ID, req.ConnectionID, p), true
 	case "source.preview":
 		return s.preview(req.ID, p), true
 	case "source.download":

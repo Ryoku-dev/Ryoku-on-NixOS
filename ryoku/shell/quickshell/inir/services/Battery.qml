@@ -35,8 +35,8 @@ Singleton {
     readonly property bool allowAutomaticSuspend: Config.options?.battery?.automaticSuspend ?? false
     readonly property bool soundEnabled: Config.options?.sounds?.battery ?? true
 
-    property bool isLow: available && (percentage <= ((Config.options?.battery?.low ?? 20) / 100))
-    property bool isCritical: available && (percentage <= ((Config.options?.battery?.critical ?? 10) / 100))
+    property bool isLow: available && percentage <= 0.20
+    property bool isCritical: available && percentage <= 0.05
     property bool isSuspending: available && (percentage <= ((Config.options?.battery?.suspend ?? 5) / 100))
     property bool isFull: available && (percentage >= ((Config.options?.battery?.full ?? 95) / 100))
 
@@ -379,28 +379,12 @@ Singleton {
     // ─── Battery warnings ───
     onIsLowAndNotChargingChanged: {
         if (!root.available || !isLowAndNotCharging) return;
-        Quickshell.execDetached([
-            "/usr/bin/notify-send", 
-            Translation.tr("Low battery"), 
-            Translation.tr("Consider plugging in your device"), 
-            "-u", "critical",
-            "-a", "Shell",
-            "--hint=int:transient:1",
-        ])
 
         if (root.soundEnabled) Audio.playEvent("batteryLow");
     }
 
     onIsCriticalAndNotChargingChanged: {
         if (!root.available || !isCriticalAndNotCharging) return;
-        Quickshell.execDetached([
-            "/usr/bin/notify-send", 
-            Translation.tr("Critically low battery"), 
-            Translation.tr("Please charge!\nAutomatic suspend triggers at %1%").arg(Config.options?.battery?.suspend ?? 5), 
-            "-u", "critical",
-            "-a", "Shell",
-            "--hint=int:transient:1",
-        ]);
 
         if (root.soundEnabled) Audio.playEvent("batteryCritical");
     }

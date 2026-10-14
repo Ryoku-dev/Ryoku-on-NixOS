@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // What the run prints reaches the curated view only in the few shapes a person
@@ -29,6 +30,17 @@ func TestClassifyCapturedKeepsSignalOnly(t *testing.T) {
 		{"deploy", "CMake Warning at /usr/lib/cmake/Qt6/QtPublicDependencyHelpers.cmake:339 (message):", want{}},
 		{"deploy", "installed /home/u/.local/bin/ryoku-shell", want{}},
 		{"packages", "core is up to date", want{}},
+		// pacman's --noconfirm conflict, verbatim from a CachyOS run: the
+		// question shares its line with the next error, then the pair repeats
+		// after the summary. Both read as the same pair, so one note.
+		{"packages", ":: limine-mkinitcpio-hook-1.37.1-1 and limine-entry-tool-1.40.0-1 are in conflict. Remove limine-entry-tool? [y/N] error: unresolvable package conflicts detected", want{noteErr, "limine-mkinitcpio-hook-1.37.1-1 and limine-entry-tool-1.40.0-1 are in conflict", true}},
+		{"packages", ":: limine-mkinitcpio-hook-1.37.1-1 and limine-entry-tool-1.40.0-1 are in conflict", want{noteErr, "limine-mkinitcpio-hook-1.37.1-1 and limine-entry-tool-1.40.0-1 are in conflict", true}},
+		// the question can name the virtual package behind the conflict while
+		// the summary line does not; both are the same pair to a user.
+		{"packages", ":: rust-1:1.99.0-1 and rustup-1.29.1-1 are in conflict (cargo). Remove rustup? [y/N] error: unresolvable package conflicts detected", want{noteErr, "rust-1:1.99.0-1 and rustup-1.29.1-1 are in conflict", true}},
+		{"packages", ":: unable to satisfy dependency 'qt6-base=6.12.0' required by quickshell", want{noteErr, "unable to satisfy dependency 'qt6-base=6.12.0' required by quickshell", true}},
+		{"packages", ":: Synchronizing package databases...", want{}},
+		{"packages", ":: Proceed with installation? [Y/n]", want{}},
 		{"doctor", "! orphaned packages", want{noteWarn, "orphaned packages", true}},
 		{"doctor", "✓ stale pacman lock (fixed)", want{noteOK, "stale pacman lock (fixed)", true}},
 		{"doctor", "✓ all checks passed", want{noteOK, "all checks passed", true}},
@@ -44,6 +56,41 @@ func TestClassifyCapturedKeepsSignalOnly(t *testing.T) {
 			t.Errorf("classifyCaptured(%q, %q) = (%v, %q, %v), want (%v, %q, %v)",
 				c.step, c.line, kind, text, ok, c.want.kind, c.want.text, c.want.ok)
 		}
+	}
+}
+
+func TestPieceLineLayoutKeepsStatusVisible(t *testing.T) {
+	label := "Ryoku.Blobs, the frame renderer"
+	right := "━━━━━━╸──────  62%  8s / ~12s"
+	for _, width := range []int{100, 50} {
+		line := layoutPieceLine("├─", "⠹", label, right, width)
+		got := line.text()
+		if utf8.RuneCountInString(got) > width {
+			t.Errorf("width %d line is %d columns: %q", width, utf8.RuneCountInString(got), got)
+		}
+		if !strings.HasSuffix(got, right) {
+			t.Errorf("width %d lost right side: %q", width, got)
+		}
+		if width == 50 && !strings.Contains(line.label, "…") {
+			t.Errorf("width %d did not clip label: %q", width, got)
+		}
+		if width == 100 && line.label != label {
+			t.Errorf("width %d clipped label: %q", width, got)
+		}
+	}
+}
+
+func TestClosingPieceLineText(t *testing.T) {
+	ok := closingPieceLine(stepDone, 4, "", "12s", 100).text()
+	if !strings.Contains(ok, "╰─ ✓  4 pieces built") || !strings.HasSuffix(ok, "12s") {
+		t.Errorf("ok close = %q", ok)
+	}
+	failed := closingPieceLine(stepFailed, 3, "Ryoku.Blobs", "8s", 50).text()
+	if !strings.Contains(failed, "╰─ ✗  stopped while building Ryoku.Blobs") || !strings.HasSuffix(failed, "8s") {
+		t.Errorf("failed close = %q", failed)
+	}
+	if utf8.RuneCountInString(failed) > 50 {
+		t.Errorf("failed close is %d columns: %q", utf8.RuneCountInString(failed), failed)
 	}
 }
 

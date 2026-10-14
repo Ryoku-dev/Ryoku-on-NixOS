@@ -616,6 +616,29 @@ func TestProviderParseErrorBlocksApply(t *testing.T) {
 	}
 }
 
+func TestSnapshotBestEffortUsesHostSeam(t *testing.T) {
+	previous := importHostRun
+	defer func() { importHostRun = previous }()
+
+	var name string
+	var args []string
+	importHostRun = func(gotName string, gotArgs ...string) error {
+		name = gotName
+		args = append([]string(nil), gotArgs...)
+		return nil
+	}
+
+	snapshotBestEffort("20261011-120000")
+
+	if name != "ryoku-host" {
+		t.Fatalf("snapshot command = %q, want ryoku-host", name)
+	}
+	want := []string{"snapshots", "create", "ryoku config import 20261011-120000"}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("snapshot args = %#v, want %#v", args, want)
+	}
+}
+
 func importTestValue(root map[string]any, path ...string) any {
 	var value any = root
 	for _, key := range path {

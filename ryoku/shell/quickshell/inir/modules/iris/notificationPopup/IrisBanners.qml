@@ -18,7 +18,7 @@ Item {
     id: root
     property var screenData: null
     readonly property string screenName: root.screenData?.name ?? ""
-    readonly property bool fullscreenHere: CompositorService.nativeOverview && GameMode.hasFullscreenOnOutput(root.screenName) && !WorkspaceService.inOverview
+    readonly property bool fullscreenHere: GameMode.hasFullscreenOnOutput(root.screenName) && !WorkspaceService.inOverview
     // Customize owns the Island's surroundings while it is open: banners wait, and still land in Today.
     readonly property bool present: root.screenName === (GlobalStates.focusedScreen?.name ?? "") && !root.fullscreenHere
         && !GlobalStates.irisEdit
@@ -77,7 +77,7 @@ Item {
             return
         }
         const key = String(notification?.appName ?? "").toLowerCase()
-        if (key.length > 0 && CompositorService.nativeOverview) {
+        if (key.length > 0) {
             const window = (WorkspaceService.windows ?? []).find(w => String(w.app_id ?? "").toLowerCase().includes(key))
             if (window) WorkspaceService.focusWindow(window.id)
         }

@@ -6,8 +6,8 @@ package main
 // so it holds ~40-60 MB RSS on any vendor, where mpv/mpvpaper (a client GL
 // pipeline) cost 300-700 MB, leak per loop, and on a hybrid layout dropped
 // frames wholesale. The daemon transcodes each clip once to the panel's
-// logical width on the strongest GPU (NVENC, else VA-API on AMD; libx264
-// otherwise) and caches it, so the player's steady cost is a fraction of a core.
+// logical width on the strongest GPU (NVENC, else VA-API on AMD; a supported
+// CPU H.264 encoder otherwise) and caches it, so steady playback stays cheap.
 
 import (
 	"context"
@@ -21,6 +21,20 @@ import (
 )
 
 const liveDaemon = "ryogami-live"
+
+func init() {
+	guardApply(func(d *daemon, req *applyRequest) error {
+		if req.Type != "video" || d.settingBool("pickOnlyMode") {
+			return nil
+		}
+		src := liveProbe(req.Path)
+		return videoSourceDecodeError(src, ffmpegCodecs().decoders)
+	})
+}
+
+func videoSourceDecodeError(src liveShape, decoders codecSet) error {
+	return videoDecodeError(src.codec, decoders)
+}
 
 // liveEncRev marks the transcode flags a cached clip was produced with. Bump it
 // whenever they change, so old clips are re-encoded instead of being replayed

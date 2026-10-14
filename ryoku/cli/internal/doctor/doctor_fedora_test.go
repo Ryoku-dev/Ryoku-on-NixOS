@@ -15,9 +15,14 @@ const fedoraSnapshotsReason = "Snapshots are not available on Fedora: it boots t
 func stubDoctorDNF(t *testing.T) {
 	t.Helper()
 	oldManager := doctorPackageManager
+	oldFilteredDNS := doctorFilteredRyokuDNS
 	doctorPackageManager = func() (host.PackageManager, error) { return host.DNF, nil }
+	doctorFilteredRyokuDNS = func(string) bool { return false }
 	t.Setenv("RYOKU_HOST_PKGMGR", "dnf")
-	t.Cleanup(func() { doctorPackageManager = oldManager })
+	t.Cleanup(func() {
+		doctorPackageManager = oldManager
+		doctorFilteredRyokuDNS = oldFilteredDNS
+	})
 }
 
 func assertNoForeignPackageAdvice(t *testing.T, result recResult) {
@@ -234,6 +239,35 @@ func TestFedoraPackageDatabaseReportsRefreshFailure(t *testing.T) {
 		t.Fatalf("refresh failure result = %+v", result)
 	}
 	assertNoForeignPackageAdvice(t, result)
+}
+
+func TestFedoraPackageDatabaseReportsFilteredDNS(t *testing.T) {
+	stubDoctorDNF(t)
+	oldInstalled := doctorPackageInstalled
+	oldCheck := checkDNFRepoMetadata
+	doctorPackageInstalled = func(name string) bool { return name == "ryoku-desktop" }
+	checkDNFRepoMetadata = func() (string, error) {
+		return "repository metadata is unavailable", errors.New("TLS connection failed")
+	}
+	doctorFilteredRyokuDNS = func(repository string) bool {
+		return strings.Contains(repository, "repo.ryoku.dev")
+	}
+	t.Cleanup(func() {
+		doctorPackageInstalled = oldInstalled
+		checkDNFRepoMetadata = oldCheck
+	})
+
+	path := t.TempDir() + "/ryoku.repo"
+	t.Setenv("RYOKU_DNF_REPO_CONFIG", path)
+	if err := writeTestFile(path, dnfRepoConfig("stable")); err != nil {
+		t.Fatal(err)
+	}
+
+	result := reconcileRyokuSyncDB(true)
+	if result.status != recFailed || !strings.Contains(result.detail, "DNS for ryoku.dev is being filtered") ||
+		!strings.Contains(result.detail, "docs/updates.md#filtered-dns") {
+		t.Fatalf("filtered DNS result = %+v", result)
+	}
 }
 
 func TestFedoraBootGuardUsesSystemdUnit(t *testing.T) {

@@ -1,7 +1,7 @@
 package main
 
 // Apply a config import: re-scan the source, resolve every keybind conflict per
-// the decisions, back up every file to be touched (plus a best-effort snapper
+// the decisions, back up every file to be touched (plus a best-effort host
 // snapshot), then write. Ingestable Hyprland binds and window rules land in
 // desktop.json (the provider regenerates the compositor config from it); a "mine"
 // shadow also records an unbind so the imported bind wins over the shipped one.
@@ -402,20 +402,15 @@ func rollback(man importManifest) {
 	}
 }
 
-// snapshotBestEffort takes a snapper snapshot when this host provides the
-// snapshot stack and snapper is installed. It is a belt-and-suspenders layer
-// over the per-file backup, so failures are ignored.
+// snapshotBestEffort asks the host seam for a numbered pre-import snapshot.
+// Per-file backups remain authoritative, so a host without snapshots or a
+// failed snapshot never blocks the import.
+var importHostRun = func(name string, args ...string) error {
+	return exec.Command(name, args...).Run()
+}
+
 func snapshotBestEffort(ts string) {
-	if snapshotsUnavailable() {
-		return
-	}
-	if _, err := exec.LookPath("snapper"); err != nil {
-		return
-	}
-	// -c root + -c number so it uses the root config and prunes under NUMBER_LIMIT
-	// like update snapshots, instead of piling up untagged forever.
-	_ = exec.Command("snapper", "-c", "root", "create", "-c", "number", "-d", "ryoku config import "+ts).Run()
-	_ = exec.Command("snapper", "-c", "root", "cleanup", "number").Run()
+	_ = importHostRun("ryoku-host", "snapshots", "create", "ryoku config import "+ts)
 }
 
 // --- write helpers -----------------------------------------------------------

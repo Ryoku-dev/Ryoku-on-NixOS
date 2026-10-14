@@ -58,6 +58,39 @@ func TestTimeAndKeymapSystemdArgv(t *testing.T) {
 	}
 }
 
+func TestKeymapApplyUsesHostInitramfsBackend(t *testing.T) {
+	runner := &fakeRunner{paths: map[string]bool{"mkinitcpio": true}}
+	app, _, _ := testApp(runner, map[string]string{
+		"RYOKU_HOST_INIT":   "systemd",
+		"RYOKU_HOST_PKGMGR": "pacman",
+	})
+	app.cfg.UID, app.cfg.UIDSet = 0, true
+	if code := app.Keymap([]string{"apply", "de", "nodeadkeys", "ctrl:nocaps"}); code != ExitOK {
+		t.Fatalf("keymap apply exit = %d", code)
+	}
+	want := []string{
+		"localectl set-x11-keymap de  nodeadkeys ctrl:nocaps",
+		"mkinitcpio -P",
+	}
+	for index := range want {
+		if got := argv(runner.commands[index]); got != want[index] {
+			t.Fatalf("command %d = %q, want %q", index, got, want[index])
+		}
+	}
+}
+
+func TestKeymapApplyEscalatesWholeTransaction(t *testing.T) {
+	runner := &fakeRunner{}
+	app, _, _ := testApp(runner, nil)
+	app.cfg.UID, app.cfg.UIDSet = 1000, true
+	if code := app.Keymap([]string{"apply", "fr", "", "compose:ralt"}); code != ExitOK {
+		t.Fatalf("keymap apply exit = %d", code)
+	}
+	if got := argv(runner.commands[0]); got != "pkexec ryoku-host keymap apply fr  compose:ralt" {
+		t.Fatalf("keymap apply escalation = %q", got)
+	}
+}
+
 func TestRunitKeymapWritesRCConfAndEscalates(t *testing.T) {
 	dir := t.TempDir()
 	rc := filepath.Join(dir, "rc.conf")

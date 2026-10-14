@@ -3,8 +3,6 @@ package updater
 import (
 	"bufio"
 	"regexp"
-	"sort"
-	"strconv"
 	"strings"
 
 	"ryoku-cli/internal/host"
@@ -25,30 +23,6 @@ const ryokuRepo = "ryoku"
 // initial installation. Void serves and updates them through XBPS, so this
 // exclusion is applied only to pacman.
 var externalReleasePkgs = map[string]bool{"ryotunes": true}
-
-// ryokuSet: the installed packages the [ryoku] repo serves, repo-qualified and
-// sorted. Pure over its two inputs, so the selection is unit-testable without
-// pacman: repoNames is `pacman -Slq ryoku`, installed is `pacman -Qq`.
-func ryokuSet(repoNames, installed []string) []string {
-	have := make(map[string]bool, len(installed))
-	for _, p := range installed {
-		if p = strings.TrimSpace(p); p != "" {
-			have[p] = true
-		}
-	}
-	seen := map[string]bool{}
-	out := make([]string, 0, len(repoNames))
-	for _, p := range repoNames {
-		p = strings.TrimSpace(p)
-		if p == "" || seen[p] || !have[p] || externalReleasePkgs[p] {
-			continue
-		}
-		seen[p] = true
-		out = append(out, ryokuRepo+"/"+p)
-	}
-	sort.Strings(out)
-	return out
-}
 
 // installedRyokuSet reads the box: the installed packages the [ryoku] repo
 // serves, repo-qualified, and how many of them were held back. An error means
@@ -83,75 +57,6 @@ func repoServedSet() map[string]bool {
 		out[pkg.Name] = true
 	}
 	return out
-}
-
-// dropOlderServes removes every target whose [ryoku] serve is older than what
-// the box has installed. Each name gets two read-only exact-name queries:
-// `pacman -Qi` for the installed version and `pacman -Si ryoku/<name>` for the
-// repo version, parsed off the Version field. They are per-name on purpose: a
-// name the repo shares with a distro repo (asusctl exists in both [ryoku] and
-// extra, limine-snapper-sync in both [ryoku] and cachyos) makes an unqualified
-// or bulk query ambiguous, and one unresolvable name must not poison the
-// answer for every other package. vercmp is pacman's own version ordering, so
-// the decision is exactly what pacman would have done. A name either side
-// cannot answer for is kept: an update must not silently skip a package
-// because a query failed.
-func dropOlderServes(set []string) []string {
-	var keep []string
-	for _, target := range set {
-		name := strings.TrimPrefix(target, ryokuRepo+"/")
-		inst, err := runPacman("pacman", "-Qi", name)
-		if err != nil {
-			keep = append(keep, target)
-			continue
-		}
-		repo, err := runPacman("pacman", "-Si", target)
-		if err != nil {
-			keep = append(keep, target)
-			continue
-		}
-		installedVer := versionField(inst)
-		repoVer := versionField(repo)
-		if installedVer == "" || repoVer == "" {
-			keep = append(keep, target)
-			continue
-		}
-		if vercmp(installedVer, repoVer) > 0 {
-			continue // the box is ahead of [ryoku]; an explicit -S would move it back
-		}
-		keep = append(keep, target)
-	}
-	sort.Strings(keep)
-	return keep
-}
-
-// runPacman is the read-only pacman seam, a var so tests pin the hold-back
-// decision without a live database.
-var runPacman = sys.RunOut
-
-// versionField extracts the Version value from `pacman -Qi`/`-Si` output.
-func versionField(out string) string {
-	for _, ln := range strings.Split(out, "\n") {
-		k, v, ok := strings.Cut(ln, ":")
-		if ok && strings.TrimSpace(k) == "Version" {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
-}
-
-// vercmp is pacman's version comparison, a var so tests pin the ordering
-// without shelling out.
-var vercmp = func(a, b string) int {
-	out, err := sys.RunOut("vercmp", a, b)
-	if err != nil {
-		return 0 // unreadable comparison: keep the target, never skip on a doubt
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(out))
-	if err != nil {
-		return 0
-	}
-	return n
 }
 
 // lines splits command output into non-empty trimmed lines.

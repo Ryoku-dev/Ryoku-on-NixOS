@@ -66,6 +66,34 @@ func TestWantedSnapperHelpers(t *testing.T) {
 	}
 }
 
+func TestResetFailedUserUnitsSkipsUnloadedUnits(t *testing.T) {
+	t.Setenv("RYOKU_HOST_INIT", "systemd")
+	oldService := service
+	var reset []string
+	service = func(args ...string) int {
+		if len(args) >= 3 && args[1] == "is-failed" {
+			switch args[2] {
+			case "ryoku-idle.service":
+				return host.ExitAbsent
+			case "ryoku-clamshell.service":
+				return host.ExitFalse
+			case "failed.service":
+				return host.ExitOK
+			}
+		}
+		if len(args) >= 2 && args[1] == "reset-failed" {
+			reset = append([]string(nil), args[2:]...)
+		}
+		return host.ExitOK
+	}
+	t.Cleanup(func() { service = oldService })
+
+	resetFailedUserUnits("ryoku-idle.service", "ryoku-clamshell.service", "failed.service")
+	if !reflect.DeepEqual(reset, []string{"failed.service"}) {
+		t.Fatalf("reset-failed units = %v, want only the loaded failed unit", reset)
+	}
+}
+
 func TestVoidSnapshotHelperUsesPackageAndServiceSeams(t *testing.T) {
 	t.Setenv("RYOKU_HOST_PKGMGR", "xbps")
 	var calls [][]string
@@ -193,6 +221,23 @@ func TestPackagedStatusUpToDateOfflineEmptyRecent(t *testing.T) {
 	}
 }
 
+func TestFilteredDNSUpdateError(t *testing.T) {
+	oldCheck := updaterFilteredRyokuDNS
+	t.Cleanup(func() { updaterFilteredRyokuDNS = oldCheck })
+
+	updaterFilteredRyokuDNS = func(repository string) bool {
+		return repository == "https://repo.ryoku.dev/stable/$arch"
+	}
+	err := filteredDNSUpdateError("https://repo.ryoku.dev/stable/$arch")
+	if err == nil || !strings.Contains(err.Error(), "DNS for ryoku.dev is being filtered") ||
+		!strings.Contains(err.Error(), "docs/updates.md#filtered-dns") {
+		t.Fatalf("filtered DNS error = %v", err)
+	}
+	if err := filteredDNSUpdateError("https://mirror.example.org/ryoku/$arch"); err != nil {
+		t.Fatalf("custom mirror error = %v", err)
+	}
+}
+
 // The Ryoku lane must never be a sysupgrade: the kernel and the base come from
 // the distribution the box was installed from, on the user's schedule. It must
 // also --overwrite the Ryoku system paths the ISO installer and deploy.sh seed
@@ -248,6 +293,7 @@ func TestRyokuInstallArgsStayInTheRyokuLane(t *testing.T) {
 		"/usr/lib/systemd/system/ryoku-network-kill-guard.service",
 		"/usr/lib/initcpio/install/ryoku-gpu-trim",
 		"/usr/share/ryoku/boot/default.conf",
+		"/usr/share/ryoku/lockscreen/ryoku-greeter",
 		"/etc/systemd/logind.conf.d/10-ryoku-lid.conf",
 	} {
 		covered := false
@@ -577,6 +623,44 @@ func TestPackagePowerCutoverRetriesIncompleteAdoption(t *testing.T) {
 					tc.markerPresent, tc.rootGuardActive, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestPackagePowerCutoverRecoveryUsesInstalledHelper(t *testing.T) {
+	bin := t.TempDir()
+	systemctl := filepath.Join(bin, "systemctl")
+	if err := os.WriteFile(systemctl, []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(bin, "ryoku-power-cutover")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("RYOKU_HOST_INIT", "systemd")
+
+	oldMarker := packagePowerCutoverMarker
+	oldHelper := packagePowerCutoverHelper
+	oldSudo := sudoPackagePowerCutover
+	t.Cleanup(func() {
+		packagePowerCutoverMarker = oldMarker
+		packagePowerCutoverHelper = oldHelper
+		sudoPackagePowerCutover = oldSudo
+	})
+	packagePowerCutoverMarker = filepath.Join(bin, "missing-marker")
+	packagePowerCutoverHelper = helper
+
+	var got []string
+	sudoPackagePowerCutover = func(args ...string) error {
+		got = append([]string(nil), args...)
+		return nil
+	}
+	if err := ensurePackagePowerCutover(); err != nil {
+		t.Fatalf("ensure package power cutover: %v", err)
+	}
+	want := []string{"env", "RYOKU_CUTOVER_STAGED=1", helper, "package"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("package power cutover recovery argv = %q, want %q", got, want)
 	}
 }
 

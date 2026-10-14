@@ -106,9 +106,8 @@ func channelStatus() (statusReport, bool) {
 	}, true
 }
 
-// channelUpdate brings the checkout up to origin/<channel> and redeploys: the
-// git equivalent of a package upgrade. The caller only reaches here on a
-// checkout (a packaged install has no repo to track).
+// channelUpdate advances a checkout only as far as the testing gate permits,
+// then redeploys it. Stable source tracking follows main directly.
 func channelUpdate() error {
 	repo := sys.ResolveRepo()
 	if repo == "" {
@@ -119,16 +118,32 @@ func channelUpdate() error {
 	progress.at("channel")
 	progress.detailf(i18n.T("Fetching origin/%s"), ch)
 	gitFetch(repo, ch)
-	// report what the sync actually did; "Update complete" alone hid a box that
+
+	var pointer checkedPointer
+	pointerOK := false
+	if ch == "unstable-dev" && !updateForce {
+		pointer, pointerOK = readCheckedPointer()
+		if updateWait {
+			pointer, pointerOK = waitForChannelCheck(repo, ch, pointer, pointerOK)
+		}
+	}
+	target, note := resolveChannelTarget(repo, ch, pointer, pointerOK, updateForce)
+	if note != "" {
+		progress.logf("%s", note)
+	}
+
+	// Report what the sync actually did; "Update complete" alone hid a box that
 	// redeployed the same commit every time.
 	before := gitShort(repo, "HEAD")
-	if err := syncChannel(repo, ch); err != nil {
+	if err := syncChannel(repo, ch, target); err != nil {
 		return err
 	}
 	if after := gitShort(repo, "HEAD"); after != before {
 		progress.logf(i18n.T("Advanced %s → %s (v%s %s)"), before, after, readVersion(repo), ch)
-	} else {
+	} else if sameCommit(repo, target, "refs/remotes/origin/"+ch) {
 		progress.logf(i18n.T("Already on the latest %s (v%s, %s)"), ch, readVersion(repo), before)
+	} else {
+		progress.logf(i18n.T("Already on the latest checked %s commit (v%s, %s)"), ch, readVersion(repo), before)
 	}
 
 	progress.at("deploy")
@@ -137,6 +152,119 @@ func channelUpdate() error {
 		return fmt.Errorf(i18n.T("deploy from %s failed: %w"), repo, err)
 	}
 	return nil
+}
+
+// resolveChannelTarget chooses a local git target without changing the checkout.
+// Only unstable-dev is gate-backed; stable source tracking follows its tip.
+func resolveChannelTarget(repo, ch string, p checkedPointer, pointerOK, force bool) (target string, note string) {
+	tip := "refs/remotes/origin/" + ch
+	if force || ch != "unstable-dev" {
+		return tip, ""
+	}
+	if !pointerOK {
+		return "HEAD", fmt.Sprintf(i18n.T("cannot read the testing gate; staying on %s"), gitShort(repo, "HEAD"))
+	}
+
+	if p.State == "passed" && (sameCommit(repo, p.Commit, tip) || onlyReleaseBumps(repo, p.Commit, tip)) {
+		return tip, ""
+	}
+
+	target = lastCheckedTarget(repo, tip, p)
+	checked := gitShort(repo, target)
+	switch {
+	case p.State == "checking" && sameCommit(repo, p.Commit, tip):
+		minutes := pointerAgeMinutes(p.At)
+		return target, fmt.Sprintf(i18n.T("unstable-dev moved to %s %d min ago; its checks are still running (%s). Deploying the last checked commit %s"),
+			gitShort(repo, tip), minutes, p.Run, checked)
+	case p.State == "failed" && sameCommit(repo, p.Commit, tip):
+		return target, fmt.Sprintf(i18n.T("%s failed its checks (%s); staying on the last checked commit %s"),
+			gitShort(repo, tip), p.Run, checked)
+	default:
+		return target, fmt.Sprintf(i18n.T("the testing gate does not cover unstable-dev at %s; staying on the last checked commit %s"),
+			gitShort(repo, tip), checked)
+	}
+}
+
+func waitForChannelCheck(repo, ch string, p checkedPointer, ok bool) (checkedPointer, bool) {
+	tip := "refs/remotes/origin/" + ch
+	if !ok || p.State != "checking" || !sameCommit(repo, p.Commit, tip) {
+		return p, ok
+	}
+
+	deadline := time.Now().Add(25 * time.Minute)
+	nextLog := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		delay := buildPollInterval
+		if remaining := time.Until(deadline); delay > remaining {
+			delay = remaining
+		}
+		time.Sleep(delay)
+
+		p, ok = readCheckedPointer()
+		if !ok || p.State != "checking" || !sameCommit(repo, p.Commit, tip) {
+			return p, ok
+		}
+		now := time.Now()
+		if !now.Before(nextLog) {
+			progress.logf(i18n.T("Checks for unstable-dev at %s are still running (%s)"), gitShort(repo, tip), p.Run)
+			for !nextLog.After(now) {
+				nextLog = nextLog.Add(time.Minute)
+			}
+		}
+	}
+	return p, ok
+}
+
+func sameCommit(repo, a, b string) bool {
+	left, err := sys.RunOut("git", "-C", repo, "rev-parse", "--verify", a+"^{commit}")
+	if err != nil {
+		return false
+	}
+	right, err := sys.RunOut("git", "-C", repo, "rev-parse", "--verify", b+"^{commit}")
+	return err == nil && strings.TrimSpace(left) == strings.TrimSpace(right)
+}
+
+func onlyReleaseBumps(repo, checked, tip string) bool {
+	if checked == "" || !isAncestor(repo, checked, tip) {
+		return false
+	}
+	out, err := sys.RunOut("git", "-C", repo, "log", "--format=%an%x00%s", checked+".."+tip)
+	if err != nil || strings.TrimSpace(out) == "" {
+		return false
+	}
+	sc := bufio.NewScanner(strings.NewReader(out))
+	for sc.Scan() {
+		fields := strings.SplitN(sc.Text(), "\x00", 2)
+		if len(fields) != 2 || fields[0] != "github-actions[bot]" ||
+			!strings.HasPrefix(fields[1], "release: bump unstable to") {
+			return false
+		}
+	}
+	return sc.Err() == nil
+}
+
+func lastCheckedTarget(repo, tip string, p checkedPointer) string {
+	checked := p.Passed.Commit
+	if p.State == "passed" {
+		checked = p.Commit
+	}
+	if checked == "" || !isAncestor(repo, checked, tip) ||
+		!isAncestor(repo, "HEAD", checked) || sameCommit(repo, "HEAD", checked) {
+		return "HEAD"
+	}
+	return checked
+}
+
+func pointerAgeMinutes(at string) int {
+	started, err := time.Parse(time.RFC3339, at)
+	if err != nil {
+		return 0
+	}
+	minutes := int(time.Since(started).Minutes())
+	if minutes < 0 {
+		return 0
+	}
+	return minutes
 }
 
 // readVersion reads the checkout's VERSION file (e.g. 0.50.8-beta.19), the
@@ -150,16 +278,13 @@ func readVersion(repo string) string {
 	return strings.TrimSpace(string(b))
 }
 
-// syncChannel advances a clean checkout onto origin/<ch> when that is a lossless
-// fast-forward, whatever branch is checked out, so `ryoku update` clears "behind"
-// on a dev box tracking unstable-dev exactly as it does on main, not only when
-// the branch is named <ch>. A branch that already contains the channel tip
-// (current or ahead) is left alone; a diverged branch keeps its own commits,
-// except the channel branch, which mirrors upstream and is reset onto it. Local
-// edits to tracked files are never touched: the deploy runs on what is checked
-// out. Every path that declines to advance logs why, so a skip is not mistaken
-// for a successful update.
-func syncChannel(repo, ch string) error {
+// syncChannel advances a clean checkout onto target when that is a lossless
+// fast-forward, whatever branch is checked out. A branch that already contains
+// the target is left alone; a diverged branch keeps its own commits, except the
+// channel branch, which mirrors upstream and is reset onto the same target.
+// Local edits to tracked files are never touched. Every path that declines to
+// advance logs why, so a skip is not mistaken for a successful update.
+func syncChannel(repo, ch, target string) error {
 	remote := "refs/remotes/origin/" + ch
 	// No channel ref to track (offline first run, or the branch is gone): deploy
 	// what is checked out rather than guess.
@@ -176,26 +301,26 @@ func syncChannel(repo, ch string) error {
 			repo, gitShort(repo, "HEAD"))
 		return nil
 	}
-	// HEAD already contains the channel tip (current or ahead): nothing to pull.
-	if isAncestor(repo, remote, "HEAD") {
+	// HEAD already contains the selected target (current or ahead): nothing to pull.
+	if isAncestor(repo, target, "HEAD") {
 		return nil
 	}
-	// HEAD is strictly behind on a straight line: fast-forward onto the channel.
-	if isAncestor(repo, "HEAD", remote) {
-		if err := sys.Run("git", "-C", repo, "merge", "--ff-only", remote); err != nil {
+	// HEAD is strictly behind on a straight line: fast-forward onto the target.
+	if isAncestor(repo, "HEAD", target) {
+		if err := sys.Run("git", "-C", repo, "merge", "--ff-only", target); err != nil {
 			// usually an untracked file the incoming commits also add; git names it above.
 			return fmt.Errorf(i18n.T("fast-forward to origin/%s failed (see git's message above; "+
 				"move the colliding file out of %s, then update again): %w"), ch, repo, err)
 		}
 		return nil
 	}
-	// Diverged: HEAD holds commits origin/<ch> lacks. The channel branch mirrors
-	// upstream, so reset it; any other branch keeps its work (a maintainer mid-dev).
+	// Diverged: HEAD holds commits the selected target lacks. The channel branch
+	// mirrors upstream, so reset it; any other branch keeps its work.
 	head, _ := sys.RunOut("git", "-C", repo, "symbolic-ref", "--short", "--quiet", "HEAD")
 	if strings.TrimSpace(head) == ch {
-		progress.logf(i18n.T("Channel history diverged; reconciling %s onto origin/%s"), ch, ch)
-		if err := sys.Run("git", "-C", repo, "reset", "--hard", remote); err != nil {
-			return fmt.Errorf(i18n.T("reconcile to origin/%s failed: %w"), ch, err)
+		progress.logf(i18n.T("Channel history diverged; reconciling %s onto its checked target"), ch)
+		if err := sys.Run("git", "-C", repo, "reset", "--hard", target); err != nil {
+			return fmt.Errorf(i18n.T("reconcile %s to its checked target failed: %w"), ch, err)
 		}
 	}
 	return nil

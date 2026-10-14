@@ -78,7 +78,7 @@ case $name in
   omarchy-bluetooth-power)
     case ${1:-} in on) rfkill unblock bluetooth; exec bluetoothctl power on;; off) exec rfkill block bluetooth;; toggle) if rfkill list bluetooth | grep -q 'Soft blocked: yes'; then rfkill unblock bluetooth; exec bluetoothctl power on; else exec rfkill block bluetooth; fi;; is-on) bluetoothctl show | grep -q 'Powered: yes';; *) echo 'Usage: omarchy-bluetooth-power <on|off|toggle|is-on>' >&2; exit 2;; esac
     ;;
-  omarchy-bluetooth-device) action=${1:-}; address=${2:-}; [[ $action =~ ^(pair|connect|disconnect|forget)$ && $address =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] || { echo 'Usage: omarchy-bluetooth-device <pair|connect|disconnect|forget> <address>' >&2; exit 2; }; [[ $action != forget ]] || action=remove; exec bluetoothctl "$action" "$address" ;;
+  omarchy-bluetooth-device) action=${1:-}; address=${2:-}; [[ $action =~ ^(pair|connect|disconnect|forget)$ && $address =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] || { echo 'Usage: omarchy-bluetooth-device <pair|connect|disconnect|forget> <address>' >&2; exit 2; }; case $action in pair|connect) exec ryoku-bluetooth-link "$address";; forget) exec bluetoothctl remove "$address";; disconnect) exec bluetoothctl disconnect "$address";; esac ;;
   omarchy-network-status) nmcli -t -f TYPE,STATE connection show --active | awk -F: '$2=="activated"{print $1; exit}' ;;
   omarchy-powerprofiles-list)
     state=$(powerprofiles_state)

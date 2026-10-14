@@ -13,6 +13,10 @@ import "../utils/menupoll.js" as MenuPoll
 // with the desktop asking for stillness. levels settle flat when frames stop
 // arriving (system silent, a restart gap, or the policy freezing the feed), so
 // the bars fall to their rest slivers instead of freezing on the last peak.
+// cava's autosens is off: it normalises every passage to the top within
+// seconds, so a quiet intro and the drop looked the same. With a fixed
+// sensitivity (1.8, measured so a loud master peaks near the top about one
+// frame in ten) levels follow the stream's real loudness; quiet reads quiet.
 Singleton {
     id: root
 
@@ -55,7 +59,7 @@ Singleton {
     Process {
         id: cavaProc
         // playback spectrum via cava's native pipewire backend, source=auto (the default sink's monitor). the pulse backend can't connect here ("Connection terminated") even with pipewire-pulse up, and this path needs no pactl. exec so quickshell's SIGTERM reaches cava, leaving no orphaned analyser when the surface unloads.
-        command: ["sh", "-c", "command -v cava >/dev/null 2>&1 || exit 0; cfg=\"${XDG_RUNTIME_DIR:-/tmp}/ryoku-cava-pill.conf\"; printf '%s\\n' '[general]' 'framerate = " + root.fps + "' 'bars = " + root.bars + "' '' '[input]' 'method = pipewire' 'source = auto' '' '[output]' 'method = raw' 'raw_target = /dev/stdout' 'data_format = ascii' 'ascii_max_range = 100' 'channels = mono' 'mono_option = average' '' '[smoothing]' 'noise_reduction = 45' > \"$cfg\"; exec cava -p \"$cfg\""]
+        command: ["sh", "-c", "command -v cava >/dev/null 2>&1 || exit 0; cfg=\"${XDG_RUNTIME_DIR:-/tmp}/ryoku-cava-pill.conf\"; printf '%s\\n' '[general]' 'framerate = " + root.fps + "' 'bars = " + root.bars + "' 'autosens = 0' 'sensitivity = 180' '' '[input]' 'method = pipewire' 'source = auto' '' '[output]' 'method = raw' 'raw_target = /dev/stdout' 'data_format = ascii' 'ascii_max_range = 100' 'channels = mono' 'mono_option = average' '' '[smoothing]' 'noise_reduction = 45' > \"$cfg\"; exec cava -p \"$cfg\""]
         // Bound, never assigned. `cavaProc.running = true` from the restart timer
         // used to live here, and an imperative write destroys the binding: from the
         // first restart onward `running` no longer followed `analysing`, so cava
@@ -89,7 +93,7 @@ Singleton {
         interval: 120
         running: root.analysing
         repeat: true
-        onTriggered: if (Date.now() - root.lastReadMs > 260) {
+        onTriggered: if (root.energy !== 0 && Date.now() - root.lastReadMs > 260) {
             root.levels = root.flat();
             root.energy = 0;
         }
@@ -119,12 +123,20 @@ Singleton {
         var out = [];
         var sum = 0;
         for (var i = 0; i < root.bars; i++) {
+            // A band at the noise floor reads as silent, so a quiet room
+            // leaves every surface at rest.
             var v = root.norm(parts[i]);
+            if (v < 0.02)
+                v = 0;
             out.push(v);
             sum += v;
         }
+        root.lastReadMs = Date.now();
+        // A silent frame after a silent frame changes nothing; skipping it
+        // spares every bound surface a re-read.
+        if (sum === 0 && root.energy === 0)
+            return;
         root.levels = out;
         root.energy = sum / root.bars;
-        root.lastReadMs = Date.now();
     }
 }

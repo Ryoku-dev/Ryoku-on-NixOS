@@ -3,6 +3,28 @@
 ## Unreleased
 
 ### Added
+- **Keybinds can be removed and restored.** Each shipped shortcut has a control
+  that switches its action off without hiding the row, then restores it in one
+  press (`quickshell/pages/KeybindsPage.qml`).
+- **`ryoku-hub lighting follow <device>|--all on|off`.** One verb puts a device
+  on the palette accent in a mode that can show it (its Static mode, else a
+  Direct or Custom per-LED mode), names devices whose modes carry no colour
+  instead of adopting them, and hands devices back. Every report marks each
+  device `following` (`backend/lighting.go`).
+- **The Hub speaks to every edition through `ryoku-host`.** A `Host` singleton
+  reads `ryoku-host capabilities` (package manager, init, snapshots, AUR), and
+  schema rows can gate on it with `hostCaps` the way they gate on compositor
+  capabilities. Snapshots, keymap and initramfs rebuilds, power profiles,
+  network helpers, Bluetooth, fingerprint PAM, install dates, Rashin and
+  Dictation services, Add-ons repairs and config imports now go through the
+  host seam on Arch, CachyOS, Fedora and Void. A control the edition cannot
+  back is shown disabled with the reason instead of failing when used.
+- **Credits now name QS Bar's source.** Quickshell Rise by HANCORE-linux joins
+  the Hub credits and root provenance notice
+  (`quickshell/pages/CreditsPage.qml`, `../../NOTICE`).
+- **Credits name ii-p3drovfx as the ii dock's source too.** The row that
+  already credited the shell for the Stage Editor now names the dock design
+  beside it (`quickshell/pages/CreditsPage.qml`, `../../NOTICE`).
 - Global > Language & Region offers a 24-hour time switch for all Ryoku clocks; off selects 12-hour time with AM/PM.
 - Battery settings include low-battery alerts, independent warning and critical
   switches and percentages, and a test notification. Either reminder can run
@@ -10,6 +32,13 @@
   below warning (`quickshell/pages/BatteryAlertsSettings.qml`).
 
 ### Changed
+- **Compositor switching recognises complete checkout deployments.** A desktop
+  with a working provider, config and greeter session remains switchable when
+  its variant package is not published for the host; published targets that are
+  not deployed still install through `ryoku wm use`. Session cards now grey out
+  commands or environment variables with a reason instead of editing settings
+  the running provider cannot apply (`backend/wm.go`,
+  `quickshell/Compositor*.qml`, `quickshell/pages/SessionPage.qml`).
 - **Fedora settings use the host's real capabilities.** Updates run through
   DNF, package-backed controls use the host seam, AUR actions stay unavailable,
   and the Updates page hides snapshot rollback with the Fedora GRUB reason
@@ -47,6 +76,25 @@
   Hermes's model, and connecting an agent now says it routes that agent's models
   through Prowl (`quickshell/pages/RashinPage.qml`).
 ### Fixed
+- **Global resets stay on the Global page, and Save says when it applies.**
+  Reset restores only language, region, location and font choices instead of
+  also changing the bar style or other pages. The window settings page now says
+  that Save applies its changes immediately.
+- **System and terminal fonts are separate choices.** Global keeps the
+  proportional UI face independent from a terminal monospace face, defaulting
+  the latter to JetBrainsMono Nerd Font.
+- **Battery alert controls stay off battery-less machines.** The Machine page
+  hides the Battery card on desktops and virtual machines unless the hardware
+  exposes a battery or battery tuning controls.
+- **Desktop has a Deck frost slider.** Its full 0 to 100 percent range writes
+  the validated shell setting, and zero turns the effect off.
+- **Lighting writes land on the intended device with OpenRGB 1.0.** The SDK
+  client spoke protocol 5 and addressed devices by list position. OpenRGB 1.0
+  (Arch, CachyOS, Void) routes protocol-5 writes through controller IDs, so
+  after a hotplug or a detection pass the accent painted another device or
+  nothing. The client now speaks protocol 6 with controller IDs and write
+  acknowledgements, and keeps protocol 5 for Fedora's OpenRGB 1.0~rc2
+  (`backend/openrgb.go`).
 - **Interface scale is editable in Global.** The whole shell reads the one
   `fontScale` value that scales every surface and popout, but no Hub control
   reached it: a hand-set value silently reverted to the factory 1.3 on a stale
@@ -122,6 +170,9 @@
   (`quickshell/SchemaPage.qml`, `quickshell/AppPicker.qml`)
 
 ### Removed
+- **The orphaned Lighting page.** Nothing loaded `pages/LightingTab.qml` since
+  the Appearance page left the Hub; its controls now live in the wallpaper
+  picker's Settings > Lighting.
 - **The Desktop page drops Brand and Pickers.** Renaming the desktop and
   swapping its mark are gone, and the picker style moved to QS Bar Settings,
   the bar it belongs to. General keeps the reload cover

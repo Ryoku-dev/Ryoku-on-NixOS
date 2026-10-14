@@ -27,9 +27,9 @@ import (
 //     transaction. It runs the pacman commands root-aware and with no progress
 //     UI, so it holds from the boot-guard service (no session) exactly as it
 //     does from an interactive `ryoku track`.
-//   - retargetChannel makes the pin transactional: record the current Server,
-//     write the new one, run the move, and on ANY failure put the previous
-//     Server back byte-for-byte and re-sync, so the three never drift apart.
+//   - retargetChannel makes the pin transactional: record the current source,
+//     write the new one, run the move, and restore the previous source only
+//     when the installed state shows that the transaction did not land.
 
 // errChannelUnreachable marks a move that failed at the database refresh (no
 // network / mirror down) rather than at the transaction. The boot guard retries
@@ -193,6 +193,23 @@ var (
 // it to put them back when the transaction that followed the drop failed.
 var lastDroppedMetas []string
 
+func dnfMoveReachedTarget(channel, installed, target string, release sys.Release) bool {
+	if installed != "" && target != "" && installed == target {
+		return true
+	}
+	return sys.IsFrozenVersion(channel) && release.Release == channel
+}
+
+var channelMoveApplied = func(channel string) bool {
+	if updatePackageManager() != host.DNF {
+		return false
+	}
+	app := repositoryHost()
+	installed, _ := app.PackageVersion(ryokuDesktopPkg)
+	target, _ := app.RepoTransactionVersion(ryokuDesktopPkg)
+	return dnfMoveReachedTarget(channel, installed, target, sys.ReadRelease())
+}
+
 // runRyokuMove executes the one channel-move transaction, sleep-inhibited so a
 // lid-close or idle suspend mid-transaction cannot corrupt it, and root-aware so
 // it holds from the boot guard (which is already root) as well as an interactive
@@ -207,11 +224,8 @@ var runRyokuMove = func(set []string) error {
 	return runInhibited(i18n.T("Ryoku channel move"), argv)
 }
 
-// retargetChannel makes a channel move transactional: record the current
-// [ryoku] Server, pin the new channel, run move, and on any failure put the
-// previous Server back exactly and re-sync so the pin, the sync db, and the
-// installed set never disagree (the #291 invariant). Used by both `ryoku track`
-// and the boot guard's revert.
+// retargetChannel records the previous package source, pins the target, and
+// restores the old source only when the package transaction did not land.
 func retargetChannel(channel string, move func() error) error {
 	prev := packagedRepoURL()
 	lastDroppedMetas = nil
@@ -219,6 +233,11 @@ func retargetChannel(channel string, move func() error) error {
 		return err
 	}
 	if err := move(); err != nil {
+		if channelMoveApplied(channel) {
+			lastDroppedMetas = nil
+			fmt.Fprintf(os.Stderr, i18n.T("warning: DNF applied the target Ryoku packages but reported a post-transaction error: %v\n"), err)
+			return nil
+		}
 		// The pin change is undone, then the split metas the move dropped are put
 		// back from the restored channel (which serves them) -- without this a
 		// failed downgrade would strand a box with those metas gone for good,

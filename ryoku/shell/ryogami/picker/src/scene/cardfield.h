@@ -37,6 +37,7 @@ class CardField : public QQuickItem
     Q_PROPERTY(QString mode READ mode WRITE setMode NOTIFY modeChanged)
     Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentIndexChanged)
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
+    Q_PROPERTY(bool previewAllowed READ previewAllowed WRITE setPreviewAllowed NOTIFY previewAllowedChanged)
     Q_PROPERTY(QVariantMap palette READ palette WRITE setPalette NOTIFY paletteChanged)
     Q_PROPERTY(bool interactive READ interactive WRITE setInteractive NOTIFY interactiveChanged)
     Q_PROPERTY(int columns READ columns WRITE setColumns NOTIFY columnsChanged)
@@ -67,6 +68,8 @@ public:
     void setCurrentIndex(int index);
     bool active() const { return m_active; }
     void setActive(bool active);
+    bool previewAllowed() const { return m_previewAllowed; }
+    void setPreviewAllowed(bool allowed);
     QVariantMap palette() const { return m_paletteMap; }
     void setPalette(const QVariantMap &palette);
     bool interactive() const { return m_interactive; }
@@ -106,6 +109,7 @@ Q_SIGNALS:
     void modeChanged();
     void currentIndexChanged();
     void activeChanged();
+    void previewAllowedChanged();
     void paletteChanged();
     void interactiveChanged();
     void columnsChanged();
@@ -153,7 +157,7 @@ private:
     void restoreSelection();
     void connectSource();
     void disconnectSource();
-    void resetGenerationState();
+    void resetGenerationState(bool preserveFilter = false);
 
     void drainDecoder(CardRenderNode *node);
     void resolve(CardRenderNode *node, const LayoutContext &ctx,
@@ -173,11 +177,19 @@ private:
     bool advanceFilterSwap(double dt);
 
     void schedulePreview();
+    bool previewCardVisible();
     void startPreview();
     void publishRects(const QRectF &current, QPointF shear, const QRectF &stage);
     void publishVisibleEnd(int end);
     void publishScrollMetrics(qreal position, qreal extent);
     void stopPreview();
+
+    struct TextureSources {
+        QString thumb;
+        QString full;
+
+        bool operator==(const TextureSources &) const = default;
+    };
 
     QPointer<QObject> m_sourceObj;
     CardSource *m_source = nullptr;
@@ -227,6 +239,7 @@ private:
     double m_filterMs = 450;
 
     bool m_previewEnabled = true;
+    bool m_previewAllowed = true;
     double m_previewDelayMs = 250;
     bool m_previewActive = false;
     bool m_previewHasFrame = false;
@@ -261,4 +274,6 @@ private:
     Spring m_trans;
     bool m_transActive = false;
     QSet<QString> m_wanted;
+    QSet<QString> m_updatedTextureKeys;
+    QHash<QString, TextureSources> m_textureSources;
 };

@@ -136,6 +136,10 @@ type Config struct {
 	SystemServiceDir  string
 	SystemBootDir     string
 	SystemLiveDir     string
+	ServiceManifest   string
+	SystemdSystemDir  string
+	SystemdUserDir    string
+	ServiceStateDir   string
 	TurnstileEnvDir   string
 	RuntimeDir        string
 	PackageTable      string
@@ -145,8 +149,12 @@ type Config struct {
 	InitLibDir        string
 	PacmanConf        string
 	PacmanSyncDir     string
+	PacmanLog         string
 	XBPSConfigDir     string
 	XBPSShippedConfig string
+	SnapperRootConfig string
+	PAMDir            string
+	PAMModulePaths    []string
 	UIDSet            bool
 	UID               int
 }
@@ -189,6 +197,18 @@ func New(cfg Config) *App {
 	if cfg.SystemLiveDir == "" {
 		cfg.SystemLiveDir = "/var/service"
 	}
+	if cfg.ServiceManifest == "" {
+		cfg.ServiceManifest = "/usr/share/ryoku/services.tsv"
+	}
+	if cfg.SystemdSystemDir == "" {
+		cfg.SystemdSystemDir = "/usr/lib/systemd/system"
+	}
+	if cfg.SystemdUserDir == "" {
+		cfg.SystemdUserDir = "/usr/lib/systemd/user"
+	}
+	if cfg.ServiceStateDir == "" {
+		cfg.ServiceStateDir = "/var/lib/ryoku/service-manifest"
+	}
 	if cfg.PackageTable == "" {
 		cfg.PackageTable = "/usr/share/ryoku/packages/void.tsv"
 	}
@@ -210,11 +230,26 @@ func New(cfg Config) *App {
 	if cfg.PacmanSyncDir == "" {
 		cfg.PacmanSyncDir = "/var/lib/pacman/sync"
 	}
+	if cfg.PacmanLog == "" {
+		cfg.PacmanLog = "/var/log/pacman.log"
+	}
 	if cfg.XBPSConfigDir == "" {
 		cfg.XBPSConfigDir = "/etc/xbps.d"
 	}
 	if cfg.XBPSShippedConfig == "" {
 		cfg.XBPSShippedConfig = "/usr/share/xbps.d/20-ryoku.conf"
+	}
+	if cfg.SnapperRootConfig == "" {
+		cfg.SnapperRootConfig = "/etc/snapper/configs/root"
+	}
+	if cfg.PAMDir == "" {
+		cfg.PAMDir = "/etc/pam.d"
+	}
+	if len(cfg.PAMModulePaths) == 0 {
+		cfg.PAMModulePaths = []string{
+			"/usr/lib/security/pam_fprintd_grosshack.so",
+			"/usr/lib64/security/pam_fprintd_grosshack.so",
+		}
 	}
 	if !cfg.UIDSet && cfg.UID == 0 {
 		cfg.UID = os.Geteuid()

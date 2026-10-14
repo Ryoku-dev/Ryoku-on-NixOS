@@ -1,6 +1,10 @@
 package host
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestSnapshotsCapabilityAndCommand(t *testing.T) {
 	tests := []struct {
@@ -52,5 +56,91 @@ func TestSnapshotsCommandRejectsArguments(t *testing.T) {
 	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("usage-only rejection wrote stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestSnapshotCreateRunsNumberedSnapshotAndCleanup(t *testing.T) {
+	runner := &fakeRunner{paths: map[string]bool{"snapper": true}}
+	app, stdout, stderr := testApp(runner, map[string]string{"RYOKU_HOST_PKGMGR": "pacman"})
+	config := filepath.Join(t.TempDir(), "root")
+	if err := os.WriteFile(config, []byte("[root]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app.cfg.SnapperRootConfig = config
+
+	if code := app.Execute([]string{"snapshots", "create", "GPU passthrough enable"}); code != ExitOK {
+		t.Fatalf("snapshot create exit = %d", code)
+	}
+	want := []string{
+		"snapper -c root create -c number --description GPU passthrough enable",
+		"snapper -c root cleanup number",
+	}
+	if len(runner.commands) != len(want) {
+		t.Fatalf("commands = %v, want %v", runner.commands, want)
+	}
+	for index := range want {
+		if got := argv(runner.commands[index]); got != want[index] {
+			t.Fatalf("command %d = %q, want %q", index, got, want[index])
+		}
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("snapshot create wrote stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestSnapshotCreateStopsAfterSnapperFailure(t *testing.T) {
+	runner := &fakeRunner{
+		paths:   map[string]bool{"snapper": true},
+		results: []Result{{Code: 7}},
+	}
+	app, _, _ := testApp(runner, map[string]string{"RYOKU_HOST_PKGMGR": "xbps"})
+	config := filepath.Join(t.TempDir(), "root")
+	if err := os.WriteFile(config, []byte("[root]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app.cfg.SnapperRootConfig = config
+
+	if code := app.Execute([]string{"snapshots", "create", "before import"}); code != ExitFailure {
+		t.Fatalf("failed snapshot exit = %d, want %d", code, ExitFailure)
+	}
+	if len(runner.commands) != 1 || argv(runner.commands[0]) != "snapper -c root create -c number --description before import" {
+		t.Fatalf("commands after failure = %v", runner.commands)
+	}
+}
+
+func TestSnapshotCreateRequiresToolAndRootConfig(t *testing.T) {
+	app, _, stderr := testApp(&fakeRunner{}, map[string]string{"RYOKU_HOST_PKGMGR": "pacman"})
+	if code := app.Execute([]string{"snapshots", "create", "before change"}); code != ExitAbsent {
+		t.Fatalf("missing snapper exit = %d, want %d", code, ExitAbsent)
+	}
+	if stderr.String() != "snapper is not installed\n" {
+		t.Fatalf("missing snapper stderr = %q", stderr.String())
+	}
+
+	runner := &fakeRunner{paths: map[string]bool{"snapper": true}}
+	app, _, stderr = testApp(runner, map[string]string{"RYOKU_HOST_PKGMGR": "pacman"})
+	app.cfg.SnapperRootConfig = filepath.Join(t.TempDir(), "missing")
+	if code := app.Execute([]string{"snapshots", "create", "before change"}); code != ExitAbsent {
+		t.Fatalf("missing root config exit = %d, want %d", code, ExitAbsent)
+	}
+	if stderr.String() != "snapper's root configuration is not available\n" {
+		t.Fatalf("missing root config stderr = %q", stderr.String())
+	}
+	if len(runner.commands) != 0 {
+		t.Fatalf("missing root config ran commands: %v", runner.commands)
+	}
+}
+
+func TestSnapshotCreateKeepsUnsupportedReason(t *testing.T) {
+	runner := &fakeRunner{paths: map[string]bool{"snapper": true}}
+	app, stdout, _ := testApp(runner, map[string]string{"RYOKU_HOST_PKGMGR": "dnf"})
+	if code := app.Execute([]string{"snapshots", "create", "before change"}); code != ExitNotProvided {
+		t.Fatalf("unsupported snapshot exit = %d, want %d", code, ExitNotProvided)
+	}
+	if stdout.String() != fedoraSnapshotsUnavailableReason+"\n" {
+		t.Fatalf("unsupported snapshot output = %q", stdout.String())
+	}
+	if len(runner.commands) != 0 {
+		t.Fatalf("unsupported snapshot ran commands: %v", runner.commands)
 	}
 }

@@ -14,6 +14,12 @@ hl.config({
 })
 `
 
+const paletteAnimatedSettings = `do
+  local ok, wc = pcall(dofile, os.getenv("HOME") .. "/.cache/ryoku/hypr-colors.lua")
+  hl.config({ general = { ["col.active_border"] = { colors = { rgb(ok and wc and wc.active, "#e0563b"), rgb(ok and wc and wc.inactive, "#313a4d") }, angle = 45 } } })
+end
+`
+
 func TestPlanBorderPin(t *testing.T) {
 	noRepair := func() error { t.Fatal("repair must not run"); return nil }
 
@@ -33,6 +39,13 @@ func TestPlanBorderPin(t *testing.T) {
 
 	t.Run("absent file passes", func(t *testing.T) {
 		r := planBorderPin(borderPinState{paletteDriven: true, providerReady: true}, true, noRepair)
+		if r.status != recOK {
+			t.Fatalf("status = %v, want ok", r.status)
+		}
+	})
+
+	t.Run("palette-driven animated border passes", func(t *testing.T) {
+		r := planBorderPin(borderPinState{paletteDriven: true, settingsLua: paletteAnimatedSettings, providerReady: true}, false, noRepair)
 		if r.status != recOK {
 			t.Fatalf("status = %v, want ok", r.status)
 		}

@@ -21,6 +21,7 @@ import Ryoku.Ui.Singletons as Ui
 Item {
     id: root
     property var screen: null
+    readonly property bool windowWorkspaceMap: Ui.Wm.caps.windowWorkspaceMap === true
     // The Stage Editor frames this monitor: the dock holds revealed and
     // publishes the edge it occupies for the mode's viewport.
     property bool stageEditing: false
@@ -161,12 +162,12 @@ Item {
         if (MinimizedWindows.countMinimizedForApp(app.appId) > 0) {
             MinimizedWindows.restoreLatestForApp(app.appId)
         } else if (windows.length > 0) {
-            const current = CompositorService.nativeOverview
+            const current = root.windowWorkspaceMap
                 ? windows.findIndex(window => window.nativeWindowId !== undefined
                     && window.nativeWindowId === (WorkspaceService.activeWindow?.id ?? -1))
                 : windows.findIndex(window => window.activated)
             const next = windows[(current + 1) % windows.length]
-            if (CompositorService.nativeOverview && next.nativeWindowId !== undefined)
+            if (root.windowWorkspaceMap && next.nativeWindowId !== undefined)
                 WorkspaceService.focusWindow(next.nativeWindowId)
             else next.activate()
         } else {
@@ -258,7 +259,7 @@ Item {
                 && windowHover.point.position.y < hitArea.y + hitArea.height
             HoverHandler { id: windowHover }
             readonly property bool workspaceEmpty: {
-                if (!root.revealOnEmpty || !CompositorService.nativeOverview) return false
+                if (!root.revealOnEmpty || !root.windowWorkspaceMap) return false
                 const active = (WorkspaceService.allWorkspaces ?? []).find(ws => ws.output === root.screen?.name && ws.is_active)
                 return active !== undefined && !(WorkspaceService.windows ?? []).some(w => w.workspace_id === active.id)
             }
@@ -266,10 +267,9 @@ Item {
             readonly property bool focusedOutput: (root.screen?.name ?? "") === (GlobalStates.focusedScreen?.name ?? "")
             readonly property bool askedShown: GlobalStates.irisDockShown && window.focusedOutput
             readonly property bool spotlightHere: GlobalStates.searchOpen && window.focusedOutput
-            readonly property bool fullscreenCovered: CompositorService.nativeOverview
-                && GameMode.hasFullscreenOnOutput(root.screen?.name ?? "")
+            readonly property bool fullscreenCovered: GameMode.hasFullscreenOnOutput(root.screen?.name ?? "")
                 && !WorkspaceService.inOverview
-            readonly property bool overviewOverFullscreen: CompositorService.nativeOverview && WorkspaceService.inOverview
+            readonly property bool overviewOverFullscreen: CompositorService.overviewOverFullscreen
                 && GameMode.hasFullscreenOnOutput(root.screen?.name ?? "")
             readonly property bool overFullscreen: window.overviewOverFullscreen || (window.fullscreenCovered
                 && (window.askedShown || window.menuOpen || window.editingDock))
@@ -615,7 +615,7 @@ Item {
                                 readonly property var desktopEntry: entry.separator ? null : AppSearch.lookupDesktopEntry(entry.modelData.appId)
                                 readonly property string appName: appSlot.desktopEntry?.name ?? entry.modelData.appId
                                 readonly property bool running: (entry.app.toplevels?.length ?? 0) > 0
-                                readonly property bool focused: (entry.app.toplevels ?? []).some(t => CompositorService.nativeOverview
+                                readonly property bool focused: (entry.app.toplevels ?? []).some(t => root.windowWorkspaceMap
                                     ? t.nativeWindowId !== undefined && t.nativeWindowId === (WorkspaceService.activeWindow?.id ?? -1)
                                     : t.activated)
                                 property real lift: 0
@@ -693,7 +693,7 @@ Item {
                                                 accumulated += direction * 120
                                                 const current = Math.max(0, windows.findIndex(t => t.activated))
                                                 const next = windows[(current + direction + windows.length) % windows.length]
-                                                if (CompositorService.nativeOverview && next.nativeWindowId !== undefined) WorkspaceService.focusWindow(next.nativeWindowId)
+                                                if (root.windowWorkspaceMap && next.nativeWindowId !== undefined) WorkspaceService.focusWindow(next.nativeWindowId)
                                                 else next.activate()
                                             }
                                         }
@@ -784,7 +784,7 @@ Item {
                                     readonly property int focusedIndex: {
                                         if (!appSlot.focused) return -1
                                         const id = WorkspaceService.activeWindow?.id ?? -1
-                                        const index = (entry.app.toplevels ?? []).findIndex(t => CompositorService.nativeOverview ? t.nativeWindowId === id : t.activated)
+                                        const index = (entry.app.toplevels ?? []).findIndex(t => root.windowWorkspaceMap ? t.nativeWindowId === id : t.activated)
                                         return Math.min(indicators.windows - 1, Math.max(0, index))
                                     }
                                     readonly property bool minimizedOnly: appSlot.running
@@ -1094,7 +1094,7 @@ Item {
                                 id: card
                                 required property string modelData
                                 readonly property var win: menu.windows.find(entry => menu.windowKey(entry) === card.modelData) ?? null
-                                readonly property bool focusedWindow: CompositorService.nativeOverview
+                                readonly property bool focusedWindow: root.windowWorkspaceMap
                                     ? card.win?.nativeWindowId !== undefined && card.win.nativeWindowId === (WorkspaceService.activeWindow?.id ?? -1)
                                     : (card.win?.activated ?? false)
                                 readonly property var tiledWindow: (CompositorService.windows ?? []).find(w => w.id === card.win?.nativeWindowId) ?? null
@@ -1121,7 +1121,7 @@ Item {
                                         return
                                     }
                                     const id = card.win?.nativeWindowId
-                                    if (CompositorService.nativeOverview && id !== undefined) {
+                                    if (root.windowWorkspaceMap && id !== undefined) {
                                         if (MinimizedWindows.isMinimized(id)) MinimizedWindows.restore(id)
                                         else WorkspaceService.focusWindow(id)
                                     } else card.win?.activate()
@@ -1235,7 +1235,7 @@ Item {
                                         height: width
                                         radius: width / 2
                                         color: closeHover.hovered ? IrisStyle.danger : IrisStyle.veilHeavy
-                                        opacity: card.containsMouse && CompositorService.nativeOverview ? 1 : 0
+                                        opacity: card.containsMouse && card.win?.nativeWindowId !== undefined ? 1 : 0
                                         visible: opacity > 0
                                         Behavior on opacity { NumberAnimation { duration: IrisStyle.duration(120); easing.type: IrisStyle.feedbackEasing } }
                                         MaterialSymbol {
@@ -1357,7 +1357,7 @@ Item {
                             glyph: modelData.activated ? "radio_button_checked" : "select_window"
                             label: String(modelData.title ?? "")
                             onClicked: {
-                                if (CompositorService.nativeOverview && modelData.nativeWindowId !== undefined) WorkspaceService.focusWindow(modelData.nativeWindowId)
+                                if (root.windowWorkspaceMap && modelData.nativeWindowId !== undefined) WorkspaceService.focusWindow(modelData.nativeWindowId)
                                 else modelData.activate()
                                 window.menuApp = null
                             }
@@ -1396,7 +1396,7 @@ Item {
                         }
                     }
                     MenuRow {
-                        visible: CompositorService.nativeOverview && (menu.windows?.length ?? 0) > 0
+                        visible: (menu.windows ?? []).some(t => t.nativeWindowId !== undefined)
                         glyph: "close"
                         danger: true
                         label: (menu.windows?.length ?? 0) > 1 ? Translation.tr("Close all windows") : Translation.tr("Close window")

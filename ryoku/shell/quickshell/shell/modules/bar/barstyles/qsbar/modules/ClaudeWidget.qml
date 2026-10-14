@@ -67,7 +67,10 @@ Item {
     readonly property int  cxChipPct:  cxReset7dTs > 0 ? cxPct7d : cxPrimaryPct
     readonly property int  cxChipTs:   cxReset7dTs > 0 ? cxReset7dTs : cxPrimaryResetTs
 
-    readonly property bool shown: root.modClaude && (showCl || showCx || showOc)
+    // The collectors ship with ryoku-rashin. Without them there is no usage to
+    // read, and a running tool alone would raise an empty "0%" chip.
+    property bool collectorsInstalled: false
+    readonly property bool shown: root.modClaude && collectorsInstalled && (showCl || showCx || showOc)
 
     readonly property string tooltipText: {
         var lines = []
@@ -115,6 +118,12 @@ Item {
     opacity: shown ? 1 : 0
 
     Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+    Process {
+        command: ["sh", "-c", "command -v claude-usage >/dev/null"]
+        running: true
+        onExited: code => { rootMod.collectorsInstalled = code === 0 }
+    }
 
     // ── process detection: drives per-provider "active" (running) state ──
     Process {

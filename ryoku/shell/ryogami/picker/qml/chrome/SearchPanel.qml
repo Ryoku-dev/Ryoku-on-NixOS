@@ -115,6 +115,8 @@ Item {
     property string queryError: ""
     property int semanticMs: 0
     property string describeText: ""
+    property int semanticRequest: 0
+    property bool applyingSemanticResults: false
 
     readonly property bool describeReady: root.semanticState === "ready"
         || (root.semanticState === "" && root.lensAvailable)
@@ -122,21 +124,34 @@ Item {
     // A field is shown while search can run or is preparing; otherwise a setup notice takes its place.
     readonly property bool describeFieldShown: !root.describe || root.describeReady || root.describeIndexing
 
+    // One filter after a short pause keeps the text caret ahead of model sorting and the card roll.
+    Timer { id: queryDebounce; interval: 140; onTriggered: root._commitTextQuery() }
+    function _commitTextQuery() {
+        queryDebounce.stop()
+        if (root.view && !root.describe)
+            root.view.query = queryInput.text
+    }
+
     Timer { id: describeDebounce; interval: 240; onTriggered: root._runSemantic() }
     function _runSemantic() {
         if (!root.view) return
         var q = root.describeText.trim()
+        var request = ++root.semanticRequest
         if (q.length === 0) { root.view.keyOrder = []; root.queryState = ""; return }
         root.queryState = "searching"
         var t0 = Date.now()
         Daemon.call("semantic.query", { query: q }, function (r, e) {
+            if (request !== root.semanticRequest || !root.describe || q !== root.describeText.trim())
+                return
             if (e) { root.queryState = "error"; root.queryError = (e && e.message) ? e.message : ""; return }
             var res = (r && r.results) ? r.results : []
             var keys = []
             for (var i = 0; i < res.length; ++i) keys.push(res[i].key)
-            root.view.keyOrder = keys
-            root.semanticMs = Date.now() - t0
+            root.applyingSemanticResults = true
             root.queryState = "ready"
+            root.view.keyOrder = keys
+            root.applyingSemanticResults = false
+            root.semanticMs = Date.now() - t0
         })
     }
     function _applyStatus(r) {
@@ -177,6 +192,7 @@ Item {
     // Field key handling routes to the active mode's target.
     function _fieldEnter() {
         if (root.describe) { describeDebounce.stop(); root._runSemantic(); return }
+        queryDebounce.stop()
         var frag = queryInput.text.trim().toLowerCase()
         if (frag.length > 0) {
             var t = root._firstTag(frag)
@@ -187,6 +203,7 @@ Item {
                 return
             }
         }
+        root._commitTextQuery()
         root._close()
     }
     function _fieldTab(event) {
@@ -197,6 +214,7 @@ Item {
         if (frag.length === 0) return
         var t = root._firstTag(frag)
         if (t !== "") {
+            queryDebounce.stop()
             queryInput.text = t
             queryInput.cursorPosition = t.length
             if (root.view) root.view.query = t
@@ -213,6 +231,9 @@ Item {
         Qt.callLater(function () { queryInput.forceActiveFocus(); queryInput.selectAll() })
     }
     onDescribeChanged: {
+        queryDebounce.stop()
+        describeDebounce.stop()
+        ++root.semanticRequest
         queryInput.text = root.describe ? root.describeText : (root.view ? root.view.query : "")
         if (!root.view) return
         if (!root.describe) {
@@ -245,9 +266,10 @@ Item {
         function onQueryChanged() {
             if (!root.describe && root.view.query === "" && queryInput.text !== "") queryInput.text = ""
         }
-        // The masthead clear empties keyOrder directly; the panel follows it back to idle.
+        // The masthead clear empties keyOrder directly; an empty result from the active request does not.
         function onKeyOrderChanged() {
-            if (root.view.keyOrder.length === 0 && root.describeText !== "") {
+            if (!root.applyingSemanticResults && root.view.keyOrder.length === 0 && root.describeText !== "") {
+                ++root.semanticRequest
                 root.describeText = ""
                 if (root.describe && queryInput.text !== "") queryInput.text = ""
                 root.queryState = ""
@@ -415,10 +437,11 @@ Item {
 
                     onTextEdited: {
                         if (root.describe) {
+                            ++root.semanticRequest
                             root.describeText = text
                             describeDebounce.restart()
                         } else if (root.view) {
-                            root.view.query = text
+                            queryDebounce.restart()
                         }
                     }
                     Keys.onEscapePressed: root._close()

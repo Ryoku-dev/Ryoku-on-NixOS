@@ -354,7 +354,7 @@ func reconcileLockscreenDrift(checkOnly bool) recResult {
 	if greeter || gscriptStale {
 		if exec.Command("sudo", "-n", "true").Run() != nil {
 			return noteRes(i18n.T("the SDDM greeter predates the shipped bundle; refreshing it needs sudo")).
-				withFix(i18n.T("sudo ryoku doctor (or the next ryoku update)"))
+				withFix(i18n.T("ryoku doctor (or the next ryoku update)"))
 		}
 		if greeter {
 			if err := refreshGreeter(bundle); err != nil {
@@ -366,7 +366,7 @@ func reconcileLockscreenDrift(checkOnly bool) recResult {
 		if gscriptStale {
 			if err := refreshGreeterScript(gscriptSrc); err != nil {
 				return failRes(i18n.T("could not refresh the SDDM greeter compositor: %v"), err).
-					withFix("sudo ryoku doctor")
+					withFix(i18n.T("ryoku doctor"))
 			}
 			did = append(did, i18n.T("greeter compositor"))
 		}

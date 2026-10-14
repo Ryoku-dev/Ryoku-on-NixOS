@@ -18,7 +18,6 @@ package doctor
 import (
 	"encoding/json"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -28,21 +27,23 @@ import (
 	i18n "ryoku-i18n"
 )
 
-// accountLoginShell is the shell field of the current user's /etc/passwd row:
+// accountLoginShell is the shell field of the target user's /etc/passwd row:
 // the real login shell, the value usermod writes. Empty when the user or the
 // file cannot be read. A var so a test drives it without a real passwd entry.
+var accountPasswdPath = "/etc/passwd"
+
 var accountLoginShell = func() string {
-	me, err := user.Current()
+	account, err := doctorAccount()
 	if err != nil {
 		return ""
 	}
-	b, err := os.ReadFile("/etc/passwd")
+	b, err := os.ReadFile(accountPasswdPath)
 	if err != nil {
 		return ""
 	}
 	for _, line := range strings.Split(string(b), "\n") {
 		parts := strings.Split(line, ":")
-		if len(parts) == 7 && parts[0] == me.Username {
+		if len(parts) == 7 && parts[0] == account.Username {
 			return parts[6]
 		}
 	}

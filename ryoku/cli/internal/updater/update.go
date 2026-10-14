@@ -92,6 +92,8 @@ func Update(args []string) (err error) {
 	stage2 := len(args) >= 2 && args[0] == "--stage2"
 	channelSwitch := false
 	withSystem := false
+	updateWait = false
+	updateForce = false
 	for _, a := range args {
 		if a == "-v" || a == "--verbose" {
 			verboseLog = true
@@ -101,6 +103,12 @@ func Update(args []string) (err error) {
 		}
 		if a == "--system" || a == "--full" {
 			withSystem = true
+		}
+		if a == "--wait" {
+			updateWait = true
+		}
+		if a == "--force" || a == "--unchecked" {
+			updateForce = true
 		}
 	}
 
@@ -150,15 +158,39 @@ func Update(args []string) (err error) {
 	// through the Hub (authorizeGUI).
 	primeSudo()
 
+	checkout := sys.ResolveRepo() != ""
+	var failedBuild channelBuild
+	if !checkout {
+		channel := ryokuChannel()
+		if build, ok := channelBuildStatus(channel); ok {
+			if build.inProgress(time.Now()) && !updateForce {
+				if updateWait {
+					build = waitForChannelBuild(channel, 45*time.Minute, func(line string) { fmt.Println(line) })
+				}
+				if build.inProgress(time.Now()) {
+					return fmt.Errorf(i18n.T("the %s channel is being rebuilt for %s (started %d min ago): %s. Run again when it finishes, or ryoku update --wait"),
+						sys.DisplayChannel(channel), shortSHA(build.Commit), channelBuildAgeMinutes(build, time.Now()), build.Run)
+				}
+			}
+			if build.State == "failed" {
+				failedBuild = build
+			}
+		}
+	}
+
 	// The raw firehose lands in the per-update log on every path: the terminal
 	// only ever shows the curated console, and a run that fails must still
 	// leave the real output behind for support to read.
 	logPath := startUpdateLog(false)
 	defer stopUpdateLog()
 
-	checkout := sys.ResolveRepo() != ""
 	con = openConsole(verboseLog, channelLine(checkout), releaseLine(checkout),
 		func() string { return i18n.T("now on ") + releaseLine(checkout) })
+	// Piece markers are consumed by the captured console; verbose mode has no
+	// capture and would expose those protocol lines as raw output.
+	if con.mode != conVerbose {
+		os.Setenv("RYOKU_UPDATE_PROGRESS", "1")
+	}
 	defer settleConsole(&err)
 	switch {
 	case checkout:
@@ -167,6 +199,13 @@ func Update(args []string) (err error) {
 		progress.begin(systemSteps)
 	default:
 		progress.begin(pkgSteps)
+	}
+	if failedBuild.State == "failed" {
+		progress.logf(i18n.T("The last build of %s failed for %s (%s); this update takes the previous good build"),
+			sys.DisplayChannel(failedBuild.Channel), shortSHA(failedBuild.Commit), failedBuild.Run)
+	}
+	if !checkout && ryokuChannel() == sys.ChannelTesting {
+		progress.logf(i18n.T("unstable now follows the source checkout; ryoku track unstable switches this box to it"))
 	}
 	trapStop()
 	if updateUI() == "hub" {
@@ -229,6 +268,10 @@ func Update(args []string) (err error) {
 		// repo ahead of our vendored copy, a split package whose pinned dep a
 		// forced downgrade would break).
 		if err := sys.Sudo(refreshDBArgs(false)[1:]...); err != nil {
+			if filteredErr := filteredDNSUpdateError(packagedRepoURL()); filteredErr != nil {
+				progress.fail(filteredErr)
+				return filteredErr
+			}
 			progress.logf(i18n.T("Could not refresh the package databases: %v"), err)
 		}
 		s, held, err := installedRyokuSet(false)
@@ -547,12 +590,19 @@ func healPackageUpgrade(conflicts []string, err error) {
 }
 
 // dbRejection reports whether a pacman failure is a database/signature
-// rejection rather than a dependency, conflict or download error.
+// rejection rather than a dependency, conflict or download error. Only
+// pacman's own error: lines count: the package names a transaction error also
+// carries say nothing about the database.
 func dbRejection(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := strings.ToLower(err.Error())
+	msg := err.Error()
+	var tx *transactionError
+	if errors.As(err, &tx) {
+		msg = strings.Join(tx.reasons, "; ")
+	}
+	msg = strings.ToLower(msg)
 	for _, needle := range []string{"invalid or corrupted", "signature", "database", "could not read db"} {
 		if strings.Contains(msg, needle) {
 			return true
@@ -688,10 +738,66 @@ func runFlatpakUpgrade() error {
 		[]string{"flatpak", "update", "--noninteractive", "--assumeyes"})
 }
 
+const nvidiaModuleVersionPath = "/sys/module/nvidia/version"
+
+// NvidiaRestartStatus is the version pair that decides whether newly installed
+// NVIDIA userspace can still talk to the module loaded by the running kernel.
+type NvidiaRestartStatus struct {
+	Present   bool
+	Loaded    string
+	Installed string
+	Pending   bool
+}
+
+// DetectNvidiaRestart keeps the filesystem and command probes injectable for
+// doctor and updater tests. A missing loaded module or a failed modinfo lookup
+// is unknown, never a restart warning.
+func DetectNvidiaRestart(readFile func(string) ([]byte, error), installedVersion func() (string, error)) NvidiaRestartStatus {
+	raw, err := readFile(nvidiaModuleVersionPath)
+	if err != nil {
+		return NvidiaRestartStatus{}
+	}
+	loaded := strings.TrimSpace(string(raw))
+	if loaded == "" {
+		return NvidiaRestartStatus{}
+	}
+	status := NvidiaRestartStatus{Present: true, Loaded: loaded}
+	installed, err := installedVersion()
+	if err != nil {
+		return status
+	}
+	status.Installed = strings.TrimSpace(installed)
+	status.Pending = status.Installed != "" && status.Installed != status.Loaded
+	return status
+}
+
+// InstalledNvidiaModuleVersion asks kmod for the nvidia module installed for
+// the running kernel, which is the module the next login will try to load.
+func InstalledNvidiaModuleVersion() (string, error) {
+	out, err := exec.Command("modinfo", "-F", "version", "nvidia").Output()
+	return string(out), err
+}
+
+var updateNvidiaRestartStatus = func() NvidiaRestartStatus {
+	return DetectNvidiaRestart(os.ReadFile, InstalledNvidiaModuleVersion)
+}
+
+// NvidiaRestartNotice is shared by doctor's warning and the update completion
+// result so both surfaces give the same instruction.
+func NvidiaRestartNotice(status NvidiaRestartStatus) string {
+	if !status.Pending {
+		return ""
+	}
+	return fmt.Sprintf(i18n.T("The graphics driver was updated from %s to %s; restart the computer before logging out, or the next login opens on a black screen."), status.Loaded, status.Installed)
+}
+
 // finishRun publishes the terminal "done" state. A terminal run holds it
 // briefly so a watching Hub catches the completion, then clears it; a
 // Hub-driven run leaves it for the Hub to show until the user dismisses it.
 func finishRun() error {
+	if notice := NvidiaRestartNotice(updateNvidiaRestartStatus()); notice != "" {
+		progress.logf("%s", notice)
+	}
 	progress.finish()
 	if updateUI() == "hub" {
 		return nil
@@ -991,8 +1097,11 @@ func acquirePowerCutoverLock() (*os.File, error) {
 
 const updateSleepGuardUnit = "ryoku-power-cutover-guard.service"
 
-// A var so tests point it at a fixture.
-var packagePowerCutoverMarker = "/var/lib/ryoku/power-cutover-hook-active"
+// Vars so tests point the package recovery at fixtures.
+var (
+	packagePowerCutoverMarker = "/var/lib/ryoku/power-cutover-hook-active"
+	packagePowerCutoverHelper = "/usr/bin/ryoku-power-cutover"
+)
 
 func needsPackagePowerCutover(markerPresent, rootGuardActive bool) bool {
 	return !markerPresent || rootGuardActive
@@ -1005,6 +1114,8 @@ func needsPackagePowerCutover(markerPresent, rootGuardActive bool) bool {
 var cutoverMarkerExistsAsRoot = func(path string) bool {
 	return exec.Command("sudo", "-n", "test", "-e", path).Run() == nil
 }
+
+var sudoPackagePowerCutover = sys.Sudo
 
 // packageCutoverMarkerPresent reports whether the adoption marker exists.
 // /var/lib/ryoku is root-owned and a drifted mode there hides the marker from
@@ -1029,14 +1140,16 @@ func ensurePackagePowerCutover() error {
 	if !needsPackagePowerCutover(markerPresent, rootGuardActive) {
 		return nil
 	}
-	const helper = "/usr/bin/ryoku-power-cutover"
+	helper := packagePowerCutoverHelper
 	if _, err := os.Stat(helper); err != nil {
 		if os.IsNotExist(err) && !rootGuardActive {
 			return nil
 		}
 		return fmt.Errorf("inspect package power cutover helper: %w", err)
 	}
-	if err := sys.Sudo(helper, "package"); err != nil {
+	if err := sudoPackagePowerCutover(
+		"env", "RYOKU_CUTOVER_STAGED=1", helper, "package",
+	); err != nil {
 		return fmt.Errorf("adopt packaged power policy in live sessions: %w", err)
 	}
 	return nil
@@ -1119,7 +1232,7 @@ func acquireUpdateSleepGuard(sessionGuardRequired bool) (*updateSleepGuard, erro
 		}
 	} else {
 		if service("--user", "is-active", updateSleepGuardUnit) != host.ExitOK {
-			_ = service("--user", "reset-failed", updateSleepGuardUnit)
+			resetFailedUserUnits(updateSleepGuardUnit)
 			code := host.Default().Transient([]string{
 				"start", updateSleepGuardUnit,
 				"--prop", "Type=exec", "--prop", "TimeoutStopSec=5s", "--",
@@ -1214,13 +1327,28 @@ func hasStatusLine(status, want string) bool {
 	return false
 }
 
+func resetFailedUserUnits(units ...string) {
+	if updateInitSystem() != host.Systemd {
+		return
+	}
+	failed := make([]string, 0, len(units))
+	for _, unit := range units {
+		if service("--user", "is-failed", unit) == host.ExitOK {
+			failed = append(failed, unit)
+		}
+	}
+	if len(failed) > 0 {
+		_ = service(append([]string{"--user", "reset-failed"}, failed...)...)
+	}
+}
+
 // activatePowerPolicy starts both policy owners as session services only after
 // the new shell can serve its secure suspend transaction.
 func activatePowerPolicy() error {
 	if code := service("--user", "daemon-reload"); code != host.ExitOK {
 		return serviceError("reload user services", code)
 	}
-	_ = service("--user", "reset-failed", "ryoku-idle.service", "ryoku-clamshell.service")
+	resetFailedUserUnits("ryoku-idle.service", "ryoku-clamshell.service")
 	if code := service("--user", "restart", "ryoku-idle.service"); code != host.ExitOK {
 		return serviceError("start idle policy service", code)
 	}
@@ -1852,6 +1980,25 @@ func Status(args []string) error {
 
 	fmt.Printf(i18n.T("config base:   %s\n"), sys.BaseConfigDir())
 	fmt.Printf(i18n.T("channel:       %s\n"), orDash(r.Channel))
+	if build := r.ChannelBuild; build != nil {
+		switch {
+		case build.inProgress(time.Now()):
+			fmt.Printf(i18n.T("build:         in progress for %s since %d min (%s)\n"),
+				shortSHA(build.Commit), channelBuildAgeMinutes(*build, time.Now()), build.Run)
+		case build.State == "failed":
+			fmt.Printf(i18n.T("build:         last build failed for %s (%s)\n"), shortSHA(build.Commit), build.Run)
+		}
+	}
+	if check := r.ChannelCheck; check != nil && r.Latest != "" && (check.State != "passed" || shortSHA(check.Commit) != shortSHA(r.Latest)) {
+		switch check.State {
+		case "failed":
+			fmt.Printf(i18n.T("checked:       tip %s failed its checks (%s)\n"), shortSHA(r.Latest), check.Run)
+		case "passed":
+			fmt.Printf(i18n.T("checked:       tip %s is newer than checked %s (%s)\n"), shortSHA(r.Latest), shortSHA(check.Commit), check.Run)
+		default:
+			fmt.Printf(i18n.T("checked:       tip %s is being checked (%s)\n"), shortSHA(r.Latest), check.Run)
+		}
+	}
 	if r.Release != "" {
 		if r.ChannelRelease != "" && r.ChannelRelease != r.Release {
 			fmt.Printf(i18n.T("release:       %s%s -> %s%s\n"), withSpace(r.ReleaseName), r.Release, withSpace(r.ChannelReleaseName), r.ChannelRelease)
@@ -1961,9 +2108,11 @@ type statusReport struct {
 	// the installed release (the boot-guard-revert wedge, #291): the box can take
 	// no updates and "behind N" would read backwards. RecoverChannel names the
 	// channel `ryoku track` moves back to.
-	ChannelPinStale  bool   `json:"channelPinStale,omitempty"`
-	RecoverChannel   string `json:"recoverChannel,omitempty"`
-	RepositoryNotice string `json:"repositoryNotice,omitempty"`
+	ChannelPinStale  bool            `json:"channelPinStale,omitempty"`
+	RecoverChannel   string          `json:"recoverChannel,omitempty"`
+	RepositoryNotice string          `json:"repositoryNotice,omitempty"`
+	ChannelBuild     *channelBuild   `json:"channelBuild,omitempty"`
+	ChannelCheck     *checkedPointer `json:"channelCheck,omitempty"`
 }
 
 // withSpace is a release name as a prefix: "Onogoro " or "" when unnamed.
@@ -1999,9 +2148,13 @@ func buildStatus() statusReport {
 // baseStatus builds the Ryoku-channel report: the git update channel on a
 // checkout, else the [ryoku] repo package versions on a packaged install.
 func baseStatus() statusReport {
+	checkout := sys.ResolveRepo() != ""
 	if r, ok := channelStatus(); ok {
 		// a checkout has no release, but it runs a named line (CODENAME)
 		r.ReleaseName = ReleaseName()
+		if check, ok := readCheckedPointer(); ok {
+			r.ChannelCheck = &check
+		}
 		return r
 	}
 	installed, _ := host.Default().PackageVersion("ryoku-desktop")
@@ -2013,7 +2166,17 @@ func baseStatus() statusReport {
 			}
 		}
 	}
-	return packagedStatus(installed, latest)
+	r := packagedStatus(installed, latest)
+	if checkout {
+		if check, ok := readCheckedPointer(); ok {
+			r.ChannelCheck = &check
+		}
+		return r
+	}
+	if build, ok := channelBuildStatus(ryokuChannel()); ok {
+		r.ChannelBuild = &build
+	}
+	return r
 }
 
 // packagedStatus builds the report for a packaged install from the running and
@@ -2652,7 +2815,7 @@ func restartWallpaper(forceStart bool) {
 	_ = service("--user", "daemon-reload")
 	verb := "try-restart"
 	if forceStart {
-		_ = service("--user", "reset-failed", "ryogami.service")
+		resetFailedUserUnits("ryogami.service")
 		verb = "restart"
 	}
 	if service("--user", verb, "ryogami.service") == host.ExitOK {

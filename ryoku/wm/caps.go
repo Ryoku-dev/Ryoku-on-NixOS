@@ -21,13 +21,25 @@ const (
 	CapSubmap                Capability = "submap"
 	CapGlobalShortcuts       Capability = "globalShortcuts"
 	CapFocusGrab             Capability = "focusGrab"
-	CapScreenShader          Capability = "screenShader"
-	CapPlugins               Capability = "plugins"
-	CapLiveConfigEval        Capability = "liveConfigEval"
-	CapConfigReload          Capability = "configReload"
-	CapAnimations            Capability = "animations"
-	CapCursorSet             Capability = "cursorSet"
-	CapNativeOverview        Capability = "nativeOverview"
+	// CapWindowEmbed is set when the compositor can hold one window pinned to a
+	// layer surface's screen and corner, so a desktop widget can cut a hole in
+	// itself and show that window through it: the phone-mirror frame places a
+	// scrcpy window under its own panel and parks it out of sight when closed.
+	// Named for what the user gets; a compositor without per-window pinning to
+	// a surface leaves this off and the frame shows a plain window instead.
+	CapWindowEmbed Capability = "windowEmbed"
+	// CapWorkspaceSlideStyle is set when the compositor reports how it slides
+	// between workspaces (axis, distance, curve, duration, fade), so a
+	// full-screen overlay can match the real motion instead of assuming one.
+	// Without it the overlay keeps its built-in curve.
+	CapWorkspaceSlideStyle Capability = "workspaceSlideStyle"
+	CapScreenShader        Capability = "screenShader"
+	CapPlugins             Capability = "plugins"
+	CapLiveConfigEval      Capability = "liveConfigEval"
+	CapConfigReload        Capability = "configReload"
+	CapAnimations          Capability = "animations"
+	CapCursorSet           Capability = "cursorSet"
+	CapNativeOverview      Capability = "nativeOverview"
 	// CapOverviewBackdrop is set when the compositor can lift a layer-shell
 	// surface into the backdrop it shows behind the workspaces in its overview,
 	// so the shell's blurred wallpaper fills that region instead of a flat
@@ -51,7 +63,11 @@ const (
 	CapTiledLayout  Capability = "tiledLayout"
 	// CapColumnFill is set when the provider can tell the active window spans
 	// its output's width, the full-width column a scrolling tiler makes.
-	CapColumnFill  Capability = "columnFill"
+	CapColumnFill Capability = "columnFill"
+	// CapDeckLayout is set when the compositor can arrange a workspace as an
+	// overlapping deck with the focused card raised. It gates the deck controls
+	// without exposing which compositor plugin supplies that behaviour.
+	CapDeckLayout  Capability = "deckLayout"
 	CapSessionExit Capability = "sessionExit"
 	// CapNightLight is set when the provider can warm the screen to a colour
 	// temperature and restore it, through the nightlight.on and nightlight.off
@@ -90,6 +106,11 @@ const (
 	// toolbar and catalogue) asks for on-demand focus there instead, and takes
 	// the keyboard as the pointer crosses it.
 	CapKeyboardGrabSharesPointer Capability = "keyboardGrabSharesPointer"
+	// CapSystemLidEdgeSource is set when the compositor receives switch devices
+	// but exposes no ordered lid binding or IPC event. The active session's
+	// clamshell owner then watches physical state and routes both edges through
+	// the neutral output action.
+	CapSystemLidEdgeSource Capability = "systemLidEdgeSource"
 )
 
 // All is every capability, so a caps payload can carry an explicit boolean for
@@ -99,14 +120,15 @@ func All() []Capability {
 		CapWorkspaces, CapSpecialWorkspace, CapWorkspaceMoveToOutput,
 		CapWindowWorkspaceMap, CapWindowGeometry, CapFocusHistory,
 		CapWindowRules, CapLayerRules, CapSubmap, CapGlobalShortcuts,
-		CapFocusGrab,
+		CapFocusGrab, CapWindowEmbed, CapWorkspaceSlideStyle,
 		CapScreenShader, CapPlugins, CapLiveConfigEval, CapConfigReload,
 		CapAnimations, CapCursorSet, CapNativeOverview, CapOverviewBackdrop,
 		CapOverviewState, CapOutputPower,
 		CapKeyboardLayoutSwitch, CapMonitorConfig, CapOutputMirror,
 		CapOutputHdr, CapWindowFloat,
-		CapTiledLayout, CapColumnFill, CapSessionExit, CapNightLight, CapTouchpadToggle,
-		CapPaletteBorder, CapPersistentScreenCapture, CapKeyboardGrabSharesPointer,
+		CapTiledLayout, CapColumnFill, CapDeckLayout, CapSessionExit, CapNightLight,
+		CapTouchpadToggle, CapPaletteBorder, CapPersistentScreenCapture,
+		CapKeyboardGrabSharesPointer, CapSystemLidEdgeSource,
 	}
 }
 

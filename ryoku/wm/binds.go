@@ -49,6 +49,25 @@ type BindRow struct {
 	// The row is still listed so the sheet reads honestly rather than silently
 	// dropping a bind the user expects to see.
 	Unhonored string `json:"unhonored,omitempty"`
+	// Disabled is the user's own decision that this bind should hold no chord at
+	// all. Distinct from Unhonored, which is the compositor's refusal, and from an
+	// absent rebind, which means the shipped chord stands. The row stays listed so
+	// the action remains findable and can be given a chord again.
+	Disabled bool `json:"disabled,omitempty"`
+}
+
+// DisabledSet turns the stored list of switched-off chords into a lookup. The
+// stored key is always the shipped default, the stable id a rebind is recorded
+// over, so a bind that is both moved and switched off is found by the same key
+// either way.
+func DisabledSet(list []string) map[string]bool {
+	out := make(map[string]bool, len(list))
+	for _, c := range list {
+		if c = strings.TrimSpace(c); c != "" {
+			out[c] = true
+		}
+	}
+	return out
 }
 
 // CatalogBind is one shipped Ryoku bind, compositor-neutral. It is the raw
@@ -91,7 +110,7 @@ var catalogue = []CatalogBind{
 	{ID: "window.pin", Category: "Windows", Label: "Pin window", Hint: "Keep a floating window on every workspace", Chord: "SUPER + SHIFT + P", Kind: BindWM},
 	{ID: "window.resize", Category: "Windows", Label: "Resize mode", Hint: "Resize from the keyboard: arrows or hjkl, Esc exits", Chord: "SUPER + R", Kind: BindWM},
 	{ID: "window.presetHeight", Category: "Windows", Label: "Step window height", Hint: "Cycle the window through its preset heights", Chord: "SUPER + SHIFT + R", Kind: BindWM},
-	{ID: "column.tabbed", Category: "Windows", Label: "Tabbed column", Hint: "Stack the column into tabs, one window showing at a time", Chord: "SUPER + T", Kind: BindWM},
+	{ID: "column.tabbed", Category: "Windows", Label: "Group windows (tabbed)", Hint: "Stack the column into tabs, one window showing at a time", Chord: "SUPER + T", Kind: BindWM},
 	{ID: "column.maximize", Category: "Windows", Label: "Maximise", Hint: "Fill the screen width, keeping gaps and bar", Chord: "SUPER + D", Kind: BindWM},
 	{ID: "column.center", Category: "Windows", Label: "Centre", Hint: "Centre the focused window on screen", Chord: "SUPER + C", Kind: BindWM},
 	{ID: "window.focusPrevious", Category: "Windows", Label: "Last window", Hint: "Switch to the previously focused window", Chord: "ALT + Tab", Kind: BindWM},
@@ -191,6 +210,7 @@ var catalogue = []CatalogBind{
 	{ID: "media.volumeUp", Category: "Media", Label: "Volume up", Chord: "XF86AudioRaiseVolume", Kind: BindShell, Locked: true},
 	{ID: "media.volumeDown", Category: "Media", Label: "Volume down", Chord: "XF86AudioLowerVolume", Kind: BindShell, Locked: true},
 	{ID: "media.mute", Category: "Media", Label: "Mute", Chord: "XF86AudioMute", Kind: BindShell, Locked: true},
+	{ID: "media.micMute", Category: "Media", Label: "Mute microphone", Chord: "XF86AudioMicMute", Kind: BindShell, Locked: true},
 	{ID: "media.play", Category: "Media", Label: "Play or pause", Chord: "XF86AudioPlay", Kind: BindShell, Locked: true},
 	{ID: "media.next", Category: "Media", Label: "Next track", Chord: "XF86AudioNext", Kind: BindShell, Locked: true},
 	{ID: "media.prev", Category: "Media", Label: "Previous track", Chord: "XF86AudioPrev", Kind: BindShell, Locked: true},
@@ -334,6 +354,7 @@ var displayNames = map[string]string{
 	"XF86AudioRaiseVolume":  "Vol +",
 	"XF86AudioLowerVolume":  "Vol -",
 	"XF86AudioMute":         "Mute",
+	"XF86AudioMicMute":      "Mic mute",
 	"XF86AudioPlay":         "Play",
 	"XF86AudioNext":         "Next",
 	"XF86AudioPrev":         "Prev",

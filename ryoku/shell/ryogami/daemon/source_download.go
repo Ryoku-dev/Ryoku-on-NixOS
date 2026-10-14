@@ -105,7 +105,7 @@ func queueLabel(ahead uint64) string {
 
 const (
 	progressMinDelta    = 0.01
-	progressMinInterval = 100 * time.Millisecond
+	progressMinInterval = 125 * time.Millisecond
 )
 
 func shouldEmit(pct, last float64, elapsed time.Duration) bool {
@@ -151,8 +151,43 @@ type downloadEvent struct {
 	Error    *string  `json:"error,omitempty"`
 }
 
+type progressEventState struct {
+	status string
+	at     time.Time
+}
+
+type libraryIDCache struct {
+	mtime int64
+	ids   map[string]bool
+}
+
+func (s *sources) allowDownloadEvent(ev downloadEvent, now time.Time) bool {
+	s.progressMu.Lock()
+	defer s.progressMu.Unlock()
+	if s.progress == nil {
+		s.progress = map[string]progressEventState{}
+	}
+	last, has := s.progress[ev.ID]
+	terminal := ev.Status != dlQueued && ev.Status != dlDownloading
+	if terminal {
+		delete(s.progress, ev.ID)
+		return true
+	}
+	if !has || last.status != ev.Status || now.Sub(last.at) >= progressMinInterval {
+		s.progress[ev.ID] = progressEventState{status: ev.Status, at: now}
+		return true
+	}
+	return false
+}
+
 func (s *sources) emitDownload(ev downloadEvent) {
+	if !s.allowDownloadEvent(ev, time.Now()) {
+		return
+	}
 	s.d.broadcast(evDownload, ev)
+	if s.d.tasks == nil {
+		return
+	}
 	id := "download:" + ev.ID
 	switch ev.Status {
 	case dlQueued, dlDownloading:
@@ -326,6 +361,26 @@ func libraryIDs(dir, source string) map[string]bool {
 	return ids
 }
 
+func (s *sources) cachedLibraryIDs(dir, source string) map[string]bool {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return map[string]bool{}
+	}
+	key := dir + "\x00" + source
+	mtime := fi.ModTime().UnixNano()
+	s.libraryMu.Lock()
+	if cached, ok := s.libraryCache[key]; ok && cached.mtime == mtime {
+		s.libraryMu.Unlock()
+		return cached.ids
+	}
+	s.libraryMu.Unlock()
+	ids := libraryIDs(dir, source)
+	s.libraryMu.Lock()
+	s.libraryCache[key] = libraryIDCache{mtime: mtime, ids: ids}
+	s.libraryMu.Unlock()
+	return ids
+}
+
 func sourceLibraryPath(dir, source, id string) (string, bool) {
 	prefix := fmt.Sprintf("%s-%s.", source, safeSeg(id))
 	entries, err := os.ReadDir(dir)
@@ -349,9 +404,11 @@ func (s *sources) startDownload(reqID int64, id string, g *gate, inflightKey str
 		s.endInflight(inflightKey)
 		return errResp(reqID, -32000, "download queue is full; retry shortly")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), downloadFetchTimeout)
 	s.registerCancel(id, cancel)
-	s.d.tasks.start("download:"+id, "download", "Download", 100, cancel)
+	if s.d.tasks != nil {
+		s.d.tasks.start("download:"+id, "download", "Download", 100, cancel)
+	}
 	go func() {
 		defer s.endInflight(inflightKey)
 		defer s.clearCancel(id)
@@ -364,10 +421,12 @@ func (s *sources) startDownload(reqID int64, id string, g *gate, inflightKey str
 		defer slot.release()
 		work(ctx, slot)
 		// A worker that returned without reporting an outcome must not leave its chip running.
-		if ctx.Err() != nil {
-			s.d.tasks.finish("download:"+id, taskCancelled, 0, "")
-		} else {
-			s.d.tasks.finish("download:"+id, taskFailed, 0, "")
+		if s.d.tasks != nil {
+			if ctx.Err() != nil {
+				s.d.tasks.finish("download:"+id, taskCancelled, 0, "")
+			} else {
+				s.d.tasks.finish("download:"+id, taskFailed, 0, "")
+			}
 		}
 	}()
 	return ok(reqID, map[string]interface{}{"id": id, "status": "started"})
@@ -402,10 +461,10 @@ func (s *sources) mediaDirs(source, media string) []string {
 	return []string{cfg.wallpaperDir()}
 }
 
-func (s *sources) buildResult(reqID int64, source, media string, page sourcePage, p map[string]interface{}) response {
+func (s *sources) buildResult(reqID int64, connectionID uint64, source, media string, page sourcePage, p map[string]interface{}) response {
 	local := map[string]bool{}
 	for _, dir := range s.mediaDirs(source, media) {
-		for id := range libraryIDs(dir, source) {
+		for id := range s.cachedLibraryIDs(dir, source) {
 			local[id] = true
 		}
 	}
@@ -432,7 +491,7 @@ func (s *sources) buildResult(reqID int64, source, media string, page sourcePage
 			jobs = append(jobs, [2]string{r.id, r.thumbURL})
 		}
 	}
-	s.queueRemoteThumbs(source, jobs)
+	s.queueRemoteThumbs(connectionID, source, source, intParam(p, "generation", 0), jobs)
 	result := map[string]interface{}{
 		"results":     items,
 		"lastPage":    page.lastPage,
@@ -485,7 +544,7 @@ func (s *sources) cancel(reqID int64, p map[string]interface{}) response {
 	return ok(reqID, map[string]interface{}{"ok": cancelled})
 }
 
-func (s *sources) search(reqID int64, p map[string]interface{}) response {
+func (s *sources) search(reqID int64, connectionID uint64, p map[string]interface{}) response {
 	source := strParam(p, "source", "")
 	spec := providerSpec(source)
 	if spec == nil {
@@ -494,32 +553,54 @@ func (s *sources) search(reqID int64, p map[string]interface{}) response {
 	if !s.enabled(source) {
 		return errResp(reqID, -1, source+" source is disabled")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), remoteFetchTimeout)
-	defer cancel()
-	var (
-		page sourcePage
-		err  error
-	)
-	switch source {
-	case "wallhaven":
-		page, err = s.wallhavenSearch(ctx, p)
-	case "unsplash":
-		page, err = s.unsplashSearch(ctx, p)
-	case "pexels":
-		page, err = s.pexelsSearch(ctx, p)
-	case "youtube":
-		page, err = s.youtubeSearch(ctx, p)
-	case "bing":
-		page, err = s.bingSearch(ctx, p)
-	case "moewalls", "motionbgs", "ryostore", "repos":
-		page, err = s.ryowallsSearch(source, p)
-	default:
-		return errResp(reqID, -32602, "unknown source '"+source+"'")
+	generation := intParam(p, "generation", 0)
+	ctx, finish, stale := s.beginSearch(connectionID, source, generation, searchFetchTimeout)
+	if stale {
+		return errResp(reqID, -1, "search superseded")
+	}
+	defer finish()
+
+	page, err := s.runSearch(ctx, source, p)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = ctxErr
 	}
 	if err != nil {
-		return errResp(reqID, -1, err.Error())
+		return errResp(reqID, -1, searchError(err))
 	}
-	return s.buildResult(reqID, source, spec.media, page, p)
+	return s.buildResult(reqID, connectionID, source, spec.media, page, p)
+}
+
+func (s *sources) runSearch(ctx context.Context, source string, p map[string]interface{}) (sourcePage, error) {
+	if s.searchHook != nil {
+		return s.searchHook(ctx, source, p)
+	}
+	switch source {
+	case "wallhaven":
+		return s.wallhavenSearch(ctx, p)
+	case "unsplash":
+		return s.unsplashSearch(ctx, p)
+	case "pexels":
+		return s.pexelsSearch(ctx, p)
+	case "youtube":
+		return s.youtubeSearch(ctx, p)
+	case "bing":
+		return s.bingSearch(ctx, p)
+	case "moewalls", "motionbgs", "ryostore", "repos":
+		return s.ryowallsSearch(ctx, source, p)
+	default:
+		return sourcePage{}, fmt.Errorf("unknown source '%s'", source)
+	}
+}
+
+func searchError(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Sprintf("search timed out after %s", searchFetchTimeout)
+	case errors.Is(err, context.Canceled):
+		return "search superseded"
+	default:
+		return err.Error()
+	}
 }
 
 func (s *sources) download(reqID int64, p map[string]interface{}) response {

@@ -8,13 +8,14 @@ const Usage = `Usage: ryoku-host <verb> [arguments]
 Host detection:
   init
   pkgmgr
-  snapshots
+  snapshots [create <description>]
   capabilities
   repo channel
   repo set-channel <stable|testing|TAG>
   repo sync
 
 Services:
+  svc reconcile <--system|--user> [--check]
   svc [--user|--system] <start|stop|restart|try-restart|reload|is-active|is-enabled|enable|disable|kill> [--now] <name>...
   svc [--user|--system] reset-failed <name>...
   svc [--user|--system] failed
@@ -31,8 +32,18 @@ Process helpers:
   session check
   session fix-wrappers [--backup-dir DIR]
 
+Authentication:
+  auth fingerprint status
+  auth fingerprint set <sudo|sddm|polkit-1> <on|off>
+
+Network:
+  network kill <status|on|off>
+  network wifi-backend get
+  network wifi-backend set <iwd|wpa_supplicant>
+
 Packages (names use the Arch/Ryoku catalogue):
   pkg installed <name>...
+  pkg installed-at <name>
   pkg available [--aur] <name>...
   pkg install [--upgrade] [--aur] [--overwrite GLOB]... <name>...
   pkg install-file <path>...
@@ -47,10 +58,12 @@ Packages (names use the Arch/Ryoku catalogue):
 
 System settings:
   power <poweroff|reboot|suspend|hibernate>
+  power <capabilities|profile|idle|charge-limit|aspm> [arguments...]
   time zone
   time zones
   time set-zone <Area/City>
-  keymap set <layout> [variant] [options]
+  keymap <set|apply> <layout> [variant] [options]
+  initramfs rebuild
 
 Exit codes: 0 success/true, 1 failure, 2 usage, 3 false, 4 absent, 5 not provided.
 `
@@ -86,15 +99,7 @@ func (a *App) Execute(args []string) int {
 		fmt.Fprintln(a.cfg.Stdout, value)
 		return ExitOK
 	case "snapshots":
-		if len(args) != 1 {
-			return ExitUsage
-		}
-		supported, reason := a.Snapshots()
-		if supported {
-			return ExitOK
-		}
-		fmt.Fprintln(a.cfg.Stdout, reason)
-		return ExitNotProvided
+		return a.Snapshot(args[1:])
 	case "capabilities":
 		if len(args) != 1 {
 			return ExitUsage
@@ -134,6 +139,12 @@ func (a *App) Execute(args []string) int {
 		return a.Time(args[1:])
 	case "keymap":
 		return a.Keymap(args[1:])
+	case "initramfs":
+		return a.Initramfs(args[1:])
+	case "auth":
+		return a.Auth(args[1:])
+	case "network":
+		return a.Network(args[1:])
 	default:
 		fmt.Fprint(a.cfg.Stderr, Usage)
 		return ExitUsage

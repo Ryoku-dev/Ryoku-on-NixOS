@@ -266,7 +266,7 @@ Item {
     // gate drops them on a compositor without it, the way SchemaPage filters a
     // row, instead of drawing a switch nothing on this desktop reads.
     readonly property var visibleSchema: pg.schema.filter(function (r) {
-        return Settings.supports(r.caps);
+        return Settings.supports(r.caps, r.hostCaps);
     })
 
     // group order and membership come straight from the schema, so a regroup is

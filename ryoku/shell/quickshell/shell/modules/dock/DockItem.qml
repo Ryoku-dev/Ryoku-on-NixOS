@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Effects
 import Quickshell
 import shell.services
+import "../../components"
 
 // One dock island: a frosted pill carrying an app icon, its running-window
 // indicator and an active tint. It fills the slot the band positions for it and
@@ -135,13 +136,12 @@ Item {
         }
 
         Image {
+            id: dockIcon
             anchors.centerIn: parent
             width: item.iconSize
             height: item.iconSize
-            source: {
-                const i = Dock.iconFor(item.className);
-                return i !== "" ? i : Icons.path("application-x-executable", true);
-            }
+            visible: source !== "" && status === Image.Ready
+            source: Dock.iconFor(item.className)
             // Size the pixmap for the magnified icon so a grown icon never softens.
             sourceSize.width: Math.round(item.iconSize * item.band.maxScale)
             sourceSize.height: Math.round(item.iconSize * item.band.maxScale)
@@ -157,6 +157,14 @@ Item {
                 colorization: 1
                 colorizationColor: item.band.bone
             }
+        }
+
+        SymbolIcon {
+            anchors.centerIn: parent
+            visible: !dockIcon.visible
+            name: "view-app-grid"
+            size: item.iconSize
+            color: item.indColor
         }
 
         // Running indicator on the dock's outer edge: up to three 4 px dots, or a

@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os/exec"
 )
 
 func themePreviews() map[string]interface{} {
-	out, err := exec.Command("ryoku-shell", "theme", "catalog").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), previewCommandTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ryoku-shell", "theme", "catalog").Output()
 	previews := []map[string]interface{}{}
 	if err == nil {
 		var cards []struct {

@@ -207,7 +207,26 @@ func (a *App) startRunitTransient(name string, opts transientOptions) int {
 	return ExitOK
 }
 
+func (a *App) stopDetachedRunitTransient(name string) int {
+	pid, code := a.transientPID(name)
+	if code != ExitOK {
+		return code
+	}
+	if err := a.cfg.Runner.SignalGroup(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return ExitFailure
+	}
+	if err := os.Remove(a.pidPath(name)); err != nil && !os.IsNotExist(err) {
+		return ExitFailure
+	}
+	return ExitOK
+}
+
 func (a *App) startDetachedRunitTransient(name string, opts transientOptions) int {
+	switch code := a.stopDetachedRunitTransient(name); code {
+	case ExitOK, ExitFalse, ExitAbsent:
+	default:
+		return code
+	}
 	if err := os.MkdirAll(a.transientDir(), 0o700); err != nil {
 		return ExitFailure
 	}
@@ -363,18 +382,12 @@ func (a *App) runitTransientState(verb, name string) int {
 		return ExitOK
 	}
 
-	pid, code := a.transientPID(name)
+	_, code := a.transientPID(name)
 	if code != ExitOK {
 		return code
 	}
 	if verb == "is-active" {
 		return ExitOK
 	}
-	if err := a.cfg.Runner.SignalGroup(pid, syscall.SIGTERM); err != nil {
-		return ExitFailure
-	}
-	if err := os.Remove(a.pidPath(name)); err != nil && !os.IsNotExist(err) {
-		return ExitFailure
-	}
-	return ExitOK
+	return a.stopDetachedRunitTransient(name)
 }

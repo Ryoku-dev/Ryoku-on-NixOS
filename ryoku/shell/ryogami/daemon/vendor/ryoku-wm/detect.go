@@ -1,6 +1,7 @@
 package wm
 
 import (
+	"bytes"
 	"net"
 	"os"
 	"os/exec"
@@ -280,6 +281,44 @@ func GeneratedConfig(name string) []string {
 	return append([]string(nil), generatedConfig[name]...)
 }
 
+const generatedBaselineMarkerPrefix = "# ryoku-baseline-sha256="
+
+// GeneratedConfigBaselineMarker identifies a provider render with the baseline
+// it was composed from. Providers without a whole-file baseline return no mark.
+func GeneratedConfigBaselineMarker(name string, baseline []byte) string {
+	return ""
+}
+
+// GeneratedConfigIsRender distinguishes provider-authored output from a
+// user_edits fork. The legacy header keeps pre-marker renders upgradeable.
+func GeneratedConfigIsRender(name string, body []byte) bool {
+	return false
+}
+
+// GeneratedConfigStale reports whether an existing whole-file render was
+// composed from a different shipped baseline. A missing baseline means the
+// provider is not shipped by this config base, so its retained tree is left
+// alone.
+func GeneratedConfigStale(name, baseConfigDir, configHome string) bool {
+	entry := ConfigEntry(name)
+	if entry == "" {
+		return false
+	}
+	baseline, err := os.ReadFile(filepath.Join(baseConfigDir, entry))
+	if err != nil {
+		return false
+	}
+	mark := GeneratedConfigBaselineMarker(name, baseline)
+	if mark == "" {
+		return false
+	}
+	rendered, err := os.ReadFile(filepath.Join(configHome, entry))
+	if err != nil {
+		return false
+	}
+	return !bytes.HasPrefix(rendered, []byte(mark+"\n"))
+}
+
 // ResetPaths are the config files a factory reset removes for a provider, as
 // paths relative to ~/.config: its generated config and its hand-edit files. It
 // never names the per-machine seeds (the display, GPU and keyboard pins), which
@@ -303,6 +342,82 @@ var compositorBins = map[string]string{
 	ProviderHyprland: "Hyprland",
 	ProviderNiri:     "niri",
 	ProviderMango:    "mango",
+}
+
+// VariantPackage returns the package that owns a known provider's Ryoku
+// desktop variant.
+func VariantPackage(name string) string {
+	if compositorBins[name] == "" {
+		return ""
+	}
+	return "ryoku-desktop-" + name
+}
+
+// SessionOffered reports whether a greeter entry in dirs launches the
+// provider's installed compositor executable. Session filenames are not
+// authoritative: distribution packages may choose their own names.
+func SessionOffered(name string, dirs []string) bool {
+	bin := compositorBins[name]
+	if bin == "" {
+		return false
+	}
+	if _, err := exec.LookPath(bin); err != nil {
+		return false
+	}
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".desktop" {
+				continue
+			}
+			body, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			if err == nil && desktopEntryLaunches(body, bin) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func desktopEntryLaunches(body []byte, bin string) bool {
+	inDesktopEntry := false
+	binBytes := []byte(bin)
+	for len(body) > 0 {
+		line := body
+		if i := bytes.IndexByte(body, '\n'); i >= 0 {
+			line, body = body[:i], body[i+1:]
+		} else {
+			body = nil
+		}
+		line = bytes.TrimSpace(line)
+		if len(line) >= 2 && line[0] == '[' && line[len(line)-1] == ']' {
+			inDesktopEntry = bytes.Equal(line, []byte("[Desktop Entry]"))
+			continue
+		}
+		if !inDesktopEntry || len(line) == 0 || line[0] == '#' {
+			continue
+		}
+		key, value, ok := bytes.Cut(line, []byte{'='})
+		if !ok || (!bytes.Equal(key, []byte("TryExec")) && !bytes.Equal(key, []byte("Exec"))) {
+			continue
+		}
+		value = bytes.TrimSpace(value)
+		end := 0
+		for end < len(value) && value[end] != ' ' && value[end] != '\t' {
+			end++
+		}
+		executable := bytes.Trim(value[:end], `"'`)
+		if slash := bytes.LastIndexByte(executable, '/'); slash >= 0 {
+			executable = executable[slash+1:]
+		}
+		if bytes.Equal(executable, binBytes) {
+			return true
+		}
+	}
+	return false
 }
 
 // sessionEntryDirs are the directories a greeter lists wayland-session entries

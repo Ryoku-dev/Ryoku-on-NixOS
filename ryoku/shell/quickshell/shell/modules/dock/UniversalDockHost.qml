@@ -22,7 +22,7 @@ Item {
 
     Loader {
         id: designLoader
-        active: root.surfaceVisible && Dock.cfg("enabled", false) && root.design !== "none"
+        active: root.surfaceVisible && Dock.cfg("enabled", false) && root.design !== "none" && root.design !== "ii"
         asynchronous: true
         sourceComponent: root.design === "python" ? pythonDesign
             : root.design === "shima" ? shimaDesign : ryokuDesign

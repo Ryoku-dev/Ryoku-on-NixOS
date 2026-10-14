@@ -42,11 +42,20 @@ func (d *daemon) workshopSearch(req *request, p map[string]interface{}) response
 		numPerPage:   int(intParam(p, "numPerPage", 30)),
 		allowNsfw:    boolParam(p, "allowNsfw", false),
 	}
-	page, err := d.workshop.search(params)
-	if err != nil {
-		return errResp(req.ID, 4, err.Error())
+	generation := intParam(p, "generation", 0)
+	ctx, finish, stale := d.sources.beginSearch(req.ConnectionID, "workshop:steam", generation, searchFetchTimeout)
+	if stale {
+		return errResp(req.ID, 4, "search superseded")
 	}
-	d.queueRemoteThumbs("steam", thumbJobs(page))
+	defer finish()
+	page, err := d.workshop.search(ctx, params)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = ctxErr
+	}
+	if err != nil {
+		return errResp(req.ID, 4, searchError(err))
+	}
+	d.queueRemoteThumbs(req.ConnectionID, "workshop:steam", "steam", generation, thumbJobs(page))
 	return ok(req.ID, map[string]interface{}{
 		"results":     d.workshop.items(page),
 		"currentPage": page.currentPage,

@@ -36,24 +36,24 @@ Singleton {
 
     // Enable/disable the power manager entirely
     readonly property bool enabled: Config.options?.background?.widgets?.powerSaving?.enable ?? true
-    
+
     // Pause when GameMode is active
     readonly property bool pauseOnGameMode: Config.options?.background?.widgets?.powerSaving?.pauseOnGameMode ?? true
-    
+
     // Pause when fullscreen window is present
     readonly property bool pauseOnFullscreen: Config.options?.background?.widgets?.powerSaving?.pauseOnFullscreen ?? true
-    
+
     // Pause when any window is on the current workspace. Default false: stacked with dynamicOpacity
     // on the same trigger and made widgets feel broken (paused + dimmed) on any window open.
     readonly property bool pauseWhenWindowsPresent: Config.options?.background?.widgets?.powerSaving?.pauseWhenWindowsPresent ?? false
 
     function _hasWindowsOnActiveWorkspace(outputName: string): bool {
-        return CompositorService.nativeOverview && WorkspaceService.hasWindowsOnActiveWorkspace(outputName);
+        return WorkspaceService.hasWindowsOnActiveWorkspace(outputName);
     }
 
     function _fullscreenForOutput(outputName: string): bool {
         const scopedOutput = String(outputName ?? "");
-        if (scopedOutput.length === 0 || !CompositorService.nativeOverview)
+        if (scopedOutput.length === 0)
             return GameMode.hasVisibleFullscreenWindow;
         return GameMode.hasFullscreenOnOutput(scopedOutput);
     }

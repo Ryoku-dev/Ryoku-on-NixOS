@@ -1,6 +1,9 @@
 package host
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPowerUsesHostInitCommand(t *testing.T) {
 	tests := []struct {
@@ -40,5 +43,25 @@ func TestPowerRejectsUnknownActionAndPropagatesFailure(t *testing.T) {
 	runner.results = []Result{{Code: 7}}
 	if code := app.Power([]string{"suspend"}); code != ExitFailure {
 		t.Fatalf("failed suspend exit = %d", code)
+	}
+}
+
+func TestPowerRoutesProfileControlsThroughRyokuPower(t *testing.T) {
+	for _, args := range [][]string{
+		{"capabilities", "--json"},
+		{"profile", "get", "balanced"},
+		{"profile", "set", "balanced", "epp", "balance_power"},
+		{"idle", "set", "ac.lockSec", "600"},
+		{"charge-limit", "set", "80"},
+		{"aspm", "set", "powersave"},
+	} {
+		runner := &fakeRunner{}
+		app, _, _ := testApp(runner, nil)
+		if code := app.Power(args); code != ExitOK {
+			t.Fatalf("power %v exit = %d", args, code)
+		}
+		if got, want := argv(runner.commands[0]), "ryoku-power "+strings.Join(args, " "); got != want {
+			t.Fatalf("power %v argv = %q, want %q", args, got, want)
+		}
 	}
 }

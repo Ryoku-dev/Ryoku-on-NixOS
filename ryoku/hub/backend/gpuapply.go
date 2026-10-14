@@ -9,6 +9,7 @@ package main
 // without touching anything, which is what the Hub shows before the user OKs.
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -27,6 +28,13 @@ type gpuPassthroughAvailability struct {
 func nixGpuPassthroughConfigured() bool {
 	b, err := os.ReadFile("/etc/ryoku/gpu-passthrough-ready")
 	return err == nil && strings.TrimSpace(string(b)) == "1"
+}
+
+type gpuHostCapabilities struct {
+	AUR struct {
+		Supported bool   `json:"supported"`
+		Reason    string `json:"reason"`
+	} `json:"aur"`
 }
 
 func runGpuApply(args []string) error {
@@ -96,9 +104,8 @@ func escalateSelf(args ...string) error {
 }
 
 // installPassthroughAUR installs Looking Glass + the kvmfr module as the
-// invoking user. Best-effort: a build failure leaves a clear message and the
-// rest of enable still runs, so caps honestly reports what is still missing.
-// The package backend inherits this terminal so an Arch AUR helper can prompt.
+// invoking user. The host capability check keeps this path on Arch, where
+// makepkg must run as the user and the helper inherits this terminal.
 func installPassthroughAUR() {
 	missing := missingPkgs(extraPassthroughPkgs, pkgInstalled)
 	if len(missing) == 0 {
@@ -230,7 +237,12 @@ func passthroughAvailability() gpuPassthroughAvailability {
 	if unavailable, found := firstUnavailablePackage(corePassthroughPkgs, false); found {
 		return unavailable
 	}
-	if unavailable, found := firstUnavailablePackage(extraPassthroughPkgs, true); found {
+	var caps gpuHostCapabilities
+	out, err := exec.Command("ryoku-host", "capabilities").Output()
+	if err != nil || json.Unmarshal(out, &caps) != nil {
+		return gpuPassthroughAvailability{}
+	}
+	if unavailable, found := firstUnavailablePackage(extraPassthroughPkgs, caps.AUR.Supported); found {
 		return unavailable
 	}
 	return gpuPassthroughAvailability{Available: true}
@@ -376,24 +388,8 @@ func gpuHostUnavailable(err error) bool {
 	return code == 4 || code == 5
 }
 
-func snapshotsUnavailable() bool {
-	err := exec.Command("ryoku-host", "snapshots").Run()
-	var exitErr *exec.ExitError
-	return errors.As(err, &exitErr) && exitErr.ExitCode() == 5
-}
-
 func snapshot(desc string) {
-	if snapshotsUnavailable() {
-		return
-	}
-	if _, err := exec.LookPath("snapper"); err != nil {
-		return
-	}
-	// -c number tags the snapshot for snapper's number cleanup so it counts
-	// against NUMBER_LIMIT and prunes like update snapshots; without it these piled
-	// up unbounded. Enforce the cap right after creating.
-	run("snapper", "-c", "root", "create", "-c", "number", "--description", desc)
-	run("snapper", "-c", "root", "cleanup", "number")
+	run("ryoku-host", "snapshots", "create", desc)
 }
 
 func run(name string, args ...string) {

@@ -36,7 +36,7 @@ func TestDetectionAndOverrides(t *testing.T) {
 }
 
 func TestSystemdServiceArgv(t *testing.T) {
-	verbs := []string{"start", "stop", "restart", "try-restart", "reload", "is-active", "is-enabled", "enable", "disable", "kill", "reset-failed"}
+	verbs := []string{"start", "stop", "restart", "try-restart", "reload", "is-active", "is-enabled", "is-failed", "enable", "disable", "kill", "reset-failed"}
 	for _, verb := range verbs {
 		t.Run(verb, func(t *testing.T) {
 			runner := &fakeRunner{}
@@ -53,7 +53,7 @@ func TestSystemdServiceArgv(t *testing.T) {
 			if verb == "enable" {
 				want += " --now"
 			}
-			if verb == "is-active" || verb == "is-enabled" {
+			if verb == "is-active" || verb == "is-enabled" || verb == "is-failed" {
 				want += " --quiet"
 			}
 			want += " pipewire.service libvirtd.socket"
@@ -69,6 +69,17 @@ func TestSystemdServiceArgv(t *testing.T) {
 	}
 	if got := argv(runner.commands[0]); got != "systemctl daemon-reload" {
 		t.Fatalf("argv = %q", got)
+	}
+}
+
+func TestSystemdIsFailedExitCodes(t *testing.T) {
+	runner := &fakeRunner{results: []Result{{Code: 1}, {Code: 4}}}
+	app, _, _ := testApp(runner, map[string]string{"RYOKU_HOST_INIT": "systemd"})
+	if code := app.Service([]string{"--user", "is-failed", "idle"}); code != ExitFalse {
+		t.Fatalf("inactive unit exit = %d, want false", code)
+	}
+	if code := app.Service([]string{"--user", "is-failed", "missing"}); code != ExitAbsent {
+		t.Fatalf("unloaded unit exit = %d, want absent", code)
 	}
 }
 

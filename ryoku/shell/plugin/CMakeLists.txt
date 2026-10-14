@@ -28,6 +28,7 @@ qt_add_qml_module(ryoku-blobs
         blobgroup.cpp blobgroup.hpp
         blobshape.cpp blobshape.hpp
         blobrect.cpp blobrect.hpp
+        blobwave.cpp blobwave.hpp
         blobinvertedrect.cpp blobinvertedrect.hpp
         blobmaterial.cpp blobmaterial.hpp
         borderbeam.cpp borderbeam.hpp

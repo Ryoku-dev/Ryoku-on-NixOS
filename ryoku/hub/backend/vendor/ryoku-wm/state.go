@@ -32,9 +32,8 @@ type Output struct {
 	Height  int     `json:"height"`
 	Scale   float64 `json:"scale"`
 	Focused bool    `json:"focused,omitempty"`
-	// ActiveWorkspace is the workspace's flat name, the key its Workspace
-	// frame and this output's windows carry; the opaque handle an act takes
-	// lives in Workspace.ID alone.
+	// ActiveWorkspace is Workspace.ID, the same provider-owned key carried by
+	// Window.Workspace and accepted by workspace actions.
 	ActiveWorkspace string `json:"activeWorkspace,omitempty"`
 	// EDID identity and physical size. Zero make, model and width together mean
 	// no EDID, which is how doctor spots a phantom output.
@@ -82,8 +81,8 @@ type Window struct {
 	ID    string `json:"id"`
 	AppID string `json:"appId,omitempty"`
 	Title string `json:"title,omitempty"`
-	// Workspace is the workspace's flat name, the same key Output's
-	// ActiveWorkspace carries, never the opaque id an act takes.
+	// Workspace is Workspace.ID, so consumers can join a window to its
+	// Workspace frame without depending on display names being unique.
 	Workspace string `json:"workspace,omitempty"`
 	Output    string `json:"output,omitempty"`
 	// Pid is 0 when the provider does not know the owning process.

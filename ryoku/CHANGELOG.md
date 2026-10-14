@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- **`FileDialogHost` (`Ryoku.Ui`): the one way a surface opens the system file
+  or folder dialog.** It takes a `FileDialog`'s `title`, `nameFilters` and
+  `currentFolder`, builds the dialog for the window it opens in and drops it
+  when that window is rebuilt, which is what Quickshell does to every hidden
+  layer-shell or popup window. A `FileDialog` declared directly in a surface
+  outlives its implementation and crashes on its next open.
 - **The desktop now has a Fedora host path.** Package and service actions use
   DNF and systemd through `ryoku-host`, the Hub reflects Fedora's unavailable
   snapshot and AUR capabilities, and updates and compositor package switches
@@ -191,6 +197,12 @@
   (`ui/Singletons/Wm.qml`).
 
 ### Changed
+- **Rashin's pieces live under `rashin/`.** The AI usage collectors moved from
+  `shell/bin/` to `rashin/usage/`, the `ryoku-ai-usage` units from
+  `shell/systemd/user/` to `rashin/systemd/`, and the companion window from
+  `apps/rashin-app/` to `rashin/app/`. The dev deploy builds and installs them
+  from there, and the desktop's materialized config no longer carries the AI
+  usage units.
 - **The fast lane asks Prowl.** Quick asks post to Prowl's
   `/v1/chat/completions` on a route (`auto`, an axis such as `auto:fast`, or one
   of your sets) instead of calling a provider directly. `ryoku-rashin backend
@@ -213,6 +225,127 @@
   `hub/quickshell/schema/DesktopScenePage.js`, `shell/ipc/control.go`).
 
 ### Fixed
+- **A failed update names the packages that conflict.** pacman reports the pair
+  on a `::` line and only the `error:` summary reached the terminal, so an
+  aborted transaction read as "conflicting dependencies" with nothing to act on.
+  That line is now a note like any other error
+  (`cli/internal/updater/console.go`).
+- **Wayfire window shadows no longer draw as a black frame.** Over a
+  wallpaper, the decor drew a window's shadow with blending switched off, so
+  the area around some apps (Zen, Discord, the Hub) turned solid black
+  (`wm/wayfire/decor/src/transformer.cpp`).
+- **The network kill switch's Restore button is visible while isolated.** The
+  active card turns light and the button kept light text on it; it now takes
+  the dark-on-light style the Hub's confirm buttons use
+  (`hub/quickshell/pages/ConnectionsPage.qml`).
+- **Wayfire's workspace pills, dock and tray agree with the screen again.**
+  Windows were placed by their shadow, so a window at the left gap counted on
+  the previous workspace and the dock lost it; workspace sets left behind by
+  an output reconnect repeated every pill. A tray click now brings an app's
+  window forward from another workspace instead of asking the app to, which
+  Wayfire refuses (`wm/wayfire/frames.go`, `shell/ipc/tray.go`).
+- **Super+D and Super+A on Wayfire match Hyprland.** Maximise fills the work
+  area inside the gaps and a second press restores the window, instead of
+  shrinking a window that opened maximised to a 100 px square; float centres
+  the window at 1000x660. The Hub opens inside the gaps with its border on
+  screen (`wm/wayfire/fit.go`, `wm/wayfire/pages.go`).
+- **Wayfire applies Hub saves and display changes straight away.** Wayfire
+  stops watching its config once the folder is replaced, so saves could land
+  on disk and wait for the next login; display layouts never reached the file
+  Wayfire reads at all. Every save now reloads the running compositor, a
+  display save rebuilds that file, and the window ring follows the wallpaper
+  colours live (`wm/wayfire/apply.go`, `wm/wayfire/outputs.go`).
+- **Wayfire windows get rounded corners, borders and shadows.** The corner
+  radius, softness, border and shadow settings on the Window Manager page now
+  work on Wayfire as they do on Hyprland and niri, drawn by Ryoku's own window
+  decor plugin, and a save applies them at once (`wm/wayfire/decor/`,
+  `wm/wayfire/apply.go`, `../release/packages/ryoku-desktop-wayfire/PKGBUILD`).
+- **Rashin opens on an NVIDIA display under compositors with explicit sync.**
+  WebKitGTK 2.54 switched the window to GL mid-frame, NVIDIA turned on explicit
+  sync for it, and the compositor dropped the app before its window appeared.
+  The app now falls back to implicit sync on that driver, and links it opens
+  keep explicit sync (`apps/rashin-app/main.cpp`).
+- **The previous-track and touchpad keys work on Wayfire.** Their bindings
+  named evdev keys that do not exist, so Wayfire dropped them at load; they now
+  use the kernel's names (`wm/wayfire/config_binds.go`).
+- **Wayfire's tiling shortcuts now act on the simple-tile layout.** Maximise
+  and float work for tiled and floating windows, directional moves swap tiled
+  neighbours, resize and preset keys change split weights, centre detaches
+  before placing, and config reload reopens the deployed path
+  (`wm/wayfire/act.go`, `wm/wayfire/config_binds.go`).
+- **Wayfire closes one window per shortcut and gives Ryoku apps their intended
+  geometry.** The compositor's duplicate close and workspace-switch defaults no
+  longer fire beside the shared catalogue. The Hub opens as a full page fitted
+  to the work area, clear of the shell's bar and frame, while Ryoku tools,
+  dialogs, file choosers, PiP and remote-console windows stay
+  out of the default tiling tree and use centred screen-fit rules
+  (`wayfire/wayfire.ini`, `wm/wayfire/config_rules.go`).
+- **Wayfire's Window Manager page now exposes its real compositor settings.**
+  Tiling defaults, workspace grid and wraparound, title bars, blur, wobble,
+  desktop zoom, Alt+Tab opacity, click-to-focus and XWayland controls write the
+  matching Wayfire 0.11 options instead of leaving the page empty
+  (`wm/wayfire/schema.json`, `wm/wayfire/apply.go`).
+- **Every Wayfire keybind from the catalogue that Wayfire can express is
+  wired.** The ten-workspace family on digits and the keypad, preset width
+  stepping, the scratchpad, recovering a grabbed keyboard, Print and the media
+  keys with the right repeat and always-on command modes now work; the chords
+  Wayfire 0.11 has no action for (tabs, merging, wheel workspace steps,
+  workspace reordering) say so in the switch review
+  (`wm/wayfire/config_binds.go`).
+- **Wayfire now keeps the complete shell window and display contract live.**
+  Fullscreen changes immediately update fullscreen-sensitive bars, docks,
+  notifications and OSDs; the scratchpad hides and restores windows without
+  leaking backing workspaces into the bar; dock focus brings hidden windows
+  back; and the width preset joins the existing window controls. Display state
+  includes connector identity and modes, mirroring and HDR, while screen-off,
+  wake and per-monitor power use Wayfire's output-power protocol.
+- **Wayfire now carries the complete session contract.** qylock can acquire the
+  compositor's secure session lock; Ryoku's idle timers can lock, suspend and
+  power displays without a competing Wayfire screensaver; launched apps inherit
+  the same cursor, Qt, GTK, QML and PATH environment as user services, including
+  panel-vendor-safe NVIDIA video hints; activation, GTK protocol hints and
+  shortcut inhibition are live; XWayland and the shared ten-workspace tiling
+  model are explicit. Screenshots and screen sharing use the wlroots portal
+  backend instead of the GNOME backend, which depends on Mutter's unavailable
+  screencast service (`wayfire/wayfire.ini`, `wayfire/wayfire-portals.conf`,
+  `lockscreen/sddm/ryoku-wayland-session`,
+  `../release/packages/ryoku-desktop-wayfire/`).
+- **Wayfire desktop settings now reach the compositor.** The provider applies
+  the ten-workspace tiled grid, inner and outer gaps, baseline window opacity,
+  complete keyboard, pointer and touchpad values, app roles, session
+  environment and Wayfire's window animation styles. Motion defaults to 250 ms
+  and global blur is opt-in instead of taxing every render pass. Unsupported
+  focus opacity, rounding, shadows, cursor hiding and maximize correction stay
+  visible as explicit switch losses (`wm/wayfire/apply.go`,
+  `wm/wayfire/config_store.go`, `wm/wayfire/config_rules.go`,
+  `wm/wayfire/schema_anim.json`).
+- **Wayfire no longer counts the shell's own panels as windows.** The
+  provider reported every layer-shell surface (bar, dock, backdrop) as an open
+  window, so the dock saw itself on the workspace and rebuilt several times a
+  second: a flickering dock and a pegged shell. Only real application windows
+  reach the window list now, and the event stream skips frames that did not
+  change (`wm/wayfire/frames.go`, `wm/wayfire/watch.go`).
+- **Wayfire's config is recomposed when it is stale.** Every composed
+  `wayfire.ini` carries a mark of the baseline it was built from, and
+  materialize renders it again when the mark is missing or names an older
+  baseline, so a raw baseline copy or an old compose no longer leaves Wayfire
+  without its keybinds. A checkout box composes from the checkout's baseline
+  (`wm/wayfire/apply.go`, `wm/detect.go`, `cli/internal/updater/materialize.go`,
+  `shell/deploy.sh`).
+- **Scrolling layouts switch workspaces without exposing hidden columns.** The
+  generated Hyprland animation override replaces workspace translation with a
+  fade while scrolling is active, keeping the Hub's workspace timing and curve
+  when one is set, and leaves other layouts on their preset's style
+  (`wm/hyprland/config_settings.go`).
+- **Workspace clicks use the workspace the widget selected.** The neutral
+  workspace action resolver now keeps an exact provider id before falling back
+  to a display name, so overlapping ids and names cannot redirect focus or
+  window moves to a different workspace (`ui/Singletons/Wm.qml`).
+- **Wayfire windows stay attached to their workspace everywhere in the
+  desktop.** Window and output frames now carry the same opaque workspace id as
+  the workspace frame, so active-workspace filters, fullscreen checks, widget
+  power saving, and deck frost see the windows on screen
+  (`wm/wayfire/frames.go`, `wm/state.go`, `ui/Singletons/Wm.qml`).
 - **Power profile controls work with Fedora's default provider.** The Hub,
   Nomarchy, game mode, and `ryoku-power` send profile reads and writes through
   the shell daemon's provider-neutral D-Bus client, so tuned-ppd works alongside

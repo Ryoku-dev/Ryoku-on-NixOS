@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
 import Ryoku.Ui.Singletons
+import "windowPresence.js" as WindowPresence
 
 // Compositor seam for the vendored frame. The reference spoke one
 // compositor's private protocol; this keeps that public surface (window and
@@ -15,9 +16,8 @@ import Ryoku.Ui.Singletons
 Singleton {
     id: root
 
-    // The reference branched on which compositor it drove. The seam answers in
-    // one shape on every compositor, so the niri-shaped path is always the
-    // live one and the compositor-specific branches fold to it.
+    // The adapter exposes one provider-backed shape, so consumers never need
+    // compositor-specific branches.
     readonly property bool nativeOverview: true
     readonly property bool compositorBlur: false
     readonly property bool windowWorkspaceMap: false
@@ -110,30 +110,14 @@ Singleton {
         return null;
     }
 
-    // Presence reads the daemon's window residue rather than the protocol-joined
-    // list above: a compositor may advertise no toplevels at all, or only for
-    // windows mapped after its foreign-toplevel plugin loaded, and a screen-wide
-    // state must not hinge on that. Residue rows carry the workspace id, so the
-    // active-workspace match stays exact; a handle, where one exists, only adds
-    // the compositor's own minimize flag.
-    // The stack on the output's active workspace, unminimized windows only;
-    // zero means the workspace is bare. Presence is residue, never the
-    // toplevel protocol: a compositor may never advertise it at all.
+    // Deck frost is cosmetic and must fail open. Count only residue joined to
+    // an actual foreign-toplevel handle: a provider can briefly publish stale
+    // or overly broad rows while its compositor plugin starts, and treating
+    // layer-shell surfaces as application windows turns the graduated haze
+    // into an opaque cover over the wallpaper and desktop widgets.
     function windowsOnActiveWorkspace(outputName: string): int {
-        const active = root.allWorkspaces.filter(w => w.is_active
-            && (String(outputName ?? "").length === 0 || w.output === outputName));
-        if (active.length === 0)
-            return 0;
-        let n = 0;
-        const list = Wm.windows;
-        for (let i = 0; i < list.length; i++) {
-            const w = list[i];
-            if (w.toplevel && w.toplevel.minimized === true)
-                continue;
-            if (active.some(ws => ws.id === w.workspace))
-                n++;
-        }
-        return n;
+        return WindowPresence.countOnActiveWorkspace(
+            Wm.windows, root.allWorkspaces, outputName);
     }
 
     function hasWindowsOnActiveWorkspace(outputName: string): bool {

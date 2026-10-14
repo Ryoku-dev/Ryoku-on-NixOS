@@ -419,7 +419,10 @@ QVariant LibraryView::data(const QModelIndex &index, int role) const
 {
     if (index.row() < 0 || index.row() >= m_view.size())
         return {};
-    const Row &r = m_rows[m_view[index.row()]];
+    const int sourceRow = m_view[index.row()];
+    if (sourceRow < 0 || sourceRow >= m_rows.size())
+        return {};
+    const Row &r = m_rows[sourceRow];
     switch (role) {
     case KeyRole: return r.key;
     case NameRole: return r.name;
@@ -614,6 +617,15 @@ void LibraryView::refilter()
     for (int i = 0; i < m_keys.size(); ++i)
         oldSigByKey.insert(m_keys[i], m_sig[i]);
 
+    // A library refresh replaces m_rows before this method runs. Re-anchor the current
+    // model rows by stable key so incremental remove/insert signals expose valid data.
+    if (!m_keys.isEmpty()) {
+        m_view.clear();
+        m_view.reserve(m_keys.size());
+        for (const QString &key : m_keys)
+            m_view.append(m_rowByKey.value(key, -1));
+    }
+
     const int oldCount = m_keys.size();
     const bool sameKeys = (newKeys == m_keys);
     bool structural = false;
@@ -689,7 +701,29 @@ bool LibraryView::applyIncremental(const QVector<int> &newView, const QVector<QS
         last = it.value();
     }
 
-    // m_rows was rebuilt, so identity comes from keys, not the old index vector.
+    int editRuns = 0;
+    bool editing = false;
+    for (const QString &key : m_keys) {
+        const bool remove = !newPos.contains(key);
+        if (remove && !editing)
+            ++editRuns;
+        editing = remove;
+    }
+    editing = false;
+    for (const QString &key : newKeys) {
+        const bool insert = !m_keyToView.contains(key);
+        if (insert && !editing)
+            ++editRuns;
+        editing = insert;
+    }
+    // Hundreds of alternating begin/end pairs cost more than one bounded reset.
+    if (editRuns > 64) {
+        beginResetModel();
+        m_view = newView;
+        endResetModel();
+        return true;
+    }
+
     QVector<QString> cur = m_keys;
     for (int i = cur.size() - 1; i >= 0;) {
         if (!newPos.contains(cur[i])) {
@@ -698,18 +732,28 @@ bool LibraryView::applyIncremental(const QVector<int> &newView, const QVector<QS
                 --j;
             beginRemoveRows(QModelIndex(), j + 1, i);
             cur.remove(j + 1, i - j);
+            m_view.remove(j + 1, i - j);
             endRemoveRows();
             i = j;
         } else {
             --i;
         }
     }
-    for (int p = 0; p < newKeys.size(); ++p) {
-        if (p < cur.size() && cur[p] == newKeys[p])
+    for (int p = 0; p < newKeys.size();) {
+        if (p < cur.size() && cur[p] == newKeys[p]) {
+            ++p;
             continue;
-        beginInsertRows(QModelIndex(), p, p);
-        cur.insert(p, newKeys[p]);
+        }
+        int end = p;
+        while (end < newKeys.size() && (p >= cur.size() || newKeys[end] != cur[p]))
+            ++end;
+        beginInsertRows(QModelIndex(), p, end - 1);
+        for (int at = p; at < end; ++at) {
+            cur.insert(at, newKeys[at]);
+            m_view.insert(at, newView[at]);
+        }
         endInsertRows();
+        p = end;
     }
     m_view = newView;
     return false;

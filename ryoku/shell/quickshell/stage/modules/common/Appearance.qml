@@ -228,6 +228,19 @@ Singleton {
             property var title: ({ "wght": 600 })
             property var rounded: ({ "wght": 500 })
             property var titleRounded: ({ "wght": 600 })
+            // Interpolated variable axes must be stepped, not continuous: every
+            // distinct value is a new font engine face, and the cache only trims
+            // a few per tick. blend()/snap() keep it to steps + 1 per pair.
+            readonly property int steps: 3
+            function snap(t: real): real {
+                return Math.round(Math.max(0, Math.min(1, t)) * steps) / steps;
+            }
+            function blend(from: real, to: real, t: real): real {
+                return Math.round(from + (to - from) * snap(t));
+            }
+            function blendIn(from: real, to: real, t: real, n: int): real {
+                return Math.round(from + (to - from) * Math.round(Math.max(0, Math.min(1, t)) * n) / n);
+            }
         }
         property QtObject pixelSize: QtObject {
             property real smallest: Tokens.fTiny

@@ -147,7 +147,12 @@ Item {
         var out = [];
         var known = ({});
         for (var i = 0; i < list.length; i++) {
-            out.push({ value: list[i].id, label: list[i].name });
+            var label = list[i].name;
+            if (list[i].unavailable === "restart")
+                label = I18n.tr("%1 (restart to use it)").arg(label);
+            else if (list[i].unavailable)
+                label = I18n.tr("%1 (driver not loaded)").arg(label);
+            out.push({ value: list[i].id, label: label });
             known[list[i].id] = true;
         }
         var current = String(Settings.value("performance.gpuDevice") || "");

@@ -10,8 +10,8 @@ import "tzmap.js" as Tz
 // The world-map time-zone picker (an Ubuntu-style chooser, Ryoku-toned): a live
 // equirectangular map with a day/night terminator, a dot per zone, click-to-pick
 // the nearest zone, a dropped pin, a fuzzy search, and the selected zone's live
-// local clock. Pure UI: it emits `applied(zone)` and lets the host run the
-// privileged `timedatectl`. Full-page overlay, mirroring PickFile.
+// local clock. Pure UI: it emits `applied(zone)` and lets GlobalPage hand the
+// privileged write to the host time seam. Full-page overlay, mirroring PickFile.
 Item {
     id: tzp
 

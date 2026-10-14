@@ -9,7 +9,8 @@ var ALIASES = [
     ["wallpaper engine", "we workshop"],
     ["monitor", "display output screen"],
     ["transition", "animation motion effect"],
-    ["path", "folder directory location"]
+    ["path", "folder directory location"],
+    ["rgb", "lighting led openrgb aura qmk keyboard mouse palette"]
 ];
 
 function normalize(value) {

@@ -6,12 +6,13 @@ import Ryoku.Ui.Singletons
 Item {
     id: root
 
-    property string selectedStyle: "qsbar"
+    property string selectedStyle: "orpheus"
     signal chose(string styleId)
 
     readonly property var styles: [
+        { id: "orpheus", name: I18n.tr("Orpheus"), description: I18n.tr("A liquid bar that moves with your music."), recommended: true },
         { id: "sumi", name: I18n.tr("Sumi"), description: I18n.tr("The monochrome painted frame.") },
-        { id: "qsbar", name: I18n.tr("QS Bar"), description: I18n.tr("The full-colour wallpaper bar."), recommended: true },
+        { id: "qsbar", name: I18n.tr("QS Bar"), description: I18n.tr("The full-colour wallpaper bar.") },
         { id: "nomarchy", name: I18n.tr("Nomarchy"), description: I18n.tr("Omarchy's bar with its plugin library.") },
         { id: "kairos", name: I18n.tr("Kairos"), description: I18n.tr("A clock island that grows with you.") },
         { id: "iris", name: I18n.tr("Shima"), description: I18n.tr("An edge island that morphs into tools.") },

@@ -119,6 +119,21 @@ bool TextureTier::admit(TierImage &&image)
     return true;
 }
 
+bool TextureTier::invalidate(const QString &key)
+{
+    const auto it = m_index.find(key);
+    if (it == m_index.end())
+        return false;
+    const int tile = it.value();
+    m_index.erase(it);
+    m_pending.erase(std::remove_if(m_pending.begin(), m_pending.end(),
+                                   [tile](const Pending &p) { return p.tile == tile; }),
+                    m_pending.end());
+    m_tiles[size_t(tile)] = Tile{};
+    m_free.push_back(tile);
+    return true;
+}
+
 void TextureTier::beginFrame()
 {
     ++m_frame;

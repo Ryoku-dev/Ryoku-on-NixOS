@@ -194,6 +194,7 @@ func TestDisplayKeys(t *testing.T) {
 		{"XF86AudioRaiseVolume", []string{"Vol +"}},
 		{"XF86AudioLowerVolume", []string{"Vol -"}},
 		{"XF86AudioMute", []string{"Mute"}},
+		{"XF86AudioMicMute", []string{"Mic mute"}},
 		{"XF86AudioPlay", []string{"Play"}},
 		{"XF86AudioNext", []string{"Next"}},
 		{"XF86AudioPrev", []string{"Prev"}},

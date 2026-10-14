@@ -2,7 +2,6 @@ package doctor
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -381,6 +380,26 @@ func dgpuHeldFix() string {
 	return i18n.T("runtime D3 is enabled yet the card has never slept, so something is genuinely keeping it busy. NVIDIA documents the blockers as driving a display or a running CUDA application: check for an attached external display on the dGPU and for a CUDA/compute process. The processes listed are the ones with the card open, which is a lead rather than proof, since fine-grained mode tolerates an idle open device.")
 }
 
+func dgpuNeverSuspendedDetail(s dgpuState) string {
+	holders := strings.Join(s.holders, ", ")
+	if rtd3Off(s.rtd3) {
+		if s.watts >= 0 {
+			return i18n.Tf("the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing %.1f W: the driver reports runtime D3 %q", s.watts, s.rtd3)
+		}
+		return i18n.Tf("the discrete GPU does not drive the panel yet has never runtime-suspended: the driver reports runtime D3 %q", s.rtd3)
+	}
+	if s.watts >= 0 {
+		if holders != "" {
+			return i18n.Tf("the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing %.1f W, with the card open in %s", s.watts, holders)
+		}
+		return i18n.Tf("the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing %.1f W", s.watts)
+	}
+	if holders != "" {
+		return i18n.Tf("the discrete GPU does not drive the panel yet has never runtime-suspended, with the card open in %s", holders)
+	}
+	return i18n.T("the discrete GPU does not drive the panel yet has never runtime-suspended")
+}
+
 // planDgpuPanel turns observed state into a result. pure, so every branch is
 // unit-testable without hardware. The draw is quoted only when it was actually
 // measured (watts >= 0); a machine whose draw could not be read is never handed
@@ -399,20 +418,11 @@ func planDgpuPanel(s dgpuState) recResult {
 		// The MUX is already right, so the panel is not what pins the card. Left
 		// unreported, a box that switched the MUX and gained nothing would look
 		// clean while still paying the full idle draw.
-		draw := ""
-		if s.watts >= 0 {
-			draw = fmt.Sprintf(i18n.T(" and is drawing %.1f W"), s.watts)
-		}
+		detail := dgpuNeverSuspendedDetail(s)
 		if rtd3Off(s.rtd3) {
-			return noteRes(i18n.T("the discrete GPU does not drive the panel yet has never runtime-suspended%s: the driver reports runtime D3 %q"), draw, s.rtd3).
-				withFix(dgpuRtd3OffFix())
+			return noteRes(detail).withFix(dgpuRtd3OffFix())
 		}
-		held := ""
-		if len(s.holders) > 0 {
-			held = i18n.Tf(", with the card open in %s", strings.Join(s.holders, ", "))
-		}
-		return noteRes(i18n.T("the discrete GPU does not drive the panel yet has never runtime-suspended%s%s"), draw, held).
-			withFix(dgpuHeldFix())
+		return noteRes(detail).withFix(dgpuHeldFix())
 	}
 	if dgpuCanSuspend(s.status, s.suspended) {
 		return okRes(i18n.T("the discrete GPU drives the panel but can still runtime-suspend, so it is not pinned awake"))

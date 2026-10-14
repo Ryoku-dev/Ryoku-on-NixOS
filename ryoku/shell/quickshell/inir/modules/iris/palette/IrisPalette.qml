@@ -149,7 +149,7 @@ Item {
                 verb: windows.length > 0 ? Translation.tr("Switch to") : Translation.tr("Open"),
                 execute: () => {
                     const focused = windows.find(window => window.activated) ?? windows[0]
-                    if (focused && CompositorService.nativeOverview && focused.nativeWindowId !== undefined)
+                    if (focused && focused.nativeWindowId !== undefined)
                         WorkspaceService.focusWindow(focused.nativeWindowId)
                     else if (focused) focused.activate()
                     else if (entry) AppSearch.launchEntry(entry)

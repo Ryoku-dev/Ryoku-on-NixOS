@@ -477,6 +477,15 @@ func isAnimatedImage(src string) bool {
 	return n > 1
 }
 
+func animatedH264Args(encoders codecSet) ([]string, error) {
+	encoder, err := pickCPUH264Encoder(encoders)
+	if err != nil {
+		return nil, err
+	}
+	return h264CPUArgs(encoder, 1920, 24,
+		"-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p")
+}
+
 // ensureAnimatedMp4 transcodes an animated image to a cached mp4 the player
 // can play frame-by-frame. "" on failure (the entry stays static). Regenerated
 // when missing or older than the source.
@@ -493,26 +502,30 @@ func ensureAnimatedMp4(it scanned) string {
 	tmp := tmpPath(animPath)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	codecArgs, err := animatedH264Args(ffmpegCodecs().encoders)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ryogami: animated transcode unavailable for %s: %v\n", it.name, err)
+		return ""
+	}
 	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(it.src), "."))
-	var cmd *exec.Cmd
+	var args []string
 	if ext == "gif" {
 		// GIF needs a palette for clean h264 colors; the standard ffmpeg
 		// recipe splits, generates a palette from one stream, applies it to
 		// the other.
-		cmd = exec.CommandContext(ctx, "ffmpeg", "-y", "-v", "error",
+		args = []string{"-y", "-v", "error",
 			"-i", it.src,
 			"-filter_complex",
 			"fps=24,scale='min(1920,iw)':-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5",
-			"-map", "[b]",
-			"-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-			"-pix_fmt", "yuv420p", "-an", tmp)
+			"-map", "[b]"}
 	} else {
-		cmd = exec.CommandContext(ctx, "ffmpeg", "-y", "-v", "error",
+		args = []string{"-y", "-v", "error",
 			"-i", it.src,
-			"-vf", "fps=24,scale='min(1920,iw)':-2",
-			"-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-			"-pix_fmt", "yuv420p", "-an", tmp)
+			"-vf", "fps=24,scale='min(1920,iw)':-2"}
 	}
+	args = append(args, codecArgs...)
+	args = append(args, "-an", tmp)
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		os.Remove(tmp)
 		fmt.Fprintf(os.Stderr, "ryogami: animated transcode failed for %s: %v: %s\n",

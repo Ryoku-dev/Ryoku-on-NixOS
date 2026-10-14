@@ -26,7 +26,7 @@ Item {
     signal closed()
 
     function open(targetRow, currentRow) {
-        if (!targetRow || targetRow.active === true || targetRow.available !== true)
+        if (!targetRow || targetRow.active === true || targetRow.selectable !== true)
             return;
         sh.target = targetRow;
         sh.current = currentRow;
@@ -55,7 +55,7 @@ Item {
     readonly property string activeName: sh.report ? sh.report.active : (sh.current ? sh.current.name : "")
     readonly property bool leaving: sh.activeName !== "" && sh.activeName !== sh.targetName
     readonly property bool deployed: !!sh.report && sh.report.deployed === true
-    readonly property bool available: !!sh.report && sh.report.available === true
+    readonly property bool selectable: !!sh.report && sh.report.selectable === true
     readonly property var unhonored: sh.report && sh.report.unhonored ? sh.report.unhonored : []
     // What leaving the active compositor reclaims, computed by the backend for
     // the outgoing compositor's own packages. Removable drives the keep-or-remove
@@ -104,8 +104,8 @@ Item {
 
     function shq(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
     function confirm() {
-        if (!sh.available || sh.loading || sh.switching || !sh.target
-                || sh.target.available !== true)
+        if (!sh.selectable || sh.loading || sh.switching || !sh.target
+                || sh.target.selectable !== true)
             return;
         // The CLI owns the transaction order, so the Hub never spells a package
         // manager command of its own. Removal drops the outgoing compositor's
@@ -323,7 +323,7 @@ Item {
             Rectangle { width: parent.width; height: 1; color: Tokens.lineSoft }
 
             Rectangle {
-                visible: sh.failure !== "" || (!!sh.report && !sh.available)
+                visible: sh.failure !== "" || (!!sh.report && !sh.selectable)
                 width: parent.width
                 height: unavailText.height + Tokens.s3
                 radius: Tokens.radius
@@ -411,7 +411,7 @@ Item {
                     : (sh.switching ? I18n.tr("SWITCHING")
                     : I18n.tr("SWITCH TO %1").arg(sh.cap(sh.targetName).toUpperCase()))
                 primary: true
-                armed: sh.switched || (sh.available && !sh.loading && !sh.switching)
+                armed: sh.switched || (sh.selectable && !sh.loading && !sh.switching)
                 onAct: sh.switched ? sh.logOut() : sh.confirm()
             }
         }

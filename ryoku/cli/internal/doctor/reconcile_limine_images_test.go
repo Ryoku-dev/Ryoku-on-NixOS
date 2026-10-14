@@ -461,9 +461,12 @@ func TestReconcileLimineKernelImagesInaccessiblePreventsRebuild(t *testing.T) {
 	}
 
 	// In apply mode (checkOnly = false). Must NOT rebuild or prune on uncertain state.
+	// A denied read is a note, not a warning: /boot is root-only on a normal box,
+	// so every unprivileged `ryoku update` would otherwise end on a finding the
+	// user can do nothing about.
 	res := reconcileLimineKernelImages(false)
-	if res.status != recWarn {
-		t.Fatalf("got status %d, want recWarn (%d)", res.status, recWarn)
+	if res.status != recNote {
+		t.Fatalf("got status %d, want recNote (%d)", res.status, recNote)
 	}
 	if !strings.Contains(res.detail, "cannot inspect kernel boot images on /boot") || !strings.Contains(res.detail, "linux") {
 		t.Errorf("unexpected detail: %s", res.detail)
@@ -479,8 +482,8 @@ func TestReconcileLimineKernelImagesInaccessiblePreventsRebuild(t *testing.T) {
 	}
 }
 
-// TestInstalledKernelVersions verifies that installedKernelVersions discovers valid
-// kernels while recording incomplete trees (missing pkgbase or missing vmlinuz).
+// TestInstalledKernelVersions verifies that installedKernelVersions discovers
+// valid kernels, records one-sided metadata, and ignores module-only leftovers.
 func TestInstalledKernelVersions(t *testing.T) {
 	dir := t.TempDir()
 
@@ -515,6 +518,15 @@ func TestInstalledKernelVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(kNoVmlinuz, "pkgbase"), []byte("linux-zen\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. Headers, DKMS, and modules_install can leave a module-only tree.
+	kModulesOnly := filepath.Join(dir, "6.10.0-orphan")
+	if err := os.Mkdir(kModulesOnly, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kModulesOnly, "modules.dep"), []byte{}, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -654,16 +666,16 @@ func TestReconcileLimineKernelImagesIncompleteDiscoveryPreventsPruneAndRebuild(t
 	limineESPConf = confPath
 
 	resCheck := reconcileLimineKernelImages(true)
-	if resCheck.status != recWarn {
-		t.Fatalf("check mode: got status %d, want recWarn (%d)", resCheck.status, recWarn)
+	if resCheck.status != recNote {
+		t.Fatalf("check mode: got status %d, want recNote (%d)", resCheck.status, recNote)
 	}
 	if !strings.Contains(resCheck.detail, "cannot inspect installed kernel metadata") {
 		t.Errorf("check mode: unexpected detail: %s", resCheck.detail)
 	}
 
 	resApply := reconcileLimineKernelImages(false)
-	if resApply.status != recWarn {
-		t.Fatalf("apply mode: got status %d, want recWarn (%d)", resApply.status, recWarn)
+	if resApply.status != recNote {
+		t.Fatalf("apply mode: got status %d, want recNote (%d)", resApply.status, recNote)
 	}
 	if rebuildCalled {
 		t.Error("apply mode: rebuildInitramfs was called despite incomplete kernel discovery")
@@ -673,109 +685,70 @@ func TestReconcileLimineKernelImagesIncompleteDiscoveryPreventsPruneAndRebuild(t
 	}
 }
 
-// TestIncompleteKernelMetadataBlocksDestructivePruning tests missing pkgbase,
-// missing vmlinuz, and empty pkgbase, asserting no mutations occur under uncertainty.
-func TestIncompleteKernelMetadataBlocksDestructivePruning(t *testing.T) {
+// A known pkgbase with incomplete metadata protects only its matching entry.
+func TestIncompleteKernelMetadataBlocksOnlyMatchingEntry(t *testing.T) {
 	stubLimineBootGates(t)
-	for _, tc := range []struct {
-		name       string
-		incomplete []incompleteKernel
-	}{
-		{
-			name:       "missing pkgbase",
-			incomplete: []incompleteKernel{{dir: "6.12.1-cachyos", reason: "missing pkgbase"}},
-		},
-		{
-			name:       "missing vmlinuz",
-			incomplete: []incompleteKernel{{dir: "6.12.1-cachyos", pkgbase: "linux-cachyos", reason: "missing vmlinuz"}},
-		},
-		{
-			name:       "empty pkgbase",
-			incomplete: []incompleteKernel{{dir: "6.12.1-cachyos", reason: "empty pkgbase"}},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
+	dir := t.TempDir()
 
-			origESP, origPkg, origKernels, origStat, origRebuild, origPrune := limineESPConf, liminePkgInstalled, limineInstalledKernels, limineKernelImageStat, limineRebuildInitramfs, liminePruneStrayImages
-			t.Cleanup(func() {
-				limineESPConf, liminePkgInstalled, limineInstalledKernels, limineKernelImageStat, limineRebuildInitramfs, liminePruneStrayImages = origESP, origPkg, origKernels, origStat, origRebuild, origPrune
-			})
-			liminePkgInstalled = func(string) bool { return true }
-			goodImg := filepath.Join(dir, "ryoku_linux.efi")
-			if err := os.WriteFile(goodImg, []byte("img"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			limineKernelImageStat = func(p string) (os.FileInfo, error) {
-				if strings.HasSuffix(p, "ryoku_linux.efi") {
-					return os.Stat(goodImg)
-				}
-				return nil, os.ErrNotExist
-			}
-			limineInstalledKernels = func() (map[string]installedKernel, []incompleteKernel, error) {
-				return map[string]installedKernel{
-					"linux": {version: "7.2-arch"},
-				}, tc.incomplete, nil
-			}
+	origESP, origKernels, origStat, origRebuild, origPrune := limineESPConf, limineInstalledKernels, limineKernelImageStat, limineRebuildInitramfs, liminePruneStrayImages
+	t.Cleanup(func() {
+		limineESPConf, limineInstalledKernels, limineKernelImageStat, limineRebuildInitramfs, liminePruneStrayImages = origESP, origKernels, origStat, origRebuild, origPrune
+	})
 
-			var rebuildCalled, pruneCalled bool
-			limineRebuildInitramfs = func() error {
-				rebuildCalled = true
-				return nil
-			}
-			liminePruneStrayImages = func([]string) error {
-				pruneCalled = true
-				return nil
-			}
+	goodImg := filepath.Join(dir, "ryoku_linux.efi")
+	if err := os.WriteFile(goodImg, []byte("img"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	limineKernelImageStat = func(path string) (os.FileInfo, error) {
+		if strings.HasSuffix(path, "ryoku_linux.efi") {
+			return os.Stat(goodImg)
+		}
+		return nil, os.ErrNotExist
+	}
+	limineInstalledKernels = func() (map[string]installedKernel, []incompleteKernel, error) {
+		return map[string]installedKernel{
+				"linux": {version: "7.2-arch"},
+			}, []incompleteKernel{
+				{dir: "6.12.1-cachyos", pkgbase: "linux-cachyos", reason: "missing vmlinuz"},
+			}, nil
+	}
 
-			confPath := filepath.Join(dir, "limine.conf")
-			conf := "/Ryoku Linux\n" +
-				"  //linux\n" +
-				"  comment: Kernel version: 7.2-arch\n" +
-				"  protocol: efi\n" +
-				"  path: boot():/EFI/Linux/ryoku_linux.efi\n" +
-				"  //linux-cachyos\n" +
-				"  comment: Kernel version: 7.2-cachy\n" +
-				"  protocol: efi\n" +
-				"  path: boot():/EFI/Linux/ryoku_linux-cachyos.efi\n"
-			if err := os.WriteFile(confPath, []byte(conf), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			limineESPConf = confPath
+	var rebuildCalled, pruneCalled bool
+	limineRebuildInitramfs = func() error {
+		rebuildCalled = true
+		return nil
+	}
+	liminePruneStrayImages = func([]string) error {
+		pruneCalled = true
+		return nil
+	}
 
-			// Check mode: must be recWarn, never recWouldFix or recOK
-			resCheck := reconcileLimineKernelImages(true)
-			if resCheck.status != recWarn {
-				t.Fatalf("check mode: got status %d, want recWarn (%d): %s", resCheck.status, recWarn, resCheck.detail)
-			}
-			if !strings.Contains(resCheck.detail, "cannot verify installed kernel metadata") || !strings.Contains(resCheck.detail, "incomplete module tree") {
-				t.Errorf("check mode: expected incomplete module tree warning, got: %s", resCheck.detail)
-			}
-			if resCheck.remedy != "sudo ryoku doctor --check" {
-				t.Errorf("check mode: expected remedy 'sudo ryoku doctor --check', got %q", resCheck.remedy)
-			}
+	confPath := filepath.Join(dir, "limine.conf")
+	conf := "/Ryoku Linux\n" +
+		"  //linux\n" +
+		"  comment: Kernel version: 7.2-arch\n" +
+		"  protocol: efi\n" +
+		"  path: boot():/EFI/Linux/ryoku_linux.efi\n" +
+		"  //linux-cachyos\n" +
+		"  comment: Kernel version: 7.2-cachy\n" +
+		"  protocol: efi\n" +
+		"  path: boot():/EFI/Linux/ryoku_linux-cachyos.efi\n"
+	if err := os.WriteFile(confPath, []byte(conf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	limineESPConf = confPath
 
-			// Apply mode: must be recWarn, zero rebuild and zero prune
-			resApply := reconcileLimineKernelImages(false)
-			if resApply.status != recWarn {
-				t.Fatalf("apply mode: got status %d, want recWarn (%d)", resApply.status, recWarn)
-			}
-			if !strings.Contains(resApply.detail, "cannot verify installed kernel metadata") || !strings.Contains(resApply.detail, "incomplete module tree") {
-				t.Errorf("apply mode: unexpected detail: %s", resApply.detail)
-			}
-			if pruneCalled {
-				t.Errorf("apply mode: pruneLimineStrayImages called for incomplete kernel: %s", tc.name)
-			}
-			if rebuildCalled {
-				t.Errorf("apply mode: rebuildInitramfs called: %s", tc.name)
-			}
-		})
+	res := reconcileLimineKernelImages(false)
+	if res.status != recWarn || !strings.Contains(res.detail, "linux-cachyos") {
+		t.Fatalf("matching incomplete entry = %+v, want a scoped warning", res)
+	}
+	if rebuildCalled || pruneCalled {
+		t.Fatalf("matching incomplete entry mutated boot state: rebuild=%v prune=%v", rebuildCalled, pruneCalled)
 	}
 }
 
-// TestReconcileLimineKernelImagesMixedIncompleteAndRemovedKernels verifies that
-// when partial discovery occurs (e.g. valid, incomplete, and apparently removed kernels),
-// the reconciler returns recWarn and guarantees ZERO rebuild and ZERO prune calls in apply mode.
+// A matching incomplete kernel stays untouched while unrelated stale and
+// removed entries still converge.
 func TestReconcileLimineKernelImagesMixedIncompleteAndRemovedKernels(t *testing.T) {
 	stubLimineBootGates(t)
 	dir := t.TempDir()
@@ -792,10 +765,10 @@ func TestReconcileLimineKernelImagesMixedIncompleteAndRemovedKernels(t *testing.
 	// linux-lts has no directory at all (apparently removed).
 	limineInstalledKernels = func() (map[string]installedKernel, []incompleteKernel, error) {
 		return map[string]installedKernel{
-			"linux": {version: "7.2-arch"},
-		}, []incompleteKernel{
-			{dir: "6.12.1-cachyos", pkgbase: "linux-cachyos", reason: "missing vmlinuz"},
-		}, nil
+				"linux": {version: "7.2-arch"},
+			}, []incompleteKernel{
+				{dir: "6.12.1-cachyos", pkgbase: "linux-cachyos", reason: "missing vmlinuz"},
+			}, nil
 	}
 
 	var prunedTargets []string
@@ -828,22 +801,22 @@ func TestReconcileLimineKernelImagesMixedIncompleteAndRemovedKernels(t *testing.
 	}
 	limineESPConf = confPath
 
-	// Check mode: returns recWarn, never recWouldFix or recOK
+	// Check mode reports the blocked entry and the repairable drift together.
 	resCheck := reconcileLimineKernelImages(true)
 	if resCheck.status != recWarn {
 		t.Fatalf("check mode: got status %d, want recWarn (%d)", resCheck.status, recWarn)
 	}
 
-	// Apply mode: returns recWarn and guarantees ZERO rebuild and ZERO prune calls
+	// Apply mode repairs only the complete and removed kernels.
 	resApply := reconcileLimineKernelImages(false)
 	if resApply.status != recWarn {
 		t.Fatalf("apply mode: got status %d, want recWarn (%d)", resApply.status, recWarn)
 	}
-	if len(prunedTargets) > 0 {
-		t.Fatalf("apply mode: pruned targets %v, want NONE when discovery is partial", prunedTargets)
+	if !rebuildCalled {
+		t.Fatal("apply mode did not rebuild the stale complete kernel")
 	}
-	if rebuildCalled {
-		t.Fatal("apply mode: rebuildInitramfs was called when discovery is partial")
+	if len(prunedTargets) != 1 || prunedTargets[0] != "linux-lts" {
+		t.Fatalf("apply mode pruned %v, want only linux-lts", prunedTargets)
 	}
 }
 
@@ -1107,5 +1080,42 @@ func TestReconcileLimineKernelImagesMixedRealAndBrokenSymlink(t *testing.T) {
 	}
 	if pruneCalled {
 		t.Error("apply mode: pruneLimineStrayImages was called despite broken symlink")
+	}
+}
+
+// The point of the change is the distinction, not making every unreadable image
+// quiet: a /boot that denies the read is a note, but an image that cannot be
+// stat'd for any other reason is still a finding the user should see.
+func TestReconcileLimineKernelImagesWarnsOnNonPermissionStatFailure(t *testing.T) {
+	// Without this the reconciler returns early on any host whose boot Ryoku's
+	// Limine tooling does not manage, so the test would pass on a Limine box and
+	// fail on the runner.
+	stubLimineBootGates(t)
+	origESP, origPkg, origStat := limineESPConf, liminePkgInstalled, limineKernelImageStat
+	origKernels, origRebuild, origPrune := limineInstalledKernels, limineRebuildInitramfs, liminePruneStrayImages
+	t.Cleanup(func() {
+		limineESPConf, liminePkgInstalled, limineKernelImageStat = origESP, origPkg, origStat
+		limineInstalledKernels, limineRebuildInitramfs, liminePruneStrayImages = origKernels, origRebuild, origPrune
+	})
+	liminePkgInstalled = func(string) bool { return true }
+	limineInstalledKernels = func() (map[string]installedKernel, []incompleteKernel, error) {
+		return map[string]installedKernel{"linux": {version: "7.2-arch"}}, nil, nil
+	}
+	limineKernelImageStat = func(string) (os.FileInfo, error) { return nil, syscall.EIO }
+
+	dir := t.TempDir()
+	confPath := filepath.Join(dir, "limine.conf")
+	conf := "/+Ryoku\n" +
+		"  //linux\n" +
+		"  comment: Kernel version: 7.2-arch\n" +
+		"  protocol: efi\n" +
+		"  path: boot():/EFI/Linux/ryoku_linux.efi\n"
+	if err := os.WriteFile(confPath, []byte(conf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	limineESPConf = confPath
+
+	if res := reconcileLimineKernelImages(true); res.status != recWarn {
+		t.Fatalf("got status %d, want recWarn (%d): %s", res.status, recWarn, res.detail)
 	}
 }

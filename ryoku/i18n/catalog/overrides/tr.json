@@ -1,0 +1,23 @@
+{
+  "%d 32-bit package(s) update from [multilib]": "%d adet 32 bit paket [multilib] deposundan güncellenir",
+  "%d orphaned package(s)": "%d yetim paket",
+  "%d pending config update(s) (.pacnew) need review": "%d bekleyen yapılandırma güncellemesinin (.pacnew) incelenmesi gerekiyor",
+  "%d pending config update(s) (.pacnew) need review (%d %s)": "%d bekleyen yapılandırma güncellemesinin (.pacnew) incelenmesi gerekiyor (%d %s)",
+  "boot volume writability": "önyükleme birimi yazılabilirliği",
+  "boot volumes are mounted read-write": "önyükleme birimleri okuma-yazma olarak bağlandı",
+  "follow-wallpaper default": "duvar kâğıdını izleme varsayılanı",
+  "follow-wallpaper default already reconciled": "duvar kâğıdını izleme varsayılanı zaten uzlaştırıldı",
+  "render pin vs panel driver": "işleme sabitlemesi ve panel sürücüsü",
+  "ryoku channel: stable packages (named releases); `ryoku track unstable` follows the unstable channel": "ryoku kanalı: kararlı paketler (adlandırılmış sürümler); `ryoku track unstable` kararsız kanalı izler",
+  "ryoku channel: unstable packages (rebuilt on every push); `ryoku track stable` returns to stable releases": "ryoku kanalı: kararsız paketler (her gönderimde yeniden oluşturulur); `ryoku track stable` kararlı sürümlere döner",
+  "the NVIDIA elogind sleep hook is installed": "NVIDIA elogind uyku kancası kurulu",
+  "the NVIDIA sleep units are enabled": "NVIDIA uyku birimleri etkin",
+  "the NVIDIA sleep units are not installed on this machine": "NVIDIA uyku birimleri bu makinede kurulu değil",
+  "the discrete GPU does not drive the panel yet has never runtime-suspended": "ayrık GPU paneli sürmüyor ancak çalışma zamanında hiç askıya alınmadı",
+  "the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing %.1f W": "ayrık GPU paneli sürmüyor ancak çalışma zamanında hiç askıya alınmadı ve %.1f W tüketiyor",
+  "the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing %.1f W, with the card open in %s": "ayrık GPU paneli sürmüyor ancak çalışma zamanında hiç askıya alınmadı ve %.1f W tüketiyor; kartı açık tutan işlemler: %s",
+  "the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing %.1f W: the driver reports runtime D3 %q": "ayrık GPU paneli sürmüyor ancak çalışma zamanında hiç askıya alınmadı ve %.1f W tüketiyor: sürücü çalışma zamanı D3 durumunu %q olarak bildiriyor",
+  "the discrete GPU does not drive the panel yet has never runtime-suspended, with the card open in %s": "ayrık GPU paneli sürmüyor ancak çalışma zamanında hiç askıya alınmadı; kartı açık tutan işlemler: %s",
+  "the discrete GPU does not drive the panel yet has never runtime-suspended: the driver reports runtime D3 %q": "ayrık GPU paneli sürmüyor ancak çalışma zamanında hiç askıya alınmadı: sürücü çalışma zamanı D3 durumunu %q olarak bildiriyor",
+  "the installed NVIDIA branch uses the kernel suspend path and does not ship an elogind sleep hook": "kurulu NVIDIA dalı çekirdek askıya alma yolunu kullanır ve bir elogind uyku kancası sağlamaz"
+}

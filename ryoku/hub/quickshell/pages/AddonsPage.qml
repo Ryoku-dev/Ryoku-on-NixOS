@@ -6,6 +6,7 @@ import Quickshell
 import Quickshell.Io
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
+import "../Singletons"
 
 // Installed add-on management. RyoStore owns discovery and installation;
 // Settings keeps plugin enablement, placement, live options, updates/removal,
@@ -57,6 +58,9 @@ Item {
     property var bundleSheetData: ({})
     property bool bundleSheetOpen: false
     property bool bundleSheetLoading: false
+    property var packageAvailability: ({})
+    property var packageProbeQueue: []
+    property string packageProbeName: ""
 
     readonly property string query: (pg.hub && pg.hub.query) ? ("" + pg.hub.query) : ""
 
@@ -352,6 +356,94 @@ Item {
         rmProc.running = true;
     }
 
+    function bundleWithHostAvailability(base) {
+        var result = JSON.parse(JSON.stringify(base || {}));
+        var metadata = result.metadata || {};
+        var parts = metadata.items || [];
+        var unavailable = 0;
+        for (var i = 0; i < parts.length; ++i) {
+            var part = parts[i];
+            if (part.type === "package") {
+                var state = pg.packageAvailability[String(part.name)];
+                if (state && state.checking !== true) {
+                    part.available = state.available === true;
+                    part.unavailableReason = state.reason || "";
+                }
+            }
+            if (part.available === false)
+                unavailable++;
+            parts[i] = part;
+        }
+        metadata.items = parts;
+        result.metadata = metadata;
+        result.unavailableCount = unavailable;
+        return result;
+    }
+    function applyHostPackageAvailability() {
+        pg.bundleCatalog = pg.bundleCatalog.map(bundle => pg.bundleWithHostAvailability(bundle));
+        pg.bundles = pg.bundles.map(bundle => pg.bundleWithHostAvailability(bundle));
+        if (pg.bundleSheetId !== "") {
+            for (var i = 0; i < pg.bundles.length; ++i) {
+                if (pg.bundles[i].id === pg.bundleSheetId) {
+                    pg.bundleSheetData = pg.bundles[i];
+                    break;
+                }
+            }
+        }
+    }
+    function queueBundlePackageProbes() {
+        if (!Host.ready)
+            return;
+        var states = {};
+        for (var key in pg.packageAvailability)
+            states[key] = pg.packageAvailability[key];
+        var queue = pg.packageProbeQueue.slice();
+        var seen = {};
+        if (pg.packageProbeName !== "")
+            seen[pg.packageProbeName] = true;
+        for (var queued of queue)
+            seen[queued] = true;
+        for (var i = 0; i < pg.bundles.length; ++i) {
+            var parts = ((pg.bundles[i].metadata || {}).items || []);
+            for (var j = 0; j < parts.length; ++j) {
+                var part = parts[j];
+                var name = String(part.name || "");
+                if (part.type !== "package" || name === "" || states[name] !== undefined || seen[name])
+                    continue;
+                states[name] = ({ "checking": true, "available": true, "reason": "" });
+                seen[name] = true;
+                queue.push(name);
+            }
+        }
+        pg.packageAvailability = states;
+        pg.packageProbeQueue = queue;
+        pg.startNextPackageProbe();
+    }
+    function startNextPackageProbe() {
+        if (packageProbe.running || pg.packageProbeQueue.length === 0)
+            return;
+        var queue = pg.packageProbeQueue.slice();
+        pg.packageProbeName = queue.shift();
+        pg.packageProbeQueue = queue;
+        packageProbe.command = ["ryoku-host", "pkg", "available", pg.packageProbeName];
+        packageProbe.running = true;
+    }
+    function finishPackageProbe(available, reason) {
+        var states = {};
+        for (var key in pg.packageAvailability)
+            states[key] = pg.packageAvailability[key];
+        states[pg.packageProbeName] = {
+            "checking": false,
+            "available": available,
+            "reason": available ? "" : reason
+        };
+        pg.packageAvailability = states;
+        pg.packageProbeName = "";
+        pg.applyHostPackageAvailability();
+        pg.startNextPackageProbe();
+    }
+
+
     function bundleWithStatus(base, status) {
         var result = JSON.parse(JSON.stringify(base || {}));
         var metadata = result.metadata || {};
@@ -414,6 +506,8 @@ Item {
         }
         pg.bundleStatusLoaded = loaded;
         pg.bundles = next;
+        pg.applyHostPackageAvailability();
+        pg.queueBundlePackageProbes();
         if (pg.bundleStatusIsLoaded(pg.bundleSheetId))
             pg.bundleSheetLoading = false;
     }
@@ -455,7 +549,7 @@ Item {
 
         JsonAdapter {
             id: shellAdapter
-            property string barStyle: "qsbar"
+            property string barStyle: "orpheus"
         }
     }
 
@@ -473,6 +567,14 @@ Item {
         pg.loadCatalog();
         pg.loadBundles();
         pg.loadOmarchy();
+        pg.queueBundlePackageProbes();
+    }
+    Connections {
+        target: Host
+        function onReadyChanged() {
+            if (Host.ready)
+                pg.queueBundlePackageProbes();
+        }
     }
 
     Process {
@@ -646,6 +748,7 @@ Item {
                     throw new Error("items is not an array");
                 pg.applyBundleCatalogue(items);
                 pg.bundlesLoaded = true;
+                pg.queueBundlePackageProbes();
                 pg.clearError("bundles-read");
                 pg.loadBundleStatus("");
             } catch (error) {
@@ -685,6 +788,29 @@ Item {
             }
             pg.finishBundleStatus(target);
             pg.runQueuedStatus();
+        }
+    }
+    Process {
+        id: packageProbe
+        environment: Spawn.env
+        onExited: code => {
+            if (code === 0 || Host.supports("aur")) {
+                pg.finishPackageProbe(true, "");
+                return;
+            }
+            packageWhy.command = ["ryoku-host", "pkg", "why", pg.packageProbeName];
+            packageWhy.running = true;
+        }
+    }
+    Process {
+        id: packageWhy
+        environment: Spawn.env
+        stdout: StdioCollector { id: packageWhyOut }
+        onExited: {
+            var reason = packageWhyOut.text.trim().split("\n")[0]
+                || Host.reason("aur")
+                || I18n.tr("This package is not available on this edition.");
+            pg.finishPackageProbe(false, reason);
         }
     }
     Process {

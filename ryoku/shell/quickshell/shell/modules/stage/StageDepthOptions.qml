@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Dialogs
 import Quickshell
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
@@ -986,23 +985,25 @@ Column {
         }
     }
 
-    FileDialog {
+    FileDialogHost {
         id: cutDialog
+        currentFolder: "file://" + Quickshell.env("HOME") + "/Pictures"
         title: I18n.tr("Cut a layer from a picture")
         nameFilters: [
             I18n.tr("Pictures (*.png *.jpg *.jpeg *.webp *.bmp)"),
             I18n.tr("All files (*)")
         ]
-        onAccepted: opts.pickedCut = String(selectedFile)
+        onAccepted: opts.pickedCut = String(cutDialog.selectedFile)
     }
 
-    FileDialog {
+    FileDialogHost {
         id: pngDialog
+        currentFolder: "file://" + Quickshell.env("HOME") + "/Pictures"
         title: I18n.tr("Add a PNG layer")
         nameFilters: [
             I18n.tr("PNG images (*.png)"),
             I18n.tr("All files (*)")
         ]
-        onAccepted: opts.backend.addLayer(opts.pathFromUrl(selectedFile))
+        onAccepted: opts.backend.addLayer(opts.pathFromUrl(pngDialog.selectedFile))
     }
 }

@@ -31,11 +31,11 @@ Singleton {
         }
     }
     function fail(id) {
-        // A builtin style (qsbar, kairos) ships with the shell and cannot be
-        // legitimately broken; a load error is a transient hiccup (an update's
-        // config/plugin swap, a cold-start import race), so never record it as
-        // failed - Frame retries it instead of permanently dropping the bar to
-        // the sumi rail.
+        // A builtin style (qsbar, kairos, orpheus) ships with the shell and cannot
+        // be legitimately broken; a load error is a transient hiccup (an
+        // update's config/plugin swap, a cold-start import race), so never
+        // record it as failed - Frame retries it instead of permanently
+        // dropping the bar to the sumi rail.
         if (!id || root.builtins[id] || root.failedStyles[id])
             return;
         const next = Object.assign({}, root.failedStyles);
@@ -63,13 +63,15 @@ Singleton {
     // Built-in folder styles ship inside the shell and resolve relative to the
     // Frame Loader, so no store install is needed. "sumi" stays the painted
     // frame scene (empty scene url); "qsbar" is the shipped QS Bar folder,
-    // "kairos" the shipped island clock, "iris" the shipped frame family and
-    // "python" the shipped serpantinum port (its Scene hosts the bar, dock,
-    // popups and guide from the primary output, like the frame family).
+    // "kairos" the shipped island clock, "orpheus" the shipped liquid top bar,
+    // "iris" the shipped frame family and "python" the shipped serpantinum port
+    // (its Scene hosts the bar, dock, popups and guide from the primary output,
+    // like the frame family).
     readonly property var builtins: ({
         "qsbar": "barstyles/qsbar/Scene.qml",
         "chroma": "barstyles/chroma/Scene.qml",
         "kairos": "barstyles/kairos/Scene.qml",
+        "orpheus": "barstyles/orpheus/Scene.qml",
         "iris": "barstyles/iris/Scene.qml",
         "python": "barstyles/python/Scene.qml",
         "nomarchy": "barstyles/nomarchy/Scene.qml"

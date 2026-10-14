@@ -86,7 +86,7 @@ Item {
         closeGraceMs: IrisStyle.settleDuration * 2 + 160
         extraCondition: (Config.options?.iris?.modules?.notificationPopup ?? true)
             && (!(Config.options?.enabledPanels ?? []).includes("irisBar")
-                || (CompositorService.nativeOverview && GameMode.hasFullscreenOnOutput(GlobalStates.focusedScreen?.name ?? "") && !CompositorService.overviewOpen
+                || (GameMode.hasFullscreenOnOutput(GlobalStates.focusedScreen?.name ?? "") && !CompositorService.overviewOpen
                     && (Config.options?.iris?.notifications?.fullscreen ?? true)))
         component: IrisNotificationPopup {}
     }
@@ -111,7 +111,7 @@ Item {
         identifier: "irisOnScreenDisplay"
         extraCondition: (Config.options?.iris?.modules?.osd ?? true)
             && (!GlobalStates.barOpen
-                || (CompositorService.nativeOverview && GameMode.hasFullscreenOnOutput(GlobalStates.focusedScreen?.name ?? "") && !CompositorService.overviewOpen)
+                || (GameMode.hasFullscreenOnOutput(GlobalStates.focusedScreen?.name ?? "") && !CompositorService.overviewOpen)
                 || !(Config.options?.enabledPanels ?? []).includes("irisBar")
                 || ((Config.options?.iris?.bar?.screenList ?? []).length > 0
                     && !(Config.options.iris.bar.screenList).includes(GlobalStates.focusedScreen?.name ?? "")))

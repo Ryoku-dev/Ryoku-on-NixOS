@@ -246,7 +246,7 @@ func (s *sources) wallhavenCollections(reqID int64, p map[string]interface{}) re
 	if username == "" {
 		return errResp(reqID, -1, "set your wallhaven username in settings first")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), remoteFetchTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), searchFetchTimeout)
 	defer cancel()
 	v := url.Values{}
 	if apiKey := s.str("wallhaven.apiKey"); apiKey != "" {
@@ -258,7 +258,7 @@ func (s *sources) wallhavenCollections(reqID int64, p map[string]interface{}) re
 	}
 	body, err := s.readText(ctx, http.MethodGet, u, nil, "Wallhaven")
 	if err != nil {
-		return errResp(reqID, -1, err.Error())
+		return errResp(reqID, -1, searchError(err))
 	}
 	cols, err := parseWallhavenCollections(body)
 	if err != nil {

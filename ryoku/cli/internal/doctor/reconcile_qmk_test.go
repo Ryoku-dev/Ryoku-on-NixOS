@@ -38,13 +38,13 @@ func TestReconcileQMKCheckOnlyAndAlreadyInstalled(t *testing.T) {
 func TestReconcileQMKNotesUnavailableProvider(t *testing.T) {
 	withQMKTestState(t, qmkStatus{supported: true})
 	qmkProviderAvailable = func() bool { return false }
-	qmkInstallAdvice = func() string { return "qmk-hid is not packaged for this system" }
+	qmkInstallAdvice = func() string { return "qmk_hid is not packaged for this system" }
 	oldInstall := installQMK
 	installQMK = func() error { t.Fatal("unavailable provider was installed"); return nil }
 	t.Cleanup(func() { installQMK = oldInstall })
 
 	got := reconcileQMK(false)
-	if got.status != recNote || got.remedy != "qmk-hid is not packaged for this system" {
+	if got.status != recNote || got.remedy != "qmk_hid is not packaged for this system" {
 		t.Fatalf("result = %#v, want unavailable note with host advice", got)
 	}
 }
@@ -55,7 +55,7 @@ func withQMKTestState(t *testing.T, state qmkStatus) {
 	oldAvailable, oldAdvice := qmkProviderAvailable, qmkInstallAdvice
 	readQMKStatus = func() qmkStatus { return state }
 	qmkProviderAvailable = func() bool { return true }
-	qmkInstallAdvice = func() string { return "sudo pacman -S qmk-hid" }
+	qmkInstallAdvice = func() string { return "sudo pacman -S qmk_hid" }
 	t.Cleanup(func() {
 		readQMKStatus = oldStatus
 		qmkProviderAvailable, qmkInstallAdvice = oldAvailable, oldAdvice

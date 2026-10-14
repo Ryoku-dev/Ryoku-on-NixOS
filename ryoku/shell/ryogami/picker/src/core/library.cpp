@@ -145,15 +145,11 @@ void Library::onEvent(const QString &name, const QVariantMap &data)
     if (name == QLatin1String("ryogami.wall.cached")) {
         const Entry entry = Entry::fromJson(QJsonObject::fromVariantMap(data));
         upsertWallpaper(entry);
-        // Scenes show in the Workshop collection too; a new still must reach it.
+        // Scenes show in the Workshop collection too, so a scene the scan just found
+        // must reach it as well as a fresh still for one it already holds.
         if (entry.type == QLatin1String("we")) {
-            for (Entry &w : m_workshop) {
-                if (w.key == entry.key) {
-                    w = entry;
-                    m_workshopDirty = true;
-                    break;
-                }
-            }
+            upsertWorkshop(entry);
+            m_workshopDirty = true;
         }
         if (!m_cachedFlush->isActive())
             m_cachedFlush->start();
@@ -162,14 +158,16 @@ void Library::onEvent(const QString &name, const QVariantMap &data)
                         data.value(QStringLiteral("type")).toString());
     } else if (name == QLatin1String("ryogami.wall.scan_done")) {
         // A picker started mid-scan holds only what the daemon had listed so far, and not
-        // every entry a scan settles arrives as a cached event; the finished list is the
-        // truth, so take it whole rather than leave cards missing until a relaunch.
+        // every entry a scan settles arrives as a cached event; the finished lists are the
+        // truth, so take both whole rather than leave cards missing until a relaunch.
         flushCached();
         fetchWallpapers();
+        fetchWorkshop();
     } else if (name == QLatin1String("ryogami.wall.cache")) {
         if (data.value(QStringLiteral("status")).toString() == QLatin1String("ready")) {
             flushCached();
             fetchWallpapers();
+            fetchWorkshop();
         }
     } else if (name == QLatin1String("ryogami.workshop.changed")) {
         fetchWorkshop();
@@ -316,6 +314,17 @@ void Library::upsertWallpaper(const Entry &entry)
         m_wallIndex.insert(entry.key, m_wallpapers.size());
         m_wallpapers.append(entry);
     }
+}
+
+void Library::upsertWorkshop(const Entry &entry)
+{
+    for (Entry &w : m_workshop) {
+        if (w.key == entry.key) {
+            w = entry;
+            return;
+        }
+    }
+    m_workshop.append(entry);
 }
 
 void Library::removeWallpaper(const QString &name, const QString &type)

@@ -44,19 +44,9 @@ ok(
     "Ryoku command helpers resolve through the packaged PATH"
 );
 
-// The catalog fires ryoku-cmd-* helpers by bare name, so they must actually
-// reach /usr/bin. The ryoku-shell package ships ryoku/shell/scripts/ryoku-* in
-// one glob loop; assert that loop is present and that every helper the catalog
-// names is a file that glob will pick up. This is the guard the payload audit
-// needed: a helper referenced by bare name but shipped only by the Hyprland
-// variant is dead on a niri box.
+// Helpers run by bare name must live in the shared shell scripts tree rather
+// than a compositor-specific directory.
 const repoRoot = new URL("../../../../../../../../../", import.meta.url);
-const shellPkgbuild = readFileSync(
-    new URL("release/packages/ryoku-shell/PKGBUILD", repoRoot), "utf8");
-ok(
-    /for s in "\$_repo"\/ryoku\/shell\/scripts\/ryoku-\*/.test(shellPkgbuild),
-    "ryoku-shell PKGBUILD installs ryoku/shell/scripts/ryoku-* by glob"
-);
 const cmdHelpers = [...new Set(
     CATALOG.map(a => String(a.exec?.[0] || "")).filter(n => n.startsWith("ryoku-cmd-"))
 )];
@@ -64,7 +54,7 @@ const missingHelpers = cmdHelpers.filter(
     name => !existsSync(new URL("ryoku/shell/scripts/" + name, repoRoot)));
 ok(
     missingHelpers.length === 0,
-    "every ryoku-cmd-* the catalog fires lives in ryoku/shell/scripts so the shell glob ships it: "
+    "every ryoku-cmd-* the catalog fires is shared by every compositor: "
         + (missingHelpers.join(", ") || "all present")
 );
 

@@ -66,7 +66,16 @@ var rows = [
         "group": "FONT",
         "key": "fontFamily",
         "label": "System font",
-        "desc": "One font for the shell, apps and terminal.",
+        "desc": "The proportional face used by the shell and apps.",
+        "ctl": "pick",
+        "src": "shell",
+        "opts": []
+    }, {
+        "tab": "",
+        "group": "FONT",
+        "key": "terminalFontFamily",
+        "label": "Terminal font",
+        "desc": "The monospace face used by terminals and code.",
         "ctl": "pick",
         "src": "shell",
         "opts": []

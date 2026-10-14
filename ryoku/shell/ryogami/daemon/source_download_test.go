@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -16,6 +18,10 @@ import (
 func newTestSources(t *testing.T) (*daemon, *sources) {
 	t.Helper()
 	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
+	t.Setenv("RYOGAMI_WALL_CONFIG", "")
+	resetSettingsState()
+	t.Cleanup(resetSettingsState)
 	d := &daemon{events: newEventHub()}
 	d.cfg.Paths.Wallpaper = filepath.Join(tmp, "wall")
 	d.cfg.Paths.VideoWallpaper = filepath.Join(tmp, "vid")
@@ -33,6 +39,12 @@ func newTestSources(t *testing.T) (*daemon, *sources) {
 type capturedEvent struct {
 	Event string          `json:"event"`
 	Data  json.RawMessage `json:"data"`
+}
+
+type thumbRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f thumbRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func drainEvents(ch chan string) []capturedEvent {
@@ -132,8 +144,8 @@ func TestShouldEmitAndContentProgress(t *testing.T) {
 	if shouldEmit(0.005, 0.0, 200*time.Millisecond) {
 		t.Error("Δ0.5% should not emit")
 	}
-	if shouldEmit(0.5, 0.0, 50*time.Millisecond) {
-		t.Error("under 100ms should not emit")
+	if shouldEmit(0.5, 0.0, 100*time.Millisecond) {
+		t.Error("under 125ms should not emit")
 	}
 	if p, ok := contentProgress(50, 100); !ok || p != 0.5 {
 		t.Errorf("progress = %v %v", p, ok)
@@ -143,6 +155,50 @@ func TestShouldEmitAndContentProgress(t *testing.T) {
 	}
 	if _, ok := contentProgress(1, 0); ok {
 		t.Error("unknown total should yield no progress")
+	}
+}
+
+func TestDownloadProgressThrottleKeepsFirstStatusAndFinalEvents(t *testing.T) {
+	_, sources := newTestSources(t)
+	start := time.Unix(100, 0)
+	p := 0.1
+	if !sources.allowDownloadEvent(downloadEvent{ID: "a", Status: dlQueued}, start) {
+		t.Fatal("first event was suppressed")
+	}
+	if sources.allowDownloadEvent(downloadEvent{ID: "a", Status: dlQueued, Progress: &p}, start.Add(124*time.Millisecond)) {
+		t.Fatal("progress event inside throttle window was emitted")
+	}
+	if !sources.allowDownloadEvent(downloadEvent{ID: "a", Status: dlDownloading, Progress: &p}, start.Add(20*time.Millisecond)) {
+		t.Fatal("status change was suppressed")
+	}
+	if sources.allowDownloadEvent(downloadEvent{ID: "a", Status: dlDownloading, Progress: &p}, start.Add(144*time.Millisecond)) {
+		t.Fatal("eighth-of-a-second boundary was emitted early")
+	}
+	if !sources.allowDownloadEvent(downloadEvent{ID: "a", Status: dlDownloading, Progress: &p}, start.Add(145*time.Millisecond)) {
+		t.Fatal("progress event at throttle boundary was suppressed")
+	}
+	if !sources.allowDownloadEvent(downloadEvent{ID: "a", Status: dlDone}, start.Add(146*time.Millisecond)) {
+		t.Fatal("final event was suppressed")
+	}
+	if !sources.allowDownloadEvent(downloadEvent{ID: "a", Status: dlDownloading}, start.Add(147*time.Millisecond)) {
+		t.Fatal("new transfer's first event was suppressed")
+	}
+}
+
+func TestWorkshopProgressThrottleKeepsStatusAndFinalEvents(t *testing.T) {
+	d := &daemon{}
+	start := time.Unix(200, 0)
+	if !d.allowWorkshopDownloadEvent("42", "downloading", start) {
+		t.Fatal("first event was suppressed")
+	}
+	if d.allowWorkshopDownloadEvent("42", "downloading", start.Add(50*time.Millisecond)) {
+		t.Fatal("progress event inside throttle window was emitted")
+	}
+	if !d.allowWorkshopDownloadEvent("42", "auth_error", start.Add(51*time.Millisecond)) {
+		t.Fatal("status change/final event was suppressed")
+	}
+	if !d.allowWorkshopDownloadEvent("42", "done", start.Add(52*time.Millisecond)) {
+		t.Fatal("done event was suppressed")
 	}
 }
 
@@ -282,5 +338,87 @@ func TestFetchToFileSizeCap(t *testing.T) {
 	dest := filepath.Join(d.config().wallpaperDir(), "wallhaven-3.jpg")
 	if err := s.fetchToFile(context.Background(), srv.URL, dest, sniffImage, 4, func(string) error { return nil }, nil); err == nil {
 		t.Error("expected a size-cap rejection")
+	}
+}
+
+func TestSupersededOverlappingThumbnailEmitsOnce(t *testing.T) {
+	d, s := newTestSources(t)
+	const (
+		connectionID = 91
+		source       = "wallhaven"
+		id           = "shared"
+		thumbURL     = "https://wallhaven.cc/shared.png"
+	)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startedOnce, releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	s.http.noRedirect = &http.Client{Transport: thumbRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		startedOnce.Do(func() { close(started) })
+		<-release
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(string(pngBytes))),
+			Request:    req,
+		}, nil
+	})}
+	events := d.events.subscribe()
+	defer d.events.unsubscribe(events)
+	s.openSearchConnection(connectionID)
+	defer s.dropSearchConnection(connectionID)
+
+	_, finishFirst, stale := s.beginSearch(connectionID, source, 1, time.Minute)
+	if stale {
+		t.Fatal("first search was unexpectedly stale")
+	}
+	defer finishFirst()
+	jobs := [][2]string{{id, thumbURL}}
+	s.queueRemoteThumbs(connectionID, source, source, 1, jobs)
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("first thumbnail fetch did not start")
+	}
+
+	_, finishSecond, stale := s.beginSearch(connectionID, source, 2, time.Minute)
+	if stale {
+		t.Fatal("second search was unexpectedly stale")
+	}
+	defer finishSecond()
+	s.queueRemoteThumbs(connectionID, source, source, 2, jobs)
+	time.Sleep(50 * time.Millisecond)
+	unblock()
+
+	count := 0
+	deadline := time.After(3 * time.Second)
+	for count == 0 {
+		select {
+		case line := <-events:
+			var ev capturedEvent
+			if json.Unmarshal([]byte(line), &ev) == nil && ev.Event == evRemoteThumb {
+				var data map[string]interface{}
+				if json.Unmarshal(ev.Data, &data) == nil && data["source"] == source && data["id"] == id {
+					count++
+				}
+			}
+		case <-deadline:
+			t.Fatal("overlapping result never received its thumbnail event")
+		}
+	}
+	select {
+	case line := <-events:
+		var ev capturedEvent
+		if json.Unmarshal([]byte(line), &ev) == nil && ev.Event == evRemoteThumb {
+			var data map[string]interface{}
+			if json.Unmarshal(ev.Data, &data) == nil && data["source"] == source && data["id"] == id {
+				count++
+			}
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+	if count != 1 {
+		t.Fatalf("thumbnail event count = %d, want 1", count)
 	}
 }

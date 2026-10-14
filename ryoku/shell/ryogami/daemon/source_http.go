@@ -25,7 +25,8 @@ const (
 	dialTimeout          = 10 * time.Second
 	responseHeadTimeout  = 30 * time.Second
 	apiRequestTimeout    = 45 * time.Second
-	remoteFetchTimeout   = 90 * time.Second
+	searchFetchTimeout   = 20 * time.Second
+	downloadFetchTimeout = 2 * time.Hour
 	thumbFetchTimeout    = 20 * time.Second
 	previewFetchTimeout  = 60 * time.Second
 	sniffHeadLen         = 16
@@ -40,11 +41,13 @@ type httpStack struct {
 
 func newHTTPStack() *httpStack {
 	transport := &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: dialTimeout}).DialContext,
+		DialContext:           (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext,
 		TLSHandshakeTimeout:   dialTimeout,
 		ResponseHeaderTimeout: responseHeadTimeout,
 		ForceAttemptHTTP2:     true,
-		MaxIdleConnsPerHost:   4,
+		MaxIdleConns:          32,
+		MaxIdleConnsPerHost:   8,
+		IdleConnTimeout:       90 * time.Second,
 	}
 	return &httpStack{
 		client: &http.Client{Transport: transport, Timeout: apiRequestTimeout},
@@ -272,15 +275,11 @@ func (s *sources) getBytes(ctx context.Context, method, rawURL string, header ht
 	return io.ReadAll(io.LimitReader(resp.Body, sizeCap))
 }
 
-func (d *daemon) httpGetBytes(rawURL string, header http.Header, sizeCap int64) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), remoteFetchTimeout)
-	defer cancel()
+func (d *daemon) httpGetBytesContext(ctx context.Context, rawURL string, header http.Header, sizeCap int64) ([]byte, error) {
 	return d.sources.getBytes(ctx, http.MethodGet, rawURL, header, nil, sizeCap)
 }
 
-func (d *daemon) httpPostForm(rawURL string, form url.Values, sizeCap int64) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), remoteFetchTimeout)
-	defer cancel()
+func (d *daemon) httpPostFormContext(ctx context.Context, rawURL string, form url.Values, sizeCap int64) ([]byte, error) {
 	h := http.Header{"Content-Type": []string{"application/x-www-form-urlencoded"}}
 	return d.sources.getBytes(ctx, http.MethodPost, rawURL, h, strings.NewReader(form.Encode()), sizeCap)
 }

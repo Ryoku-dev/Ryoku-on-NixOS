@@ -70,6 +70,10 @@ type runState struct {
 	Label              string      `json:"label"`
 	Progress           float64     `json:"progress"`
 	Steps              []runStep   `json:"steps,omitempty"`
+	Pieces             []piece     `json:"pieces,omitempty"`
+	PiecesStep         string      `json:"piecesStep,omitempty"`
+	PiecesTypical      int64       `json:"piecesTypical,omitempty"`
+	FirstBuild         bool        `json:"firstBuild,omitempty"`
 	Log                []string    `json:"log,omitempty"`
 	Activity           string      `json:"activity,omitempty"`   // the last line the running work printed
 	ActivityAt         int64       `json:"activityAt,omitempty"` // unix ms of that line
@@ -102,6 +106,15 @@ type publisher struct {
 	activity           string
 	activityAt         int64
 	sub                float64 // how far the running step is, read off its output ("(3/12)")
+	pieces             []piece
+	piecesStep         string
+	piecesTypical      int64
+	piecesSettled      bool
+	firstBuild         bool
+	pieceFrac          float64
+	pieceHistory       []pieceHistoryEntry
+	pieceOrder         []string
+	pieceNotes         map[string][]string
 	watch              *watchState
 	lastWrite          time.Time
 	stopBeat           chan struct{}
@@ -157,6 +170,7 @@ func updateUI() string {
 // and the run reads as one continuous bar.
 func (p *publisher) begin(steps []runStep) (resumed bool) {
 	p.mu.Lock()
+	p.resetPiecesLocked()
 	p.pid = os.Getpid()
 	p.ui = updateUI()
 	p.steps = make([]runStep, len(steps))
@@ -217,12 +231,14 @@ func (p *publisher) indexOf(key string) int {
 	return -1
 }
 
-// settle closes the running step i with the given state and its duration.
-func (p *publisher) settle(i int, st stepState) {
+// settle closes step i and any piece it still owns. The caller reports the
+// returned piece to the console after releasing p.mu.
+func (p *publisher) settle(i int, st stepState) (piece, bool) {
 	if p.steps[i].State == stepRunning && p.steps[i].Began > 0 {
 		p.steps[i].Took = nowMs() - p.steps[i].Began
 	}
 	p.steps[i].State = st
+	return p.settlePiecesForStepLocked(p.steps[i].Key, st)
 }
 
 // at marks the step with key running and every earlier still-open step done,
@@ -234,9 +250,13 @@ func (p *publisher) at(key string) {
 		p.mu.Unlock()
 		return
 	}
+	var settled piece
+	var pieceSettled bool
 	for i := range idx {
 		if p.steps[i].State == stepPending || p.steps[i].State == stepRunning {
-			p.settle(i, stepDone)
+			if pc, ok := p.settle(i, stepDone); ok {
+				settled, pieceSettled = pc, true
+			}
 		}
 	}
 	p.steps[idx].State = stepRunning
@@ -244,6 +264,9 @@ func (p *publisher) at(key string) {
 	p.activity, p.activityAt, p.sub = "", 0, 0
 	p.write()
 	p.mu.Unlock()
+	if pieceSettled && con != nil {
+		con.pieceSettled(settled)
+	}
 	con.enter(key)
 }
 
@@ -251,21 +274,37 @@ func (p *publisher) at(key string) {
 // already ran before the exec handoff).
 func (p *publisher) markDone(keys ...string) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	var settled piece
+	var pieceSettled bool
 	for _, k := range keys {
 		if i := p.indexOf(k); i >= 0 {
-			p.settle(i, stepDone)
+			if pc, ok := p.settle(i, stepDone); ok {
+				settled, pieceSettled = pc, true
+			}
 		}
+	}
+	p.mu.Unlock()
+	if pieceSettled && con != nil {
+		con.pieceSettled(settled)
 	}
 }
 
 // skip marks a step skipped (e.g. the AUR step on a box with no yay).
 func (p *publisher) skip(key string) {
 	p.mu.Lock()
+	var settled piece
+	var pieceSettled bool
 	if i := p.indexOf(key); i >= 0 {
-		p.steps[i].State = stepSkipped
+		if p.steps[i].State == stepRunning {
+			settled, pieceSettled = p.settle(i, stepSkipped)
+		} else {
+			p.steps[i].State = stepSkipped
+		}
 	}
 	p.mu.Unlock()
+	if pieceSettled && con != nil {
+		con.pieceSettled(settled)
+	}
 	con.skip(key)
 }
 
@@ -314,12 +353,37 @@ var fracRe = regexp.MustCompile(`^[\(\[]\s*(\d+)\s*/\s*(\d+)\s*[\)\]]`)
 // far faster than any reader needs, and the heartbeat covers the gaps.
 func (p *publisher) observe(line string) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if !p.active {
+		p.mu.Unlock()
+		return
+	}
+	notice := p.handlePieceMarkerLocked(line)
+	if notice.marker {
+		if notice.changed {
+			p.write()
+		}
+		p.mu.Unlock()
+		if notice.hasSettled && con != nil {
+			con.pieceSettled(notice.settled)
+		}
+		if notice.opened {
+			if con != nil {
+				con.piecesOpen(notice.view)
+			}
+			// The console prints the explainer under the open header itself,
+			// where a person reads it before the first bar moves; a note here
+			// would surface only when the step settles. The log and the Hub
+			// (firstBuild) still carry it.
+			if notice.first {
+				logNarrative(firstBuildExplainer())
+			}
+		}
 		return
 	}
 	p.activity, p.activityAt = line, nowMs()
-	if m := fracRe.FindStringSubmatch(line); m != nil {
+	if p.runningPieceIndexLocked() >= 0 {
+		p.observePieceOutputLocked(line)
+	} else if m := fracRe.FindStringSubmatch(line); m != nil {
 		x, _ := strconv.Atoi(m[1])
 		y, _ := strconv.Atoi(m[2])
 		if y > 0 && x <= y {
@@ -329,6 +393,7 @@ func (p *publisher) observe(line string) {
 	if time.Since(p.lastWrite) >= 500*time.Millisecond {
 		p.write()
 	}
+	p.mu.Unlock()
 }
 
 // currentFraction is fraction for a reader outside the publisher (the
@@ -339,9 +404,9 @@ func (p *publisher) currentFraction() float64 {
 	return p.fraction()
 }
 
-// fraction is the run's completion: settled steps count whole, the running
-// step counts by what its own output says (half when it says nothing). The
-// caller holds the lock.
+// fraction is the run's completion: settled steps count whole, and the
+// running step contributes either its piece estimate or its captured fraction.
+// The caller holds the lock.
 func (p *publisher) fraction() float64 {
 	if len(p.steps) == 0 {
 		return 0
@@ -352,7 +417,9 @@ func (p *publisher) fraction() float64 {
 		case stepDone, stepSkipped, stepFailed:
 			done++
 		case stepRunning:
-			if p.sub > 0 {
+			if s.Key == p.piecesStep && len(p.pieces) > 0 {
+				done += p.pieceStepFraction()
+			} else if p.sub > 0 {
 				done += 0.1 + 0.85*p.sub
 			} else {
 				done += 0.5
@@ -377,7 +444,9 @@ func (p *publisher) write() {
 	now := nowMs()
 	st := runState{
 		Phase: p.phase, PID: p.pid, UI: p.ui, Started: p.started, Beat: now,
-		Steps: p.steps, Log: p.log, Snapshot: p.snapshot, Error: p.errMsg,
+		Steps: p.steps, Pieces: p.pieces, PiecesStep: p.piecesStep,
+		PiecesTypical: p.piecesTypical, FirstBuild: p.firstBuild,
+		Log: p.log, Snapshot: p.snapshot, Error: p.errMsg,
 		SnapshotsSupported: p.snapshotsSupported, SnapshotReason: p.snapshotReason,
 		Activity: p.activity, ActivityAt: p.activityAt, Prompt: p.prompt,
 		LogPath: updateLogPath(), Progress: p.fraction(),
@@ -435,14 +504,21 @@ func (p *publisher) stopHeartbeat() {
 func (p *publisher) finish() {
 	p.mu.Lock()
 	p.stopHeartbeat()
+	var settled piece
+	var pieceSettled bool
 	for i := range p.steps {
 		if p.steps[i].State != stepSkipped && p.steps[i].State != stepFailed && p.steps[i].State != stepDone {
-			p.settle(i, stepDone)
+			if pc, ok := p.settle(i, stepDone); ok {
+				settled, pieceSettled = pc, true
+			}
 		}
 	}
 	p.phase, p.prompt, p.activity = "done", nil, ""
 	p.write()
 	p.mu.Unlock()
+	if pieceSettled && con != nil {
+		con.pieceSettled(settled)
+	}
 	con.finish()
 }
 
@@ -456,15 +532,22 @@ func (p *publisher) fail(err error) {
 	}
 	p.mu.Lock()
 	p.stopHeartbeat()
+	var settled piece
+	var pieceSettled bool
 	for i := range p.steps {
 		if p.steps[i].State == stepRunning {
-			p.settle(i, stepFailed)
+			if pc, ok := p.settle(i, stepFailed); ok {
+				settled, pieceSettled = pc, true
+			}
 		}
 	}
 	p.phase, p.prompt, p.errMsg = "error", nil, err.Error()
 	snap := p.snapshot
 	p.write()
 	p.mu.Unlock()
+	if pieceSettled && con != nil {
+		con.pieceSettled(settled)
+	}
 	con.fail(err, snap)
 }
 

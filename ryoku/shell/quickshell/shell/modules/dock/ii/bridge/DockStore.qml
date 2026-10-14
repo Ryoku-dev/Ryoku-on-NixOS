@@ -1,0 +1,167 @@
+pragma Singleton
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import ".."
+import Quickshell
+import shell.services as ShellCfg
+
+/**
+ * The shared dock store's view for the ii design.
+ *
+ * The ii dock keeps its knobs in shell.json's `dock` object like every other
+ * design: the four shared keys (enabled, edge, size, pinned) live at the top
+ * of that object and are what the Hub, the CLI and the stage edit pages
+ * already read and write; the design's own deep options live beside them
+ * under `dock.ii`. A leaf of the generated options tree pulls through here on
+ * read and commits back through here on write, so the two stores never
+ * disagree and the daemon stays the sole writer.
+ */
+Singleton {
+    id: root
+
+    // The shell edge the dock resolves "auto" against: the shared store's
+    // edge, which the Hub and `ryoku-shell dock edge` own.
+    function sharedEdge(): string {
+        return ShellCfg.Dock.resolvedEdge();
+    }
+
+    // The bar geometry the window-sizing maths reads when a bar conflicts
+    // with the dock's axis. Ryoku's frame bar is always horizontal at the
+    // top or bottom, never vertical.
+    function sharedVertical(): bool {
+        return false;
+    }
+
+    function sharedBarWidth(): real {
+        return ShellCfg.Config.frameThickness;
+    }
+
+    function sharedBarHeight(): real {
+        return ShellCfg.Config.frameThickness;
+    }
+
+    // The shared pins in canonical form, so the design's default order can
+    // be built from what the user actually pinned elsewhere.
+    function sharedPinned(): var {
+        return Array.from(ShellCfg.Dock.pinnedOrStarter() ?? []);
+    }
+
+    readonly property var sharedKeys: ({
+        "enable": "enabled",
+        "position": "edge",
+        "height": "size"
+    })
+
+    function frame(): var {
+        const d = ShellCfg.Dock.cfg("ii", {});
+        return (d && typeof d === "object") ? d : {};
+    }
+
+    // Read one option leaf: the shared keys resolve against the top-level
+    // dock object (mirroring what every other design and the Hub see); the
+    // pinned list prefers an explicit ii list, then the shared pins; the
+    // order falls back to a list built from the shared pins; everything else
+    // lives in the dock.ii frame, dotted.
+    // Leaf bindings re-evaluate whenever the dock subtree is rewritten; a
+    // fresh array identity on each read would look like a user change and
+    // churn the store forever. Reads are memoised against a snapshot of the
+    // subtree, so a binding only sees a new object when the data moved.
+    // One plain object, mutated in place: never reassigned, so it stays
+    // invisible to the binding engine and cannot retrigger the read.
+    property var _memo: ({ state: "", data: {}, defaults: {} })
+
+    function snapshot(): string {
+        return JSON.stringify(ShellCfg.Config.dock ?? {});
+    }
+
+    function pull(path: string, fallback: var): var {
+        const m = root._memo;
+        const snap = root.snapshot();
+        if (snap !== m.state) {
+            m.state = snap;
+            m.data = {};
+        }
+        if (path in m.data)
+            return m.data[path];
+        const v = root.resolve(path, fallback);
+        m.data[path] = v;
+        return v;
+    }
+
+    function resolve(path: string, fallback: var): var {
+        const shared = root.sharedKeys[path];
+        if (shared !== undefined) {
+            const v = ShellCfg.Dock.cfg(shared, null);
+            return (v === null || v === undefined) ? fallback : v;
+        }
+        if (path === "pinnedApps")
+            return Array.from(ShellCfg.Dock.pinnedOrStarter() ?? []);
+        if (path === "order") {
+            const own = root.frame().order;
+            if (own !== undefined && own !== null)
+                return Array.from(own);
+            const built = ["pin"];
+            const pins = root.sharedPinned();
+            for (let i = 0; i < pins.length; i++)
+                built.push("app:" + pins[i]);
+            return built.concat(["runningApps", "media", "weather", "sports",
+                "livePreview", "phone", "trash", "overview"]);
+        }
+        const parts = path.split(".");
+        let node = root.frame();
+        for (let i = 0; i < parts.length; i++) {
+            if (node === undefined || node === null || typeof node !== "object")
+                return fallback;
+            node = node[parts[i]];
+        }
+        return (node === undefined || node === null) ? fallback : node;
+    }
+
+    // The first Changed a leaf fires is the binding's own default landing,
+    // not a user edit; remembering it keeps defaults out of shell.json.
+    function isDefaultWrite(path: string, current: var, value: var): bool {
+        if (current !== undefined)
+            return JSON.stringify(current) === JSON.stringify(value);
+        const encoded = JSON.stringify(value);
+        const d = root._memo.defaults;
+        if (d[path] === undefined) {
+            d[path] = encoded;
+            return true;
+        }
+        return d[path] === encoded;
+    }
+
+    // Write one option leaf back. Shared keys go straight to the shared
+    // store; a pinned-apps write mirrors there too so the other designs stay
+    // in sync. Everything else merges into the dock.ii frame.
+    function commit(path: string, value: var) {
+        // Compare against the stored data, not the memo: an absent key reads
+        // back the sentinel, and the first Changed a leaf fires is the
+        // binding's own default landing, which must never be persisted.
+        const current = root.resolve(path, root);
+        if (current !== root && JSON.stringify(current) === JSON.stringify(value))
+            return;
+        if (current === root && root.isDefaultWrite(path, undefined, value))
+            return;
+        const shared = root.sharedKeys[path];
+        if (shared !== undefined) {
+            ShellCfg.Dock.setCfg(shared, value);
+            return;
+        }
+        if (path === "pinnedApps") {
+            ShellCfg.Dock.setPinned(Array.from(value ?? []));
+            return;
+        }
+        const next = JSON.parse(JSON.stringify(root.frame()));
+        const parts = path.split(".");
+        let node = next;
+        for (let i = 0; i < parts.length - 1; i++) {
+            if (node[parts[i]] === undefined || typeof node[parts[i]] !== "object")
+                node[parts[i]] = {};
+            node = node[parts[i]];
+        }
+        node[parts[parts.length - 1]] = value;
+        ShellCfg.Dock.setCfg("ii", next);
+    }
+}

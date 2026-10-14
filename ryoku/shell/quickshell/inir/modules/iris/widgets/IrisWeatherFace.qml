@@ -97,7 +97,8 @@ IrisWidgetFace {
                 FaceText {
                     face: root
                     Layout.alignment: Qt.AlignHCenter
-                    text: hour.index === 0 ? Translation.tr("Now") : String(hour.modelData.label).slice(0, 5)
+                    text: hour.index === 0 ? Translation.tr("Now")
+                        : Weather.displayTime(hour.modelData.label, hour.modelData.minuteOfDay)
                     color: hour.index === 0 ? root.ink : root.inkSecondary
                     size: 11.5
                     weight: hour.index === 0 ? Font.DemiBold : Font.Medium

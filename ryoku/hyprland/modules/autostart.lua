@@ -43,7 +43,7 @@ hl.on("hyprland.start", function()
     -- ~/.config/ryoku/power.json, and on a desktop or a box without the knobs.
     hl.exec_cmd("command -v ryoku-power >/dev/null 2>&1 && ryoku-power apply")
     -- Device lighting: push the stored look back at the keyboards and mice the
-    -- user put under Ryoku's control (Hub > Appearance > Lighting). A no-op, and
+    -- user put under Ryoku's control (wallpaper picker > Settings > Lighting). A no-op, and
     -- no OpenRGB at all, until lighting is on with a device adopted.
     hl.exec_cmd("command -v ryoku-hub >/dev/null 2>&1 && ryoku-hub lighting apply")
     hl.exec_cmd("command -v ryoku-mic >/dev/null 2>&1 && ryoku-mic")

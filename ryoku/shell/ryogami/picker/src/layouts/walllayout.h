@@ -101,4 +101,13 @@ private:
     std::vector<Cell> m_cells;
     std::vector<Place> m_places;
     std::vector<float> m_bottoms;
+    std::vector<int> m_placeOrderY;
+    std::vector<int> m_visiblePlaces;
+    float m_maxPlaceHeight = 0;
+    float m_contentHeight = 0;
+    Params m_placementParams;
+    int m_placementCount = -1;
+    quint64 m_placementGeneration = 0;
+    float m_placementWidth = 0;
+    bool m_placementsValid = false;
 };

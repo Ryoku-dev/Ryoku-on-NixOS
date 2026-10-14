@@ -26,7 +26,7 @@ import "../Combos.js" as Combos
 //     lose nothing. grpIds carries grp:caps_toggle deliberately (so it is
 //     stripped from Extra options) while the Switch seg never offers it: that
 //     asymmetry is load-bearing and reproduced here on purpose.
-//   * Apply system-wide is an out-of-band, privileged `ryoku keyboard apply`
+//   * Apply system-wide is an out-of-band, privileged `ryoku-host keymap apply`
 //     covering the login screen, the TTYs and the disk passphrase prompt; it
 //     has no draft, no revert, no dirty state, and is gated on the keyboard
 //     keys already being saved.
@@ -688,17 +688,14 @@ Item {
     // Out of band: this writes to /etc and rebuilds the boot image, not the
     // draft, and escalates through polkit.
     property string sysApplyState: ""
-    function applyLayoutArg() { return String(pg.hv("desktop.input.kbLayout") || "us"); }
+    function applyLayoutArg() { return pg.primaryLayout(false) || "us"; }
     function applyVariantArg() { return String(pg.hv("desktop.input.kbVariant") || ""); }
     function applyOptionsArg() { return String(pg.hv("desktop.input.kbOptions") || ""); }
-    // `ryoku keyboard apply` owns all four layers: it sets the greeter and the
-    // console through localectl AND rebuilds the boot image, which localectl
-    // alone cannot do. mkinitcpio bakes a copy of /etc/vconsole.conf into the
-    // image at build time, so without that rebuild the disk passphrase prompt
-    // keeps the keymap it was built with however correct /etc looks.
+    // The host seam applies the greeter and console layout, then rebuilds the
+    // edition's initramfs so the disk unlock prompt follows it too.
     Process {
         id: sysApplyProc
-        command: ["ryoku", "keyboard", "apply", pg.applyLayoutArg()]
+        command: ["ryoku-host", "keymap", "apply", pg.applyLayoutArg(), pg.applyVariantArg(), pg.applyOptionsArg()]
         onExited: (code, status) => {
             pg.sysApplyState = code === 0 ? "ok" : "err";
             sysApplyClear.restart();
@@ -1389,9 +1386,8 @@ Item {
                     }
                 }
 
-                // Apply system-wide: privileged localectl write to /etc, gated on
-                // the keyboard keys already being saved so the console matches
-                // what the compositor shows.
+                // Apply system-wide only after the keyboard keys are saved, so
+                // the console matches what the compositor shows.
                 SettingRow {
                     anchors.left: parent.left
                     anchors.right: parent.right

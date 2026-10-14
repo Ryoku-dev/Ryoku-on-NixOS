@@ -33,8 +33,8 @@ Scope {
         live: root.presentationVisible
     }
     readonly property var brightnessMonitor: Brightness.getMonitorForScreen(root.screen)
-    readonly property bool fullscreen: CompositorService.nativeOverview
-        && GameMode.hasFullscreenOnOutput(root.screen?.name ?? "") && !WorkspaceService.inOverview
+    readonly property bool fullscreen: GameMode.hasFullscreenOnOutput(root.screen?.name ?? "")
+        && !WorkspaceService.inOverview
     readonly property var prefs: Config.options?.iris?.osd
     readonly property bool atTop: root.prefs?.position === "top"
     readonly property real edgeMargin: Math.max(0, Math.min(240, Number(root.prefs?.offset ?? 18))) * IrisStyle.density

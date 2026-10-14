@@ -100,6 +100,10 @@ if [ "$1" = pkgmgr ]; then
 	printf 'pacman\n'
 	exit 0
 fi
+if [ "$1" = capabilities ]; then
+	printf '%s\n' '{"aur":{"supported":true,"reason":""}}'
+	exit 0
+fi
 if [ "$1" = pkg ] && [ "$2" = available ] && [ "$3" = --aur ]; then
 	exit 0
 fi
@@ -119,7 +123,7 @@ exit 0
 	}
 }
 
-func TestPassthroughAvailabilityReportsFirstVoidReason(t *testing.T) {
+func TestPassthroughAvailabilityReportsVoidPackageReason(t *testing.T) {
 	bin := t.TempDir()
 	host := filepath.Join(bin, "ryoku-host")
 	script := `#!/bin/sh
@@ -127,8 +131,12 @@ if [ "$1" = pkgmgr ]; then
 	printf 'xbps\n'
 	exit 0
 fi
-if [ "$1" = pkg ] && [ "$2" = available ] && [ "$3" = --aur ] && [ "$4" = looking-glass ]; then
-	exit 3
+if [ "$1" = capabilities ]; then
+	printf '%s\n' '{"aur":{"supported":false,"reason":"The AUR is an Arch Linux service; Void installs come from XBPS."}}'
+	exit 0
+fi
+if [ "$1" = pkg ] && [ "$2" = available ] && [ "$3" = looking-glass ]; then
+	exit 5
 fi
 if [ "$1" = pkg ] && [ "$2" = why ] && [ "$3" = looking-glass ]; then
 	printf '%s\n' "Looking Glass is not packaged for this system."

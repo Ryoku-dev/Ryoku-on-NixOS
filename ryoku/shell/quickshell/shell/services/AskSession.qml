@@ -63,7 +63,9 @@ Scope {
         askedQuestion = next;
         working = I18n.tr("waking the needle");
         phase = "working";
-        askProc.command = ["ryoku-rashin", "ask", next];
+        // sh-wrapped like the Hub's Rashin page: a box without ryoku-rashin
+        // still exits (127) instead of never starting, so the ask cannot hang.
+        askProc.command = ["sh", "-c", "exec ryoku-rashin ask \"$1\"", "sh", next];
         askProc.running = true;
     }
 
@@ -144,7 +146,9 @@ Scope {
         }
         onExited: code => {
             if (root.phase === "working" && !root.permPending) {
-                root.errorText = code === 0 ? I18n.tr("No answer") : I18n.tr("Ask failed");
+                root.errorText = code === 0 ? I18n.tr("No answer")
+                    : code === 127 ? I18n.tr("Not installed · install ryoku-rashin")
+                    : I18n.tr("Ask failed");
                 root.phase = "failed";
             }
         }

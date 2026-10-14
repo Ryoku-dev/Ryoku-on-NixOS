@@ -140,6 +140,14 @@ Column {
         }
     }
 
+    Text {
+        width: view.width
+        visible: view.run.firstBuild && !view.settled
+        text: I18n.tr("First build on this box: every piece compiles from scratch, which takes a few minutes. Later updates reuse the build caches and take a fraction of that.")
+        color: Tokens.inkMuted; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
+        wrapMode: Text.WordWrap; lineHeight: 1.3
+    }
+
     // ── the steps, as a timeline on the same rail the commit list uses ──
     Column {
         id: steps
@@ -154,13 +162,29 @@ Column {
                 required property var modelData
                 required property int index
 
+                property bool expanded: false
                 readonly property string state: st.modelData.state || "pending"
                 readonly property bool live: st.state === "running" && !view.settled
                 readonly property bool isLast: st.index === view.run.steps.length - 1
                 readonly property real nodeY: 18
+                readonly property bool hasPieces: st.modelData.key === view.run.piecesStep
+                    && view.run.pieces.length > 0
+                readonly property bool piecesSettled: st.hasPieces
+                    && st.state !== "running" && st.state !== "pending"
+
+                function stoppedPieceLabel() {
+                    for (var i = view.run.pieces.length - 1; i >= 0; i--) {
+                        const piece = view.run.pieces[i];
+                        if (piece.state === "failed")
+                            return I18n.tr(piece.label || "");
+                    }
+                    return view.run.pieces.length > 0
+                        ? I18n.tr(view.run.pieces[view.run.pieces.length - 1].label || "")
+                        : I18n.tr(st.modelData.label || "");
+                }
 
                 width: steps.width
-                height: 36 + (st.live ? liveCol.implicitHeight + Tokens.s2 : 0)
+                height: 36 + (liveCol.visible ? liveCol.implicitHeight + Tokens.s2 : 0)
                 Behavior on height { NumberAnimation { duration: Tokens.move; easing.type: Easing.OutCubic } }
 
                 Rectangle { // rail above the node
@@ -222,10 +246,11 @@ Column {
                     font.family: Tokens.mono; font.pixelSize: Tokens.fMicro
                 }
 
-                // under the running step: what it is doing right now
+                // The piece timeline takes over the live line while source work
+                // is building, then folds down to one result line for the step.
                 Column {
                     id: liveCol
-                    visible: st.live
+                    visible: st.live || st.piecesSettled
                     anchors.left: parent.left; anchors.leftMargin: 26
                     anchors.right: parent.right
                     y: st.nodeY + 12
@@ -233,13 +258,196 @@ Column {
 
                     Text {
                         width: parent.width
+                        visible: st.live && !st.hasPieces
                         text: view.run.activity !== "" ? view.run.activity : I18n.tr("working\u2026")
                         color: Tokens.inkFaint; font.family: Tokens.mono; font.pixelSize: Tokens.fMicro
                         elide: Text.ElideRight
                     }
+
+                    Column {
+                        id: piecePanel
+                        width: parent.width
+                        visible: st.hasPieces
+                        spacing: Tokens.s1
+
+                        Item {
+                            width: parent.width
+                            height: pieceSummary.implicitHeight
+                            visible: st.piecesSettled
+
+                            Text {
+                                id: pieceSummary
+                                width: parent.width
+                                text: st.state === "failed"
+                                    ? I18n.tr("stopped while building %1").arg(st.stoppedPieceLabel())
+                                    : I18n.tr("%1 pieces built in %2").arg(view.run.pieces.filter(p => p.state === "ok").length).arg(view.run.human(st.modelData.took || 0))
+                                color: summaryMouse.containsMouse ? Tokens.ink : Tokens.inkMuted
+                                font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
+                                elide: Text.ElideRight
+                            }
+
+                            MouseArea {
+                                id: summaryMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: st.expanded = !st.expanded
+                            }
+                        }
+
+                        Column {
+                            id: pieceList
+                            width: parent.width
+                            visible: st.live || st.expanded
+                            spacing: 0
+
+                            Repeater {
+                                model: view.run.pieces
+
+                                delegate: Item {
+                                    id: pieceRow
+                                    required property var modelData
+                                    required property int index
+
+                                    readonly property string pieceState: pieceRow.modelData.state || "pending"
+                                    readonly property bool pieceRunning: pieceRow.pieceState === "running"
+                                    readonly property bool piecePending: pieceRow.pieceState === "pending"
+                                    readonly property real typical: typeof pieceRow.modelData.typical === "number"
+                                        ? Math.max(0, pieceRow.modelData.typical) : 0
+                                    readonly property real elapsed: pieceRow.pieceRunning && (pieceRow.modelData.began || 0) > 0
+                                        ? Math.max(0, view.run.now - pieceRow.modelData.began) : 0
+                                    readonly property real progress: typeof pieceRow.modelData.progress === "number"
+                                        ? Math.max(0, Math.min(1, pieceRow.modelData.progress)) : 0
+                                    readonly property real fillFraction: pieceRow.progress > 0
+                                        ? pieceRow.progress
+                                        : pieceRow.typical > 0
+                                            ? Math.min(0.95, pieceRow.elapsed / pieceRow.typical)
+                                            : 0
+                                    readonly property real pieceNodeY: pieceHead.height / 2
+
+                                    width: pieceList.width
+                                    height: pieceBody.implicitHeight + Tokens.s1
+
+                                    Rectangle {
+                                        x: 6; width: 1; y: 0
+                                        height: Math.max(0, pieceRow.pieceNodeY - 4)
+                                        color: Tokens.line
+                                        visible: pieceRow.index > 0
+                                    }
+                                    Rectangle {
+                                        x: 6; width: 1; y: pieceRow.pieceNodeY + 4
+                                        height: Math.max(0, pieceRow.height - pieceRow.pieceNodeY - 4)
+                                        color: Tokens.line
+                                        visible: pieceRow.index < view.run.pieces.length - 1
+                                    }
+                                    Rectangle {
+                                        x: 3; y: pieceRow.pieceNodeY - 3
+                                        width: 7; height: 7; radius: 3.5
+                                        color: "transparent"
+                                        border.width: Tokens.border
+                                        border.color: pieceRow.pieceRunning ? Tokens.ink
+                                            : pieceRow.piecePending ? Tokens.line : Tokens.inkDim
+                                        Rectangle {
+                                            anchors.centerIn: parent
+                                            visible: pieceRow.pieceRunning
+                                            width: 3; height: 3; radius: 1.5
+                                            color: Tokens.ink
+                                        }
+                                    }
+
+                                    Column {
+                                        id: pieceBody
+                                        x: 18
+                                        width: parent.width - x
+                                        spacing: pieceRow.pieceRunning ? Tokens.s1 : 0
+
+                                        Item {
+                                            id: pieceHead
+                                            width: parent.width
+                                            height: Math.max(pieceLabel.implicitHeight, pieceTime.implicitHeight)
+
+                                            Text {
+                                                id: pieceLabel
+                                                anchors.left: parent.left
+                                                anchors.right: pieceTime.left; anchors.rightMargin: Tokens.s3
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: I18n.tr(pieceRow.modelData.label || "")
+                                                color: pieceRow.pieceRunning ? Tokens.ink
+                                                    : pieceRow.piecePending ? Tokens.inkFaint : Tokens.inkDim
+                                                font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
+                                                font.weight: pieceRow.pieceRunning ? Font.DemiBold : Font.Normal
+                                                font.strikeout: pieceRow.pieceState === "skipped"
+                                                elide: Text.ElideRight
+                                            }
+                                            Text {
+                                                id: pieceTime
+                                                anchors.right: parent.right
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: pieceRow.pieceRunning
+                                                    ? (pieceRow.typical > 0
+                                                        ? I18n.tr("%1 / ~%2").arg(view.since(pieceRow.modelData.began || 0)).arg(view.run.human(pieceRow.typical))
+                                                        : view.since(pieceRow.modelData.began || 0))
+                                                    : pieceRow.piecePending
+                                                        ? (pieceRow.typical > 0 ? I18n.tr("~%1").arg(view.run.human(pieceRow.typical)) : "")
+                                                        : (pieceRow.modelData.took || 0) > 0
+                                                            ? view.run.human(pieceRow.modelData.took)
+                                                            : pieceRow.pieceState === "skipped" ? I18n.tr("skipped") : ""
+                                                color: pieceRow.pieceRunning ? Tokens.ink : Tokens.inkFaint
+                                                font.family: Tokens.mono; font.pixelSize: Tokens.fMicro
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            id: pieceTrack
+                                            width: parent.width; height: 3
+                                            visible: pieceRow.pieceRunning
+                                            color: Tokens.lineSoft
+                                            antialiasing: false
+
+                                            Rectangle {
+                                                anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                                                width: parent.width * pieceRow.fillFraction
+                                                color: Tokens.ink
+                                                antialiasing: false
+                                                Behavior on width { NumberAnimation { duration: Tokens.durNormal; easing.type: Easing.OutCubic } }
+
+                                                Rectangle {
+                                                    visible: pieceRow.pieceRunning && parent.width > 40 && !Tokens.reduceMotion
+                                                    width: 40; height: parent.height
+                                                    gradient: Gradient {
+                                                        orientation: Gradient.Horizontal
+                                                        GradientStop { position: 0; color: "transparent" }
+                                                        GradientStop { position: 0.5; color: Tokens.paper }
+                                                        GradientStop { position: 1; color: "transparent" }
+                                                    }
+                                                    opacity: 0.55
+                                                    NumberAnimation on x {
+                                                        running: pieceRow.pieceRunning && !Tokens.reduceMotion
+                                                        from: -40; to: pieceTrack.width
+                                                        duration: 1800; loops: Animation.Infinite
+                                                        easing.type: Easing.InOutQuad
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            visible: pieceRow.pieceRunning
+                                                && ((pieceRow.modelData.detail || "") !== "" || (pieceRow.modelData.note || "") !== "")
+                                            text: I18n.tr(pieceRow.modelData.detail || pieceRow.modelData.note || "")
+                                            color: Tokens.inkFaint; font.family: Tokens.mono; font.pixelSize: Tokens.fMicro
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Text {
                         width: parent.width
-                        visible: view.quiet
+                        visible: st.live && !st.hasPieces && view.quiet
                         text: I18n.tr("quiet for %1  \u00b7  %2").arg(view.run.human((view.watch.quiet || 0) * 1000)).arg(view.watch.current || I18n.tr("waiting"))
                         color: Tokens.inkMuted; font.family: Tokens.mono; font.pixelSize: Tokens.fMicro
                         elide: Text.ElideRight

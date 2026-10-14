@@ -80,7 +80,7 @@ var (
 	fingerprintFailureAdvice = func() string {
 		manager, _ := host.Default().PackageManager()
 		if manager == host.Pacman {
-			return "ryoku-pkg-aur-add pam-fprint-grosshack, then sudo ryoku doctor"
+			return i18n.T("ryoku-pkg-aur-add pam-fprint-grosshack, then ryoku doctor")
 		}
 		return host.Default().InstallAdvice("pam-fprint-grosshack")
 	}

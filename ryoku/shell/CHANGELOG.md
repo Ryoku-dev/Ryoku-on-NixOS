@@ -2,7 +2,81 @@
 
 ## Unreleased
 
+### Changed
+- **The painted frame band drops four fallbacks it could never reach.** `FrameChrome`
+  is only visible while the sumi frame is active, so its per-edge reserves no
+  longer carry a border-width arm for a state in which nothing is drawn. The
+  exclusive-zone reserves above keep theirs, since a zone is claimed whether or
+  not a band is painted (`modules/bar/Frame.qml`).
+- **Every file dialog opens somewhere sensible.** "+ Browse" on a desktop
+  widget, the Stage layer pickers, the wallpaper card and the profile picture
+  used to open in the shell's working directory; the image choosers now start
+  in the picture directory and the rest at home.
+
 ### Added
+- **The ii dock design.** The dock ported from P3DROVFX's ii-p3drovfx joins the
+  shared dock store as a fourth design: pick "ii" in the Stage Editor's dock
+  page and the shell mounts the ported tray, its magnification, app groups,
+  widget tiles (media, weather, tasks, sports, live preview, phone), the
+  live-draw overlay, the alarm clock app and the design's own settings page,
+  on Hyprland and niri alike. Its options live beside the other designs' in
+  shell.json's one `dock` object, so the Hub, `ryoku-shell dock` and the stage
+  edit pages keep working unchanged (`quickshell/shell/modules/dock/ii/`,
+  `quickshell/shell/modules/dock/IiDockHost.qml`,
+  `quickshell/shell/components/WindowEmbed.qml`,
+  `quickshell/shell/components/WorkspaceSlide.qml`).
+- **Orpheus is Ryoku's default bar.** `Ryoku.Blobs` drops hang from the top
+  edge with a voice in the middle that shows the time, the track, a fresh
+  notification, or a recording, budding small bubbles beside it when it is
+  busy. Every drop moves with the music. The lower edge rises on the beat and
+  settles on the chosen feel, traced in ink where it lifts, and stays flat in
+  silence. The Sound page's gain slider sets how much it reacts. The liquid form
+  melts every drop into the edge; the square form keeps crisp corners and hangs a
+  row of level blocks under the voice. Islands tuck the side drops into the
+  screen corners, fused joins them, and full runs edge to edge, morphing between
+  them; pages grow out of the drop they belong to, melt into a screen edge they
+  reach, and close on a click anywhere else. Pages and the settings window use
+  Ryoku's own controls on the frame's paper, and the settings window arranges
+  modules by drag and drop. Every choice is confirmed by the shell daemon and
+  retried until it lands, and the settings rail says when one could not be saved.
+  New installs select Orpheus, and `ryoku doctor` moves stores with no
+  `barStyle` or a retired style to it while keeping explicit choices
+  (`quickshell/shell/modules/bar/barstyles/orpheus/`,
+  `quickshell/shell/services/Config.qml`, `plugin/blobgroup.cpp`,
+  `plugin/blobwave.cpp`, `plugin/shaders/blob.frag`,
+  `../assets/rices/default/rice.json`, `../cli/internal/doctor/doctor.go`).
+- **Kairos quick settings can forget a paired Bluetooth device.** The Bluetooth
+  page offered only Connect and Disconnect, so a device paired from there could
+  not be dropped without `bluetoothctl`; Forget now sits beside Connect on any
+  device the adapter has saved, which is what a device that has gone stale on
+  the other end needs before it will pair again
+  (`modules/bar/barstyles/kairos/quicksettings/pages/BluetoothPage.qml`).
+- **A shortcut can be removed instead of only moved.** Ryoku Settings > Keybinds
+  gains a control per row that leaves an action with no chord at all, and a
+  second press gives it one back. Until now an empty value meant "back to the
+  shipped default", so a shortcut you did not want had to be parked on some
+  other key. Switched-off binds are not registered by any supported compositor,
+  are left out of the Super+K cheatsheet, and stay listed in Settings so the
+  action remains findable (`desktop.keybindDisabled`).
+- **`ryoku update` shows one bar per compilation on source boxes, with how long
+  each piece usually takes.** The terminal and Hub share the per-piece view and
+  first-build explanation.
+- **Ryogami's settings gain a Lighting tab.** Settings > Lighting in the
+  wallpaper picker detects RGB keyboards, mice, headsets, RAM, motherboards and
+  laptop keyboards through OpenRGB, `asusd` and `qmk_hid`, and **Follow
+  wallpaper & theme** puts a device on the live Matugen accent, so every new
+  wallpaper or fixed theme recolours it. Every per-device control of the old
+  Hub page is back: device modes and Ryoku-painted effects, fixed and per-zone
+  colours, brightness, speed, direction, Save to device and hand-back. The
+  daemon serves it through `lighting.*` calls that never block the picker and
+  run `ryoku-hub lighting` underneath (`ryogami/daemon/lighting.go`,
+  `ryogami/picker/qml/folio/Lighting*.qml`).
+- **Download browser results carry Apply.** Every card and the preview pane
+  offer Apply beside Save, for still and live wallpapers, YouTube clips and
+  Workshop scenes. Enter applies the focused card, and results saved in an
+  earlier session apply from their library copy. The per-source "Show Apply
+  button" setting only ever controlled manual filter search and now says so
+  (`ryogami/picker/qml/browser/`).
 - **Package actions use DNF on Fedora.** Package search, install, remove,
   updates, stash dependencies, and the Nomarchy compatibility commands now go
   through the host seam instead of assuming pacman. Unsupported AUR-only
@@ -90,7 +164,7 @@
   respects reduced motion and low-power mode, and fits smaller screens
   (`quickshell/welcome/`).
 - **New installs land on Ryoku's default rice.** On the first login after a
-  fresh install, the session intro applies the packaged default look (QS Bar
+  fresh install, the session intro applies the packaged default look (Orpheus
   with the shipped settings, matched on both compositors), picks a random
   wallpaper from the seeded set, and only then opens the welcome. A failed
   apply keeps the installer's marker and retries on the next login; existing
@@ -427,6 +501,11 @@
   Ryoku's seams (`../inir/`).
 
 ### Changed
+- **The spectrum feed stays quiet in silence.** A band at the noise floor now
+  reads as silent, a silent frame that follows another no longer rewrites the
+  levels, and the settle-to-flat timer writes once instead of every 120 ms, so
+  music surfaces rest in a quiet room
+  (`quickshell/shell/services/AudioBars.qml`).
 - **Python catches up with serpantinum's fixes.** A curated sync of the
   upstream shell's bug fixes and small features that stand on their own,
   leaving its rearchitecture out: the clock stops re-evaluating its date string
@@ -575,13 +654,159 @@
   it. The sharp themes keep their crisp joins, and the Fusion slider still
   sets it. Edge bubbles also sit a little off the band so their ring never
   grazes the frame.
-- **QS Bar is the shipped default again.** A store with no `barStyle` renders
-  QS Bar, and the Hub's Bar Studio, the Ryostore catalogue and both compositors'
-  close-confirm binds now agree on that; iRiS stays one click away
-  (`services/Config.qml`, `../../hub/quickshell/pages/BarStudioPage.qml`,
-  `../../apps/ryostore/backend/provider_bars.go`, `../../wm/niri/config_binds.go`,
-  `../../hyprland/modules/binds.lua`).
 ### Fixed
+- **Picking a file no longer crashes the shell once its window has been
+  rebuilt.** Quickshell deletes the window behind a hidden layer-shell or popup
+  surface, and Qt's non-native `FileDialog` kept a bare pointer to the
+  implementation it had parented to that window, so the next "+ Browse" on a
+  desktop widget, Stage layer pick, profile-picture or subtitle chooser, VPN
+  import or dock-folder pick dereferenced freed memory (a segfault on Qt 6.12,
+  the dialog silently doing nothing before). Every site now goes through
+  `Ryoku.Ui.FileDialogHost`, which builds the dialog for the window it opens in
+  and drops it when that window goes away (#405).
+- **The dedicated microphone-mute key works again.** `XF86AudioMicMute` now
+  toggles the default PipeWire source on every supported compositor (#394).
+- **Super+T is labelled “Group windows (tabbed)”.** The clearer name distinguishes
+  the window-group toggle from the terminal shortcut older releases used (#378).
+- **Staggered launcher results no longer create binding loops.** An Entrance
+  that fills its parent no longer derives its implicit size from children that
+  fill it in turn, stopping repeated geometry warnings and memory growth (#383).
+- **A proportional system font no longer reaches the terminal.** The font
+  pipeline applies the UI and terminal families independently, defaulting kitty
+  and the desktop monospace setting to JetBrainsMono Nerd Font while the shell
+  and apps keep Space Grotesk.
+- **Monitor reconnects now trigger the shell's screen-settle handler.** The
+  `screensChanged` callback restarts its Timer by QML id instead of reading a
+  nonexistent property from `root`; without the timer, the per-monitor surface
+  model could stay stale after an output reappeared (#312).
+- **A source checkout builds the Ryogami picker without guessing at Vulkan.**
+  `ryoku track unstable && ryoku update` stopped half a minute into the picker
+  with `fatal error: vulkan/vulkan.h: No such file or directory` on a machine
+  without the Vulkan headers: the packaged builds declare them, the source build
+  never did. The build now asks for the header while configuring and names the
+  package when it is missing, and the Fedora RPM declares it like the PKGBUILD
+  and the Void template already do. `ryoku track` installs the headers with the
+  rest of the build toolchain on all three distributions, so the first source
+  build after switching channels goes through.
+- **Ask and the AI pill behave on a box without Rashin.** A quick ask
+  (Alt+Space, or the launcher's `\`) used to sit on "waking the needle"
+  forever when `ryoku-rashin` was missing, and a chat message vanished into a
+  queue that never drained. Both now answer "Not installed · install
+  ryoku-rashin", the wording the Hub's Rashin page already uses. The qsbar AI
+  pill stays hidden when the usage collectors are not installed, instead of
+  showing an empty "0%" chip whenever a coding agent is running
+  (`services/AskSession.qml`, `services/Needle.qml`,
+  `qsbar/modules/ClaudeWidget.qml`).
+- **Ryogami's Workshop tab finds your Wallpaper Engine scenes.** On the first
+  run after an install the tab said "No Wallpaper Engine scenes yet" until
+  ryogami restarted, because the picker never refreshed it after the first scan.
+  Wallpaper Engine installed on a second Steam library or under Flatpak Steam is
+  now found through `libraryfolders.vdf`, and scenes render with that install's
+  assets, which also makes the WE assets directory setting do something
+  (`ryogami/daemon/steam_libraries.go`, `ryogami/picker/src/core/library.cpp`).
+- **Wayfire keeps the desktop visible and wallpaper transitions render on its
+  GLES path.** Deck frost now counts only real application toplevels, so
+  layer-shell residue cannot turn the haze into an opaque cover over the
+  wallpaper and desktop widgets. The Edge transition no longer passes local
+  arrays between shader functions, which the GLSL ES 100 backend rejected, and
+  any unsupported catalogue shader falls back to the portable fade instead of
+  leaving the desktop transparent (`quickshell/inir/services/CompositorService.qml`,
+  `quickshell/shell/modules/wallpaper/Backdrop.qml`,
+  `quickshell/shell/modules/wallpaper/skwd/edge-transition.frag`).
+- **Wallpaper frost no longer blinks when a window changes its title.** Window
+  presence now follows the compositor's application-window row while its
+  foreign-toplevel metadata catches up, so the shared desktop treatment stays
+  steady across Wayfire, Hyprland and niri.
+- **Fullscreen shell reactions now follow the neutral window-manager state.**
+  Fullscreen windows hide the dock and widget canvas, silence banners, apply
+  game mode and OSD rules, and enable auto-DND under every supported compositor.
+- **Bluetooth devices stay connected after pairing.** Ryoku now stops discovery
+  before it pairs or connects, trusts a new bond before connecting, and retries
+  the first post-pair connection once. The shell, every bar style, Nomarchy and
+  the Hub use the same sequence (#373).
+- **Shima and Stage clocks now follow the global 12/24-hour setting.**
+  Weather forecasts and sun times, calendar events, Pixel clocks, previews and
+  scheduled-anime times no longer keep their own fixed hour cycle.
+- **Battery warnings fire once under every bar style.** Shima and Nomarchy no
+  longer send their own low-battery notification beside the shell-wide alert.
+  Shima keeps its warning sounds and automatic suspend, while its retired
+  per-style warning thresholds are removed.
+- **Deck frost stays light while the desktop moves.** The haze is a fragment
+  shader now, so moving or focusing a window updates uniforms instead of
+  rebuilding and uploading a full-screen Canvas texture. Video wallpapers and
+  inline visualizers keep the haze but skip the full-output blur pass, and the
+  focus ring subtracts the output origin before drawing on a second monitor.
+  Windows without trustworthy positions use a whole-surface haze. The
+  `deckFrost` setting is validated from 0 to 1, and zero fully disables the
+  effect even with a deep window stack
+  (`quickshell/shell/modules/desktop/DeckFrost.qml`,
+  `quickshell/shell/modules/desktop/deck-frost.frag`, `ipc/settings.go`).
+- **Provider searches no longer freeze the wallpaper picker.** The daemon served
+  each picker's requests one at a time and ran network searches inline with a
+  90 second timeout, so a slow Wallhaven or YouTube search held every other
+  click: a 2.4 s YouTube search delayed the status, settings and library calls
+  queued behind it by 2.4 s; they now answer in under 2 ms. Searches, Workshop
+  searches, semantic queries and colour previews run on bounded workers, a newer
+  search cancels the older one from the same picker, searches give up after
+  20 s, stale thumbnail jobs are dropped and download progress is rate-limited
+  (`ryogami/daemon/daemon.go`, `source_*.go`, `workshop_*.go`).
+- **Browsing download sources is smoother.** A focused live wallpaper card no
+  longer streams and software-decodes the full remote clip (the preview pane
+  plays it), filter bursts send one search, a thumbnail arriving updates only
+  its card, the status line floats over the grid instead of pushing it down,
+  loading the next page keeps the scroll position and drops results the source
+  repeats, and the click-away layer that logged an anchoring warning on every
+  open is fixed (`ryogami/picker/qml/browser/`, `src/core/remoteresults.cpp`).
+- **Typing in the wallpaper search filters once per pause, not once per key.**
+  The library refilters 140 ms after typing stops, keeps a running filter
+  animation instead of restarting it, updates the card list incrementally, and
+  a late semantic reply can no longer replace a newer query's results
+  (`chrome/SearchPanel.qml`, `src/core/libraryview.cpp`, `src/scene/`).
+- **Ryogami works with Fedora's ffmpeg.** `ffmpeg-free` has no x264 or x265,
+  so live wallpaper transcodes, animated previews and upscaled videos failed.
+  They fall back to OpenH264, VA-API drivers are found in lib64, an HEVC source
+  the system cannot decode fails with a clear message, the video optimiser says
+  why it is off, and the picker's QML module resolves from `/usr/lib64/qt6/qml`
+  (`ryogami/daemon/codecs.go`, `transcode.go`, `process.go`).
+- **An untouched wallpaper picker stops drawing.** Every stationary pointer
+  event over the picker scheduled a full repaint, so an open picker rendered
+  frames continuously while nothing moved; it now sits idle until something
+  changes. Inline video previews start only for the settled visible card and
+  release their player when a sheet or the search panel covers them
+  (`src/scene/cardfield.cpp`, `src/layouts/handlayout.cpp`,
+  `src/render/previewvideo.cpp`).
+- **The first Super + W after the daemon starts opens the picker.** The daemon
+  launches a hidden picker at start and treated it as ready before it had
+  subscribed, so an open request in that window went to nobody and the user
+  had to press the key twice. Requests now wait for the picker's subscription
+  (`ryogami/daemon/process.go`, `daemon.go`, `qml/RyogamiShell.qml`).
+- **Lists in daemon replies reach the picker as real arrays.** Replies went
+  through QVariant, so nested lists failed `Array.isArray` and code that
+  checked for an array treated them as empty (`src/core/daemon.cpp`).
+- **Wallpaper GPU names an NVIDIA card waiting for a restart.** After an NVIDIA
+  driver update the old kernel module stays loaded until a reboot and Vulkan
+  cannot open the card, so the picked card showed as "Unavailable GPU". The list
+  now reads the card from the kernel driver and says "restart to use it"
+  (`src/core/gpudevices.cpp`, `qml/folio/FolioOptions.qml`).
+- **Screen recording works on machines without a hardware video encoder.**
+  The codec check refused every GPU that could not encode H.264, AV1, VP9 or
+  VP8, and any machine where GPU Screen Recorder's probe failed, so Intel
+  boxes without VA-API, nouveau, virtual machines and broken-driver sessions
+  never started a capture. It now tries another hardware codec, then H.264 on
+  the CPU, and only refuses when nothing can encode. A capture that dies says
+  why: a pending restart after an NVIDIA driver update, a session without a
+  GPU driver, or GPU Screen Recorder's own error, also written to the journal
+  (`ryoku-cmd-record`) and to `~/.local/state/ryoku/recorder.log`. Region
+  captures pass the box straight to `-w`, since GSR 6 deprecated `-region`.
+- **Bar Studio no longer revives the retired frame-local dock store.** New
+  frame-bar writes keep the schema version but leave dock settings in the
+  universal top-level store; legacy nested pins remain readable until doctor
+  migrates them.
+- **Running apps with reverse-DNS desktop IDs show their real dock icon.**
+  Window app IDs such as `xwaylandvideobridge` now resolve hidden
+  `NoDisplay` entries such as `org.kde.xwaylandvideobridge.desktop` through
+  the shell's shared desktop-entry matcher. Apps with no matching entry draw
+  Ryoku's app-grid glyph instead of Qt's missing-image checkerboard.
 - **Power profiles work with either system provider.** Nomarchy, game mode and
   `ryoku-power` now read and switch profiles through ryoku-shell's PowerProfiles
   D-Bus client instead of requiring a provider-specific command.
@@ -1054,6 +1279,10 @@
   the click moved (issue #276).
 
 ### Removed
+- **The unread nested frame switch is gone.** The shell keeps the live
+  top-level `frameEnabled` control as its one frame switch and no longer ships
+  a second setting that no surface reads (`ipc/settings.go`,
+  `../assets/rices/default/rice.json`).
 - **The old split panel routes are gone.** Controls, Capture, and Ask replace
   the separate frame menu and utility surfaces, with one shortcut and one clear
   home for each task.

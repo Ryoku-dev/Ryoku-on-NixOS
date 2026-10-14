@@ -108,13 +108,21 @@ func (p barProvider) Load(ctx context.Context, refresh bool) ([]Item, SourceStat
 	if registryErr != nil {
 		state.Offline = true
 	}
-	for i := 1; i < len(items); i++ {
-		if items[i].Active {
-			items[0].Active = false
+	// A selection the shell cannot render falls back to the Sumi frame.
+	fallback := 0
+	for i := range items {
+		if items[i].ID == "sumi" {
+			fallback = i
+			break
+		}
+	}
+	for i := range items {
+		if i != fallback && items[i].Active {
+			items[fallback].Active = false
 			return items, state, nil
 		}
 	}
-	items[0].Active = true
+	items[fallback].Active = true
 	return items, state, nil
 }
 
@@ -146,6 +154,13 @@ func mergeBuiltinBarStylePresentation(item *Item, base string, entry ProductEntr
 
 func builtinBarStyles() []Item {
 	return []Item{{
+		ID: "orpheus", Category: "barstyles", Name: "Orpheus",
+		Summary:     "Liquid wave",
+		Description: "A liquid top bar that hugs what it shows, ripples along its whole edge when music plays, and grows each group into a card.",
+		Tags:        []string{"top", "liquid", "built-in"},
+		Installed:   true,
+		Metadata:    map[string]any{"scene": "Scene.qml", "core": true},
+	}, {
 		ID: "sumi", Category: "barstyles", Name: "Sumi",
 		Summary:     "Ink spine",
 		Description: "The built-in left rail: paper, ink, and a vertical working edge.",
@@ -155,7 +170,7 @@ func builtinBarStyles() []Item {
 	}, {
 		ID: "qsbar", Category: "barstyles", Name: "QS Bar",
 		Summary:     "Hancore top bar",
-		Description: "The default top bar: Hancore's Quickshell Rise, ported to Ryoku.",
+		Description: "Hancore's Quickshell Rise top bar, ported to Ryoku.",
 		Tags:        []string{"top", "horizontal", "built-in"},
 		Installed:   true,
 		Metadata:    map[string]any{"scene": "Scene.qml", "core": true},
@@ -265,7 +280,7 @@ func barStyleRegistryUnavailable(err error) bool {
 }
 
 func (p barProvider) Install(ctx context.Context, id string) error {
-	if id == "sumi" || id == "qsbar" || id == "chroma" || id == "kairos" || id == "iris" || id == "python" || id == "nomarchy" {
+	if id == "sumi" || id == "qsbar" || id == "chroma" || id == "orpheus" || id == "kairos" || id == "iris" || id == "python" || id == "nomarchy" {
 		return fmt.Errorf("the built-in %s bar style is already installed", id)
 	}
 	entries, _, err := loadProductRegistry(ctx, p.cache, "barstyles", false)
@@ -280,7 +295,7 @@ func (p barProvider) Install(ctx context.Context, id string) error {
 }
 
 func (p barProvider) Remove(ctx context.Context, id string) error {
-	if id == "sumi" || id == "qsbar" || id == "chroma" || id == "kairos" || id == "iris" || id == "python" || id == "nomarchy" {
+	if id == "sumi" || id == "qsbar" || id == "chroma" || id == "orpheus" || id == "kairos" || id == "iris" || id == "python" || id == "nomarchy" {
 		return fmt.Errorf("the built-in %s bar style is not removable", id)
 	}
 	return removeProduct(ctx, "barstyles", id)
@@ -625,12 +640,12 @@ func mutateBarStyleSelection(path string, mutate func(map[string]any) bool) erro
 }
 
 // activeStyle is the style the shell renders: an absent or unreadable
-// selection draws the shipped QS Bar, so the catalogue marks that one.
+// selection draws the shipped Orpheus bar, so the catalogue marks that one.
 func (p barProvider) activeStyle() string {
 	if id := readBarStyleSelection(p.shellConfig); id != "" {
 		return id
 	}
-	return "qsbar"
+	return "orpheus"
 }
 
 func readBarStyleSelection(path string) string {

@@ -49,6 +49,34 @@ func TestTransactionCollectsConflictsAndReasons(t *testing.T) {
 	}
 }
 
+// A refused transaction names its culprit in the returned error, which is all
+// the Hub's failure card shows. The pair pacman prints twice is reported once,
+// and a package name never sends the healing down the database path (#271).
+func TestTransactionErrorNamesTheConflict(t *testing.T) {
+	oldInhibit := sleepInhibitOK
+	sleepInhibitOK = func() bool { return false }
+	t.Cleanup(func() { sleepInhibitOK = oldInhibit })
+
+	devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	keep := os.Stdout
+	os.Stdout = devnull
+	script := `printf '%s\n' ':: limine-mkinitcpio-hook-1.37.1-1 and limine-entry-tool-1.40.0-1 are in conflict. Remove limine-entry-tool? [y/N] error: unresolvable package conflicts detected' 'error: failed to prepare transaction (conflicting dependencies)' '' ':: limine-mkinitcpio-hook-1.37.1-1 and limine-entry-tool-1.40.0-1 are in conflict' ":: unable to satisfy dependency 'python-databases' required by ryoku-rashin"; exit 1`
+	_, err = runUpgradeCollecting("test", []string{"bash", "-c", script})
+	os.Stdout = keep
+	devnull.Close()
+
+	want := "failed to prepare transaction (conflicting dependencies); limine-mkinitcpio-hook-1.37.1-1 and limine-entry-tool-1.40.0-1 are in conflict; unable to satisfy dependency 'python-databases' required by ryoku-rashin: exit status 1"
+	if err == nil || err.Error() != want {
+		t.Fatalf("error = %v\nwant %s", err, want)
+	}
+	if dbRejection(err) {
+		t.Fatal("a dependency naming python-databases was read as a database rejection")
+	}
+}
+
 func TestVoidInhibitorUsesHostSeam(t *testing.T) {
 	oldInhibit := sleepInhibitOK
 	sleepInhibitOK = func() bool { return true }

@@ -9,11 +9,31 @@ import (
 
 type packageMapping struct {
 	Names   []string
+	Lanes   []string
 	Special string
 	Note    string
 }
 
 type packageTable map[string]packageMapping
+
+// PackageTranslation is one Arch name's row in an edition's translations.tsv.
+type PackageTranslation struct {
+	Names []string
+	Lanes []string
+}
+
+// ReadPackageTranslations reads an edition's translations.tsv.
+func ReadPackageTranslations(path, distribution string) (map[string]PackageTranslation, error) {
+	table, err := readPackageTableFor(path, distribution)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]PackageTranslation, len(table))
+	for name, mapping := range table {
+		out[name] = PackageTranslation{Names: mapping.Names, Lanes: mapping.Lanes}
+	}
+	return out, nil
+}
 
 func readPackageTable(path string) (packageTable, error) {
 	return readPackageTableFor(path, "void")
@@ -49,7 +69,7 @@ func readPackageTableFor(path, distribution string) (packageTable, error) {
 		if _, exists := table[fields[0]]; exists {
 			return nil, fmt.Errorf("%s:%d: duplicate package %s", path, lineNo, fields[0])
 		}
-		mapping := packageMapping{Note: strings.TrimSpace(fields[3])}
+		mapping := packageMapping{Lanes: strings.Split(fields[2], ","), Note: strings.TrimSpace(fields[3])}
 		switch fields[1] {
 		case "@repo":
 			if mapping.Note == "" {

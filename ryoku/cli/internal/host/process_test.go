@@ -96,7 +96,7 @@ func TestSystemdTransientAllFlags(t *testing.T) {
 
 func TestRunitTransientLifecycle(t *testing.T) {
 	dir := t.TempDir()
-	runner := &fakeRunner{results: []Result{{PID: 42}}, alive: map[int]bool{42: true}}
+	runner := &fakeRunner{results: []Result{{PID: 42}, {PID: 43}}, alive: map[int]bool{42: true, 43: true}}
 	app, _, _ := testApp(runner, map[string]string{"RYOKU_HOST_INIT": "runit"})
 	app.cfg.RuntimeDir = dir
 	if code := app.Transient([]string{"start", "job", "--env", "A=B", "--", "worker", "x"}); code != ExitOK {
@@ -108,10 +108,16 @@ func TestRunitTransientLifecycle(t *testing.T) {
 	if code := app.Transient([]string{"is-active", "job"}); code != ExitOK {
 		t.Fatal(code)
 	}
-	if code := app.Transient([]string{"stop", "job"}); code != ExitOK {
+	if code := app.Transient([]string{"start", "job", "--env", "A=C", "--", "worker", "new"}); code != ExitOK {
 		t.Fatal(code)
 	}
 	if len(runner.signals) != 1 || runner.signals[0].pid != 42 {
+		t.Fatalf("replaced job was left running: %#v", runner.signals)
+	}
+	if code := app.Transient([]string{"stop", "job"}); code != ExitOK {
+		t.Fatal(code)
+	}
+	if len(runner.signals) != 2 || runner.signals[1].pid != 43 {
 		t.Fatalf("signals = %#v", runner.signals)
 	}
 }

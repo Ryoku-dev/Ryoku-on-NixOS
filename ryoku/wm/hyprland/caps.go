@@ -36,6 +36,8 @@ var capsManifest = []wm.Capability{
 	wm.CapSubmap,
 	wm.CapGlobalShortcuts,
 	wm.CapFocusGrab,
+	wm.CapWindowEmbed,
+	wm.CapWorkspaceSlideStyle,
 	wm.CapScreenShader,
 	wm.CapPlugins,
 	wm.CapLiveConfigEval,

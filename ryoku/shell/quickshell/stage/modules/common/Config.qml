@@ -5468,6 +5468,70 @@ Singleton {
                 // Each entry is { id: string, apps: list<string> } and is
                 // rendered as one dock item while app groups are enabled.
                 property list<var> appGroups: []
+                property string monitor: ""
+                property bool lockReorder: false
+                property JsonObject overviewButton: JsonObject {
+                    // A picture from assets/icons, else a Material Symbol by
+                    // name (empty: "apps").
+                    property string iconFile: ""
+                    property string symbol: ""
+                    // The picture is black-and-white and takes the theme's
+                    // colour (Settings measures it when the icon is picked).
+                    property bool iconTint: true
+                    property string shape: "SoftBurst"
+                    property bool alwaysShowShape: false
+                }
+                property list<var> utilityWidgets: []
+                property JsonObject utilities: JsonObject {
+                    property JsonObject stopwatch: JsonObject {
+                        property bool clickToggles: true
+                    }
+                    property JsonObject timer: JsonObject {
+                        property bool clickPauses: true
+                        // Quick-start durations the dock's timer tile offers, minutes.
+                        property list<int> presets: [1, 5, 10, 25]
+                    }
+                    property JsonObject pomodoro: JsonObject {
+                        property bool clickToggles: true
+                    }
+                    property JsonObject aiUsage: JsonObject {
+                        property string provider: "claude"
+                        property string squareWindow: "long"
+                    }
+                    property JsonObject files: JsonObject {
+                        property string folder: ""
+                    }
+                    property JsonObject screenshots: JsonObject {
+                        property string folder: ""
+                    }
+                    property JsonObject shelf: JsonObject {
+                        property bool removeAfterDrag: false
+                    }
+                    property JsonObject search: JsonObject {
+                        property string squareShape: "Cookie9Sided"
+                        property bool background: true
+                    }
+                    property JsonObject favorites: JsonObject {
+                        property list<var> sites: []
+                    }
+                    property JsonObject water: JsonObject {
+                        property int glassMl: 250
+                    }
+                    property JsonObject tools: JsonObject {
+                        property list<string> shown: ["screenSnip", "screenRecord", "colorPicker", "wallpaper", "darkMode"]
+                    }
+                    property JsonObject converter: JsonObject {
+                        property string category: "length"
+                        property string from: "cm"
+                        property string to: "in"
+                    }
+                    property JsonObject send: JsonObject {
+                        property string backend: "kdeconnect"
+                        property string kdeDevice: ""
+                        property string localsendAlias: ""
+                        property string localsendIp: ""
+                    }
+                }
                 // Order keys the user has dragged into place by hand. Smart
                 // grouping treats these as anchors and auto-arranges only what
                 // is left, so turning the feature on no longer makes the dock
@@ -5475,7 +5539,44 @@ Singleton {
                 property list<string> manualOrder: []
                 property list<string> order: ["pin", "app:org.kde.dolphin", "app:kitty", "runningApps", "media", "weather", "sports", "livePreview", "phone", "trash", "overview"]
             }
+            property JsonObject contextMenu: JsonObject {
+                // "comfortable" (58 px pill rows) or "compact" (34 px rows, an
+                // icon bar on top, the card as narrow as its content).
+                property string style: "comfortable"
+                // "inline" swaps a submenu into the same card; "cascade" opens it
+                // as a second card beside the menu.
+                property string submenus: "inline"
+                // Size of every menu, 0.5-2 (50-200 %), on top of the style.
+                property real scale: 1.0
+                // One object per menu the user arranged:
+                // { menu, order: [entry ids], bar: [entry ids], hidden: [entry ids] }.
+                // A menu without one uses its declared defaults.
+                property list<var> layouts: []
+                // User entries: { id, menu, symbol, title, command }. The command
+                // runs in bash with $II_CONTEXT_TARGET set to what was clicked.
+                property list<var> customEntries: []
+            }
 
+            property JsonObject liveDraw: JsonObject {
+                property bool enable: true
+                /// How hard a mouse or a finger stroke is steadied, 0–100. The brush trails
+                /// the pointer on a short string, so the tremble of a hand on a mouse never
+                /// reaches the ink. A pen is never steadied this way: it is precise already.
+                property int mouseSmoothing: 60
+                /// "workspace": each workspace keeps its own drawing. "screen": one drawing
+                /// per monitor that stays put whatever workspace is in front.
+                property string sheetMode: "workspace"
+                /// The system crosshair instead of the drawn ring under the pointer: the
+                /// ring is a frame of a screen-sized surface on every pointer move.
+                property bool nativeCursor: false
+                /// The board's pattern: "none", "grid", "dots" or "lines".
+                property string boardPattern: "grid"
+                /// The board's two tones. Literal colours on purpose, like the palette:
+                /// a board is paper and chalkboard, and ink chosen against it must not
+                /// change colour when the wallpaper does.
+                property string boardLight: "#f7f6f2"
+                property string boardDark: "#1f2124"
+            }
             property JsonObject dockToPanel: JsonObject {
                 property int iconSize: 25
                 property int buttonSpacing: 2
@@ -6336,6 +6437,7 @@ Singleton {
                 property list<string> excludedSites: ["quora.com", "facebook.com"]
                 property bool sloppy: false
                 property bool levenshtein: false
+                property string algorithm: ""
                 property bool frecency: true
                 // fuzzysort matches any subsequence, so with no floor "file"
                 // reaches "OpenJDK 25 for x86_64 Monitoring & Management

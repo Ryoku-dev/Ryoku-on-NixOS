@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,6 +41,42 @@ func stubSessionSync(t *testing.T) *[]string {
 	syncSessionShellEnv = func(path string) { got = append(got, path) }
 	t.Cleanup(func() { syncSessionShellEnv = orig })
 	return &got
+}
+
+func TestAccountLoginShellUsesResolvedSudoUser(t *testing.T) {
+	oldEUID, oldLookup := doctorEffectiveUID, doctorLookupUser
+	oldResolved, oldPasswd := resolvedDoctorUser, accountPasswdPath
+	doctorEffectiveUID = func() int { return 0 }
+	doctorLookupUser = func(name string) (*user.User, error) {
+		return &user.User{Username: name, Uid: "1007", HomeDir: "/home/desktop"}, nil
+	}
+	t.Cleanup(func() {
+		doctorEffectiveUID, doctorLookupUser = oldEUID, oldLookup
+		resolvedDoctorUser, accountPasswdPath = oldResolved, oldPasswd
+	})
+
+	passwd := filepath.Join(t.TempDir(), "passwd")
+	if err := os.WriteFile(passwd, []byte("root:x:0:0:root:/root:/bin/bash\ndesktop:x:1007:1007::/home/desktop:/usr/bin/zsh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	accountPasswdPath = passwd
+	t.Setenv("SUDO_USER", "desktop")
+	t.Setenv("HOME", "/root")
+	t.Setenv("USER", "root")
+	t.Setenv("LOGNAME", "root")
+	t.Setenv("XDG_CONFIG_HOME", "/root/.config")
+	t.Setenv("XDG_CACHE_HOME", "/root/.cache")
+	t.Setenv("XDG_DATA_HOME", "/root/.local/share")
+	t.Setenv("XDG_STATE_HOME", "/root/.local/state")
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
+
+	if err := configureDoctorUser(true); err != nil {
+		t.Fatal(err)
+	}
+	if got := accountLoginShell(); got != "/usr/bin/zsh" {
+		t.Fatalf("account shell = %q, want sudo user's zsh", got)
+	}
 }
 
 // When the override already mirrors the account shell there is nothing to do,

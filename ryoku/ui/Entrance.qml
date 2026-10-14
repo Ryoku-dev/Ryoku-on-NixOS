@@ -22,8 +22,10 @@ Item {
 
     default property alias content: holder.data
 
-    implicitWidth: holder.childrenRect.width
-    implicitHeight: holder.childrenRect.height
+    // A filled Entrance must not read its size back from children that fill
+    // it in turn; that cycle was the launcher's binding loop (#383).
+    implicitWidth: root.anchors.fill ? 0 : holder.childrenRect.width
+    implicitHeight: root.anchors.fill ? 0 : holder.childrenRect.height
 
     // bound to opacity and the lift, so an interrupted stagger still resolves to
     // shown instead of stranding a card invisible

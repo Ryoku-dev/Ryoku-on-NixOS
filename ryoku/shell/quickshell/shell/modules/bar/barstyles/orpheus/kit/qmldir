@@ -1,0 +1,25 @@
+singleton Style Style.qml
+Label Label.qml
+Glyph Glyph.qml
+Press Press.qml
+Hint Hint.qml
+Plate Plate.qml
+Sheet Sheet.qml
+Section Section.qml
+Scroller Scroller.qml
+IconButton IconButton.qml
+Button Button.qml
+Segmented Segmented.qml
+Switch Switch.qml
+Slider Slider.qml
+Chip Chip.qml
+Tile Tile.qml
+ListRow ListRow.qml
+HoldButton HoldButton.qml
+Sparkline Sparkline.qml
+Meter Meter.qml
+CoverArt CoverArt.qml
+Squiggle Squiggle.qml
+PlayButton PlayButton.qml
+TextField TextField.qml
+Badge Badge.qml

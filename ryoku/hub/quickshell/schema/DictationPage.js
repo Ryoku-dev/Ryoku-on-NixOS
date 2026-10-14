@@ -12,7 +12,7 @@ var rows = [
         "label": "Voice typing",
         "desc": "Tap Super+` to dictate into the focused app",
         "ctl": "sw",
-        "src": " disable --now (off). Read back via `systemctl --user is-enabled --quiet voxtype.service`."
+        "src": "ryoku-hub voxtype set; service state is read and changed through `ryoku-host svc --user`."
     },
     {
         "tab": "",
@@ -120,7 +120,7 @@ var rows = [
         "label": "Install Voxtype",
         "desc": "",
         "ctl": "action",
-        "src": "none (package manager)"
+        "src": "ryoku-host pkg install --aur voxtype-bin"
     },
     {
         "tab": "",
@@ -129,6 +129,6 @@ var rows = [
         "label": "Remove Voxtype",
         "desc": "",
         "ctl": "action",
-        "src": "none (package manager + systemd unit removal)"
+        "src": "ryoku-host svc --user + ryoku-host pkg remove voxtype-bin"
     }
 ];

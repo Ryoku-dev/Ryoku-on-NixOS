@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mustGit runs git in dir with an isolated identity and config, failing the test
@@ -49,6 +50,102 @@ func commitPush(t *testing.T, work, name, body, msg, branch string) {
 	mustGit(t, work, "add", "-A")
 	mustGit(t, work, "commit", "-m", msg)
 	mustGit(t, work, "push", "origin", branch)
+}
+
+func TestResolveChannelTarget(t *testing.T) {
+	root := t.TempDir()
+	origin := filepath.Join(root, "origin.git")
+	builder := filepath.Join(root, "builder")
+	work := filepath.Join(root, "work")
+
+	mustGit(t, "", "init", "--bare", "-b", "unstable-dev", origin)
+	mustGit(t, "", "clone", origin, builder)
+	commitPush(t, builder, "a", "checked\n", "checked change", "unstable-dev")
+	a := strings.TrimSpace(mustGit(t, builder, "rev-parse", "HEAD"))
+
+	// The box stays on A while the remote advances through the release bot's
+	// version bump and then a human change.
+	mustGit(t, "", "clone", origin, work)
+	writeFile(t, filepath.Join(builder, "VERSION"), "1.2.3\n")
+	mustGit(t, builder, "add", "-A")
+	mustGit(t, builder, "commit", "--author=github-actions[bot] <actions@github.com>",
+		"-m", "release: bump unstable to 1.2.3")
+	mustGit(t, builder, "push", "origin", "unstable-dev")
+	b := strings.TrimSpace(mustGit(t, builder, "rev-parse", "HEAD"))
+	commitPush(t, builder, "c", "unchecked\n", "human change", "unstable-dev")
+	c := strings.TrimSpace(mustGit(t, builder, "rev-parse", "HEAD"))
+	mustGit(t, work, "fetch", "origin", "unstable-dev")
+
+	passedA := checkedRef{Commit: a, Run: "https://example.test/passed", At: time.Now().Add(-time.Minute).Format(time.RFC3339)}
+	cases := []struct {
+		name         string
+		tip          string
+		pointer      checkedPointer
+		pointerOK    bool
+		force        bool
+		want         string
+		noteContains string
+	}{
+		{
+			name:      "release bump inherits passed gate",
+			tip:       b,
+			pointer:   checkedPointer{Commit: a, State: "passed", Passed: passedA},
+			pointerOK: true,
+			want:      b,
+		},
+		{
+			name: "checking stays on passed commit",
+			tip:  c,
+			pointer: checkedPointer{
+				Commit: c, State: "checking", Run: "https://example.test/checking",
+				At: time.Now().Add(-2 * time.Minute).Format(time.RFC3339), Passed: passedA,
+			},
+			pointerOK:    true,
+			want:         a,
+			noteContains: "still running",
+		},
+		{
+			name: "failed stays on passed commit",
+			tip:  c,
+			pointer: checkedPointer{
+				Commit: c, State: "failed", Run: "https://example.test/failed", Passed: passedA,
+			},
+			pointerOK:    true,
+			want:         a,
+			noteContains: "failed its checks",
+		},
+		{
+			name:      "force takes unchecked tip",
+			tip:       c,
+			pointer:   checkedPointer{Commit: c, State: "failed", Passed: passedA},
+			pointerOK: true,
+			force:     true,
+			want:      c,
+		},
+		{
+			name:         "unreachable pointer stays on head",
+			tip:          c,
+			want:         a,
+			noteContains: "cannot read the testing gate",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mustGit(t, work, "update-ref", "refs/remotes/origin/unstable-dev", tc.tip)
+			target, note := resolveChannelTarget(work, "unstable-dev", tc.pointer, tc.pointerOK, tc.force)
+			got := strings.TrimSpace(mustGit(t, work, "rev-parse", target))
+			if got != tc.want {
+				t.Errorf("target %q resolves to %s, want %s", target, got, tc.want)
+			}
+			if tc.noteContains != "" && !strings.Contains(note, tc.noteContains) {
+				t.Errorf("note = %q, want it to contain %q", note, tc.noteContains)
+			}
+			if tc.noteContains == "" && note != "" {
+				t.Errorf("note = %q, want empty", note)
+			}
+		})
+	}
 }
 
 func TestChannelStatus(t *testing.T) {
@@ -412,7 +509,7 @@ func TestSyncChannelFastForwardsNonMainBranch(t *testing.T) {
 	commitPush(t, other, "f2", "y\n", "release commit two", "main")
 	mustGit(t, work, "fetch", "origin", "main")
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 
@@ -447,7 +544,7 @@ func TestSyncChannelPreservesDivergedBranch(t *testing.T) {
 	commitPush(t, other, "f1", "x\n", "upstream commit", "main")
 	mustGit(t, work, "fetch", "origin", "main")
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != wip {
@@ -474,7 +571,7 @@ func TestSyncChannelResetsDivergedChannelBranch(t *testing.T) {
 	commitPush(t, other, "f1", "x\n", "upstream commit", "main")
 	mustGit(t, work, "fetch", "origin", "main")
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	// The channel branch mirrors upstream: it is reset onto origin/main, dropping
@@ -502,7 +599,7 @@ func TestSyncChannelLeavesDirtyTree(t *testing.T) {
 	mustGit(t, work, "fetch", "origin", "main")
 	writeFile(t, filepath.Join(work, "README"), "dirty edit\n")
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != before {
@@ -520,7 +617,7 @@ func TestSyncChannelNoOpWhenCurrent(t *testing.T) {
 	mustGit(t, work, "fetch", "origin", "main")
 	before := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD"))
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != before {
@@ -560,7 +657,7 @@ func TestUpdateClearsBehindOnDevBranch(t *testing.T) {
 
 	// The channel sync `ryoku update` runs, then deploy.sh records HEAD as the
 	// deployed commit.
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD"))
@@ -595,7 +692,7 @@ func TestSyncChannelFastForwardsPastUntrackedFiles(t *testing.T) {
 
 	writeFile(t, filepath.Join(work, "scratch", "build.out"), "junk\n")
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != want {
@@ -620,7 +717,7 @@ func TestSyncChannelErrorsOnUntrackedCollision(t *testing.T) {
 
 	writeFile(t, filepath.Join(work, "app", "new.qml"), "mine\n")
 
-	if err := syncChannel(work, "main"); err == nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err == nil {
 		t.Fatal("syncChannel: err=nil, want an error when an untracked file collides")
 	}
 }

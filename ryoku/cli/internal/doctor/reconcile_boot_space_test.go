@@ -7,9 +7,8 @@ import (
 	"testing"
 )
 
-// TestReconcileBootSpaceInaccessible verifies that inaccessible kernel-image
-// directories cannot produce the false-success message
-// "no kernel images on /boot to size against", and instead warn with sudo fix.
+// TestReconcileBootSpaceInaccessible verifies that a root-only boot partition
+// cannot produce a false-success message or raise the update health warning.
 func TestReconcileBootSpaceInaccessible(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("skipping permission-denied test when running as root (root bypasses DAC permissions)")
@@ -47,14 +46,17 @@ func TestReconcileBootSpaceInaccessible(t *testing.T) {
 	}
 
 	res := reconcileBootSpace(true)
-	if res.status != recWarn {
-		t.Fatalf("reconcileBootSpace on inaccessible directory: got status %d, want recWarn (%d)", res.status, recWarn)
+	if res.status != recNote {
+		t.Fatalf("reconcileBootSpace on inaccessible directory: got status %d, want recNote (%d)", res.status, recNote)
+	}
+	if warns, fails := printFindings([]finding{{name: "boot partition headroom", res: res}}, false); warns != 0 || fails != 0 {
+		t.Fatalf("permission-only inspection counted as health issue: warns=%d fails=%d", warns, fails)
 	}
 	if strings.Contains(res.detail, "no kernel images on /boot to size against") {
 		t.Fatalf("reconcileBootSpace emitted false-success message: %s", res.detail)
 	}
 	if !strings.Contains(res.detail, "cannot inspect kernel images on /boot to verify headroom") {
-		t.Errorf("expected warning about inspecting kernel images, got: %s", res.detail)
+		t.Errorf("expected note about inspecting kernel images, got: %s", res.detail)
 	}
 	if res.remedy != "sudo ryoku doctor --check" {
 		t.Errorf("expected remedy 'sudo ryoku doctor --check', got %q", res.remedy)

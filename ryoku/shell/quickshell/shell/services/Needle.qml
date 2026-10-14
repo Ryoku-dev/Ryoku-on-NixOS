@@ -54,6 +54,10 @@ Singleton {
     // Outbound messages queued until the follow process has started its stdin.
     property var _outbox: []
     property bool _started: false
+    // False once the bridge could not start at all: ryoku-rashin is not
+    // installed, so a message is answered with the install hint, not queued.
+    property bool available: true
+    property bool _launched: false
 
     // ---- outbound (all client messages are one stdin line) -------------------
 
@@ -70,6 +74,12 @@ Singleton {
         var imgs = imagePaths || [];
         if ((q.length === 0 && imgs.length === 0) || root.busy)
             return;
+        if (!root.available) {
+            root._frame(JSON.stringify({ type: "user", text: q }));
+            root._frame(JSON.stringify({ type: "agent_text", text: I18n.tr("Not installed · install ryoku-rashin") }));
+            root._frame(JSON.stringify({ type: "turn_end" }));
+            return;
+        }
         if (imgs.length === 0) {
             root._send({ type: "user", text: q });
             return;
@@ -281,8 +291,11 @@ Singleton {
             splitMarker: "\n"
             onRead: (line) => root._frame(line)
         }
+        // A missing binary never starts and never exits, so this is the only sign.
+        onRunningChanged: if (!running && !root._launched) root.available = false
         onStarted: {
             root._started = true;
+            root._launched = true;
             for (var i = 0; i < root._outbox.length; i++)
                 follow.write(root._outbox[i]);
             root._outbox = [];

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -19,11 +20,12 @@ import (
 const lensServeIdle = 90 * time.Second
 
 type lensServe struct {
-	cmd    *exec.Cmd
-	wc     io.WriteCloser
-	stdin  *bufio.Writer
-	stdout *bufio.Reader
-	paths  semanticPaths
+	cmd       *exec.Cmd
+	wc        io.WriteCloser
+	stdin     *bufio.Writer
+	stdout    *bufio.Reader
+	paths     semanticPaths
+	closeOnce sync.Once
 }
 
 func spawnLensServe(paths semanticPaths) (*lensServe, error) {
@@ -104,13 +106,15 @@ func (s *lensServe) search(gen uint64, text string, limit int) ([]map[string]int
 }
 
 func (s *lensServe) close() {
-	if s.wc != nil {
-		_ = s.wc.Close()
-	}
-	if s.cmd != nil && s.cmd.Process != nil {
-		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
-		go func(c *exec.Cmd) { _ = c.Wait() }(s.cmd)
-	}
+	s.closeOnce.Do(func() {
+		if s.wc != nil {
+			_ = s.wc.Close()
+		}
+		if s.cmd != nil && s.cmd.Process != nil {
+			_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+			go func(c *exec.Cmd) { _ = c.Wait() }(s.cmd)
+		}
+	})
 }
 
 // An unavailable search is an error the folio shows, never a silent empty result.
@@ -148,9 +152,23 @@ func (m *lensManager) query(text string, limit int) ([]map[string]interface{}, e
 		m.svc = svc
 	}
 	m.gen++
-	results, err := m.svc.search(m.gen, text, limit)
+	svc := m.svc
+	timedOut := make(chan struct{})
+	timer := time.AfterFunc(searchFetchTimeout, func() {
+		close(timedOut)
+		svc.close()
+	})
+	results, err := svc.search(m.gen, text, limit)
+	if !timer.Stop() {
+		<-timedOut
+	}
+	select {
+	case <-timedOut:
+		err = fmt.Errorf("semantic search timed out after %s", searchFetchTimeout)
+	default:
+	}
 	if err != nil {
-		m.svc.close()
+		svc.close()
 		m.svc = nil
 		return nil, err
 	}

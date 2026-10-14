@@ -29,6 +29,11 @@ log_intro() {
 	logger -t ryoku-session-intro -- "$*"
 }
 
+if command -v ryoku-host >/dev/null 2>&1; then
+	ryoku-host svc reconcile --user ||
+		log_intro "service activation reconcile failed; continuing session startup"
+fi
+
 consume_default_rice() {
 	local marker="$state/default-rice-pending" slug="" attempt ready=false
 	[[ -r $marker ]] || return 0

@@ -8,6 +8,7 @@ import Ryoku.Ui.Singletons
 import Quickshell.Io
 import "../"
 import "../reusables"
+import "../../../../../components"
 import shell.services as Ryoku
 import stage
 
@@ -113,12 +114,12 @@ Variants {
                 property var rawDockSettings: {
                     const design = Ryoku.Dock.cfg("python", {})
                     const apps = Ryoku.Dock.resolve(Ryoku.Dock.pinnedOrStarter()).map(className => {
-                        const entry = DesktopEntries.heuristicLookup(className)
+                        const entry = Ryoku.Dock.entryFor(className)
                         return {
                             name: entry?.name ?? className,
                             comment: entry?.comment ?? "",
                             desktop_id: className,
-                            icon: entry?.icon ?? className
+                            icon: entry?.icon ?? ""
                         }
                     })
                     return Object.assign({}, defaultDockSettings, design, {
@@ -1540,13 +1541,11 @@ Variants {
                                                     }
                                                 }
 
-                                                Text {
+                                                SymbolIcon {
                                                     anchors.centerIn: parent
-                                                    visible: appIcon.source === "" || appIcon.failedLoad || appIcon.status === Image.Error
-                                                    text: dockButton.name ? dockButton.name.charAt(0).toUpperCase() : "?"
-                                                    font.family: ThemeBackend.fontFamily
-                                                    font.pixelSize: dockWindow.s(Math.round(dockWindow.dockElementSize * 0.42))
-                                                    font.weight: Font.Bold
+                                                    visible: !appIcon.visible
+                                                    name: "view-app-grid"
+                                                    size: dockWindow.s(Math.round(dockWindow.dockElementSize * 0.52))
                                                     color: ThemeBackend.text
                                                 }
 

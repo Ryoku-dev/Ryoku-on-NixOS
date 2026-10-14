@@ -519,9 +519,36 @@ Item {
         pg.hub.hyprEdit("desktop.keybindRebinds", m);
     }
     function clearRebind(defCombo) { pg.setRebind(defCombo, ""); }
+
+    // ── switched-off binds ──────────────────────────────────────────────────
+    // A separate list from the rebinds, held as ["SUPER + W"] under
+    // desktop.keybindDisabled and keyed on the shipped chord like a rebind is.
+    // Its own list because a rebind's value is a user-chosen chord: a reserved
+    // value in there would collide with whatever someone actually presses.
+    readonly property var disabledBinds: pg.hubReady ? (pg.hub.hyprVal("desktop.keybindDisabled") || []) : []
+    function isDisabled(defCombo) {
+        for (var i = 0; i < pg.disabledBinds.length; i++)
+            if (pg.disabledBinds[i] === defCombo)
+                return true;
+        return false;
+    }
+    function setDisabled(defCombo, off) {
+        if (!pg.hubReady)
+            return;
+        var cur = pg.hub.hyprVal("desktop.keybindDisabled") || [];
+        var next = [];
+        for (var i = 0; i < cur.length; i++)
+            if (cur[i] !== defCombo)
+                next.push(cur[i]);
+        if (off)
+            next.push(defCombo);
+        pg.hub.hyprEdit("desktop.keybindDisabled", next);
+    }
     function clearRebinds() {
-        if (pg.hubReady)
+        if (pg.hubReady) {
             pg.hub.hyprEdit("desktop.keybindRebinds", ({}));
+            pg.hub.hyprEdit("desktop.keybindDisabled", []);
+        }
     }
 
     // norm -> how many shipped (effective) + custom binds hold it; >1 is a clash.
@@ -530,6 +557,8 @@ Item {
         for (var c = 0; c < pg.categories.length; c++) {
             var binds = pg.categories[c].binds || [];
             for (var b = 0; b < binds.length; b++) {
+                if (pg.isDisabled(binds[b].combo || ""))
+                    continue;
                 // a family stands for ten chords, so expand it before counting:
                 // that is how a rebound family clashes with another effective chord.
                 var chords = Combos.expandFamily(pg.effectiveCombo(binds[b].combo || ""));
@@ -550,6 +579,8 @@ Item {
     // a family compares its ten expanded chords against the other effective
     // chords; a plain chord expands to itself, so both go through one path.
     function comboConflict(defCombo) {
+        if (pg.isDisabled(defCombo))
+            return false;
         var chords = Combos.expandFamily(pg.effectiveCombo(defCombo));
         for (var i = 0; i < chords.length; i++) {
             var n = pg.normKeys(chords[i]);
@@ -1541,7 +1572,11 @@ Item {
                                         readonly property string unhon: rowItem.modelData.unhonored || ""
                                         readonly property bool customRow: (rowItem.modelData.kind || "") === "custom"
                                         readonly property bool clashRow: rowItem.reboundRow && pg.comboConflict(rowItem.combo)
-                                        readonly property var effKeys: rowItem.reboundRow ? pg.comboToCaps(pg.effectiveCombo(rowItem.combo)) : (rowItem.modelData.keys || [])
+                                        readonly property bool offRow: pg.isDisabled(rowItem.combo)
+                                        // Switched off holds no chord, so the row shows none: printing
+                                        // the shipped one would read as a shortcut that does nothing.
+                                        readonly property var effKeys: rowItem.offRow ? []
+                                            : rowItem.reboundRow ? pg.comboToCaps(pg.effectiveCombo(rowItem.combo)) : (rowItem.modelData.keys || [])
                                         // a rebindable, honoured row records a new chord; a custom
                                         // row records into its Custom-tab row instead.
                                         readonly property bool editable: rowItem.unhon.length === 0 && pg.hubReady && (rowItem.rebindableRow || rowItem.customRow)
@@ -1676,12 +1711,26 @@ Item {
                                             // change the shortcut; always shown on an editable row.
                                             IconBtn {
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                visible: rowItem.editable
+                                                visible: rowItem.editable && !rowItem.offRow
                                                 glyph: "\u270e"
                                                 onAct: rowItem.beginEdit()
                                                 HoverHandler { id: editHov }
                                                 ToolTip.visible: editHov.hovered
                                                 ToolTip.text: I18n.tr("Change shortcut")
+                                            }
+                                            // leave the action with no shortcut at all. A rebindable
+                                            // row only: a dedicated key has nothing to release, and a
+                                            // custom row is deleted on its own tab instead.
+                                            IconBtn {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: rowItem.rebindableRow && !rowItem.customRow && pg.hubReady
+                                                glyph: rowItem.offRow ? "\u21bb" : "\u2715"
+                                                onAct: pg.setDisabled(rowItem.combo, !rowItem.offRow)
+                                                HoverHandler { id: offHov }
+                                                ToolTip.visible: offHov.hovered
+                                                ToolTip.text: rowItem.offRow
+                                                    ? I18n.tr("Give it a shortcut again")
+                                                    : I18n.tr("Remove this shortcut")
                                             }
                                             // a dedicated key cannot be rebound; a lock says so.
                                             Item {

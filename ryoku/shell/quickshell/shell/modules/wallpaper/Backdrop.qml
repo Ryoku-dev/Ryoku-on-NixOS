@@ -523,6 +523,22 @@ Item {
 
         fragmentShader: "reveal.frag.qsb"
 
+        // A transition is optional eye candy. If a backend cannot compile one
+        // of the catalog shaders, keep the two captured frames and finish with
+        // the portable base fade instead of leaving the desktop transparent.
+        onStatusChanged: {
+            if (status !== ShaderEffect.Error
+                    || !view.transition || !view.transition.shader)
+                return;
+            fragmentShader = "reveal.frag.qsb";
+            kind = 0;
+            angle = 0;
+            waveAmp = 0;
+            originX = 0.5;
+            originY = 0.5;
+            edgeSoftness = 0.002;
+        }
+
         NumberAnimation {
             id: revealAnim
             target: reveal

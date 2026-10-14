@@ -1,3 +1,5 @@
 module Ryoku.Wm.Hyprland
 GlobalShortcutBridge GlobalShortcutBridge.qml
 FocusGrabBridge FocusGrabBridge.qml
+WorkspaceSlideBridge 1.0 WorkspaceSlideBridge.qml
+WindowEmbedBridge 1.0 WindowEmbedBridge.qml

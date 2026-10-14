@@ -32,21 +32,76 @@ set -u
 export XCURSOR_THEME="${XCURSOR_THEME:-Bibata-Modern-Ice}"
 export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
 
-# The login pointer vanishes on NVIDIA: its DRM backend hands the cursor to a
-# hardware plane the driver accepts but never displays (issue #184). Dropping to
-# the pixman renderer avoids plane promotion and fixes it there. But pixman is a
-# trap everywhere else: under it weston uses no cursor plane AND composites none
-# (weston #375), so forcing it on an Intel/AMD iGPU panel -- where the GL
-# renderer's hardware cursor works -- hides the pointer entirely (issue #191).
-# So only use pixman when NVIDIA actually drives the connected internal panel the
-# greeter lands on, mirroring how the session picks its GPU env.
-weston_args=""
-for conn in /sys/class/drm/card*-eDP-* /sys/class/drm/card*-LVDS-* /sys/class/drm/card*-DSI-*; do
-  [ -e "$conn/status" ] && [ "$(cat "$conn/status")" = connected ] || continue
-  card=${conn%-*}; card=${card%-*}
-  [ "$(cat "$card/device/vendor" 2>/dev/null)" = "0x10de" ] && weston_args="--renderer=pixman"
-  break
-done
+# Pick the card that can actually show the greeter before weston applies its
+# boot-VGA heuristic. Auxiliary KMS devices such as appletbdrm can have a
+# connected output without a render node, while a mux can leave one GPU's panel
+# connector disconnected. Prefer a render-capable card that owns the live
+# internal panel, then any live render card. KMS-only cards remain a last resort
+# for simple virtual machines.
+drm_root="${RYOKU_GREETER_DRM_ROOT:-/sys/class/drm}"
+
+card_has_render() {
+  local card="$1" node
+  for node in "$card/device/drm"/renderD*; do
+    [ -e "$node" ] && return 0
+  done
+  return 1
+}
+
+card_has_connected() {
+  local card_name="$1" internal_only="$2" conn name
+  for conn in "$drm_root/${card_name}-"*; do
+    [ -r "$conn/status" ] && [ "$(cat "$conn/status")" = connected ] || continue
+    name=${conn##*/}
+    name=${name#"$card_name"-}
+    if [ "$internal_only" = 0 ]; then
+      return 0
+    fi
+    case "$name" in
+      eDP-* | LVDS-* | DSI-*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+select_drm_card() {
+  local card card_name number class boot
+  for card in "$drm_root"/card[0-9]*; do
+    [ -d "$card" ] || continue
+    card_name=${card##*/}
+    [[ "$card_name" =~ ^card([0-9]+)$ ]] || continue
+    card_has_connected "$card_name" 0 || continue
+    number=${BASH_REMATCH[1]}
+    if card_has_render "$card"; then
+      if card_has_connected "$card_name" 1; then
+        class=1
+      else
+        class=2
+      fi
+    else
+      class=3
+    fi
+    boot=1
+    [ "$(cat "$card/device/boot_vga" 2>/dev/null)" = 1 ] && boot=0
+    printf '%s %s %s %s\n' "$class" "$boot" "$number" "$card_name"
+  done | sort -k1,1n -k2,2n -k3,3n | awk 'NR == 1 { print $4 }'
+}
+
+selected_card="$(select_drm_card)"
+weston_args=()
+if [ -n "$selected_card" ]; then
+  selected_path="$drm_root/$selected_card"
+  weston_args+=("--drm-device=$selected_card")
+  if ! card_has_render "$selected_path"; then
+    weston_args+=("--renderer=pixman")
+  elif card_has_connected "$selected_card" 1 &&
+    [ "$(cat "$selected_path/device/vendor" 2>/dev/null)" = "0x10de" ]; then
+    # NVIDIA's cursor plane accepts the login pointer but does not display it.
+    weston_args+=("--renderer=pixman")
+  fi
+else
+  echo "ryoku-greeter: no connected DRM card found; using weston's default" >&2
+fi
 
 # weston reads no X11 keyboard config, so without one the greeter comes up on
 # weston's built-in us map and a non-us password fails at the login field. Read
@@ -196,8 +251,8 @@ weston_plain() {
   local pini
   pini="$(mktemp --tmpdir ryoku-greeter.XXXXXX.ini 2>/dev/null)" &&
     { printf '[core]\nidle-time=0\n\n'; shell_ini; libinput_ini; keyboard_ini; } >"$pini" &&
-    exec weston --shell=kiosk $weston_args --config="$pini" "$@"
-  exec weston --shell=kiosk $weston_args "$@"
+    exec weston --shell=kiosk "${weston_args[@]}" --config="$pini" "$@"
+  exec weston --shell=kiosk "${weston_args[@]}" "$@"
 }
 
 command -v weston >/dev/null 2>&1 || { echo "ryoku-greeter: weston not found" >&2; exit 127; }
@@ -208,7 +263,8 @@ command -v modetest >/dev/null 2>&1 || weston_plain "$@"
 # modetest so weston matches the exact modelist entry. modetest holds no DRM
 # master, so this is safe to poll before weston takes the card.
 probe_modes() {
-  modetest -c 2>/dev/null | awk '
+  [ -n "$selected_card" ] || return 0
+  modetest -D "/dev/dri/$selected_card" -c 2>/dev/null | awk '
     /^Connectors:/ { insec = 1; next }
     /^(CRTCs|Encoders|Planes|Framebuffers):/ { insec = 0 }
     !insec { next }
@@ -282,4 +338,4 @@ ini="$(mktemp --tmpdir ryoku-greeter.XXXXXX.ini 2>/dev/null)" || weston_plain "$
 gen_ini > "$ini"
 [ -s "$ini" ] || weston_plain "$@"
 
-exec weston --shell=kiosk $weston_args --config="$ini" "$@"
+exec weston --shell=kiosk "${weston_args[@]}" --config="$ini" "$@"

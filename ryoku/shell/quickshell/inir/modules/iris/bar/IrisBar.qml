@@ -574,9 +574,8 @@ Scope {
                     || (controlCentreLoader.item?.present ?? false) || barWindow.editHere
                     || (dockLoader.item?.overFullscreen ?? false) || (dockLoader.item?.menuOpen ?? false)
                     || (spotlightLoader.item?.present ?? false) || (galleryLoader.item?.present ?? false)
-                // Niri keeps a fullscreen window above the Top layer, so the overview
-                // over a game would show every other surface but this one.
-                readonly property bool overviewOverFullscreen: CompositorService.nativeOverview && WorkspaceService.inOverview
+                // A native overview may need this chassis raised above a fullscreen window.
+                readonly property bool overviewOverFullscreen: CompositorService.overviewOverFullscreen
                     && GameMode.hasFullscreenOnOutput(barWindow.screen?.name ?? "")
                 readonly property bool canvasSuppressed: barWindow.suppressed && !barWindow.presenting
                 // Nothing of the chassis may cover, move or restack what sits still in it: continuous motion may

@@ -81,7 +81,18 @@ hl.env("QML2_IMPORT_PATH", os.getenv("HOME") .. "/.local/lib/qt6/qml")
 -- deploy.sh builds the ryoku-* binaries into ~/.local/bin; put it first so the
 -- session runs them, not the package's /usr/bin copies. Inert on a package
 -- install, where ~/.local/bin holds no ryoku binaries.
-hl.env("PATH", (os.getenv("HOME") or "") .. "/.local/bin:" .. (os.getenv("PATH") or ""))
+local local_bin = (os.getenv("HOME") or "") .. "/.local/bin"
+local entries = { local_bin }
+local inherited = os.getenv("PATH") or ""
+-- An empty PATH has no components; splitting it would add "" (the cwd).
+if inherited ~= "" then
+    for entry in (inherited .. ":"):gmatch("(.-):") do
+        if entry ~= local_bin then
+            entries[#entries + 1] = entry
+        end
+    end
+end
+hl.env("PATH", table.concat(entries, ":"))
 
 
 hl.env("EDITOR", "nvim")

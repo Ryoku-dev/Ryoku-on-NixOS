@@ -22,6 +22,11 @@ func (a *App) Package(args []string) int {
 		}
 		fmt.Fprintln(a.cfg.Stdout, a.InstallAdvice(args[1:]...))
 		return ExitOK
+	case "installed-at":
+		if len(args) != 2 {
+			return ExitUsage
+		}
+		return a.packageInstalledAt(manager, args[1])
 	case "why":
 		if len(args) != 2 {
 			return ExitUsage
@@ -401,7 +406,7 @@ func (a *App) xbps(args []string) int {
 		if verb == "available" {
 			return ExitNotProvided
 		}
-		fmt.Fprintf(a.cfg.Stderr, "ryoku-host: packages unavailable on this host: %s\n", strings.Join(unavailable, " "))
+		a.reportUnavailablePackages(table, unavailable)
 		return ExitNotProvided
 	}
 	switch verb {
@@ -476,6 +481,16 @@ func translatePackages(table packageTable, names []string) ([]string, []string) 
 		}
 	}
 	return translated, unavailable
+}
+
+func (a *App) reportUnavailablePackages(table packageTable, names []string) {
+	for _, name := range names {
+		note := table[name].Note
+		if note == "" {
+			note = "not packaged for this host"
+		}
+		fmt.Fprintf(a.cfg.Stderr, "ryoku-host: %s is unavailable: %s\n", name, note)
+	}
 }
 
 func countLines(value string) int {

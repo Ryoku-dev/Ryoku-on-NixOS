@@ -526,6 +526,13 @@ ShellRoot {
     StageEditor.StageEditorHost {
     }
 
+    // The ii dock design: the ported illogical-impulse dock, its live-draw
+    // overlay, alarm popup, clock app and settings page, mounted once (the
+    // design repeats itself per screen inside) while the shared store
+    // selects it.
+    IiDockHost {
+    }
+
 
     // The single surface-toggle mapping. Every shell surface id resolves to one
     // transition here: a per-monitor ShellState flip, a global config toggle, or

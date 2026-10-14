@@ -7,6 +7,7 @@
 
 class BlobShape;
 class BlobInvertedRect;
+class BlobWave;
 
 class BlobGroup : public QObject {
     Q_OBJECT
@@ -17,6 +18,7 @@ class BlobGroup : public QObject {
     Q_PROPERTY(qreal shadowSize READ shadowSize WRITE setShadowSize NOTIFY shadowSizeChanged)
     Q_PROPERTY(QColor borderColor READ borderColor WRITE setBorderColor NOTIFY borderColorChanged)
     Q_PROPERTY(qreal borderWidth READ borderWidth WRITE setBorderWidth NOTIFY borderWidthChanged)
+    Q_PROPERTY(QColor waveColor READ waveColor WRITE setWaveColor NOTIFY waveColorChanged)
 
 public:
     explicit BlobGroup(QObject* parent = nullptr);
@@ -42,16 +44,22 @@ public:
     qreal borderWidth() const { return m_borderWidth; }
     void setBorderWidth(qreal v);
 
+    // Ink traced along the wave where sound lifts it; transparent draws none.
+    QColor waveColor() const { return m_waveColor; }
+    void setWaveColor(const QColor& c);
+
     void addShape(BlobShape* shape);
     void removeShape(BlobShape* shape);
 
     void setInvertedRect(BlobInvertedRect* rect);
     void clearInvertedRect(BlobInvertedRect* rect);
 
+    void addWave(BlobWave* wave);
+    void removeWave(BlobWave* wave);
     const QList<BlobShape*>& shapes() const { return m_shapes; }
+    const QList<BlobWave*>& waves() const { return m_waves; }
 
     BlobInvertedRect* invertedRect() const { return m_invertedRect; }
-
     void markDirty();
     void markShapeDirty(BlobShape* source);
     void ensurePhysicsUpdated();
@@ -63,6 +71,7 @@ signals:
     void shadowSizeChanged();
     void borderColorChanged();
     void borderWidthChanged();
+    void waveColorChanged();
 
 private:
     qreal m_smoothing = 32.0;
@@ -71,7 +80,9 @@ private:
     qreal m_shadowSize = 0.0;
     QColor m_borderColor{ 0, 0, 0, 0 };
     qreal m_borderWidth = 0.0;
+    QColor m_waveColor{ 0, 0, 0, 0 };
     QList<BlobShape*> m_shapes;
     BlobInvertedRect* m_invertedRect = nullptr;
+    QList<BlobWave*> m_waves;
     bool m_physicsUpdated = false;
 };

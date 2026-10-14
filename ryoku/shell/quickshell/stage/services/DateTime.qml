@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import stage
 import stage.modules.common
 import QtQuick
+import Ryoku.Ui.Singletons as RyokuUi
 import Quickshell
 import Quickshell.Io
 
@@ -18,7 +19,7 @@ Singleton {
             return SystemClock.Minutes;
         }
     }
-    property string time: Qt.locale().toString(clock.date, Config.options?.time.format ?? "hh:mm")
+    property string time: RyokuUi.TimeFormat.format(clock.date)
     property string seconds: Qt.locale().toString(clock.date, Config.options?.time.secondsFormat ?? "ss")
     property string shortDate: Qt.locale().toString(clock.date, Config.options?.time.shortDateFormat ?? "dd/MM")
     property string dayNameShort: Qt.locale().toString(clock.date, "ddd")
@@ -49,13 +50,12 @@ Singleton {
     // ── Clock parts ───────────────────────────────────────────────────────────
     // Same reasoning as the date parts: the bar's clock draws hours and minutes
     // with different type, so it needs them apart rather than pre-joined.
-    readonly property bool use12HourClock: /a/i.test(Config.options?.time.format ?? "hh:mm")
-    property string hours: use12HourClock
-        ? ("0" + (clock.date.getHours() % 12 || 12)).slice(-2)
-        : Qt.locale().toString(clock.date, "HH")
-    property string minutes: Qt.locale().toString(clock.date, "mm")
+    readonly property bool use12HourClock: !RyokuUi.TimeFormat.is24h
+    property string hours: clock.date.toLocaleTimeString(
+        RyokuUi.TimeFormat.locale, use12HourClock ? "hh" : "HH")
+    property string minutes: clock.date.toLocaleTimeString(RyokuUi.TimeFormat.locale, "mm")
     property string meridiem: use12HourClock
-        ? Qt.locale().toString(clock.date, (Config.options?.time.format ?? "").includes("AP") ? "AP" : "ap").trim()
+        ? clock.date.toLocaleTimeString(RyokuUi.TimeFormat.locale, "AP").trim()
         : ""
 
     // Fractions for dials and arcs. `clock.precision` is Minutes unless the

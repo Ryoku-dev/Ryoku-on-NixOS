@@ -293,7 +293,7 @@ func runAnimate() error {
 				if m.has(modeHasBrightness) {
 					m.Bri = m.BriMax
 				}
-				if err := o.SetMode(p.dev.Index, idx, m); err != nil {
+				if err := o.SetMode(p.dev, idx, m); err != nil {
 					return err
 				}
 				seated[key] = set.Effect
@@ -310,7 +310,7 @@ func runAnimate() error {
 				speed = float64(set.Speed) / 100
 			}
 			frame := fxFrame(set.Effect, p.pos, time.Since(start).Seconds(), speed, bri, base)
-			if err := o.SetLEDs(p.dev.Index, frame); err != nil {
+			if err := o.SetLEDs(p.dev, frame); err != nil {
 				return err
 			}
 		}

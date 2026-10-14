@@ -645,8 +645,6 @@ QtObject {
         { section: "display", group: "Night Light", label: "Warmth", description: "Lower is warmer.", path: "light.night.colorTemperature", nightLight: "warmth", kind: "range", fallback: 5000, min: 2500, max: 6500, step: 100, unit: " K" },
         { section: "display", group: "Comfort", label: "Soften bright flashes", description: "Dims the screen when a mostly white window suddenly fills it.", path: "light.antiFlashbang.enable", kind: "switch", fallback: false, keywords: ["flashbang", "bright", "white", "eyes"] },
 
-        { section: "battery", group: "Warnings", label: "Low battery", path: "battery.low", kind: "range", fallback: 20, min: 5, max: 50, step: 5, unit: " %" },
-        { section: "battery", group: "Warnings", label: "Critical battery", path: "battery.critical", kind: "range", fallback: 5, min: 1, max: 20, unit: " %" },
         { section: "battery", group: "Warnings", label: "Warning sounds", path: "sounds.battery", kind: "switch", fallback: false },
         { section: "battery", group: "Suspend", label: "Suspend when almost empty", path: "battery.automaticSuspend", kind: "switch", fallback: true },
         { section: "battery", group: "Suspend", label: "At", path: "battery.suspend", visibleWhen: "battery.automaticSuspend", kind: "range", fallback: 3, min: 1, max: 10, unit: " %" },

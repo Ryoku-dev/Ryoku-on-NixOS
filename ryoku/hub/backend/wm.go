@@ -40,6 +40,10 @@ func runWm(args []string) error {
 
 func wmPackage(name string) string { return "ryoku-desktop-" + name }
 
+func wmSelectable(packageAvailable, deployed bool) bool {
+	return packageAvailable || deployed
+}
+
 // wmDeployed reports whether a provider works without its package: its binary
 // answers caps, its config tree exists, and its greeter session is real (the
 // compositor is installed and a session entry exists). All three, because a
@@ -67,8 +71,13 @@ type wmProvider struct {
 	Package   string `json:"package"`
 	ConfigDir string `json:"configDir"`
 	Installed bool   `json:"installed"`
-	Available bool   `json:"available"`
-	Reason    string `json:"reason"`
+	// Available means the host repositories can install the variant package.
+	Available bool `json:"available"`
+	// Selectable also admits a complete checkout deployment. The Hub can switch
+	// to one without installing anything even when its package is not published
+	// for this host.
+	Selectable bool   `json:"selectable"`
+	Reason     string `json:"reason"`
 	// Deployed reports a provider usable without its package, which is what a
 	// checkout leaves behind.
 	Deployed bool     `json:"deployed"`
@@ -82,16 +91,18 @@ func wmList() error {
 	for _, name := range wm.Providers() {
 		pkg := wmPackage(name)
 		available := pkgAvailable(pkg)
+		deployed := wmDeployed(name)
 		p := wmProvider{
-			Name:      name,
-			Package:   pkg,
-			ConfigDir: wm.ConfigDir(name),
-			Installed: pkgInstalled(pkg),
-			Available: available,
-			Deployed:  wmDeployed(name),
-			Active:    detection.Live && name == detection.Name,
+			Name:       name,
+			Package:    pkg,
+			ConfigDir:  wm.ConfigDir(name),
+			Installed:  pkgInstalled(pkg),
+			Available:  available,
+			Selectable: wmSelectable(available, deployed),
+			Deployed:   deployed,
+			Active:     detection.Live && name == detection.Name,
 		}
-		if !available {
+		if !p.Selectable {
 			p.Reason = pkgUnavailableReason(pkg)
 		}
 		// The manifest is present only when the provider binary is, so a box
@@ -114,7 +125,10 @@ type wmPreviewReport struct {
 	Package   string `json:"package"`
 	ConfigDir string `json:"configDir"`
 	Installed bool   `json:"installed"`
-	Available bool   `json:"available"`
+	// Available is package availability; Selectable additionally accepts a
+	// complete checkout deployment that needs no install.
+	Available  bool `json:"available"`
+	Selectable bool `json:"selectable"`
 	// Deployed reports that the provider works without its package.
 	Deployed     bool           `json:"deployed"`
 	KeybindCount int            `json:"keybindCount"`
@@ -135,14 +149,17 @@ func wmPreview(name string) error {
 		return fmt.Errorf("unknown compositor %q", name)
 	}
 	store := desktopStorePath()
+	available := pkgAvailable(wmPackage(name))
+	deployed := wmDeployed(name)
 	out := wmPreviewReport{
 		Target:       name,
 		Active:       wm.Detect().Name,
 		Package:      wmPackage(name),
 		ConfigDir:    wm.ConfigDir(name),
 		Installed:    pkgInstalled(wmPackage(name)),
-		Available:    pkgAvailable(wmPackage(name)),
-		Deployed:     wmDeployed(name),
+		Available:    available,
+		Selectable:   wmSelectable(available, deployed),
+		Deployed:     deployed,
 		KeybindCount: storeKeybindCount(store),
 		Unhonored:    []wm.Unhonored{},
 	}

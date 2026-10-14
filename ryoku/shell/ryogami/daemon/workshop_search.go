@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -50,18 +51,18 @@ type wsItem struct {
 	Downloaded    bool   `json:"downloaded"`
 }
 
-func (w *workshopLib) search(p steamSearchParams) (searchPage, error) {
+func (w *workshopLib) search(ctx context.Context, p steamSearchParams) (searchPage, error) {
 	backend := wkString(w.d.setting("steam.backend"))
 	apiKey := wkString(w.d.setting("steam.apiKey"))
 	var page searchPage
 	var err error
 	switch {
 	case backend == "steam" && steamHelperPresent():
-		page, err = w.steamworksSearch(p)
+		page, err = w.steamworksSearch(ctx, p)
 	case apiKey != "":
-		page, err = w.webAPISearch(p, apiKey)
+		page, err = w.webAPISearch(ctx, p, apiKey)
 	default:
-		page, err = w.keylessSearch(p)
+		page, err = w.keylessSearch(ctx, p)
 	}
 	if err != nil {
 		return searchPage{}, err
@@ -77,7 +78,12 @@ func (w *workshopLib) search(p steamSearchParams) (searchPage, error) {
 }
 
 func (w *workshopLib) items(page searchPage) []wsItem {
-	downloaded := w.downloadedSet()
+	downloaded := map[string]bool{}
+	for _, entry := range w.d.store.list(false) {
+		if entry.Type == "we" && entry.WeID != "" {
+			downloaded[entry.WeID] = true
+		}
+	}
 	out := make([]wsItem, 0, len(page.results))
 	for _, r := range page.results {
 		out = append(out, wsItem{
@@ -129,8 +135,8 @@ func isNsfwTag(t string) bool {
 	return false
 }
 
-func (w *workshopLib) keylessSearch(p steamSearchParams) (searchPage, error) {
-	body, err := w.d.httpGetBytes(communityBrowseURL(p), nil, 8<<20)
+func (w *workshopLib) keylessSearch(ctx context.Context, p steamSearchParams) (searchPage, error) {
+	body, err := w.d.httpGetBytesContext(ctx, communityBrowseURL(p), nil, 8<<20)
 	if err != nil {
 		return searchPage{}, fmt.Errorf("Steam Workshop request failed: %w", err)
 	}
@@ -139,7 +145,7 @@ func (w *workshopLib) keylessSearch(p steamSearchParams) (searchPage, error) {
 	if len(ids) == 0 {
 		return searchPage{currentPage: page, lastPage: page}, nil
 	}
-	results, err := w.getPublishedFileDetails(ids)
+	results, err := w.getPublishedFileDetails(ctx, ids)
 	if err != nil {
 		return searchPage{}, err
 	}
@@ -202,22 +208,22 @@ func extractWorkshopIDs(html string) []string {
 	return out
 }
 
-func (w *workshopLib) getPublishedFileDetails(ids []string) ([]steamResult, error) {
+func (w *workshopLib) getPublishedFileDetails(ctx context.Context, ids []string) ([]steamResult, error) {
 	form := url.Values{}
 	form.Set("itemcount", strconv.Itoa(len(ids)))
 	for i, id := range ids {
 		form.Set(fmt.Sprintf("publishedfileids[%d]", i), id)
 	}
-	body, err := w.d.httpPostForm("https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/", form, 8<<20)
+	body, err := w.d.httpPostFormContext(ctx, "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/", form, 8<<20)
 	if err != nil {
 		return nil, fmt.Errorf("Steam Workshop request failed: %w", err)
 	}
 	return parsePublishedFileDetails(body)
 }
 
-func (w *workshopLib) webAPISearch(p steamSearchParams, apiKey string) (searchPage, error) {
+func (w *workshopLib) webAPISearch(ctx context.Context, p steamSearchParams, apiKey string) (searchPage, error) {
 	u := "https://api.steampowered.com/IPublishedFileService/QueryFiles/v1/?" + queryFilesValues(p, apiKey).Encode()
-	body, err := w.d.httpGetBytes(u, nil, 8<<20)
+	body, err := w.d.httpGetBytesContext(ctx, u, nil, 8<<20)
 	if err != nil {
 		return searchPage{}, fmt.Errorf("Steam Workshop request failed: %w", err)
 	}

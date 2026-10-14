@@ -289,9 +289,9 @@ pkgs.stdenv.mkDerivation {
       "$out/bin/ryoku-fastfetch"
 
     for helper in \
-      ryoku/shell/bin/claude-usage \
-      ryoku/shell/bin/codex-usage \
-      ryoku/shell/bin/opencode-usage
+      ryoku/rashin/usage/claude-usage \
+      ryoku/rashin/usage/codex-usage \
+      ryoku/rashin/usage/opencode-usage
     do
       install -Dm755 \
         "$helper" \

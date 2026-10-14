@@ -91,6 +91,7 @@ Item {
         case "preview": return previewC;
         case "appTheme": return appThemeC;
         case "segment": return segmentC;
+        case "lighting": return lightingC;
         }
         return null;
     }
@@ -138,4 +139,6 @@ Item {
             reveal: fc.reveal } }
     Component { id: segmentC
         Segment { width: loader.width; label: fc.control.label ? fc.control.label : ""; reveal: fc.reveal } }
+    Component { id: lightingC
+        LightingRow { width: loader.width; control: fc.control; host: fc.host; reveal: fc.reveal } }
 }

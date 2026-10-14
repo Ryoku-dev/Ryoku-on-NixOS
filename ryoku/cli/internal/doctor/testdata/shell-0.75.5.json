@@ -1,0 +1,384 @@
+{
+  "general": {
+    "clock_format_24_h": false,
+    "weather_location_query": {
+      "type": "Coordinates",
+      "lat": 0,
+      "lon": 0,
+      "name": "",
+      "country": ""
+    },
+    "temperature_unit": "Metric"
+  },
+  "theme": {
+    "theme": "Default",
+    "matugen": {
+      "preference": "Darkness",
+      "scheme_type": "TonalSpot",
+      "mode": "Dark",
+      "contrast": 0
+    },
+    "attributes": {
+      "font": {
+        "primary": "",
+        "secondary": "",
+        "tertiary": ""
+      },
+      "sizing": {
+        "radius_widget": 8,
+        "radius_window": 8,
+        "border_width": 2
+      },
+      "window_opacity": 1
+    },
+    "motion": {
+      "scale": 1,
+      "reduce": false
+    }
+  },
+  "bars": {
+    "frame": {
+      "enable_frame": true,
+      "monitor_filter": []
+    },
+    "widgets": {
+      "quick_settings": {
+        "icon": "Arch"
+      }
+    },
+    "top_bar": {
+      "minimum_height": 0,
+      "reveal_by_default": true,
+      "left_widgets": [],
+      "center_widgets": [],
+      "right_widgets": []
+    },
+    "bottom_bar": {
+      "minimum_height": 0,
+      "reveal_by_default": true,
+      "left_widgets": [],
+      "center_widgets": [],
+      "right_widgets": []
+    },
+    "left_bar": {
+      "minimum_width": 0,
+      "reveal_by_default": true,
+      "top_widgets": [
+        "QuickSettings",
+        "HyprlandWorkspaces"
+      ],
+      "center_widgets": [
+        "HyprlandDock"
+      ],
+      "bottom_widgets": [
+        "RecordingIndicator",
+        "Tray",
+        "Screenshot",
+        "Wallpaper",
+        "Clipboard",
+        "Notifications",
+        "AudioInput",
+        "AudioOutput",
+        "Bluetooth",
+        "Network",
+        "Battery",
+        "Clock"
+      ]
+    },
+    "right_bar": {
+      "minimum_width": 0,
+      "reveal_by_default": true,
+      "top_widgets": [],
+      "center_widgets": [],
+      "bottom_widgets": []
+    }
+  },
+  "menus": {
+    "clock_menu": {
+      "position": "Left",
+      "minimum_width": 410,
+      "widgets": [
+        {
+          "type": "Calendar"
+        },
+        {
+          "type": "Spacer",
+          "size": 20
+        },
+        {
+          "type": "Weather"
+        }
+      ]
+    },
+    "clipboard_menu": {
+      "position": "Left",
+      "minimum_width": 410,
+      "widgets": [
+        {
+          "type": "Clipboard"
+        }
+      ]
+    },
+    "quick_settings_menu": {
+      "position": "Left",
+      "minimum_width": 410,
+      "widgets": [
+        {
+          "type": "Clock"
+        },
+        {
+          "type": "Network"
+        },
+        {
+          "type": "Bluetooth"
+        },
+        {
+          "type": "AudioOutput"
+        },
+        {
+          "type": "AudioInput"
+        },
+        {
+          "type": "PowerProfiles"
+        },
+        {
+          "type": "MediaPlayer"
+        },
+        {
+          "type": "Spacer",
+          "size": 20
+        },
+        {
+          "type": "QuickActions",
+          "actions": [
+            "AirplaneMode",
+            "NightLight",
+            "ColorPicker",
+            "Settings"
+          ]
+        },
+        {
+          "type": "Spacer",
+          "size": 20
+        },
+        {
+          "type": "QuickActions",
+          "actions": [
+            "Logout",
+            "Lock",
+            "Reboot",
+            "Shutdown"
+          ]
+        }
+      ]
+    },
+    "notification_menu": {
+      "position": "Left",
+      "minimum_width": 410,
+      "widgets": [
+        {
+          "type": "Notifications"
+        }
+      ]
+    },
+    "wallpaper_menu": {
+      "position": "Bottom",
+      "minimum_width": 1200,
+      "widgets": [
+        {
+          "type": "ThemePicker"
+        },
+        {
+          "type": "Wallpaper"
+        }
+      ]
+    },
+    "left_menu_expansion_type": "AlwaysExpanded",
+    "right_menu_expansion_type": "AlwaysExpanded"
+  },
+  "notifications": {
+    "notification_position": "Right",
+    "popup_window_margins": 0
+  },
+  "wallpaper": {
+    "content_fit": "Cover",
+    "transition_preset": "random",
+    "video_engine": "ryogami",
+    "video_enabled": true,
+    "video_transcode": false,
+    "video_transcode_fps": 24,
+    "video_transcode_width": 1920
+  },
+  "frameEnabled": true,
+  "frameOpacity": 1,
+  "frameThickness": 2,
+  "frameCorner": 8,
+  "osdRadius": 0,
+  "osdOpacity": 1,
+  "fontScale": 1.17,
+  "fontFamily": "Space Grotesk",
+  "fontSize": 11,
+  "weatherLocation": "",
+  "weatherUnit": "auto",
+  "formatLocale": "",
+  "screenShader": "",
+  "barStyle": "atoll",
+  "launcherTarget": "studio",
+  "language": "Auto",
+  "obi": {},
+  "qsbar": {
+    "dockEnabled": true,
+    "dockMagnify": false,
+    "dockPinned": [
+      "kitty.desktop"
+    ],
+    "dockFrost": true,
+    "dockShadow": false
+  },
+  "dock": {
+    "enabled": false,
+    "edge": "auto",
+    "autohide": true,
+    "pinned": [],
+    "magnify": true,
+    "frost": true,
+    "shadow": true,
+    "labels": true,
+    "media": false
+  },
+  "clipboard": {
+    "widthPercent": 65,
+    "heightPercent": 42,
+    "bottomPercent": 0,
+    "panelRadius": 18,
+    "paneRadius": 12,
+    "cardRadius": 9,
+    "pruneWeekly": false
+  },
+  "frameBars": {
+    "version": 1,
+    "style": "slate-frame",
+    "rails": {
+      "top": {
+        "enabled": false,
+        "size": 32,
+        "reveal": true,
+        "start": [],
+        "center": [],
+        "end": []
+      },
+      "left": {
+        "enabled": true,
+        "size": 48,
+        "reveal": true,
+        "top": [
+          "quick-settings",
+          "workspaces"
+        ],
+        "center": [
+          "dock"
+        ],
+        "bottom": [
+          "recording",
+          "tray",
+          "audio-input",
+          "audio-output",
+          "bluetooth",
+          "network",
+          "clock",
+          "battery"
+        ]
+      },
+      "bottom": {
+        "enabled": false,
+        "size": 32,
+        "reveal": true,
+        "start": [],
+        "center": [],
+        "end": []
+      },
+      "right": {
+        "enabled": false,
+        "size": 48,
+        "reveal": true,
+        "top": [],
+        "center": [],
+        "bottom": []
+      }
+    },
+    "menus": {
+      "quick-settings": {
+        "anchor": "left",
+        "minWidth": 410,
+        "expansion": "always",
+        "widgets": [
+          "quick-settings"
+        ],
+        "modules": [
+          "home",
+          "notifications",
+          "weather",
+          "capture",
+          "stage"
+        ]
+      },
+      "wallpaper": {
+        "anchor": "bottom",
+        "minWidth": 1400,
+        "expansion": "always",
+        "widgets": [
+          "theme",
+          "wallpaper"
+        ]
+      },
+      "theme": {
+        "anchor": "right",
+        "minWidth": 320,
+        "expansion": "never",
+        "widgets": [
+          "theme"
+        ]
+      },
+      "weather": {
+        "anchor": "right",
+        "minWidth": 320,
+        "expansion": "never",
+        "widgets": [
+          "weather"
+        ]
+      }
+    },
+    "surfaces": {
+      "stash": {
+        "anchor": "right",
+        "minWidth": 340,
+        "panes": [
+          "stash"
+        ]
+      }
+    },
+    "dock": {
+      "pinned": []
+    }
+  },
+  "barEnabled": false,
+  "barPosition": "bottom",
+  "barHeight": 26,
+  "atollVariant": "ryoku",
+  "sidebarLeftPanes": [
+    "stash"
+  ],
+  "sidebarRightPanes": [
+    "weather",
+    "calendar",
+    "media"
+  ],
+  "sidebarWidth": 360,
+  "surfaceColor": "#0f1115",
+  "roundness": 0,
+  "frameRadius": 9,
+  "frameBorder": 59,
+  "frameSmoothing": 8,
+  "shadowStrength": 0.63,
+  "shadowSize": 12
+}

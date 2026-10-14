@@ -26,7 +26,17 @@ ShellRoot {
             onStreamFinished: {
                 try {
                     var o = JSON.parse(this.text);
-                    app.categories = (o && o.categories) ? o.categories : [];
+                    // A bind the user switched off holds no chord, so the sheet
+                    // leaves it out: this list answers "what can I press", and a
+                    // row with no keys answers nothing. The Hub still lists it,
+                    // which is where it gets a chord back.
+                    var cats = (o && o.categories) ? o.categories : [];
+                    app.categories = cats.map(function (c) {
+                        return {
+                            name: c.name,
+                            binds: (c.binds || []).filter(function (b) { return !b.disabled; })
+                        };
+                    }).filter(function (c) { return c.binds.length > 0; });
                 } catch (e) {
                     app.categories = [];
                 }

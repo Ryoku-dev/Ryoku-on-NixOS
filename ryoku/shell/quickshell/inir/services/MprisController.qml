@@ -14,7 +14,7 @@ import inir.services.deferred
 
 Singleton {
 	id: root;
-	
+
 	// Raw filtered players - updated imperatively to avoid constant re-evaluation
 	property list<MprisPlayer> players: []
 	// Display players with YtMusic duplicate filtering - USE THIS IN UI WIDGETS.
@@ -22,7 +22,7 @@ Singleton {
 	// filtering without changing player identity, and a fresh array here makes
 	// Repeater-based popups destroy/recreate delegates mid-track transition.
 	property list<MprisPlayer> displayPlayers: []
-	
+
 	// Quickshell reads Position from D-Bus only on a track or playback change or a Seeked signal and
 	// extrapolates in between. Browsers skip Seeked for some in-page seeks, so the shown time drifts
 	// until the next track. While a player plays, its real Position is read every few seconds and a
@@ -283,7 +283,7 @@ Singleton {
 		}
 		return true;
 	}
-	
+
 	property MprisPlayer trackedPlayer: null;
 	property bool _manualPlayerSelection: false;
 	property var _streamMetadataById: ({})
@@ -333,13 +333,13 @@ Singleton {
 		target: Audio
 		function onOutputAppNodesChanged(): void { _streamMetadataRefresh.restart() }
 	}
-	
+
 	// Reactive counter that forces re-evaluation when any player's state changes
 	property int _playbackStateVersion: 0
-	
+
 	// Grace period tracking - keeps players visible during track transitions
 	property var _playerGrace: ({})  // dbusName -> timestamp
-	
+
 	// Prioritize manual selection, then playing players over paused ones
 	// Uses _playbackStateVersion to force activePlayer re-evaluation on state changes
 	property MprisPlayer activePlayer: {
@@ -374,7 +374,7 @@ Singleton {
 		if (!YtMusic.currentVideoId) return false;
 		return !!YtMusic.mpvPlayer || !!YtMusic.isPlaying;
 	}
-	
+
 	property bool hasPlasmaIntegration: false
 	property bool hasWtype: false
 	Process {
@@ -405,7 +405,7 @@ Singleton {
 			if (Config.ready) plasmaCheckDefer.start()
 		}
 	}
-	
+
 	// Check if player is in grace period (recently had valid metadata)
 	function _isInGracePeriod(player): bool {
 		const name = player?.dbusName ?? "";
@@ -414,7 +414,7 @@ Singleton {
 		if (!graceTime) return false;
 		return (Date.now() - graceTime) < 2000; // 2 second grace period
 	}
-	
+
 	// Update grace period for a player with valid metadata
 	function _updateGrace(player): void {
 		const name = player?.dbusName ?? "";
@@ -425,10 +425,10 @@ Singleton {
 			_playerGrace = nextGrace;
 		}
 	}
-	
+
 	// Cache for mpv instance check to avoid repeated iteration
 	property var _mpvInstanceCache: ({ hasMpvInstance: false, hasMpvBase: false })
-	
+
 	Connections {
 		target: Config
 		function onConfigChanged() {
@@ -436,12 +436,12 @@ Singleton {
 			root._rebuildPlayerList();
 		}
 	}
-	
+
 	onHasPlasmaIntegrationChanged: {
 		root._updateMpvCache();
 		root._rebuildPlayerList();
 	}
-	
+
 	Connections {
 		target: YtMusic
 		function onMpvPlayerChanged() {
@@ -455,7 +455,7 @@ Singleton {
 			root._rebuildPlayerList();
 		}
 	}
-	
+
 	function _updateMpvCache(): void {
 		let hasMpvInstance = false;
 		let hasMpvBase = false;
@@ -521,7 +521,7 @@ Singleton {
 		if (!Config.options?.media?.filterDuplicatePlayers) return true;
 		const name = player?.dbusName ?? "";
 		if (!name) return false;
-		
+
 		const ytMusicEnabled = Config.options?.sidebar?.ytmusic?.enable ?? false;
 		if (!ytMusicEnabled && _isYtMusicMpvRaw(player)) return false;
 
@@ -550,7 +550,7 @@ Singleton {
 				return false;
 			}
 		}
-		
+
 		// mpv handling - prefer YtMusic.mpvPlayer when available
 		if (name === "org.mpris.MediaPlayer2.mpv" || name.startsWith("org.mpris.MediaPlayer2.mpv.instance")) {
 			if (YtMusic.mpvPlayer) return player === YtMusic.mpvPlayer;
@@ -562,10 +562,10 @@ Singleton {
 				if (_mpvInstanceCache.hasMpvBase && !player.isPlaying && !hasAnyMeta) return false;
 			}
 		}
-		
+
 		// Filter playerctld proxy
 		if (name.startsWith('org.mpris.MediaPlayer2.playerctld')) return false;
-		
+
 		// Handle plasma-browser-integration (KDE Plasma)
 		// Accept browsers playing real media content (YouTube, streaming sites, long-form audio/video)
 		if (hasPlasmaIntegration) {
@@ -623,14 +623,14 @@ Singleton {
 			if (player.isPlaying) return true;
 			return false;
 		}
-		
+
 		// Filter duplicate MPD instances
 		if (name.endsWith('.mpd') && !name.endsWith('MediaPlayer2.mpd')) return false;
-		
+
 		// Track transition handling - keep player visible during metadata changes
 		const isPlaying = player.playbackState === MprisPlaybackState.Playing;
 		const hasTitle = player.trackTitle && player.trackTitle.length > 0;
-		
+
 		if (!hasTitle) {
 			// Keep if playing (track loading)
 			if (isPlaying) {
@@ -642,21 +642,21 @@ Singleton {
 			// Otherwise filter out
 			return false;
 		}
-		
+
 		// Update grace period for valid players
 		_updateGrace(player);
-		
+
 		// Enhanced GIF/short media detection
 		const trackUrl = player.metadata?.["xesam:url"] ?? "";
 		const mimeType = player.metadata?.["xesam:mimeType"] ?? "";
 		const trackLength = player.length ?? 0;
-		
+
 		// Filter very short media (< 5 seconds) - likely GIFs or ads
 		if (trackLength > 0 && trackLength < 5) return false;
 		// Block explicit image/gif mime types even if length unknown
 		const mimeLower = mimeType.toLowerCase();
 		if (mimeLower.includes("image/gif") || mimeLower.includes("image/webp")) return false;
-		
+
 		// Filter known GIF/image hosting patterns
 		if (trackUrl) {
 			const urlLower = trackUrl.toLowerCase();
@@ -673,9 +673,9 @@ Singleton {
 			if (urlLower.includes("video.twimg.com") && trackLength < 30) return false;
 			if (urlLower.includes("pbs.twimg.com")) return false;
 		}
-		
+
 		// Filter browser players with very short content (likely embedded videos/GIFs)
-		const isBrowserPlayer = name.includes("firefox") || name.includes("chrome") || name.includes("chromium") || 
+		const isBrowserPlayer = name.includes("firefox") || name.includes("chrome") || name.includes("chromium") ||
 		                        name.includes("brave") || name.includes("vivaldi") || name.includes("opera");
 		if (isBrowserPlayer && trackLength > 0 && trackLength < 15 && !trackUrl.includes("youtube.com") && !trackUrl.includes("youtu.be")) {
 			return false;
@@ -688,10 +688,10 @@ Singleton {
 				if (!hasProgress) return false;
 			}
 		}
-		
+
 		return true;
 	}
-	
+
 	signal trackChanged(reverse: bool);
 
 	property bool __reverse: false;
@@ -720,7 +720,7 @@ Singleton {
 		if (!(Config.options?.sidebar?.ytmusic?.enable ?? false)) return false;
 		return _isYtMusicMpvRaw(player);
 	}
-	
+
 	function _normTitle(s): string {
 		return (s ?? "").toLowerCase().replace(/[\t\r\n|•·]+/g, " ").replace(/\s+/g, " ").trim();
 	}
@@ -772,7 +772,7 @@ Singleton {
 	}
 
 	function _matchingBrowserWindow(player) {
-		if (!CompositorService.nativeOverview || !player)
+		if (!player)
 			return null;
 
 		const playerTitle = root._normTitle(root.titleOf(player)).replace(/\s+-\s+youtube$/, "");
@@ -804,7 +804,7 @@ Singleton {
 	}
 
 	function _canUseBrowserNavigationFallback(player): bool {
-		return root.hasWtype && !GlobalStates.screenLocked && CompositorService.nativeOverview && root._isBrowserYoutubePlayer(player) && root._matchingBrowserWindow(player) !== null;
+		return root.hasWtype && !GlobalStates.screenLocked && root._isBrowserYoutubePlayer(player) && root._matchingBrowserWindow(player) !== null;
 	}
 
 	function _navigateBrowserYoutube(player, direction: string): void {
@@ -898,7 +898,7 @@ Singleton {
 			root._showUserMediaAction("next");
 		return accepted;
 	}
-	
+
 	// Check if player is related to YtMusic (for duplicate filtering)
 	function _isYtMusicRelated(player): bool {
 		if (!player) return false;
@@ -916,14 +916,14 @@ Singleton {
 		// Consider related if titles are very similar (one contains the other)
 		return pTitle.includes(ytTitle) || ytTitle.includes(pTitle);
 	}
-	
+
 	// Filter YtMusic duplicates - keep only one YtMusic-related player
 	function _filterYtMusicDuplicates(playerList) {
 		if (!playerList || playerList.length === 0) return [];
-		
+
 		let nonYtMusic = [];
 		let ytMusic = [];
-		
+
 		for (const p of playerList) {
 			if (_isYtMusicRelated(p)) {
 				ytMusic.push(p);
@@ -931,7 +931,7 @@ Singleton {
 				nonYtMusic.push(p);
 			}
 		}
-		
+
 		// If multiple YtMusic players, keep only the preferred one
 		if (ytMusic.length > 1) {
 			// Prefer YtMusic.mpvPlayer, then first playing, then first with art
@@ -941,23 +941,23 @@ Singleton {
 			if (!chosen) chosen = ytMusic[0];
 			ytMusic = [chosen];
 		}
-		
+
 		// Filter title/position duplicates from non-YtMusic players
 		let filtered = [];
 		let used = new Set();
-		
+
 		const allPlayers = [...ytMusic, ...nonYtMusic].filter(player => player);
 		for (let i = 0; i < allPlayers.length; i++) {
 			if (used.has(i)) continue;
 			const p1 = allPlayers[i];
 			if (!p1) continue;
 			let group = [i];
-			
+
 			for (let j = i + 1; j < allPlayers.length; j++) {
 				if (used.has(j)) continue;
 				const p2 = allPlayers[j];
 				if (!p2) continue;
-				
+
 				// Title similarity check
 				const titleMatch = p1.trackTitle && p2.trackTitle &&
 					(p1.trackTitle.includes(p2.trackTitle) || p2.trackTitle.includes(p1.trackTitle));
@@ -978,7 +978,7 @@ Singleton {
 					group.push(j);
 				}
 			}
-			
+
 			// Choose player with cover art, or first one
 			let chosenIdx = group.find(idx => allPlayers[idx].trackArtUrl?.length > 0);
 			if (chosenIdx === undefined) chosenIdx = group[0];
@@ -1040,7 +1040,7 @@ Singleton {
 				// Rebuild on playback state change (affects filtering)
 				root._rebuildPlayerList();
 			}
-			
+
 			// Rebuild when track title changes (affects isRealPlayer filter)
 			function onTrackTitleChanged() {
 				root._notePageTrack(modelData);

@@ -91,6 +91,8 @@ func TestPatchClampsFloatStrengths(t *testing.T) {
 		path, val string
 		want      float64
 	}{
+		{"deckFrost", "2", 1},
+		{"deckFrost", "-1", 0},
 		{"theme.matugen.contrast", "9", 1},
 		{"theme.matugen.contrast", "-9", -1},
 		{"theme.attributes.window_opacity", "2", 1},
@@ -372,13 +374,16 @@ func TestMalformedFileFirstLoad(t *testing.T) {
 		if !reflect.DeepEqual(s.cur, defaultSettings()) {
 			t.Fatalf("unparseable file did not fall back to defaults")
 		}
-		// Defaults only: exactly the schema namespaces, no passthrough.
+		// Defaults only: exactly the schema roots, no passthrough.
 		if len(s.raw) != len(contractKeys) {
 			t.Fatalf("first-load fallback carried %d top-level keys, want %d (schema only)", len(s.raw), len(contractKeys))
 		}
-		for _, k := range []string{"general", "theme", "bars", "menus", "notifications", "wallpaper", "ask", "controls", "batteryAlerts"} {
+		for _, k := range []string{
+			"deckFrost", "general", "theme", "bars", "menus", "notifications",
+			"wallpaper", "ask", "controls", "batteryAlerts",
+		} {
 			if _, ok := s.raw[k]; !ok {
-				t.Fatalf("first-load fallback missing schema namespace %q", k)
+				t.Fatalf("first-load fallback missing schema root %q", k)
 			}
 		}
 	})

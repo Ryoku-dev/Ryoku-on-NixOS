@@ -45,6 +45,7 @@ import (
 // A patch whose first path segment is one of these is validated; anything else is
 // passthrough.
 var contractKeys = map[string]bool{
+	"deckFrost":     true,
 	"general":       true,
 	"theme":         true,
 	"bars":          true,
@@ -115,6 +116,7 @@ var (
 // icon-theme group, custom-CSS file, and app-launcher menu that Ryoku does not
 // consume. Ask and Controls are Ryoku's typed shell state.
 type settings struct {
+	DeckFrost     float64               `json:"deckFrost"`
 	General       generalSettings       `json:"general"`
 	Theme         themeSettings         `json:"theme"`
 	Bars          barsSettings          `json:"bars"`
@@ -191,7 +193,6 @@ type barsSettings struct {
 }
 
 type frameConfig struct {
-	EnableFrame   bool     `json:"enable_frame"`
 	MonitorFilter []string `json:"monitor_filter"`
 }
 
@@ -313,6 +314,7 @@ func defaultSettings() *settings {
 		{ID: "bottomControls", Visible: true},
 	}
 	return &settings{
+		DeckFrost: 0.45,
 		General: generalSettings{
 			ClockFormat24H:       false,
 			WeatherLocationQuery: locationQuery{Type: "Coordinates", Lat: 0, Lon: 0, Name: "", Country: ""},
@@ -329,7 +331,7 @@ func defaultSettings() *settings {
 			},
 		},
 		Bars: barsSettings{
-			Frame:     frameConfig{EnableFrame: true, MonitorFilter: []string{}},
+			Frame:     frameConfig{MonitorFilter: []string{}},
 			Widgets:   barWidgetsConfig{QuickSettings: quickSettingsWidget{Icon: "Arch"}},
 			TopBar:    horizontalBar{MinimumHeight: 0, RevealByDefault: true, LeftWidgets: []string{}, CenterWidgets: []string{}, RightWidgets: []string{}},
 			BottomBar: horizontalBar{MinimumHeight: 0, RevealByDefault: true, LeftWidgets: []string{}, CenterWidgets: []string{}, RightWidgets: []string{}},
@@ -440,6 +442,7 @@ func (v *validator) barWidgets(path string, ws []string) {
 
 func (s *settings) normalize(strict bool) error {
 	v := &validator{strict: strict}
+	v.clampF(&s.DeckFrost, 0, 1)
 	s.General.normalize(v)
 	s.Theme.normalize(v)
 	s.Bars.normalize(v)
@@ -790,13 +793,14 @@ func resolveThemePalette(full map[string]any, themeName string) {
 	full["themePalette"] = m
 }
 
-// buildSettings reads the typed schema namespaces out of a decoded file,
-// defaulting any that are absent, then normalises. A namespace whose shape does
-// not fit the schema, or a value that fails normalisation, is an error the caller
-// treats as a malformed file (lenient) or a rejected patch (strict).
+// buildSettings reads the typed schema fields out of a decoded file, defaulting
+// any that are absent, then normalises. A field whose shape does not fit the
+// schema, or a value that fails normalisation, is an error the caller treats as
+// a malformed file (lenient) or a rejected patch (strict).
 func buildSettings(raw map[string]any, strict bool) (*settings, error) {
 	s := defaultSettings()
 	dst := map[string]any{
+		"deckFrost":     &s.DeckFrost,
 		"general":       &s.General,
 		"theme":         &s.Theme,
 		"bars":          &s.Bars,

@@ -96,7 +96,7 @@ var bundledPlugins = []pluginDef{
 		Desc:   "Plays a keyboard sound on every key press: real switch recordings, or your own samples.",
 		Plugin: "keysounds", Local: "ryoku/hyprland/plugins/keysounds",
 		Package: "ryoku-keysounds",
-		Docs:    "https://github.com/ryoku-dev/ryoku-arch/blob/unstable-dev/ryoku/hyprland/plugins/keysounds/README.md",
+		Docs:    "https://github.com/ryoku-dev/ryoku/blob/unstable-dev/ryoku/hyprland/plugins/keysounds/README.md",
 		Sounds:  "https://github.com/hainguyents13/mechvibes/tree/main/src/audio",
 		Loaded:  "keysounds",
 	},

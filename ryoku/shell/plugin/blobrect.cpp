@@ -151,6 +151,15 @@ void BlobRect::updatePhysics() {
     checkAtRest(speed);
 }
 
+void BlobRect::setTaper(qreal t) {
+    if (!qFuzzyCompare(m_taper, t)) {
+        m_taper = t;
+        emit taperChanged();
+        if (m_group)
+            m_group->markDirty();
+    }
+}
+
 void BlobRect::setTopLeftRadius(qreal r) {
     if (!qFuzzyCompare(m_topLeftRadius, r)) {
         m_topLeftRadius = r;

@@ -109,12 +109,21 @@ var repairBorderPin = func() error {
 	return nil
 }
 
+func hasStaleBorderPin(settingsLua string) bool {
+	for _, line := range strings.Split(settingsLua, "\n") {
+		if strings.Contains(line, `["col.active_border"]`) && !strings.Contains(line, "wc.active") {
+			return true
+		}
+	}
+	return false
+}
+
 // planBorderPin turns observed state into a result. pure.
 func planBorderPin(s borderPinState, checkOnly bool, repair func() error) recResult {
 	if !s.paletteDriven {
 		return okRes(i18n.T("window colours are user-fixed; a pinned border is the chosen look"))
 	}
-	if !strings.Contains(s.settingsLua, "col.active_border") {
+	if !hasStaleBorderPin(s.settingsLua) {
 		return okRes(i18n.T("no stale border pin; the palette drives the window border"))
 	}
 	if !s.providerReady {

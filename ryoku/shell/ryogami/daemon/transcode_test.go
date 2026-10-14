@@ -41,17 +41,56 @@ func TestVideoEncodesLandOnTheStrongestGPU(t *testing.T) {
 		drm      string
 		nvidia   bool
 		radeonsi bool
-		encoders string
+		encoders codecSet
 		want     videoEncoder
 	}{
-		{"NVIDIA with an APU encodes on NVENC", hybrid, true, true, ffmpegEncoders, videoEncoder{nvenc: true}},
-		{"NVIDIA without NVENC falls back to the CPU, not the APU", hybrid, true, true, " V....D h264_vaapi  VAAPI\n", videoEncoder{}},
-		{"two Radeons pick the one with more VRAM", twoRadeons, false, true, ffmpegEncoders, videoEncoder{vaapi: "/dev/dri/renderD129"}},
-		{"no VA-API driver leaves the CPU", twoRadeons, false, false, ffmpegEncoders, videoEncoder{}},
+		{"NVIDIA with an APU encodes on NVENC", hybrid, true, true, parseFFmpegCodecList(ffmpegEncoders), videoEncoder{nvenc: true, cpu: "libx264"}},
+		{"NVIDIA without NVENC falls back to the CPU, not the APU", hybrid, true, true, parseFFmpegCodecList(" V....D h264_vaapi  VAAPI\n V....D libx264 x264\n"), videoEncoder{cpu: "libx264"}},
+		{"two Radeons pick the one with more VRAM", twoRadeons, false, true, parseFFmpegCodecList(ffmpegEncoders), videoEncoder{vaapi: "/dev/dri/renderD129", cpu: "libx264"}},
+		{"no VA-API driver leaves the CPU", twoRadeons, false, false, parseFFmpegCodecList(ffmpegEncoders), videoEncoder{cpu: "libx264"}},
 	}
 	for _, c := range cases {
 		if got := detectVideoEncoder(c.drm, c.nvidia, c.radeonsi, c.encoders); got != c.want {
 			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestVAAPIDriverSearchPaths(t *testing.T) {
+	const driver = "radeonsi_drv_video.so"
+	for _, label := range []string{"lib", "lib64", "multiarch"} {
+		t.Run(label, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), label, "dri")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, driver), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if !vaapiDriverAvailable("", []string{dir}) {
+				t.Fatalf("driver in %s was not found", dir)
+			}
+		})
+	}
+
+	envDir := filepath.Join(t.TempDir(), "custom")
+	if err := os.MkdirAll(envDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(envDir, driver), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !vaapiDriverAvailable(filepath.Join(t.TempDir(), "missing")+string(os.PathListSeparator)+envDir, nil) {
+		t.Fatal("LIBVA_DRIVERS_PATH entry was not searched")
+	}
+
+	want := []string{"/usr/lib/dri", "/usr/lib64/dri", "/usr/lib/x86_64-linux-gnu/dri"}
+	if len(defaultVAAPIDriverDirs) != len(want) {
+		t.Fatalf("default driver dirs: got %v want %v", defaultVAAPIDriverDirs, want)
+	}
+	for i := range want {
+		if defaultVAAPIDriverDirs[i] != want[i] {
+			t.Fatalf("default driver dirs: got %v want %v", defaultVAAPIDriverDirs, want)
 		}
 	}
 }

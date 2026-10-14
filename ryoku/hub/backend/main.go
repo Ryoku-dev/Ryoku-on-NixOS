@@ -199,6 +199,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  ryoku-hub cpu set <scope> <id> <value>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub lighting state|scan|enable|disable|apply")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub lighting set <device> <json>")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub lighting follow <device>|--all on|off")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub lighting accent [#RRGGBB]")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub lighting save|release <device>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub voxtype get|ensure")

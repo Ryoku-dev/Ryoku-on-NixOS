@@ -11,7 +11,7 @@ import inir.services
 
 /**
  * GameMode service - detects fullscreen windows and disables effects for performance.
- * 
+ *
  * Two activation modes:
  * - Manual: user toggle via toggle()/activate()/deactivate(). Persists to file.
  * - Auto-detect: activates when focused window is fullscreen, deactivates
@@ -26,9 +26,9 @@ Singleton {
     }
 
     // Public API
-    // Visible fullscreen state is already maintained reactively by WorkspaceService.
-    // Keep one automatic source of truth here; the old debounced _autoActive
-    // cache could remain true after Niri had already reported fullscreen exit.
+    // Visible fullscreen state is maintained reactively by WorkspaceService.
+    // Keep one automatic source of truth so a cached state cannot outlive the
+    // provider's fullscreen-exit frame.
     readonly property bool _reactiveAutoActive: autoDetect && hasVisibleFullscreenWindow
     readonly property bool active: _manualActive || _reactiveAutoActive
     readonly property bool autoDetect: Config.options?.gameMode?.autoDetect ?? true
@@ -36,21 +36,13 @@ Singleton {
     readonly property bool autoActivated: !_manualActive && _reactiveAutoActive
 
     // Surface mapping caused native crash loops; GameMode only suppresses work.
-    
+
     // True if ANY window in ANY workspace is fullscreen (for toast suppression)
     readonly property bool hasAnyFullscreenWindow: checkAnyFullscreenWindow()
 
-    // True only when a fullscreen window actually owns an active viewport.
-    // `window.is_focused` is global and therefore insufficient on multi-output
-    // sessions: a fullscreen tile can remain the active tile on an unfocused
-    // monitor. WorkspaceService tracks `active_window_id` per workspace, which is the
-    // correct per-output owner signal.
-    readonly property bool hasVisibleFullscreenWindow: {
-        if (!CompositorService.nativeOverview) return hasAnyFullscreenWindow
-        return hasFullscreenOnOutput("")
-    }
-    
-    // Suppress niri reload toast briefly after GameMode changes
+    // True when a fullscreen window owns any active output.
+    readonly property bool hasVisibleFullscreenWindow: CompositorService.hasVisibleFullscreenWindow()
+
 
     // Internal state
     property bool _manualActive: false
@@ -160,76 +152,22 @@ Singleton {
         stateReader.reload()
     }
 
-    // Check if a window is fullscreen. Current Niri snapshots do not expose a
-    // dependable is_fullscreen field, so derive it from Niri's own window layout.
-    // Do not use foreign-toplevel fullscreen here: those handles can outlive a
-    // Niri fullscreen transition and report stale state after the window exited.
-    function isWindowFullscreen(window) {
-        if (!window) return false
-        if (!CompositorService.nativeOverview) return false
-
-        if (window.is_fullscreen === true) return true
-
-        // Fallback: compare window size to output logical size
-        const winSize = window.layout?.window_size
-        if (!winSize || winSize.length < 2) return false
-
-        const ws = WorkspaceService.workspaces[window.workspace_id]
-        let output = ws ? WorkspaceService.outputs[ws.output] : null
-        // Niri can deliver WindowLayoutsChanged before the matching workspace
-        // snapshot reaches the service. On a single-output session the target
-        // is unambiguous, so do not miss that fullscreen transition.
-        if (!output) {
-            const availableOutputs = Object.values(WorkspaceService.outputs ?? {})
-            if (availableOutputs.length === 1) output = availableOutputs[0]
-        }
-        if (!output?.logical) return false
-
-        const tolerance = 2
-        return Math.abs(winSize[0] - output.logical.width) <= tolerance
-            && Math.abs(winSize[1] - output.logical.height) <= tolerance
+    function isWindowFullscreen(window): bool {
+        return CompositorService.isWindowFullscreen(window)
     }
-    
-    // True when a fullscreen window covers the given output (empty name = any
-    // output). Callers gating a per-monitor surface MUST pass their output
-    // name: a game on one monitor must not unmap the wallpaper on the other.
-    // Goes through isWindowFullscreen because reading `window.is_fullscreen`
-    // directly never fires on current niri (see above) — it silently reports
-    // "no fullscreen" forever.
+
+    // True when a fullscreen window covers the given output. An empty name
+    // asks whether any active output is covered.
     function hasFullscreenOnOutput(outputName: string): bool {
-        if (!CompositorService.nativeOverview) return false
-        const windows = WorkspaceService.liveWindows
-        if (!Array.isArray(windows)) return false
-
-        for (let i = 0; i < windows.length; i++) {
-            const w = windows[i]
-            const ws = WorkspaceService.workspaces?.[w.workspace_id]
-            if (!(ws?.is_active ?? false)) continue
-            if (outputName.length > 0 && ws.output !== outputName) continue
-            // Prefer the workspace-local active tile. Fall back to global focus
-            // only while WorkspaceService has not received an active-window event
-            // for this workspace yet.
-            const activeWindowId = ws.active_window_id
-            if (activeWindowId !== undefined && activeWindowId !== null) {
-                if (activeWindowId !== w.id) continue
-            } else if (!w.is_focused) {
-                continue
-            }
-            if (isWindowFullscreen(w)) return true
-        }
-        return false
+        const scopedOutput = String(outputName ?? "")
+        return scopedOutput.length > 0
+            ? CompositorService.hasFullscreenOnOutput(scopedOutput)
+            : CompositorService.hasVisibleFullscreenWindow()
     }
 
-    // Check if ANY window across all workspaces is fullscreen
+    // True if any workspace, active or not, contains a fullscreen window.
     function checkAnyFullscreenWindow(): bool {
-        if (!CompositorService.nativeOverview) return false
-        const windows = WorkspaceService.liveWindows
-        if (!windows || !Array.isArray(windows)) return false
-        
-        for (let i = 0; i < windows.length; i++) {
-            if (isWindowFullscreen(windows[i])) return true
-        }
-        return false
+        return (WorkspaceService.allWorkspaces ?? []).some(workspace => workspace.has_fullscreen === true)
     }
 
     // State persistence - read
@@ -282,7 +220,7 @@ Singleton {
 
     onActiveChanged: {
         root._log("[GameMode] Active:", active, "(manual:", _manualActive, "auto:", _reactiveAutoActive, ")")
-        // The niri-toast branch is Ryoku-seam out: the animation control lives at the wm layer.
+        // Animation control lives at the window-manager layer.
         if (root.disableDiscoverOverlay && root.discoverOverlayInstalled) {
             discoverOverlayDebounce.restart()
         }

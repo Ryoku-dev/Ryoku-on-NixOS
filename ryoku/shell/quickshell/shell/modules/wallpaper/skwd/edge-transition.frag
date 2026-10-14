@@ -20,32 +20,38 @@ layout(binding = 2) uniform sampler2D newTex;
 const float edge_thickness = 0.001;
 const float edge_brightness = 8.0;
 
-vec4 detectEdgeColor(vec3[9] c) {
-  
-  vec3 dx = 2.0 * abs(c[7]-c[1]) + abs(c[2] - c[6]) + abs(c[8] - c[0]);
-	vec3 dy = 2.0 * abs(c[3]-c[5]) + abs(c[6] - c[8]) + abs(c[0] - c[2]);
-  float delta = length(0.25 * (dx + dy) * 0.5);
-	return vec4(clamp(edge_brightness * delta, 0.0, 1.0) * c[4], 1.0);
-}
-
 vec4 getFromEdgeColor(vec2 uv) {
-	vec3 c[9];
-	for (int i=0; i < 3; ++i) for (int j=0; j < 3; ++j)
-	{
-	  vec4 color = texture(oldTex, uv + edge_thickness * vec2(i-1,j-1));
-    c[3*i + j] = color.rgb;
-	}
-	return detectEdgeColor(c);
+    vec2 e = vec2(edge_thickness);
+    vec3 c0 = texture(oldTex, uv + e * vec2(-1.0, -1.0)).rgb;
+    vec3 c1 = texture(oldTex, uv + e * vec2(-1.0,  0.0)).rgb;
+    vec3 c2 = texture(oldTex, uv + e * vec2(-1.0,  1.0)).rgb;
+    vec3 c3 = texture(oldTex, uv + e * vec2( 0.0, -1.0)).rgb;
+    vec3 c4 = texture(oldTex, uv).rgb;
+    vec3 c5 = texture(oldTex, uv + e * vec2( 0.0,  1.0)).rgb;
+    vec3 c6 = texture(oldTex, uv + e * vec2( 1.0, -1.0)).rgb;
+    vec3 c7 = texture(oldTex, uv + e * vec2( 1.0,  0.0)).rgb;
+    vec3 c8 = texture(oldTex, uv + e * vec2( 1.0,  1.0)).rgb;
+    vec3 dx = 2.0 * abs(c7 - c1) + abs(c2 - c6) + abs(c8 - c0);
+    vec3 dy = 2.0 * abs(c3 - c5) + abs(c6 - c8) + abs(c0 - c2);
+    float delta = length(0.25 * (dx + dy) * 0.5);
+    return vec4(clamp(edge_brightness * delta, 0.0, 1.0) * c4, 1.0);
 }
 
 vec4 getToEdgeColor(vec2 uv) {
-	vec3 c[9];
-	for (int i=0; i < 3; ++i) for (int j=0; j < 3; ++j)
-	{
-	  vec4 color = texture(newTex, uv + edge_thickness * vec2(i-1,j-1));
-    c[3*i + j] = color.rgb;
-	}
-	return detectEdgeColor(c);
+    vec2 e = vec2(edge_thickness);
+    vec3 c0 = texture(newTex, uv + e * vec2(-1.0, -1.0)).rgb;
+    vec3 c1 = texture(newTex, uv + e * vec2(-1.0,  0.0)).rgb;
+    vec3 c2 = texture(newTex, uv + e * vec2(-1.0,  1.0)).rgb;
+    vec3 c3 = texture(newTex, uv + e * vec2( 0.0, -1.0)).rgb;
+    vec3 c4 = texture(newTex, uv).rgb;
+    vec3 c5 = texture(newTex, uv + e * vec2( 0.0,  1.0)).rgb;
+    vec3 c6 = texture(newTex, uv + e * vec2( 1.0, -1.0)).rgb;
+    vec3 c7 = texture(newTex, uv + e * vec2( 1.0,  0.0)).rgb;
+    vec3 c8 = texture(newTex, uv + e * vec2( 1.0,  1.0)).rgb;
+    vec3 dx = 2.0 * abs(c7 - c1) + abs(c2 - c6) + abs(c8 - c0);
+    vec3 dy = 2.0 * abs(c3 - c5) + abs(c6 - c8) + abs(c0 - c2);
+    float delta = length(0.25 * (dx + dy) * 0.5);
+    return vec4(clamp(edge_brightness * delta, 0.0, 1.0) * c4, 1.0);
 }
 
 vec4 transition (vec2 uv) {

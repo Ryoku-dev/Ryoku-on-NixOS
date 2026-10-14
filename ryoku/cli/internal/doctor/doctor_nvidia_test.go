@@ -2,11 +2,14 @@ package doctor
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"ryoku-cli/internal/host"
+	i18n "ryoku-i18n"
 )
 
 // idempotency lock on the NVIDIA reconciler. canonical config we write must
@@ -179,6 +182,22 @@ func TestPlanNvidiaSleepUnits(t *testing.T) {
 				t.Errorf("%s: missing[%d] = %s, want %s", c.name, i, missing[i], c.wantMissing[i])
 			}
 		}
+	}
+}
+
+func TestNvidiaSleepVerdictUsesCatalogKey(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("RYOKU_I18N_DIR", root)
+	if err := os.WriteFile(filepath.Join(root, "tr.json"), []byte(`{"the NVIDIA sleep units are enabled":"NVIDIA uyku birimleri etkin"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	i18n.Use("tr")
+	t.Cleanup(func() { i18n.Use("en") })
+
+	if got := nvidiaSleepVerdictText("the NVIDIA sleep units are enabled"); got != "NVIDIA uyku birimleri etkin" {
+		t.Fatalf("verdict = %q", got)
 	}
 }
 

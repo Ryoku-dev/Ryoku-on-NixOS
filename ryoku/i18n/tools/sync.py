@@ -55,6 +55,7 @@ import re
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -168,7 +169,9 @@ def _copy(s):
     for a translation of it only invites a wrong one."""
     if not s or s in VERBATIM or len(s.strip()) < 2:
         return False
-    if s.startswith(("$", "-", "/", "%")) or "$(" in s or "${" in s:
+    if s.startswith(("$", "-", "/")) or "$(" in s or "${" in s:
+        return False
+    if re.fullmatch(r"%[-+#0-9.*]*[A-Za-z]", s):
         return False
     return any(c.isalpha() and ord(c) < 0x80 for c in s)
 
@@ -269,6 +272,21 @@ def extract_keys():
                     s = _unescape(body).strip()
                     if _copy(s):
                         keys.add(s)
+    # the installers' browser/shell/compositor choices are data, translated by
+    # variable at render, so pull their display columns from the one manifest.
+    choices = os.path.join(REPO, "installation", "installerplan", "choices.tsv")
+    if os.path.isfile(choices):
+        with open(choices, encoding="utf-8", errors="ignore") as fh:
+            rows = [line.rstrip("\n").split("\t") for line in fh if line.strip()]
+        header = rows[0] if rows else []
+        wanted = [header.index(c) for c in ("label", "tui_hint", "shell_detail") if c in header]
+        for row in rows[1:]:
+            if not row or row[0] != "choice":
+                continue
+            for i in wanted:
+                s = row[i].strip() if i < len(row) else ""
+                if s and s != "-" and _copy(s):
+                    keys.add(s)
     # a last pass over everything, whatever wrapped it: a string with no ASCII
     # letter is a number, a glyph or a symbol, and asking a translator for one
     # invites localized digits in a numeric readout.
@@ -589,6 +607,10 @@ def cmd_ensure():
     return 0
 
 
+class LLMUnavailable(Exception):
+    """The configured translation provider cannot currently serve requests."""
+
+
 def llm_call(cfg, prompt):
     provider = cfg.get("provider", "openai")
     key = cfg.get("key", "")
@@ -606,8 +628,24 @@ def llm_call(cfg, prompt):
                    "X-Title": "Ryoku i18n",
                    "HTTP-Referer": "https://github.com/noctalia-dev"}
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
-    with urllib.request.urlopen(req, timeout=90) as resp:
-        data = json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        unavailable = ("credit", "quota", "insufficient", "billing",
+                       "unauthorized", "invalid api key")
+        if exc.code in (401, 402, 403, 429) and any(
+                marker in body.lower() for marker in unavailable):
+            snippet = " ".join(body.split())[:240]
+            raise LLMUnavailable(f"HTTP {exc.code}: {snippet}") from exc
+        raise
+    except urllib.error.URLError as exc:
+        reason = exc.reason
+        reason_text = str(reason).lower()
+        if isinstance(reason, TimeoutError) or "timeout" in reason_text or "timed out" in reason_text:
+            raise
+        raise LLMUnavailable(str(reason)) from exc
     if provider == "anthropic":
         return data["content"][0]["text"]
     return data["choices"][0]["message"]["content"]
@@ -637,6 +675,8 @@ def llm_translate(cfg, lang, keys, batch=40):
             out.update({k: _sanitize(v) for k, v in got.items()
                         if k in chunk and isinstance(v, str) and v
                         and _ph(v) == _ph(k)})
+        except LLMUnavailable:
+            raise
         except Exception as e:
             if len(chunk) > 1 and depth < 6:
                 mid = len(chunk) // 2
@@ -691,54 +731,60 @@ def cmd_sync(argv):
             return 1
 
     unresolved = 0
-    for lang in langs:
-        tl = TARGETS.get(lang)
-        if not tl:
-            print(f"sync: unknown language {lang}", file=sys.stderr)
-            continue
-        existing = load_json(os.path.join(TRANS, f"{lang}.json"))
-        overrides = load_json(os.path.join(OVERRIDES, f"{lang}.json"))
+    try:
+        for lang in langs:
+            tl = TARGETS.get(lang)
+            if not tl:
+                print(f"sync: unknown language {lang}", file=sys.stderr)
+                continue
+            existing = load_json(os.path.join(TRANS, f"{lang}.json"))
+            overrides = load_json(os.path.join(OVERRIDES, f"{lang}.json"))
 
-        # a string needs translating unless a human override covers it, or (when
-        # not forcing) it is already translated (present and not equal to English).
-        def done(k):
-            return k in overrides or (not force and k in existing and existing[k] != k)
-        missing = [k for k in en if not done(k)]
+            # a string needs translating unless a human override covers it, or (when
+            # not forcing) it is already translated (present and not equal to English).
+            def done(k):
+                return k in overrides or (not force and k in existing and existing[k] != k)
+            missing = [k for k in en if not done(k)]
 
-        translated = {}
-        if missing:
-            if engine == "llm":
-                translated = llm_translate(cfg, lang, missing)
-            else:
-                got = google_translate_all(missing, tl)
-                # a translation that lost, gained or translated a placeholder
-                # would print a literal "%s" at runtime, so it is dropped and
-                # the English source ships for that string instead.
-                translated = {k: v for k, v in got.items() if _ph(v) == _ph(k)}
+            translated = {}
+            if missing:
+                if engine == "llm":
+                    translated = llm_translate(cfg, lang, missing)
+                else:
+                    got = google_translate_all(missing, tl)
+                    # a translation that lost, gained or translated a placeholder
+                    # would print a literal "%s" at runtime, so it is dropped and
+                    # the English source ships for that string instead.
+                    translated = {k: v for k, v in got.items() if _ph(v) == _ph(k)}
 
-        out, failed = {}, []
-        for k in en:
-            if k in overrides:
-                out[k] = overrides[k]
-            elif not force and k in existing and existing[k] != k:
-                out[k] = existing[k]                  # keep prior translation
-            elif k in translated:
-                out[k] = translated[k]
-            else:
-                out[k] = _sanitize(k)                  # unresolved -> English source
-                if k in missing:
-                    failed.append(k)                  # a real miss, not a kept string
-        write_json(os.path.join(TRANS, f"{lang}.json"), out)
-        unresolved += len(failed)
-        print(f"sync[{engine}] {lang}: {len(out)} strings "
-              f"({len(translated)} newly translated, {len(overrides)} overrides, "
-              f"{len(failed)} unresolved)")
-        # a whole catalog is thousands of requests; running the next language
-        # straight after is what turns the keyless endpoint's rate limiter on.
-        # the LLM engine is paid for and needs no such pause.
-        if engine == "google" and lang != langs[-1]:
-            sys.stdout.flush()
-            time.sleep(10)
+            out, failed = {}, []
+            for k in en:
+                if k in overrides:
+                    out[k] = overrides[k]
+                elif not force and k in existing and existing[k] != k:
+                    out[k] = existing[k]                  # keep prior translation
+                elif k in translated:
+                    out[k] = translated[k]
+                else:
+                    out[k] = _sanitize(k)                  # unresolved -> English source
+                    if k in missing:
+                        failed.append(k)                  # a real miss, not a kept string
+            write_json(os.path.join(TRANS, f"{lang}.json"), out)
+            unresolved += len(failed)
+            print(f"sync[{engine}] {lang}: {len(out)} strings "
+                  f"({len(translated)} newly translated, {len(overrides)} overrides, "
+                  f"{len(failed)} unresolved)")
+            # a whole catalog is thousands of requests; running the next language
+            # straight after is what turns the keyless endpoint's rate limiter on.
+            # the LLM engine is paid for and needs no such pause.
+            if engine == "google" and lang != langs[-1]:
+                sys.stdout.flush()
+                time.sleep(10)
+    except LLMUnavailable as exc:
+        # Keep completed catalogs so a later retry does not discard useful work.
+        print(f"i18n: translation provider unavailable: {exc}; nothing was translated, "
+              "run the workflow again when credits are back", file=sys.stderr)
+        return 3
 
     if strict and unresolved:
         print(f"strict: {unresolved} string(s) left untranslated", file=sys.stderr)

@@ -162,7 +162,8 @@ Singleton {
         const o = root.outputByName(name);
         if (!o || !o.activeWorkspace)
             return false;
-        const ws = root.workspaceByName(o.activeWorkspace);
+        const key = String(o.activeWorkspace);
+        const ws = root.workspaceById(key) || root.workspaceByName(key);
         return !!ws && ws.fullscreen === true;
     }
 
@@ -220,11 +221,12 @@ Singleton {
         return null;
     }
 
-    function windowsOnWorkspace(name) {
+    function windowsOnWorkspace(key) {
+        const workspace = root._wsId(key);
         const list = root.windows;
         const out = [];
         for (let i = 0; i < list.length; i++)
-            if (list[i].workspace === name)
+            if (String(list[i].workspace) === workspace)
                 out.push(list[i]);
         return out;
     }
@@ -279,7 +281,22 @@ Singleton {
             String(Math.round(width)), String(Math.round(height)), String(output)
         ], cb);
     }
-    function moveWindowToWorkspace(id, ws) { root._act("window.moveToWorkspace", "workspaces", [String(id), String(ws)]); }
+    // Actions take Workspace.ID. Most callers already pass that opaque key;
+    // display names remain accepted for older widgets that address a workspace
+    // by its label.
+    function _wsId(key) {
+        const k = String(key);
+        const list = root.workspaces;
+        for (let i = 0; i < list.length; i++)
+            if (String(list[i].id) === k)
+                return k;
+        for (let i = 0; i < list.length; i++)
+            if (String(list[i].name) === k)
+                return String(list[i].id);
+        return k;
+    }
+
+    function moveWindowToWorkspace(id, ws) { root._act("window.moveToWorkspace", "workspaces", [String(id), root._wsId(ws)]); }
 
     function focusWorkspace(ws) { root._act("workspace.focus", "workspaces", [String(ws)]); }
     function cycleWorkspace(delta) { root._act("workspace.cycle", "workspaces", [String(delta)]); }
@@ -289,7 +306,7 @@ Singleton {
     function cycleKeyboardLayout() { root._act("keyboard.cycleLayout", "keyboardLayoutSwitch", []); }
     function setCursor(theme, size) { root._act("cursor.set", "cursorSet", [String(theme), String(size)]); }
     function reloadConfig(scope) { root._act("config.reload", "configReload", [String(scope || "")]); }
-    function setOutputPower(output, on) { root._act("output.power", "outputPower", [String(output), on ? "on" : "off"]); }
+    function setOutputPower(output, on) { root._act("output.power", "outputPower", [on ? "on" : "off", String(output)]); }
     function toggleOverview() { root._act("overview.toggle", "nativeOverview", []); }
     function enterSubmap(name) { root._act("submap.enter", "submap", [String(name)]); }
     function resetSubmap() { root._act("submap.reset", "submap", []); }

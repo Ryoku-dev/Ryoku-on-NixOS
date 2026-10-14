@@ -274,9 +274,10 @@ Panel {
   }
 
   function connectDevice(device) {
-    if (!device || device.connected) return
-    if (device.paired || device.bonded || device.trusted) runDeviceAction(device, "connect", "connecting")
-    else runDeviceAction(device, "pair", "connecting")
+    if (!device || device.connected || !device.address) return
+    if (adapter !== null && adapter.discovering) adapter.discovering = false
+    owesDiscoveryStop = false
+    runDeviceAction(device, device.paired || device.bonded || device.trusted ? "connect" : "pair", "connecting")
   }
 
   function disconnectDevice(device) {

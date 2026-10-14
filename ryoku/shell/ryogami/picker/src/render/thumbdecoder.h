@@ -4,6 +4,7 @@
 
 #include <atomic>
 
+#include <QHash>
 #include <QMutex>
 #include <QObject>
 #include <QSet>
@@ -37,6 +38,7 @@ public:
     std::vector<Result> take(int maxCount);
     bool hasResults() const;
 
+    void invalidate(const QString &key);
     void cancelQueued();
 
     // Pass the visible key set each sync to keep the queue bounded.
@@ -47,16 +49,18 @@ Q_SIGNALS:
     void ready();
 
 private:
-    void finish(Result &&result, const QString &token);
+    void finish(Result &&result, const QString &token, quint64 requestId, int generation);
     bool wantedLocked(const QString &key) const;
 
     QThreadPool m_pool;
     mutable QMutex m_mutex;
     QSet<QString> m_inflight;
+    QHash<QString, quint64> m_requests;
     QSet<QString> m_wanted;
     bool m_retaining = false;
     std::vector<Result> m_results;
     std::atomic<int> m_generation{0};
+    quint64 m_nextRequest = 0;
     QSize m_nearTile;
     QSize m_farTile;
 };

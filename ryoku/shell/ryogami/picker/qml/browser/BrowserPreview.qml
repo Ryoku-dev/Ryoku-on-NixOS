@@ -8,7 +8,6 @@ Rectangle {
     property var item: null
     property string provider: ""
     property string fullPath: ""
-    property bool showApply: false
     property bool applying: false
     property int maxMinutes: 3
     property var sources: null
@@ -197,6 +196,7 @@ Rectangle {
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         cache: false
+                        sourceSize: Qt.size(1280, 1280)
                     }
                     Loader {
                         anchors.fill: parent
@@ -308,21 +308,24 @@ Rectangle {
                     spacing: 7 * Theme.scale
 
                     FolioAction {
+                        label: preview.applying
+                            ? (preview._downloading && preview.sources
+                                ? preview.sources.progressLabel(I18n.tr("Applying"), preview.item)
+                                : I18n.tr("Applying"))
+                            : I18n.tr("Apply")
+                        active: true
+                        enabled: !preview.applying
+                        onTriggered: preview.apply()
+                    }
+                    FolioAction {
                         label: preview._downloaded
                             ? I18n.tr("Saved")
                             : (preview._downloading
                                ? (preview.cancellable ? I18n.tr("Cancel") : I18n.tr("Saving"))
                                : I18n.tr("Save"))
-                        active: !preview._downloaded
+                        active: false
                         enabled: !preview._downloaded && (!preview._downloading || preview.cancellable)
                         onTriggered: preview._downloading ? preview.cancel() : preview.save()
-                    }
-                    FolioAction {
-                        visible: preview.showApply
-                        label: preview.applying ? I18n.tr("Applying") : I18n.tr("Apply")
-                        active: true
-                        enabled: !preview.applying
-                        onTriggered: preview.apply()
                     }
                     FolioAction {
                         label: I18n.tr("Copy id")

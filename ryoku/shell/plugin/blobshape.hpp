@@ -85,4 +85,11 @@ protected:
     float m_cachedInvertedRadius = 0;
     float m_cachedInvertedOuter[4] = {};
     float m_cachedInvertedInner[4] = {};
+    float m_cachedWaveInfo[4][4] = {
+        { 0, 0, 0, -1 },
+        { 0, 0, 0, -1 },
+        { 0, 0, 0, -1 },
+        { 0, 0, 0, -1 },
+    };
+    float m_cachedWaveData[4][64] = {};
 };

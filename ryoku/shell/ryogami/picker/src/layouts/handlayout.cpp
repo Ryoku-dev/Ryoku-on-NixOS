@@ -1060,21 +1060,31 @@ bool HandLayout::pointer(const LayoutContext &ctx, QPointF pos, bool inside)
     const float vw = float(ctx.viewport.width());
     const float vh = float(ctx.viewport.height());
     const auto tilt = tiltTarget(float(pos.x()), float(pos.y()), vw, vh, m_params.tilt);
-    m_rigX.target = inside ? tilt.first : 0.0;
-    m_rigY.target = inside ? tilt.second : 0.0;
+    const double targetX = inside ? tilt.first : 0.0;
+    const double targetY = inside ? tilt.second : 0.0;
+    bool changed = std::abs(m_rigX.target - targetX) > 1e-6
+        || std::abs(m_rigY.target - targetY) > 1e-6;
+    m_rigX.target = targetX;
+    m_rigY.target = targetY;
 
     const double ms = std::max(ctx.motion->ms(MotionProfile::Fast), 35.0);
     const int hovered = (m_deal || m_reveal || !inside) ? -1 : ctx.hovered;
-    for (auto &kv : m_lift)
-        if (kv.first != hovered)
+    for (auto &kv : m_lift) {
+        if (kv.first != hovered) {
+            changed = changed || kv.second.target != 0.0;
             kv.second.target = 0.0;
+        }
+    }
     if (hovered >= 0) {
         auto it = m_lift.find(hovered);
-        if (it == m_lift.end())
+        if (it == m_lift.end()) {
             it = m_lift.emplace(hovered, Spring::forDuration(0.0, ms)).first;
+            changed = true;
+        }
+        changed = changed || it->second.target != 1.0;
         it->second.target = 1.0;
     }
-    return true;
+    return changed;
 }
 
 bool HandLayout::drag(const LayoutContext &ctx, QPointF delta, bool released)

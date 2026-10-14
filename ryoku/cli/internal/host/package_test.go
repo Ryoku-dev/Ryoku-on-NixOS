@@ -103,11 +103,15 @@ func TestXBPSRepoMappingsAndUnavailablePackages(t *testing.T) {
 	}
 
 	runner.commands = nil
-	if code := app.Package([]string{"install", "missing-pkg"}); code != ExitNotProvided {
+	stderr.Reset()
+	if code := app.Package([]string{"install", "--aur", "missing-pkg"}); code != ExitNotProvided {
 		t.Fatalf("unavailable package install exit = %d", code)
 	}
 	if len(runner.commands) != 0 {
 		t.Fatalf("unavailable package executed commands: %v", runner.commands)
+	}
+	if got := stderr.String(); got != "ryoku-host: missing-pkg is unavailable: covered elsewhere\n" {
+		t.Fatalf("unavailable package reason = %q", got)
 	}
 
 	runner = &fakeRunner{}

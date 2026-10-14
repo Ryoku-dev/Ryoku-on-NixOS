@@ -53,6 +53,9 @@ esac
 			if row.Available {
 				t.Fatalf("unavailable provider %q marked available", row.Name)
 			}
+			if row.Selectable {
+				t.Fatalf("unavailable, undeployed provider %q marked selectable", row.Name)
+			}
 			if row.Reason != reason {
 				t.Fatalf("unavailable provider reason = %q, want %q", row.Reason, reason)
 			}
@@ -61,6 +64,9 @@ esac
 			if !row.Available {
 				t.Fatalf("available provider %q marked unavailable", row.Name)
 			}
+			if !row.Selectable {
+				t.Fatalf("available provider %q marked unselectable", row.Name)
+			}
 			if row.Reason != "" {
 				t.Fatalf("available provider reason = %q, want empty", row.Reason)
 			}
@@ -68,5 +74,26 @@ esac
 	}
 	if !seenUnavailable || !seenAvailable {
 		t.Fatalf("provider rows missing: unavailable=%t available=%t", seenUnavailable, seenAvailable)
+	}
+}
+
+func TestWMSelectableAcceptsPackageOrDeployment(t *testing.T) {
+	tests := []struct {
+		name             string
+		packageAvailable bool
+		deployed         bool
+		want             bool
+	}{
+		{name: "published package", packageAvailable: true, want: true},
+		{name: "checkout deployment", deployed: true, want: true},
+		{name: "package and deployment", packageAvailable: true, deployed: true, want: true},
+		{name: "neither", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := wmSelectable(tt.packageAvailable, tt.deployed); got != tt.want {
+				t.Fatalf("wmSelectable(%t, %t) = %t, want %t", tt.packageAvailable, tt.deployed, got, tt.want)
+			}
+		})
 	}
 }

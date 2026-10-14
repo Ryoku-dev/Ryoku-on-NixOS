@@ -62,6 +62,7 @@ private:
     void fetchWorkshop();
     void assembleOutputs();
     void upsertWallpaper(const Entry &entry);
+    void upsertWorkshop(const Entry &entry);
     void removeWallpaper(const QString &name, const QString &type);
     void rebuildWallIndex();
     void flushCached();

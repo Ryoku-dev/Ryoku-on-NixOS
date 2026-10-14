@@ -1,6 +1,10 @@
 package host
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	i18n "ryoku-i18n"
+)
 
 type capability struct {
 	Supported bool   `json:"supported"`
@@ -30,9 +34,9 @@ func (a *App) Capabilities() int {
 	if !aur {
 		switch manager {
 		case XBPS:
-			aurReason = "The AUR is an Arch Linux service; Void installs come from XBPS."
+			aurReason = i18n.T("The AUR is an Arch Linux service; Void installs come from XBPS.")
 		case DNF:
-			aurReason = "The AUR is an Arch Linux service; Fedora installs come from DNF."
+			aurReason = i18n.T("The AUR is an Arch Linux service; Fedora installs come from DNF.")
 		}
 	}
 	value := hostCapabilities{
@@ -45,7 +49,7 @@ func (a *App) Capabilities() int {
 		value.PackageTable = a.fedoraTablePath()
 	}
 	if err := json.NewEncoder(a.cfg.Stdout).Encode(value); err != nil {
-		return a.failf("encode capabilities: %v", err)
+		return a.failf(i18n.T("encode capabilities: %v"), err)
 	}
 	return ExitOK
 }

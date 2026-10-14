@@ -6,7 +6,6 @@ Item {
 
     property var item: null
     property var sources: null
-    property bool showApply: false
     property bool applying: false
     property real reveal: 1
     // A running download can be stopped from its own button, except Workshop transfers.
@@ -64,14 +63,21 @@ Item {
         border.color: Theme.withAlpha(Theme.outline, 0.5 * actions.reveal)
 
         Row {
+            id: buttons
+            anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: 4 * Theme.scale
             anchors.rightMargin: 4 * Theme.scale
             spacing: 4 * Theme.scale
 
+            readonly property bool compact: width < 138 * Theme.scale
+
             Rectangle {
                 id: saveBtn
-                width: 70 * Theme.scale
+                width: buttons.compact
+                    ? Math.max(0, Math.min(26 * Theme.scale, buttons.width * 0.34))
+                    : Math.max(46 * Theme.scale, buttons.width - buttons.spacing - 64 * Theme.scale)
                 height: 24 * Theme.scale
                 radius: Theme.radius
                 color: saveHover.containsMouse
@@ -84,17 +90,20 @@ Item {
 
                 Text {
                     anchors.centerIn: parent
-                    width: parent.width - 8 * Theme.scale
+                    width: Math.max(0, parent.width - 6 * Theme.scale)
                     horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight
-                    text: actions._downloaded
-                        ? I18n.tr("\u2713 Saved")
-                        : actions._downloading
-                            ? (actions.cancellable && saveHover.containsMouse
-                                ? I18n.tr("Cancel")
-                                : (actions.sources ? actions.sources.progressLabel(I18n.tr("Saving"), actions.item) : I18n.tr("Saving")))
-                            : I18n.tr("Save")
-                    font.family: Theme.sans
+                    text: buttons.compact
+                        ? (actions._downloading && actions.cancellable ? "\u{f0156}"
+                           : (actions._downloaded ? "\u2713" : "\uf019"))
+                        : (actions._downloaded
+                            ? I18n.tr("\u2713 Saved")
+                            : actions._downloading
+                                ? (actions.cancellable && saveHover.containsMouse
+                                    ? I18n.tr("Cancel")
+                                    : (actions.sources ? actions.sources.progressLabel(I18n.tr("Saving"), actions.item) : I18n.tr("Saving")))
+                                : I18n.tr("Save"))
+                    font.family: buttons.compact ? Theme.icon : Theme.sans
                     font.weight: Font.DemiBold
                     font.pixelSize: Theme.fontSmall
                     color: Theme.withAlpha(Theme.surfaceText,
@@ -113,8 +122,7 @@ Item {
 
             Rectangle {
                 id: applyBtn
-                visible: actions.showApply
-                width: 64 * Theme.scale
+                width: Math.max(0, buttons.width - saveBtn.width - buttons.spacing)
                 height: 24 * Theme.scale
                 radius: Theme.radius
                 color: applyHover.containsMouse
@@ -125,13 +133,17 @@ Item {
 
                 Text {
                     anchors.centerIn: parent
-                    width: parent.width - 8 * Theme.scale
+                    width: Math.max(0, parent.width - 6 * Theme.scale)
                     horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight
-                    text: actions.applying ? I18n.tr("Applying") : I18n.tr("Apply")
+                    text: actions.applying
+                        ? (actions._downloading && actions.sources
+                            ? actions.sources.progressLabel(I18n.tr("Applying"), actions.item)
+                            : I18n.tr("Applying"))
+                        : I18n.tr("Apply")
                     font.family: Theme.sans
                     font.weight: Font.DemiBold
-                    font.pixelSize: Theme.fontSmall
+                    font.pixelSize: buttons.compact ? Theme.fontTiny : Theme.fontSmall
                     color: Theme.withAlpha(Theme.surface, (actions.applying ? 0.62 : 1.0) * actions.reveal)
                     renderType: Text.NativeRendering
                 }

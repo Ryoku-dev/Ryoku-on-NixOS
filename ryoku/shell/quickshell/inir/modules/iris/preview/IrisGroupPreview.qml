@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import Ryoku.Ui.Singletons as RyokuUi
 import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell
@@ -691,7 +692,7 @@ ClippingRectangle {
                                 IrisText {
                                     id: chipLabel
                                     anchors.centerIn: parent
-                                    text: modelData === "time" ? Qt.formatTime(new Date(), "hh:mm") : Translation.tr(zonesRoot.names[modelData] ?? modelData)
+                                    text: modelData === "time" ? RyokuUi.TimeFormat.format(new Date()) : Translation.tr(zonesRoot.names[modelData] ?? modelData)
                                     font.pixelSize: IrisStyle.typeMeta
                                     color: parent.current ? IrisStyle.text : IrisStyle.subtext
                                 }
@@ -1112,7 +1113,7 @@ ClippingRectangle {
                     spacing: 0
                     IrisText { text: Qt.locale().toString(DateTime.clock.date, "dddd"); color: widgetsRoot.ink; font.weight: widgetsRoot.weight; font.pixelSize: IrisStyle.typeHeadline }
                     IrisText {
-                        text: Qt.locale().toString(DateTime.clock.date, "hh:mm")
+                        text: RyokuUi.TimeFormat.format(DateTime.clock.date)
                         font.family: IrisStyle.fontNumbers
                         font.weight: widgetsRoot.weight
                         font.pixelSize: (widgetsRoot.instrument ? 36 : 52) * IrisStyle.typeScale
@@ -2499,7 +2500,8 @@ ClippingRectangle {
                                                     IrisText {
                                                         visible: desktopBlock.modelData === "forecast"
                                                         Layout.alignment: Qt.AlignHCenter
-                                                        text: stripCell.index === 0 ? Translation.tr("Now") : String(stripCell.modelData.label ?? "").slice(0, 2)
+                                                        text: stripCell.index === 0 ? Translation.tr("Now")
+                                                            : Weather.displayTime(stripCell.modelData.label, stripCell.modelData.minuteOfDay)
                                                         color: IrisStyle.muted
                                                         font.pixelSize: IrisStyle.typeMeta
                                                     }
@@ -2898,7 +2900,7 @@ ClippingRectangle {
                     opacity: actRoot.expanded ? 1 : 0
                     Behavior on opacity { NumberAnimation { duration: IrisStyle.duration(200); easing.type: IrisStyle.feedbackEasing } }
                     IrisText { text: Qt.locale().toString(DateTime.clock.date, "dddd d MMMM"); color: IrisStyle.secondaryAccent; font.weight: IrisStyle.weight(Font.DemiBold) }
-                    IrisText { text: Qt.locale().toString(DateTime.clock.date, "hh:mm"); font.family: IrisStyle.fontNumbers; font.weight: IrisStyle.figureWeight; font.pixelSize: 40 * IrisStyle.typeScale }
+                    IrisText { text: RyokuUi.TimeFormat.format(DateTime.clock.date); font.family: IrisStyle.fontNumbers; font.weight: IrisStyle.figureWeight; font.pixelSize: 40 * IrisStyle.typeScale }
                     Item { Layout.fillHeight: true }
                     Level { value: 0.6 }
                 }

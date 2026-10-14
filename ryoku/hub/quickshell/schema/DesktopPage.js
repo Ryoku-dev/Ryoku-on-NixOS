@@ -9,6 +9,18 @@ var rows = [{
         "ctl": "reload-cover",
         "src": "brand"
     },{
+        "tab": "General",
+        "group": "DESKTOP APPEARANCE",
+        "key": "deckFrost",
+        "label": "Deck frost",
+        "desc": "Haze behind open windows; 0 turns it off",
+        "ctl": "slid",
+        "src": "shell",
+        "lo": 0.0,
+        "hi": 1.0,
+        "unit": "%",
+        "pct": true
+    },{
         "tab": "Clipboard",
         "group": "LAYOUT",
         "key": "clipboard.widthPercent",

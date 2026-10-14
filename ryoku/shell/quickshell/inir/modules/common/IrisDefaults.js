@@ -2166,9 +2166,7 @@ function config() {
    "enable": false,
    "threshold": 80
   },
-  "critical": 5,
   "full": 101,
-  "low": 20,
   "suspend": 3
  },
  "display": {

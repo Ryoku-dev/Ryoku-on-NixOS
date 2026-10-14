@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Shapes
 import Quickshell
+import Ryoku.Ui.Singletons as RyokuUi
 import inir
 import inir.services
 import inir.modules.common
@@ -614,7 +615,7 @@ Loader {
                     .sort((a, b) => new Date(a.dateTime ?? a.startDate) - new Date(b.dateTime ?? b.startDate))
             }
             function timeOf(entry): string {
-                return entry.allDay ? Translation.tr("All day") : Qt.formatTime(new Date(entry.dateTime ?? entry.startDate), "hh:mm")
+                return entry.allDay ? Translation.tr("All day") : RyokuUi.TimeFormat.format(new Date(entry.dateTime ?? entry.startDate))
             }
             readonly property var entries: calendar.eventsOn(calendar.selectedDate)
             readonly property var todayEntries: calendar.eventsOn(DateTime.clock.date)

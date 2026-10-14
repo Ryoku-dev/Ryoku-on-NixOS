@@ -1646,17 +1646,19 @@ func matugenThemeSig(frame []byte) string {
 	return doc.Theme.Theme
 }
 
-// fontSig fingerprints the frame's system-font key, so a change to it re-applies
-// the font to the toolkits the same way a theme change retunes them.
+// fontSig fingerprints the frame's UI and terminal font keys, so a change to
+// either one re-applies the fonts to the toolkits the same way a theme change
+// retunes them.
 func fontSig(frame []byte) string {
 	var doc struct {
-		FontFamily string  `json:"fontFamily"`
-		FontSize   float64 `json:"fontSize"`
+		FontFamily         string  `json:"fontFamily"`
+		TerminalFontFamily string  `json:"terminalFontFamily"`
+		FontSize           float64 `json:"fontSize"`
 	}
 	if json.Unmarshal(frame, &doc) != nil {
 		return ""
 	}
-	return doc.FontFamily + "\x1f" + strconv.FormatFloat(doc.FontSize, 'f', -1, 64)
+	return doc.FontFamily + "\x1f" + doc.TerminalFontFamily + "\x1f" + strconv.FormatFloat(doc.FontSize, 'f', -1, 64)
 }
 
 // applyFont pushes the chosen fonts to the toolkits without a logout: gsettings
@@ -1674,20 +1676,20 @@ func applyFont(frame []byte) {
 	_ = runCommand("pkill", "-USR1", "-x", "kitty")
 }
 
-// fontChoice resolves the system font (family), the monospace face that follows
-// it, and the base size, each with a shipped fallback. One key drives both: an
-// empty family keeps the proportional UI default and a monospace terminal one.
+// fontChoice resolves the UI and terminal families independently, with the
+// shipped proportional and monospace faces as their respective fallbacks.
 func fontChoice(frame []byte) (family, mono string, size int) {
 	var doc struct {
-		FontFamily string  `json:"fontFamily"`
-		FontSize   float64 `json:"fontSize"`
+		FontFamily         string  `json:"fontFamily"`
+		TerminalFontFamily string  `json:"terminalFontFamily"`
+		FontSize           float64 `json:"fontSize"`
 	}
 	_ = json.Unmarshal(frame, &doc)
 	if family = strings.TrimSpace(doc.FontFamily); family == "" {
 		family = "Space Grotesk"
-		mono = "SpaceMono Nerd Font"
-	} else {
-		mono = family
+	}
+	if mono = strings.TrimSpace(doc.TerminalFontFamily); mono == "" {
+		mono = "JetBrainsMono Nerd Font"
 	}
 	if size = int(doc.FontSize); size <= 0 {
 		size = 11

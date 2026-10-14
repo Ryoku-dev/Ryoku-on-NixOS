@@ -742,13 +742,30 @@ func planNvidiaElogindHook(nvidiaActive, branchShipsHook, hookExists bool) (miss
 	return true, ""
 }
 
+func nvidiaSleepVerdictText(verdict string) string {
+	switch verdict {
+	case "no proprietary NVIDIA driver in use":
+		return i18n.T("no proprietary NVIDIA driver in use")
+	case "the NVIDIA sleep units are not installed on this machine":
+		return i18n.T("the NVIDIA sleep units are not installed on this machine")
+	case "the NVIDIA sleep units are enabled":
+		return i18n.T("the NVIDIA sleep units are enabled")
+	case "the installed NVIDIA branch uses the kernel suspend path and does not ship an elogind sleep hook":
+		return i18n.T("the installed NVIDIA branch uses the kernel suspend path and does not ship an elogind sleep hook")
+	case "the NVIDIA elogind sleep hook is installed":
+		return i18n.T("the NVIDIA elogind sleep hook is installed")
+	default:
+		return verdict
+	}
+}
+
 func reconcileNvidiaSleepUnits(checkOnly bool) recResult {
 	if nvidiaInitSystem() == host.Runit {
 		active := nvidiaDriverActive()
 		shipsHook := anyNvidiaPackageInstalled("nvidia", "nvidia580")
 		missing, verdict := planNvidiaElogindHook(active, shipsHook, sys.Exists(nvidiaElogindSleepHook))
 		if verdict != "" {
-			return okRes(i18n.T("%s"), verdict)
+			return okRes(nvidiaSleepVerdictText(verdict))
 		}
 		if missing {
 			pkg := "nvidia"
@@ -768,7 +785,7 @@ func reconcileNvidiaSleepUnits(checkOnly bool) recResult {
 	}
 	missing, verdict := planNvidiaSleepUnits(nvidiaDriverActive(), exists, enabled)
 	if verdict != "" {
-		return okRes(i18n.T("%s"), verdict)
+		return okRes(nvidiaSleepVerdictText(verdict))
 	}
 	if checkOnly {
 		return wouldRes(i18n.T("the NVIDIA sleep units (%s) are disabled, so VRAM is not saved across suspend the way the installer sets up; a box with the kernel suspend notifier off wakes to a corrupted session"), strings.Join(missing, ", ")).

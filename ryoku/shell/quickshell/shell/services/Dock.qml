@@ -3,6 +3,7 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import inir.services as InirServices
 import Ryoku.Ui.Singletons
 import shell.services
 import "lib/dock.js" as DockList
@@ -17,10 +18,10 @@ Singleton {
     // Icon resolution is not reactive on its own: iconFor() reads the desktop DB and
     // the icon theme through plain function calls, so a binding that resolves before
     // the desktop DB is scanned or the icon-theme cache is warm -- a fresh boot, or
-    // right after an app updates its .desktop/icon -- sticks on the generic
-    // application-x-executable fallback until a shell reload (the "zen icon keeps
-    // resetting to a gear" break). Bump iconRev to force every icon binding to
-    // re-resolve: on a desktop-DB change and via a bounded warm-up poll after load.
+    // right after an app updates its .desktop/icon -- sticks on the generic app
+    // glyph until a shell reload (the "zen icon keeps resetting to a gear" break).
+    // Bump iconRev to force every icon binding to re-resolve: on a desktop-DB
+    // change and via a bounded warm-up poll after load.
     property int iconRev: 0
     property int _iconTries: 0
 
@@ -62,11 +63,15 @@ Singleton {
     function plainId(value) {
         return String(value ?? "").trim().replace(/\.desktop$/i, "");
     }
+    function entryFor(value) {
+        void root.iconRev
+        return InirServices.AppSearch.lookupDesktopEntry(root.plainId(value), true)
+    }
     function canonicalId(value) {
         const id = root.plainId(value);
         if (id.length === 0)
             return "";
-        const entry = DesktopEntries.heuristicLookup(id);
+        const entry = root.entryFor(id);
         return entry?.id ? root.plainId(entry.id) : id.toLowerCase();
     }
     function sameApp(a, b) {
@@ -238,11 +243,12 @@ Singleton {
         return p.length ? p : root.normalizedPins(root.starterPins());
     }
 
-    // Desktop-entry icon, then class-as-icon-name; "" so callers can fall back.
+    // Desktop-entry icon, then class-as-icon-name; "" so callers can draw the
+    // shell's generic app glyph.
     function iconFor(className) {
         void root.iconRev;
         const id = root.canonicalId(className);
-        const desktop = DesktopEntries.heuristicLookup(id);
+        const desktop = root.entryFor(id);
         const byEntry = (desktop && desktop.icon) ? Icons.path(desktop.icon, true) : "";
         return byEntry !== "" ? byEntry : Icons.path(id.toLowerCase(), true);
     }

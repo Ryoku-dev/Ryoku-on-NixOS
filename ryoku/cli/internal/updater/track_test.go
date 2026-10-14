@@ -215,7 +215,7 @@ func TestTrackPinsPacmanToUnstableBuild(t *testing.T) {
 	if intent := sys.ReadChannelIntent(); intent != olderUnstableBuild {
 		t.Fatalf("recorded intent = %q, want %q", intent, olderUnstableBuild)
 	}
-	if !strings.Contains(output, "`ryoku track unstable` follows unstable builds again") {
+	if !strings.Contains(output, "`ryoku track unstable` switches to the source checkout") {
 		t.Fatalf("track output did not explain how to resume unstable: %q", output)
 	}
 }

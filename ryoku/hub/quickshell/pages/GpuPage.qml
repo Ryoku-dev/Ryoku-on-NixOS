@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.UPower
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
 
@@ -49,8 +50,8 @@ Item {
     property bool namingPreset: false
     property string tuneError: ""
 
-    // cpu power-profile programmer + battery, fronted by `ryoku-hub cpu` (which
-    // wraps ryoku-power). Empty when the backend or machine offers nothing, so
+    // cpu power-profile programmer + battery, fronted by `ryoku-hub cpu` and
+    // the host power seam. Empty when the backend or machine offers nothing, so
     // the sections hide rather than render an empty frame.
     property var cpu: []
     property var cpuProfiles: []
@@ -1015,6 +1016,7 @@ done
                 // ── BATTERY ──
                 SettingCard {
                     width: gfxCol.colWidth
+                    visible: pg.batteryTune.length > 0 || UPower.displayDevice.isLaptopBattery
                     title: I18n.tr("BATTERY")
 
                     BatteryAlertsSettings {

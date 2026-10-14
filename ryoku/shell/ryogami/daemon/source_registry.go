@@ -4,7 +4,18 @@ import (
 	"context"
 	"os/exec"
 	"sync"
+	"time"
 )
+
+type searchFlight struct {
+	generation int64
+	cancel     context.CancelFunc
+}
+
+type searchScope struct {
+	connectionID uint64
+	source       string
+}
 
 type sources struct {
 	d    *daemon
@@ -20,19 +31,39 @@ type sources struct {
 	cancelMu sync.Mutex
 	cancels  map[string]context.CancelFunc
 
+	searchMu          sync.Mutex
+	searchNext        uint64
+	searchConnections map[uint64]bool
+	searchLatest      map[searchScope]int64
+	searches          map[searchScope]map[uint64]searchFlight
+	thumbLatest       map[searchScope]int64
+	searchHook        func(context.Context, string, map[string]interface{}) (sourcePage, error)
+
+	progressMu sync.Mutex
+	progress   map[string]progressEventState
+
+	libraryMu    sync.Mutex
+	libraryCache map[string]libraryIDCache
+
 	thumbSem chan struct{}
 }
 
 func newSources(d *daemon) *sources {
 	return &sources{
-		d:        d,
-		http:     newHTTPStack(),
-		previews: newGate(2, 16),
-		images:   newGate(3, 12),
-		videos:   newGate(2, 6),
-		inflight: map[string]bool{},
-		cancels:  map[string]context.CancelFunc{},
-		thumbSem: make(chan struct{}, thumbFetchConcurrent),
+		d:                 d,
+		http:              newHTTPStack(),
+		previews:          newGate(2, 16),
+		images:            newGate(3, 12),
+		videos:            newGate(2, 6),
+		inflight:          map[string]bool{},
+		cancels:           map[string]context.CancelFunc{},
+		searchConnections: map[uint64]bool{},
+		searchLatest:      map[searchScope]int64{},
+		searches:          map[searchScope]map[uint64]searchFlight{},
+		thumbLatest:       map[searchScope]int64{},
+		progress:          map[string]progressEventState{},
+		libraryCache:      map[string]libraryIDCache{},
+		thumbSem:          make(chan struct{}, thumbFetchConcurrent),
 	}
 }
 
@@ -205,4 +236,88 @@ func (s *sources) cancelDownload(id string) bool {
 		cancel()
 	}
 	return ok
+}
+
+func (s *sources) openSearchConnection(connectionID uint64) {
+	s.searchMu.Lock()
+	s.searchConnections[connectionID] = true
+	s.searchMu.Unlock()
+}
+
+func (s *sources) dropSearchConnection(connectionID uint64) {
+	s.searchMu.Lock()
+	delete(s.searchConnections, connectionID)
+	for scope, flights := range s.searches {
+		if scope.connectionID != connectionID {
+			continue
+		}
+		for _, flight := range flights {
+			flight.cancel()
+		}
+		delete(s.searches, scope)
+		delete(s.searchLatest, scope)
+		delete(s.thumbLatest, scope)
+	}
+	for scope := range s.searchLatest {
+		if scope.connectionID == connectionID {
+			delete(s.searchLatest, scope)
+			delete(s.thumbLatest, scope)
+		}
+	}
+	s.searchMu.Unlock()
+}
+
+func (s *sources) beginSearch(connectionID uint64, source string, generation int64, timeout time.Duration) (context.Context, func(), bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	scope := searchScope{connectionID: connectionID, source: source}
+	s.searchMu.Lock()
+	if connectionID != 0 && !s.searchConnections[connectionID] {
+		s.searchMu.Unlock()
+		cancel()
+		return ctx, func() {}, true
+	}
+	if generation > 0 {
+		if latest := s.searchLatest[scope]; latest > generation {
+			s.searchMu.Unlock()
+			cancel()
+			return ctx, func() {}, true
+		}
+		if generation > s.searchLatest[scope] {
+			s.searchLatest[scope] = generation
+			s.thumbLatest[scope] = generation
+			for token, flight := range s.searches[scope] {
+				if flight.generation > 0 && flight.generation < generation {
+					flight.cancel()
+					delete(s.searches[scope], token)
+				}
+			}
+		}
+	}
+	s.searchNext++
+	token := s.searchNext
+	if s.searches[scope] == nil {
+		s.searches[scope] = map[uint64]searchFlight{}
+	}
+	s.searches[scope][token] = searchFlight{generation: generation, cancel: cancel}
+	s.searchMu.Unlock()
+
+	finish := func() {
+		cancel()
+		s.searchMu.Lock()
+		delete(s.searches[scope], token)
+		if len(s.searches[scope]) == 0 {
+			delete(s.searches, scope)
+		}
+		s.searchMu.Unlock()
+	}
+	return ctx, finish, false
+}
+
+func (s *sources) thumbGenerationCurrent(connectionID uint64, source string, generation int64) bool {
+	scope := searchScope{connectionID: connectionID, source: source}
+	s.searchMu.Lock()
+	active := connectionID == 0 || s.searchConnections[connectionID]
+	current := s.thumbLatest[scope]
+	s.searchMu.Unlock()
+	return active && (generation <= 0 || generation >= current)
 }

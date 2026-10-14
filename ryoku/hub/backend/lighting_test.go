@@ -51,7 +51,7 @@ func fixtureDevice(t *testing.T) orgbDevice {
 	add(u16(0), u16(0), u32(1)) // no device colours, no alternate names, local flag
 
 	full := append(u32(uint32(len(b)+4)), b...)
-	d, err := parseDevice(full)
+	d, err := parseDevice(full, 5)
 	if err != nil {
 		t.Fatalf("parseDevice: %v", err)
 	}
@@ -92,11 +92,11 @@ func TestParseDeviceReadsCapabilities(t *testing.T) {
 }
 
 func TestParseDeviceRejectsTruncated(t *testing.T) {
-	if _, err := parseDevice(u32(4)); err == nil {
+	if _, err := parseDevice(u32(4), 5); err == nil {
 		t.Fatal("a description with no body should not parse")
 	}
 	full := append(u32(64), make([]byte, 8)...)
-	if _, err := parseDevice(full); err == nil {
+	if _, err := parseDevice(full, 5); err == nil {
 		t.Fatal("a size that does not match the buffer should not parse")
 	}
 }
@@ -110,7 +110,7 @@ func TestModePayloadRoundTrips(t *testing.T) {
 	m.Colors = []uint32{0x0056F2} // packed R=F2 G=56 B=00
 	m.Bri = 1
 
-	p := modePayload(idx, m)
+	p := modePayload(5, idx, m)
 	r := &reader{b: p}
 	if size := r.u32(); int(size) != len(p) {
 		t.Fatalf("payload declares %d bytes, is %d", size, len(p))

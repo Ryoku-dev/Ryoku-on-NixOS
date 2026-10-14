@@ -2,9 +2,9 @@ pragma Singleton
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Dialogs
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui as RyokuUi
 import inir.modules.common
 import inir.services
 
@@ -278,13 +278,12 @@ Singleton {
             }
         }
     }
-    FileDialog {
+    RyokuUi.FileDialogHost {
         id: importDialog
         title: Translation.tr("Import a VPN profile")
-        fileMode: FileDialog.OpenFile
         currentFolder: "file://" + Directories.homePath
         nameFilters: [Translation.tr("WireGuard or OpenVPN") + " (*.conf *.ovpn)", Translation.tr("All files") + " (*)"]
-        onAccepted: root.importProfile(String(selectedFile))
+        onAccepted: root.importProfile(String(importDialog.selectedFile))
     }
     Process {
         id: loginProc

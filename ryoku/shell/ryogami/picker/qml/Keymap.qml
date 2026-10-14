@@ -1,4 +1,5 @@
 import QtQuick
+import "KeyChord.js" as KeyChord
 
 Item {
     id: keymap
@@ -69,7 +70,7 @@ Item {
             var trig = Settings.ready ? Settings.value(a.key) : undefined
             if (trig === undefined || trig === null || trig === "")
                 trig = a.def
-            var canon = keymap._canon(trig)
+            var canon = KeyChord.canon(trig)
             if (canon) {
                 // Signatures can repeat across scopes; keep the action this router can fire.
                 var prev = km[canon]
@@ -92,32 +93,6 @@ Item {
         keymap._scopes = sc
     }
 
-    function _canon(trigger) {
-        if (!trigger)
-            return null
-        var s = String(trigger).toLowerCase().trim()
-        if (s.indexOf("click") >= 0)
-            return null
-        var parts = s.split("+")
-        var ctrl = false, alt = false, shift = false, base = ""
-        for (var i = 0; i < parts.length; ++i) {
-            var p = parts[i]
-            if (p === "ctrl" || p === "control") ctrl = true
-            else if (p === "alt") alt = true
-            else if (p === "shift") shift = true
-            else if (p) base = p
-        }
-        if (base === "return")
-            base = "enter"
-        if (!base)
-            return null
-        // A lone symbol or digit matches the glyph the keyboard produces, so shift is not in its signature.
-        if (base.length === 1 && !/[a-z0-9]/.test(base) && !ctrl && !alt && !shift)
-            return base
-        if (/^[0-9]$/.test(base) && !ctrl && !alt && !shift)
-            return base
-        return (ctrl ? "ctrl+" : "") + (alt ? "alt+" : "") + (shift ? "shift+" : "") + base
-    }
 
     function _mouseCanon(trigger) {
         var s = String(trigger).toLowerCase()
@@ -130,38 +105,6 @@ Item {
         return (ctrl ? "ctrl+" : "") + (alt ? "alt+" : "") + (shift ? "shift+" : "") + btn
     }
 
-    function _sigForEvent(event) {
-        var k = event.key
-        var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
-        var alt = (event.modifiers & Qt.AltModifier) !== 0
-        var shift = (event.modifiers & Qt.ShiftModifier) !== 0
-        var base = ""
-        if (k >= Qt.Key_A && k <= Qt.Key_Z) {
-            base = String.fromCharCode(k).toLowerCase()
-        } else if (k >= Qt.Key_0 && k <= Qt.Key_9) {
-            if (!ctrl && !alt)
-                return String.fromCharCode(k)
-            base = String.fromCharCode(k)
-        } else {
-            switch (k) {
-            case Qt.Key_Left: base = "left"; break
-            case Qt.Key_Right: base = "right"; break
-            case Qt.Key_Up: base = "up"; break
-            case Qt.Key_Down: base = "down"; break
-            case Qt.Key_Tab: base = "tab"; break
-            case Qt.Key_Backtab: base = "tab"; shift = true; break
-            case Qt.Key_Return:
-            case Qt.Key_Enter: base = "enter"; break
-            default:
-                var t = event.text
-                if (!ctrl && !alt && t && t.length === 1
-                        && t.charCodeAt(0) >= 32 && t.charCodeAt(0) !== 127)
-                    return t
-                return ""
-            }
-        }
-        return (ctrl ? "ctrl+" : "") + (alt ? "alt+" : "") + (shift ? "shift+" : "") + base
-    }
 
     function handleKey(event) {
         if (event.key === Qt.Key_Escape) {
@@ -169,7 +112,7 @@ Item {
             event.accepted = true
             return true
         }
-        var sig = keymap._sigForEvent(event)
+        var sig = KeyChord.signature(event)
         if (!sig)
             return false
         var id = keymap._keyMap[sig]

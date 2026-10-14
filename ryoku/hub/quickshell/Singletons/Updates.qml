@@ -13,6 +13,8 @@ Singleton {
     property string source: ""
 
     readonly property string sockPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ryoku-shell.sock"
+    property var frame: ({})
+
 
     property bool available: false
     property string currentVersion: ""
@@ -23,14 +25,29 @@ Singleton {
     property string latestName: ""
     property string branch: "main"
     property int behind: 0
-    property bool snapshotsSupported: false
-    property string snapshotReason: ""
+    readonly property bool snapshotsSupported: Host.supports("snapshots")
+    readonly property string snapshotReason: Host.reason("snapshots")
 
     // Ryoku channel commits (when behind) and recent history (when current).
     property var updates: []
     property var recent: []
     // system packages the host distribution's full upgrade would pull: [{ name, old, new }].
     property var packages: []
+    readonly property string buildState: root.frame.channelBuild ? (root.frame.channelBuild.state || "") : ""
+    readonly property string buildCommit: root.frame.channelBuild ? String(root.frame.channelBuild.commit || "").slice(0, 7) : ""
+    readonly property string buildRun: root.frame.channelBuild ? (root.frame.channelBuild.run || "") : ""
+    readonly property string buildStarted: root.frame.channelBuild ? (root.frame.channelBuild.started || "") : ""
+    readonly property int buildMinutes: {
+        root.frame;
+        var started = Date.parse(root.buildStarted);
+        return root.buildStarted === "" || isNaN(started)
+            ? 0
+            : Math.max(0, Math.floor((Date.now() - started) / 60000));
+    }
+    readonly property string checkState: root.frame.channelCheck ? (root.frame.channelCheck.state || "") : ""
+    readonly property string checkCommit: root.frame.channelCheck ? String(root.frame.channelCheck.commit || "").slice(0, 7) : ""
+    readonly property string checkRun: root.frame.channelCheck ? (root.frame.channelCheck.run || "") : ""
+
 
     property var lastChecked: null
     property int tick: 0
@@ -52,22 +69,6 @@ Singleton {
         return Math.floor(h / 24) + "d ago";
     }
 
-    Process {
-        id: snapshotsProbe
-        command: ["ryoku-host", "snapshots"]
-        running: true
-        stdout: StdioCollector { id: snapshotsOut }
-        stderr: StdioCollector {}
-        onExited: (code) => {
-            if (code === 0) {
-                root.snapshotsSupported = true;
-                root.snapshotReason = "";
-            } else if (code === 5) {
-                root.snapshotsSupported = false;
-                root.snapshotReason = snapshotsOut.text.trim();
-            }
-        }
-    }
 
     function check() { root.send("updates.check", {}); }
 
@@ -77,6 +78,7 @@ Singleton {
             root.backend = o.backend || root.backend;
             root.canUpdate = root.backend !== "nix" || o.canUpdate === true;
             root.source = o.source || "";
+            root.frame = o;
 
             // a packaged box on a named release: show the release names,
             // else the commit pair a checkout reports.

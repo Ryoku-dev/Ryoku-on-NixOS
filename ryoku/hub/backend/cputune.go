@@ -1,11 +1,9 @@
 package main
 
 // cputune.go: `ryoku-hub cpu ...`, the Machine page's CPU power-profile and
-// battery surface. Unlike gputune.go it probes no hardware itself: ryoku-power
-// is the single source of truth for the knob set, so this only shells out to
-// `ryoku-power capabilities --json` / `profile get` and reshapes the result
-// into the []Tunable the page already renders. cpuTunables is the pure reshape
-// and is unit-tested without executing ryoku-power.
+// battery surface. The host power seam owns every ryoku-power call, and this
+// backend reshapes its capability report into the []Tunable the page renders.
+// cpuTunables is unit-tested without executing either command.
 
 import (
 	"encoding/json"
@@ -15,7 +13,7 @@ import (
 	"strconv"
 )
 
-const ryokuPowerBin = "ryoku-power"
+const ryokuHostBin = "ryoku-host"
 
 // cpuCaps mirrors `ryoku-power capabilities --json`. Every knob is a pointer so
 // an absent capability key drops its Tunable rather than rendering an empty row.
@@ -138,9 +136,9 @@ func cpuActiveReport() error {
 
 func readCapabilities() (cpuCaps, error) {
 	var caps cpuCaps
-	out, err := exec.Command(ryokuPowerBin, "capabilities", "--json").Output()
+	out, err := exec.Command(ryokuHostBin, "power", "capabilities", "--json").Output()
 	if err != nil {
-		return caps, fmt.Errorf("ryoku-power capabilities: %w", err)
+		return caps, fmt.Errorf("ryoku-host power capabilities: %w", err)
 	}
 	if err := json.Unmarshal(out, &caps); err != nil {
 		return caps, fmt.Errorf("parse capabilities: %w", err)
@@ -155,7 +153,7 @@ func readProfileDef(profile string) profileDef {
 	if profile == "" {
 		return def
 	}
-	out, err := exec.Command(ryokuPowerBin, "profile", "get", profile).Output()
+	out, err := exec.Command(ryokuHostBin, "power", "profile", "get", profile).Output()
 	if err != nil {
 		return def
 	}
@@ -250,16 +248,16 @@ func cpuSet(scope, id, value string) error {
 	case "battery":
 		switch id {
 		case "chargeLimit":
-			return ttyRun(ryokuPowerBin, "charge-limit", "set", value)
+			return ttyRun(ryokuHostBin, "power", "charge-limit", "set", value)
 		case "aspm":
-			return ttyRun(ryokuPowerBin, "aspm", "set", value)
+			return ttyRun(ryokuHostBin, "power", "aspm", "set", value)
 		default:
 			return fmt.Errorf("unknown battery knob: %s", id)
 		}
 	case "idle":
 		return idleSet(id, value)
 	}
-	return ttyRun(ryokuPowerBin, "profile", "set", scope, id, value)
+	return ttyRun(ryokuHostBin, "power", "profile", "set", scope, id, value)
 }
 
 func onOff(b bool) string {
@@ -304,14 +302,14 @@ func idleStoredValue(id, value string) (string, error) {
 	}
 }
 
-// idleSet persists one idle key through ryoku-power and re-renders hypridle so
-// the change takes effect this session, not only at the next login.
+// idleSet persists one idle key through the host power seam and re-renders
+// hypridle so the change takes effect this session, not only at the next login.
 func idleSet(id, value string) error {
 	stored, err := idleStoredValue(id, value)
 	if err != nil {
 		return err
 	}
-	if err := ttyRun(ryokuPowerBin, "idle", "set", id, stored); err != nil {
+	if err := ttyRun(ryokuHostBin, "power", "idle", "set", id, stored); err != nil {
 		return err
 	}
 	return exec.Command("ryoku-idle", "apply").Run()

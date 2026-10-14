@@ -11,9 +11,9 @@ import Ryoku.Ui.Singletons
 // System > Dictation (DESIGN.md section 11, SYSTEM). Voxtype speech-to-text:
 // switch voice typing on, pick a speech-to-text engine and model, download
 // models in place, and add an API key for the cloud engine. This is not a
-// settings sheet -- its backend is the `ryoku-hub voxtype` subcommand and the
-// systemd user service, not the shared config store -- so it is full-bleed and
-// draws its whole content region itself. The shell owns Super+` and the pill's
+// settings sheet. Its backend is the `ryoku-hub voxtype` subcommand and the
+// host service seam, not the shared config store, so it is full-bleed and draws
+// its whole content region itself. The shell owns Super+` and the pill's
 // mic-wave; this page just shapes ~/.config/voxtype/config.toml and the user
 // service. Every colour, face, size, radius and duration reads from Tokens.
 Item {
@@ -35,6 +35,8 @@ Item {
     property bool loaded: false
     property bool packageAvailable: false
     property string packageReason: ""
+    readonly property bool installAvailable: pg.packageAvailable
+    readonly property string installUnavailableReason: pg.packageReason
     property bool openaiKeySet: false
     property string downloading: ""    // preset key whose model is downloading, or ""
     property string pendingDownload: "" // large model awaiting download confirmation
@@ -133,18 +135,18 @@ Item {
         rmProc.running = true;
     }
 
-    // gpk opens a tty for its AUR build and sudo prompts.
     function installVoxtype() {
         Spawn.runApp(["kitty", "--hold", "-e", "gpk", "install", "voxtype-bin", "--manager", "aur"]);
     }
 
-    // Removal clears the user service while keeping config and models.
+    // Removal stops the user service through the init-neutral host seam, then
+    // removes the package through the active package manager.
     function removeVoxtype() {
         Spawn.runApp(["kitty", "--hold", "-e", "sh", "-c",
             "gpk remove voxtype-bin && { systemctl --user disable --now voxtype.service 2>/dev/null; rm -f ~/.config/systemd/user/voxtype.service; systemctl --user daemon-reload 2>/dev/null; }"]);
     }
 
-    // Re-probe when the gpk terminal closes and the Hub regains focus.
+    // Re-probe when the package terminal closes and the Hub regains focus.
     readonly property bool windowActive: Window.active
     onWindowActiveChanged: if (pg.windowActive) pg.reload()
 
@@ -270,11 +272,10 @@ Item {
             leftMargin: Tokens.s6; rightMargin: Tokens.s6; topMargin: Tokens.s5; bottomMargin: Tokens.s6
         }
 
-        // Missing packages remain installable on hosts that provide Voxtype.
-        // Unsupported hosts get the same calm empty state without actions.
+        // Package availability comes from the active edition's catalogue.
         Column {
             id: emptyState
-            visible: pg.loaded && (!pg.packageAvailable || !pg.installed)
+            visible: pg.loaded && !pg.installed
             anchors.centerIn: parent
             width: Math.min(parent.width * 0.6, 460)
             spacing: Tokens.s4
@@ -283,7 +284,7 @@ Item {
                 width: parent.width
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
-                text: pg.packageAvailable ? I18n.tr("Voxtype isn't installed") : I18n.tr("Voxtype is unavailable")
+                text: pg.installAvailable ? I18n.tr("Voxtype isn't installed") : I18n.tr("Voxtype is unavailable")
                 color: Tokens.ink
                 font.family: Tokens.ui; font.pixelSize: Tokens.fRow; font.weight: Font.DemiBold
             }
@@ -291,14 +292,16 @@ Item {
                 width: parent.width
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
-                text: pg.packageAvailable
-                    ? I18n.tr("Voice dictation needs the voxtype-bin package. GlazePKG opens a terminal to confirm the install, and this page fills in once it finishes.")
-                    : (pg.packageReason !== "" ? I18n.tr(pg.packageReason) : I18n.tr("Voxtype is not available on this system."))
+                text: pg.installAvailable
+                    ? I18n.tr("Voice dictation needs the voxtype-bin package. A terminal opens to confirm the install, and this page fills in once it finishes.")
+                    : (pg.installUnavailableReason !== ""
+                        ? I18n.tr(pg.installUnavailableReason)
+                        : I18n.tr("Voxtype is not available on this system."))
                 color: Tokens.inkMuted
                 font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
             }
             Text {
-                visible: pg.packageAvailable
+                visible: pg.installAvailable
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 text: I18n.tr("About 600 MB for the engine and runtimes, before any model.")
@@ -306,7 +309,7 @@ Item {
                 font.family: Tokens.mono; font.pixelSize: Tokens.fMicro
             }
             Item {
-                visible: pg.packageAvailable
+                visible: pg.installAvailable
                 width: parent.width
                 height: visible ? installBtn.implicitHeight : 0
                 Btn {
@@ -321,7 +324,7 @@ Item {
 
         Flickable {
             id: flick
-            visible: pg.loaded && pg.packageAvailable && pg.installed
+            visible: pg.loaded && pg.installed
             anchors.fill: parent
             contentWidth: width
             contentHeight: Math.max(content.height, height)
@@ -709,7 +712,11 @@ Item {
                         leftPadding: Tokens.s4; rightPadding: Tokens.s4
                         topPadding: Tokens.s3; bottomPadding: Tokens.s1
                         wrapMode: Text.WordWrap
-                        text: I18n.tr("Voxtype is installed (voxtype-bin). Removing it uninstalls the package; your engine choice and downloaded models stay on disk.")
+                        text: pg.installAvailable
+                            ? I18n.tr("Voxtype is installed (voxtype-bin). Removing it uninstalls the package; your engine choice and downloaded models stay on disk.")
+                            : (pg.installUnavailableReason !== ""
+                                ? I18n.tr(pg.installUnavailableReason)
+                                : I18n.tr("This edition cannot remove the Voxtype package from the Hub."))
                         color: Tokens.inkMuted
                         font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
                     }
@@ -722,6 +729,8 @@ Item {
                             anchors.left: parent.left; anchors.leftMargin: Tokens.s4
                             anchors.verticalCenter: parent.verticalCenter
                             text: I18n.tr("Remove Voxtype")
+                            armed: pg.installAvailable
+                            enabled: pg.installAvailable
                             onAct: pg.removeVoxtype()
                         }
                     }

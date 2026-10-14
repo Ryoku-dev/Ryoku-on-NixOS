@@ -4,6 +4,8 @@ import "strings"
 
 func (d *daemon) dispatchExtended(req *request, p map[string]interface{}) (response, bool) {
 	switch {
+	case strings.HasPrefix(req.Method, "lighting."):
+		return d.dispatchLighting(req, p)
 	case strings.HasPrefix(req.Method, "settings."):
 		return d.dispatchSettings(req, p)
 	case strings.HasPrefix(req.Method, "source."), strings.HasPrefix(req.Method, "wallhaven."):

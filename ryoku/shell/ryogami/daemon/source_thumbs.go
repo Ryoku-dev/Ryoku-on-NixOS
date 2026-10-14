@@ -17,26 +17,39 @@ func (d *daemon) remoteThumbPath(source, id, thumbURL string) string {
 	return d.sources.remoteThumbPath(source, id, thumbURL)
 }
 
-func (d *daemon) queueRemoteThumbs(source string, jobs [][2]string) {
-	d.sources.queueRemoteThumbs(source, jobs)
+func (d *daemon) queueRemoteThumbs(connectionID uint64, searchSource, source string, generation int64, jobs [][2]string) {
+	d.sources.queueRemoteThumbs(connectionID, searchSource, source, generation, jobs)
 }
 
-func (s *sources) queueRemoteThumbs(source string, jobs [][2]string) {
+func (s *sources) queueRemoteThumbs(connectionID uint64, searchSource, source string, generation int64, jobs [][2]string) {
 	if len(jobs) == 0 {
 		return
 	}
 	go func() {
 		for _, job := range jobs {
+			if !s.thumbGenerationCurrent(connectionID, searchSource, generation) {
+				return
+			}
 			id, thumbURL := job[0], job[1]
 			if id == "" || thumbURL == "" {
 				continue
 			}
 			dest := s.remoteThumbPath(source, id, thumbURL)
+			inflightKey := "thumb:" + dest
+			if !s.beginInflight(inflightKey) {
+				continue
+			}
 			s.thumbSem <- struct{}{}
-			go func(id, thumbURL, dest string) {
+			if !s.thumbGenerationCurrent(connectionID, searchSource, generation) {
+				<-s.thumbSem
+				s.endInflight(inflightKey)
+				return
+			}
+			go func(id, thumbURL, dest, inflightKey string) {
 				defer func() { <-s.thumbSem }()
+				defer s.endInflight(inflightKey)
 				s.fetchThumb(source, id, thumbURL, dest)
-			}(id, thumbURL, dest)
+			}(id, thumbURL, dest, inflightKey)
 		}
 	}()
 }

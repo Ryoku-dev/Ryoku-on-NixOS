@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Features register at package init so each lives in its own file.
@@ -114,9 +115,20 @@ func (d *daemon) notifySetting(key string, value interface{}) {
 
 type actionFunc func(d *daemon, args map[string]interface{}) (interface{}, error)
 
+type availabilityState struct {
+	value      bool
+	ready      bool
+	refreshing bool
+	at         time.Time
+}
+
+const availabilityTTL = 30 * time.Second
+
 var (
-	actions      = map[string]actionFunc{}
-	availability = map[string]func(d *daemon) bool{}
+	actions           = map[string]actionFunc{}
+	availability      = map[string]func(d *daemon) bool{}
+	availabilityMu    sync.Mutex
+	availabilityCache = map[string]availabilityState{}
 )
 
 func registerAction(id string, fn actionFunc) {
@@ -135,18 +147,65 @@ func (d *daemon) runAction(id string, args map[string]interface{}) (interface{},
 }
 
 func registerAvailability(name string, fn func(d *daemon) bool) {
+	availabilityMu.Lock()
 	availability[name] = fn
+	delete(availabilityCache, name)
+	availabilityMu.Unlock()
+}
+
+func (d *daemon) refreshAvailability(name string, fn func(*daemon) bool) {
+	value := fn(d)
+	availabilityMu.Lock()
+	state := availabilityCache[name]
+	state.value = value
+	state.ready = true
+	state.refreshing = false
+	state.at = time.Now()
+	availabilityCache[name] = state
+	availabilityMu.Unlock()
+}
+
+func (d *daemon) availabilityValue(name string, fn func(*daemon) bool) bool {
+	availabilityMu.Lock()
+	state := availabilityCache[name]
+	if !state.refreshing && (!state.ready || time.Since(state.at) >= availabilityTTL) {
+		state.refreshing = true
+		availabilityCache[name] = state
+		go d.refreshAvailability(name, fn)
+	}
+	value := state.value
+	if !state.ready {
+		value = true
+	}
+	availabilityMu.Unlock()
+	return value
+}
+
+func (d *daemon) warmAvailability() {
+	availabilityMu.Lock()
+	funcs := make(map[string]func(*daemon) bool, len(availability))
+	for name, fn := range availability {
+		funcs[name] = fn
+	}
+	availabilityMu.Unlock()
+	for name, fn := range funcs {
+		d.availabilityValue(name, fn)
+	}
 }
 
 func (d *daemon) availabilityMap() map[string]bool {
+	availabilityMu.Lock()
 	names := make([]string, 0, len(availability))
-	for name := range availability {
+	funcs := make(map[string]func(*daemon) bool, len(availability))
+	for name, fn := range availability {
 		names = append(names, name)
+		funcs[name] = fn
 	}
+	availabilityMu.Unlock()
 	sort.Strings(names)
 	out := make(map[string]bool, len(names))
 	for _, name := range names {
-		out[name] = availability[name](d)
+		out[name] = d.availabilityValue(name, funcs[name])
 	}
 	return out
 }

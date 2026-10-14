@@ -1,14 +1,13 @@
 #include "previewvideo.h"
 #include "previewyuv.h"
 
-#include <QAudioOutput>
 #include <QMediaPlayer>
 #include <QMutexLocker>
 #include <QUrl>
 #include <QVideoFrameFormat>
 #include <QVideoSink>
 
-#include <algorithm>
+#include <utility>
 
 namespace {
 
@@ -122,10 +121,8 @@ void PreviewVideo::ensurePipeline()
     if (m_player)
         return;
     m_sink = new QVideoSink(this);
-    m_audio = new QAudioOutput(this);
     m_player = new QMediaPlayer(this);
     m_player->setVideoSink(m_sink);
-    m_player->setAudioOutput(m_audio);
     m_player->setLoops(QMediaPlayer::Infinite);
 }
 
@@ -139,19 +136,12 @@ void PreviewVideo::listen()
     });
 }
 
-void PreviewVideo::prewarm()
-{
-    ensurePipeline();
-}
-
-void PreviewVideo::play(const QString &path, bool muted, double volume)
+void PreviewVideo::play(const QString &path)
 {
     stop();
     if (path.isEmpty())
         return;
     ensurePipeline();
-    m_audio->setMuted(muted);
-    m_audio->setVolume(float(std::clamp(volume, 0.0, 1.0)));
     listen();
     m_active = true;
     const QUrl url = path.contains(QStringLiteral("://")) ? QUrl(path) : QUrl::fromLocalFile(path);
@@ -167,7 +157,12 @@ void PreviewVideo::stop()
     if (m_player) {
         m_player->stop();
         m_player->setSource(QUrl());
+        delete m_player;
+        m_player = nullptr;
     }
+    delete m_sink;
+    m_sink = nullptr;
+    m_frameClock.invalidate();
     m_pending = QVideoFrame();
     m_hasPending = false;
     QMutexLocker lock(&m_mutex);
@@ -179,6 +174,9 @@ void PreviewVideo::onFrame(const QVideoFrame &frame)
 {
     if (!frame.isValid())
         return;
+    if (m_frameClock.isValid() && m_frameClock.elapsed() < 33)
+        return;
+    m_frameClock.restart();
     m_pending = frame;
     m_hasPending = true;
     convertPending();

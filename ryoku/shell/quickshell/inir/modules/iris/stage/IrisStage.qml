@@ -15,12 +15,14 @@ import inir.modules.iris.style
 import inir.modules.iris.components
 import inir.modules.iris.frame
 import inir.modules.iris.pieces
+import Ryoku.Ui.Singletons as Ui
 
 Item {
     id: root
 
     required property var modelData
     readonly property string screenName: root.modelData?.name ?? ""
+    readonly property bool windowWorkspaceMap: Ui.Wm.caps.windowWorkspaceMap === true
     readonly property bool occupied: root.anyFloating || root.drag !== null || landing.running || root.cardPresent
     property bool suppressed: false
     readonly property real d: IrisStyle.density
@@ -1045,11 +1047,11 @@ Item {
             if (MinimizedWindows.countMinimizedForApp(appId) > 0) {
                 MinimizedWindows.restoreLatestForApp(appId)
             } else if (windows.length > 0) {
-                const current = CompositorService.nativeOverview
+                const current = root.windowWorkspaceMap
                     ? windows.findIndex(w => w.nativeWindowId !== undefined && w.nativeWindowId === (WorkspaceService.activeWindow?.id ?? -1))
                     : windows.findIndex(w => w.activated)
                 const next = windows[(current + 1) % windows.length]
-                if (CompositorService.nativeOverview && next.nativeWindowId !== undefined) WorkspaceService.focusWindow(next.nativeWindowId)
+                if (root.windowWorkspaceMap && next.nativeWindowId !== undefined) WorkspaceService.focusWindow(next.nativeWindowId)
                 else next.activate()
             } else {
                 const entry = AppSearch.lookupDesktopEntry(appId)

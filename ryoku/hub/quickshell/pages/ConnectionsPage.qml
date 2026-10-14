@@ -66,7 +66,7 @@ Item {
 
     Process {
         id: killStatus
-        command: ["pkexec", "/usr/bin/ryoku-network-kill", "status"]
+        command: ["ryoku-host", "network", "kill", "status"]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
@@ -92,7 +92,7 @@ Item {
     Process {
         id: killSetProc
         property string target: ""
-        command: ["pkexec", "/usr/bin/ryoku-network-kill", target]
+        command: ["ryoku-host", "network", "kill", target]
         stderr: StdioCollector {}
         onExited: function(exitCode) {
             pg.killBusy = false;
@@ -243,21 +243,24 @@ Item {
         id: mp
         property string text: ""
         property bool armed: true
+        property bool onBone: false
         signal act()
         implicitHeight: 22
         implicitWidth: mpLab.implicitWidth + 18
         radius: Tokens.radius
         opacity: armed ? 1 : 0.3
-        color: mph.hovered && armed ? Tokens.tint10 : "transparent"
+        color: onBone
+            ? (mph.hovered && armed ? Tokens.inkOnBoneDim : Tokens.inkOnBone)
+            : (mph.hovered && armed ? Tokens.tint10 : "transparent")
         border.width: Tokens.border
-        border.color: mph.hovered && armed ? Tokens.lineStrong : Tokens.line
+        border.color: onBone ? Tokens.inkOnBone : (mph.hovered && armed ? Tokens.lineStrong : Tokens.line)
         Behavior on color { ColorAnimation { duration: Tokens.snap } }
         Behavior on border.color { ColorAnimation { duration: Tokens.snap } }
         Text {
             id: mpLab
             anchors.centerIn: parent
             text: mp.text
-            color: Tokens.ink
+            color: mp.onBone ? Tokens.bone : Tokens.ink
             font.family: Tokens.ui
             font.pixelSize: Tokens.fMicro
             font.weight: Font.Medium
@@ -471,10 +474,10 @@ Item {
         property bool connectFailed: false
         property bool scanning: false
 
-        // NetworkManager's Wi-Fi backend, read live from `ryoku-wifi-backend get`.
+        // NetworkManager's Wi-Fi backend, read and applied through the host seam.
         // iwd is the default; wpa_supplicant is the escape hatch for WPA3 / phone
-        // hotspots iwd stumbles on. backendBusy gates the segment while pkexec
-        // rewrites the NM drop-in and restarts the service.
+        // hotspots iwd stumbles on. backendBusy gates the segment while the host
+        // seam rewrites the NM drop-in and restarts the service.
         property string wifiBackend: "iwd"
         property bool backendBusy: false
 
@@ -509,13 +512,13 @@ Item {
             autoProc.running = true;
         }
 
-        // flip the NM backend. no-op if unchanged or already switching; the
-        // shipped polkit rule lets wheel run this via pkexec with no prompt.
+        // Flip the NM backend. The host seam validates the choice, escalates once,
+        // and delegates to the packaged helper.
         function setBackend(choice) {
             if (wifi.backendBusy || choice === wifi.wifiBackend)
                 return;
             wifi.backendBusy = true;
-            backendSetProc.command = ["pkexec", "ryoku-wifi-backend", choice];
+            backendSetProc.command = ["ryoku-host", "network", "wifi-backend", "set", choice];
             backendSetProc.running = true;
         }
 
@@ -818,10 +821,10 @@ Item {
             onTriggered: if (wifi.active) secProc.running = true
         }
 
-        // read the current NM Wi-Fi backend (read-only, unprivileged).
+        // Read the current NM Wi-Fi backend through the host seam.
         Process {
             id: backendGetProc
-            command: ["ryoku-wifi-backend", "get"]
+            command: ["ryoku-host", "network", "wifi-backend", "get"]
             stdout: StdioCollector {
                 onStreamFinished: {
                     var v = this.text.trim();
@@ -831,8 +834,8 @@ Item {
             }
         }
 
-        // apply the switch via pkexec; the polkit rule grants wheel passwordless.
-        // NetworkManager restarts, so on exit re-read state and, once it settles,
+        // Apply through the host seam. NetworkManager restarts, so on exit
+        // re-read state and, once it settles,
         // refresh + rescan so the list repopulates on the new backend.
         Process {
             id: backendSetProc
@@ -1357,9 +1360,9 @@ Item {
 
     // ── Bluetooth subtab ─────────────────────────────────────────────────────
 
-    // adapter toggle, scan with 25s auto-stop, live device list. known devices
-    // use Quickshell's connect/disconnect; unpaired ones run bluetoothctl
-    // pair-trust-connect with a pairing pulse and a transient failure chip.
+    // Adapter toggle, scan with 25s auto-stop, and a live device list. Every
+    // disconnected row uses the shared pair-trust-connect helper so known and
+    // newly discovered devices follow the same BlueZ-safe sequence.
     component BtBody: Item {
         id: bt
 
@@ -1419,8 +1422,9 @@ Item {
             return Math.round(b);
         }
 
-        // row click: disconnect if connected, connect if paired, else run the
-        // bluetoothctl pair-trust-connect flow.
+        // A disconnected device always goes through the same helper. It skips
+        // pairing for an existing bond, but still stops discovery and repairs a
+        // stale bond when BlueZ can no longer bring it up.
         function activateDevice(d) {
             if (!d)
                 return;
@@ -1429,27 +1433,18 @@ Item {
                     d.disconnect();
                 return;
             }
-            if (d.paired) {
-                if (typeof d.connect === "function")
-                    d.connect();
-                return;
-            }
             bt.pairDevice(d);
         }
 
         function pairDevice(d) {
             if (!d || !d.address || pairProc.running)
                 return;
+            scanTimer.stop();
+            if (bt.adapter && bt.adapter.discovering)
+                bt.adapter.discovering = false;
             bt.pairingAddress = d.address;
             bt.failedAddress = "";
-            // The agent is what lets BLE HID devices (gamepads, keyboards)
-            // pair at all: they confirm a passkey, and bluetoothd denies the
-            // bond when no agent can answer (#308). `yes` answers the
-            // confirmation prompt; KeyboardDisplay is the capability that
-            // carries a passkey.
-            pairProc.command = ["sh", "-c",
-                'yes | timeout 30 bluetoothctl --agent KeyboardDisplay pair "$1" && timeout 30 bluetoothctl --agent KeyboardDisplay trust "$1" && timeout 30 bluetoothctl --agent KeyboardDisplay connect "$1"',
-                "sh", d.address];
+            pairProc.command = ["ryoku-bluetooth-link", d.address];
             pairProc.running = true;
         }
 
@@ -1521,7 +1516,7 @@ Item {
         // enable --now so it also survives the next boot.
         Process {
             id: svcProc
-            command: ["pkexec", "systemctl", "enable", "--now", "bluetooth.service"]
+            command: ["pkexec", "ryoku-host", "svc", "--system", "enable", "--now", "bluetooth"]
             stdout: StdioCollector {}
             stderr: StdioCollector {}
             onExited: function(exitCode) {
@@ -2218,6 +2213,7 @@ Item {
                 anchors { right: parent.right; rightMargin: Tokens.s3; verticalCenter: parent.verticalCenter }
                 text: pg.killBusy ? I18n.tr("WORKING") : (pg.killState === "off" ? I18n.tr("ISOLATE") : I18n.tr("RESTORE"))
                 armed: !pg.killBusy && pg.killState !== "checking"
+                onBone: pg.killActive
                 onAct: pg.toggleKillSwitch()
             }
         }

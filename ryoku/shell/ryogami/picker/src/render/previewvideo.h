@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QImage>
 #include <QMutex>
 #include <QObject>
@@ -7,7 +8,6 @@
 #include <QThreadPool>
 #include <QVideoFrame>
 
-class QAudioOutput;
 class QMediaPlayer;
 class QVideoSink;
 
@@ -26,10 +26,8 @@ public:
     // The largest frame delivered; the render node's preview texture is this size for its whole life.
     static constexpr QSize kMaxSize{640, 360};
 
-    void play(const QString &path, bool muted, double volume);
+    void play(const QString &path);
     void stop();
-    // Creating the first player blocks for most of a second, so it happens while the picker is hidden.
-    void prewarm();
 
     // Null when no new frame arrived since the last take.
     QImage takeFrame();
@@ -49,7 +47,6 @@ private:
 
     QMediaPlayer *m_player = nullptr;
     QVideoSink *m_sink = nullptr;
-    QAudioOutput *m_audio = nullptr;
     QThreadPool m_converter;
 
     mutable QMutex m_mutex;
@@ -58,6 +55,7 @@ private:
     bool m_active = false;
     quint64 m_generation = 0;
     QVideoFrame m_pending;
+    QElapsedTimer m_frameClock;
     bool m_hasPending = false;
     bool m_converting = false;
     QMetaObject::Connection m_frameConnection;

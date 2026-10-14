@@ -39,6 +39,11 @@ Singleton {
         return date.toLocaleTimeString(root.locale, root.pattern(seconds));
     }
 
+    function digits(date) {
+        const hour = root.is24h ? date.getHours() : (date.getHours() % 12 || 12);
+        return String(hour).padStart(2, "0") + String(date.getMinutes()).padStart(2, "0");
+    }
+
     function set24h(value) {
         ctl.queued += "call settings.patch " + JSON.stringify({
             path: "general.clock_format_24_h", value: value === true

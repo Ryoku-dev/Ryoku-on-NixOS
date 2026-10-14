@@ -176,7 +176,9 @@ int Daemon::call(const QString &method, const QVariantMap &params, const QJSValu
                 args << QJSValue(QJSValue::NullValue)
                      << engine->toScriptValue(error.toVariantMap());
             } else {
-                args << engine->toScriptValue(result.toVariant())
+                // Through QVariant, nested lists reach JS as Qt sequences that
+                // fail Array.isArray; the JSON value converts to native arrays.
+                args << engine->toScriptValue(result)
                      << QJSValue(QJSValue::NullValue);
             }
             cb.call(args);

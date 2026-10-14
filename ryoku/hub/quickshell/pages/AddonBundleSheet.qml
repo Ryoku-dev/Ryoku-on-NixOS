@@ -23,6 +23,11 @@ FocusScope {
     readonly property int installedCount: Number(sheet.bundle.installedCount || 0)
     readonly property int totalCount: Number(sheet.bundle.totalCount || sheet.components.length)
     readonly property int missingCount: Math.max(0, sheet.totalCount - sheet.installedCount)
+    readonly property var unavailableComponents: sheet.missingComponents
+        .filter(item => item.available === false)
+    readonly property int unavailableCount: sheet.unavailableComponents.length
+    readonly property int repairableMissingCount: Math.max(0,
+        sheet.missingCount - sheet.unavailableCount)
     readonly property string summary: sheet.bundle.summary || sheet.bundle.description
         || I18n.tr("Installed add-on bundle.")
     readonly property string icon: String((sheet.bundle.metadata || {}).icon || "inventory_2")
@@ -274,7 +279,7 @@ FocusScope {
                                 id: componentRow
                                 required property var modelData
                                 width: group.width
-                                height: 40
+                                height: componentRow.modelData.available === false ? 56 : 40
 
                                 Rectangle {
                                     anchors.left: parent.left
@@ -295,17 +300,32 @@ FocusScope {
                                     }
                                 }
 
-                                Text {
+                                Column {
                                     anchors.left: parent.left
                                     anchors.leftMargin: 24 + Tokens.s3
                                     anchors.right: kindLabel.left
                                     anchors.rightMargin: Tokens.s3
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: componentRow.modelData.name || ""
-                                    color: Tokens.ink
-                                    font.family: Tokens.ui
-                                    font.pixelSize: Tokens.fSmall
-                                    elide: Text.ElideMiddle
+                                    spacing: Tokens.s1
+
+                                    Text {
+                                        width: parent.width
+                                        text: componentRow.modelData.name || ""
+                                        color: componentRow.modelData.available === false ? Tokens.inkMuted : Tokens.ink
+                                        font.family: Tokens.ui
+                                        font.pixelSize: Tokens.fSmall
+                                        elide: Text.ElideMiddle
+                                    }
+                                    Text {
+                                        visible: componentRow.modelData.available === false
+                                        width: parent.width
+                                        text: I18n.tr(componentRow.modelData.unavailableReason
+                                            || "Not available on this edition.")
+                                        color: Tokens.inkFaint
+                                        font.family: Tokens.ui
+                                        font.pixelSize: Tokens.fMicro
+                                        elide: Text.ElideRight
+                                    }
                                 }
 
                                 Text {
@@ -390,9 +410,13 @@ FocusScope {
                 anchors.verticalCenter: parent.verticalCenter
                 text: sheet.missingCount === 0
                     ? I18n.tr("Bundle complete")
-                    : (sheet.missingCount === 1
-                        ? I18n.tr("%1 component missing")
-                        : I18n.tr("%1 components missing")).arg(sheet.missingCount)
+                    : (sheet.unavailableCount === sheet.missingCount
+                        ? (sheet.unavailableCount === 1
+                            ? I18n.tr("%1 component unavailable")
+                            : I18n.tr("%1 components unavailable")).arg(sheet.unavailableCount)
+                        : (sheet.missingCount === 1
+                            ? I18n.tr("%1 component missing")
+                            : I18n.tr("%1 components missing")).arg(sheet.missingCount))
                 color: Tokens.inkMuted
                 font.family: Tokens.ui
                 font.pixelSize: Tokens.fTiny
@@ -404,7 +428,7 @@ FocusScope {
                 spacing: Tokens.s2
 
                 Btn {
-                    visible: sheet.missingCount > 0
+                    visible: sheet.repairableMissingCount > 0
                     text: sheet.busy ? I18n.tr("WORKING") : I18n.tr("REPAIR")
                     armed: !sheet.busy && !sheet.loading
                     onAct: sheet.repairRequested()

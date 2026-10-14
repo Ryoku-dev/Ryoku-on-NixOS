@@ -1,5 +1,6 @@
 import QtQuick
 import Ryoku.Ui.Singletons
+import "KeyChord.js" as KeyChord
 
 Item {
     id: results
@@ -14,7 +15,6 @@ Item {
     property string sortText: ""
     property bool searchable: true
     property int columns: 6
-    property bool showApply: false
     property var palette: ({})
     property real reveal: 1
     property bool cancellable: false
@@ -24,7 +24,6 @@ Item {
     property bool pendingApply: false
     property var applyItem: null
     property var applyingId: undefined
-    property real appendScrollSnapshot: -1
 
     signal previewRequested(int row)
     signal downloadRequested(int row)
@@ -40,6 +39,13 @@ Item {
     property int queued: 0
     property var activeItem: null
     property var queuedItem: null
+
+
+
+    function _isApplyKey(event) {
+        var trigger = results.settings ? results.settings.value("keys.apply") : ""
+        return KeyChord.signature(event) === KeyChord.canon(trigger || "enter")
+    }
 
     function recount() {
         if (!results.source || !results.sources) return
@@ -60,10 +66,6 @@ Item {
         var s = results.source
         if (!s || s.loading || s.page >= s.lastPage)
             return
-        results.appendScrollSnapshot = cardField.scrollPosition
-        console.info("RYOGAMI_BROWSER_SCROLL before_append reason=" + reason
-                     + " page=" + s.page + " position=" + cardField.scrollPosition
-                     + " extent=" + cardField.scrollExtent)
         s.nextPage()
     }
 
@@ -82,25 +84,26 @@ Item {
         ignoreUnknownSignals: true
         function onCountChanged() {
             results.recount()
-            if (results.appendScrollSnapshot >= 0) {
-                Qt.callLater(function() {
-                    console.info("RYOGAMI_BROWSER_SCROLL after_append page=" + results.source.page
-                                 + " position=" + cardField.scrollPosition
-                                 + " extent=" + cardField.scrollExtent
-                                 + " preserved=" + (Math.abs(cardField.scrollPosition
-                                                            - results.appendScrollSnapshot) < 1))
-                    results.appendScrollSnapshot = -1
-                })
-            }
             results._maybePage()
         }
         function onLoadingChanged() { results.recount() }
-        function onDataChanged(topLeft, bottomRight, roles) {
-            results.recount()
-            if (actions.row >= topLeft.row && actions.row <= bottomRight.row)
+        function onDownloadChanged(row, tallyChanged) {
+            if (tallyChanged) {
+                results.recount()
+            } else {
+                var changed = results.source.get(row)
+                if (changed && results.activeItem
+                        && String(changed.id) === String(results.activeItem.id))
+                    results.activeItem = changed
+                if (changed && results.queuedItem
+                        && String(changed.id) === String(results.queuedItem.id))
+                    results.queuedItem = changed
+            }
+            if (actions.row === row)
                 actions.refreshItem()
         }
     }
+
 
     Rectangle {
         anchors.fill: parent
@@ -220,27 +223,34 @@ Item {
                 }
             }
 
-            BrowserStatus {
-                id: strip
-                width: parent.width
-                sources: results.sources
-                error: results.source ? results.source.error : ""
-                loading: results.source ? results.source.loading : false
-                sourceLabel: results.sourceLabel
-                count: results.source ? results.source.count : 0
-                pendingApply: results.pendingApply
-                applyItem: results.applyItem
-                active: results.active
-                queued: results.queued
-                activeItem: results.activeItem
-                queuedItem: results.queuedItem
-            }
 
             Item {
                 id: gridArea
                 width: parent.width
                 height: parent.height - y - footer.height
 
+
+                BrowserStatus {
+                    id: strip
+                    z: 4
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.topMargin: 8 * Theme.scale
+                    anchors.leftMargin: 8 * Theme.scale
+                    anchors.rightMargin: 8 * Theme.scale
+                    sources: results.sources
+                    error: results.source ? results.source.error : ""
+                    loading: results.source ? results.source.loading : false
+                    sourceLabel: results.sourceLabel
+                    count: results.source ? results.source.count : 0
+                    pendingApply: results.pendingApply
+                    applyItem: results.applyItem
+                    active: results.active
+                    queued: results.queued
+                    activeItem: results.activeItem
+                    queuedItem: results.queuedItem
+                }
                 CardField {
                     id: cardField
                     anchors.fill: parent
@@ -252,8 +262,17 @@ Item {
                     palette: results.palette
                     interactive: true
                     active: results.visible && (results.source ? results.source.count > 0 : false)
+                    previewAllowed: active && !searchInput.activeFocus
+                        && !(results.source && results.source.loading)
                     activateOnClick: true
                     visible: results.source ? results.source.count > 0 : false
+                    Keys.priority: Keys.BeforeItem
+                    Keys.onPressed: function(event) {
+                        if (results._isApplyKey(event) && cardField.currentIndex >= 0) {
+                            results.applyRequested(cardField.currentIndex)
+                            event.accepted = true
+                        }
+                    }
                     onActivated: function(row) { results.previewRequested(row) }
                 }
 
@@ -302,7 +321,6 @@ Item {
                                 item = (row >= 0 && results.source) ? results.source.get(row) : null
                             }
                             sources: results.sources
-                            showApply: results.showApply
                             applying: results.applyingId !== undefined && !!item
                                 && String(results.applyingId) === String(item.id)
                             reveal: results.reveal

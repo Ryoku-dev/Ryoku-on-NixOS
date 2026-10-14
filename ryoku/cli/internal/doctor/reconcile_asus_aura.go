@@ -105,7 +105,7 @@ func reconcileAsusAura(checkOnly bool) recResult {
 		return okRes(i18n.T("ASUS Aura keyboard provider is installed and running"))
 	}
 	if checkOnly {
-		return wouldRes(i18n.T("asusd is installed but not running, so the Aura keyboard is absent from Appearance")).
+		return wouldRes(i18n.T("asusd is installed but not running, so the Aura keyboard is absent from Ryogami lighting settings")).
 			withFix(i18n.T("ryoku doctor starts asusd"))
 	}
 	if err := startAsusAura(); err != nil {
@@ -113,7 +113,7 @@ func reconcileAsusAura(checkOnly bool) recResult {
 			withFix(asusServiceAdvice())
 	}
 	if st.installed {
-		return fixedRes(i18n.T("started asusd; the ASUS Aura keyboard is available in Appearance"))
+		return fixedRes(i18n.T("started asusd; the ASUS Aura keyboard is available in Ryogami lighting settings"))
 	}
-	return fixedRes(i18n.T("installed asusctl and started asusd; the ASUS Aura keyboard is available in Appearance"))
+	return fixedRes(i18n.T("installed asusctl and started asusd; the ASUS Aura keyboard is available in Ryogami lighting settings"))
 }

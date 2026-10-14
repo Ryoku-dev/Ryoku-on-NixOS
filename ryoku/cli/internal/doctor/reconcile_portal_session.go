@@ -81,11 +81,11 @@ func userUnitMainPID(unit string) int {
 	if err != nil || initSystem != host.Systemd {
 		return 0
 	}
-	out, err := exec.Command("systemctl", "--user", "show", "-p", "MainPID", "--value", unit).Output()
+	out, err := host.Default().ServiceProperty("--user", unit, "MainPID")
 	if err != nil {
 		return 0
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
 	if err != nil {
 		return 0
 	}

@@ -19,7 +19,7 @@ import (
 )
 
 type presetEntry struct {
-	GPU   string `json:"gpu"`   // "" means every GPU that has the knob; "platform" for ACPI
+	GPU   string `json:"gpu"` // "" means every GPU that has the knob; "platform" for ACPI
 	ID    string `json:"id"`
 	Value string `json:"value"` // symbolic (built-in) or concrete (custom)
 }

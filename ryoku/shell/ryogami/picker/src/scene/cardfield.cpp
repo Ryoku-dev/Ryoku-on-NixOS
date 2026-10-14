@@ -20,7 +20,7 @@
 
 namespace {
 
-constexpr int kUploadBudget = 8;
+constexpr int kUploadBudget = 3;
 
 void setVec4(float *dst, float a, float b, float c, float d)
 {
@@ -92,11 +92,6 @@ CardField::CardField(QQuickItem *parent)
     m_previewTimer = new QTimer(this);
     m_previewTimer->setSingleShot(true);
     connect(m_previewTimer, &QTimer::timeout, this, &CardField::startPreview);
-    // The process starts hidden, so the multimedia backend loads now instead of stalling the first preview.
-    QTimer::singleShot(400, this, [this] {
-        if (m_previewEnabled)
-            m_preview->prewarm();
-    });
 }
 
 CardField::~CardField() = default;
@@ -127,11 +122,13 @@ void CardField::disconnectSource()
     }
 }
 
-void CardField::resetGenerationState()
+void CardField::resetGenerationState(bool preserveFilter)
 {
-    m_filterIn.clear();
-    m_filterWave = 0.0f;
-    m_filterElapsed = 0.0;
+    if (!preserveFilter) {
+        m_filterIn.clear();
+        m_filterWave = 0.0f;
+        m_filterElapsed = 0.0;
+    }
     m_transVisuals.clear();
     m_transBuf.clear();
     m_transActive = false;
@@ -160,6 +157,10 @@ void CardField::setSource(QObject *source)
     m_source = dynamic_cast<CardSource *>(source);
     connectSource();
     m_generation = m_source ? m_source->cardGeneration() : 0;
+    m_updatedTextureKeys.clear();
+    for (auto it = m_textureSources.cbegin(); it != m_textureSources.cend(); ++it)
+        m_updatedTextureKeys.insert(it.key());
+    m_textureSources.clear();
     resetGenerationState();
     if (m_decoder)
         m_decoder->cancelQueued();
@@ -202,9 +203,7 @@ void CardField::onSourceChanged()
         return;
     }
     const int before = m_current;
-    resetGenerationState();
-    if (m_decoder)
-        m_decoder->cancelQueued();
+    resetGenerationState(!m_filterIn.empty() || m_filterWave < 2.0f);
     m_generation = gen;
     restoreSelection();
     if (m_layout) {
@@ -227,7 +226,18 @@ void CardField::onCardsAppended()
 
 void CardField::onCardUpdated(int row)
 {
-    Q_UNUSED(row)
+    if (!m_source || row < 0 || row >= m_source->cardCount())
+        return;
+    const QString key = m_source->cardKey(row);
+    if (key.isEmpty())
+        return;
+    const TextureSources sources{m_source->cardThumb(row), m_source->cardFullImage(row)};
+    const auto known = m_textureSources.constFind(key);
+    if (known != m_textureSources.constEnd() && *known != sources)
+        m_updatedTextureKeys.insert(key);
+    m_textureSources.insert(key, sources);
+    if (row == m_current)
+        schedulePreview();
     update();
 }
 
@@ -348,6 +358,18 @@ void CardField::setActive(bool active)
     kick();
 }
 
+void CardField::setPreviewAllowed(bool allowed)
+{
+    if (allowed == m_previewAllowed)
+        return;
+    m_previewAllowed = allowed;
+    if (allowed)
+        schedulePreview();
+    else
+        stopPreview();
+    emit previewAllowedChanged();
+}
+
 void CardField::setPalette(const QVariantMap &palette)
 {
     m_paletteMap = palette;
@@ -434,6 +456,8 @@ void CardField::setScrollPosition(qreal position)
         return;
     LayoutContext ctx = makeContext();
     m_layout->setScrollPosition(ctx, position);
+    stopPreview();
+    schedulePreview();
     kick();
 }
 
@@ -672,8 +696,6 @@ void CardField::hoverMoveEvent(QHoverEvent *event)
     LayoutContext ctx = makeContext();
     if (m_layout->pointer(ctx, pos, true))
         kick();
-    else
-        update();
 }
 
 void CardField::hoverLeaveEvent(QHoverEvent *event)
@@ -702,7 +724,11 @@ void CardField::wheelEvent(QWheelEvent *event)
     const int delta = m_layout->wheel(ctx, QPointF(event->angleDelta()), QPointF(event->pixelDelta()));
     if (delta != 0)
         setCurrentIndex(m_current + delta);
-    kick();
+    else {
+        stopPreview();
+        schedulePreview();
+        kick();
+    }
     event->accept();
 }
 
@@ -896,6 +922,16 @@ void CardField::resolveTexture(CardRenderNode *node, const LayoutContext &ctx,
                                const CardVisual &visual, CardInstance &inst, int row)
 {
     const QString key = m_source->cardKey(row);
+    const TextureSources sources{m_source->cardThumb(row), m_source->cardFullImage(row)};
+    auto known = m_textureSources.find(key);
+    if (known == m_textureSources.end()) {
+        m_textureSources.insert(key, sources);
+    } else if (*known != sources) {
+        node->invalidateTexture(key);
+        m_decoder->invalidate(key);
+        m_fades.erase(key);
+        *known = sources;
+    }
     m_wanted.insert(key);
     const bool wantNear = visual.wantNear || std::abs(row - ctx.current) <= 2;
     // The preview texture still holds the last clip's frame until this clip delivers one.
@@ -915,10 +951,9 @@ void CardField::resolveTexture(CardRenderNode *node, const LayoutContext &ctx,
             src = CardTex::Far;
         const int dist = std::abs(row - ctx.current);
         if (wantNear && src != CardTex::Near)
-            m_decoder->request(key, m_source->cardFullImage(row), m_source->cardThumb(row),
-                               ThumbDecoder::Near, 100 - dist);
+            m_decoder->request(key, sources.full, sources.thumb, ThumbDecoder::Near, 100 - dist);
         if (src == CardTex::None)
-            m_decoder->request(key, m_source->cardThumb(row), ThumbDecoder::Far, 50 - dist);
+            m_decoder->request(key, sources.thumb, ThumbDecoder::Far, 50 - dist);
         inst.misc[0] = src;
         if (slot) {
             inst.misc[1] = uint32_t(slot->layer);
@@ -1028,6 +1063,8 @@ void CardField::resolveTransition(CardRenderNode *node, const LayoutContext &ctx
 
 void CardField::stopPreview()
 {
+    if (m_previewTimer)
+        m_previewTimer->stop();
     if (m_previewActive)
         m_preview->stop();
     m_previewActive = false;
@@ -1035,13 +1072,24 @@ void CardField::stopPreview()
     m_previewRow = -1;
 }
 
+bool CardField::previewCardVisible()
+{
+    if (!m_layout || !isVisible())
+        return false;
+    const QRectF card = m_layout->cardRect(m_current);
+    if (!card.isValid() || card.isEmpty())
+        return false;
+    LayoutContext ctx = makeContext();
+    const QRectF clip = m_layout->clip(ctx);
+    return card.intersects(clip.isValid() ? clip : boundingRect());
+}
+
 void CardField::schedulePreview()
 {
     const int count = m_source ? m_source->cardCount() : 0;
-    const QString clip = (m_previewEnabled && m_active && count > 0)
+    const QString clip = (m_previewEnabled && m_previewAllowed && m_active && count > 0)
         ? m_source->cardPreviewVideo(std::clamp(m_current, 0, count - 1)) : QString();
     if (clip.isEmpty()) {
-        m_previewTimer->stop();
         stopPreview();
         return;
     }
@@ -1055,7 +1103,7 @@ void CardField::schedulePreview()
 void CardField::startPreview()
 {
     const int count = m_source ? m_source->cardCount() : 0;
-    if (!m_previewEnabled || !m_active || count == 0 || m_previewRow != m_current)
+    if (!m_previewEnabled || !m_previewAllowed || !m_active || count == 0 || m_previewRow != m_current)
         return;
     const QString clip = m_source->cardPreviewVideo(std::clamp(m_current, 0, count - 1));
     if (clip.isEmpty())
@@ -1066,7 +1114,11 @@ void CardField::startPreview()
         m_previewTimer->start(int(std::max(120.0, m_previewDelayMs)));
         return;
     }
-    m_preview->play(clip, true, 0.0);
+    if (!previewCardVisible()) {
+        stopPreview();
+        return;
+    }
+    m_preview->play(clip);
     m_previewActive = true;
 }
 
@@ -1135,6 +1187,11 @@ QSGNode *CardField::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
         m_decoder->setTileSizes(m_nearTile, QSize(256, 160));
     }
     node->beginFrame();
+    for (const QString &key : m_updatedTextureKeys) {
+        m_decoder->invalidate(key);
+        node->invalidateTexture(key);
+    }
+    m_updatedTextureKeys.clear();
     drainDecoder(node);
 
     m_wanted.clear();

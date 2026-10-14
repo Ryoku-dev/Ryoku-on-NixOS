@@ -9,7 +9,7 @@ local function close_active()
     local f = io.open((os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")) .. "/ryoku/shell.json")
     local s = f and f:read("a") or ""
     if f then f:close() end
-    local style = s:match('"barStyle"%s*:%s*"([^"]*)"') or "qsbar"
+    local style = s:match('"barStyle"%s*:%s*"([^"]*)"') or "orpheus"
     if style == "iris" and s:find('"closeConfirm"%s*:%s*{[^{}]*"enabled"%s*:%s*true') then
         hl.exec_cmd("qs -c shell ipc call closeConfirm trigger")
     else
@@ -23,7 +23,7 @@ hl.bind(K(mod .. " + F"),         hl.dsp.window.fullscreen())                   
 hl.bind(K(mod .. " + SHIFT + P"), hl.dsp.window.pin())                             -- pin a floating window
 hl.bind(K(mod .. " + A"),         function() hl.dispatch(hl.dsp.window.float({ action = "toggle" })); hl.dispatch(hl.dsp.window.resize({ x = 1000, y = 660, exact = true })); hl.dispatch(hl.dsp.window.center()) end) -- float at 1000x660, centred (press again to tile back)
 hl.bind(K(mod .. " + R"),         function() hl.dispatch(hl.dsp.submap("resize")); hl.dispatch(hl.dsp.exec_cmd("hyprctl notify -1 2200 0 'Resize mode: arrows or hjkl resize, Esc exits'")) end) -- resize mode (arrows/hjkl resize, Esc exits)
-hl.bind(K(mod .. " + T"),         hl.dsp.group.toggle())                            -- Tabbed column
+hl.bind(K(mod .. " + T"),         hl.dsp.group.toggle())                            -- Group windows (tabbed)
 hl.bind(K(mod .. " + D"),         hl.dsp.window.fullscreen({ mode = "maximized" })) -- Maximise
 hl.bind(K(mod .. " + C"),         hl.dsp.window.center())                           -- Centre
 hl.bind(K("ALT + Tab"),           hl.dsp.focus({ last = true }))                    -- Last window
@@ -142,6 +142,7 @@ end
 hl.bind(K("XF86AudioRaiseVolume"), hl.dsp.exec_cmd("ryoku-volume up"),   { locked = true, repeating = true }) -- raise the volume
 hl.bind(K("XF86AudioLowerVolume"), hl.dsp.exec_cmd("ryoku-volume down"), { locked = true, repeating = true }) -- lower the volume
 hl.bind(K("XF86AudioMute"),        hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),     { locked = true })
+hl.bind(K("XF86AudioMicMute"),     hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),   { locked = true })
 hl.bind(K("XF86AudioPlay"),        hl.dsp.exec_cmd("playerctl play-pause"),                           { locked = true })
 hl.bind(K("XF86AudioNext"),        hl.dsp.exec_cmd("playerctl next"),                                 { locked = true })
 hl.bind(K("XF86AudioPrev"),        hl.dsp.exec_cmd("playerctl previous"),                             { locked = true })

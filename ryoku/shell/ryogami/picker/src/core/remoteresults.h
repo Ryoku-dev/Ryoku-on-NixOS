@@ -108,6 +108,10 @@ Q_SIGNALS:
     void openInSteam(const QString &id, const QString &url, bool steamInstalled);
     // A result's thumbnail finished downloading; the path is unchanged, so a view that loaded early must retry.
     void thumbArrived(int row);
+    // Download progress is consumed only by the active card and preview; tallyChanged
+    // is true when queued/downloading counts need to be recomputed.
+    void downloadChanged(int row, bool tallyChanged);
+    void downloadFailed(const QString &id, const QString &message);
 
 private:
     struct Row {

@@ -96,34 +96,28 @@ var applyProvider = func(name, store string) error {
 	return err
 }
 
-// applyGenerated completes every laid-down compositor tree: the packages ship
-// only the static seeds, while the compositor hard-includes the files its
-// provider generates (niri's settings.kdl and rebinds.kdl, Hyprland's
-// settings.lua and rebinds.lua). A tree without them is a compositor that
-// refuses its own config at the next login, which is exactly what a
-// hyprland-to-niri switch produced: nothing between the switch and that login
-// ran the TARGET's apply, because every apply call elsewhere follows the
-// active provider. Materialize is the one call the login bootstrap, the
-// switch, and the update all share, so it renders each laid-down tree's
-// generated half here. The user_edits mirrors of those files are forks, not
-// generated state, so their absence means nothing. Best-effort per provider:
-// a tree whose provider binary is absent stays as it was, never a failed
-// materialize.
+// applyGenerated completes every laid-down provider tree. Packages ship the
+// static half, while each provider owns files rendered from the neutral store.
+// A missing generated file can make the target reject its config at login, and
+// a whole-file render composed from an older shipped baseline can keep an
+// otherwise complete tree on obsolete defaults. Materialize is shared by login
+// bootstrap, switching and updates, so it repairs both states here.
 //
-// A missing neutral store is not a reason to skip: the installer only seeds
-// desktop.json for a keyboard that is not the default layout, so a us-layout
-// install reaches its first login with the store absent, and the provider
-// renders its own defaults from an unreadable path. Refusing to render then
-// left the hard-included files missing and the first niri login dead on
-// arrival (#331). With no store to render *from*, though, a render is a first
-// render only while nothing has ever been authored: the provider mirrors its
-// bytes into user_edits, so a copy sitting there means settings already have
-// an owner (a fork, or a Hub edit the overlay just laid), and defaults would
-// speak over it. That case is left to the overlay and the next store-driven
-// apply.
+// Render marks are provider-declared through the seam. They also distinguish a
+// managed user_edits mirror from a whole-file fork: a fork is never replaced
+// merely because the shipped baseline changed. Provider failures remain best
+// effort, so an unavailable binary leaves its tree untouched instead of failing
+// the complete materialize.
+//
+// A missing neutral store is not a reason to skip the first render. The
+// installer only seeds desktop.json for a non-default keyboard, and providers
+// render defaults from an unreadable store path. An unmarked user_edits copy
+// still has an owner, so without a store it is left alone rather than replaced
+// with provider defaults.
 func applyGenerated(configHome string) {
 	store := filepath.Join(configHome, "ryoku", "desktop.json")
 	hasStore := sys.Exists(store)
+	base := sys.BaseConfigDir()
 	for _, name := range wm.Providers() {
 		dir := wm.ConfigDir(name)
 		if dir == "" || !sys.Exists(filepath.Join(configHome, dir)) {
@@ -133,10 +127,14 @@ func applyGenerated(configHome string) {
 		authored := false
 		for _, rel := range wm.GeneratedConfig(name) {
 			if d, _, ok := strings.Cut(rel, "/"); !ok || d != dir {
-				// a user_edits copy: the provider's mirror, a fork, or an edit
-				// the overlay just laid: settings already have an owner.
-				if sys.Exists(filepath.Join(configHome, rel)) {
-					authored = true
+				// A provider render in user_edits is its managed mirror. Anything
+				// else is a fork whose bytes materialize must not replace.
+				path := filepath.Join(configHome, rel)
+				if sys.Exists(path) {
+					body, err := os.ReadFile(path)
+					if err != nil || !wm.GeneratedConfigIsRender(name, body) {
+						authored = true
+					}
 				}
 				continue
 			}
@@ -144,11 +142,12 @@ func applyGenerated(configHome string) {
 				missing = true
 			}
 		}
-		if !missing {
+		stale := wm.GeneratedConfigStale(name, base, configHome)
+		if !missing && !stale {
 			continue
 		}
-		if !hasStore && authored {
-			continue // a first render with no store would speak over the owner
+		if authored && (!hasStore || stale) {
+			continue
 		}
 		if err := applyProvider(name, store); err != nil {
 			fmt.Printf(i18n.T("note: could not render %s's generated config (%v); run `ryoku doctor` inside a %s session\n"), name, err, name)

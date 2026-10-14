@@ -105,7 +105,7 @@ func (w *workshopLib) steamworksDownload(item, requested string) bool {
 	return false
 }
 
-func (w *workshopLib) steamworksSearch(p steamSearchParams) (searchPage, error) {
+func (w *workshopLib) steamworksSearch(ctx context.Context, p steamSearchParams) (searchPage, error) {
 	bin := resolveSteamHelper()
 	if bin == "" {
 		return searchPage{}, fmt.Errorf("Steam Client helper (skwd-steam) is not installed")
@@ -118,8 +118,6 @@ func (w *workshopLib) steamworksSearch(p steamSearchParams) (searchPage, error) 
 		"excluded_tags": p.excludedTags,
 		"page":          p.page,
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
-	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "search", string(req))
 	cmd.Stdin = nil
 	out, err := cmd.Output()

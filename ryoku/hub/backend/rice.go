@@ -820,7 +820,6 @@ func riceWindowSections(r Rice, provider string) map[string]any {
 	return jsonMerge(shared, specific)
 }
 
-
 // applyRice merges a rice onto the live stores and reloads. it first snapshots
 // the current setup into .previous (and .baseline once) so revert is one click.
 func applyRice(slug string, layers []string) error {

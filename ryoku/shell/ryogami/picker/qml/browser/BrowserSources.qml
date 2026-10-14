@@ -256,7 +256,7 @@ QtObject {
         }
     }
 
-    function showApplyButton(id, settings) {
+    function manualSearch(id, settings) {
         return _bool(settings, "sources." + id + ".showApplyButton", false)
     }
 

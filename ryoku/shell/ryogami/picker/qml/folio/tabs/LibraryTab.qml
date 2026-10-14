@@ -127,6 +127,8 @@ FolioTabData {
                   label: I18n.tr("Video conversion quality"),
                   help: I18n.tr("Quality used when converting videos to the efficient format."),
                   options: [{ value: "light", label: I18n.tr("Light") }, { value: "balanced", label: I18n.tr("Balanced") }, { value: "quality", label: I18n.tr("Quality") }],
+                  enabledWhen: "available.videoOptimize",
+                  disabledReason: I18n.tr("Video optimisation needs the libx265 encoder, which this system's ffmpeg does not provide."),
                   search: ["video", "convert"] },
                 { id: "performance.videoConvertResolution",
                   key: "performance.videoConvertResolution",
@@ -134,6 +136,8 @@ FolioTabData {
                   label: I18n.tr("Video conversion resolution"),
                   help: I18n.tr("Largest resolution a converted video keeps."),
                   options: [{ value: "1080p", label: I18n.tr("1080p") }, { value: "2k", label: I18n.tr("2K") }, { value: "4k", label: I18n.tr("4K") }],
+                  enabledWhen: "available.videoOptimize",
+                  disabledReason: I18n.tr("Video optimisation needs the libx265 encoder, which this system's ffmpeg does not provide."),
                   search: ["video", "convert", "resolution"] },
                 { id: "performance.convertAll.action",
                   key: null,
@@ -141,6 +145,8 @@ FolioTabData {
                   label: I18n.tr("Convert all videos"),
                   help: I18n.tr("Convert every video wallpaper with the settings above."),
                   action: "ConvertVideos",
+                  enabledWhen: "available.videoOptimize",
+                  disabledReason: I18n.tr("Video optimisation needs the libx265 encoder, which this system's ffmpeg does not provide."),
                   search: ["video", "convert"] }
             ]
         },

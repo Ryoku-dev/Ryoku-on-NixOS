@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,11 +11,18 @@ import (
 	"time"
 )
 
+const previewCommandTimeout = 10 * time.Second
+
 func matugenPreviewColors(img string) (map[string]string, error) {
 	if img == "" {
 		return nil, fmt.Errorf("no image to preview")
 	}
-	out, err := exec.Command("ryoku-shell", "matugen-preview", img).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), previewCommandTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ryoku-shell", "matugen-preview", img).Output()
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("matugen-preview timed out after %s", previewCommandTimeout)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("matugen-preview: %w", err)
 	}
@@ -33,8 +41,9 @@ type cachedPreview struct {
 }
 
 var (
-	previewMu    sync.Mutex
-	previewCache = map[string]cachedPreview{}
+	previewMu       sync.Mutex
+	previewRenderMu sync.Mutex
+	previewCache    = map[string]cachedPreview{}
 )
 
 // Cached per key and mtime so a repeated hover is instant.
@@ -47,6 +56,16 @@ func (d *daemon) previewColorsFor(key string) (map[string]string, error) {
 	if img == "" {
 		return nil, fmt.Errorf("no thumbnail for %q", key)
 	}
+	previewMu.Lock()
+	if c, ok := previewCache[key]; ok && c.mtime == entry.Mtime {
+		colors := c.colors
+		previewMu.Unlock()
+		return colors, nil
+	}
+	previewMu.Unlock()
+
+	previewRenderMu.Lock()
+	defer previewRenderMu.Unlock()
 	previewMu.Lock()
 	if c, ok := previewCache[key]; ok && c.mtime == entry.Mtime {
 		colors := c.colors

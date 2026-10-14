@@ -39,7 +39,7 @@ Singleton {
 
     Connections {
         target: Quickshell
-        function onScreensChanged() { root.settleScreens.restart(); }
+        function onScreensChanged() { settleScreens.restart(); }
     }
 
     // Rebuild per-monitor surfaces once the screen list settles, not on every

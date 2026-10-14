@@ -109,6 +109,10 @@ Item {
     property double started: 0
     property double beat: 0
     property var steps: []
+    property var pieces: []
+    property string piecesStep: ""
+    property int piecesTypical: 0
+    property bool firstBuild: false
     property var logLines: []
     property string activity: ""
     property var watch: ({})
@@ -290,6 +294,7 @@ Item {
     // when it changed, or every delegate would rebuild (and every pulse
     // restart) on each beat.
     property string stepsKey: ""
+    property string piecesKey: ""
     property string logKey: ""
 
     function applyState(t) {
@@ -322,6 +327,15 @@ Item {
             pg.stepsKey = sk;
             pg.steps = o.steps || [];
         }
+        const pieces = Array.isArray(o.pieces) ? o.pieces : [];
+        const pk = JSON.stringify(pieces);
+        if (pk !== pg.piecesKey) {
+            pg.piecesKey = pk;
+            pg.pieces = pieces;
+        }
+        pg.piecesStep = typeof o.piecesStep === "string" ? o.piecesStep : "";
+        pg.piecesTypical = typeof o.piecesTypical === "number" ? Math.max(0, Math.floor(o.piecesTypical)) : 0;
+        pg.firstBuild = o.firstBuild === true;
         const lk = JSON.stringify(o.log || []);
         if (lk !== pg.logKey) {
             pg.logKey = lk;
@@ -666,6 +680,38 @@ Item {
                                 : I18n.tr("on %1  \u00b7  checked %2").arg(Updates.branch).arg(Updates.checkedAgo)
                             color: Tokens.inkMuted; font.family: Tokens.ui
                             font.pixelSize: Tokens.fSmall
+                        }
+
+                        MouseArea {
+                            visible: Updates.buildState === "building"
+                                || Updates.buildState === "failed"
+                                || Updates.checkState === "checking"
+                                || Updates.checkState === "failed"
+                            width: Math.max(0, status.width - statusCol.x)
+                            height: channelStatusText.implicitHeight
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                var run = Updates.buildState === "building" || Updates.buildState === "failed"
+                                    ? Updates.buildRun : Updates.checkRun;
+                                if (run !== "")
+                                    Qt.openUrlExternally(run);
+                            }
+
+                            Text {
+                                id: channelStatusText
+                                width: parent.width
+                                text: Updates.buildState === "building"
+                                    ? I18n.tr("A build for %1 is in progress (%2 min). Updates are held until it finishes.").arg(Updates.buildCommit).arg(Updates.buildMinutes)
+                                    : Updates.buildState === "failed"
+                                        ? I18n.tr("The last build for %1 failed. Updating takes the previous good build.").arg(Updates.buildCommit)
+                                        : Updates.checkState === "checking"
+                                            ? I18n.tr("%1 is still being checked. Update deploys the last checked commit.").arg(Updates.checkCommit)
+                                            : I18n.tr("%1 failed its checks. Update stays on the last checked commit.").arg(Updates.checkCommit)
+                                color: Tokens.inkMuted; font.family: Tokens.ui
+                                font.pixelSize: Tokens.fSmall
+                                wrapMode: Text.WordWrap
+                            }
                         }
                     }
                 }
@@ -1144,12 +1190,30 @@ Item {
                 text: I18n.tr("CHECK AGAIN")
                 onAct: Updates.check()
             }
-            Btn {
-                anchors.verticalCenter: parent.verticalCenter
+            Item {
                 visible: pg.phase === "idle" && !pg.starting && Updates.available
-                text: I18n.tr("UPDATE NOW")
-                primary: true
-                onAct: pg.startUpdate()
+                width: updateBtn.implicitWidth
+                height: updateBtn.implicitHeight
+
+                Btn {
+                    id: updateBtn
+                    anchors.fill: parent
+                    enabled: Updates.buildState !== "building"
+                    opacity: enabled ? 1 : 0.5
+                    text: I18n.tr("UPDATE NOW")
+                    primary: true
+                    onAct: pg.startUpdate()
+                }
+
+                MouseArea {
+                    id: updateDisabledHover
+                    anchors.fill: parent
+                    enabled: !updateBtn.enabled
+                    hoverEnabled: true
+                }
+
+                ToolTip.visible: updateDisabledHover.containsMouse
+                ToolTip.text: I18n.tr("Updates are held until the channel build finishes.")
             }
             Btn {
                 anchors.verticalCenter: parent.verticalCenter

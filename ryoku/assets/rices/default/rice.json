@@ -156,7 +156,7 @@
           "y": 0.68
         }
       },
-      "barStyle": "qsbar",
+      "barStyle": "orpheus",
       "bars": {
         "bottom_bar": {
           "center_widgets": [],
@@ -166,7 +166,6 @@
           "right_widgets": []
         },
         "frame": {
-          "enable_frame": true,
           "monitor_filter": []
         },
         "left_bar": {

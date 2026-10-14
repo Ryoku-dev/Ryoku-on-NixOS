@@ -36,7 +36,7 @@ import (
 // has run it, so the set stays small instead of piling up like a migration
 // ledger.
 
-const ryokuIssuesURL = "https://github.com/ryoku-dev/ryoku-arch/issues"
+const ryokuIssuesURL = "https://github.com/ryoku-dev/ryoku/issues"
 
 var (
 	doctorPackageManager = func() (host.PackageManager, error) {
@@ -204,6 +204,13 @@ func noteRes(f string, a ...any) recResult {
 	return recResult{status: recNote, detail: fmt.Sprintf(f, a...)}
 }
 
+func inspectionRes(permissionOnly bool, f string, a ...any) recResult {
+	if permissionOnly {
+		return noteRes(f, a...)
+	}
+	return warnRes(f, a...)
+}
+
 func (r recResult) withFix(f string, a ...any) recResult {
 	r.remedy = fmt.Sprintf(f, a...)
 	return r
@@ -266,9 +273,11 @@ func reconcilers() []reconciler {
 		{i18n.T("stale dev residue"), reconcileDevResidue},
 		{i18n.T("ryostore cache location"), reconcileRyostoreCache},
 		{i18n.T("desktop settings store"), reconcileDesktopStore},
+		{i18n.T("clickfinger default"), reconcileClickfingerDefault},
 		{i18n.T("retired cursor keys"), reconcileRetiredCursorLeaf},
 		{i18n.T("session target units"), reconcileSessionTarget},
 		{i18n.T("Turnstile session bus"), reconcileTurnstile},
+		{i18n.T("user service activation"), reconcileServiceManifest},
 		{i18n.T("desktop session components"), reconcileSessionComponents},
 		{i18n.T("desktop portal routing"), reconcilePortalRouting},
 		{i18n.T("desktop portal session"), reconcilePortalSession},
@@ -302,6 +311,7 @@ func reconcilers() []reconciler {
 		{i18n.T("retired sidebar settings"), reconcileSidebarRework},
 		{i18n.T("retired panel keybind"), reconcileAskKeybind},
 		{i18n.T("retired Shima frame music key"), reconcileShimaFrameMusic},
+		{i18n.T("retired Shima battery warning thresholds"), reconcileIrisBatteryThresholds},
 		{i18n.T("shipped app packages"), reconcileShippedApps},
 		{i18n.T("retired app packages"), reconcileRetiredApps},
 		{i18n.T("retired compositor"), reconcileRetiredCompositor},
@@ -333,6 +343,7 @@ func reconcilers() []reconciler {
 		{i18n.T("follow-mouse default"), reconcileFollowMouseDefault},
 		{i18n.T("follow-wallpaper default"), reconcileThemeFollowDefault},
 		{i18n.T("quickshell runtime"), reconcileQuickshell},
+		{i18n.T("compositor desktop variants"), reconcileCompositorVariants},
 		{i18n.T("compositor config tree"), reconcileConfigTree},
 		{i18n.T("desktop loads"), reconcileShellLoad},
 		{i18n.T("ryoku shell daemon"), reconcileShellDaemon},
@@ -363,6 +374,9 @@ func reconcilers() []reconciler {
 		{pendingConfigCheckName(), reconcilePacnew},
 		{i18n.T("orphaned packages"), reconcileOrphans},
 	}...)
+	if check, ok := nvidiaRestartCheck(); ok {
+		checks = append(checks, check)
+	}
 	return checks
 }
 
@@ -499,6 +513,9 @@ func Run(args []string) error {
 	// read-only modes never mutate; showAll also lists ok + advisory notes.
 	readOnly := checkOnly || wantReport || wantExplain || wantJSON
 	showAll := readOnly || verboseFlag
+	if err := configureDoctorUser(readOnly); err != nil {
+		return err
+	}
 	findings := runReconcilers(readOnly)
 	if wantJSON {
 		return emitFindingsJSON(findings)
@@ -805,7 +822,7 @@ func reconcileSnapper(checkOnly bool) recResult {
 	case snapperWarnInconsistent:
 		remedy := i18n.T("see https://wiki.archlinux.org/title/Snapper")
 		if st.manager == host.XBPS {
-			remedy = i18n.T("run `sudo ryoku doctor`; use `ryoku-host pkg advice <package>` for a missing snapshot package")
+			remedy = i18n.T("run `ryoku doctor`; use `ryoku-host pkg advice <package>` for a missing snapshot package")
 		}
 		return warnRes("%s", strings.Join(problems, "; ")).withFix(remedy)
 	}
@@ -1217,13 +1234,13 @@ func reconcileRyokuChannel(checkOnly bool) recResult {
 		// a private mirror is deliberate, but it means no release reaches here.
 		switch ch := sys.ChannelOfServer(sys.RyokuServer()); {
 		case ch == sys.ChannelStable:
-			return okRes(i18n.T("ryoku channel: stable packages (named releases); `ryoku track unstable` follows the unstable channel"))
+			return okRes(i18n.T("ryoku channel: stable packages (named releases); `ryoku track unstable` follows unstable-dev from source"))
 		case ch == sys.ChannelTesting:
 			return okRes(i18n.T("ryoku channel: unstable packages (rebuilt on every push); `ryoku track stable` returns to stable releases"))
 		case sys.IsReleaseTag(ch):
 			return okRes(i18n.T("ryoku channel: pinned to release %s (packages); `ryoku track stable` follows releases again"), ch)
 		case sys.IsUnstableBuild(ch):
-			return okRes(i18n.T("ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` follows unstable builds again"), ch)
+			return okRes(i18n.T("ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` switches to the unstable-dev source checkout"), ch)
 		default:
 			return warnRes(i18n.T("the [ryoku] repo points at %s, which Ryoku does not publish; releases will not arrive from it"), sys.RyokuServer()).
 				withFix("ryoku track stable")
@@ -1271,13 +1288,13 @@ func reconcileVoidRyokuChannel(checkOnly bool) recResult {
 	channel, _ := app.RepoChannel()
 	switch {
 	case channel == sys.ChannelStable:
-		return okRes(i18n.T("ryoku channel: stable packages (named releases); `ryoku track unstable` follows the unstable channel"))
+		return okRes(i18n.T("ryoku channel: stable packages (named releases); `ryoku track unstable` follows unstable-dev from source"))
 	case channel == sys.ChannelTesting:
 		return okRes(i18n.T("ryoku channel: unstable packages (rebuilt on every push); `ryoku track stable` returns to stable releases"))
 	case sys.IsReleaseTag(channel):
 		return okRes(i18n.T("ryoku channel: pinned to release %s (packages); `ryoku track stable` follows releases again"), channel)
 	case sys.IsUnstableBuild(channel):
-		return okRes(i18n.T("ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` follows unstable builds again"), channel)
+		return okRes(i18n.T("ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` switches to the unstable-dev source checkout"), channel)
 	default:
 		return warnRes(i18n.T("the Ryoku XBPS repository points at %s, which Ryoku does not publish; releases will not arrive from it"), repository).
 			withFix("ryoku track stable")
@@ -1324,13 +1341,13 @@ func reconcileFedoraRyokuChannel(checkOnly bool) recResult {
 	channel, _ := app.RepoChannel()
 	switch {
 	case channel == sys.ChannelStable:
-		return okRes(i18n.T("ryoku channel: stable packages (named releases); `ryoku track unstable` follows the unstable channel"))
+		return okRes(i18n.T("ryoku channel: stable packages (named releases); `ryoku track unstable` follows unstable-dev from source"))
 	case channel == sys.ChannelTesting:
 		return okRes(i18n.T("ryoku channel: unstable packages (rebuilt on every push); `ryoku track stable` returns to stable releases"))
 	case sys.IsReleaseTag(channel):
 		return okRes(i18n.T("ryoku channel: pinned to release %s (packages); `ryoku track stable` follows releases again"), channel)
 	case sys.IsUnstableBuild(channel):
-		return okRes(i18n.T("ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` follows unstable builds again"), channel)
+		return okRes(i18n.T("ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` switches to the unstable-dev source checkout"), channel)
 	default:
 		return warnRes(i18n.T("the Ryoku RPM repository points at %s, which Ryoku does not publish; releases will not arrive from it"), repository).
 			withFix("ryoku track stable")
@@ -1350,11 +1367,21 @@ func dnfRepoRefreshAdvice() string {
 	return fmt.Sprintf("sudo %s makecache -y --refresh --repo=ryoku", host.DNFCommand())
 }
 
+var doctorFilteredRyokuDNS = host.FilteredRyokuDNS
+
+func filteredDNSDoctorResult(repository string) (recResult, bool) {
+	if !doctorFilteredRyokuDNS(repository) {
+		return recResult{}, false
+	}
+	return failRes("%s", host.FilteredDNSAdvice), true
+}
+
 func reconcileFedoraRyokuSyncDB(checkOnly bool) recResult {
 	if !doctorPackageInstalled("ryoku-desktop") {
 		return okRes(i18n.T("not a packaged install (desktop runs from a checkout)"))
 	}
-	if _, err := host.Default().RepoURL(); err != nil {
+	repository, err := host.Default().RepoURL()
+	if err != nil {
 		return okRes(i18n.T("Ryoku RPM repository absent; nothing to verify"))
 	}
 	out, err := checkDNFRepoMetadata()
@@ -1365,11 +1392,17 @@ func reconcileFedoraRyokuSyncDB(checkOnly bool) recResult {
 	if detail == "" {
 		detail = err.Error()
 	}
+	if result, filtered := filteredDNSDoctorResult(repository); filtered {
+		return result
+	}
 	if checkOnly {
 		return wouldRes(i18n.T("the Ryoku RPM repository metadata does not load: %s"), detail).
 			withFix(dnfRepoRefreshAdvice())
 	}
 	if err := refreshDNFRepoMetadata(); err != nil {
+		if result, filtered := filteredDNSDoctorResult(repository); filtered {
+			return result
+		}
 		return failRes(i18n.T("could not refresh the Ryoku RPM repository metadata: %v"), err).
 			withFix(dnfRepoRefreshAdvice())
 	}
@@ -1418,6 +1451,9 @@ func reconcileRyokuSyncDB(checkOnly bool) recResult {
 		return okRes(i18n.T("the [ryoku] sync db loads and verifies"))
 	}
 	if !strings.Contains(out, "invalid or corrupted database") && !strings.Contains(out, "signature") {
+		if result, filtered := filteredDNSDoctorResult(sys.RyokuServer()); filtered {
+			return result
+		}
 		// another failure (offline, transient); not the stale-signature wedge.
 		return okRes(i18n.T("the [ryoku] sync db is present; no signature wedge"))
 	}
@@ -1440,12 +1476,16 @@ func reconcileVoidRyokuSyncDB(checkOnly bool) recResult {
 		return okRes(i18n.T("not a packaged install (desktop runs from a checkout)"))
 	}
 	app := host.Default()
-	if _, err := app.RepoURL(); err != nil {
+	repository, err := app.RepoURL()
+	if err != nil {
 		return okRes(i18n.T("Ryoku XBPS repository absent; the channel check owns its repair"))
 	}
 	if _, err := app.RepoPackages(); err == nil {
 		return okRes(i18n.T("the Ryoku XBPS repository index loads and verifies"))
 	} else if !strings.Contains(strings.ToLower(err.Error()), "signature") {
+		if result, filtered := filteredDNSDoctorResult(repository); filtered {
+			return result
+		}
 		return noteRes(i18n.T("the Ryoku XBPS repository index could not be checked: %v"), err)
 	}
 	if checkOnly {
@@ -2041,14 +2081,14 @@ func stripLegacyStyleKnobs(raw []byte) ([]byte, bool, error) {
 
 // ---- reconciler: sumi bar simplification -------------------------------------
 
-// reconcileSumiBar defaults a persisted shell.json's bar to the shipped QS Bar
-// (barStyle "qsbar") when it is absent -- a store older than the pluggable
-// bar-style system, which renders nothing until a default -- or still names a
-// retired Atoll-era style, so an existing box lands on the current default look
-// on update. Only the built-in Sumi rail keeps its left-only simplification (its
-// top/bottom/right rails ship disabled). Surgical and idempotent: a current or
-// installed store style, every zone widget array, and other keys survive
-// untouched, and a store already on a valid style is left alone.
+// reconcileSumiBar defaults a persisted shell.json's bar to the shipped Orpheus
+// bar (barStyle "orpheus") when it is absent, meaning a store older than the
+// pluggable bar-style system, which renders nothing until a default, or still
+// names a retired Atoll-era style. This puts an existing box on the current
+// default look after an update. Only the built-in Sumi rail keeps its left-only
+// simplification because its top, bottom, and right rails ship disabled.
+// Surgical and idempotent: a current or installed store style, every zone widget
+// array, and other keys survive untouched.
 func reconcileSumiBar(checkOnly bool) recResult {
 	path := filepath.Join(sys.ConfigHome(), "ryoku", "shell.json")
 	raw, err := os.ReadFile(path)
@@ -2065,7 +2105,7 @@ func reconcileSumiBar(checkOnly bool) recResult {
 	}
 	if checkOnly {
 		return wouldRes(i18n.T("shell.json is missing barStyle or names a retired bar style (or a Sumi frame still has extra rails)")).
-			withFix(i18n.T("ryoku doctor converges it to the qsbar default in place"))
+			withFix(i18n.T("ryoku doctor converges it to the Orpheus default in place"))
 	}
 	tmp := path + ".ryoku-tmp"
 	if err := os.WriteFile(tmp, migrated, 0o644); err != nil {
@@ -2075,7 +2115,7 @@ func reconcileSumiBar(checkOnly bool) recResult {
 		os.Remove(tmp)
 		return failRes(i18n.T("could not replace %s: %v"), path, err)
 	}
-	return fixedRes(i18n.T("defaulted the bar to qsbar / reduced any Sumi frame to left-only"))
+	return fixedRes(i18n.T("defaulted the bar to Orpheus / reduced any Sumi frame to left-only"))
 }
 
 // retiredBarStyles are old top-level barStyle values from the pre-pluggable
@@ -2083,12 +2123,12 @@ func reconcileSumiBar(checkOnly bool) recResult {
 // empty Sumi rail), so they migrate to the current default instead.
 var retiredBarStyles = map[string]bool{"atoll": true, "washi": true, "dyad": true, "ilyamiro": true}
 
-// migrateSumiBar defaults a shell store's bar to the shipped QS Bar when barStyle
-// is absent (a store older than the pluggable bar-style system) or names a
-// retired Atoll-era style, and -- only for the built-in Sumi rail -- reduces the
-// frame to its left rail. A current or installed store style, its zone widget
-// arrays, and every other key are preserved as raw bytes, so a store already on
-// a valid style comes back unchanged.
+// migrateSumiBar defaults a shell store's bar to the shipped Orpheus bar when
+// barStyle is absent (a store older than the pluggable bar-style system) or
+// names a retired Atoll-era style, and only for the built-in Sumi rail reduces
+// the frame to its left rail. A current or installed store style, its zone
+// widget arrays, and every other key are preserved as raw bytes, so a store
+// already on a valid style comes back unchanged.
 func migrateSumiBar(raw []byte) ([]byte, bool, error) {
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &top); err != nil {
@@ -2100,12 +2140,12 @@ func migrateSumiBar(raw []byte) ([]byte, bool, error) {
 		_ = json.Unmarshal(b, &style)
 	}
 	if _, ok := top["barStyle"]; !ok || retiredBarStyles[style] {
-		next, err := json.Marshal("qsbar")
+		next, err := json.Marshal("orpheus")
 		if err != nil {
 			return nil, false, err
 		}
 		top["barStyle"] = next
-		style = "qsbar"
+		style = "orpheus"
 		changed = true
 	}
 	// Only the built-in Sumi rail keeps the left-only simplification; every other
@@ -2197,7 +2237,6 @@ func defaultFrameBarsFromLegacy(_ map[string]any) map[string]any {
 			"weather":   map[string]any{"anchor": "right", "minWidth": float64(320), "expansion": "never", "widgets": []any{"weather"}},
 		},
 		"surfaces": map[string]any{},
-		"dock":     map[string]any{"pinned": []any{}},
 	}
 }
 
@@ -2322,15 +2361,19 @@ func normalizeFrameBars(v any) (map[string]any, []string) {
 			outSurfaces[id] = surface
 		}
 	}
-	dockRaw, dockOut := frameMap(source["dock"]), frameMap(out["dock"])
-	if pinned, ok := dockRaw["pinned"].([]any); ok {
-		outPinned := make([]any, 0, len(pinned))
-		for _, value := range pinned {
-			if id, ok := value.(string); ok {
-				outPinned = append(outPinned, id)
+	if dockRaw, present := source["dock"]; present {
+		dockSource := frameMap(dockRaw)
+		dockOut := map[string]any{"pinned": []any{}}
+		if pinned, ok := dockSource["pinned"].([]any); ok {
+			outPinned := make([]any, 0, len(pinned))
+			for _, value := range pinned {
+				if id, ok := value.(string); ok {
+					outPinned = append(outPinned, id)
+				}
 			}
+			dockOut["pinned"] = outPinned
 		}
-		dockOut["pinned"] = outPinned
+		out["dock"] = dockOut
 	}
 	before, _ := json.Marshal(source)
 	after, _ := json.Marshal(out)
@@ -2354,12 +2397,89 @@ var retiredShellKeys = []string{
 	"washiVariant",
 }
 
+func removeRetiredShellFrameKey(cfg map[string]any) bool {
+	bars, ok := cfg["bars"].(map[string]any)
+	if !ok {
+		return false
+	}
+	frame, ok := bars["frame"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if _, present := frame["enable_frame"]; !present {
+		return false
+	}
+	delete(frame, "enable_frame")
+	if len(frame) == 0 {
+		delete(bars, "frame")
+	}
+	if len(bars) == 0 {
+		delete(cfg, "bars")
+	}
+	return true
+}
+
+func migrateOrpheusGain(raw []byte) ([]byte, bool, error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return nil, false, err
+	}
+	orpheusRaw, ok := top["orpheus"]
+	if !ok {
+		return nil, false, nil
+	}
+	var orpheus map[string]json.RawMessage
+	if err := json.Unmarshal(orpheusRaw, &orpheus); err != nil || orpheus == nil {
+		return nil, false, nil
+	}
+	if _, ok := orpheus["gain"]; ok {
+		return nil, false, nil
+	}
+	reactionRaw, ok := orpheus["reaction"]
+	if !ok {
+		return nil, false, nil
+	}
+	var reaction string
+	_ = json.Unmarshal(reactionRaw, &reaction)
+	gain := 1.0
+	switch reaction {
+	case "calm":
+		gain = 0.55
+	case "still":
+		gain = 0
+	}
+	gainRaw, err := json.Marshal(gain)
+	if err != nil {
+		return nil, false, err
+	}
+	delete(orpheus, "reaction")
+	orpheus["gain"] = gainRaw
+	orpheusRaw, err = json.Marshal(orpheus)
+	if err != nil {
+		return nil, false, err
+	}
+	top["orpheus"] = orpheusRaw
+	out, err := json.MarshalIndent(top, "", "  ")
+	if err != nil {
+		return nil, false, err
+	}
+	return append(out, '\n'), true, nil
+}
+
 func migrateShellConfig(raw []byte) ([]byte, []string, error) {
+	var changes []string
+	migrated, changed, err := migrateOrpheusGain(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	if changed {
+		raw = migrated
+		changes = append(changes, i18n.T("orpheus.reaction became orpheus.gain"))
+	}
 	var cfg map[string]any
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, nil, err
 	}
-	var changes []string
 	if _, present := cfg["frameBars"]; !present {
 		cfg["frameBars"] = defaultFrameBarsFromLegacy(cfg)
 		changes = append(changes, i18n.T("migrated Atoll settings to frame bars"))
@@ -2386,6 +2506,9 @@ func migrateShellConfig(raw []byte) ([]byte, []string, error) {
 	}
 	if removed {
 		changes = append(changes, i18n.T("removed retired settings"))
+	}
+	if removeRetiredShellFrameKey(cfg) {
+		changes = append(changes, i18n.T("removed retired bars.frame.enable_frame setting"))
 	}
 	if len(changes) == 0 {
 		return nil, nil, nil
@@ -4180,7 +4303,8 @@ func reconcileFailedUnits(checkOnly bool) recResult {
 	var reset int
 	if !checkOnly {
 		for _, u := range failedUnits("--user") {
-			if transientAppScope(u) && sys.Run("systemctl", "--user", "reset-failed", u) == nil {
+			if transientAppScope(u) && userUnitLoaded(u) &&
+				doctorService("--user", "reset-failed", u) == host.ExitOK {
 				reset++
 			}
 		}
@@ -4665,15 +4789,24 @@ func transientAppScope(unit string) bool {
 	return strings.HasPrefix(unit, "app-") && strings.HasSuffix(unit, ".scope")
 }
 
-// failedUnits lists failed unit names from `systemctl [extra] --failed`.
+func userUnitLoaded(unit string) bool {
+	state, err := host.Default().ServiceProperty("--user", unit, "LoadState")
+	return err == nil && state == "loaded"
+}
+
+// failedUnits lists failed unit names through the host service seam.
 func failedUnits(extra ...string) []string {
-	args := append(append([]string{}, extra...), "--failed", "--no-legend", "--plain")
-	out, _ := sys.RunOut("systemctl", args...)
-	var names []string
-	for _, l := range nonEmptyLines(out) {
-		if f := strings.Fields(l); len(f) > 0 {
-			names = append(names, f[0])
-		}
+	scope := "--system"
+	if len(extra) > 0 {
+		scope = extra[0]
+	}
+	failures, err := host.Default().FailedServicesFor(scope)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		names = append(names, failure.Name)
 	}
 	return names
 }

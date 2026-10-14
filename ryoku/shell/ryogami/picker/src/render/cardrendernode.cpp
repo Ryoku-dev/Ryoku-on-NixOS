@@ -61,6 +61,12 @@ void CardRenderNode::beginFrame()
     m_far.beginFrame();
 }
 
+void CardRenderNode::invalidateTexture(const QString &key)
+{
+    m_near.invalidate(key);
+    m_far.invalidate(key);
+}
+
 void CardRenderNode::setInstances(std::vector<CardInstance> &&instances)
 {
     m_instances = std::move(instances);

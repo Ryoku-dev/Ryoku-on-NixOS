@@ -7,8 +7,10 @@
 class QQmlEngine;
 class QJSEngine;
 
-// Vulkan devices as {id: "uuid:<hex>", name}, the ids the wallpaper renderer
-// accepts for performance.gpuDevice.
+// Vulkan devices as {id: "uuid:<hex>", name, unavailable}, the ids the wallpaper
+// renderer accepts for performance.gpuDevice. An NVIDIA card its kernel driver
+// lists but Vulkan cannot open is included with unavailable set to "restart"
+// (a driver update waits for a reboot) or "driver".
 class GpuDevices : public QObject
 {
     Q_OBJECT

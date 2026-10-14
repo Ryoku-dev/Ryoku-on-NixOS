@@ -57,7 +57,6 @@ function defaultConfig(menuCatalog) {
             weather: { anchor: "right", minWidth: 320, expansion: "never", widgets: ["weather"] },
         },
         surfaces: {},
-        dock: { pinned: [] }
     };
 }
 
@@ -88,7 +87,11 @@ function normalize(raw, barCatalog, menuCatalog) {
             widgets: Array.isArray(value.widgets) ? menuWidgetsFor(value.widgets, menuCatalog, 0) : clone(fallback.widgets)
         };
     }
-    output.dock.pinned = isObject(source.dock) && Array.isArray(source.dock.pinned) ? source.dock.pinned.filter(id => typeof id === "string") : [];
+    if (isObject(source.dock)) {
+        output.dock = {
+            pinned: Array.isArray(source.dock.pinned) ? source.dock.pinned.filter(id => typeof id === "string") : []
+        };
+    }
     return output;
 }
 

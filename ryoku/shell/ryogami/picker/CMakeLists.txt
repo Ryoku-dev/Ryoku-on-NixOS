@@ -10,6 +10,12 @@ set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 6.6 REQUIRED COMPONENTS Quick ShaderTools Multimedia GuiPrivate)
 
+# The header alone: src/core/gpudevices.cpp defines VK_NO_PROTOTYPES and resolves
+# every entry point through QLibrary at run time, so the loader is a runtime
+# concern. Asking for it here instead of letting the include fail at compile time
+# puts the failure in the 0.8 s configure step with the missing piece named.
+find_path(VULKAN_INCLUDE_DIR vulkan/vulkan.h REQUIRED)
+
 qt_standard_project_setup(REQUIRES 6.6)
 
 file(GLOB_RECURSE picker_sources CONFIGURE_DEPENDS
@@ -69,7 +75,7 @@ qt_add_qml_module(ryogami-picker
 
 # qmltyperegistrar includes the QML_ELEMENT headers by bare name.
 file(GLOB picker_source_dirs LIST_DIRECTORIES true "${CMAKE_CURRENT_SOURCE_DIR}/src/*")
-target_include_directories(ryogami-picker PRIVATE ${picker_source_dirs})
+target_include_directories(ryogami-picker PRIVATE ${picker_source_dirs} ${VULKAN_INCLUDE_DIR})
 
 # QRhi sits behind the GuiPrivate include path; only its exported classes are used.
 target_link_libraries(ryogami-picker PRIVATE Qt6::Quick Qt6::Multimedia Qt6::GuiPrivate)

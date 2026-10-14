@@ -182,10 +182,10 @@ func sortedUnique(values []string) []string {
 }
 
 func (a *App) Keymap(args []string) int {
-	if len(args) < 2 || args[0] != "set" || len(args) > 4 {
+	if len(args) < 2 || len(args) > 4 || args[0] != "set" && args[0] != "apply" {
 		return ExitUsage
 	}
-	layout := args[1]
+	action, layout := args[0], args[1]
 	variant, options := "", ""
 	if len(args) > 2 {
 		variant = args[2]
@@ -196,6 +196,19 @@ func (a *App) Keymap(args []string) int {
 	if !keymapPattern.MatchString(layout) {
 		return ExitUsage
 	}
+	if action == "apply" && a.cfg.UID != 0 {
+		return commandExit(a.run("pkexec", append([]string{"ryoku-host", "keymap"}, args...)...))
+	}
+	if code := a.setKeymap(layout, variant, options, args); code != ExitOK {
+		return code
+	}
+	if action == "apply" {
+		return a.Initramfs([]string{"rebuild"})
+	}
+	return ExitOK
+}
+
+func (a *App) setKeymap(layout, variant, options string, original []string) int {
 	init, err := a.Init()
 	if err != nil {
 		return a.failf("%v", err)
@@ -204,14 +217,7 @@ func (a *App) Keymap(args []string) int {
 		return commandExit(a.run("localectl", "set-x11-keymap", layout, "", variant, options))
 	}
 	if a.cfg.UID != 0 {
-		pkargs := []string{"ryoku-host", "keymap", "set", layout}
-		if len(args) > 2 {
-			pkargs = append(pkargs, variant)
-		}
-		if len(args) > 3 {
-			pkargs = append(pkargs, options)
-		}
-		return commandExit(a.run("pkexec", pkargs...))
+		return commandExit(a.run("pkexec", append([]string{"ryoku-host", "keymap"}, original...)...))
 	}
 	if err := writeKeymap(a.cfg.RCConfPath, layout); err != nil {
 		return a.failf("set the console keymap: %v", err)

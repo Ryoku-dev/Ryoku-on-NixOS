@@ -84,6 +84,27 @@ func TestDeniesKeyboardGrabSharesPointer(t *testing.T) {
 	}
 }
 
+// The dock's phone-mirror frame embeds its scrcpy window under the panel's
+// cut-out through the window-embed bridge; the manifest must claim it or the
+// frame silently degrades to a plain window on the one compositor that can
+// do it.
+func TestClaimsWindowEmbed(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if !c.Has(wm.CapWindowEmbed) {
+		t.Error("Hyprland can pin a window to a layer surface; the manifest must say so")
+	}
+}
+
+// The live-draw overlay matches its ink to the compositor's workspace slide,
+// read through the slide bridge; without the claim the ink drifts out of step
+// with the windows on any config that changed the animation.
+func TestClaimsWorkspaceSlideStyle(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if !c.Has(wm.CapWorkspaceSlideStyle) {
+		t.Error("Hyprland answers `animations -j`; the manifest must say so")
+	}
+}
+
 func TestServesForeignShellAPIs(t *testing.T) {
 	want := []wm.ForeignAPI{
 		wm.ForeignAPIHyprctl,

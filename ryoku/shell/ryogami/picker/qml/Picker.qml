@@ -8,6 +8,8 @@ PanelWindow {
 
     property bool shown: false
     property var _screen: null
+    property bool _showPending: false
+    property int _showRequest: 0
 
     screen: picker._screen
     visible: picker.shown
@@ -33,13 +35,28 @@ PanelWindow {
     }
 
     function show() {
-        if (picker.shown)
+        if (picker.shown || picker._showPending)
             return
-        picker._latchScreen()
-        picker.shown = true
+        var request = ++picker._showRequest
+        picker._showPending = true
+        picker._latchScreen(function() {
+            if (request !== picker._showRequest)
+                return
+            picker._showPending = false
+            picker.shown = true
+        })
     }
-    function hide() { picker.shown = false }
-    function toggle() { if (picker.shown) picker.hide(); else picker.show() }
+    function hide() {
+        ++picker._showRequest
+        picker._showPending = false
+        picker.shown = false
+    }
+    function toggle() {
+        if (picker.shown || picker._showPending)
+            picker.hide()
+        else
+            picker.show()
+    }
     function openSettings(tab) {
         picker.show()
         pickerState.openSheet("settings", tab ? { tab: tab } : ({}))
@@ -52,11 +69,12 @@ PanelWindow {
                 return ss[i]
         return null
     }
-    function _latchScreen() {
+    function _latchScreen(done) {
         var name = picker._monitorSetting.value ? String(picker._monitorSetting.value) : ""
         if (name) {
             picker._screen = picker._screenByName(name)
             pickerState.monitor = name
+            done()
             return
         }
         Daemon.call("wm.focusedOutput", {}, function(result, error) {
@@ -65,6 +83,7 @@ PanelWindow {
                 n = (typeof result === "string") ? result : (result.name || result.output || "")
             picker._screen = n ? picker._screenByName(n) : null
             pickerState.monitor = n
+            done()
         })
     }
 
@@ -122,6 +141,10 @@ PanelWindow {
             settings: Settings
             mode: pickerState.mode
             active: picker.shown
+            previewAllowed: picker.shown && pickerState.sheet === "" && !pickerState.searchOpen
+                && !pickerState.multipickerOpen && !pickerState.helpOpen
+                && !pickerState.themeBarOpen && !pickerState.riceWorkshopOpen
+                && pickerState.riceShare === ""
             interactive: pickerState.sheet === "" && !pickerState.multipickerOpen
                 && !pickerState.helpOpen && !pickerState.riceWorkshopOpen
                 && pickerState.riceShare === ""

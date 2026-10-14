@@ -551,3 +551,38 @@ func TestCursorReassertUsesResolvedStoreTheme(t *testing.T) {
 		t.Fatalf("setcursor args = %v, want a resolved theme at size 18", got)
 	}
 }
+
+// window.hide stashes a named window in the scratchpad without following it,
+// and hands the focused case to the same helper Super+H runs, which also undoes
+// the focus a silent move drags into the special workspace.
+func TestActWindowHide(t *testing.T) {
+	var dispatched []string
+	restore := stubCtl(t, func(args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "dispatch" {
+			dispatched = append(dispatched, args[1])
+		}
+		return nil, nil
+	})
+	defer restore()
+	var helper [][]string
+	prev := runWorkspaceHelper
+	runWorkspaceHelper = func(args ...string) error { helper = append(helper, args); return nil }
+	defer func() { runWorkspaceHelper = prev }()
+
+	if err := runAct([]string{"window.hide", "0xbbb"}); err != nil {
+		t.Fatal(err)
+	}
+	want := `hl.dsp.window.move({ workspace = "special:scratch", window = "address:0xbbb", follow = false })`
+	if len(dispatched) != 1 || dispatched[0] != want {
+		t.Errorf("dispatched %q, want %q", dispatched, want)
+	}
+	if err := runAct([]string{"window.hide", "focused"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(helper) != 1 || strings.Join(helper[0], " ") != "hide" {
+		t.Errorf("helper calls = %q, want one hide", helper)
+	}
+	if err := runAct([]string{"window.hide"}); err == nil {
+		t.Error("window.hide without a target must fail")
+	}
+}

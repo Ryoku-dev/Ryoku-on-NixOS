@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QQmlEngine>
+#include <QSet>
 #include <QUrl>
 
 namespace {
@@ -24,6 +25,16 @@ QSizeF parseResolution(const QString &res)
             return QSizeF(w, h);
     }
     return QSizeF(16, 9);
+}
+
+bool isDirectVideoUrl(const QString &url)
+{
+    const QString path = QUrl(url).path().toLower();
+    for (const char *ext : {".webm", ".mp4", ".mkv", ".mov"}) {
+        if (path.endsWith(QLatin1String(ext)))
+            return true;
+    }
+    return false;
 }
 }
 
@@ -160,8 +171,17 @@ void RemoteResults::applyPage(const QVariantMap &result, int page, bool append)
     const QVariantList items = result.value(QStringLiteral("results")).toList();
     QVector<Row> incoming;
     incoming.reserve(items.size());
-    for (const QVariant &v : items)
-        incoming.append(rowFromItem(v.toMap()));
+    QSet<QString> incomingIds;
+    if (append)
+        incomingIds.reserve(items.size());
+    for (const QVariant &v : items) {
+        Row row = rowFromItem(v.toMap());
+        if (append && (m_idIndex.contains(row.id) || incomingIds.contains(row.id)))
+            continue;
+        if (append)
+            incomingIds.insert(row.id);
+        incoming.append(std::move(row));
+    }
 
     if (append) {
         if (!incoming.isEmpty()) {
@@ -225,6 +245,7 @@ void RemoteResults::download(int row, const QVariantMap &opts)
     r.downloadStatus = QStringLiteral("queued");
     const QModelIndex idx = index(row);
     Q_EMIT dataChanged(idx, idx, {DownloadStatusRole});
+    Q_EMIT downloadChanged(row, true);
 
     QString method = QStringLiteral("source.download");
     QJsonObject params{{QStringLiteral("id"), r.id}};
@@ -248,8 +269,10 @@ void RemoteResults::download(int row, const QVariantMap &opts)
         const int at = rowOfId(id);
         if (at < 0)
             return;
+        const QString previousStatus = m_rows[at].downloadStatus;
         if (!error.isEmpty()) {
             m_rows[at].downloadStatus = QStringLiteral("error");
+            Q_EMIT downloadFailed(id, error.value(QStringLiteral("message")).toString());
         } else {
             const QJsonObject reply = result.toObject();
             const QString status = reply.value(QStringLiteral("status")).toString();
@@ -263,6 +286,7 @@ void RemoteResults::download(int row, const QVariantMap &opts)
         }
         const QModelIndex idx = index(at);
         Q_EMIT dataChanged(idx, idx, {DownloadStatusRole, DownloadedRole});
+        Q_EMIT downloadChanged(at, previousStatus != m_rows[at].downloadStatus);
     });
 }
 
@@ -276,8 +300,10 @@ void RemoteResults::cancelDownload(int row)
 
 void RemoteResults::preview(int row)
 {
-    // A clip link plays in the preview itself; there is no still to fetch for it.
-    if (row < 0 || row >= m_rows.size() || !m_daemon || !cardPreviewVideo(row).isEmpty())
+    // Direct clips belong to the explicit detail preview; fetching a second still only
+    // adds network and decode work after the user has already opened that preview.
+    if (row < 0 || row >= m_rows.size() || !m_daemon
+            || isDirectVideoUrl(m_rows[row].fullUrl))
         return;
     const Row &r = m_rows[row];
     m_daemon->call(QStringLiteral("source.preview"),
@@ -293,6 +319,8 @@ void RemoteResults::onEvent(const QString &name, const QVariantMap &data)
         if (at < 0)
             return;
         Row &r = m_rows[at];
+        const QString previousStatus = r.downloadStatus;
+        const bool wasDownloaded = r.downloaded;
         r.downloadStatus = data.value(QStringLiteral("status")).toString();
         if (data.contains(QStringLiteral("progress")))
             r.downloadProgress = data.value(QStringLiteral("progress")).toDouble();
@@ -302,7 +330,9 @@ void RemoteResults::onEvent(const QString &name, const QVariantMap &data)
         }
         const QModelIndex idx = index(at);
         Q_EMIT dataChanged(idx, idx, {DownloadStatusRole, DownloadProgressRole, DownloadedRole});
-        Q_EMIT m_notifier->cardUpdated(at);
+        Q_EMIT downloadChanged(at, previousStatus != r.downloadStatus || wasDownloaded != r.downloaded);
+        if (wasDownloaded != r.downloaded)
+            Q_EMIT m_notifier->cardUpdated(at);
     } else if (name == QLatin1String("ryogami.source.remote_thumb")) {
         const QString source = data.value(QStringLiteral("source")).toString();
         if (!source.isEmpty() && source != m_provider)
@@ -421,17 +451,11 @@ QString RemoteResults::cardFullImage(int row) const
     return row >= 0 && row < m_rows.size() ? m_rows[row].thumb : QString();
 }
 
-// A result whose link is the clip itself plays in its card while focused, like a local video.
+// Remote clips are decoded only after the user opens the detail preview. CardField's
+// focused-card player otherwise streams a full clip during ordinary scrolling.
 QString RemoteResults::cardPreviewVideo(int row) const
 {
-    if (row < 0 || row >= m_rows.size())
-        return {};
-    const QString url = m_rows[row].fullUrl;
-    const QString path = QUrl(url).path().toLower();
-    for (const char *ext : {".webm", ".mp4", ".mkv", ".mov"}) {
-        if (path.endsWith(QLatin1String(ext)))
-            return url;
-    }
+    Q_UNUSED(row);
     return {};
 }
 

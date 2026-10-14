@@ -39,60 +39,68 @@ is_truthy() {
   case "$1" in true | yes | 1) return 0 ;; *) return 1 ;; esac
 }
 
+# The video_codecs section of `gpu-screen-recorder --info`: hardware encoders by
+# name, plus h264_software when libx264 is there for CPU encoding.
+video_codecs() {
+  sed -n '/^section=video_codecs$/,/^section=/{/^section=/!p;}' <<<"$1"
+}
 
 codec_is_listed() {
-  local info="$1" wanted="$2" line
+  local codecs="$1" wanted="$2" line
   while IFS= read -r line; do
     [[ $line == "$wanted" ]] && return 0
-  done <<<"$info"
+  done <<<"$codecs"
   return 1
 }
 
+# Settle on a codec this machine can encode before GSR starts: the requested one,
+# then another hardware codec (mp4 and mkv hold H.264, HEVC and AV1; VP8 and VP9
+# need webm), then H.264 on the CPU. GSR's own fallback never leaves H.264, which
+# is exactly what stock Fedora cannot encode in hardware.
 choose_available_codec() {
   local -n selected_codec="$1" selected_container="$2" selected_encoder="$3"
-  local info wanted fallback
-  local requested_codec="$selected_codec"
-  local switch_to_gpu=false
+  local info codecs requested="$selected_codec" candidate
+  info="$(gpu-screen-recorder --info 2>/dev/null)" || info=""
+  # GSR could not probe the GPU at all; its own run reports why.
+  [[ $info == *section=video_codecs* ]] || return 0
+  codecs="$(video_codecs "$info")"
 
-  info="$(gpu-screen-recorder --info 2>/dev/null || true)"
   if [[ $selected_encoder == cpu ]]; then
-    if [[ $requested_codec == h264 ]] && codec_is_listed "$info" h264_software; then
+    if codec_is_listed "$codecs" h264_software; then
+      # GSR encodes only H.264 on the CPU.
+      selected_codec=h264
+      if [[ $selected_container == webm ]]; then selected_container=mp4; fi
       return 0
     fi
-    switch_to_gpu=true
-    if codec_is_listed "$info" "$requested_codec"; then
-      selected_encoder=gpu
-      notify "Recorder encoder fallback" "Using $requested_codec with GPU encoding because CPU encoding is not available for $requested_codec on this system."
-      return 0
-    fi
-  else
-    wanted="$requested_codec"
-    codec_is_listed "$info" "$wanted" && return 0
+    selected_encoder=gpu
+    notify "Recorder encoder fallback" "CPU encoding is not available on this system, so the GPU encodes."
   fi
 
-  for fallback in av1 vp9 vp8; do
-    if codec_is_listed "$info" "$fallback"; then
-      selected_codec="$fallback"
-      if [[ ($fallback == vp8 || $fallback == vp9) && $selected_container != webm ]]; then
-        selected_container=webm
-      fi
-      if $switch_to_gpu; then
-        selected_encoder=gpu
-        notify "Recorder encoder fallback" "Using $fallback with GPU encoding because CPU encoding is not available for $requested_codec on this system."
-      else
-        notify "Recorder codec fallback" "Using $fallback because $wanted is not available on this system."
-      fi
-      return 0
+  codec_is_listed "$codecs" "$requested" && return 0
+
+  for candidate in h264 hevc av1 vp9 vp8; do
+    if [[ $candidate == "$requested" ]] || ! codec_is_listed "$codecs" "$candidate"; then
+      continue
     fi
+    selected_codec="$candidate"
+    case "$candidate" in
+    vp8 | vp9) selected_container=webm ;;
+    *) if [[ $selected_container == webm ]]; then selected_container=mp4; fi ;;
+    esac
+    notify "Recorder codec fallback" "Using $candidate because this GPU cannot encode $requested."
+    return 0
   done
 
-  if $switch_to_gpu; then
-    notify -u critical "Screen recording failed" "CPU encoding is unavailable for $requested_codec, and no supported GPU video encoder was found."
-    echo "ryoku-cmd-record: CPU encoding is unavailable for $requested_codec and no supported GPU codec was reported" >&2
-  else
-    notify -u critical "Screen recording failed" "No supported video encoder was found."
-    echo "ryoku-cmd-record: no supported video encoder reported by gpu-screen-recorder" >&2
+  if codec_is_listed "$codecs" h264_software; then
+    selected_codec=h264
+    selected_encoder=cpu
+    if [[ $selected_container == webm ]]; then selected_container=mp4; fi
+    notify "Recording with the CPU" "This GPU has no video encoder GPU Screen Recorder can use, so the CPU encodes. Installing the GPU's VA-API driver makes recording lighter."
+    return 0
   fi
+
+  notify -u critical "Screen recording failed" "No video encoder is available. Install your GPU's video driver with encoding support (VA-API for AMD and Intel)."
+  echo "ryoku-cmd-record: no hardware video encoder and no libx264 for CPU encoding" >&2
   return 1
 }
 
@@ -157,6 +165,8 @@ PID_FILE="$STATE_DIR/recorder.pid"
 STOP_FILE="$STATE_DIR/recorder.stop"
 STATUS_FILE="$STATE_DIR/recorder-status.json"
 LAST_FILE="$STATE_DIR/last-recording"
+# GSR's stderr for the latest capture: where its own reason for a failure lands.
+LOG_FILE="$STATE_DIR/recorder.log"
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 
 # gsr-cli answers on the IPC socket only for the instance this script launched, so
@@ -290,33 +300,71 @@ cleanup_session() {
   rm -f "$PID_FILE" "$STOP_FILE" "$STATUS_FILE" "$GSR_SOCKET" 2>/dev/null || true
 }
 
+# An NVIDIA driver update replaces the userspace libraries at once, but the old
+# kernel module stays loaded until a restart; until then no new program can use
+# the GPU, so GSR lands on software rendering and refuses to record.
+NVIDIA_MODULE_VERSION="${RYOKU_RECORD_NVIDIA_MODULE_VERSION:-/sys/module/nvidia/version}"
+read -r -a NVIDIA_LIB_DIRS <<<"${RYOKU_RECORD_NVIDIA_LIB_DIRS:-/usr/lib64 /usr/lib /usr/lib/x86_64-linux-gnu}"
+
+nvidia_restart_pending() {
+  local loaded dir version
+  loaded="$(cat "$NVIDIA_MODULE_VERSION" 2>/dev/null || true)"
+  [[ -n $loaded ]] || return 1
+  for dir in "${NVIDIA_LIB_DIRS[@]}"; do
+    [[ -e $dir/libEGL_nvidia.so.0 ]] || continue
+    version="$(readlink -f "$dir/libEGL_nvidia.so.0")"
+    version="${version##*.so.}"
+    [[ $version =~ ^[0-9]+(\.[0-9]+)+$ && $version != "$loaded" ]] && return 0
+    return 1
+  done
+  return 1
+}
+
+# Why a capture ended without a file, worded so the user can act on it; anything
+# unrecognised is GSR's own first error line.
+failure_reason() {
+  local error
+  if nvidia_restart_pending; then
+    printf 'The NVIDIA driver was updated. Restart the computer to record again.'
+    return
+  fi
+  error="$(sed -n '/^gsr error: /{s///p;q;}' "$LOG_FILE" 2>/dev/null || true)"
+  case "$error" in
+  "") printf 'The recorder exited before writing a file.' ;;
+  *llvmpipe*) printf 'This session has no working GPU driver (it renders in software), and GPU Screen Recorder needs one.' ;;
+  *) printf '%s' "${error:0:240}" ;;
+  esac
+}
+
+report_failure() {
+  local reason
+  reason="$(failure_reason)"
+  notify -u critical "Screen recording failed" "$reason"
+  printf 'ryoku-cmd-record: %s\n' "$reason" >&2
+  if command -v logger >/dev/null 2>&1; then
+    logger -t ryoku-cmd-record -p user.err -- "$reason (gpu-screen-recorder log: $LOG_FILE)" || true
+  fi
+}
+
 # ── run gpu-screen-recorder in the background, publish its pid + status for the
-# shell, and wait on it. GSR dispatches to the strongest GPU, mixes audio, and
-# falls back to CPU encoding on its own (-fallback-cpu-encoding yes), so there is
-# no encoder retry ladder here.
+# shell, and wait on it. GSR dispatches to the strongest GPU and mixes audio; the
+# codec and encoder were settled beforehand, and -fallback-cpu-encoding stays as
+# its own backstop.
 run_capture() {
   rm -f "$STOP_FILE"
-  "$@" &
+  "$@" 2>"$LOG_FILE" &
   local pid=$!
   printf '%s\n' "$pid" >"$PID_FILE"
   write_status "$pid"
 
-  # a capture that dies inside its start window with no file is a real failure
-  # (missing permission, bad target); surface it instead of a silent no-op. `wait`
-  # under errexit must not take the script down on GSR's own exit code.
-  sleep 1.5
-  if ! kill -0 "$pid" 2>/dev/null; then
-    local early=0
-    wait "$pid" 2>/dev/null || early=$?
-    if [[ ! -s $OUTPUT_PATH ]]; then
-      notify -u critical "Screen recording failed" "The recorder exited before writing a file."
-      return "$early"
-    fi
-    return 0
-  fi
-
+  # `wait` under errexit must not take the script down on GSR's own exit code.
   local status=0
   wait "$pid" || status=$?
+  # No file means nothing was recorded, whenever GSR stopped: say why.
+  if [[ ! -s $OUTPUT_PATH ]]; then
+    report_failure
+    return 1
+  fi
   if [[ -f $STOP_FILE ]]; then status=0; fi
   case "$status" in 130 | 143) status=0 ;; esac
   return "$status"
@@ -429,7 +477,8 @@ start_recording() {
       echo "ryoku-cmd-record: invalid region: $geom" >&2
       exit 1
     fi
-    target=(-w region -region "$geom")
+    # -w takes the box itself; GSR 6 deprecated the separate -region option.
+    target=(-w "$geom")
     ;;
   monitor)
     validate_monitor_name "$MONITOR_NAME"

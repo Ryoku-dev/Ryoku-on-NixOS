@@ -4,6 +4,7 @@ pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Io
 import QtQuick
+import Ryoku.Ui.Singletons as RyokuUi
 
 import inir.modules.common
 import inir.services
@@ -79,6 +80,15 @@ Singleton {
     function redactedLogCity(_city): string { return "[redacted]" }
     function redactedLogLocationName(_name): string { return "[redacted]" }
     function redactedLogCoordinates(_lat, _lon): string { return "[redacted]" }
+
+    function displayTime(value, minuteOfDay = -1): string {
+        const provided = Number(minuteOfDay)
+        const minutes = Number.isFinite(provided) && provided >= 0
+            ? provided : root._timeToMinutes(value)
+        if (minutes < 0) return String(value ?? "")
+        const date = new Date(2000, 0, 1, Math.floor(minutes / 60), minutes % 60)
+        return RyokuUi.TimeFormat.format(date)
+    }
 
     function isNightNow(): bool {
         const h = new Date().getHours();
@@ -235,10 +245,10 @@ Singleton {
 
     function refineData(apiData) {
         if (!apiData?.current) return;
-        
+
         const current = apiData.current;
         const astro = apiData.astronomy;
-        
+
         let result = {};
         result.uv = current.uvIndex ?? "0";
         result.humidity = (current.humidity ?? 0) + "%";
@@ -294,8 +304,10 @@ Singleton {
                 const h = hrs[hi2]
                 const hour = Math.floor(parseInt(h.time ?? "0") / 100)
                 if (di === 0 && hour < nowH - 1) continue
+                const at = new Date(2000, 0, 1, hour, 0)
                 hourly.push({
-                    label: (hour < 10 ? "0" + hour : "" + hour) + ":00",
+                    label: RyokuUi.TimeFormat.format(at),
+                    minuteOfDay: hour * 60,
                     temp: (uscs ? h.tempF : h.tempC) + "°",
                     code: String(h.weatherCode ?? "113"),
                     isNight: hour < 6 || hour >= 19
@@ -304,7 +316,7 @@ Singleton {
         }
         result.hourly = hourly.slice(0, 8)
 
-        result.lastRefresh = Qt.formatTime(new Date(), "hh:mm");
+        result.lastRefresh = RyokuUi.TimeFormat.format(new Date());
         root.data = result;
         root._stamp()
         console.info("[Weather] Updated:", result.temp, root.redactedLogCity(result.city));
@@ -397,7 +409,8 @@ Singleton {
             if (isNaN(t.getTime()) || t.getTime() < nowMs - 3600000) continue
             const hour = t.getHours()
             hourly.push({
-                label: Qt.formatTime(t, "hh:mm"),
+                label: RyokuUi.TimeFormat.format(t),
+                minuteOfDay: t.getHours() * 60 + t.getMinutes(),
                 temp: Math.round(hTemps[i] ?? 0) + "°",
                 code: root._wmoToWttr(hCodes[i]),
                 isNight: hour < 6 || hour >= 19
@@ -405,7 +418,7 @@ Singleton {
         }
         result.hourly = hourly
 
-        result.lastRefresh = Qt.formatTime(new Date(), "hh:mm")
+        result.lastRefresh = RyokuUi.TimeFormat.format(new Date())
         root.data = result
         root._stamp()
         console.info("[Weather] Updated via Open-Meteo:", result.temp, root.redactedLogCity(result.city))
@@ -546,7 +559,7 @@ Singleton {
             root.fetchWeatherFallback();
             return;
         }
-        
+
         let query;
         if (root.location.lat !== 0 || root.location.lon !== 0) {
             query = root.location.lat + "," + root.location.lon;
@@ -575,7 +588,7 @@ Singleton {
         root._clockTick
         if (!root.hasData) return "--:--"
         const then = new Date(root.lastUpdated)
-        const time = Qt.formatTime(then, "hh:mm")
+        const time = RyokuUi.TimeFormat.format(then)
         return then.toDateString() === new Date().toDateString() ? time : Qt.formatDate(then, "ddd") + " " + time
     }
 

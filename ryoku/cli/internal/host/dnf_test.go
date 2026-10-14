@@ -91,14 +91,20 @@ func TestDNFPackageCommandsForDNF5AndDNF4(t *testing.T) {
 			}
 
 			runner.commands = nil
-			if code := app.Package([]string{"available", "--aur", "fd"}); code != ExitNotProvided {
-				t.Fatalf("AUR availability exit = %d, want %d", code, ExitNotProvided)
+			if code := app.Package([]string{"available", "--aur", "fd"}); code != ExitOK {
+				t.Fatalf("mapped AUR availability exit = %d", code)
 			}
-			if code := app.Package([]string{"install", "--aur", "fd"}); code != ExitNotProvided {
-				t.Fatalf("AUR install exit = %d, want %d", code, ExitNotProvided)
+			if got := argv(runner.commands[0]); got != tc.available {
+				t.Fatalf("mapped AUR availability argv = %q, want %q", got, tc.available)
 			}
-			if len(runner.commands) != 0 {
-				t.Fatalf("unsupported AUR operations ran commands: %v", runner.commands)
+
+			delete(installed, "gh")
+			runner.commands = nil
+			if code := app.Package([]string{"install", "--aur", "github-cli"}); code != ExitOK {
+				t.Fatalf("mapped AUR install exit = %d, stderr = %q", code, stderr.String())
+			}
+			if got := argv(runner.commands[len(runner.commands)-1]); got != tc.command+" install -y --setopt=install_weak_deps=False gh" {
+				t.Fatalf("mapped AUR install argv = %q", got)
 			}
 
 			runner.commands = nil
@@ -118,11 +124,15 @@ func TestDNFPackageCommandsForDNF5AndDNF4(t *testing.T) {
 			}
 
 			runner.commands = nil
-			if code := app.Package([]string{"install", "missing"}); code != ExitNotProvided {
-				t.Fatalf("unavailable install exit = %d", code)
+			stderr.Reset()
+			if code := app.Package([]string{"install", "--aur", "missing"}); code != ExitNotProvided {
+				t.Fatalf("unavailable mapped AUR install exit = %d", code)
 			}
 			if len(runner.commands) != 0 {
-				t.Fatalf("unavailable install ran commands: %v", runner.commands)
+				t.Fatalf("unavailable mapped AUR install ran commands: %v", runner.commands)
+			}
+			if got := stderr.String(); got != "ryoku-host: missing is unavailable: Not in Fedora.\n" {
+				t.Fatalf("unavailable mapped AUR reason = %q", got)
 			}
 		})
 	}

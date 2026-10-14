@@ -6,6 +6,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Bluetooth
 import Quickshell.Networking
+import shell.services
 import "../"
 import "../reusables"
 
@@ -149,7 +150,6 @@ Item {
             mainPollerTimer.stop();
             window.pendingWifiId = "";
             window.pendingWifiSsid = "";
-            window.pendingPairThenConnect = "";
             window.btOpsInFlight = ({});
             window.hoveredCardCount = 0;
             window.disconnectHoverCount = 0;
@@ -221,25 +221,7 @@ Item {
                     function onBatteryChanged() { window.requestBtRebuild(); }
                     function onBatteryAvailableChanged() { window.requestBtRebuild(); }
                     function onStateChanged() { window.requestBtRebuild(); }
-                    function onPairedChanged() {
-                        window.requestBtRebuild();
-                        if (device && device.paired && window.pendingPairThenConnect === device.address) {
-                            window.pendingPairThenConnect = "";
-                            let mac = device.address;
-                            window.withBtOpLock(mac, function() {
-                                let devList = window.getBtDevicesList();
-                                let d = null;
-                                for (let i = 0; i < devList.length; i++) {
-                                    if (devList[i] && devList[i].address === mac) { d = devList[i]; break; }
-                                }
-                                if (!d) return;
-                                d.connect();
-                                btConnectSimTimer.targetId = window.connectingId;
-                                btConnectSimTimer.attemptId = window.activeConnectId;
-                                btConnectSimTimer.restart();
-                            });
-                        }
-                    }
+                    function onPairedChanged() { window.requestBtRebuild(); }
                     function onTrustedChanged() { window.requestBtRebuild(); }
                     function onNameChanged() { window.requestBtRebuild(); }
                     function onDeviceNameChanged() { window.requestBtRebuild(); }
@@ -608,7 +590,6 @@ Item {
     property string failedId: ""
 
     property var btOpsInFlight: ({})
-    property string pendingPairThenConnect: ""
 
     function isBtOpBusy(mac) {
         return !!window.btOpsInFlight[mac];
@@ -638,6 +619,30 @@ Item {
     Timer { id: busyTimeout; interval: 15000; onTriggered: { window.busyTasks = ({}); window.disconnectingDevices = ({}); window.connectingId = ""; } }
     Timer { id: failClearTimer; interval: 4000; onTriggered: window.failedId = "" }
 
+    Process {
+        id: btLinkProcess
+        property string targetId: ""
+        property int attemptId: 0
+        stdout: StdioCollector {}
+        stderr: StdioCollector {}
+        onExited: function(exitCode) {
+            if (window.activeConnectId !== btLinkProcess.attemptId)
+                return;
+            if (exitCode === 0) {
+                btConnectSimTimer.targetId = btLinkProcess.targetId;
+                btConnectSimTimer.attemptId = btLinkProcess.attemptId;
+                btConnectSimTimer.restart();
+                return;
+            }
+            let busy = window.busyTasks;
+            delete busy[btLinkProcess.targetId];
+            window.busyTasks = Object.assign({}, busy);
+            window.connectingId = "";
+            window.failedId = btLinkProcess.targetId;
+            failClearTimer.restart();
+        }
+    }
+
     Timer { id: ethPendingReset; interval: 8000; onTriggered: { window.ethPowerPending = false; window.expectedEthPower = ""; } }
     Timer { id: wifiPendingReset; interval: 8000; onTriggered: { window.wifiPowerPending = false; window.expectedWifiPower = ""; } }
     Timer { id: btPendingReset; interval: 8000; onTriggered: { window.btPowerPending = false; window.expectedBtPower = ""; } }
@@ -658,6 +663,8 @@ Item {
     property int activeConnectId: 0
 
     function connectDevice(mode, id, macOrSsid, password) {
+        if (mode !== "eth" && mode !== "wifi" && btLinkProcess.running)
+            return;
         window.activeConnectId++;
         window.connectingId = id || "";
         window.failedId = "";
@@ -690,27 +697,26 @@ Item {
 
             window.withBtOpLock(mac, function() {
                 let devList = window.getBtDevicesList();
-                let d = null;
+                let found = false;
                 for (let i = 0; i < devList.length; i++) {
-                    if (devList[i] && devList[i].address === mac) { d = devList[i]; break; }
+                    if (devList[i] && devList[i].address === mac) {
+                        found = true;
+                        break;
+                    }
                 }
-                if (!d) {
-                    let b = window.busyTasks; delete b[id]; window.busyTasks = Object.assign({}, b);
+                if (!found) {
+                    let busy = window.busyTasks;
+                    delete busy[id];
+                    window.busyTasks = Object.assign({}, busy);
                     window.connectingId = "";
                     window.failedId = id || "";
                     failClearTimer.restart();
                     return;
                 }
-                d.trusted = true;
-                if (!d.paired && !d.bonded) {
-                    window.pendingPairThenConnect = mac;
-                    d.pair();
-                } else {
-                    d.connect();
-                    btConnectSimTimer.targetId = id || "";
-                    btConnectSimTimer.attemptId = window.activeConnectId;
-                    btConnectSimTimer.restart();
-                }
+                btLinkProcess.targetId = id || mac;
+                btLinkProcess.attemptId = window.activeConnectId;
+                btLinkProcess.command = BtLink.linkCommand(mac);
+                btLinkProcess.running = true;
             });
         }
     }

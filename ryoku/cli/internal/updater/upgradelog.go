@@ -61,8 +61,7 @@ func runUpgradeCollecting(why string, argv []string) ([]string, error) {
 		return nil, err
 	}
 	pw.Close()
-	var conflicts []string
-	var reasons []string
+	var conflicts, reasons, details []string
 	sc := bufio.NewScanner(pr)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	sc.Split(scanLinesCR)
@@ -74,20 +73,41 @@ func runUpgradeCollecting(why string, argv []string) ([]string, error) {
 		if msg := pacmanError(line); msg != "" {
 			reasons = append(reasons, msg)
 		}
+		if detail := pacmanDetail(line); detail != "" {
+			details = append(details, detail)
+		}
 		fmt.Fprintln(os.Stdout, line)
 	}
 	pr.Close()
 	werr := cmd.Wait()
 	// pacman exits 1 for every failure, so werr alone reads "exit status 1" and
-	// tells a user nothing: the reason lives in the `error:` lines it printed.
-	// Carrying them into the returned error is what makes the Hub's failure
-	// card, the console's closing card, and the db-signature healing in
-	// healPackageUpgrade able to say what actually went wrong.
-	if werr != nil && len(reasons) > 0 {
-		werr = fmt.Errorf("%s: %w", strings.Join(dedupe(reasons), "; "), werr)
+	// tells a user nothing: the reason lives in the `error:` lines it printed,
+	// and the packages it is about in the `::` lines. Carrying them into the
+	// returned error is what makes the Hub's failure card, the console's
+	// closing card, and the db-signature healing in healPackageUpgrade able to
+	// say what actually went wrong.
+	if werr != nil && len(reasons)+len(details) > 0 {
+		werr = &transactionError{reasons: dedupe(reasons), details: dedupe(details), err: werr}
 	}
 	return conflicts, werr
 }
+
+// transactionError is a failed package transaction in pacman's words: the
+// error: lines say what kind of failure it was, the detail lines which
+// packages it is about. Error() carries both so every surface names the
+// culprit; dbRejection reads the reasons alone, because a package name that
+// happens to contain "database" is no verdict about the database.
+type transactionError struct {
+	reasons, details []string
+	err              error
+}
+
+func (e *transactionError) Error() string {
+	all := append(append([]string(nil), e.reasons...), e.details...)
+	return strings.Join(dedupe(all), "; ") + ": " + e.err.Error()
+}
+
+func (e *transactionError) Unwrap() error { return e.err }
 
 // inhibited wraps argv in a logind sleep+idle block, so a suspend mid-upgrade
 // cannot interrupt a package transaction; argv runs bare when the session may
@@ -123,6 +143,30 @@ func pacmanError(line string) string {
 	trimmed := strings.TrimSpace(strings.TrimSuffix(line, "\r"))
 	for _, prefix := range []string{"error:", "erreur :"} {
 		if rest, ok := strings.CutPrefix(trimmed, prefix); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+	return ""
+}
+
+// pacmanDetail pulls the culprit out of the "::" line pacman prints when it
+// refuses a transaction: the two packages in conflict, or the dependency it
+// cannot satisfy or would break. Under --noconfirm a conflict comes twice,
+// once as the question pacman answered No to (sharing its line with whatever
+// it printed next, sometimes naming the virtual package behind it, "(cargo)")
+// and once after the error: summary. Both normalize to the bare pair, which is
+// what a user acts on, so it is reported once. Empty for any other line. pure.
+func pacmanDetail(line string) string {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(line), ":: ")
+	if !ok {
+		return ""
+	}
+	const conflict = " are in conflict"
+	if i := strings.Index(rest, conflict); i >= 0 {
+		return rest[:i+len(conflict)]
+	}
+	for _, marker := range []string{"unable to satisfy dependency ", " breaks dependency "} {
+		if strings.Contains(rest, marker) {
 			return strings.TrimSpace(rest)
 		}
 	}

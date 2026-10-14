@@ -34,11 +34,13 @@ import (
 // bootImageSpace is the state the plan needs: free bytes on /boot and the size
 // of the largest image already there.
 type bootImageSpace struct {
-	free         uint64
-	freeMeasured bool
-	largest      uint64
-	name         string
-	inaccessible bool
+	free                 uint64
+	freeMeasured         bool
+	largest              uint64
+	name                 string
+	inaccessible         bool
+	permissionDenied     bool
+	otherInspectionError bool
 }
 
 // bootImageRoots are where a kernel image lands: the UKI directory, and /boot
@@ -47,6 +49,15 @@ var (
 	bootImageRoots = []string{"/boot/EFI/Linux", "/boot"}
 	bootFreeBytes  = sys.FreeBytes
 )
+
+func (s *bootImageSpace) recordInspectionError(err error) {
+	s.inaccessible = true
+	if errors.Is(err, os.ErrPermission) {
+		s.permissionDenied = true
+		return
+	}
+	s.otherInspectionError = true
+}
 
 // measureBootImages: free space on /boot plus the biggest kernel image on it.
 // An inaccessible path marks the state so the plan warns instead of reporting
@@ -61,7 +72,7 @@ func measureBootImages() bootImageSpace {
 		ents, err := os.ReadDir(dir)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
-				st.inaccessible = true
+				st.recordInspectionError(err)
 			}
 			continue
 		}
@@ -72,7 +83,7 @@ func measureBootImages() bootImageSpace {
 			info, err := e.Info()
 			if err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
-					st.inaccessible = true
+					st.recordInspectionError(err)
 				}
 				continue
 			}
@@ -119,7 +130,8 @@ func reconcileBootSpace(checkOnly bool) recResult {
 	}
 	st := measureBootImages()
 	if st.inaccessible {
-		return warnRes(i18n.T("cannot inspect kernel images on /boot to verify headroom")).
+		return inspectionRes(st.permissionDenied && !st.otherInspectionError,
+			i18n.T("cannot inspect kernel images on /boot to verify headroom")).
 			withFix("sudo ryoku doctor --check")
 	}
 	if !st.freeMeasured {

@@ -1,12 +1,12 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import Quickshell.Widgets
+import Ryoku.Ui as RyokuUi
 import inir
 import inir.services
 import inir.services.deferred
@@ -349,13 +349,12 @@ GridLayout {
     }
 
 
-    FileDialog {
+    RyokuUi.FileDialogHost {
         id: subtitleDialog
         title: Translation.tr("Load subtitles")
-        fileMode: FileDialog.OpenFile
         currentFolder: "file://" + Directories.homePath
         nameFilters: [Translation.tr("Subtitles") + " (*.srt *.ass *.ssa *.vtt *.sub)", Translation.tr("All files") + " (*)"]
-        onAccepted: AnimeWatch.addSubtitle(String(selectedFile))
+        onAccepted: AnimeWatch.addSubtitle(String(subtitleDialog.selectedFile))
     }
 
     component AnimeChip: MouseArea {

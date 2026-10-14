@@ -15,6 +15,7 @@ type paperSandPolicy struct {
 type paperScenePolicyFull struct {
 	Fps              *uint32 `json:"fps,omitempty"`
 	DisableParticles *bool   `json:"disable_particles,omitempty"`
+	AssetsDir        string  `json:"assets_dir,omitempty"`
 	MaxDimension     *uint32 `json:"max_dimension,omitempty"`
 	Clamp            string  `json:"clamp,omitempty"`
 }
@@ -153,6 +154,7 @@ func (d *daemon) buildScenePolicy(perf bool) *paperScenePolicyFull {
 	dp := d.settingBool("weRender.disableParticles")
 	sc.DisableParticles = &dp
 	sc.Clamp = d.weClampMode()
+	sc.AssetsDir = d.workshop.weAssetsDir()
 	if perf {
 		md := uint32(2048)
 		sc.MaxDimension = &md

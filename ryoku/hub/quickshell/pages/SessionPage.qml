@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
+import "../Singletons"
 
 // Session (DESIGN.md section 11, ADVANCED). The two thin login-time lists folded
 // into one page: what the session runs at login (desktop.autostart, layered over
@@ -11,20 +12,22 @@ import Ryoku.Ui.Singletons
 // session). Each "key" is an array of entries, so each cluster is a bespoke list
 // editor -- a SettingCard holding a column of Field rows and its add/clear footer
 // -- not a settings sheet. The shell owns the rail, the side panel and the
-// Save/Revert/Reset action bar; edits land only via Save (settings.lua regen +
-// reload), never live, and a session reads both only at login, so a change takes
-// effect at the next login. Every value is a Token.
+// Save/Revert/Reset action bar; edits land only via Save (provider config regen
+// plus reload), never live, and a session reads both only at login, so a change
+// takes effect at the next login. Every value is a Token.
 Item {
     id: pg
 
     property var hub
 
-    // gated so an empty state does not flash before `hypr get` returns.
+    // gated so an empty state does not flash before `desktop get` returns.
     readonly property bool ready: pg.hub ? pg.hub.wmLoaded === true : false
+    readonly property bool autostartSupported: Settings.modelsKey("desktop.autostart")
+    readonly property bool environmentSupported: Settings.modelsKey("desktop.env")
 
     // live arrays from the draft: autostart is [{command}], env is [{key,value}].
-    readonly property var cmdRows: pg.hub ? (pg.hub.hyprVal("desktop.autostart") || []) : []
-    readonly property var envRows: pg.hub ? (pg.hub.hyprVal("desktop.env") || []) : []
+    readonly property var cmdRows: pg.autostartSupported && pg.hub ? (pg.hub.hyprVal("desktop.autostart") || []) : []
+    readonly property var envRows: pg.environmentSupported && pg.hub ? (pg.hub.hyprVal("desktop.env") || []) : []
 
     // hyprEdit swaps the whole array, so a Repeater rebinds and rebuilds the
     // delegate owning a focused field. rows therefore commit on editing-finished
@@ -240,7 +243,10 @@ Item {
                 id: loginCard
                 width: col.colWidth
                 title: I18n.tr("AT LOGIN")
-                summary: pg.cmdRows.length === 1 ? I18n.tr("%1 ENTRY").arg(pg.cmdRows.length) : I18n.tr("%1 ENTRIES").arg(pg.cmdRows.length)
+                summary: pg.autostartSupported
+                    ? (pg.cmdRows.length === 1 ? I18n.tr("%1 ENTRY").arg(pg.cmdRows.length) : I18n.tr("%1 ENTRIES").arg(pg.cmdRows.length))
+                    : I18n.tr("NOT AVAILABLE")
+                opacity: pg.autostartSupported ? 1 : 0.62
 
                 Repeater {
                     model: pg.cmdRows
@@ -294,7 +300,7 @@ Item {
                 // empty state, gated on load so it does not flash before data lands.
                 Item {
                     anchors.left: parent.left; anchors.right: parent.right
-                    visible: pg.ready && pg.cmdRows.length === 0
+                    visible: pg.ready && pg.autostartSupported && pg.cmdRows.length === 0
                     height: visible ? loginEmpty.height + Tokens.s5 * 2 : 0
                     Empty {
                         id: loginEmpty
@@ -302,8 +308,19 @@ Item {
                         caption: I18n.tr("No autostart commands yet. Add one to get started.")
                     }
                 }
+                Item {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    visible: pg.ready && !pg.autostartSupported
+                    height: visible ? loginUnavailable.height + Tokens.s5 * 2 : 0
+                    Empty {
+                        id: loginUnavailable
+                        anchors.centerIn: parent
+                        caption: I18n.tr("The current session provider cannot add login commands.")
+                    }
+                }
 
                 ClusterFoot {
+                    visible: pg.autostartSupported
                     entries: pg.cmdRows.length
                     topRule: pg.cmdRows.length > 0 || (pg.ready && pg.cmdRows.length === 0)
                     onRequestAdd: pg.addCmd()
@@ -316,7 +333,10 @@ Item {
                 id: envCard
                 width: col.colWidth
                 title: I18n.tr("ENVIRONMENT")
-                summary: pg.envRows.length === 1 ? I18n.tr("%1 ENTRY").arg(pg.envRows.length) : I18n.tr("%1 ENTRIES").arg(pg.envRows.length)
+                summary: pg.environmentSupported
+                    ? (pg.envRows.length === 1 ? I18n.tr("%1 ENTRY").arg(pg.envRows.length) : I18n.tr("%1 ENTRIES").arg(pg.envRows.length))
+                    : I18n.tr("NOT AVAILABLE")
+                opacity: pg.environmentSupported ? 1 : 0.62
 
                 Repeater {
                     model: pg.envRows
@@ -382,7 +402,7 @@ Item {
 
                 Item {
                     anchors.left: parent.left; anchors.right: parent.right
-                    visible: pg.ready && pg.envRows.length === 0
+                    visible: pg.ready && pg.environmentSupported && pg.envRows.length === 0
                     height: visible ? envEmpty.height + Tokens.s5 * 2 : 0
                     Empty {
                         id: envEmpty
@@ -390,8 +410,19 @@ Item {
                         caption: I18n.tr("No custom variables yet. Add one to get started.")
                     }
                 }
+                Item {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    visible: pg.ready && !pg.environmentSupported
+                    height: visible ? envUnavailable.height + Tokens.s5 * 2 : 0
+                    Empty {
+                        id: envUnavailable
+                        anchors.centerIn: parent
+                        caption: I18n.tr("The current session provider cannot set environment variables.")
+                    }
+                }
 
                 ClusterFoot {
+                    visible: pg.environmentSupported
                     entries: pg.envRows.length
                     topRule: pg.envRows.length > 0 || (pg.ready && pg.envRows.length === 0)
                     onRequestAdd: pg.addEnv()

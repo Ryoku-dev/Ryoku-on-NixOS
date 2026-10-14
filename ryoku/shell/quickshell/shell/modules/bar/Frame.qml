@@ -354,10 +354,15 @@ Scope {
                 // (bar band + border), the 2px outline stroked just inside the hole
                 // edge, inner corners arced at radiusWindow.
                 anchors.fill: parent
-                reserveTop: root.sumiActive ? root.edgeReserve("top") : root.frameBorderPx
-                reserveBottom: root.sumiActive ? root.edgeReserve("bottom") : root.frameBorderPx
-                reserveLeft: root.sumiActive ? root.edgeReserve("left") : root.frameBorderPx
-                reserveRight: root.sumiActive ? root.edgeReserve("right") : root.frameBorderPx
+                // No sumiActive arm: this item's own visible below requires it, so
+                // the band is never painted without it and a fallback thickness
+                // would describe a frame nobody sees. The reserves at the top of
+                // the file are the opposite case and keep theirs, because an
+                // exclusive zone is claimed whether or not anything is drawn.
+                reserveTop: root.edgeReserve("top")
+                reserveBottom: root.edgeReserve("bottom")
+                reserveLeft: root.edgeReserve("left")
+                reserveRight: root.edgeReserve("right")
                 holeRadius: Config.frameCorner
                 surface: Theme.surface
                 outline: Theme.outline

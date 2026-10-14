@@ -5,22 +5,23 @@ import Quickshell
 import Quickshell.Io
 import inir.modules.common
 import inir.services
+import Ryoku.Ui.Singletons
 
 /**
- * Service to manage "minimized" windows in Niri.
- * Since Niri doesn't have native minimize, stashed windows share an otherwise
- * empty workspace on their original output.
+ * Service to manage stashed windows for providers without native minimize.
+ * Stashed windows share an otherwise empty workspace on their original output.
  */
 Singleton {
     id: root
 
     // Map of minimized windows: windowId -> { appId, title, originalWorkspace }
     property var minimizedWindows: ({})
-    
+
     // List of minimized window IDs for easy iteration
     property list<int> minimizedIds: []
     property bool recoveredPersistentState: false
-    readonly property bool actionReady: CompositorService.nativeOverview && Persistent.ready && WorkspaceService.actionReady
+    readonly property bool windowWorkspaceMap: Wm.caps.windowWorkspaceMap === true
+    readonly property bool actionReady: root.windowWorkspaceMap && Persistent.ready && WorkspaceService.actionReady
 
     function persistState() {
         if (!Persistent.ready) return;
@@ -38,7 +39,7 @@ Singleton {
     }
 
     function recoverPersistentState() {
-        if (recoveredPersistentState || !Persistent.ready || !CompositorService.nativeOverview) return;
+        if (recoveredPersistentState || !Persistent.ready || !root.windowWorkspaceMap) return;
         const entries = Persistent.states.orbit.stashEntries ?? [];
         if (entries.length > 0 && (WorkspaceService.windows ?? []).length === 0) return;
 
@@ -83,12 +84,12 @@ Singleton {
         minimizedIds = nextIds;
         persistState();
     }
-    
+
     // Check if a window is minimized
     function isMinimized(windowId) {
         return minimizedIds.includes(windowId);
     }
-    
+
     // Get minimized windows for a specific app
     function getMinimizedForApp(appId) {
         const pattern = appId.toLowerCase();
@@ -97,7 +98,7 @@ Singleton {
             return info && info.appId.toLowerCase().includes(pattern);
         });
     }
-    
+
     // A workspace that holds only stashed windows is the stash, not somewhere a person works.
     function isStashWorkspace(workspaceId) {
         const held = (WorkspaceService.windows ?? []).filter(window => window.workspace_id === workspaceId);
@@ -149,12 +150,12 @@ Singleton {
                 Math.abs(workspace.idx - info.originalWorkspace) < Math.abs(best.idx - info.originalWorkspace)
                     ? workspace : best, outputWorkspaces[0]);
     }
-    
+
     // Minimize the focused window or a specific window
     function minimize(windowId = null) {
         if (!root.actionReady) return false;
         recoverPersistentState();
-        
+
         // Get window info
         let targetWindow;
         if (windowId) {
@@ -163,15 +164,15 @@ Singleton {
             targetWindow = WorkspaceService.activeWindow;
             windowId = targetWindow?.id;
         }
-        
+
         if (!targetWindow || !windowId) return false;
-        
+
         // Don't minimize the main quickshell shell (but allow settings window)
         // Skip this check for now - allow all windows to be minimized
-        
+
         // Already minimized?
         if (isMinimized(windowId)) return false;
-        
+
         const sourceWorkspace = WorkspaceService.workspaces?.[targetWindow.workspace_id]
             ?? (WorkspaceService.allWorkspaces ?? []).find(ws => ws.id === targetWindow.workspace_id);
         if (!sourceWorkspace) return false;
@@ -195,15 +196,15 @@ Singleton {
         persistState();
         return true;
     }
-    
+
     // Restore a minimized window
     function restore(windowId) {
         if (!root.actionReady) return;
         if (!isMinimized(windowId)) return;
-        
+
         const info = minimizedWindows[windowId];
         if (!info) return;
-        
+
         const targetWorkspace = restoreWorkspace(info, false);
         if (!targetWorkspace || !WorkspaceService.moveWindowToWorkspaceById(windowId, targetWorkspace.id, true))
             return;
@@ -228,7 +229,7 @@ Singleton {
         minimizedIds = minimizedIds.filter(id => id !== windowId);
         persistState();
     }
-    
+
     // Restore all minimized windows for an app
     function restoreApp(appId) {
         const windowIds = getMinimizedForApp(appId);
@@ -236,7 +237,7 @@ Singleton {
             restore(id);
         }
     }
-    
+
     // Restore the most recently minimized window for an app
     function restoreLatestForApp(appId) {
         const windowIds = getMinimizedForApp(appId);
@@ -288,11 +289,11 @@ Singleton {
     }
 
     Component.onCompleted: recoverPersistentState()
-    
+
     // IPC handler for external control
     IpcHandler {
         target: "minimize"
-        
+
         function minimize(): void {
             root.minimize();
         }
@@ -300,7 +301,7 @@ Singleton {
         function minimizeId(windowId: int): void {
             root.minimize(windowId);
         }
-        
+
         function restore(windowId: int): void {
             root.restore(windowId);
         }
