@@ -427,6 +427,8 @@ user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
 
     rewrite_runtime_path '/usr/bin/bash' '${pkgs.bash}/bin/bash'
     rewrite_runtime_path '/bin/bash' '${pkgs.bash}/bin/bash'
+    rewrite_runtime_path '/bin/sh' '${pkgs.bash}/bin/sh'
+    rewrite_runtime_path '/usr/bin/pkexec' 'pkexec'
     rewrite_runtime_path '/usr/bin/env' '${pkgs.coreutils}/bin/env'
     rewrite_runtime_path '/usr/bin/mkdir' '${pkgs.coreutils}/bin/mkdir'
     rewrite_runtime_path '/usr/bin/mv' '${pkgs.coreutils}/bin/mv'
@@ -435,6 +437,7 @@ user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
     rewrite_runtime_path '/usr/bin/stat' '${pkgs.coreutils}/bin/stat'
     rewrite_runtime_path '/usr/bin/sleep' '${pkgs.coreutils}/bin/sleep'
     rewrite_runtime_path '/usr/bin/base64' '${pkgs.coreutils}/bin/base64'
+    rewrite_runtime_path '/usr/bin/basename' '${pkgs.coreutils}/bin/basename'
     rewrite_runtime_path '/usr/bin/cat' '${pkgs.coreutils}/bin/cat'
     rewrite_runtime_path '/usr/bin/df' '${pkgs.coreutils}/bin/df'
     rewrite_runtime_path '/usr/bin/id' '${pkgs.coreutils}/bin/id'
@@ -476,8 +479,10 @@ user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
     rewrite_runtime_path '/usr/share/X11/xkb/rules/base.lst' '${pkgs.xkeyboard_config}/share/X11/xkb/rules/base.lst'
     rewrite_runtime_path '/usr/share/zoneinfo' '${pkgs.tzdata}/share/zoneinfo'
     rewrite_runtime_path '/usr/share/applications' '/run/current-system/sw/share/applications'
+    rewrite_runtime_path '/usr/share/icons' '/run/current-system/sw/share/icons'
+    rewrite_runtime_path '/usr/share/sounds' '/run/current-system/sw/share/sounds'
 
-    if grep -IRnE '/usr/bin/(bash|env|mkdir|mv|rm|cp|stat|sleep|base64|cat|df|id|install|date|timeout|test|find|grep|awk|getent|curl|python3|notify-send|busctl|systemctl|file|pgrep|pkill|which|lscpu|wl-copy|pw-play|pactl|grim|magick|hyprpicker|xdg-settings)' "$cfg/quickshell"; then
+    if grep -IRnE '/usr/bin/(bash|pkexec|env|mkdir|mv|rm|cp|stat|sleep|base64|basename|cat|df|id|install|date|timeout|test|find|grep|awk|getent|curl|python3|notify-send|busctl|systemctl|file|pgrep|pkill|which|lscpu|wl-copy|pw-play|pactl|grim|magick|hyprpicker|xdg-settings)' "$cfg/quickshell"; then
       echo "Ryoku Nix runtime guard: critical FHS command path survived packaging" >&2
       exit 1
     fi

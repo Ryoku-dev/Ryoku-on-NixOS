@@ -680,6 +680,7 @@ EOF
     bash-completion
     gh
     desktop-file-utils
+    sound-theme-freedesktop
 
     # ─────────────────────────────────────────────────────────
     # Compositor / shell
