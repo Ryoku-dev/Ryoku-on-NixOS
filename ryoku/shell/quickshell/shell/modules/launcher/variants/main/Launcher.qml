@@ -56,7 +56,11 @@ Item {
                 return list[k];
         return list[0];
     }
-    onActivePlayerChanged: if (activePlayer) root.primaryDbus = String(activePlayer.dbusName || "");
+    function rememberActivePlayer() {
+        if (root.activePlayer)
+            root.primaryDbus = String(root.activePlayer.dbusName || "");
+    }
+    onActivePlayerChanged: Qt.callLater(root.rememberActivePlayer)
     readonly property bool hasMedia: activePlayer !== null
     // route the current query once; everything keys off the matched prefix so the
     // mode chip, the tabs, and the find delegation stay consistent.
