@@ -51,32 +51,56 @@ func iconSearchDirs() []string {
 	}
 }
 
-// listKbLayouts: X11 layout codes from the xkb rules base, each as {code, name};
-// falls back to a small common set if the base is absent.
-func listKbLayouts() []map[string]string {
-	out := parseXkbLayouts("/usr/share/X11/xkb/rules/base.lst")
-	if len(out) == 0 {
-		out = parseXkbLayouts("/usr/share/X11/xkb/rules/evdev.lst")
+// xkbRuleFiles returns rules files in packaging-aware priority order. NixOS
+// has no /usr/share/X11 tree, so its wrapper supplies RYOKU_XKB_RULES_DIR (and
+// XKB_CONFIG_ROOT for libxkbcommon). Traditional distributions continue to use
+// the normal /usr/share fallback.
+func xkbRuleFiles() []string {
+	dirs := []string{}
+	if dir := strings.TrimSpace(os.Getenv("RYOKU_XKB_RULES_DIR")); dir != "" {
+		dirs = append(dirs, dir)
 	}
-	if len(out) == 0 {
-		for _, c := range []string{"us", "gb", "de", "fr", "es", "it", "ru", "jp"} {
-			out = append(out, map[string]string{"code": c, "name": strings.ToUpper(c)})
+	if root := strings.TrimSpace(os.Getenv("XKB_CONFIG_ROOT")); root != "" {
+		dirs = append(dirs, filepath.Join(root, "rules"))
+	}
+	dirs = append(dirs, "/usr/share/X11/xkb/rules")
+
+	seen := map[string]bool{}
+	files := []string{}
+	for _, dir := range dirs {
+		if dir == "" || seen[dir] {
+			continue
 		}
+		seen[dir] = true
+		files = append(files, filepath.Join(dir, "base.lst"), filepath.Join(dir, "evdev.lst"))
+	}
+	return files
+}
+
+// listKbLayouts: X11 layout codes from the first available XKB rules file;
+// falls back to a small common set only when no rules database is available.
+func listKbLayouts() []map[string]string {
+	for _, path := range xkbRuleFiles() {
+		if out := parseXkbLayouts(path); len(out) > 0 {
+			return out
+		}
+	}
+	out := []map[string]string{}
+	for _, c := range []string{"us", "gb", "de", "fr", "es", "it", "ru", "jp"} {
+		out = append(out, map[string]string{"code": c, "name": strings.ToUpper(c)})
 	}
 	return out
 }
 
 // listKbVariants: X11 variant codes for one layout, each as {code, name}; an
-// unknown layout (or absent base) yields [].
+// unknown layout (or absent rules database) yields [].
 func listKbVariants(layout string) []map[string]string {
-	out := parseXkbVariants("/usr/share/X11/xkb/rules/base.lst", layout)
-	if len(out) == 0 {
-		out = parseXkbVariants("/usr/share/X11/xkb/rules/evdev.lst", layout)
+	for _, path := range xkbRuleFiles() {
+		if out := parseXkbVariants(path, layout); len(out) > 0 {
+			return out
+		}
 	}
-	if out == nil {
-		out = []map[string]string{}
-	}
-	return out
+	return []map[string]string{}
 }
 
 // parseXkbVariants reads the "! variant" block, keeping entries for one layout.
