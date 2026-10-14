@@ -200,6 +200,13 @@ pkgs.stdenv.mkDerivation {
     mkdir -p "$cfg/matugen"
     cp -a ryoku/shell/matugen/. "$cfg/matugen/"
 
+    vesktop_palette="$cfg/matugen/templates/vesktop-colors.css"
+    grep -Fq -- '--ryo-bridge-enabled: 1;' "$vesktop_palette"
+    if grep -Eq '@import|guilds__|sidebarList__|membersWrap' "$vesktop_palette"; then
+      echo "Ryoku Nix Vesktop guard: palette layer contains layout/theme CSS" >&2
+      exit 1
+    fi
+
     # ── Qt / GTK appearance ────────────────────────────────────
 
     mkdir -p "$cfg/qt6ct"

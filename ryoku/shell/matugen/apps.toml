@@ -14,8 +14,11 @@ output_path = "~/.config/gtk-3.0/gtk.css"
 input_path = "~/.config/matugen/templates/gtk4-colors.css"
 output_path = "~/.config/gtk-4.0/gtk.css"
 
+# Vesktop's Matugen layer is palette-only. Layout belongs to the selected
+# Vesktop/Vencord theme (including Ryostore themes), otherwise two full themes
+# fight over Discord's structure and the store theme appears only partially.
 [templates.vesktop]
-input_path = "~/.config/matugen/templates/discord.css"
+input_path = "~/.config/matugen/templates/vesktop-colors.css"
 output_path = "~/.config/vesktop/themes/matugen.css"
 
 [templates.equibop]
