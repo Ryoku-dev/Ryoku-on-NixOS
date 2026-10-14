@@ -489,7 +489,7 @@ Item {
         readonly property bool islands: layoutSpan === "islands"
         readonly property bool fused: layoutSpan === "fused"
         readonly property bool full: layoutSpan === "full"
-        readonly property real inset: 8 * K.Style.scale
+        readonly property real inset: 12 * K.Style.scale
         readonly property real clearance: 10 * K.Style.scale
         readonly property real pad: K.Style.barPad
         readonly property real leftW: leftLane.contentWidth

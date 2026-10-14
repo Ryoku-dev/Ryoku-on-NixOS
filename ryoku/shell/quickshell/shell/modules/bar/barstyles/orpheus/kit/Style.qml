@@ -65,9 +65,9 @@ Singleton {
     readonly property int rowH: 44
     readonly property int ctlH: 26
 
-    readonly property int barH: Math.round(36 * scale)
-    readonly property real barPad: 12 * scale
-    readonly property real barGap: 4 * scale
+    readonly property int barH: Math.round(40 * scale)
+    readonly property real barPad: 14 * scale
+    readonly property real barGap: 6 * scale
     readonly property real hitPad: 6 * scale
 
     readonly property bool still: Motion.reduce
