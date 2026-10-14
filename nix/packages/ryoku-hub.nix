@@ -11,6 +11,16 @@ pkgs.stdenv.mkDerivation {
     pkgs.makeWrapper
   ];
 
+  postPatch = ''
+    substituteInPlace shellpref.go \
+      --replace-fail '"/usr/bin/fish"' '"/run/current-system/sw/bin/fish"' \
+      --replace-fail '"/usr/bin/bash"' '"/run/current-system/sw/bin/bash"' \
+      --replace-fail '"/usr/bin/zsh"' '"/run/current-system/sw/bin/zsh"'
+
+    substituteInPlace desktop_enum.go \
+      --replace-warn '"/usr/share/icons"' '"/run/current-system/sw/share/icons"'
+  '';
+
   buildPhase = ''
     runHook preBuild
 

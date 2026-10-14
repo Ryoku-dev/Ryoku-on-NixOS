@@ -408,6 +408,80 @@ user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
       ryoku/assets/brand/. \
       "$out/share/ryoku/brand/"
 
+    # ── Nix runtime path normalization ─────────────────────────
+    #
+    # Upstream iNiR is developed on FHS distributions and many QML Process{}
+    # call sites use absolute /usr/bin paths. Ryoku's Nix user service already
+    # exposes this toolset deliberately, but an absolute Arch path bypasses the
+    # service PATH entirely. Normalize only commands guaranteed by runtimePackages
+    # (plus optional commands to bare names) in the packaged payload. Upstream
+    # source stays distro-neutral and future syncs cannot silently resurrect the
+    # same NixOS failure class.
+    rewrite_runtime_path() {
+      from="$1"
+      to="$2"
+      while IFS= read -r -d "" file; do
+        substituteInPlace "$file" --replace-warn "$from" "$to"
+      done < <(grep -IlZR -- "$from" "$cfg/quickshell" 2>/dev/null || true)
+    }
+
+    rewrite_runtime_path '/usr/bin/bash' '${pkgs.bash}/bin/bash'
+    rewrite_runtime_path '/bin/bash' '${pkgs.bash}/bin/bash'
+    rewrite_runtime_path '/usr/bin/env' '${pkgs.coreutils}/bin/env'
+    rewrite_runtime_path '/usr/bin/mkdir' '${pkgs.coreutils}/bin/mkdir'
+    rewrite_runtime_path '/usr/bin/mv' '${pkgs.coreutils}/bin/mv'
+    rewrite_runtime_path '/usr/bin/rm' '${pkgs.coreutils}/bin/rm'
+    rewrite_runtime_path '/usr/bin/cp' '${pkgs.coreutils}/bin/cp'
+    rewrite_runtime_path '/usr/bin/stat' '${pkgs.coreutils}/bin/stat'
+    rewrite_runtime_path '/usr/bin/sleep' '${pkgs.coreutils}/bin/sleep'
+    rewrite_runtime_path '/usr/bin/base64' '${pkgs.coreutils}/bin/base64'
+    rewrite_runtime_path '/usr/bin/cat' '${pkgs.coreutils}/bin/cat'
+    rewrite_runtime_path '/usr/bin/df' '${pkgs.coreutils}/bin/df'
+    rewrite_runtime_path '/usr/bin/id' '${pkgs.coreutils}/bin/id'
+    rewrite_runtime_path '/usr/bin/install' '${pkgs.coreutils}/bin/install'
+    rewrite_runtime_path '/usr/bin/date' '${pkgs.coreutils}/bin/date'
+    rewrite_runtime_path '/usr/bin/timeout' '${pkgs.coreutils}/bin/timeout'
+    rewrite_runtime_path '/usr/bin/test' '${pkgs.coreutils}/bin/test'
+    rewrite_runtime_path '/usr/bin/find' '${pkgs.findutils}/bin/find'
+    rewrite_runtime_path '/usr/bin/grep' '${pkgs.gnugrep}/bin/grep'
+    rewrite_runtime_path '/usr/bin/awk' '${pkgs.gawk}/bin/awk'
+    rewrite_runtime_path '/usr/bin/getent' '${pkgs.getent}/bin/getent'
+    rewrite_runtime_path '/usr/bin/curl' '${pkgs.curl}/bin/curl'
+    rewrite_runtime_path '/usr/bin/python3' '${pkgs.python3}/bin/python3'
+    rewrite_runtime_path '/usr/bin/notify-send' '${pkgs.libnotify}/bin/notify-send'
+    rewrite_runtime_path '/usr/bin/busctl' '${pkgs.systemd}/bin/busctl'
+    rewrite_runtime_path '/usr/bin/systemctl' '${pkgs.systemd}/bin/systemctl'
+    rewrite_runtime_path '/usr/bin/file' '${pkgs.file}/bin/file'
+    rewrite_runtime_path '/usr/bin/pgrep' '${pkgs.procps}/bin/pgrep'
+    rewrite_runtime_path '/usr/bin/pkill' '${pkgs.procps}/bin/pkill'
+    rewrite_runtime_path '/usr/bin/which' '${pkgs.which}/bin/which'
+    rewrite_runtime_path '/usr/bin/lscpu' '${pkgs.util-linux}/bin/lscpu'
+    rewrite_runtime_path '/usr/bin/wl-copy' '${pkgs.wl-clipboard}/bin/wl-copy'
+    rewrite_runtime_path '/usr/bin/pw-play' '${pkgs.pipewire}/bin/pw-play'
+    rewrite_runtime_path '/usr/bin/pactl' '${pkgs.pulseaudio}/bin/pactl'
+    rewrite_runtime_path '/usr/bin/grim' '${pkgs.grim}/bin/grim'
+    rewrite_runtime_path '/usr/bin/magick' '${pkgs.imagemagick}/bin/magick'
+    rewrite_runtime_path '/usr/bin/hyprpicker' '${pkgs.hyprpicker}/bin/hyprpicker'
+    rewrite_runtime_path '/usr/bin/xdg-settings' '${pkgs.xdg-utils}/bin/xdg-settings'
+
+    # Optional/user-selected applications must remain optional, but still use PATH.
+    rewrite_runtime_path '/usr/bin/flatpak' 'flatpak'
+    rewrite_runtime_path '/usr/bin/easyeffects' 'easyeffects'
+    rewrite_runtime_path '/usr/bin/dunstify' 'dunstify'
+    rewrite_runtime_path '/usr/bin/firefox' 'firefox'
+    rewrite_runtime_path '/usr/bin/code' 'code'
+    rewrite_runtime_path '/usr/bin/nautilus' '${pkgs.nautilus}/bin/nautilus'
+    rewrite_runtime_path '/usr/bin/kitty' '${pkgs.kitty}/bin/kitty'
+
+    rewrite_runtime_path '/usr/share/X11/xkb/rules/base.lst' '${pkgs.xkeyboard_config}/share/X11/xkb/rules/base.lst'
+    rewrite_runtime_path '/usr/share/zoneinfo' '${pkgs.tzdata}/share/zoneinfo'
+    rewrite_runtime_path '/usr/share/applications' '/run/current-system/sw/share/applications'
+
+    if grep -IRnE '/usr/bin/(bash|env|mkdir|mv|rm|cp|stat|sleep|base64|cat|df|id|install|date|timeout|test|find|grep|awk|getent|curl|python3|notify-send|busctl|systemctl|file|pgrep|pkill|which|lscpu|wl-copy|pw-play|pactl|grim|magick|hyprpicker|xdg-settings)' "$cfg/quickshell"; then
+      echo "Ryoku Nix runtime guard: critical FHS command path survived packaging" >&2
+      exit 1
+    fi
+
     chmod -R u=rwX,go=rX "$out/share"
 
     runHook postInstall
