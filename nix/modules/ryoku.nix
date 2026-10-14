@@ -975,6 +975,7 @@ in
   imports = [
     (import ./gpu-passthrough.nix { inherit self; })
     ./release-identity.nix
+    ./runtime-state-ownership.nix
   ];
 
   options.programs.ryoku = {

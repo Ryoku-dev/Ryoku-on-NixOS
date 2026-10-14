@@ -24,8 +24,74 @@ import (
 // that password come back through the run-state (runstate.go); the password
 // itself travels over a FIFO, never through a file or an argv.
 
+var nixGUIHostEnv = []string{
+	"HOME",
+	"USER",
+	"LOGNAME",
+	"PATH",
+	"LANG",
+	"LC_ALL",
+	"XDG_RUNTIME_DIR",
+	"XDG_CONFIG_HOME",
+	"XDG_STATE_HOME",
+	"XDG_CACHE_HOME",
+	"DBUS_SESSION_BUS_ADDRESS",
+	"RYOKU_UPDATE_BACKEND",
+	"RYOKU_NIX_VERSION",
+	"RYOKU_NIX_CHANNEL",
+	"RYOKU_NIX_SYSTEM_BRIDGE",
+	"RYOKU_NIX_INTEGRATION",
+	"RYOKU_NIX_FLAKE",
+	"RYOKU_NIX_INPUT",
+	"RYOKU_NIX_HOST",
+	"RYOKU_NIX_SUDO",
+	"RYOKU_CONFIG_BASE",
+	"RYOKU_I18N_DIR",
+}
+
+func nixGUIHostCommand(self string, args []string) *exec.Cmd {
+	runner := strings.TrimSpace(os.Getenv("RYOKU_SYSTEMD_RUN"))
+	if runner == "" {
+		runner = "systemd-run"
+	}
+
+	runArgs := []string{
+		"--user",
+		"--quiet",
+		"--collect",
+		fmt.Sprintf("--unit=ryoku-update-gui-%d", os.Getpid()),
+		"--service-type=exec",
+		"--setenv=RYOKU_UPDATE_UI=hub",
+	}
+
+	for _, key := range nixGUIHostEnv {
+		if value, ok := os.LookupEnv(key); ok && value != "" {
+			runArgs = append(runArgs, "--setenv="+key+"="+value)
+		}
+	}
+
+	runArgs = append(runArgs, self, "update", "--gui-host")
+	runArgs = append(runArgs, args...)
+	return exec.Command(runner, runArgs...)
+}
+
+func startNixGUIHost(self string, args []string) error {
+	cmd := nixGUIHostCommand(self, args)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+
+	detail := strings.TrimSpace(string(out))
+	if detail == "" {
+		return fmt.Errorf(i18n.T("could not start the update outside the Ryoku shell service: %w"), err)
+	}
+	return fmt.Errorf(i18n.T("could not start the update outside the Ryoku shell service: %w: %s"), err, detail)
+}
+
 // guiUpdate is `ryoku update --gui [--system]`: start the run in the
-// background and return.
+// background and return. On NixOS the background host must be a sibling
+// transient user service, not a detached child of ryoku-shell.service.
 func guiUpdate(args []string) error {
 	if lockHeld() {
 		return fmt.Errorf(i18n.T("another ryoku update is already running; wait for it to finish"))
@@ -34,6 +100,11 @@ func guiUpdate(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	if nixBackend() {
+		return startNixGUIHost(self, args)
+	}
+
 	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
 		return err
