@@ -32,6 +32,26 @@ class ISOInstallerTests(unittest.TestCase):
         self.assertIn("flake input resolution failed before disk changes", backend)
         self.assertIn('chown -R root:root "$target_root/etc/nixos"', backend)
 
+    def test_nvidia_kernel_modules_are_built_before_disk_mutation(self):
+        backend = Path(os.environ["RYOKU_INSTALL_BACKEND_SOURCE"]).read_text()
+        validate = backend.index('echo "@@RYOKU_STEP validate"')
+        modules = backend.index(
+            "nixosConfigurations.$install_host.config.system.modulesTree",
+            validate,
+        )
+        wipe = backend.index('run_root wipefs -af "$install_disk"')
+
+        self.assertLess(validate, modules)
+        self.assertLess(modules, wipe)
+
+        preflight = backend[validate:wipe]
+        self.assertIn("--no-link", preflight)
+        self.assertIn("--no-write-lock-file", preflight)
+        self.assertIn(
+            "NVIDIA kernel-module preflight failed before disk changes",
+            preflight,
+        )
+
     def test_explicit_source_overrides_iso_target_environment(self):
         env = dict(
             os.environ,

@@ -790,6 +790,22 @@ install_iso() {
     die "target NixOS configuration does not evaluate; no disk changes were made"
   fi
 
+  # Evaluation alone cannot expose an out-of-tree kernel module that fails at
+  # compile time. On NVIDIA targets, realize the combined kernel module tree
+  # before the destructive confirmation. This catches driver/kernel ABI
+  # breakage while the installation disk is still completely untouched.
+  if [[ " ${gpu_vendors[*]} " == *" nvidia "* ]]; then
+    printf '\nValidating NVIDIA kernel modules against the selected kernel...\n'
+    if ! nix build \
+      --no-link \
+      --no-write-lock-file \
+      "${bootstrap_cache[@]}" \
+      "path:$iso_work#nixosConfigurations.$install_host.config.system.modulesTree"
+    then
+      die "NVIDIA kernel-module preflight failed before disk changes; retry with --kernel default or another NVIDIA-compatible kernel"
+    fi
+  fi
+
   printf '\n%s\n' "WARNING: ALL DATA ON $install_disk WILL BE PERMANENTLY ERASED."
   if [ "$assume_yes" -eq 1 ]; then
     [ "$confirm_disk" = "$install_disk" ] || {
@@ -1274,6 +1290,24 @@ if [ "$dry_run" -eq 0 ]; then
     echo "ryoku-install: existing NixOS host does not evaluate; no files were changed" >&2
     echo "Fix the flake error above, then re-run ryoku-install." >&2
     exit 1
+  fi
+
+  # Ryoku does not own the host kernel on an existing NixOS installation.
+  # Before touching the user's flake, verify that an NVIDIA host can actually
+  # realize its current kernel module tree. This distinguishes a pre-existing
+  # NVIDIA/kernel incompatibility from a Ryoku integration failure.
+  resolve_gpu_vendors
+  if [[ " ${gpu_vendors[*]} " == *" nvidia "* ]]; then
+    printf '\nValidating existing NVIDIA kernel modules...\n'
+    if ! nix --extra-experimental-features "nix-command flakes" build \
+      --no-link \
+      --no-write-lock-file \
+      "path:$flake_root#nixosConfigurations.\"$host\".config.system.modulesTree"
+    then
+      echo "ryoku-install: existing NixOS NVIDIA/kernel combination does not build; no files were changed" >&2
+      echo "ryoku-install: if the error above mentions nvidia-kernel-modules, switch the host to boot.kernelPackages = pkgs.linuxPackages and retry" >&2
+      exit 1
+    fi
   fi
 fi
 

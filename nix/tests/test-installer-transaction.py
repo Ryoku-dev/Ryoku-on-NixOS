@@ -19,7 +19,7 @@ FLAKE = """{
 
 
 class TransactionTests(unittest.TestCase):
-    def run_case(self, failure, existing=False, baseline_valid=True):
+    def run_case(self, failure, existing=False, baseline_valid=True, gpu="none"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             host = root / "host"
@@ -47,6 +47,7 @@ class TransactionTests(unittest.TestCase):
                 '  case "$1" in\n'
                 '    --extra-experimental-features) shift 2 ;;\n'
                 '    eval) echo validate >> "$TEST_CALLS"; [ "$TEST_BASELINE_VALID" = 1 ]; exit $? ;;\n'
+                '    build) echo nvidia-preflight >> "$TEST_CALLS"; [ "$TEST_FAILURE" != nvidia-preflight ]; exit $? ;;\n'
                 '    flake) echo lock >> "$TEST_CALLS"; [ "$TEST_FAILURE" != lock ]; exit $? ;;\n'
                 '    *) shift ;;\n'
                 '  esac\n'
@@ -80,7 +81,8 @@ class TransactionTests(unittest.TestCase):
             )
             result = subprocess.run([str(test_backend), "--flake", str(host) + "#host",
                                      "--compositor", "niri", "--browser", "firefox",
-                                     "--shell", "zsh", "--apps", "none", "--yes"],
+                                     "--shell", "zsh", "--apps", "none",
+                                     "--gpu", gpu, "--yes"],
                                     env=env, capture_output=True, text=True, timeout=20)
             if not baseline_valid:
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -94,6 +96,15 @@ class TransactionTests(unittest.TestCase):
                 self.assertEqual(after, before, result.stdout + result.stderr)
                 if failure in ("lock", "build"):
                     self.assertNotIn("switch", calls.read_text().splitlines())
+                if failure == "nvidia-preflight":
+                    self.assertEqual(
+                        calls.read_text().splitlines(),
+                        ["validate", "nvidia-preflight"],
+                    )
+                    self.assertIn(
+                        "existing NixOS NVIDIA/kernel combination does not build",
+                        result.stderr,
+                    )
             else:
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(calls.read_text().splitlines(), ["validate", "lock", "build", "switch"])
@@ -106,6 +117,9 @@ class TransactionTests(unittest.TestCase):
         for existing in (False, True):
             with self.subTest(existing=existing):
                 self.run_case("", existing=existing, baseline_valid=False)
+
+    def test_nvidia_kernel_module_preflight_aborts_before_transaction(self):
+        self.run_case("nvidia-preflight", gpu="nvidia")
 
     def test_failures_restore_new_and_existing_configs(self):
         for failure in ("lock", "build", "switch", "interrupt"):
