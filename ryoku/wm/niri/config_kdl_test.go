@@ -408,8 +408,8 @@ func TestPerAppBlurRendered(t *testing.T) {
 		{Class: "mpv", Opacity: -1, Rounding: -1, BorderSize: -1, Blur: "off"},
 	}
 	out := string(genSettings(s))
-	if !strings.Contains(out, "match app-id=\"kitty\"\n    background-effect {\n        blur true\n    }") {
-		t.Errorf("per-app forced blur must render blur true\n%s", out)
+	if !strings.Contains(out, "match app-id=\"kitty\"\n    background-effect {\n        blur true\n        xray true\n    }") {
+		t.Errorf("per-app forced blur must render xray-safe blur\n%s", out)
 	}
 	if !strings.Contains(out, "match app-id=\"mpv\"\n    background-effect {\n        blur false\n    }") {
 		t.Errorf("per-app suppressed blur must render blur false\n%s", out)
@@ -430,7 +430,7 @@ func TestUserLayerRulesRendered(t *testing.T) {
 		`match namespace="waybar"`,
 		"opacity 0.9",
 		"geometry-corner-radius 12",
-		"    background-effect {\n        blur true\n    }",
+		"    background-effect {\n        blur true\n        xray true\n    }",
 		"    shadow {\n        on\n    }",
 		`block-out-from "screencast"`,
 		"baba-is-float true",
