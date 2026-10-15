@@ -218,3 +218,17 @@ func TestBorderFollowsPaletteGatesConfigAndAct(t *testing.T) {
 		}
 	})
 }
+
+func TestMasterNewStatusIsAlwaysRendered(t *testing.T) {
+	o := defaultOverrides()
+	out := genLua(o, false)
+	if !strings.Contains(out, `new_status = "slave"`) {
+		t.Fatalf("default new-window role must be explicit so rebuilds preserve Hub intent:\n%s", out)
+	}
+
+	o.Master.NewStatus = "master"
+	out = genLua(o, false)
+	if !strings.Contains(out, `new_status = "master"`) {
+		t.Fatalf("custom new-window role was not rendered:\n%s", out)
+	}
+}

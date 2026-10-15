@@ -303,9 +303,11 @@ func genConfig(o Overrides, follow bool) string {
 	if ms.Mfact != dms.Mfact {
 		master = append(master, fmt.Sprintf("mfact = %s", luaNum(ms.Mfact)))
 	}
-	if ms.NewStatus != dms.NewStatus {
-		master = append(master, fmt.Sprintf("new_status = %s", luaStr(ms.NewStatus)))
-	}
+	// Persist the selected new-window role explicitly even when it matches
+	// Ryoku's default. This setting is user intent, and relying on Hyprland's
+	// implicit/default value lets a generation or upstream-default change make
+	// the Hub appear to forget the selection after a rebuild.
+	master = append(master, fmt.Sprintf("new_status = %s", luaStr(ms.NewStatus)))
 	if ms.NewOnTop != dms.NewOnTop {
 		master = append(master, fmt.Sprintf("new_on_top = %t", ms.NewOnTop))
 	}
