@@ -306,17 +306,17 @@
     "ryotunesSrc": {
       "flake": false,
       "locked": {
-        "lastModified": 1790304374,
-        "narHash": "sha256-K9u+avFYPn51tJvkPN51dYp070oNgPAR8lFU/iAqwM0=",
+        "lastModified": 1791950985,
+        "narHash": "sha256-pFguZ3ZSQ7DLI9wDukjhUklt54jUOc6mEn5XBVpsolY=",
         "owner": "Ryoku-dev",
         "repo": "ryotunes",
-        "rev": "8fad27becd373ca7943b2e8943a8f14398b67ddb",
+        "rev": "ade86b744651b908f3946b6769853e5084a59ce1",
         "type": "github"
       },
       "original": {
         "owner": "Ryoku-dev",
         "repo": "ryotunes",
-        "rev": "8fad27becd373ca7943b2e8943a8f14398b67ddb",
+        "rev": "ade86b744651b908f3946b6769853e5084a59ce1",
         "type": "github"
       }
     },

@@ -46,10 +46,10 @@
       flake = false;
     };
 
-    # Native Ryotunes 1.1.6, pinned to its release commit.
+    # Native Ryotunes 1.2.0, pinned to its release commit.
     # Keep this pinned to the exact upstream release commit.
     ryotunesSrc = {
-      url = "github:Ryoku-dev/ryotunes/8fad27becd373ca7943b2e8943a8f14398b67ddb";
+      url = "github:Ryoku-dev/ryotunes/ade86b744651b908f3946b6769853e5084a59ce1";
       flake = false;
     };
   };
