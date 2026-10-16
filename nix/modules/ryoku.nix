@@ -299,6 +299,29 @@ EOF
     fi
   '';
 
+  # Upstream's SDDM 0.21 recovery watches for the daemon running with no
+  # greeter/session helper. NixOS owns the display-manager unit, so translate
+  # the one privileged host action into a direct restart of that unit rather
+  # than routing it through a mutable distro service backend.
+  ryokuGreeterGuardHost = pkgs.writeShellScriptBin "ryoku-greeter-guard-host" ''
+    set -eu
+    if [ "$#" -eq 4 ] && [ "$1" = svc ] && [ "$2" = --system ] &&
+       [ "$3" = restart ] && [ "$4" = sddm ]; then
+      exec ${pkgs.systemd}/bin/systemctl restart display-manager.service
+    fi
+    printf 'ryoku-greeter-guard-host: unsupported request\n' >&2
+    exit 2
+  '';
+
+  ryokuGreeterGuard = pkgs.writeShellApplication {
+    name = "ryoku-greeter-guard";
+    runtimeInputs = with pkgs; [ coreutils util-linux ];
+    text = ''
+      export RYOKU_GREETER_GUARD_HOST=${ryokuGreeterGuardHost}/bin/ryoku-greeter-guard-host
+      exec ${pkgs.bash}/bin/bash ${../../ryoku/lockscreen/sddm/ryoku-greeter-guard} "$@"
+    '';
+  };
+
   # SDDM itself remains declaratively configured as the fixed "ryoku" theme.
   # Only the selected theme payload is mutable.
   ryokuSddmStateDir = "/var/lib/ryoku/sddm-theme";
@@ -1616,6 +1639,27 @@ in
         pkgs.qt6.qtsvg
       ];
     };
+
+    # SDDM 0.21 can treat a crashed Wayland greeter as a successful login and
+    # leave the machine on an empty VT. The upstream guard waits until SDDM has
+    # no greeter or session helper for 20 seconds, then performs a bounded
+    # display-manager restart. Keep the recovery behaviour while leaving NixOS
+    # in sole ownership of the compositor and unit definitions.
+    systemd.services.ryoku-greeter-guard = lib.mkIf
+      (config.services.displayManager.sddm.enable &&
+       config.services.displayManager.sddm.wayland.enable) {
+        description = "Ryoku login screen guard";
+        wantedBy = [ "graphical.target" ];
+        wants = [ "display-manager.service" ];
+        after = [ "display-manager.service" ];
+
+        serviceConfig = {
+          Type = "simple";
+          ExecStart = "${ryokuGreeterGuard}/bin/ryoku-greeter-guard";
+          Restart = "on-failure";
+          RestartSec = 5;
+        };
+      };
 
     # NixOS uses Ryoku's Nix-only update backend; the Arch transaction stays disabled.
     # Session scope also covers Hub instances launched directly.
