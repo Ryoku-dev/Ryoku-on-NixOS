@@ -30,6 +30,8 @@ in
       environment.systemPackages = [
         ryokuNixpkgs.scrcpy
         ryokuNixpkgs.android-tools
+        ryokuNixpkgs.avahi
+        ryokuNixpkgs.qt6.qttools
       ];
     })
     (lib.mkIf (cfg.enable && cfg.webcam.enable) {

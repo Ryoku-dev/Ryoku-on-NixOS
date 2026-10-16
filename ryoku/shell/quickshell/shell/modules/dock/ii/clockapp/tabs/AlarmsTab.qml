@@ -6,6 +6,7 @@ import QtQuick.Effects
 import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.services
+import shell.modules.phone
 import "../.."
 
 /**

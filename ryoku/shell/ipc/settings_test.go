@@ -43,6 +43,51 @@ func frameNum(t *testing.T, frame []byte, path string) float64 {
 
 func rm(s string) json.RawMessage { return json.RawMessage(s) }
 
+func TestPhoneDefaultsMatchContract(t *testing.T) {
+	store := newTestStore(t)
+	var want any
+	if err := json.Unmarshal([]byte(`{
+		"enabled": false,
+		"desktopNotifications": true,
+		"contacts": {"enabled": true, "hideUnnamed": true},
+		"scrcpy": {
+			"audio": true,
+			"useWireless": false,
+			"autoWirelessIp": true,
+			"wirelessIp": "",
+			"wirelessPort": 5555,
+			"pinAdbPort": false,
+			"maxSize": 0,
+			"maxFps": 60,
+			"videoBitRate": "8M",
+			"turnScreenOff": false,
+			"stayAwake": true,
+			"showTouches": false,
+			"clipboardSync": true,
+			"keyboardMode": "uhid",
+			"autoResume": true,
+			"appMode": {
+				"showAppIcons": true,
+				"autoUnlock": true,
+				"flexDisplay": false,
+				"displayWidth": 1280,
+				"displayHeight": 960,
+				"displayDpi": 240,
+				"onSessionEnd": "home"
+			},
+			"recording": {"folder": ""}
+		},
+		"webcam": {"cameraFacing": "back", "width": 1280, "height": 720, "fps": 30, "videoDevice": ""},
+		"microphone": {"enabled": false, "micGain": 100, "monitor": false, "setDefault": false},
+		"alarm": {"enabled": true, "pollMinutes": 10, "clockApps": [], "ignorePackages": []}
+	}`), &want); err != nil {
+		t.Fatal(err)
+	}
+	if got := frameGet(t, store.frameLocked(), "phone"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("phone defaults = %#v, want %#v", got, want)
+	}
+}
+
 // TestPatchRejectsInvalidSchemaValues checks bad schema values and retired
 // namespaces are rejected without touching the file. The daemon commits only
 // after a clean validation and persist.
@@ -62,6 +107,13 @@ func TestPatchRejectsInvalidSchemaValues(t *testing.T) {
 		{"bad ask screen type", "ask.bubble.screen", `42`, "cannot unmarshal"},
 		{"unknown ask key", "ask.bubble.nope", `true`, "unknown setting"},
 		{"empty theme", "theme.theme", `""`, "must not be empty"},
+		{"bad phone port", "phone.scrcpy.wirelessPort", `0`, "out of range"},
+		{"bad phone keyboard mode", "phone.scrcpy.keyboardMode", `"raw"`, "is not one of"},
+		{"bad phone session end", "phone.scrcpy.appMode.onSessionEnd", `"quit"`, "is not one of"},
+		{"bad phone camera", "phone.webcam.cameraFacing", `"side"`, "is not one of"},
+		{"bad phone fps", "phone.webcam.fps", `0`, "out of range"},
+		{"bad phone gain", "phone.microphone.micGain", `201`, "out of range"},
+		{"bad phone alarm interval", "phone.alarm.pollMinutes", `0`, "out of range"},
 		{"retired sidebar layout", "sidebars.layout", `"classic"`, "sidebars settings are retired"},
 		{"retired sidebar subtree", "sidebars.left.width", `930`, "sidebars settings are retired"},
 		{"retired sidebar root", "sidebars", `{"layout":"modern"}`, "sidebars settings are retired"},
@@ -130,6 +182,14 @@ func TestPatchAcceptsValidSchemaValues(t *testing.T) {
 		{"bars.top_bar.left_widgets", `["Clock","Battery"]`},
 		{"ask.bubble.enabled", `true`},
 		{"ask.bubble.screen", `"DP-2"`},
+		{"phone.enabled", `true`},
+		{"phone.desktopNotifications", `false`},
+		{"phone.scrcpy.audio", `false`},
+		{"phone.scrcpy.maxFps", `90`},
+		{"phone.scrcpy.videoBitRate", `"12M"`},
+		{"phone.webcam.cameraFacing", `"front"`},
+		{"phone.microphone.micGain", `125`},
+		{"phone.alarm.clockApps", `["com.google.android.deskclock"]`},
 	}
 	for _, st := range steps {
 		if err := s.patch(st.path, rm(st.val)); err != nil {
@@ -155,6 +215,18 @@ func TestPatchAcceptsValidSchemaValues(t *testing.T) {
 	}
 	if got := frameGet(t, frame, "ask.bubble.screen"); got != "DP-2" {
 		t.Fatalf("ask.bubble.screen = %v, want DP-2", got)
+	}
+	if got := frameGet(t, frame, "phone.enabled"); got != true {
+		t.Fatalf("phone.enabled = %v, want true", got)
+	}
+	if got := frameGet(t, frame, "phone.scrcpy.audio"); got != false {
+		t.Fatalf("phone.scrcpy.audio = %v, want false", got)
+	}
+	if got := frameNum(t, frame, "phone.scrcpy.maxFps"); got != 90 {
+		t.Fatalf("phone.scrcpy.maxFps = %v, want 90", got)
+	}
+	if got := frameGet(t, frame, "phone.webcam.cameraFacing"); got != "front" {
+		t.Fatalf("phone.webcam.cameraFacing = %v, want front", got)
 	}
 }
 

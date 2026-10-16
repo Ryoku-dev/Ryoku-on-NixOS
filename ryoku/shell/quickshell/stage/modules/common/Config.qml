@@ -2785,19 +2785,6 @@ Singleton {
                         property string folder: ""
                         property bool withAudio: true
                     }
-                    // The mirror the Phone sidebar draws inside itself.
-                    property JsonObject embed: JsonObject {
-                        // Off sends the Mirror card back to opening a separate
-                        // scrcpy window, which is what it did before the
-                        // sidebar could draw the phone itself.
-                        property bool enabled: true
-                        // The sidebar unloads its content soon after closing, which
-                        // took the mirror down with it and made every trip back pay
-                        // for a fresh connection. The session outlives the page by
-                        // this much; the phone is still encoding during it, so 0
-                        // turns the behaviour off entirely.
-                        property int keepWarmSeconds: 120
-                    }
                     property JsonObject appMode: JsonObject {
                         property bool enabled: true
                         property bool showAppIcons: true // Pull each app's launcher icon off the phone over adb

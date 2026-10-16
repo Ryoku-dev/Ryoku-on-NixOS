@@ -25,6 +25,7 @@ import "modules/dock"
 import "modules/launcher"
 import "modules/overview"
 import "modules/clipboard"
+import shell.modules.phone as Phone
 import QtQuick
 import Quickshell.Io
 import Quickshell.Wayland
@@ -71,6 +72,10 @@ ShellRoot {
     ServiceLoader {
         services: [ShellState, ScreenTime, Keypresses, KeyboardLayout, BatteryAlerts]
     }
+
+    // The bridge stays resident even when phone support is off so Kit always
+    // has a current install state and can turn the feature on.
+    Phone.PhoneBridge { }
 
     readonly property string reloadStatePath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ryoku-reload-cover.json"
     readonly property string reloadCoverBin: Quickshell.env("RYOKU_SHELL_DIR")

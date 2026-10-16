@@ -3,39 +3,40 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
+import shell.modules.phone as Phone
 
-// The Stage Editor does not edit a paired phone, so the reference's KDE-Connect
-// integration is held inert here: the members the copied clock faces and the
-// notification store read resolve to "no device connected", which is the honest
-// default and keeps the editor free of the compositor and phone coupling the
-// reference's full service carried. Ryoku pairs phones through its own Hub.
+// Stage clock faces and the notification bridge run inside the shell as well
+// as in the editor, so they forward to the one process-local phone singleton.
 Singleton {
     id: root
 
-    property bool _enabled: false
-    readonly property bool available: false
-    readonly property bool ready: false
-    readonly property bool activeReachable: false
-    readonly property bool scrcpyAvailable: false
-    readonly property int notificationCount: 0
-    readonly property string activeDeviceId: ""
-    readonly property var activeDevice: null
-    readonly property var devices: []
+    readonly property bool _enabled: Phone.KdeConnectService.serviceEnabled
+    readonly property bool available: Phone.KdeConnectService.available
+    readonly property bool ready: Phone.KdeConnectService.ready
+    readonly property bool activeReachable: Phone.KdeConnectService.activeReachable
+    readonly property bool scrcpyAvailable: Phone.KdeConnectService.scrcpyAvailable
+    readonly property int notificationCount: Phone.KdeConnectService.notificationCount
+    readonly property string activeDeviceId: Phone.KdeConnectService.activeDeviceId
+    readonly property var activeDevice: Phone.KdeConnectService.activeDevice
+    readonly property var devices: Phone.KdeConnectService.devices
 
     function isIgnoredNotification(notification) {
-        return false;
+        return Phone.KdeConnectService.isIgnoredNotification(notification)
     }
 
     function considerTransferNotification(notification) {
-        return false;
+        return Phone.KdeConnectService.considerTransferNotification(notification)
     }
 
-    function dispatchActionFeedback(notification) {
+    function dispatchActionFeedback(message, ok) {
+        Phone.KdeConnectService.dispatchActionFeedback(message, ok)
     }
 
-    function sendPing() {
+    function sendPing(devId, message) {
+        Phone.KdeConnectService.sendPing(devId, message)
     }
 
-    function shareUrl(url) {
+    function shareUrl(url, devId) {
+        Phone.KdeConnectService.shareUrl(url, devId)
     }
 }

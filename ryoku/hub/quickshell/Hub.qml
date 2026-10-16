@@ -60,6 +60,7 @@ Rectangle {
 
     // ── which page ───────────────────────────────────────────────────────
     property string section: "windowmanager"
+    property string connectionSub: ""
     // remember the last section so a reopen lands where you left, not the default.
     // Read once at startup by `sectionGet` below; written here on every change.
     onSectionChanged: Quickshell.execDetached(["ryoku-hub", "config", "set", "section", hub.section])
@@ -92,6 +93,12 @@ Rectangle {
                 "desktop", "editSection", editorSection, ""];
             editorHandoff.running = true;
             return;
+        }
+        if (target === "phone") {
+            hub.connectionSub = "phone";
+            target = "connections";
+        } else if (target === "connections") {
+            hub.connectionSub = "";
         }
         target = hub.canonicalSection(target);
         if (!target || hub.pageFile(target) === "" || !hub.sectionAvailable(target))
@@ -173,7 +180,7 @@ Rectangle {
         "global": "language locale region formats format date time number currency text size font scale location city weather timezone international i18n l10n",
         "profile": "dashboard status overview telemetry hostname cpu gpu memory uptime specs",
         "displays": "monitor screen resolution refresh scale rotation arrange mirror hidpi dual second external multiple",
-        "connections": "wifi wi-fi wireless bluetooth network hotspot tether internet ethernet pair pairing device",
+        "connections": "wifi wi-fi wireless bluetooth network hotspot tether internet ethernet pair pairing device phone android kde connect scrcpy mirror webcam microphone clipboard adb",
         "input": "keyboard mouse touchpad pointer trackpad sensitivity scroll layout dvorak remap capslock repeat gesture",
         "keybinds": "shortcuts hotkeys binds keys browser terminal editor files launch super",
         "gpu": "graphics nvidia amd vram passthrough vfio rendering hybrid performance cpu governor epp frequency thermal battery charge ceiling aspm profile",

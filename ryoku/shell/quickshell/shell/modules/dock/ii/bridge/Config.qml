@@ -5,6 +5,7 @@ import QtQuick
 import ".."
 import Quickshell
 import stage.modules.common as StageCfg
+import shell.services as Shell
 
 /**
  * The ii dock's options tree.
@@ -65,7 +66,7 @@ Singleton {
         readonly property var modes: StageCfg.Config.options.modes
         readonly property var networking: StageCfg.Config.options.networking
         readonly property var notifications: StageCfg.Config.options.notifications
-        readonly property var phone: StageCfg.Config.options.phone
+        readonly property var phone: Shell.Config.phone
         readonly property var policies: StageCfg.Config.options.policies
         readonly property var resources: StageCfg.Config.options.resources
         readonly property var screenRecord: StageCfg.Config.options.screenRecord

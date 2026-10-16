@@ -68,3 +68,22 @@ version: Ryoku runs it over its own desktop, widgets, wallpaper, visualizer and
 depth services, gives it the Ryoku look, and leaves out its lock screen, bar and
 dock editing. ii-p3drovfx is released under the GNU General Public License
 version 3; the ported portions keep that license, compatible with Ryoku's GPL-3.
+
+Kit's Dev tools, Commands, Typing test and Phone tabs
+(ryoku/shell/quickshell/keys/) and the phone module behind the Phone tab
+(ryoku/shell/quickshell/shell/modules/phone/) are based on the cheatsheet pages,
+phone services and Phone sidebar of ii-p3drovfx by P3DROVFX and contributors
+(https://github.com/P3DROVFX/ii-p3drovfx). They are modified versions: Ryoku
+draws them in its own look inside Kit and the Hub, keeps only the developer
+tools its users reach for, generates random values from /dev/urandom instead of
+Math.random, runs the phone services in the shell and lets Kit drive them over
+IPC, reads Android manifests with its own parser instead of pyaxmlparser, uses
+scrcpy for the phone webcam and microphone instead of DroidCam, installs the
+phone packages on demand, and routes window placement through the
+window-manager seam. They are released under the GNU General Public License
+version 3; the ported portions keep that license, compatible with Ryoku's GPL-3.
+
+The word lists and key sounds under ryoku/shell/quickshell/keys/typing/assets/
+come from Monkeytype (https://github.com/monkeytypegame/monkeytype), released
+under the GNU General Public License version 3 only; the pinned upstream commit
+is recorded in the manifests beside them.

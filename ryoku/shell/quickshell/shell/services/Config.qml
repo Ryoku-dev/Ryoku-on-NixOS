@@ -88,6 +88,9 @@ Singleton {
     // surface. The adapter keeps it a self-contained shell.json subtree so it
     // can retune live without a shell restart.
     property alias clipboard: adapter.clipboard
+    // Phone integration is optional and remains dormant until its Hub install
+    // transaction has completed.
+    property alias phone: adapter.phone
     readonly property var normalizedNacre: NacreConfig.normalize(nacre)
     readonly property var defaultControls: ({
         "sections": [
@@ -420,6 +423,60 @@ Singleton {
                 "paneRadius": 12,
                 "cardRadius": 9,
                 "pruneWeekly": false
+            })
+            property var phone: ({
+                "enabled": false,
+                "desktopNotifications": true,
+                "contacts": {
+                    "enabled": true,
+                    "hideUnnamed": true
+                },
+                "scrcpy": {
+                    "useWireless": false,
+                    "autoWirelessIp": true,
+                    "wirelessIp": "",
+                    "wirelessPort": 5555,
+                    "pinAdbPort": false,
+                    "maxSize": 0,
+                    "maxFps": 60,
+                    "videoBitRate": "8M",
+                    "audio": true,
+                    "turnScreenOff": false,
+                    "stayAwake": true,
+                    "showTouches": false,
+                    "clipboardSync": true,
+                    "keyboardMode": "uhid",
+                    "autoResume": true,
+                    "appMode": {
+                        "showAppIcons": true,
+                        "autoUnlock": true,
+                        "flexDisplay": false,
+                        "displayWidth": 1280,
+                        "displayHeight": 960,
+                        "displayDpi": 240,
+                        "onSessionEnd": "home"
+                    },
+                    "recording": { "folder": "" }
+                },
+                "webcam": {
+                    "cameraFacing": "back",
+                    "width": 1280,
+                    "height": 720,
+                    "fps": 30,
+                    "videoDevice": ""
+                },
+                "microphone": {
+                    "enabled": false,
+                    "micGain": 100,
+                    "monitor": false,
+                    "setDefault": false
+                },
+                "alarm": {
+                    "enabled": true,
+                    "pollMinutes": 10,
+                    "clockApps": [],
+                    "ignorePackages": []
+                }
             })
             property var ask: ({
                 "bubble": {

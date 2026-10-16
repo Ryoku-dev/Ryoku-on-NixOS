@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "libraries": [
+    {
+      "id": "ryoku",
+      "label": "Ryoku",
+      "groups": [
+        { "id": "ryoku-updates", "label": "Updates & recovery" },
+        { "id": "ryoku-repair", "label": "Repair & diagnose" },
+        { "id": "ryoku-shell", "label": "Shell & desktop" },
+        { "id": "ryoku-bar", "label": "Bar & dock" },
+        { "id": "ryoku-look", "label": "Wallpaper & colours" },
+        { "id": "ryoku-wm", "label": "Windows & displays" },
+        { "id": "ryoku-input", "label": "Keyboard & input" },
+        { "id": "ryoku-power", "label": "Power, GPU & hardware" },
+        { "id": "ryoku-audio", "label": "Audio" },
+        { "id": "ryoku-network", "label": "Network & sharing" },
+        { "id": "ryoku-capture", "label": "Capture & quick tools" },
+        { "id": "ryoku-apps", "label": "Apps & extras" },
+        { "id": "ryoku-plugins", "label": "Plugins & store" },
+        { "id": "ryoku-security", "label": "Keyring & security" },
+        { "id": "ryoku-rashin", "label": "Rashin (AI)" },
+        { "id": "ryoku-phone", "label": "Phone" },
+        { "id": "ryoku-import", "label": "Import, rices & profiles" },
+        { "id": "ryoku-internal", "label": "Internal (used by Ryoku itself)" }
+      ]
+    },
+    {
+      "id": "linux",
+      "label": "Linux",
+      "groups": [
+        { "id": "linux-help", "label": "Getting help" },
+        { "id": "linux-navigate", "label": "Moving around" },
+        { "id": "linux-files", "label": "Files & folders" },
+        { "id": "linux-text", "label": "Reading & editing text" },
+        { "id": "linux-search", "label": "Finding things" },
+        { "id": "linux-permissions", "label": "Permissions & sudo" },
+        { "id": "linux-packages", "label": "Software & packages" },
+        { "id": "linux-services", "label": "Services & logs" },
+        { "id": "linux-processes", "label": "Processes & performance" },
+        { "id": "linux-system", "label": "System & hardware info" },
+        { "id": "linux-disks", "label": "Disks & storage" },
+        { "id": "linux-network", "label": "Network & internet" },
+        { "id": "linux-archives", "label": "Archives & compression" },
+        { "id": "linux-users", "label": "Users & groups" },
+        { "id": "linux-shell", "label": "Shell skills" },
+        { "id": "linux-power", "label": "Power & session" },
+        { "id": "linux-git", "label": "Git basics" }
+      ]
+    }
+  ]
+}

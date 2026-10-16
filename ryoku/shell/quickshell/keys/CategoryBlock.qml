@@ -11,8 +11,7 @@ Column {
     property string name: ""
     property var binds: []
     property bool showHead: true
-    // Forwarded to each row: while the sheet searches, every shown row reveals its
-    // hint, not only the hovered one.
+    // Kit search reveals every matching row's hint, not only the hovered one.
     property bool searching: false
 
     spacing: Tokens.s1
@@ -57,13 +56,32 @@ Column {
     Repeater {
         model: block.binds
         delegate: BindRow {
+            id: bindRow
             required property var modelData
+            required property int index
+            property real entryProgress: Tokens.reduceMotion ? 1 : 0
             width: block.width
             keys: modelData.keys
             desc: modelData.desc
             hint: modelData.hint || ""
             unhonored: modelData.unhonored || ""
             searching: block.searching
+            opacity: entryProgress
+            transform: Translate { x: (1 - bindRow.entryProgress) * 8 }
+
+            SequentialAnimation {
+                id: entryAnimation
+                PauseAnimation { duration: Math.min(bindRow.index, 8) * 12 }
+                NumberAnimation {
+                    target: bindRow
+                    property: "entryProgress"
+                    from: 0
+                    to: 1
+                    duration: Tokens.durSmall
+                    easing.type: Easing.OutCubic
+                }
+            }
+            Component.onCompleted: if (!Tokens.reduceMotion) entryAnimation.start()
         }
     }
 }

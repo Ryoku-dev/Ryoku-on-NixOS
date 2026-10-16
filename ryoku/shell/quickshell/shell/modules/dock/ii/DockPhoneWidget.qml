@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 
 import stage.services
+import shell.modules.phone
 import "./widgets"
 import "."
 

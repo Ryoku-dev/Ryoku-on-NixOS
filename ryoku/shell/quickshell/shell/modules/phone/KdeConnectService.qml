@@ -1,0 +1,2500 @@
+pragma Singleton
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Ryoku.Ui.Singletons
+import shell.services
+
+/**
+ * KDE Connect bridge for the Sidebar Policies "Phone" tab.
+ *
+ * Spawns `scripts/kdeconnect/monitor.py` which listens to the
+ * `org.kde.kdeconnect` DBus daemon and emits JSON events on stdout.
+ * Each event updates the reactive list of devices, notifications,
+ * battery / cellular signal state, etc.
+ *
+ * One-shot actions (find phone, ping, share URL, send clipboard,
+ * sftp mount, dismiss notification) are dispatched via `qdbus-qt6`.
+ *
+ * The active device and recents live in PhoneState and survive shell reloads.
+ */
+Singleton {
+    id: root
+
+    property bool available: false
+    property bool ready: false
+    readonly property bool hasDevices: devices.length > 0
+
+    property string activeDeviceId: ""
+    onActiveDeviceIdChanged: {
+        if (root.activeDeviceId && root.notifications.length === 0) {
+            const cached = root._getCachedNotifications(root.activeDeviceId)
+            if (cached.length > 0)
+                root.notifications = cached
+        }
+        root._probeAdbDeviceName()
+        root._pickMdnsHost()
+        root.refreshRunCommands()
+    }
+
+    property var devices: []
+    readonly property var activeDevice: root._findDevice(root.activeDeviceId)
+
+    /** Recent paired devices (excluding the active one) in MRU order.
+     *  Backed by PhoneState.recentDeviceIds. */
+    readonly property var recentDevices: root._computeRecentDevices()
+    function _computeRecentDevices() {
+        const ids = PhoneState.recentDeviceIds || []
+        const out = []
+        for (let i = 0; i < ids.length; i++) {
+            const id = ids[i]
+            if (id === root.activeDeviceId) continue
+            const d = root._findDevice(id)
+            if (d && d.paired) out.push(d)
+        }
+        return out.slice(0, 4)
+    }
+    readonly property bool activeReachable: root.activeDevice
+        ? (root.activeDevice.reachable === true)
+        : false
+    onActiveReachableChanged: {}
+    readonly property bool activeHasNotifications: root.activeDeviceId !== ""
+        && root._devicePlugins(root.activeDeviceId).indexOf("kdeconnect_notifications") >= 0
+    readonly property bool scrcpyAvailable: root._scrcpyAvailable
+    property bool scrcpyRunning: false
+
+    /** True immediately when launchScrcpy() is called, stays true until the
+     *  pgrep poller confirms the process is actually running (or until the
+     *  fallback timer fires ~10s later if the process never appeared).
+     *  Lets the UI give instant feedback while scrcpy is still starting up
+     *  (the scrcpyStatusTimer only runs every 1.5s, which causes an
+     *  8-second perceptual delay otherwise). */
+    property bool scrcpyLaunching: false
+
+    /** Milliseconds since scrcpy was first detected running by the
+     *  pgrep poller. Updates every 1 second while running. Zero when
+     *  not running. */
+    property int scrcpyElapsedMs: 0
+
+    /** Error message set when scrcpy launch fails (e.g. ADB not reachable).
+     *  Cleared when scrcpy is actually running. The PhoneFooter reads this
+     *  to show a hint on the card. */
+    property string scrcpyLaunchError: ""
+
+    /** True if `adb` is reachable on the active device (either wireless ADB
+     *  via Config.options.phone.scrcpy.useWireless + configured IP, or via
+     *  a USB-attached device). Cached for 30s — used to enable ADB-only
+     *  quick actions (screenshot, power key, volume, am start). */
+    property bool adbReachable: false
+    property string resolvedAdbSerial: ""
+    property string adbState: "none"
+    property string adbModel: ""
+    readonly property bool adbWireless: root.resolvedAdbSerial.indexOf(":") >= 0
+    readonly property var adbCandidates: {
+        const seen = ({})
+        const out = []
+        for (const key in root._mdnsServices) {
+            const endpoint = String(root._mdnsServices[key] || "")
+            if (endpoint && !seen[endpoint]) {
+                seen[endpoint] = true
+                out.push(endpoint)
+            }
+        }
+        return out
+    }
+
+    /** Android's user-set device name (Settings → About phone → Device name),
+     *  read over ADB. KDE Connect reports the marketing model instead
+     *  ("Galaxy S24 Ultra"), which is not what the user named the phone.
+     *  Empty until the probe lands, and left in place when ADB drops so the
+     *  header does not flip back to the model on every reconnect. */
+    property string adbDeviceName: ""
+
+    /** Device the cached adbDeviceName was read for. The ADB target follows
+     *  the active device, so a name must never leak onto a different one. */
+    property string _adbDeviceNameFor: ""
+    property string _adbDeviceNameTarget: ""
+
+    /** What the UI should call the active device: its own name when ADB
+     *  could supply one, the KDE Connect model string otherwise. */
+    readonly property string activeDeviceDisplayName: {
+        if (root.activeDeviceId !== "" && root._adbDeviceNameFor === root.activeDeviceId
+            && root.adbDeviceName !== "")
+            return root.adbDeviceName
+        return root.activeDevice ? root.activeDevice.name : ""
+    }
+
+    /** How many devices `adb devices` reports in the "device" state. When
+     *  there is exactly one, every consumer omits `-s` entirely: Android
+     *  re-rolls its wireless-debugging port often enough that a serial can
+     *  go stale between resolving it and the command reaching the phone,
+     *  and "the only device" cannot go stale. */
+    property int adbDeviceCount: 0
+
+    /** Live wireless ADB target ("ip:port") the next scrcpy launch will use.
+     *  In auto mode this tracks KDE Connect's reported reachable address so
+     *  the user never has to type an IP that changes (VPN, DHCP, etc.).
+     *  Empty when no host can be resolved. Bound reactively — reads the
+     *  device list, active device id, and scrcpy config so it refreshes
+     *  whenever any of them change. */
+    /** "ip:port" discovered via mDNS (avahi) for the phone's Android 11+
+     *  wireless-debugging service. Carries the CURRENT randomly-assigned
+     *  port, which changes on every toggle/reboot. Empty when not found
+     *  (avahi missing, wireless debugging off, or nothing on the network).
+     *  Kept live by mdnsBrowseProc while wireless auto mode is active. */
+    property string mdnsWirelessHost: ""
+
+    readonly property string resolvedWirelessHost: {
+        root.devices
+        root.activeDeviceId
+        root.mdnsWirelessHost
+        const c = Config.phone?.scrcpy ?? null
+        if (c) {
+            c.autoWirelessIp
+            c.wirelessIp
+            c.wirelessPort
+        }
+        return root._resolveWirelessHost(root.activeDeviceId)
+    }
+
+    property var notifications: []
+    readonly property int notificationCount: notifications.length
+    onNotificationsChanged: {
+        if (root.ready) cacheSaveTimer.restart()
+    }
+
+    /** Pending incoming pair requests from the KDE Connect daemon.
+     *  Each entry is `{id, name}`. Managed by the monitor.py events and
+     *  cleaned up once the device reports itself paired or disappears. */
+    property var pendingPairRequests: []
+    readonly property var pairRequests: root.pendingPairRequests
+    property var runCommands: []
+    property string outgoingPairId: ""
+    property string lastError: ""
+
+    // Keep the last remote notifications in the phone state file so a shell
+    // reload does not leave the page empty while D-Bus reconnects.
+    property var _notificationsCache: ({})
+
+    // Ticks every 30s to force the friendly time string ("2m", "1h") in
+    // RemoteNotificationGroup to re-evaluate. Without this, the binding
+    // `getFriendlyNotifTimeString(time)` only re-evaluates when `time`
+    // changes — but since the DBus doesn't expose a real timestamp, we
+    // store Date.now() at fetch time and the display would freeze on
+    // "Now" forever.
+    property real _timeTick: 0
+    Timer {
+        interval: 30000
+        repeat: true
+        running: root.ready && root._enabled
+        onTriggered: root._timeTick = Date.now()
+    }
+
+    readonly property var groupsByAppName: {
+        const groups = {}
+        notifications.forEach(n => {
+            const key = n.appName || n.summary || I18n.tr("Unknown")
+            if (!groups[key]) {
+                groups[key] = {
+                    appName: key,
+                    appIcon: n.iconPath || "",
+                    notifications: [],
+                    time: 0
+                }
+            }
+            groups[key].notifications.push(n)
+            if (n.time > groups[key].time)
+                groups[key].time = n.time
+        })
+        // Sort notifications within each group by time descending so the
+        // newest notification is always first when the group renders its
+        // preview (slice(0, 2)). Without this, the order depends on the
+        // DBus iteration order, which may not match arrival time.
+        for (const key in groups) {
+            groups[key].notifications.sort((a, b) => (b.time || 0) - (a.time || 0))
+        }
+        return groups
+    }
+    readonly property list<string> appNameList: {
+        return Object.keys(groupsByAppName).sort((a, b) => {
+            return groupsByAppName[b].time - groupsByAppName[a].time
+        })
+    }
+
+    signal devicePairingRequested(string devId, string name)
+    signal deviceShareReceived(string devId, string url)
+    /** Telephony: state is "ringing", "talking" or "missedCall"; see PhoneCallService. */
+    signal callEvent(string devId, string state, string number, string contact)
+    signal actionFeedback(string message, bool ok)
+    // Emitted when the active device transitions from reachable→offline
+    // while a phone feature (webcam/mic/scrcpy) is running — shell UI
+    // surfaces an inline warning inside the active card.
+    signal activeDeviceLostDuringUse(string devId)
+    // Emitted when the active device battery crosses below 20%.
+    // Connected once in Phone.qml to fire a desktop notification.
+    signal activeDeviceBatteryLow(string devId, int charge)
+    // Emitted when the active device battery recovers (≥25% or plugged in).
+    signal activeDeviceBatteryRecovered(string devId, int charge)
+    // Emitted when critical dependencies are missing (kdeconnect-cli, pactl,
+    // dbus python module, etc). Phone.qml shows a toast warning the user.
+    signal criticalDepMissing(string depName, string message)
+
+    property int _previousBattery: -1
+    property bool _lowBatteryNotified: false
+
+    readonly property string _scriptPath: Quickshell.shellPath("modules/phone/scripts/kdeconnect/monitor.py")
+    readonly property string _fetchNotifsScriptPath: Quickshell.shellPath("modules/phone/scripts/kdeconnect/fetch_notifications.py")
+
+    IpcHandler {
+        target: "kdeconnect"
+
+        function status(): string {
+            const dev = KdeConnectService.activeDevice
+            return JSON.stringify({
+                available: KdeConnectService.available,
+                ready: KdeConnectService.ready,
+                persistedActiveDeviceId: PhoneState.activeDeviceId,
+                scrcpyAvailable: KdeConnectService.scrcpyAvailable,
+                devicesCount: KdeConnectService.devices.length,
+                activeDeviceId: KdeConnectService.activeDeviceId,
+                activeReachable: KdeConnectService.activeReachable,
+                activeName: dev ? dev.name : "(none)",
+                activeBattery: dev ? dev.charge : -1,
+                notificationsCount: KdeConnectService.notificationCount,
+                monitorRunning: monitorProc.running,
+            })
+        }
+
+        function ping(devId: string): void {
+            KdeConnectService.sendPing(devId || KdeConnectService.activeDeviceId, "ping via ipc")
+        }
+
+        function shareFile(devId: string, path: string): void {
+            KdeConnectService.shareUrl(devId || KdeConnectService.activeDeviceId, root._fileUrl(path))
+        }
+    }
+
+    Component.onCompleted: {
+        root._initNotificationsCache()
+        root.activeDeviceId = PhoneState.activeDeviceId
+        if (!root._enabled) return
+        const cached = root._getCachedNotifications(root.activeDeviceId)
+        if (cached.length > 0)
+            root.notifications = cached
+        detectDistroProc.running = true
+        checkAvailabilityProc.running = true
+        checkScrcpyProc.running = true
+        checkAdbProc.running = true
+        checkPythonDbusProc.running = true
+    }
+
+    // Package status and the user setting must both be live before any helper
+    // is allowed to start.
+    readonly property bool _enabled: PhoneState.runtimeReady
+
+    // Public read-only view for toggle models and dialogs that mirror the service state.
+    readonly property bool serviceEnabled: root._enabled
+
+    // Stop all background activity when the Phone tab is toggled off at runtime.
+    // Restart when toggled back on. This lets users enable/disable Phone
+    // integration without reloading the shell.
+    on_EnabledChanged: {
+        if (root._enabled) {
+            // Re-enabled: spin the background workers back up.
+            detectDistroProc.running = true
+            checkAvailabilityProc.running = true
+            checkScrcpyProc.running = true
+            checkAdbProc.running = true
+            checkPythonDbusProc.running = true
+        } else {
+            monitorProc.running = false
+            cleanupProc.running = false
+            ensureDaemonProc.running = false
+            checkAvailabilityProc.running = false
+            detectDistroProc.running = false
+            checkAdbProc.running = false
+            checkPythonDbusProc.running = false
+            checkScrcpyRunningProc.running = false
+            checkScrcpyProc.running = false
+            adbProbeProc.running = false
+            adbDeviceNameProc.running = false
+            mdnsBrowseProc.running = false
+            listRunCommands.running = false
+            runCommandsProc.running = false
+            refresher.running = false
+            adbActionProc.running = false
+            adbPinProc.running = false
+            trustSettingsProc.running = false
+            restartTimer.stop()
+            adbTargetWatchdog.stop()
+            mdnsBrowseRestart.stop()
+            mdnsReconnectTimer.stop()
+            adbPinTimer.stop()
+            replyRefreshTimer.stop()
+            sftpOpenTimer.stop()
+            cacheSaveTimer.stop()
+            runCommandsDebounce.stop()
+            scrcpyStatusTimer.running = false
+            scrcpyLaunchFallbackTimer.running = false
+            scrcpyElapsedTicker.running = false
+            root.scrcpyRunning = false
+            root.scrcpyLaunching = false
+            root.adbReachable = false
+            root.adbState = "none"
+            root.resolvedAdbSerial = ""
+            root.adbModel = ""
+            root.devices = []
+            root.notifications = []
+            root.pendingPairRequests = []
+            root.runCommands = []
+        }
+    }
+
+    Process {
+        id: checkAvailabilityProc
+        running: false
+        command: ["bash", "-c", "command -v kdeconnect-cli >/dev/null"]
+        onExited: (code, status) => {
+            root.available = code === 0
+            if (root.available)
+                ensureDaemonProc.running = true
+            else
+                root.criticalDepMissing("kdeconnect-cli",
+                    I18n.tr("KDE Connect is not installed — phone integration requires it"))
+        }
+    }
+
+    Process {
+        id: ensureDaemonProc
+        running: false
+        command: ["bash", "-c",
+            "busctl --user --timeout=2 call org.kde.kdeconnect /modules/kdeconnect org.freedesktop.DBus.Peer Ping >/dev/null 2>&1 "
+            + "|| { D=$(command -v kdeconnectd); [ -n \"$D\" ] || D=/usr/lib/kdeconnectd; "
+            + "[ -x \"$D\" ] && \"$D\" >/dev/null 2>&1 & }"]
+        onExited: if (root._enabled) root.startMonitor()
+    }
+
+    Process {
+        id: checkScrcpyProc
+        running: false
+        command: ["bash", "-c", "command -v scrcpy >/dev/null"]
+        onExited: (code, status) => {
+            root._scrcpyAvailable = (code === 0)
+        }
+    }
+    property bool _scrcpyAvailable: false
+
+    // ─── Granular dependency flags (for the install guide UI) ───
+    property bool adbPresent: false
+    property bool pythonDbusPresent: false
+    property string detectedDistro: "unknown"
+
+    /** Array of missing dependency descriptors for the scrcpy card install
+     *  guide popup. Each entry: { key, name, description, present, installCommands } */
+    readonly property var scrcpyMissingDeps: {
+        const deps = []
+        if (!root._scrcpyAvailable)
+            deps.push({
+                key: "scrcpy",
+                name: I18n.tr("scrcpy"),
+                description: I18n.tr("Mirrors your phone screen in a floating SDL window. The main binary for screen mirroring."),
+                present: false,
+                installCommands: ({
+                    arch: "sudo pacman -S scrcpy",
+                    fedora: "sudo dnf install scrcpy",
+                    debian: "sudo apt install scrcpy",
+                })
+            })
+        if (!root.adbPresent)
+            deps.push({
+                key: "android-tools",
+                name: I18n.tr("android-tools (adb)"),
+                description: I18n.tr("Required for USB connection, quick actions (screenshot, power button) and opening apps from notifications."),
+                present: false,
+                installCommands: ({
+                    arch: "sudo pacman -S android-tools",
+                    fedora: "sudo dnf install android-tools",
+                    debian: "sudo apt install android-tools-adb",
+                })
+            })
+        if (!root.pythonDbusPresent)
+            deps.push({
+                key: "python-dbus",
+                name: I18n.tr("python-dbus"),
+                description: I18n.tr("Python D-Bus bindings — required for the KDE Connect monitor to read notifications, battery, and connectivity."),
+                present: false,
+                installCommands: ({
+                    arch: "sudo pacman -S python-dbus",
+                    fedora: "sudo dnf install python3-dbus",
+                    debian: "sudo apt install python3-dbus",
+                })
+            })
+        return deps
+    }
+
+    // ─── Distro detection (runs once on startup) ──────────
+    Process {
+        id: detectDistroProc
+        running: false
+        command: ["bash", "-c",
+            "if [ -f /etc/arch-release ]; then echo arch; " +
+            "elif [ -f /etc/fedora-release ]; then echo fedora; " +
+            "elif [ -f /etc/debian_version ]; then echo debian; " +
+            "else echo unknown; fi"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const d = String(this.text).trim()
+                if (d.length > 0) root.detectedDistro = d
+            }
+        }
+    }
+
+    // ─── ADB presence check ────────────────────────────────
+    Process {
+        id: checkAdbProc
+        running: false
+        command: ["bash", "-c", "command -v adb >/dev/null 2>&1"]
+        onExited: (code, status) => {
+            root.adbPresent = (code === 0)
+        }
+    }
+
+    // ─── Python dbus presence check ───────────────────────────
+    Process {
+        id: checkPythonDbusProc
+        running: false
+        command: ["bash", "-c", "python3 -c 'import dbus' 2>/dev/null && echo 'ok'"]
+        stdout: SplitParser {
+            onRead: line => {
+                root.pythonDbusPresent = (String(line).trim() === "ok")
+            }
+        }
+        onExited: (code, status) => {
+            if (code !== 0)
+                root.pythonDbusPresent = false
+        }
+    }
+
+    Process {
+        id: cleanupProc
+        running: false
+        command: ["pkill", "-f", "kdeconnect/monitor.py"]
+        onExited: (code, status) => {
+            if (!root._enabled) return
+            monitorProc.command = PhoneState.pdeath(["python3", root._scriptPath])
+            monitorProc.running = true
+        }
+    }
+
+    function startMonitor() {
+        if (!root._enabled || monitorProc.running || cleanupProc.running) return
+        cleanupProc.running = true
+    }
+
+    Process {
+        id: monitorProc
+        running: false
+
+        stdout: SplitParser {
+            onRead: line => {
+                if (!line || line.length === 0) return
+                let ev
+                try {
+                    ev = JSON.parse(line)
+                } catch (e) {
+                    console.warn("[KdeConnect] Bad JSON:", e.message,
+                        "len:", line.length,
+                        "first:", line.substring(0, 60),
+                        "last:", line.substring(Math.max(0, line.length - 60)))
+                    return
+                }
+                try {
+                    root._handleEvent(ev)
+                } catch (e) {
+                    console.warn("[KdeConnect] Handler error for event",
+                                 JSON.stringify(ev.event),
+                                 "msg:", e.message,
+                                 "stack:", (e.stack || "").split("\n")[1] || "(no stack)")
+                }
+            }
+        }
+
+        stderr: SplitParser {
+            onRead: line => {
+                // Carry on. Most stderr noise is from D-Bus introspect
+                // failures for inaccessible plugin paths on offline devices.
+                if (String(line).indexOf("Introspect error") < 0
+                    && String(line).indexOf("UnknownObject") < 0)
+                    console.warn("[KdeConnect] monitor stderr:", line)
+            }
+        }
+
+        onExited: (code, status) => {
+            root.ready = false
+            if (root._enabled) {
+                root.lastError = I18n.tr("KDE Connect stopped")
+                restartTimer.restart()
+            }
+        }
+    }
+
+    Timer {
+        id: restartTimer
+        interval: 4000
+        repeat: false
+        onTriggered: {
+            if (root.available && root._enabled) root.startMonitor()
+        }
+    }
+
+    function _handleEvent(ev) {
+        switch (ev.event) {
+        case "ready":
+            root.ready = true
+            root.lastError = ""
+            break
+        case "fatal":
+            root.ready = false
+            root.lastError = String(ev.message || ev.detail || I18n.tr("KDE Connect is unavailable"))
+            console.warn("[KdeConnect] monitor fatal:", ev.error, ev.message ?? "", ev.detail ?? "")
+            if (ev.error === "missing_deps") {
+                const msg = ev.message || I18n.tr("Missing Python dependency")
+                const detail = ev.detail || ""
+                const label = detail.length > 0 ? msg + "\n" + detail : msg
+                root.criticalDepMissing("python-deps", label)
+            }
+            break
+        case "device_added_signal":
+            // Marker before `device_added`. Swallow.
+            break
+        case "device_added":
+            root._mergeDevice(ev)
+            root._sanitiseActiveDevice()
+            break
+        case "device_removed":
+            root._removeDevice(ev.id)
+            root._sanitiseActiveDevice()
+            break
+        case "device_props":
+            root._applyDeviceProps(ev.id, ev.changed ?? {})
+            break
+        case "device_visibility":
+            root._patchDevice(ev.id, {"reachable": ev.reachable})
+            root._sanitiseActiveDevice()
+            break
+        case "battery":
+            root._patchDevice(ev.id, {"charge": ev.charge, "charging": ev.charging})
+            // Also emit low / recovered signals directly — _patchDevice
+            // takes the merged dict path but may not see charge changes
+            // coming via the inline "battery" event in some scenarios
+            // (e.g., first event after shell boot, when _previousBattery
+            // is still -1 and the merge path's comparison is skipped).
+            if (ev.id === root.activeDeviceId) {
+                const charge = ev.charge ?? -1
+                const charging = !!ev.charging
+                if (charge >= 0 && charge < 20 && !charging
+                    && !root._lowBatteryNotified
+                    && root._previousBattery >= 20) {
+                    root.activeDeviceBatteryLow(ev.id, charge)
+                    root._lowBatteryNotified = true
+                } else if ((charge >= 25 || charging)
+                           && root._lowBatteryNotified) {
+                    root.activeDeviceBatteryRecovered(ev.id, charge)
+                    root._lowBatteryNotified = false
+                }
+                root._previousBattery = charge
+            }
+            break
+        case "connectivity":
+            root._patchDevice(ev.id, {"signalType": ev.type, "signalStrength": ev.strength})
+            break
+        case "sync_notifications":
+            if (ev.id === root.activeDeviceId) {
+                root.notifications = root._normaliseNotifications(ev.notifications ?? [])
+            }
+            break
+        case "notif_cleared":
+            if (ev.id === root.activeDeviceId) root.notifications = []
+            break
+        case "notif_posted":
+        case "notif_updated":
+        case "notif_removed":
+            // sync_notifications event always follows; nothing more to do.
+            break
+        case "share_received":
+            root.deviceShareReceived(ev.id, ev.url)
+            break
+        case "remote_keyboard": {
+            const map = Object.assign({}, root._remoteKeyboardStates)
+            map[ev.id] = !!ev.active
+            root._remoteKeyboardStates = map
+            break
+        }
+        case "call":
+            root.callEvent(ev.id, ev.state ?? "", ev.number ?? "", ev.contact ?? "")
+            break
+        case "pairing_request":
+            root._addPairingRequest(ev.id, ev.name ?? "")
+            break
+        case "debug":
+            // Best-effort: keep log only when env var set
+            if (typeof Qt !== "undefined" && Qt.application)
+                console.log("[KdeConnect] debug",
+                    ev.what ?? "", ev.error ?? "", ev.raw ?? "")
+            break
+        }
+    }
+
+    function _mergeDevice(ev) {
+        const devices = root.devices.slice()
+        const idx = devices.findIndex(d => d.id === ev.id)
+        const normalized = {
+            id: ev.id,
+            name: ev.name ?? "",
+            type: ev.type ?? "phone",
+            icon: ev.icon ?? "phone",
+            reachable: !!ev.reachable,
+            paired: !!ev.paired,
+            charge: ev.charge ?? -1,
+            charging: !!ev.charging,
+            signalType: ev.signalType ?? "",
+            signalStrength: ev.signalStrength ?? 0,
+            supportedPlugins: ev.supported_plugins ?? [],
+            loadedPlugins: ev.loaded_plugins ?? [],
+            reachableAddresses: ev.reachableAddresses ?? [],
+        }
+        if (idx < 0) devices.push(normalized)
+        else devices[idx] = Object.assign({}, devices[idx], normalized)
+        root.devices = devices
+        if (normalized.paired) {
+            root._removePairingRequest(ev.id)
+            if (root.outgoingPairId === ev.id) root.outgoingPairId = ""
+        }
+    }
+
+    function _patchDevice(id, patch) {
+        const devices = root.devices.slice()
+        const idx = devices.findIndex(d => d.id === id)
+        if (idx < 0) return
+        const prev = devices[idx]
+        const merged = Object.assign({}, devices[idx], patch)
+
+        // Phase 6 — detect "device lost during use".
+        // If we just transitioned reachable=true → false AND this is the
+        // active device AND a phone feature is currently running, emit
+        // signal so the UI can show an inline warning instead of looking
+        // like a silent state change.
+        if (id === root.activeDeviceId
+            && prev.reachable === true
+            && merged.reachable === false) {
+            const anyFeatureRunning = PhoneCameraService.running
+                || PhoneMicService.running
+                || root.scrcpyRunning
+            if (anyFeatureRunning) {
+                root.activeDeviceLostDuringUse(id)
+            }
+        }
+
+        // Phase 7.4 — low battery notification (cross 20% threshold).
+        if (id === root.activeDeviceId && merged.charge !== undefined) {
+            const newCharge = merged.charge
+            if (newCharge >= 0 && newCharge < 20
+                && !merged.charging
+                && !root._lowBatteryNotified
+                && root._previousBattery >= 20) {
+                root.activeDeviceBatteryLow(id, newCharge)
+                root._lowBatteryNotified = true
+            } else if ((newCharge >= 25 || merged.charging)
+                       && root._lowBatteryNotified) {
+                root.activeDeviceBatteryRecovered(id, newCharge)
+                root._lowBatteryNotified = false
+            }
+            root._previousBattery = newCharge
+        }
+
+        devices[idx] = merged
+        root.devices = devices
+        if (patch.paired === true) {
+            root._removePairingRequest(id)
+            if (root.outgoingPairId === id) root.outgoingPairId = ""
+        }
+    }
+
+    function _addPairingRequest(id, name) {
+        if (!id) return
+        const list = root.pendingPairRequests.slice()
+        if (!list.find(p => p.id === id)) {
+            list.push({ id: id, name: name })
+            root.pendingPairRequests = list
+            root.devicePairingRequested(id, name)
+        }
+    }
+
+    function _removePairingRequest(id) {
+        if (!id) return
+        const list = root.pendingPairRequests.filter(p => p.id !== id)
+        if (list.length !== root.pendingPairRequests.length)
+            root.pendingPairRequests = list
+    }
+
+    function _applyDeviceProps(id, changed) {
+        if (!changed) return
+        const patch = {}
+        if ("name" in changed) patch.name = String(changed.name)
+        if ("type" in changed) patch.type = String(changed.type)
+        if ("iconName" in changed) patch.icon = String(changed.iconName)
+        if ("isReachable" in changed) patch.reachable = !!changed.isReachable
+        if ("isPaired" in changed) patch.paired = !!changed.isPaired
+        if ("pairState" in changed) {
+            // pairState: 0 = unpaired, 1 = paired, 2 = requested
+            const ps = changed.pairState
+            if (patch.paired === undefined) {
+                patch.paired = (ps === 1)
+            }
+        }
+        if ("loadedPlugins" in changed) patch.loadedPlugins = changed.loadedPlugins.slice(0)
+        if ("supportedPlugins" in changed) patch.supportedPlugins = changed.supportedPlugins.slice(0)
+        if ("reachableAddresses" in changed && changed.reachableAddresses)
+            patch.reachableAddresses = changed.reachableAddresses.slice(0)
+        root._patchDevice(id, patch)
+    }
+
+    function _removeDevice(id) {
+        root.devices = root.devices.filter(d => d.id !== id)
+        root._removePairingRequest(id)
+    }
+
+    function _feedback(message, ok) {
+        KdeConnectService.dispatchActionFeedback(message, ok)
+    }
+
+    function dispatchActionFeedback(message, ok) {
+        root.actionFeedback(message, ok)
+    }
+
+    function _findDevice(id) {
+        if (!id) return null
+        return root.devices.find(d => d.id === id) || null
+    }
+
+    function _devicePlugins(id) {
+        const d = root._findDevice(id)
+        return d ? (d.supportedPlugins || []) : []
+    }
+
+    function _sanitiseActiveDevice() {
+        const current = root._findDevice(root.activeDeviceId)
+        if (current && current.reachable && current.paired) return
+        const fallback = root.devices.find(d => d.reachable && d.paired)
+            || root.devices.find(d => d.paired)
+            || null
+        const nextId = fallback ? fallback.id : ""
+        if (nextId !== root.activeDeviceId) {
+            root.activeDeviceId = nextId
+            root._persistActiveDeviceId(nextId)
+            requestNotificationsRefresh()
+        }
+    }
+
+    function selectDevice(id) {
+        if (!id || id === root.activeDeviceId) return
+        root.activeDeviceId = id
+        root._persistActiveDeviceId(id)
+        requestNotificationsRefresh()
+    }
+
+    function _persistActiveDeviceId(id) {
+        PhoneState.rememberDevice(id)
+    }
+
+    function _normaliseNotifications(list) {
+        const existing = {}
+        for (let i = 0; i < root.notifications.length; i++) {
+            const n = root.notifications[i]
+            if (n.publicId) {
+                existing[n.publicId] = {
+                    time: n.time,
+                    ticker: n.ticker || "",
+                    body: n.body || "",
+                }
+            }
+        }
+        return list.filter(n => !root.isIgnoredNotification(n)).map(n => {
+            const ticker = n.ticker ?? ""
+            const appName = n.appName ?? ""
+            const title = n.summary ?? n.title ?? ""
+            const body = n.body ?? n.text ?? ""
+            const publicId = n.publicId ?? n.key ?? ""
+
+            let time
+            const prev = existing[publicId]
+            if (prev) {
+                const contentChanged = (ticker !== prev.ticker)
+                    || (body !== prev.body)
+                if (contentChanged) {
+                    time = Date.now()
+                } else {
+                    time = prev.time
+                }
+            } else if (typeof n.time === "number") {
+                time = n.time
+            } else if (n.time) {
+                time = parseInt(n.time, 10)
+            } else {
+                time = Date.now()
+            }
+            const image = root._extractNotificationImage(n)
+            return {
+                publicId: publicId,
+                appName: appName,
+                summary: title || appName,
+                body: body || ticker,
+                ticker: ticker,
+                time: time,
+                dismissable: n.dismissable !== undefined
+                    ? Boolean(n.dismissable)
+                    : (n.isCancel !== false),
+                iconPath: n.iconPath ?? "",
+                image: image,
+                actions: (n.actions ?? []).map(a => ({
+                    key: a.key ?? "",
+                    label: a.label ?? a.text ?? "",
+                })),
+                replyId: n.replyId ?? "",
+                replyPlaceholder: n.replyPlaceholder ?? I18n.tr("Reply"),
+                package: n.package ?? "",
+            }
+        })
+    }
+
+    function _extractNotificationImage(n) {
+        const internalId = n.internalId ?? ""
+        if (internalId.indexOf("com.google.android.youtube") >= 0) {
+            const segments = internalId.split("|")
+            if (segments.length >= 4) {
+                const videoIdPart = segments[3]
+                const videoId = videoIdPart.split("::")[0]
+                if (videoId && videoId.length === 11) {
+                    return "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg"
+                }
+            }
+        }
+        return ""
+    }
+
+    function requestNotificationsRefresh() {
+        if (!root.activeDeviceId) {
+            root.notifications = []
+            return
+        }
+        // Invoke the Python one-shot fetcher instead of `qdbus-qt6`.
+        // The qdbus-qt6 wrapping (`[Variant(QString): "..."]`) made every
+        // notification line fail JSON.parse, so the manual refresh button
+        // at the bottom of the Phone tab silently returned [] even when
+        // the device actually had active notifications. The fetcher uses
+        // the same DBus path as monitor.py and emits a single JSON array
+        // line that StdioCollector parses cleanly.
+        refresher.command = ["python3", root._fetchNotifsScriptPath,
+                             root.activeDeviceId]
+        refresher.running = true
+    }
+
+    Process {
+        id: refresher
+        running: false
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const text = this.text
+                if (!text || text.trim().length === 0) return
+                try {
+                    const parsed = JSON.parse(text.trim())
+                    if (!Array.isArray(parsed)) {
+                        console.warn("[KdeConnect] fetch_notifications: unexpected non-array response")
+                        return
+                    }
+                    // Always overwrite — even with [] — so the UI matches
+                    // the device's actual state after a manual refresh.
+                    root.notifications = root._normaliseNotifications(parsed)
+                } catch (e) {
+                    console.warn("[KdeConnect] Failed to parse notifications:", e)
+                }
+            }
+        }
+        onExited: (code, status) => {
+            // no-op
+        }
+    }
+
+    function discardAllNotifications() {
+        const list = root.notifications.slice()
+        for (const notif of list) {
+            if (notif.dismissable !== false && notif.publicId) {
+                // Use dismiss() on the per-notification leaf interface so the
+                // notification is actually removed on the phone — see
+                // discardNotification() for the full rationale. The previous
+                // sendAction(devId, publicId, "cancel") was a no-op because
+                // "cancel" isn't a registered action button on Android
+                // notifications, so dismissing all from the sidebar left all
+                // notifications still active in the phone's notification shade.
+                const leafPath = "/modules/kdeconnect/devices/" + root.activeDeviceId +
+                                 "/notifications/" + notif.publicId
+                Quickshell.execDetached([
+                    "bash", "-c",
+                    "QDBUS=$(command -v qdbus-qt6 || command -v qdbus6 || command -v qdbus); " +
+                    "$QDBUS org.kde.kdeconnect " + leafPath +
+                    " org.kde.kdeconnect.device.notifications.notification.dismiss" +
+                    " >/dev/null 2>&1 || true"
+                ])
+            }
+        }
+        root.notifications = []
+    }
+
+    function dismissNotification(publicId) { root.discardNotification(publicId) }
+    function dismissAllNotifications() { root.discardAllNotifications() }
+    function sendReply(publicId, message) { root.replyNotification(publicId, message) }
+    function invokeNotificationAction(publicId, actionKey) {
+        root.sendAction(root.activeDeviceId, publicId, actionKey)
+    }
+
+    function discardNotification(publicId) {
+        if (!publicId) return
+        // Calls `dismiss()` on the per-notification leaf interface at
+        // `/modules/kdeconnect/devices/<dev>/notifications/<publicId>`.
+        // This is the *correct* way to dismiss a notification on the phone:
+        // the dismiss() method sends an `isCancel=true` network packet to the
+        // Android device, which calls NotificationManager.cancel(id) for the
+        // matching notification.
+        //
+        // The previous implementation used
+        //   sendAction(devId, publicId, "cancel")
+        // which calls `org.kde.kdeconnect.device.notifications.sendAction(key, action)`
+        // — but that method invokes a named ACTION button on the notification
+        // (e.g. "Reply", "Mark as read") and treats "cancel" as just another
+        // action_key. Since Android notifications don't expose a "cancel"
+        // action button, the dismiss never reached the phone: the sidebar
+        // removed the card from its local list, but the phone's notification
+        // shade kept showing it. Using dismiss() actually cancels it on the
+        // phone.
+        const devId = root.activeDeviceId
+        const leafPath = "/modules/kdeconnect/devices/" + devId +
+                         "/notifications/" + publicId
+        Quickshell.execDetached([
+            "bash", "-c",
+            "QDBUS=$(command -v qdbus-qt6 || command -v qdbus6 || command -v qdbus); " +
+            "$QDBUS org.kde.kdeconnect " + leafPath +
+            " org.kde.kdeconnect.device.notifications.notification.dismiss" +
+            " >/dev/null 2>&1 || true"
+        ])
+        const idx = root.notifications.findIndex(n => n.publicId === publicId)
+        if (idx >= 0) {
+            const next = root.notifications.slice()
+            next.splice(idx, 1)
+            root.notifications = next
+        }
+    }
+
+    function sendAction(devId, key, action) {
+        if (!devId || !key) return
+        const identity = root._shellQuote(key)
+        const actionArg = root._shellQuote(action ?? "")
+        root._call(devId, "notifications",
+                   "org.kde.kdeconnect.device.notifications.sendAction",
+                   [identity, actionArg])
+    }
+
+    function replyNotification(publicId, message) {
+        if (!publicId || !message) return
+        const devId = root.activeDeviceId
+        const notif = root.notifications.find(n => n.publicId === publicId)
+        if (!notif || !notif.replyId) return
+        const replyId = root._shellQuote(notif.replyId)
+        const msg = root._shellQuote(message)
+        root._call(devId, "notifications",
+                   "org.kde.kdeconnect.device.notifications.sendReply",
+                   [replyId, msg])
+        // KDE Connect emits `notificationUpdated` on the Android side after a
+        // reply, but the daemon's IPC timing is racy — the monitor.py sync
+        // sometimes fires before the phone has updated the body, so the QML
+        // would keep showing the stale text. Force a delayed re-fetch so the
+        // updated body (e.g. "You: hi") replaces the old one reliably.
+        replyRefreshTimer.publicId = publicId
+        replyRefreshTimer.restart()
+        root.actionFeedback(I18n.tr("Reply sent"), true)
+    }
+
+    Timer {
+        id: replyRefreshTimer
+        interval: 800
+        repeat: false
+        property string publicId: ""
+        onTriggered: root.requestNotificationsRefresh()
+    }
+
+    function findMyPhone(devId) {
+        root._call(devId, "findmyphone",
+                   "org.kde.kdeconnect.device.findmyphone.ring", [])
+    }
+
+    function sendPing(devId, message) {
+        const args = message ? [root._shellQuote(message)] : []
+        root._call(devId, "ping",
+                   "org.kde.kdeconnect.device.ping.sendPing", args)
+    }
+
+    function shareUrl(url, devId) {
+        let target = String(devId || root.activeDeviceId)
+        let value = String(url || "")
+        if (root._findDevice(value) && devId) {
+            target = value
+            value = String(devId)
+        }
+        if (!value || !target) return
+        value = root._normalizeFileUrl(value)
+        if (value.startsWith("file://"))
+            root._registerOutgoingShare(target, value)
+        root._call(target, "share",
+                   "org.kde.kdeconnect.device.share.shareUrl",
+                   [root._shellQuote(value)])
+    }
+
+    function shareText(devId, text) {
+        if (!text) return
+        root._call(devId, "share",
+                   "org.kde.kdeconnect.device.share.shareText",
+                   [root._shellQuote(text)])
+    }
+
+    function sendClipboard(text, devId) {
+        let target = String(devId || root.activeDeviceId)
+        let value = String(text || "")
+        if (root._findDevice(value) && !devId) {
+            target = value
+            value = ""
+        }
+        if (!target) return
+        if (value !== "") Quickshell.clipboardText = value
+        root._call(target, "clipboard",
+                   "org.kde.kdeconnect.device.clipboard.sendClipboard", [])
+    }
+
+    /** Accepts an incoming pair request for a device (daemon method
+     *  acceptPairing on the device object path). */
+    function acceptPairing(devId) {
+        if (!devId) return
+        root.outgoingPairId = ""
+        Quickshell.execDetached([
+            "bash", "-c",
+            "QDBUS=$(command -v qdbus-qt6 || command -v qdbus6 || command -v qdbus); " +
+            "$QDBUS org.kde.kdeconnect /modules/kdeconnect/devices/" +
+            devId + " org.kde.kdeconnect.device.acceptPairing " +
+            ">/dev/null 2>&1 || true"
+        ])
+        root._removePairingRequest(devId)
+        root.actionFeedback(I18n.tr("Pairing accepted"), true)
+    }
+
+    /** Cancels/declines an incoming pair request (daemon method
+     *  cancelPairing on the device object path). */
+    function declinePairing(devId) {
+        if (!devId) return
+        if (root.outgoingPairId === devId) root.outgoingPairId = ""
+        Quickshell.execDetached([
+            "bash", "-c",
+            "QDBUS=$(command -v qdbus-qt6 || command -v qdbus6 || command -v qdbus); " +
+            "$QDBUS org.kde.kdeconnect /modules/kdeconnect/devices/" +
+            devId + " org.kde.kdeconnect.device.cancelPairing " +
+            ">/dev/null 2>&1 || true"
+        ])
+        root._removePairingRequest(devId)
+        root.actionFeedback(I18n.tr("Pairing declined"), false)
+    }
+    function rejectPairing(devId) { root.declinePairing(devId) }
+
+    function requestPairing(devId) {
+        root.outgoingPairId = devId
+        root._call(devId, "", "org.kde.kdeconnect.device.requestPairing", [])
+    }
+
+    function unpair(devId) {
+        if (root.outgoingPairId === devId) root.outgoingPairId = ""
+        root._call(devId, "", "org.kde.kdeconnect.device.unpair", [])
+    }
+
+    /** Restarts the KDE Connect DBus monitor process. This triggers a fresh
+     *  device enumeration and notification sync without reloading the shell. */
+    function refreshDevices() {
+        monitorProc.running = false
+        root.ready = false
+        Qt.callLater(() => root.startMonitor())
+        root.actionFeedback(I18n.tr("Refreshing devices…"), true)
+    }
+    function refresh() { root.refreshDevices() }
+
+    function mountSftp(devId) {
+        if (!devId) return
+        root._call(devId, "sftp",
+                   "org.kde.kdeconnect.device.sftp.mount", [])
+    }
+
+    function unmountSftp(devId) {
+        if (!devId) return
+        root._call(devId, "sftp",
+                   "org.kde.kdeconnect.device.sftp.unmount", [])
+    }
+
+    function browseFiles(devId) {
+        if (!devId) return
+        mountSftp(devId)
+        sftpOpenTimer.devId = devId
+        sftpOpenTimer.restart()
+    }
+
+    // ─── ADB reachability + intent dispatch (Phase 4 features) ────
+
+    /**
+     * Checks whether ADB is reachable on the active device. Updates
+     * `adbReachable` asynchronously. Called once on shell boot and
+     * re-checked periodically (every 30s) for sticky state. The cache
+     * avoids spawning `adb get-state` for every quick action.
+     */
+    Timer {
+        id: adbProber
+        interval: 30000
+        repeat: true
+        running: root.ready && root._enabled
+        onTriggered: root._probeAdb()
+    }
+
+    Process {
+        id: adbProbeProc
+        running: false
+        command: {
+            const c = Config.phone?.scrcpy ?? null
+            const useWl = c && c.useWireless
+            const wantIp = useWl ? root._kdeConnectIp(root.activeDeviceId) : ""
+            const fallback = useWl ? root._resolveWirelessHost(root.activeDeviceId) : ""
+            const fb = fallback ? root._shellQuote(fallback) : "''"
+            const resolveIp = useWl
+                ? "IP=$(" + root._mdnsDiscoverSnippet(wantIp) + "); "
+                    + "if [ -n \"$IP\" ]; then echo \"MDNS:$IP\"; else IP=" + fb + "; fi; "
+                : "IP=''; "
+            return ["bash", "-c",
+                "if ! command -v adb >/dev/null 2>&1; then exit 1; fi; " +
+                resolveIp +
+                "if [ -n \"$IP\" ]; then " +
+                "  BASE=${IP%:*}; " +
+                "  PIN=\"$BASE:5555\"; " +
+                // A classic-TCP port pinned with `adb tcpip 5555` keeps
+                // answering across the random TLS re-rolls, so it is tried
+                // first and never torn down.
+                "  adb connect \"$PIN\" >/dev/null 2>&1; " +
+                "  PINOK=$(adb devices | awk -v p=\"$PIN\" '$1==p && $2==\"device\" {print p}'); " +
+                // Android re-rolls the wireless-debugging port on every toggle,
+                // leaving adb holding a dead `ip:oldport` entry that would keep
+                // answering `adb devices`. Drop same-IP/other-port entries first.
+                "  for S in $(adb devices | awk 'NF>1 && $1!=\"List\" {print $1}' | grep \"^${BASE}:\"); do " +
+                "    [ \"$S\" = \"$IP\" ] || [ \"$S\" = \"$PIN\" ] || adb disconnect \"$S\" >/dev/null 2>&1; " +
+                "  done; " +
+                "  if [ -n \"$PINOK\" ]; then echo \"PINNED:$PIN\"; else adb connect \"$IP\" >/dev/null 2>&1; fi; " +
+                "fi; " +
+                // A USB serial never contains a colon; prefer it over any
+                // network target so a plugged-in phone always wins. The pinned
+                // port comes next: it outlives the TLS port it was found with.
+                "SERIAL=$(adb devices | awk '$2==\"device\" {print $1}' | grep -v ':' | head -n1); " +
+                "if [ -z \"$SERIAL\" ]; then SERIAL=\"$PINOK\"; fi; " +
+                "if [ -z \"$SERIAL\" ]; then SERIAL=$(adb devices | awk '$2==\"device\" {print $1}' | head -n1); fi; " +
+                "echo \"COUNT:$(adb devices | awk '$2==\"device\"' | wc -l)\"; " +
+                "ENTRY=$(adb devices -l | awk 'NR>1 && NF { if ($2==\"device\") { chosen=$0; exit } if (chosen==\"\") chosen=$0 } END { if (chosen!=\"\") print chosen }'); [ -n \"$ENTRY\" ] && echo \"ENTRY:$ENTRY\"; " +
+                "if [ -n \"$SERIAL\" ]; then echo \"SERIAL:$SERIAL\"; exit 0; fi; " +
+                "exit 1"]
+        }
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (root._adbProbeRestarting) return
+                const lines = this.text.split("\n")
+                let serial = ""
+                let mdns = ""
+                let pinned = ""
+                let count = 0
+                let state = "none"
+                let model = ""
+                let entrySerial = ""
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim()
+                    if (line.startsWith("SERIAL:")) serial = line.substring(7).trim()
+                    else if (line.startsWith("MDNS:")) mdns = line.substring(5).trim()
+                    else if (line.startsWith("PINNED:")) pinned = line.substring(7).trim()
+                    else if (line.startsWith("COUNT:")) count = parseInt(line.substring(6).trim()) || 0
+                    else if (line.startsWith("ENTRY:")) {
+                        const match = /^ENTRY:(\S+)\s+(device|unauthorized|offline)(?:\s+(.*))?$/.exec(line)
+                        if (match) {
+                            entrySerial = match[1]
+                            state = match[2]
+                            const modelMatch = /(?:^|\s)model:(\S+)/.exec(match[3] || "")
+                            model = modelMatch ? modelMatch[1].replace(/_/g, " ") : ""
+                        }
+                    }
+                }
+                root.adbDeviceCount = count
+                root.pinnedAdbHost = pinned
+                // Assign unconditionally: leaving the previous serial in place
+                // when the probe finds nothing is what made a changed port
+                // stick forever, since adbTargetArgs() prefers it over the
+                // freshly discovered mDNS host.
+                root.resolvedAdbSerial = serial
+                if (mdns.indexOf(":") > 0) root.mdnsWirelessHost = mdns
+                root.adbState = state
+                root.adbModel = model
+                if (!serial && state !== "none") root.resolvedAdbSerial = entrySerial
+            }
+        }
+        onExited: (code, status) => {
+            if (root._adbProbeRestarting) return
+            const now = (code === 0)
+            if (now !== root.adbReachable) {
+                root.adbReachable = now
+                if (root.stateChanged) root.stateChanged()
+            }
+            root._flushAdbTargetCallbacks()
+        }
+    }
+
+    /** True while _probeAdb() is tearing the previous run down. Toggling
+     *  `running` off on a live Process emits exited/streamFinished right
+     *  there, and acting on that would flush pending withAdbTarget callbacks
+     *  with the state we are about to refresh. */
+    property bool _adbProbeRestarting: false
+
+    function _probeAdb() {
+        if (!root._enabled || adbProbeProc.running) return
+        root._adbProbeRestarting = true
+        adbProbeProc.running = false
+        root._adbProbeRestarting = false
+        adbProbeProc.running = true
+    }
+
+    property string adbAction: ""
+
+    function adbWifi(): bool {
+        const serial = root.resolvedAdbSerial
+        const ip = root._kdeConnectIp(root.activeDeviceId)
+        if (!serial || serial.indexOf(":") >= 0 || root.adbState !== "device" || !ip)
+            return false
+        root.adbAction = "wifi"
+        adbActionProc.command = ["bash", "-c",
+            "adb -s " + root._shellQuote(serial) + " tcpip 5555 && sleep 1 && adb connect "
+            + root._shellQuote(ip + ":5555")]
+        adbActionProc.running = true
+        return true
+    }
+
+    function adbPair(address, code): void {
+        root.adbAction = "pair"
+        adbActionProc.command = ["adb", "pair", String(address), String(code)]
+        adbActionProc.running = true
+    }
+
+    function adbConnect(address): void {
+        root.adbAction = "connect"
+        adbActionProc.command = ["adb", "connect", String(address)]
+        adbActionProc.running = true
+    }
+
+    Process {
+        id: adbActionProc
+        running: false
+        stdout: StdioCollector { id: adbActionOut }
+        stderr: StdioCollector { id: adbActionErr }
+        onExited: code => {
+            const raw = (adbActionErr.text.trim() || adbActionOut.text.trim())
+            if (code === 0)
+                root.actionFeedback(root.adbAction === "pair"
+                    ? I18n.tr("Wireless debugging paired")
+                    : I18n.tr("Phone connected over wireless debugging"), true)
+            else
+                root.actionFeedback(raw.split("\n").pop() || I18n.tr("Wireless debugging failed"), false)
+            root.adbAction = ""
+            root._probeAdb()
+        }
+    }
+
+    onAdbReachableChanged: if (root.adbReachable) root._probeAdbDeviceName()
+
+    // KDE Connect only ever hands out the marketing model, so the phone's
+    // real name has to come from Android itself.
+    Process {
+        id: adbDeviceNameProc
+        running: false
+        command: ["adb"].concat(root.adbTargetArgs())
+            .concat(["shell", "settings", "get", "global", "device_name"])
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const name = this.text.trim()
+                // Devices that never had the setting written answer "null".
+                if (name === "" || name === "null") return
+                root.adbDeviceName = name
+                root._adbDeviceNameFor = root._adbDeviceNameTarget
+            }
+        }
+    }
+
+    function _probeAdbDeviceName() {
+        if (!root.adbReachable || root.activeDeviceId === "") return
+        root._adbDeviceNameTarget = root.activeDeviceId
+        adbDeviceNameProc.running = false
+        adbDeviceNameProc.running = true
+    }
+
+    // ─── On-demand ADB target resolution ──────────────────────────
+    // The 30s adbProber keeps state warm, but a wireless-debugging port
+    // can change between two polls. Callers that are about to spawn an
+    // adb/scrcpy command go through withAdbTarget() so the port is
+    // rediscovered at use time instead of read from a stale cache.
+
+    property var _adbTargetCallbacks: []
+    property bool _adbTargetResolving: false
+
+    /** Re-resolves the live ADB target, then invokes `callback(targetArgs)`
+     *  with the same shape `adbTargetArgs()` returns. Concurrent calls are
+     *  coalesced into a single probe. */
+    function withAdbTarget(callback) {
+        if (typeof callback !== "function") return
+        root._adbTargetCallbacks = root._adbTargetCallbacks.concat([callback])
+        if (root._adbTargetResolving) return
+        root._adbTargetResolving = true
+        adbTargetWatchdog.restart()
+        root._probeAdb()
+    }
+
+    // adb and avahi-browse can both block; never leave a caller waiting on a
+    // probe that will not come back — fall through to the cached target.
+    Timer {
+        id: adbTargetWatchdog
+        interval: 6000
+        repeat: false
+        onTriggered: root._flushAdbTargetCallbacks()
+    }
+
+    function _flushAdbTargetCallbacks() {
+        adbTargetWatchdog.stop()
+        if (root._adbTargetCallbacks.length === 0) {
+            root._adbTargetResolving = false
+            return
+        }
+        const pending = root._adbTargetCallbacks
+        root._adbTargetCallbacks = []
+        root._adbTargetResolving = false
+        const args = root.adbTargetArgs()
+        for (let i = 0; i < pending.length; i++) pending[i](args)
+    }
+
+    // ─── mDNS discovery of the phone's wireless-debugging port ────
+    // Android 11+ wireless debugging uses a random port that changes on every
+    // toggle or reboot. A live browse sees each announcement immediately and
+    // runs only while the installed integration is enabled.
+    readonly property bool _mdnsBrowseWanted: root.ready && root._enabled
+        && root.adbPresent
+    // "iface;proto;name" -> "ip:port" for every resolved IPv4 service.
+    property var _mdnsServices: ({})
+
+    on_MdnsBrowseWantedChanged: {
+        mdnsBrowseRestart.stop()
+        mdnsBrowseProc.running = root._mdnsBrowseWanted
+    }
+
+    Process {
+        id: mdnsBrowseProc
+        running: false
+        command: PhoneState.pdeath(["avahi-browse", "-rp", "_adb-tls-connect._tcp"])
+        stdout: SplitParser {
+            onRead: data => {
+                const lines = String(data).split("\n")
+                for (let i = 0; i < lines.length; i++) root._onMdnsLine(lines[i])
+            }
+        }
+        onRunningChanged: {
+            if (running) return
+            root._mdnsServices = ({})
+            root._pickMdnsHost()
+        }
+        // avahi-daemon restarts or a missing binary end the browse; retry
+        // slowly rather than leaving discovery dead until the next reload.
+        onExited: if (root._mdnsBrowseWanted) mdnsBrowseRestart.restart()
+    }
+
+    Timer {
+        id: mdnsBrowseRestart
+        interval: 15000
+        onTriggered: mdnsBrowseProc.running = root._mdnsBrowseWanted
+    }
+
+    function _onMdnsLine(line) {
+        const f = String(line).trim().split(";")
+        if (f.length < 4) return
+        const key = f[1] + ";" + f[2] + ";" + f[3]
+        const services = Object.assign({}, root._mdnsServices)
+        if (f[0] === "=" && f.length >= 9) {
+            // IPv6 hosts can't be written as "ip:port" for adb.
+            if (f[2] !== "IPv4" || !f[7] || !f[8]) return
+            services[key] = f[7] + ":" + f[8]
+        } else if (f[0] === "-") {
+            if (!(key in services)) return
+            delete services[key]
+        } else {
+            return
+        }
+        root._mdnsServices = services
+        root._pickMdnsHost()
+    }
+
+    /** Prefers the service on the active device's KDE Connect address, so
+     *  a second phone on the network doesn't win. */
+    function _pickMdnsHost() {
+        const want = root._kdeConnectIp(root.activeDeviceId)
+        let first = ""
+        for (const k in root._mdnsServices) {
+            const host = root._mdnsServices[k]
+            if (want && host.split(":")[0] === want) {
+                root.mdnsWirelessHost = host
+                return
+            }
+            if (!first) first = host
+        }
+        root.mdnsWirelessHost = first
+    }
+
+    /** Host the last reconnect probe was fired for, so re-announces of the
+     *  same service don't spawn a probe each time. */
+    property string _lastMdnsProbedHost: ""
+
+    // adbd restarts whenever the phone unlocks (and on every toggle/reboot),
+    // and comes back on a fresh random port — the old one is dead the moment
+    // the browse reports a new announce. Reconnect right there instead of
+    // leaving ADB pointed at a dead port until the next 30 s poll.
+    onMdnsWirelessHostChanged: {
+        if (root.mdnsWirelessHost === "" || root.mdnsWirelessHost === root._lastMdnsProbedHost) return
+        mdnsReconnectTimer.restart()
+    }
+
+    Timer {
+        id: mdnsReconnectTimer
+        interval: 400
+        repeat: false
+        onTriggered: {
+            // A probe already in flight may have started before this port
+            // was announced; come back once it is done rather than let the
+            // announce go unanswered until the next poll.
+            if (root._adbTargetResolving) {
+                mdnsReconnectTimer.restart()
+                return
+            }
+            root._lastMdnsProbedHost = root.mdnsWirelessHost
+            root._probeAdb()
+        }
+    }
+
+    // ─── Pinning ADB to a port that survives adbd restarts ────────
+    // The random TLS port is not just inconvenient: every re-roll kills the
+    // live adb connection, and with it any scrcpy window. `adb tcpip 5555`
+    // puts adbd back on a fixed classic-TCP port that keeps answering across
+    // those restarts, until the phone reboots.
+
+    /** "ip:5555" while the pinned port is answering, empty otherwise. */
+    property string pinnedAdbHost: ""
+
+    /** IP the pin was last attempted for. A phone that refuses to pin must
+     *  not be sent an adbd restart every 30 s. Cleared once a pin takes, so
+     *  a reboot gets a fresh attempt. */
+    property string _pinAttemptedFor: ""
+
+    // Pinning restarts adbd, which drops whatever is connected right then —
+    // so it only ever runs while nothing is mirroring.
+    readonly property bool _wantsAdbPin: root.adbReachable
+        && !!Config.phone?.scrcpy?.useWireless
+        && !!Config.phone?.scrcpy?.pinAdbPort
+        && root.pinnedAdbHost === ""
+        && !root.scrcpyRunning
+        && root.resolvedAdbSerial.indexOf(":") > 0
+
+    on_WantsAdbPinChanged: if (root._wantsAdbPin) adbPinTimer.restart()
+
+    Timer {
+        id: adbPinTimer
+        interval: 1500
+        repeat: false
+        onTriggered: {
+            if (!root._wantsAdbPin) return
+            const serial = root.resolvedAdbSerial
+            const ip = serial.split(":")[0]
+            if (!ip || ip === root._pinAttemptedFor) return
+            root._pinAttemptedFor = ip
+            adbPinProc.command = ["bash", "-c",
+                "S=" + root._shellQuote(serial) + "; IP=${S%:*}; "
+                + "adb -s \"$S\" tcpip 5555 >/dev/null 2>&1 || exit 1; "
+                // adbd needs a moment to come back up on the new port.
+                + "for i in 1 2 3 4 5 6; do sleep 1; "
+                + "  adb connect \"$IP:5555\" >/dev/null 2>&1; "
+                + "  adb devices | grep -q \"^$IP:5555[[:space:]]\\+device\" && exit 0; "
+                + "done; exit 1"]
+            adbPinProc.running = false
+            adbPinProc.running = true
+        }
+    }
+
+    Process {
+        id: adbPinProc
+        running: false
+        onExited: (code, status) => {
+            if (code === 0) root._pinAttemptedFor = ""
+            root._probeAdb()
+        }
+    }
+
+    /**
+     * Opens the Android app that originated a remote notification on the
+     * phone. Launches scrcpy to mirror the phone screen AND uses ADB to
+     * open the specific app, so the user sees the app opening in the
+     * scrcpy window.
+     *
+     * The KDE Connect DBus does NOT expose the original Android Intent —
+     * only the notification text, appName, and internalId. However, the
+     * internalId contains the package name (format: "0|<package>|..."),
+     * which we extracted in the Python scripts into the `package` field.
+     *
+     * Launch strategy:
+     *   1. Always launch scrcpy to mirror the phone screen (so the user
+     *      sees the app opening). scrcpy works even when the phone is
+     *      locked — it mirrors the lock screen and the user can unlock
+     *      by tapping on the scrcpy window.
+     *   2. If we have a package name, run `adb shell monkey -p <pkg>` to
+     *      open the app on the phone. Delayed by 1s to give scrcpy time
+     *      to start mirroring first.
+     *   3. If no package name, scrcpy is still launched — the user can
+     *      open the app manually by tapping on the mirrored screen.
+     */
+    function openNotificationIntent(publicId) {
+        const notif = root.notifications.find(n => n.publicId === publicId)
+        if (!notif) return
+
+        const pkg = notif.package || ""
+        const appName = notif.appName || notif.summary || I18n.tr("the app")
+
+        // Step 1: Always launch scrcpy so the user can see the phone screen.
+        root.launchScrcpy(root.activeDeviceId)
+
+        // Step 2: If we have a package, open the app via ADB.
+        if (!pkg) {
+            root.actionFeedback(
+                I18n.tr("Opening scrcpy - tap the app on the mirrored screen"),
+                true)
+            return
+        }
+
+        const scrcpyConf = Config.phone?.scrcpy ?? null
+        const useWireless = scrcpyConf ? scrcpyConf.useWireless : false
+        const wirelessHost = useWireless ? root._resolveWirelessHost(root.activeDeviceId) : ""
+
+        // Build shell command — delay monkey by 1s so scrcpy starts first.
+        let cmd = ""
+        if (wirelessHost.length > 0) {
+            cmd += "adb connect " + root._shellQuote(wirelessHost) + " >/dev/null 2>&1; "
+        }
+        cmd += "sleep 1; "
+        cmd += "adb shell monkey -p " + root._shellQuote(pkg) +
+               " -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1"
+        cmd += " && notify-send -i smartphone 'Ryoku' " +
+               root._shellQuote(I18n.tr("Opened %1 on phone").arg(appName)) +
+               " || notify-send -i smartphone 'Ryoku' " +
+               root._shellQuote(I18n.tr("Could not open %1 - ADB unreachable").arg(appName))
+
+        Quickshell.execDetached(["bash", "-c", cmd])
+        root.actionFeedback(
+            I18n.tr("Opening scrcpy + %1...").arg(appName),
+            true)
+    }
+
+    // - ADB quick actions (Phase 5) -
+
+    /** Screenshots the phone screen via `adb exec-out screencap`. Saves
+     *  to ~/Pictures/PhoneScreenshots/<timestamp>.png. Returns void —
+     *  completion is async via notify-send. */
+    function adbScreenshot() {
+        const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+        Quickshell.execDetached(["bash", "-c",
+            "DIR=\"$HOME/Pictures/PhoneScreenshots\"; " +
+            "mkdir -p \"$DIR\"; " +
+            "FILE=\"$DIR/screen-" + ts + ".png\"; " +
+            "if command -v adb >/dev/null 2>&1 && " +
+            "   adb get-state 2>/dev/null | grep -q device; then " +
+            "  adb exec-out screencap -p > \"$FILE\" 2>/dev/null; " +
+            "  if [ -s \"$FILE\" ]; then " +
+            "    notify-send -i smartphone 'Ryoku' 'Saved phone screenshot to ' \"$FILE\"; " +
+            "  else " +
+            "    rm -f \"$FILE\"; " +
+            "    notify-send -i smartphone 'Ryoku' 'Phone screenshot failed'; " +
+            "  fi; " +
+            "else " +
+            "  notify-send -i smartphone 'Ryoku' 'ADB was not reachable'; " +
+            "fi"
+        ])
+        root.actionFeedback(I18n.tr("Screenshotting phone…"), true)
+    }
+
+    /** Enables TCP/IP mode on a USB-connected device so it can later be
+     *  reached wirelessly on port 5555. Requires `adb` and a USB connection.
+     *  Completion is reported via notify-send. */
+    function enableWirelessAdb() {
+        Quickshell.execDetached(["bash", "-c",
+            "if command -v adb >/dev/null 2>&1 && " +
+            "   adb get-state 2>/dev/null | grep -q device; then " +
+            "  if adb tcpip 5555 >/dev/null 2>&1; then " +
+            "    notify-send -i smartphone 'Ryoku' " +
+            "      '" + I18n.tr("Wireless ADB enabled on port 5555") + "'; " +
+            "  else " +
+            "    notify-send -i smartphone 'Ryoku' " +
+            "      '" + I18n.tr("Could not enable wireless ADB") + "'; " +
+            "  fi; " +
+            "else " +
+            "  notify-send -i smartphone 'Ryoku' " +
+            "    '" + I18n.tr("ADB not connected via USB") + "'; " +
+            "fi"
+        ])
+        root.actionFeedback(I18n.tr("Enabling wireless ADB…"), true)
+    }
+
+    /** Toggles phone screen power. Uses `adb shell input keyevent 26`
+     *  (KEYCODE_POWER). Best-effort; silently ignored if ADB isn't ready. */
+    function adbTogglePower() {
+        Quickshell.execDetached(["bash", "-c",
+            "adb shell input keyevent 26 >/dev/null 2>&1 || " +
+            "notify-send -i smartphone 'Ryoku' 'Could not toggle power on phone'"])
+        root.actionFeedback(I18n.tr("Toggled phone power"), true)
+    }
+
+    /** Adjusts phone media volume via ADB. direction: +1 = up, -1 = down. */
+    function adbChangeVolume(direction) {
+        const key = direction > 0 ? "24" : "25"  // KEYCODE_VOLUME_UP / _DOWN
+        Quickshell.execDetached(["bash", "-c",
+            "adb shell input keyevent " + key + " >/dev/null 2>&1 || true"])
+    }
+
+    /** Mutes/unmutes phone ringer via ADB. */
+    function adbToggleMute() {
+        Quickshell.execDetached(["bash", "-c",
+            "adb shell input keyevent 91 >/dev/null 2>&1 || true"])
+    }
+
+    /** Presses the Home button via ADB. */
+    function adbHome() {
+        Quickshell.execDetached(["bash", "-c",
+            "adb shell input keyevent 3 >/dev/null 2>&1 || true"])
+    }
+
+    /** Presses the Back button via ADB. */
+    function adbBack() {
+        Quickshell.execDetached(["bash", "-c",
+            "adb shell input keyevent 4 >/dev/null 2>&1 || true"])
+    }
+
+    /** Presses the Recents button via ADB. */
+    function adbRecents() {
+        Quickshell.execDetached(["bash", "-c",
+            "adb shell input keyevent 187 >/dev/null 2>&1 || true"])
+    }
+
+    Timer {
+        id: sftpOpenTimer
+        property string devId: ""
+        interval: 600
+        repeat: false
+        onTriggered: {
+            if (!devId) return
+            Quickshell.execDetached([
+                "bash", "-c",
+                "QDBUS=$(command -v qdbus-qt6 || command -v qdbus6 || command -v qdbus); "
+                + "MOUNT=$($QDBUS org.kde.kdeconnect /modules/kdeconnect/devices/"
+                + devId + "/sftp org.kde.kdeconnect.device.sftp.mountPoint 2>/dev/null); "
+                + "if [ -z \"$MOUNT\" ]; then MOUNT=$($QDBUS org.kde.kdeconnect /modules/kdeconnect/devices/"
+                + devId + "/sftp org.freedesktop.DBus.Properties.Get "
+                + "org.kde.kdeconnect.device.sftp mountPoint 2>/dev/null "
+                + " | sed 's/^.*: \"\\(.*\\)\"/\\1/'); fi; "
+                + "if [ -n \"$MOUNT\" ]; then "
+                + "  TARGET=\"$MOUNT\"; "
+                + "  if [ -d \"$MOUNT/storage/emulated/0\" ]; then TARGET=\"$MOUNT/storage/emulated/0\"; fi; "
+                // gio open respects the system's default file manager via
+                // GVFS mimetype associations — unlike xdg-open which can
+                // route to the browser if inode/directory is misassociated.
+                + "  if command -v gio >/dev/null 2>&1; then "
+                + "    gio open \"$TARGET\" >/dev/null 2>&1 & exit 0; "
+                + "  fi; "
+                // Fall back to xdg-open if gio is unavailable.
+                + "  xdg-open \"$TARGET\" >/dev/null 2>&1 & "
+                + "fi"
+            ])
+        }
+    }
+
+    function sendFile(paths, devId) {
+        const target = String(devId || root.activeDeviceId);
+        if (!target) return;
+        const list = Array.isArray(paths) ? paths : [paths];
+        for (const path of list) {
+            const clean = String(path || "").trim();
+            if (clean !== "") root.shareUrl(target, root._fileUrl(clean));
+        }
+    }
+
+    // ── Outgoing file transfer tracking ─────────────────────────────────
+    // kdeconnectd posts a KNotification ("File transfer finished." /
+    // "File transfer failed.") when an outgoing share job ends, but the
+    // shell's notification server swallows everything from KDE Connect.
+    // Every outgoing file:// share is registered here so that result
+    // notification can be consumed (Notifications.qml hands it over) and
+    // re-published as a real shell notification with translated text.
+
+    // Pending entries older than this are dropped: the daemon can go silent
+    // (device offline mid-transfer) and a stale entry would otherwise eat an
+    // unrelated KDE Connect notification later.
+    readonly property int outgoingTransferTimeoutMs: 10 * 60 * 1000
+    property var pendingOutgoingTransfers: []
+
+    function _fileUrl(path) {
+        const clean = String(path).replace(/^file:\/\//, "").replace(/\/+$/, "");
+        return "file:///" + clean.replace(/^\/+/, "")
+            .split("/")
+            .map(seg => encodeURIComponent(seg))
+            .join("/");
+    }
+
+    function _normalizeFileUrl(url) {
+        const raw = String(url);
+        if (!raw.startsWith("file://"))
+            return raw;
+        const body = raw.slice(7);
+        // Already percent-encoded (file manager URI lists): leave untouched.
+        if (/%[0-9A-Fa-f]{2}/.test(body))
+            return raw;
+        if (!/[\s#?]|[^\x21-\x7E]/.test(body))
+            return raw;
+        return root._fileUrl(body);
+    }
+
+    function _registerOutgoingShare(devId, url) {
+        root._reapOutgoingTransfers();
+        const path = String(url).slice("file://".length);
+        let fileName = "";
+        try {
+            fileName = decodeURIComponent(path.split("/").pop() || "");
+        } catch (e) {
+            fileName = path.split("/").pop() || "";
+        }
+        const queue = root.pendingOutgoingTransfers.slice();
+        queue.push({
+            devId: String(devId ?? ""),
+            fileName: fileName || I18n.tr("a file"),
+            startedAt: Date.now(),
+        });
+        root.pendingOutgoingTransfers = queue;
+    }
+
+    function _reapOutgoingTransfers() {
+        const now = Date.now();
+        const alive = root.pendingOutgoingTransfers.filter(t => now - t.startedAt < root.outgoingTransferTimeoutMs);
+        if (alive.length !== root.pendingOutgoingTransfers.length)
+            root.pendingOutgoingTransfers = alive;
+    }
+
+    /**
+     * Identifies junk / internal Android OS notifications (like System UI lockscreen
+     * placeholders, keyguard counts, empty notifications) forwarded by KDE Connect
+     * so they can be dropped rather than popping up noisy blank toasts on unlock.
+     */
+    function isIgnoredNotification(notification) {
+        if (!notification) return true;
+
+        const summary = String(notification.summary ?? notification.title ?? "").trim();
+        const body = String(notification.body ?? notification.text ?? "").trim();
+        const ticker = String(notification.ticker ?? "").trim();
+        const pkg = String(notification.package ?? "").trim().toLowerCase();
+
+        // Android System UI package / Android internal framework notifications
+        if (pkg === "com.android.systemui" || pkg === "android") {
+            return true;
+        }
+
+        const summaryLower = summary.toLowerCase();
+        const bodyLower = body.toLowerCase();
+        const tickerLower = ticker.toLowerCase();
+
+        // System UI / Android System titles in various languages
+        const isSystemUiTitle = summaryLower === "system ui"
+            || summaryLower === "systemui"
+            || summaryLower === "com.android.systemui"
+            || summaryLower === "android system"
+            || summaryLower === "sistema android"
+            || summaryLower === "iu do sistema"
+            || summaryLower === "interface do sistema"
+            || summaryLower === "system-ui"
+            || summaryLower === "android-system"
+            || summaryLower === "system"
+            || summaryLower === "android";
+
+        if (isSystemUiTitle) {
+            return true;
+        }
+
+        // Lockscreen notification group count / placeholder summaries
+        // Examples: "1 more notification", "2 more notifications", "1 notificação a mais", "1 outra notificação", etc.
+        const placeholderRegex = /^\d+\s+(?:more\s+notifications?|notificaç(?:ão|ões)\s+a\s+mais|outras?\s+notificaç(?:ão|ões)|weitere\s+benachrichtigung(?:en)?|nouvelles?\s+notifications?|notificaciones?\s+más|notifications?\s+de\s+plus)/i;
+        if (placeholderRegex.test(body) || placeholderRegex.test(summary) || placeholderRegex.test(ticker)) {
+            return true;
+        }
+
+        // Keyguard unlock prompts
+        const unlockRegex = /^(?:unlock\s+to\s+view|desbloqueie\s+para\s+ver|desbloquear\s+para\s+ver|zum\s+anzeigen\s+entsperren|déverrouiller\s+pour\s+afficher)/i;
+        if (unlockRegex.test(body) || unlockRegex.test(summary) || unlockRegex.test(ticker)) {
+            return true;
+        }
+
+        // Empty notifications (no summary, body, or ticker)
+        if (!summary && !body && !ticker) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /** Called by Notifications.qml for every KDE Connect notification just
+     *  before it would be swallowed. Returns true when this was the daemon's
+     *  outgoing-transfer result; the transfer is then resolved and published
+     *  as a shell notification, and the raw English one stays hidden. */
+    function considerTransferNotification(notification) {
+        if (root.pendingOutgoingTransfers.length === 0)
+            return false;
+        const appName = String(notification?.appName ?? "");
+        if (!/kde\s*connect/i.test(appName))
+            return false;
+        const text = String(notification?.summary ?? "") + " " + String(notification?.body ?? "");
+        // Locale-tolerant: the share plugin titles the result "File transfer"
+        // ("Transferência de arquivo" in pt) — the shared "transfer" stem is
+        // what both have in common. Gated by the pending queue, so unrelated
+        // KDE Connect notifications never match.
+        if (!/transfer/i.test(text))
+            return false;
+        root._reapOutgoingTransfers();
+        const queue = root.pendingOutgoingTransfers.slice();
+        const transfer = queue.shift();
+        root.pendingOutgoingTransfers = queue;
+        root._publishTransferResult(transfer, /fail|falh|error|erro/i.test(text));
+        return true;
+    }
+
+    function _publishTransferResult(transfer, failed) {
+        const device = root._findDevice(transfer.devId);
+        const deviceName = device?.name ?? I18n.tr("your device");
+        const summary = failed ? I18n.tr("File transfer failed") : I18n.tr("File sent");
+        const body = failed
+            ? I18n.tr("Could not send %1 to %2").arg(transfer.fileName).arg(deviceName)
+            : I18n.tr("%1 was sent to %2").arg(transfer.fileName).arg(deviceName);
+        Spawn.run(["notify-send", "--app-name=Ryoku Phone", "--icon=phonelink",
+            "--urgency=" + (failed ? "critical" : "normal"), summary, body]);
+    }
+
+    function _call(devId, plugin, fullMethod, args) {
+        if (!devId) return
+        const path = "/modules/kdeconnect/devices/" + devId
+            + (plugin ? "/" + plugin : "")
+        const argString = (args || []).join(" ")
+        Quickshell.execDetached([
+            "bash", "-c",
+            "QDBUS=$(command -v qdbus-qt6 || command -v qdbus6 || command -v qdbus); " +
+            "$QDBUS org.kde.kdeconnect " + path + " " + fullMethod
+                + (argString.length > 0 ? " " + argString : "")
+                + " >/dev/null 2>&1 || true"
+        ])
+    }
+
+    function promptWirelessConnect(devId) {
+        const config = Config.phone?.scrcpy ?? null;
+        if (config?.autoWirelessIp && root._resolveWirelessHost(devId)) {
+            root.launchScrcpy(devId, "wireless");
+            return;
+        }
+        root.actionFeedback(I18n.tr("Configure wireless debugging in Ryoku Settings"), false);
+    }
+
+    function _shellQuote(s) {
+        return "'" + String(s).replace(/'/g, "'\\''") + "'"
+    }
+
+    /** Bash pipeline that prints "ip:port" for the phone's Android 11+
+     *  wireless-debugging endpoint (_adb-tls-connect._tcp), discovered via
+     *  mDNS with avahi. This is how we learn the CURRENT random port. When
+     *  `wantIp` is given, the line whose address matches it wins (so the
+     *  right phone is picked with several on the LAN); otherwise the first
+     *  discovered service is used. Prints nothing if avahi is missing or no
+     *  service is advertised. */
+    function _mdnsDiscoverSnippet(wantIp) {
+        const want = root._shellQuote(wantIp || "")
+        return "avahi-browse -rpt _adb-tls-connect._tcp 2>/dev/null | "
+            + "awk -F';' -v want=" + want + " '"
+            + "/^=/ { if (want != \"\" && $8 == want) { print $8\":\"$9; found = 1; exit } "
+            + "if (f == \"\") f = $8\":\"$9 } "
+            + "END { if (!found && f != \"\") print f }'"
+    }
+
+    /** First non-empty LAN address KDE Connect currently reports for the
+     *  device — the address it is actively using, so it stays correct
+     *  across DHCP/VPN changes. Empty string if none is known yet. */
+    function _kdeConnectIp(devId) {
+        const dev = root._findDevice(devId || root.activeDeviceId)
+        if (!dev) return ""
+        const addrs = dev.reachableAddresses || []
+        for (let i = 0; i < addrs.length; i++) {
+            const a = String(addrs[i]).trim()
+            if (a.length > 0) return a
+        }
+        return ""
+    }
+
+    /** Resolves the wireless ADB target as "ip:port". In auto mode the IP
+     *  comes from KDE Connect (falling back to the manual field if KDE
+     *  Connect has nothing yet); in manual mode it's the configured field.
+     *  Returns "" when no IP is available. */
+    function _resolveWirelessHost(devId) {
+        const c = Config.phone?.scrcpy ?? null
+        if (!c) return ""
+        // Auto mode: prefer the mDNS-discovered host — it carries the phone's
+        // current wireless-debugging port. Only trust the cache when its IP
+        // matches this device (or the device's IP is unknown).
+        if (c.autoWirelessIp && root.mdnsWirelessHost.indexOf(":") > 0) {
+            const mip = root.mdnsWirelessHost.split(":")[0]
+            const kip = root._kdeConnectIp(devId)
+            if (!kip || mip === kip) return root.mdnsWirelessHost
+        }
+        const port = (c.wirelessPort && String(c.wirelessPort).trim() !== "")
+            ? String(c.wirelessPort).trim() : "5555"
+        let ip = ""
+        if (c.autoWirelessIp) ip = root._kdeConnectIp(devId)
+        if (!ip) ip = (c.wirelessIp || "").trim()
+        if (!ip) return ""
+        return (ip.indexOf(":") < 0) ? (ip + ":" + port) : ip
+    }
+
+    /**
+     * Shared ADB/scrcpy selector arguments for the PhoneScrcpyService.
+     *
+     * USB mode intentionally leaves the target implicit: adb selects the
+     * connected device, while wireless mode must select KDE Connect's live
+     * ip:port target. The short `-s` form is accepted by both adb and scrcpy.
+     */
+    function adbTargetArgs() {
+        // With a single attached device, naming it is pure downside: adb
+        // already targets it implicitly, and a wireless serial resolved a
+        // moment ago may point at a port the phone has since re-rolled.
+        if (root.adbDeviceCount === 1)
+            return []
+        if (root.resolvedAdbSerial)
+            return ["-s", root.resolvedAdbSerial]
+        const scrcpyConfig = Config.phone?.scrcpy
+        if (!scrcpyConfig?.useWireless)
+            return []
+
+        const host = root.resolvedWirelessHost
+        return host ? ["-s", host] : []
+    }
+
+    function launchScrcpy(devId, mode, deepLink) {
+        if (!devId) return
+
+        // Pre-flight check: ADB must be reachable (USB debugging or wireless).
+        // Without it, scrcpy has no device to connect to and the error is
+        // just "unknown" — unhelpful. Early return with a descriptive message.
+        if (!root.adbReachable) {
+            const wirelessHostPreflight = root._resolveWirelessHost(devId)
+            if (!wirelessHostPreflight || mode === "usb") {
+                root.scrcpyLaunchError = I18n.tr("Phone not connected via ADB.\n\n"
+                    + "To mirror your screen you need ADB access:\n"
+                    + "  • USB: plug your phone AND enable USB debugging\n"
+                    + "    (Settings → Developer options → USB debugging)\n"
+                    + "  • Wireless: enable Wireless debugging in\n"
+                    + "    Developer options, pair via ADB, then set\n"
+                    + "    the IP in Phone → scrcpy settings.\n\n"
+                    + "Scrcpy launches once ADB detects your phone.")
+                root.actionFeedback(I18n.tr("scrcpy needs ADB — connect via USB or configure wireless"), false)
+                return
+            }
+        }
+
+        root.scrcpyLaunchError = ""
+        // Instant UI feedback: turn on the launching flag before the
+        // scrcpyStatusTimer has had a chance to poll pgrep. The flag is
+        // cleared by checkScrcpyRunningProc.onExited once the process
+        // is confirmed, or by scrcpyLaunchFallbackTimer after 10s.
+        root.scrcpyLaunching = true
+        scrcpyLaunchFallbackTimer.restart()
+        const dev = root._findDevice(devId)
+        const name = dev ? dev.name : ""
+        const nick = "ryoku-phone-mirror-" + devId
+
+        let scrcpyArgs = [
+            "scrcpy",
+            "--window-title=" + root._shellQuote(nick)
+        ]
+
+        // If a deep link is provided (from a notification intent), pass it as
+        // --start-app=<package> when possible. scrcpy 3.0+ supports the
+        // `--start-app=<package>` shorthand. For older versions we fall back
+        // to adb am start BEFORE launching scrcpy (in the bash command).
+        if (deepLink) {
+            if (deepLink.package) {
+                scrcpyArgs.push("--start-app=" + root._shellQuote(deepLink.package))
+            } else if (deepLink.action) {
+                // Will be dispatched via adb before scrcpy launches.
+            }
+        }
+
+        let stayAwake = true
+        let turnScreenOff = true
+        let noPowerOn = true
+        let noAudio = false
+        let showTouches = false
+        let fullscreen = false
+        let alwaysOnTop = false
+        let maxFps = 60
+        let bitRate = "8M"
+        let maxSize = 0
+        let videoBuffer = 80
+        let useWireless = false
+        let wirelessIp = ""
+        let wirelessPort = "5555"
+        let showTerminal = false
+
+        if (Config.phone?.scrcpy) {
+            const scrcpyConf = Config.phone.scrcpy
+            stayAwake = scrcpyConf.stayAwake
+            turnScreenOff = scrcpyConf.turnScreenOff
+            noPowerOn = scrcpyConf.noPowerOn
+            noAudio = scrcpyConf.noAudio
+            showTouches = scrcpyConf.showTouches
+            fullscreen = scrcpyConf.fullscreen
+            alwaysOnTop = scrcpyConf.alwaysOnTop
+            maxFps = scrcpyConf.maxFps
+            bitRate = scrcpyConf.bitRate
+            maxSize = scrcpyConf.maxSize
+            videoBuffer = scrcpyConf.videoBuffer
+            showTerminal = scrcpyConf.showTerminal
+
+            if (mode === "wireless") {
+                useWireless = true
+                wirelessIp = scrcpyConf.wirelessIp
+                wirelessPort = scrcpyConf.wirelessPort
+            } else if (mode === "usb") {
+                useWireless = false
+            } else {
+                useWireless = scrcpyConf.useWireless
+                wirelessIp = scrcpyConf.wirelessIp
+                wirelessPort = scrcpyConf.wirelessPort
+            }
+        }
+
+        if (stayAwake) scrcpyArgs.push("--stay-awake")
+        if (turnScreenOff) scrcpyArgs.push("--turn-screen-off")
+        if (noPowerOn) scrcpyArgs.push("--no-power-on")
+        if (noAudio) scrcpyArgs.push("--no-audio")
+        if (showTouches) scrcpyArgs.push("--show-touches")
+        if (fullscreen) scrcpyArgs.push("--fullscreen")
+        if (alwaysOnTop) scrcpyArgs.push("--always-on-top")
+
+        if (maxFps > 0) scrcpyArgs.push("--max-fps=" + maxFps)
+        if (bitRate && bitRate !== "") scrcpyArgs.push("--video-bit-rate=" + bitRate)
+        if (maxSize > 0) scrcpyArgs.push("--max-size=" + maxSize)
+        if (videoBuffer > 0) scrcpyArgs.push("--video-buffer=" + videoBuffer)
+
+        let baseCmd = ""
+        if (root.resolvedAdbSerial) {
+            scrcpyArgs.push("-s", root._shellQuote(root.resolvedAdbSerial))
+        } else if (useWireless) {
+            // Android 11+ wireless debugging uses a RANDOM port that changes
+            // on every toggle/reboot, so resolve the live ip:port via mDNS
+            // (avahi) at launch time. Fall back to the KDE Connect / manual
+            // host (e.g. legacy `adb tcpip 5555`) when mDNS finds nothing.
+            const wantIp = root._kdeConnectIp(devId)
+            const fallback = root._resolveWirelessHost(devId)
+            const fb = fallback ? root._shellQuote(fallback) : "''"
+            baseCmd = "HOST=$(" + root._mdnsDiscoverSnippet(wantIp) + "); "
+                + "[ -z \"$HOST\" ] && HOST=" + fb + "; "
+                + "adb connect \"$HOST\" && "
+            // Unquoted so the shell expands $HOST inside the same bash -c.
+            scrcpyArgs.push("--serial=\"$HOST\"")
+        }
+
+        // Deep-link pre-launch: if we got an `am start` intent from a
+        // notification action, dispatch it BEFORE scrcpy so the target
+        // activity is in the foreground when the mirror window opens.
+        let deepLinkCmd = ""
+        if (deepLink && deepLink.action) {
+            const actionArg = root._shellQuote(deepLink.action)
+            const dataArg = deepLink.data ? " -d " + root._shellQuote(deepLink.data) : ""
+            deepLinkCmd = "adb shell am start -a " + actionArg + dataArg + " >/dev/null 2>&1; "
+        }
+
+        const terminal = "kitty -1"
+        const fullScrcpyCmd = deepLinkCmd + baseCmd + scrcpyArgs.join(" ")
+
+        if (showTerminal) {
+            const shellCmd = fullScrcpyCmd + " || { echo ''; echo 'scrcpy exited with error.'; echo 'Press Enter to close...'; read -r; }"
+            Quickshell.execDetached([
+                "bash", "-c",
+                terminal + " -e sh -c " + root._shellQuote(shellCmd) + " &"
+            ])
+        } else {
+            // Capture stderr so the notify-send shows the REAL error instead
+            // of a generic "Failed to start" message. The previous generic
+            // message made it impossible to diagnose why scrcpy was failing
+            // (e.g., "device not found", "unknown option", ADB auth issues).
+            // Enhanced: also check adb devices when stderr is empty, so the
+            // user gets a human-readable hint instead of "unknown error".
+            const shellCmd = "ERRFILE=$(mktemp); (" + fullScrcpyCmd + ") 2>\"$ERRFILE\" || { ERR=$(head -5 \"$ERRFILE\"); if [ -z \"$ERR\" ]; then ADB_DEVICES=$(adb devices 2>/dev/null | grep -v 'List of devices' | grep -v '^$' | wc -l); if [ \"$ADB_DEVICES\" = \"0\" ]; then HINT='No device detected via ADB.\nConnect via USB (USB debugging) or configure\nwireless debugging in Phone → scrcpy settings.'; else HINT='scrcpy exited but ADB is connected.\nCheck that the phone screen is unlocked and\nthe ADB authorization is accepted.'; fi; notify-send 'scrcpy Mirror' \"$HINT\" -i smartphone; else notify-send 'scrcpy Mirror' \"scrcpy failed:\n${ERR}\" -i smartphone; fi; }; rm -f \"$ERRFILE\""
+            Quickshell.execDetached([
+                "bash", "-c",
+                shellCmd + " &"
+            ])
+        }
+    }
+
+
+    Timer {
+        id: cacheSaveTimer
+        interval: 2000
+        repeat: false
+        onTriggered: root._saveNotificationsCache()
+    }
+
+    function _initNotificationsCache() {
+        const saved = PhoneState.notificationCache
+        root._notificationsCache = saved && typeof saved === "object" ? saved : ({})
+    }
+
+    function _saveNotificationsCache() {
+        if (!root.activeDeviceId) return
+        const slim = root.notifications.map(n => ({
+            publicId: n.publicId,
+            appName: n.appName,
+            summary: n.summary,
+            body: n.body,
+            ticker: n.ticker,
+            time: n.time,
+            package: n.package,
+            replyId: n.replyId,
+            replyPlaceholder: n.replyPlaceholder,
+            dismissable: n.dismissable,
+            iconPath: n.iconPath,
+            image: n.image,
+            actions: (n.actions || []).map(a => ({ key: a.key, label: a.label }))
+        }))
+        root._notificationsCache[root.activeDeviceId] = {
+            timestamp: Date.now(),
+            notifications: slim
+        }
+        PhoneState.setNotificationCache(Object.assign({}, root._notificationsCache))
+    }
+
+    function _getCachedNotifications(devId) {
+        if (!devId) return []
+        const entry = root._notificationsCache[devId]
+        return entry && Array.isArray(entry.notifications)
+            ? root._normaliseNotifications(entry.notifications)
+            : []
+    }
+
+    /** Opens the phone's Extended unlock (Smart Lock) screen.
+     *
+     *  Android gives a desktop no way to register itself as trusted — the
+     *  phone has to be told once, and only the phone can be told. All this
+     *  does is put the user on the right screen with the phone awake.
+     */
+    // ─── Typing on the phone from the PC (Remote Keyboard) ───
+    // Once "KDE Connect Remote Keyboard" is the phone's input method and a
+    // text field has it, anything sent here is typed there — no mirror needed.
+    property var _remoteKeyboardStates: ({})
+    readonly property bool remoteKeyboardActive: root.activeDeviceId.length > 0
+        && root._remoteKeyboardStates[root.activeDeviceId] === true
+
+    /** KDE Connect's special key codes (the mousepad protocol's). */
+    readonly property var remoteSpecialKeys: ({
+        "backspace": 1, "tab": 2, "left": 4, "up": 5, "right": 6, "down": 7,
+        "pageup": 8, "pagedown": 9, "home": 10, "end": 11, "enter": 12,
+        "delete": 13, "escape": 14
+    })
+
+    /** Types `text` into the phone's focused field. */
+    function sendRemoteText(text: string): void {
+        if (!text || root.activeDeviceId.length === 0) return
+        root._sendRemoteKey(text, 0, false, false, false)
+    }
+
+    /** A named key from `remoteSpecialKeys`, or one character with modifiers
+     *  (Ctrl+A, Ctrl+C...). */
+    function sendRemoteKey(key: string, modifiers): void {
+        const mods = modifiers && typeof modifiers === "object" ? modifiers : ({})
+        const shift = mods.shift === true
+        const ctrl = mods.ctrl === true
+        const alt = mods.alt === true
+        const special = root.remoteSpecialKeys[key] ?? 0
+        root._sendRemoteKey(special > 0 ? "" : key, special, shift, ctrl, alt)
+    }
+
+    function _sendRemoteKey(key, special, shift, ctrl, alt) {
+        if (root.activeDeviceId.length === 0) return
+        // "--" so a key that starts with "-" is not read as an option.
+        Quickshell.execDetached(["busctl", "--user", "--", "call", "org.kde.kdeconnect",
+            "/modules/kdeconnect/devices/" + root.activeDeviceId + "/remotekeyboard",
+            "org.kde.kdeconnect.device.remotekeyboard", "sendKeyPress", "sibbbb",
+            key, String(special), String(shift), String(ctrl), String(alt), "false"])
+    }
+    function setRemoteKeyboardEnabled(enabled): void {
+        if (!root.adbReachable) return
+        const target = root.adbTargetArgs().map(arg => root._shellQuote(arg)).join(" ")
+        const action = enabled
+            ? "IME=$(adb " + target + " shell ime list -s | grep -m1 kdeconnect); "
+                + "[ -n \"$IME\" ] && adb " + target + " shell ime enable \"$IME\" >/dev/null "
+                + "&& adb " + target + " shell ime set \"$IME\" >/dev/null"
+            : "adb " + target + " shell ime reset >/dev/null"
+        Spawn.run(["bash", "-c", action])
+    }
+
+    function refreshRunCommands(): void {
+        if (!root.activeDeviceId) {
+            root.runCommands = []
+            return
+        }
+        listRunCommands.command = ["bash", "-c",
+            "QDBUS=$(command -v qdbus-qt6 || command -v qdbus6 || command -v qdbus); "
+            + "$QDBUS org.kde.kdeconnect /modules/kdeconnect/devices/"
+            + root.activeDeviceId + "/runcommand "
+            + "org.freedesktop.DBus.Properties.Get "
+            + "org.kde.kdeconnect.device.runcommand commandList 2>/dev/null"]
+        listRunCommands.running = true
+    }
+
+    function runCommand(commandId): void {
+        if (!root.activeDeviceId || !commandId) return
+        root._call(root.activeDeviceId, "runcommand",
+            "org.kde.kdeconnect.device.runcommand.triggerCommand",
+            [root._shellQuote(commandId)])
+    }
+
+    Process {
+        id: listRunCommands
+        running: false
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const text = this.text.trim()
+                const begin = text.indexOf("{")
+                const end = text.lastIndexOf("}")
+                if (begin < 0 || end < begin) {
+                    root.runCommands = []
+                    return
+                }
+                try {
+                    const parsed = JSON.parse(text.substring(begin, end + 1).replace(/\\\\\"/g, "\""))
+                    root.runCommands = Object.keys(parsed).map(id => ({
+                        id: id,
+                        name: String(parsed[id]?.name ?? parsed[id] ?? id)
+                    }))
+                } catch (error) {
+                    root.runCommands = []
+                }
+            }
+        }
+    }
+
+
+    // ─── Shell actions on the phone (Run Command plugin) ─────
+    // The phone lists these under KDE Connect → Run command: mirror, record,
+    // media, mute, lock. Written into kdeconnect's own config for the active
+    // device; the user's own commands there are left alone.
+    readonly property string _runCommandsKey: root.ready && root._enabled && root.activeDeviceId.length > 0
+        ? root.activeDeviceId + ":enable"
+        : ""
+    on_RunCommandsKeyChanged: if (root._runCommandsKey.length > 0) runCommandsDebounce.restart()
+
+    Timer {
+        id: runCommandsDebounce
+        interval: 1500
+        repeat: false
+        onTriggered: {
+            if (root._runCommandsKey.length === 0) return
+            const parts = root._runCommandsKey.split(":")
+            runCommandsProc.running = false
+            runCommandsProc.command = ["python3", Quickshell.shellPath("modules/phone/scripts/phone/kdeconnect_runcommands.py"), parts[0], parts[1]]
+            runCommandsProc.running = true
+        }
+    }
+
+    Process {
+        id: runCommandsProc
+        running: false
+        stderr: SplitParser {
+            onRead: line => console.warn("[KdeConnectService] run commands:", line)
+        }
+    }
+
+    function openExtendedUnlockSettings() {
+        const target = root.adbTargetArgs().map(a => root._shellQuote(a)).join(" ")
+        trustSettingsProc.command = ["bash", "-c",
+            "adb " + target + " shell input keyevent 224 >/dev/null 2>&1; " +
+            "adb " + target + " shell am start -n " +
+            "com.google.android.gms/.trustagent.TrustAgentSearchEntryPointActivity >/dev/null 2>&1 " +
+            "|| adb " + target + " shell am start -a android.settings.SECURITY_SETTINGS >/dev/null 2>&1"]
+        trustSettingsProc.running = false
+        trustSettingsProc.running = true
+    }
+
+    Process {
+        id: trustSettingsProc
+        running: false
+    }
+
+    function killScrcpy() {
+        // Only kill scrcpy MIRROR processes (ones with --window-title).
+        // The PhoneMicService also uses scrcpy with --audio-source=mic and
+        // --no-window; killing it here would silently stop the phone
+        // microphone while the mic card still shows "running".
+        //
+        // Uses `for pid in $(pgrep ...)` instead of `pgrep | while read`
+        // for the same reason as checkScrcpyRunningProc — the pipe form
+        // runs in a subshell (though `kill $pid` works in a subshell,
+        // we keep the pattern consistent).
+        // App windows are separate sessions and are left alone.
+        Quickshell.execDetached(["bash", "-c",
+            "for pid in $(pgrep -x scrcpy 2>/dev/null); do " +
+            "  CMD=$(tr '\\0' ' ' < /proc/$pid/cmdline 2>/dev/null); " +
+            "  case \"$CMD\" in " +
+            "    *ryoku-phone-app-*) ;; " +
+            "    *--window-title*) kill $pid 2>/dev/null ;; " +
+            "  esac; " +
+            "done"])
+        root.scrcpyRunning = false
+        root.scrcpyLaunching = false
+        root.scrcpyLaunchError = ""
+        scrcpyLaunchFallbackTimer.stop()
+    }
+
+    /**
+     * Raises the existing scrcpy window without relaunching the process.
+     * scrcpy's SDL window carries the "scrcpy" app id on both compositors,
+     * so this goes through the window-manager seam rather than a per-
+     * compositor dispatch; nothing to raise, nothing happens.
+     */
+    function focusScrcpyWindow() {
+        const win = (Wm.windows ?? []).find(w => w.appId === "scrcpy")
+            ?? (Wm.windows ?? []).find(w => (w.title ?? "").includes("scrcpy"));
+        if (win)
+            Wm.focusWindow(win.id);
+    }
+
+    Timer {
+        id: scrcpyStatusTimer
+        interval: 10000
+        running: root.ready && root._enabled
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            checkScrcpyRunningProc.running = false
+            checkScrcpyRunningProc.running = true
+        }
+    }
+
+    // 1s tick for the scrcpy elapsed counter.
+    Timer {
+        id: scrcpyElapsedTicker
+        interval: 1000
+        repeat: true
+        running: root.scrcpyRunning
+        onTriggered: root.scrcpyElapsedMs += 1000
+    }
+
+    // Safety net: if 10s pass and the pgrep poller never detected scrcpy
+    // running, drop the launching flag so the UI doesn't stay stuck in the
+    // "active" state forever (happens if scrcpy failed to start, e.g.,
+    // missing binary or ADB auth rejected).
+    Timer {
+        id: scrcpyLaunchFallbackTimer
+        interval: 10000
+        repeat: false
+        onTriggered: root.scrcpyLaunching = false
+    }
+
+    Process {
+        id: checkScrcpyRunningProc
+        running: false
+        // Detect scrcpy MIRROR processes only (have --window-title).
+        // Skip scrcpy mic processes (have --no-window --audio-source=mic),
+        // which are managed by PhoneMicService and must NOT set
+        // scrcpyRunning=true (otherwise the mirror card shows as "active"
+        // when the user only started the microphone).
+        //
+        // CRITICAL: use `for pid in $(pgrep ...)` instead of
+        // `pgrep ... | while read pid`. The pipe form runs the while loop
+        // in a SUBSHELL — `exit 0` inside it only exits the subshell, and
+        // the main bash process always falls through to `exit 1`. This was
+        // the root cause of scrcpy never being detected as running: the
+        // check ALWAYS returned exit code 1, so `scrcpyRunning` never
+        // became true and the card stayed stuck in "connecting" until the
+        // 10s fallback timer cleared `scrcpyLaunching`.
+        command: ["bash", "-c",
+            "for pid in $(pgrep -x scrcpy 2>/dev/null); do " +
+            "  CMD=$(tr '\\0' ' ' < /proc/$pid/cmdline 2>/dev/null); " +
+            "  case \"$CMD\" in " +
+            // The throwaway mirror opened only so the keyguard can be
+            // dismissed is not a session; counting it lights up the mirror
+            // card for a window the user is about to lose.
+            "    *ryoku-phone-unlock*) ;; " +
+            // App windows are separate sessions and do not count as the mirror.
+            "    *ryoku-phone-app-*) ;; " +
+            "    *--window-title*) exit 0 ;; " +
+            "  esac; " +
+            "done; " +
+            "exit 1"]
+        onExited: (code, status) => {
+            const now = (code === 0)
+            if (now) {
+                // scrcpy found — transition to "running". Clear the
+                // launching flag and stop the fallback timer.
+                if (!root.scrcpyRunning)
+                    root.scrcpyElapsedMs = 0
+                root.scrcpyRunning = true
+                root.scrcpyLaunching = false
+                root.scrcpyLaunchError = ""
+                scrcpyLaunchFallbackTimer.stop()
+            } else {
+                // scrcpy NOT found. This could mean:
+                //   a) scrcpy never started (failed, not installed, ADB auth
+                //      rejected) — the scrcpyLaunchFallbackTimer (10s) will
+                //      eventually clear scrcpyLaunching.
+                //   b) scrcpy is still starting up (bash -c "..." & takes
+                //      ~200-500ms before scrcpy appears in pgrep).
+                //
+                // Previously, this branch unconditionally cleared
+                // scrcpyLaunching=false and STOPPED the fallback timer.
+                // That caused a race: if the first pgrep fired within 1.5s
+                // of launch (before scrcpy had appeared), the card would
+                // immediately go from "connecting" back to "ready" — even
+                // though scrcpy was about to start. The user saw the card
+                // "lose its connection" while the scrcpy window was fine.
+                //
+                // Fix: do NOT clear scrcpyLaunching here. Only update
+                // scrcpyRunning. The scrcpyLaunchFallbackTimer will clear
+                // scrcpyLaunching after 10s if no pgrep ever succeeds.
+                if (root.scrcpyRunning)
+                    root.scrcpyElapsedMs = 0
+                root.scrcpyRunning = false
+            }
+        }
+    }
+}

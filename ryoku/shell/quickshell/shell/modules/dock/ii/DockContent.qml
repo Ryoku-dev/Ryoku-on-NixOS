@@ -10,6 +10,7 @@ import Quickshell.Services.Mpris
 import stage.modules.common
 import stage.modules.common.functions
 import stage.modules.common.widgets
+import shell.modules.phone
 import "./widgets"
 import "DockReorder.js" as DockReorder
 import "DockMagnification.js" as DockMagnification

@@ -113,6 +113,14 @@ hl.window_rule({
     size   = fit(1280, 820),
     center = true,
 })
+hl.window_rule({
+    name   = "float-phone-tools",
+    match  = { title = "^ryoku-phone-.*$" },
+    float  = true,
+    size   = fit(520, 860),
+    center = true,
+})
+
 
 hl.window_rule({
     name   = "float-ryomanager",

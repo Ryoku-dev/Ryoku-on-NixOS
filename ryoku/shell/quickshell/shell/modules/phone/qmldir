@@ -1,0 +1,11 @@
+module shell.modules.phone
+singleton PhoneState 1.0 PhoneState.qml
+singleton KdeConnectService 1.0 KdeConnectService.qml
+singleton PhoneScrcpyService 1.0 PhoneScrcpyService.qml
+PhoneBridge 1.0 PhoneBridge.qml
+singleton PhoneAlarmService 1.0 PhoneAlarmService.qml
+singleton PhoneContactsService 1.0 PhoneContactsService.qml
+singleton PhoneAppIconService 1.0 PhoneAppIconService.qml
+singleton PhoneCameraService 1.0 PhoneCameraService.qml
+singleton PhoneMicService 1.0 PhoneMicService.qml
+singleton PhoneCallService 1.0 PhoneCallService.qml

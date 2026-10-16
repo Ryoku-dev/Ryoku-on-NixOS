@@ -53,6 +53,7 @@ var contractKeys = map[string]bool{
 	"notifications": true,
 	"wallpaper":     true,
 	"ask":           true,
+	"phone":         true,
 	"controls":      true,
 	"batteryAlerts": true,
 }
@@ -124,6 +125,7 @@ type settings struct {
 	Notifications notificationsSettings `json:"notifications"`
 	Wallpaper     wallpaperSettings     `json:"wallpaper"`
 	Ask           askSettings           `json:"ask"`
+	Phone         phoneSettings         `json:"phone"`
 	Controls      controlsSettings      `json:"controls"`
 	BatteryAlerts batteryAlertsSettings `json:"batteryAlerts"`
 }
@@ -280,6 +282,77 @@ type askBubbleSettings struct {
 	Y       float64 `json:"y"`
 	Screen  string  `json:"screen"`
 }
+type phoneSettings struct {
+	Enabled              bool                    `json:"enabled"`
+	DesktopNotifications bool                    `json:"desktopNotifications"`
+	Contacts             phoneContactsSettings   `json:"contacts"`
+	Scrcpy               phoneScrcpySettings     `json:"scrcpy"`
+	Webcam               phoneWebcamSettings     `json:"webcam"`
+	Microphone           phoneMicrophoneSettings `json:"microphone"`
+	Alarm                phoneAlarmSettings      `json:"alarm"`
+}
+
+type phoneContactsSettings struct {
+	Enabled     bool `json:"enabled"`
+	HideUnnamed bool `json:"hideUnnamed"`
+}
+
+type phoneScrcpySettings struct {
+	Audio          bool                   `json:"audio"`
+	UseWireless    bool                   `json:"useWireless"`
+	AutoWirelessIP bool                   `json:"autoWirelessIp"`
+	WirelessIP     string                 `json:"wirelessIp"`
+	WirelessPort   int                    `json:"wirelessPort"`
+	PinADBPort     bool                   `json:"pinAdbPort"`
+	MaxSize        int                    `json:"maxSize"`
+	MaxFPS         int                    `json:"maxFps"`
+	VideoBitRate   string                 `json:"videoBitRate"`
+	TurnScreenOff  bool                   `json:"turnScreenOff"`
+	StayAwake      bool                   `json:"stayAwake"`
+	ShowTouches    bool                   `json:"showTouches"`
+	ClipboardSync  bool                   `json:"clipboardSync"`
+	KeyboardMode   string                 `json:"keyboardMode"`
+	AutoResume     bool                   `json:"autoResume"`
+	AppMode        phoneAppModeSettings   `json:"appMode"`
+	Recording      phoneRecordingSettings `json:"recording"`
+}
+
+type phoneAppModeSettings struct {
+	ShowAppIcons  bool   `json:"showAppIcons"`
+	AutoUnlock    bool   `json:"autoUnlock"`
+	FlexDisplay   bool   `json:"flexDisplay"`
+	DisplayWidth  int    `json:"displayWidth"`
+	DisplayHeight int    `json:"displayHeight"`
+	DisplayDPI    int    `json:"displayDpi"`
+	OnSessionEnd  string `json:"onSessionEnd"`
+}
+
+type phoneRecordingSettings struct {
+	Folder string `json:"folder"`
+}
+
+type phoneWebcamSettings struct {
+	CameraFacing string `json:"cameraFacing"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	FPS          int    `json:"fps"`
+	VideoDevice  string `json:"videoDevice"`
+}
+
+type phoneMicrophoneSettings struct {
+	Enabled    bool `json:"enabled"`
+	MicGain    int  `json:"micGain"`
+	Monitor    bool `json:"monitor"`
+	SetDefault bool `json:"setDefault"`
+}
+
+type phoneAlarmSettings struct {
+	Enabled        bool     `json:"enabled"`
+	PollMinutes    int      `json:"pollMinutes"`
+	ClockApps      []string `json:"clockApps"`
+	IgnorePackages []string `json:"ignorePackages"`
+}
+
 type controlsSettings struct {
 	Sections []controlsSection `json:"sections"`
 	Hidden   []string          `json:"hidden"`
@@ -365,6 +438,24 @@ func defaultSettings() *settings {
 		Notifications: notificationsSettings{NotificationPosition: "Right", PopupWindowMargins: 0},
 		Wallpaper:     wallpaperSettings{ContentFit: "Cover", TransitionPreset: "random", VideoEngine: "ryogami", VideoEnabled: true, VideoTranscodeFps: 24, VideoTranscodeWidth: 1920},
 		Ask:           askSettings{Bubble: askBubbleSettings{Enabled: false, X: 0.94, Y: 0.68, Screen: ""}},
+		Phone: phoneSettings{
+			Enabled: false, DesktopNotifications: true,
+			Contacts: phoneContactsSettings{Enabled: true, HideUnnamed: true},
+			Scrcpy: phoneScrcpySettings{
+				Audio: true, UseWireless: false, AutoWirelessIP: true, WirelessIP: "", WirelessPort: 5555,
+				PinADBPort: false, MaxSize: 0, MaxFPS: 60, VideoBitRate: "8M", TurnScreenOff: false,
+				StayAwake: true, ShowTouches: false, ClipboardSync: true, KeyboardMode: "uhid",
+				AutoResume: true,
+				AppMode: phoneAppModeSettings{
+					ShowAppIcons: true, AutoUnlock: true, FlexDisplay: false,
+					DisplayWidth: 1280, DisplayHeight: 960, DisplayDPI: 240, OnSessionEnd: "home",
+				},
+				Recording: phoneRecordingSettings{Folder: ""},
+			},
+			Webcam:     phoneWebcamSettings{CameraFacing: "back", Width: 1280, Height: 720, FPS: 30, VideoDevice: ""},
+			Microphone: phoneMicrophoneSettings{Enabled: false, MicGain: 100, Monitor: false, SetDefault: false},
+			Alarm:      phoneAlarmSettings{Enabled: true, PollMinutes: 10, ClockApps: []string{}, IgnorePackages: []string{}},
+		},
 		Controls:      controlsSettings{Sections: controls, Hidden: []string{}},
 		BatteryAlerts: batteryAlertsSettings{Enabled: true, WarningEnabled: true, CriticalEnabled: true, WarningPercent: 25, CriticalPercent: 10},
 	}
@@ -450,6 +541,7 @@ func (s *settings) normalize(strict bool) error {
 	s.Notifications.normalize(v)
 	s.Wallpaper.normalize(v)
 	s.Ask.normalize(v)
+	s.Phone.normalize(v)
 	s.Controls.normalize()
 	s.BatteryAlerts.normalize(v)
 	return v.err
@@ -600,6 +692,24 @@ func (a *askSettings) normalize(v *validator) {
 	v.clampF(&a.Bubble.X, 0, 1)
 	v.clampF(&a.Bubble.Y, 0, 1)
 }
+func (p *phoneSettings) normalize(v *validator) {
+	v.rangeI("phone.scrcpy.wirelessPort", &p.Scrcpy.WirelessPort, 1, 65535)
+	v.rangeI("phone.scrcpy.maxSize", &p.Scrcpy.MaxSize, 0, 7680)
+	v.rangeI("phone.scrcpy.maxFps", &p.Scrcpy.MaxFPS, 1, 240)
+	v.nonEmpty("phone.scrcpy.videoBitRate", p.Scrcpy.VideoBitRate)
+	v.enum("phone.scrcpy.keyboardMode", p.Scrcpy.KeyboardMode, []string{"uhid", "sdk"})
+	v.rangeI("phone.scrcpy.appMode.displayWidth", &p.Scrcpy.AppMode.DisplayWidth, 320, 7680)
+	v.rangeI("phone.scrcpy.appMode.displayHeight", &p.Scrcpy.AppMode.DisplayHeight, 320, 7680)
+	v.rangeI("phone.scrcpy.appMode.displayDpi", &p.Scrcpy.AppMode.DisplayDPI, 72, 640)
+	v.enum("phone.scrcpy.appMode.onSessionEnd", p.Scrcpy.AppMode.OnSessionEnd, []string{"home", "continue", "lock"})
+	v.enum("phone.webcam.cameraFacing", p.Webcam.CameraFacing, []string{"front", "back"})
+	v.rangeI("phone.webcam.width", &p.Webcam.Width, 160, 7680)
+	v.rangeI("phone.webcam.height", &p.Webcam.Height, 120, 4320)
+	v.rangeI("phone.webcam.fps", &p.Webcam.FPS, 1, 120)
+	v.rangeI("phone.microphone.micGain", &p.Microphone.MicGain, 0, 200)
+	v.rangeI("phone.alarm.pollMinutes", &p.Alarm.PollMinutes, 1, 1440)
+}
+
 func (c *controlsSettings) normalize() {
 	defaults := defaultSettings().Controls.Sections
 	allowedSections := make(map[string]bool, len(controlSectionIDs))
@@ -808,6 +918,7 @@ func buildSettings(raw map[string]any, strict bool) (*settings, error) {
 		"notifications": &s.Notifications,
 		"wallpaper":     &s.Wallpaper,
 		"ask":           &s.Ask,
+		"phone":         &s.Phone,
 		"controls":      &s.Controls,
 		"batteryAlerts": &s.BatteryAlerts,
 	}

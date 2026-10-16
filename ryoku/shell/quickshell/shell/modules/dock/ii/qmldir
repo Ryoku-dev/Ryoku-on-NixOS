@@ -187,7 +187,6 @@ HighlightOverlay 1.0 settings/HighlightOverlay.qml
 singleton HyprlandData 1.0 bridge/HyprlandData.qml
 singleton IslandPolicy 1.0 bridge/IslandPolicy.qml
 IslandSegmentedToggle 1.0 settings/IslandSegmentedToggle.qml
-singleton KdeConnectService 1.0 services/KdeConnectService.qml
 KeyHint 1.0 settings/KeyHint.qml
 LazyBlock 1.0 settings/LazyBlock.qml
 singleton LiveDraw 1.0 services/LiveDraw.qml
@@ -211,9 +210,6 @@ NoticeBox 1.0 settings/NoticeBox.qml
 singleton ObjectUtils 1.0 functions/ObjectUtils.qml
 singleton OutlookService 1.0 services/OutlookService.qml
 singleton Persistent 1.0 bridge/Persistent.qml
-singleton PhoneAlarmService 1.0 services/PhoneAlarmService.qml
-singleton PhoneMirrorService 1.0 services/PhoneMirrorService.qml
-singleton PhoneScrcpyService 1.0 services/PhoneScrcpyService.qml
 PomodoroConfig 1.0 settings/PomodoroConfig.qml
 PomodoroPanel 1.0 utilities/PomodoroPanel.qml
 PomodoroTab 1.0 clockapp/tabs/PomodoroTab.qml

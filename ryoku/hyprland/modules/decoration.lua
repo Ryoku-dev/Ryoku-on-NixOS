@@ -132,9 +132,9 @@ hl.layer_rule({
   no_anim = true,
 })
 
--- the keybind cheatsheet (qs -c keys, Super+K) is a full-screen layer-shell
--- overlay: blur the desktop behind its dim scrim so the card reads on any
--- wallpaper, and suppress Hyprland's own layer animation (QML owns the fade).
+-- Kit (qs -c keys, Super+K) is a full-screen layer-shell overlay. Blur the
+-- desktop behind its dim scrim so the card reads on any wallpaper, and suppress
+-- the compositor's layer animation because QML owns the fade.
 hl.layer_rule({
   name    = "ryoku-keys-blur",
   match   = { namespace = "^ryoku-keys$" },

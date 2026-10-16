@@ -1,6 +1,8 @@
 import QtQuick
 import Quickshell
 import stage.services
+import shell.modules.phone
+import Ryoku.Ui as Ui
 import "./widgets"
 import "."
 
@@ -53,7 +55,9 @@ DockContextMenuBase {
         switch (actionId) {
         case "mirror": root.anchorItem?.openMirror(); break;
         case "stop": PhoneScrcpyService.stopMirroring(); break;
-        case "sendFile": KdeConnectService.sendFile(root.deviceId); break;
+        case "sendFile":
+            filePicker.open();
+            return;
         case "sendClipboard": KdeConnectService.sendClipboard(root.deviceId); break;
         case "browse": KdeConnectService.browseFiles(root.deviceId); break;
         case "ring": KdeConnectService.findMyPhone(root.deviceId); break;
@@ -63,5 +67,14 @@ DockContextMenuBase {
             return;
         }
         root.close();
+    }
+    Ui.FileDialogHost {
+        id: filePicker
+        title: Translation.tr("Send a file to phone")
+        currentFolder: "file://" + (Quickshell.env("HOME") || "/")
+        onAccepted: {
+            KdeConnectService.sendFile([String(selectedFile)], root.deviceId)
+            root.close()
+        }
     }
 }

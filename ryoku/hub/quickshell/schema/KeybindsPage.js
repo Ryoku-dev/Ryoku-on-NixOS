@@ -49,7 +49,7 @@ var rows = [
     {
         "tab": "Shortcuts", "group": "SHELL",
         "label": "Shell shortcuts",
-        "desc": "Launcher, cheatsheet, lock, clipboard, screenshot, wallpaper and more",
+        "desc": "Launcher, Kit, lock, clipboard, screenshot, wallpaper and more",
         "opts": ["launcher", "cheatsheet", "lock", "clipboard", "screenshot", "wallpaper", "settings"]
     },
     {

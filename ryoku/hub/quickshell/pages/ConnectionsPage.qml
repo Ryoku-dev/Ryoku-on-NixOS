@@ -26,14 +26,32 @@ Item {
     property var hub
     readonly property bool fullBleed: true
 
-    // which subtab is showing. transient, not persisted; resets to Wi-Fi on
-    // every mount (matches the old page's `property string sub: "wifi"`).
     property string sub: "wifi"
+    function acceptRequestedSub() {
+        if (!pg.hub)
+            return;
+        var requested = String(pg.hub.connectionSub || "");
+        if (requested === "")
+            return;
+        pg.sub = requested;
+        Qt.callLater(function() {
+            if (pg.hub && pg.hub.connectionSub === requested)
+                pg.hub.connectionSub = "";
+        });
+    }
+    onHubChanged: Qt.callLater(function() { pg.acceptRequestedSub(); })
+    Component.onCompleted: Qt.callLater(function() { pg.acceptRequestedSub(); })
+    Connections {
+        target: pg.hub || null
+        ignoreUnknownSignals: true
+        function onConnectionSubChanged() { Qt.callLater(pg.acceptRequestedSub); }
+    }
 
     readonly property var tabs: [
         { "key": "wifi", "label": I18n.tr("Wi-Fi") },
         { "key": "bluetooth", "label": I18n.tr("Bluetooth") },
-        { "key": "hotspot", "label": I18n.tr("Hotspot") }
+        { "key": "hotspot", "label": I18n.tr("Hotspot") },
+        { "key": "phone", "label": I18n.tr("Phone") }
     ]
     readonly property int tabW: 120
     function tabIndex(k) {
@@ -2159,7 +2177,7 @@ Item {
             }
             Text {
                 width: Math.min(parent.width, 720)
-                text: I18n.tr("Wi-Fi, Bluetooth and this machine's hotspot, applied live.")
+                text: I18n.tr("Wi-Fi, Bluetooth, hotspot and phone connections, applied live.")
                 color: Tokens.inkMuted; font.family: Tokens.ui
                 font.pixelSize: Tokens.fBody; wrapMode: Text.WordWrap
             }
@@ -2258,8 +2276,42 @@ Item {
                 top: tabStrip.bottom; bottom: parent.bottom
                 topMargin: Tokens.s5
             }
+            opacity: pg.sub === "phone" ? 0 : 1
+            x: pg.sub === "phone" ? -Tokens.s3 : 0
+            visible: opacity > 0.01
+            Behavior on opacity {
+                enabled: !Tokens.reduceMotion
+                NumberAnimation { duration: Tokens.durSmall; easing.type: Easing.OutCubic }
+            }
+            Behavior on x {
+                enabled: !Tokens.reduceMotion
+                NumberAnimation { duration: Tokens.durSmall; easing.type: Easing.OutCubic }
+            }
             sourceComponent: pg.sub === "wifi" ? wifiComp
-                : (pg.sub === "bluetooth" ? btComp : hsComp)
+                : pg.sub === "bluetooth" ? btComp : hsComp
+        }
+
+        Loader {
+            anchors {
+                left: parent.left
+                right: parent.right
+                top: tabStrip.bottom
+                bottom: parent.bottom
+                topMargin: Tokens.s5
+            }
+            active: pg.sub === "phone"
+            source: Qt.resolvedUrl("PhoneConnectionTab.qml")
+            opacity: pg.sub === "phone" ? 1 : 0
+            x: pg.sub === "phone" ? 0 : Tokens.s3
+            visible: opacity > 0.01
+            Behavior on opacity {
+                enabled: !Tokens.reduceMotion
+                NumberAnimation { duration: Tokens.durSmall; easing.type: Easing.OutCubic }
+            }
+            Behavior on x {
+                enabled: !Tokens.reduceMotion
+                NumberAnimation { duration: Tokens.durSmall; easing.type: Easing.OutCubic }
+            }
         }
 
     }

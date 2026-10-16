@@ -1,5 +1,8 @@
 { pkgs, src }:
 
+let
+  phonePython = pkgs.python3.withPackages (ps: [ ps.dbus-python ps.pygobject3 ps.pillow ]);
+in
 pkgs.stdenv.mkDerivation {
   pname = "ryoku-desktop-data";
   version = "unstable";
@@ -87,6 +90,13 @@ pkgs.stdenv.mkDerivation {
 
     mkdir -p "$cfg/quickshell"
     cp -a ryoku/shell/quickshell/. "$cfg/quickshell/"
+
+    phone_dir="$cfg/quickshell/shell/modules/phone"
+    while IFS= read -r -d "" file; do
+      substituteInPlace "$file" \
+        --replace-warn '"python3"' '"${phonePython}/bin/python3"' \
+        --replace-warn "python3 -c" "${phonePython}/bin/python3 -c"
+    done < <(find "$phone_dir" -name '*.qml' -print0)
 
     # iNiR's shared app launcher is written for FHS distributions and uses
     # absolute /usr/bin paths. NixOS intentionally has no /usr/bin/bash,

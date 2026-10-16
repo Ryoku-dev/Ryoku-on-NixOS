@@ -2,6 +2,8 @@ import QtQuick
 import QtQuick.Layouts
 import stage.modules.common.widgets
 import stage.services
+import shell.modules.phone
+import Ryoku.Ui as Ui
 import "../clock"
 import "UtilityFiles.js" as UtilityFiles
 import ".."
@@ -198,10 +200,7 @@ ColumnLayout {
             visible: (panel.tile?.ready ?? false)
             symbol: "attach_file"
             label: Translation.tr("Choose files…")
-            onClicked: {
-                KdeConnectService.sendFile(panel.tile.kdeDeviceId);
-                panel.host?.closePanel();
-            }
+            onClicked: sendPicker.open()
         }
     }
 
@@ -240,6 +239,15 @@ ColumnLayout {
             symbol: "radar"
             label: LocalSend.scanning ? Translation.tr("Scanning…") : Translation.tr("Scan again")
             onClicked: LocalSend.startScanning()
+        }
+    }
+    Ui.FileDialogHost {
+        id: sendPicker
+        title: Translation.tr("Send a file to phone")
+        currentFolder: "file://" + (Quickshell.env("HOME") || "/")
+        onAccepted: {
+            KdeConnectService.sendFile([String(selectedFile)], panel.tile.kdeDeviceId)
+            panel.host?.closePanel()
         }
     }
 }

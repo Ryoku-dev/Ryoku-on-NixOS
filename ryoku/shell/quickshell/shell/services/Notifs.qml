@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Services.Notifications
 import Ryoku.Ui.Singletons
+import shell.modules.phone as Phone
 
 // Notification model, faithful to the reference wayle-notification service
 // (contract 07 sec 4.3, sec 8; verified against monitoring.rs). Two flat,
@@ -70,6 +71,16 @@ Singleton {
         return (a.appName || "") === (b.appName || "")
             && (a.summary || "") === (b.summary || "")
             && (a.body || "") === (b.body || "");
+    }
+    function isKdeConnectNotification(n) {
+        if (!(Config.phone?.enabled ?? false))
+            return false
+        const name = String(n?.appName || "").toLowerCase()
+        if (name === "kdeconnect" || name === "kde connect"
+                || name === "org.kde.kdeconnect")
+            return true
+        return Phone.KdeConnectService.devices.some(device =>
+            device.name && String(device.name).toLowerCase() === name)
     }
 
     // Add a popup: dedup-then-insert-front. A re-posted id, or a distinct id with
@@ -238,6 +249,16 @@ Singleton {
         }
 
         onNotification: function(n) {
+            const mirrored = root.isKdeConnectNotification(n)
+            if (mirrored && Phone.KdeConnectService.considerTransferNotification(n)) {
+                n.tracked = false
+                return
+            }
+            if (mirrored && (!(Config.phone?.desktopNotifications ?? true)
+                    || Phone.KdeConnectService.isIgnoredNotification(n))) {
+                n.tracked = false
+                return
+            }
             var a = Object.assign({}, root.arrivalMs);
             a[n.id] = Date.now();
             root.arrivalMs = a;

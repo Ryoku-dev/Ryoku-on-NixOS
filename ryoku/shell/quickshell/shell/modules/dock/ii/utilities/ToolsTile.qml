@@ -5,6 +5,7 @@ import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
 import stage.modules.common.widgets
 import stage.services
+import shell.modules.phone
 import "../clock"
 import "UtilityTools.js" as UtilityTools
 import ".."
