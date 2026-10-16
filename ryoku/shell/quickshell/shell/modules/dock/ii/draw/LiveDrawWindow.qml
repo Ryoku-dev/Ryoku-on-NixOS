@@ -212,7 +212,9 @@ PanelWindow {
             if (root.captureMode === "copy")
                 Quickshell.execDetached(["sh", "-c", 'grim -o "$1" - | wl-copy --type image/png', "sh", root.screenName]);
             else
-                ShellActionRegistry.trigger("fullscreenScreenshot", root.screenName);
+                Quickshell.execDetached(["sh", "-c",
+                    'd="$XDG_PICTURES_DIR"; [ -z "$d" ] && d="$HOME/Pictures"; d="$d/Screenshots"; mkdir -p "$d"; f="$d/Screenshot_$(date +%Y-%m-%d_%H.%M.%S).png"; grim ${1:+-o "$1"} "$f" && grim ${1:+-o "$1"} - | wl-copy --type image/png',
+                    "sh", root.screenName]);
             captureRestore.restart();
         }
     }

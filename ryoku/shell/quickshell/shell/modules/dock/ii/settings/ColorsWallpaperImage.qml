@@ -1,5 +1,6 @@
 import QtQuick
 import stage.modules.common.widgets
+import stage.services
 import "."
 import ".."
 

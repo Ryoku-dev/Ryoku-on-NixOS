@@ -168,7 +168,7 @@ ColumnLayout {
         label: Translation.tr("Open full history")
         onClicked: {
             panel.host?.closePanel();
-            Quickshell.execDetached(["qs", "-c", "ii", "ipc", "call", "search", "clipboardToggle"]);
+            Quickshell.execDetached(["ryoku-shell", "clipboard"]);
         }
     }
 }

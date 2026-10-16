@@ -26,7 +26,12 @@ Item {
     implicitHeight: root.wide ? root.mainHeight : root.mainHeight + root.gap + root.variantHeight
 
     function openSelector(action: string) {
-        Quickshell.execDetached(["qs", "-c", "ii", "ipc", "call", "wallpaperSelector", action]);
+        // Ryoku owns the wallpaper surfaces: desktop and light-mode artwork
+        // are picked in Ryogami; lock screen art belongs to the Hub page.
+        if (action === "toggleLockscreen")
+            Quickshell.execDetached(["ryoku-shell", "hub", "open", "lockscreen"]);
+        else
+            Quickshell.execDetached(["ryogami", "wallpaper", "ui"]);
     }
 
     function pickDesktop() {

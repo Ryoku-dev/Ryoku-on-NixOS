@@ -65,7 +65,7 @@ UtilityTile {
 
     function menuAction(actionId) {
         if (actionId === "take")
-            Quickshell.execDetached(["qs", "-c", "ii", "ipc", "call", "region", "screenshot"]);
+            Quickshell.execDetached(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
         else if (actionId === "copy" && tile.latest)
             Quickshell.execDetached(["sh", "-c", 'wl-copy --type image/png < "$1"', "sh", tile.latest.path]);
         else if (actionId === "openFolder")

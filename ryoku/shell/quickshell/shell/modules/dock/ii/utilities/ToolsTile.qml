@@ -116,7 +116,7 @@ UtilityTile {
     function execute(id, alt) {
         switch (id) {
         case "screenSnip":
-            Quickshell.execDetached(["qs", "-p", Quickshell.shellPath(""), "ipc", "call", "region", "screenshot"]);
+            Quickshell.execDetached(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
             break;
         case "screenRecord":
             Quickshell.execDetached(tile.recording ? [Directories.recordScriptPath] : [Directories.recordScriptPath, "--fullscreen"]);

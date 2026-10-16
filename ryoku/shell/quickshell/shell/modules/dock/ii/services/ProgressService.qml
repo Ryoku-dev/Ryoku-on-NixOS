@@ -31,22 +31,24 @@ Singleton {
 
     function formatEta(seconds) {
         if (seconds <= 0 || !isFinite(seconds)) return "";
-        if (seconds < 60) return Math.ceil(seconds) + "s restantes";
+        if (seconds < 60) {
+            return Translation.tr("%1s left").arg(Math.ceil(seconds));
+        }
         let mins = Math.floor(seconds / 60);
         let secs = Math.ceil(seconds % 60);
         if (mins < 60) {
-            return mins + "m " + secs + "s restantes";
+            return Translation.tr("%1m %2s left").arg(mins).arg(secs);
         }
         let hours = Math.floor(mins / 60);
         let remMins = mins % 60;
-        return hours + "h " + remMins + "m restantes";
+        return Translation.tr("%1h %2m left").arg(hours).arg(remMins);
     }
 
     // Monitor for the org.kde.JobViewServer session DBus process
     Process {
         id: monitorProc
         running: Config.ready && !Config.options.bar.floatingNotch.disableProgress
-        command: ProcUtils.pdeath(["python3", Quickshell.shellPath("services/jobview_monitor.py")])
+        command: ProcUtils.pdeath(["python3", Directories.dockDir + "/services/jobview_monitor.py"])
 
         stdout: SplitParser {
             onRead: line => {

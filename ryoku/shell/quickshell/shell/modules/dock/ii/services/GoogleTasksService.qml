@@ -28,11 +28,6 @@ Singleton {
     // ── Data ──────────────────────────────────────────────────────
     property list<var> taskLists: []
     property var tasks: []
-    onTasksChanged: tasksCacheFile.setText(JSON.stringify({
-        schema: 1,
-        taskListId: root.selectedTaskListId,
-        tasks: root.tasks
-    }))
 
     readonly property string selectedTaskListId: (Config.options.todo && Config.options.todo.googleTasks)
         ? Config.options.todo.googleTasks.taskListId
@@ -675,36 +670,4 @@ Singleton {
             }
         }
     }
-    IpcHandler {
-        target: "googleTasks"
-
-        property bool available: root.available
-        property string unavailableReason: !root.credentialsConfigured
-            ? "Google Tasks credentials are not configured"
-            : !root.hasRefreshToken
-                ? "Google Tasks is not connected"
-                : root.reauthorizationRequired
-                    ? "Google Tasks needs reauthorization"
-                    : ""
-
-        function setCompleted(taskListId: string, taskId: string, completed: bool): string {
-            if (!root.available)
-                return unavailableReason;
-            if (taskListId.length > 0 && taskListId !== root.selectedTaskListId)
-                return "The task list is not active";
-            const task = root.tasks.find(value => String(value.id || "") === taskId);
-            if (!task)
-                return "Task not found";
-            root.setTaskDone(task, completed);
-            return "queued";
-        }
-    }
-
-    FileView {
-        id: tasksCacheFile
-        path: Directories.state + "/ryoku/generated/google-tasks.json"
-        atomicWrites: true
-        printErrors: false
-    }
-
 }

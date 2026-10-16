@@ -15,6 +15,11 @@ import "lib/dock.js" as DockList
 Singleton {
     id: root
 
+    // Some dock designs carry their own full settings page (the ii design's
+    // DockConfig). The Stage Editor's shared dock page raises this flag to ask
+    // the design's host to open it; the host clears it when the page closes.
+    property bool designSettingsOpen: false
+
     // Icon resolution is not reactive on its own: iconFor() reads the desktop DB and
     // the icon theme through plain function calls, so a binding that resolves before
     // the desktop DB is scanned or the icon-theme cache is warm -- a fresh boot, or

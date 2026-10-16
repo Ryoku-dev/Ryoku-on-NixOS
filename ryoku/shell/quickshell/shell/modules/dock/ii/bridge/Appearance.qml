@@ -9,23 +9,53 @@ import stage.modules.common as Stage
 /**
  * The ii dock's design tokens.
  *
- * Everything forwards to the shell-wide Stage Appearance (palette, rounding,
- * font, animation curves), so the dock matches the bar and the widgets. The
- * one exception is `sizes.dockButtonSize`: the reference derives it from the
- * dock's own height option, which lives in the shared dock store, so the
- * sizes group is wrapped to add that token.
+ * Colours and fonts forward to the shell-wide Stage Appearance (the Ryoku
+ * palette), so the dock matches the bar and the widgets. Rounding is the
+ * reference's own continuous scale: the upstream dock derives every corner
+ * from `appearance.roundingValue` (0-48), and the Ryoku store carries that
+ * same key, so the dock keeps the reference's concentric geometry instead of
+ * the shell's binary sharp-mode radius. `windowRounding` follows the same
+ * formula without the reference's window-decoration side effect: the dock
+ * never touches compositor window rounding, which Ryoku owns.
  */
 Singleton {
     id: root
 
     readonly property QtObject m3colors: Stage.Appearance.m3colors
     readonly property QtObject colors: Stage.Appearance.colors
-    readonly property QtObject rounding: Stage.Appearance.rounding
     readonly property QtObject font: Stage.Appearance.font
     readonly property QtObject animationCurves: Stage.Appearance.animationCurves
     readonly property QtObject animation: Stage.Appearance.animation
     readonly property real animMultiplier: Stage.Appearance.animMultiplier
     readonly property bool reducedMotion: Stage.Appearance.reducedMotion
+
+    readonly property int windowRounding: {
+        let rv = Config.options.appearance.roundingValue;
+        if (rv <= 0)
+            return 0;
+        return Math.round(18 * rv / 24.0);
+    }
+
+    readonly property QtObject rounding: QtObject {
+        property real scale: {
+            let rv = Config.options.appearance.roundingValue;
+            if (rv > 0)
+                return rv / 24.0;
+            if (rv < 0)
+                return 1.0; // not yet migrated, default to large
+            return 0.0; // roundingValue === 0 -> sharp
+        }
+
+        property int unsharpen: Math.round(2 * scale)
+        property int unsharpenmore: Math.round(6 * scale)
+        property int verysmall: Math.round(8 * scale)
+        property int small: Math.round(12 * scale)
+        property int normal: Math.round(17 * scale)
+        property int large: Math.round(24 * scale)
+        property int verylarge: Math.round(32 * scale)
+        property int full: scale === 0 ? 0 : 9999
+        property int windowRounding: root.windowRounding
+    }
 
     readonly property QtObject sizes: QtObject {
         property int dockButtonSize: Math.round((Config.options.dock.height ?? 60) * 0.85)

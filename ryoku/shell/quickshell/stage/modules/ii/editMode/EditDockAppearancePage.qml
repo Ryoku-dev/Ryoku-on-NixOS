@@ -253,6 +253,23 @@ StyledFlickable {
             onStepUp: root.setDesignCfg("magnifySize", Math.min(200, Number(root.designCfg("magnifySize", 150)) + 5))
         }
 
+        EditPanelSectionLabel {
+            visible: root.design === "ii"
+            text: Translation.tr("ii design")
+        }
+
+        EditPanelRow {
+            visible: root.design === "ii"
+            Layout.fillWidth: true
+            first: true
+            last: true
+            symbol: "settings"
+            title: Translation.tr("Dock settings")
+            subtitle: Translation.tr("Styles, widgets, magnification, utilities")
+            trailingKind: "chevron"
+            onActivated: ShellServices.Dock.designSettingsOpen = true
+        }
+
         Item {
             Layout.fillWidth: true
             implicitHeight: 8

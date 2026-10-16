@@ -66,7 +66,7 @@ Singleton {
     }
 
     function syncDriveNow(): void {
-        Quickshell.execDetached(["qs", "-c", "ii", "ipc", "call", "googleDriveBackup", "sync"]);
+        Quickshell.execDetached(["qs", "-c", "shell", "ipc", "call", "googleDriveBackup", "sync"]);
     }
 
     // ── Export Dispatcher ─────────────────────────────────────────────────

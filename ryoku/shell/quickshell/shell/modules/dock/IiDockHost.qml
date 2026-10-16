@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import shell.services
 import "ii" as Ii
@@ -17,6 +18,25 @@ import "ii" as Ii
  */
 Scope {
     id: root
+
+    // Both open paths (the dock's own gear and the Stage Editor's row) close
+    // through here: the bridge flag plus the shared design-settings flag.
+    function closeSettings(): void {
+        Ii.GlobalStates.settingsOpen = false;
+        Dock.designSettingsOpen = false;
+    }
+
+    // The Stage Editor's dock page (and any external caller) opens the design's
+    // own settings surface through this channel.
+    IpcHandler {
+        target: "ii-dock"
+        function openSettings(): void {
+            Dock.designSettingsOpen = true;
+        }
+        function closeSettings(): void {
+            root.closeSettings();
+        }
+    }
 
     readonly property bool active: Dock.design === "ii" && Dock.cfg("enabled", false)
 
@@ -61,10 +81,11 @@ Scope {
 
     // The dock's settings: the port's own page, mounted full-screen while the
     // bridge asks for it (the dock's tiles and edit menus open it through
-    // GlobalStates.openSettingsPage).
+    // GlobalStates.openSettingsPage) or while the shared Dock service raises
+    // the design-settings flag (the Stage Editor's dock page opens it here).
     Loader {
         id: settingsLoader
-        active: root.active && Ii.GlobalStates.settingsOpen
+        active: root.active && (Ii.GlobalStates.settingsOpen || Dock.designSettingsOpen)
         sourceComponent: Component {
             PanelWindow {
                 id: settingsWindow
@@ -84,7 +105,7 @@ Scope {
                     color: Ii.Appearance.colors.colScrim
                     MouseArea {
                         anchors.fill: parent
-                        onClicked: Ii.GlobalStates.closeSettingsPage()
+                        onClicked: root.closeSettings()
                     }
                 }
 
@@ -109,7 +130,7 @@ Scope {
                 Ii.FocusGrab {
                     active: settingsWindow.visible
                     windows: [settingsWindow]
-                    onCleared: Ii.GlobalStates.closeSettingsPage()
+                    onCleared: root.closeSettings()
                 }
             }
         }

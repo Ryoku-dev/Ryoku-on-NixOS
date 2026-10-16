@@ -48,7 +48,7 @@ ColumnLayout {
             label: Translation.tr("Take screenshot")
             onClicked: {
                 panel.host?.closePanel();
-                Quickshell.execDetached(["qs", "-c", "ii", "ipc", "call", "region", "screenshot"]);
+                Quickshell.execDetached(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
             }
         }
         ClockButton {
