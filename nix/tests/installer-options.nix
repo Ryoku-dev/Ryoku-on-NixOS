@@ -70,6 +70,9 @@ let
   };
 
   defaults = evaluate { };
+  hypr = evaluate {
+    programs.ryoku.defaultCompositor = "hyprland";
+  };
   slim = evaluate {
     programs.ryoku = {
       defaultCompositor = "niri";
@@ -95,6 +98,7 @@ let
     services.displayManager.defaultSession = "plasma";
     programs.ryoku.defaultCompositor = "niri";
   };
+  hyprSessionNames = map lib.getName hypr.services.displayManager.sessionPackages;
   plasmaSessionNames = map lib.getName plasmaCoexist.services.displayManager.sessionPackages;
   slimManifest = manifest slim;
 in
@@ -128,6 +132,8 @@ assert builtins.elem "firefox" slimNames;
 assert !builtins.elem "fastfetch" slimNames;
 assert !builtins.elem "gamescope" slimNames;
 assert !builtins.elem "quickemu" slimNames;
+assert hypr.services.displayManager.defaultSession == "ryoku-hyprland";
+assert builtins.elem "ryoku-hyprland-session" hyprSessionNames;
 assert slim.services.displayManager.defaultSession == "ryoku-niri";
 assert slim.environment.sessionVariables.RYOKU_DEFAULT_BROWSER == "firefox";
 assert slim.security.wrappers."gsr-kms-server".capabilities == "cap_sys_admin+ep";

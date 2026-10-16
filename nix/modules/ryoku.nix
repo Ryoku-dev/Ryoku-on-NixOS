@@ -104,6 +104,46 @@ let
     ${pkgs.systemd}/bin/systemctl --user try-restart       xdg-desktop-portal.service       xdg-desktop-portal-gnome.service       xdg-desktop-portal-gtk.service       xdg-desktop-portal-wlr.service       >/dev/null 2>&1 || true
   '';
 
+  # Hyprland has the same first-login dependency as the other compositors:
+  # a newly-created account has no writable Ryoku config tree yet. Materialize
+  # before the compositor starts so its first config parse already contains the
+  # Ryoku bootstrap instead of relying on a user service that starts afterwards.
+  ryokuHyprlandSession = pkgs.runCommand "ryoku-hyprland-session" {
+    passthru.providedSessions = [ "ryoku-hyprland" ];
+  } ''
+    mkdir -p "$out/bin" "$out/share/wayland-sessions"
+
+    cat > "$out/bin/ryoku-hyprland-session" <<'EOF'
+#!${pkgs.runtimeShell}
+set -eu
+
+${materializer}/bin/ryoku-materialize
+
+export PATH="${lib.makeBinPath [
+  ryokuHyprland
+  pkgs.bash
+  pkgs.coreutils
+  pkgs.dbus
+  pkgs.gnugrep
+  pkgs.procps
+  pkgs.systemd
+]}:$PATH"
+
+exec ${ryokuHyprland}/bin/Hyprland "$@"
+EOF
+
+    chmod 0755 "$out/bin/ryoku-hyprland-session"
+
+    cat > "$out/share/wayland-sessions/ryoku-hyprland.desktop" <<EOF
+[Desktop Entry]
+Name=Hyprland (Ryoku)
+Comment=Ryoku desktop on the Hyprland compositor
+Exec=$out/bin/ryoku-hyprland-session
+Type=Application
+DesktopNames=Hyprland
+EOF
+  '';
+
   # Niri's stock display-manager entry can start before Ryoku has ever
   # materialized ~/.config/niri. In that state Niri falls back to its bare
   # default config, which also means the Ryoku session bootstrap is absent and
@@ -558,7 +598,7 @@ EOF
     else [ ];
 
   compositorSession = {
-    hyprland = "hyprland";
+    hyprland = "ryoku-hyprland";
     niri = "ryoku-niri";
     mango = "ryoku-mango";
   };
@@ -1603,6 +1643,7 @@ in
 
     # Supply a greeter on No Desktop installs, preserving another login manager.
     services.displayManager.sessionPackages = [
+      ryokuHyprlandSession
       ryokuNiriSession
       ryokuMangoSession
     ];
