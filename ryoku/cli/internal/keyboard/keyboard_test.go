@@ -3,6 +3,7 @@ package keyboard
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,9 +84,59 @@ func TestLayoutPrimary(t *testing.T) {
 	}
 }
 
+func TestRebuildBootImageSelectsHostGenerator(t *testing.T) {
+	oldHas, oldRun, oldNix := hasBootImageTool, runBootImageTool, isNixBackend
+	isNixBackend = func() bool { return false }
+	t.Cleanup(func() {
+		hasBootImageTool, runBootImageTool, isNixBackend = oldHas, oldRun, oldNix
+	})
+
+	var command string
+	var args []string
+	runBootImageTool = func(got ...string) error {
+		if len(got) == 0 {
+			t.Fatal("boot rebuild ran an empty command")
+		}
+		command = got[0]
+		args = append([]string(nil), got[1:]...)
+		return nil
+	}
+
+	t.Run("mkinitcpio is preferred", func(t *testing.T) {
+		command, args = "", nil
+		hasBootImageTool = func(string) bool { return true }
+		if err := RebuildBootImage(); err != nil {
+			t.Fatal(err)
+		}
+		if command != "mkinitcpio" || strings.Join(args, " ") != "-P" {
+			t.Fatalf("rebuild command = %q %q", command, args)
+		}
+	})
+
+	t.Run("dracut is the fallback", func(t *testing.T) {
+		command, args = "", nil
+		hasBootImageTool = func(name string) bool { return name == "dracut" }
+		if err := RebuildBootImage(); err != nil {
+			t.Fatal(err)
+		}
+		if command != "dracut" || strings.Join(args, " ") != "--regenerate-all --force" {
+			t.Fatalf("rebuild command = %q %q", command, args)
+		}
+	})
+
+	t.Run("missing generators name both tools", func(t *testing.T) {
+		hasBootImageTool = func(string) bool { return false }
+		err := RebuildBootImage()
+		if err == nil || !strings.Contains(err.Error(), "mkinitcpio") || !strings.Contains(err.Error(), "dracut") {
+			t.Fatalf("missing generator error = %v", err)
+		}
+	})
+}
+
 func TestApplySystemDelegatesToHostKeymap(t *testing.T) {
-	old := applySystemKeymap
-	t.Cleanup(func() { applySystemKeymap = old })
+	old, oldNix := applySystemKeymap, isNixBackend
+	isNixBackend = func() bool { return false }
+	t.Cleanup(func() { applySystemKeymap, isNixBackend = old, oldNix })
 	var layout, variant, options string
 	applySystemKeymap = func(gotLayout, gotVariant, gotOptions string) int {
 		layout, variant, options = gotLayout, gotVariant, gotOptions
@@ -101,11 +152,34 @@ func TestApplySystemDelegatesToHostKeymap(t *testing.T) {
 }
 
 func TestApplySystemReportsHostFailure(t *testing.T) {
-	old := applySystemKeymap
-	t.Cleanup(func() { applySystemKeymap = old })
+	old, oldNix := applySystemKeymap, isNixBackend
+	isNixBackend = func() bool { return false }
+	t.Cleanup(func() { applySystemKeymap, isNixBackend = old, oldNix })
 	applySystemKeymap = func(string, string, string) int { return 1 }
 	if err := ApplySystem(Layout{Layout: "fr"}); err == nil {
 		t.Fatal("host keymap failure was ignored")
+	}
+}
+
+func TestNixBackendRefusesSystemKeyboardMutation(t *testing.T) {
+	oldNix, oldApply, oldHas, oldRun := isNixBackend, applySystemKeymap, hasBootImageTool, runBootImageTool
+	isNixBackend = func() bool { return true }
+	called := false
+	applySystemKeymap = func(string, string, string) int { called = true; return 0 }
+	hasBootImageTool = func(string) bool { called = true; return true }
+	runBootImageTool = func(...string) error { called = true; return nil }
+	t.Cleanup(func() {
+		isNixBackend, applySystemKeymap, hasBootImageTool, runBootImageTool = oldNix, oldApply, oldHas, oldRun
+	})
+
+	if err := ApplySystem(Layout{Layout: "fr"}); err == nil || !strings.Contains(err.Error(), "NixOS") {
+		t.Fatalf("Nix ApplySystem error = %v", err)
+	}
+	if err := RebuildBootImage(); err == nil || !strings.Contains(err.Error(), "NixOS") {
+		t.Fatalf("Nix RebuildBootImage error = %v", err)
+	}
+	if called {
+		t.Fatal("Nix keyboard path attempted a mutable system command")
 	}
 }
 

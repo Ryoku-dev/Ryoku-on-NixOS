@@ -11,10 +11,10 @@
 // Applying pushes a chosen layout back out, so the greeter, the TTYs and the
 // boot prompt follow the desktop instead of staying on whatever was there.
 //
-// The initramfs is the one that traps people. mkinitcpio's sd-vconsole hook does
-// `add_file /etc/vconsole.conf` at BUILD time, so the passphrase prompt is
-// frozen to the keymap current when the image was last generated. Editing
-// /etc/vconsole.conf afterwards, by hand or through localectl, cannot reach it.
+// The initramfs is the one that traps people. Its builder copies
+// /etc/vconsole.conf into the image, so the passphrase prompt is frozen to the
+// keymap current when the image was last generated. Editing vconsole.conf
+// afterwards cannot reach it.
 package keyboard
 
 import (
@@ -248,13 +248,19 @@ func (l Layout) Primary() string {
 	return strings.TrimSpace(strings.SplitN(l.Layout, ",", 2)[0])
 }
 
-var applySystemKeymap = func(layout, variant, options string) int {
-	return host.Default().Keymap([]string{"set", layout, variant, options})
-}
+var (
+	applySystemKeymap = func(layout, variant, options string) int {
+		return host.Default().Keymap([]string{"set", layout, variant, options})
+	}
+	isNixBackend = sys.NixBackend
+)
 
 // ApplySystem writes the layout to the greeter and console through the host
 // seam so the same caller works with localectl and Void's rc.conf.
 func ApplySystem(l Layout) error {
+	if isNixBackend() {
+		return fmt.Errorf(i18n.T("system keyboard layout is managed declaratively on NixOS"))
+	}
 	p := l.Primary()
 	if p == "" {
 		return fmt.Errorf(i18n.T("no layout to apply"))
@@ -265,14 +271,29 @@ func ApplySystem(l Layout) error {
 	return nil
 }
 
-// RebuildBootImage regenerates the initramfs so the passphrase prompt picks up
-// the console keymap. Slow (it rebuilds every preset, and a UKI with it) and it
-// regenerates what the machine boots from, so callers decide when it runs.
+var (
+	hasBootImageTool = sys.Has
+	runBootImageTool = sys.Sudo
+)
+
+// RebuildBootImage regenerates every initramfs so the passphrase prompt picks
+// up the console keymap. It prefers mkinitcpio when available and otherwise
+// uses dracut. Rebuilding also updates any UKI managed by the host generator,
+// so callers decide when this slow operation runs.
 func RebuildBootImage() error {
-	if !sys.Has("mkinitcpio") {
-		return fmt.Errorf(i18n.T("mkinitcpio not installed"))
+	if isNixBackend() {
+		return fmt.Errorf(i18n.T("boot images are managed declaratively on NixOS"))
 	}
-	if err := sys.Sudo("mkinitcpio", "-P"); err != nil {
+	var command []string
+	switch {
+	case hasBootImageTool("mkinitcpio"):
+		command = []string{"mkinitcpio", "-P"}
+	case hasBootImageTool("dracut"):
+		command = []string{"dracut", "--regenerate-all", "--force"}
+	default:
+		return fmt.Errorf(i18n.T("neither mkinitcpio nor dracut is installed"))
+	}
+	if err := runBootImageTool(command...); err != nil {
 		return fmt.Errorf(i18n.T("rebuild the boot image: %w"), err)
 	}
 	return nil
