@@ -1,0 +1,62 @@
+package main
+
+import (
+	"os"
+	"strings"
+	"testing"
+
+	wm "ryoku-wm"
+)
+
+// Every test in this package renders against a box that has every optional
+// program, so a runner without Rashin cannot change what the fixtures expect.
+func TestMain(m *testing.M) {
+	hasProgram = func(string) bool { return true }
+	os.Exit(m.Run())
+}
+
+func withoutProgram(t *testing.T, name string) {
+	t.Helper()
+	prev := hasProgram
+	hasProgram = func(p string) bool { return p != name }
+	t.Cleanup(func() { hasProgram = prev })
+}
+
+// With Rashin absent the Ask chord is switched off in the K() table, so
+// binds.lua never registers it, and a rebind the user recorded for it is
+// overruled the same way: the lookup is keyed by the shipped chord.
+func TestAbsentProgramSwitchesItsBindOff(t *testing.T) {
+	withoutProgram(t, "ryoku-rashin")
+	got := string(renderRebinds(Overrides{KeybindRebinds: map[string]string{"ALT + Space": "SUPER + A"}}))
+	if !strings.Contains(got, `["ALT + Space"] = false`) {
+		t.Fatalf("Ask chord still registered without ryoku-rashin:\n%s", got)
+	}
+	if strings.Contains(got, `"SUPER + A"`) {
+		t.Fatalf("a rebind of an absent program's bind leaked into the table:\n%s", got)
+	}
+	if strings.Contains(got, `"SUPER + ALT + Space"`) {
+		t.Fatalf("the Rashin window bind needs rashin-app, which is present, yet it was switched off:\n%s", got)
+	}
+}
+
+func TestPresentProgramLeavesTheTableAlone(t *testing.T) {
+	if got := string(renderRebinds(Overrides{})); strings.Contains(got, "= false") {
+		t.Fatalf("a bind was switched off with every program present:\n%s", got)
+	}
+}
+
+func TestAbsentProgramRowSaysSo(t *testing.T) {
+	withoutProgram(t, "rashin-app")
+	var row wm.BindRow
+	for _, c := range wm.ShippedBinds() {
+		if c.ID == "shell.rashin" {
+			row = catalogRow(c, true, nil, nil)
+		}
+	}
+	if row.Unhonored != "rashin-app is not installed." {
+		t.Fatalf("shell.rashin row reason = %q", row.Unhonored)
+	}
+	if len(row.Keys) == 0 {
+		t.Fatal("the row dropped its chord; it should keep it and say why it is off")
+	}
+}

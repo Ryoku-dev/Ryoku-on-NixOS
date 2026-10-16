@@ -185,6 +185,11 @@ func catalogRow(c wm.CatalogBind, matched bool, rebinds map[string]string, off m
 		}
 		row.Unhonored = reason
 	}
+	// The Lua still names the bind, so it reads as matched; the K() table is
+	// what keeps it off while its program is absent, and the row says so.
+	if reason := c.Missing(hasProgram); reason != "" {
+		row.Unhonored = reason
+	}
 	return row
 }
 

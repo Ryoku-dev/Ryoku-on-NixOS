@@ -16,8 +16,8 @@ import (
 // niri's own action vocabulary and folds the store's rebinds, unbinds and custom
 // binds into it, resolving every chord collision to exactly one winner (custom
 // over rebound default over static default) so the emitted config never carries
-// a chord twice. binds reports the full effective legend the cheatsheet and Hub
-// draw; apply writes the resolved KDL.
+// a chord twice. binds reports the full effective legend Kit and the Hub draw;
+// apply writes the resolved KDL.
 
 // niriBind is how niri expresses one catalogue entry: the niri action string, or
 // a reason when niri has no action for the behaviour (which lists the bind as an
@@ -65,14 +65,33 @@ func screenshotLaunchCommand(mode string) string {
 		qmlEnv + " " + command + "qs -c ryoshot; fi"
 }
 
+// hasProgram is the PATH lookup behind the catalogue's Needs rule; a test pins
+// it so the rendered config never depends on what the box running it has.
+var hasProgram = wm.HasProgram
+
 // defaultBinds maps each catalogue id to niri's expression of it. Compositor
 // behaviours become niri actions; app and shell launches spawn the same commands
 // (shell surfaces go through ryoku-shell, whose openSurface bus is compositor
 // agnostic); niri's own overview takes the workspace overview. Behaviours niri
 // cannot perform (pin, the scratchpad, mouse-button drag, desktop blocks) carry
-// a reason so the legend reports them instead of hiding them. An id absent here
-// is left off entirely, which would be a bug, so the tests assert full coverage.
+// a reason so the legend reports them instead of hiding them, and a bind whose
+// program is not installed takes the same shape, so it is neither emitted nor
+// hidden. An id absent here is left off entirely, which would be a bug, so the
+// tests assert full coverage.
 func defaultBinds() map[string]niriBind {
+	defs := shippedBinds()
+	for _, cb := range wm.ShippedBinds() {
+		if reason := cb.Missing(hasProgram); reason != "" {
+			nb := defs[cb.ID]
+			nb.action = ""
+			nb.reason = reason
+			defs[cb.ID] = nb
+		}
+	}
+	return defs
+}
+
+func shippedBinds() map[string]niriBind {
 	return map[string]niriBind{
 		// Windows
 		// The iRiS frame can ask before a window closes; only when that is on and
@@ -394,8 +413,8 @@ func genBinds(s niriStore) (string, []wm.Unhonored) {
 // row in catalogue order (its chord resolved against the user's rebinds, its
 // copy overridden where niri's mechanic differs, and marked unhonored where niri
 // cannot perform it), then niri's own binds outside the catalogue, then the
-// user's custom binds. One list, so the cheatsheet and the Hub read the legend
-// from the seam rather than parsing niri's config.
+// user's custom binds. One list, so Kit and the Hub read the legend from the
+// seam rather than parsing niri's config.
 func bindRows(s niriStore) []wm.BindRow {
 	defs := defaultBinds()
 	rows := make([]wm.BindRow, 0, 128)

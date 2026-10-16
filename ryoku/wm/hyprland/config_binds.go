@@ -10,6 +10,10 @@ import (
 
 // Keybind, unbind and rebind emission for the generated Hyprland config.
 
+// hasProgram is the PATH lookup behind the catalogue's Needs rule; a test pins
+// it so the rendered table never depends on what the box running it has.
+var hasProgram = wm.HasProgram
+
 func genKeybind(k Keybind) string {
 	if strings.TrimSpace(k.Keys) == "" {
 		return ""
@@ -117,6 +121,15 @@ func renderRebinds(o Overrides) []byte {
 			continue
 		}
 		entries[from] = ""
+	}
+
+	// A bind whose program is not installed holds no chord either: the shipped
+	// chord is the K() key, so the same false entry a switched-off bind gets
+	// stops it before hl.bind, whatever the user moved it to.
+	for _, b := range wm.ShippedBinds() {
+		if b.Missing(hasProgram) != "" {
+			entries[b.Chord] = ""
+		}
 	}
 
 	keys := make([]string, 0, len(entries))

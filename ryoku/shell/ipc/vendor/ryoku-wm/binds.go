@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,8 +14,8 @@ import (
 // desktop offers, described by what it does rather than by any compositor's
 // binding language. A provider reads this catalogue, resolves the user's
 // rebinds, marks what its compositor cannot honour, and reports the result as
-// the effective legend the cheatsheet and the Hub draw. Keeping the list here,
-// in the seam, means the two surfaces read one source instead of each parsing a
+// the effective legend Kit and the Hub draw. Keeping the list here, in the
+// seam, means the two surfaces read one source instead of each parsing a
 // compositor's own config and drifting apart.
 
 // BindKind groups a bind by who acts on it, so a consumer can colour or section
@@ -85,6 +86,28 @@ type CatalogBind struct {
 	// pad instead, KP_1..KP_9 then KP_0.
 	Family bool
 	Numpad bool
+	// Needs is the program the bind launches when that program is an optional
+	// app the user may remove. A provider registers no chord for a bind whose
+	// program is absent, so a key never opens a surface that can only say the
+	// app is missing, and the legend row names the program instead of listing
+	// a dead key.
+	Needs string
+}
+
+// HasProgram reports whether name resolves on PATH. It is the lookup Missing
+// takes on a live box; a test passes its own.
+func HasProgram(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+// Missing is the legend line for a bind whose program is not installed, or ""
+// when the bind needs nothing or has what it needs.
+func (c CatalogBind) Missing(has func(string) bool) string {
+	if c.Needs == "" || has(c.Needs) {
+		return ""
+	}
+	return fmt.Sprintf("%s is not installed.", c.Needs)
 }
 
 // IrisCloseCheck succeeds when the iRiS frame is the bar style and its close
@@ -184,9 +207,9 @@ var catalogue = []CatalogBind{
 
 	// Shell
 	{ID: "shell.launcher", Category: "Shell", Label: "App launcher", Chord: "SUPER + Space", Kind: BindShell},
-	{ID: "shell.ask", Category: "Shell", Label: "Ask Rashin", Hint: "AI chat bar", Chord: "ALT + Space", Kind: BindShell},
-	{ID: "shell.rashin", Category: "Shell", Label: "Rashin", Hint: "The AI companion app; a second press focuses it", Chord: "SUPER + ALT + Space", Kind: BindShell},
-	{ID: "shell.cheatsheet", Category: "Shell", Label: "Keybind cheatsheet", Hint: "Press again to close", Chord: "SUPER + K", Kind: BindShell},
+	{ID: "shell.ask", Category: "Shell", Label: "Ask Rashin", Hint: "AI chat bar", Chord: "ALT + Space", Kind: BindShell, Needs: "ryoku-rashin"},
+	{ID: "shell.rashin", Category: "Shell", Label: "Rashin", Hint: "The AI companion app; a second press focuses it", Chord: "SUPER + ALT + Space", Kind: BindShell, Needs: "rashin-app"},
+	{ID: "shell.cheatsheet", Category: "Shell", Label: "Kit", Hint: "Press again to close", Chord: "SUPER + K", Kind: BindShell},
 	{ID: "shell.lock", Category: "Shell", Label: "Lock the screen", Chord: "SUPER + L", Kind: BindShell},
 	{ID: "shell.quicksettings", Category: "Shell", Label: "Quick settings", Hint: "Power, logout, restart, shutdown, wifi", Chord: "SUPER + Escape", Kind: BindShell},
 	{ID: "shell.wallpaper", Category: "Shell", Label: "Wallpaper picker", Chord: "SUPER + W", Kind: BindShell},
