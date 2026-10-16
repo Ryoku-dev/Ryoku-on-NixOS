@@ -1,7 +1,6 @@
 module dock.ii
 FocusGrab 1.0 ../../../components/FocusGrab.qml
 GlobalShortcut 1.0 ../../../components/CustomShortcut.qml
-WindowEmbed 1.0 ../../../components/WindowEmbed.qml
 WorkspaceSlide 1.0 ../../../components/WorkspaceSlide.qml
 singleton AiPlanUsage 1.0 services/AiPlanUsage.qml
 AiUsageConfig 1.0 settings/AiUsageConfig.qml

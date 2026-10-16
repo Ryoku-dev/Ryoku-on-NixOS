@@ -21,13 +21,6 @@ const (
 	CapSubmap                Capability = "submap"
 	CapGlobalShortcuts       Capability = "globalShortcuts"
 	CapFocusGrab             Capability = "focusGrab"
-	// CapWindowEmbed is set when the compositor can hold one window pinned to a
-	// layer surface's screen and corner, so a desktop widget can cut a hole in
-	// itself and show that window through it: the phone-mirror frame places a
-	// scrcpy window under its own panel and parks it out of sight when closed.
-	// Named for what the user gets; a compositor without per-window pinning to
-	// a surface leaves this off and the frame shows a plain window instead.
-	CapWindowEmbed Capability = "windowEmbed"
 	// CapWorkspaceSlideStyle is set when the compositor reports how it slides
 	// between workspaces (axis, distance, curve, duration, fade), so a
 	// full-screen overlay can match the real motion instead of assuming one.
@@ -120,7 +113,7 @@ func All() []Capability {
 		CapWorkspaces, CapSpecialWorkspace, CapWorkspaceMoveToOutput,
 		CapWindowWorkspaceMap, CapWindowGeometry, CapFocusHistory,
 		CapWindowRules, CapLayerRules, CapSubmap, CapGlobalShortcuts,
-		CapFocusGrab, CapWindowEmbed, CapWorkspaceSlideStyle,
+		CapFocusGrab, CapWorkspaceSlideStyle,
 		CapScreenShader, CapPlugins, CapLiveConfigEval, CapConfigReload,
 		CapAnimations, CapCursorSet, CapNativeOverview, CapOverviewBackdrop,
 		CapOverviewState, CapOutputPower,

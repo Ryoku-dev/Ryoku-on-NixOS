@@ -20,10 +20,6 @@ import (
 // CapSubmap, CapGlobalShortcuts, CapFocusGrab, CapScreenShader, CapPlugins:
 // niri implements none of these protocols or subsystems.
 //
-// CapWindowEmbed: no window can be pinned to a layer surface's screen and
-// corner, so a desktop frame cannot hold a window under its own cut-out; the
-// phone mirror shows as a plain window here.
-//
 // CapWorkspaceSlideStyle: the animation is a config block with no query IPC,
 // so the provider cannot report the resolved style, curve and duration the way
 // the overlay needs; it keeps its built-in curve.

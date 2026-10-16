@@ -23,7 +23,6 @@
   shell.json's one `dock` object, so the Hub, `ryoku-shell dock` and the stage
   edit pages keep working unchanged (`quickshell/shell/modules/dock/ii/`,
   `quickshell/shell/modules/dock/IiDockHost.qml`,
-  `quickshell/shell/components/WindowEmbed.qml`,
   `quickshell/shell/components/WorkspaceSlide.qml`).
 - **Orpheus is Ryoku's default bar.** `Ryoku.Blobs` drops hang from the top
   edge with a voice in the middle that shows the time, the track, a fresh

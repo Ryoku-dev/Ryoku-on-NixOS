@@ -85,16 +85,6 @@ func TestClaimsKeyboardGrabSharesPointer(t *testing.T) {
 	}
 }
 
-// No window can be pinned under a layer surface here, so the phone-mirror
-// frame must fall back to a plain window; claiming this would offer an embed
-// that never lands.
-func TestDeniesWindowEmbed(t *testing.T) {
-	c := wm.Caps{Supports: capsManifest}
-	if c.Has(wm.CapWindowEmbed) {
-		t.Error("niri cannot pin a window to a layer surface; the manifest must not claim it")
-	}
-}
-
 // The animation is a config block with no query IPC, so the overlay cannot
 // learn the resolved slide; claiming this would leave it waiting for a read
 // that never answers.
