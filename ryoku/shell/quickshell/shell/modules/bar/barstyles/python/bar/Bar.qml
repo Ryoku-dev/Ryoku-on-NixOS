@@ -9,6 +9,7 @@ import Ryoku.Ui.Singletons
 import "../reusables"
 import "../"
 import "../../../../../services/lib/screens.js" as Screens
+import shell.modules.stage.frame
 
 Variants {
     // One band per screen that still shows a bar (Ryoku Settings > Displays).
@@ -140,6 +141,7 @@ Variants {
 
             property bool isRevealed: {
                 if (shouldHideForRedact) return false;
+                if (frameLayer.framed) return true;
                 if (!autohide) return true;
                 if (barHover.hovered) return true;
                 if (hideTimer.running) return true;
@@ -210,11 +212,13 @@ Variants {
                 return (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.bar && Config.rawSettings.bar.width !== undefined) ? Config.rawSettings.bar.width : 100;
             }
             property real edgePadding: (autohide && !isFill) ? s(4) : 0
-            property real effectiveBarWidth: Math.round(isVertical ? barWindow.width : (isFill ? barWindow.width : ((barWindow.width - (autohide ? edgePadding * 2 : 0)) * (barWidthPercent / 100.0))))
-            property real horizontalOffset: Math.round(isVertical ? 0 : (isFill ? 0 : ((barWindow.width - effectiveBarWidth) / 2)))
+            readonly property real barContentWidth: frameLayer.rest.width
+            readonly property real barContentHeight: frameLayer.rest.height
+            property real effectiveBarWidth: Math.round(isVertical ? barContentWidth : (isFill ? barContentWidth : ((barContentWidth - (autohide ? edgePadding * 2 : 0)) * (barWidthPercent / 100.0))))
+            property real horizontalOffset: Math.round(isVertical ? 0 : (isFill ? 0 : ((barContentWidth - effectiveBarWidth) / 2)))
 
-            property real effectiveBarHeight: Math.round(!isVertical ? barWindow.height : (isFill ? barWindow.height : ((barWindow.height - (autohide ? edgePadding * 2 : 0)) * (barWidthPercent / 100.0))))
-            property real verticalOffset: Math.round(!isVertical ? 0 : (isFill ? 0 : ((barWindow.height - effectiveBarHeight) / 2)))
+            property real effectiveBarHeight: Math.round(!isVertical ? barContentHeight : (isFill ? barContentHeight : ((barContentHeight - (autohide ? edgePadding * 2 : 0)) * (barWidthPercent / 100.0))))
+            property real verticalOffset: Math.round(!isVertical ? 0 : (isFill ? 0 : ((barContentHeight - effectiveBarHeight) / 2)))
 
             property real currentBarMinX: (contentWrapper && contentWrapper.dynamicMaxX > contentWrapper.dynamicMinX) ? contentWrapper.dynamicMinX : horizontalOffset
             property real currentBarMaxX: (contentWrapper && contentWrapper.dynamicMaxX > contentWrapper.dynamicMinX) ? contentWrapper.dynamicMaxX : (horizontalOffset + effectiveBarWidth)
@@ -243,10 +247,11 @@ Variants {
 
             property int barHeight: s(40)
             property real cornerRadius: s(12)
+            readonly property real surfaceThickness: barHeight + (isFill ? cornerRadius : edgePadding)
 
             property real baseOffsetY: {
                 if (barPosition === "bottom") {
-                    return isFill ? (barWindow.height - barWindow.barHeight) : (barWindow.height - barWindow.barHeight - edgePadding);
+                    return isFill ? (barContentHeight - barHeight) : (barContentHeight - barHeight - edgePadding);
                 } else {
                     return isFill ? 0 : edgePadding;
                 }
@@ -259,8 +264,8 @@ Variants {
                 right: barPosition === "right" || !barWindow.isVertical
             }
 
-            implicitHeight: barWindow.isVertical ? 0 : (barHeight + (isFill ? cornerRadius : edgePadding))
-            implicitWidth: barWindow.isVertical ? (barHeight + (isFill ? cornerRadius : edgePadding)) : 0
+            implicitHeight: barWindow.isVertical ? 0 : frameLayer.extent
+            implicitWidth: barWindow.isVertical ? frameLayer.extent : 0
 
             margins {
                 top: isFill ? 0 : (barPosition === "bottom" ? 0 : (autohide ? 0 : s(4)))
@@ -272,27 +277,43 @@ Variants {
             exclusiveZone: (!barConfigReady || autohide || shouldHideForRedact) ? 0 : barHeight
             color: "transparent"
 
-            property real activeMaskHeight: shouldHideForRedact ? 0 : ((autohide && !isRevealed) ? s(4) : (isVertical ? (isFill ? barWindow.height : (effectiveBarHeight + edgePadding * 2)) : (isFill ? (barHeight + cornerRadius) : (barHeight + edgePadding))))
-            property real activeMaskWidth: shouldHideForRedact ? 0 : ((autohide && !isRevealed) ? s(4) : (isVertical ? (isFill ? (barHeight + cornerRadius) : (barHeight + edgePadding)) : (isFill ? barWindow.width : (effectiveBarWidth + edgePadding * 2))))
+            property real activeMaskHeight: shouldHideForRedact ? 0 : ((autohide && !isRevealed) ? s(4) : (isVertical ? (isFill ? barContentHeight : (effectiveBarHeight + edgePadding * 2)) : (isFill ? (barHeight + cornerRadius) : (barHeight + edgePadding))))
+            property real activeMaskWidth: shouldHideForRedact ? 0 : ((autohide && !isRevealed) ? s(4) : (isVertical ? (isFill ? (barHeight + cornerRadius) : (barHeight + edgePadding)) : (isFill ? barContentWidth : (effectiveBarWidth + edgePadding * 2))))
+
+            readonly property rect mainInputRect: frameLayer.maskRect(
+                isVertical ? (barPosition === "right" ? (barContentWidth - activeMaskWidth) : 0) : (isFill ? 0 : currentBarMinX),
+                isVertical ? (isFill ? 0 : currentBarMinY) : (barPosition === "bottom" ? baseOffsetY : 0),
+                isVertical ? activeMaskWidth : (isFill ? barContentWidth : (currentBarMaxX - currentBarMinX)),
+                isVertical ? (isFill ? barContentHeight : (currentBarMaxY - currentBarMinY)) : (isFill ? barHeight : activeMaskHeight))
+            readonly property rect startCornerInputRect: frameLayer.maskRect(
+                isVertical ? (barPosition === "right" ? (barContentWidth - barHeight - cornerRadius) : barHeight) : 0,
+                isVertical ? 0 : (barPosition === "bottom" ? (baseOffsetY - cornerRadius) : (baseOffsetY + barHeight)),
+                isFill ? cornerRadius : 0,
+                isFill ? cornerRadius : 0)
+            readonly property rect endCornerInputRect: frameLayer.maskRect(
+                isVertical ? (barPosition === "right" ? (barContentWidth - barHeight - cornerRadius) : barHeight) : (barContentWidth - cornerRadius),
+                isVertical ? (barContentHeight - cornerRadius) : (barPosition === "bottom" ? (baseOffsetY - cornerRadius) : (baseOffsetY + barHeight)),
+                isFill ? cornerRadius : 0,
+                isFill ? cornerRadius : 0)
 
             mask: Region {
                 Region {
-                    x: barWindow.isVertical ? (barWindow.barPosition === "right" ? (barWindow.width - barWindow.activeMaskWidth) : 0) : (isFill ? 0 : barWindow.currentBarMinX)
-                    y: barWindow.isVertical ? (isFill ? 0 : barWindow.currentBarMinY) : (barWindow.barPosition === "bottom" ? barWindow.baseOffsetY : 0)
-                    width: barWindow.isVertical ? barWindow.activeMaskWidth : (isFill ? barWindow.width : (barWindow.currentBarMaxX - barWindow.currentBarMinX))
-                    height: barWindow.isVertical ? (isFill ? barWindow.height : (barWindow.currentBarMaxY - barWindow.currentBarMinY)) : (isFill ? barWindow.barHeight : barWindow.activeMaskHeight)
+                    x: Math.round(barWindow.mainInputRect.x)
+                    y: Math.round(barWindow.mainInputRect.y)
+                    width: Math.round(barWindow.mainInputRect.width)
+                    height: Math.round(barWindow.mainInputRect.height)
                 }
                 Region {
-                    x: barWindow.isVertical ? (barWindow.barPosition === "right" ? (barWindow.width - barWindow.barHeight - barWindow.cornerRadius) : barWindow.barHeight) : 0
-                    y: barWindow.isVertical ? 0 : (barWindow.barPosition === "bottom" ? (barWindow.baseOffsetY - barWindow.cornerRadius) : (barWindow.baseOffsetY + barWindow.barHeight))
-                    width: (!barWindow.isVertical && barWindow.isFill) ? barWindow.cornerRadius : (barWindow.isVertical && barWindow.isFill ? barWindow.cornerRadius : 0)
-                    height: (!barWindow.isVertical && barWindow.isFill) ? barWindow.cornerRadius : (barWindow.isVertical && barWindow.isFill ? barWindow.cornerRadius : 0)
+                    x: Math.round(barWindow.startCornerInputRect.x)
+                    y: Math.round(barWindow.startCornerInputRect.y)
+                    width: Math.round(barWindow.startCornerInputRect.width)
+                    height: Math.round(barWindow.startCornerInputRect.height)
                 }
                 Region {
-                    x: barWindow.isVertical ? (barWindow.barPosition === "right" ? (barWindow.width - barWindow.barHeight - barWindow.cornerRadius) : barWindow.barHeight) : (barWindow.width - barWindow.cornerRadius)
-                    y: barWindow.isVertical ? (barWindow.height - barWindow.cornerRadius) : (barWindow.barPosition === "bottom" ? (barWindow.baseOffsetY - barWindow.cornerRadius) : (barWindow.baseOffsetY + barWindow.barHeight))
-                    width: (!barWindow.isVertical && barWindow.isFill) ? barWindow.cornerRadius : (barWindow.isVertical && barWindow.isFill ? barWindow.cornerRadius : 0)
-                    height: (!barWindow.isVertical && barWindow.isFill) ? barWindow.cornerRadius : (barWindow.isVertical && barWindow.isFill ? barWindow.cornerRadius : 0)
+                    x: Math.round(barWindow.endCornerInputRect.x)
+                    y: Math.round(barWindow.endCornerInputRect.y)
+                    width: Math.round(barWindow.endCornerInputRect.width)
+                    height: Math.round(barWindow.endCornerInputRect.height)
                 }
             }
 
@@ -352,23 +373,36 @@ Variants {
             property bool isDataReady: fastPollerLoaded
             Timer { interval: 400; running: true; onTriggered: barWindow.isDataReady = true }
 
-            SideBar {
-                id: verticalWrapper
-                barWindow: barWindow
-                property real hideOffsetX: {
-                    if (!barWindow || barWindow.isRevealed) return 0;
-                    let offset = barWindow.barHeight + barWindow.edgePadding + barWindow.s(10);
-                    return barWindow.barPosition === "right" ? offset : -offset;
-                }
-                transform: Translate {
-                    x: verticalWrapper.hideOffsetX
-                    Behavior on x { NumberAnimation { duration: 300; easing.type: Easing.OutQuint } }
-                }
-            }
+            // The bar is part of the desktop the Stage Editor shrinks into its card.
+            StageFramedLayer {
+                id: frameLayer
+                interactive: false
+                screenName: barWindow.screen?.name ?? ""
+                edge: barWindow.barPosition
+                restThickness: barWindow.surfaceThickness
+                screenWidth: barWindow.screen?.width ?? 1920
+                screenHeight: barWindow.screen?.height ?? 1080
+                originX: barWindow.anchors.left ? barWindow.margins.left : screenWidth - barWindow.width - barWindow.margins.right
+                originY: barWindow.anchors.top ? barWindow.margins.top : screenHeight - barWindow.height - barWindow.margins.bottom
 
-            TopBar {
-                id: contentWrapper
-                barWindow: barWindow
+                SideBar {
+                    id: verticalWrapper
+                    barWindow: barWindow
+                    property real hideOffsetX: {
+                        if (!barWindow || barWindow.isRevealed) return 0;
+                        let offset = barWindow.barHeight + barWindow.edgePadding + barWindow.s(10);
+                        return barWindow.barPosition === "right" ? offset : -offset;
+                    }
+                    transform: Translate {
+                        x: verticalWrapper.hideOffsetX
+                        Behavior on x { NumberAnimation { duration: 300; easing.type: Easing.OutQuint } }
+                    }
+                }
+
+                TopBar {
+                    id: contentWrapper
+                    barWindow: barWindow
+                }
             }
         }
     }

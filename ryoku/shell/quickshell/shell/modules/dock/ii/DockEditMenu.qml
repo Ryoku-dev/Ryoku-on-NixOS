@@ -151,11 +151,12 @@ DockContextMenuBase {
                 height: 40
                 title: Translation.tr("Back")
                 actionSymbol: "open_in_new"
-                actionTooltip: Translation.tr("Open in Settings")
+                actionTooltip: Translation.tr("Open in the Stage Editor")
                 onBackRequested: root.mode = "item"
                 onActionRequested: {
+                    const page = root.optionsPage;
                     root.close();
-                    GlobalStates.openSettingsPage("dock", "widgets/DockUtilitiesConfig.qml");
+                    GlobalStates.openSettingsPage("dock", page);
                 }
             }
 
@@ -171,7 +172,7 @@ DockContextMenuBase {
                     id: pageLoader
                     anchors.fill: parent
                     asynchronous: true
-                    source: root.optionsPage !== "" ? Qt.resolvedUrl("../../settings/configs/" + root.optionsPage) : ""
+                    source: root.optionsPage !== "" ? Qt.resolvedUrl("settings/" + root.optionsPage) : ""
                     onLoaded: {
                         if (item.hasOwnProperty("showBackButton"))
                             item.showBackButton = false;

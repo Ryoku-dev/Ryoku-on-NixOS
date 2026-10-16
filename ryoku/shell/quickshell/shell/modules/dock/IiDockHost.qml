@@ -2,10 +2,9 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
-import Quickshell.Io
-import Quickshell.Wayland
 import shell.services
 import "ii" as Ii
+import "ii/utilities/DockUtilityCatalog.js" as DockUtilityCatalog
 
 /**
  * The ii dock design's global host.
@@ -14,31 +13,72 @@ import "ii" as Ii
  * told to cover, so this host mounts it once for the whole session, gated on
  * the shared store selecting the "ii" design. The same gate owns the rest of
  * the design's bundle: the live-draw overlay per screen, the alarm ringing
- * popup, the clock app window and the dock's own settings page.
+ * popup and the clock app window. Its settings are the Stage Editor's dock
+ * pages, which reach the design's stateful services through `actions`.
  */
 Scope {
     id: root
 
-    // Both open paths (the dock's own gear and the Stage Editor's row) close
-    // through here: the bridge flag plus the shared design-settings flag.
-    function closeSettings(): void {
-        Ii.GlobalStates.settingsOpen = false;
-        Dock.designSettingsOpen = false;
-    }
-
-    // The Stage Editor's dock page (and any external caller) opens the design's
-    // own settings surface through this channel.
-    IpcHandler {
-        target: "ii-dock"
-        function openSettings(): void {
-            Dock.designSettingsOpen = true;
-        }
-        function closeSettings(): void {
-            root.closeSettings();
-        }
-    }
-
     readonly property bool active: Dock.design === "ii" && Dock.cfg("enabled", false)
+
+    // What the Stage Editor's dock pages cannot do through the shared store:
+    // the saved layouts, the folders and the utility tiles, which the
+    // design's own services and catalogue keep in step with its order. Built
+    // only while the design is up, so another design never instantiates this
+    // one's services.
+    LazyLoader {
+        id: actions
+        active: root.active
+
+        QtObject {
+            readonly property var presets: Ii.DockPresets.presetsList ?? []
+            readonly property int activePreset: {
+                Ii.Config.options.dock.pinnedApps;
+                Ii.Config.options.dock.order;
+                Ii.Config.options.dock.enableMediaWidget;
+                Ii.Config.options.dock.enableWeatherWidget;
+                Ii.Config.options.dock.enableSportsWidget;
+                Ii.Config.options.dock.enableLivePreviewWidget;
+                Ii.DockPresets.presetsList;
+                return Ii.DockPresets.findMatchingPresetIndex();
+            }
+            function applyPreset(index: int): void {
+                const preset = Ii.DockPresets.presetsList[index];
+                if (preset)
+                    Ii.DockPresets.applyPreset(preset);
+            }
+            function savePreset(name: string): void {
+                Ii.DockPresets.saveCurrentAsPreset(name);
+            }
+            function deletePreset(index: int): void {
+                Ii.DockPresets.deletePreset(index);
+            }
+            function addFolder(path: string): void {
+                Ii.TaskbarApps.addPinnedFile(path);
+            }
+            function removeFolder(path: string): void {
+                Ii.TaskbarApps.removePinnedFile(path);
+            }
+            function moveFolder(from: int, to: int): void {
+                Ii.TaskbarApps.reorderPinnedFileByIndex(from, to);
+            }
+            readonly property var utilityGroups: DockUtilityCatalog.groups
+            readonly property var utilityKinds: DockUtilityCatalog.kinds
+            readonly property var utilities: DockUtilityCatalog.normalize(Ii.Config.options.dock.utilityWidgets ?? [])
+            function setUtility(kind: string, on: bool): void {
+                const current = Ii.Config.options.dock.utilityWidgets ?? [];
+                Dock.setDesignCfg("ii", "utilityWidgets", on
+                    ? DockUtilityCatalog.withKind(current, kind, false)
+                    : DockUtilityCatalog.withoutKind(current, kind));
+            }
+        }
+    }
+
+    Binding {
+        target: Dock
+        property: "designActions"
+        value: actions.item
+    }
 
     Loader {
         active: root.active
@@ -76,63 +116,6 @@ Scope {
         asynchronous: true
         sourceComponent: Component {
             Ii.ClockAppWindow {}
-        }
-    }
-
-    // The dock's settings: the port's own page, mounted full-screen while the
-    // bridge asks for it (the dock's tiles and edit menus open it through
-    // GlobalStates.openSettingsPage) or while the shared Dock service raises
-    // the design-settings flag (the Stage Editor's dock page opens it here).
-    Loader {
-        id: settingsLoader
-        active: root.active && (Ii.GlobalStates.settingsOpen || Dock.designSettingsOpen)
-        sourceComponent: Component {
-            PanelWindow {
-                id: settingsWindow
-
-                screen: Quickshell.primaryScreen
-                WlrLayershell.layer: WlrLayer.Overlay
-                WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
-                exclusionMode: ExclusionMode.Ignore
-                exclusiveZone: 0
-                anchors.top: true
-                anchors.bottom: true
-                anchors.left: true
-                anchors.right: true
-
-                Rectangle {
-                    anchors.fill: parent
-                    color: Ii.Appearance.colors.colScrim
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: root.closeSettings()
-                    }
-                }
-
-                Item {
-                    id: card
-                    anchors.centerIn: parent
-                    width: Math.min(parent.width * 0.9, 1100)
-                    height: Math.min(parent.height * 0.9, 800)
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: Ii.Appearance.rounding.large
-                        color: Ii.Appearance.colors.colLayer1
-                    }
-
-                    Ii.DockConfig {
-                        anchors.fill: parent
-                        anchors.margins: 8
-                    }
-                }
-
-                Ii.FocusGrab {
-                    active: settingsWindow.visible
-                    windows: [settingsWindow]
-                    onCleared: root.closeSettings()
-                }
-            }
         }
     }
 }

@@ -5,6 +5,7 @@ import QtQuick
 import Quickshell
 import stage as Stage
 import shell.services
+import "../../../stage/Singletons" as StageCfg
 import Ryoku.Ui.Singletons
 
 /**
@@ -48,6 +49,16 @@ Singleton {
     property bool oskOpen: Stage.GlobalStates.oskOpen
     onOskOpenChanged: if (Stage.GlobalStates.oskOpen !== root.oskOpen)
         Stage.GlobalStates.oskOpen = root.oskOpen
+    // Read-only overlay state the dock's tooltip gate and badges watch: the
+    // stage owns every surface behind these, the dock never raises them.
+    readonly property bool sidebarLeftOpen: Stage.GlobalStates.sidebarLeftOpen
+    readonly property bool sidebarRightOpen: Stage.GlobalStates.sidebarRightOpen
+    readonly property bool osdVolumeOpen: Stage.GlobalStates.osdVolumeOpen
+    readonly property bool cheatsheetOpen: Stage.GlobalStates.cheatsheetOpen
+    readonly property bool notesAppOpen: Stage.GlobalStates.notesAppOpen
+    readonly property bool sessionOpen: Stage.GlobalStates.sessionOpen
+    readonly property bool usageOpen: Stage.GlobalStates.usageOpen
+    readonly property bool islandDashboardOpen: Stage.GlobalStates.islandDashboardOpen
 
     readonly property bool effectiveLeftOpen: Stage.GlobalStates.sidebarLeftOpen
     readonly property bool effectiveRightOpen: Stage.GlobalStates.sidebarRightOpen
@@ -61,19 +72,21 @@ Singleton {
     function editHistoryPush(entry) { Stage.GlobalStates.editHistoryPush(entry); }
     function toggleOverview(monitorName) { Stage.GlobalStates.toggleOverview(monitorName); }
     function launchColorPicker() { Stage.GlobalStates.launchColorPicker(); }
-    // The dock's settings pages live in this port: opening one mounts the
-    // settings host over the desktop with the requested page.
-    property bool settingsOpen: false
-    property string settingsPage: "dock"
-    property string settingsSubPage: ""
+    // The dock's settings live in the Stage Editor's dock pages: the design
+    // page for the dock as a whole, its widgets page for any one item on it.
+    // Opened through the session, exactly as the editor's IPC opens a
+    // section, so the desktop's edit frames come up with it.
+    readonly property bool settingsOpen: Stage.GlobalStates.settingsOpen
     function openSettingsPage(pageId, subPageId, sectionId) {
-        root.settingsPage = String(pageId ?? "dock");
-        root.settingsSubPage = String(subPageId ?? "");
-        root.settingsOpen = true;
-    }
-    function closeSettingsPage() {
-        root.settingsOpen = false;
-        root.settingsSubPage = "";
+        const section = "dock/" + (String(subPageId ?? "") !== "" ? "iiWidgets" : "appearance");
+        const active = ShellState.forActive();
+        let monitor = active?.modelData?.name ?? "";
+        if (monitor === "")
+            monitor = ShellState.screens.length > 0 ? ShellState.screens[0].name : "";
+        if (StageCfg.StageSession.onMonitor(monitor))
+            StageCfg.StageSession.openSection(section);
+        else
+            StageCfg.StageSession.enterWidgets(monitor, section);
     }
     function setDockInset(screenName, side, thickness, reserved) {
         Stage.GlobalStates.setDockInset(screenName, side, thickness);

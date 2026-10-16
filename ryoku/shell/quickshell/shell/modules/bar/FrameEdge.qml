@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import shell.services
+import shell.modules.stage.frame
 
 // One of the four background reservation surfaces of the frame. It paints
 // nothing and takes no input; its exclusive zone reserves the revealed bar's
@@ -51,9 +52,21 @@ PanelWindow {
     // reveal reorders the stack (the largest target crosses the map threshold
     // first), which inverts the insets. So the surface stays mapped at a 1 px
     // floor and only its exclusive zone drops to 0 when the bar hides.
-    implicitWidth: horizontal ? 0 : Math.max(1, Math.round(zone))
-    implicitHeight: horizontal ? Math.max(1, Math.round(zone)) : 0
+    implicitWidth: horizontal ? 0 : frameLayer.extent
+    implicitHeight: horizontal ? frameLayer.extent : 0
     visible: true
+
+    // Keep the reservation window's three-edge anchor contract while letting
+    // its cross-edge extent follow the Stage card. The exclusive zone is still
+    // `zone`, so clients never reflow when edit mode opens.
+    StageFramedLayer {
+        id: frameLayer
+        screenName: frameEdge.screen?.name ?? ""
+        edge: frameEdge.edge
+        restThickness: Math.max(1, Math.round(frameEdge.zone))
+        screenWidth: frameEdge.screen?.width ?? 1920
+        screenHeight: frameEdge.screen?.height ?? 1080
+    }
 
     mask: Region {}
 }

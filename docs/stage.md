@@ -41,8 +41,12 @@ Two places, each with one job:
   wallpaper and choose **Edit desktop** to open the Stage Editor on that
   monitor. Widget menus remain local to the widget.
 
-The Stage Editor is the shell's one desktop editor. The bar, dock, lockscreen
-and menus keep their Hub pages.
+The Stage Editor is the shell's one desktop editor. The bar, lockscreen
+and menus keep their Hub pages. The card the editor shrinks the desktop
+into shows the whole desktop: the bar and the dock draw themselves inside
+it, at the same scale, so what you arrange is what you get. The dock stays
+clickable there and its Dock chip edits it in place; the bar is shown, not
+operated, so its popups never open inside the card.
 
 ## The desktop right-click menu
 

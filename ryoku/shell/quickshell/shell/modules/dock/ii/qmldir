@@ -57,13 +57,6 @@ ClockTile 1.0 utilities/ClockTile.qml
 ClockTopBar 1.0 clock/ClockTopBar.qml
 ColorPickerPanel 1.0 utilities/ColorPickerPanel.qml
 ColorPickerTile 1.0 utilities/ColorPickerTile.qml
-ColorsChip 1.0 settings/ColorsChip.qml
-ColorsFeatureTile 1.0 settings/ColorsFeatureTile.qml
-ColorsModeToggle 1.0 settings/ColorsModeToggle.qml
-ColorsPalettePane 1.0 settings/ColorsPalettePane.qml
-ColorsSchemeEditor 1.0 settings/ColorsSchemeEditor.qml
-ColorsWallpaperCard 1.0 settings/ColorsWallpaperCard.qml
-ColorsWallpaperHero 1.0 settings/ColorsWallpaperHero.qml
 ColorsWallpaperImage 1.0 settings/ColorsWallpaperImage.qml
 ConfigRow 1.0 settings/ConfigRow.qml
 ConfigSelectionArray 1.0 settings/ConfigSelectionArray.qml
@@ -95,10 +88,8 @@ DockAppButton 1.0 DockAppButton.qml
 DockAppGroupButton 1.0 DockAppGroupButton.qml
 DockAppIcon 1.0 widgets/DockAppIcon.qml
 DockAppIndicator 1.0 DockAppIndicator.qml
-DockAppearanceConfig 1.0 settings/DockAppearanceConfig.qml
 DockAttentionAnimation 1.0 widgets/DockAttentionAnimation.qml
 DockButton 1.0 widgets/DockButton.qml
-DockConfig 1.0 settings/DockConfig.qml
 DockContent 1.0 DockContent.qml
 DockContextMenu 1.0 DockContextMenu.qml
 DockContextMenuBase 1.0 widgets/DockContextMenuBase.qml
@@ -108,7 +99,6 @@ DockEditAddSheet 1.0 DockEditAddSheet.qml
 DockEditController 1.0 DockEditController.qml
 DockEditItemLayer 1.0 DockEditItemLayer.qml
 DockEditMenu 1.0 DockEditMenu.qml
-DockEntryCard 1.0 settings/DockEntryCard.qml
 DockFileButton 1.0 DockFileButton.qml
 DockFileContextMenu 1.0 DockFileContextMenu.qml
 DockGroupDragArea 1.0 widgets/DockGroupDragArea.qml
@@ -118,13 +108,11 @@ DockInputShield 1.0 settings/DockInputShield.qml
 DockIslandSurface 1.0 widgets/DockIslandSurface.qml
 DockItemPosition 1.0 widgets/DockItemPosition.qml
 DockItemView 1.0 settings/DockItemView.qml
-DockLensPreview 1.0 settings/DockLensPreview.qml
 DockListView 1.0 widgets/DockListView.qml
 DockLivePreviewConfig 1.0 settings/DockLivePreviewConfig.qml
 DockLivePreviewPicker 1.0 widgets/DockLivePreviewPicker.qml
 singleton DockLivePreviewService 1.0 services/DockLivePreviewService.qml
 DockLivePreviewWidget 1.0 DockLivePreviewWidget.qml
-DockMagnificationConfig 1.0 settings/DockMagnificationConfig.qml
 DockMediaButton 1.0 widgets/DockMediaButton.qml
 DockMediaWidget 1.0 DockMediaWidget.qml
 DockMenuGroups 1.0 widgets/DockMenuGroups.qml
@@ -133,27 +121,19 @@ DockOverviewButtonConfig 1.0 settings/DockOverviewButtonConfig.qml
 DockPhoneContextMenu 1.0 DockPhoneContextMenu.qml
 DockPhoneWidget 1.0 DockPhoneWidget.qml
 singleton DockPresets 1.0 services/DockPresets.qml
-DockPresetsPane 1.0 settings/DockPresetsPane.qml
 DockPreviewContext 1.0 settings/DockPreviewContext.qml
 DockPreviewPopup 1.0 widgets/DockPreviewPopup.qml
-DockPreviewStage 1.0 settings/DockPreviewStage.qml
 DockSeparator 1.0 widgets/DockSeparator.qml
-DockSilhouette 1.0 settings/DockSilhouette.qml
 DockSportsPopup 1.0 widgets/DockSportsPopup.qml
 DockSportsWidget 1.0 DockSportsWidget.qml
 DockStackPopup 1.0 widgets/DockStackPopup.qml
-DockStylePicker 1.0 settings/DockStylePicker.qml
 DockTasksWidget 1.0 DockTasksWidget.qml
 DockToPanelConfig 1.0 settings/DockToPanelConfig.qml
 DockTooltip 1.0 widgets/DockTooltip.qml
 DockTooltipHost 1.0 widgets/DockTooltipHost.qml
 DockTrashContextMenu 1.0 widgets/DockTrashContextMenu.qml
-DockUtilitiesConfig 1.0 settings/DockUtilitiesConfig.qml
-DockUtilityCard 1.0 settings/DockUtilityCard.qml
-DockUtilityCardGrid 1.0 settings/DockUtilityCardGrid.qml
 DockUtilityWidget 1.0 DockUtilityWidget.qml
 DockWeatherWidget 1.0 DockWeatherWidget.qml
-DockWidgetCard 1.0 settings/DockWidgetCard.qml
 DockWidgetStack 1.0 DockWidgetStack.qml
 DockWorkspaceConfig 1.0 settings/DockWorkspaceConfig.qml
 DrawCanvas 1.0 draw/DrawCanvas.qml
@@ -178,9 +158,7 @@ FolderFeed 1.0 utilities/FolderFeed.qml
 singleton GlobalFocusGrab 1.0 services/GlobalFocusGrab.qml
 singleton GoogleTasksService 1.0 services/GoogleTasksService.qml
 HighlightOverlay 1.0 settings/HighlightOverlay.qml
-IslandSegmentedToggle 1.0 settings/IslandSegmentedToggle.qml
 KeyHint 1.0 settings/KeyHint.qml
-LazyBlock 1.0 settings/LazyBlock.qml
 singleton LiveDraw 1.0 services/LiveDraw.qml
 LiveDrawMenus 1.0 draw/LiveDrawMenus.qml
 LiveDrawPanel 1.0 utilities/LiveDrawPanel.qml

@@ -11,9 +11,10 @@ Item {
     readonly property string design: Dock.design
     readonly property var item: root.design === "ryoku" ? designLoader.item?.surface : null
     // The Stage Editor frames this monitor: every design stays mounted,
-    // revealed and raised, and publishes the edge it occupies so the mode's
-    // viewport shrinks around it. The dock catalogue edits the live surface,
-    // so hiding it while that page is open edits an invisible thing.
+    // revealed and drawn inside the editor's card, and publishes the edge it
+    // occupies for layouts that keep clear of it (desktop icons). The dock
+    // catalogue edits the live surface, so hiding it while that page is open
+    // edits an invisible thing.
     readonly property bool stageEditing: StageCfg.StageSession.onMonitor(
         root.screen ? root.screen.name : "")
 

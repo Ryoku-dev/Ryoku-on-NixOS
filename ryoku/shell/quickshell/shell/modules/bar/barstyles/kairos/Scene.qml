@@ -10,6 +10,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import shell.services
+import shell.modules.stage.frame
 import "components" as C
 import "settings" as S
 
@@ -56,28 +57,41 @@ Item {
         // Rests as tall as the island's tallest state so the surface never
         // resizes: the pill is what grows.
         anchors { top: true; left: true; right: true }
-        implicitHeight: island.reach
+        implicitHeight: frameLayer.extent
 
-        // Only the island takes input; the strip around it passes clicks through.
+        readonly property rect inputRect: frameLayer.maskRect(island.x, island.y,
+            island.width, island.height)
+
+        // The bar belongs to the desktop card while this monitor is being edited.
         mask: Region {
-            x: island.x
-            y: island.y
-            width: island.width
-            height: island.height
+            x: Math.round(win.inputRect.x)
+            y: Math.round(win.inputRect.y)
+            width: Math.round(win.inputRect.width)
+            height: Math.round(win.inputRect.height)
         }
 
-        C.Island {
-            id: island
-            y: island.topGap
-            // The clock's resting centre lands on the screen's centre line, so the
-            // clock rests centred and expands there; the music grows leftward from
-            // just beside it.
-            x: Math.round(win.width / 2 - island.clockRestCentre)
-            suspended: win.state ? win.state.launcherOpen : false
-            quickOpen: scene.quickOpen
-            onSettingsToggled: scene.toggleSettings()
-            onQuickSettingsToggled: scene.toggleQuickSettings()
-            onQuickCloseRequested: scene.quickOpen = false
+        StageFramedLayer {
+            id: frameLayer
+            interactive: false
+            screenName: win.screen?.name ?? ""
+            edge: "top"
+            restThickness: island.reach
+            screenWidth: win.screen?.width ?? 1920
+            screenHeight: win.screen?.height ?? 1080
+
+            C.Island {
+                id: island
+                y: island.topGap
+                // The clock's resting centre lands on the screen's centre line, so the
+                // clock rests centred and expands there; the music grows leftward from
+                // just beside it.
+                x: Math.round(parent.width / 2 - island.clockRestCentre)
+                suspended: win.state ? win.state.launcherOpen : false
+                quickOpen: scene.quickOpen
+                onSettingsToggled: scene.toggleSettings()
+                onQuickSettingsToggled: scene.toggleQuickSettings()
+                onQuickCloseRequested: scene.quickOpen = false
+            }
         }
     }
 

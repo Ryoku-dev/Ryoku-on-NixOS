@@ -6,6 +6,7 @@ import Quickshell.Wayland
 import Ryoku.Blobs
 import Ryoku.Ui.Singletons
 import shell.services
+import shell.modules.stage.frame
 import "framebars/RailGeometry.js" as RailGeometry
 import "../../services/lib/screens.js" as Screens
 
@@ -98,6 +99,26 @@ Scope {
         const rail = Config.normalizedFrameBars.rails[edge];
         return !!(rail && rail.reveal);
     }
+    // Framing reveals the painted rail without changing the reservation window.
+    // That keeps client geometry still while the complete desktop is in the card.
+    function edgeDrawRevealed(edge) {
+        const screenName = root.modelData ? root.modelData.name : "";
+        if (!StageFrame.framing(screenName))
+            return root.edgeRevealed(edge);
+        const rail = Config.normalizedFrameBars.rails[edge];
+        return !!(rail && rail.reveal);
+    }
+
+    function edgeDrawReserve(edge) {
+        if (!root.barEnabled)
+            return 0;
+        const rail = Config.normalizedFrameBars.rails[edge];
+        if (!rail)
+            return 0;
+        if (!root.edgeDrawRevealed(edge))
+            return 1;
+        return ((rail.enabled && root.railHasWidgets(rail, edge)) ? rail.size * root.uiScale : 1) + root.frameBorderPx;
+    }
 
     function railHasWidgets(rail, edge) {
         if (!rail)
@@ -169,17 +190,30 @@ Scope {
         // fold qsbar's shared menus to whichever edge its bar sits on
         readonly property string qsBarEdge: (!root.sumiActive && Config.qsbar && Config.qsbar.barPosition === "bottom") ? "bottom" : "top"
         readonly property var edgeReveal: ({
-            top: root.edgeRevealed("top"),
-            bottom: root.edgeRevealed("bottom"),
-            left: root.edgeRevealed("left"),
-            right: root.edgeRevealed("right")
+            top: root.edgeDrawRevealed("top"),
+            bottom: root.edgeDrawRevealed("bottom"),
+            left: root.edgeDrawRevealed("left"),
+            right: root.edgeDrawRevealed("right")
         })
         readonly property var topRailRect: RailGeometry.edgeRect("top", overlay.railThickness("top"), width, height)
         readonly property var leftRailRect: RailGeometry.edgeRect("left", overlay.railThickness("left"), width, height)
         readonly property var bottomRailRect: RailGeometry.edgeRect("bottom", overlay.railThickness("bottom"), width, height)
         readonly property var rightRailRect: RailGeometry.edgeRect("right", overlay.railThickness("right"), width, height)
+        // The frame chrome is a full-output surface, so its framed layer keeps
+        // the same extent and only maps the painted edges into the Stage card.
+        function framedRect(rect) {
+            return frameLayer.maskRect(rect.x, rect.y, rect.width, rect.height);
+        }
+        readonly property rect framedTopRailRect: overlay.framedRect(overlay.topRailRect)
+        readonly property rect framedLeftRailRect: overlay.framedRect(overlay.leftRailRect)
+        readonly property rect framedBottomRailRect: overlay.framedRect(overlay.bottomRailRect)
+        readonly property rect framedRightRailRect: overlay.framedRect(overlay.rightRailRect)
+        readonly property rect framedTopHoverRect: frameLayer.maskRect(0, 0, overlay.width, 1)
+        readonly property rect framedBottomHoverRect: frameLayer.maskRect(0, overlay.height - 1, overlay.width, 1)
+        readonly property rect framedLeftHoverRect: frameLayer.maskRect(0, 0, 1, overlay.height)
+        readonly property rect framedRightHoverRect: frameLayer.maskRect(overlay.width - 1, 0, 1, overlay.height)
         function railRecord(edge) { return overlay.rails[edge] || ({ size: 0, enabled: false }); }
-        function railThickness(edge) { return Math.max(0, root.edgeReserve(edge) - root.frameBorderPx); }
+        function railThickness(edge) { return Math.max(0, root.edgeDrawReserve(edge) - root.frameBorderPx); }
         function railEnabled(edge) {
             return root.barEnabled && overlay.railRecord(edge).enabled === true;
         }
@@ -231,17 +265,16 @@ Scope {
         }
         Region {
             id: railRegion
-            Region { x: overlay.topRailRect.x; y: overlay.topRailRect.y; width: overlay.railEnabled("top") ? overlay.topRailRect.width : 0; height: overlay.railEnabled("top") ? overlay.topRailRect.height : 0 }
-            Region { x: overlay.leftRailRect.x; y: overlay.leftRailRect.y; width: overlay.railEnabled("left") ? overlay.leftRailRect.width : 0; height: overlay.railEnabled("left") ? overlay.leftRailRect.height : 0 }
-            Region { x: overlay.bottomRailRect.x; y: overlay.bottomRailRect.y; width: overlay.railEnabled("bottom") ? overlay.bottomRailRect.width : 0; height: overlay.railEnabled("bottom") ? overlay.bottomRailRect.height : 0 }
-            Region { x: overlay.rightRailRect.x; y: overlay.rightRailRect.y; width: overlay.railEnabled("right") ? overlay.rightRailRect.width : 0; height: overlay.railEnabled("right") ? overlay.rightRailRect.height : 0 }
-            // 1px hover strips at each screen edge, always exposed so a hidden bar
-            // (reserve released, band mask gone) can still be revealed by pointer
-            // proximity.
-            Region { x: 0; y: 0; width: overlay.railEnabled("top") ? overlay.width : 0; height: overlay.railEnabled("top") ? 1 : 0 }
-            Region { x: 0; y: overlay.height - 1; width: overlay.railEnabled("bottom") ? overlay.width : 0; height: overlay.railEnabled("bottom") ? 1 : 0 }
-            Region { x: 0; y: 0; width: overlay.railEnabled("left") ? 1 : 0; height: overlay.railEnabled("left") ? overlay.height : 0 }
-            Region { x: overlay.width - 1; y: 0; width: overlay.railEnabled("right") ? 1 : 0; height: overlay.railEnabled("right") ? overlay.height : 0 }
+            Region { x: overlay.framedTopRailRect.x; y: overlay.framedTopRailRect.y; width: overlay.railEnabled("top") ? overlay.framedTopRailRect.width : 0; height: overlay.railEnabled("top") ? overlay.framedTopRailRect.height : 0 }
+            Region { x: overlay.framedLeftRailRect.x; y: overlay.framedLeftRailRect.y; width: overlay.railEnabled("left") ? overlay.framedLeftRailRect.width : 0; height: overlay.railEnabled("left") ? overlay.framedLeftRailRect.height : 0 }
+            Region { x: overlay.framedBottomRailRect.x; y: overlay.framedBottomRailRect.y; width: overlay.railEnabled("bottom") ? overlay.framedBottomRailRect.width : 0; height: overlay.railEnabled("bottom") ? overlay.framedBottomRailRect.height : 0 }
+            Region { x: overlay.framedRightRailRect.x; y: overlay.framedRightRailRect.y; width: overlay.railEnabled("right") ? overlay.framedRightRailRect.width : 0; height: overlay.railEnabled("right") ? overlay.framedRightRailRect.height : 0 }
+            // The reveal lips follow the card too; leaving them at the physical
+            // edge makes a hidden rail impossible to reach in the editor.
+            Region { x: overlay.framedTopHoverRect.x; y: overlay.framedTopHoverRect.y; width: overlay.railEnabled("top") ? overlay.framedTopHoverRect.width : 0; height: overlay.railEnabled("top") ? overlay.framedTopHoverRect.height : 0 }
+            Region { x: overlay.framedBottomHoverRect.x; y: overlay.framedBottomHoverRect.y; width: overlay.railEnabled("bottom") ? overlay.framedBottomHoverRect.width : 0; height: overlay.railEnabled("bottom") ? overlay.framedBottomHoverRect.height : 0 }
+            Region { x: overlay.framedLeftHoverRect.x; y: overlay.framedLeftHoverRect.y; width: overlay.railEnabled("left") ? overlay.framedLeftHoverRect.width : 0; height: overlay.railEnabled("left") ? overlay.framedLeftHoverRect.height : 0 }
+            Region { x: overlay.framedRightHoverRect.x; y: overlay.framedRightHoverRect.y; width: overlay.railEnabled("right") ? overlay.framedRightHoverRect.width : 0; height: overlay.railEnabled("right") ? overlay.framedRightHoverRect.height : 0 }
             // frame menus: each open menu unions its trigger (owner) and body
             // rects so the click target and the open body keep catching input;
             // idle anchors stay zero-size and click through.
@@ -349,7 +382,18 @@ Scope {
                     && width > 0 && height > 0
             }
 
+            StageFramedLayer {
+                id: frameLayer
+                interactive: false
+                screenName: overlay.screen?.name ?? ""
+                edge: "top"
+                restThickness: overlay.screen?.height ?? 1080
+                screenWidth: overlay.screen?.width ?? 1920
+                screenHeight: overlay.screen?.height ?? 1080
+            }
+
             FrameChrome {
+                parent: frameLayer.rest
                 // The painted frame band: per-edge thickness = that edge's reserve
                 // (bar band + border), the 2px outline stroked just inside the hole
                 // edge, inner corners arced at radiusWindow.
@@ -359,10 +403,10 @@ Scope {
                 // would describe a frame nobody sees. The reserves at the top of
                 // the file are the opposite case and keep theirs, because an
                 // exclusive zone is claimed whether or not anything is drawn.
-                reserveTop: root.edgeReserve("top")
-                reserveBottom: root.edgeReserve("bottom")
-                reserveLeft: root.edgeReserve("left")
-                reserveRight: root.edgeReserve("right")
+                reserveTop: root.edgeDrawReserve("top")
+                reserveBottom: root.edgeDrawReserve("bottom")
+                reserveLeft: root.edgeDrawReserve("left")
+                reserveRight: root.edgeDrawReserve("right")
                 holeRadius: Config.frameCorner
                 surface: Theme.surface
                 outline: Theme.outline
@@ -374,6 +418,7 @@ Scope {
 
             Bar {
                 id: frameRails
+                parent: frameLayer.rest
                 anchors.fill: parent
                 z: 1
                 visible: !overlay.monFullscreen && root.barEnabled && root.sumiActive

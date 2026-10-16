@@ -99,7 +99,7 @@ Item {
         if (section === "bar")
             return page === "appearance" || page.startsWith("component:");
         if (section === "dock")
-            return page === "appearance" || page === "widgets" || page.startsWith("apps:");
+            return page === "appearance" || page === "iiWidgets" || page === "widgets" || page.startsWith("apps:");
         if (section === "style")
             return page === "colours";
         if (section === "wallpaper")
@@ -152,10 +152,13 @@ Item {
         GlobalStates.editDrawerPage = page;
     }
 
+    // A page nested under another page steps back to it, not to the root.
+    readonly property var parentPages: ({ "iiWidgets": "appearance" })
+
     function goBack() {
         root.navDirection = -1;
         if (root.page !== "") {
-            GlobalStates.editDrawerPage = "";
+            GlobalStates.editDrawerPage = root.parentPages[root.page] ?? "";
             return;
         }
         if (root.backSection !== "") {
@@ -754,6 +757,8 @@ Item {
             return root.section === "dock"
                 ? (PanelFamily.touchFirst ? Translation.tr("Taskbar appearance & items") : Translation.tr("Dock design & settings"))
                 : Translation.tr("Bar appearance");
+        if (root.page === "iiWidgets")
+            return Translation.tr("Widgets & buttons");
         if (root.page === "widgets")
             return Translation.tr("Pinned apps & order");
         return Translation.tr("Edit");
@@ -1109,6 +1114,8 @@ Item {
                         }
                         if (root.page === "appearance")
                             return PanelFamily.touchFirst ? tabletDockAppearancePage : dockAppearancePage;
+                        if (root.page === "iiWidgets")
+                            return iiDockWidgetsPage;
                         if (root.page === "widgets")
                             return dockWidgetsPage;
                         if (root.page.startsWith("apps:"))
@@ -1769,7 +1776,14 @@ Item {
 
     Component {
         id: dockAppearancePage
-        EditDockAppearancePage {}
+        EditDockAppearancePage {
+            onPageRequested: page => root.openPage(page)
+        }
+    }
+
+    Component {
+        id: iiDockWidgetsPage
+        EditIiDockWidgetsPage {}
     }
 
     Component {

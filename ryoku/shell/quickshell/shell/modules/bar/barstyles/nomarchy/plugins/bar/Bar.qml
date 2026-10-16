@@ -5,6 +5,7 @@ import QtQuick 6.11
 import QtQuick.Layouts
 import Ryoku.Ui.Singletons
 import qs.Commons
+import shell.modules.stage.frame
 import qs.Ui
 import "BarModel.js" as BarModel
 
@@ -1261,7 +1262,8 @@ Item {
     // textures — which measures ~150ms against ~20ms to tear down. Parking
     // keeps the surface alive, so showing is only a margin change.
     visible: !remapGuard.remapping
-    exclusionMode: root.barHidden ? ExclusionMode.Ignore : ExclusionMode.Auto
+    exclusionMode: root.barHidden ? ExclusionMode.Ignore : ExclusionMode.Normal
+    exclusiveZone: root.barSize
 
     ScreenMoveRemap {
       id: remapGuard
@@ -1269,10 +1271,10 @@ Item {
     }
 
     margins {
-      top: root.barHidden && root.position === "top" ? -root.barSize : 0
-      bottom: root.barHidden && root.position === "bottom" ? -root.barSize : 0
-      left: root.barHidden && root.position === "left" ? -root.barSize : 0
-      right: root.barHidden && root.position === "right" ? -root.barSize : 0
+      top: root.barHidden && !frameLayer.framed && root.position === "top" ? -root.barSize : 0
+      bottom: root.barHidden && !frameLayer.framed && root.position === "bottom" ? -root.barSize : 0
+      left: root.barHidden && !frameLayer.framed && root.position === "left" ? -root.barSize : 0
+      right: root.barHidden && !frameLayer.framed && root.position === "right" ? -root.barSize : 0
     }
 
     anchors {
@@ -1282,25 +1284,54 @@ Item {
       right: root.position === "right" || !root.vertical
     }
 
-    implicitWidth: root.vertical ? root.barSize : 0
-    implicitHeight: root.vertical ? 0 : root.barSize
-    color: root.transparent ? "transparent" : root.background
+    implicitWidth: root.vertical ? frameLayer.extent : 0
+    implicitHeight: root.vertical ? 0 : frameLayer.extent
+    color: "transparent"
     surfaceFormat.opaque: false
     WlrLayershell.namespace: "omarchy-bar"
-    WlrLayershell.layer: WlrLayer.Top
+    WlrLayershell.layer: frameLayer.framed ? WlrLayer.Overlay : WlrLayer.Top
 
-    Loader {
-      anchors.fill: parent
-      sourceComponent: root.vertical ? verticalBar : horizontalBar
+    readonly property rect barInputRect: frameLayer.maskRect(0, 0,
+      frameLayer.rest.width, frameLayer.rest.height)
+    mask: Region {
+      x: Math.round(barWindow.barInputRect.x)
+      y: Math.round(barWindow.barInputRect.y)
+      width: Math.round(barWindow.barInputRect.width)
+      height: Math.round(barWindow.barInputRect.height)
+    }
 
-      // A child of the loader, not a sibling of the sections: an ancestor stays
-      // hovered while the pointer is over a widget, where a sibling would lose
-      // hover to the section the pointer entered.
-      HoverHandler {
-        onHoveredChanged: root.setBarHovered(hovered)
-        // Unplugging a monitor destroys its bar without a leave event, which
-        // would strand this surface's tally and hold the peek open for good.
-        Component.onDestruction: if (hovered) root.setBarHovered(false)
+    // Keep the panel's anchors and zone; only its bar strip follows the Stage card.
+    StageFramedLayer {
+      id: frameLayer
+      interactive: false
+      screenName: barWindow.screen?.name ?? ""
+      edge: root.position
+      restThickness: root.barSize
+      screenWidth: barWindow.screen?.width ?? 1920
+      screenHeight: barWindow.screen?.height ?? 1080
+      originX: barWindow.anchors.left ? barWindow.margins.left
+        : screenWidth - barWindow.width - barWindow.margins.right
+      originY: barWindow.anchors.top ? barWindow.margins.top
+        : screenHeight - barWindow.height - barWindow.margins.bottom
+
+      Rectangle {
+        anchors.fill: parent
+        color: root.transparent ? "transparent" : root.background
+      }
+
+      Loader {
+        anchors.fill: parent
+        sourceComponent: root.vertical ? verticalBar : horizontalBar
+
+        // A child of the loader, not a sibling of the sections: an ancestor stays
+        // hovered while the pointer is over a widget, where a sibling would lose
+        // hover to the section the pointer entered.
+        HoverHandler {
+          onHoveredChanged: root.setBarHovered(hovered)
+          // Unplugging a monitor destroys its bar without a leave event, which
+          // would strand this surface's tally and hold the peek open for good.
+          Component.onDestruction: if (hovered) root.setBarHovered(false)
+        }
       }
     }
 

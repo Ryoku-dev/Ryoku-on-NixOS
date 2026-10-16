@@ -23,6 +23,7 @@ import inir.modules.iris.components as IrisParts
 import inir.modules.iris.pieces
 import inir.modules.iris.settings
 import shell.services as Ryoku
+import shell.modules.stage.frame
 
 Scope {
     id: root
@@ -571,7 +572,7 @@ Scope {
                 readonly property bool editHere: GlobalStates.irisEdit
                     && (root.editScreen.length === 0 || barWindow.screen?.name === root.editScreen)
                 readonly property bool presenting: barWindow.pinned || stage.cardPresent
-                    || (controlCentreLoader.item?.present ?? false) || barWindow.editHere
+                    || cardFrameLayer.framed || (controlCentreLoader.item?.present ?? false) || barWindow.editHere
                     || (dockLoader.item?.overFullscreen ?? false) || (dockLoader.item?.menuOpen ?? false)
                     || (spotlightLoader.item?.present ?? false) || (galleryLoader.item?.present ?? false)
                 // A native overview may need this chassis raised above a fullscreen window.
@@ -589,7 +590,7 @@ Scope {
                     || barWindow.overviewOverFullscreen
                 // Switching layers recreates the surface above the Dock's window, whose icons it would cover.
                 onOverlaidChanged: if (!barWindow.overlaid) GlobalStates.irisChassisEpoch++
-                WlrLayershell.layer: barWindow.overlaid ? WlrLayer.Overlay : WlrLayer.Top
+                WlrLayershell.layer: barWindow.overlaid || cardFrameLayer.framed ? WlrLayer.Overlay : WlrLayer.Top
                 WlrLayershell.keyboardFocus: barWindow.pinned || stage.cardOpen || (controlCentreLoader.item?.morphOpen ?? false)
                     || (dockLoader.item?.menuOpen ?? false) || (spotlightLoader.item?.here && GlobalStates.searchOpen)
                     || (galleryLoader.item?.morphOpen ?? false) || (widgetBarLoader.item?.holdsKeyboard ?? false)
@@ -601,9 +602,9 @@ Scope {
                 readonly property bool islandAutoHide: IrisFrame.islandAutoHide && islandLoader.active
                 property bool islandEdgeIntent: false
                 readonly property bool islandWants: barWindow.expanded || barWindow.pinned || barWindow.editHere
-                    || (islandLoader.item?.feedback ?? false) || (islandLoader.item?.eventShown ?? false)
-                    || (islandLoader.item?.morphing ?? false) || stage.cardPresent
-                    || (controlCentreLoader.item?.present ?? false)
+                    || cardFrameLayer.framed || (islandLoader.item?.feedback ?? false)
+                    || (islandLoader.item?.eventShown ?? false) || (islandLoader.item?.morphing ?? false)
+                    || stage.cardPresent || (controlCentreLoader.item?.present ?? false)
                 readonly property bool islandRevealed: !barWindow.islandAutoHide
                     || barWindow.islandEdgeIntent || barWindow.islandWants
                 // Off the edge the chassis is gone, but its fuse still reaches back onto
@@ -627,10 +628,11 @@ Scope {
                 Timer { id: islandHideDelay; interval: 420
                     onTriggered: if (!barWindow.pointerNearIsland) barWindow.islandEdgeIntent = false }
                 mask: barWindow.canvasSuppressed ? emptyRegion
-                    : barWindow.pinned || stage.cardArmed || (controlCentreLoader.item?.armed ?? false)
+                    : (!cardFrameLayer.framed && (barWindow.pinned || stage.cardArmed
+                        || (controlCentreLoader.item?.armed ?? false)
                         || (dockLoader.item?.menuOpen ?? false) || (spotlightLoader.item?.armed ?? false)
                         || (galleryLoader.item?.armed ?? false)
-                        || (islandLoader.item?.morphing ?? false)
+                        || (islandLoader.item?.morphing ?? false)))
                         ? null : chassisRegion
                 Region { id: emptyRegion }
                 component PieceRegion: Region {
@@ -640,6 +642,15 @@ Scope {
                     y: rect ? rect.y : 0
                     width: rect ? rect.width : 0
                     height: rect ? rect.height : 0
+                }
+                component FramedItemRegion: Region {
+                    required property Item target
+                    property bool active: true
+                    readonly property rect mapped: cardFrameLayer.maskRect(target.x, target.y, target.width, target.height)
+                    x: mapped.x
+                    y: mapped.y
+                    width: active ? mapped.width : 0
+                    height: active ? mapped.height : 0
                 }
                 MouseArea {
                     anchors.fill: parent
@@ -655,18 +666,20 @@ Scope {
                 }
                 Region {
                     id: chassisRegion
-                    item: islandInput
-                    Region { item: extensionInput }
-                    Region { item: menuStartInput }
-                    Region { item: menuEndInput }
+                    FramedItemRegion { target: islandInput }
+                    FramedItemRegion { target: extensionInput }
+                    FramedItemRegion { target: menuStartInput }
+                    FramedItemRegion { target: menuEndInput }
                     Region {
                         readonly property rect area: islandLoader.item?.notchArea ?? Qt.rect(0, 0, 0, 0)
-                        x: islandLoader.x + area.x
-                        y: islandLoader.y + area.y
-                        width: area.width
-                        height: area.height
+                        readonly property rect mapped: cardFrameLayer.maskRect(
+                            islandLoader.x + area.x, islandLoader.y + area.y, area.width, area.height)
+                        x: mapped.x
+                        y: mapped.y
+                        width: mapped.width
+                        height: mapped.height
                     }
-                    Region { item: islandEdgeStrip.armed ? islandEdgeStrip : null }
+                    FramedItemRegion { target: islandEdgeStrip; active: islandEdgeStrip.armed }
                     Region { item: dockLoader.item && !dockLoader.item.inputOff ? dockLoader.item.hitItem : null }
                     Region {
                         readonly property var rect: editLoader.item?.hitRect ?? null
@@ -744,9 +757,11 @@ Scope {
                 }
                 // Arriving, the chassis is scaled; the compositor's region follows geometry, not
                 // transforms, so it waits for the arrival instead of blurring beside the bodies.
-                readonly property var blurShapes: barWindow.canvasSuppressed || IrisStyle.arriving ? []
+                readonly property var blurShapes: barWindow.canvasSuppressed || IrisStyle.arriving
+                    || cardFrameLayer.framed ? []
                     : (barWindow.fieldShapes ?? []).filter(shape => chassisField.glassOf(shape) === 2)
-                readonly property bool frameBlurred: !barWindow.canvasSuppressed && !IrisStyle.arriving
+                readonly property bool frameBlurred: !cardFrameLayer.framed
+                    && !barWindow.canvasSuppressed && !IrisStyle.arriving
                     && IrisFrame.framed && chassisField.frameGlass === 2
                 // The family grows inward: everything the chassis draws comes in from just past the
                 // screen edges and settles; the transform is dropped at rest so nothing is resampled.
@@ -767,6 +782,74 @@ Scope {
                     windowWidth: barWindow.width
                     windowHeight: barWindow.height
                 }
+
+                Shortcut {
+                    sequence: "Escape"
+                    enabled: barWindow.expanded
+                    onActivated: islandLoader.item.expanded = false
+                }
+
+                Shortcut {
+                    sequence: "Escape"
+                    enabled: barWindow.editHere
+                    onActivated: if (!(editLoader.item?.fold() ?? false)) GlobalStates.irisEdit = false
+                }
+
+                // Never coalesced: the field is the outline of what the items paint,
+                // so a table that lands a turn later draws the rim and the shadow of
+                // the shape the chassis had on the previous frame. Measured at 3 ms
+                // per open/close for the whole chain — cheaper than one frame of lag.
+                readonly property var fieldShapes: {
+                    const dockBody = dockLoader.item?.bodyShape ?? null
+                    const hung = (controlCentreLoader.item?.fieldShapes ?? [])
+                        .concat(stage.fieldShapes)
+                        .concat(editLoader.item?.fieldShapes ?? [])
+                        .concat(widgetBarLoader.item?.fieldShapes ?? [])
+                        .concat(Array.isArray(dockBody) ? dockBody : [])
+                        .concat(banners.fieldShapes)
+                        .concat(IrisFrame.placeShapesOn(barWindow.screen?.name ?? ""))
+                    const bodies = hung.filter(shape => shape.joins === "island")
+                    const island = barWindow.islandTucked ? [] : (islandLoader.item?.fieldShapes ?? []).map(shape => {
+                        if (!shape.satellite) return shape
+                        const reach = IrisStyle.fuse
+                        const body = bodies.find(b => shape.x < b.x + b.width + reach && shape.x + shape.width > b.x - reach
+                            && shape.y < b.y + b.height + reach && shape.y + shape.height > b.y - reach)
+                        return body ? Object.assign({}, shape, { joins: [body.id].concat(Array.isArray(shape.joins) ? shape.joins.slice(1) : []), fuse: IrisStyle.fuse }) : shape
+                    })
+                    // Two bodies that meet the frame within reach of each other melt into one another too: joined to
+                    // the frame alone, their fillets met in a cusp along the band (a side panel under a corner plate).
+                    const framed = shape => (Array.isArray(shape.joins) ? shape.joins : [shape.joins]).length === 1
+                        && (Array.isArray(shape.joins) ? shape.joins[0] : shape.joins) === "frame" && !!shape.id
+                    const joined = island.concat(hung)
+                    const all = joined.map(shape => {
+                        if (!framed(shape)) return shape
+                        let near = null, best = Infinity
+                        for (const other of joined) {
+                            if (other === shape || !framed(other)) continue
+                            const dx = Math.max(0, other.x - shape.x - shape.width, shape.x - other.x - other.width)
+                            const dy = Math.max(0, other.y - shape.y - shape.height, shape.y - other.y - other.height)
+                            const gap = Math.hypot(dx, dy)
+                            if (gap < Number(shape.fuse ?? 0) && gap < best) { best = gap; near = other }
+                        }
+                        return near ? Object.assign({}, shape, { joins: ["frame", near.id] }) : shape
+                    })
+                    if (all.length <= chassisField.capacity) return all
+                    return all.filter(shape => !shape.paints)
+                        .concat(all.filter(shape => shape.paints))
+                        .slice(0, chassisField.capacity)
+                }
+
+
+                // This chassis already spans the output. The layer keeps that
+                // surface size and moves only the painted frame and Island.
+                StageFramedLayer {
+                    id: cardFrameLayer
+                    interactive: false
+                    screenName: barWindow.screen?.name ?? ""
+                    edge: windowLoader.loadedEdge
+                    restThickness: windowLoader.loadedVertical ? screenWidth : screenHeight
+                    screenWidth: barWindow.screen?.width ?? 1920
+                    screenHeight: barWindow.screen?.height ?? 1080
                 // Keep the area under a still pointer: Wayland sends no re-enter after a resize.
                 Item {
                     id: islandInput
@@ -843,63 +926,6 @@ Scope {
                         }
                     }
                 }
-
-                Shortcut {
-                    sequence: "Escape"
-                    enabled: barWindow.expanded
-                    onActivated: islandLoader.item.expanded = false
-                }
-
-                Shortcut {
-                    sequence: "Escape"
-                    enabled: barWindow.editHere
-                    onActivated: if (!(editLoader.item?.fold() ?? false)) GlobalStates.irisEdit = false
-                }
-
-                // Never coalesced: the field is the outline of what the items paint,
-                // so a table that lands a turn later draws the rim and the shadow of
-                // the shape the chassis had on the previous frame. Measured at 3 ms
-                // per open/close for the whole chain — cheaper than one frame of lag.
-                readonly property var fieldShapes: {
-                    const dockBody = dockLoader.item?.bodyShape ?? null
-                    const hung = (controlCentreLoader.item?.fieldShapes ?? [])
-                        .concat(stage.fieldShapes)
-                        .concat(editLoader.item?.fieldShapes ?? [])
-                        .concat(widgetBarLoader.item?.fieldShapes ?? [])
-                        .concat(Array.isArray(dockBody) ? dockBody : [])
-                        .concat(banners.fieldShapes)
-                        .concat(IrisFrame.placeShapesOn(barWindow.screen?.name ?? ""))
-                    const bodies = hung.filter(shape => shape.joins === "island")
-                    const island = barWindow.islandTucked ? [] : (islandLoader.item?.fieldShapes ?? []).map(shape => {
-                        if (!shape.satellite) return shape
-                        const reach = IrisStyle.fuse
-                        const body = bodies.find(b => shape.x < b.x + b.width + reach && shape.x + shape.width > b.x - reach
-                            && shape.y < b.y + b.height + reach && shape.y + shape.height > b.y - reach)
-                        return body ? Object.assign({}, shape, { joins: [body.id].concat(Array.isArray(shape.joins) ? shape.joins.slice(1) : []), fuse: IrisStyle.fuse }) : shape
-                    })
-                    // Two bodies that meet the frame within reach of each other melt into one another too: joined to
-                    // the frame alone, their fillets met in a cusp along the band (a side panel under a corner plate).
-                    const framed = shape => (Array.isArray(shape.joins) ? shape.joins : [shape.joins]).length === 1
-                        && (Array.isArray(shape.joins) ? shape.joins[0] : shape.joins) === "frame" && !!shape.id
-                    const joined = island.concat(hung)
-                    const all = joined.map(shape => {
-                        if (!framed(shape)) return shape
-                        let near = null, best = Infinity
-                        for (const other of joined) {
-                            if (other === shape || !framed(other)) continue
-                            const dx = Math.max(0, other.x - shape.x - shape.width, shape.x - other.x - other.width)
-                            const dy = Math.max(0, other.y - shape.y - shape.height, shape.y - other.y - other.height)
-                            const gap = Math.hypot(dx, dy)
-                            if (gap < Number(shape.fuse ?? 0) && gap < best) { best = gap; near = other }
-                        }
-                        return near ? Object.assign({}, shape, { joins: ["frame", near.id] }) : shape
-                    })
-                    if (all.length <= chassisField.capacity) return all
-                    return all.filter(shape => !shape.paints)
-                        .concat(all.filter(shape => shape.paints))
-                        .slice(0, chassisField.capacity)
-                }
-
                 IrisField {
                     id: chassisField
                     anchors.fill: parent
@@ -908,7 +934,10 @@ Scope {
                     edgeWave: framePulse.amplitudes
                     waveClock: framePulse.phase
                     frameMusicLevel: framePulse.visibleLevel
-                    shapes: barWindow.fieldShapes
+                    // Popouts stay in their own screen coordinates; only the resting Island joins the card frame.
+                    shapes: cardFrameLayer.framed
+                        ? (barWindow.islandTucked ? [] : (islandLoader.item?.fieldShapes ?? []))
+                        : barWindow.fieldShapes
                     opacity: barWindow.canvasSuppressed ? 0 : 1
                     visible: opacity > 0
                     Behavior on opacity { NumberAnimation { duration: IrisStyle.duration(160); easing.type: IrisStyle.feedbackEasing } }
@@ -984,6 +1013,7 @@ Scope {
                             }
                         }
                     }
+                }
                 }
 
                 // Above the banners and the Dock, under the Island it grows out of.

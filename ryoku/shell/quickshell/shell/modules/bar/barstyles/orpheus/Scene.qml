@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Wayland
 import Ryoku.Ui.Singletons
 import shell.services
+import shell.modules.stage.frame
 import "Metrics.js" as M
 import "components" as C
 import "kit" as K
@@ -83,7 +84,7 @@ Item {
     readonly property bool activeWorkspaceOccupied: workspaceOccupied(activeWorkspace)
     readonly property bool hideRequested: prefs.autoHide === "always"
         || (prefs.autoHide === "smart" && activeWorkspaceOccupied)
-    readonly property bool holdVisible: bandHovered || cards.hovered
+    readonly property bool holdVisible: frameLayer.framed || bandHovered || cards.hovered
         || cardKey !== "" || settingsOpen
     readonly property point settingsOrigin: {
         const logo = leftLane.slotFor("logo");
@@ -474,7 +475,7 @@ Item {
         exclusionMode: ExclusionMode.Normal
         exclusiveZone: scene.prefs.autoHide === "off" ? K.Style.barH : 0
         anchors { top: true; left: true; right: true }
-        implicitHeight: scene.screen ? scene.screen.height : 1
+        implicitHeight: frameLayer.extent
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.keyboardFocus: scene.cardKey !== ""
             ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
@@ -575,6 +576,21 @@ Item {
             && (rightTargetW <= 0.001 || voiceTargetX + voiceTargetW + bubbleGap
                 + rightBubbleHost.width <= rightTargetX - bubbleGap)
 
+        readonly property rect framedFullBandRect: frameLayer.maskRect(0, 0,
+            win.width, K.Style.barH)
+        readonly property rect framedLeftRect: frameLayer.maskRect(leftGeom.x, 0,
+            leftGeom.width, K.Style.barH)
+        readonly property rect framedVoiceRect: frameLayer.maskRect(voiceGeom.x, 0,
+            voiceGeom.width, K.Style.barH)
+        readonly property rect framedRightRect: frameLayer.maskRect(rightGeom.x, 0,
+            rightGeom.width, K.Style.barH)
+        readonly property rect framedLeftBubbleRect: frameLayer.maskRect(
+            leftBubbleGeom.x, 0, leftBubbleHost.width, K.Style.barH)
+        readonly property rect framedRightBubbleRect: frameLayer.maskRect(
+            rightBubbleGeom.x, 0, rightBubbleHost.width, K.Style.barH)
+        readonly property rect framedRevealRect: frameLayer.maskRect(0, 0,
+            win.width, 4)
+
         mask: Region {
             Region {
                 x: 0
@@ -584,56 +600,62 @@ Item {
             }
             Region {
                 intersection: Intersection.Combine
-                x: 0
-                y: 0
+                x: Math.round(win.framedFullBandRect.x)
+                y: Math.round(win.framedFullBandRect.y)
                 width: scene.cardKey === "" && !scene.autoHidden && win.full
-                    ? win.width : 0
-                height: K.Style.barH
+                    ? Math.round(win.framedFullBandRect.width) : 0
+                height: Math.round(win.framedFullBandRect.height)
             }
             Region {
                 intersection: Intersection.Combine
-                x: leftGeom.x
-                y: 0
-                width: scene.cardKey === "" && !scene.autoHidden ? leftGeom.width : 0
-                height: K.Style.barH
-            }
-            Region {
-                intersection: Intersection.Combine
-                x: voiceGeom.x
-                y: 0
-                width: scene.cardKey === "" && !scene.autoHidden ? voiceGeom.width : 0
-                height: K.Style.barH
-            }
-            Region {
-                intersection: Intersection.Combine
-                x: rightGeom.x
-                y: 0
-                width: scene.cardKey === "" && !scene.autoHidden ? rightGeom.width : 0
-                height: K.Style.barH
-            }
-            Region {
-                intersection: Intersection.Combine
-                x: leftBubbleGeom.x
-                y: 0
+                x: Math.round(win.framedLeftRect.x)
+                y: Math.round(win.framedLeftRect.y)
                 width: scene.cardKey === "" && !scene.autoHidden
-                    && win.leftBubbleVisible ? leftBubbleHost.width : 0
-                height: K.Style.barH
+                    ? Math.round(win.framedLeftRect.width) : 0
+                height: Math.round(win.framedLeftRect.height)
             }
             Region {
                 intersection: Intersection.Combine
-                x: rightBubbleGeom.x
-                y: 0
+                x: Math.round(win.framedVoiceRect.x)
+                y: Math.round(win.framedVoiceRect.y)
                 width: scene.cardKey === "" && !scene.autoHidden
-                    && win.rightBubbleVisible ? rightBubbleHost.width : 0
-                height: K.Style.barH
+                    ? Math.round(win.framedVoiceRect.width) : 0
+                height: Math.round(win.framedVoiceRect.height)
             }
             Region {
                 intersection: Intersection.Combine
-                x: 0
-                y: 0
+                x: Math.round(win.framedRightRect.x)
+                y: Math.round(win.framedRightRect.y)
+                width: scene.cardKey === "" && !scene.autoHidden
+                    ? Math.round(win.framedRightRect.width) : 0
+                height: Math.round(win.framedRightRect.height)
+            }
+            Region {
+                intersection: Intersection.Combine
+                x: Math.round(win.framedLeftBubbleRect.x)
+                y: Math.round(win.framedLeftBubbleRect.y)
+                width: scene.cardKey === "" && !scene.autoHidden
+                    && win.leftBubbleVisible
+                    ? Math.round(win.framedLeftBubbleRect.width) : 0
+                height: Math.round(win.framedLeftBubbleRect.height)
+            }
+            Region {
+                intersection: Intersection.Combine
+                x: Math.round(win.framedRightBubbleRect.x)
+                y: Math.round(win.framedRightBubbleRect.y)
+                width: scene.cardKey === "" && !scene.autoHidden
+                    && win.rightBubbleVisible
+                    ? Math.round(win.framedRightBubbleRect.width) : 0
+                height: Math.round(win.framedRightBubbleRect.height)
+            }
+            Region {
+                intersection: Intersection.Combine
+                x: Math.round(win.framedRevealRect.x)
+                y: Math.round(win.framedRevealRect.y)
                 width: scene.cardKey === "" && scene.prefs.autoHide !== "off"
-                    ? win.width : 0
-                height: scene.cardKey === "" && scene.prefs.autoHide !== "off" ? 4 : 0
+                    ? Math.round(win.framedRevealRect.width) : 0
+                height: scene.cardKey === "" && scene.prefs.autoHide !== "off"
+                    ? Math.round(win.framedRevealRect.height) : 0
             }
         }
 
@@ -659,8 +681,22 @@ Item {
                 }
             }
 
+            StageFramedLayer {
+                id: frameLayer
+                interactive: false
+                screenName: win.screen?.name ?? ""
+                edge: "top"
+                restThickness: Math.max(1, win.screen?.height ?? 1)
+                screenWidth: win.screen?.width ?? 1
+                screenHeight: win.screen?.height ?? 1
+                // An open card belongs to the real screen: it closes as the
+                // bar steps into the card.
+                onFramedChanged: if (framed) scene.closeCard()
+            }
+
             Item {
                 id: rail
+                parent: frameLayer.rest
                 z: 1
                 x: 0
                 y: scene.autoHidden ? -(K.Style.barH + 2) : 0
@@ -861,6 +897,7 @@ Item {
 
                 C.CardHost {
                     id: cards
+                    parent: focusSurface
                     z: 3
                     scene: scene
                     body: liquidBody
@@ -871,6 +908,7 @@ Item {
 
             Item {
                 id: hoverBand
+                parent: frameLayer.rest
                 z: 4
                 anchors { top: parent.top; left: parent.left; right: parent.right }
                 height: K.Style.barH

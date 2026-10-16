@@ -29,12 +29,12 @@ QtObject {
         { "id": "tasks", "key": "enableTasksWidget", "symbol": "checklist", "title": Translation.tr("Tasks"), "stackable": true },
         { "id": "sports", "key": "enableSportsWidget", "symbol": "sports_soccer", "title": Translation.tr("Sports"), "stackable": true },
         { "id": "livePreview", "key": "enableLivePreviewWidget", "symbol": "live_tv", "title": Translation.tr("Live preview"), "stackable": true,
-            "options": "widgets/DockLivePreviewConfig.qml" },
+            "options": "DockLivePreviewConfig.qml" },
         { "id": "phone", "key": "showPhoneButton", "symbol": "smartphone", "title": Translation.tr("Phone mirror"), "stackable": false }
     ]
     readonly property var buttons: [
         { "id": "overview", "key": "showOverviewButton", "symbol": "apps", "title": Translation.tr("Overview"),
-            "options": "widgets/DockOverviewButtonConfig.qml" },
+            "options": "DockOverviewButtonConfig.qml" },
         { "id": "pin", "key": "showPinButton", "symbol": "keep", "title": Translation.tr("Pin") },
         { "id": "trash", "key": "showTrashButton", "symbol": "delete", "title": Translation.tr("Trash") }
     ]
@@ -123,7 +123,7 @@ QtObject {
                 "subtitle": item.wide && wideAllowed ? Translation.tr("Wide widget") : Translation.tr("Square widget"),
                 "sizes": wideAllowed,
                 "wide": !!item.wide,
-                "options": info?.settings ? "dockUtilities/" + info.file + "Config.qml" : ""
+                "options": info?.settings ? info.file + "Config.qml" : ""
             };
         }
         if (type === "action") {

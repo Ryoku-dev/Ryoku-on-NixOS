@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import inir.modules.common
+import shell.modules.stage.frame
 
 Scope {
     id: root
@@ -24,18 +25,36 @@ Scope {
         WlrLayershell.namespace: "ryoku-dock-shima"
         WlrLayershell.layer: root.stageEditing ? WlrLayer.Overlay : WlrLayer.Top
         WlrLayershell.keyboardFocus: dock.menuOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+        readonly property point dockInputOrigin: dock.hitItem
+            ? dock.hitItem.mapToItem(frameLayer.rest, 0, 0) : Qt.point(0, 0)
+        readonly property rect dockInputRect: frameLayer.maskRect(surface.dockInputOrigin.x,
+            surface.dockInputOrigin.y, dock.hitItem?.width ?? 0, dock.hitItem?.height ?? 0)
         mask: dock.menuOpen ? null : dockRegion
 
         Region {
             id: dockRegion
-            item: dock.inputOff ? null : dock.hitItem
+            x: Math.round(surface.dockInputRect.x)
+            y: Math.round(surface.dockInputRect.y)
+            width: dock.inputOff ? 0 : Math.round(surface.dockInputRect.width)
+            height: dock.inputOff ? 0 : Math.round(surface.dockInputRect.height)
         }
+
+        // This window already spans the output; the layer moves its dock into
+        // the Stage card without changing the reservation surface below.
+        StageFramedLayer {
+            id: frameLayer
+            screenName: surface.screen?.name ?? ""
+            edge: dock.edge
+            restThickness: dock.vertical ? screenWidth : screenHeight
+            screenWidth: surface.screen?.width ?? 1920
+            screenHeight: surface.screen?.height ?? 1080
 
         IrisDock {
             id: dock
             anchors.fill: parent
             screen: root.screen
             stageEditing: root.stageEditing
+        }
         }
     }
 

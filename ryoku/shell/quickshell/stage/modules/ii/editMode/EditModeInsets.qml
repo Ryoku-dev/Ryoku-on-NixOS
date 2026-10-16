@@ -6,26 +6,24 @@ import stage.modules.common
 import stage.modules.common.functions
 
 /**
- * What Edit Mode may not draw on: the edges the bar and the dock occupy.
+ * The edges the bar and the dock occupy, and the Edit Mode viewport.
  *
- * Both stay where they are, at full size, while the mode is on (the dock's
- * catalogue edits the live surface in place), so the desktop shrinks inside
- * what is LEFT of the screen and the toolbar sits in a band opened inside
- * that. Three windows derive the viewport from these four numbers - the wallpaper surface, the
- * widgets surface and the chrome - and a second file working them out would be
- * a second answer to "where is the dock".
+ * The bar and the dock are part of the desktop the mode edits, so their
+ * windows draw themselves into the card on the desktop's own matrix
+ * (shell.modules.stage.frame): the viewport reserves neither, and the card is
+ * the whole screen, bar and dock included, shrunk. Three windows derive the
+ * viewport here - the wallpaper surface, the widgets surface and the chrome -
+ * and a second file working it out would be a second answer to "where is the
+ * desktop".
  *
- * The bar's inset is its BODY, derived from configuration: the bar's layer
- * surface carries a hover strip and shadow padding several times the bar's
- * height (194 px for a 40 px bar on the machine this was measured on), so the
- * surface is the wrong number. The dock's inset is published by the dock
- * window itself (`GlobalStates.dockInsets`) from the one thickness it reveals
- * at rest - the dock is the only place that knows its padding and style.
- *
- * The reservation is a function of configuration only, never of auto-hide,
- * hover reveal or `barOpen`: those move while the mode is on, and a viewport
- * that changes size mid-edit rescales every widget under the cursor. The
- * mode holds both panels visible for exactly that reason.
+ * `insetsFor` still answers where the panels sit on the real screen, for a
+ * layout inside the desktop that keeps clear of them (desktop icons with
+ * `avoidPanels`). The bar's inset is its BODY, derived from configuration:
+ * the bar's layer surface carries a hover strip and shadow padding several
+ * times the bar's height, so the surface is the wrong number. The dock's
+ * inset is published by the dock window itself (`GlobalStates.dockInsets`)
+ * from the one thickness it reveals at rest - the dock is the only place that
+ * knows its padding and style.
  */
 Singleton {
     id: root
@@ -62,21 +60,16 @@ Singleton {
         return insets;
     }
 
-    // The one derivation of the viewport every surface reads: the insets
-    // above plus the Appearance tokens, through edit_mode.js's arithmetic.
+    // The one derivation of the viewport every surface reads: the Appearance
+    // tokens through edit_mode.js's arithmetic, over the whole screen.
     function viewportFor(screenName, screenWidth, screenHeight) {
-        const insets = root.insetsFor(screenName);
         return EditModeLogic.viewportGeometry({
             "screenWidth": screenWidth,
             "screenHeight": screenHeight,
             "drawerWidth": Appearance.sizes.editModeDrawerWidth,
             "margin": Appearance.sizes.editModeMargin,
             "edgeMargin": Appearance.sizes.editModeEdgeMargin,
-            "chromeThickness": Appearance.sizes.toolbarHeight,
-            "insetTop": insets.top,
-            "insetBottom": insets.bottom,
-            "insetLeft": insets.left,
-            "insetRight": insets.right
+            "chromeThickness": Appearance.sizes.toolbarHeight
         });
     }
 

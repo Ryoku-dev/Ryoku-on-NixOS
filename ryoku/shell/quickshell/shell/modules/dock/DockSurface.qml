@@ -6,6 +6,7 @@ import Quickshell.Wayland
 import Ryoku.Ui.Singletons
 import shell.services
 import stage
+import shell.modules.stage.frame
 
 // The Ryoku dock: a first-class shell surface (namespace ryoku-dock), one per
 // monitor and style-agnostic -- it no longer belongs to any bar. A frosted
@@ -19,10 +20,8 @@ import stage
 // peek inside the input mask; the empty margins stay click-through because the
 // mask is only the band rect unioned with that strip.
 //
-// While the Stage Editor frames this monitor the dock is the thing being
-// edited, so it never steps aside: it holds revealed, rises above the lifted
-// desktop, and publishes the edge it takes so the mode's viewport shrinks
-// around it (stage's EditModeInsets).
+// While the Stage Editor frames this monitor the dock is part of the desktop
+// preview, so it holds revealed and rises above the lifted desktop.
 PanelWindow {
     id: dock
 
@@ -70,8 +69,8 @@ PanelWindow {
         top: !dock.horizontal || dock.edge === "top"
         bottom: !dock.horizontal || dock.edge === "bottom"
     }
-    implicitHeight: dock.horizontal ? (dock.depth + dock.edgeGap + dock.headroom) : 0
-    implicitWidth: dock.horizontal ? 0 : (dock.depth + dock.edgeGap + dock.headroom)
+    implicitHeight: dock.horizontal ? frameLayer.extent : 0
+    implicitWidth: dock.horizontal ? 0 : frameLayer.extent
 
     // ── reveal state machine ──────────────────────────────────────────────────
     readonly property bool monFullscreen: Wm.outputHasFullscreen(dock.screen ? dock.screen.name : "")
@@ -93,9 +92,8 @@ PanelWindow {
             || dock.menuHere;
     }
 
-    // The edge the mode's viewport must clear: the band's resting depth plus
-    // its gap, never reveal or hover state (a viewport that moves mid-edit
-    // rescales every widget under the cursor).
+    // Keep the reported edit edge at its resting depth; reveal and hover
+    // animation must not move edit guides under the pointer.
     readonly property real insetDepth: dock.depth + dock.edgeGap
     function publishInset() {
         GlobalStates.setDockInset(dock.screenName,
@@ -116,6 +114,17 @@ PanelWindow {
     readonly property real perpRest: (dock.edge === "bottom" || dock.edge === "right") ? dock.headroom : dock.edgeGap
     readonly property int perpSign: (dock.edge === "bottom" || dock.edge === "right") ? 1 : -1
     readonly property real perpPos: dock.perpRest + (dock.revealed ? 0 : dock.perpSign * dock.slideDist)
+    // Draw the dock with the desktop when Stage shrinks this output.
+
+    StageFramedLayer {
+        id: frameLayer
+        screenName: dock.screenName
+        edge: dock.edge
+        restThickness: dock.depth + dock.edgeGap + dock.headroom
+        screenWidth: dock.screen?.width ?? 1920
+        screenHeight: dock.screen?.height ?? 1080
+        originX: dock.anchors.left ? 0 : screenWidth - dock.width
+        originY: dock.anchors.top ? 0 : screenHeight - dock.height
 
         DockBand {
             id: band
@@ -124,8 +133,8 @@ PanelWindow {
             reservedDepth: dock.depth + dock.edgeGap
 
             // Centre along the band's own axis; slide along the perpendicular one.
-            x: dock.horizontal ? Math.round((dock.width - band.implicitWidth) / 2) : dock.perpPos
-            y: dock.horizontal ? dock.perpPos : Math.round((dock.height - band.implicitHeight) / 2)
+            x: dock.horizontal ? Math.round((parent.width - band.implicitWidth) / 2) : dock.perpPos
+            y: dock.horizontal ? dock.perpPos : Math.round((parent.height - band.implicitHeight) / 2)
             Behavior on x { enabled: !Perf.reduceMotion; NumberAnimation { duration: Motion.menuSlide; easing.type: Motion.menuSlideCurve } }
             Behavior on y { enabled: !Perf.reduceMotion; NumberAnimation { duration: Motion.menuSlide; easing.type: Motion.menuSlideCurve } }
         }
@@ -135,26 +144,30 @@ PanelWindow {
         // along the axis but stays pinned to the edge across it.
         Item {
             id: peekStrip
-            x: dock.horizontal ? band.x : (dock.edge === "left" ? 0 : dock.width - dock.edgeGap)
-            y: dock.horizontal ? (dock.edge === "top" ? 0 : dock.height - dock.edgeGap) : band.y
+            x: dock.horizontal ? band.x : (dock.edge === "left" ? 0 : parent.width - dock.edgeGap)
+            y: dock.horizontal ? (dock.edge === "top" ? 0 : parent.height - dock.edgeGap) : band.y
             width: dock.horizontal ? band.width : dock.edgeGap
             height: dock.horizontal ? dock.edgeGap : band.height
             HoverHandler { id: peekHover }
         }
+    }
+    readonly property rect bandInputRect: frameLayer.maskRect(band.x, band.y, band.width, band.height)
+    readonly property rect peekInputRect: frameLayer.maskRect(peekStrip.x, peekStrip.y,
+        peekStrip.width, peekStrip.height)
     // Input mask = band rect ∪ peek strip, so the empty margins and the magnify
     // headroom stay click-through.
     mask: Region {
         Region {
-            x: Math.round(band.x)
-            y: Math.round(band.y)
-            width: Math.round(band.width)
-            height: Math.round(band.height)
+            x: Math.round(dock.bandInputRect.x)
+            y: Math.round(dock.bandInputRect.y)
+            width: Math.round(dock.bandInputRect.width)
+            height: Math.round(dock.bandInputRect.height)
         }
         Region {
-            x: Math.round(peekStrip.x)
-            y: Math.round(peekStrip.y)
-            width: Math.round(peekStrip.width)
-            height: Math.round(peekStrip.height)
+            x: Math.round(dock.peekInputRect.x)
+            y: Math.round(dock.peekInputRect.y)
+            width: Math.round(dock.peekInputRect.width)
+            height: Math.round(dock.peekInputRect.height)
         }
     }
 }

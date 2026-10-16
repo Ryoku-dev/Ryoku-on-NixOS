@@ -8,6 +8,7 @@ import Quickshell.Widgets
 import Quickshell.Wayland
 import Ryoku.Ui.Singletons
 import stage.modules.common.widgets
+import shell.modules.stage.frame
 import "."
 
 pragma ComponentBehavior: Bound
@@ -174,10 +175,10 @@ Scope {
             readonly property real unmagnifiedThickness: dockRoot.sizing.unmagnifiedThickness
             readonly property real surfaceMargin: dockRoot.sizing.surfaceMargin
 
-            // Edit Mode reserves this dock's edge from the thickness the dock reveals at rest -
-            // configuration-derived, unchanged by hover, magnification or a fullscreen window -
-            // published rather than re-derived by the mode, because the padding and the style
-            // that make up this number live here.
+            // The edge this dock takes, from the thickness it reveals at rest - configuration-
+            // derived, unchanged by hover, magnification or a fullscreen window - for desktop
+            // layouts that keep clear of it; published rather than re-derived, because the
+            // padding and the style that make up this number live here.
             QtObject {
                 id: editInsetPublisher
                 readonly property string screenName: dockRoot.screen ? dockRoot.screen.name : ""
@@ -225,10 +226,10 @@ Scope {
             readonly property bool hoverBlocked: blockHoverInFullscreen && hasFullscreenWindow
             readonly property bool effectiveHoverToReveal: (Config.options?.dock?.hoverToReveal ?? true) && !hoverBlocked
 
-            // Edit Mode holds the dock revealed: its viewport reserves the dock's edge whatever the
-            // dock is doing, and stage 6 edits the dock in place. A preset switch takes it off
-            // screen with the bar: the preset may move it to another edge, and it would make that
-            // move in full view while the shell is busy applying the rest.
+            // Edit Mode holds the dock revealed: the editor's card draws it in place and the
+            // dock catalogue edits it there. A preset switch takes it off screen with the bar:
+            // the preset may move it to another edge, and it would make that move in full view
+            // while the shell is busy applying the rest.
             // Real Gnome's overview puts a workspace plane where the dock sits; on an
             // empty workspace the dock would cover its bottom, so it steps aside.
             readonly property var overviewController: GlobalStates.overviewBackgroundControllerFor(dockRoot.screen?.name ?? "")
@@ -337,8 +338,8 @@ Scope {
                 return Math.max(0, Math.min(island.reserve, Math.round(full - natural)));
             }
 
-            implicitWidth: Math.max(1, dockRoot.sizing.dockWidth)
-            implicitHeight: Math.max(1, dockRoot.sizing.dockHeight)
+            implicitWidth: dock.isVertical ? frameLayer.extent : Math.max(1, dockRoot.sizing.dockWidth)
+            implicitHeight: dock.isVertical ? Math.max(1, dockRoot.sizing.dockHeight) : frameLayer.extent
 
             anchors {
                 top: dock.dockEffectivePosition !== "bottom"
@@ -381,419 +382,439 @@ Scope {
             readonly property bool fullInputMask: !dockRoot.reveal
                 || dockContent.dragging
                 || (dockMouseArea.containsMouse && (dockRoot.enableMagnification || !dock.pinned))
+            readonly property Item inputItem: dockRoot.fullInputMask ? dockMouseArea : trayInputArea
+            readonly property rect inputRect: frameLayer.maskRect(dockRoot.inputItem.x, dockRoot.inputItem.y,
+                dockRoot.inputItem.width, dockRoot.inputItem.height)
             mask: Region {
-                item: dockRoot.fullInputMask ? dockMouseArea : trayInputArea
+                x: Math.round(dockRoot.inputRect.x)
+                y: Math.round(dockRoot.inputRect.y)
+                width: Math.round(dockRoot.inputRect.width)
+                height: Math.round(dockRoot.inputRect.height)
             }
 
-            // The tray in window coordinates (dockMouseArea › dockSurfaceHost,
-            // which fills it, › dockVisualBackground), following its slides.
-            Item {
-                id: trayInputArea
-                x: dockMouseArea.x + dockVisualBackground.x
-                y: dockMouseArea.y + dockVisualBackground.y
-                width: dockVisualBackground.width
-                height: dockVisualBackground.height
-            }
+            // The dock is part of the desktop the Stage Editor shrinks into its
+            // card: while it frames this monitor the window grows across the
+            // screen and this layer draws the dock where the card puts it.
+            StageFramedLayer {
+                id: frameLayer
+                screenName: dockRoot.screen?.name ?? ""
+                edge: dock.dockEffectivePosition
+                restThickness: Math.max(1, dock.isVertical ? dockRoot.sizing.dockWidth : dockRoot.sizing.dockHeight)
+                screenWidth: dockRoot.screen?.width ?? 1920
+                screenHeight: dockRoot.screen?.height ?? 1080
+                originX: dockRoot.anchors.left ? dockRoot.margins.left : screenWidth - dockRoot.width - dockRoot.margins.right
+                originY: dockRoot.anchors.top ? dockRoot.margins.top : screenHeight - dockRoot.height - dockRoot.margins.bottom
 
-            Timer {
-                id: positionChangeTimer
-                interval: 200
-                onTriggered: dockRoot.positionChanging = false
-            }
-
-            Connections {
-                target: Config.options.dock
-                function onPositionChanged() {
-                    dockRoot.positionChanging = true
-                    positionChangeTimer.restart()
-                }
-            }
-
-            FocusGrab {
-                id: dragFocusGrab
-                active: dockContent.dragging
-                windows: [dockRoot]
-                onCleared: {
-                    dockContent.cancelDrag()
-                }
-            }
-
-            MouseArea {
-                id: dockMouseArea
-                hoverEnabled: dockRoot.reveal || dockRoot.effectiveHoverToReveal
-
-                property real hoverRegion: Config.options?.dock?.hoverRegionHeight ?? 2
-                property real hiddenOffset: dockRoot.dockThickness - hoverRegion
-                property real fullyHiddenOffset: dockRoot.dockThickness + 1
-                property real currentOffset: dockRoot.reveal ? 0 : (dockRoot.effectiveHoverToReveal ? hiddenOffset : fullyHiddenOffset)
-                property real dipOffset: (dockRoot.dockThickness + 30) * DockPresets.dipProgress
-
-                width: dock.isVertical ? dockRoot.dockThickness : dockRoot.sizing.dockWidth
-                height: dock.isVertical ? dockRoot.sizing.dockHeight : dockRoot.dockThickness
-
-                state: dock.dockEffectivePosition
-
-                states: [
-                    State {
-                        name: "top"
-                        AnchorChanges { target: dockMouseArea; anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter }
-                        PropertyChanges { target: dockMouseArea; anchors.topMargin: -(currentOffset + dockMouseArea.dipOffset) }
-                    },
-                    State {
-                        name: "bottom"
-                        AnchorChanges { target: dockMouseArea; anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter }
-                        PropertyChanges { target: dockMouseArea; anchors.bottomMargin: -(currentOffset + dockMouseArea.dipOffset) }
-                    },
-                    State {
-                        name: "left"
-                        AnchorChanges { target: dockMouseArea; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
-                        PropertyChanges { target: dockMouseArea; anchors.leftMargin: -(currentOffset + dockMouseArea.dipOffset) }
-                    },
-                    State {
-                        name: "right"
-                        AnchorChanges { target: dockMouseArea; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter }
-                        PropertyChanges { target: dockMouseArea; anchors.rightMargin: -(currentOffset + dockMouseArea.dipOffset) }
-                    }
-                ]
-
-                Behavior on anchors.topMargin {
-                    enabled: !DockPresets.isSwitchingPreset
-                    animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockMouseArea)
-                }
-                Behavior on anchors.bottomMargin {
-                    enabled: !DockPresets.isSwitchingPreset
-                    animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockMouseArea)
-                }
-                Behavior on anchors.leftMargin {
-                    enabled: !DockPresets.isSwitchingPreset
-                    animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockMouseArea)
-                }
-                Behavior on anchors.rightMargin {
-                    enabled: !DockPresets.isSwitchingPreset
-                    animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockMouseArea)
+                // The tray in window coordinates (dockMouseArea › dockSurfaceHost,
+                // which fills it, › dockVisualBackground), following its slides.
+                Item {
+                    id: trayInputArea
+                    x: dockMouseArea.x + dockVisualBackground.x
+                    y: dockMouseArea.y + dockVisualBackground.y
+                    width: dockVisualBackground.width
+                    height: dockVisualBackground.height
                 }
 
-                // Stable safe bounds feed one continuous magnification field,
-                // including the overflow area above/next to enlarged icons.
-                HoverHandler {
-                    id: magnificationHover
-                    blocking: false
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    enabled: !DockPresets.magnificationSuspended
-
-                    onPointChanged: {
-                        const position = point.position
-                        dockContent.updateMagnificationPointerFrom(dockMouseArea, position.x, position.y)
-                    }
-                    onHoveredChanged: dockContent.setMagnificationHovered(hovered)
+                Timer {
+                    id: positionChangeTimer
+                    interval: 200
+                    onTriggered: dockRoot.positionChanging = false
                 }
 
                 Connections {
-                    target: DockPresets
-                    function onMagnificationSuspendedChanged() {
-                        if (DockPresets.magnificationSuspended) {
-                            dockContent.setMagnificationHovered(false);
-                            dockContent.resetMagnificationImmediate();
-                        } else if (magnificationHover.hovered) {
-                            dockContent.updateMagnificationPointerFrom(dockMouseArea, magnificationHover.point.position.x, magnificationHover.point.position.y);
-                            dockContent.setMagnificationHovered(true);
-                        }
+                    target: Config.options.dock
+                    function onPositionChanged() {
+                        dockRoot.positionChanging = true
+                        positionChangeTimer.restart()
                     }
                 }
 
-                WheelHandler {
-                    id: dockWheelPresetSwitcher
-                    target: null
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: event => {
-                        if (DockPresets.canSwitchPresets) {
-                            if (DockPresets.handleWheelScroll(event.angleDelta.y, event.angleDelta.x)) {
-                                event.accepted = true;
+                FocusGrab {
+                    id: dragFocusGrab
+                    active: dockContent.dragging
+                    windows: [dockRoot]
+                    onCleared: {
+                        dockContent.cancelDrag()
+                    }
+                }
+
+                MouseArea {
+                    id: dockMouseArea
+                    hoverEnabled: dockRoot.reveal || dockRoot.effectiveHoverToReveal
+
+                    property real hoverRegion: Config.options?.dock?.hoverRegionHeight ?? 2
+                    property real hiddenOffset: dockRoot.dockThickness - hoverRegion
+                    property real fullyHiddenOffset: dockRoot.dockThickness + 1
+                    property real currentOffset: dockRoot.reveal ? 0 : (dockRoot.effectiveHoverToReveal ? hiddenOffset : fullyHiddenOffset)
+                    property real dipOffset: (dockRoot.dockThickness + 30) * DockPresets.dipProgress
+
+                    width: dock.isVertical ? dockRoot.dockThickness : dockRoot.sizing.dockWidth
+                    height: dock.isVertical ? dockRoot.sizing.dockHeight : dockRoot.dockThickness
+
+                    state: dock.dockEffectivePosition
+
+                    states: [
+                        State {
+                            name: "top"
+                            AnchorChanges { target: dockMouseArea; anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter }
+                            PropertyChanges { target: dockMouseArea; anchors.topMargin: -(currentOffset + dockMouseArea.dipOffset) }
+                        },
+                        State {
+                            name: "bottom"
+                            AnchorChanges { target: dockMouseArea; anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter }
+                            PropertyChanges { target: dockMouseArea; anchors.bottomMargin: -(currentOffset + dockMouseArea.dipOffset) }
+                        },
+                        State {
+                            name: "left"
+                            AnchorChanges { target: dockMouseArea; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                            PropertyChanges { target: dockMouseArea; anchors.leftMargin: -(currentOffset + dockMouseArea.dipOffset) }
+                        },
+                        State {
+                            name: "right"
+                            AnchorChanges { target: dockMouseArea; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter }
+                            PropertyChanges { target: dockMouseArea; anchors.rightMargin: -(currentOffset + dockMouseArea.dipOffset) }
+                        }
+                    ]
+
+                    Behavior on anchors.topMargin {
+                        enabled: !DockPresets.isSwitchingPreset
+                        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockMouseArea)
+                    }
+                    Behavior on anchors.bottomMargin {
+                        enabled: !DockPresets.isSwitchingPreset
+                        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockMouseArea)
+                    }
+                    Behavior on anchors.leftMargin {
+                        enabled: !DockPresets.isSwitchingPreset
+                        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockMouseArea)
+                    }
+                    Behavior on anchors.rightMargin {
+                        enabled: !DockPresets.isSwitchingPreset
+                        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockMouseArea)
+                    }
+
+                    // Stable safe bounds feed one continuous magnification field,
+                    // including the overflow area above/next to enlarged icons.
+                    HoverHandler {
+                        id: magnificationHover
+                        blocking: false
+                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                        enabled: !DockPresets.magnificationSuspended
+
+                        onPointChanged: {
+                            const position = point.position
+                            dockContent.updateMagnificationPointerFrom(dockMouseArea, position.x, position.y)
+                        }
+                        onHoveredChanged: dockContent.setMagnificationHovered(hovered)
+                    }
+
+                    Connections {
+                        target: DockPresets
+                        function onMagnificationSuspendedChanged() {
+                            if (DockPresets.magnificationSuspended) {
+                                dockContent.setMagnificationHovered(false);
+                                dockContent.resetMagnificationImmediate();
+                            } else if (magnificationHover.hovered) {
+                                dockContent.updateMagnificationPointerFrom(dockMouseArea, magnificationHover.point.position.x, magnificationHover.point.position.y);
+                                dockContent.setMagnificationHovered(true);
                             }
                         }
                     }
-                }
 
-                // Neutral host: the classic surface, DropArea and content are
-                // siblings so hiding the global rectangle never hides items.
-                Item {
-                    id: dockSurfaceHost
-                    anchors.fill: parent
-                    clip: false
-
-                    // A layer shadow re-allocates its texture on every frame
-                    // the lens resizes the tray; this one is drawn directly.
-                    StyledRectangularShadow {
-                        target: dockVisualBackground
-                        cached: false
-                        blur: Appearance.sizes.elevationMargin
-                        spread: 0
-                        color: Qt.rgba(0, 0, 0, 0.35)
-                        offset: {
-                            if (dock.dockEffectivePosition === "left") return Qt.vector2d(2, 0);
-                            if (dock.dockEffectivePosition === "right") return Qt.vector2d(-2, 0);
-                            if (dock.dockEffectivePosition === "top") return Qt.vector2d(0, 2);
-                            return Qt.vector2d(0, -2);
+                    WheelHandler {
+                        id: dockWheelPresetSwitcher
+                        target: null
+                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                        onWheel: event => {
+                            if (DockPresets.canSwitchPresets) {
+                                if (DockPresets.handleWheelScroll(event.angleDelta.y, event.angleDelta.x)) {
+                                    event.accepted = true;
+                                }
+                            }
                         }
-                        visible: !dockContent.islandsStyle && !dockRoot.isDynamicIsland && !dockRoot.isTransparent
-                            && opacity > 0.01
-                            && !Config.options.appearance.transparency.popups
-                            && !Config.options.appearance.transparency.enable
                     }
 
-                    Rectangle {
-                        id: dockVisualBackground
+                    // Neutral host: the classic surface, DropArea and content are
+                    // siblings so hiding the global rectangle never hides items.
+                    Item {
+                        id: dockSurfaceHost
+                        anchors.fill: parent
                         clip: false
 
-                        width: Math.max(1, Math.min(
-                            dockRoot.sizing.backgroundWidth,
-                            dockRoot.sizing.dockWidth
-                        ))
-                        height: Math.max(1, Math.min(
-                            dockRoot.sizing.backgroundHeight,
-                            dockRoot.sizing.dockHeight
-                        ))
-
-                        // The tray's own silhouette: square when the panel is
-                        // attached to a screen edge - the screen's edge is the
-                        // corner there - or when the body is not this rectangle
-                        // at all (dynamic island, full width).
-                        readonly property real trayCornerRadius: (dockRoot.isDynamicIsland || dockRoot.isHug || dockRoot.isFullWidth) ? 0 : dockContent.dockCornerRadius
-
-                        color: (dockRoot.isDynamicIsland || dockRoot.isTransparent) ? "transparent" : Appearance.colors.colLayer0
-                        radius: trayCornerRadius
-                        topLeftRadius: dockRoot.isHug ? ((dock.dockEffectivePosition === "bottom" || dock.dockEffectivePosition === "right") ? dockContent.dockCornerRadius : 0) : trayCornerRadius
-                        topRightRadius: dockRoot.isHug ? ((dock.dockEffectivePosition === "bottom" || dock.dockEffectivePosition === "left") ? dockContent.dockCornerRadius : 0) : trayCornerRadius
-                        bottomLeftRadius: dockRoot.isHug ? ((dock.dockEffectivePosition === "top" || dock.dockEffectivePosition === "right") ? dockContent.dockCornerRadius : 0) : trayCornerRadius
-                        bottomRightRadius: dockRoot.isHug ? ((dock.dockEffectivePosition === "top" || dock.dockEffectivePosition === "left") ? dockContent.dockCornerRadius : 0) : trayCornerRadius
-
-                        opacity: (dockContent.islandsStyle || dockRoot.isTransparent) ? 0.0 : 1.0
-
-                        // Keeps the point under the cursor fixed while the lens
-                        // grows; clamped to the room the window reserves.
-                        readonly property real lensShift: {
-                            if (dockRoot.isDynamicIsland)
-                                return 0;
-                            const room = dock.isVertical
-                                ? (dockRoot.sizing.dockHeight - height) / 2
-                                : (dockRoot.sizing.dockWidth - width) / 2;
-                            const limit = Math.max(0, room - dockRoot.sizing.mainEdgePad);
-                            return Math.max(-limit, Math.min(limit, dockContent.magnificationCenterShift));
-                        }
-                        anchors.horizontalCenterOffset: dock.isVertical ? 0 : lensShift
-                        anchors.verticalCenterOffset: dock.isVertical ? lensShift : 0
-
-                        // Clear old anchors before installing the new edge. Conditional
-                        // anchors can overlap during a preset change, stretch the tray
-                        // and permanently remove its width/height bindings.
-                        state: dock.dockEffectivePosition
-                        states: [
-                            State {
-                                name: "top"
-                                AnchorChanges { target: dockVisualBackground; anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter }
-                            },
-                            State {
-                                name: "bottom"
-                                AnchorChanges { target: dockVisualBackground; anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter }
-                            },
-                            State {
-                                name: "left"
-                                AnchorChanges { target: dockVisualBackground; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
-                            },
-                            State {
-                                name: "right"
-                                AnchorChanges { target: dockVisualBackground; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter }
+                        // A layer shadow re-allocates its texture on every frame
+                        // the lens resizes the tray; this one is drawn directly.
+                        StyledRectangularShadow {
+                            target: dockVisualBackground
+                            cached: false
+                            blur: Appearance.sizes.elevationMargin
+                            spread: 0
+                            color: Qt.rgba(0, 0, 0, 0.35)
+                            offset: {
+                                if (dock.dockEffectivePosition === "left") return Qt.vector2d(2, 0);
+                                if (dock.dockEffectivePosition === "right") return Qt.vector2d(-2, 0);
+                                if (dock.dockEffectivePosition === "top") return Qt.vector2d(0, 2);
+                                return Qt.vector2d(0, -2);
                             }
-                        ]
-
-                        anchors.bottomMargin: dock.dockEffectivePosition === "bottom" ? (dockRoot.reveal ? dockRoot.surfaceMargin : -(dockMouseArea.hoverRegion + 4)) : 0
-
-                        anchors.topMargin: dock.dockEffectivePosition === "top" ? (dockRoot.reveal ? dockRoot.surfaceMargin : -(dockMouseArea.hoverRegion + 4)) : 0
-
-                        anchors.leftMargin: dock.dockEffectivePosition === "left" ? (dockRoot.reveal ? dockRoot.surfaceMargin : -(dockMouseArea.hoverRegion + 4)) : 0
-
-                        anchors.rightMargin: dock.dockEffectivePosition === "right" ? (dockRoot.reveal ? dockRoot.surfaceMargin : -(dockMouseArea.hoverRegion + 4)) : 0
-
-                        Behavior on opacity {
-                            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockVisualBackground)
+                            visible: !dockContent.islandsStyle && !dockRoot.isDynamicIsland && !dockRoot.isTransparent
+                                && opacity > 0.01
+                                && !Config.options.appearance.transparency.popups
+                                && !Config.options.appearance.transparency.enable
                         }
-                        Behavior on anchors.bottomMargin { animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockVisualBackground) }
-                        Behavior on anchors.topMargin { animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockVisualBackground) }
-                        Behavior on anchors.leftMargin { animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockVisualBackground) }
-                        Behavior on anchors.rightMargin { animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockVisualBackground) }
 
-                        Notch {
-                            id: dynamicIslandNotch
-                            visible: dockRoot.isDynamicIsland && !dockContent.islandsStyle && !dock.isVertical
-                            anchors.fill: parent
-                            bodyWidth: parent.width
-                            bodyHeight: parent.height
-                            disableBehaviors: true
-                            topRadius: dockRoot.concaveCornerRadius
-                            bottomRadius: Math.min(dockContent.dockCornerRadius, parent.height)
-                            fillColor: Appearance.colors.colLayer0
+                        Rectangle {
+                            id: dockVisualBackground
+                            clip: false
 
-                            transform: Scale {
-                                xScale: 1
-                                yScale: dock.dockEffectivePosition === "bottom" ? -1 : 1
-                                origin.y: dynamicIslandNotch.height / 2
+                            width: Math.max(1, Math.min(
+                                dockRoot.sizing.backgroundWidth,
+                                dockRoot.sizing.dockWidth
+                            ))
+                            height: Math.max(1, Math.min(
+                                dockRoot.sizing.backgroundHeight,
+                                dockRoot.sizing.dockHeight
+                            ))
+
+                            // The tray's own silhouette: square when the panel is
+                            // attached to a screen edge - the screen's edge is the
+                            // corner there - or when the body is not this rectangle
+                            // at all (dynamic island, full width).
+                            readonly property real trayCornerRadius: (dockRoot.isDynamicIsland || dockRoot.isHug || dockRoot.isFullWidth) ? 0 : dockContent.dockCornerRadius
+
+                            color: (dockRoot.isDynamicIsland || dockRoot.isTransparent) ? "transparent" : Appearance.colors.colLayer0
+                            radius: trayCornerRadius
+                            topLeftRadius: dockRoot.isHug ? ((dock.dockEffectivePosition === "bottom" || dock.dockEffectivePosition === "right") ? dockContent.dockCornerRadius : 0) : trayCornerRadius
+                            topRightRadius: dockRoot.isHug ? ((dock.dockEffectivePosition === "bottom" || dock.dockEffectivePosition === "left") ? dockContent.dockCornerRadius : 0) : trayCornerRadius
+                            bottomLeftRadius: dockRoot.isHug ? ((dock.dockEffectivePosition === "top" || dock.dockEffectivePosition === "right") ? dockContent.dockCornerRadius : 0) : trayCornerRadius
+                            bottomRightRadius: dockRoot.isHug ? ((dock.dockEffectivePosition === "top" || dock.dockEffectivePosition === "left") ? dockContent.dockCornerRadius : 0) : trayCornerRadius
+
+                            opacity: (dockContent.islandsStyle || dockRoot.isTransparent) ? 0.0 : 1.0
+
+                            // Keeps the point under the cursor fixed while the lens
+                            // grows; clamped to the room the window reserves.
+                            readonly property real lensShift: {
+                                if (dockRoot.isDynamicIsland)
+                                    return 0;
+                                const room = dock.isVertical
+                                    ? (dockRoot.sizing.dockHeight - height) / 2
+                                    : (dockRoot.sizing.dockWidth - width) / 2;
+                                const limit = Math.max(0, room - dockRoot.sizing.mainEdgePad);
+                                return Math.max(-limit, Math.min(limit, dockContent.magnificationCenterShift));
                             }
-                        }
+                            anchors.horizontalCenterOffset: dock.isVertical ? 0 : lensShift
+                            anchors.verticalCenterOffset: dock.isVertical ? lensShift : 0
 
-                        // Full width · rounded: the tray spans the screen and
-                        // curves into it at both sides, the way the hug bar's
-                        // screen corners do — the screen above looks rounded.
-                        Repeater {
-                            model: (dockRoot.isFullWidthConcave && !dockContent.islandsStyle) ? 2 : 0
-                            delegate: RoundCorner {
-                                required property int index
-                                readonly property string pos: dock.dockEffectivePosition
-                                readonly property bool startEnd: index === 0
-                                visible: opacity > 0.01
+                            // Clear old anchors before installing the new edge. Conditional
+                            // anchors can overlap during a preset change, stretch the tray
+                            // and permanently remove its width/height bindings.
+                            state: dock.dockEffectivePosition
+                            states: [
+                                State {
+                                    name: "top"
+                                    AnchorChanges { target: dockVisualBackground; anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter }
+                                },
+                                State {
+                                    name: "bottom"
+                                    AnchorChanges { target: dockVisualBackground; anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter }
+                                },
+                                State {
+                                    name: "left"
+                                    AnchorChanges { target: dockVisualBackground; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                                },
+                                State {
+                                    name: "right"
+                                    AnchorChanges { target: dockVisualBackground; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter }
+                                }
+                            ]
+
+                            anchors.bottomMargin: dock.dockEffectivePosition === "bottom" ? (dockRoot.reveal ? dockRoot.surfaceMargin : -(dockMouseArea.hoverRegion + 4)) : 0
+
+                            anchors.topMargin: dock.dockEffectivePosition === "top" ? (dockRoot.reveal ? dockRoot.surfaceMargin : -(dockMouseArea.hoverRegion + 4)) : 0
+
+                            anchors.leftMargin: dock.dockEffectivePosition === "left" ? (dockRoot.reveal ? dockRoot.surfaceMargin : -(dockMouseArea.hoverRegion + 4)) : 0
+
+                            anchors.rightMargin: dock.dockEffectivePosition === "right" ? (dockRoot.reveal ? dockRoot.surfaceMargin : -(dockMouseArea.hoverRegion + 4)) : 0
+
+                            Behavior on opacity {
+                                animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockVisualBackground)
+                            }
+                            Behavior on anchors.bottomMargin { animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockVisualBackground) }
+                            Behavior on anchors.topMargin { animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockVisualBackground) }
+                            Behavior on anchors.leftMargin { animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockVisualBackground) }
+                            Behavior on anchors.rightMargin { animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(dockVisualBackground) }
+
+                            Notch {
+                                id: dynamicIslandNotch
+                                visible: dockRoot.isDynamicIsland && !dockContent.islandsStyle && !dock.isVertical
+                                anchors.fill: parent
+                                bodyWidth: parent.width
+                                bodyHeight: parent.height
+                                disableBehaviors: true
+                                topRadius: dockRoot.concaveCornerRadius
+                                bottomRadius: Math.min(dockContent.dockCornerRadius, parent.height)
+                                fillColor: Appearance.colors.colLayer0
+
+                                transform: Scale {
+                                    xScale: 1
+                                    yScale: dock.dockEffectivePosition === "bottom" ? -1 : 1
+                                    origin.y: dynamicIslandNotch.height / 2
+                                }
+                            }
+
+                            // Full width · rounded: the tray spans the screen and
+                            // curves into it at both sides, the way the hug bar's
+                            // screen corners do — the screen above looks rounded.
+                            Repeater {
+                                model: (dockRoot.isFullWidthConcave && !dockContent.islandsStyle) ? 2 : 0
+                                delegate: RoundCorner {
+                                    required property int index
+                                    readonly property string pos: dock.dockEffectivePosition
+                                    readonly property bool startEnd: index === 0
+                                    visible: opacity > 0.01
+                                    opacity: dockVisualBackground.opacity
+                                    implicitSize: Math.max(1, dockRoot.concaveCornerRadius)
+                                    color: dockVisualBackground.color
+                                    // The filled side of each corner faces the tray
+                                    // and the screen edge it meets.
+                                    corner: pos === "top" ? (startEnd ? RoundCorner.CornerEnum.TopLeft : RoundCorner.CornerEnum.TopRight)
+                                        : pos === "left" ? (startEnd ? RoundCorner.CornerEnum.TopLeft : RoundCorner.CornerEnum.BottomLeft)
+                                        : pos === "right" ? (startEnd ? RoundCorner.CornerEnum.TopRight : RoundCorner.CornerEnum.BottomRight)
+                                        : (startEnd ? RoundCorner.CornerEnum.BottomLeft : RoundCorner.CornerEnum.BottomRight)
+                                    // A 1 px tuck hides an antialiasing gap on
+                                    // an opaque tray; on a translucent one the
+                                    // overlap paints twice and reads as a line.
+                                    readonly property real tuck: dockVisualBackground.color.a < 1 ? 0 : 1
+                                    x: pos === "left" ? parent.width - tuck
+                                        : pos === "right" ? -width + tuck
+                                        : (startEnd ? 0 : parent.width - width)
+                                    y: pos === "bottom" ? -height + tuck
+                                        : pos === "top" ? parent.height - tuck
+                                        : (startEnd ? 0 : parent.height - height)
+                                }
+                            }
+
+                            RoundCorner {
+                                id: concaveCorner1
+                                visible: dockRoot.isDynamicIsland && !dockContent.islandsStyle && dock.isVertical && opacity > 0.01
                                 opacity: dockVisualBackground.opacity
                                 implicitSize: Math.max(1, dockRoot.concaveCornerRadius)
                                 color: dockVisualBackground.color
-                                // The filled side of each corner faces the tray
-                                // and the screen edge it meets.
-                                corner: pos === "top" ? (startEnd ? RoundCorner.CornerEnum.TopLeft : RoundCorner.CornerEnum.TopRight)
-                                    : pos === "left" ? (startEnd ? RoundCorner.CornerEnum.TopLeft : RoundCorner.CornerEnum.BottomLeft)
-                                    : pos === "right" ? (startEnd ? RoundCorner.CornerEnum.TopRight : RoundCorner.CornerEnum.BottomRight)
-                                    : (startEnd ? RoundCorner.CornerEnum.BottomLeft : RoundCorner.CornerEnum.BottomRight)
-                                // A 1 px tuck hides an antialiasing gap on
-                                // an opaque tray; on a translucent one the
-                                // overlap paints twice and reads as a line.
-                                readonly property real tuck: dockVisualBackground.color.a < 1 ? 0 : 1
-                                x: pos === "left" ? parent.width - tuck
-                                    : pos === "right" ? -width + tuck
-                                    : (startEnd ? 0 : parent.width - width)
-                                y: pos === "bottom" ? -height + tuck
-                                    : pos === "top" ? parent.height - tuck
-                                    : (startEnd ? 0 : parent.height - height)
+                                corner: {
+                                    if (dock.dockEffectivePosition === "left") return RoundCorner.CornerEnum.BottomLeft;
+                                    return RoundCorner.CornerEnum.BottomRight;
+                                }
+                                anchors {
+                                    bottom: (dock.dockEffectivePosition === "left" || dock.dockEffectivePosition === "right") ? parent.top : undefined
+                                    bottomMargin: (dock.dockEffectivePosition === "left" || dock.dockEffectivePosition === "right") ? -1 : 0
+                                    right: (dock.dockEffectivePosition === "right") ? parent.right : undefined
+                                    left: (dock.dockEffectivePosition === "left") ? parent.left : undefined
+                                }
+                            }
+
+                            RoundCorner {
+                                id: concaveCorner2
+                                visible: dockRoot.isDynamicIsland && !dockContent.islandsStyle && dock.isVertical && opacity > 0.01
+                                opacity: dockVisualBackground.opacity
+                                implicitSize: Math.max(1, dockRoot.concaveCornerRadius)
+                                color: dockVisualBackground.color
+                                corner: {
+                                    if (dock.dockEffectivePosition === "left") return RoundCorner.CornerEnum.TopLeft;
+                                    return RoundCorner.CornerEnum.TopRight;
+                                }
+                                anchors {
+                                    top: (dock.dockEffectivePosition === "left" || dock.dockEffectivePosition === "right") ? parent.bottom : undefined
+                                    topMargin: (dock.dockEffectivePosition === "left" || dock.dockEffectivePosition === "right") ? -1 : 0
+                                    left: (dock.dockEffectivePosition === "left") ? parent.left : undefined
+                                    right: (dock.dockEffectivePosition === "right") ? parent.right : undefined
+                                }
                             }
                         }
 
-                        RoundCorner {
-                            id: concaveCorner1
-                            visible: dockRoot.isDynamicIsland && !dockContent.islandsStyle && dock.isVertical && opacity > 0.01
-                            opacity: dockVisualBackground.opacity
-                            implicitSize: Math.max(1, dockRoot.concaveCornerRadius)
-                            color: dockVisualBackground.color
-                            corner: {
-                                if (dock.dockEffectivePosition === "left") return RoundCorner.CornerEnum.BottomLeft;
-                                return RoundCorner.CornerEnum.BottomRight;
-                            }
-                            anchors {
-                                bottom: (dock.dockEffectivePosition === "left" || dock.dockEffectivePosition === "right") ? parent.top : undefined
-                                bottomMargin: (dock.dockEffectivePosition === "left" || dock.dockEffectivePosition === "right") ? -1 : 0
-                                right: (dock.dockEffectivePosition === "right") ? parent.right : undefined
-                                left: (dock.dockEffectivePosition === "left") ? parent.left : undefined
-                            }
-                        }
+                        // Under the content (z 1): a drag is offered to the topmost
+                        // DropArea that takes it, so widgets that take files (shelf,
+                        // send) get them first, and everywhere else falls through
+                        // to pinning here. Above the content it swallowed every drop.
+                        DropArea {
+                            id: fileDropArea
+                            anchors.fill: parent
+                            z: 0
+                            keys: ["text/uri-list"]
 
-                        RoundCorner {
-                            id: concaveCorner2
-                            visible: dockRoot.isDynamicIsland && !dockContent.islandsStyle && dock.isVertical && opacity > 0.01
-                            opacity: dockVisualBackground.opacity
-                            implicitSize: Math.max(1, dockRoot.concaveCornerRadius)
-                            color: dockVisualBackground.color
-                            corner: {
-                                if (dock.dockEffectivePosition === "left") return RoundCorner.CornerEnum.TopLeft;
-                                return RoundCorner.CornerEnum.TopRight;
+                            // We delay the re-enablement slightly after an internal drag ends
+                            // to prevent the "exited" event from firing for the internal drag.
+                            property bool blockDueToInternal: dockContent.dragging
+                            onBlockDueToInternalChanged: {
+                                if (!blockDueToInternal) {
+                                    reEnableTimer.restart()
+                                } else {
+                                    enabled = false
+                                }
                             }
-                            anchors {
-                                top: (dock.dockEffectivePosition === "left" || dock.dockEffectivePosition === "right") ? parent.bottom : undefined
-                                topMargin: (dock.dockEffectivePosition === "left" || dock.dockEffectivePosition === "right") ? -1 : 0
-                                left: (dock.dockEffectivePosition === "left") ? parent.left : undefined
-                                right: (dock.dockEffectivePosition === "right") ? parent.right : undefined
+
+                            Timer {
+                                id: reEnableTimer
+                                interval: 50
+                                onTriggered: fileDropArea.enabled = true
                             }
-                        }
-                    }
 
-                    // Under the content (z 1): a drag is offered to the topmost
-                    // DropArea that takes it, so widgets that take files (shelf,
-                    // send) get them first, and everywhere else falls through
-                    // to pinning here. Above the content it swallowed every drop.
-                    DropArea {
-                        id: fileDropArea
-                        anchors.fill: parent
-                        z: 0
-                        keys: ["text/uri-list"]
-
-                        // We delay the re-enablement slightly after an internal drag ends
-                        // to prevent the "exited" event from firing for the internal drag.
-                        property bool blockDueToInternal: dockContent.dragging
-                        onBlockDueToInternalChanged: {
-                            if (!blockDueToInternal) {
-                                reEnableTimer.restart()
-                            } else {
-                                enabled = false
+                            onEntered: (drag) => {
+                                if (!drag.hasUrls) return
+                                //console.log("[Dock] External drag entered")
+                                const url = drag.urls[0]?.toString() ?? ""
+                                dockContent.externalDragIcon = dockContent.mimeIconFromPath(url)
+                                dockContent.externalDragOver = true
+                            }
+                            onExited: {
+                                //console.log("[Dock] External drag exited")
+                                dockContent.externalDragIcon = ""
+                                dockContent.externalDragOver = false
+                            }
+                            onDropped: (drop) => {
+                                if (!drop.hasUrls) return
+                                //console.log("[Dock] External drag dropped")
+                                for (let i = 0; i < drop.urls.length; i++)
+                                    TaskbarApps.addPinnedFile(drop.urls[i])
+                                drop.accept(Qt.CopyAction)
+                                dockContent.externalDragIcon = ""
+                                dockContent.externalDragOver = false
                             }
                         }
 
-                        Timer {
-                            id: reEnableTimer
-                            interval: 50
-                            onTriggered: fileDropArea.enabled = true
+                        // A right-click on the dock's own body - between its icons,
+                        // on its padding - offers the desktop's menu told it is on
+                        // the dock. Under the content, so every icon's own menu
+                        // still wins; the menu's surface is the whole screen, so
+                        // the point is lifted from this window to it the way the
+                        // bar lifts its own.
+                        MouseArea {
+                            anchors.fill: dockVisualBackground
+                            z: 0
+                            acceptedButtons: Qt.RightButton
+                            onClicked: mouse => {
+                                if (!dockRoot.screen)
+                                    return;
+                                const p = mapToItem(null, mouse.x, mouse.y);
+                                const side = dock.dockEffectivePosition;
+                                const offsetX = side === "right" ? dockRoot.screen.width - dockRoot.width : 0;
+                                const offsetY = side === "bottom" ? dockRoot.screen.height - dockRoot.height : 0;
+                                GlobalStates.openDesktopMenu(dockRoot.screen.name, p.x + offsetX, p.y + offsetY, "dock");
+                            }
                         }
 
-                        onEntered: (drag) => {
-                            if (!drag.hasUrls) return
-                            //console.log("[Dock] External drag entered")
-                            const url = drag.urls[0]?.toString() ?? ""
-                            dockContent.externalDragIcon = dockContent.mimeIconFromPath(url)
-                            dockContent.externalDragOver = true
-                        }
-                        onExited: {
-                            //console.log("[Dock] External drag exited")
-                            dockContent.externalDragIcon = ""
-                            dockContent.externalDragOver = false
-                        }
-                        onDropped: (drop) => {
-                            if (!drop.hasUrls) return
-                            //console.log("[Dock] External drag dropped")
-                            for (let i = 0; i < drop.urls.length; i++)
-                                TaskbarApps.addPinnedFile(drop.urls[i])
-                            drop.accept(Qt.CopyAction)
-                            dockContent.externalDragIcon = ""
-                            dockContent.externalDragOver = false
-                        }
-                    }
-
-                    // A right-click on the dock's own body - between its icons,
-                    // on its padding - offers the desktop's menu told it is on
-                    // the dock. Under the content, so every icon's own menu
-                    // still wins; the menu's surface is the whole screen, so
-                    // the point is lifted from this window to it the way the
-                    // bar lifts its own.
-                    MouseArea {
-                        anchors.fill: dockVisualBackground
-                        z: 0
-                        acceptedButtons: Qt.RightButton
-                        onClicked: mouse => {
-                            if (!dockRoot.screen)
-                                return;
-                            const p = mapToItem(null, mouse.x, mouse.y);
-                            const side = dock.dockEffectivePosition;
-                            const offsetX = side === "right" ? dockRoot.screen.width - dockRoot.width : 0;
-                            const offsetY = side === "bottom" ? dockRoot.screen.height - dockRoot.height : 0;
-                            GlobalStates.openDesktopMenu(dockRoot.screen.name, p.x + offsetX, p.y + offsetY, "dock");
-                        }
-                    }
-
-                    DockContent {
-                        id: dockContent
-                        anchors.fill: dockVisualBackground
-                        anchors.leftMargin: (dockRoot.isDynamicIsland && !dock.isVertical) ? dockRoot.concaveCornerRadius : 0
-                        anchors.rightMargin: (dockRoot.isDynamicIsland && !dock.isVertical) ? dockRoot.concaveCornerRadius : 0
-                        anchors.topMargin: (dockRoot.isDynamicIsland && dock.isVertical) ? dockRoot.concaveCornerRadius : 0
-                        anchors.bottomMargin: (dockRoot.isDynamicIsland && dock.isVertical) ? dockRoot.concaveCornerRadius : 0
-                        z: 1
-                        isPinned: dock.pinned
-                        currentScreen: dockRoot.screen
-                        dockRevealed: dockRoot.reveal
-                        dockWindowVisible: dockRoot.visible
-                        onTogglePinRequested: {
-                            dock.pinned = !dock.pinned
+                        DockContent {
+                            id: dockContent
+                            anchors.fill: dockVisualBackground
+                            anchors.leftMargin: (dockRoot.isDynamicIsland && !dock.isVertical) ? dockRoot.concaveCornerRadius : 0
+                            anchors.rightMargin: (dockRoot.isDynamicIsland && !dock.isVertical) ? dockRoot.concaveCornerRadius : 0
+                            anchors.topMargin: (dockRoot.isDynamicIsland && dock.isVertical) ? dockRoot.concaveCornerRadius : 0
+                            anchors.bottomMargin: (dockRoot.isDynamicIsland && dock.isVertical) ? dockRoot.concaveCornerRadius : 0
+                            z: 1
+                            isPinned: dock.pinned
+                            currentScreen: dockRoot.screen
+                            dockRevealed: dockRoot.reveal
+                            dockWindowVisible: dockRoot.visible
+                            onTogglePinRequested: {
+                                dock.pinned = !dock.pinned
+                            }
                         }
                     }
                 }

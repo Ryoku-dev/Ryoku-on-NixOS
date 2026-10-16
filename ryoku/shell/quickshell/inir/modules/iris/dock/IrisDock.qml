@@ -23,7 +23,7 @@ Item {
     property var screen: null
     readonly property bool windowWorkspaceMap: Ui.Wm.caps.windowWorkspaceMap === true
     // The Stage Editor frames this monitor: the dock holds revealed and
-    // publishes the edge it occupies for the mode's viewport.
+    // publishes the edge it occupies for layouts that keep clear of it.
     property bool stageEditing: false
     anchors.fill: parent
     readonly property bool showLauncher: Ryoku.Dock.designCfg("shima", "launcher", true)
@@ -280,9 +280,9 @@ Item {
             onStepAsideChanged: if (window.stepAside) window.menuApp = null
             readonly property bool revealed: (!window.fullscreenIdle || root.stageEditing) && !window.stepAside && (!root.autoHide || window.edgeIntent || window.menuOpen
                 || window.askedShown || window.spotlightHere || window.workspaceEmpty || GlobalStates.irisEdit || root.stageEditing)
-            // The Stage Editor's viewport clears the edge this dock sits on,
-            // from its resting thickness (never reveal state, which moves
-            // while the mode is on).
+            // The edge this dock sits on, for the desktop layouts that keep
+            // clear of it, from its resting thickness (never reveal state,
+            // which moves while the mode is on).
             function publishInset() {
                 StageEditor.GlobalStates.setDockInset(root.screen?.name ?? "",
                     root.stageEditing && window.visible

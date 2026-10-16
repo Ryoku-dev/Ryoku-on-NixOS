@@ -14,6 +14,7 @@ import "modules"
 import shell.services as Svc
 import Ryoku.PluginKit
 import Ryoku.Ui.Singletons
+import shell.modules.stage.frame
 
 PanelWindow {
     id: barSlot
@@ -99,7 +100,7 @@ PanelWindow {
         top:    barSlot.root.barPosition === "top"
         bottom: barSlot.root.barPosition === "bottom"
     }
-    implicitHeight: barSlot.screen ? barSlot.screen.height : 1440
+    implicitHeight: frameLayer.extent
     exclusionMode: ExclusionMode.Normal
     // Same reservation for every shell style, widened by the gaps so a client
     // never slides behind the bar.
@@ -111,29 +112,47 @@ PanelWindow {
     // shrinks it to a thin trigger while hidden; the lead gap otherwise stays
     // clickable so slamming the pointer at the edge never hits the window behind.
     mask: Region {
-        x: (barSlot.root.barUnlocked || barSlot.root.barAutoHide)
-           ? 0 : Math.round(continuousBarSurface.x)
-        y: barSlot.root.barUnlocked ? 0
-           : (barSlot.root.barPosition === "bottom"
-                ? barSlot.height - barSlot.maskDepth : 0)
-        width: (barSlot.root.barUnlocked || barSlot.root.barAutoHide)
-               ? barSlot.width : Math.round(continuousBarSurface.width)
-        height: barSlot.root.barUnlocked ? barSlot.height : barSlot.maskDepth
+        x: Math.round(barSlot.framedInputRect.x)
+        y: Math.round(barSlot.framedInputRect.y)
+        width: Math.round(barSlot.framedInputRect.width)
+        height: Math.round(barSlot.framedInputRect.height)
     }
     // grab keyboard while unlocked so ESC can exit
     WlrLayershell.keyboardFocus: barSlot.root.barUnlocked ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+    // This window is already output-sized. The layer therefore keeps its
+    // extent, but moves the bar body and its input strip with the Stage card.
+    StageFramedLayer {
+        id: frameLayer
+        interactive: false
+        screenName: barSlot.screenName
+        edge: barSlot.root.barPosition
+        restThickness: barSlot.screen?.height ?? 1440
+        screenWidth: barSlot.screen?.width ?? 1920
+        screenHeight: barSlot.screen?.height ?? 1440
+    }
+
 
     // ── auto-hide reveal state ──
     property bool hovering: false
     // Shown when auto-hide is off, the pointer is on the reveal strip, a bar
     // popup is open, or the layout is unlocked for editing.
-    readonly property bool barShown: !barSlot.root.barAutoHide
-        || barSlot.hovering || barSlot.root.barUnlocked || barSlot.root.anyPopupVisible
+    readonly property bool barShown: frameLayer.framed
+        || !barSlot.root.barAutoHide || barSlot.hovering
+        || barSlot.root.barUnlocked || barSlot.root.anyPopupVisible
     readonly property int revealBand: barSlot.shellVisibleHeight + barSlot.gapLead
     readonly property int revealTriggerPx: 5
     readonly property int maskDepth: barSlot.root.barAutoHide
         ? (barSlot.barShown ? barSlot.revealBand : barSlot.revealTriggerPx)
         : barSlot.revealBand
+    readonly property rect framedInputRect: frameLayer.maskRect(
+        (barSlot.root.barUnlocked || barSlot.root.barAutoHide)
+            ? 0 : Math.round(continuousBarSurface.x),
+        barSlot.root.barUnlocked ? 0
+            : (barSlot.root.barPosition === "bottom"
+                ? barSlot.height - barSlot.maskDepth : 0),
+        (barSlot.root.barUnlocked || barSlot.root.barAutoHide)
+            ? barSlot.width : Math.round(continuousBarSurface.width),
+        barSlot.root.barUnlocked ? barSlot.height : barSlot.maskDepth)
     // The visible layers slide this far past the anchored edge when hidden.
     readonly property real hideDistance: barSlot.revealBand + 8
     property real hideShift: barSlot.barShown ? 0
@@ -173,6 +192,7 @@ PanelWindow {
     // bottom placement mirrors it so the shadow still opens toward the desktop.
     Rectangle {
         id: continuousBarSurface
+        parent: frameLayer.rest
         transform: Translate { y: barSlot.hideShift }
         x: barSlot.compactShell
             ? Math.round(barSlot.gapLeft + (barSlot.shellSpan - width) / 2)
@@ -726,6 +746,7 @@ PanelWindow {
 
     // ── dim backdrop while unlocked (edit mode); click empty → lock ──
     Rectangle {
+        parent: frameLayer.rest
         anchors.fill: parent
         color: "#000000"
         opacity: barSlot.root.barUnlocked ? 0.4 : 0.0
@@ -1912,6 +1933,7 @@ PanelWindow {
 
     Item {
         id: island
+        parent: frameLayer.rest
         transform: Translate { y: barSlot.hideShift }
         // The backing layer-window remains full-screen, but the visible/content
         // island follows the selected shell surface. This preserves stable
@@ -2322,6 +2344,7 @@ PanelWindow {
     // rounded rectangles while the connected indentation always stays visible.
     Item {
         id: foregroundEdgeBorder
+        parent: frameLayer.rest
         transform: Translate { y: barSlot.hideShift }
         x: continuousBarSurface.x
         y: continuousBarSurface.y

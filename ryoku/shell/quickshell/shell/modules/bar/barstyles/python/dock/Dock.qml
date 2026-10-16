@@ -11,6 +11,7 @@ import "../reusables"
 import "../../../../../components"
 import shell.services as Ryoku
 import stage
+import shell.modules.stage.frame
 
 Variants {
     id: universalDock
@@ -440,9 +441,8 @@ Variants {
                     }
                 }
 
-                // The Stage Editor's viewport clears the edge this dock sits on,
-                // from its resting thickness (never reveal state, which moves
-                // while the mode is on).
+                // Keep the reported edit edge at its resting thickness; reveal
+                // animation must not move edit guides under the pointer.
                 function publishInset() {
                     GlobalStates.setDockInset(dockWindow.modelData ? dockWindow.modelData.name : "",
                         universalDock.stageEditing && dockWindow.visible ? dockWindow.dockPosition : "",
@@ -665,15 +665,28 @@ Variants {
                     }
                 }
 
+                readonly property rect dockInputRect: frameLayer.maskRect(dockMaskArea.x, dockMaskArea.y,
+                    dockMaskArea.width, dockMaskArea.height)
+                readonly property rect edgeInputRect: frameLayer.maskRect(edgeTrigger.x, edgeTrigger.y,
+                    edgeTrigger.width, edgeTrigger.height)
+
                 mask: Region {
                     Region {
                         item: dockWindow.editMode ? dismissArea : null
                     }
                     Region {
-                        item: (dockWindow.isRevealed || dockContainer.revealProgress > 0.01) ? dockMaskArea : null
+                        x: Math.round(dockWindow.dockInputRect.x)
+                        y: Math.round(dockWindow.dockInputRect.y)
+                        width: (dockWindow.isRevealed || dockContainer.revealProgress > 0.01)
+                            ? Math.round(dockWindow.dockInputRect.width) : 0
+                        height: (dockWindow.isRevealed || dockContainer.revealProgress > 0.01)
+                            ? Math.round(dockWindow.dockInputRect.height) : 0
                     }
                     Region {
-                        item: edgeTrigger
+                        x: Math.round(dockWindow.edgeInputRect.x)
+                        y: Math.round(dockWindow.edgeInputRect.y)
+                        width: edgeTrigger.visible ? Math.round(dockWindow.edgeInputRect.width) : 0
+                        height: edgeTrigger.visible ? Math.round(dockWindow.edgeInputRect.height) : 0
                     }
                     Region {
                         item: dockWindow.editMode ? appPicker : null
@@ -697,6 +710,16 @@ Variants {
                         event.accepted = true;
                     }
                 }
+
+                // Only the dock follows the desktop into Stage's card; its
+                // picker and edit dismissal layer remain full-size.
+                StageFramedLayer {
+                    id: frameLayer
+                    screenName: dockWindow.modelData?.name ?? ""
+                    edge: dockWindow.dockPosition
+                    restThickness: dockWindow.isVertical ? dockWindow.screenWidth : dockWindow.screenHeight
+                    screenWidth: dockWindow.screenWidth > 0 ? dockWindow.screenWidth : 1920
+                    screenHeight: dockWindow.screenHeight > 0 ? dockWindow.screenHeight : 1080
 
                 Item {
                     id: edgeTrigger
@@ -1679,6 +1702,7 @@ Variants {
                             }
                         }
                     }
+                }
                 }
 
                 Item {

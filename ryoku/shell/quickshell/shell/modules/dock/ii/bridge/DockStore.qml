@@ -47,10 +47,23 @@ Singleton {
         return Array.from(ShellCfg.Dock.pinnedOrStarter() ?? []);
     }
 
+    // Leaves the ii design shares with every other design: the shared store
+    // owns them, so the Stage Editor's shared rows drive this dock too.
     readonly property var sharedKeys: ({
         "enable": "enabled",
         "position": "edge",
-        "height": "size"
+        "height": "size",
+        "enableMagnification": "magnify"
+    })
+    // Shared keys whose meaning is the opposite of the ii leaf: a dock that
+    // hides automatically is one that does not start pinned.
+    readonly property var invertedSharedKeys: ({
+        "pinnedOnStartup": "autohide"
+    })
+    // What the shared rows show while a key is unset, so this dock agrees.
+    readonly property var sharedFallbacks: ({
+        "magnify": true,
+        "autohide": true
     })
 
     function frame(): var {
@@ -89,11 +102,24 @@ Singleton {
         return v;
     }
 
+    // The dock's own code assigns leaves (a remove from its menu, a dragged
+    // order), and an assignment drops the leaf's binding to the store. Each
+    // leaf hands this back to itself after committing, so a later write from
+    // the Stage Editor, the Hub or the CLI still reaches the dock.
+    function rebind(path: string, fallback: var): var {
+        return Qt.binding(() => root.pull(path, fallback));
+    }
+
     function resolve(path: string, fallback: var): var {
         const shared = root.sharedKeys[path];
         if (shared !== undefined) {
-            const v = ShellCfg.Dock.cfg(shared, null);
+            const v = ShellCfg.Dock.cfg(shared, root.sharedFallbacks[shared] ?? null);
             return (v === null || v === undefined) ? fallback : v;
+        }
+        const inverted = root.invertedSharedKeys[path];
+        if (inverted !== undefined) {
+            const v = ShellCfg.Dock.cfg(inverted, root.sharedFallbacks[inverted] ?? null);
+            return (v === null || v === undefined) ? fallback : !v;
         }
         if (path === "pinnedApps")
             return Array.from(ShellCfg.Dock.pinnedOrStarter() ?? []);
@@ -147,6 +173,11 @@ Singleton {
         const shared = root.sharedKeys[path];
         if (shared !== undefined) {
             ShellCfg.Dock.setCfg(shared, value);
+            return;
+        }
+        const inverted = root.invertedSharedKeys[path];
+        if (inverted !== undefined) {
+            ShellCfg.Dock.setCfg(inverted, !value);
             return;
         }
         if (path === "pinnedApps") {
