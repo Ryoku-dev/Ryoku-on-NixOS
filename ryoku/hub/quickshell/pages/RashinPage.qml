@@ -28,9 +28,14 @@ Item {
 
     // ── status snapshot (page readouts, not stored config) ───────────────────
     property bool installed: true
+    // Whether this host's desktop package lets Rashin go. pacman lists it as
+    // optional; the Fedora and Void desktops still require it, so there the
+    // switch stops the agent and leaves the package.
+    property bool removable: true
     property bool daemonEnabled: false
     property bool running: false
     property bool serviceBusy: false
+    property string busyLabel: ""
     property string serviceError: ""
     // the port the daemon reports, not a literal: a user who changed it in
     // ~/.config/ryoku/rashin.json still gets a link that resolves.
@@ -64,19 +69,34 @@ Item {
     property bool setupOk: true
 
     Component.onCompleted: pg.refresh()
-    function refresh() { statusProc.running = true; manifestProc.running = true; }
+    function refresh() { packageProc.running = true; statusProc.running = true; manifestProc.running = true; }
+
+    Process {
+        id: packageProc
+        command: ["ryoku-hub", "rashin", "status"]
+        stderr: StdioCollector {}
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var o = JSON.parse(this.text);
+                    pg.installed = o.installed === true;
+                    pg.removable = o.removable === true;
+                } catch (e) {}
+            }
+        }
+    }
 
     Process {
         id: statusProc
         // sh-wrapped so a missing ryoku-rashin still closes stdout and fires
-        // onStreamFinished; empty/unparseable output reads as "not installed".
+        // onStreamFinished; empty or unparseable output reads as stopped. Whether
+        // the package is there comes from packageProc.
         command: ["sh", "-c", "ryoku-rashin status --json"]
         stderr: StdioCollector {}
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
                     var o = JSON.parse(this.text);
-                    pg.installed = true;
                     pg.daemonEnabled = o.enabled === true;
                     pg.running = o.running === true;
                     if (typeof o.port === "number" && o.port > 0)
@@ -109,7 +129,6 @@ Item {
                 } catch (e) {
                     // empty output (binary missing) or malformed JSON.
                 }
-                pg.installed = false;
                 pg.daemonEnabled = false;
                 pg.running = false;
                 pg.prowlInstalled = false;
@@ -120,47 +139,40 @@ Item {
         }
     }
 
+    // The switch owns the package as well as the agent: on installs
+    // ryoku-rashin when it is absent and starts the agent with the desktop,
+    // off stops it and removes the package where the host allows. The backend
+    // then re-authors the compositor config, so the Ask and Rashin window
+    // chords leave and return with the package. pkexec asks for the password
+    // through the polkit agent, the way every privileged Hub action does.
     Process {
-        id: enableProc
-        stderr: StdioCollector { id: enableError }
-        onExited: code => pg.finishServiceToggle(true, code, enableError.text)
-    }
-    Process {
-        id: disableProc
-        stderr: StdioCollector { id: disableError }
-        onExited: code => pg.finishServiceToggle(false, code, disableError.text)
-    }
-    Process {
-        id: hostServiceProc
-        stderr: StdioCollector { id: hostServiceError }
+        id: switchProc
+        stderr: StdioCollector { id: switchError }
         onExited: code => {
             pg.serviceBusy = false;
             if (code !== 0)
-                pg.serviceError = hostServiceError.text.trim()
-                    || I18n.tr("The service manager could not save this change.");
+                pg.serviceError = switchError.text.trim().split("\n").pop()
+                    || I18n.tr("Rashin could not change its state.");
             pg.refresh();
         }
     }
-    function finishServiceToggle(on, code, detail) {
-        if (code !== 0) {
-            pg.serviceBusy = false;
-            pg.serviceError = String(detail || "").trim()
-                || I18n.tr("Rashin could not change its service state.");
-            pg.refresh();
-            return;
-        }
-        hostServiceProc.command = ["ryoku-host", "svc", "--user",
-            on ? "enable" : "disable", "ryoku-rashin.service"];
-        hostServiceProc.running = true;
-    }
+    // The switch is the agent: on starts it with the desktop, installing the
+    // package first when it is absent; off stops it and, where the host lets
+    // the package go, removes it. It moves at once; refresh() settles it on
+    // what actually happened once the verb returns.
     function setEnabled(on) {
         if (pg.serviceBusy)
             return;
+        pg.busyLabel = on
+            ? (pg.installed ? I18n.tr("Starting\u2026") : I18n.tr("Installing ryoku-rashin\u2026"))
+            : (pg.removable ? I18n.tr("Stopping and removing ryoku-rashin\u2026") : I18n.tr("Stopping\u2026"));
         pg.serviceBusy = true;
         pg.serviceError = "";
-        var p = on ? enableProc : disableProc;
-        p.command = ["ryoku-rashin", on ? "enable" : "disable"];
-        p.running = true;
+        pg.daemonEnabled = on;
+        if (on)
+            pg.installed = true;
+        switchProc.command = ["ryoku-hub", "rashin", on ? "on" : "off"];
+        switchProc.running = true;
     }
 
     FileView {
@@ -583,7 +595,6 @@ Item {
                     color: Tokens.paperLift
                     border.width: 1
                     border.color: pg.daemonEnabled ? Qt.rgba(Tokens.ink.r, Tokens.ink.g, Tokens.ink.b, 0.35) : Tokens.line
-                    opacity: pg.installed ? 1 : 0.5
 
                     Column {
                         anchors { left: parent.left; right: sw.left; verticalCenter: parent.verticalCenter; leftMargin: 18; rightMargin: 14 }
@@ -592,26 +603,30 @@ Item {
                             spacing: Tokens.s2
                             Text { text: "羅針"; color: Tokens.ink; font.family: Tokens.jp; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
                             Text {
-                                text: I18n.tr("RASHIN SERVICE"); color: Tokens.ink; font.family: Tokens.display
+                                text: I18n.tr("RASHIN"); color: Tokens.ink; font.family: Tokens.display
                                 font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
                             }
                         }
                         Text {
                             width: parent.width
                             text: pg.serviceError !== "" ? pg.serviceError
-                                : (pg.installed
-                                    ? (pg.running ? I18n.tr("Running \u00b7 127.0.0.1:%1").arg(pg.port)
-                                       : (pg.daemonEnabled ? I18n.tr("Enabled \u00b7 starting\u2026") : I18n.tr("Off \u00b7 switch on to start it with the desktop")))
-                                    : I18n.tr("Not installed \u00b7 install ryoku-rashin"))
-                            color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 11; elide: Text.ElideRight
+                                : pg.serviceBusy ? pg.busyLabel
+                                : !pg.installed ? I18n.tr("Not installed \u00b7 switch on to install it, with its Ask shortcut")
+                                : pg.running ? (pg.removable
+                                    ? I18n.tr("Running \u00b7 127.0.0.1:%1 \u00b7 off removes it and its Ask shortcut").arg(pg.port)
+                                    : I18n.tr("Running \u00b7 127.0.0.1:%1").arg(pg.port))
+                                : pg.daemonEnabled ? I18n.tr("Enabled \u00b7 starting\u2026")
+                                : I18n.tr("Off \u00b7 switch on to start it with the desktop")
+                            color: pg.serviceError !== "" ? Tokens.alert : Tokens.inkDim
+                            font.family: Tokens.mono; font.pixelSize: 11; elide: Text.ElideRight
                         }
                     }
                     Sw {
                         id: sw
                         anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
-                        enabled: pg.installed && !pg.serviceBusy
-                        on: pg.daemonEnabled
-                        onToggled: (c) => { pg.daemonEnabled = c; pg.setEnabled(c); }
+                        enabled: !pg.serviceBusy
+                        on: pg.installed && pg.daemonEnabled
+                        onToggled: (c) => pg.setEnabled(c)
                     }
                 }
 
