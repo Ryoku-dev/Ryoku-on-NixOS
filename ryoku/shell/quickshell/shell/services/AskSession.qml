@@ -147,7 +147,7 @@ Scope {
         onExited: code => {
             if (root.phase === "working" && !root.permPending) {
                 root.errorText = code === 0 ? I18n.tr("No answer")
-                    : code === 127 ? I18n.tr("Not installed · install ryoku-rashin")
+                    : code === 127 ? I18n.tr("Rashin is off · switch it on in Ryoku Hub")
                     : I18n.tr("Ask failed");
                 root.phase = "failed";
             }

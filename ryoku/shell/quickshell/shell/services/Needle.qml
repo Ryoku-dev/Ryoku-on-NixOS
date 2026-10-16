@@ -76,7 +76,7 @@ Singleton {
             return;
         if (!root.available) {
             root._frame(JSON.stringify({ type: "user", text: q }));
-            root._frame(JSON.stringify({ type: "agent_text", text: I18n.tr("Not installed · install ryoku-rashin") }));
+            root._frame(JSON.stringify({ type: "agent_text", text: I18n.tr("Rashin is off · switch it on in Ryoku Hub") }));
             root._frame(JSON.stringify({ type: "turn_end" }));
             return;
         }
