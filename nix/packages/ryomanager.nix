@@ -29,7 +29,7 @@ pkgs.buildGoModule rec {
     pkgs.webkitgtk_4_1
   ];
 
-  tags = [ "production" "webkit2_41" ];
+  tags = [ "desktop" "production" "webkit2_41" ];
 
   overrideModAttrs = oldAttrs: {
     nativeBuildInputs = pkgs.lib.filter (drv: drv != pkgs.npmHooks.npmConfigHook) oldAttrs.nativeBuildInputs;
