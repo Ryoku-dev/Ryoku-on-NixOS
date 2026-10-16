@@ -380,6 +380,11 @@
           installer = ryokuInstall;
         };
 
+        ryoku-phone = import ./nix/tests/phone.nix {
+          inherit pkgs;
+          module = self.nixosModules.default;
+        };
+
         ryoku-display-manager = import ./nix/tests/display-manager.nix {
           inherit pkgs;
           module = self.nixosModules.default;

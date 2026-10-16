@@ -976,6 +976,7 @@ in
     (import ./gpu-passthrough.nix { inherit self; })
     ./release-identity.nix
     ./runtime-state-ownership.nix
+    (import ./phone.nix { inherit ryokuNixpkgs; })
   ];
 
   options.programs.ryoku = {

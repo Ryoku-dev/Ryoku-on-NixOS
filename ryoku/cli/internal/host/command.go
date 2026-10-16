@@ -40,6 +40,11 @@ Network:
   network kill <status|on|off>
   network wifi-backend get
   network wifi-backend set <iwd|wpa_supplicant>
+Phone:
+  phone status
+  phone enable|disable
+  phone plan-enable|plan-disable
+
 
 Packages (names use the Arch/Ryoku catalogue):
   pkg installed <name>...
@@ -145,6 +150,8 @@ func (a *App) Execute(args []string) int {
 		return a.Auth(args[1:])
 	case "network":
 		return a.Network(args[1:])
+	case "phone":
+		return a.Phone(args[1:])
 	default:
 		fmt.Fprint(a.cfg.Stderr, Usage)
 		return ExitUsage

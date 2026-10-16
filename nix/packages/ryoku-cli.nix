@@ -49,7 +49,12 @@ pkgs.stdenv.mkDerivation {
 
     install -Dm755 \
       ryoku-host \
-      "$out/bin/ryoku-host"
+      "$out/bin/.ryoku-host-wrapped"
+
+    makeWrapper \
+      "$out/bin/.ryoku-host-wrapped" \
+      "$out/bin/ryoku-host" \
+      --set RYOKU_HOST_PLATFORM nixos
 
     makeWrapper \
       "$out/bin/.ryoku-wrapped" \

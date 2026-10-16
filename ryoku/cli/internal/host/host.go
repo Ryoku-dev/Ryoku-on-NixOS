@@ -124,39 +124,43 @@ func (ExecRunner) Alive(pid int) bool {
 }
 
 type Config struct {
-	Runner            Runner
-	Stdin             io.Reader
-	Stdout            io.Writer
-	Stderr            io.Writer
-	Getenv            func(string) string
-	HTTPClient        *http.Client
-	FedoraReleasesURL string
-	SystemdRuntimeDir string
-	UserServiceDir    string
-	SystemServiceDir  string
-	SystemBootDir     string
-	SystemLiveDir     string
-	ServiceManifest   string
-	SystemdSystemDir  string
-	SystemdUserDir    string
-	ServiceStateDir   string
-	TurnstileEnvDir   string
-	RuntimeDir        string
-	PackageTable      string
-	ZoneinfoDir       string
-	LocaltimePath     string
-	RCConfPath        string
-	InitLibDir        string
-	PacmanConf        string
-	PacmanSyncDir     string
-	PacmanLog         string
-	XBPSConfigDir     string
-	XBPSShippedConfig string
-	SnapperRootConfig string
-	PAMDir            string
-	PAMModulePaths    []string
-	UIDSet            bool
-	UID               int
+	Runner               Runner
+	Stdin                io.Reader
+	Stdout               io.Writer
+	Stderr               io.Writer
+	Getenv               func(string) string
+	HTTPClient           *http.Client
+	FedoraReleasesURL    string
+	SystemdRuntimeDir    string
+	UserServiceDir       string
+	SystemServiceDir     string
+	SystemBootDir        string
+	SystemLiveDir        string
+	ServiceManifest      string
+	SystemdSystemDir     string
+	SystemdUserDir       string
+	ServiceStateDir      string
+	TurnstileEnvDir      string
+	RuntimeDir           string
+	PackageTable         string
+	ZoneinfoDir          string
+	LocaltimePath        string
+	RCConfPath           string
+	InitLibDir           string
+	PacmanConf           string
+	PacmanSyncDir        string
+	PacmanLog            string
+	XBPSConfigDir        string
+	XBPSShippedConfig    string
+	SnapperRootConfig    string
+	PAMDir               string
+	PAMModulePaths       []string
+	UIDSet               bool
+	UID                  int
+	PhoneModulesLoadPath string
+	PhoneModprobePath    string
+	PhoneStatePath       string
+	PhoneCoprDir         string
 }
 
 type App struct {
@@ -250,6 +254,18 @@ func New(cfg Config) *App {
 			"/usr/lib/security/pam_fprintd_grosshack.so",
 			"/usr/lib64/security/pam_fprintd_grosshack.so",
 		}
+	}
+	if cfg.PhoneModulesLoadPath == "" {
+		cfg.PhoneModulesLoadPath = "/etc/modules-load.d/phone-v4l2loopback.conf"
+	}
+	if cfg.PhoneModprobePath == "" {
+		cfg.PhoneModprobePath = "/etc/modprobe.d/phone-v4l2loopback.conf"
+	}
+	if cfg.PhoneStatePath == "" {
+		cfg.PhoneStatePath = "/var/lib/ryoku/phone-packages"
+	}
+	if cfg.PhoneCoprDir == "" {
+		cfg.PhoneCoprDir = "/etc/yum.repos.d"
 	}
 	if !cfg.UIDSet && cfg.UID == 0 {
 		cfg.UID = os.Geteuid()
