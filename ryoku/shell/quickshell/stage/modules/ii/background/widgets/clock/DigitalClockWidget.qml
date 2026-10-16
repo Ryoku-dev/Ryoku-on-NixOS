@@ -35,6 +35,11 @@ AbstractBackgroundWidget {
         return Text.AlignHCenter;
     }
 
+    StyledDropShadow {
+        target: contentColumn
+        visible: Config.options.background.widgets.enableShadows ?? false
+    }
+
     Column {
         id: contentColumn
         anchors.centerIn: parent

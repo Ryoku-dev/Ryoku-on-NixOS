@@ -141,6 +141,41 @@ ContentPage {
                 }
             }
 
+            ContentSubsection {
+                title: Translation.tr("Second hand")
+                icon: "timer"
+                Layout.fillWidth: true
+
+                ConfigSelectionArray {
+                    currentValue: Config.options.background.widgets.clock_dial.secondHandStyle ?? "dot"
+                    onSelected: newValue => {
+                        Config.options.background.widgets.clock_dial.secondHandStyle = newValue;
+                    }
+                    options: [
+                        {
+                            displayName: Translation.tr("Dot"),
+                            icon: "circle",
+                            value: "dot"
+                        },
+                        {
+                            displayName: Translation.tr("Line"),
+                            icon: "remove",
+                            value: "line"
+                        },
+                        {
+                            displayName: Translation.tr("Classic"),
+                            icon: "format_list_bulleted",
+                            value: "classic"
+                        },
+                        {
+                            displayName: Translation.tr("Hide"),
+                            icon: "do_not_disturb",
+                            value: "hide"
+                        }
+                    ]
+                }
+            }
+
             Item { Layout.preferredHeight: 4 }
 
             // ── Other Hands ──

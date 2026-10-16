@@ -42,7 +42,7 @@ AbstractBackgroundWidget {
     // Smartwatch dials are always dark, so text and ticks must always be light/white for readability
     readonly property color activeTextColor: "#FFFFFF"
     readonly property color activeSubtextColor: "#A0A0A0"
-    readonly property color activeAccentColor: Appearance.colors.colPrimary
+    readonly property color activeAccentColor: WidgetColorScheme.colors.colPrimary
     readonly property real r_inner: (implicitWidth * 0.96) * 0.37
 
     // Clock state properties
@@ -85,7 +85,7 @@ AbstractBackgroundWidget {
         id: bezelRing
         anchors.fill: parent
         radius: width / 2
-        color: WidgetColorScheme.tintBackground(Appearance.m3colors.m3shadow)
+        color: WidgetColorScheme.tintBackground(WidgetColorScheme.m3colors.m3shadow)
         clip: true
         opacity: root.cfgShowBezel ? 1.0 : 0.0
 
@@ -101,7 +101,7 @@ AbstractBackgroundWidget {
             anchors.fill: parent
             anchors.margins: parent.width * 0.02
             radius: width / 2
-            color: WidgetColorScheme.tintBackground(Appearance.m3colors.m3shadow)
+            color: WidgetColorScheme.tintBackground(WidgetColorScheme.m3colors.m3shadow)
             clip: true
 
             // Dial Canvas for rendering clock ticks and numbers
@@ -311,7 +311,7 @@ AbstractBackgroundWidget {
                             width: parent.isHighlighted ? 1.6 : (index % 2 === 0 ? 1.0 : 1.2)
                             height: parent.isHighlighted ? 4.0 : (index % 2 === 0 ? 3.0 : 1.2)
                             radius: (index % 2 === 0) ? 0 : width / 2
-                            color: parent.isHighlighted ? Appearance.colors.colPrimary : ColorUtils.applyAlpha(root.activeTextColor, 0.20)
+                            color: parent.isHighlighted ? WidgetColorScheme.colors.colPrimary : ColorUtils.applyAlpha(root.activeTextColor, 0.20)
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.top: parent.top
                         }
@@ -354,7 +354,7 @@ AbstractBackgroundWidget {
                 height: parent.width * 0.10
                 radius: height / 2
                 color: "transparent"
-                border.color: Appearance.colors.colPrimaryContainer
+                border.color: WidgetColorScheme.colors.colPrimaryContainer
                 border.width: 1
                 x: parent.width * 0.20
                 y: parent.height * 0.36
@@ -365,7 +365,7 @@ AbstractBackgroundWidget {
                     anchors.fill: parent
                     anchors.margins: 3.5
                     radius: height / 2
-                    color: Appearance.colors.colPrimaryContainer
+                    color: WidgetColorScheme.colors.colPrimaryContainer
 
                     StyledText {
                         text: {
@@ -373,7 +373,7 @@ AbstractBackgroundWidget {
                             var mStr = root.minute < 10 ? "0" + root.minute : "" + root.minute;
                             return hStr + ":" + mStr;
                         }
-                        color: Appearance.colors.colOnPrimaryContainer
+                        color: WidgetColorScheme.colors.colOnPrimaryContainer
                         font.pixelSize: parent.height * 0.65
                         font.weight: Font.Bold
                         anchors.centerIn: parent
@@ -392,11 +392,11 @@ AbstractBackgroundWidget {
                 gradient: Gradient {
                     GradientStop {
                         position: 0.0
-                        color: Appearance.m3colors.m3shadow
+                        color: WidgetColorScheme.m3colors.m3shadow
                     }
                     GradientStop {
                         position: 0.5
-                        color: Appearance.m3colors.m3shadow
+                        color: WidgetColorScheme.m3colors.m3shadow
                     }
                     GradientStop {
                         position: 1.0
@@ -412,7 +412,7 @@ AbstractBackgroundWidget {
                 width: parent.width * 0.14
                 height: parent.width * 0.08
                 radius: height / 2
-                color: Appearance.m3colors.m3shadow
+                color: WidgetColorScheme.m3colors.m3shadow
                 border.color: root.activeAccentColor
                 border.width: 1
                 anchors.right: parent.right
@@ -502,7 +502,7 @@ AbstractBackgroundWidget {
                         width: parent.width * 0.08
                         height: parent.height * 0.35
                         radius: width / 2
-                        color: Appearance.m3colors.m3shadow
+                        color: WidgetColorScheme.m3colors.m3shadow
                         border.color: root.activeTextColor
                         border.width: 1.5
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -523,11 +523,11 @@ AbstractBackgroundWidget {
                 gradient: Gradient {
                     GradientStop {
                         position: 0.0
-                        color: Appearance.m3colors.m3shadow
+                        color: WidgetColorScheme.m3colors.m3shadow
                     }
                     GradientStop {
                         position: 0.5
-                        color: Appearance.m3colors.m3shadow
+                        color: WidgetColorScheme.m3colors.m3shadow
                     }
                     GradientStop {
                         position: 1.0
@@ -564,7 +564,7 @@ AbstractBackgroundWidget {
                 width: 38
                 height: 38
                 radius: width / 2
-                color: KdeConnectService.activeReachable ? Appearance.colors.colSecondaryContainer : ColorUtils.applyAlpha(Appearance.colors.colSecondaryContainer, 0.4)
+                color: KdeConnectService.activeReachable ? WidgetColorScheme.colors.colSecondaryContainer : ColorUtils.applyAlpha(WidgetColorScheme.colors.colSecondaryContainer, 0.4)
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.horizontalCenterOffset: 38
                 y: parent.height * 0.38
@@ -574,7 +574,7 @@ AbstractBackgroundWidget {
                     text: KdeConnectService.activeReachable ? "mobile" : "mobile_off"
                     fill: 1
                     iconSize: 22
-                    color: KdeConnectService.activeReachable ? Appearance.colors.colOnSecondaryContainer : Appearance.colors.colSecondaryOnContainer
+                    color: KdeConnectService.activeReachable ? WidgetColorScheme.colors.colOnSecondaryContainer : WidgetColorScheme.colors.colSecondaryOnContainer
                     anchors.centerIn: parent
                 }
             }
@@ -594,7 +594,7 @@ AbstractBackgroundWidget {
                     width: 32
                     height: 14
                     radius: Appearance.rounding.full
-                    color: Appearance.colors.colPrimaryContainer
+                    color: WidgetColorScheme.colors.colPrimaryContainer
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     StyledText {
@@ -602,7 +602,7 @@ AbstractBackgroundWidget {
                             const days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
                             return days[root.currentTime.getDay()];
                         }
-                        color: Appearance.colors.colOnPrimaryContainer
+                        color: WidgetColorScheme.colors.colOnPrimaryContainer
                         font.pixelSize: 8
                         font.weight: Font.DemiBold
                         anchors.centerIn: parent
@@ -614,12 +614,12 @@ AbstractBackgroundWidget {
                     width: 32
                     height: 18
                     radius: 4
-                    color: Appearance.colors.colPrimary
+                    color: WidgetColorScheme.colors.colPrimary
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     StyledText {
                         text: root.date
-                        color: Appearance.colors.colOnPrimary
+                        color: WidgetColorScheme.colors.colOnPrimary
                         font.pixelSize: 13
                         font.weight: Font.Bold
                         anchors.centerIn: parent
@@ -643,7 +643,7 @@ AbstractBackgroundWidget {
                         width: parent.width * 0.047
                         height: parent.height * 0.30
                         radius: width / 2
-                        color: ColorUtils.applyAlpha(Appearance.m3colors.m3shadow, 0.25)
+                        color: ColorUtils.applyAlpha(WidgetColorScheme.m3colors.m3shadow, 0.25)
                         border.color: root.activeAccentColor
                         border.width: 3
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -657,7 +657,7 @@ AbstractBackgroundWidget {
                     width: parent.width * 0.05
                     height: width
                     radius: width / 2
-                    color: Appearance.m3colors.m3shadow
+                    color: WidgetColorScheme.m3colors.m3shadow
                     border.color: root.activeSubtextColor
                     border.width: 2.5
                     anchors.centerIn: parent

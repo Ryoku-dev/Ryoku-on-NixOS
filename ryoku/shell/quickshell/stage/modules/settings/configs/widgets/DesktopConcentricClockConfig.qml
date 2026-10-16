@@ -213,7 +213,7 @@ ContentPage {
             ConfigSwitch {
                 buttonIcon: "more_time"
                 text: Translation.tr("24-Hour Format")
-                checked: Config.options.background.widgets.concentric_clock.use24h ?? false
+                checked: Config.options.background.widgets.concentric_clock.use24h ?? true
                 onCheckedChanged: {
                     Config.options.background.widgets.concentric_clock.use24h = checked;
                 }
@@ -394,7 +394,7 @@ ContentPage {
             ConfigSwitch {
                 buttonIcon: "fiber_manual_record"
                 text: Translation.tr("Show Minute Dot on Ring")
-                checked: Config.options.background.widgets.concentric_clock.showMinuteDot ?? true
+                checked: Config.options.background.widgets.concentric_clock.showMinuteDot ?? false
                 onCheckedChanged: {
                     Config.options.background.widgets.concentric_clock.showMinuteDot = checked;
                 }
@@ -412,7 +412,7 @@ ContentPage {
             ConfigSwitch {
                 buttonIcon: "rotate_right"
                 text: Translation.tr("Show 24h Progress Arc")
-                checked: Config.options.background.widgets.concentric_clock.showArc24h ?? true
+                checked: Config.options.background.widgets.concentric_clock.showArc24h ?? false
                 onCheckedChanged: {
                     Config.options.background.widgets.concentric_clock.showArc24h = checked;
                 }
@@ -421,7 +421,7 @@ ContentPage {
             ConfigSwitch {
                 buttonIcon: "watch"
                 text: Translation.tr("Show Hour Sub-Dial (7:30)")
-                checked: Config.options.background.widgets.concentric_clock.showHourSubDial ?? true
+                checked: Config.options.background.widgets.concentric_clock.showHourSubDial ?? false
                 onCheckedChanged: {
                     Config.options.background.widgets.concentric_clock.showHourSubDial = checked;
                 }
@@ -430,7 +430,7 @@ ContentPage {
             ConfigSwitch {
                 buttonIcon: "wb_sunny"
                 text: Translation.tr("Show Sunset Sub-Dial (Top)")
-                checked: Config.options.background.widgets.concentric_clock.showSunsetDial ?? true
+                checked: Config.options.background.widgets.concentric_clock.showSunsetDial ?? false
                 onCheckedChanged: {
                     Config.options.background.widgets.concentric_clock.showSunsetDial = checked;
                 }
@@ -442,7 +442,7 @@ ContentPage {
                 Layout.fillWidth: true
 
                 ConfigSelectionArray {
-                    currentValue: Config.options.background.widgets.concentric_clock.bottomSubDialContent ?? "battery"
+                    currentValue: Config.options.background.widgets.concentric_clock.bottomSubDialContent ?? "weather_temp"
                     onSelected: newValue => {
                         Config.options.background.widgets.concentric_clock.bottomSubDialContent = newValue;
                     }
@@ -478,7 +478,7 @@ ContentPage {
             ConfigSlider {
                 buttonIcon: "horizontal_distribute"
                 text: Translation.tr("Minute Pill Position X (%)")
-                value: Config.options.background.widgets.concentric_clock.minutePillLeftMargin ?? 58
+                value: Config.options.background.widgets.concentric_clock.minutePillLeftMargin ?? 67
                 from: 20
                 to: 90
                 stepSize: 1
@@ -490,7 +490,7 @@ ContentPage {
             ConfigSlider {
                 buttonIcon: "open_in_full"
                 text: Translation.tr("Sub-Dials Margin Offset (%)")
-                value: Config.options.background.widgets.concentric_clock.subdialMarginOffset ?? 0
+                value: Config.options.background.widgets.concentric_clock.subdialMarginOffset ?? 5
                 from: -10
                 to: 20
                 stepSize: 1
@@ -502,7 +502,7 @@ ContentPage {
             ConfigSlider {
                 buttonIcon: "adjust"
                 text: Translation.tr("Dial Rings Margin Offset (%)")
-                value: Config.options.background.widgets.concentric_clock.dialMarginOffset ?? 0
+                value: Config.options.background.widgets.concentric_clock.dialMarginOffset ?? 3
                 from: -10
                 to: 20
                 stepSize: 1
@@ -523,7 +523,7 @@ ContentPage {
             ConfigSlider {
                 buttonIcon: "format_size"
                 text: Translation.tr("Hour Font Size (% of base)")
-                value: Config.options.background.widgets.concentric_clock.hourPixelSize ?? 36
+                value: Config.options.background.widgets.concentric_clock.hourPixelSize ?? 30
                 from: 10
                 to: 80
                 stepSize: 1
@@ -535,7 +535,7 @@ ContentPage {
             ConfigSlider {
                 buttonIcon: "line_weight"
                 text: Translation.tr("Hour Font Weight")
-                value: Config.options.background.widgets.concentric_clock.hourFontWeight ?? 700
+                value: Config.options.background.widgets.concentric_clock.hourFontWeight ?? 600
                 from: 100
                 to: 900
                 stepSize: 100
@@ -547,7 +547,7 @@ ContentPage {
             ConfigSlider {
                 buttonIcon: "swap_horiz"
                 text: Translation.tr("Hour Font Variable Width (wdth)")
-                value: Config.options.background.widgets.concentric_clock.hourFontWidth ?? 100
+                value: Config.options.background.widgets.concentric_clock.hourFontWidth ?? 85
                 from: 50
                 to: 150
                 stepSize: 5
@@ -559,7 +559,7 @@ ContentPage {
             ConfigSlider {
                 buttonIcon: "rounded_corner"
                 text: Translation.tr("Hour Font Variable Roundness (ROND)")
-                value: Config.options.background.widgets.concentric_clock.hourFontRound ?? 0
+                value: Config.options.background.widgets.concentric_clock.hourFontRound ?? 100
                 from: 0
                 to: 100
                 stepSize: 5

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import Qt5Compat.GraphicalEffects
+import Ryoku.Ui.Singletons
 import stage
 import stage.services
 import stage.modules.common
@@ -23,76 +24,46 @@ AbstractBackgroundWidget {
     readonly property color onAccentColor: WidgetColorScheme.onAccentColor
     readonly property color innerShapeColor: WidgetColorScheme.innerShapeColor
 
-    // Sidebar Policies tabs (same order as SidebarPoliciesContent.qml)
-    // `Ai.enabled` is a Config mirror read, not a property of the Ai
-    // singleton: touching `Ai` here would construct the whole AI graph
-    // (toolbox, integrations, model catalog) every time this widget is
-    // placed, for what is one policy boolean.
-    readonly property var policiesTabs: [
-        { "name": "Intelligence", "enabled": SearchPanelRegistry.aiPolicyEnabled },
-        { "name": "Translator", "enabled": Config.options.policies.translator !== 0 },
-        { "name": "Media", "enabled": Config.options.policies.player !== 0 },
-        { "name": "Wallpapers", "enabled": Config.options.policies.wallpapers !== 0 },
-        { "name": "Anime", "enabled": Config.options.policies.weeb !== 0 && Config.options.policies.weeb !== 2 },
-        { "name": "Phone", "enabled": Config.options.policies.phone !== 0 }
-    ]
-    readonly property var activePoliciesTabs: policiesTabs.filter(t => t.enabled)
-
-    function findActiveTabIndex(tabName) {
-        for (let i = 0; i < activePoliciesTabs.length; i++) {
-            if (activePoliciesTabs[i].name === tabName) return i;
-        }
-        return 0;
-    }
-
-    function openPoliciesTab(tabName) {
-        GlobalStates.policiesPanelOpen = true;
-        Persistent.states.sidebar.policies.tab = findActiveTabIndex(tabName);
-    }
-
     // Module definitions for configurable bottom buttons
     readonly property var moduleMap: ({
         "translator": {
             "icon": "translate",
             "label": Translation.tr("Translator"),
-            "action": function() { root.openPoliciesTab("Translator"); }
+            "action": function() { Spawn.run(["ryoku-shell", "quicksettings"]); }
         },
         "phone": {
             "icon": "smartphone",
             "label": Translation.tr("Phone"),
-            "action": function() { root.openPoliciesTab("Phone"); }
+            "action": function() { Spawn.run(["ryoku-kit", "phone"]); }
         },
         "wallpapers": {
             "icon": "wallpaper",
             "label": Translation.tr("Wallpapers"),
-            "action": function() { root.openPoliciesTab("Wallpapers"); }
+            "action": function() { Spawn.run(["ryogami", "wallpaper", "ui"]); }
         },
         "media": {
             "icon": "play_circle",
             "label": Translation.tr("Media"),
-            "action": function() { root.openPoliciesTab("Media"); }
+            "action": function() { Spawn.run(["ryoku-shell", "quicksettings"]); }
         },
         "sidebar_dashboard": {
             "icon": "dashboard",
             "label": Translation.tr("Dashboard"),
-            "action": function() { GlobalStates.dashboardPanelOpen = true; }
+            "action": function() { Spawn.run(["ryoku-shell", "quicksettings"]); }
         },
         "cheatsheet": {
-            "icon": "keyboard",
-            "label": Translation.tr("Cheatsheet"),
-            "action": function() { GlobalStates.cheatsheetOpen = true; }
-        },
-        "notes": {
-            "icon": "sticky_note_2",
-            "label": Translation.tr("Notes"),
-            "action": function() { GlobalStates.notesOpen = true; }
+            "icon": "apps",
+            "label": Translation.tr("Kit"),
+            "action": function() { Spawn.run(["ryoku-kit"]); }
         }
     })
 
-    readonly property string button1Module: Config.options.background.widgets.quick_actions.bottomButton1 || "translator"
-    readonly property string button2Module: Config.options.background.widgets.quick_actions.bottomButton2 || "phone"
-    readonly property var button1Def: moduleMap[button1Module] || moduleMap["translator"]
-    readonly property var button2Def: moduleMap[button2Module] || moduleMap["phone"]
+    readonly property string configuredButton1: Config.options.background.widgets.quick_actions.bottomButton1 || "translator"
+    readonly property string configuredButton2: Config.options.background.widgets.quick_actions.bottomButton2 || "phone"
+    readonly property string button1Module: moduleMap[configuredButton1] ? configuredButton1 : "translator"
+    readonly property string button2Module: moduleMap[configuredButton2] ? configuredButton2 : "phone"
+    readonly property var button1Def: moduleMap[button1Module]
+    readonly property var button2Def: moduleMap[button2Module]
 
     function triggerModule(moduleId) {
         const def = moduleMap[moduleId];
@@ -146,7 +117,7 @@ AbstractBackgroundWidget {
                 anchors.margins: 16
                 spacing: 16
 
-                // Top: Gemini / AI button (pill shape, accent color)
+                // Top: AI button (pill shape, accent color)
                 RippleButton {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 64
@@ -168,14 +139,14 @@ AbstractBackgroundWidget {
                         }
 
                         StyledText {
-                            text: Translation.tr("Gemini")
+                            text: Translation.tr("Rashin")
                             font.pixelSize: Appearance.font.pixelSize.large
                             font.weight: Font.Medium
                             color: root.onAccentColor
                         }
                     }
 
-                    onClicked: root.openPoliciesTab("Intelligence")
+                    onClicked: Spawn.run(["ryoku-shell", "ask", "chat"])
                 }
 
                 // Bottom row: two configurable action buttons

@@ -430,7 +430,7 @@ Singleton {
         // is going to show it.
         if (!Config.options.time.alarms.useFullscreenPopup && !GlobalStates.islandOwnsAlarm) {
             let labelStr = alarm.label ? alarm.label : Translation.tr("Alarm");
-            Quickshell.execDetached(["notify-send", labelStr, alarm.time, "-a", "Alarm", "-i", "alarm", "--urgency=critical", "--hint=boolean:suppress-sound:true"]);
+            Quickshell.execDetached(["notify-send", labelStr, alarm.time, "-a", Translation.tr("Alarm"), "-i", "alarm", "--urgency=critical", "--hint=boolean:suppress-sound:true"]);
         }
 
         GlobalStates.alarmRinging = true;
@@ -542,7 +542,7 @@ Singleton {
         Persistent.states.alarmState.missed = list;
         const label = String(alarm.label ?? "").length > 0 ? alarm.label : Translation.tr("Alarm");
         Quickshell.execDetached(["notify-send", Translation.tr("Missed alarm at %1").arg(Qt.formatTime(at, "HH:mm")), label,
-            "-a", "Alarm", "-i", "appointment-missed", "--urgency=normal"]);
+            "-a", Translation.tr("Alarm"), "-i", "appointment-missed", "--urgency=normal"]);
         root.alarmMissed(alarm, at);
     }
 

@@ -3,7 +3,6 @@ import QtQuick.Layouts
 import stage.services
 import stage.modules.common
 import stage.modules.common.widgets
-import stage.modules.settings.configs.widgets
 
 ContentPage {
     id: root
@@ -79,7 +78,7 @@ ContentPage {
                 ConfigSwitch {
                     buttonIcon: "color_lens"
                     text: Translation.tr("Use album colors")
-                    checked: Config.options.background.widgets.media.useAlbumColors
+                    checked: Config.options.background.widgets.media.useAlbumColors ?? true
                     onCheckedChanged: {
                         Config.options.background.widgets.media.useAlbumColors = checked;
                     }
@@ -88,7 +87,7 @@ ContentPage {
                 ConfigSwitch {
                     buttonIcon: "brush"
                     text: Translation.tr("Tint art cover")
-                    checked: Config.options.background.widgets.media.tintArtCover
+                    checked: Config.options.background.widgets.media.tintArtCover ?? false
                     onCheckedChanged: {
                         Config.options.background.widgets.media.tintArtCover = checked;
                     }
@@ -97,17 +96,17 @@ ContentPage {
                 ConfigSwitch {
                     buttonIcon: "visibility_off"
                     text: Translation.tr("Hide all controls")
-                    checked: Config.options.background.widgets.media.hideAllButtons
+                    checked: Config.options.background.widgets.media.hideAllButtons ?? false
                     onCheckedChanged: {
                         Config.options.background.widgets.media.hideAllButtons = checked;
                     }
                 }
 
                 ConfigSwitch {
-                    enabled: !Config.options.background.widgets.media.hideAllButtons
+                    enabled: !(Config.options.background.widgets.media.hideAllButtons ?? false)
                     buttonIcon: "skip_previous"
                     text: Translation.tr("Show previous toggle")
-                    checked: Config.options.background.widgets.media.showPreviousToggle
+                    checked: Config.options.background.widgets.media.showPreviousToggle ?? true
                     onCheckedChanged: {
                         Config.options.background.widgets.media.showPreviousToggle = checked;
                     }
@@ -124,7 +123,7 @@ ContentPage {
                     ConfigSelectionArray {
                         readonly property var legacyShapes: ({ "circle": "Circle", "square": "Square", "cookie": "Cookie9Sided" })
                         currentValue: {
-                            const raw = Config.options.background.widgets.media.backgroundShape;
+                            const raw = Config.options.background.widgets.media.backgroundShape ?? "Cookie12Sided";
                             return legacyShapes[raw] ?? raw;
                         }
                         onSelected: newValue => {
@@ -240,13 +239,16 @@ ContentPage {
                 Layout.preferredHeight: 16
             }
 
-            // Visual Options (Shadows)
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 4
+            ContentSubsectionLabel {
+                text: Translation.tr("Visual Options")
+            }
 
-                DesktopWidgetVisualOptions {
-                    Layout.fillWidth: true
+            ConfigSwitch {
+                buttonIcon: "wb_sunny"
+                text: Translation.tr("Enable Shadows")
+                checked: Config.options.background.widgets.media.enableShadows ?? true
+                onCheckedChanged: {
+                    Config.options.background.widgets.media.enableShadows = checked;
                 }
             }
         }

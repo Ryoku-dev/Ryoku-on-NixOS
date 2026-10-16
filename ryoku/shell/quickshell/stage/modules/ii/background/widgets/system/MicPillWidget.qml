@@ -5,12 +5,13 @@ import stage.modules.common
 import stage.modules.common.widgets
 import stage.modules.ii.background.widgets
 import stage.services
+import shell.services as ShellServices
 AbstractBackgroundWidget {
     id: root
 
     property bool wallpaperSafetyTriggered: false
     // State from Audio service
-    readonly property bool isMuted: (Audio.source && Audio.source.audio) ? Audio.source.audio.muted : false
+    readonly property bool isMuted: (ShellServices.Audio.source && ShellServices.Audio.source.audio) ? ShellServices.Audio.source.audio.muted : false
     readonly property bool isActive: root.isMuted
     readonly property color pillBgColor: isActive ? WidgetColorScheme.accentColor : WidgetColorScheme.cardBgColor
     readonly property color contentColor: isActive ? WidgetColorScheme.onAccentColor : WidgetColorScheme.textColorOnBg
@@ -51,7 +52,8 @@ AbstractBackgroundWidget {
             colBackgroundHover: Qt.rgba(root.contentColor.r, root.contentColor.g, root.contentColor.b, 0.15)
             colRipple: Qt.rgba(root.contentColor.r, root.contentColor.g, root.contentColor.b, 0.3)
             onClicked: {
-                Audio.toggleMicMute();
+                if (ShellServices.Audio.source?.audio)
+                    ShellServices.Audio.source.audio.muted = !ShellServices.Audio.source.audio.muted;
             }
 
             MaterialSymbol {

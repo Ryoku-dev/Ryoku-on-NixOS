@@ -16,7 +16,9 @@ ColumnLayout {
     property var host: null
     readonly property var tile: panel.host?.tile ?? null
     readonly property var colors: panel.tile?.colors ?? []
-    property string chosen: panel.colors.length > 0 ? panel.colors[0] : ""
+    property string selected: ""
+    readonly property string chosen: panel.colors.includes(panel.selected)
+        ? panel.selected : (panel.colors[0] ?? "")
 
     readonly property color chosenColor: panel.chosen !== "" ? panel.chosen : "transparent"
     readonly property var formats: {
@@ -134,7 +136,7 @@ ColumnLayout {
                 colBackground: swatch.modelData
                 colBackgroundHover: swatch.modelData
                 colRipple: ColorUtils.applyAlpha("#ffffff", 0.3)
-                onClicked: panel.chosen = swatch.modelData
+                onClicked: panel.selected = swatch.modelData
                 StyledToolTip {
                     text: swatch.modelData
                 }

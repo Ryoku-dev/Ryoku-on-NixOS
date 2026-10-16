@@ -15,8 +15,13 @@ Singleton {
     readonly property bool ready: Phone.KdeConnectService.ready
     readonly property bool activeReachable: Phone.KdeConnectService.activeReachable
     readonly property bool scrcpyAvailable: Phone.KdeConnectService.scrcpyAvailable
+    readonly property bool mirrorAvailable: Phone.PhoneScrcpyService.available || Phone.KdeConnectService.scrcpyAvailable
+    readonly property bool mirrorRunning: Phone.PhoneScrcpyService.mirrorRunning || Phone.KdeConnectService.scrcpyRunning
+    readonly property bool mirrorLaunching: Phone.PhoneScrcpyService.mirrorLaunching || Phone.KdeConnectService.scrcpyLaunching
+    readonly property bool adbReachable: Phone.KdeConnectService.adbReachable
     readonly property int notificationCount: Phone.KdeConnectService.notificationCount
     readonly property string activeDeviceId: Phone.KdeConnectService.activeDeviceId
+    readonly property string activeDeviceDisplayName: Phone.KdeConnectService.activeDeviceDisplayName
     readonly property var activeDevice: Phone.KdeConnectService.activeDevice
     readonly property var devices: Phone.KdeConnectService.devices
 
@@ -38,5 +43,30 @@ Singleton {
 
     function shareUrl(url, devId) {
         Phone.KdeConnectService.shareUrl(url, devId)
+    }
+
+    function sendFile(paths, devId) {
+        Phone.KdeConnectService.sendFile(paths, devId)
+    }
+
+    function sendClipboard(text, devId) {
+        Phone.KdeConnectService.sendClipboard(text, devId)
+    }
+
+    function findMyPhone(devId) {
+        Phone.KdeConnectService.findMyPhone(devId)
+    }
+
+    function focusMirror() {
+        Phone.PhoneScrcpyService.focusMirror()
+        Phone.KdeConnectService.focusScrcpyWindow()
+    }
+
+    function openMirrorWindow() {
+        Phone.PhoneScrcpyService.openMirrorWindow()
+    }
+
+    function stopMirroring() {
+        Phone.PhoneScrcpyService.stopMirroring()
     }
 }

@@ -34,6 +34,7 @@ AbstractBackgroundWidget {
     readonly property real dateSpacing: opts?.dateSpacing ?? 0
     readonly property string clockVariant: opts?.clockFontVariant ?? "bold"
     readonly property string dateVariant: opts?.dateFontVariant ?? "medium"
+    readonly property string timeFormat: opts?.timeFormat ?? "system"
 
     // ── SF Pro font variants ──────────────────────────────────────────────────
     // Every file in the folder registers the SAME family name ("SF Pro Display"),
@@ -70,9 +71,16 @@ AbstractBackgroundWidget {
     readonly property string clockFamily: clockLoader.status === FontLoader.Ready && clockLoader.name ? clockLoader.name : Appearance.font.family.main
     readonly property string dateFamily: dateLoader.status === FontLoader.Ready && dateLoader.name ? dateLoader.name : Appearance.font.family.main
 
-    // ── Time & date (respect the user's shell-wide format flags) ─────────────
-    readonly property bool use12h: DateTime.use12HourClock
-    readonly property string timeString: DateTime.hours + ":" + DateTime.minutes
+    // ── Time & date ──────────────────────────────────────────────────────────
+    readonly property bool use12h: timeFormat === "12h"
+        || (timeFormat === "system" && DateTime.use12HourClock)
+    readonly property string displayHour: {
+        if (timeFormat === "system")
+            return DateTime.hours;
+        const rawHour = DateTime.clock.hours;
+        return use12h ? (rawHour % 12 || 12).toString() : rawHour.toString().padStart(2, "0");
+    }
+    readonly property string timeString: displayHour + ":" + DateTime.minutes
     readonly property string meridiemString: use12h ? DateTime.meridiem : ""
     readonly property string dateString: DateTime.longDate
 
@@ -114,6 +122,7 @@ AbstractBackgroundWidget {
 
     // ── Content ───────────────────────────────────────────────────────────────
     Column {
+        id: content
         anchors.centerIn: parent
         spacing: root.dateSpacing
 
@@ -170,8 +179,12 @@ AbstractBackgroundWidget {
         }
     }
 
+    // The time sits inside the centred column, so the shadow takes its place
+    // in this item's coordinates rather than the column's.
     StyledDropShadow {
         target: clockRow
+        x: content.x + clockRow.x
+        y: content.y + clockRow.y
         visible: Config.options.background.widgets.enableShadows ?? false
     }
 }

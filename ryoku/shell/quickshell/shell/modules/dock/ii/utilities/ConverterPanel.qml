@@ -91,6 +91,7 @@ ColumnLayout {
                 colRipple: segment.chosen ? ClockStyle.colPrimaryActive : ClockStyle.colSurfaceActive
                 onClicked: panel.tile?.setCategory(segment.modelData.id)
                 Behavior on Layout.preferredWidth {
+                    enabled: panel.host?.panelOpen === true && !Appearance.reducedMotion
                     animation: ClockStyle.motionDefault.numberAnimation.createObject(this)
                 }
                 contentItem: Item {
@@ -136,6 +137,7 @@ ColumnLayout {
         radius: ClockStyle.radiusLarge
         color: input.activeFocus ? ClockStyle.colPrimaryContainer : ClockStyle.colField
         Behavior on color {
+            enabled: panel.host?.panelOpen === true && !Appearance.reducedMotion
             animation: ClockStyle.motionFast.colorAnimation.createObject(this)
         }
 

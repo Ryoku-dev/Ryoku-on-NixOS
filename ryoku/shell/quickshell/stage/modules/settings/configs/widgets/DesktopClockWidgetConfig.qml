@@ -101,43 +101,13 @@ ContentPage {
 
                 ConfigSwitch {
                     buttonIcon: "auto_awesome"
-                    text: Translation.tr("Auto style the cookie clock preset")
+                    text: Translation.tr("Automatically match wallpaper style")
                     checked: Config.options.background.widgets.clock_cookie.aiStyling
                     onCheckedChanged: {
                         Config.options.background.widgets.clock_cookie.aiStyling = checked;
                     }
                 }
 
-                ContentSubsection {
-                    visible: Config.options.background.widgets.clock_cookie.aiStyling
-                    title: Translation.tr("AI model")
-                    icon: "psychology"
-                    Layout.fillWidth: true
-
-                    ConfigSelectionArray {
-                        currentValue: Config.options.background.widgets.clock_cookie.aiStylingModel
-                        onSelected: newValue => {
-                            Config.options.background.widgets.clock_cookie.aiStylingModel = newValue;
-                        }
-                        options: [
-                            {
-                                displayName: Translation.tr("Gemini"),
-                                icon: "smart_toy",
-                                value: "gemini"
-                            },
-                            {
-                                displayName: Translation.tr("ChatGPT"),
-                                icon: "smart_toy",
-                                value: "chatgpt"
-                            },
-                            {
-                                displayName: Translation.tr("Claude"),
-                                icon: "smart_toy",
-                                value: "claude"
-                            }
-                        ]
-                    }
-                }
 
                 ContentSubsection {
                     title: Translation.tr("Dial style")
@@ -377,6 +347,11 @@ ContentPage {
                                 value: "Square"
                             },
                             {
+                                displayName: Translation.tr("Arch"),
+                                icon: "architecture",
+                                value: "Arch"
+                            },
+                            {
                                 displayName: Translation.tr("Cookie"),
                                 icon: "cookie",
                                 value: "Cookie12Sided"
@@ -430,8 +405,16 @@ ContentPage {
                 spacing: 4
                 visible: Config.isWidgetActive("clock_cookie")
 
-                DesktopWidgetVisualOptions {
-                    Layout.fillWidth: true
+                ContentSubsectionLabel {
+                    text: Translation.tr("Visual Options")
+                }
+                ConfigSwitch {
+                    buttonIcon: "wb_sunny"
+                    text: Translation.tr("Enable Shadows")
+                    checked: Config.options.background.widgets.enableShadows ?? true
+                    onCheckedChanged: {
+                        Config.options.background.widgets.enableShadows = checked;
+                    }
                 }
             }
         }

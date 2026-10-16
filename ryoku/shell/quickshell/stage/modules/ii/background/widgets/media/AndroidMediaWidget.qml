@@ -10,6 +10,7 @@ import Ryoku.Ui.Singletons
 import Quickshell.Services.Mpris
 import stage
 import stage.services
+import shell.services as ShellServices
 import stage.modules.common
 import stage.modules.common.widgets
 import stage.modules.common.functions
@@ -26,7 +27,10 @@ AbstractBackgroundWidget {
     implicitHeight: contentItem.implicitHeight
 
     readonly property MprisPlayer player: MprisController.activePlayer
-    property bool showShadow: true
+    readonly property bool showShadow: Config.options.background.widgets.media.enableShadows ?? true
+    readonly property bool showLyrics: Config.options.background.widgets.media.showLyrics ?? true
+    readonly property bool showControls: Config.options.background.widgets.media.showControls ?? true
+    readonly property bool showDevicePill: Config.options.background.widgets.media.showDevicePill ?? true
     property list<real> visualizerPoints: []
 
     readonly property bool playing: player ? player.playbackState === MprisPlaybackState.Playing : false
@@ -37,20 +41,18 @@ AbstractBackgroundWidget {
     readonly property bool hasTrack: (player?.trackTitle ?? "").length > 0
 
     readonly property bool hasActiveWindows: {
-        const monName = Wm.focusedOutput ?? "";
-        var activeWsId = 0;
-        if (GlobalStates.screenLocked && GlobalStates.lockSavedWorkspaces?.[monName])
-            activeWsId = GlobalStates.lockSavedWorkspaces[monName];
-        else if (GlobalStates.editMode && GlobalStates.editModeMonitor === monName && GlobalStates._editSavedWorkspace > 0)
-            activeWsId = GlobalStates._editSavedWorkspace;
-        else {
-            activeWsId = HyprlandData.activeWorkspace ? HyprlandData.activeWorkspace.id : 1;
-            if (activeWsId > 1000000)
-                activeWsId = 2147483647 - activeWsId;
+        const output = root.monitorName || Wm.focusedOutput || "";
+        const workspaces = Wm.workspaces ?? [];
+        let active = null;
+        for (let i = 0; i < workspaces.length; i++) {
+            if (workspaces[i].active === true && (output === "" || workspaces[i].output === output)) {
+                active = workspaces[i];
+                break;
+            }
         }
-        if (!HyprlandData || !HyprlandData.windowList)
-            return false;
-        return HyprlandData.windowList.some(w => w.workspace && w.workspace.id === activeWsId);
+        if (!active)
+            active = Wm.focusedWorkspace;
+        return active ? Wm.windowsOnWorkspace(active.id).length > 0 : false;
     }
 
     readonly property string artCachePath: `${Directories.coverArt}/${Qt.md5(root.artUrl)}`
@@ -86,7 +88,7 @@ AbstractBackgroundWidget {
     property real titleYOffset: 0.0
 
 
-    readonly property bool useDynamicColors: Config.options.media.dynamicAlbumColors && root.artSource !== ""
+    readonly property bool useDynamicColors: (Config.options.background.widgets.media.dynamicAlbumColors ?? false) && root.artSource !== ""
 
     ColorQuantizer {
         id: colorQuantizer
@@ -96,9 +98,9 @@ AbstractBackgroundWidget {
     }
 
     property color artDominantColor: ColorUtils.mix(
-        (colorQuantizer?.colors[0] ?? Appearance.colors.colPrimary),
-        Appearance.colors.colPrimaryContainer, 0.8
-    ) || Appearance.m3colors.m3secondaryContainer
+        (colorQuantizer?.colors[0] ?? WidgetColorScheme.colors.colPrimary),
+        WidgetColorScheme.colors.colPrimaryContainer, 0.8
+    ) || WidgetColorScheme.m3colors.m3secondaryContainer
 
     property QtObject blendedColors: AdaptedMaterialScheme {
         color: root.artDominantColor
@@ -119,6 +121,8 @@ AbstractBackgroundWidget {
 
 
     readonly property string displaySongText: {
+        if (!root.showLyrics)
+            return root.trackTitle;
         if (LyricsService.hasSyncedLines && LyricsService.statusText !== "") {
             return LyricsService.statusText;
         }
@@ -307,6 +311,7 @@ AbstractBackgroundWidget {
 
                     RippleButton {
                         id: audioPill
+                        visible: root.showDevicePill
                         implicitHeight: 32
                         leftPadding: 12
                         rightPadding: 12
@@ -316,7 +321,7 @@ AbstractBackgroundWidget {
                         colRipple: root.pillFillColorActive
                         buttonRadius: Appearance.rounding.full
 
-                        readonly property string activeAudioDeviceName: Audio.sink ? (Audio.sink.description || "") : ""
+                        readonly property string activeAudioDeviceName: ShellServices.Audio.sink ? (ShellServices.Audio.sink.description || "") : ""
                         readonly property string audioDeviceIcon: {
                             let desc = activeAudioDeviceName.toLowerCase();
                             if (desc.includes("headphone") || desc.includes("headset") || desc.includes("wired")) {
@@ -325,7 +330,7 @@ AbstractBackgroundWidget {
                             return "volume_up";
                         }
 
-                        onClicked: GlobalStates.openAudioOutputSettings()
+                        onClicked: Spawn.run(["sh", "-c", Config.options.apps.volumeMixer])
 
                         contentItem: RowLayout {
                             id: audioPillLayout
@@ -371,7 +376,7 @@ AbstractBackgroundWidget {
                                 width: parent.width
                                 spacing: 0
                                 y: lyricsContainer.baseY - lyricsContainer.rowHeight - lyricsContainer.scrollOffset
-                                visible: LyricsService.hasSyncedLines
+                                visible: root.showLyrics && LyricsService.hasSyncedLines
 
                                 readonly property int rowHeight: Math.floor(parent.height / 2.5)
                                 readonly property real baseY: (parent.height - rowHeight) / 2
@@ -453,7 +458,7 @@ AbstractBackgroundWidget {
                             }
 
                             StyledText {
-                                visible: !LyricsService.hasSyncedLines
+                                visible: !root.showLyrics || !LyricsService.hasSyncedLines
                                 anchors.fill: parent
                                 font.family: Appearance.font.family.main
                                 font.pixelSize: 24
@@ -532,7 +537,7 @@ AbstractBackgroundWidget {
 
                     RippleButton {
                         id: playBtn
-                        visible: root.hasTrack
+                        visible: root.hasTrack && root.showControls
                         implicitWidth: 64
                         implicitHeight: 64
                         buttonRadius: 22
@@ -565,6 +570,7 @@ AbstractBackgroundWidget {
                 }
 
                 RowLayout {
+                    visible: root.showControls
                     Layout.fillWidth: true
                     Layout.preferredHeight: 32
                     spacing: 16

@@ -91,8 +91,25 @@ ContentPage {
                 }
             }
 
-            DesktopWidgetVisualOptions {
-                Layout.fillWidth: true
+            ConfigSwitch {
+                buttonIcon: "more_vert"
+                text: Translation.tr("Show colon")
+                checked: Config.options.background.widgets.clock_hori.showColon
+                onCheckedChanged: {
+                    Config.options.background.widgets.clock_hori.showColon = checked;
+                }
+            }
+
+            ContentSubsectionLabel {
+                text: Translation.tr("Visual Options")
+            }
+            ConfigSwitch {
+                buttonIcon: "wb_sunny"
+                text: Translation.tr("Enable Shadows")
+                checked: Config.options.background.widgets.enableShadows ?? false
+                onCheckedChanged: {
+                    Config.options.background.widgets.enableShadows = checked;
+                }
             }
         }
     }

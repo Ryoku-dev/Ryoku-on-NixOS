@@ -8,8 +8,11 @@ import stage.services
 AbstractBackgroundWidget {
     id: root
 
-    readonly property color circleBgColor: WidgetColorScheme.cardBgColor
-    readonly property color dotIconColor: WidgetColorScheme.textColorOnBg
+    readonly property var options: Config.options.background.widgets.nothing_weather_circle
+    readonly property string colorScheme: (options.expressiveColors ?? false)
+        ? "expressive_primary" : "default"
+    readonly property color circleBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
+    readonly property color dotIconColor: WidgetColorScheme.getTextColorOnBg(colorScheme)
 
     configEntryName: "nothing_weather_circle"
     implicitWidth: 240
@@ -39,6 +42,18 @@ AbstractBackgroundWidget {
             height: outerCircle.height * 0.55
             iconSize: Math.min(width, height)
             dotColor: root.dotIconColor
+        }
+
+        StyledText {
+            visible: root.options.showTemperature ?? false
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 24
+            text: Weather.data?.temp
+                ? Weather.data.temp.replace("°C", "°").replace("°F", "°") : ""
+            color: root.dotIconColor
+            font.pixelSize: Appearance.font.pixelSize.large
+            font.weight: Font.Bold
         }
 
     }

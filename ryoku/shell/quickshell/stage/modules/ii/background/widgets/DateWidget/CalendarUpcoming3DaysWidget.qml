@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Qt5Compat.GraphicalEffects
-import Quickshell.Io
+import Ryoku.Ui.Singletons
 import stage
 import stage.services
 import stage.modules.common
@@ -21,11 +21,6 @@ AbstractBackgroundWidget {
 
     readonly property color createButtonBgColor: WidgetColorScheme.innerShapeColor
 
-    // Process for IPC toggle to open cheatsheet timetable
-    Process {
-        id: cheatsheetIpcProcess
-        command: ["qs", "ipc", "-c", "ii", "call", "cheatsheet", "toggle"]
-    }
 
     // Stable date calculation without re-triggering model on clock seconds or events updates
     readonly property date todayDate: DateTime.clock.date
@@ -48,7 +43,8 @@ AbstractBackgroundWidget {
             }
         }
         list.sort((a, b) => a.startDate - b.startDate);
-        return list;
+        const limit = Config.options.background.widgets.calendar_upcoming_3days.maxEventsPerDay ?? 0;
+        return limit > 0 ? list.slice(0, limit) : list;
     }
 
     // Fixed 3-day data model structure
@@ -59,7 +55,9 @@ AbstractBackgroundWidget {
         if (!now) now = new Date();
 
         let daysList = [];
-        for (let d = 0; d < 3; d++) {
+        const daysShown = Math.max(1, Math.min(3,
+            Config.options.background.widgets.calendar_upcoming_3days.daysShown ?? 3));
+        for (let d = 0; d < daysShown; d++) {
             let dayDate = new Date(now);
             dayDate.setDate(now.getDate() + d);
 
@@ -135,7 +133,7 @@ AbstractBackgroundWidget {
                                 weight: Font.Bold
                                 family: "Google Sans Flex"
                             }
-                            color: root.expressive ? (isTodayItem ? Appearance.colors.colOnPrimary : Appearance.colors.colOnSecondary) : root.textColorOnBg
+                            color: root.expressive ? (isTodayItem ? WidgetColorScheme.colors.colOnPrimary : WidgetColorScheme.colors.colOnSecondary) : root.textColorOnBg
                             Layout.alignment: Qt.AlignVCenter
                         }
 
@@ -145,6 +143,7 @@ AbstractBackgroundWidget {
                         RippleButton {
                             id: createBtn
                             visible: isTodayItem
+                                && (Config.options.background.widgets.calendar_upcoming_3days.showAddButton ?? true)
                             implicitWidth: 40
                             implicitHeight: 28
                             topLeftRadius: Appearance.rounding.full
@@ -152,9 +151,9 @@ AbstractBackgroundWidget {
                             bottomLeftRadius: Appearance.rounding.full
                             bottomRightRadius: Appearance.rounding.full
 
-                            colBackground: root.expressive ? Appearance.colors.colPrimary : root.createButtonBgColor
-                            colBackgroundHover: Appearance.colors.colLayer1Hover
-                            colRipple: Appearance.colors.colLayer1Active
+                            colBackground: root.expressive ? WidgetColorScheme.colors.colPrimary : root.createButtonBgColor
+                            colBackgroundHover: WidgetColorScheme.colors.colLayer1Hover
+                            colRipple: WidgetColorScheme.colors.colLayer1Active
 
                             StyledText {
                                 anchors.centerIn: parent
@@ -164,12 +163,10 @@ AbstractBackgroundWidget {
                                     weight: Font.Bold
                                     family: "Google Sans Flex"
                                 }
-                                color: root.expressive ? Appearance.colors.colOnPrimary : root.textColorOnBg
+                                color: root.expressive ? WidgetColorScheme.colors.colOnPrimary : root.textColorOnBg
                             }
 
-                            onClicked: {
-                                cheatsheetIpcProcess.start();
-                            }
+                            onClicked: Spawn.run(["xdg-open", "https://calendar.google.com/calendar/u/0/r"])
                         }
                     }
 
@@ -203,8 +200,8 @@ AbstractBackgroundWidget {
                                         family: "Google Sans Flex"
                                     }
                                     color: root.expressive
-                                        ? (dayColumn.isTodayItem ? Appearance.colors.colOnPrimary : Appearance.colors.colOnSecondary)
-                                        : Appearance.colors.colOnSurface
+                                        ? (dayColumn.isTodayItem ? WidgetColorScheme.colors.colOnPrimary : WidgetColorScheme.colors.colOnSecondary)
+                                        : WidgetColorScheme.colors.colOnSurface
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
                                 }
@@ -212,8 +209,9 @@ AbstractBackgroundWidget {
                                 StyledText {
                                     text: {
                                         if (modelData.allDay) return Translation.tr("All Day");
-                                        let st = Qt.formatDateTime(new Date(modelData.startDate), "hh:mm");
-                                        let et = Qt.formatDateTime(new Date(modelData.endDate), "hh:mm A");
+                                        const format = Config.options.time.format || "hh:mm";
+                                        let st = Qt.formatDateTime(new Date(modelData.startDate), format);
+                                        let et = Qt.formatDateTime(new Date(modelData.endDate), format);
                                         return st + " - " + et;
                                     }
                                     font {
@@ -224,9 +222,9 @@ AbstractBackgroundWidget {
                                     }
                                     color: root.expressive
                                         ? (dayColumn.isTodayItem
-                                            ? Qt.rgba(Appearance.colors.colOnPrimary.r, Appearance.colors.colOnPrimary.g, Appearance.colors.colOnPrimary.b, 0.8)
-                                            : Qt.rgba(Appearance.colors.colOnSecondary.r, Appearance.colors.colOnSecondary.g, Appearance.colors.colOnSecondary.b, 0.8))
-                                        : Qt.rgba(Appearance.colors.colOnSurfaceVariant.r, Appearance.colors.colOnSurfaceVariant.g, Appearance.colors.colOnSurfaceVariant.b, 0.75)
+                                            ? Qt.rgba(WidgetColorScheme.colors.colOnPrimary.r, WidgetColorScheme.colors.colOnPrimary.g, WidgetColorScheme.colors.colOnPrimary.b, 0.8)
+                                            : Qt.rgba(WidgetColorScheme.colors.colOnSecondary.r, WidgetColorScheme.colors.colOnSecondary.g, WidgetColorScheme.colors.colOnSecondary.b, 0.8))
+                                        : Qt.rgba(WidgetColorScheme.colors.colOnSurfaceVariant.r, WidgetColorScheme.colors.colOnSurfaceVariant.g, WidgetColorScheme.colors.colOnSurfaceVariant.b, 0.75)
                                     Layout.fillWidth: true
                                 }
                             }
@@ -240,8 +238,8 @@ AbstractBackgroundWidget {
                         implicitHeight: 46
                         radius: Appearance.rounding.normal
                         color: root.expressive
-                            ? (dayColumn.isTodayItem ? Appearance.colors.colPrimary : Appearance.colors.colSecondary)
-                            : Appearance.colors.colSurfaceContainerLow
+                            ? (dayColumn.isTodayItem ? WidgetColorScheme.colors.colPrimary : WidgetColorScheme.colors.colSecondary)
+                            : WidgetColorScheme.colors.colSurfaceContainerLow
 
                         StyledText {
                             anchors.centerIn: parent
@@ -252,8 +250,8 @@ AbstractBackgroundWidget {
                                 family: Appearance.font.family.main
                             }
                             color: root.expressive
-                                ? (dayColumn.isTodayItem ? Appearance.colors.colOnPrimary : Appearance.colors.colOnSecondary)
-                                : Qt.rgba(Appearance.colors.colOnSurfaceVariant.r, Appearance.colors.colOnSurfaceVariant.g, Appearance.colors.colOnSurfaceVariant.b, 0.75)
+                                ? (dayColumn.isTodayItem ? WidgetColorScheme.colors.colOnPrimary : WidgetColorScheme.colors.colOnSecondary)
+                                : Qt.rgba(WidgetColorScheme.colors.colOnSurfaceVariant.r, WidgetColorScheme.colors.colOnSurfaceVariant.g, WidgetColorScheme.colors.colOnSurfaceVariant.b, 0.75)
                         }
                     }
                 }

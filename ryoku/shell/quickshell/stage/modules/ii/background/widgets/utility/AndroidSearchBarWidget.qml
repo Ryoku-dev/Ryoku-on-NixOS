@@ -3,8 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Qt5Compat.GraphicalEffects
-import Quickshell
-import Quickshell.Io
+import Ryoku.Ui.Singletons
 import stage
 import stage.services
 import stage.modules.common
@@ -55,7 +54,7 @@ AbstractBackgroundWidget {
         if (key === "translator") return { defaultIcon: "translate", label: Translation.tr("Translator") };
         if (key === "wallpapers") return { defaultIcon: "wallpaper", label: Translation.tr("Wallpapers") };
         if (key === "phone") return { defaultIcon: "smartphone", label: Translation.tr("Phone / KDE Connect") };
-        if (key === "cheatsheet") return { defaultIcon: "help", label: Translation.tr("Cheatsheet") };
+        if (key === "cheatsheet") return { defaultIcon: "apps", label: Translation.tr("Kit") };
         if (key === "clipboard") return { defaultIcon: "content_paste", label: Translation.tr("Clipboard") };
         if (key === "color_picker") return { defaultIcon: "colorize", label: Translation.tr("Color Picker") };
         if (key === "screenshot") return { defaultIcon: "crop", label: Translation.tr("Screenshot") };
@@ -64,40 +63,30 @@ AbstractBackgroundWidget {
 
     function runAction(key) {
         if (key === "search") {
-            GlobalStates.toggleOverview();
+            Spawn.run(["ryoku-shell", "launcher"]);
         } else if (key === "music_rec") {
-            SongRec.toggleRunning();
+            Spawn.run(["ryoku-cmd-songrec"]);
         } else if (key === "ai_chat") {
-            Ai.surfaceRouter.open({
-                surface: "sidebar",
-                focusIntent: "composer"
-            });
+            Spawn.run(["ryoku-shell", "ask", "chat"]);
         } else if (key === "translator") {
-            Persistent.states.sidebar.policies.tab = 1;
-            GlobalStates.sidebarLeftOpen = true;
+            Spawn.run(["ryoku-shell", "quicksettings"]);
         } else if (key === "wallpapers") {
-            Persistent.states.sidebar.policies.tab = 3;
-            GlobalStates.sidebarLeftOpen = true;
+            Spawn.run(["ryogami", "wallpaper", "ui"]);
         } else if (key === "phone") {
-            Persistent.states.sidebar.policies.tab = 5;
-            GlobalStates.sidebarLeftOpen = true;
+            Spawn.run(["ryoku-kit", "phone"]);
         } else if (key === "cheatsheet") {
-            cheatsheetIpc.running = true;
+            Spawn.run(["ryoku-kit"]);
         } else if (key === "clipboard") {
-            GlobalStates.openSearchPanel("clipboard", "", "");
+            Spawn.run(["ryoku-shell", "clipboard"]);
         } else if (key === "color_picker") {
-            Quickshell.execDetached(["hyprpicker", "-a"]);
+            Spawn.run(["ryoku-cmd-color-picker"]);
         } else if (key === "screenshot") {
-            Quickshell.execDetached(["qs", "-p", Quickshell.shellPath(""), "ipc", "call", "region", "screenshot"]);
+            Spawn.run(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
         } else {
-            GlobalStates.toggleOverview();
+            Spawn.run(["ryoku-shell", "launcher"]);
         }
     }
 
-    Process {
-        id: cheatsheetIpc
-        command: ["qs", "ipc", "-c", "ii", "call", "cheatsheet", "toggle"]
-    }
 
     StyledDropShadow {
         target: outerCapsule
@@ -128,7 +117,7 @@ AbstractBackgroundWidget {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: GlobalStates.toggleOverview()
+                    onClicked: Spawn.run(["ryoku-shell", "launcher"])
                 }
 
                 RowLayout {
@@ -137,13 +126,13 @@ AbstractBackgroundWidget {
                     anchors.rightMargin: 6 * root.contentScale
                     spacing: 6 * root.contentScale
 
-                    // ── Dynamic Google "G" SVG Icon from assets/icons ─────────
-                    CustomIcon {
-                        implicitWidth:  24 * root.contentScale
-                        implicitHeight: 24 * root.contentScale
+                    // Ryoku does not redistribute Google's logo.
+                    MaterialSymbol {
+                        Layout.preferredWidth: 24 * root.contentScale
+                        Layout.preferredHeight: 24 * root.contentScale
                         Layout.alignment: Qt.AlignVCenter
-                        source: "google.svg"
-                        colorize: true
+                        text: "search"
+                        iconSize: Math.round(24 * root.contentScale)
                         color: root.colIconText
                     }
 

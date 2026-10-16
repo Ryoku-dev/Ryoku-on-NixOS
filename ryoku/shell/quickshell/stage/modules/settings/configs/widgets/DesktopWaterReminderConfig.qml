@@ -72,10 +72,12 @@ ContentPage {
 
             ConfigSwitch {
                 buttonIcon: "notifications_active"
-                text: Translation.tr("Enable Water Reminders")
+                text: Translation.tr("Drink reminders")
                 checked: Config.options.background.widgets.water_reminder.enable ?? false
-                onCheckedChanged: {
-                    Config.options.background.widgets.water_reminder.enable = checked;
+                onCheckedChanged: Config.options.background.widgets.water_reminder.enable = checked
+
+                StyledToolTip {
+                    text: Translation.tr("Send a hydration notification at the selected interval until the daily goal is reached.")
                 }
             }
 
@@ -100,6 +102,7 @@ ContentPage {
             }
 
             ConfigSpinBox {
+                enabled: Config.options.background.widgets.water_reminder.enable ?? false
                 icon: "flag"
                 text: Translation.tr("Glasses per day")
                 value: Config.options.background.widgets.water_reminder.dailyGoal ?? 8
@@ -116,6 +119,7 @@ ContentPage {
             }
 
             ConfigTextField {
+                enabled: Config.options.background.widgets.water_reminder.enable ?? false
                 id: reminderTextField
                 Layout.fillWidth: true
                 text: Translation.tr("Water reminder")

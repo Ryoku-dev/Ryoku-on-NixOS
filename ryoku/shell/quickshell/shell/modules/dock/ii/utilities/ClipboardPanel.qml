@@ -1,9 +1,10 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
+import Ryoku.Ui.Singletons
 import stage.modules.common.widgets
 import stage.services
 import "../clock"
+import "../widgets"
 import ".."
 
 /**
@@ -17,6 +18,8 @@ ColumnLayout {
     readonly property var tile: panel.host?.tile ?? null
     readonly property var pinned: Cliphist.pinnedEntries ?? []
     readonly property var history: (Cliphist.entries ?? []).filter(entry => !Cliphist.isPinned(entry)).slice(0, 8)
+    readonly property bool historyLoading: !Cliphist.loaded
+    readonly property bool historyUnavailable: Cliphist.loaded && Cliphist.loadFailed
     property string copiedEntry: ""
 
     spacing: 3
@@ -113,14 +116,14 @@ ColumnLayout {
 
     StyledText {
         Layout.leftMargin: 4
-        visible: panel.pinned.length > 0
+        visible: !panel.historyLoading && !panel.historyUnavailable && panel.pinned.length > 0
         text: Translation.tr("Pinned")
         color: ClockStyle.colOnSurfaceVariant
         font.pixelSize: Appearance.font.pixelSize.smallest
         font.weight: Font.Bold
     }
     Repeater {
-        model: panel.pinned
+        model: panel.historyLoading || panel.historyUnavailable ? [] : panel.pinned
         delegate: EntryRow {
             required property string modelData
             required property int index
@@ -133,13 +136,14 @@ ColumnLayout {
     StyledText {
         Layout.leftMargin: 4
         Layout.topMargin: panel.pinned.length > 0 ? 6 : 0
+        visible: !panel.historyLoading && !panel.historyUnavailable
         text: Translation.tr("Recent")
         color: ClockStyle.colOnSurfaceVariant
         font.pixelSize: Appearance.font.pixelSize.smallest
         font.weight: Font.Bold
     }
     Repeater {
-        model: panel.history
+        model: panel.historyLoading || panel.historyUnavailable ? [] : panel.history
         delegate: EntryRow {
             required property string modelData
             required property int index
@@ -149,7 +153,21 @@ ColumnLayout {
     }
     Rectangle {
         Layout.fillWidth: true
-        visible: panel.history.length === 0
+        visible: panel.historyLoading || panel.historyUnavailable
+        implicitHeight: 64
+        radius: ClockStyle.radiusLarge
+        color: ClockStyle.colField
+        StyledText {
+            anchors.centerIn: parent
+            text: panel.historyLoading ? Translation.tr("Loading history…")
+                : Translation.tr("Clipboard history unavailable")
+            color: ClockStyle.colOnSurfaceVariant
+            font.pixelSize: ClockStyle.textNormal
+        }
+    }
+    Rectangle {
+        Layout.fillWidth: true
+        visible: !panel.historyLoading && !panel.historyUnavailable && panel.history.length === 0
         implicitHeight: 64
         radius: ClockStyle.radiusLarge
         color: ClockStyle.colField
@@ -168,7 +186,7 @@ ColumnLayout {
         label: Translation.tr("Open full history")
         onClicked: {
             panel.host?.closePanel();
-            Quickshell.execDetached(["ryoku-shell", "clipboard"]);
+            Spawn.run(["ryoku-shell", "clipboard"]);
         }
     }
 }

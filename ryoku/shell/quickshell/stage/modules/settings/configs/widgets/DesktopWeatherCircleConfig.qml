@@ -66,11 +66,19 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("weather_circle")
 
+            DesktopWeatherBehaviorOptions {
+                options: Config.options.background.widgets.weather_circle
+                expressiveColors: true
+                temperature: true
+                location: true
+            }
+
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 4
 
-                DesktopWidgetVisualOptions {
+                DesktopWeatherShadowOptions {
+                    innerShadow: true
                     Layout.fillWidth: true
                 }
             }

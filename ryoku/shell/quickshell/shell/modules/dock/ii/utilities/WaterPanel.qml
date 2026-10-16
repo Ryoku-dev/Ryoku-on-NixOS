@@ -65,6 +65,7 @@ ColumnLayout {
                 width: (parent.width - 20) * Math.min(1, panel.glasses / panel.goal)
                 color: ClockStyle.colPrimary
                 Behavior on width {
+                    enabled: panel.host?.panelOpen === true && !Appearance.reducedMotion
                     animation: ClockStyle.motionDefault.numberAnimation.createObject(this)
                 }
             }

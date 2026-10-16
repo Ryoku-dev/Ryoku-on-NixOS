@@ -23,8 +23,33 @@ Item {
     property bool sportsHovered: false
     property var displayGame: SportsService.currentGame
     property real contentOpacity: 1.0
+    property bool serviceSubscribed: false
+    readonly property bool serviceLive: (Config.options?.dock?.enableSportsWidget ?? true)
+        && !root.isVertical
+        && (root.dockContent?.dockWidgetsActive ?? false)
 
-    readonly property bool shouldBeVisible: (Config.options?.dock?.enableSportsWidget ?? true) && !root.isVertical
+    function syncServiceSubscription(): void {
+        if (root.serviceLive && !root.serviceSubscribed) {
+            SportsService.acquireWidgetSubscriber()
+            root.serviceSubscribed = true
+        } else if (!root.serviceLive && root.serviceSubscribed) {
+            SportsService.releaseWidgetSubscriber()
+            root.serviceSubscribed = false
+        }
+        if (!root.serviceLive) {
+            switchAnimation.stop()
+            root.contentOpacity = 1
+        }
+    }
+
+    onServiceLiveChanged: root.syncServiceSubscription()
+    Component.onCompleted: root.syncServiceSubscription()
+    Component.onDestruction: {
+        if (root.serviceSubscribed)
+            SportsService.releaseWidgetSubscriber()
+    }
+
+    readonly property bool shouldBeVisible: root.serviceLive
         && SportsService.allGames.length > 0
     readonly property bool activated: root.displayGame?.state === "in"
     readonly property real buttonSize: Appearance.sizes.dockButtonSize
@@ -67,14 +92,17 @@ Item {
     transformOrigin: root.dockContent?.magnificationTransformOrigin ?? Item.Bottom
 
     Behavior on opacity {
+        enabled: root.serviceLive && !Appearance.reducedMotion
         animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(root)
     }
 
     Behavior on implicitWidth {
+        enabled: root.serviceLive && !Appearance.reducedMotion
         animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(root)
     }
 
     Behavior on implicitHeight {
+        enabled: root.serviceLive && !Appearance.reducedMotion
         animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(root)
     }
 
@@ -302,10 +330,12 @@ Item {
         // Keep it through the short close fade so hover can still finish
         // cleanly, then destroy the complete popup tree.
         active: root.shouldBeVisible
-            && (interactionArea.containsMouse || (item?.surfaceOpacity ?? 0) > 0.01)
+            && (interactionArea.containsMouse
+                || (item?.pointerInsidePopup ?? false)
+                || (item?.surfaceOpacity ?? 0) > 0.01)
         sourceComponent: DockSportsPopup {
             anchorItem: root
-            showPopup: interactionArea.containsMouse
+            showPopup: interactionArea.containsMouse || pointerInsidePopup
         }
     }
 }

@@ -1075,17 +1075,29 @@ Singleton {
     // Find the widget owning a schema key from its <widget>Enabled property.
     // This keeps hosted rosters extensible: adding a new face to the adapter
     // automatically makes every one of that face's keys fork together.
+    //
+    // Every widget binding reads through get(), so this runs hundreds of times
+    // per reload; enumerating the adapter's two thousand properties each time
+    // stalled the desktop for seconds whenever a widget was added or removed.
+    // The schema is fixed once the adapter exists, so the prefixes are listed
+    // once and each key's answer is kept. One plain object, mutated in place,
+    // so the cache never becomes a binding dependency.
+    property var _prefixCache: ({ prefixes: null, byKey: {} })
     function _widgetPrefix(key) {
+        const cache = root._prefixCache;
+        const known = cache.byKey[key];
+        if (known !== undefined)
+            return known;
+        if (cache.prefixes === null)
+            cache.prefixes = Object.keys(adapter)
+                .filter(candidate => candidate.endsWith("Enabled"))
+                .map(candidate => candidate.slice(0, -7));
         let found = "";
-        const keys = Object.keys(adapter);
-        for (let i = 0; i < keys.length; i++) {
-            const candidate = keys[i];
-            if (!candidate.endsWith("Enabled"))
-                continue;
-            const prefix = candidate.slice(0, -7);
+        for (const prefix of cache.prefixes) {
             if (key.startsWith(prefix) && prefix.length > found.length)
                 found = prefix;
         }
+        cache.byKey[key] = found;
         return found;
     }
 

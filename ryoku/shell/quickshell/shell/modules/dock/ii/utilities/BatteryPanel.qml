@@ -10,7 +10,6 @@ ColumnLayout {
     id: panel
 
     property var host: null
-
     readonly property var rows: [
         { symbol: "speed", caption: Translation.tr("Power draw"),
           value: Math.abs(Battery.energyRate) > 0.05 ? Math.abs(Battery.energyRate).toFixed(1) + " W" : "—" },

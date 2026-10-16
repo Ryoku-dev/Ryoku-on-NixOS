@@ -3,7 +3,7 @@ import Quickshell
 import stage.services
 import "./widgets"
 import "utilities/DockUtilityCatalog.js" as DockUtilityCatalog
-import "utilities/UtilityFiles.js" as UtilityFiles
+import stage.modules.common.functions
 import "."
 
 /**
@@ -97,14 +97,35 @@ Item {
         };
     }
 
-    Component.onCompleted: root.dockContent?.registerUtilityHost(root.kind, root)
-    onKindChanged: root.dockContent?.registerUtilityHost(root.kind, root)
+    property var _registeredDockContent: null
+    property string _registeredKind: ""
+    function _syncRegistry() {
+        if (root._registeredDockContent
+                && (root._registeredDockContent !== root.dockContent || root._registeredKind !== root.kind))
+            root._registeredDockContent.unregisterUtilityHost(root._registeredKind, root);
+        if (root.dockContent && root.kind !== "") {
+            root.dockContent.registerUtilityHost(root.kind, root);
+            root._registeredDockContent = root.dockContent;
+            root._registeredKind = root.kind;
+        } else {
+            root._registeredDockContent = null;
+            root._registeredKind = "";
+        }
+    }
+    Component.onCompleted: root._syncRegistry()
+    onKindChanged: root._syncRegistry()
+    onDockContentChanged: root._syncRegistry()
 
     function _activate() {
+        if (root.panelOpen) {
+            root.closePanel();
+            return;
+        }
+        ContextMenus.dismissAll();
         const tile = root.tile;
         if (tile && typeof tile.activate === "function" && tile.activate())
             return;
-        root.togglePanel();
+        root.openPanel();
     }
 
     function _fileUrls(drop) {
@@ -249,11 +270,18 @@ Item {
 
     Component {
         id: panelComponent
-        Loader {
-            id: panelLoader
-            width: parent?.width ?? 0
-            asynchronous: false
-            Component.onCompleted: panelLoader.setSource(Qt.resolvedUrl("utilities/" + root.info.file + "Panel.qml"), { host: root })
+        Item {
+            id: panelWrapper
+            implicitWidth: panelLoader.item?.implicitWidth ?? 0
+            implicitHeight: panelLoader.item?.implicitHeight ?? 0
+
+            Loader {
+                id: panelLoader
+                width: parent.width
+                height: panelLoader.item?.implicitHeight ?? 0
+                asynchronous: false
+                Component.onCompleted: panelLoader.setSource(Qt.resolvedUrl("utilities/" + root.info.file + "Panel.qml"), { host: root })
+            }
         }
     }
 
@@ -294,7 +322,7 @@ Item {
                 root.dockContent?.setUtilityWide(root.kind, true);
                 break;
             case "__settings":
-                GlobalStates.openSettingsPage("dock", "widgets/DockUtilitiesConfig.qml");
+                GlobalStates.openSettingsPage("dock", "widgets/DockUtilitiesConfig.qml", root.kind);
                 break;
             case "__remove":
                 root.dockContent?.removeUtility(root.kind);
@@ -328,7 +356,7 @@ Item {
         function onActiveChanged() { root._holdDock(widgetMenu.active); }
     }
     Component.onDestruction: {
-        root.dockContent?.unregisterUtilityHost(root.kind, root);
+        root._registeredDockContent?.unregisterUtilityHost(root._registeredKind, root);
         while (root._heldPopups > 0)
             root._holdDock(false);
     }

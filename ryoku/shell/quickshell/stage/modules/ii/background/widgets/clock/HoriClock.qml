@@ -189,6 +189,7 @@ AbstractBackgroundWidget {
 
         // ── Colon separator between H1 and M0 ──
         Column {
+            visible: Config.options.background.widgets.clock_hori.showColon ?? true
             x: root.colonX
             y: root.posY + root.tileH / 2 - height / 2
             spacing: root.colonGap

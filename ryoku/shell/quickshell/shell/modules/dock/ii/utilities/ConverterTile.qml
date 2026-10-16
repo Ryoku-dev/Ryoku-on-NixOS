@@ -46,9 +46,9 @@ UtilityTile {
     }
     function swap() {
         const value = tile.output;
-        tile.setUnits(tile.toId, tile.fromId);
         if (isFinite(value))
             tile.input = value;
+        tile.setUnits(tile.toId, tile.fromId);
     }
 
     surfaceColor: ClockStyle.colSurfaceHigh

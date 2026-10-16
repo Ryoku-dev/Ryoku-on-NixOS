@@ -277,8 +277,8 @@ Item {
 
         Item {
             id: widgetNameTextContainer
+            Layout.fillWidth: true
             Layout.alignment: Qt.AlignHCenter
-            implicitWidth: widgetNameText.implicitWidth
             implicitHeight: widgetNameText.implicitHeight
             clip: true
             visible: title !== ""
@@ -293,6 +293,7 @@ Item {
                 }
                 color: Appearance.m3colors.m3outline
                 horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
 
                 transform: Translate {
                     id: widgetNameTextTranslate

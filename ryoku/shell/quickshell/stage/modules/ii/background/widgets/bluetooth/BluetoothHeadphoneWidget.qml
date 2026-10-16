@@ -13,6 +13,7 @@ AbstractBackgroundWidget {
     configEntryName: "bluetooth_headphone"
 
     readonly property bool halfSize: Config.options.background.widgets.bluetooth_headphone.halfSize ?? true
+    readonly property bool showPercentage: Config.options.background.widgets.bluetooth_headphone.showPercentage ?? true
 
     implicitWidth: halfSize ? 120 : 240
     implicitHeight: halfSize ? 240 : 492
@@ -149,7 +150,7 @@ AbstractBackgroundWidget {
                 anchors.rightMargin: root.halfSize ? -8 : -16
                 anchors.bottomMargin: root.halfSize ? -16 : -32
                 height: root.halfSize ? 60 : 120
-                visible: root.isConnected
+                visible: root.isConnected && root.showPercentage
 
                 // Raw Text Source Component
                 Item {

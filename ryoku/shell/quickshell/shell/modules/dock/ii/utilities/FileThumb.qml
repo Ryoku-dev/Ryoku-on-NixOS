@@ -1,7 +1,7 @@
 import QtQuick
 import Quickshell.Widgets
 import "../clock"
-import "UtilityFiles.js" as UtilityFiles
+import stage.modules.common.functions
 import ".."
 
 /**

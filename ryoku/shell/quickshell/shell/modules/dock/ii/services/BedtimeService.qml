@@ -227,7 +227,7 @@ Singleton {
     }
 
     function notify(title, body): void {
-        Quickshell.execDetached(["notify-send", title, body, "-a", "Bedtime", "-i", "weather-clear-night", "--urgency=normal"]);
+        Quickshell.execDetached(["notify-send", title, body, "-a", Translation.tr("Bedtime"), "-i", "weather-clear-night", "--urgency=normal"]);
     }
 
     function formatLate(minutes): string {

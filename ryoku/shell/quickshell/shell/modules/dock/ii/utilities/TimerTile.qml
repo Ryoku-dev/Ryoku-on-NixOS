@@ -104,6 +104,7 @@ UtilityTile {
             anchors.fill: parent
             anchors.margins: Math.round(tile.side * 0.08)
             visible: tile.active || tile.finished
+            live: tile.live
             value: tile.active ? tile.remainingFraction : 0
             thickness: Math.max(3, Math.round(tile.side * 0.075))
             wavy: tile.active && !tile.paused && !Appearance.reducedMotion
@@ -145,6 +146,7 @@ UtilityTile {
             implicitHeight: tile.badgeSize
             ClockProgressRing {
                 anchors.fill: parent
+                live: tile.live
                 value: tile.active ? tile.remainingFraction : 0
                 thickness: Math.max(3, Math.round(tile.badgeSize * 0.09))
                 wavy: tile.active && !tile.paused && !Appearance.reducedMotion

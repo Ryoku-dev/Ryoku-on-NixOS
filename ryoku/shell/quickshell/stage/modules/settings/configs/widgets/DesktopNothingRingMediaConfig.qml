@@ -3,7 +3,6 @@ import QtQuick.Layouts
 import stage.modules.common
 import stage.modules.common.widgets
 import stage.services
-import stage.modules.settings.configs.widgets
 
 ContentPage {
     id: root
@@ -69,14 +68,17 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("nothing_ring_media")
 
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 4
+            ContentSubsectionLabel {
+                text: Translation.tr("Visual Options")
+            }
 
-                DesktopWidgetVisualOptions {
-                    Layout.fillWidth: true
+            ConfigSwitch {
+                buttonIcon: "wb_sunny"
+                text: Translation.tr("Enable Shadows")
+                checked: Config.options.background.widgets.nothing_ring_media.enableShadows ?? true
+                onCheckedChanged: {
+                    Config.options.background.widgets.nothing_ring_media.enableShadows = checked;
                 }
-
             }
 
         }

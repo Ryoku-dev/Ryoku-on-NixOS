@@ -14,11 +14,13 @@ AbstractBackgroundWidget {
     readonly property color textColorOnBg: WidgetColorScheme.textColorOnBg
     readonly property color subtextColorOnBg: WidgetColorScheme.subtextColorOnBg
     readonly property color accentColor: WidgetColorScheme.accentColor
-    // Time calculations
-    readonly property bool use24h: {
-        const fmt = Config.options.time.format || "";
-        return fmt.toLowerCase().includes("hh") || !fmt.toLowerCase().includes("a");
-    }
+    readonly property var widgetOpts: Config.options.background.widgets.nothing_wheel_clock
+    readonly property string timeFormat: widgetOpts?.timeFormat ?? "system"
+    readonly property bool use24h: timeFormat === "24h"
+        || (timeFormat === "system" && !DateTime.use12HourClock)
+    readonly property bool showDateHeader: widgetOpts?.showDateHeader ?? true
+    readonly property bool showMinuteNeighbors: widgetOpts?.showMinuteNeighbors ?? true
+    readonly property bool accentMinute: widgetOpts?.accentMinute ?? true
     readonly property string hourString: {
         const rawH = DateTime.clock.hours;
         if (root.use24h) {
@@ -70,6 +72,7 @@ AbstractBackgroundWidget {
         // --- Top Header: 3 Days Calendar Strip ---
         RowLayout {
             id: dateHeader
+            visible: root.showDateHeader
 
             anchors.left: parent.left
             anchors.right: parent.right
@@ -211,6 +214,7 @@ AbstractBackgroundWidget {
 
                     // Top Minute (Previous)
                     StyledText {
+                        visible: root.showMinuteNeighbors
                         Layout.alignment: Qt.AlignRight
                         text: root.prevMinString
                         font.pixelSize: 74
@@ -225,11 +229,12 @@ AbstractBackgroundWidget {
                         text: root.currentMinString
                         font.pixelSize: 74
                         font.weight: Font.Bold
-                        color: root.accentColor
+                        color: root.accentMinute ? root.accentColor : root.textColorOnBg
                     }
 
                     // Bottom Minute (Next)
                     StyledText {
+                        visible: root.showMinuteNeighbors
                         Layout.alignment: Qt.AlignRight
                         text: root.nextMinString
                         font.pixelSize: 74

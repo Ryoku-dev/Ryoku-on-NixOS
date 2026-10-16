@@ -66,11 +66,18 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("weather_card")
 
+            DesktopWeatherBehaviorOptions {
+                options: Config.options.background.widgets.weather_card
+                expressiveColors: true
+                location: true
+                forecast: true
+            }
+
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 4
 
-                DesktopWidgetVisualOptions {
+                DesktopWeatherShadowOptions {
                     Layout.fillWidth: true
                 }
             }

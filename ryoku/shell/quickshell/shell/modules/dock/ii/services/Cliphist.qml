@@ -4,6 +4,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import stage.modules.common.functions
 import ".."
 
@@ -26,6 +27,10 @@ Singleton {
     property real scoreThreshold: 0.2
     property list<string> entries: []
     property list<string> pendingDeletes: []
+    property bool loaded: false
+    property bool loading: false
+    property bool loadFailed: false
+    property bool refreshPending: false
     readonly property var preparedEntries: entries.slice(0, 150).map(a => ({
         name: Fuzzy.prepare(`${a.replace(/^\s*\S+\s+/, "")}`),
         entry: a
@@ -224,8 +229,13 @@ Singleton {
     }
 
     function refresh() {
-        readProc.buffer = []
-        readProc.running = true
+        if (readProc.running) {
+            root.refreshPending = true;
+            return;
+        }
+        readProc.buffer = [];
+        root.loading = true;
+        readProc.running = true;
     }
 
     function copy(entry) {
@@ -251,15 +261,15 @@ Singleton {
 
         if (found) {
             if (root.cliphistBinary.includes("cliphist")) {
-                Quickshell.execDetached(["bash", "-c", `printf '${StringUtils.shellSingleQuoteEscape(actualEntry)}' | ${root.cliphistBinary} decode | wl-copy`]);
+                Spawn.run(["bash", "-c", `printf '%s' '${StringUtils.shellSingleQuoteEscape(actualEntry)}' | ${root.cliphistBinary} decode | wl-copy`]);
             } else {
                 const entryNumber = actualEntry.split("\t")[0];
-                Quickshell.execDetached(["bash", "-c", `${root.cliphistBinary} decode ${entryNumber} | wl-copy`]);
+                Spawn.run(["bash", "-c", `${root.cliphistBinary} decode ${entryNumber} | wl-copy`]);
             }
         } else {
             // Fallback for purged pinned items
             if (!isImg) {
-                Quickshell.execDetached(["bash", "-c", `printf '%s' '${StringUtils.shellSingleQuoteEscape(cleanPinned)}' | wl-copy`]);
+                Spawn.run(["bash", "-c", `printf '%s' '${StringUtils.shellSingleQuoteEscape(cleanPinned)}' | wl-copy`]);
             } else {
                 console.warn("[Cliphist] Cannot copy purged pinned image");
             }
@@ -289,7 +299,7 @@ Singleton {
         let copyCmd = "";
         if (found) {
             if (root.cliphistBinary.includes("cliphist")) {
-                copyCmd = `printf '${StringUtils.shellSingleQuoteEscape(actualEntry)}' | ${root.cliphistBinary} decode | wl-copy`;
+                copyCmd = `printf '%s' '${StringUtils.shellSingleQuoteEscape(actualEntry)}' | ${root.cliphistBinary} decode | wl-copy`;
             } else {
                 const entryNumber = actualEntry.split("\t")[0];
                 copyCmd = `${root.cliphistBinary} decode ${entryNumber} | wl-copy`;
@@ -305,7 +315,7 @@ Singleton {
 
         // Simula o colar na janela ativa com atraso para garantir que a janela recuperou o foco
         const pasteCmd = `${copyCmd} && sleep 0.35 && wtype -M ctrl -k v -m ctrl`;
-        Quickshell.execDetached(["bash", "-c", pasteCmd]);
+        Spawn.run(["bash", "-c", pasteCmd]);
     }
 
     function superpaste(count, isImage = false) {
@@ -314,15 +324,15 @@ Singleton {
             if (!isImage) return true;
             return entryIsImage(entry);
         }).slice(0, count)
-        const pasteCommands = [...targetEntries].reverse().map(entry => `printf '${StringUtils.shellSingleQuoteEscape(entry)}' | ${root.cliphistBinary} decode | wl-copy && sleep ${root.pasteDelay} && ${root.pressPasteCommand}`)
+        const pasteCommands = [...targetEntries].reverse().map(entry => `printf '%s' '${StringUtils.shellSingleQuoteEscape(entry)}' | ${root.cliphistBinary} decode | wl-copy && sleep ${root.pasteDelay} && ${root.pressPasteCommand}`)
         // Act
-        Quickshell.execDetached(["bash", "-c", pasteCommands.join(` && sleep ${root.pasteDelay} && `)]);
+        Spawn.run(["bash", "-c", pasteCommands.join(` && sleep ${root.pasteDelay} && `)]);
     }
 
     Process {
         id: deleteProc
         property string entry: ""
-        command: ["bash", "-c", `echo '${StringUtils.shellSingleQuoteEscape(deleteProc.entry)}' | ${root.cliphistBinary} delete`]
+        command: ["bash", "-c", `printf '%s\n' '${StringUtils.shellSingleQuoteEscape(deleteProc.entry)}' | ${root.cliphistBinary} delete`]
         onExited: (exitCode, exitStatus) => {
             deleteProc.entry = "";
             if (root.pendingDeletes.length > 0)
@@ -386,12 +396,12 @@ Singleton {
         if (unpinned.length === 0)
             return;
         if (unpinned.length === root.entries.length) {
-            Quickshell.execDetached([root.cliphistBinary, "wipe"]);
+            Spawn.run([root.cliphistBinary, "wipe"]);
             return;
         }
         const commands = unpinned.map(entry =>
             `printf '%s\\n' '${StringUtils.shellSingleQuoteEscape(entry)}' | ${root.cliphistBinary} delete`);
-        Quickshell.execDetached(["bash", "-c", commands.join("; ")]);
+        Spawn.run(["bash", "-c", commands.join("; ")]);
     }
 
     readonly property var pinnedEntries: Persistent.states.clipboard.pinnedEntries
@@ -454,16 +464,28 @@ Singleton {
         }
 
         onExited: (exitCode, exitStatus) => {
+            root.loading = false;
             if (exitCode === 0) {
-                root.entries = readProc.buffer
-                root.noteTopEntry()
-                root.clipboardUpdated()
-                root.synchronizeRetention()
+                root.entries = readProc.buffer;
+                root.noteTopEntry();
+                root.clipboardUpdated();
+                root.synchronizeRetention();
+                root.loaded = true;
+                root.loadFailed = false;
             } else {
-                console.error("[Cliphist] Failed to refresh with code", exitCode, "and status", exitStatus)
+                if (!root.loaded) {
+                    root.loaded = true;
+                    root.loadFailed = true;
+                }
+                console.error("[Cliphist] Failed to refresh with code", exitCode, "and status", exitStatus);
+            }
+            if (root.refreshPending) {
+                root.refreshPending = false;
+                Qt.callLater(root.refresh);
             }
         }
     }
+    Component.onCompleted: root.refresh()
 
     Timer {
         interval: 86400000

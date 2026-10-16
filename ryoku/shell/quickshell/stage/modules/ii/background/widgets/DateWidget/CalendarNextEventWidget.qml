@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Qt5Compat.GraphicalEffects
-import Quickshell.Io
+import Ryoku.Ui.Singletons
 import stage
 import stage.services
 import stage.modules.common
@@ -26,11 +26,6 @@ AbstractBackgroundWidget {
 
     readonly property color normalCardBg: WidgetColorScheme.innerShapeColor
 
-    // Process for IPC toggle to open cheatsheet timetable
-    Process {
-        id: cheatsheetIpcProcess
-        command: ["qs", "ipc", "-c", "ii", "call", "cheatsheet", "toggle"]
-    }
 
     // Current system date & time
     readonly property date currDate: DateTime.clock.date
@@ -68,12 +63,15 @@ AbstractBackgroundWidget {
         return Math.round((day - today) / 86400000);
     }
 
-    // The focus day's remaining events
-    readonly property var dayEvents: root.upcomingEvents.filter(evt => {
+    readonly property var allDayEvents: root.upcomingEvents.filter(evt => {
         const start = new Date(evt.startDate);
         return start.getDate() === root.focusDate.getDate() && start.getMonth() === root.focusDate.getMonth()
             && start.getFullYear() === root.focusDate.getFullYear();
     })
+    readonly property var dayEvents: {
+        const limit = Config.options.background.widgets.calendar_next_event.maxEvents ?? 0;
+        return limit > 0 ? root.allDayEvents.slice(0, limit) : root.allDayEvents;
+    }
 
     readonly property var nextEvent: root.dayEvents.length > 0 ? root.dayEvents[0] : null
 
@@ -179,7 +177,7 @@ AbstractBackgroundWidget {
                             MaterialSymbol {
                                 text: "north_east"
                                 iconSize: 18
-                                color: Appearance.colors.colPrimary
+                                color: WidgetColorScheme.colors.colPrimary
                             }
 
                             StyledText {
@@ -321,9 +319,10 @@ AbstractBackgroundWidget {
                 }
             }
 
-            // Floating Circular Add Button (+) opening cheatsheet timetable via IPC
+            // Floating add button opening the user's web calendar.
             RippleButton {
                 id: addButton
+                visible: Config.options.background.widgets.calendar_next_event.showAddButton ?? true
                 anchors.right: parent.right
                 anchors.rightMargin: 12
                 anchors.bottom: parent.bottom
@@ -335,20 +334,18 @@ AbstractBackgroundWidget {
                 bottomLeftRadius: Appearance.rounding.full
                 bottomRightRadius: Appearance.rounding.full
 
-                colBackground: Appearance.colors.colTertiaryContainer
-                colBackgroundHover: Appearance.colors.colTertiaryContainerHover
-                colRipple: Appearance.colors.colTertiaryContainerActive
+                colBackground: WidgetColorScheme.colors.colTertiaryContainer
+                colBackgroundHover: WidgetColorScheme.colors.colTertiaryContainerHover
+                colRipple: WidgetColorScheme.colors.colTertiaryContainerActive
 
                 MaterialSymbol {
                     anchors.centerIn: parent
                     text: "add"
                     iconSize: 24
-                    color: Appearance.colors.colOnTertiaryContainer
+                    color: WidgetColorScheme.colors.colOnTertiaryContainer
                 }
 
-                onClicked: {
-                    cheatsheetIpcProcess.start();
-                }
+                onClicked: Spawn.run(["xdg-open", "https://calendar.google.com/calendar/u/0/r/eventedit"])
             }
         }
 

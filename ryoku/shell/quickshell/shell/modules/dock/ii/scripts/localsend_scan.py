@@ -11,8 +11,8 @@ from pathlib import Path
 PORT = 53317
 MULTICAST_GROUP = "224.0.0.167"
 # Client identity for the mTLS handshake used when probing devices. The
-# official localsend-cli (see services/localsend_bridge.py) persists this
-# device's certificate + private key as a single concatenated PEM; loading
+# official localsend-cli (driven by the dock's localsend_bridge.py) persists
+# this device's certificate + private key as a single concatenated PEM; loading
 # it here presents the shell's real identity/fingerprint during discovery
 # instead of a throwaway one. Purely optional (servers don't require a
 # client cert), so a missing file just leaves the context unauthenticated.

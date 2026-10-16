@@ -21,11 +21,36 @@ import ".."
  */
 UtilityTile {
     id: tile
+    property bool usageRetained: false
+
+    function syncUsageRetention(): void {
+        if (tile.usageRetained === tile.live)
+            return;
+        tile.usageRetained = tile.live;
+        if (tile.usageRetained)
+            AiPlanUsage.retain();
+        else
+            AiPlanUsage.release();
+    }
+
+    Component.onCompleted: tile.syncUsageRetention()
+    Component.onDestruction: {
+        if (tile.usageRetained)
+            AiPlanUsage.release();
+    }
+    onLiveChanged: tile.syncUsageRetention()
 
     readonly property var cfg: Config.options?.dock?.utilities?.aiUsage ?? null
+    readonly property string requestedTargetId: String(tile.cfg?.provider ?? "claude")
     readonly property string targetId: {
-        const chosen = String(tile.cfg?.provider ?? "claude");
-        return chosen === "auto" ? String(AiPlanUsage.displayedProviderId ?? "") : chosen;
+        if (tile.requestedTargetId === "auto")
+            return String(AiPlanUsage.displayedProviderId ?? "");
+        const requestedProvider = AiPlanUsage.displayProviderById(tile.requestedTargetId);
+        if (requestedProvider?.available === true)
+            return tile.requestedTargetId;
+        const fallbackId = String(AiPlanUsage.displayedProviderId ?? "");
+        const fallback = AiPlanUsage.displayProviderById(fallbackId);
+        return fallback?.available === true ? fallbackId : tile.requestedTargetId;
     }
     readonly property var provider: AiPlanUsage.displayProviderById(tile.targetId)
     readonly property string providerId: String(tile.provider?.providerId ?? tile.targetId.split(":")[0])

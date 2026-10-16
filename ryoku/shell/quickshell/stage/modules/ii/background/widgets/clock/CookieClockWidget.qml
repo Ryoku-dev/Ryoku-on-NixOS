@@ -60,7 +60,7 @@ AbstractBackgroundWidget {
                 implicitHeight: statusTextRow.implicitHeight + 5 * 2
                 implicitWidth: statusTextRow.implicitWidth + 5 * 2
                 radius: Appearance.rounding.small
-                color: ColorUtils.transparentize(Appearance.colors.colSecondaryContainer, 0)
+                color: ColorUtils.transparentize(WidgetColorScheme.colors.colSecondaryContainer, 0)
 
                 Behavior on implicitWidth {
                     animation: Appearance.animation.elementResize.numberAnimation.createObject(this)
@@ -98,7 +98,7 @@ AbstractBackgroundWidget {
         property alias statusIcon: statusIconWidget.text
         property alias statusText: statusTextWidget.text
         property bool shown: true
-        property color textColor: Appearance.colors.colOnSecondaryContainer
+        property color textColor: WidgetColorScheme.colors.colOnSecondaryContainer
         opacity: shown ? 1 : 0
         visible: opacity > 0
         Behavior on opacity {
@@ -111,7 +111,7 @@ AbstractBackgroundWidget {
             iconSize: Appearance.font.pixelSize.huge
             color: statusTextRow.textColor
             style: Text.Raised
-            styleColor: Appearance.colors.colShadow
+            styleColor: WidgetColorScheme.colors.colShadow
         }
         ClockText {
             id: statusTextWidget
@@ -123,7 +123,7 @@ AbstractBackgroundWidget {
                 weight: Font.Normal
             }
             style: Text.Raised
-            styleColor: Appearance.colors.colShadow
+            styleColor: WidgetColorScheme.colors.colShadow
         }
     }
 }

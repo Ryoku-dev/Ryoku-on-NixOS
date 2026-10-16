@@ -1,0 +1,659 @@
+pragma Singleton
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import stage as Stage
+import stage.modules.common
+import Ryoku.Ui.Singletons
+
+/**
+ * LocalSend service — drives the official `localsend-cli` (localsend/localsend
+ * monorepo, protocol v2.2, matching the LocalSend app since 1.18.0) through
+ * the ii dock's `localsend_bridge.py` helper.
+ *
+ * The official CLI is a fully interactive terminal app (crossterm/ratatui)
+ * with no scriptable/JSON mode. The bridge drives it inside a pseudo-terminal
+ * and re-exposes it as the JSON event stream this service expects (see the
+ * bridge's own docstring for the full protocol). This replaced the pip
+ * package `localsend-cli` (0.1.1), a from-scratch reimplementation that
+ * corrupted received files once the protocol moved past v2.0.
+ *
+ * Because the official CLI is a single combined send/receive/discovery
+ * process bound to one port, sending briefly stops the receive daemon (see
+ * sendToDevice()) so a `--file` one-shot instance can bind the same port;
+ * the daemon restarts automatically once the send finishes.
+ *
+ * Installed via prebuilt GitHub release binaries, no Rust toolchain needed
+ * on supported architectures — see scripts/localsend/install_localsend_cli.sh
+ * (also wired to the "Install" button in Settings → Devices & Phone → LocalSend).
+ *
+ * The service supplies an explicit PATH because sessions started outside a
+ * login shell do not necessarily inherit the user's local binary directory.
+ */
+Singleton {
+    id: root
+
+    property bool available: false
+    property bool serverRunning: receiveProc.running
+    property bool autoStart: Config.options?.localsend?.autoStart ?? false
+    property string downloadPath: Config.options?.localsend?.downloadPath ?? ""
+    property bool showNotifications: Config.options?.localsend?.showNotifications ?? true
+    property bool preferPopupOverNotification: Config.options?.localsend?.preferPopupOverNotification ?? true
+
+    // Official localsend-cli binary plus the dock's PTY bridge.
+    readonly property string helperDir: Quickshell.shellPath("modules/dock/ii/scripts")
+    readonly property string bridgeScriptPath: root.helperDir + "/localsend_bridge.py"
+    readonly property string installerScriptPath: root.helperDir + "/install_localsend_cli.sh"
+    property bool _sendWasReceiving: false
+    property var _pendingSendCommand: []
+    property bool _sendFailureReported: false
+
+    // Transparency state shown in Settings (DevicesPhoneConfig.qml)
+    property string cliVersion: ""
+    property bool pyteAvailable: false
+    property bool pyteChecked: false
+    property bool installing: false
+    property string installLog: ""
+    property string installError: ""
+
+    // Receive state
+    property var currentTransfer: null
+    property list<var> pendingTransfers: []
+
+    // Send state
+    property list<var> droppedFiles: []
+    property list<var> discoveredDevices: []
+    property bool sending: false
+    property bool scanning: false
+
+    signal transferRequested(var transfer)
+    signal transferStarted(var transfer)
+    signal transferCompleted(var transfer)
+    signal transferCancelled(var transfer)
+    signal serverStarted()
+    signal serverStopped()
+    signal sendCompleted()
+    signal sendFailed(string message)
+
+    function isReady(): bool {
+        return Config.ready
+    }
+
+    function getEffectiveDownloadPath(): string {
+        let path = root.downloadPath || ""
+        path = path.replace(/^file:\/\//, "").trim()
+        if (path.startsWith("~/")) {
+            path = Directories.home.toString().replace(/^file:\/\//, "") + path.substring(1)
+        } else if (path.startsWith("$HOME/")) {
+            path = Directories.home.toString().replace(/^file:\/\//, "") + path.substring(5)
+        }
+        const currentHome = Directories.home.toString().replace(/^file:\/\//, "")
+        const outsideCurrentHome = path.startsWith("/home/")
+            && path !== currentHome && !path.startsWith(currentHome + "/")
+        if (!path || !path.startsWith("/") || outsideCurrentHome)
+            path = Directories.localSendDownloadPath.replace(/^file:\/\//, "")
+        return path
+    }
+
+    function addDroppedFile(fileUrl: string): void {
+        const rawPath = String(fileUrl)
+        let cleanPath = rawPath
+        if (rawPath.startsWith("file://")) {
+            cleanPath = rawPath.slice(7)
+            try {
+                cleanPath = decodeURIComponent(cleanPath)
+            } catch (error) {
+            }
+        }
+        const name = cleanPath.split("/").pop() || "unknown"
+        for (let i = 0; i < root.droppedFiles.length; i++) {
+            if (root.droppedFiles[i].path === cleanPath) return
+        }
+        const newList = root.droppedFiles.slice()
+        newList.push({ path: cleanPath, name: name, size: 0 })
+        root.droppedFiles = newList
+    }
+
+    function removeDroppedFile(index: int): void {
+        const newList = root.droppedFiles.slice()
+        newList.splice(index, 1)
+        root.droppedFiles = newList
+    }
+
+    function clearDroppedFiles(): void {
+        root.droppedFiles = []
+    }
+
+    function removePendingTransfer(transfer: var): void {
+        root.pendingTransfers = root.pendingTransfers.filter(item => item !== transfer)
+    }
+
+    function formatFileSize(bytes: int): string {
+        if (bytes < 1024) return bytes + " B"
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB"
+        return (bytes / (1024 * 1024)).toFixed(1) + " MB"
+    }
+
+    function sendToDevice(deviceIp: string): void {
+        if (!root.available || root.sending || root.droppedFiles.length === 0) return
+        if (!root.pyteAvailable) {
+            root.sendFailed(Translation.tr("The Python pyte package is required to send with LocalSend."))
+            return
+        }
+        root.sending = true
+        root._sendFailureReported = false
+
+        const filePaths = root.droppedFiles.map(f => f.path)
+        const cmd = ["python3", root.bridgeScriptPath, "send", "--target", deviceIp]
+        for (let i = 0; i < filePaths.length; i++) {
+            cmd.push(filePaths[i])
+        }
+        root._pendingSendCommand = cmd
+
+        // The official CLI binds one port for send/receive/discovery
+        // combined: free it from the receive daemon before the one-shot
+        // send instance starts, then bring the daemon back in sendProc.onExited.
+        const serverStarting = serverStartDelayTimer.running
+        root._sendWasReceiving = root.serverRunning || serverStarting
+        if (serverStarting)
+            serverStartDelayTimer.stop()
+        if (root.serverRunning)
+            root.stopServer()
+        else
+            sendStartDelayTimer.restart()
+    }
+
+    Timer {
+        id: sendStartDelayTimer
+        interval: 100
+        repeat: false
+        onTriggered: {
+            if (!root.sending || root._pendingSendCommand.length === 0)
+                return;
+            sendProc.command = root._pendingSendCommand
+            root._pendingSendCommand = []
+            sendProc.running = true
+        }
+    }
+
+    function cancelSend(): void {
+        sendStartDelayTimer.stop()
+        sendProc.running = false
+        root._pendingSendCommand = []
+        root.sending = false
+        if (root._sendWasReceiving) {
+            root._sendWasReceiving = false
+            root.startServer()
+        }
+    }
+
+    function startScanning(): void {
+        if (!root.available) return
+        if (root.scanning) {
+            scanProc.running = false
+        }
+        root.scanning = true
+        root.discoveredDevices = []
+        scanProc.running = true
+    }
+
+    function stopScanning(): void {
+        scanProc.running = false
+        root.scanning = false
+    }
+
+
+    // Process to scan for LocalSend devices on the network using custom hybrid script
+    Process {
+        id: scanProc
+        running: false
+        command: ["python3", root.helperDir + "/localsend_scan.py"]
+        stdout: SplitParser {
+            onRead: line => {
+                if (!line || line.trim().length === 0) return
+                try {
+                    const device = JSON.parse(line)
+                    if (device && device.ip) {
+                        const newList = root.discoveredDevices.slice()
+                        let found = false
+                        for (let i = 0; i < newList.length; i++) {
+                            if (newList[i].ip === device.ip) { found = true; break }
+                        }
+                        if (!found) {
+                            newList.push({
+                                ip: device.ip,
+                                alias: device.alias || device.name || "Unknown",
+                                name: device.alias || device.name || "Unknown",
+                                type: device.type || "desktop",
+                                model: device.model || "",
+                                port: device.port || 53317
+                            })
+                            root.discoveredDevices = newList
+                        }
+                    }
+                } catch (e) {
+                    console.error("[LocalSend] Failed to parse scan line:", line, e)
+                }
+            }
+        }
+        onExited: (exitCode, exitStatus) => {
+            console.log("[LocalSend] Scan completed or exited.")
+            root.scanning = false
+        }
+    }
+
+
+    // Check if the official localsend-cli binary is available (see
+    // scripts/localsend/install_localsend_cli.sh) and, if so, its version.
+    Process {
+        id: checkAvailabilityProc
+        running: true
+        command: ["bash", "-c", "BIN=\"$HOME/.local/bin/localsend-cli\"; [ -x \"$BIN\" ] || BIN=\"$(command -v localsend-cli 2>/dev/null)\"; [ -n \"$BIN\" ] && [ -x \"$BIN\" ] && exec \"$BIN\" --version"]
+        environment: ({
+            "PATH": Directories.home.toString().replace(/^file:\/\//, "") + "/.local/bin:/usr/local/bin:/usr/bin:/bin"
+        })
+        property string versionOutput: ""
+        stdout: StdioCollector {
+            onStreamFinished: {
+                checkAvailabilityProc.versionOutput = this.text.trim()
+            }
+        }
+        onExited: (exitCode, exitStatus) => {
+            root.available = (exitCode === 0)
+            // "localsend-cli 1.18.0" -> "1.18.0"
+            root.cliVersion = root.available ? versionOutput.replace(/^localsend-cli\s+/, "") : ""
+            if (root.available && root.autoStart) {
+                Qt.callLater(() => {
+                    root.startServer()
+                })
+            }
+        }
+    }
+
+    // pyte is only needed to drive the send flow's full-screen device list
+    // (see services/localsend_bridge.py); receiving works without it.
+    Process {
+        id: pyteCheckProc
+        running: true
+        command: ["python3", "-c", "import pyte"]
+        onExited: (exitCode, exitStatus) => {
+            root.pyteAvailable = (exitCode === 0)
+            root.pyteChecked = true
+        }
+    }
+
+    function installOfficialCli(): void {
+        if (root.installing) return
+        root.installing = true
+        root.installLog = ""
+        root.installError = ""
+        installCliProc.running = true
+    }
+
+    Process {
+        id: installCliProc
+        running: false
+        command: ["bash", root.installerScriptPath]
+        stdout: SplitParser {
+            onRead: line => {
+                root.installLog += line + "\n"
+            }
+        }
+        stderr: SplitParser {
+            onRead: line => {
+                root.installLog += line + "\n"
+            }
+        }
+        onExited: (exitCode, exitStatus) => {
+            root.installing = false
+            if (exitCode !== 0) {
+                root.installError = Translation.tr("Installation failed (exit code %1). See the log above.").arg(String(exitCode))
+            }
+            checkAvailabilityProc.running = true
+        }
+    }
+
+    // Notification process for incoming transfers
+    Process {
+        id: notificationProc
+        running: false
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (this.text === "") return
+                const action = this.text.trim()
+                console.log("[LocalSend] Notification action received:", action)
+                if (action === "accept") {
+                    root.acceptTransfer()
+                } else if (action === "deny") {
+                    root.denyTransfer()
+                }
+            }
+        }
+    }
+
+    function showIncomingNotification(transfer: var): void {
+        const fileNames = transfer.files.map(f => f.name).join(", ")
+        notificationProc.command = [
+            "notify-send",
+            Translation.tr("LocalSend: Incoming Transfer"),
+            Translation.tr("From: %1\n%2").arg(transfer.sender).arg(fileNames),
+            "-A", "accept=" + Translation.tr("Accept"),
+            "-A", "deny=" + Translation.tr("Reject"),
+            "-a", "LocalSend",
+        ]
+        notificationProc.running = true
+    }
+
+    // Main receive server process
+    Process {
+        id: receiveProc
+        running: false
+        stdinEnabled: true
+
+        environment: ({
+            "PATH": Directories.home.toString().replace(/^file:\/\//, "") + "/.local/bin:/usr/local/bin:/usr/bin:/bin"
+        })
+
+        stdout: SplitParser {
+            onRead: line => {
+                if (!line || line.trim().length === 0) return
+                try {
+                    const event = JSON.parse(line)
+                    root.handleLocalSendEvent(event)
+                } catch (e) {
+                    console.error("[LocalSend] Failed to parse JSON:", line, e)
+                }
+            }
+        }
+
+        stderr: SplitParser {
+            onRead: line => {
+                console.log("[LocalSend] stderr:", line)
+            }
+        }
+
+        onExited: (exitCode, exitStatus) => {
+            console.log("[LocalSend] Server stopped with exit code:", exitCode)
+            root.serverStopped()
+            if (root.sending && root._pendingSendCommand.length > 0)
+                sendStartDelayTimer.restart()
+        }
+    }
+
+    // Send process for sending files to a device
+    Process {
+        id: sendProc
+        running: false
+
+        environment: ({
+            "PATH": Directories.home.toString().replace(/^file:\/\//, "") + "/.local/bin:/usr/local/bin:/usr/bin:/bin"
+        })
+
+        stdout: SplitParser {
+            onRead: line => {
+                if (!line || line.trim().length === 0) return
+                console.log("[LocalSend] Send progress:", line)
+                try {
+                    const event = JSON.parse(line)
+                    if (event.event === "completed" || event.event === "saved" || event.event === "done") {
+                        root.clearDroppedFiles()
+                        root.sendCompleted()
+                    } else if (event.event === "cancelled" || event.event === "error" || event.error) {
+                        root._sendFailureReported = true
+                        root.sendFailed(event.message || event.error || "Transfer failed")
+                    }
+                } catch (e) {
+                    console.log("[LocalSend] Failed to parse send line:", line, e)
+                }
+            }
+        }
+
+        stderr: SplitParser {
+            onRead: line => {
+                console.log("[LocalSend] Send stderr:", line)
+            }
+        }
+
+        onExited: (exitCode, exitStatus) => {
+            root.sending = false
+            root._pendingSendCommand = []
+            if (exitCode !== 0 && !root._sendFailureReported)
+                root.sendFailed("Send process exited with code: " + exitCode)
+            if (root._sendWasReceiving) {
+                root._sendWasReceiving = false
+                root.startServer()
+            }
+        }
+    }
+
+    function handleLocalSendEvent(event: var): void {
+        if (!event || !event.event) return
+        console.log("[LocalSend] Event:", JSON.stringify(event))
+
+        switch (event.event) {
+            case "ready":
+                root.serverStarted()
+                break
+
+            case "device":
+                console.log("[LocalSend] Device registered:", event.alias, event.ip)
+                if (event.ip) {
+                    const newList = root.discoveredDevices.slice()
+                    let found = false
+                    for (let i = 0; i < newList.length; i++) {
+                        if (newList[i].ip === event.ip) { found = true; break }
+                    }
+                    if (!found) {
+                        newList.push({
+                            ip: event.ip,
+                            alias: event.alias || event.name || "Unknown",
+                            name: event.alias || event.name || "Unknown",
+                            type: event.type || "desktop",
+                            port: event.port || 53317
+                        })
+                        root.discoveredDevices = newList
+                    }
+                }
+                break
+
+            case "incoming":
+                const transfer = {
+                    sender: event.sender || "Unknown",
+                    senderIp: event.ip || "",
+                    files: event.files || [],
+                    isText: event.is_text || false,
+                    sessionId: ""
+                }
+                root.currentTransfer = transfer
+                root.pendingTransfers = root.pendingTransfers.concat([transfer])
+                root.transferRequested(transfer)
+                Stage.GlobalStates.localSendPopupTransfer = transfer
+                Stage.GlobalStates.localSendPopupOpen = true
+                if (root.showNotifications && !root.preferPopupOverNotification)
+                    root.showIncomingNotification(transfer)
+                break
+
+            case "text":
+                const textTransfer = {
+                    sender: event.sender || "Unknown",
+                    text: event.text || "",
+                    timestamp: Date.now()
+                }
+                root.transferCompleted(textTransfer)
+                if (root.showNotifications) {
+                    Spawn.run([
+                        "notify-send",
+                        Translation.tr("LocalSend: Text Received"),
+                        Translation.tr("From: %1\n%2").arg(event.sender || "Unknown").arg(event.text || ""),
+                        "-a", "LocalSend",
+                    ])
+                }
+                root.currentTransfer = null
+                Stage.GlobalStates.localSendPopupOpen = false
+                Stage.GlobalStates.localSendPopupTransfer = null
+                break
+
+            case "saved":
+                console.log("[LocalSend] Transfer saved:", event.summary || event.sender || "unknown")
+                const destinationPath = root.getEffectiveDownloadPath()
+                const fileTransfer = {
+                    sender: event.sender || "Unknown",
+                    fileCount: event.fileCount || 0,
+                    failedCount: event.failedCount || 0,
+                    sizeDisplay: event.sizeDisplay || "",
+                    duration: event.duration || "",
+                    filePath: destinationPath,
+                    timestamp: Date.now()
+                }
+                root.transferCompleted(fileTransfer)
+                if (root.showNotifications) {
+                    const countText = event.fileCount === 1 ? Translation.tr("1 file") : Translation.tr("%1 files").arg(String(event.fileCount || 0))
+                    let body = Translation.tr("From: %1\n%2 (%3) saved to %4").arg(event.sender || "Unknown").arg(countText).arg(event.sizeDisplay || "").arg(destinationPath)
+                    if (event.failedCount) {
+                        body += "\n" + Translation.tr("%1 file(s) failed").arg(String(event.failedCount))
+                    }
+                    Spawn.run([
+                        "notify-send",
+                        Translation.tr("LocalSend: File Received"),
+                        body,
+                        "-a", "LocalSend",
+                    ])
+                }
+                root.removePendingTransfer(root.currentTransfer)
+                root.currentTransfer = null
+                Stage.GlobalStates.localSendPopupOpen = false
+                Stage.GlobalStates.localSendPopupTransfer = null
+                break
+
+            case "cancelled":
+                root.transferCancelled(event)
+                root.removePendingTransfer(root.currentTransfer)
+                root.currentTransfer = null
+                Stage.GlobalStates.localSendPopupOpen = false
+                Stage.GlobalStates.localSendPopupTransfer = null
+                break
+        }
+    }
+
+    Timer {
+        id: serverStartDelayTimer
+        interval: 500
+        onTriggered: {
+            const effectiveDownloadPath = root.getEffectiveDownloadPath()
+            receiveProc.command = ["python3", root.bridgeScriptPath, "receive", "--output", effectiveDownloadPath]
+            console.log("[LocalSend] Starting receive server with output dir:", effectiveDownloadPath)
+            receiveProc.running = true
+        }
+    }
+
+    function startServer(): void {
+        if (!root.available) {
+            Spawn.run(["notify-send", Translation.tr("LocalSend Error"), Translation.tr("The official localsend-cli binary was not found. Install it from Settings → Devices & Phone → LocalSend."), "-a", "LocalSend"])
+            console.warn("[LocalSend] localsend-cli is not available")
+            return
+        }
+        if (root.sending)
+            return
+        if (receiveProc.running || serverStartDelayTimer.running) {
+            console.log("[LocalSend] Server is already running")
+            return
+        }
+        serverStartDelayTimer.restart()
+    }
+
+    function stopServer(): void {
+        console.log("[LocalSend] Stopping receive server...")
+        receiveProc.running = false
+    }
+
+    function restartServer(): void {
+        if (receiveProc.running) {
+            console.log("[LocalSend] Restarting server...")
+            receiveProc.running = false
+            // Wait for process to stop, then start again
+            restartDelayTimer.restart()
+        } else if (root.available) {
+            root.startServer()
+        }
+    }
+
+    Timer {
+        id: restartDelayTimer
+        interval: 2000 // 2 seconds delay
+        repeat: false
+        onTriggered: {
+            console.log("[LocalSend] Restarting server after delay...")
+            root.startServer()
+        }
+    }
+
+    function acceptTransfer(): void {
+        console.log("[LocalSend] Accepting transfer...")
+        if (root.currentTransfer === null) {
+            Stage.GlobalStates.localSendPopupTransfer = null
+            Stage.GlobalStates.localSendPopupOpen = false
+            return
+        }
+        const transfer = root.currentTransfer
+        receiveProc.write("y\n")
+        root.removePendingTransfer(transfer)
+        root.currentTransfer = null
+        Stage.GlobalStates.localSendPopupTransfer = null
+        Stage.GlobalStates.localSendPopupOpen = false
+    }
+
+    function denyTransfer(): void {
+        console.log("[LocalSend] Denying transfer...")
+        if (root.currentTransfer === null) {
+            Stage.GlobalStates.localSendPopupTransfer = null
+            Stage.GlobalStates.localSendPopupOpen = false
+            return
+        }
+        const transfer = root.currentTransfer
+        root.currentTransfer = null
+        root.removePendingTransfer(transfer)
+        receiveProc.write("n\n")
+        Stage.GlobalStates.localSendPopupTransfer = null
+        Stage.GlobalStates.localSendPopupOpen = false
+    }
+
+    function getPendingTransfers(): list<var> {
+        return root.pendingTransfers
+    }
+
+    function clearPendingTransfers(): void {
+        root.pendingTransfers = []
+    }
+
+    onDownloadPathChanged: {
+        // Restart server if download path changed while running
+        if (receiveProc.running) {
+            console.log("[LocalSend] Download path changed, restarting server...")
+            root.restartServer()
+        }
+    }
+
+    IpcHandler {
+        target: "localsend"
+
+        function start(): void {
+            root.startServer()
+        }
+
+        function stop(): void {
+            root.stopServer()
+        }
+
+        function status(): string {
+            return JSON.stringify({
+                available: root.available,
+                running: root.serverRunning,
+                cliVersion: root.cliVersion,
+                pyteAvailable: root.pyteAvailable,
+                downloadPath: root.getEffectiveDownloadPath()
+            })
+        }
+    }
+}

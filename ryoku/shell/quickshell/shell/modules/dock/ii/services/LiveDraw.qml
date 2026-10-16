@@ -3,9 +3,10 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
+import Ryoku.Ui.Singletons
 
 import stage.modules.common
-import "../draw/StrokeGeometry.js" as StrokeGeometry
+import stage.modules.common.draw as StageDraw
 import ".."
 
 /**
@@ -297,39 +298,71 @@ Singleton {
     }
 
     // ── Which sheet ─────────────────────────────────────────────────────────
+    function workspaceFor(screenName, specialOnly) {
+        const name = String(screenName ?? "");
+        const workspaces = Wm.workspaces ?? [];
+        for (const workspace of workspaces) {
+            if (workspace.active === true && String(workspace.output ?? "") === name
+                    && (workspace.special === true) === specialOnly)
+                return workspace;
+        }
+        if (specialOnly)
+            return null;
+
+        const output = Wm.outputByName(name);
+        const activeKey = String(output?.activeWorkspace ?? "");
+        if (activeKey.length > 0) {
+            const active = Wm.workspaceById(activeKey) ?? Wm.workspaceByName(activeKey);
+            if (active && active.special !== true)
+                return active;
+        }
+        const focused = Wm.focusedWorkspace;
+        return focused && focused.special !== true
+                && (name.length === 0 || String(focused.output ?? "") === name) ? focused : null;
+    }
+
+    function activeWorkspaceFor(screenName) {
+        const workspace = root.workspaceFor(screenName, false);
+        return String(workspace?.id ?? workspace?.name ?? "-1");
+    }
+
+    function workspaceOrderFor(screenName, workspaceId) {
+        const name = String(screenName ?? "");
+        const key = String(workspaceId ?? "");
+        const workspaces = (Wm.workspaces ?? []).filter(workspace =>
+            workspace.special !== true && String(workspace.output ?? "") === name);
+        for (let i = 0; i < workspaces.length; i++) {
+            if (String(workspaces[i].id ?? workspaces[i].name ?? "") === key)
+                return i;
+        }
+        return -1;
+    }
+
     /**
      * The key for the workspace in front of a given monitor.
      *
-     * Monitor as well as workspace, because Hyprland numbers workspaces across the whole
-     * layout: two monitors never show the same one, but a sheet drawn on an external
-     * display should not reappear on the laptop's because the numbers happened to line up
-     * after a hotplug.
+     * The monitor is part of the key because workspace identities are not
+     * necessarily global across every provider. Ink drawn on one display must
+     * never reappear on another after a hotplug.
      */
     function keyFor(screenName) {
         const name = String(screenName ?? "");
         void root.board;
         void root.sheetMode;
-        // The board is a sheet of its own, and a screen-fixed sheet ignores workspaces.
         if (root.boardOn)
             return `${name}:board`;
         if (root.sheetMode === "screen")
             return `${name}:screen`;
-        // A special workspace open over the monitor is what is in front, so it is the
-        // sheet being drawn on — a scratchpad annotated and closed again should not
-        // leave its ink on the workspace underneath.
         const special = root.specialFor(name);
         if (special.length > 0)
             return `${name}:${special}`;
-        const monitor = (HyprlandData.monitors ?? []).find(m => String(m?.name ?? "") === name);
-        if (monitor)
-            return `${name}:${monitor.activeWorkspace?.id ?? -1}`;
-        return `${name}:${(HyprlandData.monitors ?? [])[0]?.activeWorkspace?.id ?? -1}`;
+        return `${name}:${root.activeWorkspaceFor(name)}`;
     }
 
     /// The special workspace open on a monitor, or "".
     function specialFor(screenName) {
-        const monitor = (HyprlandData.monitors ?? []).find(entry => entry?.name === screenName);
-        return String(monitor?.specialWorkspace?.name ?? "");
+        const workspace = root.workspaceFor(screenName, true);
+        return String(workspace?.name ?? workspace?.id ?? "");
     }
 
     /// Whether any sheet on one monitor has ink. A screen with nothing drawn on any of its
@@ -361,6 +394,14 @@ Singleton {
                 count++;
         }
         return count;
+    }
+
+    readonly property bool focusedSheetHasInk: {
+        void root.revision;
+        let output = String(Wm.focusedOutput ?? "");
+        if (output.length === 0)
+            output = String(Quickshell.screens[0]?.name ?? "");
+        return output.length > 0 && root.hasInk(root.keyFor(output));
     }
 
     // ── Editing ─────────────────────────────────────────────────────────────
@@ -441,7 +482,7 @@ Singleton {
         const existing = root.sheets[key] ?? [];
         if (existing.length === 0)
             return 0;
-        const kept = existing.filter(stroke => !StrokeGeometry.strokeHitBy(stroke, x, y, radius));
+        const kept = existing.filter(stroke => !StageDraw.StrokeGeometry.strokeHitBy(stroke, x, y, radius));
         if (kept.length === existing.length)
             return 0;
         root._remember(key);

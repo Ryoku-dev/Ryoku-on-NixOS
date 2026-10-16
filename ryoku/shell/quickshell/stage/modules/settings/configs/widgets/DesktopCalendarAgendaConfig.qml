@@ -66,6 +66,35 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("calendar_agenda")
 
+            ContentSubsectionLabel { text: Translation.tr("Week starts on") }
+            ConfigSelectionArray {
+                currentValue: Config.options.background.widgets.calendar_agenda.weekStart ?? "monday"
+                onSelected: value => Config.options.background.widgets.calendar_agenda.weekStart = value
+                options: [
+                    { "displayName": Translation.tr("Monday"), "value": "monday" },
+                    { "displayName": Translation.tr("Sunday"), "value": "sunday" }
+                ]
+            }
+
+            ContentSubsectionLabel { text: Translation.tr("Events shown") }
+            ConfigSelectionArray {
+                currentValue: Config.options.background.widgets.calendar_agenda.maxEvents ?? 0
+                onSelected: value => Config.options.background.widgets.calendar_agenda.maxEvents = value
+                options: [
+                    { "displayName": Translation.tr("All"), "value": 0 },
+                    { "displayName": "1", "value": 1 },
+                    { "displayName": "3", "value": 3 },
+                    { "displayName": "5", "value": 5 }
+                ]
+            }
+
+            ConfigSwitch {
+                buttonIcon: "more_horiz"
+                text: Translation.tr("Show event dots")
+                checked: Config.options.background.widgets.calendar_agenda.showEventDots ?? true
+                onCheckedChanged: Config.options.background.widgets.calendar_agenda.showEventDots = checked
+            }
+
             DesktopWidgetVisualOptions {
                 Layout.fillWidth: true
             }

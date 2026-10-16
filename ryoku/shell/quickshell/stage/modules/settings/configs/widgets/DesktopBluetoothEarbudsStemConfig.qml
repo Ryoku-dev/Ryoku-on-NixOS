@@ -3,7 +3,6 @@ import QtQuick.Layouts
 import stage.services
 import stage.modules.common
 import stage.modules.common.widgets
-import stage.modules.settings.configs.widgets
 
 ContentPage {
     id: root
@@ -66,8 +65,33 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("bluetooth_earbuds_stem")
 
-            DesktopWidgetVisualOptions {
-                Layout.fillWidth: true
+            ContentSubsectionLabel {
+                text: Translation.tr("Display")
+            }
+
+            ConfigSwitch {
+                buttonIcon: "label"
+                text: Translation.tr("Show Device Name")
+                checked: Config.options.background.widgets.bluetooth_earbuds_stem.showDeviceName ?? true
+                onCheckedChanged: Config.options.background.widgets.bluetooth_earbuds_stem.showDeviceName = checked
+            }
+
+            ConfigSwitch {
+                buttonIcon: "percent"
+                text: Translation.tr("Show Battery Percentage")
+                checked: Config.options.background.widgets.bluetooth_earbuds_stem.showPercentage ?? true
+                onCheckedChanged: Config.options.background.widgets.bluetooth_earbuds_stem.showPercentage = checked
+            }
+
+            ContentSubsectionLabel {
+                text: Translation.tr("Visual Options")
+            }
+
+            ConfigSwitch {
+                buttonIcon: "wb_sunny"
+                text: Translation.tr("Enable Shadows")
+                checked: Config.options.background.widgets.enableShadows ?? true
+                onCheckedChanged: Config.options.background.widgets.enableShadows = checked
             }
         }
     }

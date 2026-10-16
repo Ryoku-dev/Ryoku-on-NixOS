@@ -1,5 +1,6 @@
 import stage.modules.common.functions
 import stage.modules.common.widgets
+import stage.services
 import ".."
 import Qt5Compat.GraphicalEffects
 import QtQuick
@@ -13,7 +14,7 @@ Rectangle {
     property real maxWidth
     property real maxHeight
     property bool blur: false
-    property string blurText: "Image hidden"
+    property string blurText: Translation.tr("Image hidden")
 
     property string imageDecodePath: Directories.cliphistDecode
     property string imageDecodeFileName: root.decodeFileNameOf(root.entry)

@@ -2,9 +2,8 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
-import Quickshell.Io
 import stage
+import Ryoku.Ui.Singletons
 import stage.services
 import stage.modules.common
 import stage.modules.common.functions
@@ -34,7 +33,7 @@ AbstractBackgroundWidget {
     readonly property string action1Key: options.action1 ?? "ai_chat"
     readonly property string action2Key: options.action2 ?? "music_rec"
     readonly property string action3Key: options.action3 ?? "search"
-    readonly property string aiLogo: options.aiLogo ?? "gemini"
+    readonly property string aiLogo: options.aiLogo ?? "rashin"
     readonly property string outerLeftIcon: options.outerLeftIcon ?? "spark"
     readonly property bool useMaterialSymbolForOuterLeftIcon: options.useMaterialSymbolForOuterLeftIcon ?? false
     readonly property string outerLeftIconSource: {
@@ -58,20 +57,12 @@ AbstractBackgroundWidget {
     }
     implicitHeight: 60 * root.contentScale
 
-    readonly property string activeAiLogo: {
-        if (root.aiLogo !== "auto") return root.aiLogo;
-        const provider = String(Ai.currentProvider || "").toLowerCase();
-        if (provider === "google") return "gemini";
-        if (provider === "openrouter") return "openrouter";
-        if (provider === "deepseek") return "deepseek";
-        if (provider === "opencode") return "opencode";
-        if (provider === "ollama") return "ollama";
-        return "gemini";
-    }
+    readonly property string activeAiLogo: root.aiLogo === "auto" ? "rashin" : root.aiLogo
 
     function getAiIconAsset() {
         const logo = root.activeAiLogo;
-        if (logo === "google") return "google.svg";
+        if (logo === "rashin") return "";
+        if (logo === "google") return "";
         if (logo === "openai") return "ai-openai-symbolic.svg";
         if (logo === "claude") return "bootstrap_claude.svg";
         if (logo === "deepseek") return "deepseek-symbolic.svg";
@@ -102,7 +93,7 @@ AbstractBackgroundWidget {
         if (key === "translator") return { defaultIcon: "translate", iconAsset: "", label: Translation.tr("Translator") };
         if (key === "wallpapers") return { defaultIcon: "wallpaper", iconAsset: "", label: Translation.tr("Wallpapers") };
         if (key === "phone") return { defaultIcon: "smartphone", iconAsset: "", label: Translation.tr("Phone / KDE Connect") };
-        if (key === "cheatsheet") return { defaultIcon: "help", iconAsset: "", label: Translation.tr("Cheatsheet") };
+        if (key === "cheatsheet") return { defaultIcon: "apps", iconAsset: "", label: Translation.tr("Kit") };
         if (key === "clipboard") return { defaultIcon: "content_paste", iconAsset: "", label: Translation.tr("Clipboard") };
         if (key === "color_picker") return { defaultIcon: "colorize", iconAsset: "", label: Translation.tr("Color Picker") };
         if (key === "screenshot") return { defaultIcon: "crop", iconAsset: "", label: Translation.tr("Screenshot") };
@@ -111,40 +102,30 @@ AbstractBackgroundWidget {
 
     function runAction(key) {
         if (key === "search") {
-            GlobalStates.toggleOverview();
+            Spawn.run(["ryoku-shell", "launcher"]);
         } else if (key === "music_rec") {
-            SongRec.toggleRunning();
+            Spawn.run(["ryoku-cmd-songrec"]);
         } else if (key === "ai_chat") {
-            Ai.surfaceRouter.open({
-                surface: "sidebar",
-                focusIntent: "composer"
-            });
+            Spawn.run(["ryoku-shell", "ask", "chat"]);
         } else if (key === "translator") {
-            Persistent.states.sidebar.policies.tab = 1;
-            GlobalStates.sidebarLeftOpen = true;
+            Spawn.run(["ryoku-shell", "quicksettings"]);
         } else if (key === "wallpapers") {
-            Persistent.states.sidebar.policies.tab = 3;
-            GlobalStates.sidebarLeftOpen = true;
+            Spawn.run(["ryogami", "wallpaper", "ui"]);
         } else if (key === "phone") {
-            Persistent.states.sidebar.policies.tab = 5;
-            GlobalStates.sidebarLeftOpen = true;
+            Spawn.run(["ryoku-kit", "phone"]);
         } else if (key === "cheatsheet") {
-            cheatsheetIpc.running = true;
+            Spawn.run(["ryoku-kit"]);
         } else if (key === "clipboard") {
-            GlobalStates.openSearchPanel("clipboard", "", "");
+            Spawn.run(["ryoku-shell", "clipboard"]);
         } else if (key === "color_picker") {
-            Quickshell.execDetached(["hyprpicker", "-a"]);
+            Spawn.run(["ryoku-cmd-color-picker"]);
         } else if (key === "screenshot") {
-            Quickshell.execDetached(["qs", "-p", Quickshell.shellPath(""), "ipc", "call", "region", "screenshot"]);
+            Spawn.run(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
         } else {
-            GlobalStates.toggleOverview();
+            Spawn.run(["ryoku-shell", "launcher"]);
         }
     }
 
-    Process {
-        id: cheatsheetIpc
-        command: ["qs", "ipc", "-c", "ii", "call", "cheatsheet", "toggle"]
-    }
 
     StyledDropShadow {
         target: outerCapsule
@@ -194,7 +175,7 @@ AbstractBackgroundWidget {
                     color: root.colOuterText
                 }
 
-                onClicked: GlobalStates.toggleOverview()
+                onClicked: Spawn.run(["ryoku-shell", "launcher"])
             }
 
             Item {

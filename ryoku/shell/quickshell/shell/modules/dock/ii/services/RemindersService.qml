@@ -671,7 +671,7 @@ Singleton {
     function notify(item, missed, silent): void {
         root.clearNotification(item.id);
         const id = Notifications.publishInternalNotification({
-            appName: "Reminder",
+            appName: Translation.tr("Reminder"),
             appIcon: "appointment-soon",
             summary: missed ? Translation.tr("Missed reminder · %1").arg(item.title || Translation.tr("Reminder"))
                 : (item.title || Translation.tr("Reminder")),
@@ -694,7 +694,7 @@ Singleton {
 
     function notifyEarly(item): void {
         Notifications.publishInternalNotification({
-            appName: "Reminder",
+            appName: Translation.tr("Reminder"),
             appIcon: "appointment-soon",
             summary: Translation.tr("Coming up · %1").arg(item.title || Translation.tr("Reminder")),
             body: root.whenText(item, new Date()),

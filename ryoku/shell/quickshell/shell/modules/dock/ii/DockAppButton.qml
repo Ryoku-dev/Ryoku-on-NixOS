@@ -24,15 +24,14 @@ DockButton {
 
     readonly property bool appIsActive: focusedWindowIndex >= 0
 
-    /// Activation alone is not enough: Hyprland leaves it set on a window sent to another
-    /// workspace with a silent move, which kept the dot lit under an app that had left
-    /// the screen. It has to still be somewhere the user can see it.
+    // Activation alone is not enough: a window moved to another workspace can
+    // remain marked active briefly. The dot only stays lit while it is visible.
     readonly property int focusedWindowIndex: {
         if (!appToplevel || !appToplevel.toplevels)
             return -1;
         for (let i = 0; i < appToplevel.toplevels.length; i++) {
             const toplevel = appToplevel.toplevels[i];
-            if (toplevel?.activated && HyprlandData.toplevelOnScreen(toplevel))
+            if (toplevel?.activated && WmData.toplevelOnScreen(toplevel))
                 return i;
         }
         return -1;
@@ -214,7 +213,7 @@ DockButton {
         }
     }
 
-    // Drag overlay (dots-hyprland pattern)
+    // Drag overlay keeps click and reorder gestures on one pointer grab.
     Loader {
         anchors.fill: parent
         z: 10

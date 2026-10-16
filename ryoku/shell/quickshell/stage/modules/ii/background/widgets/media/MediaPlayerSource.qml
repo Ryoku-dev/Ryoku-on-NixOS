@@ -49,20 +49,18 @@ Item {
     // motion runs only while nothing covers the widget, or while the media UI
     // is open in front of the user.
     readonly property bool hasActiveWindows: {
-        const monName = Wm.focusedOutput ?? "";
-        var activeWsId = 0;
-        if (GlobalStates.screenLocked && GlobalStates.lockSavedWorkspaces?.[monName])
-            activeWsId = GlobalStates.lockSavedWorkspaces[monName];
-        else if (GlobalStates.editMode && GlobalStates.editModeMonitor === monName && GlobalStates._editSavedWorkspace > 0)
-            activeWsId = GlobalStates._editSavedWorkspace;
-        else {
-            activeWsId = HyprlandData.activeWorkspace ? HyprlandData.activeWorkspace.id : 1;
-            if (activeWsId > 1000000)
-                activeWsId = 2147483647 - activeWsId;
+        const output = root.parent?.monitorName || Wm.focusedOutput || "";
+        const workspaces = Wm.workspaces ?? [];
+        let active = null;
+        for (let i = 0; i < workspaces.length; i++) {
+            if (workspaces[i].active === true && (output === "" || workspaces[i].output === output)) {
+                active = workspaces[i];
+                break;
+            }
         }
-        if (!HyprlandData || !HyprlandData.windowList)
-            return false;
-        return HyprlandData.windowList.some(w => w.workspace && w.workspace.id === activeWsId);
+        if (!active)
+            active = Wm.focusedWorkspace;
+        return active ? Wm.windowsOnWorkspace(active.id).length > 0 : false;
     }
     readonly property bool onScreen: root.active && (root.ignoreWindows || !root.hasActiveWindows || GlobalStates.mediaControlsOpen)
     readonly property bool animate: root.isPlaying && root.onScreen
@@ -128,9 +126,9 @@ Item {
 
     readonly property color artDominantColor: {
         if (!root.useAlbumColors)
-            return Appearance.colors.colPrimary;
-        const raw = colorQuantizer?.colors[0] ?? Appearance.colors.colPrimary;
-        return ColorUtils.mix(raw, Appearance.colors.colPrimaryContainer, 0.8) || Appearance.m3colors.m3secondaryContainer;
+            return WidgetColorScheme.colors.colPrimary;
+        const raw = colorQuantizer?.colors[0] ?? WidgetColorScheme.colors.colPrimary;
+        return ColorUtils.mix(raw, WidgetColorScheme.colors.colPrimaryContainer, 0.8) || WidgetColorScheme.m3colors.m3secondaryContainer;
     }
 
     property QtObject albumScheme: AdaptedMaterialScheme {

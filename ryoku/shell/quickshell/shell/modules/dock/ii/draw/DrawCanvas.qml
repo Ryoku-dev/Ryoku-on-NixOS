@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Shapes
 
-import "StrokeGeometry.js" as StrokeGeometry
+import stage.modules.common.draw as StageDraw
 import ".."
 
 /**
@@ -71,8 +71,8 @@ Item {
     }
 
     // ── The layers ──────────────────────────────────────────────────────────
-    readonly property var highlightStrokes: (root.strokes ?? []).filter(s => StrokeGeometry.toolOf(s) === "highlighter")
-    readonly property var inkStrokes: (root.strokes ?? []).filter(s => StrokeGeometry.toolOf(s) !== "highlighter")
+    readonly property var highlightStrokes: (root.strokes ?? []).filter(s => StageDraw.StrokeGeometry.toolOf(s) === "highlighter")
+    readonly property var inkStrokes: (root.strokes ?? []).filter(s => StageDraw.StrokeGeometry.toolOf(s) !== "highlighter")
 
     onWidthChanged: root.refresh()
     onHeightChanged: root.refresh()
@@ -127,16 +127,16 @@ Item {
             return;
         }
 
-        const tool = StrokeGeometry.toolOf(stroke);
+        const tool = StageDraw.StrokeGeometry.toolOf(stroke);
         if (tool === "laser") {
-            liveOver.show(stroke, StrokeGeometry.strokeSvg(stroke), 1);
+            liveOver.show(stroke, StageDraw.StrokeGeometry.strokeSvg(stroke), 1);
             liveUnder.hide();
             root._liveShown = true;
             return;
         }
-        const svg = StrokeGeometry.strokeSvg(stroke);
+        const svg = StageDraw.StrokeGeometry.strokeSvg(stroke);
         if (tool === "highlighter") {
-            liveUnder.show(stroke, svg, StrokeGeometry.alphaOf(stroke));
+            liveUnder.show(stroke, svg, StageDraw.StrokeGeometry.alphaOf(stroke));
             liveOver.hide();
         } else {
             liveOver.show(stroke, svg, 1);
@@ -164,9 +164,9 @@ Item {
     // ── The laser ───────────────────────────────────────────────────────────
     /// Hands a finished laser stroke to the fading trail. It is never committed.
     function releaseLaser(stroke) {
-        const svg = StrokeGeometry.strokeSvg(stroke);
+        const svg = StageDraw.StrokeGeometry.strokeSvg(stroke);
         if (svg.d.length > 0)
-            laserTrail.append({ path: svg.d, ink: String(stroke.color), lineWidth: StrokeGeometry.drawnWidth(stroke) });
+            laserTrail.append({ path: svg.d, ink: String(stroke.color), lineWidth: StageDraw.StrokeGeometry.drawnWidth(stroke) });
         root.clearLive();
     }
 
@@ -181,15 +181,15 @@ Item {
         if (points.length === 0)
             return;
 
-        ctx.globalAlpha = StrokeGeometry.alphaOf(stroke);
+        ctx.globalAlpha = StageDraw.StrokeGeometry.alphaOf(stroke);
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
 
-        if (StrokeGeometry.isShape(stroke)) {
+        if (StageDraw.StrokeGeometry.isShape(stroke)) {
             ctx.strokeStyle = stroke.color;
-            ctx.lineWidth = StrokeGeometry.drawnWidth(stroke);
+            ctx.lineWidth = StageDraw.StrokeGeometry.drawnWidth(stroke);
             ctx.beginPath();
-            for (const line of StrokeGeometry.shapePolylines(stroke)) {
+            for (const line of StageDraw.StrokeGeometry.shapePolylines(stroke)) {
                 ctx.moveTo(line[0].x, line[0].y);
                 for (let i = 1; i < line.length; ++i)
                     ctx.lineTo(line[i].x, line[i].y);
@@ -199,9 +199,9 @@ Item {
             return;
         }
 
-        const flat = StrokeGeometry.flattened(points);
-        if (StrokeGeometry.isVariable(stroke)) {
-            const shape = StrokeGeometry.outline(flat, stroke.width, stroke.usePressure);
+        const flat = StageDraw.StrokeGeometry.flattened(points);
+        if (StageDraw.StrokeGeometry.isVariable(stroke)) {
+            const shape = StageDraw.StrokeGeometry.outline(flat, stroke.width, stroke.usePressure);
             ctx.fillStyle = stroke.color;
             ctx.beginPath();
             ctx.moveTo(shape[0].x, shape[0].y);
@@ -213,7 +213,7 @@ Item {
             return;
         }
 
-        const width = StrokeGeometry.drawnWidth(stroke);
+        const width = StageDraw.StrokeGeometry.drawnWidth(stroke);
         // A tap with no travel is a dot, and a dot drawn as a zero-length line is
         // nothing at all — which is how a stylus tap used to vanish.
         if (flat.length === 1) {
@@ -304,7 +304,7 @@ Item {
         function show(stroke, svg, alpha) {
             liveShape.filled = svg.filled;
             liveShape.ink = Qt.alpha(stroke.color, alpha);
-            liveShape.lineWidth = StrokeGeometry.drawnWidth(stroke);
+            liveShape.lineWidth = StageDraw.StrokeGeometry.drawnWidth(stroke);
             livePath.path = svg.d;
             liveShape.visible = true;
         }
@@ -396,7 +396,7 @@ Item {
                 }
                 NumberAnimation {
                     to: 0
-                    duration: root.laserFadeMs
+                    duration: Appearance.reducedMotion ? 0 : root.laserFadeMs
                     easing.type: Easing.InCubic
                 }
                 // Gone once invisible. The oldest goes first, and every stroke fades for

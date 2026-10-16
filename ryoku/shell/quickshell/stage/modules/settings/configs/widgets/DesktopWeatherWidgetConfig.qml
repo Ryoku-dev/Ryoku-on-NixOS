@@ -8,6 +8,12 @@ import stage.modules.settings.configs.widgets
 ContentPage {
     id: root
     forceWidth: false
+    property string widget: ""
+    readonly property bool isExpressive: widget === "iiWeatherExpressive"
+        || widget === "weather_expressive"
+    readonly property string targetWidgetId: isExpressive
+        ? "weather_expressive" : "weather_default"
+    readonly property var weatherOptions: Config.options.background.widgets.weather
 
     signal goBack()
 
@@ -50,32 +56,32 @@ ContentPage {
         Item {
             Layout.fillWidth: true
             implicitHeight: 250
-            visible: !Config.isWidgetActive("weather_default") && !Config.isWidgetActive("weather_expressive")
+            visible: !Config.isWidgetActive(root.targetWidgetId)
 
             PagePlaceholder {
                 anchors.fill: parent
                 icon: "cloud_off"
                 shape: MaterialShape.Shape.Circle
                 title: Translation.tr("Weather widget disabled")
-                description: Translation.tr("Enable a weather widget in Desktop Widgets settings to use this page.")
+                description: Translation.tr("Enable this weather widget in Desktop Widgets settings to use this page.")
             }
         }
 
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 4
-            visible: Config.isWidgetActive("weather_default") || Config.isWidgetActive("weather_expressive")
+            visible: Config.isWidgetActive(root.targetWidgetId)
 
             ContentSubsection {
-                visible: Config.isWidgetActive("weather_expressive")
+                visible: root.isExpressive
                 title: Translation.tr("Background shape")
                 icon: "category"
                 Layout.fillWidth: true
 
                 ConfigSelectionArray {
-                    currentValue: Config.options.background.widgets.weather.backgroundShape
+                    currentValue: root.weatherOptions.backgroundShape ?? "Cookie9Sided"
                     onSelected: newValue => {
-                        Config.options.background.widgets.weather.backgroundShape = newValue;
+                        root.weatherOptions.backgroundShape = newValue;
                     }
                     options: ["Circle", "Pill", "Oval", "SemiCircle", "Cookie4Sided", "Cookie6Sided", "Cookie7Sided", "Cookie9Sided", "Cookie12Sided", "Ghostish", "Puffy", "PuffyDiamond", "Bun", "SoftBurst", "Sunny", "VerySunny"].map(icon => {
                         return {
@@ -86,13 +92,11 @@ ContentPage {
                     })
                 }
             }
-
-            ContentSubsectionLabel {
-                visible: !Config.isWidgetActive("weather_expressive") && Config.isWidgetActive("weather_default")
-                text: Translation.tr("No custom settings available for the Default style.")
-            }
-            Item {
-                Layout.preferredHeight: 16
+            DesktopWeatherBehaviorOptions {
+                options: root.weatherOptions
+                expressiveColors: true
+                temperature: true
+                icon: !root.isExpressive
             }
 
             // Visual Options (Shadows)
@@ -100,7 +104,8 @@ ContentPage {
                 Layout.fillWidth: true
                 spacing: 4
 
-                DesktopWidgetVisualOptions {
+                DesktopWeatherShadowOptions {
+                    innerShadow: true
                     Layout.fillWidth: true
                 }
             }

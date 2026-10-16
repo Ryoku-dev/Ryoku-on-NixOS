@@ -3,6 +3,7 @@ singleton BitwiseFuzzy 1.0 BitwiseFuzzy.qml
 singleton ColorUtils 1.0 ColorUtils.qml
 singleton EditModeLogic 1.0 EditModeLogic.qml
 singleton FileUtils 1.0 FileUtils.qml
+UtilityFiles 1.0 UtilityFiles.js
 singleton Fuzzy 1.0 Fuzzy.qml
 singleton Levendist 1.0 Levendist.qml
 singleton ProcUtils 1.0 ProcUtils.qml

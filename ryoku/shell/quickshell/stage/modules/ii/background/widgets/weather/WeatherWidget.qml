@@ -12,13 +12,15 @@ AbstractBackgroundWidget {
 
     configEntryName: "weather"
 
-    readonly property bool expressive: Config.options.background.widgets.weather.expressiveColors ?? false
+    readonly property var options: Config.options.background.widgets.weather
+    readonly property string colorScheme: (options.expressiveColors ?? false)
+        ? "expressive_primary" : "default"
 
     implicitWidth: 240
     implicitHeight: 240
 
-    readonly property color cardBgColor: expressive ? Appearance.colors.colPrimaryContainer : Appearance.colors.colSurfaceContainerHigh
-    readonly property color iconColor: expressive ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colOnSurfaceVariant
+    readonly property color cardBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
+    readonly property color accentColor: WidgetColorScheme.getAccentColor(colorScheme)
 
     StyledDropShadow {
         id: shadowEffect
@@ -55,10 +57,11 @@ AbstractBackgroundWidget {
             anchors.fill: parent
 
             StyledText {
+                visible: root.options.showTemperature ?? true
                 font.pixelSize: 88
                 font.family: Appearance.font.family.main
                 font.weight: Font.Black
-                color: Appearance.colors.colPrimary
+                color: root.accentColor
                 text: Weather.data?.temp ? Weather.data.temp.replace("°C", "°").replace("°F", "°") : ""
                 anchors.right: parent.right
                 anchors.top: parent.top
@@ -68,6 +71,7 @@ AbstractBackgroundWidget {
             }
 
             Image {
+                visible: root.options.showIcon ?? true
                 source: WeatherIcons.getWeatherIcon(Weather.data?.wCode ?? 113, false)
                 sourceSize: Qt.size(130, 130)
                 anchors.left: parent.left

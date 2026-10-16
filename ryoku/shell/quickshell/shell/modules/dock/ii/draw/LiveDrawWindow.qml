@@ -9,7 +9,7 @@ import Quickshell.Wayland
 import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.services
-import "StrokeGeometry.js" as StrokeGeometry
+import stage.modules.common.draw as StageDraw
 import ".."
 import Ryoku.Ui.Singletons
 
@@ -55,7 +55,9 @@ PanelWindow {
     readonly property bool hasInk: root.strokes.length > 0
 
     /// The tray, the board and the modes belong to the focused monitor only.
-    readonly property bool focusedHere: String((Wm.focusedOutput ?? "")) === root.screenName
+    readonly property bool focusedHere: String(Wm.focusedOutput ?? "").length > 0
+        ? String(Wm.focusedOutput) === root.screenName
+        : String(Quickshell.screens[0]?.name ?? "") === root.screenName
 
     /// A shell surface covers the screen. Ink floating over an app drawer or an overview
     /// would be ink annotating the wrong thing, so the whole layer goes.
@@ -94,21 +96,23 @@ PanelWindow {
      * and both for `slidefade`. Read from the compositor's animation table through
      * the seam (LiveDraw), never assumed.
      */
-    readonly property int activeWorkspaceId: {
-        const monitor = (HyprlandData.monitors ?? []).find(m => String(m?.name ?? "") === root.screenName);
-        const id = Number(monitor?.activeWorkspace?.id ?? "");
-        return isFinite(id) ? id : -1;
+    readonly property string activeWorkspaceId: {
+        void Wm.outputs;
+        void Wm.workspaces;
+        return LiveDraw.activeWorkspaceFor(root.screenName);
     }
+    readonly property int activeWorkspaceOrder: LiveDraw.workspaceOrderFor(root.screenName, root.activeWorkspaceId)
     /// A special workspace has a sheet of its own, swapped without travelling.
     readonly property string specialName: {
-        void HyprlandData.monitors;
+        void Wm.workspaces;
         return LiveDraw.specialFor(root.screenName);
     }
 
-    property int lastWorkspaceId: -1
+    property string lastWorkspaceId: ""
+    property int lastWorkspaceOrder: -1
     /// The sheet being left behind, painted only for the length of the transition.
     property var outgoingStrokes: []
-    /// +1 when the new workspace is further along, which is the way Hyprland moves.
+    /// +1 when the new workspace follows the old one in the provider's order.
     property int slideDirection: 1
     /// 0 at the start of the transition, 1 at rest.
     property real slideProgress: 1
@@ -127,8 +131,11 @@ PanelWindow {
 
     onActiveWorkspaceIdChanged: {
         const from = root.lastWorkspaceId;
+        const fromOrder = root.lastWorkspaceOrder;
         root.lastWorkspaceId = root.activeWorkspaceId;
-        if (from < 0 || root.activeWorkspaceId < 0 || from === root.activeWorkspaceId)
+        root.lastWorkspaceOrder = root.activeWorkspaceOrder;
+        if (from.length === 0 || from === "-1" || root.activeWorkspaceId === "-1"
+                || from === root.activeWorkspaceId)
             return;
         // Sheets that do not belong to a workspace do not travel with one.
         if (root.specialName.length > 0 || LiveDraw.boardOn || LiveDraw.sheetMode === "screen")
@@ -143,7 +150,8 @@ PanelWindow {
             return;
 
         root.outgoingStrokes = previous;
-        root.slideDirection = root.activeWorkspaceId > from ? 1 : -1;
+        root.slideDirection = fromOrder >= 0 && root.activeWorkspaceOrder >= 0
+            ? (root.activeWorkspaceOrder > fromOrder ? 1 : -1) : 1;
         root.slideProgress = 0;
         slideAnimation.restart();
     }
@@ -154,13 +162,16 @@ PanelWindow {
         property: "slideProgress"
         from: 0
         to: 1
-        duration: LiveDraw.workspaceSlideMs
+        duration: Appearance.reducedMotion ? 0 : LiveDraw.workspaceSlideMs
         easing.type: Easing.BezierSpline
         easing.bezierCurve: LiveDraw.workspaceSlideCurve
         onFinished: root.outgoingStrokes = []
     }
 
-    Component.onCompleted: root.lastWorkspaceId = root.activeWorkspaceId
+    Component.onCompleted: {
+        root.lastWorkspaceId = root.activeWorkspaceId;
+        root.lastWorkspaceOrder = root.activeWorkspaceOrder;
+    }
 
     // ── Feedback ────────────────────────────────────────────────────────────
     property string statusText: ""
@@ -172,7 +183,7 @@ PanelWindow {
 
     /// Says something that outlives the toolbar: a save, a copy, a capture.
     function announce(title, body, icon) {
-        Quickshell.execDetached(["notify-send", "-a", "Live draw",
+        Quickshell.execDetached(["notify-send", "-a", Translation.tr("Live draw"),
                                  String(title), String(body), "-i", String(icon)]);
     }
 
@@ -213,8 +224,8 @@ PanelWindow {
                 Quickshell.execDetached(["sh", "-c", 'grim -o "$1" - | wl-copy --type image/png', "sh", root.screenName]);
             else
                 Quickshell.execDetached(["sh", "-c",
-                    'd="$XDG_PICTURES_DIR"; [ -z "$d" ] && d="$HOME/Pictures"; d="$d/Screenshots"; mkdir -p "$d"; f="$d/Screenshot_$(date +%Y-%m-%d_%H.%M.%S).png"; grim ${1:+-o "$1"} "$f" && grim ${1:+-o "$1"} - | wl-copy --type image/png',
-                    "sh", root.screenName]);
+                    'd="$2/Screenshots"; mkdir -p "$d"; f="$d/Screenshot_$(date +%Y-%m-%d_%H.%M.%S).png"; grim ${1:+-o "$1"} "$f" && wl-copy --type image/png < "$f"',
+                    "sh", root.screenName, FileUtils.trimFileProtocol(Directories.pictures)]);
             captureRestore.restart();
         }
     }
@@ -259,7 +270,7 @@ PanelWindow {
             root.statusFor(Translation.tr("Nothing drawn yet."));
             return;
         }
-        const bounds = StrokeGeometry.boundsOf(root.strokes);
+        const bounds = StageDraw.StrokeGeometry.boundsOf(root.strokes);
         if (!bounds)
             return;
         let dir;
@@ -340,7 +351,7 @@ PanelWindow {
             root.statusFor(Translation.tr("Nothing drawn yet."));
             return;
         }
-        const svg = StrokeGeometry.documentSvg(root.strokes);
+        const svg = StageDraw.StrokeGeometry.documentSvg(root.strokes);
         const path = `${root.drawingsDir}/Drawing_${root.stamp()}.svg`;
         dirMaker.then = () => {
             svgFile.path = path;
@@ -384,14 +395,6 @@ PanelWindow {
         }
     }
 
-    // Kept for callers of the older counter.
-    Connections {
-        target: GlobalStates
-        function onLiveDrawSaveRequestChanged() {
-            if (root.focusedHere)
-                root.renderInk("notes");
-        }
-    }
 
     // ── Surface ─────────────────────────────────────────────────────────────
     visible: root.shown

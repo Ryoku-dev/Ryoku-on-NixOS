@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Shapes
-import Quickshell
+import Ryoku.Ui.Singletons
 import stage.modules.common.functions
 import stage.services
 import "../clock"
@@ -18,9 +18,21 @@ import ".."
 UtilityTile {
     id: tile
 
-    // The disk is polled only while someone shows it.
-    Component.onCompleted: ResourceUsage.requestMetric("disk", true)
-    Component.onDestruction: ResourceUsage.requestMetric("disk", false)
+    property bool metricRequested: false
+
+    function syncMetricRequest() {
+        if (tile.metricRequested === tile.live)
+            return;
+        tile.metricRequested = tile.live;
+        ResourceUsage.requestMetric("disk", tile.metricRequested);
+    }
+
+    Component.onCompleted: tile.syncMetricRequest()
+    Component.onDestruction: {
+        if (tile.metricRequested)
+            ResourceUsage.requestMetric("disk", false);
+    }
+    onLiveChanged: tile.syncMetricRequest()
 
     readonly property string mount: Config.options?.resources?.diskMount ?? "/"
     readonly property bool ready: ResourceUsage.diskTotal > 1
@@ -49,7 +61,7 @@ UtilityTile {
         : Translation.tr("Disk usage")
 
     function activate() {
-        Quickshell.execDetached(["xdg-open", tile.mount]);
+        Spawn.run(["xdg-open", tile.mount]);
         return true;
     }
 

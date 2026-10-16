@@ -11,6 +11,10 @@ AbstractBackgroundWidget {
     id: root
 
     configEntryName: "bluetooth_fill_cards"
+    readonly property int maxDevices: Config.options.background.widgets.bluetooth_fill_cards.maxDevices ?? 4
+    readonly property bool showDeviceName: Config.options.background.widgets.bluetooth_fill_cards.showDeviceName ?? true
+    readonly property bool showPercentage: Config.options.background.widgets.bluetooth_fill_cards.showPercentage ?? true
+    readonly property bool expressive: Config.options.background.widgets.bluetooth_fill_cards.expressiveColors ?? false
 
     // Dynamic list combining Bluetooth connected devices + KDE Connect phone device
     readonly property var activeDevices: {
@@ -45,7 +49,7 @@ AbstractBackgroundWidget {
         return list;
     }
 
-    readonly property int deviceCount: Math.max(1, activeDevices.length)
+    readonly property int deviceCount: Math.max(1, Math.min(root.maxDevices, activeDevices.length))
 
     implicitWidth: deviceCount * 240
     implicitHeight: 240
@@ -63,7 +67,7 @@ AbstractBackgroundWidget {
     Rectangle {
         id: outerCardBg
         anchors.fill: parent
-        color: WidgetColorScheme.tintBackground(root.expressive ? Appearance.colors.colPrimaryContainer : Appearance.colors.colSurfaceContainerLow)
+        color: WidgetColorScheme.tintBackground(root.expressive ? WidgetColorScheme.colors.colPrimaryContainer : WidgetColorScheme.colors.colSurfaceContainerLow)
         radius: Appearance.rounding.windowRounding
 
         layer.enabled: true
@@ -100,16 +104,16 @@ AbstractBackgroundWidget {
 
                     // Color palette according to device type (phone -> colTertiary, media -> colPrimary, others -> colSecondary)
                     readonly property color accentColor: {
-                        if (root.expressive) return Appearance.colors.colOnPrimaryContainer
-                        if (deviceType === "phone") return Appearance.colors.colTertiary
-                        if (deviceType === "headset" || deviceType === "headphones" || deviceType === "media" || deviceType === "audio-card") return Appearance.colors.colPrimary
-                        return Appearance.colors.colSecondary
+                        if (root.expressive) return WidgetColorScheme.colors.colOnPrimaryContainer
+                        if (deviceType === "phone") return WidgetColorScheme.colors.colTertiary
+                        if (deviceType === "headset" || deviceType === "headphones" || deviceType === "media" || deviceType === "audio-card") return WidgetColorScheme.colors.colPrimary
+                        return WidgetColorScheme.colors.colSecondary
                     }
                     readonly property color cardContainerColor: {
-                        if (root.expressive) return Appearance.colors.colSurfaceContainerHigh
-                        if (deviceType === "phone") return Appearance.colors.colTertiaryContainer
-                        if (deviceType === "headset" || deviceType === "headphones" || deviceType === "media" || deviceType === "audio-card") return Appearance.colors.colPrimaryContainer
-                        return Appearance.colors.colSecondaryContainer
+                        if (root.expressive) return WidgetColorScheme.colors.colSurfaceContainerHigh
+                        if (deviceType === "phone") return WidgetColorScheme.colors.colTertiaryContainer
+                        if (deviceType === "headset" || deviceType === "headphones" || deviceType === "media" || deviceType === "audio-card") return WidgetColorScheme.colors.colPrimaryContainer
+                        return WidgetColorScheme.colors.colSecondaryContainer
                     }
 
                     Rectangle {
@@ -152,7 +156,7 @@ AbstractBackgroundWidget {
                                 Layout.preferredWidth: 54
                                 Layout.preferredHeight: 54
                                 radius: width / 2
-                                color: Appearance.colors.colSurfaceContainerHighest
+                                color: WidgetColorScheme.colors.colSurfaceContainerHighest
                                 opacity: 0.95
 
                                 StyledDropShadow {
@@ -164,7 +168,7 @@ AbstractBackgroundWidget {
                                     anchors.centerIn: parent
                                     text: deviceCard.deviceSymbol
                                     iconSize: 28
-                                    color: Appearance.colors.colOnSurfaceVariant
+                                    color: WidgetColorScheme.colors.colOnSurfaceVariant
                                 }
                             }
 
@@ -173,6 +177,7 @@ AbstractBackgroundWidget {
                             // Device Title & Subtitle Text
                             StyledText {
                                 Layout.fillWidth: true
+                                visible: root.showDeviceName
                                 text: deviceCard.deviceName
                                 font.pixelSize: 17
                                 font.weight: Font.DemiBold
@@ -192,6 +197,7 @@ AbstractBackgroundWidget {
                             // Large Fill Percentage Text
                             Text {
                                 Layout.topMargin: 4
+                                visible: root.showPercentage
                                 text: deviceCard.batteryPercent + "%"
                                 color: deviceCard.accentColor
                                 font {

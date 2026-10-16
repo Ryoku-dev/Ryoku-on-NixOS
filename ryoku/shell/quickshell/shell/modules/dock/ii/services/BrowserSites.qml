@@ -4,6 +4,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import stage.modules.common.functions
 import ".."
 
@@ -548,7 +549,7 @@ Singleton {
         const command = root.privateWindowCommand(url);
         if (command.length === 0)
             return false;
-        Quickshell.execDetached(command);
+        Spawn.run(command);
         return true;
     }
 

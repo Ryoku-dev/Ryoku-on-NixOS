@@ -1,11 +1,10 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
 import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.services
+import Ryoku.Ui.Singletons
 import "../clock"
-import "UtilityFiles.js" as UtilityFiles
 import ".."
 
 /**
@@ -21,24 +20,30 @@ UtilityTile {
 
     readonly property string folder: {
         const chosen = String(Config.options?.dock?.utilities?.files?.folder ?? "").trim();
-        return FileUtils.trimFileProtocol(chosen.length > 0 ? chosen : Directories.downloads);
+        const fallback = FileUtils.trimFileProtocol(Directories.downloads);
+        return UtilityFiles.expandPath(chosen.length > 0 ? chosen : fallback, Directories.home);
     }
-    readonly property bool isDownloads: tile.folder === FileUtils.trimFileProtocol(Directories.downloads)
+    readonly property bool isDownloads: tile.folder === UtilityFiles.expandPath(Directories.downloads, Directories.home)
     readonly property string folderName: UtilityFiles.baseName(tile.folder) || tile.folder
     readonly property var latest: feed.recent.length > 0 ? feed.recent[0] : null
     readonly property int newCount: feed.newCount
     readonly property bool fresh: tile.newCount > 0
-    readonly property date now: DateTime.clock.date
+    readonly property date now: tile.live ? DateTime.clock.date : new Date(0)
     readonly property bool panelOpen: tile.host?.panelOpen ?? false
 
     function markSeen() {
         if (Persistent.ready)
             Persistent.states.dockUtilities.filesSeen = Date.now();
     }
-    onPanelOpenChanged: if (tile.panelOpen) tile.markSeen()
-    Component.onCompleted: {
+    function initializeSeen() {
         if (Persistent.ready && (Persistent.states.dockUtilities.filesSeen ?? 0) <= 0)
             tile.markSeen();
+    }
+    onPanelOpenChanged: if (tile.panelOpen) tile.markSeen()
+    Component.onCompleted: tile.initializeSeen()
+    Connections {
+        target: Persistent
+        function onReadyChanged() { tile.initializeSeen(); }
     }
 
     function exportPaths() {
@@ -51,6 +56,7 @@ UtilityTile {
         folder: tile.folder
         seenAfter: Persistent.ready ? (Persistent.states.dockUtilities.filesSeen ?? 0) : 0
         limit: 9
+        active: tile.live
     }
 
     surfaceColor: tile.fresh ? ClockStyle.colPrimaryContainer : ClockStyle.colSurfaceHigh
@@ -67,9 +73,9 @@ UtilityTile {
     ]
     function menuAction(actionId) {
         if (actionId === "openFolder")
-            Quickshell.execDetached(["xdg-open", tile.folder]);
+            Spawn.run(["xdg-open", tile.folder]);
         else if (actionId === "openLatest" && tile.latest)
-            Quickshell.execDetached(["xdg-open", tile.latest.path]);
+            Spawn.run(["xdg-open", tile.latest.path]);
     }
 
     // ── Square ──────────────────────────────────────────────────────────

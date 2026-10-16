@@ -8,6 +8,7 @@ import Quickshell.Widgets
 import Quickshell.Wayland
 import Ryoku.Ui.Singletons
 import stage.modules.common.widgets
+import stage as Stage
 import shell.modules.stage.frame
 import "."
 
@@ -92,9 +93,8 @@ Scope {
             dockHeight: fullDockH,
             dockThickness: opts.isVertical ? fullDockW : fullDockH,
             // What windows keep clear of. The full-width styles sit flush on
-            // the screen edge, so it is the tray alone: the shadow room in
-            // crossPad stacked on top of Hyprland's gaps_out left windows a
-            // shadowPad further from the dock than from the screen's sides.
+            // the screen edge, so it is the tray alone: adding the outer gap
+            // to crossPad would leave windows a shadow width too far away.
             unmagnifiedThickness: opts.isVertical ? baseContentW + (isFullWidth ? 0 : crossPad) : baseContentH + (isFullWidth ? 0 : crossPad),
             surfaceMargin: floatingPad,
             // Main-axis room the tray keeps from the window edge for its shadow.
@@ -199,27 +199,22 @@ Scope {
 
             readonly property bool anySidebarOpen: GlobalStates.effectiveLeftOpen || GlobalStates.effectiveRightOpen
 
-            readonly property bool isSpecialWorkspaceOpen: {
-                if (!dockRoot.screen) return false;
-                const monitor = HyprlandData.monitors.find(m => m.name === dockRoot.screen.name);
-                if (!monitor || !monitor.specialWorkspace) return false;
-                return monitor.specialWorkspace.name !== "";
+            readonly property var activeOutputWorkspaces: {
+                const screenName = String(dockRoot.screen?.name ?? "");
+                return (Wm.workspaces ?? []).filter(workspace =>
+                    workspace.active === true
+                        && (String(workspace.output ?? "") === screenName
+                            || (String(workspace.output ?? "") === ""
+                                && screenName === String(Wm.focusedOutput ?? ""))));
             }
+            readonly property bool isSpecialWorkspaceOpen:
+                dockRoot.activeOutputWorkspaces.some(workspace => workspace.special === true)
 
             // ── Fullscreen & hover detection ─────────────────────────────────────
             readonly property bool hasFullscreenWindow: {
-                const screenName = dockRoot.screen?.name ?? "";
-                if (HyprlandData.monitorHasFullscreenWindow(screenName)) return true;
-                const monitor = HyprlandData.monitors.find(m => m?.name === screenName);
-                if (!monitor) return false;
-                const wsId = monitor.activeWorkspace?.id;
-                const specialWsId = monitor.specialWorkspace?.id;
-                if (wsId === undefined && !specialWsId) return false;
-                return (HyprlandData.windowList ?? []).some(w => {
-                    const wId = w?.workspace?.id;
-                    const matchesWs = (wId === wsId || (specialWsId && wId === specialWsId));
-                    return matchesWs && (w.fullscreen === true || w.fullscreen === 1 || (w.fullscreenMode !== undefined && w.fullscreenMode > 0));
-                });
+                if (dockRoot.activeOutputWorkspaces.some(workspace => workspace.fullscreen === true))
+                    return true;
+                return Wm.outputHasFullscreen(String(dockRoot.screen?.name ?? ""));
             }
 
             readonly property bool blockHoverInFullscreen: Config.options?.dock?.blockHoverInFullscreen ?? true
@@ -238,12 +233,9 @@ Scope {
             property bool reveal: !GlobalStates.presetBarHidden && !dockRoot.realGnomeOverviewOpen && (dock.pinned || GlobalStates.editMode || DockPresets.isSwitchingPreset || (!anySidebarOpen && ((dockRoot.effectiveHoverToReveal && dockMouseArea.containsMouse) || (dockContent.requestDockShow) || (workspaceEmpty && !isSpecialWorkspaceOpen && (!(Config.options?.dock.showOnlyOnFocusedMonitor ?? false) || isFocusedMonitor)))))
             property bool positionChanging: false
 
-            // TODO: check for multi-monitor situations
-            readonly property bool workspaceEmpty: {
-                const wsId = HyprlandData.activeWorkspace?.id ?? -1
-                if (wsId === -1) return true
-                return HyprlandData.hyprlandClientsForWorkspace(wsId).length === 0
-            }
+            readonly property bool workspaceEmpty:
+                !dockRoot.activeOutputWorkspaces.some(workspace =>
+                    workspace.occupied === true || Number(workspace.windows ?? 0) > 0)
 
             readonly property bool isFocusedMonitor: {
                 return (Wm.focusedOutput ?? "") === (dockRoot.screen ? dockRoot.screen.name : "")
@@ -269,7 +261,7 @@ Scope {
             readonly property var sizing: dock.computeSizes(dockRoot.sizingInputs(dockRoot.concaveCornerRadius))
             function sizingInputs(concaveCornerRadius) {
                 return {
-                    gapsOut: Appearance.sizes.hyprlandGapsOut,
+                    gapsOut: Appearance.sizes.windowGapsOut,
                     isDynamicIsland: dockRoot.isDynamicIsland,
                     isHug: dockRoot.isHug,
                     isFullWidth: dockRoot.isFullWidth,
@@ -365,6 +357,30 @@ Scope {
             WlrLayershell.namespace: "quickshell:dock"
             WlrLayershell.layer: WlrLayer.Overlay
             color: "transparent"
+            readonly property bool popupOnThisScreen: {
+                const popup = Stage.GlobalStates.iiDockPopup;
+                const popupScreen = popup?.anchorItem?.QsWindow?.window?.screen?.name ?? "";
+                return popup !== null && popup.isClosing !== true
+                    && String(popupScreen) === String(dockRoot.screen?.name ?? "");
+            }
+            // Exclusive is pointer-transparent only when the neutral capability says so.
+            WlrLayershell.keyboardFocus: !dockRoot.popupOnThisScreen ? WlrKeyboardFocus.None
+                : Wm.caps.keyboardGrabSharesPointer === true ? WlrKeyboardFocus.Exclusive
+                : WlrKeyboardFocus.OnDemand
+            Item {
+                id: popupKeySink
+                anchors.fill: parent
+                z: -1000
+                focus: dockRoot.popupOnThisScreen
+                Keys.onEscapePressed: event => {
+                    event.accepted = true;
+                    Stage.GlobalStates.dismissIiDockPopup();
+                }
+            }
+            onPopupOnThisScreenChanged: {
+                if (dockRoot.popupOnThisScreen)
+                    Qt.callLater(() => popupKeySink.forceActiveFocus(Qt.PopupFocusReason));
+            }
 
             // The window keeps room beyond the tray (lens headroom, shadow,
             // the concave corners) that windows now reach under, since the

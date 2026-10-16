@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import stage.modules.common.widgets
 import stage.services
 import "../clock"
-import "UtilityFiles.js" as UtilityFiles
+import stage.modules.common.functions
 import ".."
 
 /** The shelf's files: take one by dragging it, or all of them from the strip on top. */
@@ -43,7 +43,10 @@ ColumnLayout {
             id: allDrag
             anchors.fill: parent
             paths: panel.items
-            onDragFinished: if (panel.removeAfterDrag) panel.tile?.clear()
+            onDragFinished: action => {
+                if (panel.removeAfterDrag && action !== Qt.IgnoreAction)
+                    panel.tile?.clear();
+            }
         }
     }
 
@@ -54,8 +57,8 @@ ColumnLayout {
         showAge: false
         removable: true
         onRemoveRequested: path => panel.tile?.remove(path)
-        onDragged: path => {
-            if (panel.removeAfterDrag)
+        onDragged: (path, action) => {
+            if (panel.removeAfterDrag && action !== Qt.IgnoreAction)
                 panel.tile?.remove(path);
         }
     }

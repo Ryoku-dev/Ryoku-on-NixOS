@@ -81,6 +81,13 @@ Item {
             if (dragActive) {
                 dragActive = false
                 if (root.dockContent) root.dockContent.endItemDrag()
+                return
+            }
+            if (event.button === Qt.LeftButton) {
+                if (weatherMenu.active && !weatherMenu.isClosing)
+                    weatherMenu.close()
+                else
+                    weatherMenu.open()
             }
         }
         onCanceled: {
@@ -95,14 +102,14 @@ Item {
         id: weatherTooltip
         parentItem: root
         text: root.weatherDesc + " · " + root.cityName
-        showTooltip: dragOverlay.containsMouse
+        showTooltip: dragOverlay.containsMouse && !weatherMenu.active
         tooltipOffset: -root.dotMargin
     }
 
     property bool weatherHovered: false
 
-    readonly property string cityName: Weather.data?.city || "Unknown"
-    readonly property string weatherDesc: Weather.data?.wDesc || "Unknown"
+    readonly property string cityName: Weather.data?.city || Translation.tr("Unknown")
+    readonly property string weatherDesc: Translation.tr(Weather.data?.wDesc || "Unknown")
     readonly property string temperature: (Weather.data?.temp || "--").replace(/[^-0-9]/g, "") + "°"
 
     function get3DWeatherIconName(wCode) {
@@ -125,10 +132,7 @@ Item {
 
     readonly property string iconFileName: get3DWeatherIconName(Weather.data?.wCode)
     readonly property bool isSunny: iconFileName === "sun.png" || iconFileName === "sun-clouds.png"
-    readonly property bool isNight: {
-        const hour = DateTime.clock.date.getHours();
-        return hour >= 18 || hour < 6;
-    }
+    readonly property bool isNight: Weather.data?.isDay === false
 
     function getGradientColor(position) {
         if (root.isSunny) {
@@ -142,6 +146,301 @@ Item {
             }
             return position === 0 ? "#a1a1a1" : "#6b6b6b"; // Day Grey
         }
+    }
+
+    function materialWeatherSymbol(code, day) {
+        const value = Number(code);
+        if (value === 0)
+            return day ? "clear_day" : "clear_night";
+        if (value === 1 || value === 2)
+            return day ? "partly_cloudy_day" : "partly_cloudy_night";
+        if (value === 3)
+            return "cloud";
+        if (value === 45 || value === 48)
+            return "foggy";
+        if (value >= 95)
+            return "thunderstorm";
+        if ((value >= 71 && value <= 77) || value === 85 || value === 86)
+            return "weather_snowy";
+        if ((value >= 51 && value <= 67) || (value >= 80 && value <= 82))
+            return "rainy";
+        return "cloud";
+    }
+
+    Component {
+        id: weatherHeaderIcon
+        Image {
+            source: "file://" + Directories.assetsPath + "/icons/weather/" + root.iconFileName
+            fillMode: Image.PreserveAspectFit
+            sourceSize: Qt.size(width * 2, height * 2)
+            smooth: true
+        }
+    }
+
+    DockContextMenuBase {
+        id: weatherMenu
+        anchorItem: root
+        geometryItem: bgRect
+        menuWidth: 380
+        headerText: root.weatherDesc
+        headerSubtitle: root.cityName + " · " + (Weather.data?.temp || "--")
+        headerIcon: weatherHeaderIcon
+        contentComponent: Component {
+            ColumnLayout {
+                spacing: 12
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: Weather.status === "loading" || Weather.status === "error"
+
+                    MaterialSymbol {
+                        text: Weather.status === "error" ? "cloud_off" : "progress_activity"
+                        iconSize: Appearance.font.pixelSize.large
+                        color: Appearance.colors.colOnSurfaceVariant
+                    }
+                    StyledText {
+                        Layout.fillWidth: true
+                        text: Weather.status === "error"
+                            ? (Weather.errorText || Translation.tr("Error loading weather."))
+                            : Translation.tr("Weather loading…")
+                        wrapMode: Text.Wrap
+                        color: Appearance.colors.colOnSurfaceVariant
+                        font.pixelSize: Appearance.font.pixelSize.small
+                    }
+                    RippleButton {
+                        visible: Weather.status === "error"
+                        implicitWidth: 72
+                        implicitHeight: 34
+                        buttonRadius: Appearance.rounding.full
+                        buttonText: Translation.tr("Retry")
+                        onClicked: Weather.retry()
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: Weather.available
+                    spacing: 10
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        StyledText {
+                            Layout.fillWidth: true
+                            text: Weather.current?.temperature ?? "--"
+                            color: Appearance.colors.colOnSurface
+                            font.pixelSize: Appearance.font.pixelSize.huge
+                            font.weight: Font.DemiBold
+                        }
+                        StyledText {
+                            Layout.fillWidth: true
+                            text: Translation.tr(Weather.current?.condition ?? root.weatherDesc)
+                            color: Appearance.colors.colOnSurfaceVariant
+                            font.pixelSize: Appearance.font.pixelSize.small
+                        }
+                    }
+
+                    Repeater {
+                        model: [
+                            { "unit": "celsius", "label": "°C" },
+                            { "unit": "fahrenheit", "label": "°F" }
+                        ]
+                        delegate: RippleButton {
+                            required property var modelData
+                            implicitWidth: 44
+                            implicitHeight: 34
+                            buttonRadius: Appearance.rounding.full
+                            buttonText: modelData.label
+                            toggled: Weather.activeUnit === modelData.unit
+                            onClicked: if (!toggled) Weather.setUnit(modelData.unit)
+                        }
+                    }
+                    RippleButton {
+                        implicitWidth: 34
+                        implicitHeight: 34
+                        buttonRadius: Appearance.rounding.full
+                        contentItem: MaterialSymbol {
+                            anchors.centerIn: parent
+                            text: "refresh"
+                            iconSize: Appearance.font.pixelSize.normal
+                            color: Appearance.colors.colOnSurface
+                        }
+                        onClicked: Weather.retry()
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: Weather.available
+                    spacing: 6
+
+                    Repeater {
+                        model: (Weather.hourly ?? []).slice(0, 5)
+                        delegate: Rectangle {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            implicitHeight: 76
+                            radius: Appearance.rounding.small
+                            color: Appearance.colors.colLayer2
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 6
+                                spacing: 2
+                                StyledText {
+                                    Layout.fillWidth: true
+                                    text: modelData.time ?? ""
+                                    horizontalAlignment: Text.AlignHCenter
+                                    color: Appearance.colors.colOnLayer2
+                                    font.pixelSize: Appearance.font.pixelSize.smaller
+                                    elide: Text.ElideRight
+                                }
+                                MaterialSymbol {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: root.materialWeatherSymbol(modelData.code, modelData.isDay)
+                                    iconSize: Appearance.font.pixelSize.larger
+                                    color: Appearance.colors.colOnLayer2
+                                }
+                                StyledText {
+                                    Layout.fillWidth: true
+                                    text: modelData.temperature ?? ((modelData.temp ?? "--") + "°")
+                                    horizontalAlignment: Text.AlignHCenter
+                                    color: Appearance.colors.colOnLayer2
+                                    font.pixelSize: Appearance.font.pixelSize.small
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: Weather.available
+                    spacing: 4
+
+                    Repeater {
+                        model: (Weather.daily ?? []).slice(0, 3)
+                        delegate: RowLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: 8
+                            StyledText {
+                                Layout.preferredWidth: 92
+                                text: Translation.tr(modelData.weekday ?? modelData.day ?? "")
+                                color: Appearance.colors.colOnSurface
+                                font.pixelSize: Appearance.font.pixelSize.small
+                            }
+                            MaterialSymbol {
+                                text: root.materialWeatherSymbol(modelData.code, true)
+                                iconSize: Appearance.font.pixelSize.normal
+                                color: Appearance.colors.colOnSurfaceVariant
+                            }
+                            Item { Layout.fillWidth: true }
+                            StyledText {
+                                text: (modelData.high ?? ((modelData.hi ?? "--") + "°"))
+                                    + "  " + (modelData.low ?? ((modelData.lo ?? "--") + "°"))
+                                color: Appearance.colors.colOnSurfaceVariant
+                                font.pixelSize: Appearance.font.pixelSize.small
+                                font.weight: Font.DemiBold
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    visible: Weather.available
+                    implicitHeight: metricsRow.implicitHeight + 16
+                    radius: Appearance.rounding.small
+                    color: Appearance.colors.colLayer2
+
+                    RowLayout {
+                        id: metricsRow
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 8
+
+                        Repeater {
+                            model: [
+                                {
+                                    "icon": "thermostat",
+                                    "label": Translation.tr("Feels"),
+                                    "value": Weather.current?.feelsLike ?? "--"
+                                },
+                                {
+                                    "icon": "humidity_percentage",
+                                    "label": Translation.tr("Humidity"),
+                                    "value": (Weather.current?.humidity ?? "--") + "%"
+                                },
+                                {
+                                    "icon": "air",
+                                    "label": Translation.tr("Wind"),
+                                    "value": Weather.current
+                                        ? (Weather.current.wind + " " + Weather.current.windUnits)
+                                        : "--"
+                                }
+                            ]
+                            delegate: RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 4
+                                MaterialSymbol {
+                                    text: modelData.icon
+                                    iconSize: Appearance.font.pixelSize.normal
+                                    color: Appearance.colors.colOnLayer2
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 0
+                                    StyledText {
+                                        Layout.fillWidth: true
+                                        text: modelData.label
+                                        color: Appearance.colors.colOnLayer2
+                                        font.pixelSize: Appearance.font.pixelSize.smaller
+                                        elide: Text.ElideRight
+                                    }
+                                    StyledText {
+                                        Layout.fillWidth: true
+                                        text: modelData.value
+                                        color: Appearance.colors.colOnLayer2
+                                        font.pixelSize: Appearance.font.pixelSize.small
+                                        font.weight: Font.DemiBold
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                StyledText {
+                    Layout.fillWidth: true
+                    visible: Weather.available && Weather.updatedAt.length > 0
+                    text: Translation.tr("Updated %1").arg(Weather.updatedAt)
+                    horizontalAlignment: Text.AlignRight
+                    color: Appearance.colors.colOnSurfaceVariant
+                    font.pixelSize: Appearance.font.pixelSize.smaller
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: weatherMenu
+        function onActiveChanged() {
+            if (!root.dockContent)
+                return
+            if (weatherMenu.active)
+                root.dockContent.registerContextMenuOpen()
+            else
+                root.dockContent.registerContextMenuClose()
+        }
+    }
+
+    Component.onDestruction: {
+        if (root.dockContent && weatherMenu.active)
+            root.dockContent.registerContextMenuClose()
     }
 
     Rectangle {
@@ -234,6 +533,7 @@ Item {
                     antialiasing: true
 
                     Behavior on anchors.rightMargin {
+                        enabled: !Appearance.reducedMotion
                         NumberAnimation {
                             duration: 700
                             easing.type: Easing.InOutCubic

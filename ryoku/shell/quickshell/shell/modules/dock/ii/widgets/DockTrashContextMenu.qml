@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Ryoku.Ui.Singletons as RyokuUi
 import stage.services
 import ".."
 
@@ -38,7 +39,7 @@ DockContextMenuBase {
 
     onActionTriggered: actionId => {
         if (actionId === "open")
-            Quickshell.execDetached(["xdg-open", "trash:///"]);
+            RyokuUi.Spawn.run(["xdg-open", "trash:///"]);
         else if (actionId === "empty" && root.anchorItem && root.anchorItem.dockContent)
             root.anchorItem.dockContent.emptyTrash();
         root.close();

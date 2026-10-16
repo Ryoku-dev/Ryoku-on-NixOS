@@ -160,10 +160,17 @@ Item {
                 return { title: Translation.tr("No events today"), subtitle: "", icon: "calendar_today" };
 
             case "todo":
-                let task = TickTickService.tasks.length > 0 ? TickTickService.tasks[0] : null;
+                let tasks = Todo.list ?? [];
+                let task = null;
+                for (let i = 0; i < tasks.length; i++) {
+                    if (tasks[i] && tasks[i].done !== true) {
+                        task = tasks[i];
+                        break;
+                    }
+                }
                 return {
-                    title: task ? task.title : Translation.tr("No pending tasks"),
-                    subtitle: task ? Translation.tr("TickTick Inbox") : "",
+                    title: task ? (task.content || task.title || Translation.tr("Task")) : Translation.tr("No pending tasks"),
+                    subtitle: task ? Todo.providerName : "",
                     icon: "check_box"
                 };
 

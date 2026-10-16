@@ -51,8 +51,11 @@ Singleton {
     // Same reasoning as the date parts: the bar's clock draws hours and minutes
     // with different type, so it needs them apart rather than pre-joined.
     readonly property bool use12HourClock: !RyokuUi.TimeFormat.is24h
-    property string hours: clock.date.toLocaleTimeString(
-        RyokuUi.TimeFormat.locale, use12HourClock ? "hh" : "HH")
+    // Qt reads "hh" as 0-23 unless the same pattern carries AM/PM, so the
+    // 12-hour hour is worked out here, as the original does.
+    property string hours: use12HourClock
+        ? ("0" + (clock.date.getHours() % 12 || 12)).slice(-2)
+        : clock.date.toLocaleTimeString(RyokuUi.TimeFormat.locale, "HH")
     property string minutes: clock.date.toLocaleTimeString(RyokuUi.TimeFormat.locale, "mm")
     property string meridiem: use12HourClock
         ? clock.date.toLocaleTimeString(RyokuUi.TimeFormat.locale, "AP").trim()

@@ -1,6 +1,6 @@
 import QtQuick
 import Quickshell
-import "UtilityFiles.js" as UtilityFiles
+import stage.modules.common.functions
 import ".."
 
 /**
@@ -14,10 +14,11 @@ MouseArea {
 
     property var paths: []
     property string dragIcon: "text-x-generic"
-    signal dragFinished()
+    signal dragFinished(int action)
 
     property point pressPoint: Qt.point(0, 0)
     property bool dragging: false
+    property bool dragHandled: false
 
     acceptedButtons: Qt.LeftButton
     preventStealing: true
@@ -27,19 +28,23 @@ MouseArea {
     onPressed: event => {
         area.pressPoint = Qt.point(event.x, event.y);
         area.dragging = false;
+        area.dragHandled = false;
     }
     onPositionChanged: event => {
-        if (!area.pressed || area.dragging || area.paths.length === 0)
+        if (!area.pressed || area.dragging || area.dragHandled || area.paths.length === 0)
             return;
         if (Math.abs(event.x - area.pressPoint.x) + Math.abs(event.y - area.pressPoint.y) < 8)
             return;
         area.dragging = true;
+        area.dragHandled = true;
+        let dropAction = Qt.IgnoreAction;
         GlobalStates.fileDragActive = true;
         try {
             dragProxy.Drag.mimeData = { "text/uri-list": UtilityFiles.uriList(area.paths) };
             dragProxy.Drag.imageSource = Quickshell.iconPath(area.dragIcon, "text-x-generic");
             dragProxy.Drag.active = true;
-            dragProxy.Drag.startDrag(Qt.CopyAction);
+            const result = dragProxy.Drag.startDrag(Qt.CopyAction);
+            dropAction = typeof result === "number" ? result : Qt.IgnoreAction;
         } finally {
             dragProxy.Drag.active = false;
             dragProxy.Drag.mimeData = {};
@@ -48,16 +53,18 @@ MouseArea {
             area.dragging = false;
         }
         Qt.callLater(function() {
-            area.dragFinished();
+            area.dragFinished(dropAction);
         });
     }
     onReleased: {
         area.dragging = false;
+        area.dragHandled = false;
         GlobalStates.fileDragActive = false;
     }
     onCanceled: {
         area.dragging = false;
         GlobalStates.fileDragActive = false;
+        area.dragHandled = false;
     }
     Component.onDestruction: {
         if (area.dragging)

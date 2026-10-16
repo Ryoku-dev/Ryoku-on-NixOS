@@ -1,3 +1,4 @@
+import stage.services
 import stage.modules.common
 import stage.modules.common.widgets
 import QtQuick
@@ -18,6 +19,6 @@ StyledText {
     // Distance-field glyphs turn polygonal at display sizes; curves stay smooth
     renderType: Text.CurveRendering
     style: Text.Raised
-    styleColor: Appearance.colors.colShadow
+    styleColor: WidgetColorScheme.colors.colShadow
     animateChange: Config.options.background.widgets.clock_digital.animateChange
 }

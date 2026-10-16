@@ -6,13 +6,12 @@ import "./widgets"
 import "."
 
 /**
- * The open tasks of the configured provider (local, TickTick or Google
- * Tasks, through the Todo service), as a short vertical list on the dock.
+ * The open tasks of the configured local, TickTick, or Google Tasks provider,
+ * through the shared Todo service.
  *
- * Rows are the dashboard ToDo's rows cut down to what fits a dock slot: the
- * priority container colours, the circle that completes the task, the title
- * struck through once done, and a delete button that slides in on hover.
- * Nothing is edited here - that stays in the dashboard.
+ * Rows keep the source widget's priority colours, completion circle, title
+ * treatment, and hover delete action. The popup adds the same add, complete,
+ * delete, and sync controls when the dock face is clicked.
  *
  * The wheel scrolls the list while it can and lets go at either end, so a
  * widget stack around it gets the next notch and turns the page.
@@ -48,6 +47,12 @@ Item {
 
     readonly property var openTasks: (Todo.list ?? []).filter(task => task && !task.done)
     readonly property int openCount: root.openTasks.length
+    readonly property bool remoteUnconfigured: Todo.remoteEnabled && !Todo.connected
+    readonly property string emptyText: root.remoteUnconfigured
+        ? Translation.tr("%1 not connected").arg(Todo.providerName)
+        : (Todo.syncing ? Translation.tr("Syncing…") : Translation.tr("All done"))
+    readonly property string emptyIcon: root.remoteUnconfigured ? "cloud_off"
+        : (Todo.syncing ? "sync" : "task_alt")
 
     // ── Card ───────────────────────────────────────────────────────────────
     Rectangle {
@@ -95,10 +100,15 @@ Item {
                     root.dockContent?.moveItemDrag(dragOverlay, event.x, event.y);
             }
             onReleased: {
-                if (!dragActive)
+                if (dragActive) {
+                    dragActive = false;
+                    root.dockContent?.endItemDrag();
                     return;
-                dragActive = false;
-                root.dockContent?.endItemDrag();
+                }
+                if (tasksPopup.active)
+                    tasksPopup.close();
+                else
+                    tasksPopup.open();
             }
             onCanceled: {
                 if (!dragActive)
@@ -129,10 +139,12 @@ Item {
 
         DockTooltip {
             parentItem: root
-            text: root.openCount === 0 ? Translation.tr("No open tasks") + " · " + Todo.providerName
-                : (root.openCount === 1 ? Translation.tr("1 open task") : Translation.tr("%1 open tasks").arg(root.openCount))
-                    + " · " + Todo.providerName
-            showTooltip: dragOverlay.containsMouse && root.isVertical
+            text: root.remoteUnconfigured
+                ? Translation.tr("%1 not connected").arg(Todo.providerName)
+                : (root.openCount === 0 ? Translation.tr("No open tasks") + " · " + Todo.providerName
+                    : (root.openCount === 1 ? Translation.tr("1 open task") : Translation.tr("%1 open tasks").arg(root.openCount))
+                        + " · " + Todo.providerName)
+            showTooltip: dragOverlay.containsMouse && root.isVertical && !tasksPopup.active
             tooltipOffset: -root.dotMargin
         }
 
@@ -353,25 +365,314 @@ Item {
             }
         }
 
-        // Empty state.
-        Row {
+        // Empty and unconfigured states share the source card's centered row.
+        Item {
+            id: emptyState
             visible: !root.isVertical && root.openCount === 0
-            anchors.centerIn: parent
-            spacing: 6
-            MaterialSymbol {
-                anchors.verticalCenter: parent.verticalCenter
-                renderType: Text.CurveRendering
-                text: "task_alt"
-                iconSize: Math.round(card.height * 0.42)
-                color: Appearance.colors.colPrimary
-            }
-            StyledText {
-                anchors.verticalCenter: parent.verticalCenter
-                text: Translation.tr("All done")
-                font.pixelSize: Appearance.font.pixelSize.small
-                font.weight: Font.Medium
-                color: Appearance.colors.colOnSurface
+            anchors.fill: parent
+            anchors.margins: card.inset
+
+            Row {
+                anchors.centerIn: parent
+                spacing: 6
+                MaterialSymbol {
+                    id: emptyIcon
+                    anchors.verticalCenter: parent.verticalCenter
+                    renderType: Text.CurveRendering
+                    text: root.emptyIcon
+                    iconSize: Math.round(card.height * 0.42)
+                    color: root.remoteUnconfigured
+                        ? Appearance.colors.colOnSurfaceVariant
+                        : Appearance.colors.colPrimary
+                }
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.min(implicitWidth, Math.max(0, emptyState.width - emptyIcon.width - parent.spacing))
+                    text: root.emptyText
+                    elide: Text.ElideRight
+                    font.pixelSize: Appearance.font.pixelSize.small
+                    font.weight: Font.Medium
+                    color: root.remoteUnconfigured
+                        ? Appearance.colors.colOnSurfaceVariant
+                        : Appearance.colors.colOnSurface
+                }
             }
         }
+    }
+
+    DockContextMenuBase {
+        id: tasksPopup
+        anchorItem: root
+        geometryItem: card
+        menuWidth: 360
+        headerText: Translation.tr("Tasks")
+        headerSubtitle: root.remoteUnconfigured
+            ? Translation.tr("%1 not connected").arg(Todo.providerName)
+            : (root.openCount === 1
+                ? Translation.tr("1 open task")
+                : Translation.tr("%1 open tasks").arg(root.openCount))
+                + " · " + Todo.providerName
+        headerSymbol: root.remoteUnconfigured ? "cloud_off" : "checklist"
+
+        contentComponent: Component {
+            Item {
+                id: panel
+                implicitWidth: 344
+                implicitHeight: panelContent.implicitHeight
+                property string taskDraft: ""
+
+                function submitTask(): void {
+                    const title = panel.taskDraft.trim();
+                    if (title.length === 0 || root.remoteUnconfigured)
+                        return;
+                    Todo.addTask(title);
+                    panel.taskDraft = "";
+                }
+
+                Column {
+                    id: panelContent
+                    width: parent.width
+                    spacing: 8
+
+                    Row {
+                        id: addRow
+                        width: parent.width
+                        height: 40
+                        spacing: 8
+                        opacity: root.remoteUnconfigured ? 0.45 : 1
+
+                        Rectangle {
+                            width: addRow.width - addButton.width - addRow.spacing
+                            height: parent.height
+                            radius: Appearance.rounding.small
+                            color: taskInput.activeFocus
+                                ? Appearance.colors.colSurfaceContainerHighest
+                                : Appearance.colors.colSurfaceContainerHigh
+
+                            StyledTextInput {
+                                id: taskInput
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                enabled: !root.remoteUnconfigured
+                                text: panel.taskDraft
+                                color: Appearance.colors.colOnSurface
+                                onTextEdited: panel.taskDraft = text
+                                onAccepted: panel.submitTask()
+
+                                StyledText {
+                                    anchors.fill: parent
+                                    visible: taskInput.text.length === 0
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: root.remoteUnconfigured
+                                        ? Translation.tr("Connect the provider to add tasks")
+                                        : Translation.tr("Add a task")
+                                    color: Appearance.colors.colOnSurfaceVariant
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            id: addButton
+                            width: height
+                            height: parent.height
+                            radius: Appearance.rounding.small
+                            color: addArea.pressed
+                                ? Appearance.colors.colPrimaryContainerActive
+                                : (addArea.containsMouse
+                                    ? Appearance.colors.colPrimaryContainerHover
+                                    : Appearance.colors.colPrimaryContainer)
+                            opacity: addArea.enabled ? 1 : 0.45
+
+                            MouseArea {
+                                id: addArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                enabled: !root.remoteUnconfigured && panel.taskDraft.trim().length > 0
+                                onClicked: panel.submitTask()
+                            }
+                            MaterialSymbol {
+                                anchors.centerIn: parent
+                                text: "add"
+                                iconSize: 22
+                                color: Appearance.colors.colOnPrimaryContainer
+                            }
+                        }
+                    }
+
+                    Item {
+                        id: taskListHost
+                        width: parent.width
+                        height: root.remoteUnconfigured
+                            ? 72
+                            : Math.min(228, Math.max(72, root.openCount * 44))
+
+                        ListView {
+                            id: panelTaskList
+                            anchors.fill: parent
+                            visible: !root.remoteUnconfigured && root.openCount > 0
+                            clip: true
+                            spacing: 4
+                            boundsBehavior: Flickable.StopAtBounds
+                            model: visible ? root.openTasks : []
+
+                            delegate: Rectangle {
+                                id: panelTask
+                                required property var modelData
+                                width: panelTaskList.width
+                                height: 40
+                                radius: Appearance.rounding.small
+                                color: panelTaskHover.hovered
+                                    ? Appearance.colors.colSurfaceContainerHighest
+                                    : Appearance.colors.colSurfaceContainerHigh
+
+                                HoverHandler { id: panelTaskHover }
+                                Behavior on color {
+                                    enabled: !Appearance.reducedMotion
+                                    animation: Appearance.animation.elementMoveFast.colorAnimation.createObject(panelTask)
+                                }
+
+                                MouseArea {
+                                    id: panelComplete
+                                    anchors.left: parent.left
+                                    anchors.top: parent.top
+                                    anchors.bottom: parent.bottom
+                                    width: parent.height
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: Todo.markDone(panelTask.modelData)
+
+                                    MaterialSymbol {
+                                        anchors.centerIn: parent
+                                        text: "radio_button_unchecked"
+                                        iconSize: 22
+                                        color: panelComplete.containsMouse
+                                            ? Appearance.colors.colPrimary
+                                            : Appearance.colors.colOnSurfaceVariant
+                                    }
+                                }
+
+                                StyledText {
+                                    anchors.left: panelComplete.right
+                                    anchors.right: panelDelete.left
+                                    anchors.leftMargin: 4
+                                    anchors.rightMargin: 4
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: panelTask.modelData?.content ?? ""
+                                    textFormat: Text.PlainText
+                                    elide: Text.ElideRight
+                                    color: Appearance.colors.colOnSurface
+                                }
+
+                                MouseArea {
+                                    id: panelDelete
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    anchors.bottom: parent.bottom
+                                    width: parent.height
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: Todo.deleteItem(panelTask.modelData)
+
+                                    MaterialSymbol {
+                                        anchors.centerIn: parent
+                                        text: "delete"
+                                        iconSize: 20
+                                        color: panelDelete.containsMouse
+                                            ? Appearance.colors.colError
+                                            : Appearance.colors.colOnSurfaceVariant
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            anchors.centerIn: parent
+                            visible: !panelTaskList.visible
+                            spacing: 4
+                            MaterialSymbol {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: root.remoteUnconfigured ? "cloud_off" : "task_alt"
+                                iconSize: 26
+                                color: root.remoteUnconfigured
+                                    ? Appearance.colors.colOnSurfaceVariant
+                                    : Appearance.colors.colPrimary
+                            }
+                            StyledText {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                width: Math.min(implicitWidth, taskListHost.width)
+                                text: root.remoteUnconfigured
+                                    ? Translation.tr("Connect %1 in Tasks settings").arg(Todo.providerName)
+                                    : Translation.tr("All done")
+                                horizontalAlignment: Text.AlignHCenter
+                                elide: Text.ElideRight
+                                color: Appearance.colors.colOnSurfaceVariant
+                            }
+                        }
+                    }
+
+                    Row {
+                        width: parent.width
+                        height: 30
+
+                        StyledText {
+                            width: parent.width - refreshButton.width
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: Todo.syncing
+                                ? Translation.tr("Syncing…")
+                                : Todo.providerName
+                            color: Appearance.colors.colOnSurfaceVariant
+                            elide: Text.ElideRight
+                        }
+
+                        Rectangle {
+                            id: refreshButton
+                            visible: Todo.remoteEnabled && Todo.connected
+                            width: 30
+                            height: 30
+                            radius: Appearance.rounding.full
+                            color: refreshArea.containsMouse
+                                ? Appearance.colors.colSurfaceContainerHighest
+                                : "transparent"
+                            MouseArea {
+                                id: refreshArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                enabled: !Todo.syncing
+                                onClicked: Todo.refresh()
+                            }
+                            MaterialSymbol {
+                                anchors.centerIn: parent
+                                text: "refresh"
+                                iconSize: 19
+                                color: Appearance.colors.colOnSurfaceVariant
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: tasksPopup
+        function onActiveChanged() {
+            if (!root.dockContent)
+                return;
+            if (tasksPopup.active)
+                root.dockContent.registerContextMenuOpen();
+            else
+                root.dockContent.registerContextMenuClose();
+        }
+    }
+
+    Component.onDestruction: {
+        if (root.dockContent && tasksPopup.active)
+            root.dockContent.registerContextMenuClose();
     }
 }

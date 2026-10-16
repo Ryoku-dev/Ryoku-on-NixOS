@@ -31,7 +31,7 @@ Canvas {
     property bool boldFont:              true
 
     // ── Colors (WidgetColorScheme) ────────────────────────────────────────────
-    property color colBg:          useBlackBg ? Appearance.m3colors.m3shadow
+    property color colBg:          useBlackBg ? WidgetColorScheme.m3colors.m3shadow
                                               : WidgetColorScheme.cardBgColor
     property color colText:        WidgetColorScheme.textColorOnBg
     property color colSubtext:     WidgetColorScheme.subtextColorOnBg

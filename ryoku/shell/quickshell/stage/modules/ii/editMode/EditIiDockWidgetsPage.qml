@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Ryoku.Ui as RyokuUi
+import stage
 import stage.modules.common
 import stage.modules.common.widgets
 import stage.services
@@ -28,6 +29,66 @@ StyledFlickable {
     readonly property var actions: ShellServices.Dock.designActions
     readonly property var stackItems: root.cfg("widgetStackItems", ["media", "weather", "tasks"])
     readonly property var folders: root.cfg("pinnedFiles", [])
+    property var utilityRows: ({})
+    property string highlightedKind: ""
+    readonly property string targetKind: GlobalStates.iiDockWidgetSettingsTarget
+
+    function registerUtilityRow(kind, row) {
+        root.utilityRows[kind] = row;
+        if (root.targetKind === kind)
+            root.scrollToUtility(kind);
+    }
+
+    function unregisterUtilityRow(kind, row) {
+        if (root.utilityRows[kind] === row)
+            delete root.utilityRows[kind];
+    }
+
+    function scrollToUtility(kind) {
+        if (kind === "")
+            return;
+        const row = root.utilityRows[kind];
+        if (!row)
+            return;
+        Qt.callLater(() => {
+            if (!row || !root.contentItem)
+                return;
+            const point = root.contentItem.mapFromItem(row, 0, 0);
+            const target = Math.max(0, Math.min(point.y - 96, root.contentHeight - root.height));
+            targetScroll.stop();
+            if (Appearance.reducedMotion) {
+                root.contentY = target;
+            } else {
+                targetScroll.from = root.contentY;
+                targetScroll.to = target;
+                targetScroll.start();
+            }
+            root.highlightedKind = kind;
+            clearHighlight.restart();
+        });
+    }
+
+    onTargetKindChanged: root.scrollToUtility(root.targetKind)
+
+    NumberAnimation {
+        id: targetScroll
+        target: root
+        property: "contentY"
+        duration: Appearance.animation.elementMove.duration
+        easing.type: Appearance.animation.elementMoveEnter.type
+        easing.bezierCurve: Appearance.animation.elementMoveEnter.bezierCurve
+    }
+
+    Timer {
+        id: clearHighlight
+        interval: 1200
+        onTriggered: {
+            const kind = root.highlightedKind;
+            root.highlightedKind = "";
+            if (GlobalStates.iiDockWidgetSettingsTarget === kind)
+                GlobalStates.iiDockWidgetSettingsTarget = "";
+        }
+    }
 
     function setStackMember(member, on) {
         const items = Array.from(root.stackItems ?? []);
@@ -200,6 +261,10 @@ StyledFlickable {
                     delegate: EditPanelRow {
                         required property var modelData
                         required property int index
+                        id: utilityRow
+                        selected: root.highlightedKind === modelData.kind
+                        Component.onCompleted: root.registerUtilityRow(modelData.kind, utilityRow)
+                        Component.onDestruction: root.unregisterUtilityRow(modelData.kind, utilityRow)
                         readonly property bool onDock: (root.actions?.utilities ?? []).some(entry => entry.kind === modelData.kind)
                         Layout.fillWidth: true
                         first: index === 0

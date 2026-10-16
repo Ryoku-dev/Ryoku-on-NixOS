@@ -126,7 +126,7 @@ ContentPage {
                 Layout.fillWidth: true
 
                 ConfigSelectionArray {
-                    currentValue: Config.options.background.widgets.month_clock.hourHandStyle ?? "fill"
+                    currentValue: Config.options.background.widgets.month_clock.hourHandStyle ?? "hollow"
                     onSelected: newValue => {
                         Config.options.background.widgets.month_clock.hourHandStyle = newValue;
                     }
@@ -145,7 +145,7 @@ ContentPage {
                 Layout.fillWidth: true
 
                 ConfigSelectionArray {
-                    currentValue: Config.options.background.widgets.month_clock.minuteHandStyle ?? "medium"
+                    currentValue: Config.options.background.widgets.month_clock.minuteHandStyle ?? "bold"
                     onSelected: newValue => {
                         Config.options.background.widgets.month_clock.minuteHandStyle = newValue;
                     }

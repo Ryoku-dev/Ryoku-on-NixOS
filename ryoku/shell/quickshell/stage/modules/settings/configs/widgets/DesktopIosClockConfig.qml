@@ -103,15 +103,20 @@ ContentPage {
                 }
             }
 
-            ContentSubsectionLabel {
-                text: Translation.tr("Time format (follows the shell-wide setting)")
-            }
+            ContentSubsection {
+                title: Translation.tr("Time format")
+                icon: "schedule"
+                Layout.fillWidth: true
 
-            ConfigSwitch {
-                buttonIcon: "schedule"
-                text: DateTime.use12HourClock ? Translation.tr("12-hour clock (from Time settings)") : Translation.tr("24-hour clock (from Time settings)")
-                checked: DateTime.use12HourClock
-                enabled: false
+                ConfigSelectionArray {
+                    currentValue: Config.options.background.widgets.clock_ios.timeFormat ?? "system"
+                    onSelected: value => Config.options.background.widgets.clock_ios.timeFormat = value
+                    options: [
+                        { displayName: Translation.tr("System setting"), icon: "settings", value: "system" },
+                        { displayName: Translation.tr("12-hour"), icon: "schedule", value: "12h" },
+                        { displayName: Translation.tr("24-hour"), icon: "schedule", value: "24h" }
+                    ]
+                }
             }
 
             ContentSubsectionLabel {
@@ -140,8 +145,16 @@ ContentPage {
 
             Item { Layout.preferredHeight: 8 }
 
-            DesktopWidgetVisualOptions {
-                Layout.fillWidth: true
+            ContentSubsectionLabel {
+                text: Translation.tr("Visual Options")
+            }
+            ConfigSwitch {
+                buttonIcon: "wb_sunny"
+                text: Translation.tr("Enable Shadows")
+                checked: Config.options.background.widgets.enableShadows ?? false
+                onCheckedChanged: {
+                    Config.options.background.widgets.enableShadows = checked;
+                }
             }
         }
     }

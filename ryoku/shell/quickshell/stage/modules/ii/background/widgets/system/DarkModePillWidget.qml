@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
+import Ryoku.Ui.Singletons
 import stage
 import stage.modules.common
 import stage.modules.common.widgets
@@ -11,7 +11,7 @@ AbstractBackgroundWidget {
 
     property bool wallpaperSafetyTriggered: false
     // State from Appearance m3colors
-    readonly property bool isActive: Appearance.m3colors.darkmode
+    readonly property bool isActive: WidgetColorScheme.m3colors.darkmode
     readonly property color pillBgColor: isActive ? WidgetColorScheme.accentColor : WidgetColorScheme.cardBgColor
     readonly property color contentColor: isActive ? WidgetColorScheme.onAccentColor : WidgetColorScheme.textColorOnBg
 
@@ -51,10 +51,10 @@ AbstractBackgroundWidget {
             colBackgroundHover: Qt.rgba(root.contentColor.r, root.contentColor.g, root.contentColor.b, 0.15)
             colRipple: Qt.rgba(root.contentColor.r, root.contentColor.g, root.contentColor.b, 0.3)
             onClicked: {
-                if (Appearance.m3colors.darkmode)
-                    Quickshell.execDetached([Directories.wallpaperSwitchScriptPath, "--mode", "light", "--noswitch"]);
+                if (WidgetColorScheme.m3colors.darkmode)
+                    Spawn.run([Directories.wallpaperSwitchScriptPath, "--mode", "light", "--noswitch"]);
                 else
-                    Quickshell.execDetached([Directories.wallpaperSwitchScriptPath, "--mode", "dark", "--noswitch"]);
+                    Spawn.run([Directories.wallpaperSwitchScriptPath, "--mode", "dark", "--noswitch"]);
             }
 
             MaterialSymbol {

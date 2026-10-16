@@ -15,13 +15,16 @@ AbstractBackgroundWidget {
     implicitWidth: 492
     implicitHeight: 240
 
+    readonly property var options: Config.options.background.widgets.weather_hourly
+    readonly property string colorScheme: (options.expressiveColors ?? true)
+        ? "expressive_primary" : "default"
     readonly property var currentData: Weather.data
     readonly property var forecastList: Weather.forecastData
     readonly property var hourlyList: Weather.hourlyData
 
-    readonly property color cardBgColor: WidgetColorScheme.cardBgColor
-    readonly property color textColorOnBg: WidgetColorScheme.textColorOnBg
-    readonly property color containerBgColor: WidgetColorScheme.innerShapeColor
+    readonly property color cardBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
+    readonly property color textColorOnBg: WidgetColorScheme.getTextColorOnBg(colorScheme)
+    readonly property color containerBgColor: WidgetColorScheme.getInnerShapeColor(colorScheme)
 
     readonly property var filteredHourly: {
         if (!hourlyList || hourlyList.length === 0) return [];
@@ -119,6 +122,7 @@ AbstractBackgroundWidget {
                         spacing: 0
 
                         StyledText {
+                            visible: root.options.showLocation ?? true
                             anchors.right: parent.right
                             text: root.currentData?.city || ""
                             color: root.textColorOnBg
@@ -136,11 +140,12 @@ AbstractBackgroundWidget {
                     }
 
                     RowLayout {
+                        visible: root.options.showHourly ?? true
                         Layout.alignment: Qt.AlignRight
                         spacing: 16
 
                         Repeater {
-                            model: root.filteredHourly
+                            model: (root.options.showHourly ?? true) ? root.filteredHourly : []
 
                             delegate: ColumnLayout {
                                 required property var modelData
@@ -177,6 +182,7 @@ AbstractBackgroundWidget {
             }
 
             Rectangle {
+                visible: root.options.showForecast ?? true
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 radius: Appearance.rounding.windowRounding
@@ -191,7 +197,8 @@ AbstractBackgroundWidget {
                     spacing: 0
 
                     Repeater {
-                        model: Math.min(2, root.forecastList ? root.forecastList.length : 0)
+                        model: (root.options.showForecast ?? true)
+                            ? Math.min(2, root.forecastList ? root.forecastList.length : 0) : 0
 
                         delegate: RowLayout {
                             id: dayFcRow

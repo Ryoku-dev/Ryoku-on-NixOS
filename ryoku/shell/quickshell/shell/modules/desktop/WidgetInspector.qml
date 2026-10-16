@@ -7,6 +7,9 @@ import "iris/IrisRoster.js" as IrisRoster
 import "python/PythonRoster.js" as PythonRoster
 import "ii/IiRoster.js" as IiRoster
 import "options/OptionsCatalog.js" as OptionsCatalog
+import stage.services
+import stage.modules.common as StageCommon
+import stage.modules.ii.background.widgets
 
 // The widget inspector is one settings body with two hosts. Ordinary desktop
 // customization docks it beside the widget; the Stage Editor embeds it in the
@@ -50,13 +53,23 @@ Item {
     readonly property alias sheetItem: sheet
     readonly property bool pickerOpen: videoPicker.visible
 
-    // Remember the last tab per widget for the session.
+    // Remember the tab picked per widget for the session. Until one is picked,
+    // a hosted ii face opens on its own settings and everything else on Look.
     property var lastTab: ({})
-    onScopeChanged: {
-        insp.optScroll = 0;
-        insp.curTab = insp._clampTab(insp.lastTab[insp.scope] === undefined
-            ? 0 : insp.lastTab[insp.scope]);
+    function _tabFor(widget) {
+        const remembered = insp.lastTab[widget];
+        if (remembered !== undefined)
+            return remembered;
+        const face = IiRoster.byPrefix(widget);
+        if (!face)
+            return 0;
+        return WidgetsRegistry.getConfigPagePath(face.id).toString().length > 0 ? 1 : 0;
     }
+    function _resetScopeState(widget) {
+        insp.optScroll = 0;
+        insp.curTab = insp._clampTab(insp._tabFor(widget));
+    }
+    onScopeChanged: insp._resetScopeState(insp.scope)
 
     // The widget rect, live off the slot, for docking.
     readonly property real wx: insp.slot ? insp.slot.x : 0
@@ -66,8 +79,9 @@ Item {
 
     function retarget(widget) {
         insp.scope = widget;
-        insp.optScroll = 0;
-        insp.curTab = insp._clampTab(insp.lastTab[widget] === undefined ? 0 : insp.lastTab[widget]);
+        // Also reset when reopening the already-targeted widget, where
+        // onScopeChanged does not fire.
+        insp._resetScopeState(widget);
     }
     function openFor(widget, slot) {
         insp.retarget(widget);
@@ -84,6 +98,9 @@ Item {
     readonly property bool isPython: insp.pythonFace !== null
     readonly property var iiFace: IiRoster.byPrefix(insp.scope)
     readonly property bool isIi: insp.iiFace !== null
+    // An ii face draws its own card, so its slot plate is off by default and
+    // the plate's shape rows only matter once one is chosen.
+    readonly property bool iiPlate: insp.isIi && (Config[insp.scope + "Bg"] || "none") !== "none"
     readonly property var hostedFace: insp.isIris ? insp.irisFace
         : insp.isPython ? insp.pythonFace : insp.iiFace
     readonly property bool isCanvas: insp.isIris && insp.irisFace.kind === "canvas"
@@ -187,8 +204,119 @@ Item {
         Config.set("musicVideo", d[(d.indexOf(Config.musicVideo) + 1) % d.length]);
     }
 
+    readonly property var iiWidgetOptions: StageCommon.Config.options.background.widgets
+    readonly property string iiScheme: String(insp.iiWidgetOptions.colorScheme ?? "default")
+    readonly property bool iiTintEnabled: insp.iiWidgetOptions.tintOpacityEnabled ?? false
+    readonly property real iiTintOpacity: {
+        const value = insp.iiWidgetOptions.tintOpacity ?? 0.55;
+        return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0.55;
+    }
+    function setIiGlobalOption(key, value) {
+        if (StageCommon.Config.ready && insp.iiWidgetOptions)
+            insp.iiWidgetOptions[key] = value;
+    }
+
+    component SchemeChip: Item {
+        id: schemeChip
+
+        property string scheme: ""
+        property string title: ""
+        property color cardColor: "transparent"
+        property color dotColor: "transparent"
+        property bool selected: false
+        signal activated()
+
+        implicitHeight: 42
+        scale: schemeMouse.pressed ? 0.96 : 1
+        Behavior on scale { NumberAnimation { duration: Theme.quick; easing.type: Theme.ease } }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: 7
+            color: schemeChip.selected ? Theme.bone
+                : schemeMouse.containsMouse ? Theme.tileHover : "transparent"
+            border.width: 1
+            border.color: schemeChip.selected ? Theme.bone
+                : schemeMouse.containsMouse ? Theme.lineStrong : Theme.line
+            Behavior on color { ColorAnimation { duration: Theme.quick } }
+            Behavior on border.color { ColorAnimation { duration: Theme.quick } }
+        }
+
+        Rectangle {
+            id: schemeSwatch
+            anchors {
+                left: parent.left
+                leftMargin: 7
+                verticalCenter: parent.verticalCenter
+            }
+            width: 24
+            height: 24
+            radius: 6
+            color: schemeChip.cardColor
+            border.width: 1
+            border.color: Theme.lineStrong
+
+            Rectangle {
+                anchors {
+                    right: parent.right
+                    bottom: parent.bottom
+                    margins: 3
+                }
+                width: 7
+                height: 7
+                radius: 4
+                color: schemeChip.dotColor
+                border.width: 1
+                border.color: schemeChip.cardColor
+            }
+        }
+
+        Text {
+            anchors {
+                left: schemeSwatch.right
+                leftMargin: 7
+                right: schemeMark.visible ? schemeMark.left : parent.right
+                rightMargin: 7
+                verticalCenter: parent.verticalCenter
+            }
+            text: schemeChip.title
+            color: schemeChip.selected ? Theme.inkOnBone : Theme.inkSoft
+            wrapMode: Text.WordWrap
+            elide: Text.ElideRight
+            maximumLineCount: 2
+            font.family: Theme.font
+            font.pixelSize: 10
+            font.weight: Font.DemiBold
+        }
+
+        Text {
+            id: schemeMark
+            visible: schemeChip.selected
+            anchors {
+                right: parent.right
+                rightMargin: 7
+                verticalCenter: parent.verticalCenter
+            }
+            text: "check"
+            color: Theme.inkOnBone
+            font.family: Theme.iconFont
+            font.pixelSize: 15
+        }
+
+        MouseArea {
+            id: schemeMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: schemeChip.activated()
+        }
+    }
+
+    readonly property bool iiHasOptions: insp.isIi
+        && WidgetsRegistry.getConfigPagePath(insp.iiFace.id).toString().length > 0
+    readonly property bool hasOptions: OptionsCatalog.has(insp.scope) || insp.iiHasOptions
+
     // ── tabs: Look, then one per MenuSection of the hosted panel ──
-    readonly property bool hasOptions: OptionsCatalog.has(insp.scope) || insp.isIi
     // The section header items discovered in the hosted panel, in document order.
     property var sections: []
     function rescan() {
@@ -219,13 +347,13 @@ Item {
         }
         return t;
     }
-    onTabsChanged: if (insp.curTab >= insp.tabs.length) insp.curTab = insp.tabs.length - 1;
+    // The tab list follows the scope a beat behind its change, so the opening
+    // tab is chosen again once it settles.
+    onTabsChanged: insp.curTab = insp._clampTab(insp.lastTab[insp.scope] === undefined
+        ? insp._tabFor(insp.scope) : insp.curTab)
 
     property int curTab: 0
-    onCurTabChanged: {
-        insp.lastTab[insp.scope] = insp.curTab;
-        insp.optScroll = 0;
-    }
+    onCurTabChanged: insp.optScroll = 0
     function _clampTab(i) { const n = insp.tabs.length; return Math.max(0, Math.min(i, Math.max(0, n - 1))); }
     readonly property var curTabObj: insp.tabs[Math.max(0, Math.min(insp.curTab, insp.tabs.length - 1))] || insp.tabs[0]
 
@@ -263,9 +391,18 @@ Item {
     // ── dock geometry: the side of the widget with more room ──────────────
     readonly property int pad: Theme.s4
     readonly property int gap: Theme.s3
-    readonly property int sheetW: 384
     readonly property int dockGap: Theme.s3
+    readonly property int edgeMargin: Theme.s2
     readonly property bool dockRight: insp.slot ? (insp.width - (insp.wx + insp.ww) >= insp.wx) : true
+    readonly property real dockRoom: !insp.slot ? insp.width - insp.edgeMargin * 2
+        : insp.dockRight
+            ? insp.width - (insp.wx + insp.ww) - insp.dockGap - insp.edgeMargin
+            : insp.wx - insp.dockGap - insp.edgeMargin
+    // The source pages normally have an 870px content viewport. Give ii pages
+    // enough width for their row controls while yielding to the widget and the
+    // monitor edge when either side is tighter.
+    readonly property int sheetW: Math.max(1, Math.floor(Math.min(
+        insp.isIi ? 520 : 384, Math.max(1, insp.dockRoom))))
 
     MultiEffect {
         source: sheet
@@ -297,13 +434,12 @@ Item {
         x: {
             if (insp.embedded)
                 return 0;
-            const mx = Theme.s2;
+            const mx = insp.edgeMargin;
             if (!insp.slot)
                 return Math.max(mx, (insp.width - width) / 2);
             const rx = insp.wx + insp.ww + insp.dockGap;
             const lx = insp.wx - insp.dockGap - width;
-            const tx = insp.dockRight ? rx : lx;
-            return Math.max(mx, Math.min(tx, insp.width - width - mx));
+            return insp.dockRight ? rx : lx;
         }
         y: {
             if (insp.embedded)
@@ -404,7 +540,10 @@ Item {
                     height: Theme.ctlH
                     label: tabChip.modelData.label
                     selected: tabChip.index === insp.curTab
-                    onClicked: insp.curTab = tabChip.index
+                    onClicked: {
+                        insp.curTab = tabChip.index;
+                        insp.lastTab[insp.scope] = tabChip.index;
+                    }
                 }
             }
         }
@@ -554,13 +693,77 @@ Item {
                         }
                     }
 
+                    MenuSection {
+                        visible: insp.isIi
+                        label: I18n.tr("Colours")
+                        gloss: "配色"
+                    }
+                    Text {
+                        visible: insp.isIi
+                        width: parent.width
+                        leftPadding: Theme.s3
+                        rightPadding: Theme.s3
+                        topPadding: Theme.s1
+                        bottomPadding: Theme.s1
+                        wrapMode: Text.WordWrap
+                        text: I18n.tr("Shared by every widget in this set")
+                        color: Theme.inkDim
+                        font.family: Theme.font
+                        font.pixelSize: Theme.fSmall
+                    }
+                    Grid {
+                        id: schemeGrid
+                        visible: insp.isIi
+                        width: parent.width
+                        columns: 2
+                        columnSpacing: Theme.s1
+                        rowSpacing: Theme.s1
+                        readonly property real chipWidth: (width - columnSpacing) / 2
+
+                        Repeater {
+                            model: WidgetColorScheme.availableSchemes
+                            delegate: SchemeChip {
+                                id: schemeChoice
+                                required property string modelData
+                                width: schemeGrid.chipWidth
+                                scheme: schemeChoice.modelData
+                                title: WidgetColorScheme.schemeNames[schemeChoice.scheme] ?? schemeChoice.scheme
+                                cardColor: WidgetColorScheme.getCardBgColor(schemeChoice.scheme)
+                                dotColor: WidgetColorScheme.getAccentColor(schemeChoice.scheme)
+                                selected: insp.iiScheme === schemeChoice.scheme
+                                onActivated: insp.setIiGlobalOption("colorScheme", schemeChoice.scheme)
+                            }
+                        }
+                    }
+                    MenuRow {
+                        visible: insp.isIi
+                        label: I18n.tr("See-through background")
+                        value: insp.iiTintEnabled ? I18n.tr("On") : I18n.tr("Off")
+                        on: insp.iiTintEnabled
+                        closeOnTrigger: false
+                        onTriggered: insp.setIiGlobalOption("tintOpacityEnabled", !insp.iiTintEnabled)
+                    }
+                    MenuSlider {
+                        id: iiTintSlider
+                        visible: insp.isIi && insp.iiTintEnabled
+                        label: I18n.tr("Background opacity")
+                        from: 0
+                        to: 1
+                        step: 0.01
+                        value: insp.iiTintOpacity
+                        valueText: Math.round(iiTintSlider.value * 100) + "%"
+                        onMoved: (v) => insp.setIiGlobalOption("tintOpacity", v)
+                        onReleased: (v) => insp.setIiGlobalOption("tintOpacity", v)
+                    }
+
                     MenuSection { label: I18n.tr("Adjust"); gloss: "調整" }
                     MenuSlider {
                         id: sizeSlider
                         visible: !insp.embedded
                         label: I18n.tr("Size")
                         from: 0.5; to: 2.5; step: 0.02
-                        value: Config[insp.scope + "Scale"] || 1
+                        // Size is kept per desktop, like the writes below.
+                        value: Config.get(insp.scope + "Scale", Config.writeMonitor) || 1
                         valueText: Math.round(sizeSlider.value * 100) + "%"
                         onMoved: (v) => Config.setLive(insp.scope + "Scale", v)
                         onReleased: (v) => Config.set(insp.scope + "Scale", v)
@@ -575,20 +778,26 @@ Item {
                         onReleased: (v) => Config.set(insp.scope + "Opacity", v)
                     }
 
-                    MenuSection { visible: insp.isIris || insp.isPython; label: I18n.tr("Shape"); gloss: "形状" }
+                    MenuSection {
+                        visible: insp.isIris || insp.isPython || insp.isIi
+                        label: insp.isIi ? I18n.tr("Plate") : I18n.tr("Shape")
+                        gloss: insp.isIi ? "台座" : "形状"
+                    }
                     MenuRow {
-                        visible: insp.isRyokuStyle
+                        visible: insp.isIi || insp.isRyokuStyle
                         label: I18n.tr("Background")
-                        value: insp.cap(Config[insp.scope + "Bg"] || "card")
+                        value: insp.cap(Config[insp.scope + "Bg"] || (insp.isIi ? "none" : "card"))
                         closeOnTrigger: false
                         onTriggered: {
-                            const d = ["card", "glass", "none"];
-                            Config.set(insp.scope + "Bg", d[(d.indexOf(Config[insp.scope + "Bg"] || "card") + 1) % d.length]);
+                            const fallback = insp.isIi ? "none" : "card";
+                            const choices = insp.isIi ? ["none", "card", "glass"] : ["card", "glass", "none"];
+                            const current = Config[insp.scope + "Bg"] || fallback;
+                            Config.set(insp.scope + "Bg", choices[(choices.indexOf(current) + 1) % choices.length]);
                         }
                     }
                     MenuSlider {
                         id: radiusSlider
-                        visible: insp.isIris || (insp.isPython && insp.isRyokuStyle)
+                        visible: insp.iiPlate || insp.isIris || (insp.isPython && insp.isRyokuStyle)
                         label: I18n.tr("Corner radius")
                         from: 0; to: 120; step: 1
                         value: Config[insp.scope + "Radius"] >= 0 ? Config[insp.scope + "Radius"] : Theme.radius
@@ -598,7 +807,7 @@ Item {
                     }
                     MenuSlider {
                         id: padSlider
-                        visible: insp.isIris || (insp.isPython && insp.isRyokuStyle)
+                        visible: insp.iiPlate || insp.isIris || (insp.isPython && insp.isRyokuStyle)
                         label: I18n.tr("Padding")
                         from: 0; to: 48; step: 1
                         value: Config[insp.scope + "Pad"] >= 0 ? Config[insp.scope + "Pad"] : 0
@@ -608,7 +817,7 @@ Item {
                     }
                     MenuSlider {
                         id: borderSlider
-                        visible: insp.isRyokuStyle
+                        visible: insp.iiPlate || insp.isRyokuStyle
                         label: I18n.tr("Border width")
                         from: 0; to: 4; step: 0.5
                         value: Config[insp.scope + "Border"] >= 0 ? Config[insp.scope + "Border"] : 1
@@ -618,7 +827,7 @@ Item {
                     }
                     MenuSlider {
                         id: borderOpSlider
-                        visible: insp.isRyokuStyle
+                        visible: insp.iiPlate || insp.isRyokuStyle
                         label: I18n.tr("Border opacity")
                         from: 0; to: 1; step: 0.01
                         value: Config[insp.scope + "BorderOpacity"] >= 0 ? Config[insp.scope + "BorderOpacity"] : 0.16
@@ -628,7 +837,7 @@ Item {
                     }
                     MenuSlider {
                         id: backingOpSlider
-                        visible: insp.isRyokuStyle
+                        visible: insp.iiPlate || insp.isRyokuStyle
                         label: I18n.tr("Backing opacity")
                         from: 0; to: 1; step: 0.01
                         value: Config[insp.scope + "BackingOpacity"] >= 0 ? Config[insp.scope + "BackingOpacity"] : 0.5
@@ -699,8 +908,15 @@ Item {
                         active: insp.hasOptions
                         source: !active ? "" : insp.isIi ? "options/IiFaceOptions.qml"
                             : "options/" + insp.cap(insp.scope) + "Options.qml"
-                        onLoaded: { if (item) item.widget = insp.scope; insp.rescan(); }
+                        onLoaded: insp.rescan()
                         onItemChanged: insp.rescan()
+                    }
+                    Binding {
+                        target: optionsLoader.item
+                        property: "widget"
+                        value: insp.scope
+                        when: optionsLoader.item !== null
+                            && optionsLoader.item.hasOwnProperty("widget")
                     }
                 }
 

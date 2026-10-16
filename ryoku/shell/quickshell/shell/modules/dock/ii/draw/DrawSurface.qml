@@ -2,7 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 
-import "StrokeGeometry.js" as StrokeGeometry
+import stage.modules.common.draw as StageDraw
 import ".."
 
 /**
@@ -90,7 +90,7 @@ Item {
     property var lastRaw: null
 
     function beginStroke(x, y, pressure, steady) {
-        const first = StrokeGeometry.point(x, y, pressure);
+        const first = StageDraw.StrokeGeometry.point(x, y, pressure);
         if (root.shapeTool) {
             root.steadied = false;
             root.livePoints = [first, first];
@@ -126,9 +126,9 @@ Item {
     function _append(sample) {
         // Smoothed before the distance test, so the filter sees every sample and the
         // thinning only decides what is worth keeping afterwards.
-        root.smoothPoint = StrokeGeometry.smoothed(root.smoothPoint, sample, root.smoothing);
+        root.smoothPoint = StageDraw.StrokeGeometry.smoothed(root.smoothPoint, sample, root.smoothing);
         const points = root.liveRecord.points;
-        if (!StrokeGeometry.shouldAppend(points[points.length - 1], root.smoothPoint))
+        if (!StageDraw.StrokeGeometry.shouldAppend(points[points.length - 1], root.smoothPoint))
             return false;
         points.push(root.smoothPoint);
         return true;
@@ -137,10 +137,10 @@ Item {
     function extendStroke(x, y, pressure) {
         if (!root.liveRecord)
             return;
-        const raw = StrokeGeometry.point(x, y, pressure);
-        if (StrokeGeometry.isShape(root.liveRecord)) {
+        const raw = StageDraw.StrokeGeometry.point(x, y, pressure);
+        if (StageDraw.StrokeGeometry.isShape(root.liveRecord)) {
             const points = root.liveRecord.points;
-            points[1] = root.constrain ? StrokeGeometry.constrained(root.liveRecord.tool, points[0], raw) : raw;
+            points[1] = root.constrain ? StageDraw.StrokeGeometry.constrained(root.liveRecord.tool, points[0], raw) : raw;
             root.lastRaw = raw;
             canvas.refreshLive();
             return;
@@ -148,7 +148,7 @@ Item {
         root.lastRaw = raw;
         let sample = raw;
         if (root.steadied) {
-            sample = StrokeGeometry.pulled(root.brush, raw, root.stringLength);
+            sample = StageDraw.StrokeGeometry.pulled(root.brush, raw, root.stringLength);
             if (!sample)
                 return;
             root.brush = sample;
@@ -159,21 +159,21 @@ Item {
 
     /// Shift pressed or released mid-drag re-snaps the shape at once.
     onConstrainChanged: {
-        if (root.liveRecord && StrokeGeometry.isShape(root.liveRecord) && root.lastRaw) {
+        if (root.liveRecord && StageDraw.StrokeGeometry.isShape(root.liveRecord) && root.lastRaw) {
             const points = root.liveRecord.points;
-            points[1] = root.constrain ? StrokeGeometry.constrained(root.liveRecord.tool, points[0], root.lastRaw) : root.lastRaw;
+            points[1] = root.constrain ? StageDraw.StrokeGeometry.constrained(root.liveRecord.tool, points[0], root.lastRaw) : root.lastRaw;
             canvas.refreshLive();
         }
     }
 
     function endStroke() {
         const finished = root.liveRecord;
-        if (finished && StrokeGeometry.isShape(finished)) {
+        if (finished && StageDraw.StrokeGeometry.isShape(finished)) {
             root.liveRecord = null;
             root.livePoints = [];
             root.lastRaw = null;
             // A click without a drag is not a shape anyone meant to draw.
-            if (StrokeGeometry.distance(finished.points[0], finished.points[1]) >= 3)
+            if (StageDraw.StrokeGeometry.distance(finished.points[0], finished.points[1]) >= 3)
                 root.strokeFinished(finished);
             canvas.liveStroke = null;
             canvas.refreshLive();
@@ -193,7 +193,7 @@ Item {
         // go, which is the point of an arrow drawn at something.
         if (finished && root.steadied && root.lastRaw) {
             for (const step of [0.5, 1])
-                root._append(StrokeGeometry.point(
+                root._append(StageDraw.StrokeGeometry.point(
                     root.brush.x + (root.lastRaw.x - root.brush.x) * step,
                     root.brush.y + (root.lastRaw.y - root.brush.y) * step,
                     root.lastRaw.p));

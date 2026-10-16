@@ -19,6 +19,9 @@ AbstractBackgroundWidget {
 
     readonly property color accentBgColor: WidgetColorScheme.accentColor
     readonly property color onAccentTextColor: WidgetColorScheme.onAccentColor
+    readonly property int imageFillMode:
+        (Config.options.background.widgets.photo_pill_2x1.fitMode ?? "crop") === "fit"
+            ? Image.PreserveAspectFit : Image.PreserveAspectCrop
 
     StyledDropShadow {
         id: shadowEffect
@@ -44,7 +47,7 @@ AbstractBackgroundWidget {
     readonly property bool shouldPlay: {
         return root.visible && root.opacity > 0 && root.isAnimated
             && !GlobalStates.screenLocked
-            && !GlobalStates.activeWorkspaceHasWindows;
+            && !root.activeWorkspaceHasWindows;
     }
 
     // The photo is minified straight down to the widget box by the GPU's 2x2 tap,
@@ -111,7 +114,7 @@ AbstractBackgroundWidget {
                 anchors.fill: parent
                 source: (root.decodeWidth <= 0 || root.isAnimated) ? "" : root.cleanSource
                 sourceSize: Qt.size(root.decodeWidth, root.decodeHeight)
-                fillMode: Image.PreserveAspectCrop
+                fillMode: root.imageFillMode
                 asynchronous: true
                 // Hold the frame already on screen across a re-decode instead of
                 // falling back to the placeholder for the frames it takes.
@@ -136,7 +139,7 @@ AbstractBackgroundWidget {
                 id: photoImage
                 anchors.fill: parent
                 source: root.isAnimated ? root.cleanSource : ""
-                fillMode: Image.PreserveAspectCrop
+                fillMode: root.imageFillMode
                 playing: root.shouldPlay
                 paused: !root.shouldPlay
                 asynchronous: true
@@ -150,6 +153,41 @@ AbstractBackgroundWidget {
                         width: photoImage.width
                         height: photoImage.height
                         radius: Appearance.rounding.windowRounding
+                    }
+                }
+            }
+
+            Item {
+                id: captionPill
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.margins: 14
+                width: captionRow.implicitWidth + 32
+                height: 44
+                visible: Config.options.background.widgets.photo_pill_2x1.showOverlay ?? true
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: Appearance.rounding.full
+                    color: root.accentBgColor
+                }
+
+                RowLayout {
+                    id: captionRow
+                    anchors.centerIn: parent
+                    spacing: 6
+
+                    MaterialSymbol {
+                        text: "photo_library"
+                        iconSize: 18
+                        color: root.onAccentTextColor
+                    }
+
+                    StyledText {
+                        text: Translation.tr("Photos")
+                        font.pixelSize: Appearance.font.pixelSize.normal
+                        font.weight: Font.DemiBold
+                        color: root.onAccentTextColor
                     }
                 }
             }

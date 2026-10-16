@@ -58,6 +58,7 @@ ColumnLayout {
         }
 
         Behavior on buttonRadius {
+            enabled: panel.host?.panelOpen === true && !Appearance.reducedMotion
             animation: ClockStyle.motionFast.numberAnimation.createObject(this)
         }
 
@@ -155,6 +156,7 @@ ColumnLayout {
                         })
 
                         Behavior on buttonRadius {
+                            enabled: panel.host?.panelOpen === true && !Appearance.reducedMotion
                             animation: ClockStyle.motionFast.numberAnimation.createObject(this)
                         }
 
@@ -196,6 +198,7 @@ ColumnLayout {
                         })
 
                         Behavior on buttonRadius {
+                            enabled: panel.host?.panelOpen === true && !Appearance.reducedMotion
                             animation: ClockStyle.motionFast.numberAnimation.createObject(this)
                         }
 
@@ -238,11 +241,11 @@ ColumnLayout {
         spacing: 6
         ClockButton {
             Layout.fillWidth: true
-            enabled: panel.sheets > 0
+            enabled: LiveDraw.focusedSheetHasInk
             symbol: "note_add"
             label: Translation.tr("Save to Notes")
             onClicked: {
-                GlobalStates.liveDrawSaveRequest++;
+                LiveDraw.command("save", null);
                 panel.host?.closePanel();
             }
         }

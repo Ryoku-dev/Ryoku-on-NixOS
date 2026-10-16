@@ -66,6 +66,7 @@ Item {
         radius: tile.radius
         color: tile.surfaceColor
         Behavior on color {
+            enabled: !Appearance.reducedMotion
             animation: ClockStyle.motionFast.colorAnimation.createObject(this)
         }
     }

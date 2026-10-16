@@ -110,14 +110,6 @@ ContentPage {
                 }
             }
 
-            ConfigSwitch {
-                buttonIcon: "blur_on"
-                text: Translation.tr("Enable Inner Shadows")
-                checked: Config.options.background.widgets.compact_media.enableInnerShadow ?? true
-                onCheckedChanged: {
-                    Config.options.background.widgets.compact_media.enableInnerShadow = checked;
-                }
-            }
         }
     }
 }

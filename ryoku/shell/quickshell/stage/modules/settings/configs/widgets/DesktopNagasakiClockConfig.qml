@@ -81,8 +81,16 @@ ContentPage {
 
             Item { Layout.preferredHeight: 8 }
 
-            DesktopWidgetVisualOptions {
-                Layout.fillWidth: true
+            ContentSubsectionLabel {
+                text: Translation.tr("Visual Options")
+            }
+            ConfigSwitch {
+                buttonIcon: "wb_sunny"
+                text: Translation.tr("Enable Shadows")
+                checked: Config.options.background.widgets.enableShadows ?? true
+                onCheckedChanged: {
+                    Config.options.background.widgets.enableShadows = checked;
+                }
             }
         }
     }

@@ -9,16 +9,15 @@ import ".."
 Item {
     id: root
 
-    // Fetch sports data while either consumer is enabled. The dock and bar
-    // controls stay independent, but share this single data source.
+    // Compact polling follows live consumers. A configured auto-hidden dock
+    // does not keep ESPN warm while it is off screen.
     readonly property bool barEnabled: Config.options?.bar?.sports?.enable ?? false
-    readonly property bool dockEnabled: Config.options?.dock?.enableSportsWidget ?? false
     // Lock-screen sports is a real consumer only while the lock surface is
     // active. The old config-only gate fetched ESPN continuously on idle.
     readonly property bool lockEnabled: (Config.options?.lock?.sports ?? true)
         && (GlobalStates?.lockLookActive ?? false)
     property int widgetSubscribers: 0
-    readonly property bool enabled: barEnabled || dockEnabled || lockEnabled || widgetSubscribers > 0
+    readonly property bool enabled: barEnabled || lockEnabled || widgetSubscribers > 0
     // AI consumers are counted separately from the visual widgets. They may
     // query a league that is not monitored by the bar, but must never cause a
     // visual selection or a Config write as a side effect.
@@ -184,20 +183,11 @@ Item {
     }
 
     function acquireWidgetSubscriber() {
-        const wasInactive = !root.enabled;
         widgetSubscribers += 1;
-        if (wasInactive && !root.timetableActive)
-            root.fetchGames();
     }
 
     function releaseWidgetSubscriber() {
         widgetSubscribers = Math.max(0, widgetSubscribers - 1);
-        if (!root.enabled) {
-            root.cancelCompactRequests();
-            allGames = [];
-            currentGameIndex = 0;
-            currentGame = null;
-        }
     }
 
     function abortRequestList(requests) {
@@ -1759,12 +1749,12 @@ Item {
                 if (idxA !== -1) return -1;
                 if (idxB !== -1) return 1;
                 const order = { "in": 0, "pre": 1, "post": 2 };
-                return (order[a.state] || 3) - (order[b.state] || 3);
+                return (order[a.state] ?? 3) - (order[b.state] ?? 3);
             });
         } else {
             validGames.sort((a, b) => {
                 const order = { "in": 0, "pre": 1, "post": 2 };
-                return (order[a.state] || 3) - (order[b.state] || 3);
+                return (order[a.state] ?? 3) - (order[b.state] ?? 3);
             });
         }
 

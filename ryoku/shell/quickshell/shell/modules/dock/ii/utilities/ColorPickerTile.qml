@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.services
@@ -9,19 +10,19 @@ import "../clock"
 import ".."
 
 /**
- * Color picker: a click picks any colour on screen (hyprpicker), the code goes
- * to the clipboard and the last ones stay on the tile. Square: the newest
- * colour IS the tile's swatch — a nine-sided cookie with the dropper inked in
- * contrast. Wide: the dropper, the newest colour as a wide swatch carrying its
- * code, and the two before it; every swatch copies its code again. Colours
- * picked with the shortcut land in the same history.
+ * Color picker: a click picks any colour on screen, the code goes to the
+ * clipboard and the last ones stay on the tile. Square: the newest colour IS
+ * the tile's swatch — a nine-sided cookie with the dropper inked in contrast.
+ * Wide: the dropper, the newest colour as a wide swatch carrying its code, and
+ * the two before it; every swatch copies its code again. Colours picked with
+ * the shortcut land in the same history.
  */
 UtilityTile {
     id: tile
 
     readonly property var colors: Persistent.ready ? Array.from(Persistent.states.dockUtilities.colors ?? []) : []
     readonly property string latest: tile.colors.length > 0 ? tile.colors[0] : ""
-    readonly property bool picking: picker.running
+    readonly property bool picking: pickDelay.running || picker.running
     property string copied: ""
 
     function remember(hex) {
@@ -32,7 +33,7 @@ UtilityTile {
     }
     function pick() {
         picker.running = false;
-        Qt.callLater(() => picker.running = true);
+        pickDelay.restart();
     }
     function copy(hex) {
         Quickshell.clipboardText = hex;
@@ -48,9 +49,15 @@ UtilityTile {
 
     // The pointer is still on the dock when the click lands; give the
     // release a moment before the picker grabs the screen.
+    Timer {
+        id: pickDelay
+        interval: 200
+        onTriggered: picker.running = true
+    }
     Process {
         id: picker
-        command: ["bash", "-c", "sleep 0.2; hyprpicker -a -f hex"]
+        command: ["ryoku-cmd-color-picker"]
+        environment: Spawn.env
         stdout: SplitParser {
             onRead: data => tile.remember(data)
         }
@@ -59,6 +66,12 @@ UtilityTile {
         target: GlobalStates
         function onColorPickerPopupColorChanged() {
             tile.remember(GlobalStates.colorPickerPopupColor);
+        }
+    }
+    Connections {
+        target: Quickshell
+        function onClipboardTextChanged() {
+            tile.remember(Quickshell.clipboardText);
         }
     }
     Timer {

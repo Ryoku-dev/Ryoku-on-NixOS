@@ -35,6 +35,7 @@ import "modules/capture"
 import "modules/ask"
 import "modules/confirm"
 import Ryoku.Ui.Singletons
+import stage.modules.common as StageIsland
 
 /**
  * The single resident Ryoku shell instance.
@@ -728,6 +729,15 @@ ShellRoot {
         target: Notifs
         property: "dnd"
         value: Flags.dnd
+    }
+
+    // Hosted desktop widgets that show the wallpaper (a photo widget with no
+    // photo picked) read a still of it from the stage config: the daemon's
+    // active picture, or a clip's live poster frame.
+    Binding {
+        target: StageIsland.Config
+        property: "hostWallpaperStill"
+        value: Session.wallIsVideo ? Session.livePoster : Session.wallpaper
     }
 
     // Compositor-level idle inhibitor, mapped only while Keep-Awake is on. It

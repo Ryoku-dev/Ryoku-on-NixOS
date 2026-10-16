@@ -6,6 +6,7 @@ import "../contextMenu"
 import Quickshell
 import Quickshell.Widgets
 import ".."
+import Ryoku.Ui.Singletons
 
 // Shared popup lifetime and motion for menus, app groups and file stacks.
 //
@@ -162,16 +163,32 @@ Loader {
 
     signal closed()
 
+    function closeImmediately() {
+        if (!root.active)
+            return;
+        motion.stop();
+        root.isClosing = false;
+        if (root.item)
+            root.item.visible = false;
+        root.active = false;
+    }
+
     function open() {
         if (active && !isClosing) return
         const reopening = active && isClosing
+        ContextMenus.dismissAll()
         isClosing = false
+        GlobalStates.claimDockPopup(root)
         menuOpen = true
         active = true
         if (reopening)
             root._playEnter(false)
         else if (root.item)
             root._playEnter(true)
+        Qt.callLater(() => {
+            if (root.item && typeof root.item.focusPopup === "function")
+                root.item.focusPopup();
+        })
     }
 
     function close() {
@@ -190,6 +207,7 @@ Loader {
             root.menuOpen = false
             motion.stop()
             root.pointerInsidePopup = false
+            GlobalStates.releaseDockPopup(root)
             root.closed()
         }
     }
@@ -198,12 +216,17 @@ Loader {
 
     active: false
     visible: active
+    Component.onDestruction: GlobalStates.releaseDockPopup(root)
 
     sourceComponent: PopupWindow {
         id: popupWindow
         visible: true
         color: "transparent"
+        // Without a focus-grab protocol, the popup's own grab gives it the keyboard.
+        grabFocus: Wm.caps.focusGrab !== true
+        onClosed: if (root.active && !root.isClosing) root.closeImmediately()
 
+        property bool grabSettled: false
         property real dockMargin: -16
         property real shadowMargin: Math.max(20, root.motionMargin)
         readonly property real slideDistance: Appearance.sizes.elevationMargin * 2
@@ -213,6 +236,9 @@ Loader {
         readonly property real slideOffsetY: root.useDockSlideAnimation
             ? (root.dockPos === "top" ? -slideDistance : (root.dockPos === "bottom" ? slideDistance : 0))
             : 0
+        function focusPopup() {
+            focusAfterMap.restart();
+        }
         function requestAnchorUpdate() {
             if (!root.active || !root.anchorItem || !popupWindow.anchor.window)
                 return
@@ -290,7 +316,25 @@ Loader {
         property real reservedContentHeight: 0
         readonly property real targetContentHeight: menuContent.targetHeight
         onTargetContentHeightChanged: reservedContentHeight = Math.max(reservedContentHeight, targetContentHeight)
-        Component.onCompleted: reservedContentHeight = targetContentHeight
+        Component.onCompleted: {
+            reservedContentHeight = targetContentHeight
+            focusAfterMap.restart()
+        }
+        Timer {
+            id: focusAfterMap
+            interval: 40
+            onTriggered: {
+                if (!root.active || root.isClosing)
+                    return;
+                menuContent.forceActiveFocus(Qt.PopupFocusReason);
+            }
+        }
+        Timer {
+            id: grabSettleTimer
+            interval: 120
+            repeat: false
+            onTriggered: popupWindow.grabSettled = focusGrab.active
+        }
 
         implicitWidth: menuContent.implicitWidth * root.zoom + popupWindow.shadowMargin * 2
         implicitHeight: Math.max(popupWindow.reservedContentHeight, menuContent.implicitHeight) * root.zoom + popupWindow.shadowMargin * 2
@@ -299,8 +343,18 @@ Loader {
         onImplicitHeightChanged: requestAnchorUpdate()
 
         FocusGrab {
-            active: root.active && !root.isClosing
-            windows: [popupWindow]
+            id: focusGrab
+            active: Wm.caps.focusGrab === true && root.active && !root.isClosing
+            // Add the dock only after the popup has received the grab's keyboard focus.
+            windows: popupWindow.grabSettled && popupWindow.anchor.window
+                ? [popupWindow, popupWindow.anchor.window] : [popupWindow]
+            onActiveChanged: {
+                popupWindow.grabSettled = false;
+                if (focusGrab.active)
+                    grabSettleTimer.restart();
+                else
+                    grabSettleTimer.stop();
+            }
             onCleared: root.close()
         }
 
@@ -338,10 +392,10 @@ Loader {
             readonly property bool dataDriven: root.menuGroups !== null && root.contentComponent === null
             readonly property real cardContentWidth: dataDriven || root.showHeader
                 ? root.effectiveMenuWidth - root.cardPadding * 2
-                : contentLoader.implicitWidth
+                : contentLoader.loadedImplicitWidth
             readonly property real cardContentHeight: dataDriven
                 ? root.headerBlock + root.barHeight + menuGroupsView.implicitHeight
-                : contentLoader.implicitHeight
+                : contentLoader.loadedImplicitHeight
 
             implicitWidth: cardContentWidth + root.cardPadding * 2
             implicitHeight: root.plateBlock + card.implicitHeight
@@ -376,9 +430,8 @@ Loader {
             StyledRectangularShadow {
                 target: plate
                 visible: plate.visible
-                // Under Hyprland's popup blur threshold (ignore_alpha 0.19 on
-                // quickshell.*): a darker shadow gets the wallpaper behind it
-                // blurred, a light halo around a card over a bright wallpaper.
+                // Kept below the compositor's popup blur threshold so the
+                // wallpaper behind the shadow is not blurred into a halo.
                 color: ColorUtils.transparentize(Appearance.m3colors.m3shadow, 0.83)
             }
             Rectangle {
@@ -444,9 +497,8 @@ Loader {
             // The card: the actions, or the custom content it hosts.
             StyledRectangularShadow {
                 target: card
-                // Under Hyprland's popup blur threshold (ignore_alpha 0.19 on
-                // quickshell.*): a darker shadow gets the wallpaper behind it
-                // blurred, a light halo around a card over a bright wallpaper.
+                // Kept below the compositor's popup blur threshold so the
+                // wallpaper behind the shadow is not blurred into a halo.
                 color: ColorUtils.transparentize(Appearance.m3colors.m3shadow, 0.83)
             }
             Rectangle {
@@ -566,9 +618,12 @@ Loader {
                 Loader {
                     id: contentLoader
                     readonly property var _dockPopup: root
+                    readonly property real loadedImplicitWidth: item?.implicitWidth ?? 0
+                    readonly property real loadedImplicitHeight: item?.implicitHeight ?? 0
                     x: root.cardPadding
                     y: root.cardPadding
                     width: menuContent.cardContentWidth
+                    height: contentLoader.loadedImplicitHeight
                     active: root.contentComponent !== null
                     sourceComponent: root.contentComponent
                 }

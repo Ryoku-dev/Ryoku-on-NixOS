@@ -101,8 +101,13 @@ AbstractBackgroundWidget {
 
             // Row 3: Month / Day + Weekday badge (MEI/19 SEL)
             RowLayout {
+                id: dateRow
                 spacing: root.width * 0.02
                 Layout.alignment: Qt.AlignLeft
+                // The title face is set wider than the card was drawn for, so a
+                // long month and weekday shrink as one instead of running off the edge.
+                transformOrigin: Item.Left
+                scale: Math.min(1, dateRow.parent.width / Math.max(1, dateRow.implicitWidth))
 
                 StyledText {
                     text: root.monthName

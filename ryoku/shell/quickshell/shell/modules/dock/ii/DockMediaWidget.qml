@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Effects
 import Qt5Compat.GraphicalEffects
 import Quickshell
 import Quickshell.Widgets
@@ -12,6 +11,7 @@ import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.services
 import stage.modules.common.models
+import inir.services as InirServices
 import "./widgets"
 import "."
 
@@ -34,6 +34,22 @@ Item {
 
     implicitWidth: root.isVertical ? root.slotSize : root.fixedLength
     implicitHeight: root.isVertical ? root.slotSize : root.slotHeight
+    function toggleMediaControls() {
+        if (GlobalStates.mediaControlsOpen) {
+            GlobalStates.mediaControlsOpen = false;
+            return;
+        }
+        const topLeft = root.mapToGlobal(0, 0);
+        const bottomRight = root.mapToGlobal(root.width, root.height);
+        GlobalStates.openMediaControlsFromDock({
+            "x": Math.min(topLeft.x, bottomRight.x),
+            "y": Math.min(topLeft.y, bottomRight.y),
+            "width": Math.abs(bottomRight.x - topLeft.x),
+            "height": Math.abs(bottomRight.y - topLeft.y)
+        }, String(root.dockContent?.dockPos ?? "bottom"),
+            String(root.dockContent?.currentScreen?.name ?? ""));
+    }
+
     // Magnified with the icons, at the muted share the dock keeps for a widget
     // body: the delegate wrapper grows the slot by exactly the room this scale
     // needs, so the neighbours slide instead of being drawn over.
@@ -46,15 +62,18 @@ Item {
         : (Appearance.rounding.windowRounding + 12)
 
     // ── Media Player State ────────────────────────────────────────────────
-    readonly property MprisPlayer currentPlayer: MprisController.activePlayer
+    readonly property MprisPlayer currentPlayer: InirServices.MprisController.activePlayer
     readonly property bool hasPlayer: !!currentPlayer
     readonly property bool isPlaying: currentPlayer?.isPlaying ?? false
-    readonly property string title: StringUtils.cleanMusicTitle(currentPlayer?.trackTitle) || Translation.tr("No media")
-    readonly property string artist: currentPlayer?.trackArtist || Translation.tr("Unknown Artist")
-    readonly property string artUrl: MprisController.artUrl || ""
+    readonly property string title: StringUtils.cleanMusicTitle(
+        InirServices.MprisController.titleOf(root.currentPlayer))
+        || Translation.tr("No media")
+    readonly property string artist: InirServices.MprisController.artistOf(root.currentPlayer)
+        || Translation.tr("Unknown Artist")
+    readonly property string artUrl: InirServices.MprisController.artUrlOf(root.currentPlayer)
     readonly property string identity: currentPlayer ? (currentPlayer.identity ?? "") : ""
-    readonly property var activeTrackRef: MprisController.activeTrack
-    readonly property bool hasTrack: hasPlayer && (currentPlayer?.trackTitle?.length ?? 0) > 0
+    readonly property bool hasTrack: hasPlayer
+        && InirServices.MprisController.titleOf(root.currentPlayer).length > 0
 
     property string displayTitle: ""
     property string displayArtist: ""
@@ -205,7 +224,7 @@ Item {
 
     // ── Track Text Transition Animation ────────────────────────────────────
     Connections {
-        target: MprisController
+        target: InirServices.MprisController
         function onTrackChanged(reverse) {
             root.displayTitle = root.title;
             root.displayArtist = root.artist;
@@ -483,13 +502,13 @@ Item {
                         return;
                     }
                     if (event.button === Qt.LeftButton) {
-                        GlobalStates.mediaControlsOpen = !GlobalStates.mediaControlsOpen;
+                        root.toggleMediaControls();
                     } else if (event.button === Qt.MiddleButton) {
-                        MprisController.togglePlaying();
+                        InirServices.MprisController.togglePlaying();
                     } else if (event.button === Qt.RightButton || event.button === Qt.ForwardButton) {
-                        MprisController.next();
+                        InirServices.MprisController.next();
                     } else if (event.button === Qt.BackButton) {
-                        MprisController.previous();
+                        InirServices.MprisController.previous();
                     }
                 }
                 onCanceled: {
@@ -593,10 +612,11 @@ Item {
                         MouseArea {
                             id: albumArtMouseArea
                             anchors.fill: parent
+                            enabled: InirServices.MprisController.canTogglePlaying
                             hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
+                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                             preventStealing: true
-                            onClicked: MprisController.togglePlaying()
+                            onClicked: InirServices.MprisController.togglePlaying()
                         }
                     }
 
@@ -666,6 +686,7 @@ Item {
                             }
 
                             scale: playBtnMouseArea.pressed ? 0.92 : (playBtnMouseArea.containsMouse ? 1.06 : 1.0)
+                            opacity: InirServices.MprisController.canTogglePlaying ? 1.0 : 0.55
                             Behavior on scale {
                                 enabled: !Appearance.reducedMotion
                                 NumberAnimation { duration: 120; easing.type: Easing.OutQuad }
@@ -684,7 +705,7 @@ Item {
                             }
                             SequentialAnimation {
                                 id: playRippleAnim
-                                NumberAnimation { target: playRipple; property: "opacity"; from: 0.25; to: 0.0; duration: 250; easing.type: Easing.OutQuad }
+                                NumberAnimation { target: playRipple; property: "opacity"; from: 0.25; to: 0.0; duration: Appearance.reducedMotion ? 0 : 250; easing.type: Easing.OutQuad }
                             }
 
                             // Icon micro-bounce on state toggle
@@ -716,13 +737,14 @@ Item {
                             MouseArea {
                                 id: playBtnMouseArea
                                 anchors.fill: parent
+                                enabled: InirServices.MprisController.canTogglePlaying
                                 hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                 preventStealing: true
 
                                 onClicked: {
                                     playRippleAnim.restart();
-                                    MprisController.togglePlaying();
+                                    InirServices.MprisController.togglePlaying();
                                 }
                             }
                         }
@@ -733,7 +755,7 @@ Item {
                             readonly property real targetWidth: Math.max(26, Math.min(30, cardBg.height - 14))
                             implicitHeight: targetWidth
                             Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredWidth: root.mediaHovered ? targetWidth : 0
+                            Layout.preferredWidth: root.mediaHovered && InirServices.MprisController.canGoNext ? targetWidth : 0
                             radius: targetWidth / 2
                             clip: true
                             opacity: root.mediaHovered ? 1.0 : 0.0
@@ -780,7 +802,7 @@ Item {
                             }
                             SequentialAnimation {
                                 id: nextRippleAnim
-                                NumberAnimation { target: nextRipple; property: "opacity"; from: 0.25; to: 0.0; duration: 250; easing.type: Easing.OutQuad }
+                                NumberAnimation { target: nextRipple; property: "opacity"; from: 0.25; to: 0.0; duration: Appearance.reducedMotion ? 0 : 250; easing.type: Easing.OutQuad }
                             }
 
                             property real iconTranslateX: 0.0
@@ -816,7 +838,7 @@ Item {
                                     if (!Appearance.reducedMotion) {
                                         nextNudgeAnim.restart();
                                     }
-                                    MprisController.next();
+                                    InirServices.MprisController.next();
                                 }
                             }
                         }
@@ -881,12 +903,15 @@ Item {
                     scale: root.mediaHovered ? 1.08 : 0.95
 
                     Behavior on radius {
+                        enabled: !Appearance.reducedMotion
                         NumberAnimation { duration: 250; easing.type: Easing.OutQuint }
                     }
                     Behavior on scale {
+                        enabled: !Appearance.reducedMotion
                         NumberAnimation { duration: 150; easing.type: Easing.OutQuad }
                     }
                     Behavior on color {
+                        enabled: !Appearance.reducedMotion
                         animation: Appearance.animation.elementMoveFast.colorAnimation.createObject(this)
                     }
 
@@ -908,7 +933,7 @@ Item {
         id: mediaTooltip
         parentItem: root
         text: root.hasTrack ? (root.displayTitle + " · " + root.displayArtist) : Translation.tr("No media")
-        showTooltip: root.mediaHovered
+        showTooltip: root.mediaHovered && !GlobalStates.mediaControlsOpen
         tooltipOffset: -root.dotMargin * 0.5
     }
 }

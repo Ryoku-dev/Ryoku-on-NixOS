@@ -783,6 +783,7 @@ Singleton {
                 property int glassesDrunk: 0
                 property string lastDate: ""
                 property real lastNotify: 0
+                property string historyJson: "{}"
             }
             property JsonObject media: JsonObject {
             }

@@ -195,7 +195,7 @@ ClockSettingsSection {
     }
     ClockSettingsRow {
         symbol: "calendar_month"
-        title: Translation.tr("Show in the timetable")
+        title: Translation.tr("Show in calendar")
         description: Translation.tr("Timed reminders appear on their day")
         Toggle {
             key: "showInTimetable"

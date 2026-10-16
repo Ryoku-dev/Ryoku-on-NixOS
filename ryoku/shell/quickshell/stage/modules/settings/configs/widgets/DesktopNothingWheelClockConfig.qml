@@ -73,8 +73,59 @@ ContentPage {
                 Layout.fillWidth: true
                 spacing: 4
 
-                DesktopWidgetVisualOptions {
+                ContentSubsection {
+                    title: Translation.tr("Time format")
+                    icon: "schedule"
                     Layout.fillWidth: true
+
+                    ConfigSelectionArray {
+                        currentValue: Config.options.background.widgets.nothing_wheel_clock.timeFormat ?? "system"
+                        onSelected: value => Config.options.background.widgets.nothing_wheel_clock.timeFormat = value
+                        options: [
+                            { displayName: Translation.tr("System setting"), icon: "settings", value: "system" },
+                            { displayName: Translation.tr("12-hour"), icon: "schedule", value: "12h" },
+                            { displayName: Translation.tr("24-hour"), icon: "schedule", value: "24h" }
+                        ]
+                    }
+                }
+
+                ConfigSwitch {
+                    buttonIcon: "calendar_today"
+                    text: Translation.tr("Show date header")
+                    checked: Config.options.background.widgets.nothing_wheel_clock.showDateHeader ?? true
+                    onCheckedChanged: {
+                        Config.options.background.widgets.nothing_wheel_clock.showDateHeader = checked;
+                    }
+                }
+
+                ConfigSwitch {
+                    buttonIcon: "swap_vert"
+                    text: Translation.tr("Show nearby minutes")
+                    checked: Config.options.background.widgets.nothing_wheel_clock.showMinuteNeighbors ?? true
+                    onCheckedChanged: {
+                        Config.options.background.widgets.nothing_wheel_clock.showMinuteNeighbors = checked;
+                    }
+                }
+
+                ConfigSwitch {
+                    buttonIcon: "palette"
+                    text: Translation.tr("Accent current minute")
+                    checked: Config.options.background.widgets.nothing_wheel_clock.accentMinute ?? true
+                    onCheckedChanged: {
+                        Config.options.background.widgets.nothing_wheel_clock.accentMinute = checked;
+                    }
+                }
+
+                ContentSubsectionLabel {
+                    text: Translation.tr("Visual Options")
+                }
+                ConfigSwitch {
+                    buttonIcon: "wb_sunny"
+                    text: Translation.tr("Enable Shadows")
+                    checked: Config.options.background.widgets.enableShadows ?? true
+                    onCheckedChanged: {
+                        Config.options.background.widgets.enableShadows = checked;
+                    }
                 }
 
             }

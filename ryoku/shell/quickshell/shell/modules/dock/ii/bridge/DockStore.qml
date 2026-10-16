@@ -103,9 +103,12 @@ Singleton {
     }
 
     // The dock's own code assigns leaves (a remove from its menu, a dragged
-    // order), and an assignment drops the leaf's binding to the store. Each
-    // leaf hands this back to itself after committing, so a later write from
-    // the Stage Editor, the Hub or the CLI still reaches the dock.
+    // order), and an assignment drops the leaf's binding to the store. A leaf
+    // whose change commit() actually wrote hands this back to itself, so a
+    // later write from the Stage Editor, the Hub or the CLI still reaches the
+    // dock. A change the binding itself produced writes nothing and is not
+    // rebound: list leaves come back as fresh copies, and rebinding those
+    // would fire the leaf again forever.
     function rebind(path: string, fallback: var): var {
         return Qt.binding(() => root.pull(path, fallback));
     }
@@ -158,31 +161,32 @@ Singleton {
         return d[path] === encoded;
     }
 
-    // Write one option leaf back. Shared keys go straight to the shared
-    // store; a pinned-apps write mirrors there too so the other designs stay
-    // in sync. Everything else merges into the dock.ii frame.
-    function commit(path: string, value: var) {
+    // Write one option leaf back, answering whether anything was written.
+    // Shared keys go straight to the shared store; a pinned-apps write mirrors
+    // there too so the other designs stay in sync. Everything else merges into
+    // the dock.ii frame.
+    function commit(path: string, value: var): bool {
         // Compare against the stored data, not the memo: an absent key reads
         // back the sentinel, and the first Changed a leaf fires is the
         // binding's own default landing, which must never be persisted.
         const current = root.resolve(path, root);
         if (current !== root && JSON.stringify(current) === JSON.stringify(value))
-            return;
+            return false;
         if (current === root && root.isDefaultWrite(path, undefined, value))
-            return;
+            return false;
         const shared = root.sharedKeys[path];
         if (shared !== undefined) {
             ShellCfg.Dock.setCfg(shared, value);
-            return;
+            return true;
         }
         const inverted = root.invertedSharedKeys[path];
         if (inverted !== undefined) {
             ShellCfg.Dock.setCfg(inverted, !value);
-            return;
+            return true;
         }
         if (path === "pinnedApps") {
             ShellCfg.Dock.setPinned(Array.from(value ?? []));
-            return;
+            return true;
         }
         const next = JSON.parse(JSON.stringify(root.frame()));
         const parts = path.split(".");
@@ -194,5 +198,6 @@ Singleton {
         }
         node[parts[parts.length - 1]] = value;
         ShellCfg.Dock.setCfg("ii", next);
+        return true;
     }
 }

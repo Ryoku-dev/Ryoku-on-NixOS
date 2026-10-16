@@ -1,11 +1,12 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
 import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
+import Ryoku.Ui.Singletons
 import stage.modules.common.widgets
 import stage.services
 import shell.modules.phone
+import shell.services as ShellServices
 import "../clock"
 import "UtilityTools.js" as UtilityTools
 import ".."
@@ -22,8 +23,8 @@ UtilityTile {
 
     readonly property var cfg: Config.options?.dock?.utilities?.tools ?? null
     readonly property var shownIds: UtilityTools.shown(tile.cfg?.shown ?? [])
-    readonly property bool recording: Persistent.states?.screenRecord?.active ?? false
-    readonly property bool recordPaused: Persistent.states?.screenRecord?.paused ?? false
+    readonly property bool recording: ShellServices.Recorder.active
+    readonly property bool recordPaused: ShellServices.Recorder.paused
 
     // Each shown tool with its live look. Pause joins the recorder while it
     // runs, as on the bar.
@@ -61,7 +62,6 @@ UtilityTile {
             tool.active = GlobalStates.oskOpen;
             break;
         case "wallpaper":
-            tool.active = GlobalStates.wallpaperSelectorOpen;
             break;
         case "mic": {
             const muted = Pipewire.defaultAudioSource?.audio?.muted ?? false;
@@ -73,6 +73,7 @@ UtilityTile {
         case "darkMode":
             tool.symbol = Appearance.m3colors.darkmode ? "light_mode" : "dark_mode";
             tool.title = Appearance.m3colors.darkmode ? Translation.tr("Light mode") : Translation.tr("Dark mode");
+            tool.active = Appearance.m3colors.darkmode;
             break;
         case "performance":
             tool.symbol = PowerProfiles.profile === PowerProfile.PowerSaver ? "energy_savings_leaf"
@@ -116,19 +117,22 @@ UtilityTile {
     function execute(id, alt) {
         switch (id) {
         case "screenSnip":
-            Quickshell.execDetached(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
+            Spawn.run(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
             break;
         case "screenRecord":
-            Quickshell.execDetached(tile.recording ? [Directories.recordScriptPath] : [Directories.recordScriptPath, "--fullscreen"]);
+            if (tile.recording)
+                ShellServices.Recorder.stop();
+            else
+                ShellServices.Recorder.start(["--fullscreen"]);
             break;
         case "screenRecordRegion":
-            Quickshell.execDetached([Directories.recordScriptPath, "--region"]);
+            ShellServices.Recorder.start(["--region"]);
             break;
         case "recordPause":
-            Quickshell.execDetached([Directories.recordScriptPath, "--pause"]);
+            ShellServices.Recorder.togglePause();
             break;
         case "colorPicker":
-            GlobalStates.launchColorPicker();
+            Spawn.run(["ryoku-cmd-color-picker"]);
             break;
         case "liveDraw":
             LiveDraw.toggle();
@@ -137,13 +141,13 @@ UtilityTile {
             GlobalStates.oskOpen = !GlobalStates.oskOpen;
             break;
         case "wallpaper":
-            GlobalStates.wallpaperSelectorOpen = !GlobalStates.wallpaperSelectorOpen;
+            Spawn.run(["ryogami", "wallpaper", "ui"]);
             break;
         case "mic":
-            Quickshell.execDetached(["wpctl", "set-mute", "@DEFAULT_SOURCE@", "toggle"]);
+            Spawn.run(["wpctl", "set-mute", "@DEFAULT_SOURCE@", "toggle"]);
             break;
         case "darkMode":
-            Quickshell.execDetached(["bash", "-c", `${Directories.wallpaperSwitchScriptPath} --mode ${Appearance.m3colors.darkmode ? "light" : "dark"} --noswitch`]);
+            Appearance.toggleDarkMode();
             break;
         case "performance":
             if (PowerProfiles.hasPerformanceProfile) {

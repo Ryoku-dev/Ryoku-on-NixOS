@@ -5,6 +5,8 @@ import ".."
 
 UtilityConfigPage {
     id: page
+    Component.onCompleted: AiPlanUsage.retain()
+    Component.onDestruction: AiPlanUsage.release()
     title: Translation.tr("AI usage")
 
     readonly property var cfg: Config.options.dock.utilities.aiUsage
@@ -52,7 +54,7 @@ UtilityConfigPage {
             buttonIcon: "tune"
             title: Translation.tr("AI plan usage")
             description: Translation.tr("Enabled services, refresh interval and low-quota threshold, shared with the bar widget")
-            configPage: Qt.resolvedUrl("../widgets/AiPlanUsageConfig.qml")
+            configPage: Qt.resolvedUrl("widgets/AiPlanUsageConfig.qml")
         }
     }
 }

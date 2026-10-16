@@ -33,7 +33,7 @@ AbstractBackgroundWidget {
         id: shadowEffect
 
         target: mainContainer
-        visible: Config.options.background.widgets.enableShadows ?? true
+        visible: Config.options.background.widgets.nothing_ring_media.enableShadows ?? true
     }
 
     Rectangle {

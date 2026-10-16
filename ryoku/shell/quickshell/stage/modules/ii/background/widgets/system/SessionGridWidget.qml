@@ -6,6 +6,7 @@ import stage.services
 import stage.modules.common
 import stage.modules.common.widgets
 import stage.modules.common.functions
+import shell.services as ShellServices
 import stage.modules.ii.background.widgets
 /*
  * Session (1x1): lock, power off, restart and log out as a 2x2 grid. Nothing
@@ -47,16 +48,16 @@ ExpressiveCardWidget {
         disarmTimer.stop();
         switch (id) {
         case "lock":
-            GlobalStates.screenLocked = true;
+            ShellServices.SessionActions.run("lock");
             break;
         case "poweroff":
-            Session.poweroff();
+            ShellServices.SessionActions.run("shutdown");
             break;
         case "reboot":
-            Session.reboot();
+            ShellServices.SessionActions.run("reboot");
             break;
         case "logout":
-            Session.logout();
+            ShellServices.SessionActions.run("logout");
             break;
         }
     }

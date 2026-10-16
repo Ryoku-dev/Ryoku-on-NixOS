@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import Ryoku.Ui.Singletons
 import stage.modules.common.widgets
 import stage.services
 import "../clock"
@@ -21,7 +22,7 @@ UtilityTile {
         let url = String(site.url).trim();
         if (!/^[a-z][a-z0-9+.-]*:/i.test(url))
             url = "https://" + url;
-        Qt.openUrlExternally(url);
+        Spawn.run(["xdg-open", url]);
     }
 
     surfaceColor: ClockStyle.colSurfaceHigh

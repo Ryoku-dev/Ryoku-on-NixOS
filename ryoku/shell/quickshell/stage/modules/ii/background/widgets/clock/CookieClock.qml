@@ -15,7 +15,7 @@ Item {
 
     property real implicitSize: 240
 
-    property color colShadow: Appearance.colors.colShadow
+    property color colShadow: WidgetColorScheme.colors.colShadow
     property color colBackground: WidgetColorScheme.cardBgColor
     property color colOnBackground: WidgetColorScheme.textColorOnBg
     property color colBackgroundInfo: WidgetColorScheme.innerShapeColor

@@ -37,9 +37,12 @@ Flow {
 
     Layout.preferredWidth: calculatedWidth
 
-    property color colBackground: Appearance.colors.colSecondaryContainer
-    property color colBackgroundHover: Appearance.colors.colSecondaryContainerHover
-    property color colBackgroundActive: Appearance.colors.colSecondaryContainerActive
+    // Unselected choices are outlined, as SelectionGroupButton draws them: the
+    // stage maps the secondary container to bone, under which the unselected
+    // label colour does not read.
+    property color colBackground: "transparent"
+    property color colBackgroundHover: Appearance.colors.colLayer1Hover
+    property color colBackgroundActive: Appearance.colors.colLayer1Active
 
     spacing: 2
     property list<var> options: [

@@ -51,7 +51,8 @@ AbstractBackgroundWidget {
 
             StyledText {
                 Layout.alignment: Qt.AlignVCenter
-                text: Qt.locale().toString(DateTime.clock.date, "dddd")
+                text: Qt.locale().toString(DateTime.clock.date,
+                    Config.options.background.widgets.calendar_pill.weekdayFormat ?? "dddd")
                 color: root.textColorOnBg
                 font {
                     pixelSize: 22

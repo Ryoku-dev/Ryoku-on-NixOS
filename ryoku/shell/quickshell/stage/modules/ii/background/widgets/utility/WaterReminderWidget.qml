@@ -193,6 +193,8 @@ AbstractBackgroundWidget {
                 font.pixelSize: Appearance.font.pixelSize.larger
                 font.weight: Font.Bold
                 color: root.textColorOnBg
+                fontSizeMode: Text.HorizontalFit
+                minimumPixelSize: Appearance.font.pixelSize.small
                 elide: Text.ElideRight
             }
 
@@ -202,6 +204,8 @@ AbstractBackgroundWidget {
                 font.pixelSize: Appearance.font.pixelSize.larger
                 font.weight: Font.Bold
                 color: root.subtextColorOnBg
+                fontSizeMode: Text.HorizontalFit
+                minimumPixelSize: Appearance.font.pixelSize.small
                 elide: Text.ElideRight
             }
         }

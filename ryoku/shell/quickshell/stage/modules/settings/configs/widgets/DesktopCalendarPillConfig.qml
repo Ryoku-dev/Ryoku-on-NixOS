@@ -66,6 +66,16 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("calendar_pill")
 
+            ContentSubsectionLabel { text: Translation.tr("Weekday label") }
+            ConfigSelectionArray {
+                currentValue: Config.options.background.widgets.calendar_pill.weekdayFormat ?? "dddd"
+                onSelected: value => Config.options.background.widgets.calendar_pill.weekdayFormat = value
+                options: [
+                    { "displayName": Translation.tr("Full"), "value": "dddd" },
+                    { "displayName": Translation.tr("Short"), "value": "ddd" }
+                ]
+            }
+
             DesktopWidgetVisualOptions {
                 Layout.fillWidth: true
             }

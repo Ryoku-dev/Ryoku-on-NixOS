@@ -32,7 +32,7 @@ Canvas {
     property color colPillFill:    WidgetColorScheme.pillFillColor
     property color colPillText:    WidgetColorScheme.textColorOnPillFill
     readonly property color tintedBgColor: WidgetColorScheme.tintBackground(
-        root.useBlackBg ? Appearance.m3colors.m3shadow : WidgetColorScheme.cardBgColor)
+        root.useBlackBg ? WidgetColorScheme.m3colors.m3shadow : WidgetColorScheme.cardBgColor)
 
     // ── Time ──────────────────────────────────────────────────────────────────
     property int currentHour:   DateTime.clock.hours

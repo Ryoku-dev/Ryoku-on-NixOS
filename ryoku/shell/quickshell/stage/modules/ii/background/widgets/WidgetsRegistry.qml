@@ -188,7 +188,8 @@ Singleton {
             "category": "Clock",
             "qmlPath": Qt.resolvedUrl("clock/GridCardClockWidget.qml"),
             "icon": "schedule",
-            "description": Translation.tr("A stylized background clock with vertically stretched typography based on Material 3 cards.")
+            "description": Translation.tr("A stylized background clock with vertically stretched typography based on Material 3 cards."),
+            "configPage": "widgets/DesktopGridCardClockConfig.qml"
         },
         {
             "widgetId": "clock_expressive_card",
@@ -196,7 +197,8 @@ Singleton {
             "category": "Clock",
             "qmlPath": Qt.resolvedUrl("clock/ExpressiveCardClockWidget.qml"),
             "icon": "schedule",
-            "description": Translation.tr("A 1x1 clock with big time, month/day, temp & weather icon and expressive background.")
+            "description": Translation.tr("A 1x1 clock with big time, month/day, temp & weather icon and expressive background."),
+            "configPage": "widgets/DesktopExpressiveCardClockConfig.qml"
         },
         {
             "widgetId": "circular_media",
@@ -231,7 +233,8 @@ Singleton {
             "category": "Media",
             "qmlPath": Qt.resolvedUrl("media/AndroidMediaWidget.qml"),
             "icon": "play_circle",
-            "description": Translation.tr("Beautiful Android style media player widget with dynamic colors, artwork, lyrics, and visualizer.")
+            "description": Translation.tr("Beautiful Android style media player widget with dynamic colors, artwork, lyrics, and visualizer."),
+            "configPage": "widgets/DesktopAndroidMediaConfig.qml"
         },
         {
             "widgetId": "media_cd",
@@ -330,7 +333,7 @@ Singleton {
             "qmlPath": Qt.resolvedUrl("system/VolumeMutePillWidget.qml"),
             "icon": "volume_off",
             "description": Translation.tr("1x0.5 system quick toggle pill widget for volume mute."),
-            "configPage": "widgets/DesktopVolumeMuteConfig.qml"
+            "configPage": ""
         },
         {
             "widgetId": "wifi_pill",
@@ -387,7 +390,7 @@ Singleton {
             "qmlPath": Qt.resolvedUrl("system/EasyEffectsPresetWidget.qml"),
             "icon": "graphic_eq",
             "description": Translation.tr("The EasyEffects preset card with a live contour texture: shape, name, effects, and buttons that work. Standing."),
-            "configPage": "widgets/DesktopEasyEffectsPresetConfig.qml"
+            "configPage": "widgets/DesktopEasyEffectsPresetPortraitConfig.qml"
         },
         {
             "widgetId": "easyeffects_preset_landscape",
@@ -396,7 +399,7 @@ Singleton {
             "qmlPath": Qt.resolvedUrl("system/EasyEffectsPresetWidget.qml"),
             "icon": "graphic_eq",
             "description": Translation.tr("The EasyEffects preset card with a live contour texture, laid out wide: art on the left, the rest beside it."),
-            "configPage": "widgets/DesktopEasyEffectsPresetConfig.qml"
+            "configPage": "widgets/DesktopEasyEffectsPresetLandscapeConfig.qml"
         },
         {
             "widgetId": "weather_typography",
@@ -593,7 +596,7 @@ Singleton {
             "category": "Devices",
             "qmlPath": Qt.resolvedUrl("bluetooth/DevicesBatteryListWidget.qml"),
             "icon": "battery_full",
-            "description": Translation.tr("2x1 widget featuring 4 fixed pill slots displaying PC laptop, phone, and Bluetooth device batteries."),
+            "description": Translation.tr("2x1 widget listing up to 4 device batteries: the PC, a paired phone and Bluetooth devices."),
             "configPage": "widgets/DesktopDevicesBatteryListConfig.qml"
         },
         {
@@ -602,7 +605,7 @@ Singleton {
             "category": "Devices",
             "qmlPath": Qt.resolvedUrl("bluetooth/DevicesBatteryList1x1Widget.qml"),
             "icon": "battery_full",
-            "description": Translation.tr("Compact 1x1 widget featuring 4 fixed pill slots displaying PC laptop, phone, and Bluetooth device batteries."),
+            "description": Translation.tr("Compact 1x1 widget listing up to 4 device batteries: the PC, a paired phone and Bluetooth devices."),
             "configPage": "widgets/DesktopDevicesBatteryList1x1Config.qml"
         },
         {
@@ -719,7 +722,7 @@ Singleton {
             "category": "Utility",
             "qmlPath": Qt.resolvedUrl("utility/AtAGlanceWidget.qml"),
             "icon": "dashboard",
-            "description": Translation.tr("Android-inspired context widget combining media, calendar, sports, and current weather."),
+            "description": Translation.tr("Android-inspired context widget combining media, calendar and current weather."),
             "configPage": "widgets/DesktopAtAGlanceConfig.qml"
         },
         {

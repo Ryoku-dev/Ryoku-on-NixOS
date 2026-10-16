@@ -15,9 +15,12 @@ AbstractBackgroundWidget {
     implicitWidth: 240
     implicitHeight: 240
 
-    readonly property color cardBgColor: WidgetColorScheme.cardBgColor
-    readonly property color boldTextColor: WidgetColorScheme.textColorOnBg
-    readonly property color mutedTextColor: WidgetColorScheme.subtextColorOnBg
+    readonly property var options: Config.options.background.widgets.weather_typography
+    readonly property string colorScheme: (options.expressiveColors ?? true)
+        ? "expressive_primary" : "default"
+    readonly property color cardBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
+    readonly property color boldTextColor: WidgetColorScheme.getTextColorOnBg(colorScheme)
+    readonly property color mutedTextColor: WidgetColorScheme.getSubtextColorOnBg(colorScheme)
 
     readonly property var currentData: Weather.data
 
@@ -75,6 +78,7 @@ AbstractBackgroundWidget {
             }
 
             RowLayout {
+                visible: root.options.showLocation ?? true
                 spacing: 10
                 Layout.maximumWidth: 200
 
@@ -96,6 +100,7 @@ AbstractBackgroundWidget {
             }
 
             RowLayout {
+                visible: root.options.showFeelsLike ?? true
                 spacing: 10
 
                 StyledText {
@@ -114,6 +119,7 @@ AbstractBackgroundWidget {
             }
 
             RowLayout {
+                visible: root.options.showCondition ?? true
                 spacing: 10
                 Layout.maximumWidth: 200
 
@@ -133,6 +139,7 @@ AbstractBackgroundWidget {
             }
 
             StyledText {
+                visible: root.options.showCondition ?? true
                 text: Translation.tr("today")
                 color: root.mutedTextColor
                 font.pixelSize: 22

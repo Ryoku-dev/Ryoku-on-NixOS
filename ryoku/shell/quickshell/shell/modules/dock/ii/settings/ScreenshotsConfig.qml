@@ -15,13 +15,13 @@ UtilityConfigPage {
         ConfigTextField {
             icon: "folder_open"
             text: Translation.tr("Folder path")
-            placeholderText: Config.options.screenSnip.savePath || (Directories.pictures.replace("file://", "") + "/Screenshots")
+            placeholderText: FileUtils.trimFileProtocol(Directories.pictures) + "/Screenshots"
             inputText: Config.options.dock.utilities.screenshots.folder
             textField.onEditingFinished: Config.options.dock.utilities.screenshots.folder = textField.text.trim()
         }
         NoticeBox {
             Layout.fillWidth: true
-            text: Translation.tr("Leave it empty to follow the screen snip save folder.")
+            text: Translation.tr("Leave it empty to follow the folder selected in Ryoku's screenshot tool.")
         }
     }
 }

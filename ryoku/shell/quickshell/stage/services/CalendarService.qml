@@ -10,7 +10,6 @@ import stage
 import stage.modules.common
 import Qt.labs.platform
 import stage.modules.common.functions
-import stage.modules.common
 
 Singleton {
     id: root
@@ -27,9 +26,11 @@ Singleton {
     // Read from khal's own config so deletion works wherever the user keeps their calendars.
     property var calendarPaths: [root.homePath + "/.calendars"]
     property string khalDbPath: root.homePath + "/.cache/khal/khal.db"
-    readonly property string icsHelperPath: Directories.scriptPath + "/calendar/ics.py"
-    readonly property string vdirsyncerSyncPath: Directories.scriptPath + "/calendar/vdirsyncer_sync.py"
-    readonly property string vdirsyncerReauthPath: Directories.scriptPath + "/calendar/vdirsyncer_reauth.py"
+    readonly property string calendarScriptsPath: FileUtils.trimFileProtocol(
+        Quickshell.shellPath("modules/dock/ii/scripts/calendar"))
+    readonly property string icsHelperPath: root.calendarScriptsPath + "/ics.py"
+    readonly property string vdirsyncerSyncPath: root.calendarScriptsPath + "/vdirsyncer_sync.py"
+    readonly property string vdirsyncerReauthPath: root.calendarScriptsPath + "/vdirsyncer_reauth.py"
     property bool googleAuthRequired: false
     property bool reauthenticatingGoogle: false
     property list<var> calendars: []

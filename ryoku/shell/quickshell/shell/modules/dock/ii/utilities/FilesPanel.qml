@@ -1,8 +1,8 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
 import stage.modules.common.widgets
 import stage.services
+import Ryoku.Ui.Singletons
 import "../clock"
 import ".."
 
@@ -41,7 +41,9 @@ ColumnLayout {
         symbol: "folder_open"
         label: Translation.tr("Open folder")
         onClicked: {
-            Quickshell.execDetached(["xdg-open", panel.tile?.folder ?? ""]);
+            const folder = panel.tile?.folder ?? "";
+            if (folder.length > 0)
+                Spawn.run(["xdg-open", folder]);
             panel.host?.closePanel();
         }
     }

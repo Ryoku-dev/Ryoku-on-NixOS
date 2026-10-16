@@ -3,3 +3,4 @@ DrawCanvas 1.0 DrawCanvas.qml
 DrawSurface 1.0 DrawSurface.qml
 DrawToolButton 1.0 DrawToolButton.qml
 DrawToolbar 1.0 DrawToolbar.qml
+StrokeGeometry 1.0 StrokeGeometry.js

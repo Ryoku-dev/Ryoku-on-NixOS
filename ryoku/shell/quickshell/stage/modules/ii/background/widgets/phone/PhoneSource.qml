@@ -1,4 +1,6 @@
 import QtQuick
+import Quickshell
+import Quickshell.Io
 import stage
 import stage.services
 import stage.modules.common
@@ -18,12 +20,13 @@ QtObject {
     readonly property bool hasDevice: root.deviceId !== "" && KdeConnectService.activeReachable
     readonly property string name: KdeConnectService.activeDeviceDisplayName || Translation.tr("No phone")
     readonly property int charge: root.device?.charge ?? -1
-    readonly property bool charging: root.device?.charging === true
-    readonly property string imageSource: BluetoothDeviceImages.phoneImageFor(KdeConnectService.activeDeviceDisplayName, root.device?.name ?? "")
+    readonly property bool charging: root.device?.isCharging === true
+    readonly property string imageSource: BluetoothDeviceImages.phoneImageFor(
+        KdeConnectService.activeDeviceDisplayName, root.device?.name ?? "")
 
-    readonly property bool mirrorAvailable: PhoneScrcpyService.available || KdeConnectService.scrcpyAvailable
-    readonly property bool mirrorRunning: PhoneScrcpyService.mirrorRunning || KdeConnectService.scrcpyRunning
-    readonly property bool mirrorLaunching: PhoneScrcpyService.mirrorLaunching || KdeConnectService.scrcpyLaunching
+    readonly property bool mirrorAvailable: KdeConnectService.mirrorAvailable
+    readonly property bool mirrorRunning: KdeConnectService.mirrorRunning
+    readonly property bool mirrorLaunching: KdeConnectService.mirrorLaunching
     readonly property bool canMirror: root.enabled && root.hasDevice && root.mirrorAvailable
 
     readonly property string status: {
@@ -53,30 +56,28 @@ QtObject {
         if (!root.canMirror)
             return;
         if (root.mirrorRunning) {
-            PhoneScrcpyService.focusMirror();
-            KdeConnectService.focusScrcpyWindow();
+            KdeConnectService.focusMirror();
             return;
         }
         if (!root.mirrorLaunching)
-            PhoneScrcpyService.openMirrorWindow();
+            KdeConnectService.openMirrorWindow();
     }
 
     function stopMirror() {
         if (root.enabled)
-            PhoneScrcpyService.stopMirroring();
+            KdeConnectService.stopMirroring();
     }
 
     function sendFile() {
-        if (!root.enabled || !root.hasDevice)
+        if (!root.enabled || !root.hasDevice || filePicker.running)
             return;
-        // The file picker that opens is its own feedback.
-        KdeConnectService.sendFile(root.deviceId);
+        filePicker.running = true;
     }
 
     function sendClipboard() {
         if (!root.enabled || !root.hasDevice)
             return;
-        KdeConnectService.sendClipboard(root.deviceId);
+        KdeConnectService.sendClipboard(Quickshell.clipboardText, root.deviceId);
         root.sent = "clipboard";
         root.sentTimer.restart();
     }
@@ -84,5 +85,18 @@ QtObject {
     function ring() {
         if (root.enabled && root.hasDevice)
             KdeConnectService.findMyPhone(root.deviceId);
+    }
+
+    property Process filePicker: Process {
+        command: ["bash", "-c",
+            "if command -v kdialog >/dev/null 2>&1; then kdialog --getopenfilename \"$HOME\" --multiple 2>/dev/null | tr '\\n' '|'; "
+            + "elif command -v zenity >/dev/null 2>&1; then zenity --file-selection --multiple --separator '|' 2>/dev/null; fi"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const paths = this.text.trim().split("|").map(path => path.trim()).filter(path => path.length > 0);
+                if (paths.length > 0)
+                    KdeConnectService.sendFile(paths, root.deviceId);
+            }
+        }
     }
 }

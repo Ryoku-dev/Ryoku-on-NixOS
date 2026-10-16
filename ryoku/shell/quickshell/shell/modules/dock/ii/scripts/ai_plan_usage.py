@@ -246,15 +246,16 @@ def newest_files(roots: Iterable[Path], limit: int = 80) -> list[Path]:
 
 def parse_codex_rate_limits(rate_limits: dict[str, Any], updated_at: Any = 0) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
-    # Default window sizes used when a lane is null (fully exhausted).
+    # A null lane can mean either a fully exhausted window or a plan that does
+    # not include that lane. Only the accompanying reached marker distinguishes
+    # those cases.
     _default_minutes = {"primary": 300, "secondary": 10080}
+    reached_lane = str(rate_limits.get("rate_limit_reached_type") or "").lower()
     for lane_name in ("primary", "secondary"):
         lane = rate_limits.get(lane_name)
         if lane is None:
-            # When Codex fully exhausts a quota window, the API returns the
-            # lane as null instead of an object with used_percent.  Treat this
-            # as 100 % used so the widget shows "0 % remaining" rather than
-            # "Unavailable".
+            if lane_name not in reached_lane:
+                continue
             minutes = _default_minutes.get(lane_name, 300)
             kind = window_kind(minutes, lane_name)
             items.append(
@@ -318,7 +319,21 @@ def collect_chatgpt(home: Path | None = None) -> dict[str, Any]:
                 or not isinstance(payload.get("rate_limits"), dict)
             ):
                 continue
-            return parse_codex_rate_limits(payload["rate_limits"], entry.get("timestamp"))
+            result = parse_codex_rate_limits(
+                payload["rate_limits"], entry.get("timestamp")
+            )
+            reset_times = [
+                int(item.get("resetsAt") or 0) for item in result.get("items", [])
+                if int(item.get("resetsAt") or 0) > 0
+            ]
+            if reset_times and max(reset_times) <= int(time.time() * 1000):
+                return provider_result(
+                    "chatgpt",
+                    plan=str(result.get("plan") or ""),
+                    source="Codex session",
+                    error="Codex quota snapshot expired; use Codex once to refresh it",
+                )
+            return result
     return provider_result(
         "chatgpt",
         source="Codex session",
@@ -1030,7 +1045,8 @@ def collect_claude(
             error="Enable Claude network refresh or open a Claude Code session",
         )
 
-    path = credentials_path or Path.home() / ".claude" / ".credentials.json"
+    config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    path = credentials_path or config_dir / ".credentials.json"
     try:
         credentials = json.loads(path.read_text(encoding="utf-8"))
         oauth = credentials.get("claudeAiOauth") or {}

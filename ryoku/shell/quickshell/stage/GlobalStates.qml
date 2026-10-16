@@ -23,6 +23,10 @@ Singleton {
     property bool editMode: false
     property string editModeMonitor: ""
 
+    // The desktop widget whose text field holds the keyboard ("" when none), so
+    // the desktop surface takes keyboard focus only while someone is typing.
+    property string widgetTypingOwner: ""
+
     // The per-widget menu, one at a time shell-wide, drawn by the chrome of the
     // screen it was summoned on. Screen coordinates.
     property bool editWidgetMenuOpen: false
@@ -402,6 +406,7 @@ Singleton {
     property bool connectModeActive: false
     property bool barOpen: true
     property bool settingsOpen: false
+    property string iiDockWidgetSettingsTarget: ""
     property bool policiesPanelOpen: false
     property bool dashboardPanelOpen: false
     property alias sidebarLeftOpen: root.policiesPanelOpen
@@ -409,6 +414,28 @@ Singleton {
     property string activeLeftSidebarMonitor: ""
     property string activeRightSidebarMonitor: ""
     property bool mediaControlsOpen: false
+    property bool localSendPopupOpen: false
+    property var localSendPopupTransfer: null
+    property var mediaControlsDockAnchor: null
+    // Canonical owner for dock popup dismissal. The ii module can be imported
+    // through more than one URL; keeping ownership here prevents split singleton
+    // instances from losing the active popup.
+    property var iiDockPopup: null
+    function claimIiDockPopup(popup) {
+        const previous = root.iiDockPopup;
+        if (previous && previous !== popup && typeof previous.closeImmediately === "function")
+            previous.closeImmediately();
+        root.iiDockPopup = popup;
+    }
+    function releaseIiDockPopup(popup) {
+        if (root.iiDockPopup === popup)
+            root.iiDockPopup = null;
+    }
+    function dismissIiDockPopup() {
+        const popup = root.iiDockPopup;
+        if (popup && typeof popup.close === "function")
+            popup.close();
+    }
     property bool lockScreenCentered: false
     property bool lockAnimationActive: false
     property bool workspaceRestoreInProgress: false

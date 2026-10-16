@@ -39,7 +39,7 @@ Item {
         layer.enabled: !root.showBackground && root.textShadow
         layer.effect: MultiEffect {
             shadowEnabled: true
-            shadowColor: Appearance.colors.colShadow
+            shadowColor: WidgetColorScheme.colors.colShadow
             shadowBlur: 1.0
             shadowOpacity: 0.8
             shadowVerticalOffset: 2

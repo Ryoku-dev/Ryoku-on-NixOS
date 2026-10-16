@@ -18,6 +18,9 @@ AbstractBackgroundWidget {
     implicitHeight: 260
 
     readonly property color expressiveInnerShape: WidgetColorScheme.innerShapeColor
+    readonly property int imageFillMode:
+        (Config.options.background.widgets.photo.fitMode ?? "crop") === "fit"
+            ? Image.PreserveAspectFit : Image.PreserveAspectCrop
 
     StyledDropShadow {
         target: outerCircle
@@ -47,7 +50,7 @@ AbstractBackgroundWidget {
     readonly property bool shouldPlay: {
         return root.visible && root.opacity > 0 && root.isAnimated
             && !GlobalStates.screenLocked
-            && !GlobalStates.activeWorkspaceHasWindows;
+            && !root.activeWorkspaceHasWindows;
     }
 
     // The photo is minified straight down to the widget box by the GPU's 2x2 tap,
@@ -105,7 +108,7 @@ AbstractBackgroundWidget {
             anchors.fill: parent
             source: (root.decodeWidth <= 0 || root.isAnimated) ? "" : root.cleanSource
             sourceSize: Qt.size(root.decodeWidth, root.decodeHeight)
-            fillMode: Image.PreserveAspectCrop
+            fillMode: root.imageFillMode
             asynchronous: true
             // Hold the frame already on screen across a re-decode instead of
             // falling back to the placeholder for the frames it takes.
@@ -130,7 +133,7 @@ AbstractBackgroundWidget {
             id: photoImage
             anchors.fill: parent
             source: root.isAnimated ? root.cleanSource : ""
-            fillMode: Image.PreserveAspectCrop
+            fillMode: root.imageFillMode
             playing: root.shouldPlay
             paused: !root.shouldPlay
             asynchronous: true

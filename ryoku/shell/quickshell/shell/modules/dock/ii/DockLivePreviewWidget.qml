@@ -1,11 +1,11 @@
 pragma ComponentBehavior: Bound
 
-import Qt5Compat.GraphicalEffects
 import QtQuick
 import Quickshell
 import Quickshell.Widgets
 import Quickshell.Wayland
 import stage.modules.common.widgets
+import stage.services
 import "common"
 
 import "./widgets"
@@ -37,6 +37,23 @@ Item {
         const revision = DockLivePreviewService.resolutionRevision;
         return DockLivePreviewService.selectedToplevelFor(root.screen);
     }
+    readonly property bool previewAvailable: DockLivePreviewService.previewAvailable
+    readonly property string selectedAppName: root.desktopEntry?.name
+        || root.appId
+        || Translation.tr("application")
+    readonly property string previewStatusText: {
+        if (!root.previewAvailable)
+            return Translation.tr("Live preview is not available with this window manager.");
+        if (!root.hasSelectedApp)
+            return Translation.tr("Choose an app to preview");
+        if (!root.selectedToplevel)
+            return Translation.tr("Open %1 to preview").arg(root.selectedAppName);
+        if (root.captureUnavailable)
+            return Translation.tr("This window cannot be previewed");
+        if ((Config.options?.dock?.livePreviewCaptureMode ?? "visible") === "hover" && !root.hovered)
+            return Translation.tr("Hover to preview");
+        return Translation.tr("Loading preview…");
+    }
     readonly property bool hasSelectedApp: root.appId !== ""
     readonly property bool captureModeAllows: (Config.options?.dock?.livePreviewCaptureMode ?? "visible") !== "hover"
         || root.hovered
@@ -44,7 +61,8 @@ Item {
         && !(GlobalStates.oledSaverMonitors ?? []).includes(root.screenName)
         && !(root.screenName && GlobalStates.isMediaModeActiveForScreen(root.screenName))
     readonly property bool widgetActuallyVisible: root.visible && root.width > 1 && root.height > 1
-    readonly property bool captureRequested: (Config.options?.dock?.enableLivePreviewWidget ?? false)
+    readonly property bool captureRequested: root.previewAvailable
+        && (Config.options?.dock?.enableLivePreviewWidget ?? false)
         && root.dockRevealed
         && root.dockWindowVisible
         && root.widgetActuallyVisible
@@ -115,6 +133,8 @@ Item {
         // lease owned by a component that no longer exists.
         if (root.captureLease)
             DockLivePreviewService.releaseCapture(root.screenName);
+        if (root.pickerOpen && root.dockContent)
+            root.dockContent.registerContextMenuClose();
     }
 
     function updateCaptureLease() {
@@ -184,6 +204,15 @@ Item {
     function openPicker() {
         root.pickerOpen = true;
         root.pickerRequested();
+    }
+
+    onPickerOpenChanged: {
+        if (!root.dockContent)
+            return
+        if (root.pickerOpen)
+            root.dockContent.registerContextMenuOpen()
+        else
+            root.dockContent.registerContextMenuClose()
     }
 
     onCaptureRequestedChanged: root.updateCaptureLease()
@@ -278,7 +307,7 @@ Item {
         anchors.bottomMargin: root.dotMarginV
         radius: root.widgetRadius
         antialiasing: true
-        color: root.hasSelectedApp ? "transparent" : Appearance.colors.colLayer3
+        color: root.captureReady ? "transparent" : Appearance.colors.colLayer3
 
         Item {
             id: captureContent
@@ -286,30 +315,59 @@ Item {
             visible: root.captureActive
             opacity: root.captureReady ? root.previewOpacity : 0.0
 
-            ScreencopyView {
+            Loader {
                 id: screencopyView
                 anchors.fill: parent
+                active: root.previewAvailable && root.captureActive
                 scale: root.previewZoom
                 transformOrigin: Item.Center
-                captureSource: root.captureActive ? root.displayedToplevel : null
-                live: true
-                paintCursor: Config.options?.dock?.livePreviewPaintCursor ?? false
-                constraintSize: Qt.size(
-                    Math.max(1, Math.round(horizontalSurface.width * root.captureResolutionScale)),
-                    Math.max(1, Math.round(horizontalSurface.height * root.captureResolutionScale))
-                )
+                readonly property bool hasContent: item?.hasContent ?? false
 
-                onHasContentChanged: {
-                    if (!hasContent || root.transitionPhase !== "waitingForFrame")
-                        return;
-                    root.transitionPhase = "enteringNew";
-                    previewEnterAnimation.restart();
-                }
+                sourceComponent: ScreencopyView {
+                    anchors.fill: parent
+                    captureSource: root.captureActive ? root.displayedToplevel : null
+                    live: root.captureActive
+                    paintCursor: Config.options?.dock?.livePreviewPaintCursor ?? false
+                    constraintSize: Qt.size(
+                        Math.max(1, Math.round(horizontalSurface.width * root.captureResolutionScale)),
+                        Math.max(1, Math.round(horizontalSurface.height * root.captureResolutionScale))
+                    )
 
-                onStopped: {
-                    root.captureUnavailable = true;
-                    root.previewOpacity = 0.0;
+                    onHasContentChanged: {
+                        if (!hasContent || root.transitionPhase !== "waitingForFrame")
+                            return;
+                        root.transitionPhase = "enteringNew";
+                        previewEnterAnimation.restart();
+                    }
+
+                    onStopped: {
+                        root.captureUnavailable = true;
+                        root.previewOpacity = 0.0;
+                    }
                 }
+            }
+        }
+
+        Column {
+            visible: !root.captureReady
+            anchors.centerIn: parent
+            width: Math.max(1, parent.width - root.overlayInset * 2)
+            spacing: 2
+            z: 2
+
+            MaterialSymbol {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: root.previewAvailable ? "live_tv" : "videocam_off"
+                iconSize: Math.min(root.iconSize * 0.68, horizontalSurface.height * 0.4)
+                color: Appearance.colors.colOnLayer3
+            }
+            StyledText {
+                width: parent.width
+                text: root.previewStatusText
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                font.pixelSize: Appearance.font.pixelSize.smaller
+                color: Appearance.colors.colOnLayer3
             }
         }
 
@@ -319,7 +377,7 @@ Item {
             property: "previewOpacity"
             from: 0.0
             to: 1.0
-            duration: Appearance.animation.elementMoveFast.duration
+            duration: Appearance.reducedMotion ? 0 : Appearance.animation.elementMoveFast.duration
             easing.type: Appearance.animation.elementMoveFast.type
             onFinished: {
                 if (root.transitionPhase === "enteringNew")
@@ -329,7 +387,7 @@ Item {
 
         RippleButton {
             id: collapseButton
-            visible: root.hovered
+            visible: root.previewAvailable && root.hovered
             enabled: visible
             anchors.top: parent.top
             anchors.right: parent.right
@@ -350,6 +408,7 @@ Item {
             }
             opacity: root.hovered ? 1.0 : 0.0
             Behavior on opacity {
+                enabled: !Appearance.reducedMotion
                 animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
             }
             onClicked: root.openPicker()
@@ -357,7 +416,7 @@ Item {
         }
 
         DockIcon {
-            visible: root.hasSelectedApp
+            visible: root.previewAvailable && root.hasSelectedApp
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.rightMargin: root.overlayInset
@@ -372,7 +431,7 @@ Item {
 
         MaterialSymbol {
             renderType: Text.CurveRendering
-            visible: !root.hasSelectedApp
+            visible: root.previewAvailable && !root.hasSelectedApp
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.rightMargin: root.overlayInset
@@ -405,7 +464,7 @@ Item {
         anchors.fill: parent
 
         DockIcon {
-            visible: root.hasSelectedApp
+            visible: root.previewAvailable && root.hasSelectedApp
             anchors.centerIn: parent
             width: root.iconSize
             height: width
@@ -416,9 +475,18 @@ Item {
 
         MaterialSymbol {
             renderType: Text.CurveRendering
-            visible: !root.hasSelectedApp
+            visible: root.previewAvailable && !root.hasSelectedApp
             anchors.centerIn: parent
             text: "live_tv"
+            iconSize: root.iconSize
+            color: Appearance.colors.colOnLayer1
+        }
+
+        MaterialSymbol {
+            renderType: Text.CurveRendering
+            visible: !root.previewAvailable
+            anchors.centerIn: parent
+            text: "videocam_off"
             iconSize: root.iconSize
             color: Appearance.colors.colOnLayer1
         }
@@ -434,5 +502,13 @@ Item {
                     root.activateSelection();
             }
         }
+    }
+
+    DockTooltip {
+        parentItem: root
+        text: root.previewAvailable ? root.previewStatusText
+            : Translation.tr("Live preview is not available with this window manager.")
+        showTooltip: root.hovered && !root.pickerOpen
+        tooltipOffset: -root.dotMargin * 0.5
     }
 }

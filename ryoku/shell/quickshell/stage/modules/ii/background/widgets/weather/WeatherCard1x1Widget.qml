@@ -14,11 +14,14 @@ AbstractBackgroundWidget {
     implicitWidth: 240
     implicitHeight: 240
 
+    readonly property var options: Config.options.background.widgets.weather_card
+    readonly property string colorScheme: (options.expressiveColors ?? true)
+        ? "expressive_primary" : "default"
     readonly property var currentData: Weather.data
     readonly property var forecastList: Weather.forecastData
 
-    readonly property color cardBgColor: WidgetColorScheme.cardBgColor
-    readonly property color textColorOnBg: WidgetColorScheme.textColorOnBg
+    readonly property color cardBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
+    readonly property color textColorOnBg: WidgetColorScheme.getTextColorOnBg(colorScheme)
 
     StyledDropShadow {
         id: shadowEffect
@@ -38,6 +41,7 @@ AbstractBackgroundWidget {
             spacing: 6
 
             StyledText {
+                visible: root.options.showLocation ?? true
                 text: root.currentData?.city || ""
                 color: root.textColorOnBg
                 font.pixelSize: Appearance.font.pixelSize.normal
@@ -104,11 +108,12 @@ AbstractBackgroundWidget {
             Item { Layout.fillHeight: true }
 
             ColumnLayout {
+                visible: root.options.showForecast ?? true
                 Layout.fillWidth: true
                 spacing: 8
 
                 Repeater {
-                    model: 3
+                    model: (root.options.showForecast ?? true) ? 3 : 0
 
                     delegate: RowLayout {
                         id: dayRow

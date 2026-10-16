@@ -66,6 +66,13 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("date_default")
 
+            ConfigSwitch {
+                buttonIcon: "text_format"
+                text: Translation.tr("Uppercase month")
+                checked: Config.options.background.widgets.date.uppercaseMonth ?? true
+                onCheckedChanged: Config.options.background.widgets.date.uppercaseMonth = checked
+            }
+
             DesktopWidgetVisualOptions {
                 Layout.fillWidth: true
             }

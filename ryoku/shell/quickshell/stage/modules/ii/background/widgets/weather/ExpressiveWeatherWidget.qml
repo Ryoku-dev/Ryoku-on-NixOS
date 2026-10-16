@@ -13,13 +13,13 @@ AbstractBackgroundWidget {
 
     configEntryName: "weather"
 
+    readonly property var options: Config.options.background.widgets.weather
+    readonly property string colorScheme: (options.expressiveColors ?? false)
+        ? "expressive_primary" : "default"
     readonly property string tempText: Weather.data?.temp ?? "20°C"
-    readonly property color expressiveTempRect: WidgetColorScheme.innerShapeColor
-
-    readonly property color solidSurfaceHighest: {
-        const c = Qt.color(Appearance.colors.colSurfaceContainerHighest);
-        return Qt.rgba(c.r, c.g, c.b, 1.0);
-    }
+    readonly property color cardBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
+    readonly property color tempBgColor: WidgetColorScheme.getInnerShapeColor(colorScheme)
+    readonly property color textColor: WidgetColorScheme.getTextColorOnBg(colorScheme)
 
     implicitWidth: 200
     implicitHeight: 240
@@ -42,7 +42,7 @@ AbstractBackgroundWidget {
             MaterialShape {
                 id: weatherIconShape
                 anchors.fill: parent
-                shapeString: Config.options.background.widgets.weather.backgroundShape
+                shapeString: root.options.backgroundShape ?? "Cookie9Sided"
                 color: "transparent"
 
                 // Background shape matching main shape to serve as source for InnerShadow
@@ -50,7 +50,7 @@ AbstractBackgroundWidget {
                     id: bgShape
                     anchors.fill: parent
                     shapeString: parent.shapeString
-                    color: WidgetColorScheme.tintBackground(root.expressive ? Appearance.colors.colPrimaryContainer : Appearance.colors.colSurfaceContainerHigh)
+                    color: WidgetColorScheme.tintBackground(root.cardBgColor)
                     visible: !(Config.options.background.widgets.enableInnerShadow ?? true)
                 }
 
@@ -73,16 +73,17 @@ AbstractBackgroundWidget {
         }
 
         Rectangle {
+            visible: root.options.showTemperature ?? true
             Layout.fillWidth: true
-            Layout.preferredHeight: 48
+            Layout.preferredHeight: visible ? 48 : 0
             Layout.alignment: Qt.AlignHCenter
-            color: WidgetColorScheme.tintBackground(root.expressive ? root.expressiveTempRect : root.solidSurfaceHighest)
+            color: WidgetColorScheme.tintBackground(root.tempBgColor)
             radius: Appearance.rounding.small
 
             StyledText {
                 anchors.centerIn: parent
                 text: root.tempText
-                color: root.expressive ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colOnSurfaceVariant
+                color: root.textColor
                 font.pixelSize: 42
                 font.weight: Font.Bold
             }

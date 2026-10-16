@@ -12,8 +12,8 @@ import "."
  * Compact phone mirror shortcut for the dock.
  *
  * KDE Connect remains the source of truth for the active reachable device;
- * scrcpy is launched through KdeConnectService so this shortcut shares the
- * same ADB, wireless and process lifecycle as the Phone sidebar card.
+ * PhoneScrcpyService owns the mirror process and window lifecycle shared with
+ * the Phone sidebar card.
  */
 Item {
     id: root
@@ -22,6 +22,7 @@ Item {
     property var dockContent: null
     property int delegateIndex: -1
     property bool phoneHovered: false
+    readonly property bool live: root.dockContent?.dockWidgetsActive ?? false
 
     readonly property real buttonSize: Appearance.sizes.dockButtonSize
     readonly property real dotMargin: root.dockContent?.dotMargin ?? Math.max(1, Math.round((Config.options?.dock.height ?? 60) * 0.2) - 2)
@@ -59,6 +60,12 @@ Item {
     readonly property bool isLaunching: PhoneScrcpyService.mirrorLaunching || KdeConnectService.scrcpyLaunching
 
     readonly property string mirrorStatus: {
+        if (!KdeConnectService.serviceEnabled)
+            return Translation.tr("Phone integration is turned off");
+        if (KdeConnectService.activeDeviceId === "")
+            return Translation.tr("No paired phone");
+        if (!KdeConnectService.activeReachable)
+            return Translation.tr("Phone is offline");
         if (!PhoneScrcpyService.available && !KdeConnectService.scrcpyAvailable)
             return Translation.tr("scrcpy unavailable");
         if (isRunning)
@@ -88,7 +95,11 @@ Item {
     }
 
     onIsRunningChanged: {
-        if (isRunning)
+        if (root.isRunning && root.live)
+            attention.settle();
+    }
+    onLiveChanged: {
+        if (!root.live)
             attention.settle();
     }
 

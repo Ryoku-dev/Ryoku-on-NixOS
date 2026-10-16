@@ -66,6 +66,26 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("calendar_minimal")
 
+            ContentSubsectionLabel { text: Translation.tr("Weekday label") }
+            ConfigSelectionArray {
+                currentValue: Config.options.background.widgets.calendar_minimal.weekdayFormat ?? "dddd"
+                onSelected: value => Config.options.background.widgets.calendar_minimal.weekdayFormat = value
+                options: [
+                    { "displayName": Translation.tr("Full"), "value": "dddd" },
+                    { "displayName": Translation.tr("Short"), "value": "ddd" }
+                ]
+            }
+
+            ContentSubsectionLabel { text: Translation.tr("Month label") }
+            ConfigSelectionArray {
+                currentValue: Config.options.background.widgets.calendar_minimal.monthFormat ?? "MMMM"
+                onSelected: value => Config.options.background.widgets.calendar_minimal.monthFormat = value
+                options: [
+                    { "displayName": Translation.tr("Full"), "value": "MMMM" },
+                    { "displayName": Translation.tr("Short"), "value": "MMM" }
+                ]
+            }
+
             DesktopWidgetVisualOptions {
                 Layout.fillWidth: true
             }

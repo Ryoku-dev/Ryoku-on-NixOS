@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import stage.services
 import stage.modules.common
 import stage.modules.common.widgets
 ContentPage {
@@ -28,7 +29,7 @@ ContentPage {
             onClicked: root.goBack()
         }
         StyledText {
-            text: "Word Clock Options"
+            text: Translation.tr("Word Clock Options")
             font.pixelSize: Appearance.font.pixelSize.large
             font.family: Appearance.font.family.title
             color: Appearance.colors.colOnLayer0
@@ -36,7 +37,7 @@ ContentPage {
     }
 
     ContentSection {
-        title: "Word Clock Settings"
+        title: Translation.tr("Word Clock Settings")
         icon: "schedule"
 
         Item {
@@ -47,8 +48,8 @@ ContentPage {
                 anchors.fill: parent
                 icon: "schedule"
                 shape: MaterialShape.Shape.Circle
-                title: "Word Clock disabled"
-                description: "Enable the Word Clock in Desktop Widgets settings to use this page."
+                title: Translation.tr("Word Clock disabled")
+                description: Translation.tr("Enable the Word Clock in Desktop Widgets settings to use this page.")
             }
         }
 
@@ -57,11 +58,11 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("clock_word")
 
-            ContentSubsectionLabel { text: "Widget Size" }
+            ContentSubsectionLabel { text: Translation.tr("Widget Size") }
 
             ConfigSlider {
                 buttonIcon: "format_size"
-                text: "Size"
+                text: Translation.tr("Size")
                 from: 160
                 to: 420
                 stepSize: 10
@@ -71,7 +72,7 @@ ContentPage {
                 }
             }
             ContentSubsection {
-                title: "Background style"
+                title: Translation.tr("Background style")
                 icon: "wallpaper"
                 Layout.fillWidth: true
 
@@ -81,15 +82,15 @@ ContentPage {
                         Config.options.background.widgets.clock_word.backgroundStyle = newValue;
                     }
                     options: [
-                        { displayName: "Transparent", icon: "visibility_off", value: "transparent" },
-                        { displayName: "Shape", icon: "category", value: "shape" }
+                        { displayName: Translation.tr("Transparent"), icon: "visibility_off", value: "transparent" },
+                        { displayName: Translation.tr("Shape"), icon: "category", value: "shape" }
                     ]
                 }
             }
 
             ContentSubsection {
                 visible: (Config.options.background.widgets.clock_word.backgroundStyle ?? "shape") === "shape"
-                title: "Background shape"
+                title: Translation.tr("Background shape")
                 icon: "category"
                 Layout.fillWidth: true
 
@@ -99,16 +100,16 @@ ContentPage {
                         Config.options.background.widgets.clock_word.backgroundShape = newValue;
                     }
                     options: [
-                        { displayName: "Circle", icon: "circle", value: "Circle" },
-                        { displayName: "Square", icon: "square", value: "Square" },
-                        { displayName: "Cookie", icon: "cookie", value: "Cookie12Sided" }
+                        { displayName: Translation.tr("Circle"), icon: "circle", value: "Circle" },
+                        { displayName: Translation.tr("Square"), icon: "square", value: "Square" },
+                        { displayName: Translation.tr("Cookie"), icon: "cookie", value: "Cookie12Sided" }
                     ]
                 }
             }
 
             ConfigSwitch {
                 buttonIcon: "wb_sunny"
-                text: "Enable Shadows"
+                text: Translation.tr("Enable Shadows")
                 checked: Config.options.background.widgets.enableShadows ?? false
                 onCheckedChanged: {
                     Config.options.background.widgets.enableShadows = checked;

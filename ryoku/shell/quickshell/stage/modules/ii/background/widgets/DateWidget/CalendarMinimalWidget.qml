@@ -53,7 +53,8 @@ AbstractBackgroundWidget {
 
             StyledText {
                 Layout.alignment: Qt.AlignHCenter
-                text: Qt.locale().toString(DateTime.clock.date, "dddd")
+                text: Qt.locale().toString(DateTime.clock.date,
+                    Config.options.background.widgets.calendar_minimal.weekdayFormat ?? "dddd")
                 font {
                     pixelSize: 22
                     weight: Font.Medium
@@ -82,7 +83,8 @@ AbstractBackgroundWidget {
 
             StyledText {
                 Layout.alignment: Qt.AlignHCenter
-                text: Qt.locale().toString(DateTime.clock.date, "MMMM")
+                text: Qt.locale().toString(DateTime.clock.date,
+                    Config.options.background.widgets.calendar_minimal.monthFormat ?? "MMMM")
                 font {
                     pixelSize: 22
                     weight: Font.Medium

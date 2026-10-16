@@ -8,6 +8,8 @@ import QtQuick.Layouts
 
 ContentPage {
     id: root
+    Component.onCompleted: AiPlanUsage.retain()
+    Component.onDestruction: AiPlanUsage.release()
 
     signal goBack()
     forceWidth: false
@@ -30,6 +32,8 @@ ContentPage {
         const provider = AiPlanUsage.providerById(providerId);
         if (!provider)
             return Translation.tr("Waiting");
+        if (provider.needsSignIn === true)
+            return Translation.tr("Sign-in required");
         if (provider.available === true) {
             if (providerId === "openrouter" && (provider.items ?? []).length > 0)
                 return AiPlanUsage.creditAmountText(provider.items[0]) + " " + Translation.tr("remaining");

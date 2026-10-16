@@ -5,12 +5,13 @@ import stage.modules.common
 import stage.modules.common.widgets
 import stage.modules.ii.background.widgets
 import stage.services
+import shell.services as ShellServices
 AbstractBackgroundWidget {
     id: root
 
     property bool wallpaperSafetyTriggered: false
     // State from Audio service
-    readonly property bool isMuted: (Audio.sink && Audio.sink.audio) ? Audio.sink.audio.muted : false
+    readonly property bool isMuted: (ShellServices.Audio.sink && ShellServices.Audio.sink.audio) ? ShellServices.Audio.sink.audio.muted : false
     // Dynamic Colors based on active toggle state (matching NothingOS pill design)
     readonly property color pillBgColor: isMuted ? WidgetColorScheme.accentColor : WidgetColorScheme.cardBgColor
     readonly property color contentColor: isMuted ? WidgetColorScheme.onAccentColor : WidgetColorScheme.textColorOnBg
@@ -51,7 +52,8 @@ AbstractBackgroundWidget {
             colBackgroundHover: Qt.rgba(root.contentColor.r, root.contentColor.g, root.contentColor.b, 0.15)
             colRipple: Qt.rgba(root.contentColor.r, root.contentColor.g, root.contentColor.b, 0.3)
             onClicked: {
-                Audio.toggleMute();
+                if (ShellServices.Audio.sink?.audio)
+                    ShellServices.Audio.sink.audio.muted = !ShellServices.Audio.sink.audio.muted;
             }
 
             MaterialSymbol {

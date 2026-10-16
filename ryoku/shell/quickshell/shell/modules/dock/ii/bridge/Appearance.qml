@@ -29,6 +29,10 @@ Singleton {
     readonly property real animMultiplier: Stage.Appearance.animMultiplier
     readonly property bool reducedMotion: Stage.Appearance.reducedMotion
 
+    function toggleDarkMode(): void {
+        Stage.Appearance.toggleDarkMode();
+    }
+
     readonly property int windowRounding: {
         let rv = Config.options.appearance.roundingValue;
         if (rv <= 0)
@@ -88,7 +92,7 @@ Singleton {
         readonly property real editModeDrawerWidth: Stage.Appearance.sizes.editModeDrawerWidth
         readonly property real fabShadowRadius: Stage.Appearance.sizes.fabShadowRadius
         readonly property real fabHoveredShadowRadius: Stage.Appearance.sizes.fabHoveredShadowRadius
-        readonly property real hyprlandGapsOut: Stage.Appearance.sizes.hyprlandGapsOut
+        readonly property real windowGapsOut: 5
         readonly property real mediaControlsWidth: Stage.Appearance.sizes.mediaControlsWidth
         readonly property real mediaControlsHeight: Stage.Appearance.sizes.mediaControlsHeight
         readonly property real notificationPopupWidth: Stage.Appearance.sizes.notificationPopupWidth

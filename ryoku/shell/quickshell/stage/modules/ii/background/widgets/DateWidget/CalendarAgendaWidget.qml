@@ -29,6 +29,14 @@ AbstractBackgroundWidget {
     readonly property int currDay: currDate.getDate()
     readonly property int currMonth: currDate.getMonth()
     readonly property int currYear: currDate.getFullYear()
+    readonly property int weekStartIndex:
+        (Config.options.background.widgets.calendar_agenda.weekStart ?? "monday") === "sunday" ? 0 : 1
+    readonly property var weekdayNames: {
+        const names = [];
+        for (let i = 0; i < 7; ++i)
+            names.push(Qt.locale().dayName((root.weekStartIndex + i) % 7, Locale.NarrowFormat));
+        return names;
+    }
 
     readonly property var todayEvents: {
         if (!CalendarService.khalAvailable || !CalendarService.events) return [];
@@ -47,21 +55,22 @@ AbstractBackgroundWidget {
             }
         }
         list.sort((a, b) => a.startDate - b.startDate);
-        return list;
+        const limit = Config.options.background.widgets.calendar_agenda.maxEvents ?? 0;
+        return limit > 0 ? list.slice(0, limit) : list;
     }
 
-    // Days in week strip (Mon, Tue, Wed, Thu, Fri, Sat, Sun) of current week
+    // Days in the configured current week.
     readonly property var weekStripDays: {
         let list = [];
         let now = root.currDate;
         if (!now) now = new Date();
-        let dayOfWeek = (now.getDay() + 6) % 7; // Mon=0 .. Sun=6
-        let monday = new Date(now);
-        monday.setDate(now.getDate() - dayOfWeek);
+        const dayOffset = (now.getDay() - root.weekStartIndex + 7) % 7;
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() - dayOffset);
 
         for (let i = 0; i < 7; i++) {
-            let d = new Date(monday);
-            d.setDate(monday.getDate() + i);
+            let d = new Date(weekStart);
+            d.setDate(weekStart.getDate() + i);
             let hasEvts = false;
             if (CalendarService.khalAvailable && CalendarService.events) {
                 for (let j = 0; j < CalendarService.events.length; j++) {
@@ -138,17 +147,9 @@ AbstractBackgroundWidget {
 
                 readonly property real cellWidth: width / 7
 
-                // Row of Weekday Initials (S M T W T F S)
+                // Row of weekday initials in the configured order.
                 Repeater {
-                    model: [
-                        Translation.tr("S"),
-                        Translation.tr("M"),
-                        Translation.tr("T"),
-                        Translation.tr("W"),
-                        Translation.tr("T"),
-                        Translation.tr("F"),
-                        Translation.tr("S")
-                    ]
+                    model: root.weekdayNames
                     delegate: Item {
                         required property int index
                         required property string modelData
@@ -226,7 +227,8 @@ AbstractBackgroundWidget {
                             height: 3
                             radius: 1.5
                             color: root.subtextColorOnBg
-                            visible: !modelData.isToday && modelData.hasEvents
+                            visible: (Config.options.background.widgets.calendar_agenda.showEventDots ?? true)
+                                && !modelData.isToday && modelData.hasEvents
                         }
                     }
                 }
@@ -280,8 +282,9 @@ AbstractBackgroundWidget {
                             StyledText {
                                 text: {
                                     if (modelData.allDay) return Translation.tr("All Day");
-                                    let st = Qt.formatDateTime(new Date(modelData.startDate), "hh:mm A");
-                                    let et = Qt.formatDateTime(new Date(modelData.endDate), "hh:mm A");
+                                    const format = Config.options.time.format || "hh:mm";
+                                    let st = Qt.formatDateTime(new Date(modelData.startDate), format);
+                                    let et = Qt.formatDateTime(new Date(modelData.endDate), format);
                                     return st + " - " + et;
                                 }
                                 font {

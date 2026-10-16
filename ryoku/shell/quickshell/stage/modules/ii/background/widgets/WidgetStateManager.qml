@@ -191,7 +191,6 @@ QtObject {
                 let oldCookie = Config.options.background.widgets.clock.cookie;
                 if (oldCookie) {
                     Config.options.background.widgets.clock_cookie.aiStyling = oldCookie.aiStyling;
-                    Config.options.background.widgets.clock_cookie.aiStylingModel = oldCookie.aiStylingModel;
                     Config.options.background.widgets.clock_cookie.sides = oldCookie.sides;
                     Config.options.background.widgets.clock_cookie.backgroundStyle = oldCookie.backgroundStyle;
                     Config.options.background.widgets.clock_cookie.backgroundShape = oldCookie.backgroundShape;
@@ -202,7 +201,6 @@ QtObject {
                     Config.options.background.widgets.clock_cookie.dateStyle = oldCookie.dateStyle;
                     Config.options.background.widgets.clock_cookie.timeIndicators = oldCookie.timeIndicators;
                     Config.options.background.widgets.clock_cookie.hourMarks = oldCookie.hourMarks;
-                    Config.options.background.widgets.clock_cookie.dateInClock = oldCookie.dateInClock;
                     Config.options.background.widgets.clock_cookie.constantlyRotate = oldCookie.constantlyRotate;
                 }
                 let oldQuote = Config.options.background.widgets.clock.quote;
@@ -239,7 +237,6 @@ QtObject {
                     Config.options.background.widgets.clock_dial.showMinuteHand = oldDial.showMinuteHand;
                     Config.options.background.widgets.clock_dial.enableShadows = oldDial.enableShadows;
                     Config.options.background.widgets.clock_dial.enableInnerShadow = oldDial.enableInnerShadow;
-                    Config.options.background.widgets.clock_dial.expressiveColors = oldDial.expressiveColors;
                 }
             }
             // Disable the old clock entry to prevent re-migration

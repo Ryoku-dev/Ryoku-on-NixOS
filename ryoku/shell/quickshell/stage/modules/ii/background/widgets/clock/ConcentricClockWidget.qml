@@ -53,6 +53,7 @@ AbstractBackgroundWidget {
     readonly property string cfgQuoteText: Config.ready ? (Config.options.background.widgets.concentric_clock.quoteText ?? "") : ""
     readonly property bool cfgUseBlackBg: Config.ready ? (Config.options.background.widgets.concentric_clock.useBlackBg ?? false) : false
     readonly property bool cfgEnableGlassReflection: Config.ready ? (Config.options.background.widgets.concentric_clock.enableGlassReflection ?? false) : false
+    readonly property bool cfgEnableShadows: Config.ready ? (Config.options.background.widgets.concentric_clock.enableShadows ?? true) : true
     readonly property real cfgMinutePillLeftMargin: Config.ready ? (Config.options.background.widgets.concentric_clock.minutePillLeftMargin ?? 67) / 100.0 : 0.67
     readonly property real cfgSubdialMarginOffset: Config.ready ? (Config.options.background.widgets.concentric_clock.subdialMarginOffset ?? 5) / 100.0 : 0.05
     readonly property real cfgDialMarginOffset: Config.ready ? (Config.options.background.widgets.concentric_clock.dialMarginOffset ?? 3) / 100.0 : 0.03
@@ -62,7 +63,7 @@ AbstractBackgroundWidget {
     readonly property int cfgHourFontWidth: Config.ready ? (Config.options.background.widgets.concentric_clock.hourFontWidth ?? 85) : 85
     readonly property int cfgHourFontRound: Config.ready ? (Config.options.background.widgets.concentric_clock.hourFontRound ?? 100) : 100
 
-    readonly property color clockBgColor: root.cfgUseBlackBg ? Appearance.m3colors.m3shadow : WidgetColorScheme.cardBgColor
+    readonly property color clockBgColor: root.cfgUseBlackBg ? WidgetColorScheme.m3colors.m3shadow : WidgetColorScheme.cardBgColor
 
     // Dynamic offset for sub-dials based on dialStyle to prevent overlapping numbers
     readonly property real dialInnerMargin: ((cfgDialStyle === "concentric" || cfgDialStyle === "inner_only" || cfgDialStyle === "full_dense") ? 0.08 : 0.02) + cfgSubdialMarginOffset
@@ -78,7 +79,7 @@ AbstractBackgroundWidget {
 
     StyledDropShadow {
         target: clockBgCircle
-        visible: Config.options.background.widgets.enableShadows ?? true
+        visible: root.cfgEnableShadows
     }
 
     Column {

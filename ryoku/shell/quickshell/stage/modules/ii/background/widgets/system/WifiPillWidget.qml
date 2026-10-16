@@ -5,12 +5,13 @@ import stage.modules.common
 import stage.modules.common.widgets
 import stage.modules.ii.background.widgets
 import stage.services
+import shell.services as ShellServices
 AbstractBackgroundWidget {
     id: root
 
     property bool wallpaperSafetyTriggered: false
     // State from Network service
-    readonly property bool isActive: Network.wifiEnabled
+    readonly property bool isActive: ShellServices.Network.wifiRadio
     readonly property color pillBgColor: isActive ? WidgetColorScheme.accentColor : WidgetColorScheme.cardBgColor
     readonly property color contentColor: isActive ? WidgetColorScheme.onAccentColor : WidgetColorScheme.textColorOnBg
 
@@ -49,9 +50,7 @@ AbstractBackgroundWidget {
             colBackground: "transparent"
             colBackgroundHover: Qt.rgba(root.contentColor.r, root.contentColor.g, root.contentColor.b, 0.15)
             colRipple: Qt.rgba(root.contentColor.r, root.contentColor.g, root.contentColor.b, 0.3)
-            onClicked: {
-                Network.toggleWifi();
-            }
+            onClicked: ShellServices.Network.setWifiEnabled(!root.isActive)
 
             MaterialSymbol {
                 anchors.centerIn: parent
@@ -77,7 +76,8 @@ AbstractBackgroundWidget {
             anchors.right: parent.right
             anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
-            text: root.isActive ? ((Network.active && Network.active.ssid) ? Network.active.ssid : Translation.tr("Wi-Fi")) : Translation.tr("Off")
+            text: root.isActive && ShellServices.Network.activeSsid
+                ? ShellServices.Network.activeSsid : (root.isActive ? Translation.tr("Wi-Fi") : Translation.tr("Off"))
             font.pixelSize: 24
             font.weight: Font.Bold
             color: root.contentColor

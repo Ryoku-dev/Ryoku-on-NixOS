@@ -93,7 +93,7 @@ AbstractBackgroundWidget {
             anchors.fill: parent
             radius: width / 2
             color: WidgetColorScheme.tintBackground(root.cfgUseBlackBg
-                ? Appearance.m3colors.m3shadow : WidgetColorScheme.cardBgColor)
+                ? WidgetColorScheme.m3colors.m3shadow : WidgetColorScheme.cardBgColor)
             clip: true
 
             // 1. Main Calendar Dial Canvas

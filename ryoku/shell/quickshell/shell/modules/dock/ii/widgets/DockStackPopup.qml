@@ -1,7 +1,7 @@
 import QtQuick
 import Qt.labs.folderlistmodel
-import Quickshell
 import stage.services
+import Ryoku.Ui.Singletons
 import ".."
 
 // A pinned folder's recent contents, opened by clicking the folder.
@@ -21,12 +21,11 @@ DockContextMenuBase {
     headerSubtitle: root.folderPath
     headerSymbol: "folder_open"
 
-    // Lives beside the popup, not inside it: the listing is ready by the time
-    // the folder is clicked instead of arriving row by row after the surface
-    // has mapped (which also resized the popup under the pointer).
+    // Release the directory watcher with the popup. The list is small and
+    // sorted locally as soon as the panel opens.
     FolderListModel {
         id: folderModel
-        folder: root.folderPath ? ("file://" + root.folderPath) : ""
+        folder: root.menuOpen && root.folderPath ? ("file://" + root.folderPath) : ""
         showDirs: true
         showFiles: true
         showHidden: false
@@ -54,13 +53,13 @@ DockContextMenuBase {
     onActionTriggered: actionId => {
         root.close();
         if (actionId === "openFolder") {
-            Quickshell.execDetached(["xdg-open", root.folderPath]);
+            Spawn.run(["xdg-open", root.folderPath]);
             return;
         }
         const index = parseInt(actionId.substring(5));
         const path = folderModel.get(index, "filePath")
             || (root.folderPath + "/" + (folderModel.get(index, "fileName") || ""));
         if (path)
-            Quickshell.execDetached(["xdg-open", path]);
+            Spawn.run(["xdg-open", path]);
     }
 }

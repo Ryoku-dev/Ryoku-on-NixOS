@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import Ryoku.Ui as RyokuUi
 import stage.services
 import stage.modules.common
 import stage.modules.common.widgets
@@ -10,6 +11,21 @@ ContentPage {
     property string configEntryName: "photo"
     property string widgetIdName: "photo"
     property string titleText: Translation.tr("Photo Widget Options")
+
+    readonly property var configEntry: Config.options.background.widgets[root.configEntryName]
+    readonly property string currentImagePath: String(root.configEntry?.imagePath ?? "")
+
+    function setImagePath(path) {
+        if (root.configEntry)
+            root.configEntry.imagePath = path;
+    }
+
+    RyokuUi.FileDialogHost {
+        id: imageDialog
+        title: Translation.tr("Choose an image")
+        nameFilters: [Translation.tr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)"), Translation.tr("All files (*)")]
+        onAccepted: root.setImagePath(String(imageDialog.selectedFile))
+    }
 
     signal goBack
 
@@ -73,14 +89,13 @@ ContentPage {
                 Layout.fillWidth: true
                 materialIcon: "folder_open"
                 mainText: Translation.tr("Choose Image")
-                enabled: !WidgetPhotoPicker.picking
-                onClicked: WidgetPhotoPicker.pick(root.configEntryName)
+                onClicked: imageDialog.open()
             }
 
             StyledText {
                 Layout.fillWidth: true
-                visible: WidgetPhotoPicker.currentPath(root.configEntryName) !== ""
-                text: Translation.tr("Current image: %1").arg(WidgetPhotoPicker.currentPath(root.configEntryName))
+                visible: root.currentImagePath !== ""
+                text: Translation.tr("Current image: %1").arg(root.currentImagePath)
                 font.pixelSize: Appearance.font.pixelSize.small
                 color: Appearance.colors.colOnSurfaceVariant
                 wrapMode: Text.Wrap
@@ -88,19 +103,31 @@ ContentPage {
 
             RippleButtonWithIcon {
                 Layout.fillWidth: true
-                visible: WidgetPhotoPicker.currentPath(root.configEntryName) !== ""
+                visible: root.currentImagePath !== ""
                 materialIcon: "delete"
                 mainText: Translation.tr("Remove Image")
-                onClicked: WidgetPhotoPicker.clear(root.configEntryName)
+                onClicked: root.setImagePath("")
             }
 
             ContentSubsectionLabel {
                 text: Translation.tr("Visual Options")
             }
 
+            ConfigSelectionArray {
+                currentValue: root.configEntry?.fitMode ?? "crop"
+                onSelected: value => {
+                    if (root.configEntry)
+                        root.configEntry.fitMode = value;
+                }
+                options: [
+                    { "displayName": Translation.tr("Crop to fill"), "value": "crop" },
+                    { "displayName": Translation.tr("Fit whole image"), "value": "fit" }
+                ]
+            }
+
             ConfigSwitch {
                 buttonIcon: "subtitles"
-                text: Translation.tr("Show Info Overlay/Badge")
+                text: Translation.tr("Show Caption or Badge")
                 visible: root.configEntryName !== "photo"
                 checked: {
                     let entry = Config.options.background.widgets[root.configEntryName];
@@ -124,14 +151,6 @@ ContentPage {
                 }
             }
 
-            ConfigSwitch {
-                buttonIcon: "blur_on"
-                text: Translation.tr("Enable Inner Shadows")
-                checked: Config.options.background.widgets.enableInnerShadow ?? true
-                onCheckedChanged: {
-                    Config.options.background.widgets.enableInnerShadow = checked;
-                }
-            }
         }
     }
 }

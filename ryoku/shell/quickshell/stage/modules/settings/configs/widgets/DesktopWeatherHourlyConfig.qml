@@ -66,11 +66,19 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("weather_hourly")
 
+            DesktopWeatherBehaviorOptions {
+                options: Config.options.background.widgets.weather_hourly
+                expressiveColors: true
+                location: true
+                forecast: true
+                hourly: true
+            }
+
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 4
 
-                DesktopWidgetVisualOptions {
+                DesktopWeatherShadowOptions {
                     Layout.fillWidth: true
                 }
             }

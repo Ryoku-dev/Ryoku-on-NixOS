@@ -50,6 +50,7 @@ ColumnLayout {
                     implicitHeight: 52
                     ClockProgressRing {
                         anchors.fill: parent
+                        live: panel.host?.panelOpen ?? panel.visible
                         value: row.finished ? 0 : row.secondsLeft / Math.max(1, row.modelData.durationSeconds ?? 1)
                         thickness: 5
                         wavy: !row.paused && !row.finished

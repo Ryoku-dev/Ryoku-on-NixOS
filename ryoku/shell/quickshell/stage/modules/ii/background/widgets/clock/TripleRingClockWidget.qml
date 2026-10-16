@@ -39,7 +39,7 @@ AbstractBackgroundWidget {
     readonly property bool cfgBoldFont:
         Config.ready ? (Config.options.background.widgets.triple_ring_clock.boldFont ?? true) : true
 
-    readonly property color colBg: cfgUseBlackBg ? Appearance.m3colors.m3shadow
+    readonly property color colBg: cfgUseBlackBg ? WidgetColorScheme.m3colors.m3shadow
                                                 : WidgetColorScheme.cardBgColor
 
     // ── Shadow + Container ────────────────────────────────────────────────────

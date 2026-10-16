@@ -150,6 +150,7 @@ Rectangle {
             text: root.text
             color: Appearance.colors.colOnLayer2
             opacity: root.enabled ? 1 : 0.4
+            wrapMode: Text.WordWrap
         }
 
         Rectangle {

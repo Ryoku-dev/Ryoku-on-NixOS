@@ -11,6 +11,8 @@ AbstractBackgroundWidget {
     id: root
 
     configEntryName: "pc_battery_bars"
+    readonly property bool showPercentage: Config.options.background.widgets.pc_battery_bars.showPercentage ?? true
+    readonly property bool showStatus: Config.options.background.widgets.pc_battery_bars.showStatus ?? true
 
     implicitWidth: 240
     implicitHeight: 240
@@ -18,16 +20,31 @@ AbstractBackgroundWidget {
     // PC Battery system info
     readonly property real batteryPct: Math.round((Battery.percentage ?? 0.52) * 100)
     readonly property bool isCharging: Battery.isCharging || Battery.isPluggedIn
-    readonly property real timeRemainingSec: isCharging ? (Battery.timeToFull ?? 7200) : (Battery.timeToEmpty ?? 7200)
+    readonly property real timeRemainingSec: Battery.isCharging
+        ? (Battery.timeToFullEffective ?? Battery.timeToFull ?? 0)
+        : (Battery.isPluggedIn ? 0 : (Battery.timeToEmpty ?? 0))
     readonly property int hoursRemaining: Math.floor(timeRemainingSec / 3600)
+    readonly property string batteryStatus: {
+        if (Battery.atChargeCeiling) {
+            return Battery.chargeLimitReached
+                ? Translation.tr("Charge limit reached")
+                : Translation.tr("Fully charged");
+        }
+        if (root.hoursRemaining > 0)
+            return "~ " + root.hoursRemaining + " " + Translation.tr("hours");
+        if (Battery.isPluggedIn && !Battery.isCharging)
+            return Translation.tr("Plugged in");
+        return Translation.tr("Calculating...");
+    }
 
-    // Color definitions per spec:
-    // Charging background: Hardcoded light green (#c4f3a6) per request.
-    // All accents, text, and bars use strict Appearance design tokens.
+    // Charging turns the card a fixed light green, so its bars and text take a
+    // fixed dark green: a palette accent is light on a dark theme and vanished
+    // against it.
     readonly property color lightGreenCharging: "#c4f3a6"
+    readonly property color darkGreenOnCharging: "#1f3a10"
 
     readonly property color activeCardBg: root.isCharging ? root.lightGreenCharging : WidgetColorScheme.cardBgColor
-    readonly property color activeAccentColor: root.isCharging ? Appearance.colors.colPrimary : WidgetColorScheme.accentColor
+    readonly property color activeAccentColor: root.isCharging ? root.darkGreenOnCharging : WidgetColorScheme.accentColor
 
     StyledRectangularShadow {
         id: bgShadow
@@ -59,6 +76,7 @@ AbstractBackgroundWidget {
                 }
 
                 Text {
+                    visible: root.showPercentage
                     text: root.batteryPct + "%"
                     color: root.activeAccentColor
                     font {
@@ -135,8 +153,9 @@ AbstractBackgroundWidget {
 
             // Bottom Estimated Time Text
             Text {
+                visible: root.showStatus
                 Layout.alignment: Qt.AlignHCenter
-                text: root.hoursRemaining > 0 ? ("~ " + root.hoursRemaining + " " + Translation.tr("hours")) : Translation.tr("Calculating...")
+                text: root.batteryStatus
                 color: ColorUtils.applyAlpha(root.activeAccentColor, 0.70)
                 font {
                     pixelSize: 17

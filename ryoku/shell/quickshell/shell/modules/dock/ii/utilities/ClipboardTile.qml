@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import stage.modules.common.widgets
 import stage.services
 import "../clock"
-import "UtilityFiles.js" as UtilityFiles
+import stage.modules.common.functions
 import ".."
 
 /**
@@ -18,6 +18,8 @@ UtilityTile {
     readonly property var entries: Cliphist.entries ?? []
     readonly property var pinned: Cliphist.pinnedEntries ?? []
     readonly property var latest: tile.entries.length > 0 ? tile.entries[0] : ""
+    readonly property bool historyLoading: !Cliphist.loaded
+    readonly property bool historyUnavailable: Cliphist.loaded && Cliphist.loadFailed
 
     function textOf(entry) {
         return String(entry ?? "").replace(/^\s*\S+\s+/, "").trim();
@@ -65,8 +67,13 @@ UtilityTile {
     surfaceColor: ClockStyle.colSurfaceHigh
     contentColor: ClockStyle.colOnSurface
 
-    tooltipText: tile.latest !== "" ? Translation.tr("Clipboard · %1").arg(tile.labelOf(tile.latest).substring(0, 60)) : Translation.tr("Clipboard")
-    panelSubtitle: tile.pinned.length > 0 ? Translation.tr("%1 pinned · %2 in history").arg(tile.pinned.length).arg(tile.entries.length)
+    tooltipText: tile.historyLoading ? Translation.tr("Clipboard · Loading history…")
+        : tile.historyUnavailable ? Translation.tr("Clipboard history unavailable")
+        : tile.latest !== "" ? Translation.tr("Clipboard · %1").arg(tile.labelOf(tile.latest).substring(0, 60))
+        : Translation.tr("Clipboard")
+    panelSubtitle: tile.historyLoading ? Translation.tr("Loading history…")
+        : tile.historyUnavailable ? Translation.tr("History unavailable")
+        : tile.pinned.length > 0 ? Translation.tr("%1 pinned · %2 in history").arg(tile.pinned.length).arg(tile.entries.length)
         : Translation.tr("%1 in history").arg(tile.entries.length)
     panelWidth: 380
 
@@ -108,7 +115,9 @@ UtilityTile {
             spacing: 0
             TileText {
                 Layout.fillWidth: true
-                text: tile.latest !== "" ? tile.labelOf(tile.latest) : Translation.tr("Nothing copied yet")
+                text: tile.historyLoading ? Translation.tr("Loading history…")
+                    : tile.historyUnavailable ? Translation.tr("History unavailable")
+                    : tile.latest !== "" ? tile.labelOf(tile.latest) : Translation.tr("Nothing copied yet")
                 color: tile.contentColor
                 font.pixelSize: Math.round(tile.height * 0.27)
                 font.weight: Font.DemiBold

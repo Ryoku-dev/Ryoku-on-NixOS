@@ -66,6 +66,12 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("weather_icon")
 
+            DesktopWeatherBehaviorOptions {
+                options: Config.options.background.widgets.weather_icon
+                expressiveColors: true
+                background: true
+            }
+
             ContentSubsection {
                 title: Translation.tr("Background shape")
                 icon: "category"
@@ -90,7 +96,8 @@ ContentPage {
                 Layout.fillWidth: true
                 spacing: 4
 
-                DesktopWidgetVisualOptions {
+                DesktopWeatherShadowOptions {
+                    innerShadow: true
                     Layout.fillWidth: true
                 }
             }

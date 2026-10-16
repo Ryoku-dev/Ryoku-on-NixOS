@@ -5,7 +5,7 @@ import Quickshell
 import Quickshell.Widgets
 import stage.modules.common.widgets
 import stage.services
-import "."
+import Ryoku.Ui.Singletons
 import "."
 import ".."
 
@@ -24,6 +24,7 @@ Item {
     // the height it needs, and the padding under the last control.
     readonly property alias flickable: page.flickable
     property alias bottomContentPadding: page.bottomContentPadding
+    readonly property bool previewAvailable: Wm.caps.persistentScreenCapture === true
 
     ContentPage {
         id: page
@@ -120,10 +121,33 @@ Item {
                     enabled: !Appearance.reducedMotion
                     animation: Appearance.animation.elementMove.numberAnimation.createObject(this)
                 }
-                DockItemView {
+                Loader {
+                    active: subPageRoot.previewAvailable
                     anchors.fill: parent
-                    itemData: ({ "type": "livePreview" })
-                    context: heroContext
+                    sourceComponent: DockItemView {
+                        itemData: ({ "type": "livePreview" })
+                        context: heroContext
+                    }
+                }
+                Column {
+                    visible: !subPageRoot.previewAvailable
+                    anchors.centerIn: parent
+                    width: Math.max(1, parent.width - 24)
+                    spacing: 4
+                    MaterialSymbol {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "videocam_off"
+                        iconSize: Appearance.font.pixelSize.huge
+                        color: Appearance.colors.colOnLayer0
+                    }
+                    StyledText {
+                        width: parent.width
+                        text: Translation.tr("Live preview is not available with this window manager.")
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap
+                        color: Appearance.colors.colOnLayer0
+                        font.pixelSize: Appearance.font.pixelSize.small
+                    }
                 }
             }
             DockInputShield {}
@@ -155,9 +179,10 @@ Item {
                     }
                     StyledText {
                         Layout.fillWidth: true
-                        text: !hero.on ? Translation.tr("Off")
+                        text: !subPageRoot.previewAvailable
+                            ? Translation.tr("Unavailable")
+                            : !hero.on ? Translation.tr("Off")
                             : (hero.appName.length > 0 ? hero.appName : Translation.tr("No app chosen")) + " · " + Translation.tr("%1 slots wide").arg(hero.slots)
-                        font.pixelSize: Appearance.font.pixelSize.smaller
                         color: Appearance.colors.colSubtext
                         elide: Text.ElideRight
                     }
@@ -171,6 +196,7 @@ Item {
             icon: "live_tv"
 
             ConfigSwitch {
+                enabled: subPageRoot.previewAvailable
                 buttonIcon: "live_tv"
                 text: Translation.tr("Enable Live Preview widget")
                 checked: Config.options.dock.enableLivePreviewWidget ?? false
@@ -179,8 +205,18 @@ Item {
                 }
             }
 
+            StyledText {
+                visible: !subPageRoot.previewAvailable
+                Layout.fillWidth: true
+                text: Translation.tr("This window manager does not provide continuous window capture, so the widget stays off.")
+                wrapMode: Text.Wrap
+                color: Appearance.colors.colSubtext
+                font.pixelSize: Appearance.font.pixelSize.small
+            }
+
             ContentSubsection {
-                visible: Config.options.dock.enableLivePreviewWidget ?? false
+                visible: subPageRoot.previewAvailable
+                    && (Config.options.dock.enableLivePreviewWidget ?? false)
                 title: Translation.tr("Target application")
                 icon: "apps"
                 Layout.fillWidth: true
@@ -226,7 +262,8 @@ Item {
             }
 
             ConfigSpinBox {
-                visible: Config.options.dock.enableLivePreviewWidget ?? false
+                visible: subPageRoot.previewAvailable
+                    && (Config.options.dock.enableLivePreviewWidget ?? false)
                 Layout.fillWidth: true
                 icon: "width"
                 text: Translation.tr("Preview width (slots)")
@@ -238,7 +275,8 @@ Item {
             }
 
             ContentSubsection {
-                visible: Config.options.dock.enableLivePreviewWidget ?? false
+                visible: subPageRoot.previewAvailable
+                    && (Config.options.dock.enableLivePreviewWidget ?? false)
                 title: Translation.tr("Capture mode")
                 icon: "videocam"
                 Layout.fillWidth: true
@@ -262,7 +300,8 @@ Item {
             }
 
             ConfigSwitch {
-                visible: Config.options.dock.enableLivePreviewWidget ?? false
+                visible: subPageRoot.previewAvailable
+                    && (Config.options.dock.enableLivePreviewWidget ?? false)
                 buttonIcon: "mouse"
                 text: Translation.tr("Show captured cursor")
                 checked: Config.options.dock.livePreviewPaintCursor ?? false
@@ -270,7 +309,8 @@ Item {
             }
 
             ConfigSwitch {
-                visible: Config.options.dock.enableLivePreviewWidget ?? false
+                visible: subPageRoot.previewAvailable
+                    && (Config.options.dock.enableLivePreviewWidget ?? false)
                 buttonIcon: "sync"
                 text: Translation.tr("Follow active window")
                 checked: Config.options.dock.livePreviewFollowActiveWindow ?? true

@@ -48,20 +48,18 @@ AbstractBackgroundWidget {
     // the user. The active workspace is read with the lock/edit-mode detours the
     // other media surfaces already need.
     readonly property bool hasActiveWindows: {
-        const monName = Wm.focusedOutput ?? "";
-        var activeWsId = 0;
-        if (GlobalStates.screenLocked && GlobalStates.lockSavedWorkspaces?.[monName])
-            activeWsId = GlobalStates.lockSavedWorkspaces[monName];
-        else if (GlobalStates.editMode && GlobalStates.editModeMonitor === monName && GlobalStates._editSavedWorkspace > 0)
-            activeWsId = GlobalStates._editSavedWorkspace;
-        else {
-            activeWsId = HyprlandData.activeWorkspace ? HyprlandData.activeWorkspace.id : 1;
-            if (activeWsId > 1000000)
-                activeWsId = 2147483647 - activeWsId;
+        const output = root.monitorName || Wm.focusedOutput || "";
+        const workspaces = Wm.workspaces ?? [];
+        let active = null;
+        for (let i = 0; i < workspaces.length; i++) {
+            if (workspaces[i].active === true && (output === "" || workspaces[i].output === output)) {
+                active = workspaces[i];
+                break;
+            }
         }
-        if (!HyprlandData || !HyprlandData.windowList)
-            return false;
-        return HyprlandData.windowList.some(w => w.workspace && w.workspace.id === activeWsId);
+        if (!active)
+            active = Wm.focusedWorkspace;
+        return active ? Wm.windowsOnWorkspace(active.id).length > 0 : false;
     }
 
     readonly property bool useDynamicColors: (Config.options.background.widgets.media.dynamicAlbumColors ?? false) && root.artSource !== ""
@@ -74,10 +72,10 @@ AbstractBackgroundWidget {
     }
 
     readonly property color artDominantColor: {
-        if (!root.useDynamicColors) return Appearance.colors.colPrimary;
-        let raw = colorQuantizer?.colors[0] ?? Appearance.colors.colPrimary;
-        let mixed = ColorUtils.mix(raw, Appearance.colors.colPrimaryContainer, 0.8);
-        return mixed || Appearance.m3colors.m3secondaryContainer;
+        if (!root.useDynamicColors) return WidgetColorScheme.colors.colPrimary;
+        let raw = colorQuantizer?.colors[0] ?? WidgetColorScheme.colors.colPrimary;
+        let mixed = ColorUtils.mix(raw, WidgetColorScheme.colors.colPrimaryContainer, 0.8);
+        return mixed || WidgetColorScheme.m3colors.m3secondaryContainer;
     }
 
     property QtObject blendedColors: AdaptedMaterialScheme {
@@ -93,7 +91,7 @@ AbstractBackgroundWidget {
     readonly property color colProgressHighlight: useDynamicColors ? blendedColors.colPrimary : WidgetColorScheme.accentColor
     readonly property color colProgressTrack: useDynamicColors ? ColorUtils.transparentize(blendedColors.colOnSecondaryContainer, 0.6) : ColorUtils.transparentize(WidgetColorScheme.textColorOnPillFill, 0.6)
     readonly property color colBtnSecondary: useDynamicColors ? blendedColors.colTertiaryContainer : WidgetColorScheme.pillBgColor
-    readonly property color colBtnSecondary_hover: useDynamicColors ? ColorUtils.mix(blendedColors.colTertiaryContainer, blendedColors.colPrimary, 0.15) : ColorUtils.mix(WidgetColorScheme.pillBgColor, WidgetColorScheme.accentColor, 0.15)
+    readonly property color colBtnSecondaryHover: useDynamicColors ? ColorUtils.mix(blendedColors.colTertiaryContainer, blendedColors.colPrimary, 0.15) : ColorUtils.mix(WidgetColorScheme.pillBgColor, WidgetColorScheme.accentColor, 0.15)
     readonly property color colBtnSecondaryActive: useDynamicColors ? ColorUtils.mix(blendedColors.colTertiaryContainer, blendedColors.colPrimary, 0.25) : ColorUtils.mix(WidgetColorScheme.pillBgColor, WidgetColorScheme.accentColor, 0.25)
     readonly property color colBtnPlayBg: useDynamicColors ? blendedColors.colPrimary : WidgetColorScheme.accentColor
     readonly property color colBtnPlayRipple: useDynamicColors ? ColorUtils.mix(blendedColors.colPrimary, blendedColors.colOnPrimary, 0.2) : ColorUtils.mix(WidgetColorScheme.accentColor, WidgetColorScheme.onAccentColor, 0.2)
@@ -205,7 +203,7 @@ AbstractBackgroundWidget {
     StyledRectangularShadow {
         id: bgShadow
         target: mainBg
-        visible: Config.options.background.widgets.enableShadows ?? true
+        visible: Config.options.background.widgets.media.enableShadows ?? true
     }
 
     Rectangle {
@@ -354,7 +352,7 @@ AbstractBackgroundWidget {
                                     ? StringUtils.friendlyTimeForSeconds(root.player.length) : "\u2013\u2013:\u2013\u2013"
                                 color: root.colTimeSub
                                 font.pixelSize: root.timerSecondarySize
-                                font.weight: Font.Regular
+                                font.weight: Font.Normal
                                 Layout.alignment: Qt.AlignTop
                                 Layout.topMargin: 4
                             }
@@ -364,7 +362,7 @@ AbstractBackgroundWidget {
                                 text: root.trackArtist
                                 color: root.colTimeSub
                                 font.pixelSize: root.timerSecondarySize
-                                font.weight: Font.Regular
+                                font.weight: Font.Normal
                                 Layout.maximumWidth: 150
                                 elide: Text.ElideRight
                                 horizontalAlignment: Text.AlignLeft

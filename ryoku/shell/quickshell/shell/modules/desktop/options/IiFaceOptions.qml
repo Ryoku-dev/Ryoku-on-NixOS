@@ -1,6 +1,9 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import Ryoku.Ui.Singletons
 import stage.modules.ii.background.widgets
+import stage.modules.common as StageCommon
+import "../Singletons" as WidgetStore
 import "../ii/IiRoster.js" as IiRoster
 
 // Options for a hosted ii desktop widget: the widget's own Settings page from
@@ -14,6 +17,46 @@ Item {
     property string widget: ""
     readonly property var face: IiRoster.byPrefix(opts.widget)
     readonly property url pageUrl: opts.face ? WidgetsRegistry.getConfigPagePath(opts.face.id) : ""
+    readonly property string widgetId: opts.face ? opts.face.id : ""
+    property var previousWidgetCountProvider: null
+
+    QtObject {
+        id: hostedWidgetCountProvider
+
+        function count(widgetId) {
+            const entry = IiRoster.byId(widgetId);
+            if (!entry)
+                return -1;
+            if (!WidgetStore.Config.ready)
+                return 0;
+            const key = entry.prefix + "Enabled";
+            const outputs = Wm.outputs || [];
+            if (outputs.length === 0) {
+                const monitor = WidgetStore.Config.writeMonitor || "";
+                return WidgetStore.Config.get(key, monitor) === true ? 1 : 0;
+            }
+            let count = 0;
+            const seen = {};
+            for (let i = 0; i < outputs.length; i++) {
+                const name = String(outputs[i]?.name ?? "");
+                if (name === "" || seen[name])
+                    continue;
+                seen[name] = true;
+                if (WidgetStore.Config.get(key, name) === true)
+                    count++;
+            }
+            return count;
+        }
+    }
+
+    Component.onCompleted: {
+        opts.previousWidgetCountProvider = StageCommon.Config.widgetCountProvider;
+        StageCommon.Config.widgetCountProvider = hostedWidgetCountProvider;
+    }
+    Component.onDestruction: {
+        if (StageCommon.Config.widgetCountProvider === hostedWidgetCountProvider)
+            StageCommon.Config.widgetCountProvider = opts.previousWidgetCountProvider;
+    }
 
     width: parent ? parent.width : 0
     implicitHeight: pageLoader.height
@@ -32,5 +75,24 @@ Item {
             if (item.hasOwnProperty("bottomContentPadding"))
                 item.bottomContentPadding = 8;
         }
+    }
+
+    Binding {
+        target: pageLoader.item
+        property: "widget"
+        value: opts.widget
+        when: pageLoader.item !== null && pageLoader.item.hasOwnProperty("widget")
+    }
+    Binding {
+        target: pageLoader.item
+        property: "widgetId"
+        value: opts.widgetId
+        when: pageLoader.item !== null && pageLoader.item.hasOwnProperty("widgetId")
+    }
+    Binding {
+        target: pageLoader.item
+        property: "faceId"
+        value: opts.widgetId
+        when: pageLoader.item !== null && pageLoader.item.hasOwnProperty("faceId")
     }
 }

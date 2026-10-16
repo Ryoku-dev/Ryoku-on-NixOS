@@ -1,10 +1,10 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
 import stage.modules.common.widgets
 import stage.services
+import Ryoku.Ui.Singletons
 import "../clock"
-import "UtilityFiles.js" as UtilityFiles
+import stage.modules.common.functions
 import ".."
 
 /**
@@ -21,7 +21,7 @@ GridLayout {
     property bool removable: false
     property bool imagesOnly: false
     signal removeRequested(string path)
-    signal dragged(string path)
+    signal dragged(string path, int action)
 
     readonly property date now: DateTime.clock.date
 
@@ -88,8 +88,8 @@ GridLayout {
                 anchors.fill: parent
                 paths: [card.path]
                 dragIcon: UtilityFiles.isImage(card.path) ? "image-x-generic" : "text-x-generic"
-                onClicked: Quickshell.execDetached(["xdg-open", card.path])
-                onDragFinished: grid.dragged(card.path)
+                onClicked: Spawn.run(["xdg-open", card.path])
+                onDragFinished: action => grid.dragged(card.path, action)
             }
 
             ClockCardAction {

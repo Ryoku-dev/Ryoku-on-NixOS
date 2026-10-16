@@ -370,7 +370,7 @@ Item {
             symbol: "alarm_add"
             shape: "Cookie9Sided"
             title: Translation.tr("No alarms")
-            subtitle: Translation.tr("Add one to wake up on time, or pick an event from your timetable.")
+            subtitle: Translation.tr("Add one to wake up on time, or pick an event from your calendar.")
         }
 
         ClockButton {

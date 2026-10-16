@@ -66,6 +66,31 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("ai_chat")
 
+            ContentSubsectionLabel {
+                text: Translation.tr("Assistant Icon")
+            }
+
+            ConfigSwitch {
+                buttonIcon: "symbols"
+                text: Translation.tr("Use Material Symbol")
+                checked: Config.options.background.widgets.ai_chat.useMaterialSymbol ?? false
+                onCheckedChanged: Config.options.background.widgets.ai_chat.useMaterialSymbol = checked
+            }
+
+            ConfigTextField {
+                id: topIconField
+                text: Translation.tr("Icon identifier")
+                icon: "image"
+                tooltip: Translation.tr("Use a Material Symbol name, distro, or an SVG name from the icons folder.")
+                placeholderText: "spark"
+                Component.onCompleted: inputText = Config.options.background.widgets.ai_chat.topIcon ?? "spark"
+                textField.onTextChanged: {
+                    const value = textField.text.trim();
+                    if (value !== "" && textField.activeFocus)
+                        Config.options.background.widgets.ai_chat.topIcon = value;
+                }
+            }
+
             DesktopWidgetVisualOptions {
                 Layout.fillWidth: true
             }

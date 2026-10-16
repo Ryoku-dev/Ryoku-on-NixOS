@@ -2,12 +2,13 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
+import stage.services
 import ".."
 
 
 /**
- * The clock as an ordinary application window: an xdg toplevel the compositor moves,
- * floats (see hyprland/rules.lua) and opens at the size Usage and Modes use.
+ * The clock as an ordinary application window: an xdg toplevel the compositor moves
+ * and floats, opening at the size Usage and Modes use.
  */
 FloatingWindow {
     id: root
@@ -23,7 +24,7 @@ FloatingWindow {
     readonly property real familyWidth: Math.min(1500, Math.max(900, root.screenWidth * 0.92)) + 40
     readonly property real familyHeight: Math.min(700, Math.max(460, root.screenHeight * 0.62)) + 100
 
-    title: "ii Clock"
+    title: Translation.tr("Clock")
     implicitWidth: Math.round(Math.min(root.familyWidth, root.screenWidth * 0.95))
     implicitHeight: Math.round(Math.min(root.familyHeight, root.screenHeight * 0.85))
     minimumSize: Qt.size(ClockStyle.windowMinWidth, ClockStyle.windowMinHeight)

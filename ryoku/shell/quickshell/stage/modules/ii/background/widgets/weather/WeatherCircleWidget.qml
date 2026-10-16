@@ -15,9 +15,12 @@ AbstractBackgroundWidget {
     implicitWidth: 240
     implicitHeight: 240
 
-    readonly property color outerCircleColor: WidgetColorScheme.pillBgColor
-    readonly property color cookieBgColor: WidgetColorScheme.cardBgColor
-    readonly property color textColorOnCookie: WidgetColorScheme.textColorOnBg
+    readonly property var options: Config.options.background.widgets.weather_circle
+    readonly property string colorScheme: (options.expressiveColors ?? true)
+        ? "expressive_primary" : "default"
+    readonly property color outerCircleColor: WidgetColorScheme.getPillBgColor(colorScheme)
+    readonly property color cookieBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
+    readonly property color textColorOnCookie: WidgetColorScheme.getTextColorOnBg(colorScheme)
 
     StyledDropShadow {
         id: shadowEffect
@@ -73,6 +76,7 @@ AbstractBackgroundWidget {
                     spacing: 4
 
                     StyledText {
+                        visible: root.options.showTemperature ?? true
                         text: Weather.data?.temp ? Weather.data.temp.replace("°C", "°").replace("°F", "°") : ""
                         color: root.textColorOnCookie
                         font.pixelSize: Appearance.font.pixelSize.large
@@ -80,6 +84,7 @@ AbstractBackgroundWidget {
                     }
 
                     StyledText {
+                        visible: root.options.showLocation ?? true
                         text: Weather.data?.city || ""
                         color: root.textColorOnCookie
                         font.pixelSize: Appearance.font.pixelSize.large

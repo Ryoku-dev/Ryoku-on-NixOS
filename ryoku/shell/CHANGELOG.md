@@ -14,6 +14,38 @@
   in the picture directory and the rest at home.
 
 ### Added
+- **Right-click an ii desktop widget for its quick settings.** The menu lists
+  up to three of the widget's most used settings (time format, date, album
+  colours, forecast, contour lines and the like) and flips them in place.
+  Customize > Look picks one of twelve colour schemes for every ii widget, a
+  see-through background and its opacity, and an optional plate behind the
+  widget (`quickshell/shell/modules/desktop/ii/IiQuickControls.js`).
+- **Super+K opens Kit.** The keybind cheatsheet becomes Kit, one card with
+  five tabs under one search box: Keys (the shortcuts, as before), Commands,
+  Phone, Dev tools and Typing test. Typing anywhere searches the open tab and
+  jumps to the tab that matches; Kit remembers the last tab, and
+  `ryoku-kit <tab> [<section>]` opens it on a given tab (`quickshell/keys/`,
+  `scripts/ryoku-kit`).
+- **Kit > Commands lists every Ryoku command.** Every command of every Ryoku
+  tool, grouped by task, sits apart from a Linux library of the commands a
+  beginner to intermediate user needs, filtered to the running edition. Commands
+  can be copied, starred, run in a terminal when they need no input, or saved as
+  your own (`quickshell/keys/commands/`).
+- **Kit > Dev tools keeps the useful eleven.** Passwords and UUIDs (drawn from
+  `/dev/urandom`), JSON, Base64, URL encoding, JWTs, Unix time, colours, regex,
+  text diff and chmod (`quickshell/keys/devtools/`).
+- **Your phone in Kit.** Kit > Phone walks through setup (install, the KDE
+  Connect app, pairing, then USB debugging for the screen) and then carries the
+  phone: ring, files, clipboard, links, typing, notifications with reply,
+  contacts, Android apps, calls, and the phone's screen, camera and microphone.
+  The KDE Connect and scrcpy services live in the shell, so a mirror, webcam or
+  microphone keeps running after Kit closes; Kit reads their state and calls them
+  over IPC. The services start only while Phone is turned on in the Hub
+  (`quickshell/shell/modules/phone/`, `quickshell/keys/phone/`).
+- **Phone notifications can stay off the desktop.** When "Show phone
+  notifications" is off, KDE Connect's copies of phone notifications skip the
+  popups while file-transfer results still arrive
+  (`quickshell/shell/services/Notifs.qml`).
 - **The ii dock design.** The dock ported from P3DROVFX's ii-p3drovfx joins the
   shared dock store as a fourth design: pick "ii" in the Stage Editor's dock
   page and the shell mounts the ported tray, its magnification, app groups,
@@ -654,6 +686,57 @@
   sets it. Edge bubbles also sit a little off the band so their ring never
   grazes the frame.
 ### Fixed
+- **Every ii dock widget works on Hyprland and niri.** A panel or menu now
+  opens one at a time, switches straight to another tile's panel, takes typing
+  in its fields, and closes on Escape, a click on the desktop or an app, or a
+  second click on its tile. The Clipboard panel lists its history again
+  (it failed to load and collapsed to a thin bar) and says when it is still
+  loading. AI usage shows the provider that has data instead of "?", explains a
+  signed-out or stale provider, and offers sign-in only where it applies. Water
+  keeps its week, Tasks opens a panel to add and finish tasks, Weather opens its
+  forecast, Media opens its controls above the widget, Phone and Send reach the
+  paired phone, the Clock opens one window, and "Widget settings" lands on that
+  widget's row in the Stage Editor. Live preview says it is unavailable where
+  the compositor cannot capture windows (`quickshell/shell/modules/dock/ii/`,
+  `quickshell/shell/modules/dock/IiDockHost.qml`).
+- **Customize on an ii desktop widget opens beside it with its own settings.**
+  The inspector docked to the middle of the screen and every widget's page
+  said it was disabled with its text cut off at both edges. It now opens next
+  to the widget, shows the widget's real settings, and those settings reach the
+  widget, its shadow included. All 87 ii widgets load: the services they share
+  with the dock (tasks, notes, timers, water, calendar, weather, LocalSend) run
+  once instead of twice, and the missing ones (at a glance, translator, earbuds,
+  email, lyrics, the audio spectrum) are in place (`quickshell/stage/services/`,
+  `quickshell/stage/modules/ii/background/widgets/`,
+  `quickshell/shell/modules/desktop/`).
+- **ii desktop widgets are solid again.** Their cards, digits and text were
+  painted with the desktop's see-through ink tints, so on a bright wallpaper a
+  clock's card faded to a ghost and the Nagasaki text clock all but vanished.
+  They now take the wallpaper palette's own surfaces and accents, as the
+  original library draws them; Customize > Look > See-through background makes
+  them translucent on purpose. Unselected choices on their settings pages are
+  readable too (`quickshell/stage/services/WidgetColorScheme.qml`).
+- **Customize shows the widget you opened it on.** Opening Customize on one ii
+  widget after another kept the first widget's page, so the Nothing wheel clock
+  showed PC Battery Bars' "widget disabled". The page now follows the widget,
+  and the first time it opens on that widget's own settings
+  (`quickshell/shell/modules/desktop/WidgetInspector.qml`).
+- **Every ii widget's settings do what they say.** Each widget's page was
+  checked against the original: switches that changed nothing now work or are
+  gone, settings the widget reads but nobody could reach got a control (the
+  Nothing wheel clock's time format and date header, weather details, the
+  calendar's week start and event count, photo crop or fit, battery
+  percentages and more), and the widgets that had settings but no page got
+  one. The landscape EasyEffects preset now lies on its side instead of
+  standing (`quickshell/stage/modules/settings/configs/widgets/`).
+- **The Notes, Android search bar and EasyEffects preset widgets show up.**
+  They failed to load without a word (a drawing helper, an effects table and
+  its style were never brought over, and the search glyph set a read-only
+  size), so placing one left an empty spot. A widget that cannot load now says
+  why in the shell log. The square and plain photo widgets with no photo picked
+  show the current wallpaper, a live wallpaper's still frame included, instead
+  of an old one (`quickshell/stage/modules/ii/`,
+  `quickshell/shell/modules/desktop/ii/`).
 - **Picking a file no longer crashes the shell once its window has been
   rebuilt.** Quickshell deletes the window behind a hidden layer-shell or popup
   surface, and Qt's non-native `FileDialog` kept a bare pointer to the

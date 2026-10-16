@@ -66,11 +66,18 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("weather_pill")
 
+            DesktopWeatherBehaviorOptions {
+                options: Config.options.background.widgets.weather_pill
+                expressiveColors: true
+                temperature: true
+                icon: true
+            }
+
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 4
 
-                DesktopWidgetVisualOptions {
+                DesktopWeatherShadowOptions {
                     Layout.fillWidth: true
                 }
             }

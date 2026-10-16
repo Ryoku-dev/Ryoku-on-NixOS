@@ -6,18 +6,22 @@ import stage.services
 import stage.modules.settings.configs.widgets
 
 /**
- * The EasyEffects preset widget's own page (both its shapes share it): the texture, what
- * the card shows, and where it takes its preset from. Everything here is one object,
- * Config.options.easyEffects.widget, so the portrait and landscape cards always agree.
+ * Shared settings surface for both EasyEffects preset shapes. The host supplies
+ * the selected registry id; the two registry wrappers provide the same value
+ * when this page is opened from the Stage Editor.
  */
 ContentPage {
     id: root
 
     signal goBack()
 
+    property string widget: ""
+    property string widgetId: String(root.widget).indexOf("Landscape") >= 0
+        || root.widget === "easyeffects_preset_landscape"
+        ? "easyeffects_preset_landscape" : "easyeffects_preset_portrait"
+    readonly property bool landscape: root.widgetId === "easyeffects_preset_landscape"
     readonly property var options: Config.options.easyEffects.widget
-    readonly property bool placed: Config.isWidgetActive("easyeffects_preset_portrait")
-        || Config.isWidgetActive("easyeffects_preset_landscape")
+    readonly property bool placed: Config.isWidgetActive(root.widgetId)
 
     forceWidth: false
 
@@ -45,7 +49,9 @@ ContentPage {
         }
 
         StyledText {
-            text: Translation.tr("EasyEffects Preset Options")
+            text: root.landscape
+                ? Translation.tr("EasyEffects Preset Landscape Options")
+                : Translation.tr("EasyEffects Preset Portrait Options")
             font.pixelSize: Appearance.font.pixelSize.large
             font.family: Appearance.font.family.title
             color: Appearance.colors.colOnLayer0
@@ -61,8 +67,10 @@ ContentPage {
             anchors.fill: parent
             icon: "graphic_eq"
             shape: MaterialShape.Shape.Circle
-            title: Translation.tr("EasyEffects Preset widget disabled")
-            description: Translation.tr("Add the portrait or the landscape EasyEffects Preset widget in Desktop Widgets settings to use this page.")
+            title: root.landscape
+                ? Translation.tr("EasyEffects Preset landscape widget disabled")
+                : Translation.tr("EasyEffects Preset portrait widget disabled")
+            description: Translation.tr("Add this EasyEffects Preset widget to the desktop to use this page.")
         }
     }
 
@@ -213,8 +221,5 @@ ContentPage {
             }
         }
 
-        DesktopWidgetVisualOptions {
-            Layout.fillWidth: true
-        }
     }
 }

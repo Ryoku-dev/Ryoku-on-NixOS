@@ -1,12 +1,11 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
-import Quickshell.Widgets
+import Quickshell.Io
 import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.services
+import Ryoku.Ui.Singletons
 import "../clock"
-import "UtilityFiles.js" as UtilityFiles
 import ".."
 
 /**
@@ -18,24 +17,49 @@ import ".."
 UtilityTile {
     id: tile
 
+    property string ryoshotFolder: ""
     readonly property string folder: {
         const chosen = String(Config.options?.dock?.utilities?.screenshots?.folder ?? "").trim();
         if (chosen.length > 0)
-            return FileUtils.trimFileProtocol(chosen);
-        const snips = String(Config.options?.screenSnip?.savePath ?? "").trim();
-        return snips.length > 0 ? FileUtils.trimFileProtocol(snips) : FileUtils.trimFileProtocol(Directories.pictures) + "/Screenshots";
+            return UtilityFiles.expandPath(chosen, Directories.home);
+        if (tile.ryoshotFolder.length > 0)
+            return tile.ryoshotFolder;
+        return UtilityFiles.expandPath(FileUtils.trimFileProtocol(Directories.pictures) + "/Screenshots", Directories.home);
     }
     readonly property var latest: feed.recent.length > 0 ? feed.recent[0] : null
     readonly property bool panelOpen: tile.host?.panelOpen ?? false
+
+    FileView {
+        id: ryoshotConfig
+        path: FileUtils.trimFileProtocol(Directories.config) + "/ryoku/ryoshot.json"
+        blockLoading: true
+        printErrors: false
+        watchChanges: true
+        onLoaded: {
+            try {
+                const value = JSON.parse(text());
+                tile.ryoshotFolder = UtilityFiles.expandPath(value?.saveDir ?? "", Directories.home);
+            } catch (error) {
+                tile.ryoshotFolder = "";
+            }
+        }
+        onLoadFailed: tile.ryoshotFolder = ""
+        onFileChanged: reload()
+    }
 
     function markSeen() {
         if (Persistent.ready)
             Persistent.states.dockUtilities.screenshotsSeen = Date.now();
     }
-    onPanelOpenChanged: if (tile.panelOpen) tile.markSeen()
-    Component.onCompleted: {
+    function initializeSeen() {
         if (Persistent.ready && (Persistent.states.dockUtilities.screenshotsSeen ?? 0) <= 0)
             tile.markSeen();
+    }
+    onPanelOpenChanged: if (tile.panelOpen) tile.markSeen()
+    Component.onCompleted: tile.initializeSeen()
+    Connections {
+        target: Persistent
+        function onReadyChanged() { tile.initializeSeen(); }
     }
 
     function exportPaths() {
@@ -49,6 +73,7 @@ UtilityTile {
         seenAfter: Persistent.ready ? (Persistent.states.dockUtilities.screenshotsSeen ?? 0) : 0
         limit: 8
         extensions: ["png", "jpg", "jpeg", "webp", "avif"]
+        active: tile.live
     }
 
     surfaceColor: ClockStyle.colSurfaceHigh
@@ -63,13 +88,23 @@ UtilityTile {
         { id: "openFolder", icon: "folder_open", text: Translation.tr("Open folder") }
     ]
 
+    function takeScreenshot() {
+        Spawn.run(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
+    }
+    function copyLatest() {
+        if (tile.latest)
+            Spawn.run(["ryoku-shell", "clip-copy", UtilityFiles.imageMime(tile.latest.path), tile.latest.path]);
+    }
+    function openFolder() {
+        Spawn.run(["xdg-open", tile.folder]);
+    }
     function menuAction(actionId) {
         if (actionId === "take")
-            Quickshell.execDetached(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
-        else if (actionId === "copy" && tile.latest)
-            Quickshell.execDetached(["sh", "-c", 'wl-copy --type image/png < "$1"', "sh", tile.latest.path]);
+            tile.takeScreenshot();
+        else if (actionId === "copy")
+            tile.copyLatest();
         else if (actionId === "openFolder")
-            Quickshell.execDetached(["xdg-open", tile.folder]);
+            tile.openFolder();
     }
 
     // A capture not looked at yet: a primary dot in the corner, standing on

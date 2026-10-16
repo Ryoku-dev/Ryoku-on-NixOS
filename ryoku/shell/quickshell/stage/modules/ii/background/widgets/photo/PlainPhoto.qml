@@ -52,7 +52,7 @@ AbstractBackgroundWidget {
         const own = root.instanceImagePath !== undefined ? root.instanceImagePath : root.options?.imagePath;
         if (own && own !== "")
             return root.fileUrl(own);
-        return root.fileUrl(Config.options?.background?.wallpaperPath ?? "");
+        return root.fileUrl(Config.wallpaperStill);
     }
 
     readonly property bool isAnimated: {
@@ -61,7 +61,7 @@ AbstractBackgroundWidget {
     }
     readonly property bool shouldPlay: root.visible && root.opacity > 0 && root.isAnimated
                                      && !GlobalStates.screenLocked
-                                     && !GlobalStates.activeWorkspaceHasWindows
+                                     && !root.activeWorkspaceHasWindows
 
     // Decode box: the shown size times the window's DPR (high-water mark - it
     // churns while the window is set up) and the render scale, quantised so

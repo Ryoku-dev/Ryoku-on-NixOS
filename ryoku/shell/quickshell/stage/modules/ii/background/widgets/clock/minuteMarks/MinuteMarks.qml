@@ -1,3 +1,4 @@
+import stage.services
 import stage.modules.common
 import stage.modules.common.widgets
 import QtQuick
@@ -62,5 +63,5 @@ Item {
             margins: 46 - shapesLoader.opacity * 34
         }
     }
-    
+
 }

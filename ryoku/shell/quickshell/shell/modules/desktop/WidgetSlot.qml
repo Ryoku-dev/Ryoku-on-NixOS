@@ -283,6 +283,7 @@ Item {
     // the host raises the layer's keyboard grab off this, the same way plugin
     // tiles do; the clock never exposes it, so it stays input-passive.
     readonly property bool editing: slot.visible && !!(slot.item && slot.item.editing)
+    readonly property bool contentManagesOwnEffects: slot.item?.managesOwnEffects === true
 
     // custom ink: a bg:none widget can wear a pinned colour or an A->B sweep in
     // place of its adaptive ink. The solid colour is pushed into the widget so it
@@ -520,7 +521,8 @@ Item {
             xScale: slot.previewFactor
             yScale: slot.previewFactor
         }
-        layer.enabled: !slot.resizing
+        layer.enabled: !slot.contentManagesOwnEffects
+            && !slot.resizing
             && (slot.inkMaskOn || (!Performance.shadowsDisabled && slot.bg === "none"))
         layer.smooth: true
         layer.effect: slot.inkMaskOn ? recolorFx : shadowFx

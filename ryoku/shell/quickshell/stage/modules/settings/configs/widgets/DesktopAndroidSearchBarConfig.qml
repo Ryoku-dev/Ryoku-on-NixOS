@@ -9,6 +9,19 @@ ContentPage {
 
     signal goBack
 
+    function actionIcon(key) {
+        if (key === "music_rec") return "music_note";
+        if (key === "ai_chat") return "neurology";
+        if (key === "translator") return "translate";
+        if (key === "wallpapers") return "wallpaper";
+        if (key === "phone") return "smartphone";
+        if (key === "cheatsheet") return "apps";
+        if (key === "clipboard") return "content_paste";
+        if (key === "color_picker") return "colorize";
+        if (key === "screenshot") return "crop";
+        return "search";
+    }
+
     RowLayout {
         spacing: 12
 
@@ -89,7 +102,7 @@ ContentPage {
                     { displayName: Translation.tr("Search Overlay"), icon: "search", value: "search" },
                     { displayName: Translation.tr("Wallpapers"), icon: "wallpaper", value: "wallpapers" },
                     { displayName: Translation.tr("Phone / KDE Connect"), icon: "smartphone", value: "phone" },
-                    { displayName: Translation.tr("Cheatsheet"), icon: "help", value: "cheatsheet" },
+                    { displayName: Translation.tr("Kit"), icon: "apps", value: "cheatsheet" },
                     { displayName: Translation.tr("Clipboard"), icon: "content_paste", value: "clipboard" },
                     { displayName: Translation.tr("Color Picker"), icon: "colorize", value: "color_picker" },
                     { displayName: Translation.tr("Screenshot"), icon: "crop", value: "screenshot" }
@@ -109,7 +122,7 @@ ContentPage {
                     { displayName: Translation.tr("Search Overlay"), icon: "search", value: "search" },
                     { displayName: Translation.tr("Wallpapers"), icon: "wallpaper", value: "wallpapers" },
                     { displayName: Translation.tr("Phone / KDE Connect"), icon: "smartphone", value: "phone" },
-                    { displayName: Translation.tr("Cheatsheet"), icon: "help", value: "cheatsheet" },
+                    { displayName: Translation.tr("Kit"), icon: "apps", value: "cheatsheet" },
                     { displayName: Translation.tr("Clipboard"), icon: "content_paste", value: "clipboard" },
                     { displayName: Translation.tr("Color Picker"), icon: "colorize", value: "color_picker" },
                     { displayName: Translation.tr("Screenshot"), icon: "crop", value: "screenshot" }
@@ -129,11 +142,52 @@ ContentPage {
                     { displayName: Translation.tr("Translator"), icon: "translate", value: "translator" },
                     { displayName: Translation.tr("Wallpapers"), icon: "wallpaper", value: "wallpapers" },
                     { displayName: Translation.tr("Phone / KDE Connect"), icon: "smartphone", value: "phone" },
-                    { displayName: Translation.tr("Cheatsheet"), icon: "help", value: "cheatsheet" },
+                    { displayName: Translation.tr("Kit"), icon: "apps", value: "cheatsheet" },
                     { displayName: Translation.tr("Clipboard"), icon: "content_paste", value: "clipboard" },
                     { displayName: Translation.tr("Color Picker"), icon: "colorize", value: "color_picker" },
                     { displayName: Translation.tr("Screenshot"), icon: "crop", value: "screenshot" }
                 ]
+            }
+
+            ContentSubsectionLabel { text: Translation.tr("Button Icons") }
+
+            ConfigTextField {
+                id: icon1Field
+                text: Translation.tr("Button 1 icon")
+                icon: "filter_1"
+                tooltip: Translation.tr("Optional Material Symbol name. Leave empty to use the selected action's icon.")
+                placeholderText: root.actionIcon(Config.options.background.widgets.android_search_bar.action1 ?? "music_rec")
+                Component.onCompleted: inputText = Config.options.background.widgets.android_search_bar.icon1 ?? ""
+                textField.onTextChanged: {
+                    if (textField.activeFocus)
+                        Config.options.background.widgets.android_search_bar.icon1 = textField.text.trim();
+                }
+            }
+
+            ConfigTextField {
+                id: icon2Field
+                text: Translation.tr("Button 2 icon")
+                icon: "filter_2"
+                tooltip: Translation.tr("Optional Material Symbol name. Leave empty to use the selected action's icon.")
+                placeholderText: root.actionIcon(Config.options.background.widgets.android_search_bar.action2 ?? "ai_chat")
+                Component.onCompleted: inputText = Config.options.background.widgets.android_search_bar.icon2 ?? ""
+                textField.onTextChanged: {
+                    if (textField.activeFocus)
+                        Config.options.background.widgets.android_search_bar.icon2 = textField.text.trim();
+                }
+            }
+
+            ConfigTextField {
+                id: icon3Field
+                text: Translation.tr("Button 3 icon")
+                icon: "filter_3"
+                tooltip: Translation.tr("Optional Material Symbol name. Leave empty to use the selected action's icon.")
+                placeholderText: root.actionIcon(Config.options.background.widgets.android_search_bar.action3 ?? "search")
+                Component.onCompleted: inputText = Config.options.background.widgets.android_search_bar.icon3 ?? ""
+                textField.onTextChanged: {
+                    if (textField.activeFocus)
+                        Config.options.background.widgets.android_search_bar.icon3 = textField.text.trim();
+                }
             }
 
             // ── Scale & Appearance ───────────────────────────────────────────

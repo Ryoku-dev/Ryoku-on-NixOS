@@ -82,8 +82,32 @@ ContentPage {
                 }
             }
 
-            DesktopWidgetVisualOptions {
+            ContentSubsection {
+                title: Translation.tr("Text color")
+                icon: "palette"
                 Layout.fillWidth: true
+
+                ConfigSelectionArray {
+                    currentValue: Config.options.background.widgets.nagasaki_text.colorStyle ?? "surface"
+                    onSelected: value => Config.options.background.widgets.nagasaki_text.colorStyle = value
+                    options: [
+                        { displayName: Translation.tr("Surface"), icon: "texture", value: "surface" },
+                        { displayName: Translation.tr("Text"), icon: "text_fields", value: "text" },
+                        { displayName: Translation.tr("Accent"), icon: "palette", value: "accent" }
+                    ]
+                }
+            }
+
+            ContentSubsectionLabel {
+                text: Translation.tr("Visual Options")
+            }
+            ConfigSwitch {
+                buttonIcon: "wb_sunny"
+                text: Translation.tr("Enable Shadows")
+                checked: Config.options.background.widgets.enableShadows ?? false
+                onCheckedChanged: {
+                    Config.options.background.widgets.enableShadows = checked;
+                }
             }
         }
     }

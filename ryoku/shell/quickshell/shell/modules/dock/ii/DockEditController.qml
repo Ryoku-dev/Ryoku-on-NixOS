@@ -169,6 +169,17 @@ QtObject {
             dock.order = order.filter(entry => entry !== key);
     }
 
+    function _insertOrderKey(dock, key) {
+        const order = Array.from(dock.order ?? []);
+        if (order.indexOf(key) >= 0)
+            return;
+        let index = order.length;
+        while (index > 0 && ["trash", "overview", "pin"].indexOf(order[index - 1]) >= 0)
+            index--;
+        order.splice(index, 0, key);
+        dock.order = order;
+    }
+
     function remove(item) {
         const type = item?.type ?? "";
         root.commit(dock => {
@@ -271,17 +282,22 @@ QtObject {
                     root._dropOrderKey(dock, id);
                 } else {
                     dock.utilityWidgets = DockUtilityCatalog.withKind(dock.utilityWidgets ?? [], kind, false);
+                    root._insertOrderKey(dock, id);
                 }
                 return;
             }
             if (id === "widgetStack") {
                 dock.enableWidgetStack = !added;
+                if (!added)
+                    root._insertOrderKey(dock, id);
                 return;
             }
             const info = root.nativeInfo(id) ?? root.buttonInfo(id);
             if (!info)
                 return;
             dock[info.key] = !added;
+            if (!added)
+                root._insertOrderKey(dock, id);
             // Taking a stacked widget off takes it out of the stack too, or
             // the stack would keep drawing what was just removed.
             if (added && root.nativeInfo(id) !== null)

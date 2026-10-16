@@ -11,6 +11,7 @@ AbstractBackgroundWidget {
     id: root
 
     configEntryName: "mobile_battery"
+    readonly property bool showPercentage: Config.options.background.widgets.mobile_battery.showPercentage ?? true
 
     implicitWidth: 240
     implicitHeight: 240
@@ -63,7 +64,7 @@ AbstractBackgroundWidget {
                 anchors.rightMargin: -8
                 width: parent.width * 0.90
                 height: 100
-                visible: root.isConnected
+                visible: root.isConnected && root.showPercentage
 
                 Text {
                     anchors.centerIn: parent

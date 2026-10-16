@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Widgets
 import Quickshell.Io
+import Ryoku.Ui.Singletons as RyokuUi
 import stage.modules.common.widgets
 import "./widgets"
 import "."
@@ -206,9 +207,7 @@ DockButton {
                     stackPopup.open();
                     return;
                 }
-                Quickshell.execDetached({
-                    command: ["xdg-open", root.filePath]
-                });
+                RyokuUi.Spawn.run(["xdg-open", root.filePath]);
             }
             onCanceled: {
                 root._pressed = false;

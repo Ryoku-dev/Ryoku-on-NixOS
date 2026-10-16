@@ -66,11 +66,19 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("weather_typography")
 
+            DesktopWeatherBehaviorOptions {
+                options: Config.options.background.widgets.weather_typography
+                expressiveColors: true
+                location: true
+                feelsLike: true
+                condition: true
+            }
+
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 4
 
-                DesktopWidgetVisualOptions {
+                DesktopWeatherShadowOptions {
                     Layout.fillWidth: true
                 }
             }

@@ -499,6 +499,6 @@ Singleton {
     function runCustom(entry: var, target: string): void {
         if (!entry || !entry.command)
             return;
-        Quickshell.execDetached(["env", "II_CONTEXT_TARGET=" + (target ?? ""), "bash", "-c", entry.command]);
+        Spawn.run(["env", "II_CONTEXT_TARGET=" + (target ?? ""), "bash", "-c", entry.command]);
     }
 }

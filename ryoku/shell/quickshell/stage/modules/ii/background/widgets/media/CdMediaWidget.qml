@@ -37,10 +37,10 @@ AbstractBackgroundWidget {
     }
 
     readonly property color artDominantColor: {
-        if (!root.useDynamicColors) return Appearance.colors.colPrimary;
-        let raw = colorQuantizer?.colors[0] ?? Appearance.colors.colPrimary;
-        let mixed = ColorUtils.mix(raw, Appearance.colors.colPrimaryContainer, 0.8);
-        return mixed || Appearance.m3colors.m3secondaryContainer;
+        if (!root.useDynamicColors) return WidgetColorScheme.colors.colPrimary;
+        let raw = colorQuantizer?.colors[0] ?? WidgetColorScheme.colors.colPrimary;
+        let mixed = ColorUtils.mix(raw, WidgetColorScheme.colors.colPrimaryContainer, 0.8);
+        return mixed || WidgetColorScheme.m3colors.m3secondaryContainer;
     }
 
     property QtObject blendedColors: AdaptedMaterialScheme {

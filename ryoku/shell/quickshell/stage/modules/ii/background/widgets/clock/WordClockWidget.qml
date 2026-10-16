@@ -28,9 +28,14 @@ AbstractBackgroundWidget {
                                              : numberWord(minuteNumber % 10)
 
     function numberWord(value) {
-        const words = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty", "Thirty", "Forty", "Fifty"];
+        const words = [Translation.tr("Zero"), Translation.tr("One"), Translation.tr("Two"), Translation.tr("Three"), Translation.tr("Four"), Translation.tr("Five"), Translation.tr("Six"), Translation.tr("Seven"), Translation.tr("Eight"), Translation.tr("Nine"), Translation.tr("Ten"), Translation.tr("Eleven"), Translation.tr("Twelve"), Translation.tr("Thirteen"), Translation.tr("Fourteen"), Translation.tr("Fifteen"), Translation.tr("Sixteen"), Translation.tr("Seventeen"), Translation.tr("Eighteen"), Translation.tr("Nineteen"), Translation.tr("Twenty"), Translation.tr("Thirty"), Translation.tr("Forty"), Translation.tr("Fifty")];
         if (value <= 19) return words[value];
         return words[18 + Math.floor(value / 10)];
+    }
+
+    StyledDropShadow {
+        target: backgroundShape
+        visible: backgroundShape.visible && (Config.options.background.widgets.enableShadows ?? false)
     }
 
     MaterialShape {

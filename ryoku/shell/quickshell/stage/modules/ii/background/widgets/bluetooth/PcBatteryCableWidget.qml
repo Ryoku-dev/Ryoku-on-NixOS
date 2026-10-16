@@ -11,6 +11,8 @@ AbstractBackgroundWidget {
     id: root
 
     configEntryName: "pc_battery_cable"
+    readonly property bool showPercentage: Config.options.background.widgets.pc_battery_cable.showPercentage ?? true
+    readonly property bool showChargingIcon: Config.options.background.widgets.pc_battery_cable.showChargingIcon ?? true
 
     implicitWidth: 240
     implicitHeight: 240
@@ -86,7 +88,7 @@ AbstractBackgroundWidget {
                     anchors.left: plugBody.right
                     anchors.leftMargin: 28
                     anchors.verticalCenter: plugBody.verticalCenter
-                    visible: root.isCharging
+                    visible: root.isCharging && root.showChargingIcon
                     text: "bolt"
                     iconSize: 20
                     color: root.fgColor
@@ -102,6 +104,7 @@ AbstractBackgroundWidget {
                 spacing: 0
 
                 Text {
+                    visible: root.showPercentage
                     Layout.alignment: Qt.AlignRight
                     text: root.batteryPct + "%"
                     color: root.fgColor

@@ -17,6 +17,13 @@ Singleton {
     readonly property string preferredAppId: String(Config.options?.dock?.livePreviewAppId ?? "").trim()
     readonly property string normalizedPreferredAppId: TaskbarApps.normalizeAppId(root.preferredAppId)
     readonly property bool followActiveWindow: Config.options?.dock?.livePreviewFollowActiveWindow ?? true
+    readonly property bool previewAvailable: Wm.caps.persistentScreenCapture === true
+    onPreviewAvailableChanged: {
+        if (root.previewAvailable || root.activeCaptureScreenName === "")
+            return;
+        root.activeCaptureScreenName = "";
+        root.captureArbitrationChanged();
+    }
 
     // A specific window selected from the picker is a runtime-only lock.
     property var lockedToplevel: null
@@ -37,6 +44,8 @@ Singleton {
     }
 
     readonly property var candidateToplevels: {
+        if (!root.previewAvailable)
+            return [];
         const app = root.resolvedApp;
         if (!app)
             return [];
@@ -71,6 +80,8 @@ Singleton {
     }
 
     function selectedToplevelFor(screen) {
+        if (!root.previewAvailable)
+            return null;
         const candidates = root.candidateToplevels;
         if (candidates.length === 0)
             return null;
@@ -125,8 +136,10 @@ Singleton {
     }
 
     function launchPreferredApp() {
-        if (root.desktopEntry)
-            root.desktopEntry.execute();
+        const desktopId = String(root.desktopEntry?.id ?? root.preferredAppId)
+            .trim().replace(/\.desktop$/i, "");
+        if (desktopId.length > 0)
+            Spawn.run(["gtk-launch", desktopId]);
     }
 
     function activate(toplevel) {
@@ -139,8 +152,10 @@ Singleton {
     }
 
     function canCapture(screen) {
+        if (!root.previewAvailable)
+            return false;
         const screenName = screen?.name ?? String(screen ?? "");
-        const focusedName = (Wm.focusedOutput ?? "");
+        const focusedName = Wm.focusedOutput ?? "";
 
         if (!screenName)
             return false;

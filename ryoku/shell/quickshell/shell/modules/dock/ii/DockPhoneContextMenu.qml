@@ -58,7 +58,7 @@ DockContextMenuBase {
         case "sendFile":
             filePicker.open();
             return;
-        case "sendClipboard": KdeConnectService.sendClipboard(root.deviceId); break;
+        case "sendClipboard": KdeConnectService.sendClipboard(Quickshell.clipboardText, root.deviceId); break;
         case "browse": KdeConnectService.browseFiles(root.deviceId); break;
         case "ring": KdeConnectService.findMyPhone(root.deviceId); break;
         case "remove":

@@ -327,8 +327,8 @@ ClockSheet {
         visible: !root.repeats && root.draftDate.length > 0
         symbol: "calendar_view_month"
         shapeKind: MaterialShape.Shape.Cookie6Sided
-        caption: Translation.tr("Timetable")
-        value: Translation.tr("Open in timetable")
+        caption: Translation.tr("Calendar")
+        value: Translation.tr("Open calendar")
         onTriggered: {
             GlobalStates.openTimetableAt(root.draftDate);
             root.close();

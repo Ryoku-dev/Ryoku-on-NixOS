@@ -7,8 +7,8 @@ import Quickshell.Widgets
 
 import stage.modules.common.functions
 import stage.modules.common.widgets
+import Ryoku.Ui.Singletons
 import "../"
-import ".."
 
 PopupWindow {
     id: previewPopup
@@ -21,6 +21,7 @@ PopupWindow {
 
     readonly property bool isVertical: dockRoot?.isVertical ?? false
     readonly property string dockPos: dockRoot?.dockPos ?? dock.dockEffectivePosition
+    readonly property bool previewAvailable: Wm.caps.persistentScreenCapture === true
 
     readonly property int maxPreviews: {
         if (compactMode)
@@ -36,10 +37,24 @@ PopupWindow {
 
     property bool show: false
     readonly property bool shouldShow:
+        previewPopup.previewAvailable &&
         !dockRoot.dragging &&
         !dockRoot.anyContextMenuOpen &&
         (backgroundHover.hovered || dockRoot.buttonHovered || dockRoot.popupIsResizing) &&
         (appTopLevel?.toplevels?.length > 0)
+
+    onPreviewAvailableChanged: {
+        if (previewPopup.previewAvailable)
+            return
+        showTimer.stop()
+        hideTimer.stop()
+        targetSettleTimer.stop()
+        frameWaitTimer.stop()
+        previewPopup.show = false
+        previewPopup.everShown = false
+        previewPopup.frontPage.app = null
+        previewPopup.backPage.app = null
+    }
 
     // Opening waits out a small dwell — 70 ms, under the time a pointer
     // needs to cross one icon on purpose, over the time a sweep spends on
@@ -264,7 +279,8 @@ PopupWindow {
     // popup surface costs 40–100 ms in the compositor, and paying it on every
     // open was the hitch at the start of each preview. Closed, the surface is
     // transparent and takes no input (empty mask).
-    readonly property bool active: show || showProgress > 0 || revealProgress > 0
+    readonly property bool active: previewPopup.previewAvailable
+        && (show || showProgress > 0 || revealProgress > 0)
     // Mapped soon after the dock (its first map is the expensive frame) and
     // kept; never together with the dock window itself, whose surface has to
     // exist first (see DockTooltipHost). Group popups build theirs on demand.
@@ -272,11 +288,15 @@ PopupWindow {
     readonly property bool _parentShown: (dockWindow?.visible ?? false)
     on_ParentShownChanged: if (!_parentShown && !compactMode) everShown = false
     Timer {
-        interval: 1500
-        running: !previewPopup.compactMode && previewPopup._parentShown && !previewPopup.everShown
+        running: previewPopup.previewAvailable
+            && !previewPopup.compactMode
+            && previewPopup._parentShown
+            && !previewPopup.everShown
         onTriggered: previewPopup.everShown = true
     }
-    visible: (everShown || active) && (compactMode || _parentShown)
+    visible: previewPopup.previewAvailable
+        && (everShown || active)
+        && (compactMode || _parentShown)
     color: "transparent"
     readonly property Region cardRegion: Region { item: popupBackground }
     readonly property Region noRegion: Region {}
@@ -426,8 +446,8 @@ PopupWindow {
         target: popupBackground
         opacity: popupBackground.opacity
         visible: popupBackground.visible
-        // Under Hyprland's popup blur threshold (ignore_alpha 0.19 on
-        // quickshell.*), or the wallpaper behind the shadow gets blurred.
+        // Keep the shadow below the popup-blur alpha threshold, or the
+        // wallpaper behind it is blurred.
         color: ColorUtils.transparentize(Appearance.m3colors.m3shadow, 0.83)
     }
 
@@ -466,11 +486,11 @@ PopupWindow {
         property real followY: dockRoot.hoveredButtonCenter.y
         readonly property bool sliding: previewPopup.show && previewPopup.showProgress > 0.98
         Behavior on followX {
-            enabled: popupBackground.sliding
+            enabled: popupBackground.sliding && previewPopup._motion
             animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(popupBackground)
         }
         Behavior on followY {
-            enabled: popupBackground.sliding
+            enabled: popupBackground.sliding && previewPopup._motion
             animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(popupBackground)
         }
         readonly property real _clampedX: Math.max(margins, Math.min(followX - implicitWidth  / 2, parent.width  - implicitWidth  - margins))
@@ -503,9 +523,11 @@ PopupWindow {
         implicitWidth: previewPopup.layoutPage.implicitWidth + padding * 2
 
         Behavior on implicitWidth {
+            enabled: previewPopup._motion
             animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
         }
         Behavior on implicitHeight {
+            enabled: previewPopup._motion
             animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
         }
 
@@ -630,24 +652,30 @@ PopupWindow {
                         implicitWidth: dockRoot.maxWindowPreviewWidth
                         implicitHeight: dockRoot.maxWindowPreviewHeight
 
-                        ScreencopyView {
+                        Loader {
                             id: screencopyView
                             anchors.centerIn: parent
-                            captureSource: previewPopup.active ? windowButton.modelData : null
-                            live: true
-                            paintCursor: true
-                            // Fits the frame inside the slot; it is the
-                            // display size, not the capture size.
-                            constraintSize: Qt.size(previewSlot.implicitWidth, previewSlot.implicitHeight)
-                            // A translucent card cannot hide corners under
-                            // pieces of its own colour; only then pay for a
-                            // mask pass.
-                            layer.enabled: !popupBackground.opaqueSurface
-                            layer.effect: OpacityMask {
-                                maskSource: Rectangle {
-                                    width: screencopyView.width
-                                    height: screencopyView.height
-                                    radius: Appearance.rounding.small
+                            active: previewPopup.previewAvailable && previewPopup.active
+                            width: previewSlot.implicitWidth
+                            height: previewSlot.implicitHeight
+                            readonly property bool hasContent: item?.hasContent ?? false
+
+                            sourceComponent: ScreencopyView {
+                                anchors.fill: parent
+                                captureSource: previewPopup.active ? windowButton.modelData : null
+                                live: previewPopup.active
+                                paintCursor: true
+                                constraintSize: Qt.size(screencopyView.width, screencopyView.height)
+                                // A translucent card cannot hide corners under
+                                // pieces of its own colour; only then pay for a
+                                // mask pass.
+                                layer.enabled: !popupBackground.opaqueSurface
+                                layer.effect: OpacityMask {
+                                    maskSource: Rectangle {
+                                        width: screencopyView.width
+                                        height: screencopyView.height
+                                        radius: Appearance.rounding.small
+                                    }
                                 }
                             }
                         }

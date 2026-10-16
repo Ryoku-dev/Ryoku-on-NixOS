@@ -1,7 +1,7 @@
 import QtQuick
 import Quickshell.Io
 import Qt.labs.folderlistmodel
-import "UtilityFiles.js" as UtilityFiles
+import stage.modules.common.functions
 import ".."
 
 /**
@@ -41,24 +41,42 @@ Item {
     }
 
     function rebuild() {
-        if (!feed.active || feed.folder.length === 0)
-            return;
         lister.running = false;
+        if (!feed.active)
+            return;
+        if (feed.folder.length === 0) {
+            feed._all = [];
+            feed._apply();
+            return;
+        }
+        lister.requestedFolder = feed.folder;
         lister.running = true;
     }
 
     onSeenAfterChanged: feed._apply()
     onLimitChanged: feed._apply()
-    onFolderChanged: rebuildTimer.restart()
-    Component.onCompleted: rebuildTimer.restart()
+    onExtensionsChanged: if (feed.active) rebuildTimer.restart()
+    onFolderChanged: if (feed.active) rebuildTimer.restart()
+    onActiveChanged: {
+        if (feed.active)
+            rebuildTimer.restart();
+        else {
+            rebuildTimer.stop();
+            lister.running = false;
+        }
+    }
+    Component.onCompleted: if (feed.active) rebuildTimer.restart()
 
     Process {
         id: lister
+        property string requestedFolder: ""
         command: ["sh", "-c",
             'find "$1" -maxdepth 1 -type f ! -name ".*" -printf "%T@\\t%p\\n" 2>/dev/null | sort -rn | head -n 400',
-            "sh", feed.folder]
+            "sh", lister.requestedFolder]
         stdout: StdioCollector {
             onStreamFinished: {
+                if (!feed.active || lister.requestedFolder !== feed.folder)
+                    return;
                 const partial = /\.(part|crdownload|download|tmp|partial)$/i;
                 const keep = (feed.extensions ?? []).map(ext => String(ext).toLowerCase());
                 const all = [];

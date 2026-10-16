@@ -6,6 +6,7 @@ import Quickshell.Widgets
 import Quickshell.Wayland
 import QtQuick.Controls
 import Quickshell.Services.Mpris
+import Ryoku.Ui.Singletons as RyokuUi
 
 import stage.modules.common
 import stage.modules.common.functions
@@ -3545,7 +3546,7 @@ Item {
                     if (actionItemRoot._itemData.actionId === "pin")
                         root.togglePinRequested();
                     else if (actionItemRoot._itemData.actionId === "trash")
-                        Quickshell.execDetached(["nautilus", "trash:///"]);
+                        RyokuUi.Spawn.run(["xdg-open", "trash:///"]);
                     else if (actionItemRoot._itemData.actionId === "overview")
                         GlobalStates.toggleOverview();
                 }
@@ -3735,9 +3736,6 @@ Item {
                     dockRevealed: root.dockRevealed
                     dockWindowVisible: root.dockWindowVisible
                     delegateIndex: livePreviewItemRoot._index
-                    onPickerRequested: {
-                        // Picker wiring belongs to the following live-preview phase.
-                    }
                 }
             }
         }

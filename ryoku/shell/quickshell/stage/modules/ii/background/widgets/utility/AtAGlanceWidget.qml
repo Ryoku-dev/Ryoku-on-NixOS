@@ -3,14 +3,14 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Qt5Compat.GraphicalEffects
-import Quickshell
-import Quickshell.Io
+import Ryoku.Ui.Singletons
 import stage
 import stage.services
 import stage.modules.common
 import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.modules.ii.background.widgets
+import "../../../../common/functions/UtilityFiles.js" as UtilityFiles
 AbstractBackgroundWidget {
     id: root
 
@@ -56,51 +56,47 @@ AbstractBackgroundWidget {
     }
 
     function triggerAction(serviceName) {
+        if (!root.actionsEnabled)
+            return;
         if (serviceName === "media") {
-            if (AtAGlanceService.player) AtAGlanceService.player.togglePlaying();
+            if (AtAGlanceService.player)
+                AtAGlanceService.player.togglePlaying();
         } else if (serviceName === "calendar") {
-            calendarIpc.running = true;
-        } else if (serviceName === "todo") {
-            todoIpc.running = true;
+            Spawn.run(["xdg-open", "https://calendar.google.com/calendar/u/0/r"]);
         } else if (serviceName === "email") {
-            emailIpc.running = true;
+            Spawn.run(["xdg-open", "https://mail.google.com/mail/u/0/#inbox"]);
+        } else if (serviceName === "todo") {
+            Spawn.run(["ryoku-shell", "quicksettings"]);
         } else if (serviceName === "fallback") {
-            Weather.getData(true);
+            Weather.retry();
         }
     }
 
     function handleDroppedFiles(urls) {
+        if (!root.actionsEnabled)
+            return;
         const paths = [];
         for (let i = 0; i < urls.length; i++) {
-            let path = String(urls[i]);
-            if (path.startsWith("file://")) path = path.substring(7);
-            paths.push(decodeURIComponent(path));
+            const path = UtilityFiles.pathFromUrl(urls[i]);
+            if (path.length > 0)
+                paths.push(path);
         }
-        if (paths.length === 0) return;
+        if (paths.length === 0)
+            return;
 
-        if (LocalSend.available) {
-            LocalSend.sendFiles(paths);
-        } else if (KdeConnectService.available && KdeConnectService.activeDevice) {
-            for (let j = 0; j < paths.length; j++) {
-                KdeConnectService.shareFile(KdeConnectService.activeDeviceId, paths[j]);
-            }
+        const sendOptions = Config.options?.dock?.utilities?.send ?? ({});
+        const localIp = String(sendOptions.localsendIp ?? "");
+        if (sendOptions.backend === "localsend" && LocalSend.available && LocalSend.pyteAvailable && localIp.length > 0) {
+            LocalSend.clearDroppedFiles();
+            for (const path of paths)
+                LocalSend.addDroppedFile(path);
+            LocalSend.sendToDevice(localIp);
+        } else if (KdeConnectService.activeReachable && KdeConnectService.activeDeviceId) {
+            for (const path of paths)
+                KdeConnectService.shareUrl(UtilityFiles.fileUri(path), KdeConnectService.activeDeviceId);
         }
     }
 
-    Process {
-        id: calendarIpc
-        command: ["qs", "ipc", "-c", "ii", "call", "cheatsheet", "toggle"]
-    }
-
-    Process {
-        id: todoIpc
-        command: ["qs", "ipc", "-c", "ii", "call", "sidebarDashboard", "openTab", "todo"]
-    }
-
-    Process {
-        id: emailIpc
-        command: ["qs", "ipc", "-c", "ii", "call", "cheatsheet", "toggle"]
-    }
 
     Item {
         id: container
@@ -122,7 +118,7 @@ AbstractBackgroundWidget {
                 StyledText {
                     anchors.centerIn: parent
                     text: Translation.tr("Drop files to share via LocalSend / KDE Connect")
-                    color: Appearance.colors.colOnLayer0
+                    color: WidgetColorScheme.colors.colOnLayer0
                     font.pixelSize: Math.round(14 * root.contentScale)
                     font.weight: Font.Bold
                 }
@@ -208,7 +204,7 @@ AbstractBackgroundWidget {
                     Text {
                         Layout.fillWidth: true
                         text: root.currentData.title
-                        color: Appearance.colors.colOnLayer0
+                        color: WidgetColorScheme.colors.colOnLayer0
                         font.family: Appearance.font.family.main
                         font.pixelSize: Math.round(19 * root.contentScale)
                         font.weight: Font.Bold
@@ -238,14 +234,14 @@ AbstractBackgroundWidget {
                                 visible: !(root.currentData.service === "fallback" && AtAGlanceService.weatherAvailable)
                                 text: root.currentData.icon
                                 iconSize: Math.round(16 * root.contentScale)
-                                color: Appearance.colors.colOnLayer0
+                                color: WidgetColorScheme.colors.colOnLayer0
                             }
                         }
 
                         Text {
                             Layout.fillWidth: true
                             text: root.currentData.subtitle
-                            color: Appearance.colors.colOnLayer0
+                            color: WidgetColorScheme.colors.colOnLayer0
                             font.family: Appearance.font.family.main
                             font.pixelSize: Math.round(15 * root.contentScale)
                             font.weight: Font.DemiBold
@@ -267,7 +263,7 @@ AbstractBackgroundWidget {
                 Rectangle {
                     implicitWidth: 1
                     implicitHeight: 36 * root.contentScale
-                    color: Appearance.colors.colOnLayer0
+                    color: WidgetColorScheme.colors.colOnLayer0
                     opacity: 0.25
                     Layout.alignment: Qt.AlignVCenter
                 }
@@ -281,7 +277,7 @@ AbstractBackgroundWidget {
                     Text {
                         Layout.fillWidth: true
                         text: root.dualData.title
-                        color: Appearance.colors.colOnLayer0
+                        color: WidgetColorScheme.colors.colOnLayer0
                         font.family: Appearance.font.family.main
                         font.pixelSize: Math.round(19 * root.contentScale)
                         font.weight: Font.Bold
@@ -295,13 +291,13 @@ AbstractBackgroundWidget {
                         MaterialSymbol {
                             text: root.dualData.icon
                             iconSize: Math.round(16 * root.contentScale)
-                            color: Appearance.colors.colOnLayer0
+                            color: WidgetColorScheme.colors.colOnLayer0
                         }
 
                         Text {
                             Layout.fillWidth: true
                             text: root.dualData.subtitle
-                            color: Appearance.colors.colOnLayer0
+                            color: WidgetColorScheme.colors.colOnLayer0
                             font.family: Appearance.font.family.main
                             font.pixelSize: Math.round(15 * root.contentScale)
                             font.weight: Font.DemiBold
@@ -333,7 +329,7 @@ AbstractBackgroundWidget {
                         anchors.centerIn: parent
                         text: "chevron_left"
                         iconSize: Math.round(16 * root.contentScale)
-                        color: Appearance.colors.colOnLayer0
+                        color: WidgetColorScheme.colors.colOnLayer0
                     }
 
                     onClicked: {
@@ -356,7 +352,7 @@ AbstractBackgroundWidget {
                         anchors.centerIn: parent
                         text: "chevron_right"
                         iconSize: Math.round(16 * root.contentScale)
-                        color: Appearance.colors.colOnLayer0
+                        color: WidgetColorScheme.colors.colOnLayer0
                     }
 
                     onClicked: {

@@ -6,6 +6,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import stage.services
+import Ryoku.Ui.Singletons
 import ".."
 
 /**
@@ -13,9 +14,9 @@ import ".."
  * memory, launches and sessions.
  *
  * Runs the `app_stats` sampler and reads back what it writes. The daemon owns every
- * measurement — /proc, DRM fdinfo, RAPL and Hyprland's event socket — and knows only
- * window classes and pids. Names and icons are resolved here instead, where the
- * desktop-entry index already lives; that split is what keeps the daemon at ~3.5 MB.
+ * measurement — /proc, DRM fdinfo, RAPL and the window-manager event stream — and
+ * knows only window classes and pids. Names and icons are resolved against the
+ * desktop-entry index here; that split is what keeps the daemon at ~3.5 MB.
  *
  * Two views of the same data, deliberately separate:
  *   - `lastSample` is live, one object per sample interval straight off stdout.
@@ -341,7 +342,7 @@ Singleton {
     }
 
     function openStateDir() {
-        Quickshell.execDetached(["xdg-open", root.stateDir]);
+        Spawn.run(["xdg-open", root.stateDir]);
     }
 
     /// What the install screen is answering: is there a binary to run, and can this
@@ -587,6 +588,35 @@ Singleton {
         return device.map((value, hour) => value > 0 ? value : fallback[hour]);
     }
 
+    /// Package energy per hour of `date` in mWh (24 entries): every row's watt-hours,
+    /// headless or not, which together are the RAPL package counter for that hour.
+    /// Shares `deviceHoursCache`, so a month of battery buckets walks each day once.
+    function packageHours(date) {
+        const history = root.history;
+        const cacheKey = `${date}|pkg`;
+        const cache = root.deviceHoursCache;
+        if (cache.owner !== history) {
+            cache.owner = history;
+            cache.table = ({});
+        }
+        let hours = cache.table[cacheKey];
+        if (!hours) {
+            hours = new Array(24).fill(0);
+            const apps = history[date]?.apps;
+            const f = root.field;
+            for (const appKey in apps ?? {}) {
+                const rec = apps[appKey];
+                for (const hour in rec.h) {
+                    const t = rec.h[hour];
+                    // Millijoules to milliwatt-hours.
+                    hours[parseInt(hour)] += ((t[f.mjFg] ?? 0) + (t[f.mjBg] ?? 0)) / 3600;
+                }
+            }
+            cache.table[cacheKey] = hours;
+        }
+        return hours;
+    }
+
     /// One field summed per hour of day (24 entries) across `dates`.
     function hourlySeries(dates, fieldName, key) {
         const idx = root.field[fieldName];
@@ -633,10 +663,15 @@ Singleton {
         const stored = root.history[date]?.bat?.h;
         const out = new Array(24).fill(null);
         if (!stored) return out;
+        const pkg = root.packageHours(date);
         for (const hour in stored) {
             const index = parseInt(hour);
             const t = stored[hour];
             if (!t || !(index >= 0 && index < 24)) continue;
+            const offAc = t[6] ?? 0;
+            const charging = t[7] ?? 0;
+            const onAc = t[8] ?? 0;
+            const awake = offAc + charging + onAc;
             out[index] = {
                 // Tenths of a percent on disk; percent everywhere above this line.
                 start: (t[0] ?? 0) / 10,
@@ -645,12 +680,86 @@ Singleton {
                 high: (t[3] ?? 0) / 10,
                 outMwh: t[4] ?? 0,
                 inMwh: t[5] ?? 0,
-                offAc: t[6] ?? 0,
-                charging: t[7] ?? 0,
-                onAc: t[8] ?? 0
+                offAc: offAc,
+                charging: charging,
+                onAc: onAc,
+                pkgMwh: pkg[index],
+                // The package energy that fell in the plugged-in part of the hour, split
+                // by time: the pack says nothing about draw there, the package still does.
+                acPkgMwh: awake > 0 ? pkg[index] * (charging + onAc) / awake : 0
             };
         }
         return out;
+    }
+
+    /// The fortnight the plugged-in draw estimate learns from, whichever period is on
+    /// screen; the battery page loads it alongside its own.
+    readonly property var calibrationDates: {
+        const today = new Date(`${root.todayDate}T12:00:00`);
+        const out = [];
+        for (let i = 13; i >= 0; i--)
+            out.push(root.dateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - i)));
+        return out;
+    }
+
+    /**
+     * What the machine draws beyond the RAPL package — screen, radios, SSD — in
+     * watts, learned from hours spent wholly on battery, where the pack measures the
+     * whole and RAPL the package. The median, so one hour at full brightness or with
+     * the radios asleep does not set it.
+     *
+     * On AC nothing measures the whole: the pack reads zero and the adapter exposes
+     * only whether it is plugged in. This is what turns the package draw there into
+     * an estimate of the machine's. NaN without RAPL (the package figures would then
+     * be battery drain themselves, zero on AC) or without a battery hour to learn from.
+     */
+    readonly property real platformWatts: {
+        root.history;
+        if (root.source !== "rapl")
+            return NaN;
+        const samples = [];
+        for (const date of root.calibrationDates) {
+            for (const bucket of root.batteryHours(date)) {
+                if (!bucket || bucket.outMwh <= 0) continue;
+                const awake = bucket.offAc + bucket.charging + bucket.onAc;
+                if (bucket.offAc < 900 || bucket.offAc < awake * 0.9) continue;
+                // Milliwatt-hours over seconds, into watts.
+                samples.push(bucket.outMwh * 3.6 / bucket.offAc - bucket.pkgMwh * 3.6 / awake);
+            }
+        }
+        if (samples.length === 0)
+            return NaN;
+        samples.sort((a, b) => a - b);
+        const mid = Math.floor(samples.length / 2);
+        const median = samples.length % 2 ? samples[mid] : (samples[mid - 1] + samples[mid]) / 2;
+        return Math.max(0, median);
+    }
+
+    /**
+     * Mean draw over a battery bucket (an hour, or a rollup of them), in watts:
+     * `{ watts, estimated }`, watts NaN when nothing can be said. Time on battery is
+     * the pack's own measurement; time plugged in is the package draw plus
+     * `platformWatts`, which is what `estimated` flags once it is the larger share.
+     */
+    function drawWatts(bucket) {
+        const none = { watts: NaN, estimated: false };
+        if (!bucket)
+            return none;
+        const acSecs = (bucket.charging ?? 0) + (bucket.onAc ?? 0);
+        const awake = (bucket.offAc ?? 0) + acSecs;
+        if (awake <= 0)
+            return none;
+        let mwh = bucket.outMwh ?? 0;
+        if (acSecs > 0) {
+            if (isNaN(root.platformWatts)) {
+                if (bucket.offAc <= 0)
+                    return none;
+                // No estimate to offer: the battery part alone.
+                return { watts: mwh * 3.6 / bucket.offAc, estimated: false };
+            }
+            mwh += (bucket.acPkgMwh ?? 0) + root.platformWatts * acSecs / 3.6;
+        }
+        return { watts: mwh * 3.6 / awake, estimated: acSecs > bucket.offAc };
     }
 
     /// Capacity of a full pack in mWh, as measured on `date`. Zero for a day with
@@ -676,6 +785,8 @@ Singleton {
             offAc: 0,
             charging: 0,
             onAc: 0,
+            pkgMwh: 0,
+            acPkgMwh: 0,
             low: NaN,
             high: NaN,
             first: NaN,
@@ -694,6 +805,8 @@ Singleton {
                 acc.offAc += bucket.offAc;
                 acc.charging += bucket.charging;
                 acc.onAc += bucket.onAc;
+                acc.pkgMwh += bucket.pkgMwh;
+                acc.acPkgMwh += bucket.acPkgMwh;
                 acc.low = isNaN(acc.low) ? bucket.low : Math.min(acc.low, bucket.low);
                 acc.high = isNaN(acc.high) ? bucket.high : Math.max(acc.high, bucket.high);
                 if (isNaN(acc.first)) acc.first = bucket.start;

@@ -4,6 +4,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtCore
 import Quickshell
+import Quickshell.Io
 import stage.modules.common as StageDirs
 
 /**
@@ -42,15 +43,33 @@ Singleton {
     readonly property string remindersPath: state + "/ryoku/reminders.json"
     readonly property string reminderAttachmentsDir: state + "/ryoku/reminder_attachments"
     readonly property string appStats: state + "/ryoku/app_stats"
-    readonly property string sportsCachePath: state + "/ryoku/generated/sports.json"
+    readonly property string sportsCachePath: state + "/ryoku/sports.json"
     readonly property string coverArt: cache + "/ryoku/media/coverart"
     readonly property string screenshotTemp: `/tmp/quickshell-${root.username}/media/screenshot`
+    readonly property string cliphistDecode: `/tmp/quickshell-${root.username}/media/cliphist`
     readonly property string localSendDownloadPath: downloads + "/localsend"
 
+    // Paths still read by the copied shared pages and notes services.
+    readonly property string generatedMaterialThemePath: StageDirs.Directories.generatedMaterialThemePath
+    readonly property string customThemes: StageDirs.Directories.customThemes
+    readonly property string defaultThemes: StageDirs.Directories.defaultThemes
+    readonly property string notesPath: StageDirs.Directories.notesPath
+    readonly property string noteSketchesDir: state + "/ryoku/note_sketches"
+    readonly property string notesDir: StageDirs.Directories.notesDir
+    readonly property string notesIndexPath: notesDir + "/index.json"
+    readonly property string notesDocsDir: notesDir + "/docs"
+    readonly property string notesAssetsDir: notesDir + "/assets"
+    readonly property string notesLegacyBackupPath: notesPath + ".migrated"
+    readonly property string notesLinkPreviewsCacheDir: cache + "/ryoku/link_previews"
     // Ryoku's recorder CLI: same verbs the tile uses (bare toggle,
     // --fullscreen, --region, --pause); it drives GPU Screen Recorder.
     readonly property string recordScriptPath: "ryoku-cmd-record"
     readonly property string wallpaperSwitchScriptPath: StageDirs.Directories.wallpaperSwitchScriptPath
 
     readonly property string username: Quickshell.env("USER") || ""
+
+    Process {
+        command: ["mkdir", "-p", root.cliphistDecode]
+        running: true
+    }
 }

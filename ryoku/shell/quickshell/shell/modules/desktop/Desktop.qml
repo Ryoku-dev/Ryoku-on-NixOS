@@ -257,7 +257,7 @@ Scope {
         }
         return out;
     }
-    // The live WidgetSlot for a built-in or iRiS scope. Every slot rides a
+    // The live WidgetSlot for a built-in or hosted scope. Every slot rides a
     // full-screen host, so its x/y/width/height are already monitor pixels the
     // inspector can dock beside.
     function _outerFor(w) {
@@ -281,6 +281,11 @@ Scope {
             const pd = pythonRepeater.itemAt(j);
             if (pd && pd.item && pd.modelData && pd.modelData.prefix === w)
                 return pd.item;
+        }
+        for (var k = 0; k < iiRepeater.count; k++) {
+            const id = iiRepeater.itemAt(k);
+            if (id && id.item && id.modelData && id.modelData.prefix === w)
+                return id.item;
         }
         return null;
     }
@@ -325,6 +330,7 @@ Scope {
             root.openDesktopMenu(x, y);
             return;
         }
+        root.releaseHostedWidgetTyping();
         if (root.stageComposing) {
             root.stageOpenSettings(widget);
             return;
@@ -352,6 +358,7 @@ Scope {
     function openInspector(widget) {
         if (widget === "desktop")
             return;
+        root.releaseHostedWidgetTyping();
         if (root.stageComposing) {
             root.stageOpenSettings(widget);
             return;
@@ -365,6 +372,7 @@ Scope {
         inspectorLoader.active = true;
     }
     function openDesktopMenu(x, y) {
+        root.releaseHostedWidgetTyping();
         if (desktopMenuLoader.item) {
             desktopMenuLoader.item.openAt(x, y);
             return;
@@ -394,9 +402,16 @@ Scope {
     // it is mapped and takes keyboard only while it shows.
     readonly property bool inspectorShowing:
         inspectorLoader.item && inspectorLoader.item.showing === true
+    function releaseHostedWidgetTyping() {
+        const owner = String(Stage.GlobalStates.widgetTypingOwner || "");
+        if (root.monitorName !== "" && owner.indexOf(root.monitorName + "|") === 0)
+            Stage.GlobalStates.widgetTypingOwner = "";
+    }
+    onMenusShowingChanged: if (!menusShowing) root.releaseHostedWidgetTyping()
+    onInspectorShowingChanged: if (!inspectorShowing) root.releaseHostedWidgetTyping()
 
-    // Off-surface open of a widget's right-click menu (the `desktop menu` IPC /
-    // niri routing). Lands near the top-left of this monitor's canvas.
+    // Off-surface open of a widget's right-click menu from the desktop IPC.
+    // Lands near the top-left of this monitor's canvas.
     Connections {
         target: Services.ShellState
         function onWidgetMenuRequested(mon, widget) {
@@ -620,6 +635,12 @@ Scope {
         // the desktop, and the toolbar and catalogue on their own surface stay
         // clickable (keyboardGrabSharesPointer in docs/compositors.md).
         property int kbWanted: 0
+        readonly property bool hostedWidgetTyping: {
+            const owner = String(Stage.GlobalStates.widgetTypingOwner || "");
+            return root.monitorName !== "" && owner.indexOf(root.monitorName + "|") === 0;
+        }
+        onHostedWidgetTypingChanged: kbWanted += hostedWidgetTyping ? 1 : -1
+        Component.onDestruction: if (hostedWidgetTyping) kbWanted -= 1
         readonly property bool stageKeyboardWanted: root.stageComposing
             && kbWanted === 0
             && !root.menusShowing

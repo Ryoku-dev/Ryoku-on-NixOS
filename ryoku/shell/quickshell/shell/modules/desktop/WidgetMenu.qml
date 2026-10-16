@@ -6,9 +6,11 @@ import Ryoku.Ui.Singletons
 import "iris/IrisRoster.js" as IrisRoster
 import "python/PythonRoster.js" as PythonRoster
 import "ii/IiRoster.js" as IiRoster
+import "ii/IiQuickControls.js" as IiQuickControls
 import "../stage/Singletons" as StageCfg
 import "../visualizer/Singletons" as VizCfg
 import stage.modules.common.functions as StageFunctions
+import stage.modules.common as StageCommon
 
 // A desktop widget's right-click menu, built on the shared DesktopMenu chrome in
 // the quick-settings sidebar idiom: a short card that names the widget, offers
@@ -128,6 +130,65 @@ Item {
     readonly property real scaleStep: StageFunctions.EditModeLogic.nearestSizeStep(menu.curScale)
     readonly property bool canGrow: StageFunctions.EditModeLogic.steppedScale(menu.curScale, 1) !== null
     readonly property bool canShrink: StageFunctions.EditModeLogic.steppedScale(menu.curScale, -1) !== null
+    readonly property var iiControls: menu.isIi
+        ? IiQuickControls.forWidget(menu.iiFace.id) : []
+
+    function iiControlStore() {
+        if (!menu.isIi)
+            return null;
+        let store = StageCommon.Config.options;
+        const parts = String(IiQuickControls.storeFor(menu.iiFace.id)).split(".");
+        for (let i = 0; i < parts.length && store !== undefined && store !== null; i++)
+            store = store[parts[i]];
+        return store;
+    }
+    function iiControlValue(control) {
+        if (!control)
+            return undefined;
+        let value = menu.iiControlStore();
+        const parts = String(control.key).split(".");
+        for (let i = 0; i < parts.length && value !== undefined && value !== null; i++)
+            value = value[parts[i]];
+        return value === undefined || value === null ? control.def : value;
+    }
+    function iiControlChoiceLabel(control, value) {
+        const choices = control?.choices ?? [];
+        for (let i = 0; i < choices.length; i++)
+            if (choices[i].value === value)
+                return I18n.tr(choices[i].label);
+        return choices.length > 0 ? I18n.tr(choices[0].label) : "";
+    }
+    function setIiControlValue(control, value) {
+        if (!StageCommon.Config.ready || !control)
+            return;
+        let target = menu.iiControlStore();
+        const parts = String(control.key).split(".");
+        for (let i = 0; i < parts.length - 1; i++) {
+            if (target === undefined || target === null)
+                return;
+            target = target[parts[i]];
+        }
+        if (target !== undefined && target !== null)
+            target[parts[parts.length - 1]] = value;
+    }
+    function triggerIiControl(control) {
+        const current = menu.iiControlValue(control);
+        if (control.type === "toggle") {
+            menu.setIiControlValue(control, current !== true);
+            return;
+        }
+        const choices = control.choices ?? [];
+        if (choices.length === 0)
+            return;
+        let index = -1;
+        for (let i = 0; i < choices.length; i++) {
+            if (choices[i].value === current) {
+                index = i;
+                break;
+            }
+        }
+        menu.setIiControlValue(control, choices[(index + 1) % choices.length].value);
+    }
 
     function openFor(widget, x, y, wall) { menu.scope = widget; menu.wall = wall; shell.px = x; shell.py = y; shell.open = true; }
     function close() { shell.open = false; }
@@ -232,6 +293,22 @@ Item {
             value: menu.cap(VizCfg.Config.styleId)
             closeOnTrigger: false
             onTriggered: VizCfg.Config.cycleStyle(1)
+        }
+        Repeater {
+            model: menu.iiControls
+            delegate: MenuRow {
+                id: iiQuickRow
+                required property var modelData
+                readonly property var controlValue: menu.iiControlValue(iiQuickRow.modelData)
+                label: I18n.tr(iiQuickRow.modelData.label)
+                value: iiQuickRow.modelData.type === "toggle"
+                    ? I18n.tr(iiQuickRow.controlValue === true ? "On" : "Off")
+                    : menu.iiControlChoiceLabel(iiQuickRow.modelData, iiQuickRow.controlValue)
+                on: iiQuickRow.modelData.type === "toggle"
+                    && iiQuickRow.controlValue === true
+                closeOnTrigger: false
+                onTriggered: menu.triggerIiControl(iiQuickRow.modelData)
+            }
         }
         Item {
             visible: menu.isWidget && !menu.isVisualizer

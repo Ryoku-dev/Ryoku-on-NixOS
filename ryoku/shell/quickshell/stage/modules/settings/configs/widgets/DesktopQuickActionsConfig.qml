@@ -17,8 +17,7 @@ ContentPage {
         { "displayName": Translation.tr("Wallpapers"), "icon": "wallpaper", "value": "wallpapers" },
         { "displayName": Translation.tr("Media"), "icon": "play_circle", "value": "media" },
         { "displayName": Translation.tr("Dashboard"), "icon": "dashboard", "value": "sidebar_dashboard" },
-        { "displayName": Translation.tr("Cheatsheet"), "icon": "keyboard", "value": "cheatsheet" },
-        { "displayName": Translation.tr("Notes"), "icon": "sticky_note_2", "value": "notes" }
+        { "displayName": Translation.tr("Kit"), "icon": "apps", "value": "cheatsheet" }
     ]
 
     RowLayout {

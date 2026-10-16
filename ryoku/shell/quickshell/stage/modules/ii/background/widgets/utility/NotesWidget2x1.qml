@@ -40,25 +40,15 @@ AbstractBackgroundWidget {
     }
 
     onNotesWindowOpenChanged: {
-        if (!notesWindowOpen) {
+        if (!notesWindowOpen)
             NotesService.reload();
-            GlobalStates.notesOpen = false;
-        }
     }
 
     Connections {
         target: NotesService
+
         function onDataChanged() {
             root.notesData = NotesService.tabsData.tabs;
-        }
-    }
-
-    Connections {
-        target: GlobalStates
-        function onNotesOpenChanged() {
-            if (GlobalStates.notesOpen && !root.notesWindowOpen) {
-                root.openNotes();
-            }
         }
     }
 
@@ -164,28 +154,6 @@ AbstractBackgroundWidget {
                         }
                     }
 
-                    RippleButton {
-                        implicitWidth: 32
-                        implicitHeight: 32
-                        buttonRadius: Appearance.rounding.small
-                        colBackground: "transparent"
-                        colBackgroundHover: Qt.rgba(0, 0, 0, 0.1)
-
-                        MaterialSymbol {
-                            anchors.centerIn: parent
-                            text: "open_in_new"
-                            iconSize: 18
-                            color: root.accentColor
-                        }
-
-                        onClicked: {
-                            GlobalStates.openNotes();
-                        }
-
-                        StyledToolTip {
-                            text: Translation.tr("Open Notes app")
-                        }
-                    }
                 }
 
                 // Scrollable list of notes
@@ -236,29 +204,6 @@ AbstractBackgroundWidget {
                                     elide: Text.ElideRight
                                 }
 
-                                RippleButton {
-                                    implicitWidth: 24
-                                    implicitHeight: 24
-                                    buttonRadius: Appearance.rounding.full
-                                    colBackground: "transparent"
-                                    colBackgroundHover: Qt.rgba(0, 0, 0, 0.1)
-
-                                    MaterialSymbol {
-                                        anchors.centerIn: parent
-                                        text: "open_in_new"
-                                        iconSize: 16
-                                        color: root.accentColor
-                                    }
-
-                                    onClicked: {
-                                        const noteId = noteCard.modelData.noteId || noteCard.modelData.id || "";
-                                        GlobalStates.openNotes(noteId);
-                                    }
-
-                                    StyledToolTip {
-                                        text: Translation.tr("Open in Notes app")
-                                    }
-                                }
 
                                 RippleButton {
                                     implicitWidth: 24
@@ -390,7 +335,7 @@ AbstractBackgroundWidget {
                     anchors.centerIn: parent
                     width: Math.min(680, parent.width * 0.9)
                     height: Math.min(560, parent.height * 0.85)
-                    color: Appearance.colors.colSurfaceContainerHigh
+                    color: WidgetColorScheme.colors.colSurfaceContainerHigh
                     radius: Appearance.rounding.windowRounding
 
                     // Stop click propagation to backdrop
@@ -417,14 +362,14 @@ AbstractBackgroundWidget {
                             MaterialSymbol {
                                 text: "note_stack"
                                 iconSize: 22
-                                color: Appearance.colors.colPrimary
+                                color: WidgetColorScheme.colors.colPrimary
                             }
 
                             StyledText {
                                 text: Translation.tr("Notes")
                                 font.pixelSize: Appearance.font.pixelSize.large
                                 font.weight: Font.DemiBold
-                                color: Appearance.colors.colOnSurface
+                                color: WidgetColorScheme.colors.colOnSurface
                                 Layout.fillWidth: true
                             }
 
@@ -433,13 +378,13 @@ AbstractBackgroundWidget {
                                 implicitHeight: 32
                                 buttonRadius: Appearance.rounding.full
                                 colBackground: "transparent"
-                                colBackgroundHover: Appearance.colors.colSurfaceContainerHighest
+                                colBackgroundHover: WidgetColorScheme.colors.colSurfaceContainerHighest
 
                                 MaterialSymbol {
                                     anchors.centerIn: parent
                                     text: "close"
                                     iconSize: 18
-                                    color: Appearance.colors.colOnSurfaceVariant
+                                    color: WidgetColorScheme.colors.colOnSurfaceVariant
                                 }
 
                                 onClicked: root.notesWindowOpen = false

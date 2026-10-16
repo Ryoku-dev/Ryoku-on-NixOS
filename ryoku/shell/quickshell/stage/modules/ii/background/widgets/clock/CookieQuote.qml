@@ -14,16 +14,16 @@ Item {
     implicitHeight: quoteBox.implicitHeight
 
     DropShadow {
-        source: quoteBox 
+        source: quoteBox
         anchors.fill: quoteBox
         horizontalOffset: 0
         verticalOffset: 2
         radius: 12
         samples: radius * 2 + 1
-        color: Appearance.colors.colShadow
+        color: WidgetColorScheme.colors.colShadow
         transparentBorder: true
     }
-    
+
     Rectangle {
         id: quoteBox
 
@@ -36,7 +36,7 @@ Item {
             id: quoteRow
             anchors.centerIn: parent
             spacing: 4
-            
+
             MaterialSymbol {
                 id: quoteIcon
                 anchors.top: parent.top

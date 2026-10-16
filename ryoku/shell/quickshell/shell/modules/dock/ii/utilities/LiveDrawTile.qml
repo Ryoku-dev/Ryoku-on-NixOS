@@ -49,14 +49,14 @@ UtilityTile {
     panelSubtitle: tile.stateText
     menuActions: [
         { id: "toggle", icon: "draw", text: tile.out ? Translation.tr("Put the drawing tools away") : Translation.tr("Draw on the screen") },
-        { id: "save", icon: "note_add", text: Translation.tr("Save this screen's drawing to Notes"), visible: tile.sheets > 0 },
+        { id: "save", icon: "note_add", text: Translation.tr("Save this screen's drawing to Notes"), visible: LiveDraw.focusedSheetHasInk },
         { id: "clear", icon: "ink_eraser", text: Translation.tr("Rub every drawing out"), visible: tile.sheets > 0 }
     ]
     function menuAction(actionId) {
         if (actionId === "toggle")
             tile.toggle();
         else if (actionId === "save")
-            GlobalStates.liveDrawSaveRequest++;
+            LiveDraw.command("save", null);
         else if (actionId === "clear")
             LiveDraw.clearAll();
     }

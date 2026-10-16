@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import Qt5Compat.GraphicalEffects
+import Ryoku.Ui.Singletons
 import stage
 import stage.services
 import stage.modules.common
@@ -25,6 +26,15 @@ AbstractBackgroundWidget {
     readonly property int unreadCount: EmailService.authenticated ? EmailService.inboxUnreadCount : 0
     readonly property ListModel messagesModel: EmailService.authenticated ? EmailService.inboxMessages : null
     readonly property int totalCount: (EmailService.authenticated && messagesModel) ? messagesModel.count : 0
+    function activateAuthentication() {
+        if (EmailService.checkingCredentials || EmailService.authenticating)
+            return;
+        if (!EmailService.credentialsConfigured) {
+            Spawn.run(["xdg-open", "https://console.cloud.google.com/apis/credentials"]);
+            return;
+        }
+        EmailService.startOAuth();
+    }
 
     function formatMsgTime(timestampStr, dateStr) {
         if (timestampStr) {
@@ -124,9 +134,7 @@ AbstractBackgroundWidget {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                GlobalStates.cheatsheetOpen = true;
-                            }
+                            onClicked: Spawn.run(["xdg-open", "https://mail.google.com/mail/u/0/#inbox"])
                         }
                     }
                 }
@@ -139,22 +147,52 @@ AbstractBackgroundWidget {
 
                     ColumnLayout {
                         anchors.centerIn: parent
+                        width: Math.min(parent.width - 16, 196)
                         spacing: 6
 
                         MaterialSymbol {
                             Layout.alignment: Qt.AlignHCenter
-                            text: !EmailService.authenticated ? "mail_lock" : (EmailService.loading ? "sync" : "inbox")
+                            text: EmailService.authenticated ? (EmailService.loading ? "sync" : "inbox")
+                                : (EmailService.authenticating ? "hourglass_empty" : "mail_lock")
                             iconSize: 32
                             color: root.subtextColorOnBg
                         }
 
                         StyledText {
-                            Layout.alignment: Qt.AlignHCenter
-                            text: !EmailService.authenticated ? Translation.tr("Log in via Cheatsheet") : (EmailService.loading ? Translation.tr("Syncing...") : Translation.tr("No messages"))
+                            Layout.fillWidth: true
+                            text: EmailService.authenticated
+                                ? (EmailService.loading ? Translation.tr("Syncing...") : Translation.tr("No messages"))
+                                : Translation.tr("Sign in to Gmail")
                             font.pixelSize: Appearance.font.pixelSize.small
+                            font.weight: Font.DemiBold
                             color: root.subtextColorOnBg
                             horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
                         }
+
+                        StyledText {
+                            Layout.fillWidth: true
+                            visible: !EmailService.authenticated
+                            text: EmailService.checkingCredentials
+                                ? Translation.tr("Checking Gmail setup...")
+                                : EmailService.authenticating
+                                    ? Translation.tr("Complete sign-in in your browser.")
+                                    : EmailService.credentialsConfigured
+                                        ? Translation.tr("Connect this widget to your Gmail account.")
+                                        : Translation.tr("Add a Google OAuth Client ID and Client Secret in Email Widget settings.")
+                            font.pixelSize: Appearance.font.pixelSize.smallest
+                            color: root.subtextColorOnBg
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        visible: !EmailService.authenticated
+                        enabled: !EmailService.checkingCredentials && !EmailService.authenticating
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: root.activateAuthentication()
                     }
                 }
 
@@ -235,12 +273,9 @@ AbstractBackgroundWidget {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                GlobalStates.cheatsheetOpen = true;
-                            }
+                            onClicked: Spawn.run(["xdg-open", "https://mail.google.com/mail/u/0/#inbox"])
                         }
                     }
-
                     TouchpadScrollHandler {
                         flickable: emailListView
                     }

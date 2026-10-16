@@ -4,7 +4,6 @@ import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.services
 import "../clock"
-import "UtilityFiles.js" as UtilityFiles
 import ".."
 
 /**
@@ -23,13 +22,16 @@ UtilityTile {
     readonly property string newest: tile.count > 0 ? tile.items[tile.count - 1] : ""
 
     function dropFiles(urls) {
-        Persistent.states.dockUtilities.shelf = UtilityFiles.dedupe(tile.items.concat(urls));
+        if (Persistent.ready)
+            Persistent.states.dockUtilities.shelf = UtilityFiles.dedupe(tile.items.concat(urls));
     }
     function remove(path) {
-        Persistent.states.dockUtilities.shelf = tile.items.filter(item => item !== path);
+        if (Persistent.ready)
+            Persistent.states.dockUtilities.shelf = tile.items.filter(item => item !== path);
     }
     function clear() {
-        Persistent.states.dockUtilities.shelf = [];
+        if (Persistent.ready)
+            Persistent.states.dockUtilities.shelf = [];
     }
     function exportPaths() {
         return tile.items;

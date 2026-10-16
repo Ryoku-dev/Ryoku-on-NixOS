@@ -14,6 +14,7 @@ AbstractBackgroundWidget {
     id: root
 
     configEntryName: "bluetooth_battery"
+    readonly property bool showPercentage: Config.options.background.widgets.bluetooth_battery.showPercentage ?? true
 
     implicitWidth: 240
     implicitHeight: 240
@@ -78,7 +79,7 @@ AbstractBackgroundWidget {
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: -(sinkBelowCard + blurPadding)
                 height: textBoxHeight + blurPadding * 2
-                visible: root.isConnected
+                visible: root.isConnected && root.showPercentage
 
                 Text {
                     anchors.centerIn: parent

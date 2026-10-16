@@ -3,9 +3,8 @@ import QtQuick.Layouts
 import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.services
-import shell.modules.phone
+import shell.modules.phone as Phone
 import "../clock"
-import "UtilityFiles.js" as UtilityFiles
 import ".."
 
 /**
@@ -20,13 +19,13 @@ UtilityTile {
     readonly property var cfg: Config.options?.dock?.utilities?.send ?? null
     readonly property bool localSend: (tile.cfg?.backend ?? "kdeconnect") === "localsend"
 
-    readonly property string kdeDeviceId: String(tile.cfg?.kdeDevice ?? "") || KdeConnectService.activeDeviceId
-    readonly property var kdeDevice: (KdeConnectService.devices ?? []).find(device => device.id === tile.kdeDeviceId) ?? null
+    readonly property string kdeDeviceId: String(tile.cfg?.kdeDevice ?? "") || Phone.KdeConnectService.activeDeviceId
+    readonly property var kdeDevice: (Phone.KdeConnectService.devices ?? []).find(device => device.id === tile.kdeDeviceId) ?? null
     readonly property string localIp: String(tile.cfg?.localsendIp ?? "")
     readonly property string localAlias: String(tile.cfg?.localsendAlias ?? "")
 
     readonly property bool ready: tile.localSend
-        ? (LocalSend.available && tile.localIp.length > 0)
+        ? (LocalSend.available && LocalSend.pyteAvailable && tile.localIp.length > 0)
         : (tile.kdeDevice?.reachable === true)
     readonly property string targetName: tile.localSend
         ? (tile.localAlias || Translation.tr("No device chosen"))
@@ -35,7 +34,9 @@ UtilityTile {
 
     // Files dropped while nothing could take them.
     property var pending: []
+    property int inFlightCount: 0
     property int lastSentCount: 0
+    property bool sendFailed: false
 
     function send(paths) {
         if (paths.length === 0)
@@ -49,40 +50,78 @@ UtilityTile {
             LocalSend.clearDroppedFiles();
             for (const path of paths)
                 LocalSend.addDroppedFile(path);
+            tile.inFlightCount = paths.length;
+            tile.sendFailed = false;
             LocalSend.sendToDevice(tile.localIp);
         } else {
-            for (const path of paths)
-                KdeConnectService.shareUrl(tile.kdeDeviceId, UtilityFiles.fileUri(path));
+            Phone.KdeConnectService.sendFile(paths, tile.kdeDeviceId);
+            tile.lastSentCount = paths.length;
+            sentTimer.restart();
         }
         tile.pending = [];
-        tile.lastSentCount = paths.length;
-        sentTimer.restart();
     }
 
     function dropFiles(urls) {
         tile.send(UtilityFiles.dedupe(urls));
     }
 
+
+    Connections {
+        target: LocalSend
+        function onSendCompleted() {
+            if (tile.inFlightCount <= 0)
+                return;
+            const count = tile.inFlightCount;
+            tile.inFlightCount = 0;
+            tile.sendFailed = false;
+            tile.lastSentCount = tile.live ? count : 0;
+            if (tile.live)
+                sentTimer.restart();
+        }
+        function onSendFailed() {
+            tile.inFlightCount = 0;
+            tile.lastSentCount = 0;
+            tile.sendFailed = tile.live;
+            if (tile.live)
+                failedTimer.restart();
+        }
+    }
     Timer {
         id: sentTimer
         interval: 3500
         onTriggered: tile.lastSentCount = 0
+    }
+    Timer {
+        id: failedTimer
+        interval: 5000
+        onTriggered: tile.sendFailed = false
+    }
+    onLiveChanged: {
+        if (!tile.live) {
+            sentTimer.stop();
+            failedTimer.stop();
+            tile.lastSentCount = 0;
+            tile.sendFailed = false;
+        }
     }
 
     readonly property bool justSent: tile.lastSentCount > 0 && !tile.sending
     readonly property string symbol: tile.localSend ? "near_me" : "smartphone"
 
     surfaceColor: tile.dropHovering ? ClockStyle.colPrimaryContainer
+        : tile.sendFailed ? ClockStyle.colErrorContainer
         : tile.justSent ? ClockStyle.colTertiaryContainer
         : tile.sending ? ClockStyle.colSecondaryContainer
         : ClockStyle.colSurfaceHigh
     contentColor: tile.dropHovering ? ClockStyle.colOnPrimaryContainer
+        : tile.sendFailed ? ClockStyle.colOnErrorContainer
         : tile.justSent ? ClockStyle.colOnTertiaryContainer
         : tile.sending ? ClockStyle.colOnSecondaryContainer
         : ClockStyle.colOnSurface
 
     readonly property string stateText: tile.dropHovering ? Translation.tr("Drop to send")
         : tile.sending ? Translation.tr("Sending…")
+        : tile.sendFailed ? Translation.tr("Send failed")
         : tile.justSent ? (tile.lastSentCount === 1 ? Translation.tr("Sent 1 file") : Translation.tr("Sent %1 files").arg(tile.lastSentCount))
         : !tile.ready ? (tile.localSend ? Translation.tr("Choose a device") : Translation.tr("Phone offline"))
         : (tile.localSend ? "LocalSend" : "KDE Connect")

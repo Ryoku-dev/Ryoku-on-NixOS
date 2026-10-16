@@ -15,17 +15,29 @@ Scope {
     id: root
     property bool visible: false
     property bool _presentedOpen: false
+    property var dockAnchorRequest: null
+    property var activeDockAnchor: null
+    function captureDockAnchor(): void {
+        const request = root.dockAnchorRequest;
+        root.activeDockAnchor = request
+            && Date.now() - Number(request.requestedAt ?? 0) < 250
+            && String(request.screen ?? "") !== "" ? request : null;
+    }
     Component.onCompleted: {
-        if (GlobalStates.mediaControlsOpen)
-            Qt.callLater(() => { root._presentedOpen = GlobalStates.mediaControlsOpen })
+        if (GlobalStates.mediaControlsOpen) {
+            root.captureDockAnchor();
+            Qt.callLater(() => { root._presentedOpen = GlobalStates.mediaControlsOpen });
+        }
     }
     Connections {
         target: GlobalStates
         function onMediaControlsOpenChanged() {
-            if (GlobalStates.mediaControlsOpen)
-                Qt.callLater(() => { root._presentedOpen = GlobalStates.mediaControlsOpen })
-            else
-                root._presentedOpen = false
+            if (GlobalStates.mediaControlsOpen) {
+                root.captureDockAnchor();
+                Qt.callLater(() => { root._presentedOpen = GlobalStates.mediaControlsOpen });
+            } else {
+                root._presentedOpen = false;
+            }
         }
     }
     readonly property MprisPlayer activePlayer: MprisController.activePlayer
@@ -40,8 +52,9 @@ Scope {
         : Appearance.inirEverywhere ? Appearance.inir.roundingLarge : Appearance.rounding.large
     readonly property bool visualizerActive: mediaControlsLoader.active && MprisController.isPlaying
     property var focusedScreen: GlobalStates.focusedScreen ?? GlobalStates.primaryScreen
-    property var targetScreens: screensFromList(
-        Config.options?.media?.screenList ?? [])
+    property var targetScreens: root.activeDockAnchor
+        ? Quickshell.screens.filter(screen => String(screen?.name ?? "") === String(root.activeDockAnchor.screen ?? ""))
+        : screensFromList(Config.options?.media?.screenList ?? [])
     readonly property string keyboardScreenName: {
         const preferred = String(root.focusedScreen?.name ?? "")
         if (root.targetScreens.some(screen => String(screen?.name ?? "") === preferred))
@@ -152,22 +165,48 @@ Scope {
                     readonly property real zzzFrameInset: 0
                     width: root.widgetWidth + zzzFrameInset * 2
                     height: playerColumnLayout.implicitHeight + zzzFrameInset * 2
-                    anchors.horizontalCenter: parent.horizontalCenter
 
-                    // Dock mode rises from its final edge instead of travelling
-                    // through the whole output. The bounded offset keeps the
-                    // entrance coherent for every player preset and stack height.
+                    readonly property bool dockAnchored: root.activeDockAnchor !== null
+                        && String(root.activeDockAnchor.screen ?? "") === String(mediaControlsRoot.screen?.name ?? "")
+                    readonly property real screenW: mediaControlsRoot.screen?.width ?? 1920
                     readonly property real screenH: mediaControlsRoot.screen?.height ?? 1080
-                    readonly property real targetY: Math.max(root.dockMargin,
-                        screenH - height - root.dockHeight - root.dockMargin - 5)
-                    readonly property real revealDistance: Math.min(72,
-                        Math.max(36, height * 0.12))
-                    readonly property real hiddenY: targetY + revealDistance
+                    readonly property real outputX: mediaControlsRoot.screen?.x ?? 0
+                    readonly property real outputY: mediaControlsRoot.screen?.y ?? 0
+                    readonly property real anchorX: Number(root.activeDockAnchor?.x ?? 0) - outputX
+                    readonly property real anchorY: Number(root.activeDockAnchor?.y ?? 0) - outputY
+                    readonly property real anchorW: Number(root.activeDockAnchor?.width ?? 0)
+                    readonly property real anchorH: Number(root.activeDockAnchor?.height ?? 0)
+                    readonly property string anchorSide: String(root.activeDockAnchor?.side ?? "bottom")
+                    readonly property real targetX: {
+                        if (!dockAnchored)
+                            return (screenW - width) / 2;
+                        let desired = anchorX + anchorW / 2 - width / 2;
+                        if (anchorSide === "left")
+                            desired = root.dockHeight + root.dockMargin;
+                        else if (anchorSide === "right")
+                            desired = screenW - width - root.dockHeight - root.dockMargin;
+                        return Math.max(root.dockMargin, Math.min(desired, screenW - width - root.dockMargin));
+                    }
+                    readonly property real targetY: {
+                        if (!dockAnchored)
+                            return Math.max(root.dockMargin, screenH - height - root.dockHeight - root.dockMargin - 5);
+                        let desired = anchorY + anchorH / 2 - height / 2;
+                        if (anchorSide === "top")
+                            desired = root.dockHeight + root.dockMargin;
+                        else if (anchorSide === "bottom")
+                            desired = screenH - height - root.dockHeight - root.dockMargin - 5;
+                        return Math.max(root.dockMargin, Math.min(desired, screenH - height - root.dockMargin));
+                    }
+                    readonly property real revealDistance: Math.min(72, Math.max(36, height * 0.12))
+                    readonly property real hiddenY: targetY + (anchorSide === "top" ? -revealDistance : revealDistance)
 
+                    x: targetX
                     y: hiddenY
                     opacity: 0
                     scale: 0.975
-                    transformOrigin: Item.Bottom
+                    transformOrigin: anchorSide === "top" ? Item.Top
+                        : anchorSide === "left" ? Item.Left
+                        : anchorSide === "right" ? Item.Right : Item.Bottom
 
                     states: State {
                         name: "visible"

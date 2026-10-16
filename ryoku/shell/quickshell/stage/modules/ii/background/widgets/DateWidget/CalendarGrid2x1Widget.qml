@@ -119,10 +119,16 @@ AbstractBackgroundWidget {
                 readonly property int currMonth: currDate.getMonth()
                 readonly property int currYear: currDate.getFullYear()
 
-                // Calculate first day of month (0 = Sun, 1 = Mon, ..., 6 = Sat)
+                readonly property int weekStartIndex:
+                    (Config.options.background.widgets.calendar_grid.weekStart ?? "monday") === "sunday" ? 0 : 1
+                readonly property var weekdayNames: {
+                    const names = [];
+                    for (let i = 0; i < 7; ++i)
+                        names.push(Qt.locale().dayName((gridScope.weekStartIndex + i) % 7, Locale.NarrowFormat));
+                    return names;
+                }
                 readonly property int firstDayOfWeekRaw: new Date(currYear, currMonth, 1).getDay()
-                // Convert to Mon=0, Tue=1, ..., Sun=6
-                readonly property int firstDayOfWeek: (firstDayOfWeekRaw + 6) % 7
+                readonly property int firstDayOfWeek: (firstDayOfWeekRaw - weekStartIndex + 7) % 7
                 readonly property int daysInMonth: new Date(currYear, currMonth + 1, 0).getDate()
                 readonly property int totalRowsNeeded: Math.ceil((firstDayOfWeek + daysInMonth) / 7)
 
@@ -130,17 +136,9 @@ AbstractBackgroundWidget {
                 readonly property real headerHeight: 24
                 readonly property real cellHeight: (height - headerHeight) / totalRowsNeeded
 
-                // Days of week header (M T W T F S S)
+                // Days of week header in the configured order.
                 Repeater {
-                    model: [
-                        Translation.tr("M"),
-                        Translation.tr("T"),
-                        Translation.tr("W"),
-                        Translation.tr("T"),
-                        Translation.tr("F"),
-                        Translation.tr("S"),
-                        Translation.tr("S")
-                    ]
+                    model: gridScope.weekdayNames
                     delegate: Item {
                         required property int index
                         required property string modelData

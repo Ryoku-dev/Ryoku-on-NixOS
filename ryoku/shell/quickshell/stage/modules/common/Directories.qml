@@ -20,6 +20,8 @@ Singleton {
     readonly property string state: StandardPaths.standardLocations(StandardPaths.StateLocation)[0] || ""
     readonly property string cache: StandardPaths.standardLocations(StandardPaths.CacheLocation)[0] || ""
     readonly property string genericCache: StandardPaths.standardLocations(StandardPaths.GenericCacheLocation)[0] || ""
+    readonly property string coverArt: FileUtils.trimFileProtocol(`${root.cache}/ryoku/media/coverart`)
+    Component.onCompleted: Quickshell.execDetached(["mkdir", "-p", root.coverArt])
     readonly property string documents: StandardPaths.standardLocations(StandardPaths.DocumentsLocation)[0] || ""
     readonly property string pictures: StandardPaths.standardLocations(StandardPaths.PicturesLocation)[0] || ""
     readonly property string videos: StandardPaths.standardLocations(StandardPaths.MoviesLocation)[0] || ""
@@ -38,6 +40,8 @@ Singleton {
         root._shellDir && root._shellDir.length > 0
             ? `${root._shellDir}/scripts`
             : `${root.config}/quickshell/shell/scripts`)
+    readonly property string stageScriptPath: FileUtils.trimFileProtocol(Qt.resolvedUrl("../../scripts"))
+    readonly property string iiAssetsPath: FileUtils.trimFileProtocol(Quickshell.shellPath("modules/dock/ii/assets"))
 
     // Wallpaper + theme caches the copied services write into.
     // Ryogami owns the wallpaper library and its generated 640×360 stills.

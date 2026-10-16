@@ -66,6 +66,16 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("calendar_grid")
 
+            ContentSubsectionLabel { text: Translation.tr("Week starts on") }
+            ConfigSelectionArray {
+                currentValue: Config.options.background.widgets.calendar_grid.weekStart ?? "monday"
+                onSelected: value => Config.options.background.widgets.calendar_grid.weekStart = value
+                options: [
+                    { "displayName": Translation.tr("Monday"), "value": "monday" },
+                    { "displayName": Translation.tr("Sunday"), "value": "sunday" }
+                ]
+            }
+
             DesktopWidgetVisualOptions {
                 Layout.fillWidth: true
             }

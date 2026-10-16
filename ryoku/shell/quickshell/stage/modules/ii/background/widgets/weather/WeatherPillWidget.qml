@@ -14,8 +14,11 @@ AbstractBackgroundWidget {
     implicitWidth: 240
     implicitHeight: 120
 
-    readonly property color cardBgColor: WidgetColorScheme.cardBgColor
-    readonly property color textColorOnBg: WidgetColorScheme.textColorOnBg
+    readonly property var options: Config.options.background.widgets.weather_pill
+    readonly property string colorScheme: (options.expressiveColors ?? true)
+        ? "expressive_primary" : "default"
+    readonly property color cardBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
+    readonly property color textColorOnBg: WidgetColorScheme.getTextColorOnBg(colorScheme)
 
     StyledDropShadow {
         id: shadowEffect
@@ -36,6 +39,7 @@ AbstractBackgroundWidget {
             spacing: 8
 
             Image {
+                visible: root.options.showIcon ?? true
                 Layout.alignment: Qt.AlignVCenter
                 source: WeatherIcons.getWeatherIcon(Weather.data?.wCode ?? 113, false)
                 sourceSize: Qt.size(78, 78)
@@ -44,6 +48,7 @@ AbstractBackgroundWidget {
             Item { Layout.fillWidth: true }
 
             StyledText {
+                visible: root.options.showTemperature ?? true
                 Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
                 text: Weather.data?.temp ? Weather.data.temp.replace("°C", "°").replace("°F", "°") : ""
                 color: root.textColorOnBg

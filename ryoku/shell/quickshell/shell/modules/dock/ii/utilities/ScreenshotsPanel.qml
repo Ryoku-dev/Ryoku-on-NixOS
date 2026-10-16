@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
 import stage.modules.common.widgets
 import stage.services
 import "../clock"
@@ -48,15 +47,22 @@ ColumnLayout {
             label: Translation.tr("Take screenshot")
             onClicked: {
                 panel.host?.closePanel();
-                Quickshell.execDetached(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
+                panel.tile?.takeScreenshot();
             }
+        }
+        ClockButton {
+            Layout.fillWidth: true
+            visible: panel.tile?.latest !== null
+            symbol: "content_copy"
+            label: Translation.tr("Copy latest")
+            onClicked: panel.tile?.copyLatest()
         }
         ClockButton {
             Layout.fillWidth: true
             symbol: "folder_open"
             label: Translation.tr("Open folder")
             onClicked: {
-                Quickshell.execDetached(["xdg-open", panel.tile?.folder ?? ""]);
+                panel.tile?.openFolder();
                 panel.host?.closePanel();
             }
         }

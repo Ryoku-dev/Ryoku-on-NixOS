@@ -7,8 +7,10 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import Qt5Compat.GraphicalEffects
 import QtQuick.Shapes as Shapes
+import Ryoku.Ui.Singletons
 import stage
 import stage.services
+import shell.services as ShellServices
 import stage.modules.common
 import stage.modules.common.models
 import stage.modules.common.functions
@@ -31,6 +33,9 @@ AbstractBackgroundWidget {
     implicitHeight: 240 * contentScale
 
     readonly property bool useAlbumColors: Config.ready ? (Config.options.background.widgets.circular_media.useAlbumColors ?? true) : true
+    readonly property bool showPrevButton: Config.options.background.widgets.circular_media.showPrevButton ?? true
+    readonly property bool showNextButton: Config.options.background.widgets.circular_media.showNextButton ?? true
+    readonly property bool showDevicePill: Config.options.background.widgets.circular_media.showDevicePill ?? true
     readonly property MprisPlayer player: MprisController.activePlayer
     readonly property bool playing: player ? player.playbackState === MprisPlaybackState.Playing : false
     readonly property string artUrl: player?.trackArtUrl ?? ""
@@ -85,12 +90,12 @@ AbstractBackgroundWidget {
         rescaleSize: 1
     }
 
-    readonly property color rawExtractedColor: colorQuantizer?.colors[0] ?? Appearance.colors.colPrimary
+    readonly property color rawExtractedColor: colorQuantizer?.colors[0] ?? WidgetColorScheme.colors.colPrimary
 
     // Elevate saturation and adjust lightness of the extracted color to get a highly vibrant palette
     property color artDominantColor: {
         if (!root.useDynamicColors)
-            return Appearance.colors.colPrimary;
+            return WidgetColorScheme.colors.colPrimary;
         let h = rawExtractedColor.hslHue;
         let s = Math.max(0.45, rawExtractedColor.hslSaturation);
         let l = Math.max(0.58, Math.min(0.65, rawExtractedColor.hslLightness));
@@ -104,13 +109,13 @@ AbstractBackgroundWidget {
     readonly property bool useDynamicColors: root.useAlbumColors && root.artSource !== ""
 
     // Vibrant button coloring using only colPrimary, colOnPrimary, and colPrimaryContainer
-    readonly property color activeAccentColor: root.useDynamicColors ? blendedColors.colPrimary : Appearance.colors.colPrimary
-    readonly property color activeAccentContainer: root.useDynamicColors ? blendedColors.colPrimaryContainer : Appearance.colors.colPrimaryContainer
-    readonly property color activeOnPrimary: root.useDynamicColors ? blendedColors.colOnPrimary : Appearance.colors.colOnPrimary
+    readonly property color activeAccentColor: root.useDynamicColors ? blendedColors.colPrimary : WidgetColorScheme.colors.colPrimary
+    readonly property color activeAccentContainer: root.useDynamicColors ? blendedColors.colPrimaryContainer : WidgetColorScheme.colors.colPrimaryContainer
+    readonly property color activeOnPrimary: root.useDynamicColors ? blendedColors.colOnPrimary : WidgetColorScheme.colors.colOnPrimary
 
     // Text colors are blended with white (neutral tinting) to prevent extremely vibrant/hard-to-read text, matching reference watch displays
-    readonly property color activeTextColor: root.useDynamicColors ? ColorUtils.mix("#FFFFFF", root.artDominantColor, 0.90) : Appearance.colors.colOnSurface
-    readonly property color activeSubtextColor: root.useDynamicColors ? ColorUtils.mix("#FFFFFF", root.artDominantColor, 0.80) : Appearance.colors.colOnSurfaceVariant
+    readonly property color activeTextColor: root.useDynamicColors ? ColorUtils.mix("#FFFFFF", root.artDominantColor, 0.90) : WidgetColorScheme.colors.colOnSurface
+    readonly property color activeSubtextColor: root.useDynamicColors ? ColorUtils.mix("#FFFFFF", root.artDominantColor, 0.80) : WidgetColorScheme.colors.colOnSurfaceVariant
 
     // Trigger position updates for the progress bar
     Timer {
@@ -126,16 +131,14 @@ AbstractBackgroundWidget {
 
     readonly property real progressValue: MprisController.trackProgressOf(root.player)
 
-    // This widget shares the desktop canvas' compositor surface with other widgets,
-    // so it cannot override Hyprland's ignore_alpha rule by itself. When the user
-    // chooses its problematic low range, omit only this widget's translucent blur
-    // textures while leaving the canvas and every other widget's blur untouched.
-    readonly property bool blurredEffectsSafe: Appearance.ignoreAlpha > 0.3
+    // Every effect is clipped to this widget's own texture, so it is safe on the
+    // shared desktop surface.
+    readonly property bool blurredEffectsSafe: true
 
     // Outer bezel shadow support
     StyledDropShadow {
         target: bezelRing
-        visible: root.blurredEffectsSafe && (Config.options.background.widgets.enableShadows ?? true)
+        visible: root.blurredEffectsSafe && (Config.options.background.widgets.circular_media.enableShadows ?? true)
     }
 
     // Outer Bezel Ring (Moldura) using opaque solid colBackgroundSurfaceContainer base
@@ -143,7 +146,7 @@ AbstractBackgroundWidget {
         id: bezelRing
         anchors.fill: parent
         radius: width / 2
-        color: WidgetColorScheme.tintBackground(Appearance.m3colors.m3shadow)
+        color: WidgetColorScheme.tintBackground(WidgetColorScheme.m3colors.m3shadow)
 
         // Inner Screen Container
         Rectangle {
@@ -151,7 +154,7 @@ AbstractBackgroundWidget {
             anchors.fill: parent
             anchors.margins: parent.width * 0.08 // 8% bezel thickness
             radius: width / 2
-            color: WidgetColorScheme.tintBackground(Appearance.m3colors.m3shadow)
+            color: WidgetColorScheme.tintBackground(WidgetColorScheme.m3colors.m3shadow)
 
             // Opaque Background Artwork + Gradient Container (with circular masking)
             Item {
@@ -171,7 +174,7 @@ AbstractBackgroundWidget {
                 // Opaque base behind album art
                 Rectangle {
                     anchors.fill: parent
-                    color: WidgetColorScheme.tintBackground(Appearance.m3colors.m3shadow)
+                    color: WidgetColorScheme.tintBackground(WidgetColorScheme.m3colors.m3shadow)
                 }
 
                 // Album Art with a light blur
@@ -207,15 +210,15 @@ AbstractBackgroundWidget {
                         }
                         GradientStop {
                             position: 0.62
-                            color: ColorUtils.transparentize(Appearance.m3colors.m3shadow, 0.4)
+                            color: ColorUtils.transparentize(WidgetColorScheme.m3colors.m3shadow, 0.4)
                         }
                         GradientStop {
                             position: 0.75
-                            color: ColorUtils.transparentize(Appearance.m3colors.m3shadow, 0.2)
+                            color: ColorUtils.transparentize(WidgetColorScheme.m3colors.m3shadow, 0.2)
                         }
                         GradientStop {
                             position: 1.0
-                            color: Appearance.m3colors.m3shadow
+                            color: WidgetColorScheme.m3colors.m3shadow
                         }
                     }
                 }
@@ -314,6 +317,7 @@ AbstractBackgroundWidget {
                         // Previous Button (Perfect Circle matching watch design guidelines)
                         RippleButton {
                             id: prevButton
+                            visible: root.showPrevButton
                             width: root.width * 0.20
                             height: width // perfect circle
                             anchors.verticalCenter: parent.verticalCenter
@@ -431,6 +435,7 @@ AbstractBackgroundWidget {
                         // Next Button (Perfect Circle matching watch design guidelines)
                         RippleButton {
                             id: nextButton
+                            visible: root.showNextButton
                             width: root.width * 0.20
                             height: width // perfect circle
                             anchors.verticalCenter: parent.verticalCenter
@@ -461,6 +466,7 @@ AbstractBackgroundWidget {
 
                 // Audio Output Device Pill Shape (Centered at the Bottom)
                 RowLayout {
+                    visible: root.showDevicePill
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredHeight: root.width * 0.13
 
@@ -469,12 +475,12 @@ AbstractBackgroundWidget {
                         implicitHeight: root.width * 0.09
                         leftPadding: root.width * 0.04
                         rightPadding: root.width * 0.04
-                        colBackground: ColorUtils.transparentize(Appearance.colors.colSurfaceContainerHigh, 0.75)
-                        colBackgroundHover: ColorUtils.transparentize(Appearance.colors.colSurfaceContainerHighestHover, 0.65)
-                        colRipple: ColorUtils.transparentize(Appearance.colors.colSurfaceContainerHighestActive, 0.55)
+                        colBackground: ColorUtils.transparentize(WidgetColorScheme.colors.colSurfaceContainerHigh, 0.75)
+                        colBackgroundHover: ColorUtils.transparentize(WidgetColorScheme.colors.colSurfaceContainerHighestHover, 0.65)
+                        colRipple: ColorUtils.transparentize(WidgetColorScheme.colors.colSurfaceContainerHighestActive, 0.55)
                         buttonRadius: Appearance.rounding.full
 
-                        readonly property string activeAudioDeviceName: Audio.sink ? (Audio.sink.description || "") : ""
+                        readonly property string activeAudioDeviceName: ShellServices.Audio.sink ? (ShellServices.Audio.sink.description || "") : ""
                         readonly property string audioDeviceIcon: {
                             let desc = activeAudioDeviceName.toLowerCase();
                             if (desc.includes("headphone") || desc.includes("headset") || desc.includes("wired")) {
@@ -483,7 +489,7 @@ AbstractBackgroundWidget {
                             return "volume_up";
                         }
 
-                        onClicked: GlobalStates.openAudioOutputSettings()
+                        onClicked: Spawn.run(["sh", "-c", Config.options.apps.volumeMixer])
 
                         contentItem: Item {
                             implicitWidth: deviceRowLayout.implicitWidth

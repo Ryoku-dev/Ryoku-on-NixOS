@@ -12,7 +12,9 @@ AbstractBackgroundWidget {
     configEntryName: "nagasaki_text"
 
     readonly property real configSize: Config.options.background.widgets.nagasaki_text.size ?? 200
-    implicitWidth: configSize
+    // The square fits the condensed Nagasaki digits; any other face is wider,
+    // and the box grows with it so the widget's frame covers what it draws.
+    implicitWidth: Math.max(configSize, Math.ceil(timeLabel.implicitWidth))
     implicitHeight: configSize
 
     FontLoader {
@@ -24,7 +26,10 @@ AbstractBackgroundWidget {
     readonly property string minute: DateTime.time.split(":")[1].split(" ")[0].padStart(2, "0")
     readonly property string timeText: hour + minute
 
-    readonly property color textColor: WidgetColorScheme.cardBgColor
+    readonly property string colorStyle: Config.options.background.widgets.nagasaki_text.colorStyle ?? "surface"
+    readonly property color textColor: colorStyle === "accent"
+        ? WidgetColorScheme.accentColor
+        : colorStyle === "text" ? WidgetColorScheme.textColorOnBg : WidgetColorScheme.cardBgColor
 
     Text {
         id: timeLabel

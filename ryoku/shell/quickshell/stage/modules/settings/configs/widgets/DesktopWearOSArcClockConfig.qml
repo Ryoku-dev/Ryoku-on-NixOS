@@ -202,7 +202,7 @@ ContentPage {
                     textRole: "displayName"
                     model: [
                         { displayName: Translation.tr("Calendar Next Event"), value: "calendar" },
-                        { displayName: Translation.tr("TickTick Inbox Tasks"), value: "todo" },
+                        { displayName: Translation.tr("Tasks"), value: "todo" },
                         { displayName: Translation.tr("Active Media Status"), value: "media" },
                         { displayName: Translation.tr("Water Reminder Goal"), value: "water" },
                         { displayName: Translation.tr("None"), value: "none" }

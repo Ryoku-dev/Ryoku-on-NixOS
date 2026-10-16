@@ -5,6 +5,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import stage.services
+import Ryoku.Ui.Singletons
 import ".."
 
 /**
@@ -38,6 +39,7 @@ Singleton {
     property string _lastSerialized: ""
     property bool _refreshQueued: false
     property bool _forceQueued: false
+    property int liveConsumers: 0
 
     readonly property var _cfg: Config.options?.bar?.aiPlanUsage ?? null
     readonly property bool enabled: root._cfg?.enabled ?? true
@@ -46,6 +48,17 @@ Singleton {
     readonly property bool claudeNetworkEnabled: root._cfg?.claudeNetworkEnabled ?? true
     readonly property string providerSignature: JSON.stringify(
         Array.from(root._cfg?.enabledProviders ?? ["chatgpt", "claude", "antigravity"]))
+    readonly property bool collecting: root.enabled && root.liveConsumers > 0
+
+    function retain(): void {
+        root.liveConsumers++;
+        if (root.liveConsumers === 1)
+            root.ensureFresh();
+    }
+
+    function release(): void {
+        root.liveConsumers = Math.max(0, root.liveConsumers - 1);
+    }
 
     readonly property int availableProviderCount: root.providers.filter(provider => provider.available).length
     readonly property var displayProviders: {
@@ -356,9 +369,11 @@ Singleton {
     // and watches the credentials file's mtime (never its contents) to refetch.
     // Clicking again while waiting relaunches it, in case the terminal was closed early.
     function refreshClaudeSignIn(): void {
-        const terminal = (Config.options.apps && Config.options.apps.terminal) || "kitty -1";
-        Quickshell.execDetached(["bash", "-c",
-            terminal + " -e bash '" + Directories.scriptPath + "/ai/claude_signin_refresh.sh' &"]);
+        const terminal = String((Config.options.apps && Config.options.apps.terminal) || "kitty -1");
+        const terminalArgs = terminal.trim().split(/\s+/).filter(argument => argument.length > 0);
+        Spawn.run(terminalArgs.concat([
+            "-e", "bash", Directories.scriptPath + "/ai/claude_signin_refresh.sh"
+        ]));
         root.claudeSignInPending = true;
         credentialsPoll.ticks = 0;
         credentialsPoll.baseline = "";
@@ -393,26 +408,32 @@ Singleton {
     }
 
     onEnabledChanged: {
-        if (root.enabled)
+        if (root.collecting)
             configRefreshTimer.restart();
         else {
             root._refreshQueued = false;
             root._forceQueued = false;
+            root.lastUpdated = 0;
         }
     }
-    onProviderSignatureChanged: configRefreshTimer.restart()
-    onClaudeNetworkEnabledChanged: configRefreshTimer.restart()
-
-    Component.onCompleted: {
-        if (root.enabled)
-            root.refresh(false);
+    onProviderSignatureChanged: {
+        if (root.collecting)
+            configRefreshTimer.restart();
+        else
+            root.lastUpdated = 0;
+    }
+    onClaudeNetworkEnabledChanged: {
+        if (root.collecting)
+            configRefreshTimer.restart();
+        else
+            root.lastUpdated = 0;
     }
 
     Timer {
         id: refreshTimer
         interval: root.refreshInterval
         repeat: true
-        running: root.enabled && root.autoRefresh
+        running: root.collecting && root.autoRefresh
         onTriggered: root.refresh(false)
     }
 
@@ -421,7 +442,7 @@ Singleton {
         interval: 80
         repeat: false
         onTriggered: {
-            if (root.enabled)
+            if (root.collecting)
                 root.refresh(false);
         }
     }

@@ -325,17 +325,6 @@ OverlayBackground {
                             icon: "draw",
                             value: 3,
                             releaseAction: (() => root.sketchEditorOpen = true)
-                        },
-                        {
-                            displayName: "",
-                            icon: "open_in_new",
-                            value: 4,
-                            releaseAction: (() => {
-                                const currentTab = root.tabsData.tabs[root.currentTabIndex];
-                                const noteId = currentTab?.noteId ?? "";
-                                GlobalStates.notesOpen = false;
-                                GlobalStates.openNotes(noteId);
-                            })
                         }
                     ]
                 }

@@ -3,6 +3,8 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Wayland
+import Ryoku.Ui.Singletons
 import stage.modules.common.widgets
 import stage.services
 import "../common"
@@ -14,13 +16,17 @@ PopupWindow {
     property Item anchorItem: null
     property bool opened: true
     signal dismissed()
+    property bool grabSettled: false
 
     readonly property string dockPosition: root.anchorItem?.dockContent?.dockPos
         ?? dock.dockEffectivePosition
     readonly property real popupGap: Appearance.sizes.elevationMargin
     readonly property real popupWidth: Appearance.sizes.dockButtonSize * 5.8
     readonly property real rowHeight: Math.max(Appearance.sizes.dockButtonSize * 0.72, 42)
+    readonly property bool previewAvailable: DockLivePreviewService.previewAvailable
     readonly property var rows: {
+        if (!root.previewAvailable)
+            return [];
         const result = [];
         for (const app of (TaskbarApps.apps ?? [])) {
             const windows = app?.toplevels ?? [];
@@ -52,6 +58,8 @@ PopupWindow {
     }
 
     function chooseRow(row) {
+        if (!root.previewAvailable)
+            return;
         if (row.toplevel)
             DockLivePreviewService.selectWindow(row.toplevel);
         else
@@ -68,13 +76,72 @@ PopupWindow {
         if (!root.opened)
             return;
         root.opened = false;
+        root.visible = false;
+        GlobalStates.releaseDockPopup(root);
         root.dismissed();
     }
 
+    function closeImmediately() {
+        root.close();
+    }
+
+    function open() {
+        if (root.opened)
+            return;
+        GlobalStates.claimDockPopup(root);
+        root.opened = true;
+        root.visible = true;
+        focusAfterMap.restart();
+    }
+
+    Component.onCompleted: {
+        if (root.opened) {
+            GlobalStates.claimDockPopup(root);
+            focusAfterMap.restart();
+        }
+    }
+    Component.onDestruction: GlobalStates.releaseDockPopup(root)
+
     implicitWidth: root.popupWidth
     implicitHeight: pickerSurface.implicitHeight
+
+    FocusGrab {
+        id: focusGrab
+        active: Wm.caps.focusGrab === true && root.opened
+        // Add the dock only after the popup has received the grab's keyboard focus.
+        windows: root.grabSettled && root.anchor.window
+            ? [root, root.anchor.window] : [root]
+        onActiveChanged: {
+            root.grabSettled = false;
+            if (focusGrab.active)
+                grabSettleTimer.restart();
+            else
+                grabSettleTimer.stop();
+        }
+        onCleared: root.close()
+    }
     visible: root.opened
     color: "transparent"
+    // Without a focus-grab protocol, the popup's own grab gives it the keyboard.
+    grabFocus: Wm.caps.focusGrab !== true
+    onClosed: if (root.opened) root.closeImmediately()
+
+    Timer {
+        id: focusAfterMap
+        interval: 40
+        repeat: false
+        onTriggered: {
+            if (!root.opened)
+                return;
+            pickerSurface.forceActiveFocus(Qt.PopupFocusReason);
+        }
+    }
+    Timer {
+        id: grabSettleTimer
+        interval: 120
+        repeat: false
+        onTriggered: root.grabSettled = focusGrab.active
+    }
 
     Timer {
         id: anchorUpdateTimer
@@ -131,6 +198,11 @@ PopupWindow {
         implicitHeight: pickerColumn.implicitHeight + pickerSurface.popupPadding * 2
         radius: Appearance.rounding.normal
         color: Appearance.colors.colLayer1
+        focus: true
+        Keys.onEscapePressed: event => {
+            event.accepted = true;
+            root.close();
+        }
 
         ColumnLayout {
             id: pickerColumn
@@ -168,8 +240,8 @@ PopupWindow {
 
             RowLayout {
                 Layout.fillWidth: true
+                visible: root.previewAvailable
                 spacing: Appearance.sizes.elevationMargin / 2
-
                 RippleButton {
                     Layout.fillWidth: true
                     implicitHeight: root.rowHeight * 0.78
@@ -203,8 +275,9 @@ PopupWindow {
             ListView {
                 id: rowList
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(root.rowHeight * 5, contentHeight)
-                implicitHeight: Math.min(root.rowHeight * 5, contentHeight)
+                Layout.preferredHeight: visible ? Math.min(root.rowHeight * 5, contentHeight) : 0
+                implicitHeight: Layout.preferredHeight
+                visible: root.previewAvailable
                 clip: true
                 model: root.rows
                 spacing: Appearance.sizes.elevationMargin / 4
@@ -269,12 +342,15 @@ PopupWindow {
             }
 
             StyledText {
-                visible: rowList.count === 0
+                visible: !root.previewAvailable || rowList.count === 0
                 Layout.fillWidth: true
-                text: Translation.tr("No running applications")
+                text: root.previewAvailable
+                    ? Translation.tr("No running applications")
+                    : Translation.tr("Live preview is not available with this window manager.")
                 color: Appearance.colors.colOnLayer2
                 font.pixelSize: Appearance.font.pixelSize.small
                 horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
             }
         }
     }

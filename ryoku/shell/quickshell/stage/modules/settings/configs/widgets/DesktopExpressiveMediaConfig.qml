@@ -3,7 +3,6 @@ import QtQuick.Layouts
 import stage.services
 import stage.modules.common
 import stage.modules.common.widgets
-import stage.modules.settings.configs.widgets
 
 ContentPage {
     id: root
@@ -123,13 +122,16 @@ ContentPage {
 
             Item { Layout.preferredHeight: 8 }
 
-            // Visual Options (Shadows)
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 4
+            ContentSubsectionLabel {
+                text: Translation.tr("Visual Options")
+            }
 
-                DesktopWidgetVisualOptions {
-                    Layout.fillWidth: true
+            ConfigSwitch {
+                buttonIcon: "wb_sunny"
+                text: Translation.tr("Enable Shadows")
+                checked: Config.options.background.widgets.media.enableShadows ?? true
+                onCheckedChanged: {
+                    Config.options.background.widgets.media.enableShadows = checked;
                 }
             }
         }

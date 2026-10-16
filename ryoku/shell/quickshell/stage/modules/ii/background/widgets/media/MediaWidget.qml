@@ -69,24 +69,24 @@ AbstractBackgroundWidget {
         // shared strength preserves a soft edge even at the highest setting.
         ? Math.min(0.6, 0.035 * Config.options.background.widgets.media.glow.brightness) : 0
 
-    property color artDominantColor: ColorUtils.mix((colorQuantizer?.colors[0] ?? Appearance.colors.colPrimary), Appearance.colors.colPrimaryContainer, 0.8) || Appearance.m3colors.m3secondaryContainer
+    property color artDominantColor: ColorUtils.mix((colorQuantizer?.colors[0] ?? WidgetColorScheme.colors.colPrimary), WidgetColorScheme.colors.colPrimaryContainer, 0.8) || WidgetColorScheme.m3colors.m3secondaryContainer
     property QtObject blendedColors: AdaptedMaterialScheme {
         color: artDominantColor
     }
     property var dynamicColors: {
         return {
-            colPrimary: root.useDynamicColors ? blendedColors.colPrimary : Appearance.colors.colPrimary,
-            colPrimaryBackground: root.useDynamicColors ? blendedColors.colPrimaryContainer : Appearance.colors.colPrimaryContainer,
-            colPrimaryBackgroundHover: root.useDynamicColors ? blendedColors.colPrimaryContainerHover : Appearance.colors.colPrimaryContainerHover,
-            colPrimaryRipple: root.useDynamicColors ? blendedColors.colPrimaryContainerActive : Appearance.colors.colPrimaryContainerActive,
-            colSecondary: root.useDynamicColors ? blendedColors.colSecondary : Appearance.colors.colSecondary,
-            colSecondaryBackground: root.useDynamicColors ? blendedColors.colSecondaryContainer : Appearance.colors.colSecondaryContainer,
-            colSecondaryBackgroundHover: root.useDynamicColors ? blendedColors.colSecondaryContainerHover : Appearance.colors.colSecondaryContainerHover,
-            colSecondaryRipple: root.useDynamicColors ? blendedColors.colSecondaryContainerActive : Appearance.colors.colSecondaryContainerActive,
-            colTertiary: root.useDynamicColors ? blendedColors.colTertiary : Appearance.colors.colTertiary,
-            colTertiaryBackground: root.useDynamicColors ? blendedColors.colTertiaryContainer : Appearance.colors.colTertiaryContainer,
-            colTertiaryBackgroundHover: root.useDynamicColors ? blendedColors.colTertiaryContainerHover : Appearance.colors.colTertiaryContainerHover,
-            colTertiaryRipple: root.useDynamicColors ? blendedColors.colTertiaryContainerActive : Appearance.colors.colTertiaryContainerActive
+            colPrimary: root.useDynamicColors ? blendedColors.colPrimary : WidgetColorScheme.colors.colPrimary,
+            colPrimaryBackground: root.useDynamicColors ? blendedColors.colPrimaryContainer : WidgetColorScheme.colors.colPrimaryContainer,
+            colPrimaryBackgroundHover: root.useDynamicColors ? blendedColors.colPrimaryContainerHover : WidgetColorScheme.colors.colPrimaryContainerHover,
+            colPrimaryRipple: root.useDynamicColors ? blendedColors.colPrimaryContainerActive : WidgetColorScheme.colors.colPrimaryContainerActive,
+            colSecondary: root.useDynamicColors ? blendedColors.colSecondary : WidgetColorScheme.colors.colSecondary,
+            colSecondaryBackground: root.useDynamicColors ? blendedColors.colSecondaryContainer : WidgetColorScheme.colors.colSecondaryContainer,
+            colSecondaryBackgroundHover: root.useDynamicColors ? blendedColors.colSecondaryContainerHover : WidgetColorScheme.colors.colSecondaryContainerHover,
+            colSecondaryRipple: root.useDynamicColors ? blendedColors.colSecondaryContainerActive : WidgetColorScheme.colors.colSecondaryContainerActive,
+            colTertiary: root.useDynamicColors ? blendedColors.colTertiary : WidgetColorScheme.colors.colTertiary,
+            colTertiaryBackground: root.useDynamicColors ? blendedColors.colTertiaryContainer : WidgetColorScheme.colors.colTertiaryContainer,
+            colTertiaryBackgroundHover: root.useDynamicColors ? blendedColors.colTertiaryContainerHover : WidgetColorScheme.colors.colTertiaryContainerHover,
+            colTertiaryRipple: root.useDynamicColors ? blendedColors.colTertiaryContainerActive : WidgetColorScheme.colors.colTertiaryContainerActive
         };
     }
 
@@ -96,7 +96,7 @@ AbstractBackgroundWidget {
     // shapeMap, so every option silently rendered as a Circle — normalize
     // them here instead of shipping a one-shot migration.
     readonly property string backgroundShape: {
-        const raw = Config.options.background.widgets.media.backgroundShape ?? "Circle";
+        const raw = Config.options.background.widgets.media.backgroundShape ?? "Cookie12Sided";
         const legacy = { "circle": "Circle", "square": "Square", "cookie": "Cookie9Sided" };
         return legacy[raw] ?? raw;
     }
@@ -244,7 +244,7 @@ AbstractBackgroundWidget {
                 iconSize: root.widgetSize / 4
                 shape: MaterialShape.Shape.Cookie12Sided
                 color: blendedColors.colOnSecondaryContainer
-                colSymbol: Appearance.colors.colPrimaryContainer
+                colSymbol: WidgetColorScheme.colors.colPrimaryContainer
             }
         }
 
@@ -258,13 +258,13 @@ AbstractBackgroundWidget {
         StyledDropShadow {
             id: mediaShadow
             target: shadowSourceShape
-            visible: Config.options.background.widgets.enableShadows ?? true
+            visible: Config.options.background.widgets.media.enableShadows ?? true
         }
 
         MaterialShape { // Art background
             id: artBackground
             anchors.fill: parent
-            color: WidgetColorScheme.tintBackground(Appearance.colors.colPrimaryContainer)
+            color: WidgetColorScheme.tintBackground(WidgetColorScheme.colors.colPrimaryContainer)
             shapeString: root.backgroundShape
 
             layer.enabled: true
@@ -306,7 +306,7 @@ AbstractBackgroundWidget {
                     ColorOverlay {
                         anchors.fill: desaturatedIcon
                         source: desaturatedIcon
-                        color: ColorUtils.transparentize(Appearance.colors.colOnPrimary, 0.9)
+                        color: ColorUtils.transparentize(WidgetColorScheme.colors.colOnPrimary, 0.9)
                     }
                 }
             }
@@ -341,7 +341,7 @@ AbstractBackgroundWidget {
                 colBackgroundHover: root.dynamicColors.colSecondaryBackgroundHover
                 colRipple: root.dynamicColors.colSecondaryRipple
                 symbolText: root.currentPlayer?.isPlaying ? "pause" : "play_arrow"
-                symbolColor: useAlbumColors ? blendedColors.colTertiary : Appearance.colors.colTertiary
+                symbolColor: useAlbumColors ? blendedColors.colTertiary : WidgetColorScheme.colors.colTertiary
                 onClicked: {
                     root.currentPlayer.togglePlaying();
                 }

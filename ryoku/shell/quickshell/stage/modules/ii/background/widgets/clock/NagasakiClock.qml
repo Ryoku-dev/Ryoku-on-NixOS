@@ -20,6 +20,11 @@ Item {
         source: "file://" + Directories.assetsPath + "/fonts/nagasaki.ttf"
     }
 
+    StyledDropShadow {
+        target: mainRect
+        visible: Config.options.background.widgets.enableShadows ?? true
+    }
+
     Rectangle {
         id: mainRect
         anchors.fill: parent

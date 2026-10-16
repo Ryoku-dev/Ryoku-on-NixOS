@@ -66,6 +66,35 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("bluetooth_headphone_cookie")
 
+            ContentSubsectionLabel {
+                text: Translation.tr("Display")
+            }
+
+            ConfigSwitch {
+                buttonIcon: "percent"
+                text: Translation.tr("Show Battery Percentage")
+                checked: Config.options.background.widgets.bluetooth_headphone_cookie.showPercentage ?? true
+                onCheckedChanged: Config.options.background.widgets.bluetooth_headphone_cookie.showPercentage = checked
+            }
+
+            ContentSubsection {
+                title: Translation.tr("Background Shape")
+                icon: "category"
+                Layout.fillWidth: true
+
+                ConfigSelectionArray {
+                    currentValue: Config.options.background.widgets.bluetooth_headphone_cookie.materialShape ?? "Cookie12Sided"
+                    onSelected: value => Config.options.background.widgets.bluetooth_headphone_cookie.materialShape = value
+                    options: ["Circle", "Pill", "Oval", "SemiCircle", "Cookie4Sided", "Cookie6Sided", "Cookie7Sided", "Cookie9Sided", "Cookie12Sided", "Ghostish", "Puffy", "PuffyDiamond", "Bun", "SoftBurst", "Sunny", "VerySunny"].map(shapeName => {
+                        return {
+                            displayName: "",
+                            shape: shapeName,
+                            value: shapeName
+                        };
+                    })
+                }
+            }
+
             DesktopWidgetVisualOptions {
                 Layout.fillWidth: true
             }

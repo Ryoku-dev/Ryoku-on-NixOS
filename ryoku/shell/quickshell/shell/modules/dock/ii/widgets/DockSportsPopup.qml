@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Widgets
+import Ryoku.Ui.Singletons
 import stage.modules.common.widgets
 import stage.services
 import ".."
@@ -16,6 +17,10 @@ PopupWindow {
 
     property Item anchorItem: null
     property bool showPopup: false
+    property bool pointerInsidePopup: false
+    property bool dismissedByOwner: false
+    property bool grabSettled: false
+    readonly property bool opened: root.showPopup && !root.dismissedByOwner
 
     readonly property string dockPosition: anchorItem?.dockContent?.dockPos
         ?? dock.dockEffectivePosition
@@ -60,8 +65,27 @@ PopupWindow {
     readonly property var displayGames: root.orderedGames.slice(0, root.maxCards)
 
     function requestAnchorUpdate() {
-        if (root.showPopup && root.anchor.window)
+        if (root.opened && root.anchor.window)
             anchorUpdateTimer.restart()
+    }
+
+    function close() {
+        if (!root.opened)
+            return
+        root.dismissedByOwner = true
+        root.pointerInsidePopup = false
+    }
+
+    function closeImmediately() {
+        root.dismissedByOwner = true
+        openAnimation.stop()
+        closeAnimation.stop()
+        root.pointerInsidePopup = false
+        root.surfaceOpacity = 0
+        root.surfaceSlideX = root.slideOffsetX
+        root.surfaceSlideY = root.slideOffsetY
+        root.visible = false
+        GlobalStates.releaseDockPopup(root)
     }
 
     Timer {
@@ -69,7 +93,7 @@ PopupWindow {
         interval: 0
         repeat: false
         onTriggered: {
-            if (root.showPopup && root.anchor.window)
+            if (root.opened && root.anchor.window)
                 root.anchor.updateAnchor()
         }
     }
@@ -153,18 +177,64 @@ PopupWindow {
     }
 
     onShowPopupChanged: {
+        if (!root.showPopup)
+            root.dismissedByOwner = false
+    }
+    onOpenedChanged: {
         root.requestAnchorUpdate()
-        if (root.showPopup)
+        if (root.opened) {
+            GlobalStates.claimDockPopup(root)
             root.startOpenAnimation()
-        else
+            root.visible = true
+            focusAfterMap.restart()
+        } else {
             root.startCloseAnimation()
+        }
     }
     onWidthChanged: root.requestAnchorUpdate()
     onHeightChanged: root.requestAnchorUpdate()
 
     Component.onCompleted: {
-        if (root.showPopup)
+        if (root.opened) {
+            GlobalStates.claimDockPopup(root)
             root.startOpenAnimation()
+            focusAfterMap.restart()
+        }
+    }
+    Component.onDestruction: GlobalStates.releaseDockPopup(root)
+
+    FocusGrab {
+        id: focusGrab
+        active: Wm.caps.focusGrab === true && root.opened
+        // Add the dock only after the popup has received the grab's keyboard focus.
+        windows: root.grabSettled && root.anchor.window
+            ? [root, root.anchor.window] : [root]
+        onActiveChanged: {
+            root.grabSettled = false
+            if (focusGrab.active)
+                grabSettleTimer.restart()
+            else
+                grabSettleTimer.stop()
+        }
+        onCleared: root.close()
+    }
+
+    Timer {
+        id: focusAfterMap
+        interval: 40
+        repeat: false
+        onTriggered: {
+            if (!root.opened)
+                return
+            if (contentLoader.item)
+                contentLoader.item.forceActiveFocus(Qt.PopupFocusReason)
+        }
+    }
+    Timer {
+        id: grabSettleTimer
+        interval: 120
+        repeat: false
+        onTriggered: root.grabSettled = focusGrab.active
     }
 
     ParallelAnimation {
@@ -221,9 +291,18 @@ PopupWindow {
             easing.type: Appearance.animation.elementMoveExit.type
             easing.bezierCurve: Appearance.animation.elementMoveExit.bezierCurve
         }
+        onFinished: {
+            if (!root.opened) {
+                root.visible = false
+                GlobalStates.releaseDockPopup(root)
+            }
+        }
     }
 
-    visible: root.showPopup || root.surfaceOpacity > 0.01
+    visible: root.opened || root.surfaceOpacity > 0.01
+    // Without a focus-grab protocol, the popup's own grab gives it the keyboard.
+    grabFocus: Wm.caps.focusGrab !== true
+    onClosed: if (root.opened) root.closeImmediately()
     color: "transparent"
     implicitWidth: root.cardWidth + root.popupPadding * 2 + root.shadowMargin * 2
     implicitHeight: contentLoader.item
@@ -237,7 +316,7 @@ PopupWindow {
     Loader {
         id: contentLoader
         anchors.fill: parent
-        active: root.showPopup || root.surfaceOpacity > 0.01
+        active: root.opened || root.surfaceOpacity > 0.01
         sourceComponent: root.popupContent
     }
 
@@ -255,6 +334,16 @@ PopupWindow {
         radius: Appearance.rounding.large
         clip: true
         opacity: root.surfaceOpacity
+
+        HoverHandler {
+            onHoveredChanged: root.pointerInsidePopup = hovered
+        }
+        Component.onDestruction: root.pointerInsidePopup = false
+        focus: true
+        Keys.onEscapePressed: event => {
+            event.accepted = true
+            root.close()
+        }
 
         transform: Translate {
             x: root.surfaceSlideX

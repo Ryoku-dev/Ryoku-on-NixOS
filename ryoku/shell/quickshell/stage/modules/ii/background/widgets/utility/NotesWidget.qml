@@ -40,25 +40,15 @@ AbstractBackgroundWidget {
     }
 
     onNotesWindowOpenChanged: {
-        if (!notesWindowOpen) {
+        if (!notesWindowOpen)
             NotesService.reload();
-            GlobalStates.notesOpen = false;
-        }
     }
 
     Connections {
         target: NotesService
+
         function onDataChanged() {
             root.notesData = NotesService.tabsData.tabs;
-        }
-    }
-
-    Connections {
-        target: GlobalStates
-        function onNotesOpenChanged() {
-            if (GlobalStates.notesOpen && !root.notesWindowOpen) {
-                root.openNotes();
-            }
         }
     }
 
@@ -176,29 +166,6 @@ AbstractBackgroundWidget {
                                 elide: Text.ElideRight
                             }
 
-                            RippleButton {
-                                implicitWidth: 24
-                                implicitHeight: 24
-                                buttonRadius: Appearance.rounding.full
-                                colBackground: "transparent"
-                                colBackgroundHover: Qt.rgba(0, 0, 0, 0.1)
-
-                                MaterialSymbol {
-                                    anchors.centerIn: parent
-                                    text: "open_in_new"
-                                    iconSize: 16
-                                    color: root.accentColor
-                                }
-
-                                onClicked: {
-                                    const noteId = noteCard.modelData.noteId || noteCard.modelData.id || "";
-                                    GlobalStates.openNotes(noteId);
-                                }
-
-                                StyledToolTip {
-                                    text: Translation.tr("Open in Notes app")
-                                }
-                            }
 
                             RippleButton {
                                 implicitWidth: 24

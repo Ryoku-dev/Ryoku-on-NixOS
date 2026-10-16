@@ -36,6 +36,8 @@ AbstractBackgroundWidget {
     readonly property var chosenShape: MaterialShape.Shape[shapeName] !== undefined
                                         ? MaterialShape.Shape[shapeName]
                                         : MaterialShape.Shape.Cookie9Sided
+    readonly property int imageFillMode: (root.options?.fitMode ?? "crop") === "fit"
+        ? Image.PreserveAspectFit : Image.PreserveAspectCrop
 
     readonly property string imageSource: {
         let customPath = root.instanceImagePath !== undefined ? root.instanceImagePath : options?.imagePath;
@@ -45,7 +47,7 @@ AbstractBackgroundWidget {
             return customPath.startsWith("file://") ? customPath : ("file://" + customPath);
         }
         // Fallback to desktop wallpaper if no custom photo set
-        let wallPath = Config.options?.background?.wallpaperPath;
+        let wallPath = Config.wallpaperStill;
         if (wallPath && wallPath !== "") {
             const qIdx = wallPath.indexOf("?");
             if (qIdx !== -1) wallPath = wallPath.substring(0, qIdx);
@@ -62,7 +64,7 @@ AbstractBackgroundWidget {
     readonly property bool shouldPlay: {
         return root.visible && root.opacity > 0 && root.isAnimated
             && !GlobalStates.screenLocked
-            && !GlobalStates.activeWorkspaceHasWindows;
+            && !root.activeWorkspaceHasWindows;
     }
 
     // The photo is minified straight down to the widget box by the GPU's 2x2 tap,
@@ -134,7 +136,7 @@ AbstractBackgroundWidget {
             anchors.fill: parent
             source: (root.decodeWidth <= 0 || root.isAnimated) ? "" : root.imageSource
             sourceSize: Qt.size(root.decodeWidth, root.decodeHeight)
-            fillMode: Image.PreserveAspectCrop
+            fillMode: root.imageFillMode
             asynchronous: true
             // Hold the frame already on screen across a re-decode instead of
             // falling back to the placeholder for the frames it takes.
@@ -170,7 +172,7 @@ AbstractBackgroundWidget {
             id: photoImg
             anchors.fill: parent
             source: root.isAnimated ? root.imageSource : ""
-            fillMode: Image.PreserveAspectCrop
+            fillMode: root.imageFillMode
             playing: root.shouldPlay
             paused: !root.shouldPlay
             asynchronous: true
@@ -205,7 +207,7 @@ AbstractBackgroundWidget {
             visible: (!root.isAnimated && !staticImg.visible) || (root.isAnimated && !photoImg.visible)
             text: "image"
             iconSize: Math.round(48 * root.contentScale)
-            color: Appearance.colors.colOnLayer0
+            color: WidgetColorScheme.textColorOnBg
             opacity: 0.50
         }
     }

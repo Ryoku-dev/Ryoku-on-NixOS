@@ -59,6 +59,9 @@ Rectangle {
     /// the output instead of the effects switch.
     property var deviceNode: null
     property bool detached: false
+    function deviceName(node) {
+        return node ? (node.nickname || node.description || Translation.tr("Unknown")) : Translation.tr("Unknown");
+    }
 
     signal editRequested()
     signal useDeviceRequested()
@@ -139,7 +142,7 @@ Rectangle {
         EasyEffectsPill {
             visible: root.showDevice
             symbol: root.pipeline === "input" ? "mic" : "speaker"
-            label: Audio.friendlyDeviceName(root.device)
+            label: root.deviceName(root.device)
             colContent: root.colContent
             maxWidth: Math.max(EasyEffectsStyle.heroWidthMin / 2, root.width / 2)
         }
@@ -468,7 +471,7 @@ Rectangle {
 
             StyledText {
                 Layout.fillWidth: true
-                text: `${Audio.friendlyDeviceName(root.device)} · ${root.stateLabel}`
+                text: `${root.deviceName(root.device)} · ${root.stateLabel}`
                 elide: Text.ElideRight
                 font.pixelSize: EasyEffectsStyle.textSmall
                 color: root.colSubContent

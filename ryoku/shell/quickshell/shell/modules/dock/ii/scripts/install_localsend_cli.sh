@@ -6,8 +6,8 @@
 # or macOS): this only falls back to printing `cargo build` instructions
 # when no prebuilt asset matches the current OS/architecture.
 #
-# Used by services/LocalSend.qml's "Install" button (modules/settings/
-# configs/DevicesPhoneConfig.qml) and safe to run standalone.
+# Used by stage/services/LocalSend.qml's install action in the Send panel and
+# safe to run standalone.
 set -euo pipefail
 
 REPO="localsend/localsend"

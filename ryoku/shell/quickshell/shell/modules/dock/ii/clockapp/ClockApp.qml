@@ -1,8 +1,11 @@
+pragma Singleton
 pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import stage.services
+import Ryoku.Ui.Singletons
 import ".."
 
 
@@ -20,9 +23,25 @@ Scope {
     id: root
 
     readonly property var tabIds: ["alarms", "worldClock", "timer", "stopwatch", "pomodoro", "bedtime", "reminders"]
+    function focusExistingWindow(): void {
+        const title = Translation.tr("Clock");
+        const windows = Wm.windows ?? [];
+        for (let i = 0; i < windows.length; i++) {
+            const window = windows[i];
+            if (String(window?.title ?? "") === title) {
+                Wm.focusWindow(window.id);
+                return;
+            }
+        }
+    }
 
     function requestOpen(tab = ""): void {
-        GlobalStates.openClockApp(root.tabIds.includes(tab) ? tab : "");
+        GlobalStates.clockAppPendingTab = root.tabIds.includes(tab) ? tab : "";
+        if (GlobalStates.clockAppOpen) {
+            root.focusExistingWindow();
+            return;
+        }
+        GlobalStates.clockAppOpen = true;
     }
 
     function requestClose(): void {
@@ -48,19 +67,19 @@ Scope {
 
     GlobalShortcut {
         name: "clockToggle"
-        description: "Toggles the clock app"
+        description: Translation.tr("Toggles the clock app")
         onPressed: root.requestToggle()
     }
 
     GlobalShortcut {
         name: "clockOpen"
-        description: "Opens the clock app"
+        description: Translation.tr("Opens the clock app")
         onPressed: root.requestOpen()
     }
 
     GlobalShortcut {
         name: "clockClose"
-        description: "Closes the clock app"
+        description: Translation.tr("Closes the clock app")
         onPressed: root.requestClose()
     }
 

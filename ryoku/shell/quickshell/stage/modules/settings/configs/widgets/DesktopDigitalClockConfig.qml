@@ -114,13 +114,22 @@ ContentPage {
                     Config.options.background.widgets.clock_digital.showColon = checked;
                 }
             }
+            ConfigSwitch {
+                buttonIcon: "palette"
+                text: Translation.tr("Use colorful digits")
+                checked: Config.options.background.widgets.clock_digital.colorful
+                onCheckedChanged: {
+                    Config.options.background.widgets.clock_digital.colorful = checked;
+                }
+            }
+
 
             ConfigSwitch {
                 buttonIcon: "schedule"
                 text: Translation.tr("Show seconds")
-                checked: Config.options.bar.clock.showSeconds
+                checked: Config.options.background.widgets.clock_digital.showSeconds
                 onCheckedChanged: {
-                    Config.options.bar.clock.showSeconds = checked;
+                    Config.options.background.widgets.clock_digital.showSeconds = checked;
                 }
             }
 
@@ -219,8 +228,16 @@ ContentPage {
 
             Item { Layout.preferredHeight: 8 }
 
-            DesktopWidgetVisualOptions {
-                Layout.fillWidth: true
+            ContentSubsectionLabel {
+                text: Translation.tr("Visual Options")
+            }
+            ConfigSwitch {
+                buttonIcon: "wb_sunny"
+                text: Translation.tr("Enable Shadows")
+                checked: Config.options.background.widgets.enableShadows ?? false
+                onCheckedChanged: {
+                    Config.options.background.widgets.enableShadows = checked;
+                }
             }
         }
     }

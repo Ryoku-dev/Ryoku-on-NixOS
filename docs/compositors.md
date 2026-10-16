@@ -125,7 +125,8 @@ that change what a user sees:
 - **`persistentScreenCapture`** is absent because niri tears its outputs down
   and recreates them on a config reload or a mode change. A one-shot capture is
   fine; a long-lived whole-screen capture can race an output leaving and crash
-  the Qt client. The launcher therefore uses a solid drawer on niri.
+  the Qt client. The launcher therefore uses a solid drawer on niri, and the ii
+  dock's live window preview says it is unavailable instead of capturing.
 - **`keyboardGrabSharesPointer`** is absent on Hyprland because a layer surface
   holding the keyboard exclusively takes every pointer event too. The Stage
   Editor's canvas holds the keyboard on niri, so Escape and the arrows reach it

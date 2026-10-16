@@ -124,16 +124,16 @@ AbstractBackgroundWidget {
                         return 0;
                     }
                     readonly property color accentColor: {
-                        if (modelData === "cpu") return Appearance.colors.colPrimary;
-                        if (modelData === "ram") return Appearance.colors.colSecondary;
-                        if (modelData === "disk") return Appearance.colors.colTertiary;
-                        return Appearance.colors.colPrimary;
+                        if (modelData === "cpu") return WidgetColorScheme.colors.colPrimary;
+                        if (modelData === "ram") return WidgetColorScheme.colors.colSecondary;
+                        if (modelData === "disk") return WidgetColorScheme.colors.colTertiary;
+                        return WidgetColorScheme.colors.colPrimary;
                     }
                     readonly property color containerColor: {
-                        if (modelData === "cpu") return Appearance.colors.colPrimaryContainer;
-                        if (modelData === "ram") return Appearance.colors.colSecondaryContainer;
-                        if (modelData === "disk") return Appearance.colors.colTertiaryContainer;
-                        return Appearance.colors.colPrimaryContainer;
+                        if (modelData === "cpu") return WidgetColorScheme.colors.colPrimaryContainer;
+                        if (modelData === "ram") return WidgetColorScheme.colors.colSecondaryContainer;
+                        if (modelData === "disk") return WidgetColorScheme.colors.colTertiaryContainer;
+                        return WidgetColorScheme.colors.colPrimaryContainer;
                     }
                     readonly property string cardSymbol: {
                         if (modelData === "cpu") return "memory";
@@ -211,14 +211,14 @@ AbstractBackgroundWidget {
                                 Layout.preferredWidth: 54 * root.contentScale
                                 Layout.preferredHeight: 54 * root.contentScale
                                 radius: width / 2
-                                color: Appearance.colors.colSurfaceContainerHighest
+                                color: WidgetColorScheme.colors.colSurfaceContainerHighest
                                 opacity: 0.95
 
                                 MaterialSymbol {
                                     anchors.centerIn: parent
                                     text: cardItem.cardSymbol
                                     iconSize: 28 * root.contentScale
-                                    color: Appearance.colors.colOnSurfaceVariant
+                                    color: WidgetColorScheme.colors.colOnSurfaceVariant
                                 }
                             }
 

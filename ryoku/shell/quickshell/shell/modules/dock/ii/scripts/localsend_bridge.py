@@ -9,8 +9,8 @@ a full-screen device list that is navigated with arrow keys.
 
 This bridge drives the real binary inside a pseudo-terminal and:
   - translates its screen output into the line-oriented JSON event stream
-    that services/LocalSend.qml already expects (ready/device/incoming/
-    text/saved/cancelled/done/error), and
+    that stage/services/LocalSend.qml expects (ready/device/incoming/text/
+    saved/cancelled/done/error), and
   - translates simple commands (a single "y"/"n"/"p" line on our stdin, or a
     --target IP for the "send" subcommand) into the keystrokes the official
     CLI expects.

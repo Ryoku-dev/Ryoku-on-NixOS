@@ -55,7 +55,7 @@ ColumnLayout {
 
         StyledText {
             Layout.fillWidth: true
-            text: Translation.tr("From your timetable")
+            text: Translation.tr("From your calendar")
             font.pixelSize: ClockStyle.textNormal
             font.weight: Font.DemiBold
             color: ClockStyle.colPrimary
@@ -63,7 +63,7 @@ ColumnLayout {
 
         ClockButton {
             variant: "text"
-            label: Translation.tr("Open timetable")
+            label: Translation.tr("Open calendar")
             onClicked: GlobalStates.openTimetableAt(Qt.formatDate(root.now, "yyyy-MM-dd"))
         }
     }

@@ -78,6 +78,13 @@ ContentPage {
             }
 
             ConfigSwitch {
+                buttonIcon: "percent"
+                text: Translation.tr("Show Battery Percentage")
+                checked: Config.options.background.widgets.bluetooth_headphone.showPercentage ?? true
+                onCheckedChanged: Config.options.background.widgets.bluetooth_headphone.showPercentage = checked
+            }
+
+            ConfigSwitch {
                 buttonIcon: "wb_sunny"
                 text: Translation.tr("Enable Shadows")
                 checked: Config.options.background.widgets.enableShadows ?? true

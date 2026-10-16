@@ -111,8 +111,12 @@ Item {
             Text {
                 id: cap
                 anchors.verticalCenter: parent.verticalCenter
+                width: Math.min(Math.ceil(cap.implicitWidth),
+                    Math.max(0, mast.width - (seal.visible ? seal.width + mast.spacing : 0)))
                 text: menu.title.toUpperCase()
                 color: Theme.inkDim
+                elide: Text.ElideRight
+                maximumLineCount: 1
                 font.family: Theme.font
                 font.pixelSize: Theme.fMicro
                 font.weight: Font.DemiBold

@@ -60,6 +60,7 @@ UtilityTile {
             topLeftRadius: tile.level >= 0.999 ? glass.cornerRadius : Math.min(3, height / 2)
             topRightRadius: tile.level >= 0.999 ? glass.cornerRadius : Math.min(3, height / 2)
             Behavior on height {
+                enabled: tile.live && !Appearance.reducedMotion
                 animation: ClockStyle.motionDefault.numberAnimation.createObject(this)
             }
         }
@@ -156,6 +157,7 @@ UtilityTile {
                             : day.modelData.glasses >= tile.goal ? ClockStyle.colTertiary
                             : ColorUtils.applyAlpha(ClockStyle.colPrimary, 0.45)
                         Behavior on height {
+                            enabled: tile.live && !Appearance.reducedMotion
                             animation: ClockStyle.motionDefault.numberAnimation.createObject(this)
                         }
                     }

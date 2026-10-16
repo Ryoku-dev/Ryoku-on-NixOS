@@ -16,15 +16,13 @@ BatteryPanel 1.0 utilities/BatteryPanel.qml
 BatteryTile 1.0 utilities/BatteryTile.qml
 singleton BedtimeService 1.0 services/BedtimeService.qml
 BedtimeTab 1.0 clockapp/tabs/BedtimeTab.qml
-singleton BluetoothDeviceImages 1.0 services/BluetoothDeviceImages.qml
 singleton BrowserSites 1.0 services/BrowserSites.qml
 CalendarPanel 1.0 utilities/CalendarPanel.qml
-singleton CalendarService 1.0 services/CalendarService.qml
 CalendarTile 1.0 utilities/CalendarTile.qml
 ClipboardPanel 1.0 utilities/ClipboardPanel.qml
 ClipboardTile 1.0 utilities/ClipboardTile.qml
 singleton Cliphist 1.0 services/Cliphist.qml
-ClockApp 1.0 clockapp/ClockApp.qml
+singleton ClockApp 1.0 clockapp/ClockApp.qml
 ClockAppContent 1.0 clockapp/ClockAppContent.qml
 ClockAppWindow 1.0 clockapp/ClockAppWindow.qml
 ClockButton 1.0 clock/ClockButton.qml
@@ -156,7 +154,6 @@ FilesTile 1.0 utilities/FilesTile.qml
 FloatingActionButton 1.0 common/FloatingActionButton.qml
 FolderFeed 1.0 utilities/FolderFeed.qml
 singleton GlobalFocusGrab 1.0 services/GlobalFocusGrab.qml
-singleton GoogleTasksService 1.0 services/GoogleTasksService.qml
 HighlightOverlay 1.0 settings/HighlightOverlay.qml
 KeyHint 1.0 settings/KeyHint.qml
 singleton LiveDraw 1.0 services/LiveDraw.qml
@@ -165,25 +162,20 @@ LiveDrawPanel 1.0 utilities/LiveDrawPanel.qml
 LiveDrawSettings 1.0 draw/LiveDrawSettings.qml
 LiveDrawTile 1.0 utilities/LiveDrawTile.qml
 LiveDrawWindow 1.0 draw/LiveDrawWindow.qml
-singleton LocalSend 1.0 services/LocalSend.qml
+LocalSendPopup 1.0 send/LocalSendPopup.qml
+LocalSendPopupContent 1.0 send/LocalSendPopupContent.qml
 MaterialLoadingIndicator 1.0 settings/MaterialLoadingIndicator.qml
 MaterialTextField 1.0 settings/MaterialTextField.qml
 Notch 1.0 common/Notch.qml
-NotesDocumentFile 1.0 services/notes/NotesDocumentFile.qml
-singleton NotesLinkPreview 1.0 services/notes/NotesLinkPreview.qml
-singleton NotesRevisions 1.0 services/notes/NotesRevisions.qml
-singleton NotesService 1.0 services/NotesService.qml
-NotesStore 1.0 services/notes/NotesStore.qml
-singleton NotesSync 1.0 services/notes/NotesSync.qml
 NoticeBox 1.0 settings/NoticeBox.qml
 singleton ObjectUtils 1.0 functions/ObjectUtils.qml
-singleton OutlookService 1.0 services/OutlookService.qml
 PomodoroConfig 1.0 settings/PomodoroConfig.qml
 PomodoroPanel 1.0 utilities/PomodoroPanel.qml
 PomodoroTab 1.0 clockapp/tabs/PomodoroTab.qml
 PomodoroTile 1.0 utilities/PomodoroTile.qml
 singleton ProgressService 1.0 services/ProgressService.qml
 ReminderCategoriesSheet 1.0 clockapp/reminders/ReminderCategoriesSheet.qml
+ReminderAlertPopup 1.0 alarm/ReminderAlertPopup.qml
 ReminderCategorySheet 1.0 clockapp/reminders/ReminderCategorySheet.qml
 ReminderCheck 1.0 clockapp/reminders/ReminderCheck.qml
 ReminderEditorSheet 1.0 clockapp/reminders/ReminderEditorSheet.qml
@@ -224,7 +216,6 @@ StopwatchTile 1.0 utilities/StopwatchTile.qml
 StyledSlider 1.0 settings/StyledSlider.qml
 StyledSpinBox 1.0 settings/StyledSpinBox.qml
 StyledTextArea 1.0 common/StyledTextArea.qml
-singleton SystemInfo 1.0 services/SystemInfo.qml
 TaskShortcutContent 1.0 common/TaskShortcutContent.qml
 singleton TaskbarApps 1.0 services/TaskbarApps.qml
 TileBadge 1.0 utilities/TileBadge.qml
@@ -240,12 +231,10 @@ TimerConfig 1.0 settings/TimerConfig.qml
 TimerKeypad 1.0 clockapp/tabs/TimerKeypad.qml
 TimerKeypadSheet 1.0 clockapp/tabs/TimerKeypadSheet.qml
 TimerPanel 1.0 utilities/TimerPanel.qml
-singleton TimerService 1.0 services/TimerService.qml
 TimerTab 1.0 clockapp/tabs/TimerTab.qml
 TimerTile 1.0 utilities/TimerTile.qml
 TimetableEventsStrip 1.0 clockapp/tabs/TimetableEventsStrip.qml
 TimezonePickerSheet 1.0 clockapp/tabs/TimezonePickerSheet.qml
-singleton Todo 1.0 services/Todo.qml
 ToolsConfig 1.0 settings/ToolsConfig.qml
 ToolsPanel 1.0 utilities/ToolsPanel.qml
 ToolsTile 1.0 utilities/ToolsTile.qml
@@ -255,7 +244,6 @@ UtilityPreview 1.0 utilities/UtilityPreview.qml
 UtilityTile 1.0 utilities/UtilityTile.qml
 WaterConfig 1.0 settings/WaterConfig.qml
 WaterPanel 1.0 utilities/WaterPanel.qml
-singleton WaterReminderService 1.0 services/WaterReminderService.qml
 WaterTile 1.0 utilities/WaterTile.qml
 WavyLine 1.0 settings/WavyLine.qml
 WorldAnalogClock 1.0 clockapp/tabs/WorldAnalogClock.qml
@@ -312,10 +300,8 @@ singleton Config 1.0 bridge/Config.qml
 singleton Directories 1.0 bridge/Directories.qml
 singleton DockStore 1.0 bridge/DockStore.qml
 singleton GlobalStates 1.0 bridge/GlobalStates.qml
-singleton HyprlandData 1.0 bridge/HyprlandData.qml
+singleton WmData 1.0 bridge/WmData.qml
 singleton IslandPolicy 1.0 bridge/IslandPolicy.qml
 singleton Persistent 1.0 bridge/Persistent.qml
-singleton SoundService 1.0 bridge/SoundService.qml
-singleton Weather 1.0 bridge/Weather.qml
 singleton Network 1.0 bridge/Network.qml
 singleton Notifications 1.0 bridge/Notifications.qml

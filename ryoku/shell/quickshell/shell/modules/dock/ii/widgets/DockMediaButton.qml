@@ -1,7 +1,6 @@
 import QtQuick
 import stage.modules.common.widgets
 import "../"
-import ".."
 
 DockButton {
     id: root

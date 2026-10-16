@@ -6,12 +6,13 @@ import stage.modules.common
 import stage.modules.common.widgets
 import stage.modules.ii.background.widgets
 import stage.services
+import shell.services as ShellServices
 AbstractBackgroundWidget {
     id: root
 
     property bool wallpaperSafetyTriggered: false
-    // State from Persistent screenRecord state
-    readonly property bool isActive: Persistent.states.screenRecord.active
+    // State and actions come from the shell's canonical recorder.
+    readonly property bool isActive: ShellServices.Recorder.active
     readonly property color pillBgColor: isActive ? WidgetColorScheme.accentColor : WidgetColorScheme.cardBgColor
     readonly property color contentColor: isActive ? WidgetColorScheme.onAccentColor : WidgetColorScheme.textColorOnBg
 
@@ -51,7 +52,10 @@ AbstractBackgroundWidget {
             colBackgroundHover: Qt.rgba(root.contentColor.r, root.contentColor.g, root.contentColor.b, 0.15)
             colRipple: Qt.rgba(root.contentColor.r, root.contentColor.g, root.contentColor.b, 0.3)
             onClicked: {
-                Quickshell.execDetached([Directories.recordScriptPath]);
+                if (root.isActive)
+                    ShellServices.Recorder.stop();
+                else
+                    ShellServices.Recorder.start(ShellServices.Recorder.recordArgs());
             }
 
             MaterialSymbol {

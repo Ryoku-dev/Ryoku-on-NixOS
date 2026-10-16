@@ -3,7 +3,6 @@ import QtQuick.Layouts
 import stage.services
 import stage.modules.common
 import stage.modules.common.widgets
-import stage.modules.settings.configs.widgets
 
 ContentPage {
     id: root
@@ -66,8 +65,33 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("pc_battery_cable")
 
-            DesktopWidgetVisualOptions {
-                Layout.fillWidth: true
+            ContentSubsectionLabel {
+                text: Translation.tr("Display")
+            }
+
+            ConfigSwitch {
+                buttonIcon: "percent"
+                text: Translation.tr("Show Battery Percentage")
+                checked: Config.options.background.widgets.pc_battery_cable.showPercentage ?? true
+                onCheckedChanged: Config.options.background.widgets.pc_battery_cable.showPercentage = checked
+            }
+
+            ConfigSwitch {
+                buttonIcon: "bolt"
+                text: Translation.tr("Show Charging Icon")
+                checked: Config.options.background.widgets.pc_battery_cable.showChargingIcon ?? true
+                onCheckedChanged: Config.options.background.widgets.pc_battery_cable.showChargingIcon = checked
+            }
+
+            ContentSubsectionLabel {
+                text: Translation.tr("Visual Options")
+            }
+
+            ConfigSwitch {
+                buttonIcon: "wb_sunny"
+                text: Translation.tr("Enable Shadows")
+                checked: Config.options.background.widgets.enableShadows ?? true
+                onCheckedChanged: Config.options.background.widgets.enableShadows = checked
             }
         }
     }

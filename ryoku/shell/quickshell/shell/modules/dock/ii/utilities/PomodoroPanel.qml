@@ -38,6 +38,7 @@ ColumnLayout {
 
         ClockProgressRing {
             anchors.centerIn: parent
+            live: panel.host?.panelOpen ?? panel.visible
             width: 204
             height: 204
             value: panel.secondsLeft / panel.lapDuration

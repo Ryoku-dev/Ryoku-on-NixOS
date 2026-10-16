@@ -108,7 +108,7 @@ function convert(value, categoryId, fromId, toId) {
 
 // Accepts "1,5", "1.5", "1 500", "-3".
 function parse(text) {
-    var s = String(text || "").trim().replace(/\s+/g, "");
+    var s = text === null || text === undefined ? "" : String(text).trim().replace(/\s+/g, "");
     if (s.length === 0)
         return NaN;
     // A lone comma is a decimal separator; with both, the last one is.

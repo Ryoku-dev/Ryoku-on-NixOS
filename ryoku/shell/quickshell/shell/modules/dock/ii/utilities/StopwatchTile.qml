@@ -77,10 +77,11 @@ UtilityTile {
             color: tile.started ? ColorUtils.applyAlpha(tile.contentColor, 0.12) : ClockStyle.colPrimaryContainer
             rotation: tile.seconds * 6
             Behavior on rotation {
-                enabled: !Appearance.reducedMotion && tile.running
+                enabled: tile.live && !Appearance.reducedMotion && tile.running
                 NumberAnimation { duration: 1000; easing.type: Easing.Linear }
             }
             Behavior on width {
+                enabled: tile.live && !Appearance.reducedMotion
                 animation: ClockStyle.motionDefault.numberAnimation.createObject(this)
             }
         }

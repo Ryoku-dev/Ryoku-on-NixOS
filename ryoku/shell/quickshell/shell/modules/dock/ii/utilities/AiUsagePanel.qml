@@ -18,6 +18,7 @@ ColumnLayout {
     readonly property var tile: panel.host?.tile ?? null
     readonly property var cfg: Config.options.dock.utilities.aiUsage
     readonly property var items: Array.from(panel.tile?.provider?.items ?? [])
+    readonly property var provider: panel.tile?.provider ?? null
     readonly property var providers: AiPlanUsage.displayProviders ?? []
     readonly property date minute: DateTime.clock.date
 
@@ -138,11 +139,22 @@ ColumnLayout {
             anchors.fill: parent
             anchors.margins: 14
             verticalAlignment: Text.AlignVCenter
-            text: AiPlanUsage.errorMessage || Translation.tr("No data for %1 yet. Sign in to it, or enable it in AI plan usage.").arg(panel.tile?.providerName ?? "")
+            text: String(panel.provider?.error ?? "") || AiPlanUsage.errorMessage
+                || Translation.tr("No data for %1 yet. Sign in to it, or enable it in AI plan usage.").arg(panel.tile?.providerName ?? "")
             color: ClockStyle.colOnSurfaceVariant
             font.pixelSize: ClockStyle.textNormal
             wrapMode: Text.WordWrap
         }
+    }
+
+    ClockButton {
+        Layout.fillWidth: true
+        visible: panel.provider?.needsSignIn === true
+        symbol: AiPlanUsage.claudeSignInPending ? "hourglass_top" : "login"
+        label: AiPlanUsage.claudeSignInPending
+            ? Translation.tr("Waiting for Claude Code…")
+            : Translation.tr("Refresh sign-in")
+        onClicked: AiPlanUsage.refreshClaudeSignIn()
     }
 
     RowLayout {

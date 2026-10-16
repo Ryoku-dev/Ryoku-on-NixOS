@@ -27,6 +27,7 @@ Item {
     property int tickDuration: 0
     /// Opt-in: the wave travels along the ring while it is on screen.
     property bool animateWave: false
+    property bool live: true
     property real wavePhase: 0
     property color colIndicator: ClockStyle.colPrimary
     property color colTrack: ClockStyle.colSecondaryContainer
@@ -37,10 +38,11 @@ Item {
     property real waveAmount: root.wavy ? 1 : 0
 
     Behavior on waveAmount {
-        enabled: !ClockStyle.reducedMotion
+        enabled: root.live && !ClockStyle.reducedMotion
         animation: ClockStyle.motionDefault.numberAnimation.createObject(this)
     }
     Behavior on colIndicator {
+        enabled: root.live && !ClockStyle.reducedMotion
         animation: ClockStyle.motionFast.colorAnimation.createObject(this)
     }
 
@@ -50,9 +52,16 @@ Item {
         property: "animatedValue"
     }
 
+    function settle() {
+        glide.stop();
+        root.animatedValue = root.clampedValue;
+    }
+
+    onLiveChanged: if (!root.live) root.settle()
+
     onClampedValueChanged: {
         glide.stop();
-        if (ClockStyle.reducedMotion || !root.visible) {
+        if (!root.live || ClockStyle.reducedMotion || !root.visible) {
             root.animatedValue = root.clampedValue;
             return;
         }
@@ -90,7 +99,7 @@ Item {
     }
 
     NumberAnimation on wavePhase {
-        running: root.animateWave && root.visible && root.amplitude > 0.01 && root.sweep > 0
+        running: root.live && root.animateWave && root.visible && root.amplitude > 0.01 && root.sweep > 0
         from: 0
         to: Math.PI * 2
         duration: 1600

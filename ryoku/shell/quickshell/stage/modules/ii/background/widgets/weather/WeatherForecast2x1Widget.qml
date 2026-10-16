@@ -15,16 +15,18 @@ AbstractBackgroundWidget {
     implicitWidth: 492
     implicitHeight: 240
 
+    readonly property var options: Config.options.background.widgets.weather_forecast
+    readonly property string colorScheme: (options.expressiveColors ?? true)
+        ? "expressive_primary" : "default"
     readonly property var currentData: Weather.data
     readonly property var forecastList: Weather.forecastData
     readonly property string cityLocation: currentData?.city ? currentData.city : ""
 
-    readonly property color cardBgColor: WidgetColorScheme.cardBgColor
-    readonly property color textColorOnBg: WidgetColorScheme.textColorOnBg
-
-    readonly property color leftPanelBgColor: WidgetColorScheme.innerShapeColor
-    readonly property color pillBgColor: WidgetColorScheme.pillBgColor
-    readonly property color heroTextColor: WidgetColorScheme.textColorOnBg
+    readonly property color cardBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
+    readonly property color textColorOnBg: WidgetColorScheme.getTextColorOnBg(colorScheme)
+    readonly property color leftPanelBgColor: WidgetColorScheme.getInnerShapeColor(colorScheme)
+    readonly property color pillBgColor: WidgetColorScheme.getPillBgColor(colorScheme)
+    readonly property color heroTextColor: WidgetColorScheme.getTextColorOnBg(colorScheme)
 
     StyledDropShadow {
         id: shadowEffect
@@ -51,6 +53,7 @@ AbstractBackgroundWidget {
                 Rectangle {
                     id: leftHeroCard
                     Layout.fillHeight: true
+                    Layout.fillWidth: !(root.options.showForecast ?? true)
                     Layout.preferredWidth: 210
                     radius: Appearance.rounding.windowRounding
                     color: WidgetColorScheme.tintBackground(root.leftPanelBgColor)
@@ -128,7 +131,7 @@ AbstractBackgroundWidget {
                 }
 
                 Repeater {
-                    model: 3
+                    model: (root.options.showForecast ?? true) ? 3 : 0
 
                     delegate: Rectangle {
                         id: dayPill
@@ -195,6 +198,7 @@ AbstractBackgroundWidget {
                 spacing: 8
 
                 StyledText {
+                    visible: root.options.showLocation ?? true
                     text: root.cityLocation
                     color: root.textColorOnBg
                     font.pixelSize: Appearance.font.pixelSize.small
@@ -203,6 +207,7 @@ AbstractBackgroundWidget {
                 }
 
                 RippleButton {
+                    visible: root.options.showRefresh ?? true
                     implicitWidth: 24
                     implicitHeight: 24
                     topLeftRadius: Appearance.rounding.full
@@ -220,9 +225,7 @@ AbstractBackgroundWidget {
                         color: root.textColorOnBg
                     }
 
-                    onClicked: {
-                        Weather.getData(true);
-                    }
+                    onClicked: Weather.getData(true)
                 }
             }
         }

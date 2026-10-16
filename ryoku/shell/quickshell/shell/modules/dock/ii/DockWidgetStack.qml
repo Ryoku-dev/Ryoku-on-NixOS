@@ -33,6 +33,9 @@ Item {
     readonly property int pageCount: root.members.length
     readonly property int currentIndex: Math.max(0, root.members.indexOf(root.currentType))
     readonly property string shownType: root.pageCount > 0 ? root.members[root.currentIndex] : ""
+    readonly property bool live: root.visible
+        && (root.dockContent?.dockWindowVisible ?? true)
+        && (root.dockContent?.dockRevealed ?? true)
 
     readonly property real dotMargin: root.dockContent?.dotMargin ?? 8
     readonly property real dotMarginV: root.dockContent?.dotMarginV ?? root.dotMargin
@@ -77,6 +80,14 @@ Item {
     // The page on show follows `shownType`; a change slides unless nothing is
     // on screen yet (first build) or the stack has a single page.
     onShownTypeChanged: root._present(root.shownType)
+    onLiveChanged: {
+        if (!root.live && root.sliding) {
+            slideAnimation.stop()
+            root._finishSlide()
+        }
+        if (root.live && !root.frontLoader.pageType)
+            root.frontLoader.pageType = root.shownType
+    }
     Component.onCompleted: {
         root.frontLoader.pageType = root.shownType;
     }
@@ -84,7 +95,7 @@ Item {
     function _present(type) {
         if (root.frontLoader.pageType === type)
             return;
-        if (!root.frontLoader.pageType || Appearance.reducedMotion || !root.visible) {
+        if (!root.frontLoader.pageType || Appearance.reducedMotion || !root.live) {
             slideAnimation.stop();
             root.backLoader.pageType = "";
             root.frontLoader.pageType = type;
@@ -167,7 +178,7 @@ Item {
             : root.slideDirection * root.travel * (1 - root.slideProgress))
         opacity: page.isFront ? 1 - Math.min(1, root.slideProgress * 1.4)
             : Math.min(1, root.slideProgress * 1.4)
-        active: page.pageType !== ""
+        active: page.pageType !== "" && root.live
         visible: active
         sourceComponent: root._componentFor(page.pageType)
     }
@@ -180,7 +191,7 @@ Item {
     property real _wheelAccumulator: 0
     WheelHandler {
         target: null
-        enabled: root.pageCount > 1
+        enabled: root.live && root.pageCount > 1
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: event => {
             event.accepted = true;
@@ -195,6 +206,35 @@ Item {
             const step = root._wheelAccumulator < 0 ? 1 : -1;
             root._wheelAccumulator = 0;
             root.turn(step);
+        }
+    }
+
+    // Touch screens turn the same pages with a short swipe. Touchpads arrive
+    // through WheelHandler above. The tasks page reserves vertical movement
+    // for its list and turns the stack with a horizontal swipe instead.
+    DragHandler {
+        id: swipeHandler
+        target: null
+        enabled: root.live && root.pageCount > 1 && !root.sliding
+        acceptedDevices: PointerDevice.TouchScreen
+        dragThreshold: 12
+        property real finalDelta: 0
+
+        onActiveTranslationChanged: {
+            if (active)
+                finalDelta = root.isVertical || root.shownType === "tasks"
+                    ? activeTranslation.x : activeTranslation.y
+        }
+        onActiveChanged: {
+            if (active) {
+                finalDelta = 0
+                return
+            }
+            const horizontal = root.isVertical || root.shownType === "tasks"
+            const threshold = Math.max(28, (horizontal ? root.width : root.height) * 0.32)
+            if (Math.abs(finalDelta) >= threshold)
+                root.turn(finalDelta < 0 ? 1 : -1)
+            finalDelta = 0
         }
     }
 
@@ -233,25 +273,37 @@ Item {
                         radius: dot / 2
                         color: current ? Appearance.colors.colPrimary : Appearance.colors.colOutlineVariant
 
+                        HoverHandler {
+                            margin: 4
+                            cursorShape: Qt.PointingHandCursor
+                        }
+                        TapHandler {
+                            margin: 4
+                            onTapped: {
+                                if (index === root.currentIndex)
+                                    return
+                                root._pendingDirection = index < root.currentIndex ? -1 : 1
+                                root.currentTypeRequested(root.members[index])
+                            }
+                        }
+
                         Behavior on width {
+                            enabled: !Appearance.reducedMotion
                             animation: Appearance.animation.elementMoveSmall.numberAnimation.createObject(this)
                         }
                         Behavior on height {
+                            enabled: !Appearance.reducedMotion
                             animation: Appearance.animation.elementMoveSmall.numberAnimation.createObject(this)
                         }
                         Behavior on color {
+                            enabled: !Appearance.reducedMotion
                             animation: Appearance.animation.elementMoveFast.colorAnimation.createObject(this)
                         }
                     }
                 }
             }
-
-            MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.turn(1)
-            }
         }
+
     }
 
     // ── Page components ────────────────────────────────────────────────────

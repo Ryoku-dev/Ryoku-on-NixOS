@@ -797,6 +797,12 @@ EOF
 
     python3
 
+    # ii desktop/dock runtime helpers. Upstream installs these in its base
+    # package set; on NixOS they live in the Ryoku service PATH instead.
+    khal
+    vdirsyncer
+    translate-shell
+
     # Rashin setup/runtime prerequisites. Rashin itself remains
     # opt-in; these mirror the dependencies of the upstream package.
     nix

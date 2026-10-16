@@ -10,13 +10,24 @@ import Quickshell.Io
 Singleton {
     id: root
 
-    readonly property var device: UPower.displayDevice
+    readonly property var displayDevice: UPower.displayDevice
+    // The display device is synthetic on some UPower versions and can lose
+    // laptop-battery metadata while the real pack remains present.
+    readonly property var device: {
+        const devices = UPower.devices?.values ?? [];
+        for (let i = 0; i < devices.length; ++i) {
+            const candidate = devices[i];
+            if (candidate?.isLaptopBattery && candidate?.isPresent)
+                return candidate;
+        }
+        return root.displayDevice;
+    }
 
     // A battery that has not reported yet lies: 0 %, state Unknown. Anything that acts on the level
     // (warnings, automatic suspend) waits for this instead of trusting cold-start values.
     readonly property bool deviceReady: (device?.ready ?? false) && (device?.isPresent ?? false)
 
-    property bool available: device?.isLaptopBattery ?? false
+    property bool available: (device?.isLaptopBattery ?? false) && (device?.isPresent ?? false)
     property var chargeState: device?.state ?? UPowerDeviceState.Unknown
     property bool isCharging: chargeState == UPowerDeviceState.Charging
     readonly property bool isFullyCharged: chargeState == UPowerDeviceState.FullyCharged
@@ -54,34 +65,16 @@ Singleton {
     readonly property bool atChargeCeiling: available
         && (chargeLimitReached || (isPluggedIn && (isFullyCharged || percent >= 100)))
 
-    property real health: (function() {
-        const devList = UPower.devices.values;
-        for (let i = 0; i < devList.length; ++i) {
-            const dev = devList[i];
-            if (dev.isLaptopBattery && dev.healthSupported) {
-                const health = dev.healthPercentage;
-                if (health === 0) {
-                    return 0.01;
-                } else if (health < 1) {
-                    return health * 100;
-                } else {
-                    return health;
-                }
-            }
-        }
-        return 0;
-    })()
-
-    property string batteryNativePath: {
-        const devList = UPower.devices.values;
-        for (let i = 0; i < devList.length; ++i) {
-            const dev = devList[i];
-            if (dev.isLaptopBattery) {
-                return dev.nativePath;
-            }
-        }
-        return "";
+    property real health: {
+        if (!root.available || !(device?.healthSupported ?? false))
+            return 0;
+        const value = Number(device.healthPercentage) || 0;
+        if (value === 0)
+            return 0.01;
+        return value < 1 ? value * 100 : value;
     }
+
+    property string batteryNativePath: root.available ? String(device?.nativePath ?? "") : ""
 
     property int cycles: -1
 
@@ -253,8 +246,10 @@ Singleton {
         id: cycleCountFile
         path: root.batteryNativePath ? `/sys/class/power_supply/${root.batteryNativePath}/cycle_count` : ""
         onLoaded: {
-            const val = parseInt(text().trim(), 10);
-            root.cycles = isNaN(val) ? -1 : val;
+            const value = parseInt(text().trim(), 10);
+            // Several drivers expose the file but report zero when the counter
+            // is unsupported; do not present that as a brand-new battery.
+            root.cycles = value > 0 ? value : -1;
         }
         onLoadFailed: {
             root.cycles = -1;

@@ -82,7 +82,8 @@ ContentPage {
                 currentValue: Config.options.background.widgets.at_a_glance.widthCells ?? 3
                 options: [
                     { displayName: Translation.tr("2x1 Compact"), icon: "view_week", value: 2 },
-                    { displayName: Translation.tr("3x1 Full"), icon: "view_column", value: 3 }
+                    { displayName: Translation.tr("3x1 Full"), icon: "view_column", value: 3 },
+                    { displayName: Translation.tr("4x1 Expanded"), icon: "fit_screen", value: 4 }
                 ]
                 onSelected: value => Config.options.background.widgets.at_a_glance.widthCells = value
             }
@@ -113,12 +114,6 @@ ContentPage {
                 onCheckedChanged: Config.options.background.widgets.at_a_glance.enableCalendar = checked
             }
 
-            ConfigSwitch {
-                buttonIcon: "sports_soccer"
-                text: Translation.tr("Use sports context")
-                checked: Config.options.background.widgets.at_a_glance.enableSports ?? true
-                onCheckedChanged: Config.options.background.widgets.at_a_glance.enableSports = checked
-            }
 
             ConfigSwitch {
                 buttonIcon: "task_alt"
@@ -164,21 +159,12 @@ ContentPage {
                 icon: "event_upcoming"
                 text: Translation.tr("Calendar window (minutes)")
                 value: Config.options.background.widgets.at_a_glance.calendarWindowMinutes ?? 60
-                from: 0
+                from: 15
                 to: 720
                 stepSize: 15
                 onValueChanged: Config.options.background.widgets.at_a_glance.calendarWindowMinutes = value
             }
 
-            ConfigSpinBox {
-                icon: "schedule"
-                text: Translation.tr("Sports window (hours)")
-                value: Config.options.background.widgets.at_a_glance.sportsWindowHours ?? 12
-                from: 0
-                to: 168
-                stepSize: 1
-                onValueChanged: Config.options.background.widgets.at_a_glance.sportsWindowHours = value
-            }
         }
     }
 }

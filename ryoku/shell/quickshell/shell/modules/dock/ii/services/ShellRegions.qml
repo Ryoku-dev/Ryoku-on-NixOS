@@ -9,10 +9,10 @@ import ".."
  * Visible content of the shell's own surfaces, for the region selector.
  *
  * Most overlays (cheatsheet, notification popups, island, sidebars…) are
- * full-screen layer surfaces that draw one card in the middle, so the layer
- * geometry Hyprland reports says nothing about what is on screen. Each such
- * surface drops a `ShellRegionTarget` on its card; `freeze()` records where
- * every visible card is, in global logical coordinates.
+ * full-screen layer surfaces that draw one card in the middle, so the surface
+ * geometry says nothing about what is on screen. Each such surface drops a
+ * `ShellRegionTarget` on its card; `freeze()` records where every visible card
+ * is, in global logical coordinates.
  *
  * Frozen once per capture, not read live: opening the selector takes keyboard
  * focus, and focus-grabbed overlays close (and unregister) right after.
@@ -40,26 +40,11 @@ Singleton {
         return o;
     }
 
-    // Where the window holding `item` sits on its monitor. Layer surfaces do
-    // not know their own position; match the layer by namespace (when given)
-    // and size, and fall back to the monitor origin for full-screen surfaces.
+    // Layer surfaces do not know their global origin. Qt exposes each output's
+    // global origin, which is exact for the full-screen surfaces registered here.
     function windowOrigin(win, screenName, namespace) {
-        const monitor = (Quickshell.screens || []).find(m => m.name === screenName);
-        const mx = monitor?.x ?? 0;
-        const my = monitor?.y ?? 0;
-        const levels = HyprlandData.layers?.[screenName]?.levels ?? {};
-        let best = null;
-        for (const key in levels) {
-            for (const layer of levels[key]) {
-                if (layer.w !== Math.round(win.width) || layer.h !== Math.round(win.height))
-                    continue;
-                if (namespace && layer.namespace === namespace)
-                    return [layer.x, layer.y];
-                if (!best)
-                    best = layer;
-            }
-        }
-        return best ? [best.x, best.y] : [mx, my];
+        const output = (Quickshell.screens || []).find(candidate => candidate.name === screenName);
+        return [output?.x ?? 0, output?.y ?? 0];
     }
 
     function freeze() {

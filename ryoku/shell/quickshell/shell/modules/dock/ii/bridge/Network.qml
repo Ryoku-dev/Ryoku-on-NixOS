@@ -18,6 +18,8 @@ Singleton {
     id: root
 
     readonly property bool ethernet: RyokuNet.Network.kind === "ethernet"
+    readonly property bool wifiEnabled: RyokuNet.Network.wifiRadio
+    readonly property var active: RyokuNet.Network.wifi
     readonly property string wifiStatus: {
         const c = String(RyokuNet.Network.wifiConnectivity ?? "").toLowerCase();
         return c === "connected" ? "connected" : c;

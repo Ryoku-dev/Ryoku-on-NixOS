@@ -66,6 +66,17 @@ ContentPage {
             spacing: 4
             visible: Config.isWidgetActive("bluetooth_battery")
 
+            ContentSubsectionLabel {
+                text: Translation.tr("Display")
+            }
+
+            ConfigSwitch {
+                buttonIcon: "percent"
+                text: Translation.tr("Show Battery Percentage")
+                checked: Config.options.background.widgets.bluetooth_battery.showPercentage ?? true
+                onCheckedChanged: Config.options.background.widgets.bluetooth_battery.showPercentage = checked
+            }
+
             DesktopWidgetVisualOptions {
                 Layout.fillWidth: true
             }

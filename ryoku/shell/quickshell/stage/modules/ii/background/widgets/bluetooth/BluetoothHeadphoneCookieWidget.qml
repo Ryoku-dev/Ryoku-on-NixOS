@@ -16,6 +16,7 @@ AbstractBackgroundWidget {
     implicitHeight: 240
 
     readonly property string selectedShape: Config.options.background.widgets.bluetooth_headphone_cookie.materialShape ?? "Cookie12Sided"
+    readonly property bool showPercentage: Config.options.background.widgets.bluetooth_headphone_cookie.showPercentage ?? true
 
     // Device & Battery detection
     readonly property var activeDevices: BluetoothStatus.connectedDevices
@@ -128,7 +129,7 @@ AbstractBackgroundWidget {
                     anchors.verticalCenterOffset: -44
                     width: 140
                     height: 80
-                    visible: root.isConnected
+                    visible: root.isConnected && root.showPercentage
 
                     Text {
                         anchors.centerIn: parent

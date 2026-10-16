@@ -1,11 +1,27 @@
 import QtQuick
 import QtQuick.Layouts
+import Ryoku.Ui as RyokuUi
 import stage.services
 import stage.modules.common
 import stage.modules.common.widgets
 ContentPage {
     id: root
     forceWidth: false
+
+    readonly property var configEntry: Config.options.background.widgets.photo_1x1
+    readonly property string currentImagePath: String(root.configEntry?.imagePath ?? "")
+
+    function setImagePath(path) {
+        if (root.configEntry)
+            root.configEntry.imagePath = path;
+    }
+
+    RyokuUi.FileDialogHost {
+        id: imageDialog
+        title: Translation.tr("Choose an image")
+        nameFilters: [Translation.tr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)"), Translation.tr("All files (*)")]
+        onAccepted: root.setImagePath(String(imageDialog.selectedFile))
+    }
 
     signal goBack
 
@@ -70,14 +86,13 @@ ContentPage {
                 Layout.fillWidth: true
                 materialIcon: "folder_open"
                 mainText: Translation.tr("Choose Image")
-                enabled: !WidgetPhotoPicker.picking
-                onClicked: WidgetPhotoPicker.pick("photo_1x1")
+                onClicked: imageDialog.open()
             }
 
             StyledText {
                 Layout.fillWidth: true
-                visible: WidgetPhotoPicker.currentPath("photo_1x1") !== ""
-                text: Translation.tr("Current image: %1").arg(WidgetPhotoPicker.currentPath("photo_1x1"))
+                visible: root.currentImagePath !== ""
+                text: Translation.tr("Current image: %1").arg(root.currentImagePath)
                 font.pixelSize: Appearance.font.pixelSize.small
                 color: Appearance.colors.colOnSurfaceVariant
                 wrapMode: Text.Wrap
@@ -85,10 +100,10 @@ ContentPage {
 
             RippleButtonWithIcon {
                 Layout.fillWidth: true
-                visible: WidgetPhotoPicker.currentPath("photo_1x1") !== ""
+                visible: root.currentImagePath !== ""
                 materialIcon: "delete"
                 mainText: Translation.tr("Remove Custom Image")
-                onClicked: WidgetPhotoPicker.clear("photo_1x1")
+                onClicked: root.setImagePath("")
             }
 
             // ── Material Shape Selection ─────────────────────────────────────
@@ -115,6 +130,15 @@ ContentPage {
 
             // ── Size & Appearance ────────────────────────────────────────────
             ContentSubsectionLabel { text: Translation.tr("Size & Appearance") }
+
+            ConfigSelectionArray {
+                currentValue: root.configEntry?.fitMode ?? "crop"
+                onSelected: value => root.configEntry.fitMode = value
+                options: [
+                    { "displayName": Translation.tr("Crop to fill"), "value": "crop" },
+                    { "displayName": Translation.tr("Fit whole image"), "value": "fit" }
+                ]
+            }
 
             ConfigSlider {
                 buttonIcon: "aspect_ratio"

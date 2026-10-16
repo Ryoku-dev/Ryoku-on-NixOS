@@ -12,13 +12,15 @@ AbstractBackgroundWidget {
 
     configEntryName: "weather_icon"
 
-    readonly property string shapeString: Config.options.background.widgets.weather_icon.backgroundShape ?? "Cookie12Sided"
+    readonly property var options: Config.options.background.widgets.weather_icon
+    readonly property string shapeString: options.backgroundShape ?? "Cookie12Sided"
+    readonly property string colorScheme: (options.expressiveColors ?? true)
+        ? "expressive_primary" : "default"
 
     implicitWidth: 240
     implicitHeight: 240
 
-    readonly property color cardBgColor: WidgetColorScheme.cardBgColor
-    readonly property color iconColor: WidgetColorScheme.textColorOnBg
+    readonly property color cardBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
 
     StyledDropShadow {
         id: shadowEffect
@@ -38,7 +40,8 @@ AbstractBackgroundWidget {
             anchors.fill: parent
             shapeString: parent.shapeString
             color: WidgetColorScheme.tintBackground(root.cardBgColor)
-            visible: !(Config.options.background.widgets.enableInnerShadow ?? true)
+            visible: (root.options.showBackground ?? true)
+                && !(Config.options.background.widgets.enableInnerShadow ?? true)
         }
 
         InnerShadow {
@@ -48,7 +51,8 @@ AbstractBackgroundWidget {
             samples: 49
             color: Qt.rgba(0, 0, 0, 0.35)
             source: bgShape
-            visible: Config.options.background.widgets.enableInnerShadow ?? true
+            visible: (root.options.showBackground ?? true)
+                && (Config.options.background.widgets.enableInnerShadow ?? true)
         }
 
         Image {

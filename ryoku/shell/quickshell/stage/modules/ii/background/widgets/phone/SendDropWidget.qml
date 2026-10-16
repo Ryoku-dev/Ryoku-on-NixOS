@@ -9,7 +9,7 @@ import stage.modules.common
 import stage.modules.common.widgets
 import stage.modules.common.functions
 import stage.modules.ii.background.widgets
-import "../../../dock/utilities/UtilityFiles.js" as UtilityFiles
+import "../../../../common/functions/UtilityFiles.js" as UtilityFiles
 
 /*
  * Send (2x1): files to a phone over KDE Connect or to a LocalSend device on
@@ -68,7 +68,7 @@ ExpressiveCardWidget {
             LocalSend.sendToDevice(root.localIp);
         } else {
             for (const path of paths)
-                KdeConnectService.shareUrl(root.kdeDeviceId, UtilityFiles.fileUri(path));
+                KdeConnectService.shareUrl(UtilityFiles.fileUri(path), root.kdeDeviceId);
         }
         root.lastSent = paths.length;
         sentTimer.restart();

@@ -1,6 +1,7 @@
 module stage.modules.settings.configs.widgets
 DateDesktopWidgetConfig 1.0 DateDesktopWidgetConfig.qml
 DesktopAiChatConfig 1.0 DesktopAiChatConfig.qml
+DesktopAndroidMediaConfig 1.0 DesktopAndroidMediaConfig.qml
 DesktopAndroidSearchBarConfig 1.0 DesktopAndroidSearchBarConfig.qml
 DesktopAtAGlanceConfig 1.0 DesktopAtAGlanceConfig.qml
 DesktopBluetoothBatteryConfig 1.0 DesktopBluetoothBatteryConfig.qml
@@ -27,9 +28,13 @@ DesktopDialClockConfig 1.0 DesktopDialClockConfig.qml
 DesktopDigitalClockConfig 1.0 DesktopDigitalClockConfig.qml
 DesktopDiskPillConfig 1.0 DesktopDiskPillConfig.qml
 DesktopEasyEffectsPresetConfig 1.0 DesktopEasyEffectsPresetConfig.qml
+DesktopEasyEffectsPresetLandscapeConfig 1.0 DesktopEasyEffectsPresetLandscapeConfig.qml
+DesktopEasyEffectsPresetPortraitConfig 1.0 DesktopEasyEffectsPresetPortraitConfig.qml
 DesktopEmailWidgetConfig 1.0 DesktopEmailWidgetConfig.qml
+DesktopExpressiveCardClockConfig 1.0 DesktopExpressiveCardClockConfig.qml
 DesktopExpressiveMediaConfig 1.0 DesktopExpressiveMediaConfig.qml
 DesktopFlexClockConfig 1.0 DesktopFlexClockConfig.qml
+DesktopGridCardClockConfig 1.0 DesktopGridCardClockConfig.qml
 DesktopHoriClockConfig 1.0 DesktopHoriClockConfig.qml
 DesktopIosClockConfig 1.0 DesktopIosClockConfig.qml
 DesktopMediaWidgetConfig 1.0 DesktopMediaWidgetConfig.qml
@@ -57,16 +62,17 @@ DesktopScallopDotClockConfig 1.0 DesktopScallopDotClockConfig.qml
 DesktopScallopNumberClockConfig 1.0 DesktopScallopNumberClockConfig.qml
 DesktopSearchPillConfig 1.0 DesktopSearchPillConfig.qml
 DesktopTripleRingClockConfig 1.0 DesktopTripleRingClockConfig.qml
-DesktopVolumeMuteConfig 1.0 DesktopVolumeMuteConfig.qml
 DesktopWaterReminderConfig 1.0 DesktopWaterReminderConfig.qml
 DesktopWearOSArcClockConfig 1.0 DesktopWearOSArcClockConfig.qml
 DesktopWearOSClockWidgetConfig 1.0 DesktopWearOSClockWidgetConfig.qml
+DesktopWeatherBehaviorOptions 1.0 DesktopWeatherBehaviorOptions.qml
 DesktopWeatherCardConfig 1.0 DesktopWeatherCardConfig.qml
 DesktopWeatherCircleConfig 1.0 DesktopWeatherCircleConfig.qml
 DesktopWeatherForecastConfig 1.0 DesktopWeatherForecastConfig.qml
 DesktopWeatherHourlyConfig 1.0 DesktopWeatherHourlyConfig.qml
 DesktopWeatherIconConfig 1.0 DesktopWeatherIconConfig.qml
 DesktopWeatherPillConfig 1.0 DesktopWeatherPillConfig.qml
+DesktopWeatherShadowOptions 1.0 DesktopWeatherShadowOptions.qml
 DesktopWeatherTypographyConfig 1.0 DesktopWeatherTypographyConfig.qml
 DesktopWeatherWidgetConfig 1.0 DesktopWeatherWidgetConfig.qml
 DesktopWidgetVisualOptions 1.0 DesktopWidgetVisualOptions.qml

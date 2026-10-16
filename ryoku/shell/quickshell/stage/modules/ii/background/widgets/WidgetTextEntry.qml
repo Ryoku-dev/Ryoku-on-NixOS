@@ -22,6 +22,13 @@ Item {
     // The field has had the keyboard since begin(): losing it now means the
     // user went elsewhere, while before that it is only the surface catching up.
     property bool _hadFocus: false
+    onHoldingChanged: {
+        if (holding || !root.field)
+            return;
+        root._hadFocus = false;
+        graceTimer.stop();
+        root.field.focus = false;
+    }
 
     function begin() {
         if (!root.field)

@@ -41,9 +41,11 @@ Item {
             ? (button.hovered ? ColorUtils.mix(button.colFilled, button.colOnFilled, 0.88) : button.colFilled)
             : ColorUtils.applyAlpha(button.colContent, button.pressed ? 0.24 : button.hovered ? 0.16 : 0.08)
         Behavior on radius {
+            enabled: !Appearance.reducedMotion
             animation: ClockStyle.motionFast.numberAnimation.createObject(this)
         }
         Behavior on color {
+            enabled: !Appearance.reducedMotion
             animation: ClockStyle.motionFast.colorAnimation.createObject(this)
         }
     }

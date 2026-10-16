@@ -11,6 +11,10 @@ AbstractBackgroundWidget {
     id: root
 
     configEntryName: "devices_battery_list_1x1"
+    readonly property int maxDevices: Config.options.background.widgets.devices_battery_list_1x1.maxDevices ?? 4
+    readonly property int slotCount: Math.max(1, Math.min(4, root.maxDevices))
+    readonly property bool showDeviceName: Config.options.background.widgets.devices_battery_list_1x1.showDeviceName ?? true
+    readonly property bool showPercentage: Config.options.background.widgets.devices_battery_list_1x1.showPercentage ?? true
 
     // 1x1 Compact Geometry
     implicitWidth: 240
@@ -32,11 +36,11 @@ AbstractBackgroundWidget {
                 battery: Battery.percentage ?? 1.0,
                 charging: Battery.isCharging || Battery.isPluggedIn,
                 symbol: "laptop",
-                accent: Appearance.colors.colPrimary,
-                onAccent: Appearance.colors.colOnPrimary,
-                container: Appearance.colors.colPrimaryContainer,
-                onContainer: Appearance.colors.colOnPrimaryContainer,
-                containerHover: Appearance.colors.colPrimaryContainerHover
+                accent: WidgetColorScheme.colors.colPrimary,
+                onAccent: WidgetColorScheme.colors.colOnPrimary,
+                container: WidgetColorScheme.colors.colPrimaryContainer,
+                onContainer: WidgetColorScheme.colors.colOnPrimaryContainer,
+                containerHover: WidgetColorScheme.colors.colPrimaryContainerHover
             });
         }
 
@@ -47,11 +51,11 @@ AbstractBackgroundWidget {
                 battery: (KdeConnectService.activeDevice.charge ?? 100) / 100.0,
                 charging: KdeConnectService.activeDevice.isCharging ?? false,
                 symbol: "smartphone",
-                accent: Appearance.colors.colTertiary,
-                onAccent: Appearance.colors.colOnTertiary,
-                container: Appearance.colors.colTertiaryContainer,
-                onContainer: Appearance.colors.colOnTertiaryContainer,
-                containerHover: Appearance.colors.colTertiaryContainerHover
+                accent: WidgetColorScheme.colors.colTertiary,
+                onAccent: WidgetColorScheme.colors.colOnTertiary,
+                container: WidgetColorScheme.colors.colTertiaryContainer,
+                onContainer: WidgetColorScheme.colors.colOnTertiaryContainer,
+                containerHover: WidgetColorScheme.colors.colTertiaryContainerHover
             });
         }
 
@@ -69,11 +73,11 @@ AbstractBackgroundWidget {
                 battery: battVal,
                 charging: false,
                 symbol: symbol !== "" ? symbol : "headphones",
-                accent: Appearance.colors.colSecondaryContainer,
-                onAccent: Appearance.colors.colOnSecondaryContainer,
-                container: ColorUtils.mix(Appearance.colors.colSecondary, Appearance.colors.colSecondaryContainer, 0.5),
-                onContainer: Appearance.colors.colOnSecondary,
-                containerHover: ColorUtils.mix(Appearance.colors.colSecondary, Appearance.colors.colSecondaryContainer, 0.7)
+                accent: WidgetColorScheme.colors.colSecondaryContainer,
+                onAccent: WidgetColorScheme.colors.colOnSecondaryContainer,
+                container: ColorUtils.mix(WidgetColorScheme.colors.colSecondary, WidgetColorScheme.colors.colSecondaryContainer, 0.5),
+                onContainer: WidgetColorScheme.colors.colOnSecondary,
+                containerHover: ColorUtils.mix(WidgetColorScheme.colors.colSecondary, WidgetColorScheme.colors.colSecondaryContainer, 0.7)
             });
         }
 
@@ -98,7 +102,7 @@ AbstractBackgroundWidget {
             spacing: 6
 
             Repeater {
-                model: 4 // Fixed 4 compact battery slots
+                model: root.slotCount
 
                 delegate: Item {
                     id: rowSlot
@@ -109,7 +113,7 @@ AbstractBackgroundWidget {
                     readonly property bool hasItem: itemData !== null
                     readonly property real fillPct: hasItem ? Math.min(1.0, Math.max(0.0, itemData.battery)) : 0.0
                     readonly property int displayPercent: Math.round(fillPct * 100)
-                    readonly property color activeOnColor: hasItem ? itemData.onContainer : Appearance.colors.colOnSurfaceVariant
+                    readonly property color activeOnColor: hasItem ? itemData.onContainer : WidgetColorScheme.colors.colOnSurfaceVariant
 
                     // Compact Pill Background Track
                     Rectangle {
@@ -155,25 +159,25 @@ AbstractBackgroundWidget {
                                 text: rowSlot.hasItem ? rowSlot.itemData.symbol : "devices"
                                 iconSize: 17
                                 fill: 1
-                                color: hasItem ? itemData.onContainer : Appearance.colors.colOnSurfaceVariant
+                                color: hasItem ? itemData.onContainer : WidgetColorScheme.colors.colOnSurfaceVariant
                             }
 
                             StyledText {
                                 Layout.fillWidth: true
-                                visible: rowSlot.hasItem
+                                visible: rowSlot.hasItem && root.showDeviceName
                                 text: rowSlot.hasItem ? rowSlot.itemData.name : ""
                                 font.pixelSize: 12
                                 font.weight: Font.Medium
-                                color: hasItem ? itemData.onContainer : Appearance.colors.colOnSurfaceVariant
+                                color: hasItem ? itemData.onContainer : WidgetColorScheme.colors.colOnSurfaceVariant
                                 elide: Text.ElideRight
                             }
 
-                            Item { Layout.fillWidth: true; visible: !rowSlot.hasItem }
+                            Item { Layout.fillWidth: true; visible: !rowSlot.hasItem || !root.showDeviceName }
 
                             Text {
-                                visible: rowSlot.hasItem
+                                visible: rowSlot.hasItem && root.showPercentage
                                 text: rowSlot.displayPercent + "%"
-                                color: hasItem ? itemData.onContainer : Appearance.colors.colOnSurfaceVariant
+                                color: hasItem ? itemData.onContainer : WidgetColorScheme.colors.colOnSurfaceVariant
                                 font {
                                     pixelSize: 12
                                     weight: Font.Medium
@@ -193,7 +197,7 @@ AbstractBackgroundWidget {
                                     text: "bolt"
                                     iconSize: 13
                                     fill: 1
-                                    color: itemData ? itemData.onAccent : Appearance.colors.colOnPrimary
+                                    color: itemData ? itemData.onAccent : WidgetColorScheme.colors.colOnPrimary
                                 }
                             }
                         }
@@ -222,25 +226,25 @@ AbstractBackgroundWidget {
                                 text: rowSlot.hasItem ? rowSlot.itemData.symbol : "devices"
                                 iconSize: 17
                                 fill: 1
-                                color: itemData ? itemData.onAccent : Appearance.colors.colOnPrimary
+                                color: itemData ? itemData.onAccent : WidgetColorScheme.colors.colOnPrimary
                             }
 
                             StyledText {
                                 Layout.fillWidth: true
-                                visible: rowSlot.hasItem
+                                visible: rowSlot.hasItem && root.showDeviceName
                                 text: rowSlot.hasItem ? rowSlot.itemData.name : ""
                                 font.pixelSize: 12
                                 font.weight: Font.Medium
-                                color: itemData ? itemData.onAccent : Appearance.colors.colOnPrimary
+                                color: itemData ? itemData.onAccent : WidgetColorScheme.colors.colOnPrimary
                                 elide: Text.ElideRight
                             }
 
-                            Item { Layout.fillWidth: true; visible: !rowSlot.hasItem }
+                            Item { Layout.fillWidth: true; visible: !rowSlot.hasItem || !root.showDeviceName }
 
                             Text {
-                                visible: rowSlot.hasItem
+                                visible: rowSlot.hasItem && root.showPercentage
                                 text: rowSlot.displayPercent + "%"
-                                color: itemData ? itemData.onAccent : Appearance.colors.colOnPrimary
+                                color: itemData ? itemData.onAccent : WidgetColorScheme.colors.colOnPrimary
                                 font {
                                     pixelSize: 12
                                     weight: Font.Medium
@@ -260,7 +264,7 @@ AbstractBackgroundWidget {
                                     text: "bolt"
                                     iconSize: 13
                                     fill: 1
-                                    color: itemData ? itemData.onAccent : Appearance.colors.colOnPrimary
+                                    color: itemData ? itemData.onAccent : WidgetColorScheme.colors.colOnPrimary
                                 }
                             }
                         }
