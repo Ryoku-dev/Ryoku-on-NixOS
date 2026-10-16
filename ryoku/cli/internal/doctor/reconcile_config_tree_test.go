@@ -261,6 +261,7 @@ func TestReconcileConfigTreeEntryPointMissingAfterMaterializeFails(t *testing.T)
 func TestReconcileConfigTreeHealsALaidTreeMissingGeneratedIncludes(t *testing.T) {
 	home, _ := configTreeFixture(t, wm.ProviderNiri)
 	t.Setenv("RYOKU_WM", wm.ProviderNiri)
+	swapSessionLive(t, false)
 	if err := os.MkdirAll(filepath.Join(home, ".config", "niri"), 0o755); err != nil {
 		t.Fatal(err)
 	}
