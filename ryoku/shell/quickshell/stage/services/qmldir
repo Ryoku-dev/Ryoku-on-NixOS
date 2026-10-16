@@ -28,3 +28,5 @@ singleton WaterReminderService 1.0 WaterReminderService.qml
 singleton Weather 1.0 Weather.qml
 singleton WidgetColorScheme 1.0 WidgetColorScheme.qml
 singleton WidgetExtensionManager 1.0 WidgetExtensionManager.qml
+singleton SearchRegistry 1.0 SearchRegistry.qml
+singleton MprisController 1.0 MprisController.qml

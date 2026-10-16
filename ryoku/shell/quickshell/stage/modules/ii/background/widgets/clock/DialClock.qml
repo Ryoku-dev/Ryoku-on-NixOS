@@ -25,11 +25,12 @@ Item {
     readonly property int clockMinute: DateTime.clock.minutes
     property int clockSecond: DateTime.clock.seconds
 
-    // The shared DateTime clock advances on minute boundaries. A per-face
-    // second tick is needed only when this face actually draws a second hand.
+    /** Set by the widget hosting this dial: false while the desktop is covered. */
+    property bool live: true
+
     Timer {
         interval: 1000
-        running: root.visible && root.showSecondHand
+        running: root.live
         repeat: true
         triggeredOnStart: true
         onTriggered: root.clockSecond = new Date().getSeconds()

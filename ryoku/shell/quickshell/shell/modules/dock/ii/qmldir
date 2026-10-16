@@ -190,7 +190,6 @@ LiveDrawWindow 1.0 draw/LiveDrawWindow.qml
 singleton LocalSend 1.0 services/LocalSend.qml
 MaterialLoadingIndicator 1.0 settings/MaterialLoadingIndicator.qml
 MaterialTextField 1.0 settings/MaterialTextField.qml
-singleton MprisController 1.0 services/MprisController.qml
 Notch 1.0 common/Notch.qml
 NotesDocumentFile 1.0 services/notes/NotesDocumentFile.qml
 singleton NotesLinkPreview 1.0 services/notes/NotesLinkPreview.qml

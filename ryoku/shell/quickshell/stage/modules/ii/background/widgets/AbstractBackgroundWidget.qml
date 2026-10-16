@@ -43,6 +43,16 @@ AbstractWidget {
     property var widgetListModel: null
     property var widgetSizes: ({})
     property int widgetSizesVersion: 0
+    // A host (or Edit Mode) can park the widget's clocks and refresh timers
+    // without hiding it; `live` gates the per-second work the faces share.
+    property bool paused: false
+    readonly property bool live: !root.paused && root.visible && root.opacity > 0
+    readonly property var instanceImagePath: {
+        if (!root.widgetInstance)
+            return undefined;
+        const entry = WidgetPlacement.findEntry(Config.options.background.activeWidgets, root.widgetInstance.id);
+        return entry && entry.imagePath !== undefined ? String(entry.imagePath) : undefined;
+    }
     property var configEntry: widgetInstance !== null ? widgetInstance : (Config.options.background.widgets[configEntryName] || null)
     property string placementStrategy: isPreview ? "free" : (widgetInstance !== null ? (widgetInstance.placementStrategy || "free") : (configEntry ? configEntry.placementStrategy : "free"))
     property string lockBehavior: widgetInstance ? (widgetInstance.lockBehavior || "hide") : "hide"
@@ -66,12 +76,7 @@ AbstractWidget {
         return result;
     }
 
-    readonly property var centeredWidgetsList: {
-        if (backgroundScope && backgroundScope.widgetSyncVersion !== undefined) {
-            backgroundScope.widgetSyncVersion; // dependency to force re-evaluation
-        }
-        return getCenteredWidgetsList() ?? [];
-    }
+    readonly property var centeredWidgetsList: getCenteredWidgetsList() ?? []
     readonly property int centeredWidgetCount: (centeredWidgetsList ?? []).length
     readonly property int centeredWidgetIndex: {
         if (!widgetInstance) return 0;
@@ -1412,7 +1417,7 @@ AbstractWidget {
 
     property bool wallpaperIsVideo: Config.options.background.wallpaperPath.endsWith(".mp4") || Config.options.background.wallpaperPath.endsWith(".webm") || Config.options.background.wallpaperPath.endsWith(".mkv") || Config.options.background.wallpaperPath.endsWith(".avi") || Config.options.background.wallpaperPath.endsWith(".mov")
     property string wallpaperPath: wallpaperIsVideo ? Config.options.background.thumbnailPath : Config.options.background.wallpaperPath
-    
+
     onWallpaperPathChanged: refreshPlacementIfNeeded()
     onPlacementStrategyChanged: refreshPlacementIfNeeded()
     Connections {

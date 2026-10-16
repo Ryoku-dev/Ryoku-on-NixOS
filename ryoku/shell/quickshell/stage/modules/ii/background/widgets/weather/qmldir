@@ -1,2 +1,12 @@
 module stage.modules.ii.background.widgets.weather
 NothingWeatherIcon 1.0 NothingWeatherIcon.qml
+ExpressiveWeatherWidget 1.0 ExpressiveWeatherWidget.qml
+NothingWeatherWidget 1.0 NothingWeatherWidget.qml
+WeatherCard1x1Widget 1.0 WeatherCard1x1Widget.qml
+WeatherCircleWidget 1.0 WeatherCircleWidget.qml
+WeatherForecast2x1Widget 1.0 WeatherForecast2x1Widget.qml
+WeatherHourly2x1Widget 1.0 WeatherHourly2x1Widget.qml
+WeatherIconWidget 1.0 WeatherIconWidget.qml
+WeatherPillWidget 1.0 WeatherPillWidget.qml
+WeatherTypographyWidget 1.0 WeatherTypographyWidget.qml
+WeatherWidget 1.0 WeatherWidget.qml

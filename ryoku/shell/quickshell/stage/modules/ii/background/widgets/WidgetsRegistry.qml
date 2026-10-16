@@ -808,6 +808,15 @@ Singleton {
         return meta ? meta.qmlPath : "";
     }
 
+    // The per-widget Settings page, resolved against this file. The Settings
+    // tree lives beside the ii tree, so the path climbs out of the widget
+    // directory. Empty when the widget ships none.
+    function getConfigPagePath(widgetId) {
+        let meta = getWidgetMetadata(widgetId);
+        const page = meta ? String(meta.configPage ?? "") : "";
+        return page === "" ? "" : Qt.resolvedUrl("../../../settings/configs/" + page);
+    }
+
     function getStyleOverride(widgetId) {
         let meta = getWidgetMetadata(widgetId);
         return meta ? meta.styleOverride : undefined;

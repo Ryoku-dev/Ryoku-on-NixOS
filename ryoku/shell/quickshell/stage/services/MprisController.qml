@@ -10,8 +10,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Mpris
-import stage.services
-import ".."
+import stage.modules.common
 
 /**
  * A service that provides easy access to the active Mpris player.

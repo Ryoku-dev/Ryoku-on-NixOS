@@ -5,6 +5,7 @@ import "Singletons"
 import Ryoku.Ui.Singletons
 import "iris/IrisRoster.js" as IrisRoster
 import "python/PythonRoster.js" as PythonRoster
+import "ii/IiRoster.js" as IiRoster
 import "../stage/Singletons" as StageCfg
 import "../visualizer/Singletons" as VizCfg
 import stage.modules.common.functions as StageFunctions
@@ -69,7 +70,14 @@ Item {
     readonly property bool isIris: menu.irisFace !== null
     readonly property var pythonFace: PythonRoster.byPrefix(menu.scope)
     readonly property bool isPython: menu.pythonFace !== null
-    readonly property var hostedFace: menu.isIris ? menu.irisFace : menu.pythonFace
+    readonly property var iiFace: IiRoster.byPrefix(menu.scope)
+    readonly property bool isIi: menu.iiFace !== null
+    readonly property var hostedFace: menu.isIris ? menu.irisFace
+        : menu.isPython ? menu.pythonFace : menu.iiFace
+    readonly property bool isHosted: menu.isIris || menu.isPython || menu.isIi
+    // The ii faces keep their own look always (they read the stage's option
+    // store); the Style row only exists for the libraries that carry a Ryoku
+    // skin: iris and python.
     readonly property bool isRyokuStyle: (menu.isIris || menu.isPython)
         && Config[menu.scope + "Style"] === "ryoku"
     readonly property string curIrisSize: menu.isIris ? (Config[menu.scope + "Size"] || menu.irisFace.sizes[0]) : ""
@@ -111,7 +119,7 @@ Item {
         dayprogress: ["ring", "arc"],
         shape: ["dot", "ring", "diamond", "square"]
     })
-    readonly property bool hasDesign: menu.isWidget && !menu.isIris && !menu.isPython
+    readonly property bool hasDesign: menu.isWidget && !menu.isIris && !menu.isPython && !menu.isIi
         && (menu.designLists[menu.scope] !== undefined)
 
     // The source menu and resize grip share the same named detents.
@@ -188,9 +196,9 @@ Item {
 
     DesktopMenu {
         id: shell
-        title: (menu.isIris || menu.isPython) ? I18n.tr(menu.hostedFace.label)
+        title: menu.isHosted ? I18n.tr(menu.hostedFace.label)
             : I18n.tr(menu.builtinLabels[menu.scope] || menu.cap(menu.scope))
-        gloss: menu.glosses[menu.scope] || ((menu.isIris || menu.isPython) ? menu.hostedFace.gloss : "")
+        gloss: menu.glosses[menu.scope] || (menu.isHosted ? menu.hostedFace.gloss : "")
 
         // ── quick knobs ────────────────────────────────────────────────
         // Native widgets cycle their look; hosted faces flip between their

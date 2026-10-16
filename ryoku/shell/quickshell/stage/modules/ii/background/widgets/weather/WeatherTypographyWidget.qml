@@ -1,0 +1,143 @@
+import QtQuick
+import QtQuick.Layouts
+import Qt5Compat.GraphicalEffects
+import stage
+import stage.services
+import stage.modules.common
+import stage.modules.common.functions
+import stage.modules.common.widgets
+import stage.modules.ii.background.widgets
+AbstractBackgroundWidget {
+    id: root
+
+    configEntryName: "weather_typography"
+
+    implicitWidth: 240
+    implicitHeight: 240
+
+    readonly property color cardBgColor: WidgetColorScheme.cardBgColor
+    readonly property color boldTextColor: WidgetColorScheme.textColorOnBg
+    readonly property color mutedTextColor: WidgetColorScheme.subtextColorOnBg
+
+    readonly property var currentData: Weather.data
+
+    readonly property string cityName: currentData?.city || ""
+    readonly property string conditionText: (currentData?.wDesc || "").toLowerCase()
+
+    readonly property int cityFontSize: {
+        const fullLength = 3 + cityName.length;
+        if (fullLength > 18) return 22;
+        if (fullLength > 14) return 25;
+        if (fullLength > 10) return 28;
+        return 30;
+    }
+
+    readonly property int conditionFontSize: {
+        const condLength = conditionText.length;
+        if (condLength > 16) return 18;
+        if (condLength > 12) return 20;
+        return 22;
+    }
+
+    StyledDropShadow {
+        id: shadowEffect
+        target: mainCard
+        visible: Config.options.background.widgets.enableShadows ?? true
+    }
+
+    Rectangle {
+        id: mainCard
+        anchors.fill: parent
+        radius: Appearance.rounding.large + 12
+        color: WidgetColorScheme.tintBackground(root.cardBgColor)
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 18
+            spacing: 3
+
+            RowLayout {
+                spacing: 10
+
+                StyledText {
+                    text: root.currentData?.temp || ""
+                    color: root.boldTextColor
+                    font.pixelSize: 32
+                    font.weight: Font.Bold
+                }
+
+                StyledText {
+                    text: Translation.tr("now")
+                    color: root.mutedTextColor
+                    font.pixelSize: 32
+                    font.weight: Font.Bold
+                }
+            }
+
+            RowLayout {
+                spacing: 10
+                Layout.maximumWidth: 200
+
+                StyledText {
+                    text: Translation.tr("in")
+                    color: root.mutedTextColor
+                    font.pixelSize: root.cityFontSize
+                    font.weight: Font.Bold
+                }
+
+                StyledText {
+                    text: root.cityName
+                    color: root.boldTextColor
+                    font.pixelSize: root.cityFontSize
+                    font.weight: Font.Bold
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+            }
+
+            RowLayout {
+                spacing: 10
+
+                StyledText {
+                    text: Translation.tr("feels")
+                    color: root.mutedTextColor
+                    font.pixelSize: 24
+                    font.weight: Font.Bold
+                }
+
+                StyledText {
+                    text: root.currentData?.tempFeelsLike || ""
+                    color: root.boldTextColor
+                    font.pixelSize: 24
+                    font.weight: Font.Bold
+                }
+            }
+
+            RowLayout {
+                spacing: 10
+                Layout.maximumWidth: 200
+
+                Image {
+                    source: WeatherIcons.getWeatherIcon(root.currentData?.wCode ?? 113, false)
+                    sourceSize: Qt.size(root.conditionFontSize + 2, root.conditionFontSize + 2)
+                }
+
+                StyledText {
+                    text: root.conditionText
+                    color: root.boldTextColor
+                    font.pixelSize: root.conditionFontSize
+                    font.weight: Font.Bold
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+            }
+
+            StyledText {
+                text: Translation.tr("today")
+                color: root.mutedTextColor
+                font.pixelSize: 22
+                font.weight: Font.Bold
+            }
+        }
+    }
+}

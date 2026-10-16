@@ -1,0 +1,149 @@
+import QtQuick
+import QtQuick.Layouts
+import Qt5Compat.GraphicalEffects
+import stage
+import stage.services
+import stage.modules.common
+import stage.modules.common.functions
+import stage.modules.common.widgets
+import stage.modules.ii.background.widgets
+AbstractBackgroundWidget {
+    id: root
+
+    configEntryName: "calendar_minimal"
+
+    implicitWidth: 240
+    implicitHeight: 240
+
+    readonly property color cardBgColor: WidgetColorScheme.cardBgColor
+    readonly property color weekdayColor: WidgetColorScheme.textColorOnBg
+    readonly property color numberColor: WidgetColorScheme.accentColor
+    readonly property color monthColor: WidgetColorScheme.textColorOnBg
+
+    StyledRectangularShadow {
+        id: bgShadow
+        target: bgRect
+        visible: Config.options.background.widgets.enableShadows ?? true
+    }
+
+    Rectangle {
+        id: bgRect
+        anchors.fill: parent
+        color: WidgetColorScheme.tintBackground(root.cardBgColor)
+        radius: Appearance.rounding.windowRounding
+
+        layer.enabled: Config.options.background.widgets.enableInnerShadow ?? true
+        layer.smooth: true
+        layer.effect: OpacityMask {
+            maskSource: Rectangle {
+                width: bgRect.width
+                height: bgRect.height
+                radius: bgRect.radius
+                antialiasing: true
+            }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.topMargin: 20
+            anchors.bottomMargin: 20
+            anchors.leftMargin: 16
+            anchors.rightMargin: 16
+            spacing: 0
+
+            StyledText {
+                Layout.alignment: Qt.AlignHCenter
+                text: Qt.locale().toString(DateTime.clock.date, "dddd")
+                font {
+                    pixelSize: 22
+                    weight: Font.Medium
+                    family: Appearance.font.family.main
+                }
+                color: root.weekdayColor
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                StyledText {
+                    anchors.centerIn: parent
+                    text: DateTime.clock.date.getDate().toString()
+                    font {
+                        pixelSize: 96
+                        weight: Font.Black
+                        bold: true
+                        family: "Google Sans Flex"
+                        variableAxes: ({ "wght": 900 })
+                    }
+                    color: root.numberColor
+                }
+            }
+
+            StyledText {
+                Layout.alignment: Qt.AlignHCenter
+                text: Qt.locale().toString(DateTime.clock.date, "MMMM")
+                font {
+                    pixelSize: 22
+                    weight: Font.Medium
+                    family: Appearance.font.family.main
+                }
+                color: root.monthColor
+            }
+        }
+
+        Canvas {
+            id: shadowMaskCanvas
+            x: -80
+            y: -80
+            width: bgRect.width + 160
+            height: bgRect.height + 160
+            visible: false
+
+            onPaint: {
+                var ctx = getContext("2d");
+                ctx.reset();
+                ctx.fillStyle = "black";
+                ctx.beginPath();
+                ctx.rect(0, 0, width, height);
+
+                var rx = 80;
+                var ry = 80;
+                var rw = bgRect.width;
+                var rh = bgRect.height;
+                var r = Math.max(0, bgRect.radius - 8);
+
+                ctx.moveTo(rx + r, ry);
+                ctx.arcTo(rx, ry, rx, ry + r, r);
+                ctx.lineTo(rx, ry + rh - r);
+                ctx.arcTo(rx, ry + rh, rx + r, ry + rh, r);
+                ctx.lineTo(rx + rw - r, ry + rh);
+                ctx.arcTo(rx + rw, ry + rh, rx + rw, ry + rh - r, r);
+                ctx.lineTo(rx + rw, ry + r);
+                ctx.arcTo(rx + rw, ry, rx + rw - r, ry, r);
+                ctx.lineTo(rx + r, ry);
+
+                ctx.closePath();
+                ctx.fill("evenodd");
+            }
+
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+        }
+
+        DropShadow {
+            id: innerShadow
+            x: -80
+            y: -80
+            width: shadowMaskCanvas.width
+            height: shadowMaskCanvas.height
+            source: shadowMaskCanvas
+            radius: 24
+            samples: 49
+            color: Qt.rgba(0, 0, 0, 0.35)
+            horizontalOffset: 0
+            verticalOffset: 0
+            visible: Config.options.background.widgets.enableInnerShadow ?? true
+        }
+    }
+}

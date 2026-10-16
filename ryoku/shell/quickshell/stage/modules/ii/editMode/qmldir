@@ -30,3 +30,4 @@ EditWallpaperRootPage 1.0 EditWallpaperRootPage.qml
 EditWallpaperScreenMap 1.0 EditWallpaperScreenMap.qml
 EditWidgetConfigPanel 1.0 EditWidgetConfigPanel.qml
 EditWidgetMenu 1.0 EditWidgetMenu.qml
+EditDockDesignPicker 1.0 EditDockDesignPicker.qml

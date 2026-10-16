@@ -5,6 +5,7 @@ import "Singletons"
 import Ryoku.Ui.Singletons
 import "iris/IrisRoster.js" as IrisRoster
 import "python/PythonRoster.js" as PythonRoster
+import "ii/IiRoster.js" as IiRoster
 import "options/OptionsCatalog.js" as OptionsCatalog
 
 // The widget inspector is one settings body with two hosts. Ordinary desktop
@@ -81,7 +82,10 @@ Item {
     readonly property bool isIris: insp.irisFace !== null
     readonly property var pythonFace: PythonRoster.byPrefix(insp.scope)
     readonly property bool isPython: insp.pythonFace !== null
-    readonly property var hostedFace: insp.isIris ? insp.irisFace : insp.pythonFace
+    readonly property var iiFace: IiRoster.byPrefix(insp.scope)
+    readonly property bool isIi: insp.iiFace !== null
+    readonly property var hostedFace: insp.isIris ? insp.irisFace
+        : insp.isPython ? insp.pythonFace : insp.iiFace
     readonly property bool isCanvas: insp.isIris && insp.irisFace.kind === "canvas"
     readonly property var builtinInfo: ({
         clock: { label: "Clock", icon: "schedule", gloss: "時計" },
@@ -184,7 +188,7 @@ Item {
     }
 
     // ── tabs: Look, then one per MenuSection of the hosted panel ──
-    readonly property bool hasOptions: OptionsCatalog.has(insp.scope)
+    readonly property bool hasOptions: OptionsCatalog.has(insp.scope) || insp.isIi
     // The section header items discovered in the hosted panel, in document order.
     property var sections: []
     function rescan() {
@@ -633,11 +637,14 @@ Item {
                         onReleased: (v) => Config.set(insp.scope + "BackingOpacity", v)
                     }
 
-                    MenuSection { visible: !insp.isCanvas && !insp.isPython; label: I18n.tr("Colour"); gloss: "彩色" }
+                    // The ii faces colour themselves from the vendored library's
+                    // own scheme store, so the slot's ink push is inert: the
+                    // Colour row would be a dead control.
+                    MenuSection { visible: !insp.isCanvas && !insp.isPython && !insp.isIi; label: I18n.tr("Colour"); gloss: "彩色" }
                     Item {
-                        visible: !insp.isCanvas && !insp.isPython
+                        visible: !insp.isCanvas && !insp.isPython && !insp.isIi
                         width: parent.width
-                        implicitHeight: !insp.isCanvas ? colorCol.implicitHeight : 0
+                        implicitHeight: !insp.isCanvas && !insp.isIi ? colorCol.implicitHeight : 0
                         Column {
                             id: colorCol
                             width: parent.width
@@ -690,7 +697,8 @@ Item {
                         id: optionsLoader
                         width: parent.width
                         active: insp.hasOptions
-                        source: active ? "options/" + insp.cap(insp.scope) + "Options.qml" : ""
+                        source: !active ? "" : insp.isIi ? "options/IiFaceOptions.qml"
+                            : "options/" + insp.cap(insp.scope) + "Options.qml"
                         onLoaded: { if (item) item.widget = insp.scope; insp.rescan(); }
                         onItemChanged: insp.rescan()
                     }

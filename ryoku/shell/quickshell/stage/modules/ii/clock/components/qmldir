@@ -1,0 +1,5 @@
+module stage.modules.ii.clock.components
+ClockChip 1.0 ClockChip.qml
+ClockIconButton 1.0 ClockIconButton.qml
+ClockProgressRing 1.0 ClockProgressRing.qml
+ClockStepper 1.0 ClockStepper.qml
