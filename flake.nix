@@ -220,7 +220,9 @@
 
         # Ryoku owns its compositor ABI. These come from Ryoku's
         # locked nixpkgs rather than the host's package set.
-        ryoku-hyprland = pkgs.hyprland;
+        ryoku-hyprland = pkgs.hyprland.override {
+          makeWrapper = pkgs.makeBinaryWrapper;
+        };
         ryoku-xdg-desktop-portal-hyprland = pkgs.xdg-desktop-portal-hyprland;
         ryoku-matugen = pkgs.matugen;
 
