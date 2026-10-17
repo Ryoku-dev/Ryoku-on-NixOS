@@ -170,7 +170,7 @@ pkgs.stdenv.mkDerivation {
       substituteInPlace "$karuma_hub_styles" \
         --replace-fail \
           '        { "id": "sumi", "name": "Sumi", "desc": "The framed Ryoku desktop.", "installed": true, "unavailable": false },' \
-          '        { "id": "karuma", "name": "Karuma", "desc": "The flagship Ryoku Nix bar.", "installed": true, "unavailable": false },
+          '        { "id": "karuma", "name": "Karuma", "desc": "The default Ryoku Nix bar.", "installed": true, "unavailable": false },
         { "id": "sumi", "name": "Sumi", "desc": "The framed Ryoku desktop.", "installed": true, "unavailable": false },'
     fi
 
