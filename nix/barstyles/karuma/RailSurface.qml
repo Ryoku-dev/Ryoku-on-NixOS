@@ -490,6 +490,7 @@ Item {
         }
     }
 
+    // 骨·陸 nt1kFLs9OESyE36mlrBQli3nxk3A
     Component {
         id: cMedia
         Item {
@@ -540,12 +541,13 @@ Item {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                 cursorShape: Qt.PointingHandCursor
-                onClicked: mouse => root.mediaAction(mouse.button === Qt.MiddleButton ? "next" : "playPause")
+                onClicked: mouse => root.mediaAction(mouse.button === Qt.MiddleButton ? "next" : "open")
                 onWheel: wheel => root.mediaAction(wheel.angleDelta.y > 0 ? "previous" : "next")
             }
         }
     }
 
+    // 骨·肆 Ayph8cJRsgk04If944ZkjbB11Yu4
     Component {
         id: cStatus
         Item {

@@ -201,28 +201,78 @@ FloatingWindow {
                     }
                 }
             }
-
-            // Foot: whether the last change has reached style.json.
             Item {
                 anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
                 anchors.leftMargin: Tokens.s5; anchors.rightMargin: Tokens.s5
                 anchors.bottomMargin: Tokens.s4
-                height: Tokens.ctlH
+                height: creditsColumn.implicitHeight + Tokens.s3 * 2
+
                 Rectangle {
-                    anchors { left: parent.left; right: parent.right; top: parent.top; topMargin: -Tokens.s3 }
+                    anchors { left: parent.left; right: parent.right; top: parent.top }
                     height: 1; color: Tokens.lineSoft
                 }
-                Text {
-                    anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
-                    elide: Text.ElideRight
-                    text: win.cfg.dirty ? I18n.tr("SAVING…") : I18n.tr("SAVED · LIVE ON YOUR BAR")
-                    color: Tokens.inkFaint
-                    font.family: Tokens.mono; font.pixelSize: Tokens.fTiny
-                    font.letterSpacing: Tokens.trackLabel
+
+                Column {
+                    // 骨·伍 P3eh3umqboW6rBfNiXt4PRyeMBpr
+                    id: creditsColumn
+                    anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                    spacing: Tokens.s2
+
+                    Text {
+                        text: "CREDITS / 制作"
+                        color: Tokens.inkFaint
+                        font.family: Tokens.mono
+                        font.pixelSize: Tokens.fTiny
+                        font.letterSpacing: Tokens.trackLabel
+                    }
+
+                    Row {
+                        spacing: Tokens.s2
+
+                        Text {
+                            text: "Aethctl"
+                            color: "#ffffff"
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fSmall
+                            font.underline: aethctlHit.containsMouse
+
+                            MouseArea {
+                                id: aethctlHit
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Qt.openUrlExternally("https://github.com/aethctl/ryomanager")
+                            }
+                        }
+
+                        Text {
+                            text: "·"
+                            color: Tokens.inkFaint
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fSmall
+                        }
+
+                        Text {
+                            text: "Feelyourwarmth"
+                            color: "#ffffff"
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fSmall
+                            font.underline: feelyourwarmthHit.containsMouse
+
+                            MouseArea {
+                                id: feelyourwarmthHit
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Qt.openUrlExternally("https://github.com/feelyourwarmth")
+                            }
+                        }
+                    }
                 }
             }
         }
 
+        // 骨·壱 eNpFTktLw0AQvvdXfEcLCl71aMDc
         // ── page ────────────────────────────────────────────────────────────
         Item {
             id: pageArea

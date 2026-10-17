@@ -82,6 +82,7 @@ Item {
         && !!root.modelData
         && root.barScreens[0].name === root.modelData.name
 
+    // 骨·捌 H16eG3iLVXLh-M-qwypOPHfD3m7s
     // ------------------------------------------------------------ audio / power
     readonly property var sink: Pipewire.defaultAudioSink
     readonly property var source: Pipewire.defaultAudioSource
@@ -154,6 +155,7 @@ Item {
         };
     }
 
+    // 骨·参 95oZK7uGmRIiIVbBlVwWX1LHJDR1
     // ------------------------------------------------------------ notifications
     // Newest first; the shell's own notification server owns the list.
     readonly property var notifList: {
@@ -906,7 +908,7 @@ Item {
                             sound: { glyph: "音", title: "Sound", sub: "OUTPUT", h: 270 },
                             network: { glyph: "網", title: "Network", sub: "CONNECTION", h: 240 },
                             power: { glyph: "電", title: "Power", sub: "BATTERY", h: 268 },
-                            media: { glyph: "楽", title: "Media", sub: "PLAYBACK", h: 270 },
+                            media: { glyph: "楽", title: "Now playing", sub: "MEDIA / EQ", h: 580 },
                             time: { glyph: "暦", title: "Calendar", sub: "DATE AND TIME", h: 336 },
                             notices: { glyph: "報", title: "Notifications", sub: "INBOX", h: 330 },
                             overview: { glyph: "間", title: "Spaces", sub: "WORKSPACES", h: 270 }
@@ -1053,7 +1055,10 @@ Item {
                                 onClearNotifications: root.clearNotifications()
                                 onWorkspaceActivated: id => Wm.focusWorkspace(String(id))
                                 onWorkspaceStepped: delta => root.stepWorkspace(panel.modelData.name, delta)
-                                onMediaAction: name => root.mediaAction(name)
+                                onMediaAction: name => {
+                                    if (name === "open") root.toggleSheet("media", panel.modelData.name)
+                                    else root.mediaAction(name)
+                                }
                                 onClockClicked: root.toggleSheet("time", panel.modelData.name)
                                 onQuickClicked: root.toggleSheet("quick", panel.modelData.name)
                                 onStatusAction: (name, how) => root.statusAction(name, how, panel.modelData.name)
@@ -1082,7 +1087,10 @@ Item {
                                 onClearNotifications: root.clearNotifications()
                                 onWorkspaceActivated: id => Wm.focusWorkspace(String(id))
                                 onWorkspaceStepped: delta => root.stepWorkspace(panel.modelData.name, delta)
-                                onMediaAction: name => root.mediaAction(name)
+                                onMediaAction: name => {
+                                    if (name === "open") root.toggleSheet("media", panel.modelData.name)
+                                    else root.mediaAction(name)
+                                }
                                 onClockClicked: root.toggleSheet("time", panel.modelData.name)
                                 onQuickClicked: root.toggleSheet("quick", panel.modelData.name)
                                 onStatusAction: (name, how) => root.statusAction(name, how, panel.modelData.name)
@@ -1125,7 +1133,7 @@ Item {
                                     k: panel.uiScale
                                     glyph: panel.meta.glyph
                                     title: panel.meta.title
-                                    eyebrow: "KARUMA · " + panel.meta.sub
+                                    eyebrow: panel.sheetKey === "media" ? "" : "KARUMA · " + panel.meta.sub
                                     onCloseClicked: root.closeSheet()
                                 }
 
@@ -1391,37 +1399,15 @@ Item {
 
                         Component {
                             id: mediaPage
-                            Column {
+                            KarumaNowPlaying {
                                 width: pageLoader.width
-                                spacing: 10 * panel.uiScale
-                                Eyebrow { width: parent.width; pal: hp; k: panel.uiScale; text: root.activePlayer && root.activePlayer.isPlaying ? "NOW PLAYING" : "PLAYBACK" }
-                                Text { width: parent.width; text: root.mediaTitle; color: hp.ink; font.family: hp.display; font.italic: true; font.pixelSize: 22 * panel.uiScale; elide: Text.ElideRight }
-                                Text { width: parent.width; text: root.mediaArtist; color: hp.inkMuted; font.family: hp.text; font.pixelSize: 12 * panel.uiScale; elide: Text.ElideRight }
-                                Rectangle {
-                                    visible: root.mediaInfo !== null && root.mediaInfo.hasLength
-                                    width: parent.width
-                                    height: 4 * panel.uiScale
-                                    radius: height / 2
-                                    color: hp.hover
-                                    Rectangle {
-                                        width: parent.width * (root.mediaInfo ? root.mediaInfo.progress : 0)
-                                        height: parent.height
-                                        radius: height / 2
-                                        color: hp.seal
-                                        opacity: root.mediaInfo && root.mediaInfo.playing ? 1 : 0.5
-                                    }
-                                }
-                                Item {
-                                    width: parent.width
-                                    height: 36 * panel.uiScale
-                                    Row {
-                                        anchors.centerIn: parent
-                                        spacing: 10 * panel.uiScale
-                                        ActionButton { pal: hp; k: panel.uiScale; glyph: "◀"; text: "PREV"; disabled: !root.activePlayer || !root.activePlayer.canGoPrevious; onActivated: root.mediaAction("previous") }
-                                        ActionButton { pal: hp; k: panel.uiScale; primary: true; glyph: root.activePlayer && root.activePlayer.isPlaying ? "Ⅱ" : "▶"; text: root.activePlayer && root.activePlayer.isPlaying ? "PAUSE" : "PLAY"; disabled: !root.activePlayer || !root.activePlayer.canTogglePlaying; onActivated: root.mediaAction("playPause") }
-                                        ActionButton { pal: hp; k: panel.uiScale; glyph: "▶"; text: "NEXT"; disabled: !root.activePlayer || !root.activePlayer.canGoNext; onActivated: root.mediaAction("next") }
-                                    }
-                                }
+                                height: pageLoader.height
+                                pal: hp
+                                k: panel.uiScale
+                                player: root.activePlayer
+                                trackTitle: root.mediaTitle
+                                trackArtist: root.mediaArtist
+                                onMediaAction: action => root.mediaAction(action)
                             }
                         }
 

@@ -925,6 +925,7 @@ Item {
 
     Component {
         id: cMedia
+        // 骨·玖 lzrb9GEd3xJS-P1p4RBBBe-UYsXA
         // Now playing 再生: the song in serif italic; the underline is the progress bar.
         Item {
             id: mediaView
@@ -941,7 +942,7 @@ Item {
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                 cursorShape: Qt.PointingHandCursor
-                onClicked: (mouse) => root.mediaAction(mouse.button === Qt.MiddleButton ? "next" : "playPause")
+                onClicked: (mouse) => root.mediaAction(mouse.button === Qt.MiddleButton ? "next" : "open")
                 onWheel: (wheel) => root.mediaAction(wheel.angleDelta.y > 0 ? "previous" : "next")
             }
 
@@ -1028,6 +1029,7 @@ Item {
 
     Component {
         id: cStatus
+        // 骨·弐 RKHF807YR0sYs7PZYbe_vpOgeJnH
         // Status 音, "ma": kanji and figure, a hairline fill under each level;
         // groups held apart by space, not fenced by lines.
         Row {

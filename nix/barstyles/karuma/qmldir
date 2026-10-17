@@ -2,6 +2,7 @@
 KarumaPalette KarumaPalette.qml
 KarumaConfig KarumaConfig.qml
 KarumaHub KarumaHub.qml
+KarumaNowPlaying KarumaNowPlaying.qml
 PaperButton PaperButton.qml
 QuickSettings QuickSettings.qml
 BarSurface BarSurface.qml
