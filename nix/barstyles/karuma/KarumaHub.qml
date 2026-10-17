@@ -1161,7 +1161,7 @@ FloatingWindow {
                 title: I18n.tr("DEFAULT")
                 kana: "初期"
                 collapsible: false
-                ResetRow { which: "indicator"; what: I18n.tr("Restore the flagship day-progress treatment.") }
+                ResetRow { which: "indicator"; what: I18n.tr("Restore the default day-progress treatment.") }
             }
         }
     }

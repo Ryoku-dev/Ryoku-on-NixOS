@@ -97,7 +97,7 @@ var DATE_PRESETS = ["ddd|dd MMM", "ddd dd MMM", "dd/MM/yyyy", "MM/dd/yyyy", "yyy
 var DATE_MAX = 32;
 
 var PRESETS = [
-    { id: "flagship", label: "Flagship", desc: "Three balanced islands, everything available." },
+    { id: "default", label: "Default", desc: "The original Karuma look on the current feature set." },
     { id: "minimal", label: "Minimal", desc: "Workspaces, clock, status and quick settings only." },
     { id: "media", label: "Media", desc: "Now playing shares centre stage with the clock." },
     { id: "dense", label: "Dense", desc: "A compact continuous strip for small displays." },
@@ -297,7 +297,7 @@ function defaults() {
     return {
         opacity: 0.77,
         height: 38,
-        layout: "islands",
+        layout: "strip",
         edge: "top",
         align: "center",
         length: 100,
@@ -542,9 +542,49 @@ function withPreset(raw, id) {
     } else if (id === "dense") {
         out.layout = "strip"; out.floating = false; out.scale = 0.84; out.moduleGap = 7; out.islandPad = 4; out.islandGap = 0; out.laneSpread = 1;
         out.shape = "square";
-    } else if (id === "flagship") {
-        out.layout = "islands"; out.edge = "top"; out.align = "center"; out.length = 100; out.floating = true; out.scale = 0.95; out.moduleGap = 14; out.islandPad = 8; out.islandGap = 16; out.laneSpread = 1;
+    } else if (id === "default") {
+        // Original Karuma visual recipe, translated onto the current renderer.
+        // New capabilities stay available, but the shipped look remains the
+        // continuous floating paper strip Karuma started with.
+        out.opacity = 0.77;
+        out.height = 38;
+        out.layout = "strip";
+        out.edge = "top";
+        out.align = "center";
+        out.length = 100;
+        out.floating = true;
         out.shape = "rounded";
+        out.cornerRadius = 12;
+        out.innerRadiusBias = 0;
+        out.borderWidth = 1;
+        out.borderOpacity = 1;
+        out.railWidth = 64;
+        out.gap = { top: 4, bottom: 0, left: 24, right: 24 };
+        out.moduleGap = 14;
+        out.islandPad = 8;
+        out.islandGap = 16;
+        out.laneSpread = 1;
+        out.textScale = 1;
+        out.iconScale = 1;
+        out.scale = 0.95;
+        delete out.motion;
+        out.hours = "12h";
+        out.showClock = true;
+        out.showDate = true;
+        out.dateFormat = DEFAULT_DATE;
+        out.indicator = "daily";
+        // Keep the improved theme-aware progress treatment from current Karuma.
+        out.progressStyle = "track";
+        out.progressPlacement = "auto";
+        out.progressThickness = 2;
+        out.progressOpacity = 0.9;
+        out.fullscreenMode = "hide";
+        out.reserveSpace = true;
+        out.workspaceStyle = DEFAULT_WORKSPACE_STYLE;
+        delete out.displayFont;
+        delete out.textFont;
+        delete out.monoFont;
+        delete out.jpFont;
     } else if (id === "rail") {
         out.layout = "islands"; out.edge = "right"; out.align = "center"; out.length = 92; out.floating = true; out.scale = 0.9; out.moduleGap = 8; out.islandPad = 6; out.islandGap = 12; out.laneSpread = 0.9; out.railWidth = 68;
         out.shape = "rounded";
@@ -562,7 +602,16 @@ function withPreset(raw, id) {
     next.lanes = normalizeLanes(lanes, null);
     next.hidden = normalizeHidden(hidden);
     next.styles = normalizeModuleStyles(styles);
-    next.options = normalizeModuleOptions(currentConf.moduleOptions);
+    if (id === "default") {
+        // A theme reset should not retain per-module tweaks that would make the
+        // default look different. Plugin-specific tuning is user-owned and stays.
+        var pluginOptions = {};
+        for (var optionId in currentConf.moduleOptions)
+            if (isPluginRef(optionId)) pluginOptions[optionId] = currentConf.moduleOptions[optionId];
+        next.options = normalizeModuleOptions(pluginOptions);
+    } else {
+        next.options = normalizeModuleOptions(currentConf.moduleOptions);
+    }
     delete next.order;
     out.modules = next;
     return out;

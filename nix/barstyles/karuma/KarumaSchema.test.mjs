@@ -12,7 +12,7 @@ for (const raw of [undefined, null, [], "x", 5, {}]) {
   const c = S.normalize(raw);
   assert.equal(c.opacity, 0.77);
   assert.equal(c.height, 38);
-  assert.equal(c.layout, "islands");
+  assert.equal(c.layout, "strip");
   assert.equal(c.edge, "top");
   assert.equal(c.align, "center");
   assert.equal(c.length, 100);
@@ -110,7 +110,40 @@ z = S.zones(S.normalize({ showClock: false, showDate: false, modules: { lanes: s
 assert.equal(z.clock, false);
 assert.deepEqual(z.center, []);
 
+// The shipped theme is the original Karuma continuous floating strip.
+let dflt = S.defaults();
+assert.equal(dflt.layout, "strip");
+assert.equal(dflt.opacity, 0.77);
+assert.equal(dflt.height, 38);
+assert.equal(dflt.shape, "rounded");
+assert.deepEqual(dflt.gap, { top: 4, bottom: 0, left: 24, right: 24 });
+assert.equal(dflt.scale, 0.95);
+assert.equal(S.PRESETS[0].id, "default");
+
 // Curated presets are ordinary schema edits and remain fully editable afterwards.
+r = S.withPreset({
+  opacity: 0.3, height: 62, layout: "islands", shape: "pill", cornerRadius: 30,
+  textScale: 1.4, iconScale: 1.3, displayFont: "Comic Sans MS", motion: "still",
+  modules: {
+    lanes: { left: ["workspaces", "title"], center: ["clock"], right: ["media", "tray", "status", "indicators", "notifications", "quick", "ryoku:test"] },
+    styles: { workspaces: "accent", "ryoku:test": "outline" },
+    options: { workspaces: { scale: 1.4, padding: 9, opacity: 0.5 }, "ryoku:test": { scale: 1.2, padding: 2, opacity: 0.8 } }
+  }
+}, "default");
+c = S.normalize(r);
+assert.equal(c.layout, "strip");
+assert.equal(c.opacity, 0.77);
+assert.equal(c.height, 38);
+assert.equal(c.shape, "rounded");
+assert.equal(c.scale, 0.95);
+assert.equal(c.textScale, 1);
+assert.equal(c.iconScale, 1);
+assert.equal(c.moduleOptions.workspaces, undefined);
+assert.equal(c.moduleOptions["ryoku:test"].scale, 1.2);
+assert.equal(S.styleFor(c, "workspaces"), "plain");
+assert.equal(S.styleFor(c, "ryoku:test"), "outline");
+assert.equal(r.displayFont, undefined);
+
 r = S.withPreset({ sealGlyph: "漢" }, "minimal");
 c = S.normalize(r);
 assert.deepEqual(c.hidden, ["title", "media", "tray", "indicators", "notifications"]);
@@ -147,7 +180,7 @@ c = S.normalize({ opacity: 9, height: 999, layout: "blob", edge: "ceiling", alig
   gap: { top: -5, left: "12.6", right: "abc", bottom: 999 } });
 assert.equal(c.opacity, 1);
 assert.equal(c.height, 80);
-assert.equal(c.layout, "islands");
+assert.equal(c.layout, "strip");
 assert.equal(c.edge, "top");
 assert.equal(c.align, "center");
 assert.equal(c.length, 28);
