@@ -6,6 +6,7 @@ import Quickshell
 import Quickshell.Io
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
+import "../Singletons"
 import "../barstudio"
 import Ryoku.FrameBars
 import "../barstudio/BarStudioModel.js" as Model
@@ -93,7 +94,7 @@ Item {
                     // neither run nor be fetched, so it is not offered. Install
                     // still lives in RyoStore; this page only shows state and
                     // applies what is yours.
-                    page.barStyles = (catalog.items || [])
+                    const storeStyles = (catalog.items || [])
                         .filter(item => item.category === "barstyles"
                             && !(item.unavailable === true && item.installed !== true))
                         .map(item => ({
@@ -101,19 +102,66 @@ Item {
                             name: item.name || item.id,
                             desc: item.summary || item.description || "",
                             installed: item.installed === true,
-                            // The catalogue's versions ride through so the shelf
-                            // can name the update it offers: Settings owns
-                            // applying it, RyoStore does not (docs/store.md).
                             version: item.version || "",
                             installedVersion: item.installedVersion || "",
                             updateAvailable: item.updateAvailable === true,
-                            active: item.active === true,
+                            active: page.activeStyle === item.id,
                             unavailable: item.unavailable === true,
                             unavailableReason: item.unavailableReason || "",
                             requiredWindowManager: item.requiredWindowManager || "",
                             downloadPaused: item.downloadPaused === true,
                             downloadPauseReason: item.downloadPauseReason || ""
                         }));
+
+                    const out = [];
+
+                    for (let i = 0; i < BarStyles.builtins.length; ++i) {
+                        const builtin = BarStyles.builtins[i];
+                        let found = null;
+
+                        for (let j = 0; j < storeStyles.length; ++j) {
+                            if (storeStyles[j].id === builtin.id) {
+                                found = storeStyles[j];
+                                break;
+                            }
+                        }
+
+                        if (found) {
+                            out.push(found);
+                        } else {
+                            out.push({
+                                id: builtin.id,
+                                name: builtin.name || builtin.id,
+                                desc: builtin.desc || "",
+                                installed: true,
+                                version: "",
+                                installedVersion: "",
+                                updateAvailable: false,
+                                active: page.activeStyle === builtin.id,
+                                unavailable: builtin.unavailable === true,
+                                unavailableReason: "",
+                                requiredWindowManager: "",
+                                downloadPaused: false,
+                                downloadPauseReason: ""
+                            });
+                        }
+                    }
+
+                    for (let i = 0; i < storeStyles.length; ++i) {
+                        let exists = false;
+
+                        for (let j = 0; j < out.length; ++j) {
+                            if (out[j].id === storeStyles[i].id) {
+                                exists = true;
+                                break;
+                            }
+                        }
+
+                        if (!exists)
+                            out.push(storeStyles[i]);
+                    }
+
+                    page.barStyles = out;
                 } catch (e) {
                     page.barStyles = [];
                 }
