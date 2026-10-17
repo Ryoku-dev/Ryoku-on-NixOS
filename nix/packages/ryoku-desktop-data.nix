@@ -91,6 +91,41 @@ pkgs.stdenv.mkDerivation {
     mkdir -p "$cfg/quickshell"
     cp -a ryoku/shell/quickshell/. "$cfg/quickshell/"
 
+    # ── Karuma / Nix default bar ──────────────────────────────
+
+    mkdir -p "$cfg/quickshell/shell/modules/bar/barstyles/karuma"
+    cp -a nix/barstyles/karuma/. \
+      "$cfg/quickshell/shell/modules/bar/barstyles/karuma/"
+
+    karuma_products="$cfg/quickshell/shell/services/BarProducts.qml"
+    if ! grep -Fq '"karuma":' "$karuma_products"; then
+      substituteInPlace "$karuma_products" \
+        --replace-fail \
+          '        "qsbar": "barstyles/qsbar/Scene.qml",' \
+          '        "karuma": "barstyles/karuma/Scene.qml",
+        "qsbar": "barstyles/qsbar/Scene.qml",'
+    fi
+
+    karuma_config="$cfg/quickshell/shell/services/Config.qml"
+
+    if grep -Fq 'property string barStyle: "orpheus"' "$karuma_config"; then
+      substituteInPlace "$karuma_config" \
+        --replace-fail \
+          'property string barStyle: "orpheus"' \
+          'property string barStyle: "karuma"'
+    elif grep -Fq 'property string barStyle: "qsbar"' "$karuma_config"; then
+      substituteInPlace "$karuma_config" \
+        --replace-fail \
+          'property string barStyle: "qsbar"' \
+          'property string barStyle: "karuma"'
+    elif ! grep -Fq 'property string barStyle: "karuma"' "$karuma_config"; then
+      echo "Ryoku Nix Karuma guard: could not identify shared shell bar default" >&2
+      exit 1
+    fi
+
+    test -f "$cfg/quickshell/shell/modules/bar/barstyles/karuma/Scene.qml"
+    grep -Fq '"karuma": "barstyles/karuma/Scene.qml"' "$karuma_products"
+    grep -Fq 'property string barStyle: "karuma"' "$karuma_config"
     phone_dir="$cfg/quickshell/shell/modules/phone"
     while IFS= read -r -d "" file; do
       substituteInPlace "$file" \
@@ -129,6 +164,17 @@ pkgs.stdenv.mkDerivation {
     mkdir -p "$cfg/quickshell/hub"
     cp -a ryoku/hub/quickshell/. "$cfg/quickshell/hub/"
 
+    karuma_hub_styles="$cfg/quickshell/hub/Singletons/BarStyles.qml"
+
+    if ! grep -Fq '{ "id": "karuma"' "$karuma_hub_styles"; then
+      substituteInPlace "$karuma_hub_styles" \
+        --replace-fail \
+          '        { "id": "sumi", "name": "Sumi", "desc": "The framed Ryoku desktop.", "installed": true, "unavailable": false },' \
+          '        { "id": "karuma", "name": "Karuma", "desc": "The flagship Ryoku Nix bar.", "installed": true, "unavailable": false },
+        { "id": "sumi", "name": "Sumi", "desc": "The framed Ryoku desktop.", "installed": true, "unavailable": false },'
+    fi
+
+    grep -Fq '{ "id": "karuma", "name": "Karuma"' "$karuma_hub_styles"
     # NixOS identity is a packaging invariant, not an upstream default. Upstream
     # Hub releases may reintroduce the Arch label during syncs; rewrite it here
     # as a final packaging step and fail the build if the Nix label disappears.
