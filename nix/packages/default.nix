@@ -72,6 +72,7 @@ let
       src
       version
       desktopData
+      paletteBridge
       ;
   };
 
@@ -80,7 +81,7 @@ let
   };
 
   hub = import ./ryoku-hub.nix {
-    inherit pkgs src;
+    inherit pkgs src paletteBridge desktopData;
   };
 
   paletteBridge = import ./ryoku-palette-bridge.nix {
@@ -126,6 +127,7 @@ let
       livewall
       waifu2x
       qmlRoot
+      paletteBridge
       ;
   };
 

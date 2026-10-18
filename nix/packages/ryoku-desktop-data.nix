@@ -380,6 +380,8 @@ pkgs.stdenv.mkDerivation {
       install -Dm755 \
         "$helper" \
         "$out/bin/$(basename "$helper")"
+      substituteInPlace "$out/bin/$(basename "$helper")" \
+        --replace-fail '#!/usr/bin/env python3' '#!${pkgs.python3}/bin/python3'
     done
 
     # ── Ryotunes ───────────────────────────────────────────────
@@ -464,6 +466,34 @@ user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
     cp -a \
       ryoku/assets/brand/. \
       "$out/share/ryoku/brand/"
+
+    # ── Packaged rices ─────────────────────────────────────────
+    #
+    # The Hub reads these through RYOKU_SYSTEM_RICES_DIR. Applying a rice
+    # copies them into user state, so commands stay bare names and the
+    # fastfetch tagline keeps the distro token.
+
+    mkdir -p "$out/share/ryoku/rices"
+
+    cp -a \
+      ryoku/assets/rices/. \
+      "$out/share/ryoku/rices/"
+
+    for rice in "$out/share/ryoku/rices"/*/; do
+      if [ -f "$rice/fastfetch.jsonc" ]; then
+        substituteInPlace "$rice/fastfetch.jsonc" \
+          --replace-quiet 'a hand-built Arch desktop' 'a hand-built {$RYOKU_BASE_OS} desktop'
+      fi
+      if [ -f "$rice/rice.json" ]; then
+        substituteInPlace "$rice/rice.json" \
+          --replace-quiet '"/usr/bin/kitty"' '"kitty"'
+      fi
+    done
+
+    if grep -lw 'Arch' "$out/share/ryoku/rices"/*/fastfetch.jsonc; then
+      echo "Ryoku Nix branding guard: a packaged fastfetch style still names Arch" >&2
+      exit 1
+    fi
 
     # ── Nix runtime path normalization ─────────────────────────
     #
