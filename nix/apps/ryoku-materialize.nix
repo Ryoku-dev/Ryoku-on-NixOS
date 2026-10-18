@@ -6,8 +6,12 @@ pkgs.writeShellApplication {
   runtimeInputs = with pkgs; [
     coreutils
     findutils
+    gnugrep
     jq
     systemd
+    # `ryoku materialize` reapplies the Hub's icon theme through these.
+    glib
+    ryoku.hub
   ];
 
   text = ''
@@ -78,6 +82,7 @@ pkgs.writeShellApplication {
       done
 
       printf '%s\n' "$backup" > "$state/initial-backup-path"
+      [ -e "$state/seeded-wallpapers" ] || : > "$state/seeded-wallpapers"
       touch "$state/initial-backup-complete"
     fi
 
@@ -375,11 +380,29 @@ EOF
       "$HOME/Pictures/ryodecors" \
       "$data_home/ryoku/assets/brand"
 
-    if [ -d "${ryoku.desktopData}/share/ryoku/wallpapers" ]; then
-      cp -n \
-        "${ryoku.desktopData}/share/ryoku/wallpapers/"* \
-        "$HOME/Pictures/Wallpapers/" \
-        2>/dev/null || true
+    # Seed once, as upstream's installer does: copying on every login brings
+    # deleted wallpapers back for Ryogami's auto-optimise to trash again.
+    shipped_walls="${ryoku.desktopData}/share/ryoku/wallpapers"
+    seeded="$state/seeded-wallpapers"
+
+    if [ -d "$shipped_walls" ]; then
+      # Accounts from before this list already have every shipped wallpaper.
+      if [ ! -e "$seeded" ] && [ -e "$state/initial-backup-complete" ]; then
+        find "$shipped_walls" -mindepth 1 -maxdepth 1 -printf '%f\n' > "$seeded"
+      fi
+      touch "$seeded"
+
+      for wall in "$shipped_walls"/*; do
+        [ -e "$wall" ] || continue
+        name="''${wall##*/}"
+        if grep -qxF -- "$name" "$seeded"; then
+          continue
+        fi
+        if cp -n "$wall" "$HOME/Pictures/Wallpapers/" 2>/dev/null ||
+          [ -e "$HOME/Pictures/Wallpapers/$name" ]; then
+          printf '%s\n' "$name" >> "$seeded"
+        fi
+      done
     fi
 
     if [ -d "${ryoku.desktopData}/share/ryoku/ryodecors" ]; then
