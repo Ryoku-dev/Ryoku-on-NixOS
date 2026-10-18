@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
@@ -34,6 +35,7 @@ import "schema/SessionPage.js" as SessionSchema
 import "schema/PerformancePage.js" as PerformanceSchema
 import "schema/UpdatesPage.js" as UpdatesSchema
 import "ReloadCoverModel.js" as ReloadCoverModel
+import "KeepsakeSequence.js" as Keepsake
 import Ryoku.FrameBars
 
 // Ryoku Settings, assembled. The rail owns navigation and global search; the
@@ -54,6 +56,24 @@ Rectangle {
     implicitHeight: 880
     color: Tokens.paper
     focus: true
+
+    // A local, durable unlock marker. No global shortcut and no config schema changes.
+    property bool keepsakeOpen: false
+    property int keepsakeIndex: 0
+    property double keepsakeLastAt: 0
+
+    function keepsakeTextFocused() {
+        const window = hub.Window.window;
+        let item = window ? window.activeFocusItem : null;
+        while (item && item !== hub) {
+            const type = String(item).toLowerCase();
+            if (type.indexOf("textinput") >= 0 || type.indexOf("textedit") >= 0
+                    || type.indexOf("textfield") >= 0)
+                return true;
+            item = item.parent;
+        }
+        return false;
+    }
 
     readonly property bool nixManaged:
         (Quickshell.env("RYOKU_UPDATE_BACKEND") || "") === "nix"
@@ -499,7 +519,11 @@ Rectangle {
                 if (groups[g].items[i].key === s) return groups[g].items[i];
         return null;
     }
-    function sectionAvailable(s) { var it = hub.itemFor(s); return it ? hub.needsMet(it) : true; }
+    function sectionAvailable(s) {
+        if (s === "keepsake") return false;
+        var it = hub.itemFor(s);
+        return it ? hub.needsMet(it) : true;
+    }
     // Whether the active provider backs at least one setting on this page, tested
     // against the effective row set under the same supports + modelsKey gate the
     // rows themselves pass. A keyless row (a header or an action) is not a setting
@@ -857,6 +881,7 @@ Rectangle {
                 if (hub.navigated)
                     return;
                 var s = hub.canonicalSection(this.text.trim());
+                if (s === "keepsake") return;
                 if (s && hub.pageFile(s) !== "" && hub.sectionAvailable(s)) hub.section = s;
             }
         }
@@ -1063,13 +1088,31 @@ Rectangle {
     }
 
     Keys.onEscapePressed: {
-        if (diffPop.open) diffPop.open = false;
+        if (hub.keepsakeOpen) { hub.keepsakeOpen = false; return; }
+        else if (diffPop.open) diffPop.open = false;
         else if (hub.query !== "") { hub.query = ""; searchField.clear(); }
         else hub.requestQuit();
     }
     Keys.onPressed: (e) => {
         if (e.key === Qt.Key_K && (e.modifiers & Qt.ControlModifier)) {
             searchField.grabFocus();
+            e.accepted = true;
+            return;
+        }
+        if (hub.keepsakeTextFocused()) {
+            hub.keepsakeIndex = 0;
+            return;
+        }
+        const letter = e.key === Qt.Key_W ? "W" : e.key === Qt.Key_S ? "S"
+            : e.key === Qt.Key_A ? "A" : e.key === Qt.Key_D ? "D" : "";
+        const next = Keepsake.step(hub.keepsakeIndex, hub.keepsakeLastAt, letter,
+            Date.now(), e.modifiers !== Qt.NoModifier, e.isAutoRepeat);
+        hub.keepsakeIndex = next.index;
+        hub.keepsakeLastAt = next.at;
+        if (next.complete) {
+
+            hub.navigated = true;
+            hub.keepsakeOpen = true;
             e.accepted = true;
         }
     }
@@ -1953,4 +1996,64 @@ Rectangle {
         }
     }
 
+
+    // The unlocked chapter leaves a quiet halo around the whole Hub frame.
+    Item {
+        id: keepsakeFrameGlow
+        anchors.fill: parent
+        z: 895
+        opacity: hub.section === "keepsake" ? 1 : 0
+        visible: opacity > 0.001
+        Behavior on opacity {
+            NumberAnimation { duration: Tokens.dur(2200); easing.type: Easing.InOutSine }
+        }
+        Repeater {
+            model: 3
+            Rectangle {
+                required property int index
+                anchors.fill: parent
+                anchors.margins: index * 5
+                radius: Tokens.radius + index * 4
+                color: "transparent"
+                border.width: 1
+                border.color: Qt.rgba(Tokens.sun.r, Tokens.sun.g, Tokens.sun.b,
+                    0.21 - index * 0.065)
+            }
+        }
+    }
+
+
+    Item {
+        id: keepsakeOverlay
+        anchors.fill: parent
+        z: 1100
+        visible: hub.keepsakeOpen
+        focus: visible
+        onVisibleChanged: {
+            if (visible) {
+                forceActiveFocus();
+            } else {
+                hub.keepsakeIndex = 0;
+                hub.keepsakeLastAt = 0;
+                hub.forceActiveFocus();
+            }
+        }
+        Keys.onEscapePressed: (event) => {
+            hub.keepsakeOpen = false;
+            event.accepted = true;
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: Tokens.paper
+            MouseArea { anchors.fill: parent }
+        }
+
+        Loader {
+            anchors.fill: parent
+            active: hub.keepsakeOpen
+            source: "pages/KeepsakePage.qml"
+            onLoaded: { if (item) item.hub = hub; }
+        }
+    }
 }
