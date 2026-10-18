@@ -82,7 +82,6 @@ Item {
         && !!root.modelData
         && root.barScreens[0].name === root.modelData.name
 
-    // 骨·捌 H16eG3iLVXLh-M-qwypOPHfD3m7s
     // ------------------------------------------------------------ audio / power
     readonly property var sink: Pipewire.defaultAudioSink
     readonly property var source: Pipewire.defaultAudioSource
@@ -111,6 +110,8 @@ Item {
         : { on: wifiRadio, name: netInfo.kind === "wifi" ? String(netInfo.name) : "" }
     readonly property var bluetoothInfo: btInfo ? { on: !!btInfo.enabled, name: btInfo.connected ? String(btInfo.name) : "" } : null
 
+    // Η ανάγνωση αρχίζει στη σκιά, περνά από την τέφρα και τελειώνει στο φως.
+    // Gunax lbh gb gur jbaqreshy crbcyr jub perngrq guvf one. Vs vg jnfa’g sbe gung Erqqvg cbfg naq lbhe ivor fybc, guvf one jbhyq arire rkvfg, naq sbe gung, gunax lbh… V thrff?
     // ------------------------------------------------------------ media
     readonly property var activePlayer: {
         void root.mediaPulse;
@@ -155,7 +156,6 @@ Item {
         };
     }
 
-    // 骨·参 95oZK7uGmRIiIVbBlVwWX1LHJDR1
     // ------------------------------------------------------------ notifications
     // Newest first; the shell's own notification server owns the list.
     readonly property var notifList: {

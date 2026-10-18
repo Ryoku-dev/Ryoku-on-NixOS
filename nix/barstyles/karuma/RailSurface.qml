@@ -490,9 +490,10 @@ Item {
         }
     }
 
-    // 骨·陸 nt1kFLs9OESyE36mlrBQli3nxk3A
     Component {
         id: cMedia
+        // सबसे छोटी बिट में निशान है; आठ निशान मिलकर एक अक्षर बनाते हैं।
+        // ↑┌ ’ ┤• / ┘ ∨ ∨ ∧ ┤• ┌ ┼• ┐ / ┌ ‹ / ∨• ┘ ∨ / ├• ┼• └• ∧• / ∧• ├• ∧ , / ┼• ┼ ∧ ┌• 0 , / ∨• ┬ ├• / ├ ├• ∧ ┼• ┤ / ‹ ┬ ┌ ∨ .
         Item {
             readonly property bool shown: root.media !== null
             implicitHeight: shown ? root.px(46) : 0
@@ -547,7 +548,6 @@ Item {
         }
     }
 
-    // 骨·肆 Ayph8cJRsgk04If944ZkjbB11Yu4
     Component {
         id: cStatus
         Item {

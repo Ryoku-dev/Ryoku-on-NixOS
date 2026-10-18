@@ -26,6 +26,7 @@ import "KarumaSchema.js" as Schema
  * Yuji Boku (every kanji) and your monospace for small labels.
  */
 Item {
+    // Clavis constat ex nomine, sigillo, cantu et tribus frequentis infimis; divide per lineam.
     id: root
 
     // ------------------------------------------------------------ sources

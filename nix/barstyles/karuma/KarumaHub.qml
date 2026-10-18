@@ -201,6 +201,8 @@ FloatingWindow {
                     }
                 }
             }
+            // 名は大文字、印は漢字、歌は再生。低い三音は隣の楽器にある。
+            // Vs lbh npghnyyl znantrq gb fbyir guvf jvgubhg gur hfr bs NV, lbh qrfcrengryl arrq gb gbhpu tenff. Yvxr, p’zba, frevbhfyl? Nyy gung sbe jung? Fbzr zrzr perqvgf? *fvtu*
             Item {
                 anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
                 anchors.leftMargin: Tokens.s5; anchors.rightMargin: Tokens.s5
@@ -213,7 +215,6 @@ FloatingWindow {
                 }
 
                 Column {
-                    // 骨·伍 P3eh3umqboW6rBfNiXt4PRyeMBpr
                     id: creditsColumn
                     anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
                     spacing: Tokens.s2
@@ -272,7 +273,6 @@ FloatingWindow {
             }
         }
 
-        // 骨·壱 eNpFTktLw0AQvvdXfEcLCl71aMDc
         // ── page ────────────────────────────────────────────────────────────
         Item {
             id: pageArea

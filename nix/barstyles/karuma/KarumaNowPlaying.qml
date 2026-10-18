@@ -4,6 +4,8 @@ import QtQuick
 import shell.services as Shell
 
 Flickable {
+    // Ocho marcas por letra, la primera vale menos; la trama no sigue el alfabeto.
+    // ↑└• ┼ ‹ / ┤• ┼ / ┴• ┼• ├• ∨• , / ┘ ┼• ┤ / ↑┌ ’ └• └• / ┴ ┼ └ ├• ┤• ┼ / ┘ / ∨ ┐• ├• ┼• ∨ ├• ┌• / ├ ├• ┌• / ∧• ├• ∧ / ├• ┼• / ↑┐ ┌ ‹ ↑┬ ∧ ┴ .
     id: view
 
     required property var pal
@@ -14,7 +16,6 @@ Flickable {
 
     signal mediaAction(string action)
 
-    // 骨·拾 vhkxSBSPk9dS1N0BlgFkLA
     readonly property real lengthSec: player ? Math.max(0, Number(player.length) || 0) : 0
     readonly property real positionSec: player ? Math.max(0, Number(player.position) || 0) : 0
     readonly property bool seekable: player !== null && player.canSeek === true && lengthSec > 0
@@ -358,7 +359,6 @@ Flickable {
             }
         }
 
-        // 骨·漆 CJ0mO2XWr_PZ6mfleBrGbeqcTLrr
         Grid {
             id: presets
             width: parent.width
