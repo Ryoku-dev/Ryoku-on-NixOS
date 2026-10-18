@@ -73,7 +73,11 @@ func main() {
 			err = updater.BootGuard(os.Args[2:])
 		}
 	case "boot-menu":
-		err = updater.BootMenu(os.Args[2:])
+		if sys.NixBackend() {
+			err = fmt.Errorf("the Fedora snapshot boot menu is not used on NixOS; boot an earlier NixOS generation instead")
+		} else {
+			err = updater.BootMenu(os.Args[2:])
+		}
 	case "snapshots":
 		err = updater.Snapshots()
 	case "status":

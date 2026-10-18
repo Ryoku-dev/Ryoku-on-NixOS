@@ -114,6 +114,9 @@ func gatherLegacyBootState(checkOnly bool) legacyBootState {
 }
 
 func reconcileFedoraLegacyBoot(checkOnly bool) recResult {
+	if sys.NixBackend() {
+		return okRes("boot entries and their timers are managed declaratively on NixOS")
+	}
 	plan := planLegacyBoot(gatherLegacyBootState(checkOnly))
 	if plan.empty() {
 		return okRes(i18n.T("no boot-menu leftovers from earlier Fedora packages"))

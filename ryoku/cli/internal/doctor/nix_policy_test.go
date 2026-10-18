@@ -37,6 +37,7 @@ func TestNixHostOwnedReconcilersDoNotMutateHost(t *testing.T) {
 		{"kepler nvidia", reconcileKeplerNvidia},
 		{"nvidia modeset", reconcileNvidiaModeset},
 		{"nvidia pacman guard", reconcileNvidiaGuardHook},
+		{"fedora legacy boot", reconcileFedoraLegacyBoot},
 		{"limine layout", reconcileLimineLayout},
 		{"limine boot entry", reconcileLimineBootEntry},
 		{"limine uki tree", reconcileLimineUKITree},
