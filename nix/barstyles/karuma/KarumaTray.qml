@@ -2,21 +2,28 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
-import Quickshell.Services.SystemTray
 import Quickshell.Widgets
-import "TrayMenuGroup.js" as Group
+import shell.services as Shell
+import shell.barkit as BarKit
 
 /*
  * App tray 駐: the arrow that reveals the apps running in the background.
+ *
+ * The shell daemon owns StatusNotifier registration and removal (as it does
+ * for Ricelin, Obi and Nacre), so this renders the daemon's current frame
+ * (Shell.Tray.items) instead of Quickshell's own SystemTray, which never hears
+ * about a closed app and kept its icon. A closed service disappears from the
+ * frame, and a restarted app can come back. Right-click menus are the native
+ * BarKit.TrayMenu, which closes itself on any click outside it.
  *
  * One component serves both renderers. BarSurface lays it out as a row and
  * RailSurface as a column (`vertical`); nothing is rotated except the arrow
  * glyph, so the icons and their hit targets stay upright.
  *
  * Collapsed, only the arrow shows. Clicking it slides the StatusNotifier icons
- * out of it (the arrow keeps its colours either way). Per icon: left click activates (or opens the menu for menu-only
- * apps), middle click is the secondary action, right click opens the app's own
- * menu (KarumaTrayMenu, styled like the hub sheets), and the wheel scrolls (volume-style tray apps).
+ * out of it (the arrow keeps its colours either way). Per icon: left click
+ * activates (or opens the menu for menu-only apps), right click opens the
+ * app's own menu, and the wheel scrolls (volume-style tray apps).
  *
  * The module has nothing to show while no application owns a tray icon, so it
  * hides itself (`shown`) and takes no room in its lane.
@@ -37,16 +44,19 @@ Item {
 
     function px(v) { return Math.round(v * tray.unit) }
 
-    readonly property int count: SystemTray.items.values.length
+    readonly property int count: Shell.Tray.items.length
     readonly property bool shown: count > 0
 
     readonly property int cell: px(26)
     readonly property int iconPx: px(16)
     readonly property int spacing: px(2)
 
-    readonly property int menuEdge: edge === "top" ? Edges.Bottom
-        : edge === "bottom" ? Edges.Top
-        : edge === "left" ? Edges.Right : Edges.Left
+    function itemSource(item) {
+        if (!item) return "";
+        if (item.iconPath)
+            return item.iconPath.indexOf("/") === 0 ? "file://" + item.iconPath : item.iconPath;
+        return Quickshell.iconPath(item.iconName || "application-x-executable-symbolic", true);
+    }
 
     // The drawer is as long as its icons while open, and zero while closed.
     readonly property real drawerFull: count * cell + Math.max(0, count - 1) * spacing
@@ -58,8 +68,6 @@ Item {
 
     // Collapse by itself once the last icon is gone.
     onCountChanged: if (count === 0) expanded = false
-    // A menu never outlives the icons it belongs to.
-    onExpandedChanged: if (!expanded) Group.closeCurrent()
 
     implicitWidth: vertical ? cell : cell + (drawerSize > 0 ? spacing + drawerSize : 0)
     implicitHeight: vertical ? cell + (drawerSize > 0 ? spacing + drawerSize : 0) : cell
@@ -120,7 +128,7 @@ Item {
             spacing: tray.spacing
 
             Repeater {
-                model: SystemTray.items
+                model: Shell.Tray.items
 
                 delegate: Item {
                     id: slot
@@ -128,7 +136,7 @@ Item {
                     width: tray.cell
                     height: tray.cell
 
-                    readonly property string label: String(modelData.title || modelData.tooltipTitle || modelData.id || "")
+                    readonly property string label: modelData ? String(modelData.title || (modelData.tooltip && modelData.tooltip.title) || modelData.id || "") : ""
 
                     Rectangle {
                         anchors.fill: parent
@@ -142,7 +150,7 @@ Item {
                         id: glyph
                         anchors.centerIn: parent
                         implicitSize: tray.iconPx
-                        source: slot.modelData.icon
+                        source: tray.itemSource(slot.modelData)
                         mipmap: true
                         visible: status === Image.Ready
                     }
@@ -157,41 +165,38 @@ Item {
                         font.pixelSize: tray.px(12)
                     }
 
-                    KarumaTrayMenu {
-                        id: menu
-                        pal: tray.pal
-                        unit: tray.unit
-                        anchorItem: slot
-                        edges: tray.menuEdge
-                        rootMenu: slot.modelData.menu
-                    }
-
                     HoverHandler { id: slotHover }
                     MouseArea {
                         anchors.fill: parent
-                        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
                         cursorShape: Qt.PointingHandCursor
                         onClicked: mouse => {
                             const it = slot.modelData;
-                            if (mouse.button === Qt.RightButton) {
-                                if (it.hasMenu) menu.open();
-                            } else if (mouse.button === Qt.MiddleButton) {
-                                it.secondaryActivate();
-                            } else if (it.onlyMenu && it.hasMenu) {
-                                menu.open();
-                            } else {
-                                it.activate();
+                            if (!it) return;
+                            const pt = slot.mapToGlobal(0, slot.height);
+                            const gx = Math.round(pt.x);
+                            const gy = Math.round(pt.y);
+                            if (mouse.button === Qt.RightButton || it.itemIsMenu) {
+                                if (it.menu) trayMenu.openFor(it, slot);
+                                else Shell.Tray.contextMenu(it.service, gx, gy);
+                            } else if (mouse.button === Qt.LeftButton) {
+                                Shell.Tray.activate(it.service, gx, gy);
                             }
                         }
                         onWheel: wheel => {
-                            const dy = wheel.angleDelta.y;
-                            const dx = wheel.angleDelta.x;
-                            if (dy !== 0) slot.modelData.scroll(dy, false);
-                            if (dx !== 0) slot.modelData.scroll(dx, true);
+                            if (slot.modelData)
+                                Shell.Tray.scroll(slot.modelData.service, wheel.angleDelta.y, "vertical");
                         }
                     }
                 }
             }
         }
+    }
+
+    // The app's own menu, drawn by the shell. One per tray; it dismisses
+    // itself when anything outside it is clicked.
+    BarKit.TrayMenu {
+        id: trayMenu
+        edge: tray.edge
     }
 }
