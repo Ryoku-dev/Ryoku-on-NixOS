@@ -1,13 +1,13 @@
 { pkgs }:
 
-pkgs.buildGoModule {
-  pname = "prowl-agent";
+pkgs.buildGoModule rec {
+  pname = "prowl";
   version = "0.17.2";
 
   src =
     pkgs.fetchFromGitHub {
       owner = "neur0map";
-      repo = "prowl-agent";
+      repo = "prowl";
       rev = "5ba05eb922ff023e3cbc2b9a3768829179bca980";
       hash = "sha256-OslMKhH48f0XcfUlZ5DaDWyRmLb+fWM/qnU0p9C+Zyo=";
     };
@@ -30,15 +30,17 @@ pkgs.buildGoModule {
     "sqlite_fts5"
   ];
 
+  # Rashin and the CLI run this binary as prowl.
   subPackages = [
-    "cmd/prowl-agent"
+    "cmd/prowl"
   ];
 
   # Immutable Nix builds must never self-update into the store.
   ldflags = [
     "-s"
     "-w"
-    "-X main.version=v0.15.6"
+    "-X main.version=v${version}"
+    "-X main.commit=${src.rev}"
     "-X main.managedBy=nix"
   ];
 
@@ -47,10 +49,10 @@ pkgs.buildGoModule {
       "Local code-intelligence indexer and MCP server used by Ryoku Rashin";
 
     homepage =
-      "https://github.com/neur0map/prowl-agent";
+      "https://github.com/neur0map/prowl";
 
     mainProgram =
-      "prowl-agent";
+      "prowl";
 
     platforms =
       pkgs.lib.platforms.linux;
