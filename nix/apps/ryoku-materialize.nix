@@ -141,8 +141,10 @@ debug {
 EOF
       fi
 
+      # The first-login seed is the read-only store copy (0444); on the
+      # session's tty a plain mv would prompt and hang the login.
       chmod --reference="$niri_gpu" "$tmp"
-      mv "$tmp" "$niri_gpu"
+      mv -f -- "$tmp" "$niri_gpu"
     fi
 
     # config.kdl is niri's immutable Ryoku entrypoint and autostart.kdl is
