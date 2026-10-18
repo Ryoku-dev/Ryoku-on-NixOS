@@ -23,8 +23,15 @@ ignore_files:
 # kernel syntax, not a word choice, and every occurrence in the tree is that one
 # legitimate use, so neutralize woke's default blacklist rule (empty terms) instead
 # of ignoring whole files, which would drop all their other lint.
+# `slave` is the same class: it is the literal value Hyprland's master:new_status
+# keyword accepts, the store default, and the word our own schema description
+# names it with, so renaming it would break the setting rather than the lint.
 rules:
   - name: blacklist
+    terms: []
+    alternatives: []
+    severity: info
+  - name: slave
     terms: []
     alternatives: []
     severity: info

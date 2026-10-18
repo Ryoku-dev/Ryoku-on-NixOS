@@ -111,8 +111,8 @@ get_location() {
     echo "$loc_json"
 }
 
-write_dummy_data() {
-    log_debug "Writing fallback dummy data to $json_file"
+write_placeholder_data() {
+    log_debug "Writing fallback placeholder data to $json_file"
     local desc_offline
     desc_offline="$(t "weather.desc.offline")"
     final_json="["
@@ -145,7 +145,7 @@ write_dummy_data() {
 
 mark_offline_if_stale() {
     if [ ! -f "$json_file" ]; then
-        write_dummy_data
+        write_placeholder_data
         return
     fi
     local fetched_at age
@@ -154,7 +154,7 @@ mark_offline_if_stale() {
     age=$(( $(date +%s) - fetched_at ))
     if [ $age -ge $STALE_LIMIT ]; then
         log_debug "Cached forecast is older than $STALE_LIMIT seconds. Switching to offline data."
-        write_dummy_data
+        write_placeholder_data
     fi
 }
 
@@ -214,7 +214,7 @@ get_data() {
     fi
 
     if [ -z "$raw_api" ]; then
-        log_debug "Raw API data is empty. Reverting to dummy data structures."
+        log_debug "Raw API data is empty. Reverting to placeholder data structures."
         mark_offline_if_stale
         return
     fi
@@ -354,7 +354,7 @@ get_data() {
         log_debug "Successfully completed dataset restructuring. Committing payload to disk: $json_file"
         echo "$processed_json" > "${json_file}"
     else
-        log_debug "Data filtering phase returned an empty payload. Retaining dummy block."
+        log_debug "Data filtering phase returned an empty payload. Retaining placeholder block."
         mark_offline_if_stale
     fi
 }
@@ -394,7 +394,7 @@ elif [[ "$ACTION" == "--json" ]]; then
         log_debug "JSON cache file age: $diff seconds (Limit: $CACHE_LIMIT)"
         offline_desc="$(t "weather.desc.offline")"
         if grep -q "\"desc\": \"${offline_desc}\"" "$json_file"; then
-            log_debug "Cache contains offline dummy data. Retry limit check: $diff vs $PENDING_RETRY_LIMIT"
+            log_debug "Cache contains offline placeholder data. Retry limit check: $diff vs $PENDING_RETRY_LIMIT"
             if [ $diff -gt $PENDING_RETRY_LIMIT ]; then
                 log_debug "Wiping and updating background cache due to stale offline marker."
                 touch "$json_file"

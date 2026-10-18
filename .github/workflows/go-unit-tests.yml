@@ -92,13 +92,21 @@ jobs:
         with:
           go-version-file: ryoku/shell/ryogami/daemon/go.mod
 
+      # The scan and thumbnail tests run magick (ImageMagick 7) and ffmpeg,
+      # which the runner image lacks.
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+
       - name: Build, vet, and test
         shell: bash
         working-directory: ryoku/shell/ryogami/daemon
         run: |
           go build ./...
           go vet ./...
-          go test ./...
+          nix shell --inputs-from "$GITHUB_WORKSPACE" nixpkgs#imagemagick nixpkgs#ffmpeg \
+            --command go test ./...
 
   store-backend:
     name: store backend (catalogue providers)
