@@ -11,7 +11,6 @@ let
 
   ryokuShell = ryokuPkgs.ryoku-shell;
   ryokuRashin = ryokuPkgs.ryoku-rashin;
-  hermesPackage = hermesAgent.packages.${system}.default;
   ryokuBundle = ryokuPkgs.ryoku-bundle;
   ryokuHelpers = ryokuPkgs.ryoku-helpers;
   ryokuSystemBridge = ryokuPkgs.ryoku-nixos-system-bridge;
@@ -741,7 +740,6 @@ EOF
     nodejs
     gcc
     sqlite
-    hermesPackage
 
     curl
     glib
