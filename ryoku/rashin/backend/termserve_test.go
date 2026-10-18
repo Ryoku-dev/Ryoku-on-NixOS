@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 // runs collects the Run field of every command in a plan for comparison.
 func runs(p *termPlan) []string {
@@ -175,5 +179,28 @@ func TestStripCodeFences(t *testing.T) {
 				t.Errorf("stripCodeFences(%q) = %q, want %q", tc.answer, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFinishTermRecordsIDAndSourceWithoutAgentBroadcast(t *testing.T) {
+	quickTestEnv(t)
+	agentHub := newChatHub(ryokuLane())
+	client := &chatClient{out: make(chan wsOut, 2)}
+	agentHub.mu.Lock()
+	agentHub.clients[client] = true
+	agentHub.mu.Unlock()
+	askHub := newChatHub(askLane())
+	res := httptest.NewRecorder()
+	sink := &askSink{w: res, f: res}
+	askHub.finishTerm(sink, "t1", termReq{Q: "where am I"}, "Here.", nil, "Prowl · model", "")
+	if len(agentHub.transcript) != 0 || len(client.out) != 0 {
+		t.Fatalf("terminal answer reached Agent: transcript=%+v queued=%d", agentHub.transcript, len(client.out))
+	}
+	if body := res.Body.String(); !strings.Contains(body, `"id":"t1"`) || !strings.Contains(body, `"via":"Prowl · model"`) {
+		t.Fatalf("answer marker = %s", body)
+	}
+	recent := RecentAsks(1)
+	if len(recent) != 1 || recent[0].ID != "t1" || recent[0].Via != "Prowl · model" {
+		t.Fatalf("recent terminal record = %+v", recent)
 	}
 }

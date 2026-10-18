@@ -210,6 +210,7 @@ func TestShellLoadReportsDefaultEnvPragmaFailureDuringRespawn(t *testing.T) {
 // A refused plugin means the system's Qt is older than the build's. The drifted
 // tree is not the cause and must stay as it is; the remedy is the system update.
 func TestShellLoadNamesAQtBehindTheBuild(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
 	cfg, _ := shellSandbox(t)
 	log := filepath.Join(os.Getenv("XDG_STATE_HOME"), "ryoku", "surfaces", "shell.log")
 	if err := os.WriteFile(log, []byte(qtMismatchFailure), 0o644); err != nil {

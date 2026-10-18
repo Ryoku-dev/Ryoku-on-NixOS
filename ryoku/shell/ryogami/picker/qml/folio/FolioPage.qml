@@ -15,6 +15,13 @@ Item {
     property var condCtx
     property int rev: 0
     property string jumpControlId: ""
+    property var expandedGroups: ({})
+
+    function setGroupExpanded(id, expanded) {
+        var next = Object.assign({}, page.expandedGroups);
+        next[id] = expanded;
+        page.expandedGroups = next;
+    }
 
     signal closeRequested()
 
@@ -62,6 +69,14 @@ Item {
         duration: Theme.standard; easing.type: Theme.revealEasing }
 
     function scrollToControl(id) {
+        for (var row = 0; row < page.items.length; row++) {
+            var entry = page.items[row];
+            if (entry.control && entry.control.id === id && entry.group && !page.expandedGroups[entry.group]) {
+                page.setGroupExpanded(entry.group, true);
+                Qt.callLater(function () { page.scrollToControl(id); });
+                return;
+            }
+        }
         for (var i = 0; i < bodyRepeater.count; i++) {
             var d = bodyRepeater.itemAt(i);
             if (d && d.cid === id) {
@@ -162,8 +177,23 @@ Item {
                     id: dele
                     required property var modelData
                     width: body.width
-                    implicitHeight: Math.max(dispLoader.height, listLoader.height, ctlLoader.height)
+                    implicitHeight: Math.max(groupLoader.height, dispLoader.height, listLoader.height, ctlLoader.height)
                     height: implicitHeight
+                    visible: !dele.modelData.group || !!page.expandedGroups[dele.modelData.group]
+
+                    Loader {
+                        id: groupLoader
+                        width: parent.width
+                        active: dele.modelData.type === "group"
+                        height: active && item ? item.implicitHeight : 0
+                        sourceComponent: Component {
+                            FolioAction {
+                                width: groupLoader.width
+                                label: (page.expandedGroups[dele.modelData.id] ? "\u25be  " : "\u25b8  ") + dele.modelData.title
+                                onTriggered: page.setGroupExpanded(dele.modelData.id, !page.expandedGroups[dele.modelData.id])
+                            }
+                        }
+                    }
 
                     readonly property string cid: dele.modelData.type === "control"
                         ? (dele.modelData.control ? dele.modelData.control.id : "")

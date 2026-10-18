@@ -391,7 +391,7 @@ Item {
         property string heading: I18n.tr("Select")
         signal picked(string key)
         signal activated()
-        width: 132; height: Tokens.ctlH; radius: Tokens.radius
+        implicitWidth: 132; height: Tokens.ctlH; radius: Tokens.radius
         color: mph.hovered ? Tokens.tint10 : "transparent"
         border.width: Tokens.border
         border.color: mph.hovered ? Tokens.lineStrong : Tokens.line
@@ -837,18 +837,20 @@ Item {
                         }
 
                         // one-tap feels -- a starting point, friendlier than handles
-                        Item {
+                        Column {
                             width: parent.width
-                            height: Tokens.ctlH
-                            Text {
-                                id: feelLabel
-                                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-                                text: I18n.tr("FEEL"); color: Tokens.inkFaint
-                                font.family: Tokens.mono; font.pixelSize: Tokens.fMicro; font.letterSpacing: Tokens.trackMark
-                            }
-                            Row {
-                                anchors { left: feelLabel.right; leftMargin: Tokens.s3; verticalCenter: parent.verticalCenter }
+                            spacing: Tokens.s2
+
+                            Flow {
+                                width: parent.width
                                 spacing: Tokens.s2
+
+                                Text {
+                                    height: Tokens.ctlH
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: I18n.tr("FEEL"); color: Tokens.inkFaint
+                                    font.family: Tokens.mono; font.pixelSize: Tokens.fMicro; font.letterSpacing: Tokens.trackMark
+                                }
                                 Repeater {
                                     model: pg.feels
                                     delegate: Rectangle {
@@ -874,9 +876,11 @@ Item {
                                 }
                             }
                             Text {
-                                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                                width: parent.width
+                                horizontalAlignment: Text.AlignRight
                                 text: I18n.tr("a one-tap starting point"); color: Tokens.inkFaint
                                 font.family: Tokens.ui; font.pixelSize: Tokens.fTiny
+                                wrapMode: Text.WordWrap
                             }
                         }
 
@@ -897,7 +901,7 @@ Item {
 
                             BezierEditor {
                                 id: bez
-                                width: 300
+                                width: Math.min(implicitWidth, Math.floor((parent.width - parent.spacing) * 0.66))
                                 height: 280
                                 x0: pg.curveOf(pg.selectedCurve).x0
                                 y0: pg.curveOf(pg.selectedCurve).y0
@@ -908,15 +912,20 @@ Item {
 
                             Column {
                                 id: readouts
-                                width: 220
+                                width: Math.max(0, parent.width - bez.width - parent.spacing)
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: Tokens.s3
 
-                                Text { text: I18n.tr("Fine-tune the handles."); color: Tokens.inkMuted; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall }
-                                Text { text: I18n.tr("P1   ") + bez.x0.toFixed(2) + ", " + bez.y0.toFixed(2); color: Tokens.ink; font.family: Tokens.mono; font.pixelSize: Tokens.fSmall }
-                                Text { text: I18n.tr("P2   ") + bez.x1.toFixed(2) + ", " + bez.y1.toFixed(2); color: Tokens.ink; font.family: Tokens.mono; font.pixelSize: Tokens.fSmall }
                                 Text {
-                                    width: 200
+                                    width: parent.width
+                                    text: I18n.tr("Fine-tune the handles.")
+                                    color: Tokens.inkMuted; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
+                                    wrapMode: Text.WordWrap
+                                }
+                                Text { width: parent.width; text: I18n.tr("P1   ") + bez.x0.toFixed(2) + ", " + bez.y0.toFixed(2); color: Tokens.ink; font.family: Tokens.mono; font.pixelSize: Tokens.fSmall }
+                                Text { width: parent.width; text: I18n.tr("P2   ") + bez.x1.toFixed(2) + ", " + bez.y1.toFixed(2); color: Tokens.ink; font.family: Tokens.mono; font.pixelSize: Tokens.fSmall }
+                                Text {
+                                    width: parent.width
                                     text: I18n.tr("Presets set the shape; drag to fine-tune. Curves are shared by name, and Advanced animations reference them.")
                                     color: Tokens.inkFaint; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall; wrapMode: Text.WordWrap
                                 }
@@ -1075,9 +1084,19 @@ Item {
                         readonly property var it: pg.itemOf(ar.leaf)
                         readonly property var styleOpts: pg.styleOptionsFor(ar.leaf)
                         readonly property bool on: !!ar.it.enabled
+                        readonly property real innerWidth: Math.max(0, width - 2 * Tokens.s4)
+                        readonly property real minimumNameWidth: 6 * Tokens.s4
+                        readonly property real minimumPickWidth: 6 * Tokens.s4
+                        readonly property int pickerCount: ar.styleOpts.length > 0 ? 2 : 1
+                        readonly property real fixedControlsWidth: animSwitch.implicitWidth + speedStep.implicitWidth
+                        readonly property real pickWidth: Math.min(bezP.implicitWidth, Math.max(ar.minimumPickWidth,
+                            Math.floor((ar.innerWidth - ar.fixedControlsWidth - (ar.pickerCount + 1) * Tokens.s3) / ar.pickerCount)))
+                        readonly property bool stackControls: ctl.implicitWidth + ar.minimumNameWidth + Tokens.s3 > ar.innerWidth
 
                         anchors.left: parent.left; anchors.right: parent.right
-                        height: Tokens.rowH
+                        height: ar.stackControls
+                            ? Tokens.s4 + nameLabel.implicitHeight + Tokens.s2 + ctl.implicitHeight + Tokens.s4
+                            : Tokens.rowH
                         visible: pg.hit(ar.leaf)
 
                         Rectangle {
@@ -1095,7 +1114,12 @@ Item {
                         HoverHandler { id: arh }
 
                         Text {
-                            anchors { left: parent.left; leftMargin: Tokens.s4; right: ctl.left; rightMargin: Tokens.s3; verticalCenter: parent.verticalCenter }
+                            id: nameLabel
+                            x: Tokens.s4
+                            y: ar.stackControls ? Tokens.s4 : Math.round((ar.height - height) / 2)
+                            width: ar.stackControls
+                                ? ar.innerWidth
+                                : Math.max(ar.minimumNameWidth, ctl.x - Tokens.s3 - x)
                             text: ar.leaf
                             elide: Text.ElideRight
                             color: ar.on ? Tokens.ink : Tokens.inkFaint
@@ -1103,22 +1127,28 @@ Item {
                         }
                         Row {
                             id: ctl
-                            anchors { right: parent.right; rightMargin: Tokens.s4; verticalCenter: parent.verticalCenter }
+                            x: ar.stackControls ? Tokens.s4 : ar.width - Tokens.s4 - width
+                            y: ar.stackControls
+                                ? Tokens.s4 + nameLabel.implicitHeight + Tokens.s2
+                                : Math.round((ar.height - height) / 2)
                             spacing: Tokens.s3
 
                             Sw {
+                                id: animSwitch
                                 anchors.verticalCenter: parent.verticalCenter
                                 on: ar.on
                                 onToggled: (v) => pg.upsertItem(ar.leaf, "enabled", v)
                             }
                             NumStep {
                                 anchors.verticalCenter: parent.verticalCenter
+                                id: speedStep
                                 value: Number(ar.it.speed) || 0
                                 min: 0.1; max: 10
                                 onChanged: (v) => pg.upsertItem(ar.leaf, "speed", v)
                             }
                             MiniPick {
                                 id: styleP
+                                width: ar.pickWidth
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: ar.styleOpts.length > 0
                                 heading: I18n.tr("Style"); ph: I18n.tr("style")
@@ -1129,6 +1159,7 @@ Item {
                             }
                             MiniPick {
                                 id: bezP
+                                width: ar.pickWidth
                                 anchors.verticalCenter: parent.verticalCenter
                                 heading: I18n.tr("Curve"); ph: I18n.tr("curve")
                                 opts: pg.curveNames()

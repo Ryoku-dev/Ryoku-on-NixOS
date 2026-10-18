@@ -25,17 +25,16 @@
     /** an approval is waiting on the person */
     waiting?: boolean;
     usage: { size: number; used: number } | null;
-    sendMode?: "agent" | "quick";
-    quickRunning?: boolean;
-    quickStatus?: string;
-    quickError?: string;
+    pick: string;
+    pickUnavailable: boolean;
+    handoffPending?: boolean;
     focusTarget?: HTMLTextAreaElement;
     ondraft: (value: string) => void;
     onsend: (text: string, images: PromptImage[]) => void;
     oncancel: () => void;
     onmodel: (id: string) => void;
     onapprovals: (mode: ApprovalsMode) => void;
-    onmode?: (mode: "agent" | "quick") => void;
+
   }
 
   let {
@@ -47,21 +46,20 @@
     commands,
     models,
     currentModel,
+    pick,
+    pickUnavailable,
+    handoffPending = false,
     agent,
     approvals,
     waiting = false,
     usage,
-    sendMode = "agent",
-    quickRunning = false,
-    quickStatus = "",
-    quickError = "",
     focusTarget = $bindable(),
     ondraft,
     onsend,
     oncancel,
     onmodel,
     onapprovals,
-    onmode,
+
   }: Props = $props();
 
   // The tiers are named by what runs without a prompt; "Read-only" used to
@@ -87,7 +85,22 @@
   const commandMatches = $derived(commandQuery === null ? [] : commands
     .filter((command) => command.name.toLowerCase().includes(commandQuery) || command.description.toLowerCase().includes(commandQuery))
     .slice(0, 8));
-  const modelOptions = $derived(models.map((model) => ({ value: model.id, label: model.name, hint: model.description })));
+  const selectedModel = $derived(pick || currentModel);
+  const modelOptions = $derived.by(() => {
+    const options = models.map((model) => ({
+      value: model.id,
+      label: model.id === pick ? `${model.name} · picked` : model.name,
+      hint: model.description,
+    }));
+    if (pick && !models.some((model) => model.id === pick)) {
+      options.unshift({
+        value: pick,
+        label: `${pick} · picked`,
+        hint: pickUnavailable ? "Not available in this session" : "Picked for this harness",
+      });
+    }
+    return options;
+  });
   const usagePercent = $derived(usage && usage.size > 0 ? Math.min(100, (usage.used / usage.size) * 100) : 0);
 
 
@@ -195,20 +208,7 @@
     <BorderBeam size={waiting ? "pulse-inner" : "line"} active={busy || waiting} strength={waiting ? 0.7 : 0.9} />
   {/key}
   <div class="composer-inner">
-    {#if lane === "ryoku"}
-      <div class="send-mode">
-        <Seg
-          size="sm"
-          label="Send mode"
-          options={[
-            { value: "agent", label: "Agent", hint: "Work with the machine agent" },
-            { value: "quick", label: "Quick", hint: "Ask a quick read-only question" },
-          ]}
-          value={sendMode}
-          onchange={(value) => onmode?.(value as "agent" | "quick")}
-        />
-      </div>
-    {/if}
+
     {#if images.length}
       <div class="attachments" aria-label="Attached images">
         {#each images as image, index (`${image.data.slice(0, 20)}:${index}`)}
@@ -222,14 +222,12 @@
 
     <div class="field-anchor">
       <div class="field">
-        {#if sendMode === "agent"}
-          <IconButton icon="image" label="Attach an image" size={30} onclick={() => filePicker?.click()} />
-        {/if}
+        <IconButton icon="image" label="Attach an image" size={30} onclick={() => filePicker?.click()} />
         <textarea
           bind:this={focusTarget}
           value={draft}
           rows="1"
-          placeholder={lane === "ryoku" ? "Ask the Needle…" : `Message ${agent || "Hermes"}…`}
+          placeholder={handoffPending ? "Continue from the ask…" : lane === "ryoku" ? "Ask the Needle…" : `Message ${agent || "Hermes"}…`}
           aria-label={lane === "ryoku" ? "Message the Needle" : `Message ${agent || "Hermes"}`}
           oninput={(event) => {
             ondraft(event.currentTarget.value);
@@ -287,12 +285,7 @@
 
     <div class="status-line">
       <div class="activity" aria-live="polite">
-        {#if quickError}
-          <span class="activity-text quick-error" role="alert">{quickError}</span>
-        {:else if quickRunning}
-          <ThinkingOrb mode="working" size={20} label="Quick answer is working" />
-          <span class="activity-text" title={quickStatus}>{quickStatus || "thinking"}</span>
-        {:else if busy}
+        {#if busy}
           <ThinkingOrb mode={waiting ? "listening" : "working"} size={20} label={waiting ? "Waiting for you" : "Working"} />
           <span class="activity-text" title={activity}>{waiting ? "waiting for your approval" : (activity || "working")}</span>
         {:else if !connected}
@@ -307,14 +300,19 @@
           </div>
         {/if}
         <span class="agent-hint">{agent || "agent"}</span>
-        <Select
-          size="sm"
-          label="Model"
-          options={modelOptions}
-          value={currentModel}
-          placeholder="Model"
-          onchange={onmodel}
-        />
+        <div class="model-control">
+          <Select
+            size="sm"
+            label="Model"
+            options={modelOptions}
+            value={selectedModel}
+            placeholder="Model"
+            onchange={onmodel}
+          />
+          {#if pickUnavailable}
+            <span class="pick-note" role="status">Your pick, {pick}, is not available in this session. The agent kept {currentModel || "its current model"}.</span>
+          {/if}
+        </div>
         <Tooltip text={APPROVAL_HINTS[approvals]} side="top">
           <Seg
             size="sm"
@@ -332,7 +330,7 @@
 <style>
   .composer-shell { position: relative; z-index: 3; flex: none; border-top: 1px solid var(--line-soft); background: var(--paper); }
   .composer-inner { width: min(100%, var(--measure)); margin: 0 auto; padding: var(--s3) var(--s5) var(--s4); }
-  .send-mode { display: flex; justify-content: flex-start; padding-bottom: var(--s2); }
+
   .field { display: flex; align-items: flex-end; gap: var(--s2); padding: var(--s2); border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper-lift); transition: border-color var(--t-fast) var(--ease); }
   .field:focus-within { border-color: var(--line-strong); }
   textarea { flex: 1; min-width: 0; min-height: 32px; max-height: 176px; resize: none; overflow-y: auto; padding: 5px var(--s1); border: 0; outline: 0; background: transparent; color: var(--ink); line-height: 22px; }
@@ -348,9 +346,10 @@
   .status-line { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 30px; padding-top: var(--s2); }
   .activity { display: flex; align-items: center; gap: var(--s2); flex: 1 1 0; min-width: 0; color: var(--ink-mute); font-size: var(--f-small); }
   .activity-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .quick-error { color: var(--alert); }
   .composer-controls { display: flex; align-items: center; justify-content: flex-end; gap: var(--s2); flex: none; }
   .agent-hint { color: var(--ink-faint); font-size: var(--f-micro); }
+  .model-control { display: flex; align-items: center; gap: var(--s2); max-width: 360px; }
+  .pick-note { color: var(--alert); font-size: var(--f-micro); line-height: 1.3; }
   .usage { display: grid; grid-template-columns: auto 56px; align-items: center; gap: var(--s2); color: var(--ink-faint); font-family: var(--mono); font-size: var(--f-tiny); }
   .usage-bar { position: relative; width: 56px; height: 3px; overflow: hidden; border-radius: 2px; background: var(--tint10); }
   .usage-bar i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--bone); transition: width var(--t-slow) var(--ease-out); }

@@ -447,7 +447,7 @@ Rectangle {
                         { keys: ["Ctrl", "1–9"], text: Translation.tr("Ink") },
                         { keys: ["Ctrl", "[", "]"], text: Translation.tr("Thickness") },
                         { keys: ["Ctrl", "W", "K"], text: Translation.tr("Light or dark board") },
-                        { keys: ["Ctrl", "F"], text: Translation.tr("Zoom") },
+                        { keys: ["Ctrl", "F"], text: Translation.tr("Zoom"), hidden: !LiveDraw.zoomAvailable },
                         { keys: ["Ctrl", "M"], text: Translation.tr("Spotlight") },
                         { keys: ["Ctrl", "C"], text: Translation.tr("Copy the drawing") },
                         { keys: ["Ctrl", "Shift", "C"], text: Translation.tr("Copy the screen with it") },
@@ -464,6 +464,7 @@ Rectangle {
                     delegate: RowLayout {
                         id: shortcutRow
                         required property var modelData
+                        visible: !modelData.hidden
                         Layout.fillWidth: true
                         spacing: 10
 

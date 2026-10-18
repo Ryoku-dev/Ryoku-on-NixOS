@@ -5,8 +5,8 @@ After=ryoku-rashin.service
 StartLimitIntervalSec=0
 
 [Service]
-ExecStartPre=-/usr/bin/prowl gateway down --port 8788
-ExecStart=/usr/bin/prowl gateway serve --port 8788
+ExecStartPre=-/bin/sh -c 'exec /usr/bin/prowl gateway down --port "$${RYOKU_PROWL_PORT:-8788}"'
+ExecStart=/bin/sh -c 'exec /usr/bin/prowl gateway serve --port "$${RYOKU_PROWL_PORT:-8788}"'
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=yes

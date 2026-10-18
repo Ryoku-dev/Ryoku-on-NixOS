@@ -28,6 +28,9 @@ Singleton {
     readonly property alias files: files
     readonly property int count: files.count
     readonly property alias queueModel: queueModel
+    readonly property alias installedModel: installedModel
+    property string installedState: "idle" // idle | loading | ready | error
+    property string uninstallingId: ""
 
     // Newest-first, capped: the Tools "recently downloaded" list. Sorted here in
     // JS because FolderListModel's own time sort is unreliable across builds.
@@ -185,18 +188,161 @@ Singleton {
         Quickshell.execDetached(["stash-install.sh"].concat(paths));
     }
 
+    function refreshInstalled() {
+        installedModel.clear();
+        root.installedState = "loading";
+        if (installedProc.running)
+            installedProc.running = false;
+        installedProc.running = true;
+    }
+
+    function onInstalledLine(line) {
+        const fields = ("" + line).split("\t");
+        if (fields.length < 1 || fields[0].length === 0)
+            return;
+        installedModel.append({
+            appId: fields[0],
+            label: fields.length > 1 && fields[1].length > 0 ? fields.slice(1).join(" ") : fields[0]
+        });
+    }
+
+    function uninstallApp(appId) {
+        if (!appId || uninstallProc.running)
+            return;
+        root.uninstallingId = appId;
+        uninstallProc.command = ["stash-install.sh", "uninstall", appId];
+        uninstallProc.running = true;
+    }
+
+    // ── Format probe ────────────────────────────────────────────────────
+    // One yt-dlp read per link answers all three modes; chips re-render from
+    // probeTiersAll. Cobalt never enters it.
+    property string probeState: "idle"   // idle | probing | ready | error
+    // All three mode lists from one extraction: the script answers once with
+    // tiers.auto/audio/mute, so switching chips re-renders from this instead of
+    // paying for a second yt-dlp call. probeTiers is the current chip's view.
+    property var probeTiersAll: ({})
+    readonly property var probeTiers: root.probeTiersAll[root.dlMode] || []
+    property string probeTitle: ""
+    property string probeMsg: ""
+    property string probedUrl: ""
+    // Counts probes this code killed by hand. Their onExited lands after the
+    // replacement probe has already set state back to "probing", so without
+    // this a supersede would read as a failure, flip to "error", and the fresh
+    // probe's TIERS line would then be dropped by the state guard.
+    property int probeKills: 0
+
+    // Short enough to skip a half-typed scheme, long enough not to probe
+    // "https://" alone.
+    function probeAccepts(url) {
+        var u = ("" + url).trim();
+        return u.length >= 8 && /^https?:\/\//i.test(u);
+    }
+
+    function probe(url) {
+        var u = ("" + url).trim();
+        if (!root.probeAccepts(u)) {
+            root.resetProbe();
+            return;
+        }
+        root.probedUrl = u;
+        root.probeTiersAll = ({});
+        root.probeTitle = "";
+        root.probeMsg = "";
+        root.probeState = "probing";
+        // Re-running the same Process is what supersedes an in-flight probe:
+        // a slow answer for a link the user has already replaced must not
+        // arrive after the fresh one and repaint the row.
+        probeProc.command = ["bash", root.cobaltScript, "probe", u];
+        if (probeProc.running) {
+            root.probeKills++;
+            probeProc.running = false;
+        }
+        probeProc.running = true;
+    }
+
+    function resetProbe() {
+        if (probeProc.running) {
+            root.probeKills++;
+            probeProc.running = false;
+        }
+        root.probeState = "idle";
+        root.probeTiersAll = ({});
+        root.probeTitle = "";
+        root.probeMsg = "";
+        root.probedUrl = "";
+    }
+
+    function onProbeLine(line) {
+        // A line that arrives after the state moved on belongs to a probe that
+        // has been superseded or cleared, and is dropped rather than shown.
+        if (root.probeState !== "probing")
+            return;
+        var t = ("" + line).split("\t");
+        if (t[0] === "TIERS") {
+            var parsed = null;
+            try {
+                parsed = JSON.parse(t[1] || "{}");
+            } catch (err) {
+                parsed = null;
+            }
+            // One extraction answers every mode; sanitize each list so a
+            // malformed rung never reaches the picker. ProbeTiers is the
+            // current chip's view of this, so a mode switch needs no probe.
+            var all = ({});
+            var count = 0;
+            var modes = ["auto", "audio", "mute"];
+            if (parsed && parsed.tiers) {
+                root.probeTitle = parsed.title || "";
+                for (var m = 0; m < modes.length; m++) {
+                    const list = parsed.tiers[modes[m]] || [];
+                    var tiers = [];
+                    for (var i = 0; i < list.length; i++) {
+                        const e = list[i];
+                        if (e && e.fmt)
+                            tiers.push({ key: e.key || "",
+                                         height: (e.height === undefined ? null : e.height),
+                                         bitrate: (e.bitrate === undefined ? null : e.bitrate),
+                                         sizeMB: (e.sizeMB === undefined ? null : e.sizeMB),
+                                         fmt: e.fmt });
+                    }
+                    all[modes[m]] = tiers;
+                    count += tiers.length;
+                }
+            }
+            root.probeTiersAll = all;
+            root.probeState = count > 0 ? "ready" : "error";
+        } else if (t[0] === "ERROR") {
+            root.probeMsg = t[1] || "";
+            root.probeState = "error";
+        }
+    }
+
     // ── Cobalt download + remux ─────────────────────────────────────────
-    function enqueueDownload(url, mode) {
+    // `tier` is the probe entry the user tapped. Its selector travels with the
+    // queue row so a retry asks for the same quality rather than the default.
+    function enqueueDownload(url, mode, tier) {
         var u = ("" + url).trim();
         if (u.length === 0)
             return;
+        // Seed the row with the title the probe already read, so it names the
+        // video from the first frame instead of a generic "link" until the
+        // worker's own START/SAVED line lands.
+        var seeded = (root.probeTitle.length > 0 && root.probedUrl === u)
+            ? root.probeTitle : I18n.tr("link");
+        // The row also carries the raw title for the script to name the desktop
+        // notification with. It travels empty when the probe never read one: the
+        // localized "link" placeholder above is a row label, not a real title.
+        var title = (root.probeTitle.length > 0 && root.probedUrl === u)
+            ? root.probeTitle : "";
         queueModel.append({ kind: "download", arg: u, mode: mode || root.dlMode,
-            name: I18n.tr("link"), state: "queued", pct: 0, msg: "", saved: false });
+            name: seeded, title: title, state: "queued", pct: 0, msg: "", saved: false,
+            fmt: (tier && tier.fmt) ? tier.fmt : "", key: (tier && tier.key) ? tier.key : "" });
         pumpQueue();
     }
 
     function enqueueRemux(file) {
-        queueModel.append({ kind: "remux", arg: file, mode: "",
+        queueModel.append({ kind: "remux", arg: file, mode: "", fmt: "", key: "",
             name: ("" + file).split("/").pop(), state: "queued", pct: 0, msg: "", saved: false });
         pumpQueue();
     }
@@ -212,9 +358,15 @@ Singleton {
                 queueModel.setProperty(i, "state", "running");
                 var e = queueModel.get(i);
                 var envp = "COBALT_API_URL=" + root.cobaltUrl;
+                // An empty selector is passed as an empty argument rather than
+                // dropped, so the script's own argument count stays fixed. The
+                // probed title rides along as STASH_TITLE so the notification can
+                // name the video; env() eats the leading NAME=VALUE pairs, so it
+                // never reaches the script as an argument of its own.
                 workerProc.command = e.kind === "remux"
                     ? ["env", envp, "bash", root.cobaltScript, "remux", e.arg]
-                    : ["env", envp, "bash", root.cobaltScript, "download", e.arg, e.mode];
+                    : ["env", envp, "STASH_TITLE=" + (e.title || ""), "bash", root.cobaltScript,
+                       "download", e.arg, e.mode, e.fmt || ""];
                 workerProc.running = true;
                 return;
             }
@@ -252,6 +404,22 @@ Singleton {
         pumpQueue();
     }
 
+    // Cancel the row the user tapped: a running worker is killed (the script's
+    // TERM trap takes its yt-dlp down with it), a queued one is only marked so
+    // pumpQueue skips it. The state flips before the kill so onExited reads
+    // "cancelled", not "running", and never paints it as a failure.
+    function cancelJob(i) {
+        if (i < 0 || i >= queueModel.count)
+            return;
+        var st = queueModel.get(i).state;
+        if (st !== "running" && st !== "queued")
+            return;
+        queueModel.setProperty(i, "state", "cancelled");
+        // onExited clears activeJob and pumps the next queued row.
+        if (i === root.activeJob && workerProc.running)
+            workerProc.running = false;
+    }
+
     // Drop a finished row from the queue list (never the running one).
     function dismissJob(i) {
         if (i < 0 || i >= queueModel.count || i === root.activeJob)
@@ -264,7 +432,7 @@ Singleton {
     function clearQueueDone() {
         for (var i = queueModel.count - 1; i >= 0; i--) {
             var s = queueModel.get(i).state;
-            if (s === "done" || s === "error")
+            if (s === "done" || s === "error" || s === "cancelled")
                 queueModel.remove(i);
         }
     }
@@ -339,6 +507,28 @@ Singleton {
         id: queueModel
     }
 
+    ListModel {
+        id: installedModel
+    }
+
+    Process {
+        id: installedProc
+        command: ["stash-install.sh", "list"]
+        stdout: SplitParser {
+            splitMarker: "\n"
+            onRead: (line) => root.onInstalledLine(line)
+        }
+        onExited: (code) => root.installedState = code === 0 ? "ready" : "error"
+    }
+
+    Process {
+        id: uninstallProc
+        onExited: {
+            root.uninstallingId = "";
+            root.refreshInstalled();
+        }
+    }
+
     Process {
         id: workerProc
         stdout: SplitParser {
@@ -373,6 +563,29 @@ Singleton {
             onStreamFinished: {
                 const out = ("" + sitesOut.text).trim();
                 root.supportedSites = out.length > 0 ? out.split("\n").filter(l => l.length > 0) : [];
+            }
+        }
+    }
+
+    Process {
+        id: probeProc
+        stdout: SplitParser {
+            splitMarker: "\n"
+            onRead: (line) => root.onProbeLine(line)
+        }
+        onExited: {
+            // A probe this code killed by hand is a supersede, not a failure:
+            // its exit lands after the replacement already set "probing" again.
+            if (root.probeKills > 0) {
+                root.probeKills--;
+                return;
+            }
+            // The helper prints its own ERROR line, so silence on a failing
+            // exit is the only path here: a link it could not read at all
+            // still has to leave the picker in a state the user can act on.
+            if (root.probeState === "probing") {
+                root.probeMsg = "";
+                root.probeState = "error";
             }
         }
     }

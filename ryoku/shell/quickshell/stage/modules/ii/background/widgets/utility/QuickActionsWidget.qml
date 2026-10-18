@@ -146,7 +146,7 @@ AbstractBackgroundWidget {
                         }
                     }
 
-                    onClicked: Spawn.run(["ryoku-shell", "ask", "chat"])
+                    onClicked: Spawn.run(["ryoku-shell", "ask"])
                 }
 
                 // Bottom row: two configurable action buttons

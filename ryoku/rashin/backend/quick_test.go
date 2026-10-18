@@ -43,7 +43,7 @@ func quickGateway(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 func writeSSE(w http.ResponseWriter, deltas ...string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	for _, delta := range deltas {
-		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", delta)
+		fmt.Fprintf(w, "data: {\"model\":\"gateway/model\",\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", delta)
 	}
 	fmt.Fprint(w, "data: [DONE]\n\n")
 }
@@ -76,12 +76,12 @@ func TestQuickCompleteUsesGatewayRouteAndBearer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	answer, err := quickComplete(context.Background(), target, "hello", nil, nil)
+	answer, model, err := quickComplete(context.Background(), target, "hello", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if answer != "Routed answer." {
-		t.Fatalf("answer = %q", answer)
+	if answer != "Routed answer." || model != "gateway/model" {
+		t.Fatalf("answer = %q model = %q", answer, model)
 	}
 	if gotPath != "/v1/chat/completions" || gotModel != "auto:fast" {
 		t.Fatalf("path = %q model = %q", gotPath, gotModel)
@@ -114,7 +114,7 @@ func TestValidateQuickRoute(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	})
-	for _, route := range []string{"auto", "AUTO:SMART", "auto:work"} {
+	for _, route := range []string{"agent", "auto", "AUTO:SMART", "auto:work"} {
 		got, err := validateQuickRoute(context.Background(), route)
 		if err != nil {
 			t.Fatalf("%s: %v", route, err)
@@ -134,6 +134,54 @@ func TestValidateQuickRoute(t *testing.T) {
 	}
 	if _, err := validateQuickRoute(context.Background(), "auto:missing"); err == nil {
 		t.Fatal("missing routing set must be rejected")
+	}
+}
+
+func TestAgentQuickRouteSkipsGateway(t *testing.T) {
+	quickTestEnv(t)
+	cfg := defaultConfig()
+	cfg.Quick.Route = "agent"
+	if _, err := resolveQuickTarget(cfg); err != errAgentRoute {
+		t.Fatalf("resolve agent route error = %v, want errAgentRoute", err)
+	}
+}
+
+func TestQuickInfoListsAgentBeforeRoutableProwl(t *testing.T) {
+	quickTestEnv(t)
+	quickGateway(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/setup/harnesses":
+			fmt.Fprint(w, `{"routable":true,"harnesses":[]}`)
+		case "/api/profiles":
+			fmt.Fprint(w, `[]`)
+		case "/api/profiles/active":
+			fmt.Fprint(w, `{"activeProfileId":null}`)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	info := quickInfo(context.Background(), defaultConfig())
+	if len(info.Routes) < 2 || info.Routes[0].ID != "agent" ||
+		info.Routes[0].Label != "Agent model" || !strings.Contains(info.Routes[0].Sub, " · ") {
+		t.Fatalf("routes = %+v", info.Routes)
+	}
+	if info.Routes[1].ID != "auto" {
+		t.Fatalf("first Prowl route = %+v", info.Routes[1])
+	}
+}
+
+func TestQuickInfoFallsBackToAgentWhenProwlIsUnroutable(t *testing.T) {
+	quickTestEnv(t)
+	quickGateway(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/setup/harnesses" {
+			fmt.Fprint(w, `{"routable":false,"reason":"no provider","harnesses":[]}`)
+			return
+		}
+		http.NotFound(w, r)
+	})
+	info := quickInfo(context.Background(), defaultConfig())
+	if info.Route != "agent" || len(info.Routes) != 1 || info.Routes[0].ID != "agent" {
+		t.Fatalf("info = %+v", info)
 	}
 }
 
@@ -174,7 +222,7 @@ func TestQuickCompleteStreamsAnswer(t *testing.T) {
 		writeSSE(w, "The kernel ", "is 7.0.12.")
 	})
 	var streamed strings.Builder
-	got, err := quickComplete(context.Background(),
+	got, _, err := quickComplete(context.Background(),
 		quickTarget{Route: "auto"}, "kernel?",
 		func(delta string) { streamed.WriteString(delta) }, nil)
 	if err != nil {
@@ -191,7 +239,7 @@ func TestQuickCompleteSentinelEscalates(t *testing.T) {
 		writeSSE(w, "TOOLS_", "REQUIRED")
 	})
 	streamedAny := false
-	_, err := quickComplete(context.Background(),
+	_, _, err := quickComplete(context.Background(),
 		quickTarget{Route: "auto"}, "summarize this video",
 		func(string) { streamedAny = true }, nil)
 	if err != errNeedsTools {
@@ -216,7 +264,7 @@ func TestQuickCompleteToolLoop(t *testing.T) {
 		writeSSE(w, "Kernel is current.")
 	})
 	var tools []string
-	got, err := quickComplete(context.Background(),
+	got, _, err := quickComplete(context.Background(),
 		quickTarget{Route: "auto"}, "what kernel?", nil,
 		func(_ string, title string, status string) {
 			if status == "in_progress" {

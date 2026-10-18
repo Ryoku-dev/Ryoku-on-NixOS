@@ -7,6 +7,7 @@
   import ThinkingOrb from "$lib/fx/ThinkingOrb.svelte";
   import Button from "$lib/ui/Button.svelte";
   import Icon from "$lib/ui/Icon.svelte";
+  import HandoffCard from "./HandoffCard.svelte";
   import MessageItem from "./MessageItem.svelte";
   import PermissionRequest from "./PermissionRequest.svelte";
   import ToolItem from "./ToolItem.svelte";
@@ -93,7 +94,7 @@
         {:else}
           <p>Chat with {harnessName || "Hermes"}</p>
           <span class="empty-copy">This lane knows nothing about this machine by design.</span>
-          <a class="lane-link" href="#/ryoku">Open Ryoku for machine work</a>
+          <a class="lane-link" href="#/agent">Open Agent for machine work</a>
         {/if}
       </section>
     {:else}
@@ -101,6 +102,8 @@
         {#each items as item (item.id)}
           {#if item.kind === "msg"}
             <MessageItem {item} {seed} />
+          {:else if item.kind === "handoff"}
+            <HandoffCard {item} />
           {:else}
             <ToolItem
               {item}

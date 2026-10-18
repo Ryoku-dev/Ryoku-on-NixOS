@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,6 +64,85 @@ func TestMonitorsKdlOmitsDefaults(t *testing.T) {
 	}
 	if strings.Contains(got, "variable-refresh-rate") {
 		t.Errorf("VRR off must be omitted:\n%s", got)
+	}
+}
+
+func TestFallbackOutputKeepsOneConnectedDisplayOn(t *testing.T) {
+	tests := []struct {
+		name    string
+		outputs []wm.Output
+		want    string
+	}{
+		{
+			name: "enabled external keeps panel off",
+			outputs: []wm.Output{
+				{Name: "DP-1"},
+				{Name: "eDP-1", Disabled: true},
+			},
+		},
+		{
+			name: "internal panel wins after undock",
+			outputs: []wm.Output{
+				{Name: "DP-1", Disabled: true},
+				{Name: "eDP-1", Disabled: true},
+			},
+			want: "eDP-1",
+		},
+		{
+			name:    "external is still a safe fallback",
+			outputs: []wm.Output{{Name: "DP-1", Disabled: true}},
+			want:    "DP-1",
+		},
+		{name: "no connected outputs"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := fallbackOutput(tc.outputs); got != tc.want {
+				t.Fatalf("fallbackOutput() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReconcileOutputFallbackReturnsToPanelOffPreference(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	var got []string
+	restore := stubRequest(t, func(req any) (json.RawMessage, error) {
+		body, err := json.Marshal(req)
+		got = append(got, string(body))
+		return nil, err
+	})
+	defer restore()
+
+	if reconcileOutputFallback([]wm.Output{
+		{Name: "DP-1"},
+		{Name: "eDP-1", Disabled: true},
+	}) {
+		t.Fatal("an enabled external output must not trigger a fallback")
+	}
+	if !reconcileOutputFallback([]wm.Output{
+		{Name: "eDP-1", Disabled: true},
+	}) {
+		t.Fatal("all-disabled connected outputs did not trigger the fallback")
+	}
+	if marker := readOutputFallbackMarker(); marker != "eDP-1" {
+		t.Fatalf("fallback marker = %q, want eDP-1", marker)
+	}
+	if !reconcileOutputFallback([]wm.Output{
+		{Name: "DP-1"},
+		{Name: "eDP-1"},
+	}) {
+		t.Fatal("the returning external output did not restore the panel-off preference")
+	}
+	if marker := readOutputFallbackMarker(); marker != "" {
+		t.Fatalf("fallback marker survived restoration: %q", marker)
+	}
+	want := []string{
+		`{"Output":{"action":"On","output":"eDP-1"}}`,
+		`{"Output":{"action":"Off","output":"eDP-1"}}`,
+	}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("fallback requests\n got: %q\nwant: %q", got, want)
 	}
 }
 

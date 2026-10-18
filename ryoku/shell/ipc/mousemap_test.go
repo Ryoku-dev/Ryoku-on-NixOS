@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -614,5 +615,154 @@ func TestMouseSequenceCancelOnReleaseUnwindsHeldKeys(t *testing.T) {
 	want := []synthEvent{{evKey, 29, 1}, {evKey, 29, 0}}
 	if !reflect.DeepEqual(keyEvents, want) {
 		t.Fatalf("cancel events = %v, want ctrl down then release", keyEvents)
+	}
+}
+
+func newFakeMouseMapManager(t *testing.T) *mouseMapManager {
+	t.Helper()
+	root := t.TempDir()
+	sysRoot := filepath.Join(root, "sys")
+	devRoot := filepath.Join(root, "dev", "input")
+	byIDRoot := filepath.Join(devRoot, "by-id")
+	if err := os.MkdirAll(byIDRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	addFakeInput(t, sysRoot, devRoot, "event7", "devices/pci0000/usb1/1-7/input/input7",
+		capKey(272, 273, 274), "Test Mouse", true)
+	manager := newMouseMapManager(sysRoot, devRoot, byIDRoot, filepath.Join(root, "mousemap.json"), func() (*os.File, error) {
+		return nil, fmt.Errorf("uinput must not open")
+	})
+	t.Cleanup(func() {
+		manager.stop()
+		select {
+		case <-manager.done:
+		case <-time.After(time.Second):
+			t.Error("mouse map manager did not stop")
+		}
+	})
+	return manager
+}
+
+func TestMouseMapOpenFailureBacksOffWithoutRescanLoop(t *testing.T) {
+	manager := newFakeMouseMapManager(t)
+	manager.curMaps = map[string]map[string]mouseTarget{
+		"event7": {"272": {Kind: "button", Button: 273}},
+	}
+
+	var opens atomic.Int32
+	manager.openDevice = func(path string) (*os.File, error) {
+		opens.Add(1)
+		return nil, fmt.Errorf("open %s: %w", path, os.ErrPermission)
+	}
+	var logs atomic.Int32
+	manager.logf = func(string, ...any) {
+		logs.Add(1)
+	}
+	var scans atomic.Int32
+	manager.classifyDevices = func(sysRoot, devRoot, byIDRoot string, cache mouseInputFactsCache) []mouseDevice {
+		scans.Add(1)
+		return classifyMouseDevicesCached(sysRoot, devRoot, byIDRoot, cache)
+	}
+	type scheduledRetry struct {
+		delay time.Duration
+		fire  func()
+	}
+	scheduled := make(chan scheduledRetry, 4)
+	manager.scheduleRetry = func(ctx context.Context, delay time.Duration, wake mouseRetryWake, retries chan<- mouseRetryWake) {
+		scheduled <- scheduledRetry{
+			delay: delay,
+			fire: func() {
+				select {
+				case retries <- wake:
+				case <-ctx.Done():
+				}
+			},
+		}
+	}
+
+	manager.start()
+	var first scheduledRetry
+	select {
+	case first = <-scheduled:
+	case <-time.After(time.Second):
+		t.Fatal("open failure did not schedule a retry")
+	}
+	if first.delay != time.Second {
+		t.Fatalf("first retry delay = %v, want 1s", first.delay)
+	}
+	if got := opens.Load(); got != 1 {
+		t.Fatalf("open attempts before retry = %d, want 1", got)
+	}
+	if got := scans.Load(); got != 1 {
+		t.Fatalf("automatic reconciles before retry = %d, want 1", got)
+	}
+	if got := logs.Load(); got != 1 {
+		t.Fatalf("unavailable logs in first failure streak = %d, want 1", got)
+	}
+
+	for range 4 {
+		if _, err := manager.state(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := opens.Load(); got != 1 {
+		t.Fatalf("state reconciles bypassed backoff: %d open attempts, want 1", got)
+	}
+	if got := scans.Load(); got != 5 {
+		t.Fatalf("reconciles = %d, want 5 including explicit state reads", got)
+	}
+
+	first.fire()
+	var second scheduledRetry
+	select {
+	case second = <-scheduled:
+	case <-time.After(time.Second):
+		t.Fatal("first retry did not reach the opener")
+	}
+	if second.delay != 2*time.Second {
+		t.Fatalf("second retry delay = %v, want 2s", second.delay)
+	}
+	if got := opens.Load(); got != 2 {
+		t.Fatalf("open attempts after one fired retry = %d, want 2", got)
+	}
+	if got := scans.Load(); got != 6 {
+		t.Fatalf("reconciles after one fired retry = %d, want 6 including explicit state reads", got)
+	}
+	if got := logs.Load(); got != 1 {
+		t.Fatalf("unavailable logs after retry = %d, want 1", got)
+	}
+}
+
+func TestMouseMapLeavesDevicesClosedWithoutBindings(t *testing.T) {
+	manager := newFakeMouseMapManager(t)
+	var opens atomic.Int32
+	manager.openDevice = func(string) (*os.File, error) {
+		opens.Add(1)
+		return nil, os.ErrPermission
+	}
+	manager.start()
+	if _, err := manager.state(); err != nil {
+		t.Fatal(err)
+	}
+	if got := opens.Load(); got != 0 {
+		t.Fatalf("open attempts without bindings = %d, want 0", got)
+	}
+}
+
+func TestMouseReaderRetryDelayCapsAtOneMinute(t *testing.T) {
+	tests := []struct {
+		failures int
+		want     time.Duration
+	}{
+		{failures: 1, want: time.Second},
+		{failures: 2, want: 2 * time.Second},
+		{failures: 6, want: 32 * time.Second},
+		{failures: 7, want: 60 * time.Second},
+		{failures: 20, want: 60 * time.Second},
+	}
+	for _, test := range tests {
+		if got := mouseReaderRetryDelay(test.failures); got != test.want {
+			t.Errorf("mouseReaderRetryDelay(%d) = %v, want %v", test.failures, got, test.want)
+		}
 	}
 }

@@ -230,7 +230,17 @@ Scope {
             readonly property var overviewController: GlobalStates.overviewBackgroundControllerFor(dockRoot.screen?.name ?? "")
             readonly property bool realGnomeOverviewOpen: GlobalStates.overviewOpen && !GlobalStates.editMode
                 && !!dockRoot.overviewController && dockRoot.overviewController.isRealGnome
-            property bool reveal: !GlobalStates.presetBarHidden && !dockRoot.realGnomeOverviewOpen && (dock.pinned || GlobalStates.editMode || DockPresets.isSwitchingPreset || (!anySidebarOpen && ((dockRoot.effectiveHoverToReveal && dockMouseArea.containsMouse) || (dockContent.requestDockShow) || (workspaceEmpty && !isSpecialWorkspaceOpen && (!(Config.options?.dock.showOnlyOnFocusedMonitor ?? false) || isFocusedMonitor)))))
+            property bool reveal: !GlobalStates.presetBarHidden
+                && !dockRoot.realGnomeOverviewOpen
+                && ((dock.pinned && !dockRoot.hoverBlocked)
+                    || GlobalStates.editMode
+                    || DockPresets.isSwitchingPreset
+                    || (!anySidebarOpen
+                        && ((dockRoot.effectiveHoverToReveal && dockMouseArea.containsMouse)
+                            || dockContent.requestDockShow
+                            || (workspaceEmpty && !isSpecialWorkspaceOpen
+                                && (!(Config.options?.dock.showOnlyOnFocusedMonitor ?? false)
+                                    || isFocusedMonitor)))))
             property bool positionChanging: false
 
             readonly property bool workspaceEmpty:
@@ -398,14 +408,15 @@ Scope {
             readonly property bool fullInputMask: !dockRoot.reveal
                 || dockContent.dragging
                 || (dockMouseArea.containsMouse && (dockRoot.enableMagnification || !dock.pinned))
+            readonly property bool inputActive: dockRoot.reveal || dockRoot.effectiveHoverToReveal
             readonly property Item inputItem: dockRoot.fullInputMask ? dockMouseArea : trayInputArea
             readonly property rect inputRect: frameLayer.maskRect(dockRoot.inputItem.x, dockRoot.inputItem.y,
                 dockRoot.inputItem.width, dockRoot.inputItem.height)
             mask: Region {
                 x: Math.round(dockRoot.inputRect.x)
                 y: Math.round(dockRoot.inputRect.y)
-                width: Math.round(dockRoot.inputRect.width)
-                height: Math.round(dockRoot.inputRect.height)
+                width: dockRoot.inputActive ? Math.round(dockRoot.inputRect.width) : 0
+                height: dockRoot.inputActive ? Math.round(dockRoot.inputRect.height) : 0
             }
 
             // The dock is part of the desktop the Stage Editor shrinks into its

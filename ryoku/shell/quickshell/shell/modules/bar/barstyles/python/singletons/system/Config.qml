@@ -17,15 +17,7 @@ Item {
     readonly property string settingsJsonPath: (Quickshell.env("XDG_CONFIG_HOME")
         || (Quickshell.env("HOME") + "/.config")) + "/ryoku/shell.json"
 
-    readonly property var defaultSettings: ({
-        "launcher": ({
-            "position": "top",
-            "width": 600,
-            "itemCount": 6,
-            "terminalCommand": "kitty -e",
-            "smartRanking": true
-        })
-    })
+    readonly property var defaultSettings: ({})
     property bool dataReady: true
     property var rawSettings: ({})
 

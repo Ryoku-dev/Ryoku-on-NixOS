@@ -48,7 +48,7 @@
   }
 </script>
 
-<Card title="Rashin chat agent" gloss="対話" lead="Choose which supported harness answers Rashin's chat lane.">
+<Card title="Rashin agent harness" gloss="作業" lead="Choose which ACP harness powers Agent and Chat. This does not change Prowl routing or the model you picked.">
   {#if error}
     <Empty title="Chat agents are unavailable" body={error} />
   {:else if agents.length === 0}
@@ -59,25 +59,27 @@
         <button class="plate" class:on={agent.active} type="button" disabled={!agent.available || agent.active || busy} onclick={() => choose(agent)}>
           <span class="agent-name">{agent.name}</span>
           {#if agent.recommended}<Chip tone={agent.active ? "quiet" : "line"}>Recommended</Chip>{/if}
-          <span class="state">{agent.active ? "Answering chat" : agent.available ? "Available" : "Not connected"}</span>
+          <span class="state">{agent.active ? "Active harness" : agent.available ? "Available" : "Unavailable"}</span>
         </button>
       {/each}
     </div>
     {#if routing}
       <p class:waiting={routing.pending} class="routing-result" aria-live="polite">
         {#if routing.active}
-          {switchedName} is routed through Prowl.
-        {:else}
-          {switchedName} is waiting for Prowl. {routing.reason || "Connect a provider before Prowl can route this chat agent."}
+          {switchedName} already defaults to Prowl auto. Switching harnesses did not change that default.
+        {:else if routing.pending}
+          {switchedName} has a pending Prowl default. {routing.reason || "Connect a provider before that default can route."}
           <a href="#/prowl/providers">Open Providers</a>
+        {:else}
+          {switchedName} uses its own model default. Prowl routing and explicit model picks were left unchanged.
         {/if}
       </p>
     {/if}
   {/if}
 </Card>
 
-<Dialog bind:open title="Switch the chat agent?" description="The running chat session restarts when the harness changes.">
-  <p>The current transcript stays on disk. New turns will be answered by <strong>{pending?.name}</strong>.</p>
+<Dialog bind:open title="Switch the agent harness?" description="The running Agent and Chat sessions restart when the harness changes. Prowl routing and model picks stay unchanged.">
+  <p>The current transcripts stay on disk. New turns will be answered by <strong>{pending?.name}</strong>.</p>
   {#snippet footer()}
     <Button variant="quiet" onclick={() => (open = false)}>Keep current</Button>
     <Button variant="plate" autofocus busy={busy} onclick={confirm}>Switch agent</Button>

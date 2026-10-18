@@ -6,6 +6,7 @@ import Quickshell.Io
 import Ryoku.Ui.Singletons
 import "../../"
 import "../../reusables"
+import "../../reusables/guide"
 
 Item {
     id: displayTabRoot
@@ -29,7 +30,6 @@ Item {
     property var displaySettings: JSON.parse(JSON.stringify(Config.getSetting("display", defaultDisplaySettings)))
     property var monitorsList: []
 
-    readonly property string compositor: Wm.provider
 
     property string pendingMonName: ""
     property real pendingMonTemp: 50
@@ -283,6 +283,7 @@ Item {
                                 vrr: item.vrr === true
                             });
                         }
+
                     }
                 } catch (e) {
                 }
@@ -395,15 +396,26 @@ Item {
         }
     }
 
+    Timer {
+        id: reloadMonitorsDebounceTimer
+        interval: 220
+        repeat: false
+        onTriggered: displayTabRoot.reloadMonitors()
+    }
+
     Component.onCompleted: {
         displayTabRoot.refreshDisplaySettings();
-        displayTabRoot.reloadMonitors();
+        if (visible) {
+            reloadMonitorsDebounceTimer.restart();
+        }
     }
 
     onVisibleChanged: {
         if (visible) {
             displayTabRoot.refreshDisplaySettings();
-            displayTabRoot.reloadMonitors();
+            reloadMonitorsDebounceTimer.restart();
+        } else {
+            reloadMonitorsDebounceTimer.stop();
         }
     }
 
@@ -492,17 +504,26 @@ Item {
                     radius: ThemeBackend.borderRadius
 
                     property string monName: modelData.name
-                    property var monSettings: (displayTabRoot.displaySettings && displayTabRoot.displaySettings.monitors && displayTabRoot.displaySettings.monitors[monName]) ? displayTabRoot.displaySettings.monitors[monName] : ({})
+                    property var monSettings: (displayTabRoot && displayTabRoot.displaySettings && displayTabRoot.displaySettings.monitors && displayTabRoot.displaySettings.monitors[monName]) ? displayTabRoot.displaySettings.monitors[monName] : ({})
 
-                    property bool monitorPowered: monSettings.powerEnabled !== undefined ? monSettings.powerEnabled : (modelData.active !== undefined ? modelData.active : true)
-                    property bool filterEnabled: monSettings.enabled !== undefined ? monSettings.enabled : false
-                    property bool filterAuto: monSettings.auto !== undefined ? monSettings.auto : false
-                    property real currentTemp: monSettings.temperature !== undefined ? monSettings.temperature : 50
+                    property bool monitorPowered: monSettings && monSettings.powerEnabled !== undefined ? monSettings.powerEnabled : (modelData && modelData.active !== undefined ? modelData.active : true)
+                    property bool filterEnabled: monSettings && monSettings.enabled !== undefined ? monSettings.enabled : false
+                    property bool filterAuto: monSettings && monSettings.auto !== undefined ? monSettings.auto : false
+                    property real currentTemp: monSettings && monSettings.temperature !== undefined ? monSettings.temperature : 50
                     property real currentScale: modelData.scale !== undefined ? modelData.scale : 1.0
 
-                    color: monitorPowered ? Qt.alpha(ThemeBackend.surface0, 0.4) : Qt.darker(Qt.alpha(ThemeBackend.surface0, 0.4), 1.1)
+                    readonly property color cardTint: monitorPowered ? Qt.alpha(ThemeBackend.surface0, 0.4) : Qt.darker(Qt.alpha(ThemeBackend.surface0, 0.4), 1.1)
+                    color: monDelegateGlass.active ? "transparent" : cardTint
                     border.color: monitorPowered ? Qt.alpha(ThemeBackend.surface1, 0.4) : Qt.darker(Qt.alpha(ThemeBackend.surface1, 0.4), 1.1)
-                    border.width: 1
+                    border.width: ThemeBackend.liquidGlass ? 0 : 1
+
+                    GlassFill {
+                        id: monDelegateGlass
+                        anchors.fill: parent
+                        radius: parent.radius
+                        tintColor: monDelegate.cardTint
+                        tintAmount: 0.25
+                    }
 
                     property real targetHeight: boxLayout.implicitHeight + rootObj.s(24)
                     property bool appeared: false
@@ -532,6 +553,7 @@ Item {
                     }
 
                     onMonSettingsChanged: {
+                        if (!monSettings) return;
                         if (monSettings.powerEnabled !== undefined) {
                             monitorPowered = monSettings.powerEnabled;
                         }
@@ -613,15 +635,16 @@ Item {
                             }
                         }
 
-                        SettingsRow {
+                        SettingsGroup {
                             rootObj: displayTabRoot.rootObj
-                            baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
                             icon: "󰖔"
                             title: I18n.t("guide.display.bluelight.title")
                             description: I18n.t("guide.display.bluelight.desc")
+                            expanded: monDelegate.filterEnabled
 
                             Toggle {
                                 id: filterToggle
+                                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                                 checked: monDelegate.filterEnabled
                                 accentColor: ThemeBackend.mauve
                                 baseColor: ThemeBackend.surface1
@@ -639,27 +662,8 @@ Item {
                                     value: monDelegate.filterEnabled
                                 }
                             }
-                        }
 
-                        Item {
-                            id: bluelightSectionWrapper
-                            Layout.fillWidth: true
-                            property bool isOpen: monDelegate.filterEnabled
-                            clip: true
-                            visible: implicitHeight > 0
-                            opacity: isOpen ? 1.0 : 0.0
-                            implicitHeight: isOpen ? bluelightInnerCol.implicitHeight : 0
-
-                            Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
-                            Behavior on implicitHeight { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
-
-                            ColumnLayout {
-                                id: bluelightInnerCol
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.top: parent.top
-                                spacing: rootObj.s(6)
-
+                            subSettings: [
                                 SettingsRow {
                                     rootObj: displayTabRoot.rootObj
                                     baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
@@ -669,6 +673,7 @@ Item {
 
                                     Toggle {
                                         id: autoToggle
+                                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                                         checked: monDelegate.filterAuto
                                         accentColor: ThemeBackend.mauve
                                         baseColor: ThemeBackend.surface1
@@ -686,7 +691,7 @@ Item {
                                             value: monDelegate.filterAuto
                                         }
                                     }
-                                }
+                                },
 
                                 Item {
                                     id: tempSectionWrapper
@@ -713,6 +718,7 @@ Item {
 
                                         Draggable {
                                             id: temperatureSlider
+                                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                                             Layout.rightMargin: rootObj.s(8)
                                             implicitWidth: rootObj.s(220)
                                             implicitHeight: rootObj.s(18)
@@ -740,7 +746,7 @@ Item {
                                         }
                                     }
                                 }
-                            }
+                            ]
                         }
 
                         SettingsRow {

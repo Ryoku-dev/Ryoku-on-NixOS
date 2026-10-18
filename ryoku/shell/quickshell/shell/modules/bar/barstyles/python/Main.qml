@@ -24,7 +24,7 @@ PanelWindow {
     Shortcut {
         sequence: "Escape"
         context: Qt.WindowShortcut
-        enabled: masterWindow.isVisible
+        enabled: masterWindow.isVisible && !masterWindow.isClosing
         onActivated: switchWidget("hidden", "")
     }
 
@@ -41,11 +41,6 @@ PanelWindow {
             }
         } catch (e) {}
 
-        try {
-            if (typeof ToplevelManager !== "undefined" && ToplevelManager.activeToplevel && ToplevelManager.activeToplevel.screens && ToplevelManager.activeToplevel.screens.length > 0) {
-                return ToplevelManager.activeToplevel.screens[0];
-            }
-        } catch (e) {}
 
         if (masterWindow.screen) return masterWindow.screen;
         return (Quickshell.screens && (Quickshell.screens.length > 0 || Quickshell.screens.count > 0))
@@ -138,6 +133,9 @@ PanelWindow {
             let effectivelyActive = masterWindow.targetActive;
 
             if (cmd === "close") {
+                if (typeof DockAppMenuController !== "undefined") {
+                    DockAppMenuController.hide();
+                }
                 switchWidget("hidden", "");
             } else if (cmd === "toggle" || cmd === "open") {
                 if (targetWidget === effectivelyActive) {
@@ -174,19 +172,6 @@ PanelWindow {
                 }
             }
         }
-
-        function getWidgetGeometry(widgetName: string): void {
-            let layout = getLayout(widgetName);
-            if (layout) {
-                let geo = {
-                    startX: Math.round(layout.rx),
-                    startY: Math.round(layout.ry),
-                    endX: Math.round(layout.rx + layout.w),
-                    endY: Math.round(layout.ry + layout.h)
-                };
-                Quickshell.execDetached(["bash", "-c", "echo '" + JSON.stringify(geo) + "' > " + Caching.runDir + "/tutorial_target.json"]);
-            }
-        }
     }
 
     WlrLayershell.namespace: "qs-master"
@@ -201,7 +186,7 @@ PanelWindow {
     visible: isVisible
 
     mask: Region {
-        item: masterWindow.isCurrentDraggable ? animContainer : topBarHole
+        item: masterWindow.isCurrentDraggable ? maskContent : topBarHole
         intersection: masterWindow.isCurrentDraggable ? Intersection.Combine : Intersection.Xor
     }
 
@@ -227,23 +212,36 @@ PanelWindow {
     }
 
     Item {
+        id: maskContent
+        x: masterWindow._animX
+        y: masterWindow._animY
+        width: masterWindow._animW
+        height: masterWindow._animH
+    }
+
+    Item {
         id: topBarHole
 
-        property int barThickness: 48
+        property real thicknessRatio: {
+            let h = (masterWindow.rawBarSettings && masterWindow.rawBarSettings.height !== undefined) ? Number(masterWindow.rawBarSettings.height) : 40;
+            if (isNaN(h)) h = 40;
+            return Math.max(28, Math.min(48, h)) / 40;
+        }
+        property int barThickness: Math.round(48 * thicknessRatio)
         property string bp: masterWindow.barPosition
         property bool activeBar: !masterWindow.isBarEffectivelyHidden
 
-        property bool overlapTopLeft: masterWindow.currentActive !== "hidden" && animContainer.x < 10 && animContainer.y < barThickness
-        property bool overlapTopRight: masterWindow.currentActive !== "hidden" && (animContainer.x + animContainer.width) > (masterWindow.width - 10) && animContainer.y < barThickness
-        property bool overlapBottomLeft: masterWindow.currentActive !== "hidden" && animContainer.x < 10 && (animContainer.y + animContainer.height) > (masterWindow.height - barThickness)
-        property bool overlapBottomRight: masterWindow.currentActive !== "hidden" && (animContainer.x + animContainer.width) > (masterWindow.width - 10) && (animContainer.y + animContainer.height) > (masterWindow.height - barThickness)
+        property bool overlapTopLeft: masterWindow.currentActive !== "hidden" && masterWindow._animX < 10 && masterWindow._animY < barThickness
+        property bool overlapTopRight: masterWindow.currentActive !== "hidden" && (masterWindow._animX + masterWindow._animW) > (masterWindow.width - 10) && masterWindow._animY < barThickness
+        property bool overlapBottomLeft: masterWindow.currentActive !== "hidden" && masterWindow._animX < 10 && (masterWindow._animY + masterWindow._animH) > (masterWindow.height - barThickness)
+        property bool overlapBottomRight: masterWindow.currentActive !== "hidden" && (masterWindow._animX + masterWindow._animW) > (masterWindow.width - 10) && (masterWindow._animY + masterWindow._animH) > (masterWindow.height - barThickness)
 
         x: {
             if (!activeBar) return 0;
             if (bp === "left") return 0;
             if (bp === "right") return masterWindow.width - barThickness;
-            if (overlapTopLeft && bp === "top") return animContainer.width;
-            if (overlapBottomLeft && bp === "bottom") return animContainer.width;
+            if (overlapTopLeft && bp === "top") return masterWindow._animW;
+            if (overlapBottomLeft && bp === "bottom") return masterWindow._animW;
             return 0;
         }
 
@@ -251,8 +249,8 @@ PanelWindow {
             if (!activeBar) return 0;
             if (bp === "top") return 0;
             if (bp === "bottom") return masterWindow.height - barThickness;
-            if (overlapTopLeft && bp === "left") return animContainer.height;
-            if (overlapTopRight && bp === "right") return animContainer.height;
+            if (overlapTopLeft && bp === "left") return masterWindow._animH;
+            if (overlapTopRight && bp === "right") return masterWindow._animH;
             return 0;
         }
 
@@ -260,10 +258,10 @@ PanelWindow {
             if (!activeBar) return 0;
             if (bp === "left" || bp === "right") return barThickness;
             let w = masterWindow.width;
-            if (overlapTopLeft && bp === "top") w -= animContainer.width;
-            if (overlapTopRight && bp === "top") w -= animContainer.width;
-            if (overlapBottomLeft && bp === "bottom") w -= animContainer.width;
-            if (overlapBottomRight && bp === "bottom") w -= animContainer.width;
+            if (overlapTopLeft && bp === "top") w -= masterWindow._animW;
+            if (overlapTopRight && bp === "top") w -= masterWindow._animW;
+            if (overlapBottomLeft && bp === "bottom") w -= masterWindow._animW;
+            if (overlapBottomRight && bp === "bottom") w -= masterWindow._animW;
             return Math.max(0, w);
         }
 
@@ -271,34 +269,17 @@ PanelWindow {
             if (!activeBar) return 0;
             if (bp === "top" || bp === "bottom") return barThickness;
             let h = masterWindow.height;
-            if (overlapTopLeft && bp === "left") h -= animContainer.height;
-            if (overlapBottomLeft && bp === "left") h -= animContainer.height;
-            if (overlapTopRight && bp === "right") h -= animContainer.height;
-            if (overlapBottomRight && bp === "right") h -= animContainer.height;
+            if (overlapTopLeft && bp === "left") h -= masterWindow._animH;
+            if (overlapBottomLeft && bp === "left") h -= masterWindow._animH;
+            if (overlapTopRight && bp === "right") h -= masterWindow._animH;
+            if (overlapBottomRight && bp === "right") h -= masterWindow._animH;
             return Math.max(0, h);
-        }
-
-        Behavior on x {
-            enabled: masterWindow.currentActive !== "hidden" && !masterWindow.disableMorph
-            NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutCubic }
-        }
-        Behavior on y {
-            enabled: masterWindow.currentActive !== "hidden" && !masterWindow.disableMorph
-            NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutCubic }
-        }
-        Behavior on width {
-            enabled: masterWindow.currentActive !== "hidden" && !masterWindow.disableMorph
-            NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutCubic }
-        }
-        Behavior on height {
-            enabled: masterWindow.currentActive !== "hidden" && !masterWindow.disableMorph
-            NumberAnimation { duration: masterWindow.morphDuration; easing.type: Easing.OutCubic }
         }
     }
 
     MouseArea {
         anchors.fill: parent
-        enabled: masterWindow.isVisible && !masterWindow.isCurrentDraggable
+        enabled: masterWindow.isVisible && !masterWindow.isCurrentDraggable && !masterWindow.isClosing
         onClicked: switchWidget("hidden", "")
     }
 
@@ -334,7 +315,10 @@ PanelWindow {
         }
 
         let item = comp.createObject(preloaderContainer);
-        if (item) widgetCache[name] = item;
+        if (item) {
+            item.visible = false;
+            widgetCache[name] = item;
+        }
         return item;
     }
 
@@ -363,6 +347,7 @@ PanelWindow {
     }
 
     property bool isVisible: false
+    property bool isClosing: false
     property string activeArg: ""
     property bool disableMorph: true
     property int switchGeneration: 0
@@ -387,30 +372,24 @@ PanelWindow {
     }
 
     function syncLiveSettings() {
-        if (typeof Config === "undefined")
-            return;
-
-        const parsed = Config.rawSettings || ({});
-        const sName = masterWindow.screen ? masterWindow.screen.name : "";
+        let parsed = (typeof Config !== "undefined" && Config.rawSettings) ? Config.rawSettings : {};
         let sVal = undefined;
 
-        if (sName !== "" && parsed.display && parsed.display.monitors
-                && parsed.display.monitors[sName]
-                && parsed.display.monitors[sName].scale !== undefined) {
-            sVal = parsed.display.monitors[sName].scale;
-        } else if (parsed.general && parsed.general.uiScale !== undefined) {
+        if (parsed.general && parsed.general.uiScale !== undefined) {
             sVal = parsed.general.uiScale;
         } else if (parsed.uiScale !== undefined) {
             sVal = parsed.uiScale;
         }
 
-        if (sVal !== undefined && masterWindow.globalUiScale !== sVal)
-            masterWindow.globalUiScale = sVal;
+        let targetScale = (sVal !== undefined && typeof sVal === "number" && !isNaN(sVal) && sVal > 0) ? sVal : 1.0;
+        if (masterWindow.globalUiScale !== targetScale) {
+            masterWindow.globalUiScale = targetScale;
+        }
 
-        const b = parsed.bar || ({});
+        let b = parsed.bar || {};
         masterWindow.rawBarSettings = b;
-        masterWindow.barPosition = b.position !== undefined ? b.position : "top";
-        masterWindow.barAutohide = b.autohide !== undefined ? Boolean(b.autohide) : false;
+        if (b.position !== undefined) masterWindow.barPosition = b.position;
+        if (b.autohide !== undefined) masterWindow.barAutohide = Boolean(b.autohide);
     }
 
     Connections {
@@ -502,7 +481,14 @@ PanelWindow {
     }
 
     onIsVisibleChanged: {
-        if (isVisible) widgetStack.forceActiveFocus();
+        if (isVisible) {
+            widgetStack.forceActiveFocus();
+        } else if (currentActive === "hidden" && !delayedClear.running) {
+            for (let k in widgetCache) {
+                let it = widgetCache[k];
+                if (it) it.visible = false;
+            }
+        }
     }
 
     Item {
@@ -621,18 +607,43 @@ PanelWindow {
         if (delayedClear.running) {
             delayedClear.stop();
         }
+        if (exitSafetyTimer.running) {
+            exitSafetyTimer.stop();
+        }
 
         if (newWidget === "hidden") {
-            if (currentActive !== "hidden") {
-                masterWindow.currentActive = "hidden";
-                masterWindow.morphDuration = masterWindow.exitDuration;
-                masterWindow.disableMorph = true;
-                masterWindow.isVisible = false;
+            if (currentActive !== "hidden" && !masterWindow.isClosing) {
+                let closingGen = gen;
+                masterWindow.isClosing = true;
+                masterWindow.targetActive = "hidden";
 
-                delayedClear.scheduledGeneration = gen;
-                delayedClear.restart();
+                let activeItem = widgetCache[currentActive] || widgetStack.currentItem;
+
+                let finalizeClose = function() {
+                    if (closingGen !== masterWindow.switchGeneration) return;
+                    masterWindow.isClosing = false;
+                    masterWindow.currentActive = "hidden";
+                    masterWindow.morphDuration = masterWindow.exitDuration;
+                    masterWindow.disableMorph = true;
+                    masterWindow.isVisible = false;
+
+                    for (let k in widgetCache) {
+                        let it = widgetCache[k];
+                        if (it) it.visible = false;
+                    }
+                    reportWidgetState();
+                };
+
+                if (activeItem && typeof activeItem.startExit === "function") {
+                    exitSafetyTimer.scheduledGeneration = closingGen;
+                    exitSafetyTimer.restart();
+                    activeItem.startExit(finalizeClose);
+                } else {
+                    finalizeClose();
+                }
             }
         } else {
+            masterWindow.isClosing = false;
             let targetScreen = resolveTargetScreen();
             if (targetScreen && masterWindow.screen !== targetScreen) {
                 masterWindow.screen = targetScreen;
@@ -707,6 +718,14 @@ PanelWindow {
             widgetStack.replace(cachedItem, {}, StackView.Immediate);
         }
 
+        for (let k in widgetCache) {
+            let it = widgetCache[k];
+            if (it && it !== cachedItem) {
+                it.visible = false;
+            }
+        }
+        cachedItem.visible = true;
+
         masterWindow.isVisible = true;
 
         if (isComingFromHidden) {
@@ -719,12 +738,36 @@ PanelWindow {
     }
 
     Timer {
+        id: exitSafetyTimer
+        interval: 450
+        property int scheduledGeneration: -1
+        onTriggered: {
+            if (scheduledGeneration === masterWindow.switchGeneration && masterWindow.isClosing) {
+                masterWindow.isClosing = false;
+                masterWindow.currentActive = "hidden";
+                masterWindow.morphDuration = masterWindow.exitDuration;
+                masterWindow.disableMorph = true;
+                masterWindow.isVisible = false;
+                for (let k in widgetCache) {
+                    let it = widgetCache[k];
+                    if (it) it.visible = false;
+                }
+                reportWidgetState();
+            }
+        }
+    }
+
+    Timer {
         id: delayedClear
         interval: 200
         property int scheduledGeneration: -1
         onTriggered: {
             if (masterWindow.currentActive === "hidden" && scheduledGeneration === masterWindow.switchGeneration) {
                 masterWindow.disableMorph = true;
+                for (let k in widgetCache) {
+                    let it = widgetCache[k];
+                    if (it) it.visible = false;
+                }
             }
         }
     }

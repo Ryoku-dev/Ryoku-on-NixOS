@@ -9,7 +9,7 @@
 // exactly one page -- no overlap.
 var rows = [
     {
-        "tab": "",
+        "tab": "Region & fonts",
         "group": "LANGUAGE & REGION",
         "key": "language",
         "label": "Language",
@@ -21,7 +21,7 @@ var rows = [
         // language never means editing this file.
         "set": "languages"
     }, {
-        "tab": "",
+        "tab": "Region & fonts",
         "group": "LANGUAGE & REGION",
         "key": "formatLocale",
         "label": "Regional formats",
@@ -30,7 +30,7 @@ var rows = [
         "src": "shell",
         "set": "locales"
     }, {
-        "tab": "",
+        "tab": "Region & fonts",
         "group": "LANGUAGE & REGION",
         "key": "general.clock_format_24_h",
         "label": "24-hour time",
@@ -38,7 +38,7 @@ var rows = [
         "ctl": "sw",
         "src": "shell"
     }, {
-        "tab": "",
+        "tab": "Region & fonts",
         "group": "LOCATION",
         "key": "weatherLocation",
         "label": "Location",
@@ -46,14 +46,14 @@ var rows = [
         "ctl": "location",
         "src": "shell"
     }, {
-        "tab": "",
+        "tab": "Region & fonts",
         "group": "LOCATION",
         "key": "timezone",
         "label": "Time zone",
         "desc": "The system clock's time zone; applied live.",
         "ctl": "timezone"
     }, {
-        "tab": "",
+        "tab": "Region & fonts",
         "group": "LOCATION",
         "key": "weatherUnit",
         "label": "Temperature units",
@@ -62,7 +62,7 @@ var rows = [
         "src": "shell",
         "opts": ["auto", "celsius", "fahrenheit"]
     }, {
-        "tab": "",
+        "tab": "Region & fonts",
         "group": "FONT",
         "key": "fontFamily",
         "label": "System font",
@@ -71,7 +71,7 @@ var rows = [
         "src": "shell",
         "opts": []
     }, {
-        "tab": "",
+        "tab": "Region & fonts",
         "group": "FONT",
         "key": "terminalFontFamily",
         "label": "Terminal font",
@@ -80,7 +80,7 @@ var rows = [
         "src": "shell",
         "opts": []
     }, {
-        "tab": "",
+        "tab": "Region & fonts",
         "group": "FONT",
         "key": "fontSize",
         "label": "Font size",
@@ -91,7 +91,7 @@ var rows = [
         "hi": 24,
         "unit": " pt"
     }, {
-        "tab": "",
+        "tab": "Region & fonts",
         "group": "FONT",
         "key": "fontScale",
         "label": "Interface scale",

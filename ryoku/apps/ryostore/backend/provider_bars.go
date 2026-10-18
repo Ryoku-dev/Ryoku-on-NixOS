@@ -198,7 +198,7 @@ func builtinBarStyles() []Item {
 	}, {
 		ID: "python", Category: "barstyles", Name: "Python",
 		Summary:     "Based on Serpantinum by ilyamiro",
-		Description: "A bar of pill widgets that open into one morphing stage: network, sound, calendar, media, a system panel, a dock and the style's own settings guide.",
+		Description: "Serpantinum's orientation-aware bar, liquid-glass stage, popups, quick actions, dock design, settings guide and desktop face library on Ryoku's shared services.",
 		Tags:        []string{"top", "stage", "dock", "built-in"},
 		Installed:   true,
 		Metadata:    map[string]any{"scene": "Scene.qml", "core": true},

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io/fs"
@@ -749,38 +750,87 @@ func dnfHistorySection(pkg string, cfg logsConfig) logSection {
 
 // pacmanPackageLines keeps the pacman.log transactions for one package.
 func pacmanPackageLines(pkg string, n int) string {
-	data, err := os.ReadFile(pacmanLogPath)
-	if err != nil {
-		return ""
+	return pacmanPackageLinesAt(pacmanLogPath, pkg, n)
+}
+
+func pacmanPackageLinesAt(path, pkg string, n int) string {
+	actions := [][]byte{
+		[]byte("installed " + pkg + " "),
+		[]byte("upgraded " + pkg + " "),
+		[]byte("downgraded " + pkg + " "),
+		[]byte("reinstalled " + pkg + " "),
+		[]byte("removed " + pkg + " "),
 	}
-	actions := []string{"installed", "upgraded", "downgraded", "reinstalled", "removed"}
-	var kept []string
-	for _, l := range strings.Split(string(data), "\n") {
-		if !strings.Contains(l, "[ALPM]") {
-			continue
+	return tailMatchingFile(path, n, func(line []byte) bool {
+		if !bytes.Contains(line, []byte("[ALPM]")) {
+			return false
 		}
-		for _, a := range actions {
-			if strings.Contains(l, a+" "+pkg+" ") {
-				kept = append(kept, l)
-				break
+		for _, action := range actions {
+			if bytes.Contains(line, action) {
+				return true
 			}
 		}
-	}
-	return tailLines(strings.Join(kept, "\n"), n)
+		return false
+	})
 }
 
 func xbpsPackageLines(pkg string, n int) string {
-	data, err := os.ReadFile(xbpsLogPath)
+	return xbpsPackageLinesAt(xbpsLogPath, pkg, n)
+}
+
+func xbpsPackageLinesAt(path, pkg string, n int) string {
+	needle := []byte(pkg)
+	return tailMatchingFile(path, n, func(line []byte) bool {
+		return bytes.Contains(line, needle)
+	})
+}
+
+func tailMatchingFile(path string, n int, match func([]byte) bool) string {
+	if n <= 0 {
+		return ""
+	}
+	f, err := os.Open(path)
 	if err != nil {
 		return ""
 	}
-	var kept []string
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.Contains(line, pkg) {
-			kept = append(kept, line)
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	ring := make([][]byte, n)
+	next, count := 0, 0
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if !match(line) {
+			continue
+		}
+		ring[next] = append(ring[next][:0], line...)
+		next = (next + 1) % n
+		if count < n {
+			count++
 		}
 	}
-	return tailLines(strings.Join(kept, "\n"), n)
+	if scanner.Err() != nil || count == 0 {
+		return ""
+	}
+
+	start := 0
+	if count == n {
+		start = next
+	}
+	size := count - 1
+	for i := range count {
+		size += len(ring[(start+i)%n])
+	}
+	var out strings.Builder
+	out.Grow(size)
+	for i := range count {
+		if i > 0 {
+			out.WriteByte('\n')
+		}
+		out.Write(ring[(start+i)%n])
+	}
+	return out.String()
 }
 
 // renderLogReport prints the bundle: a header, the window, then each section

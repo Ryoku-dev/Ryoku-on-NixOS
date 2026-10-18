@@ -12,6 +12,7 @@ Scope {
 
     required property var screen
     property bool enabled: Config.askBubble.enabled
+    property bool suppressed: false
     property bool cardOpen: false
     property bool unread: false
 
@@ -22,8 +23,9 @@ Scope {
     readonly property bool configuredScreen: Config.askBubble.screen.length > 0
         ? Config.askBubble.screen === String(screen ? screen.name : "")
         : Quickshell.screens.length > 0 && Quickshell.screens[0] === screen
-    readonly property bool shown: enabled && configuredScreen
+    readonly property bool shown: enabled && configuredScreen && !suppressed
     readonly property bool motionAllowed: shown && !Tokens.reduceMotion && !Motion.reduce
+    onSuppressedChanged: if (suppressed) cardOpen = false
 
     function restorePosition() {
         const maxX = Math.max(0, root.screenWidth - root.bubbleSize);
@@ -155,7 +157,8 @@ Scope {
                 width: root.bubbleSize
                 height: root.bubbleSize
                 z: 3
-                scale: bubbleTap.pressed && root.motionAllowed ? 0.92 : 1
+                scale: bubbleTap.pressed && root.motionAllowed ? 0.92
+                    : bubbleHover.hovered && root.motionAllowed ? 1.06 : 1
 
                 Behavior on x {
                     enabled: root.motionAllowed && !drag.active
@@ -209,7 +212,7 @@ Scope {
                     color: Tokens.ink
                 }
 
-                HoverHandler { cursorShape: drag.active ? Qt.ClosedHandCursor : Qt.PointingHandCursor }
+                HoverHandler { id: bubbleHover; cursorShape: drag.active ? Qt.ClosedHandCursor : Qt.PointingHandCursor }
                 TapHandler {
                     id: bubbleTap
                     onTapped: {
@@ -234,7 +237,7 @@ Scope {
 
             Rectangle {
                 id: chatCard
-                visible: root.cardOpen
+                visible: root.shown && root.cardOpen
                 x: bubble.x < win.width / 2
                     ? Math.min(win.width - width - Tokens.s3 * root.s, bubble.x + bubble.width + Tokens.s3 * root.s)
                     : Math.max(Tokens.s3 * root.s, bubble.x - width - Tokens.s3 * root.s)
@@ -258,7 +261,7 @@ Scope {
                     anchors.fill: parent
                     anchors.margins: Tokens.s4 * root.s
                     s: root.s
-                    active: root.cardOpen
+                    active: root.shown && root.cardOpen
                     maximumHeight: win.height * 0.46 - Tokens.s4 * root.s * 2
                 }
             }

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Window
 import Quickshell
 import Quickshell.Io
 import Ryoku.Ui
@@ -212,6 +213,23 @@ Item {
         if (d !== undefined) sheet.edited(r.key, d);
     }
 
+    // A row backed by a package rather than a store key: a capability whose
+    // engine is an optional install. The install runs in a terminal, where the
+    // privilege prompt belongs, and the engine starts now rather than next login.
+    // The row carries a package name and a binary, so this stays compositor-neutral.
+    function installPackage(r) {
+        if (!r.pkg || !/^[A-Za-z0-9@._+-]+$/.test(r.pkg)) return;
+        if (r.launch && !/^[A-Za-z0-9._+-]+$/.test(r.launch)) return;
+        var cmd = "sudo ryoku-host pkg install " + r.pkg;
+        // A second reader of the keyboard would play every press twice, so start
+        // one only when none is running; setsid detaches it from the terminal.
+        if (r.launch)
+            cmd += " && (command -v " + r.launch + " >/dev/null 2>&1"
+                + " && ! pgrep -x " + r.launch + " >/dev/null 2>&1"
+                + " && setsid " + r.launch + " >/dev/null 2>&1 &)";
+        Spawn.run(["kitty", "--hold", "-e", "sh", "-c", cmd]);
+    }
+
     // A row's option list. Most rows write theirs in the schema; a row whose
     // list is really a system table (`set`) reads it from the singleton that
     // owns it, so the table lives in exactly one place. Every consumer of
@@ -285,7 +303,7 @@ Item {
     }
     function ctlFoot(r) {
         var c = r.ctl;
-        if (c === "pick" || c === "text" || c === "color" || c === "location" || c === "action" || c === "app" || c === "timezone") return 32;
+        if (c === "pick" || c === "text" || c === "color" || c === "location" || c === "action" || c === "app" || c === "timezone" || c === "install") return 32;
         return 0;
     }
     function ctlWidth(r, w) {
@@ -478,6 +496,7 @@ Item {
                                             case "location": return locationC;
                                             case "color": return colorC;
                                             case "action": return actionC;
+                                            case "install": return installC;
                                             case "layoutdemo": return layoutDemoC;
                                             case "timezone": return timezoneC;
                                             default: return textC;
@@ -494,6 +513,42 @@ Item {
                                                 if (srow.r.key === "i18nGenerate")
                                                     Spawn.runApp(["kitty", "--class", "ryoku-i18n", "-e", "sh", "-c",
                                                         "ryoku-i18n llm " + I18n.lang + "; echo; read -n1 -rsp 'Done. Press any key to close…'; echo"]);
+                                            }
+                                        }
+                                    }
+                                    Component {
+                                        id: installC
+                                        // Probes once, and again when the Hub regains
+                                        // focus after the install; installed shows a mark.
+                                        Row {
+                                            id: inst
+                                            anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                                            spacing: Tokens.s3
+                                            property bool installed: false
+                                            readonly property bool windowActive: Window.active
+                                            onWindowActiveChanged: if (inst.windowActive && srow.r.pkg) probe.running = true
+                                            Component.onCompleted: if (srow.r.pkg) probe.running = true
+                                            Process {
+                                                id: probe
+                                                running: false
+                                                command: srow.r.pkg ? ["ryoku-host", "pkg", "installed", srow.r.pkg] : ["true"]
+                                                onExited: function(code) { inst.installed = (code === 0); }
+                                            }
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: inst.installed
+                                                text: I18n.tr("INSTALLED")
+                                                color: Tokens.inkFaint
+                                                font.family: Tokens.ui
+                                                font.pixelSize: Tokens.fMicro
+                                                font.weight: Font.Medium
+                                                font.letterSpacing: Tokens.trackMark
+                                            }
+                                            Btn {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: !inst.installed
+                                                text: I18n.tr(srow.r.actionLabel || "Install")
+                                                onAct: sheet.installPackage(srow.r)
                                             }
                                         }
                                     }

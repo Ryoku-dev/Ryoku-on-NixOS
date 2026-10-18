@@ -30,7 +30,7 @@ Item {
     property SettingValue svDefaultMode: SettingValue { key: "tagging.defaultSearchMode" }
 
     function _num(sv, def) { var v = Number(sv.value); return (isNaN(v) || v <= 0) ? def : v }
-    readonly property int cloudRows: Math.max(1, Math.min(3, root._num(svRows, 2)))
+    readonly property int cloudRows: Math.max(1, Math.min(3, root._num(svRows, 3)))
 
     readonly property real _padX: 16 * Theme.scale
     readonly property real _padY: 13 * Theme.scale

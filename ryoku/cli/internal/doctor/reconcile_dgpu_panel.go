@@ -55,6 +55,7 @@ type dgpuState struct {
 	present     bool     // a discrete GPU exists on this box
 	slot        string   // the dGPU's PCI slot, "" when unknown
 	panelOnDgpu bool     // every connected DRM connector belongs to the dGPU
+	dgpuOutputs []string // connected outputs driven by the dGPU
 	status      string   // the dGPU's power/runtime_status
 	suspended   int64    // power/runtime_suspended_time, -1 when unreadable
 	watts       float64  // measured idle draw in W, -1 when unknown
@@ -66,6 +67,11 @@ type dgpuState struct {
 type cardInfo struct {
 	driver string
 	slot   string
+}
+
+type connectorInfo struct {
+	card   string
+	output string
 }
 
 // gatherDgpuState reads the DRM/PCI tree into a dgpuState. A var so a test can
@@ -84,7 +90,9 @@ var gatherDgpuState = func() dgpuState {
 	}
 	s.present = true
 	s.slot = info.slot
-	s.panelOnDgpu = allConnectorsOnDgpu(dcard, connectedConnectorCards())
+	connectors := connectedConnectors()
+	s.panelOnDgpu = allConnectorsOnDgpu(dcard, connectors)
+	s.dgpuOutputs = outputsOnCard(dcard, connectors)
 	s.status = strings.TrimSpace(readFileSafe("/sys/class/drm/" + dcard + "/device/power/runtime_status"))
 	if n, err := strconv.ParseInt(strings.TrimSpace(readFileSafe("/sys/class/drm/"+dcard+"/device/power/runtime_suspended_time")), 10, 64); err == nil {
 		s.suspended = n
@@ -118,14 +126,14 @@ func drmCards() map[string]cardInfo {
 	return out
 }
 
-// connectedConnectorCards lists, for every DRM connector currently reporting
-// `connected`, the card it belongs to (cardN-eDP-1 -> cardN).
-func connectedConnectorCards() []string {
+// connectedConnectors lists every DRM connector currently reporting connected,
+// together with its card and user-facing output name.
+func connectedConnectors() []connectorInfo {
 	entries, err := os.ReadDir("/sys/class/drm")
 	if err != nil {
 		return nil
 	}
-	var out []string
+	var out []connectorInfo
 	for _, e := range entries {
 		name := e.Name()
 		card := connectorCard(name)
@@ -133,8 +141,18 @@ func connectedConnectorCards() []string {
 			continue
 		}
 		if strings.TrimSpace(readFileSafe("/sys/class/drm/"+name+"/status")) == "connected" {
-			out = append(out, card)
+			out = append(out, connectorInfo{card: card, output: strings.TrimPrefix(name, card+"-")})
 		}
+	}
+	return out
+}
+
+// connectedConnectorCards keeps the card-only view used by the AMD PPD check.
+func connectedConnectorCards() []string {
+	connectors := connectedConnectors()
+	out := make([]string, len(connectors))
+	for i, connector := range connectors {
+		out[i] = connector.card
 	}
 	return out
 }
@@ -202,16 +220,26 @@ func discreteCard(cards map[string]cardInfo) (card string, info cardInfo, ok boo
 // discrete GPU's card, i.e. the internal panel is wired to the dGPU. False with
 // no connected connector: with nothing lit we cannot conclude the panel routes
 // through the dGPU. pure, so the wiring verdict is unit-testable.
-func allConnectorsOnDgpu(dgpuCard string, connected []string) bool {
+func allConnectorsOnDgpu(dgpuCard string, connected []connectorInfo) bool {
 	if len(connected) == 0 {
 		return false
 	}
-	for _, c := range connected {
-		if c != dgpuCard {
+	for _, connector := range connected {
+		if connector.card != dgpuCard {
 			return false
 		}
 	}
 	return true
+}
+
+func outputsOnCard(card string, connected []connectorInfo) []string {
+	var out []string
+	for _, connector := range connected {
+		if connector.card == card {
+			out = append(out, connector.output)
+		}
+	}
+	return out
 }
 
 // dgpuCanSuspend reports whether the discrete GPU is able to runtime-suspend: it
@@ -400,6 +428,20 @@ func dgpuNeverSuspendedDetail(s dgpuState) string {
 	return i18n.T("the discrete GPU does not drive the panel yet has never runtime-suspended")
 }
 
+func dgpuOutputDetail(s dgpuState) string {
+	outputs := strings.Join(s.dgpuOutputs, ", ")
+	if len(s.dgpuOutputs) == 1 {
+		if s.watts >= 0 {
+			return i18n.Tf("the discrete GPU is driving %s and drawing %.1f W; it cannot runtime-suspend while that display is attached", outputs, s.watts)
+		}
+		return i18n.Tf("the discrete GPU is driving %s; it cannot runtime-suspend while that display is attached", outputs)
+	}
+	if s.watts >= 0 {
+		return i18n.Tf("the discrete GPU is driving %s and drawing %.1f W; it cannot runtime-suspend while those displays are attached", outputs, s.watts)
+	}
+	return i18n.Tf("the discrete GPU is driving %s; it cannot runtime-suspend while those displays are attached", outputs)
+}
+
 // planDgpuPanel turns observed state into a result. pure, so every branch is
 // unit-testable without hardware. The draw is quoted only when it was actually
 // measured (watts >= 0); a machine whose draw could not be read is never handed
@@ -414,6 +456,9 @@ func planDgpuPanel(s dgpuState) recResult {
 	if !s.panelOnDgpu {
 		if dgpuCanSuspend(s.status, s.suspended) {
 			return okRes(i18n.T("the internal panel is driven by the integrated GPU and the discrete GPU can runtime-suspend"))
+		}
+		if len(s.dgpuOutputs) > 0 {
+			return okRes(dgpuOutputDetail(s))
 		}
 		// The MUX is already right, so the panel is not what pins the card. Left
 		// unreported, a box that switched the MUX and gained nothing would look

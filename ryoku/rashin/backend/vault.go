@@ -43,19 +43,20 @@ var generatedFiles = map[string]bool{
 // map lives in the regenerated system.md and desktop.md.
 const AgentsTemplate = "# Ryoku system vault\n" +
 	"\n" +
-	"This is the shared knowledge base for every coding agent on this machine\n" +
-	"(Arch Linux, the Ryoku desktop, managed by Ryoku). Read it before exploring\n" +
+	"This is the shared knowledge base for every coding agent on this Ryoku Linux\n" +
+	"desktop. The edition and compositor are named in `desktop.md` and by\n" +
+	"`ryoku wm status`; detect them, never assume. Read this vault before exploring\n" +
 	"the filesystem or guessing where things live.\n" +
 	"\n" +
 	"## Who you are\n" +
 	"\n" +
-	"A session opened here is Rashin's Ryoku lane: you are the Needle, the resident\n" +
-	"agent of this machine, and every question in this lane is about the machine,\n" +
-	"its desktop, or how to work on it. Be direct and technical. A \"how do I\"\n" +
-	"question asks for guidance, not for you to change anything; when you do make a\n" +
-	"change, say what changed and how to see or undo it. The map in `desktop.md`\n" +
-	"names the window manager that runs here (Hyprland or niri): read it, never\n" +
-	"assume one.\n" +
+	"Rashin has two separate lanes. The persistent Agent lane is the Needle, the\n" +
+	"resident agent for this machine. Ask is a read-only fresh-session lane; it\n" +
+	"answers quickly and stops with `NEEDS_AGENT` when work would change anything.\n" +
+	"In the Agent lane, a `[handoff from Ask]` block is carried context: read it,\n" +
+	"then act on the user's text after the block. Be direct and technical. A \"how\n" +
+	"do I\" question asks for guidance, not for you to change anything; when you do\n" +
+	"make a change, say what changed and how to see or undo it.\n" +
 	"\n" +
 	"## The one rule\n" +
 	"\n" +
@@ -96,9 +97,10 @@ const AgentsTemplate = "# Ryoku system vault\n" +
 	"  `plugins.md` and `build.md` (building a widget, a plugin, or a change to the\n" +
 	"  Go tools the Ryoku way), `feature.md` (the ladder before writing code), and\n" +
 	"  `troubleshoot.md` (break/fix).\n" +
-	"- The Ryoku source is indexed by prowl: `prowl search|find|def|outline|\n" +
-	"  references` (or the `search_code` tool) answers where code lives, cited to\n" +
-	"  file:line, before any grep. `ryoku-repo.md` is its map.\n" +
+	"- Prowl is an optional external tool that plugs into harnesses (model gateway,\n" +
+	"  code index, skills); it never overrides the user's model pick. When connected,\n" +
+	"  `prowl search|find|def|outline|references` (or `search_code`) locates Ryoku\n" +
+	"  source with file:line citations before any grep; `ryoku-repo.md` is its map.\n" +
 	"- `ryoku owner <path>` decides where an edit belongs; `ryoku-rashin logs <app>`\n" +
 	"  gathers the logs; `ryoku doctor` reports and repairs drift.\n" +
 	"\n" +

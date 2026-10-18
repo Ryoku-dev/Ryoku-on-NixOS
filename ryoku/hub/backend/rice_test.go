@@ -276,6 +276,54 @@ func TestRiceWindowSectionsLegacyManifestIsUnchanged(t *testing.T) {
 	}
 }
 
+func TestCaptureRiceFallsBackToOptimizedWallpaper(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(root, "config")
+	state := filepath.Join(root, "state")
+	cache := filepath.Join(root, "cache")
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CACHE_HOME", cache)
+	t.Setenv("RYOKU_SYSTEM_RICES_DIR", t.TempDir())
+	for _, dir := range []string{filepath.Join(config, "ryoku"), state, filepath.Join(cache, "ryogami"), filepath.Join(root, "walls")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	missing := filepath.Join(root, "walls", "saved.png")
+	optimized := filepath.Join(root, "walls", "saved.webp")
+	if err := os.WriteFile(optimized, []byte("WEBP"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "ryoku-wallpaper"), []byte(missing+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cache, "ryogami", "outputs.json"),
+		[]byte(`{"*":{"type":"static","path":"`+missing+`"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(themeStatePath(), []byte(`{"followWallpaper":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rice, err := captureRice("Recovered", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rice.Assets.Wallpaper != "wall.webp" {
+		t.Fatalf("wallpaper asset = %q, want wall.webp", rice.Assets.Wallpaper)
+	}
+	dir := filepath.Join(ricesDir(), "recovered")
+	if got, err := os.ReadFile(filepath.Join(dir, "wall.webp")); err != nil || string(got) != "WEBP" {
+		t.Fatalf("captured wallpaper = %q, %v", got, err)
+	}
+	if !isFile(filepath.Join(dir, "preview.png")) {
+		t.Fatal("optimized wallpaper preview was not captured")
+	}
+}
+
 // captureRice pulls the whole shell / launcher look (minus the personal /
 // regional denylist), the hypr look sections, and the theme master into look,
 // routes behavior keys to layers only when opted in, and records the cursor by

@@ -55,6 +55,9 @@ func runApply(args []string) error {
 	if err := writeOverlayKdl("rebinds.kdl", []byte(binds)); err != nil {
 		return err
 	}
+	if err := writeKeysounds(s.Niri.Keysounds); err != nil {
+		return err
+	}
 	wm.PublishGreeterNumlock(s.Input.NumlockByDefault)
 	rep.Written = []string{
 		filepath.Join(niriConfigDir(), "settings.kdl"),

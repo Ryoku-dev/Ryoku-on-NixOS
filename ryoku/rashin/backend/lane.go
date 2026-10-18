@@ -5,38 +5,40 @@ import (
 	"path/filepath"
 )
 
-// A lane is one purpose for the agent conversation, and each lane is its own
-// hub with its own agent process. The agent learns what a lane is for through
-// the only system prompt ACP offers: the context file at the session's cwd.
-// The Ryoku lane runs in the vault, whose AGENTS.md the daemon writes, so the
-// Needle knows the machine; the chat lane runs in a bare directory, so the
-// harness answers as itself with nothing about the machine in front of it.
+// A lane is one purpose for an agent conversation. Each lane has its own
+// working directory and harness process, so sessions and context never bleed
+// between Agent, Chat, and internal Ask work.
 type lane struct {
 	Name string
 	// Cwd is the session's working directory and the source of its context.
 	Cwd string
-	// Quick: the fast direct-model path (and the escalation into this lane's
-	// agent) belongs here. Only the Ryoku lane has one.
-	Quick bool
+	// ReadOnly marks internal lanes whose ACP permission policy never permits
+	// a machine change.
+	ReadOnly bool
 	// Intro returns the preamble that rides a session's first turn, or "" for
-	// none. The vault lane carries the Needle's identity for agents that read
-	// no context file; the chat lane adds nothing.
+	// none.
 	Intro func() string
 }
 
 const (
 	laneRyoku = "ryoku"
 	laneChat  = "chat"
+	laneAsk   = "ask"
 )
 
 func ryokuLane() lane {
-	return lane{Name: laneRyoku, Cwd: VaultDir(), Quick: true,
+	return lane{Name: laneRyoku, Cwd: VaultDir(),
 		Intro: func() string { return LoadConfig().IntroPreamble() }}
 }
 
 func chatLane() lane {
-	return lane{Name: laneChat, Cwd: ChatLaneDir(), Quick: false,
+	return lane{Name: laneChat, Cwd: ChatLaneDir(),
 		Intro: func() string { return "" }}
+}
+
+func askLane() lane {
+	return lane{Name: laneAsk, Cwd: AskLaneDir(), ReadOnly: true,
+		Intro: func() string { return LoadConfig().IntroPreamble() }}
 }
 
 // ChatLaneDir is the plain-chat session cwd: under the state dir, outside the
@@ -51,6 +53,40 @@ func ChatLaneDir() string {
 		state = filepath.Join(home(), ".local", "state")
 	}
 	return filepath.Join(state, "ryoku", "rashin-chat")
+}
+
+// AskLaneDir is outside the vault so its fresh sessions cannot be mistaken for
+// the persistent Agent lane's sessions.
+func AskLaneDir() string {
+	if d := os.Getenv("RYOKU_RASHIN_ASK_DIR"); d != "" {
+		return d
+	}
+	state := os.Getenv("XDG_STATE_HOME")
+	if state == "" {
+		state = filepath.Join(home(), ".local", "state")
+	}
+	return filepath.Join(state, "ryoku", "rashin-ask")
+}
+
+func prepareLane(l lane) error {
+	if err := os.MkdirAll(l.Cwd, 0o700); err != nil {
+		return err
+	}
+	if l.Name != laneAsk {
+		return nil
+	}
+	if err := os.Chmod(l.Cwd, 0o700); err != nil {
+		return err
+	}
+	link := filepath.Join(l.Cwd, "AGENTS.md")
+	target := filepath.Join(VaultDir(), "AGENTS.md")
+	if got, err := os.Readlink(link); err == nil && resolvedPath(got) == resolvedPath(target) {
+		return nil
+	}
+	if err := os.RemoveAll(link); err != nil {
+		return err
+	}
+	return os.Symlink(target, link)
 }
 
 // ownsSession reports whether a stored session belongs to this lane: the one

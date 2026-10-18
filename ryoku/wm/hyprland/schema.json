@@ -1,6 +1,48 @@
 [
   {
     "tab": "Layout",
+    "group": "SETTINGS WINDOW",
+    "key": "wm.hyprland.settingsWindow.mode",
+    "label": "Settings window size",
+    "desc": "Fill the work area or use a custom centred size",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": ["full", "custom"],
+    "optLabels": {"full": "Full page", "custom": "Custom"},
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SETTINGS WINDOW",
+    "key": "wm.hyprland.settingsWindow.width",
+    "label": "Settings width",
+    "desc": "Share of the monitor work area; never smaller than the Settings layout needs",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.25,
+    "hi": 1,
+    "unit": "%",
+    "pct": true,
+    "page": "windowmanager",
+    "when": {"wm.hyprland.settingsWindow.mode": ["custom"]}
+  },
+  {
+    "tab": "Layout",
+    "group": "SETTINGS WINDOW",
+    "key": "wm.hyprland.settingsWindow.height",
+    "label": "Settings height",
+    "desc": "Share of the monitor work area; never smaller than the Settings layout needs",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.25,
+    "hi": 1,
+    "unit": "%",
+    "pct": true,
+    "page": "windowmanager",
+    "when": {"wm.hyprland.settingsWindow.mode": ["custom"]}
+  },
+  {
+    "tab": "Layout",
     "group": "TILING",
     "key": "wm.hyprland.plugins.hyprscrolling.columnWidth",
     "label": "Column width",

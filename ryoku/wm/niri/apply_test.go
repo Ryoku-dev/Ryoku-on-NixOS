@@ -97,6 +97,35 @@ func TestApplyPublishesGreeterNumlock(t *testing.T) {
 	}
 }
 
+// TestApplyWritesKeysoundsConf: apply hands the key-sounds daemon its settings
+// as a neutral key=value file, not the namespaced store, because the daemon
+// holds no compositor knowledge. The leaves come from wm.niri.keysounds, so a
+// change on the Hub's Behaviour tab reaches the running engine on Save.
+func TestApplyWritesKeysoundsConf(t *testing.T) {
+	niriHome(t)
+	store := writeStore(t, `{"wm":{"niri":{"keysounds":{"enabled":false,"profile":"topre","volume":0.25,"release":false}}}}`)
+	capApply(t, store)
+	b, err := os.ReadFile(keysoundsConfPath())
+	if err != nil {
+		t.Fatalf("apply wrote no keysounds conf: %v", err)
+	}
+	got := string(b)
+	for _, want := range []string{"enabled=false", "profile=topre", "volume=0.25", "release=false"} {
+		if !strings.Contains(got, want+"\n") {
+			t.Errorf("keysounds conf missing %q\n%s", want, got)
+		}
+	}
+}
+
+// TestKeysoundsDefaultsOn: a box whose provider has never applied (fresh login,
+// nothing saved yet) still sounds, matching the Hyprland plugin's defaults.
+func TestKeysoundsDefaultsOn(t *testing.T) {
+	k := defaultStore().Niri.Keysounds
+	if !k.Enabled || !k.Release || k.Profile != "cherry-mx-brown" || k.Volume != 0.6 {
+		t.Fatalf("keysounds defaults = %+v, want enabled/release on, cherry-mx-brown at 0.6", k)
+	}
+}
+
 func readGen(t *testing.T, dir, name string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(dir, name))
@@ -692,5 +721,58 @@ func TestWindowStyleReasonPointsAtAnimations(t *testing.T) {
 	}
 	if r := reason["desktop.appearance.borderAngleSpeed"]; !strings.Contains(r, "gradient") {
 		t.Errorf("borderAngleSpeed should name niri's static gradient: %q", r)
+	}
+}
+
+func TestApplySettingsWindowSize(t *testing.T) {
+	t.Run("full page default", func(t *testing.T) {
+		dir := niriHome(t)
+		store := writeStore(t, `{}`)
+		capApply(t, store)
+		settings := readGen(t, dir, "settings.kdl")
+		if strings.Contains(settings, `match title="^Ryoku Settings$"`) {
+			t.Fatalf("default settings must keep niri's normal column:\n%s", settings)
+		}
+		validateGen(t, dir, "settings.kdl", "rebinds.kdl")
+	})
+
+	t.Run("custom half", func(t *testing.T) {
+		dir := niriHome(t)
+		store := writeStore(t, `{"wm":{"niri":{"settingsWindow":{"mode":"custom","width":0.5,"height":0.5}}}}`)
+		capApply(t, store)
+		settings := readGen(t, dir, "settings.kdl")
+		want := "window-rule {\n" +
+			"    match title=\"^Ryoku Settings$\"\n" +
+			"    open-floating true\n" +
+			"    default-column-width { proportion 0.5; }\n" +
+			"    default-window-height { proportion 0.5; }\n" +
+			"}\n"
+		if !strings.Contains(settings, want) {
+			t.Fatalf("custom settings window rule missing:\n%s", settings)
+		}
+		validateGen(t, dir, "settings.kdl", "rebinds.kdl")
+	})
+}
+
+func TestSettingsWindowSchemaAndDefaults(t *testing.T) {
+	if got := defaultStore().Niri.SettingsWindow; got != (SettingsWindow{Mode: "full", Width: 0.5, Height: 0.5}) {
+		t.Fatalf("default settings window = %+v", got)
+	}
+	rows, err := loadSchemaRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		`"wm.niri.settingsWindow.mode"`,
+		`"wm.niri.settingsWindow.width"`,
+		`"wm.niri.settingsWindow.height"`,
+	} {
+		if !bytes.Contains(blob, []byte(key)) {
+			t.Errorf("schema missing %s", key)
+		}
 	}
 }

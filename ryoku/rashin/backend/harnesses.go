@@ -22,12 +22,13 @@ import (
 )
 
 type HarnessRouting struct {
-	Supported bool   `json:"supported"`
-	Injected  bool   `json:"injected"`
-	Connected bool   `json:"connected"`
-	Active    bool   `json:"active"`
-	Pending   bool   `json:"pending"`
-	Note      string `json:"note,omitempty"`
+	Supported       bool   `json:"supported"`
+	Injected        bool   `json:"injected"`
+	Connected       bool   `json:"connected"`
+	Active          bool   `json:"active"`
+	Pending         bool   `json:"pending"`
+	CredentialStale bool   `json:"credentialStale"`
+	Note            string `json:"note,omitempty"`
 }
 
 // Harness is one detected coding agent and everything rashin can see about it.
@@ -587,10 +588,8 @@ func HarnessesWithRouting(ctx context.Context) []Harness {
 		byID[row.ID] = row
 	}
 	cfg := LoadConfig()
-	chatID := activeChatAgentID(cfg)
 	for i := range rows {
-		rows[i].Routing.Connected = cfg.HasProwlHarness(rows[i].ID) || rows[i].ID == chatID
-		rows[i].Routing.Pending = rows[i].Routing.Connected
+		rows[i].Routing.Connected = cfg.HasProwlHarness(rows[i].ID)
 		if rows[i].ID == "gemini" {
 			rows[i].Routing.Note = geminiRoutingReason
 			continue
@@ -608,7 +607,8 @@ func HarnessesWithRouting(ctx context.Context) []Harness {
 		}
 		rows[i].Routing.Injected = remote.Injected
 		rows[i].Routing.Active = remote.Active
-		rows[i].Routing.Pending = rows[i].Routing.Connected && !remote.Active
+		rows[i].Routing.Pending = remote.Active && !setup.Routable
+		rows[i].Routing.CredentialStale = remote.CredentialStale
 		rows[i].Routing.Note = remote.Note
 		if rows[i].Routing.Pending && rows[i].Routing.Note == "" {
 			rows[i].Routing.Note = setup.Reason
@@ -623,23 +623,17 @@ func chatHarnessRouting(ctx context.Context, id string) chatAgentRouting {
 		return chatAgentRouting{}
 	}
 	for _, row := range setup.Harnesses {
-		if row.ID != id {
+		if row.ID != id || !row.Active {
 			continue
 		}
-		if row.Active {
-			return chatAgentRouting{Active: true}
-		}
-		if !row.Injected {
-			return chatAgentRouting{}
-		}
 		reason := row.Note
-		if reason == "" {
+		if !setup.Routable && reason == "" {
 			reason = setup.Reason
 		}
-		if reason == "" {
+		if !setup.Routable && reason == "" {
 			reason = "Prowl has no provider connected; open Prowl > Providers in Rashin"
 		}
-		return chatAgentRouting{Pending: true, Reason: reason}
+		return chatAgentRouting{Active: true, Pending: !setup.Routable, Reason: reason}
 	}
 	return chatAgentRouting{}
 }
@@ -654,7 +648,7 @@ type harnessRouteResult struct {
 	Pending []harnessRoutePending `json:"pending"`
 }
 
-func routeConnectedHarnesses(ctx context.Context) harnessRouteResult {
+func refreshConnectedHarnesses(ctx context.Context) harnessRouteResult {
 	result := harnessRouteResult{Routed: []string{}, Pending: []harnessRoutePending{}}
 	setup, err := gatewayRouting(ctx)
 	if err != nil {
@@ -664,56 +658,32 @@ func routeConnectedHarnesses(ctx context.Context) harnessRouteResult {
 	for _, row := range setup.Harnesses {
 		remote[row.ID] = row
 	}
-	cfg := LoadConfig()
-	chatID := activeChatAgentID(cfg)
-	route := func(id string) {
-		if id == "" || id == "gemini" {
-			return
+	for _, id := range LoadConfig().ProwlHarnesses {
+		row, ok := remote[id]
+		if !ok || (row.Injected && !row.CredentialStale) {
+			continue
 		}
-		prowlRow, ok := remote[id]
-		if !ok || prowlRow.Active {
-			return
+		if id == "gemini" {
+			result.Pending = append(result.Pending, harnessRoutePending{ID: id, Reason: geminiRoutingReason})
+			continue
 		}
-		pending, reason, routeErr := routeProwlHarness(ctx, id)
-		if routeErr != nil {
-			result.Pending = append(result.Pending, harnessRoutePending{ID: id, Reason: routeErr.Error()})
-			return
+		if _, _, refreshErr := routeProwlHarness(ctx, id, false); refreshErr != nil {
+			result.Pending = append(result.Pending, harnessRoutePending{ID: id, Reason: refreshErr.Error()})
+			continue
 		}
-		if id == chatID && cfg.AddProwlHarness(id) {
-			if saveErr := SaveConfig(cfg); saveErr != nil {
-				result.Pending = append(result.Pending, harnessRoutePending{ID: id, Reason: saveErr.Error()})
-				return
-			}
-		}
-		if pending {
-			result.Pending = append(result.Pending, harnessRoutePending{ID: id, Reason: reason})
-		} else {
-			result.Routed = append(result.Routed, id)
-		}
-	}
-	for _, id := range cfg.ProwlHarnesses {
-		route(id)
-	}
-	if !cfg.HasProwlHarness(chatID) {
-		route(chatID)
-	}
-	for _, id := range result.Routed {
-		if chatAgentInUse(id, cfg) {
-			resetChatLanes(cfg)
-			break
-		}
+		result.Routed = append(result.Routed, id)
 	}
 	return result
 }
 
-func routeProwlHarness(ctx context.Context, id string) (bool, string, error) {
+func routeProwlHarness(ctx context.Context, id string, activate bool) (bool, string, error) {
 	var routed struct {
 		Harness prowlSetupHarness `json:"harness"`
 	}
 	path := "/api/setup/harnesses/" + id
-	err := prowlGatewayJSON(ctx, http.MethodPost, path, map[string]bool{"activate": true}, &routed)
-	if err == nil {
-		return false, "", nil
+	err := prowlGatewayJSON(ctx, http.MethodPost, path, map[string]bool{"activate": activate}, &routed)
+	if err == nil || !activate {
+		return false, "", err
 	}
 	var gatewayErr *prowlGatewayError
 	if !errors.As(err, &gatewayErr) || gatewayErr.Status != http.StatusConflict || gatewayErr.Code != "not_routable" {
@@ -727,4 +697,25 @@ func routeProwlHarness(ctx context.Context, id string) (bool, string, error) {
 		reason = "Prowl has no provider connected; open Prowl > Providers in Rashin"
 	}
 	return true, reason, nil
+}
+
+func setHarnessDefault(ctx context.Context, id string, prowl bool) (Harness, error) {
+	if id == "gemini" {
+		return Harness{}, errors.New(geminiRoutingReason)
+	}
+	path := "/api/setup/harnesses/" + id
+	if !prowl {
+		if err := prowlGatewayJSON(ctx, http.MethodDelete, path, nil, nil); err != nil {
+			return Harness{}, err
+		}
+	}
+	if err := prowlGatewayJSON(ctx, http.MethodPost, path, map[string]bool{"activate": prowl}, nil); err != nil {
+		return Harness{}, err
+	}
+	for _, row := range HarnessesWithRouting(ctx) {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return Harness{}, os.ErrNotExist
 }

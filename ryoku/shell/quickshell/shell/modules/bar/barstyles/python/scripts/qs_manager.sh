@@ -19,6 +19,7 @@ send_qs_ipc() {
     qs -c shell ipc call main handleCommand "$@" >/dev/null 2>&1
 }
 
+
 QS_NETWORK_CACHE="$QS_CACHE_NETWORK"
 NETWORK_MODE_FILE="$QS_NETWORK_CACHE/mode"
 

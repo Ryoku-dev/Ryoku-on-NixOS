@@ -236,15 +236,7 @@ func rematerializeUsers() {
 // entry, for the case where the packages were not what broke the boot.
 func pointBootMenuAtSnapshot(p pendingUpdate) error {
 	if updatePackageManager() == host.DNF {
-		_ = os.Remove(pendingFile)
-		_, reason := snapshotCapability()
-		if reason == "" {
-			reason = i18n.T("Snapshots are not available on Fedora; recover the system by hand.")
-		}
-		return writeNotice(bootNotice{
-			Action: "revert-failed", From: p.From, To: p.To, Channel: p.Channel,
-			Snapshot: p.Snapshot, Detail: reason, At: now(),
-		})
+		return grubBootSnapshot(p)
 	}
 	if p.Snapshot == "" {
 		return writeNotice(bootNotice{Action: "revert-failed", From: p.From, To: p.To, Detail: "no pre-update snapshot to boot; restore from the Limine Snapshots menu by hand", At: now()})
@@ -266,6 +258,30 @@ func pointBootMenuAtSnapshot(p pendingUpdate) error {
 	_ = os.Remove(pendingFile)
 	return writeNotice(bootNotice{Action: "snapshot-default", From: p.From, To: p.To, Snapshot: p.Snapshot,
 		Detail: "three boots failed after the update, so the boot menu now defaults to pre-update snapshot " + p.Snapshot + ". Boot it, then run `sudo limine-snapper-restore` to make it permanent, and `sudo ryoku boot-guard --disarm` clears this.",
+		At:     now()})
+}
+
+// grubBootSnapshot sends the next boot, once, to the pre-update snapshot's look
+// entry. It never restores unattended: the user sees the system from before
+// the update and keeps it with `sudo ryoku boot-menu restore`, and a boot after
+// that one without a decision is back on the updated system.
+func grubBootSnapshot(p pendingUpdate) error {
+	_ = os.Remove(pendingFile)
+	fail := func(detail string) error {
+		return writeNotice(bootNotice{Action: "revert-failed", From: p.From, To: p.To, Channel: p.Channel,
+			Snapshot: p.Snapshot, Detail: detail, At: now()})
+	}
+	if p.Snapshot == "" {
+		return fail(i18n.T("no pre-update snapshot to boot; `ryoku rollback` shows how to recover from another one"))
+	}
+	if !strings.Contains(readText(snapshotMenuCfg()), " --id ryoku-snapshot-"+p.Snapshot+" ") {
+		return fail(fmt.Sprintf(i18n.T("pre-update snapshot %s is not in the boot menu; `ryoku rollback %s` shows how to recover"), p.Snapshot, p.Snapshot))
+	}
+	if err := sys.Run("grub2-reboot", snapshotEntryID(p.Snapshot)); err != nil {
+		return fail(fmt.Sprintf(i18n.T("could not send the next boot to snapshot %s: %v; `ryoku rollback %s` shows how to recover"), p.Snapshot, err, p.Snapshot))
+	}
+	return writeNotice(bootNotice{Action: "snapshot-default", From: p.From, To: p.To, Channel: p.Channel, Snapshot: p.Snapshot,
+		Detail: fmt.Sprintf(i18n.T("three boots failed after the update, so the next boot opens pre-update snapshot %s read-only. If it works, `sudo ryoku boot-menu restore` there keeps it."), p.Snapshot),
 		At:     now()})
 }
 

@@ -6,7 +6,9 @@ Sound page's gain slider sets how much the bar reacts to music. Its Bar settings
 page picks a liquid or square form; the square one keeps crisp corners and shows
 sound as blocks. Left-click its 力 logo to open its settings, where the Layout
 page arranges its modules by drag and drop; right-click the logo for the
-launcher. Its keys live under `orpheus` in `shell.json` and are listed in
+launcher. Optional modules include coding-agent limits from the shared usage
+caches and a paired phone shortcut into Kit; neither is in the default layout.
+Its keys live under `orpheus` in `shell.json` and are listed in
 `docs/barstyles.md`. Pick another style with `ryoku-shell barstyle <id>`, for
 example `ryoku-shell barstyle qsbar`.
 

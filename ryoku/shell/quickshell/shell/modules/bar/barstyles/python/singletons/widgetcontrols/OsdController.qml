@@ -160,7 +160,7 @@ Item {
     Process {
         id: kbFetcher
         running: controller.styleActive
-        command: ["bash", Caching.scriptsPath + "/kb_locks.sh", "get"]
+        command: ["bash", Caching.watchersPath + "/kb_locks.sh", "get"]
         stdout: StdioCollector {
             onStreamFinished: {
                 let out = this.text.trim().split(/\s+/);

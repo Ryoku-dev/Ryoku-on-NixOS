@@ -7,15 +7,15 @@ import ".."
 import "../schema/DesktopPage.js" as DesktopSchema
 import "../Singletons"
 
-// Desktop: the shell reload cover and clipboard panel. Rendered through the
-// shared SchemaPage; the ledger and action bar belong to the shell.
+// Desktop: shell reload, notifications, and the clipboard panel. Rendered
+// through the shared SchemaPage; the ledger and action bar belong to the shell.
 Item {
     id: pg
     property var hub
 
     readonly property string pTitle: I18n.tr("Desktop")
     readonly property string pEyebrow: I18n.tr("DESKTOP")
-    readonly property string pBlurb: I18n.tr("Reload cover") + " · " + I18n.tr("Clipboard")
+    readonly property string pBlurb: I18n.tr("Reload cover") + " · " + I18n.tr("Notifications") + " · " + I18n.tr("Clipboard")
     function focusKey(k) { sp.focusKey(k) }
 
 

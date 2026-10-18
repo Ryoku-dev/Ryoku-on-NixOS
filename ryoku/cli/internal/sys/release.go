@@ -398,7 +398,7 @@ var PacmanSyncDir = "/var/lib/pacman/sync"
 // PacmanConf and never shells out to sudo in a unit test.
 func WriteRootFile(path, contents, mode string) error {
 	if writableDir(filepath.Dir(path)) {
-		return writeFileAtomic(path, contents, fileMode(mode))
+		return WriteFileAtomic(path, contents, fileMode(mode))
 	}
 	tmp, err := os.CreateTemp("", "ryoku-root-*")
 	if err != nil {
@@ -427,34 +427,6 @@ func writableDir(dir string) bool {
 	f.Close()
 	_ = os.Remove(name)
 	return true
-}
-
-// writeFileAtomic writes contents to path via a temp file in the same directory
-// and an atomic rename, so a reader never sees a half-written file.
-func writeFileAtomic(path, contents string, mode os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".ryoku-tmp-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	if _, err := tmp.WriteString(contents); err != nil {
-		tmp.Close()
-		_ = os.Remove(name)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	if err := os.Chmod(name, mode); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	if err := os.Rename(name, path); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	return nil
 }
 
 // fileMode parses an octal mode string ("0644") for the in-place writer,

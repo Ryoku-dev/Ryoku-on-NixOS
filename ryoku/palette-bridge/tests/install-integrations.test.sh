@@ -2,7 +2,8 @@
 set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root=$(mktemp -d /tmp/ryoku-palette-install.XXXXXX)
+bash "$project_root/tests/zen-profiles.test.sh"
+test_root=$(mktemp -d "${TMPDIR:-/tmp}/ryoku-palette install's \"quote\".XXXXXX")
 trap 'rm -rf "$test_root"' EXIT
 config_root="$test_root/config"
 fake_bin="$test_root/bin"
@@ -11,9 +12,7 @@ state_file="$test_root/spicetify-extensions"
 state_root="$test_root/state"
 cache_root="$test_root/cache"
 export XDG_CACHE_HOME="$cache_root"
-# The suite drives the real matugen renderer over a jq-built carrier, so it
-# needs both tools. The package build runs makepkg --nodeps, where neither is
-# installed, and a hard requirement there fails the repo gate; skip instead.
+# Package checks may run without optional runtime rendering tools installed.
 for tool in jq matugen; do
   command -v "$tool" >/dev/null || { printf 'PASS: integration suite skipped (missing %s)\n' "$tool"; exit 0; }
 done
@@ -26,6 +25,10 @@ mkdir -p "$fake_bin" "$config_root/matugen" "$config_root/vesktop/settings" "$pr
 
 printf '[config]\n\n[templates.existing]\ninput_path = "keep"\noutput_path = "keep"\n' \
   > "$config_root/matugen/apps.toml"
+# Upgrading the old direct-output registration must replace it exactly once.
+printf '\n[templates.vesktop]\ninput_path = "%s"\noutput_path = "%s"\n' \
+  "$config_root/matugen/templates/vesktop-colors.css" \
+  "$config_root/vesktop/settings/quickCss.css" >> "$config_root/matugen/apps.toml"
 printf '{}\n' > "$config_root/vesktop/settings/settings.json"
 printf '@import "existing.css";\n' > "$profile_root/chrome/userChrome.css"
 printf 'user_pref("existing", true);\n' > "$profile_root/user.js"
@@ -60,6 +63,8 @@ cmp "$project_root/templates/zen.css" "$overlay/templates/zen.css"
 cmp "$project_root/vesktop/midnight-ryoku.theme.css" \
   "$config_root/vesktop/themes/midnight-ryoku.theme.css"
 [[ $(grep -c '^\[templates\.vesktop\]$' "$overlay/apps.toml") == 1 ]]
+grep -Fxq "output_path = $(jq -Rn --arg path "$state_root/ryoku/palette-bridge/vesktop/palette.css" '$path')" "$overlay/apps.toml"
+grep -q '^post_hook = .*quickcss' "$overlay/apps.toml"
 [[ $(grep -c '^\[templates\.zen\]$' "$overlay/apps.toml") == 1 ]]
 [[ $(grep -c '^\[templates\.existing\]$' "$overlay/apps.toml") == 1 ]]
 [[ $(grep -Fc '@import "ryoku-colors.css";' "$profile_root/chrome/userChrome.css") == 1 ]]
@@ -112,6 +117,31 @@ grep -Fq -- '--ryo-bridge-enabled: 1;' "$quick_css"
 grep -Fq -- '--accent-2: #abcdef;' "$quick_css"
 [[ $(grep -Fc '/* ryoku-palette-bridge:begin */' "$quick_css") == 1 ]]
 cat "$test_root/custom-after.css" >> "$quick_css"
+# Exercise the real wallpaper fan-out, not only the immediate setup merge.
+mkdir -p "$config_root/matugen/templates"
+cp "$overlay/templates/vesktop-colors.css" "$config_root/matugen/templates/vesktop-colors.css"
+printf '[config]\n' > "$test_root/vesktop-render.toml"
+awk '/^\[templates.vesktop\]$/ { keep=1; print; next } /^\[/ { keep=0 } keep { print }' \
+  "$overlay/apps.toml" >> "$test_root/vesktop-render.toml"
+matugen json "$cache_root/ryoku/matugen-carrier.json" --config "$test_root/vesktop-render.toml" --quiet
+[[ $(head -n 1 "$quick_css") == '@import url("custom.css");' ]] || {
+  printf 'FAIL: wallpaper fan-out erased the user QuickCSS import\n' >&2; exit 1;
+}
+grep -Fq -- '--user-before: red;' "$quick_css"
+grep -Fq -- '--user-after: gold;' "$quick_css"
+write_carrier "#fedcba"
+matugen json "$cache_root/ryoku/matugen-carrier.json" --config "$test_root/vesktop-render.toml" --quiet
+grep -Fq -- '--accent-2: #fedcba;' "$quick_css"
+! grep -Fq -- '--accent-2: #abcdef;' "$quick_css"
+grep -Fq -- '--user-before: red;' "$quick_css"
+grep -Fq -- '--user-after: gold;' "$quick_css"
+[[ $(grep -Fc '/* ryoku-palette-bridge:begin */' "$quick_css") == 1 ]]
+cp "$quick_css" "$test_root/valid-quickcss.css"
+printf '/* ryoku-palette-bridge:begin */\n:root { --incomplete-user-block: gold; }\n' > "$quick_css"
+cp "$quick_css" "$test_root/incomplete-quickcss.css"
+matugen json "$cache_root/ryoku/matugen-carrier.json" --config "$test_root/vesktop-render.toml" --quiet || true
+cmp "$test_root/incomplete-quickcss.css" "$quick_css"
+cp "$test_root/valid-quickcss.css" "$quick_css"
 cat "$test_root/custom-before.css" "$test_root/custom-after.css" > "$test_root/expected.css"
 for _ in 1 2; do run_vesktop remove; done
 sed '/^[[:space:]]*$/d' "$test_root/expected.css" > "$test_root/expected-noblank.css"
@@ -121,6 +151,8 @@ cmp "$test_root/expected-noblank.css" "$test_root/actual-noblank.css"
 jq -e '.useQuickCss == true and .enabledThemes == ["custom.theme.css", "Ryoku.theme.css"]' \
   "$config_root/vesktop/settings/settings.json" >/dev/null
 ! grep -Fq '[templates.vesktop]' "$overlay/apps.toml"
+[[ ! -e "$state_root/ryoku/palette-bridge/vesktop/quickcss.sh" ]]
+[[ ! -e "$state_root/ryoku/palette-bridge/vesktop/palette.css" ]]
 
 # Re-enabling uses the current carrier immediately, preserving custom CSS.
 write_carrier "#fedcba"

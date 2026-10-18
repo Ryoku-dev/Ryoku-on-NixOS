@@ -16,7 +16,7 @@ func TestSnapshotsCapabilityAndCommand(t *testing.T) {
 	}{
 		{name: "pacman", manager: "pacman", supported: true, exit: ExitOK},
 		{name: "xbps", manager: "xbps", supported: true, exit: ExitOK},
-		{name: "dnf", manager: "dnf", supported: false, exit: ExitNotProvided, wantOutput: fedoraSnapshotsUnavailableReason + "\n"},
+		{name: "dnf", manager: "dnf", supported: true, exit: ExitOK},
 		{name: "unknown", manager: "other", supported: false, exit: ExitNotProvided, wantOutput: snapshotsUnavailableReason + "\n"},
 	}
 	for _, tt := range tests {
@@ -29,12 +29,8 @@ func TestSnapshotsCapabilityAndCommand(t *testing.T) {
 			if tt.supported && reason != "" {
 				t.Fatalf("supported host reason = %q, want empty", reason)
 			}
-			wantReason := snapshotsUnavailableReason
-			if tt.manager == "dnf" {
-				wantReason = fedoraSnapshotsUnavailableReason
-			}
-			if !tt.supported && reason != wantReason {
-				t.Fatalf("unsupported host reason = %q, want %q", reason, wantReason)
+			if !tt.supported && reason != snapshotsUnavailableReason {
+				t.Fatalf("unsupported host reason = %q, want %q", reason, snapshotsUnavailableReason)
 			}
 			if code := app.Execute([]string{"snapshots"}); code != tt.exit {
 				t.Fatalf("snapshots exit = %d, want %d", code, tt.exit)
@@ -133,14 +129,47 @@ func TestSnapshotCreateRequiresToolAndRootConfig(t *testing.T) {
 
 func TestSnapshotCreateKeepsUnsupportedReason(t *testing.T) {
 	runner := &fakeRunner{paths: map[string]bool{"snapper": true}}
-	app, stdout, _ := testApp(runner, map[string]string{"RYOKU_HOST_PKGMGR": "dnf"})
+	app, stdout, _ := testApp(runner, map[string]string{"RYOKU_HOST_PKGMGR": "other"})
 	if code := app.Execute([]string{"snapshots", "create", "before change"}); code != ExitNotProvided {
 		t.Fatalf("unsupported snapshot exit = %d, want %d", code, ExitNotProvided)
 	}
-	if stdout.String() != fedoraSnapshotsUnavailableReason+"\n" {
+	if stdout.String() != snapshotsUnavailableReason+"\n" {
 		t.Fatalf("unsupported snapshot output = %q", stdout.String())
 	}
 	if len(runner.commands) != 0 {
 		t.Fatalf("unsupported snapshot ran commands: %v", runner.commands)
+	}
+}
+
+func TestSnapshotsUnavailableInSnapshotLookBoot(t *testing.T) {
+	runner := &fakeRunner{paths: map[string]bool{"snapper": true}}
+	app, stdout, _ := testApp(runner, map[string]string{"RYOKU_HOST_PKGMGR": "dnf"})
+	cmdline := filepath.Join(t.TempDir(), "cmdline")
+	if err := os.WriteFile(cmdline, []byte("BOOT_IMAGE=/ryoku/snapshots/7.2/vmlinuz ro rootflags=subvol=.snapshots/12/snapshot rd.ryoku.preview=.snapshots/12/snapshot quiet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app.cfg.ProcCmdline = cmdline
+
+	if got := app.SnapshotPreview(); got != ".snapshots/12/snapshot" {
+		t.Fatalf("SnapshotPreview = %q", got)
+	}
+	supported, reason := app.Snapshots()
+	if supported {
+		t.Fatal("a look boot reported snapshots as supported")
+	}
+	if want := "This boot runs snapshot 12 read-only and keeps its changes in RAM. Run `sudo ryoku boot-menu restore` to make it the system, or reboot to go back."; reason != want {
+		t.Fatalf("look boot reason = %q, want %q", reason, want)
+	}
+	if code := app.Execute([]string{"snapshots", "create", "inside the look"}); code != ExitNotProvided {
+		t.Fatalf("look boot snapshot create exit = %d, want %d", code, ExitNotProvided)
+	}
+	if stdout.String() != reason+"\n" || len(runner.commands) != 0 {
+		t.Fatalf("look boot create wrote %q and ran %v", stdout.String(), runner.commands)
+	}
+}
+
+func TestSnapshotLabelKeepsUnfamiliarPaths(t *testing.T) {
+	if got := snapshotLabel("@/.snapshots/3/snapshot"); got != "@/.snapshots/3/snapshot" {
+		t.Fatalf("snapshotLabel = %q", got)
 	}
 }

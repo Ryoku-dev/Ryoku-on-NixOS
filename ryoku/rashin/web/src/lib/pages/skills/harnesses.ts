@@ -14,6 +14,7 @@ export interface HarnessRouting {
   connected: boolean;
   active: boolean;
   pending: boolean;
+  credentialStale: boolean;
   note?: string;
 }
 

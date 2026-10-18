@@ -22,7 +22,7 @@ Item {
     property real cornerRadius: IrisFrame.cornerRadius
     readonly property int capacity: 20
     readonly property int shadowSlots: root.capacity
-    readonly property real reach: root.smoothing + 2
+    readonly property real reach: root.smoothing + 2 + IrisStyle.afterglowReach + IrisStyle.leakReach
     property bool compositorAllowed: false
     // A field that does not cover its output: its window's position on the output and the output's size.
     property point sceneOrigin: Qt.point(0, 0)
@@ -219,6 +219,29 @@ Item {
         readonly property color sheen: root.sheen
         readonly property vector4d edgeGlass: Qt.vector4d(IrisStyle.glassEdgeLight, IrisStyle.glassEdgeLine, Math.max(1, Math.round(IrisStyle.glassEdgeWidth * IrisStyle.density)), IrisStyle.edgeLit ? 1 : 0)
         readonly property vector4d edge: Qt.vector4d(root.rimWidth, root.rim.a > 0 ? 1 : 0, 0, 0)
+        readonly property vector4d glowMix: IrisStyle.afterglowMix
+        readonly property vector4d glowShadow: IrisStyle.afterglowShadow
+        readonly property vector4d glowLight: IrisStyle.afterglowLight
+        readonly property vector4d glowBloom: IrisStyle.afterglowBloomInk
+        readonly property vector4d glowShape: IrisStyle.afterglowShape
+        readonly property vector4d leakMix: IrisStyle.leakMix
+        readonly property vector4d leakGrain: IrisStyle.leakFilm
+        readonly property vector4d leakShape: IrisStyle.leakBody
+        readonly property vector4d leakStop0: IrisStyle.leakStop0
+        readonly property vector4d leakStop1: IrisStyle.leakStop1
+        readonly property vector4d leakStop2: IrisStyle.leakStop2
+        readonly property vector4d leakStop3: IrisStyle.leakStop3
+        readonly property vector4d leakStop4: IrisStyle.leakStop4
+        readonly property vector4d leakCore: IrisStyle.leakCore
+        readonly property vector4d leakAt0: IrisStyle.leakAt0
+        readonly property vector4d leakAt1: IrisStyle.leakAt1
+        readonly property vector4d leakAt2: IrisStyle.leakAt2
+        readonly property vector4d leakForm0: IrisStyle.leakForm0
+        readonly property vector4d leakForm1: IrisStyle.leakForm1
+        readonly property vector4d leakForm2: IrisStyle.leakForm2
+        readonly property vector4d leakHue0: IrisStyle.leakHue0
+        readonly property vector4d leakHue1: IrisStyle.leakHue1
+        readonly property vector4d leakHue2: IrisStyle.leakHue2
         readonly property vector4d shape0: pass.shapeAt(0)
         readonly property vector4d shape1: pass.shapeAt(1)
         readonly property vector4d shape2: pass.shapeAt(2)

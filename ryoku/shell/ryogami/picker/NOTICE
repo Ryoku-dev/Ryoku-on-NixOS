@@ -10,6 +10,11 @@ distributed under the GNU General Public License, version 3 or later. Because th
 picker derives from that work, it is licensed under the same terms; the full text
 is in the LICENSE file beside this notice.
 
+The Duel picker style (src/layouts/duellayout.cpp) follows the wallpaper picker
+in Serpantinum by ilyamiro (https://github.com/ilyamiro/serpantinum): one row of
+slanted cards where the chosen card stands tall and its neighbours narrow with
+distance. It is written fresh for this renderer and copies no Serpantinum code.
+
 The card shader (shaders/card.frag, shaders/card.vert) is a GLSL port of skwd
 item.wgsl. Wallpaper Engine playback is rendered by skwd-paper, packaged
 separately as skwd-paper-bin.

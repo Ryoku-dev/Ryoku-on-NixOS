@@ -2,7 +2,126 @@
 
 ## Unreleased
 
+### Added
+- **Icon-theme choices survive updates.** Materialize reapplies the Hub's
+  remembered icon theme after refreshing the shipped GTK and Qt configs, before
+  recording their final hashes, so the choice neither resets nor becomes a
+  frozen whole-file fork (`internal/updater/materialize.go`).
+- **Every dnf transaction on Fedora gets a snapshot pair.** The `ryoku` RPM
+  ships a libdnf5 actions hook (`fedora/system/snapshots/`) that takes a snapper
+  pre/post pair around each `dnf` run, the way snap-pac does for pacman.
+  `ryoku update` writes its pid and start time to `/run/ryoku/update-snapshot`,
+  and the hook takes no pair inside the update's own. Once that pid is gone or
+  belongs to another process, the hook takes pairs again.
+- **`ryoku doctor` lays out Fedora snapshots.** On a btrfs Fedora root it
+  creates `/.snapshots` as a top-level subvolume with its own `/etc/fstab`
+  entry (copied from the root's, with its own `subvol=`), so a whole-system
+  restore that swaps the root subvolume keeps the snapshots. An existing
+  subvolume or fstab entry is adopted, and an empty `/.snapshots` nested in the
+  root (what `snapper create-config /` makes) is moved to the top level; one
+  that already holds snapshots is reported with the steps to clear it.
+  `SNAPPER_CONFIGS` goes to `/etc/sysconfig/snapper`, where Fedora's snapper
+  units read it.
+- **Fedora gets snapshots.** The host now reports snapshots as supported on
+  Fedora, so `ryoku update` takes its pre/post pair, `ryoku snapshots` lists
+  them, and the doctor sets them up.
+- **Fedora's GRUB lists the snapshots.** A **Ryoku snapshots** submenu boots
+  each snapshot read-only, its writes in RAM, from a copy of Fedora's own
+  signed kernel on `/boot`, so Secure Boot keeps working. `ryoku boot-menu
+  sync` rewrites it after every snapshot (through `ryoku-snapshot-menu.path`
+  and a snapper plugin), and `sudo ryoku boot-menu restore`, run in that
+  snapshot's boot, makes the snapshot the root again and keeps the replaced
+  root for two weeks. The first boot after a restore brings Fedora's kernel
+  entries in line with the restored root. Fedora's `grub-boot-success.timer` is left alone.
+- **Fedora's GRUB uses the Ryoku theme.** It draws the Limine menu's layout on
+  the Ryoku wallpaper: the "Ryoku Bootloader" title, the key help, the centred
+  list with a burnt-orange selection bar, and the countdown. The wallpaper moves
+  from `system/boot/limine/`, where nothing used it, to `fedora/system/boot/grub/theme/`.
+  `ryoku-grub-menu install` builds the "Ryoku Mono" fonts onto `/boot` (SpaceMono,
+  else Noto Sans Mono, else GRUB's Unifont), so an encrypted root never has to
+  be read for them; a serial terminal is kept as it is.
+- **`ryoku rollback` and the boot guard use Fedora's snapshot menu.**
+  `ryoku rollback <id>` walks through booting the snapshot (or
+  `grub2-reboot` to it) and `sudo ryoku boot-menu restore`, falling back to
+  `snapper undochange` while the menu lists nothing. `ryoku snapshots` says the
+  GRUB menu lists them. After three failed boots, the boot guard sends the next
+  boot once to the pre-update snapshot's read-only entry; it never restores on
+  its own.
+- **`ryoku-host phone` installs and removes the phone feature.** `status`,
+  `enable`, `disable` and their `plan-` dry runs translate one package set per
+  edition (Arch, CachyOS with the running kernel's headers, Fedora through two
+  COPRs, Void), load v4l2loopback from `phone-v4l2loopback.conf` (a name the
+  doctor's stray-file sweep leaves alone), roll back a half-finished install,
+  keep the record of what it installed across repeated enables, and remove only
+  what the switch itself installed (`internal/host/phone.go`).
+
 ### Fixed
+- **Neovim shows up once in the launcher.** Ryoku's `ryoku-nvim.desktop` and
+  the neovim package's `nvim.desktop` both say Neovim, so every launcher and app
+  grid listed it twice. The doctor writes a user-level copy of the package's
+  entry with `NoDisplay=true` (MIME handling keeps working) and ledgers it, so
+  a user who deletes it keeps the package's entry; fresh ISO installs get the
+  same copy at install time (`internal/doctor/reconcile_launcher_duplicates.go`,
+  `installation/backend/lib/deploy.sh`).
+- **`ryoku update` no longer warns about a removed compositor provider.**
+  Materialize preserves a switched-away compositor's config tree so it can be
+  restored later, but after its variant package was removed it still tried to
+  repair missing or stale generated files and printed a provider-not-found note.
+  Trees without their `ryoku-wm-<name>` binary are now left untouched; installed
+  providers still report real render failures (`internal/updater/materialize.go`).
+- **Wallpaper app colours recover after switching to packaged Ryoku.** The
+  doctor now recognizes old palette bridge user services using
+  `%h/.local/bin/ryoku-palette-bridge`, restores the packaged service while
+  preserving enablement, and restarts an enabled or running bridge. Disabled
+  bridges stay disabled, and service reload failures are reported.
+- **`ryoku update --help` prints help instead of updating the machine.** Any
+  option update did not know used to fall through into a full run: the password
+  prompt, the config re-laid, the desktop restarted. `-h` and `--help` now
+  print the usage, and an unknown option is refused before anything starts
+  (`internal/updater/update.go`).
+- **An update waits for the desktop to load before healing it.** The healing
+  step started as soon as the shell's sleep guard answered, while Quickshell
+  could still be loading the new tree, so the doctor flagged "desktop loads"
+  on every update on slower boxes. The run now waits up to 25 seconds for
+  Quickshell's finished-load line and says so in one line if it never comes
+  (`internal/updater/update.go`).
+- **The line after an update names the box's own package manager.** Void and
+  Fedora boxes were told prowl is managed by pacman; it now says xbps or dnf
+  (`internal/updater/update.go`).
+- **`ryoku doctor` waits for a just-started Prowl gateway to listen.** A
+  successful service start could be reported as failed before the gateway
+  opened its socket. The doctor now waits up to 15 seconds for it to answer
+  (`internal/doctor/reconcile_rashin_daemon.go`).
+- **Snapshot boots explain their read-only state and refuse updates.** The
+  `ryoku rollback` and `ryoku status` messages now say the boot runs a snapshot
+  read-only and point at the restore command. `ryoku update` refuses before its
+  package steps, avoiding writes to the live disk's boot files from a
+  RAM-backed root (`internal/updater/update.go`).
+- **`ryoku debug` stops reporting the shell as missing.** The desktop section
+  ran `pgrep -af quickshell`, but the shell is invoked as `qs -c shell`, and
+  only ryogami and the lockscreen carry `quickshell` in their command line. So
+  every bundle anyone shared looked like the shell was not running, which is the
+  first line a maintainer reads, and the pattern matched the report's own
+  command line besides. It now anchors on the executable and catches both
+  spellings (`internal/doctor/report.go`).
+- **A service state the report could not read is no longer printed as absent.**
+  runit answers `is-active` for a system service by reading root's supervise
+  directory, and the report is normally unprivileged, so the query failed
+  and the host layer called the service absent. Every Void bundle therefore
+  claimed sddm, NetworkManager and bluetooth were all down while they were
+  running, with and without a sudo ticket, because sudo is never invoked. The
+  report now says the state is unreadable without root
+  (`internal/doctor/report.go`).
+- **`ryoku doctor` recognizes displays attached to the discrete GPU.** A
+  never-suspended card now reports the dGPU-wired output as expected load instead
+  of blaming processes for idle drain (`internal/doctor/reconcile_dgpu_panel.go`).
+- **`ryoku doctor` clears what earlier Fedora packages left in the boot menu.**
+  Their console plugin twinned every kernel's boot entry as
+  `<kver>~ryokuconsole`; once the plugin is gone the twins are removed. Their
+  `%post` disabled Fedora's `grub-boot-success.timer` for every user; the
+  doctor turns it back on once (`/var/lib/ryoku/migrations/grub-boot-success-timer`),
+  so a later choice to disable it stands. `ryoku-grub-menu install` drops the
+  files an earlier theme left in `/boot/grub2/themes/ryoku`.
 - **Updates preserve installer package choices.** Control-manifest convergence
   now excludes browser, login-shell, and compositor packages selected per box,
   so it cannot install alternatives the user did not choose.

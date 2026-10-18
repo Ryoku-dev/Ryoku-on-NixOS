@@ -52,7 +52,7 @@ func TestValidateSetting(t *testing.T) {
 		{"transition.enabled", "yes", false},
 		{"general.randomInterval", 300, true},
 		{"general.randomInterval", 42.0, true},
-		{"transition.durationMs", 600.0, true},
+		{"transition.durationMs", 900.0, true},
 		{"transition.durationMs", 40.0, false},
 		{"transition.durationMs", 20000.0, false},
 		{"display.fillMode", "fit", true},

@@ -9,6 +9,7 @@ Item {
 
     property var now: new Date()
     property int _lastDay: -1
+    property int _lastMinuteKey: -1
     property string _lastLang: ""
 
     readonly property string timeFormat: {
@@ -52,6 +53,9 @@ Item {
 
     readonly property bool is12Hour: !RyokuUi.TimeFormat.is24h
     readonly property bool is24Hour: RyokuUi.TimeFormat.is24h
+    readonly property bool use24Hour: root.is24Hour
+    readonly property bool clock24: root.is24Hour
+    readonly property bool clock24h: root.is24Hour
     readonly property bool hasSeconds: secondFormat !== "" || timeFormat.indexOf("ss") !== -1 || timeFormat.indexOf("s") !== -1
 
     property string time: ""
@@ -105,24 +109,27 @@ Item {
 
         let curTime = Qt.formatDateTime(d, timeFormat);
         if (root.time !== curTime) root.time = curTime;
-
-        let curTimeOnly = Qt.formatDateTime(d, timeFormat);
-        if (root.timeOnly !== curTimeOnly) root.timeOnly = curTimeOnly;
+        if (root.timeOnly !== curTime) root.timeOnly = curTime;
 
         let curTimeLong = RyokuUi.TimeFormat.format(d, true);
         if (root.timeLong !== curTimeLong) root.timeLong = curTimeLong;
 
-        let curMin = Qt.formatDateTime(d, minuteFormat);
-        if (root.minute !== curMin) root.minute = curMin;
+        let minuteKey = d.getHours() * 60 + d.getMinutes();
+        if (forceAll || root._lastMinuteKey !== minuteKey) {
+            root._lastMinuteKey = minuteKey;
 
-        let curHour = String(RyokuUi.TimeFormat.is24h ? d.getHours() : ((d.getHours() % 12) || 12)).padStart(2, "0");
-        if (root.hour !== curHour) root.hour = curHour;
+            let curMin = Qt.formatDateTime(d, minuteFormat);
+            if (root.minute !== curMin) root.minute = curMin;
 
-        let curAmPm = amPmFormat !== "" ? Qt.formatDateTime(d, amPmFormat) : "";
-        if (root.amPm !== curAmPm) root.amPm = curAmPm;
+            let curHour = Qt.formatDateTime(d, hourFormat);
+            if (root.hour !== curHour) root.hour = curHour;
 
-        let curTimeShort = Qt.formatDateTime(d, hourFormat + ":" + minuteFormat + (amPmFormat !== "" ? " " + amPmFormat : ""));
-        if (root.timeShort !== curTimeShort) root.timeShort = curTimeShort;
+            let curAmPm = amPmFormat !== "" ? Qt.formatDateTime(d, amPmFormat) : "";
+            if (root.amPm !== curAmPm) root.amPm = curAmPm;
+
+            let curTimeShort = Qt.formatDateTime(d, hourFormat + ":" + minuteFormat + (amPmFormat !== "" ? " " + amPmFormat : ""));
+            if (root.timeShort !== curTimeShort) root.timeShort = curTimeShort;
+        }
 
         let curDay = d.getDate();
         let curLang = (typeof I18n !== "undefined" && I18n.currentLang) ? I18n.currentLang : "en";
@@ -144,7 +151,6 @@ Item {
 
         syncTimer(d);
     }
-
     Timer {
         id: clockTimer
         interval: 1000

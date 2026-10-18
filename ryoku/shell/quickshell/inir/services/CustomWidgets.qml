@@ -16,6 +16,8 @@ Singleton {
     readonly property string widgetsDir: `${Directories.configPath}/inir/widgets`
 
     property bool _scanDone: false
+    // Qt caches a component by URL for the engine lifetime. Reload through a fresh path so an updated widget compiles again.
+    property int _generation: 0
 
     Component.onCompleted: _scan()
     Connections {
@@ -29,6 +31,7 @@ Singleton {
     }
 
     function reload(): void {
+        root._generation += 1;
         root._scanDone = false;
         root.widgets = [];
         _scan();
@@ -41,7 +44,7 @@ Singleton {
     // Single process that finds and reads all manifests, outputs JSON array
     Process {
         id: _scanProcess
-        command: [Directories.scriptsPath + "/scan-widgets.sh", root.widgetsDir]
+        command: [Directories.scriptsPath + "/scan-widgets.sh", root.widgetsDir, String(root._generation)]
         running: false
 
         stdout: StdioCollector {
@@ -89,6 +92,7 @@ Singleton {
                 const qmlFile = m.main || (entry.id.charAt(0).toUpperCase() + entry.id.slice(1) + ".qml");
                 const iris = m.iris && typeof m.iris === "object" ? m.iris : {};
                 const irisFile = typeof iris.main === "string" ? iris.main.trim() : "";
+                const load = entry.load || entry.dir;
                 result.push({
                     id: entry.id,
                     name: m.name || entry.id,
@@ -97,8 +101,8 @@ Singleton {
                     author: m.author || "",
                     description: m.description || "",
                     category: m.category || "",
-                    qmlPath: `file://${entry.dir}/${qmlFile}`,
-                    irisQmlPath: irisFile.length > 0 ? `file://${entry.dir}/${irisFile}` : "",
+                    qmlPath: `file://${load}/${qmlFile}`,
+                    irisQmlPath: irisFile.length > 0 ? `file://${load}/${irisFile}` : "",
                     irisSlots: Array.isArray(iris.slots) ? iris.slots : [],
                     dirPath: entry.dir,
                     configKeys: m.configKeys || {},

@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// Environment enumeration for the settings pickers: installed cursor themes and
-// X11 keyboard layouts/variants. Pure filesystem reads, no compositor.
+// Environment enumeration for the settings pickers: installed icon/cursor
+// themes and X11 keyboard layouts/variants. Pure filesystem reads, no compositor.
 
 // listCursorThemes: installed cursor themes = icon-theme dirs with a cursors/
 // subdir, across the standard search paths, deduped and sorted.
@@ -43,12 +43,20 @@ func iconSearchDirs() []string {
 	if dataHome == "" {
 		dataHome = filepath.Join(home, ".local", "share")
 	}
-	return []string{
-		filepath.Join(home, ".icons"),
-		filepath.Join(dataHome, "icons"),
-		"/usr/share/icons",
-		"/usr/local/share/icons",
+	dataDirs := os.Getenv("XDG_DATA_DIRS")
+	if dataDirs == "" {
+		dataDirs = "/usr/local/share:/usr/share"
 	}
+	out := []string{
+		filepath.Join(dataHome, "icons"),
+		filepath.Join(home, ".icons"),
+	}
+	for _, dir := range filepath.SplitList(dataDirs) {
+		if dir != "" {
+			out = append(out, filepath.Join(dir, "icons"))
+		}
+	}
+	return out
 }
 
 // xkbRuleFiles returns rules files in packaging-aware priority order. NixOS

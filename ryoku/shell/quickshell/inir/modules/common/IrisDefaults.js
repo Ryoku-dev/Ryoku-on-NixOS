@@ -191,6 +191,29 @@ function config() {
      "widgets": 110,
      "lume": true
     }
+   },
+   "settingsHost": "overlay",
+   "texture": "solid",
+   "afterglow": {
+    "grade": "dusk",
+    "atmosphere": 60,
+    "chrome": 65,
+    "bloom": 50,
+    "signal": 35
+   },
+   "leak": {
+    "grade": "prism",
+    "shape": "lens",
+    "x": 0,
+    "y": 0,
+    "light": 60,
+    "frame": 100,
+    "widgets": 100,
+    "spill": 55,
+    "prism": 50,
+    "grain": 55,
+    "grainSize": 1.6,
+    "streaks": 15
    }
   },
   "bar": {

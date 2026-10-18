@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -188,5 +189,47 @@ func TestUpdatesSectionsUseNativeTransactionSource(t *testing.T) {
 	sections := updatesSectionsFor("", cfg)
 	if got := sections[len(sections)-1].head; strings.Contains(got, "pacman") {
 		t.Fatalf("unknown manager fell through to pacman: %q", got)
+	}
+}
+
+func TestPackageLogStreamingMatchesLegacyTail(t *testing.T) {
+	const (
+		records = 100000
+		keep    = 37
+		pkg     = "target-package"
+	)
+	var log strings.Builder
+	pacmanMatches := make([]string, 0, records/17)
+	xbpsMatches := make([]string, 0, records/17+records/29)
+	appendLine := func(line string, pacman, xbps bool) {
+		log.WriteString(line)
+		log.WriteByte('\n')
+		if pacman {
+			pacmanMatches = append(pacmanMatches, line)
+		}
+		if xbps {
+			xbpsMatches = append(xbpsMatches, line)
+		}
+	}
+	for i := range records {
+		id := strconv.Itoa(i)
+		appendLine("unrelated package transaction "+id, false, false)
+		if i%17 == 0 {
+			appendLine("[2026-10-16] [ALPM] upgraded "+pkg+" (1-"+id+" -> 2-"+id+")", true, true)
+		}
+		if i%29 == 0 {
+			appendLine("transaction "+id+" "+pkg+" updated", false, true)
+		}
+	}
+
+	path := filepath.Join(t.TempDir(), "packages.log")
+	if err := os.WriteFile(path, []byte(log.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := pacmanPackageLinesAt(path, pkg, keep), tailLines(strings.Join(pacmanMatches, "\n"), keep); got != want {
+		t.Fatalf("pacman tail differs from legacy behaviour\n got: %q\nwant: %q", got, want)
+	}
+	if got, want := xbpsPackageLinesAt(path, pkg, keep), tailLines(strings.Join(xbpsMatches, "\n"), keep); got != want {
+		t.Fatalf("xbps tail differs from legacy behaviour\n got: %q\nwant: %q", got, want)
 	}
 }

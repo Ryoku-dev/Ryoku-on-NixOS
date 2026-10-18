@@ -104,8 +104,8 @@ type session struct {
 	workspaces []niriWorkspace
 	windows    []niriWindow
 	keyboard   niriKeyboard
-	// outputs is kept only so the maximise correction can size a window against
-	// its own output; a plain watch never reads it.
+	// outputs also drives the last-output fallback. Niri has no output event, so
+	// every workspace-list change refreshes this snapshot.
 	outputs []wm.Output
 	// overview is the compositor's native overview state, replayed on connect
 	// and folded from every OverviewOpenedOrClosed event.
@@ -201,15 +201,14 @@ func (s *session) apply(name string, body json.RawMessage, emit func(wm.Frame), 
 		s.workspaces = e.Workspaces
 		s.emitWorkspaces(emit, wants)
 		s.emitFocus(emit, wants)
-		// No output event exists, so this is where a hotplug surfaces. The
-		// correction needs the output sizes too, so read them when it is on even
-		// if this watch would not otherwise emit them.
-		if wants(wm.FrameOutputs) || s.tamer != nil {
-			if outs, err := readOutputs(s.workspaces, false); err == nil {
-				s.outputs = outs
-				if wants(wm.FrameOutputs) {
-					emit(wm.Frame{Kind: wm.FrameOutputs, Outputs: outs})
-				}
+		// No output event exists, so this is where a hotplug surfaces. Always
+		// read outputs: even a narrowed watch must recover a connected panel when
+		// every configured enabled output has disappeared.
+		if outs, err := readOutputs(s.workspaces, false); err == nil {
+			s.outputs = outs
+			recovered := reconcileOutputFallback(outs)
+			if wants(wm.FrameOutputs) && !recovered {
+				emit(wm.Frame{Kind: wm.FrameOutputs, Outputs: outs})
 			}
 		}
 

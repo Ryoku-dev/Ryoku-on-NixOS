@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,29 +50,34 @@ type SessionMeta struct {
 	UpdatedAt string `json:"updatedAt,omitempty"`
 }
 
-// AcpEvent is the translated stream ws.go forwards to the dashboard.
+// AcpEvent is the translated stream consumed by a persistent hub or the
+// internal Ask service.
 type AcpEvent struct {
-	Type         string // state | agent_text | agent_thought | user_text | tool | permission | permission_resolved | turn_end | models | commands | session_info | usage | replay_start | replay_end
-	State        string
-	Err          string
-	Text         string
-	Tool         toolView
-	ToolAuto     bool // the daemon approved this call itself (read-only policy)
-	RequestID    string
-	PermTitle    string
-	Options      []PermOption
-	Outcome      string // permission_resolved: allowed | rejected | cancelled
-	StopReason   string
-	Models       []ModelInfo
-	CurrentModel string
-	AgentName    string
-	Prowl        string
-	ProwlReason  string
-	Commands     []CommandInfo
-	SessionID    string
-	SessionTitle string
-	UsageSize    int
-	UsageUsed    int
+	Type            string // state | agent_text | agent_thought | user_text | handoff | tool | permission | permission_resolved | turn_end | models | commands | session_info | usage | replay_start | replay_end
+	State           string
+	Err             string
+	Text            string
+	Answer          string
+	AskID           string
+	Tool            toolView
+	ToolAuto        bool
+	RequestID       string
+	PermTitle       string
+	Options         []PermOption
+	Outcome         string
+	StopReason      string
+	Models          []ModelInfo
+	CurrentModel    string
+	Pick            string
+	PickUnavailable bool
+	AgentName       string
+	Prowl           string
+	ProwlReason     string
+	Commands        []CommandInfo
+	SessionID       string
+	SessionTitle    string
+	UsageSize       int
+	UsageUsed       int
 }
 
 type rpcMsg struct {
@@ -92,14 +98,16 @@ type acpConn struct {
 	in     io.Writer
 	closer io.Closer
 
-	writeMu sync.Mutex
-	nextID  atomic.Int64
+	killProcess func() error
+	writeMu     sync.Mutex
+	nextID      atomic.Int64
 
-	mu        sync.Mutex
-	pending   map[int64]chan rpcMsg
-	sessionID string
-	cwd       string
-	closed    bool
+	mu           sync.Mutex
+	pending      map[int64]chan rpcMsg
+	sessionID    string
+	sessionReady bool
+	cwd          string
+	closed       bool
 	// eventsDone: the reader closed the event stream; emit becomes a no-op.
 	eventsDone bool
 	// openPerms holds the permission requests still waiting on a person, with
@@ -107,6 +115,10 @@ type acpConn struct {
 	// can release every one of them. Each is replied to exactly once, even
 	// when the dashboard and the terminal race to answer it.
 	openPerms map[int64][]PermOption
+	// askOnly is set before an internal Ask session starts. askDenied carries
+	// the first write title back to the one-shot result.
+	askOnly   bool
+	askDenied string
 
 	// configStamp is the hermes config the process loaded at spawn; hermes
 	// reads config.yaml and .env once, so a session outlives a `hermes setup`
@@ -126,10 +138,13 @@ type acpConn struct {
 	prowl     chatAgentRouting
 	// modelOption is the id of the agent's model config option when it offers
 	// models as ACP configOptions (omp) instead of the legacy models block.
-	modelOption  string
-	startedModel string
-	models       []ModelInfo
-	// offeredModels is what the pickers saw, so reconcile only reapplies a model that was on offer.
+	modelOption     string
+	startedModel    string
+	currentModel    string
+	pickUnavailable bool
+	models          []ModelInfo
+	// offeredModels is what the pickers saw, so a provider-scoped pick can be
+	// reapplied even when the harness caps the models it lists.
 	offeredModels  []ModelInfo
 	prowlActiveSet string
 	// errTail holds the agent's own stderr, bounded. An ACP error like
@@ -141,8 +156,12 @@ type acpConn struct {
 	events chan AcpEvent
 }
 
-// acpStderrTailBytes bounds the agent-stderr tail kept per connection.
 const acpStderrTailBytes = 8192
+
+var (
+	acpRequestTimeout = 15 * time.Second
+	acpCloseKillDelay = 10 * time.Second
+)
 
 // tailBuffer is a goroutine-safe ring of the last bytes written to it.
 type tailBuffer struct {
@@ -206,6 +225,12 @@ func (c *acpConn) stale() bool {
 	return c.configStamp != hermesConfigStamp()
 }
 
+func (c *acpConn) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
 func newACPConn(in io.Writer, out io.Reader, closer io.Closer) *acpConn {
 	c := &acpConn{
 		in:        in,
@@ -232,6 +257,10 @@ func (c *acpConn) send(v any) error {
 }
 
 func (c *acpConn) request(method string, params any) (json.RawMessage, error) {
+	p, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
 	id := c.nextID.Add(1)
 	ch := make(chan rpcMsg, 1)
 	c.mu.Lock()
@@ -242,14 +271,24 @@ func (c *acpConn) request(method string, params any) (json.RawMessage, error) {
 	c.pending[id] = ch
 	c.mu.Unlock()
 
-	p, err := json.Marshal(params)
-	if err != nil {
-		return nil, err
-	}
 	if err := c.send(rpcMsg{JSONRPC: "2.0", ID: &id, Method: method, Params: p}); err != nil {
+		c.removePending(id, ch)
 		return nil, err
 	}
-	resp, ok := <-ch
+	var resp rpcMsg
+	var ok bool
+	if method == "session/prompt" {
+		resp, ok = <-ch
+	} else {
+		timer := time.NewTimer(acpRequestTimeout)
+		defer timer.Stop()
+		select {
+		case resp, ok = <-ch:
+		case <-timer.C:
+			c.removePending(id, ch)
+			return nil, fmt.Errorf("acp %s: %w", method, context.DeadlineExceeded)
+		}
+	}
 	if !ok {
 		return nil, errors.New("acp connection closed")
 	}
@@ -258,12 +297,22 @@ func (c *acpConn) request(method string, params any) (json.RawMessage, error) {
 		// Hermes answers a failed session/new with a bare "Internal error";
 		// its log stream carries the real cause. Ride the last line along so
 		// the banner and `ryoku-rashin logs` can name what broke.
-		if why := c.errTail.reason(); why != "" {
-			msg += ": " + why
+		if c.errTail != nil {
+			if why := c.errTail.reason(); why != "" {
+				msg += ": " + why
+			}
 		}
 		return nil, fmt.Errorf("acp %s: %s", method, msg)
 	}
 	return resp.Result, nil
+}
+
+func (c *acpConn) removePending(id int64, ch chan rpcMsg) {
+	c.mu.Lock()
+	if c.pending[id] == ch {
+		delete(c.pending, id)
+	}
+	c.mu.Unlock()
 }
 
 func (c *acpConn) notify(method string, params any) {
@@ -450,6 +499,23 @@ func (c *acpConn) offeredModelsSnapshot() []ModelInfo {
 	return append([]ModelInfo(nil), c.offeredModels...)
 }
 
+func modelPickAvailable(id string, offered []ModelInfo) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	prefix := id
+	if cut := strings.IndexByte(prefix, ':'); cut >= 0 {
+		prefix = prefix[:cut]
+	}
+	for _, model := range offered {
+		if model.ID == id || (prefix != id && strings.HasPrefix(model.ID, prefix+":")) {
+			return true
+		}
+	}
+	return false
+}
+
 // emitModels always emits a models event for a fresh session, carrying the
 // backend's name so the UI can label the agent even when it advertises no
 // models. A stale model from a different backend is never shown.
@@ -461,6 +527,9 @@ func (c *acpConn) emitModels(st modelState) {
 		c.agentID, c.prowl.Active, st.models, st.current, c.startedModel, c.prowlActiveSet,
 	)
 	c.offeredModels = append(c.offeredModels[:0], offered...)
+	c.currentModel = st.current
+	pick := modelPick(c.agentID)
+	c.pickUnavailable = pick != "" && !modelPickAvailable(pick, offered)
 	eventModels := append([]ModelInfo(nil), c.offeredModels...)
 	c.mu.Unlock()
 	c.emit(c.modelsEvent(eventModels, st.current))
@@ -468,8 +537,9 @@ func (c *acpConn) emitModels(st modelState) {
 
 func (c *acpConn) modelsEvent(offered []ModelInfo, current string) AcpEvent {
 	c.mu.Lock()
-	agentName, routing, started := c.agentName, c.prowl, c.startedModel
+	agentID, agentName, routing, started := c.agentID, c.agentName, c.prowl, c.startedModel
 	models := append([]ModelInfo(nil), c.models...)
+	unavailable := c.pickUnavailable
 	c.mu.Unlock()
 	current = normalizedModelID(current, models, offered, routing.Active, started)
 	prowl := ""
@@ -480,46 +550,57 @@ func (c *acpConn) modelsEvent(offered []ModelInfo, current string) AcpEvent {
 	}
 	return AcpEvent{
 		Type: "models", Models: offered, CurrentModel: current, AgentName: agentName,
+		Pick: modelPick(agentID), PickUnavailable: unavailable,
 		Prowl: prowl, ProwlReason: routing.Reason,
 	}
 }
 
-// reconcileModel keeps a fresh session on the remembered model, and remembers
-// the live model when nothing is stored yet, so every surface and `status`
-// agree on one model that survives restarts.
-func (c *acpConn) reconcileModel(st modelState, method string) {
+func (c *acpConn) currentModelsEvent() AcpEvent {
+	c.mu.Lock()
+	offered := append([]ModelInfo(nil), c.offeredModels...)
+	current := c.currentModel
+	c.mu.Unlock()
+	return c.modelsEvent(offered, current)
+}
+
+func (c *acpConn) backend() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.agentID
+}
+
+func (c *acpConn) backendSession() (string, string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.agentID, c.sessionID
+}
+
+// reconcileModel applies only an explicit pick. A capped list is sufficient
+// when it proves the picked provider is available.
+func (c *acpConn) reconcileModel(st modelState, _ string) {
 	if !st.ok {
 		return
 	}
 	c.mu.Lock()
-	models := append([]ModelInfo(nil), c.models...)
 	offered := append([]ModelInfo(nil), c.offeredModels...)
-	active, started := c.prowl.Active, c.startedModel
+	current := c.currentModel
+	backendID := c.agentID
 	c.mu.Unlock()
-	current := normalizedModelID(st.current, models, offered, active, started)
-	saved := savedSessionModel()
-	saved = normalizedModelID(saved, models, offered, active, started)
-	avail := func(id string) bool {
-		for _, m := range offered {
-			if m.ID == id {
-				return true
-			}
-		}
-		return false
+	pick := modelPick(backendID)
+	if pick == "" || !modelPickAvailable(pick, offered) {
+		return
 	}
-	// A remembered pick that is still on offer: apply it to this fresh session.
-	if method == "session/new" && saved != "" && saved != current && avail(saved) {
-		if err := c.SetModel(saved); err == nil {
-			c.emit(c.modelsEvent(offered, saved))
+	if pick != current {
+		if err := c.SetModel(pick); err != nil {
+			c.emit(c.currentModelsEvent())
 			return
 		}
 	}
-	// Nothing stored yet: remember whatever the fresh session runs so status and
-	// the pickers reflect the live model. A stored pick is left untouched even
-	// when this session's list lacks it, so a momentary or partial model list
-	// never clobbers the user's choice.
-	if current != "" && saved == "" {
-		saveSessionModel(current)
+	c.mu.Lock()
+	c.pickUnavailable = false
+	c.mu.Unlock()
+	if pick != current {
+		c.emit(c.currentModelsEvent())
 	}
 }
 
@@ -573,6 +654,9 @@ func (c *acpConn) applyInitResult(res json.RawMessage) {
 
 // openSession issues new/load and installs the returned session id.
 func (c *acpConn) openSession(method string, params map[string]any) error {
+	c.mu.Lock()
+	c.sessionReady = false
+	c.mu.Unlock()
 	res, err := c.request(method, params)
 	if err != nil {
 		return err
@@ -592,10 +676,14 @@ func (c *acpConn) openSession(method string, params map[string]any) error {
 	c.mu.Lock()
 	c.sessionID = out.SessionID
 	c.startedModel = st.current
+	c.currentModel = st.current
 	c.mu.Unlock()
 	c.cacheProwlActiveSet(st.models)
 	c.emitModels(st)
 	c.reconcileModel(st, method)
+	c.mu.Lock()
+	c.sessionReady = true
+	c.mu.Unlock()
 	return nil
 }
 
@@ -642,12 +730,14 @@ func (c *acpConn) ListSessions() []SessionMeta {
 	return list
 }
 
-// cleanTitle drops what only the agent saw from a session title (hermes
-// occasionally titles a fresh session from the whole first prompt); a title
-// cut off inside the preamble is dropped.
+// cleanTitle drops notes that only the agent saw from a generated session
+// title, including an Ask hand-off replayed as the first user message.
 func cleanTitle(t string) string {
 	if !hasInjectedBlock(t) {
 		return t
+	}
+	if _, _, rest, ok := splitHandoffBlock(t); ok {
+		return rest
 	}
 	rest := stripIdentityPreamble(t)
 	if hasInjectedBlock(rest) {
@@ -656,9 +746,7 @@ func cleanTitle(t string) string {
 	return rest
 }
 
-// injectedBlocks are the bracketed notes Rashin puts in front of a user turn:
-// the Needle identity.
-var injectedBlocks = []string{"[system:"}
+var injectedBlocks = []string{"[system:", "[handoff from Ask]"}
 
 func hasInjectedBlock(s string) bool {
 	for _, p := range injectedBlocks {
@@ -669,11 +757,10 @@ func hasInjectedBlock(s string) bool {
 	return false
 }
 
-// stripIdentityPreamble removes the injected notes from a replayed user
-// message, so a loaded session shows what the user actually typed or clicked
-// (hermes stores the full prompt, notes and all, and replays it verbatim).
+// stripIdentityPreamble removes only identity notes. Hand-off blocks need
+// their own parser so replay can preserve the card's question and answer.
 func stripIdentityPreamble(s string) string {
-	for hasInjectedBlock(s) {
+	for strings.HasPrefix(s, "[system:") {
 		end := strings.Index(s, "] ")
 		if end < 0 {
 			return s
@@ -689,16 +776,24 @@ func (c *acpConn) SetModel(modelID string) error {
 	c.mu.Lock()
 	sid, option := c.sessionID, c.modelOption
 	c.mu.Unlock()
+	var err error
 	if option != "" {
-		_, err := c.request("session/set_config_option", map[string]any{
+		_, err = c.request("session/set_config_option", map[string]any{
 			"sessionId": sid, "configId": option, "value": modelID,
 		})
+	} else {
+		_, err = c.request("session/set_model", map[string]any{
+			"sessionId": sid, "modelId": modelID,
+		})
+	}
+	if err != nil {
 		return err
 	}
-	_, err := c.request("session/set_model", map[string]any{
-		"sessionId": sid, "modelId": modelID,
-	})
-	return err
+	c.mu.Lock()
+	c.currentModel = modelID
+	c.pickUnavailable = false
+	c.mu.Unlock()
+	return nil
 }
 
 // PromptImage is one attached image: raw base64 plus its mime type.
@@ -727,10 +822,10 @@ func (c *acpConn) Prompt(text string, images []PromptImage) {
 		return
 	}
 	go func() {
-		// A freshly (re)spawned session may still be running Initialize; wait
-		// for its id so a prompt sent right after a respawn is not lost — an
-		// empty-session prompt fails and would kill the new session, cascading
-		// every later send into the same death.
+		// A freshly opened session may still be initializing or applying its
+		// picked model. Wait for both so an immediate prompt uses the new
+		// session with the user's model rather than the previous session or the
+		// harness default.
 		sid := c.waitSession(15 * time.Second)
 		if sid == "" {
 			c.emit(AcpEvent{Type: "state", State: "dead", Err: "session not ready"})
@@ -755,15 +850,19 @@ func (c *acpConn) Prompt(text string, images []PromptImage) {
 	}()
 }
 
-// waitSession blocks until the session id is set (Initialize done), the conn
-// closes, or the timeout elapses; returns "" if no id ever arrives.
+// waitSession blocks until session setup, including model reconciliation, is
+// complete. New and loaded sessions stay unavailable while their picked model
+// is being applied.
 func (c *acpConn) waitSession(timeout time.Duration) string {
 	deadline := time.Now().Add(timeout)
 	for {
 		c.mu.Lock()
-		sid, closed := c.sessionID, c.closed
+		sid, ready, closed := c.sessionID, c.sessionReady, c.closed
 		c.mu.Unlock()
-		if sid != "" || closed || time.Now().After(deadline) {
+		if closed || time.Now().After(deadline) {
+			return ""
+		}
+		if ready && sid != "" {
 			return sid
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -819,6 +918,7 @@ func (c *acpConn) Close() {
 		return
 	}
 	c.closed = true
+	kill := c.killProcess
 	for id, ch := range c.pending {
 		close(ch)
 		delete(c.pending, id)
@@ -826,6 +926,9 @@ func (c *acpConn) Close() {
 	c.mu.Unlock()
 	if c.closer != nil {
 		_ = c.closer.Close()
+	}
+	if kill != nil {
+		time.AfterFunc(acpCloseKillDelay, func() { _ = kill() })
 	}
 }
 
@@ -906,6 +1009,42 @@ func (c *acpConn) handleAgentRequest(msg rpcMsg) {
 		id := *msg.ID
 		tool := p.ToolCall.display()
 		tool.Status = ""
+		c.mu.Lock()
+		askOnly := c.askOnly
+		c.mu.Unlock()
+		if askOnly {
+			readOnly, _ := readOnlyToolCall(p.ToolCall.Kind, p.ToolCall.Title, p.ToolCall.RawInput)
+			if readOnly && askToolInspected(p.ToolCall) {
+				if allow := permissionOption(opts, "allow_once"); allow != "" {
+					c.respond(id, map[string]any{"outcome": map[string]any{"outcome": "selected", "optionId": allow}})
+					c.emit(AcpEvent{Type: "tool", Tool: tool, ToolAuto: true})
+					return
+				}
+			}
+			denied := strings.TrimSpace(tool.Title)
+			if denied == "" {
+				denied = strings.TrimSpace(p.ToolCall.Kind)
+			}
+			if denied == "" {
+				denied = "requested tool"
+			}
+			c.mu.Lock()
+			if c.askDenied == "" {
+				c.askDenied = denied
+			}
+			c.mu.Unlock()
+			reject := permissionOption(opts, "reject")
+			outcome := map[string]any{"outcome": "cancelled"}
+			resolved := "cancelled"
+			if reject != "" {
+				outcome = map[string]any{"outcome": "selected", "optionId": reject}
+				resolved = "rejected"
+			}
+			c.respond(id, map[string]any{"outcome": outcome})
+			c.emit(AcpEvent{Type: "tool", Tool: tool})
+			c.emit(AcpEvent{Type: "permission_resolved", RequestID: fmt.Sprint(id), Outcome: resolved})
+			return
+		}
 		if allow := autoApproval(p.ToolCall, opts); allow != "" {
 			c.respond(id, map[string]any{"outcome": map[string]any{"outcome": "selected", "optionId": allow}})
 			c.emit(AcpEvent{Type: "tool", Tool: tool, ToolAuto: true})
@@ -914,26 +1053,88 @@ func (c *acpConn) handleAgentRequest(msg rpcMsg) {
 		c.mu.Lock()
 		c.openPerms[id] = opts
 		c.mu.Unlock()
-		// The agent may ask before it announces the call; surface the row now
-		// so the approval has something to sit on.
 		c.emit(AcpEvent{Type: "tool", Tool: tool})
 		c.emit(AcpEvent{
-			Type:      "permission",
-			RequestID: fmt.Sprint(id),
-			PermTitle: tool.Title,
-			Tool:      tool,
-			Options:   opts,
+			Type: "permission", RequestID: fmt.Sprint(id), PermTitle: tool.Title,
+			Tool: tool, Options: opts,
 		})
 	default:
-		// Unknown inbound request: JSON-RPC method-not-found keeps the child sane.
 		id := *msg.ID
 		_ = c.send(rpcMsg{JSONRPC: "2.0", ID: &id, Error: &rpcError{Code: -32601, Message: "method not found"}})
 	}
 }
 
-// autoApproval returns the allow-once option to answer with when the mode
-// lets this call run unasked: every call in auto mode, read-only calls in
-// read-only mode, none in ask mode.
+func askToolInspected(call acpToolCall) bool {
+	switch call.Kind {
+	case "read", "search":
+		m := roDecode(call.RawInput)
+		for _, key := range []string{"path", "file_path", "filePath", "pattern", "query"} {
+			if value, ok := roString(m, key); ok && strings.TrimSpace(value) != "" {
+				return true
+			}
+		}
+		if raw, ok := m["paths"]; ok {
+			if value, ok := roStringOrArray(raw); ok && strings.TrimSpace(value) != "" {
+				return true
+			}
+			var paths []string
+			if json.Unmarshal(raw, &paths) == nil {
+				for _, path := range paths {
+					if strings.TrimSpace(path) != "" {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	case "fetch":
+		m := roDecode(call.RawInput)
+		for _, key := range []string{"url", "uri"} {
+			value, ok := roString(m, key)
+			if !ok {
+				continue
+			}
+			parsed, err := url.Parse(strings.TrimSpace(value))
+			if err == nil && parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https") {
+				return true
+			}
+		}
+		return false
+	case "execute", "other", "":
+		_, ok := roCommandString(call.RawInput)
+		return ok
+	case "think":
+		return true
+	default:
+		return false
+	}
+}
+
+func permissionOption(opts []PermOption, kind string) string {
+	for _, option := range opts {
+		if option.Kind == kind || (kind == "reject" && strings.HasPrefix(option.Kind, "reject")) {
+			return option.ID
+		}
+	}
+	return ""
+}
+
+func (c *acpConn) resetAskDenied() {
+	c.mu.Lock()
+	c.askDenied = ""
+	c.mu.Unlock()
+}
+
+func (c *acpConn) takeAskDenied() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	denied := c.askDenied
+	c.askDenied = ""
+	return denied
+}
+
+// autoApproval applies the user's approval mode to persistent Agent and Chat
+// lanes. The internal Ask lane has a stricter policy above.
 func autoApproval(call acpToolCall, opts []PermOption) string {
 	cfg := LoadConfig()
 	if !cfg.AutoApproveAll() {
@@ -944,12 +1145,7 @@ func autoApproval(call acpToolCall, opts []PermOption) string {
 			return ""
 		}
 	}
-	for _, o := range opts {
-		if o.Kind == "allow_once" {
-			return o.ID
-		}
-	}
-	return ""
+	return permissionOption(opts, "allow_once")
 }
 
 func (c *acpConn) handleUpdate(params json.RawMessage) {
@@ -971,7 +1167,9 @@ func (c *acpConn) handleUpdate(params json.RawMessage) {
 			Size int `json:"size"`
 			Used int `json:"used"`
 			// config_option_update
-			ConfigOptions []acpConfigOption `json:"configOptions"`
+			ConfigOptions  []acpConfigOption `json:"configOptions"`
+			CurrentModelID string            `json:"currentModelId"`
+			ModelID        string            `json:"modelId"`
 		} `json:"update"`
 		SessionID string `json:"sessionId"`
 	}
@@ -992,7 +1190,13 @@ func (c *acpConn) handleUpdate(params json.RawMessage) {
 	case "agent_thought_chunk":
 		c.emit(AcpEvent{Type: "agent_thought", Text: chunk()})
 	case "user_message_chunk":
-		c.emit(AcpEvent{Type: "user_text", Text: stripIdentityPreamble(chunk())})
+		raw := chunk()
+		if question, answer, rest, ok := splitHandoffBlock(raw); ok {
+			c.emit(AcpEvent{Type: "handoff", Text: question, Answer: answer})
+			c.emit(AcpEvent{Type: "user_text", Text: rest})
+			break
+		}
+		c.emit(AcpEvent{Type: "user_text", Text: stripIdentityPreamble(raw)})
 	case "tool_call", "tool_call_update":
 		var call struct {
 			Update acpToolCall `json:"update"`
@@ -1020,6 +1224,17 @@ func (c *acpConn) handleUpdate(params json.RawMessage) {
 	case "config_option_update":
 		if st := configModelState(u.ConfigOptions); st.ok {
 			c.emitModels(st)
+		}
+	case "current_model_update", "model_update":
+		current := u.CurrentModelID
+		if current == "" {
+			current = u.ModelID
+		}
+		if current != "" {
+			c.mu.Lock()
+			c.currentModel = current
+			c.mu.Unlock()
+			c.emit(c.currentModelsEvent())
 		}
 	case "usage_update":
 		c.emit(AcpEvent{Type: "usage", UsageSize: u.Size, UsageUsed: u.Used})
@@ -1059,6 +1274,7 @@ func startACP(cwd string) (*acpConn, error) {
 		return nil, err
 	}
 	c := newACPConn(stdin, stdout, stdin)
+	c.killProcess = cmd.Process.Kill
 	c.errTail = tail
 	c.configStamp = stamp
 	c.agentID = b.ID

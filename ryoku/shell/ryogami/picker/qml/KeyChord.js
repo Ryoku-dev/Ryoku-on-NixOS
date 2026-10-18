@@ -46,6 +46,7 @@ function signature(event) {
         case Qt.Key_Backtab: base = "tab"; shift = true; break;
         case Qt.Key_Return:
         case Qt.Key_Enter: base = "enter"; break;
+        case Qt.Key_Space: base = "space"; break;
         default:
             var text = event.text;
             if (!ctrl && !alt && text && text.length === 1

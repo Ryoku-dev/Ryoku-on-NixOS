@@ -71,6 +71,8 @@ Singleton {
     property int activeContextMenuCount: 0
     property var activeContextMenu: null
     property bool settingsOverlayOpen: false
+    property bool settingsWindowBehind: false
+    property int settingsRaiseRequest: 0
     property int settingsOverlayRequestedPage: -1 // Set before opening to navigate to a specific page
     property string settingsOverlayRequestedSection: ""
     property int settingsOverlayCurrentPage: -1 // Published by whichever overlay chrome is loaded
@@ -88,17 +90,23 @@ Singleton {
         else delete next[key]
         root._settingsNativeDialogs = next
     }
+    function raiseSettingsIfNeeded(): void {
+        if (root.settingsOverlayOpen && root.settingsWindowBehind)
+            root.settingsRaiseRequest += 1
+    }
 
     // The frame's own settings overlay. Ryoku Hub owns every non-frame
     // setting page, so the family chrome opens locally and deep-links the
     // requested section; the legacy page index is ignored.
     function openSettingsPage(index: int, section): void {
+        root.raiseSettingsIfNeeded()
         root.settingsOverlayRequestedPage = -1
         root.settingsOverlayRequestedSection = String(section ?? "")
         root.settingsOverlayOpen = true
     }
 
     function openSettings(): void {
+        root.raiseSettingsIfNeeded()
         root.settingsOverlayRequestedPage = -1
         root.settingsOverlayRequestedSection = ""
         root.settingsOverlayOpen = true

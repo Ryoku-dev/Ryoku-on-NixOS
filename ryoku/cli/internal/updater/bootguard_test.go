@@ -133,6 +133,7 @@ func setupBootGuardPaths(t *testing.T) string {
 }
 
 func TestPointBootMenuAtSnapshotWritesFullPathAndClearsEFIEntry(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
 	setupBootGuardPaths(t)
 	if err := os.WriteFile(limineConf, []byte(limineFixture), 0o644); err != nil {
 		t.Fatal(err)
@@ -165,15 +166,17 @@ func TestClearLimineLastBootedEntryDoesNothingWhenAbsent(t *testing.T) {
 
 func TestBootGuardRestoredResetsFirstKernelForBothMenus(t *testing.T) {
 	tests := []struct {
-		name  string
-		conf  string
-		entry string
+		name    string
+		manager string
+		conf    string
+		entry   string
 	}{
-		{name: "Arch", conf: limineFixture, entry: "Ryoku Linux/linux"},
-		{name: "Void", conf: voidLimineFixture, entry: "Ryoku Linux/linux6.18"},
+		{name: "Arch", manager: "pacman", conf: limineFixture, entry: "Ryoku Linux/linux"},
+		{name: "Void", manager: "xbps", conf: voidLimineFixture, entry: "Ryoku Linux/linux6.18"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("RYOKU_HOST_PKGMGR", test.manager)
 			setupBootGuardPaths(t)
 			if err := os.WriteFile(limineConf, []byte(test.conf), 0o644); err != nil {
 				t.Fatal(err)
@@ -562,15 +565,18 @@ func TestBootGuardDNFSnapshotEscalationStopsWithoutLimine(t *testing.T) {
 	bootOKDir = filepath.Join(dir, "boot")
 	noticeFile = filepath.Join(bootOKDir, "notice.json")
 	effectiveUID = func() int { return 0 }
+	oldBoot := bootDir
+	bootDir = filepath.Join(dir, "esp")
 	t.Cleanup(func() {
 		pendingFile, bootOKDir, noticeFile, effectiveUID = oldPending, oldBootOK, oldNotice, oldUID
+		bootDir = oldBoot
 	})
 	if err := os.MkdirAll(bootOKDir, 0o777); err != nil {
 		t.Fatal(err)
 	}
 	p := pendingUpdate{
 		From: olderUnstableBuild, To: newerUnstableBuild, Channel: sys.ChannelTesting,
-		ArmedBoot: "earlier-boot", Boots: 2,
+		ArmedBoot: "earlier-boot", Boots: 2, Snapshot: "42",
 	}
 	body, _ := json.Marshal(p)
 	if err := os.WriteFile(pendingFile, body, 0o644); err != nil {
@@ -585,8 +591,11 @@ func TestBootGuardDNFSnapshotEscalationStopsWithoutLimine(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(raw)
-	if !strings.Contains(text, `"action": "revert-failed"`) || !strings.Contains(text, "Fedora") {
+	if !strings.Contains(text, `"action": "revert-failed"`) || !strings.Contains(text, "not in the boot menu") {
 		t.Fatalf("Fedora escalation notice = %s", raw)
+	}
+	if !strings.Contains(text, "`ryoku rollback 42`") {
+		t.Fatalf("Fedora escalation does not point at the snapshot restore: %s", raw)
 	}
 	if strings.Contains(strings.ToLower(text), "limine") {
 		t.Fatalf("Fedora escalation names Limine: %s", raw)

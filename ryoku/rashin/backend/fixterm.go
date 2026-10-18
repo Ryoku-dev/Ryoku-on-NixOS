@@ -103,29 +103,56 @@ func holdOnFailure(name string, argv []string) []string {
 	return append([]string{"sh", "-c", script, "ryoku-fix", name}, argv...)
 }
 
-// openFixTerminal opens the repair in the user's terminal (the Default Apps
-// terminal role). It runs as its own transient user unit, not as a child of
-// whoever asked: restarting the Rashin daemon must not close a repair in
-// progress, and the unit gets the session's display environment even when the
-// caller started before the compositor exported it.
+// openFixTerminal opens the repair in the user's terminal.
 func openFixTerminal(l fixLaunch) error {
-	run, err := exec.LookPath("systemd-run")
-	if err != nil {
-		return errors.New("systemd-run is missing")
+	return launchTerminal(
+		VaultDir(),
+		"ryoku-fix-",
+		holdOnFailure(l.Harness, l.Argv),
+	)
+}
+
+var (
+	terminalLookPath = exec.LookPath
+	terminalRun      = func(name string, args []string) ([]byte, error) {
+		return exec.Command(name, args...).CombinedOutput()
 	}
-	app, err := exec.LookPath("ryoku-app")
+	terminalStart = func(name, cwd string, args []string) error {
+		cmd := exec.Command(name, args...)
+		cmd.Dir = cwd
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		go func() { _ = cmd.Wait() }()
+		return nil
+	}
+)
+
+// launchTerminal detaches harness TUIs from the daemon so a daemon restart
+// cannot close the user's work. Runit systems launch the terminal directly
+// and reap it here; systemd systems keep the transient unit lifecycle.
+func launchTerminal(cwd, unitPrefix string, argv []string) error {
+	app, err := terminalLookPath("ryoku-app")
 	if err != nil {
 		return errors.New("ryoku-app is missing, so the terminal cannot be opened")
 	}
+	run, runErr := terminalLookPath("systemd-run")
+	if runErr != nil {
+		args := append([]string{"terminal", "--"}, argv...)
+		if err := terminalStart(app, cwd, args); err != nil {
+			return fmt.Errorf("could not open the terminal: %w", err)
+		}
+		return nil
+	}
 	args := []string{
 		"--user", "--collect", "--quiet",
-		"--unit=ryoku-fix-" + strconv.FormatInt(time.Now().UnixNano(), 36),
-		"--working-directory=" + VaultDir(),
+		"--unit=" + unitPrefix + strconv.FormatInt(time.Now().UnixNano(), 36),
+		"--working-directory=" + cwd,
 		"--setenv=PATH=" + os.Getenv("PATH"),
 		"--", app, "terminal", "--",
 	}
-	args = append(args, holdOnFailure(l.Harness, l.Argv)...)
-	if out, err := exec.Command(run, args...).CombinedOutput(); err != nil {
+	args = append(args, argv...)
+	if out, err := terminalRun(run, args); err != nil {
 		return fmt.Errorf("could not open the terminal: %v %s", err, out)
 	}
 	return nil

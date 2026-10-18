@@ -1,4 +1,3 @@
-Dim 1.0 Dim.qml
 Main 1.0 Main.qml
 
 Bar 1.0 bar/Bar.qml
@@ -12,6 +11,7 @@ Osd 1.0 popouts/Osd.qml
 PopoutManager 1.0 popouts/PopoutManager.qml
 SideMusicPopout 1.0 popouts/SideMusicPopout.qml
 TrayBase 1.0 popouts/TrayBase.qml
+DockAppMenu 1.0 popouts/DockAppMenu.qml
 
 singleton NotificationManager 1.0 notifications/NotificationManager.qml
 
@@ -28,12 +28,11 @@ singleton BlueLight 1.0 singletons/environment/BlueLight.qml
 singleton Location 1.0 singletons/environment/Location.qml
 singleton Weather 1.0 singletons/environment/Weather.qml
 
+singleton AppMatcher 1.0 singletons/system/AppMatcher.qml
 singleton Caching 1.0 singletons/system/Caching.qml
 singleton Config 1.0 singletons/system/Config.qml
-singleton CurrentFocus 1.0 singletons/system/CurrentFocus.qml
 singleton DateTime 1.0 singletons/system/DateTime.qml
 singleton I18n 1.0 singletons/system/I18n.qml
-singleton SysNotif 1.0 singletons/system/SysNotif.qml
 singleton TimerState 1.0 singletons/system/TimerState.qml
 singleton Updater 1.0 singletons/system/Updater.qml
 
@@ -44,3 +43,4 @@ singleton FloatingController 1.0 singletons/widgetcontrols/FloatingController.qm
 singleton OsdController 1.0 singletons/widgetcontrols/OsdController.qml
 singleton SideMusicController 1.0 singletons/widgetcontrols/SideMusicController.qml
 singleton TrayMenuController 1.0 singletons/widgetcontrols/TrayMenuController.qml
+singleton DockAppMenuController 1.0 singletons/widgetcontrols/DockAppMenuController.qml

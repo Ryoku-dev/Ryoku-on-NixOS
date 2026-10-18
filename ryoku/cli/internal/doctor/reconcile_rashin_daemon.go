@@ -138,7 +138,7 @@ func reconcileRashinDaemon(checkOnly bool) recResult {
 			return okRes(i18n.T("rashin left off by choice (`ryoku-rashin disable`)"))
 		}
 		if checkOnly {
-			result := wouldRes(i18n.T("rashin (the Super+S needle and AI dashboard) is off; Ryoku turns it on by default"))
+			result := wouldRes(i18n.T("rashin (the Alt+Space bar and AI dashboard) is off; Ryoku turns it on by default"))
 			if initSystem == host.Runit {
 				return result.withFix(i18n.T("ryoku doctor enables it in the runit session roster; `ryoku-rashin disable` opts out"))
 			}
@@ -149,7 +149,7 @@ func reconcileRashinDaemon(checkOnly bool) recResult {
 				return failRes(i18n.T("could not enable the rashin daemon: %v"), err).
 					withFix("ryoku-rashin enable --at-boot")
 			}
-			return fixedRes(i18n.T("enabled rashin at boot (the Super+S needle and AI dashboard); `ryoku-rashin disable` turns it off"))
+			return fixedRes(i18n.T("enabled rashin at boot (the Alt+Space bar and AI dashboard); `ryoku-rashin disable` turns it off"))
 		}
 		if code := rashinService([]string{"--user", "enable", "--now", rashinUserUnit}); code != host.ExitOK {
 			return failRes(i18n.T("could not enable the rashin daemon (service exit %d)"), code).
@@ -323,6 +323,23 @@ func prowlGatewayAnswers() bool {
 	return json.NewDecoder(resp.Body).Decode(&answer) == nil && answer.Status == "ok"
 }
 
+// prowlGatewaySettle bounds the wait for a gateway just started: systemd calls
+// ryoku-prowl started before Prowl listens, half a second later on a fresh
+// install, so one probe right after the fix reads a healthy start as failed.
+var prowlGatewaySettle = 15 * time.Second
+
+// awaitProwlGateway probes until the gateway answers or the settle time is up.
+func awaitProwlGateway() bool {
+	deadline := time.Now().Add(prowlGatewaySettle)
+	for !prowlGatewayAnswers() {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return true
+}
+
 // prowlGatewayNeeded is the pure gateway health decision.
 func prowlGatewayNeeded(state rashinUnitState, prowlPresent, gatewayAnswering bool) bool {
 	return state.enabled && state.active && prowlPresent && !gatewayAnswering
@@ -368,7 +385,7 @@ func reconcileProwlGateway(checkOnly bool) recResult {
 		return failRes(i18n.T("rashin is running but Prowl's gateway does not answer; `ryoku-rashin ensure` failed: %v"), err).
 			withFix("ryoku-rashin ensure")
 	}
-	if !prowlGatewayAnswers() {
+	if !awaitProwlGateway() {
 		if initErr == nil && initSystem == host.Runit {
 			return failRes(i18n.T("rashin is running but Prowl's gateway still does not answer after starting ryoku-prowl")).
 				withFix("ryoku-host svc --user restart " + prowlUserUnit)

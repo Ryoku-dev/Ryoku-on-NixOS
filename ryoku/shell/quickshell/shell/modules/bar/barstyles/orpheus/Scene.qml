@@ -375,7 +375,7 @@ Item {
     }
 
     function openAsk() {
-        ShellState.requestSurface("ask#chat", scene.screenName, undefined);
+        ShellState.requestSurface("ask", scene.screenName, undefined);
     }
 
     function openHub(section) {

@@ -59,7 +59,9 @@ consume_default_rice() {
 		log_intro "could not apply default rice '$slug'; keeping the marker"
 		return 1
 	fi
-	if ! ryogami wallpaper random; then
+	if [[ -z $(jq -r '.assets.wallpaper // empty' \
+		"${XDG_CONFIG_HOME:-$HOME/.config}/ryoku/rices/$slug/rice.json" 2>/dev/null) ]] &&
+		! ryogami wallpaper random; then
 		log_intro "default rice '$slug' applied but no seeded wallpaper could be selected"
 	fi
 	if ! rm -f -- "$marker"; then
@@ -67,6 +69,30 @@ consume_default_rice() {
 		return 1
 	fi
 	return 0
+}
+
+consume_rashin_setup() {
+	local marker="$state/rashin-setup-pending"
+	[[ -e $marker ]] || return 0
+	if ! command -v ryoku-rashin >/dev/null 2>&1; then
+		log_intro "Rashin setup is pending but ryoku-rashin is not installed; keeping the marker"
+		return 1
+	fi
+	if ! command -v nmcli >/dev/null 2>&1 ||
+		[[ $(LC_ALL=C nmcli -t -f CONNECTIVITY general 2>/dev/null) != full ]]; then
+		log_intro "Rashin setup is waiting for an internet connection; keeping the marker"
+		return 1
+	fi
+	if ! flock -n "${XDG_RUNTIME_DIR:-/tmp}/ryoku-rashin-first-login.lock" \
+		kitty --detach --class ryoku-rashin-setup -e ryoku-rashin setup; then
+		log_intro "could not open Rashin Hermes setup; keeping the marker"
+		return 1
+	fi
+	if ! rm -f -- "$marker"; then
+		log_intro "Rashin Hermes setup opened but its marker could not be removed"
+		return 1
+	fi
+	log_intro "opened Rashin Hermes setup for the first login"
 }
 
 case "${1:-}" in
@@ -77,10 +103,12 @@ welcome)
 		v=$(head -n1 "$state/welcome-seen")
 		[[ $v =~ ^[0-9]+$ ]] && seen=$v
 	fi
-	(( seen < welcome_version )) || exit 0
-	flock -n "${XDG_RUNTIME_DIR:-/tmp}/ryoku-welcome.lock" \
-		env "${qml_env[@]}" qs -c welcome &&
-		mkdir -p "$state" && printf '%s' "$welcome_version" >"$state/welcome-seen"
+	if (( seen < welcome_version )); then
+		flock -n "${XDG_RUNTIME_DIR:-/tmp}/ryoku-welcome.lock" \
+			env "${qml_env[@]}" qs -c welcome &&
+			mkdir -p "$state" && printf '%s' "$welcome_version" >"$state/welcome-seen"
+	fi
+	consume_rashin_setup || true
 	;;
 keys-hint)
 	[[ -e $state/keys-hint-seen ]] && exit 0

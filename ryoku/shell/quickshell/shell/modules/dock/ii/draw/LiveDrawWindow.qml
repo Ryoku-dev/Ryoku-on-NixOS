@@ -78,7 +78,7 @@ PanelWindow {
     readonly property bool active: LiveDraw.trayOpen && root.focusedHere && !root.coveredByShell
         && !root.hiddenForCapture && !root.inputSuspended
     readonly property bool presenting: root.focusedHere && !root.coveredByShell && !root.inputSuspended
-        && (LiveDraw.spotlight || LiveDraw.zoom)
+        && (LiveDraw.spotlight || (LiveDraw.zoom && LiveDraw.zoomAvailable))
     readonly property bool boardHere: LiveDraw.boardOn && LiveDraw.trayOpen && root.focusedHere
         && !root.coveredByShell && !root.inputSuspended
     readonly property bool trayShown: root.active && !LiveDraw.trayHidden && !root.presenting
@@ -756,7 +756,8 @@ PanelWindow {
             id: still
             anchors.fill: parent
             visible: LiveDraw.zoom && root.presenting && still.hasContent && root.zoomReady
-            captureSource: LiveDraw.zoom && root.focusedHere ? root.screen : null
+            // zoomAvailable again here: a zoom kept across a reload never went through setZoom.
+            captureSource: LiveDraw.zoomAvailable && LiveDraw.zoom && root.focusedHere ? root.screen : null
             live: false
             transform: Scale {
                 origin.x: presentMode.pointer.x
@@ -968,6 +969,7 @@ PanelWindow {
         boardOn: LiveDraw.boardOn
         spotlightOn: LiveDraw.spotlight
         zoomOn: LiveDraw.zoom
+        showZoom: LiveDraw.zoomAvailable
         showShare: true
         canShare: true
         showSettings: true

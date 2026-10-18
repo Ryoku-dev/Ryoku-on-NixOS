@@ -7,15 +7,17 @@ import "../schema/GlobalPage.js" as GlobalSchema
 
 // Global: the cross-cutting preferences that are not tied to one surface: the
 // interface language, regional formats used for dates and numbers, machine
-// location, UI font and terminal font. Rendered through the shared SchemaPage;
-// the ledger and action bar belong to the shell.
+// location, fonts, app icons and, on a tab of their own, desktop sounds.
+// Rendered through the shared SchemaPage; the ledger and action bar belong to
+// the shell.
 Item {
     id: pg
     property var hub
 
     readonly property string pTitle: I18n.tr("Global")
     readonly property string pEyebrow: I18n.tr("GLOBAL")
-    readonly property string pBlurb: I18n.tr("Language, regional formats, location and fonts.")
+    readonly property string pBlurb: I18n.tr("Language, regional formats, location, fonts, icons and sounds.")
+    readonly property string soundsTab: "Sounds"
     function focusKey(k) { sp.focusKey(k) }
     function resetDefaults() {
         if (!pg.hub)
@@ -122,6 +124,51 @@ Item {
         onEdited: (k, v) => { if (pg.hub) pg.hub.edit(k, v); }
         onPickRequested: (r) => { if (pg.hub) pg.hub.openPick(r); }
         onTimezonePickRequested: (r) => tzMap.open()
+        // The sounds are a list of cues with their own play, choose and remove
+        // buttons rather than schema rows, so they get a tab of their own.
+        tailTabs: [pg.soundsTab]
+
+        IconThemeSettings {
+            id: iconThemes
+            width: sp.cardWidth
+            visible: sp.tab === "Region & fonts"
+            onPickRequested: {
+                iconPickerLayer.visible = true;
+                iconPicker.open();
+            }
+        }
+
+        SoundsSettings {
+            width: parent.width
+            visible: sp.tab === pg.soundsTab
+        }
+    }
+
+    Item {
+        id: iconPickerLayer
+        anchors.fill: parent
+        visible: false
+        z: 800
+
+        Rectangle {
+            anchors.fill: parent
+            color: "black"
+            opacity: 0.55
+            TapHandler { onTapped: iconPickerLayer.visible = false }
+        }
+        Picker {
+            id: iconPicker
+            anchors.centerIn: parent
+            title: I18n.tr("ICON THEME")
+            options: iconThemes.options
+            labels: iconThemes.labels
+            current: iconThemes.current
+            onChose: (theme) => {
+                iconThemes.apply(theme);
+                iconPickerLayer.visible = false;
+            }
+            onDismissed: iconPickerLayer.visible = false
+        }
     }
 
     TimezoneMap {

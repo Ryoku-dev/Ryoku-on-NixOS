@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -131,6 +132,29 @@ type Windows struct {
 	TameMaximizeOnOpen bool `json:"tameMaximizeOnOpen"`
 }
 
+type SettingsWindow struct {
+	Mode   string  `json:"mode"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
+func normalizeSettingsWindow(v SettingsWindow) SettingsWindow {
+	if v.Mode != "custom" {
+		v.Mode = "full"
+	}
+	if v.Width < 0.25 {
+		v.Width = 0.25
+	} else if v.Width > 1 {
+		v.Width = 1
+	}
+	if v.Height < 0.25 {
+		v.Height = 0.25
+	} else if v.Height > 1 {
+		v.Height = 1
+	}
+	return v
+}
+
 type Struts struct {
 	Left   int `json:"left"`
 	Right  int `json:"right"`
@@ -231,58 +255,70 @@ type LayerRule struct {
 	BabaIsFloat  bool    `json:"babaIsFloat"`
 }
 
+// Keysounds configures the optional key-press engine. niri has no plugins, so
+// this is how it gets the key sounds Hyprland gets from its own plugin: apply
+// writes the leaves to a neutral file (keysoundsConfPath) the daemon reads.
+type Keysounds struct {
+	Enabled bool    `json:"enabled"`
+	Profile string  `json:"profile"`
+	Volume  float64 `json:"volume"`
+	Release bool    `json:"release"`
+}
+
 // Niri holds the wm.niri.* exclusives: niri behaviours with no neutral key. This
 // is the niri twin of wm.hyprland.*, so the Hub can surface them without every
 // other compositor pretending to have them.
 type Niri struct {
-	PreferNoCSD          bool        `json:"preferNoCsd"`
-	HotkeyOverlaySkip    bool        `json:"hotkeyOverlaySkip"`
-	HotkeyOverlayHide    bool        `json:"hotkeyOverlayHideNotBound"`
-	ScreenshotPath       string      `json:"screenshotPath"`
-	DefaultColumnWidth   float64     `json:"defaultColumnWidth"`
-	PresetColumnWidths   Proportions `json:"presetColumnWidths"`
-	PresetWindowHeights  Proportions `json:"presetWindowHeights"`
-	DefaultColumnDisplay string      `json:"defaultColumnDisplay"`
-	CenterFocused        string      `json:"centerFocusedColumn"`
-	AlwaysCenterSingle   bool        `json:"alwaysCenterSingleColumn"`
-	EmptyWorkspaceAbove  bool        `json:"emptyWorkspaceAboveFirst"`
-	BackgroundColor      string      `json:"backgroundColor"`
-	Frame                string      `json:"frame"`
-	BorderGradient       bool        `json:"borderGradient"`
-	GradientFrom         string      `json:"gradientFrom"`
-	GradientTo           string      `json:"gradientTo"`
-	GradientAngle        int         `json:"gradientAngle"`
-	GradientRelativeTo   string      `json:"gradientRelativeTo"`
-	UrgentColor          string      `json:"urgentColor"`
-	TabIndicatorWidth    int         `json:"tabIndicatorWidth"`
-	TabIndicatorHide     bool        `json:"tabIndicatorHideSingle"`
-	InsertHint           bool        `json:"insertHint"`
-	AnimationSlowdown    float64     `json:"animationSlowdown"`
-	Anim                 NiriAnim    `json:"anim"`
-	BlockOutApps         string      `json:"blockOutApps"`
-	Struts               Struts      `json:"struts"`
-	HotCorners           bool        `json:"hotCorners"`
-	OverviewZoom         float64     `json:"overviewZoom"`
-	BackdropColor        string      `json:"backdropColor"`
-	WorkspaceShadow      bool        `json:"workspaceShadow"`
-	WorkspaceShadowSoft  int         `json:"workspaceShadowSoftness"`
-	WorkspaceShadowSprd  int         `json:"workspaceShadowSpread"`
-	WorkspaceShadowY     int         `json:"workspaceShadowOffsetY"`
-	WorkspaceShadowColor string      `json:"workspaceShadowColor"`
-	RecentWindows        bool        `json:"recentWindows"`
-	WarpMouseToFocus     string      `json:"warpMouseToFocus"`
-	FocusFollowScroll    int         `json:"focusFollowsMouseScroll"`
-	WorkspaceBackForth   bool        `json:"workspaceAutoBackAndForth"`
-	ModKey               string      `json:"modKey"`
-	ModKeyNested         string      `json:"modKeyNested"`
-	DisablePowerKey      bool        `json:"disablePowerKey"`
-	DndViewTriggerWidth  int         `json:"dndEdgeViewScrollTriggerWidth"`
-	DndViewDelayMs       int         `json:"dndEdgeViewScrollDelayMs"`
-	DndViewMaxSpeed      int         `json:"dndEdgeViewScrollMaxSpeed"`
-	DndWsTriggerHeight   int         `json:"dndEdgeWorkspaceTriggerHeight"`
-	DndWsDelayMs         int         `json:"dndEdgeWorkspaceDelayMs"`
-	DndWsMaxSpeed        int         `json:"dndEdgeWorkspaceMaxSpeed"`
-	LayerRules           []LayerRule `json:"layerRules"`
+	PreferNoCSD          bool           `json:"preferNoCsd"`
+	HotkeyOverlaySkip    bool           `json:"hotkeyOverlaySkip"`
+	HotkeyOverlayHide    bool           `json:"hotkeyOverlayHideNotBound"`
+	ScreenshotPath       string         `json:"screenshotPath"`
+	DefaultColumnWidth   float64        `json:"defaultColumnWidth"`
+	PresetColumnWidths   Proportions    `json:"presetColumnWidths"`
+	PresetWindowHeights  Proportions    `json:"presetWindowHeights"`
+	DefaultColumnDisplay string         `json:"defaultColumnDisplay"`
+	CenterFocused        string         `json:"centerFocusedColumn"`
+	AlwaysCenterSingle   bool           `json:"alwaysCenterSingleColumn"`
+	EmptyWorkspaceAbove  bool           `json:"emptyWorkspaceAboveFirst"`
+	BackgroundColor      string         `json:"backgroundColor"`
+	Frame                string         `json:"frame"`
+	BorderGradient       bool           `json:"borderGradient"`
+	GradientFrom         string         `json:"gradientFrom"`
+	GradientTo           string         `json:"gradientTo"`
+	GradientAngle        int            `json:"gradientAngle"`
+	GradientRelativeTo   string         `json:"gradientRelativeTo"`
+	UrgentColor          string         `json:"urgentColor"`
+	TabIndicatorWidth    int            `json:"tabIndicatorWidth"`
+	TabIndicatorHide     bool           `json:"tabIndicatorHideSingle"`
+	InsertHint           bool           `json:"insertHint"`
+	AnimationSlowdown    float64        `json:"animationSlowdown"`
+	Anim                 NiriAnim       `json:"anim"`
+	BlockOutApps         string         `json:"blockOutApps"`
+	Struts               Struts         `json:"struts"`
+	HotCorners           bool           `json:"hotCorners"`
+	OverviewZoom         float64        `json:"overviewZoom"`
+	BackdropColor        string         `json:"backdropColor"`
+	WorkspaceShadow      bool           `json:"workspaceShadow"`
+	WorkspaceShadowSoft  int            `json:"workspaceShadowSoftness"`
+	WorkspaceShadowSprd  int            `json:"workspaceShadowSpread"`
+	WorkspaceShadowY     int            `json:"workspaceShadowOffsetY"`
+	WorkspaceShadowColor string         `json:"workspaceShadowColor"`
+	RecentWindows        bool           `json:"recentWindows"`
+	WarpMouseToFocus     string         `json:"warpMouseToFocus"`
+	FocusFollowScroll    int            `json:"focusFollowsMouseScroll"`
+	WorkspaceBackForth   bool           `json:"workspaceAutoBackAndForth"`
+	ModKey               string         `json:"modKey"`
+	ModKeyNested         string         `json:"modKeyNested"`
+	DisablePowerKey      bool           `json:"disablePowerKey"`
+	DndViewTriggerWidth  int            `json:"dndEdgeViewScrollTriggerWidth"`
+	DndViewDelayMs       int            `json:"dndEdgeViewScrollDelayMs"`
+	DndViewMaxSpeed      int            `json:"dndEdgeViewScrollMaxSpeed"`
+	DndWsTriggerHeight   int            `json:"dndEdgeWorkspaceTriggerHeight"`
+	DndWsDelayMs         int            `json:"dndEdgeWorkspaceDelayMs"`
+	DndWsMaxSpeed        int            `json:"dndEdgeWorkspaceMaxSpeed"`
+	SettingsWindow       SettingsWindow `json:"settingsWindow"`
+	Keysounds            Keysounds      `json:"keysounds"`
+	LayerRules           []LayerRule    `json:"layerRules"`
 }
 
 // niriStore is the typed store the generator consumes. Niri stays out of the flat
@@ -393,6 +429,7 @@ func defaultStore() niriStore {
 				ScreenshotUiOpen:            defaultAnim(),
 				OverviewOpenClose:           defaultAnim(),
 			},
+			SettingsWindow:       SettingsWindow{Mode: "full", Width: 0.5, Height: 0.5},
 			BlockOutApps:         "",
 			Struts:               Struts{},
 			HotCorners:           false,
@@ -416,6 +453,7 @@ func defaultStore() niriStore {
 			DndWsTriggerHeight:   50,
 			DndWsDelayMs:         100,
 			DndWsMaxSpeed:        1500,
+			Keysounds:            Keysounds{Enabled: true, Profile: "cherry-mx-brown", Volume: 0.6, Release: true},
 			LayerRules:           []LayerRule{},
 		},
 	}
@@ -449,6 +487,7 @@ func loadStore(path string) niriStore {
 	s.Cursor.Theme = wm.ResolveCursorTheme(s.Cursor.Theme)
 	if raw, ok := ns.WM["niri"]; ok {
 		_ = json.Unmarshal(raw, &s.Niri)
+		s.Niri.SettingsWindow = normalizeSettingsWindow(s.Niri.SettingsWindow)
 	}
 	// A preset-width cycle needs at least two widths; with one, Super+R has
 	// nothing to step to and does nothing. Fall back to the default so the bind
@@ -492,6 +531,13 @@ func configHome() string {
 		return d
 	}
 	return filepath.Join(os.Getenv("HOME"), ".config")
+}
+
+func dataHome() string {
+	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
+		return d
+	}
+	return filepath.Join(os.Getenv("HOME"), ".local", "share")
 }
 
 // storePath is the neutral settings store this provider reads for the runtime
@@ -538,6 +584,27 @@ func borderPaletteColors() (active, inactive string, ok bool) {
 // the same bytes into the live niri dir so a reload picks them up at once.
 func userEditsNiriDir() string {
 	return filepath.Join(configHome(), "ryoku", "user_edits", "niri")
+}
+
+// keysoundsConfPath is the neutral `key=value` file the ryoku-keysounds daemon
+// reads. It is generated at runtime, so it lives under state beside the border
+// palette rather than in the shipped config.
+func keysoundsConfPath() string {
+	dir := os.Getenv("XDG_STATE_HOME")
+	if dir == "" {
+		dir = filepath.Join(os.Getenv("HOME"), ".local", "state")
+	}
+	return filepath.Join(dir, "ryoku", "keysounds.conf")
+}
+
+// writeKeysounds feeds the daemon the store's keysounds leaves. A profile with a
+// newline is stripped so it cannot forge a second setting.
+func writeKeysounds(k Keysounds) error {
+	profile := strings.NewReplacer("\n", "", "\r", "").Replace(k.Profile)
+	body := fmt.Sprintf("enabled=%s\nprofile=%s\nvolume=%s\nrelease=%s\n",
+		strconv.FormatBool(k.Enabled), profile,
+		strconv.FormatFloat(k.Volume, 'f', -1, 64), strconv.FormatBool(k.Release))
+	return atomicWrite(keysoundsConfPath(), []byte(body), 0o644)
 }
 
 // --- disk ------------------------------------------------------------------

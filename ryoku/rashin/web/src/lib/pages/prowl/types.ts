@@ -1085,6 +1085,7 @@ export interface HarnessRow {
   detected: boolean;
   injected: boolean;
   active: boolean;
+  credentialStale?: boolean;
   files: string[];
   note?: string;
   skills: "current" | "install" | "update" | "conflict" | "unsupported" | "error";

@@ -245,7 +245,7 @@ Item {
 
     property bool _optRunning: false
     property var _optStatus: ({})
-    property string _optPreset: "balanced"
+    property string _optPreset: String(Settings.value("performance.imageOptimizePreset") || "quality")
     property string _optResolution: "4k"
     function _optStart() {
         Daemon.call("optimize.start", { preset: root._optPreset, resolution: root._optResolution }, function(res, err) {

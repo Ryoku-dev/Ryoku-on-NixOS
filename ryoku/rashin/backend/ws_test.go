@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -137,5 +139,25 @@ func TestExtractActionsMissingPathsSkipped(t *testing.T) {
 	acts := extractActions("look at /definitely/not/here.conf")
 	if len(acts) != 0 {
 		t.Fatalf("nonexistent path must yield no action: %+v", acts)
+	}
+}
+
+func TestAskLaneRejectedFromChatSocket(t *testing.T) {
+	quickTestEnv(t)
+	old := laneHubs
+	laneHubs = map[string]*chatHub{
+		laneRyoku: newChatHub(ryokuLane()),
+		laneChat:  newChatHub(chatLane()),
+		laneAsk:   newChatHub(askLane()),
+	}
+	t.Cleanup(func() { laneHubs = old })
+	req := httptest.NewRequest(http.MethodGet, "/ws/chat?lane=ask", nil)
+	res := httptest.NewRecorder()
+	handleChatWS(res, req)
+	if res.Code != http.StatusBadRequest || strings.TrimSpace(res.Body.String()) != "unknown lane" {
+		t.Fatalf("status = %d body = %q", res.Code, res.Body.String())
+	}
+	if _, ok := publicLaneHub(""); !ok {
+		t.Fatal("an absent lane must still select Agent")
 	}
 }

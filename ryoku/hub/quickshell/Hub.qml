@@ -197,7 +197,7 @@ Rectangle {
     // schema rows (Connections, Rashin) and cover synonyms the copy avoids
     // (transparency->opacity, startup->autostart, screensaver->lockscreen).
     readonly property var sectionKeywords: ({
-        "global": "language locale region formats format date time number currency text size font scale location city weather timezone international i18n l10n",
+        "global": "language locale region formats format date time number currency text size font scale icons icon theme appearance location city weather timezone international i18n l10n",
         "profile": "dashboard status overview telemetry hostname cpu gpu memory uptime specs",
         "displays": "monitor screen resolution refresh scale rotation arrange mirror hidpi dual second external multiple",
         "connections": "wifi wi-fi wireless bluetooth network hotspot tether internet ethernet pair pairing device phone android kde connect scrcpy mirror webcam microphone clipboard adb",
@@ -603,6 +603,7 @@ Rectangle {
         "general.clock_format_24_h": false,
         "reloadCover": ReloadCoverModel.empty(),
         "language": "Auto", "barStyle": "orpheus", "obi": {}, "nacre": NacreConfig.defaultConfig(), "qsbar": {}, "dock": {},
+        "notifications.show_images": false,
         "clipboard.widthPercent": 65, "clipboard.heightPercent": 42, "clipboard.bottomPercent": 0,
         "clipboard.panelRadius": 18, "clipboard.paneRadius": 12, "clipboard.cardRadius": 9,
         "clipboard.pruneWeekly": false

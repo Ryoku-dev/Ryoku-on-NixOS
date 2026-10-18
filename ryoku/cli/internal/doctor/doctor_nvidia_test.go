@@ -55,6 +55,7 @@ func TestNvidiaGuardHookOK(t *testing.T) {
 }
 
 func TestReconcileKeplerNvidia(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
 	oldPCI := nvidiaPCIOutput
 	oldInstalled := nvidia580Installed
 	oldRemoveDriver := removeKepler580
@@ -122,6 +123,7 @@ func TestKepler580RemovalArgs(t *testing.T) {
 }
 
 func TestKeplerRemovalFailureUsesScopedRemedy(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
 	oldPCI := nvidiaPCIOutput
 	oldInstalled := nvidia580Installed
 	oldRemoveDriver := removeKepler580

@@ -21,6 +21,14 @@ var rows = [{
         "unit": "%",
         "pct": true
     },{
+        "tab": "Notifications",
+        "group": "APPEARANCE",
+        "key": "notifications.show_images",
+        "label": "Show images in notifications",
+        "desc": "Shows a sent image, or the app icon when no image is attached",
+        "ctl": "sw",
+        "src": "shell"
+    },{
         "tab": "Clipboard",
         "group": "LAYOUT",
         "key": "clipboard.widthPercent",

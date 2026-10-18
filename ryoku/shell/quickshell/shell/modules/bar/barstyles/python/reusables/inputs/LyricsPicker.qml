@@ -110,7 +110,7 @@ PanelWindow {
                             Text {
                                 anchors.centerIn: parent
                                 text: "󰈔"
-                                font.family: "Iosevka Nerd Font"
+                                font.family: ThemeBackend.iconFont
                                 font.pixelSize: Scaler.s(36)
                                 color: filePicker.selectedFilePath !== "" ? ThemeBackend.mauve : ThemeBackend.subtext0
                             }

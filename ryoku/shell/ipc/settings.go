@@ -56,6 +56,7 @@ var contractKeys = map[string]bool{
 	"phone":         true,
 	"controls":      true,
 	"batteryAlerts": true,
+	"sounds":        true,
 }
 
 // Value domains, in the display order of contract 14 section 8. Stored as stable
@@ -128,6 +129,7 @@ type settings struct {
 	Phone         phoneSettings         `json:"phone"`
 	Controls      controlsSettings      `json:"controls"`
 	BatteryAlerts batteryAlertsSettings `json:"batteryAlerts"`
+	Sounds        soundsSettings        `json:"sounds"`
 }
 
 type generalSettings struct {
@@ -260,6 +262,7 @@ type menuWidget struct {
 type notificationsSettings struct {
 	NotificationPosition string `json:"notification_position"`
 	PopupWindowMargins   int    `json:"popup_window_margins"`
+	ShowImages           bool   `json:"show_images"`
 }
 
 type wallpaperSettings struct {
@@ -435,7 +438,7 @@ func defaultSettings() *settings {
 			LeftMenuExpansionType:  "AlwaysExpanded",
 			RightMenuExpansionType: "AlwaysExpanded",
 		},
-		Notifications: notificationsSettings{NotificationPosition: "Right", PopupWindowMargins: 0},
+		Notifications: notificationsSettings{NotificationPosition: "Right", PopupWindowMargins: 0, ShowImages: false},
 		Wallpaper:     wallpaperSettings{ContentFit: "Cover", TransitionPreset: "random", VideoEngine: "ryogami", VideoEnabled: true, VideoTranscodeFps: 24, VideoTranscodeWidth: 1920},
 		Ask:           askSettings{Bubble: askBubbleSettings{Enabled: false, X: 0.94, Y: 0.68, Screen: ""}},
 		Phone: phoneSettings{
@@ -458,6 +461,7 @@ func defaultSettings() *settings {
 		},
 		Controls:      controlsSettings{Sections: controls, Hidden: []string{}},
 		BatteryAlerts: batteryAlertsSettings{Enabled: true, WarningEnabled: true, CriticalEnabled: true, WarningPercent: 25, CriticalPercent: 10},
+		Sounds:        defaultSoundsSettings(),
 	}
 }
 
@@ -544,6 +548,7 @@ func (s *settings) normalize(strict bool) error {
 	s.Phone.normalize(v)
 	s.Controls.normalize()
 	s.BatteryAlerts.normalize(v)
+	s.Sounds.normalize(v)
 	return v.err
 }
 
@@ -921,6 +926,7 @@ func buildSettings(raw map[string]any, strict bool) (*settings, error) {
 		"phone":         &s.Phone,
 		"controls":      &s.Controls,
 		"batteryAlerts": &s.BatteryAlerts,
+		"sounds":        &s.Sounds,
 	}
 	for k, ptr := range dst {
 		raw, ok := raw[k]
@@ -1386,6 +1392,7 @@ func (d *daemon) startSettings() {
 	go applyFont(frame)
 
 	d.registerBatteryAlertsCalls()
+	d.registerSoundCalls()
 	d.registerCall("settings.patch", func(raw json.RawMessage) (any, error) {
 		var a struct {
 			Path  string          `json:"path"`

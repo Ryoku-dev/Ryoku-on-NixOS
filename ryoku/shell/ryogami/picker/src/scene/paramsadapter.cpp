@@ -78,7 +78,7 @@ double launchMotionMs(const ParamSource &p, const MotionProfile &motion)
 
 double filterSwapMotionMs(const ParamSource &p, const MotionProfile &motion)
 {
-    return tierFromKey(p, QStringLiteral("motion.filterSwapSpeed"), motion, MotionProfile::Slow);
+    return tierFromKey(p, QStringLiteral("motion.filterSwapSpeed"), motion, MotionProfile::Fast);
 }
 
 FlipOptions readFlipOptions(const ParamSource &p)
@@ -87,7 +87,7 @@ FlipOptions readFlipOptions(const ParamSource &p)
     o.durationMs = p.num(QStringLiteral("components.wallpaperSelector.flipDurationMs"), 1500.0);
     o.shader = p.flag(QStringLiteral("components.wallpaperSelector.flipShader"), true);
     o.back = p.flag(QStringLiteral("components.wallpaperSelector.flipBackReveal"), true);
-    const QString name = p.text(QStringLiteral("components.wallpaperSelector.flipEffect"), QString());
+    const QString name = p.text(QStringLiteral("components.wallpaperSelector.flipEffect"), QStringLiteral("Ash"));
     for (int i = 0; i < 12; ++i) {
         if (name == QLatin1String(kEffectNames[i])) {
             o.effect = i;

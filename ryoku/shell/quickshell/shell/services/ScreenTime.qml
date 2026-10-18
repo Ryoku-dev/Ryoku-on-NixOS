@@ -19,7 +19,7 @@ Singleton {
     readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/ryoku"
     readonly property int sampleSec: 10
 
-    // { "YYYY-MM-DD": { total: int, apps: { class: sec }, hours: [24 ints] } }
+    // { "YYYY-MM-DD": { total: int, apps: { class: sec }, hours: [24 ints], appHours: { class: [24 ints] } } }
     property var days: ({})
     property string today: ""
     property bool dirty: false
@@ -108,11 +108,15 @@ Singleton {
         const e = {
             total: (prev.total || 0) + root.sampleSec,
             apps: Object.assign({}, prev.apps),
-            hours: (prev.hours && prev.hours.length === 24) ? prev.hours.slice() : root.zeros24()
+            hours: (prev.hours && prev.hours.length === 24) ? prev.hours.slice() : root.zeros24(),
+            appHours: Object.assign({}, prev.appHours)
         };
         e.apps[c] = (e.apps[c] || 0) + root.sampleSec;
         const hr = new Date().getHours();
         e.hours[hr] = (e.hours[hr] || 0) + root.sampleSec;
+        const appHours = (e.appHours[c] && e.appHours[c].length === 24) ? e.appHours[c].slice() : root.zeros24();
+        appHours[hr] += root.sampleSec;
+        e.appHours[c] = appHours;
         const d = Object.assign({}, root.days);
         d[key] = e;
         root.days = d;

@@ -185,20 +185,6 @@
     loading = false;
   }
 
-  async function announceRouting(prefix: string) {
-    try {
-      const result = await api.routeHarnesses();
-      const routed = result.routed.length
-        ? ` Rashin now routes ${result.routed.join(", ")} through Prowl.`
-        : " No harnesses were waiting to route through Prowl.";
-      const pending = result.pending.length
-        ? ` Still pending: ${result.pending.map((row) => `${row.id} (${row.reason})`).join(", ")}.`
-        : "";
-      notice = `${prefix}${routed}${pending}`;
-    } catch (reason) {
-      notice = `${prefix} The provider is ready, but Rashin could not check waiting harnesses. ${reason instanceof Error ? reason.message : "Retry from Harnesses."}`;
-    }
-  }
 
   function openConnect(bundle: ProviderBundle) {
     connectBundle = bundle;
@@ -217,7 +203,7 @@
       }
       await prowl.keys.add({ platform: bundle.platform, key: apiKey, label: label || undefined });
       connectOpen = false;
-      await announceRouting(apiKey ? `${bundle.provider.name} key added.` : `${bundle.provider.name} free tier enabled.`);
+      notice = apiKey ? `${bundle.provider.name} key added.` : `${bundle.provider.name} free tier enabled.`;
       await load();
     } catch (reason) {
       connectError = errorText(reason, apiKey ? "The key was not added. Check it and retry." : "The free tier was not enabled. Retry from this dialog.");
@@ -264,7 +250,7 @@
           await prowl.logins.enroll(session.provider);
           signInSession = null;
           signInOpen = false;
-          await announceRouting(`${signInPlatform?.name || session.provider} signed in and enrolled.`);
+          notice = `${signInPlatform?.name || session.provider} signed in and enrolled.`;
           await load();
         } catch (reason) {
           signInSession = null;
@@ -319,7 +305,7 @@
     actionError = "";
     try {
       const result = await prowl.logins.enroll(login.id);
-      await announceRouting(`${login.name} enrolled with ${result.models ?? login.offered} models.`);
+      notice = `${login.name} enrolled with ${result.models ?? login.offered} models.`;
       await load();
     } catch (reason) {
       actionError = errorText(reason, "The account was not enrolled. Sign in again, then retry.");
@@ -461,7 +447,7 @@
       actionError = "";
       try {
         const result = await prowl.logins.enroll(bundle.signIn.id);
-        await announceRouting(`${bundle.provider.name} enrolled with ${result.models ?? bundle.provider.modelCount} models.`);
+        notice = `${bundle.provider.name} enrolled with ${result.models ?? bundle.provider.modelCount} models.`;
         await load();
       } catch (reason) {
         actionError = errorText(reason, "The signed-in account was not enrolled. Sign in again, then retry.");
@@ -615,7 +601,7 @@
     try {
       const result = await prowl.keys.custom.add({ baseUrl, apiKey, label: label || undefined, models });
       customOpen = false;
-      await announceRouting(`Custom endpoint added with ${result.models?.length ?? 0} models.`);
+      notice = `Custom endpoint added with ${result.models?.length ?? 0} models.`;
       await load();
     } catch (reason) {
       customError = errorText(reason, "The endpoint was not added. Probe it again, then retry.");
@@ -656,7 +642,7 @@
         return;
       }
       importOpen = false;
-      await announceRouting(`${result.imported} credential${result.imported === 1 ? "" : "s"} imported${result.modelsRegistered ? ` with ${result.modelsRegistered} custom models` : ""}.`);
+      notice = `${result.imported} credential${result.imported === 1 ? "" : "s"} imported${result.modelsRegistered ? ` with ${result.modelsRegistered} custom models` : ""}.`;
       if (result.errors.length) actionError = `${result.errors.length} selected row${result.errors.length === 1 ? "" : "s"} could not be imported: ${result.errors.map((row) => row.key).join(", ")}.`;
       await load();
     } catch (reason) {

@@ -6,7 +6,7 @@ single GTK3 window and renders the same Svelte interface that the
 `ryoku/rashin/web`; this directory contains only the desktop host.
 
 The host reads `port` from `$XDG_CONFIG_HOME/ryoku/rashin.json`, falling back
-to port 3600, and opens `http://127.0.0.1:<port>/#/chat`. While the daemon is
+to port 3600, and opens `http://127.0.0.1:<port>/#/agent`. While the daemon is
 unavailable it shows a black inline boot page and probes `/api/ping` every 500
 milliseconds. A later failed page load returns to that boot page and resumes
 probing.
@@ -20,7 +20,7 @@ closes it.
 ## Build
 
 ```sh
-cmake -S ryoku/apps/rashin-app -B /tmp/rashin-app-build -G Ninja
+cmake -S ryoku/rashin/app -B /tmp/rashin-app-build -G Ninja
 cmake --build /tmp/rashin-app-build
 ```
 

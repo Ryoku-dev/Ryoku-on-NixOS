@@ -2177,9 +2177,45 @@ Item {
     }
 
     // ── Flattened items model ─────────────────────────────────────────────
+    readonly property string dockOutputName: String(root.currentScreen?.name ?? "")
+    readonly property bool isolateMonitors: Config.options?.dock?.isolateMonitors ?? false
+    readonly property var scopedApps: {
+        const allApps = TaskbarApps.apps ?? [];
+        if (!root.isolateMonitors || !root.dockOutputName)
+            return allApps;
+
+        const output = RyokuUi.Wm.outputByName(root.dockOutputName);
+        if (!output)
+            return allApps;
+
+        const targetName = String(output.name ?? root.dockOutputName);
+        const windowOutputs = new Map();
+        for (const window of (RyokuUi.Wm.windows ?? [])) {
+            if (window?.toplevel)
+                windowOutputs.set(window.toplevel, String(window.output ?? ""));
+        }
+
+        const result = [];
+        for (const app of allApps) {
+            const toplevels = Array.from(app.toplevels ?? []).filter(toplevel => {
+                const name = windowOutputs.get(toplevel);
+                // Keep an unattributed window visible until Wm can join it.
+                return name === undefined || name === "" || name === targetName;
+            });
+            if (app.pinned || toplevels.length > 0) {
+                result.push({
+                    appId: app.appId,
+                    toplevels: toplevels,
+                    pinned: app.pinned
+                });
+            }
+        }
+        return result;
+    }
+
     readonly property var pinnedAppMap: {
         var m = {};
-        var allApps = TaskbarApps.apps ?? [];
+        var allApps = root.scopedApps;
         for (var i = 0; i < allApps.length; i++) {
             var a = allApps[i];
             if (a.pinned)
@@ -2190,7 +2226,7 @@ Item {
 
     readonly property var runningAppMap: {
         var m = {};
-        var allApps = TaskbarApps.apps ?? [];
+        var allApps = root.scopedApps;
         for (var i = 0; i < allApps.length; i++) {
             var a = allApps[i];
             if (!a.pinned && a.toplevels && a.toplevels.length > 0)
@@ -2290,7 +2326,7 @@ Item {
     readonly property var modelItems: {
         var result = [];
         var order = Config.options.dock.order ?? [];
-        var allApps = TaskbarApps.apps ?? [];
+        var allApps = root.scopedApps;
         var allAppIds = [];
         for (var i = 0; i < allApps.length; i++)
             allAppIds.push(allApps[i].appId);

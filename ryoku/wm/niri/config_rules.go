@@ -69,7 +69,7 @@ func writeUserLayerRule(b *strings.Builder, r LayerRule) {
 // writeWindowRules emits the global corner radius and opacity, then each user
 // window rule and per-app override niri can express. Rules niri cannot express
 // are reported unhonored by apply, not silently dropped here.
-func writeWindowRules(b *strings.Builder, a Appearance, rules []WindowRule, apps []AppOverride) {
+func writeWindowRules(b *strings.Builder, a Appearance, settingsWindow SettingsWindow, rules []WindowRule, apps []AppOverride) {
 	if a.Rounding > 0 {
 		b.WriteString("window-rule {\n")
 		fmt.Fprintf(b, "    geometry-corner-radius %d\n", a.Rounding)
@@ -77,6 +77,9 @@ func writeWindowRules(b *strings.Builder, a Appearance, rules []WindowRule, apps
 		b.WriteString("}\n\n")
 	}
 	writeOpacityRules(b, a)
+	if props := settingsWindowRuleProps(settingsWindow); len(props) > 0 {
+		writeRuleBlock(b, "", "^Ryoku Settings$", props)
+	}
 	for _, r := range builtinWindowRules {
 		writeRuleBlock(b, r.class, r.title, r.props)
 	}
@@ -100,6 +103,18 @@ type builtinRule struct {
 	class string
 	title string
 	props []string
+}
+
+func settingsWindowRuleProps(v SettingsWindow) []string {
+	v = normalizeSettingsWindow(v)
+	if v.Mode != "custom" {
+		return nil
+	}
+	return []string{
+		"open-floating true",
+		fmt.Sprintf("default-column-width { proportion %s; }", kdlFloat(v.Width)),
+		fmt.Sprintf("default-window-height { proportion %s; }", kdlFloat(v.Height)),
+	}
 }
 
 var builtinWindowRules = []builtinRule{

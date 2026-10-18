@@ -41,7 +41,7 @@ pkgs.hyprlandPlugins.mkHyprlandPlugin {
     # through PATH. Nix builds are network-isolated, so provide both inputs
     # explicitly from immutable sources.
     cp \
-      ${src}/ryoku/hyprland/scripts/ryoku-keysounds-import \
+      ${src}/ryoku/keysounds/ryoku-keysounds-import \
       ./ryoku-keysounds-import
 
     substituteInPlace \

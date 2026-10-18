@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { SessionMeta } from "$lib/chat/protocol";
   import type { ChatLane } from "$lib/chat/store.svelte";
-  import RecentAsks, { type RecentAsk } from "$lib/pages/ask/RecentAsks.svelte";
   import Button from "$lib/ui/Button.svelte";
   import Empty from "$lib/ui/Empty.svelte";
   import IconButton from "$lib/ui/IconButton.svelte";
@@ -12,18 +11,18 @@
     lane: ChatLane;
     sessions: SessionMeta[];
     currentId: string;
-    recentAsks?: RecentAsk[];
-    recentError?: string;
+    terminalBusy?: boolean;
+    terminalError?: string;
     onnew: () => void;
     onswitch: (id: string) => void;
     oncollapse: () => void;
-    onrecall?: (ask: RecentAsk) => void;
+    onterminal: () => void;
   }
 
-  let { lane, sessions, currentId, recentAsks = [], recentError = "", onnew, onswitch, oncollapse, onrecall }: Props = $props();
+  let { lane, sessions, currentId, terminalBusy = false, terminalError = "", onnew, onswitch, oncollapse, onterminal }: Props = $props();
 </script>
 
-<aside class="sessions" aria-label={`${lane === "ryoku" ? "Ryoku" : "Chat"} sessions`}>
+<aside class="sessions" aria-label={`${lane === "ryoku" ? "Agent" : "Chat"} sessions`}>
   <header class="pane-head">
     <div>
       <span class="t-mark">Conversations</span>
@@ -32,7 +31,11 @@
     <IconButton icon="chevronLeft" label="Collapse conversations" size={28} onclick={oncollapse} />
   </header>
 
-  <Button variant="plate" icon="plus" onclick={onnew}>New chat</Button>
+  <div class="session-actions">
+    <Button variant="plate" icon="plus" onclick={onnew}>New chat</Button>
+    <Button size="sm" busy={terminalBusy} onclick={onterminal}>Open in terminal</Button>
+  </div>
+  {#if terminalError}<p class="terminal-error" role="alert">{terminalError}</p>{/if}
 
   <div class="session-list">
     {#if sessions.length === 0}
@@ -57,9 +60,6 @@
       </div>
     {/if}
   </div>
-  {#if lane === "ryoku" && onrecall}
-    <RecentAsks asks={recentAsks} error={recentError} onrecall={onrecall} />
-  {/if}
 </aside>
 
 <style>
@@ -77,6 +77,8 @@
   .pane-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 28px; }
   .pane-head > div { display: flex; align-items: center; gap: var(--s2); }
   .shortcut { opacity: 0.72; }
+  .session-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s2); }
+  .terminal-error { color: var(--alert); font-size: var(--f-small); line-height: 1.4; }
   .session-list { flex: 1; min-height: 0; overflow: auto; margin: 0 calc(-1 * var(--s2)); padding: 0 var(--s2); }
   .session { min-height: 52px; align-items: flex-start; }
   .session-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }

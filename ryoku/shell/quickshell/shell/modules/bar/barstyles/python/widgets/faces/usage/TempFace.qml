@@ -40,26 +40,20 @@ Item {
         }
     }
 
-    property real wavePhase: waveClock.phase
-    WaveClock {
-        id: waveClock
-        duration: 1800
-        running: root.visible
-    }
-
     property real rawTemp: isNaN(SysData.temp) ? 0.0 : SysData.temp
     property real tempC: rawTemp
     Behavior on tempC { enabled: root.visible; NumberAnimation { duration: 800; easing.type: Easing.OutQuint } }
 
     SystemUsageCard {
         anchors.fill: parent
+        blurred: !root.ryokuBare
+        bgOpacity: ThemeBackend.elementOpacity
         value: Math.max(0.0, Math.min(1.0, root.tempC / 100.0))
         colorBase: root.ryokuBare ? "transparent" : ThemeBackend.surface0
         colorFill: ThemeBackend.mauve
-        icon: "\uF2C9"
+        icon: String.fromCodePoint(0xF050F)
         title: I18n.t("quickactions.systemusage.temp")
         valueText: Math.round(root.tempC) + "°"
-        wavePhase: root.wavePhase
         isLive: root.visible
         compact: root.compactMode
         scaleFunc: Scaler.s

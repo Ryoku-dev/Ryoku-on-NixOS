@@ -15,8 +15,16 @@ func TestProwlRepoPrecedence(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(h, ".local", "state"))
 	t.Setenv("RYOKU_RASHIN_VAULT", "") // VaultDir derives from XDG_DATA_HOME
 	t.Setenv("RYOKU_RASHIN_REPO", "")
+	for _, guessed := range []string{
+		filepath.Join(h, "Work", "ryoku-arch"),
+		filepath.Join(h, "ryoku-arch"),
+	} {
+		if err := os.MkdirAll(filepath.Join(guessed, ".prowl"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 
-	// No checkout, no mirror: nothing to report.
+	// Developer path guesses are ignored when no checkout or mirror is recorded.
 	if r := prowlRepo(); r != "" {
 		t.Fatalf("want empty, got %q", r)
 	}

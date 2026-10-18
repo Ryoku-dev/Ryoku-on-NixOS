@@ -39,7 +39,7 @@ Scope {
     Behavior on reveal {
         enabled: root.motionAllowed
         NumberAnimation {
-            duration: root.active ? Tokens.swap : Tokens.move
+            duration: Tokens.swap
             easing.type: Tokens.ease
         }
     }

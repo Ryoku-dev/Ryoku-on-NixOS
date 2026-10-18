@@ -120,6 +120,7 @@ type daemon struct {
 	stageNotice  atomic.Value         // why the last reconcile could not produce a cut ("" when fine)
 	ledsSig      chan struct{}        // coalescing wake for the OpenRGB worker
 	widgetSig    chan struct{}        // coalescing wake for the widget-occupancy gate
+	guardKick    chan struct{}        // coalescing wake for the qylock fallback-guard watcher
 	quit         chan struct{}
 	closed       bool
 	ln           net.Listener
@@ -301,6 +302,7 @@ func runDaemon() error {
 		stageSig:    make(chan struct{}, 1),
 		ledsSig:     make(chan struct{}, 1),
 		widgetSig:   make(chan struct{}, 1),
+		guardKick:   make(chan struct{}, 1),
 		quit:        make(chan struct{}),
 		gateWant:    map[string]bool{},
 		gateWake:    map[string]chan struct{}{},
@@ -970,6 +972,7 @@ func tailLines(path string, n int) string {
 // it dies immediately so a broken config does not spin the CPU.
 func (d *daemon) supervise(name string) {
 	backoff := time.Second
+	memoryLimit := memoryCeiling(systemMemory())
 	for {
 		select {
 		case <-d.quit:
@@ -1019,10 +1022,13 @@ func (d *daemon) supervise(name string) {
 			// which reverts an update whose next boots never get here.
 			go recordBootOK(exited)
 		}
+		heldAtKill := make(chan uint64, 1)
+		go watchSurfaceMemory(cmd.Process.Pid, memoryLimit, exited, heldAtKill)
 
 		start := time.Now()
 		_ = cmd.Wait()
 		close(exited)
+		killedHolding := <-heldAtKill
 		if name == "shell" && d.keypress != nil {
 			d.keypress.configure(false, d.keypress.currentMode())
 		}
@@ -1053,7 +1059,17 @@ func (d *daemon) supervise(name string) {
 			return
 		default:
 		}
-		if time.Since(start) < 3*time.Second {
+		if killedHolding > 0 {
+			why := fmt.Sprintf("killed holding %d MiB, over its %d MiB memory ceiling",
+				killedHolding>>20, memoryLimit>>20)
+			d.failMu.Lock()
+			d.lastFail[name] = why
+			d.failMu.Unlock()
+			fmt.Fprintf(os.Stderr, "%s %s\n", name, why)
+			// A leak that comes back on every start must not turn into a kill loop.
+			backoff = capDur(backoff*2, 30*time.Second)
+			time.Sleep(backoff)
+		} else if time.Since(start) < 3*time.Second {
 			if line := tailLine(logPath); line != "" {
 				d.failMu.Lock()
 				d.lastFail[name] = line
@@ -1394,6 +1410,10 @@ func (d *daemon) dispatch(line string) string {
 		if err := cycle.prepareUnlock(); err != nil {
 			return "err unlock-prepare: " + err.Error()
 		}
+		select {
+		case d.guardKick <- struct{}{}:
+		default:
+		}
 		return "ok"
 	case "sleep-ready":
 		if len(args) != 0 {
@@ -1623,7 +1643,7 @@ func (d *daemon) dispatch(line string) string {
 		if len(args) != 1 || !knownSound(args[0]) {
 			return "err sound: expected a known event"
 		}
-		playSound(args[0])
+		d.playSound(args[0])
 		return "ok"
 	case "record":
 		return d.record(args)

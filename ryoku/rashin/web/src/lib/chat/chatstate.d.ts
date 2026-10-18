@@ -18,6 +18,14 @@ export interface MsgItem {
   failed: boolean;
   images: PromptImage[];
 }
+export interface HandoffItem {
+  kind: "handoff";
+  id: string;
+  askId: string;
+  question: string;
+  answer: string;
+}
+
 
 export interface ToolItem {
   kind: "tool";
@@ -32,7 +40,7 @@ export interface ToolItem {
   auto: boolean;
 }
 
-export type Item = MsgItem | ToolItem;
+export type Item = MsgItem | ToolItem | HandoffItem;
 
 export interface Permission {
   requestId: string;
@@ -52,6 +60,8 @@ export interface ChatState {
   seq: number;
   models: ModelInfo[];
   currentModel: string;
+  pick: string;
+  pickUnavailable: boolean;
   agent: string;
   prowl: "" | "active" | "pending";
   prowlReason: string;

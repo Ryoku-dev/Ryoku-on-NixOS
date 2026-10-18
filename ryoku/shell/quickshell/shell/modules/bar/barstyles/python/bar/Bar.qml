@@ -17,33 +17,13 @@ Variants {
     delegate: Component {
         PanelWindow {
             id: barWindow
-            visible: barConfigReady && !shouldHideForRedact
+            visible: barConfigReady
 
             property bool pendingReload: false
             property bool startupFilesReady: false
-            property bool isRedacting: false
 
-            property bool hideBarInRedactor: {
-                let dummy = configRevision;
-                if (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.widgets && Config.rawSettings.widgets.hideBarInRedactor !== undefined) {
-                    return Config.rawSettings.widgets.hideBarInRedactor;
-                }
-                if (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.bar && Config.rawSettings.bar.hideBarInRedactor !== undefined) {
-                    return Config.rawSettings.bar.hideBarInRedactor;
-                }
-                return true;
-            }
-
-            property bool shouldHideForRedact: isRedacting && hideBarInRedactor
-
-            property var activeToplevel: ToplevelManager.activeToplevel
-            property bool isFullscreenActive: {
-                if (!activeToplevel || !activeToplevel.fullscreen) return false;
-                if (activeToplevel.screens && activeToplevel.screens.length > 0) {
-                    return activeToplevel.screens.indexOf(barWindow.screen) !== -1;
-                }
-                return true;
-            }
+            property bool isFullscreenActive: Wm.outputHasFullscreen(
+                barWindow.screen ? barWindow.screen.name : "")
 
             onIsFullscreenActiveChanged: {
                 if (barWindow.isFullscreenActive) {
@@ -95,6 +75,10 @@ Variants {
                 let dummy = configRevision;
                 return (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.bar && Config.rawSettings.bar.distinctPills !== undefined) ? Config.rawSettings.bar.distinctPills : false;
             }
+            property bool centerByEdges: {
+                let dummy = configRevision;
+                return (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.bar && Config.rawSettings.bar.centerByEdges !== undefined) ? Config.rawSettings.bar.centerByEdges : true;
+            }
 
             property bool barConfigReady: {
                 let dummy = configRevision;
@@ -113,7 +97,11 @@ Variants {
             }
             property real barOpacity: {
                 let dummy = configRevision;
-                return (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.bar && Config.rawSettings.bar.opacity !== undefined) ? (Config.rawSettings.bar.opacity / 100.0) : 1.0;
+                if (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.bar
+                        && Config.rawSettings.bar.opacity !== undefined) {
+                    return Math.max(0, Math.min(1, Number(Config.rawSettings.bar.opacity) / 100.0));
+                }
+                return ThemeBackend.elementOpacity;
             }
 
             HoverHandler {
@@ -140,7 +128,6 @@ Variants {
             }
 
             property bool isRevealed: {
-                if (shouldHideForRedact) return false;
                 if (frameLayer.framed) return true;
                 if (!autohide) return true;
                 if (barHover.hovered) return true;
@@ -156,9 +143,6 @@ Variants {
 
             IpcHandler {
                 target: "topbar"
-                function setRedactMode(active: string): void {
-                    barWindow.isRedacting = (active === "true" || active === "1");
-                }
                 // Ryoku seam: no whole-shell reload from inside the resident
                 // Ryoku instance; the style's settings apply live through the
                 // daemon frames. The verbs stay so the ported scripts land.
@@ -174,26 +158,6 @@ Variants {
                     else target = contentWrapper.getWidget("left");
                     if (target && typeof target.toggleUpdate === "function") {
                         target.toggleUpdate();
-                    }
-                }
-                function getWidgetGeometry(widgetName: string): void {
-                    let target = null;
-                    if (barWindow.isVertical) target = verticalWrapper.getWidget(widgetName);
-                    else target = contentWrapper.getWidget(widgetName);
-
-                    if (target && target.width > 0) {
-                        let pos = target.mapToItem(null, 0, 0);
-
-                        let absoluteX = pos.x + barWindow.margins.left;
-                        let absoluteY = pos.y + barWindow.margins.top;
-
-                        let geo = {
-                            startX: Math.round(absoluteX),
-                            startY: Math.round(absoluteY),
-                            endX: Math.round(absoluteX + target.width),
-                            endY: Math.round(absoluteY + target.height)
-                        };
-                        Quickshell.execDetached(["bash", "-c", "echo '" + JSON.stringify(geo) + "' > " + Caching.runDir + "/tutorial_target.json"]);
                     }
                 }
             }
@@ -214,17 +178,21 @@ Variants {
             property real edgePadding: (autohide && !isFill) ? s(4) : 0
             readonly property real barContentWidth: frameLayer.rest.width
             readonly property real barContentHeight: frameLayer.rest.height
-            property real effectiveBarWidth: Math.round(isVertical ? barContentWidth : (isFill ? barContentWidth : ((barContentWidth - (autohide ? edgePadding * 2 : 0)) * (barWidthPercent / 100.0))))
-            property real horizontalOffset: Math.round(isVertical ? 0 : (isFill ? 0 : ((barContentWidth - effectiveBarWidth) / 2)))
+            property real effectiveBarWidth: Math.round(isVertical ? barContentWidth : ((barContentWidth - (autohide ? edgePadding * 2 : 0)) * (barWidthPercent / 100.0)))
+            property real horizontalOffset: Math.round(isVertical ? 0 : ((barContentWidth - effectiveBarWidth) / 2))
 
-            property real effectiveBarHeight: Math.round(!isVertical ? barContentHeight : (isFill ? barContentHeight : ((barContentHeight - (autohide ? edgePadding * 2 : 0)) * (barWidthPercent / 100.0))))
-            property real verticalOffset: Math.round(!isVertical ? 0 : (isFill ? 0 : ((barContentHeight - effectiveBarHeight) / 2)))
+            property real effectiveBarHeight: Math.round(!isVertical ? barContentHeight : ((barContentHeight - (autohide ? edgePadding * 2 : 0)) * (barWidthPercent / 100.0)))
+            property real verticalOffset: Math.round(!isVertical ? 0 : ((barContentHeight - effectiveBarHeight) / 2))
 
             property real currentBarMinX: (contentWrapper && contentWrapper.dynamicMaxX > contentWrapper.dynamicMinX) ? contentWrapper.dynamicMinX : horizontalOffset
             property real currentBarMaxX: (contentWrapper && contentWrapper.dynamicMaxX > contentWrapper.dynamicMinX) ? contentWrapper.dynamicMaxX : (horizontalOffset + effectiveBarWidth)
 
             property real currentBarMinY: (verticalWrapper && verticalWrapper.dynamicMaxY > verticalWrapper.dynamicMinY) ? verticalWrapper.dynamicMinY : verticalOffset
             property real currentBarMaxY: (verticalWrapper && verticalWrapper.dynamicMaxY > verticalWrapper.dynamicMinY) ? verticalWrapper.dynamicMaxY : (verticalOffset + effectiveBarHeight)
+
+            property bool fillAttached: isFill && (isVertical
+                ? (currentBarMinY > 0.5 || currentBarMaxY < barContentHeight - 0.5)
+                : (currentBarMinX > 0.5 || currentBarMaxX < barContentWidth - 0.5))
 
             Timer {
                 id: positionChangeTimer
@@ -245,7 +213,22 @@ Variants {
                 return Math.round(Scaler.s(val));
             }
 
-            property int barHeight: s(40)
+            readonly property real baseThickness: 40
+            readonly property real minThickness: 28
+            readonly property real maxThickness: 48
+            property real thicknessSetting: {
+                let dummy = configRevision;
+                let v = (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.bar && Config.rawSettings.bar.height !== undefined) ? Number(Config.rawSettings.bar.height) : baseThickness;
+                if (isNaN(v)) v = baseThickness;
+                return Math.max(minThickness, Math.min(maxThickness, v));
+            }
+            property real contentRatio: thicknessSetting / baseThickness
+
+            function cs(val) {
+                return Math.round(Scaler.s(val) * contentRatio);
+            }
+
+            property int barHeight: s(thicknessSetting)
             property real cornerRadius: s(12)
             readonly property real surfaceThickness: barHeight + (isFill ? cornerRadius : edgePadding)
 
@@ -274,27 +257,27 @@ Variants {
                 right: isFill ? 0 : (barPosition === "left" ? 0 : (autohide ? 0 : s(4)))
             }
 
-            exclusiveZone: (!barConfigReady || autohide || shouldHideForRedact) ? 0 : barHeight
+            exclusiveZone: (!barConfigReady || autohide) ? 0 : barHeight
             color: "transparent"
 
-            property real activeMaskHeight: shouldHideForRedact ? 0 : ((autohide && !isRevealed) ? s(4) : (isVertical ? (isFill ? barContentHeight : (effectiveBarHeight + edgePadding * 2)) : (isFill ? (barHeight + cornerRadius) : (barHeight + edgePadding))))
-            property real activeMaskWidth: shouldHideForRedact ? 0 : ((autohide && !isRevealed) ? s(4) : (isVertical ? (isFill ? (barHeight + cornerRadius) : (barHeight + edgePadding)) : (isFill ? barContentWidth : (effectiveBarWidth + edgePadding * 2))))
+            property real activeMaskHeight: (autohide && !isRevealed) ? s(4) : (isVertical ? (isFill ? barContentHeight : (effectiveBarHeight + edgePadding * 2)) : (isFill ? (barHeight + cornerRadius) : (barHeight + edgePadding)))
+            property real activeMaskWidth: (autohide && !isRevealed) ? s(4) : (isVertical ? (isFill ? (barHeight + cornerRadius) : (barHeight + edgePadding)) : (isFill ? barContentWidth : (effectiveBarWidth + edgePadding * 2)))
 
             readonly property rect mainInputRect: frameLayer.maskRect(
-                isVertical ? (barPosition === "right" ? (barContentWidth - activeMaskWidth) : 0) : (isFill ? 0 : currentBarMinX),
-                isVertical ? (isFill ? 0 : currentBarMinY) : (barPosition === "bottom" ? baseOffsetY : 0),
-                isVertical ? activeMaskWidth : (isFill ? barContentWidth : (currentBarMaxX - currentBarMinX)),
-                isVertical ? (isFill ? barContentHeight : (currentBarMaxY - currentBarMinY)) : (isFill ? barHeight : activeMaskHeight))
+                isVertical ? (barPosition === "right" ? (barContentWidth - activeMaskWidth) : 0) : currentBarMinX,
+                isVertical ? currentBarMinY : (barPosition === "bottom" ? baseOffsetY : 0),
+                isVertical ? activeMaskWidth : (currentBarMaxX - currentBarMinX),
+                isVertical ? (currentBarMaxY - currentBarMinY) : (isFill ? barHeight : activeMaskHeight))
             readonly property rect startCornerInputRect: frameLayer.maskRect(
                 isVertical ? (barPosition === "right" ? (barContentWidth - barHeight - cornerRadius) : barHeight) : 0,
                 isVertical ? 0 : (barPosition === "bottom" ? (baseOffsetY - cornerRadius) : (baseOffsetY + barHeight)),
-                isFill ? cornerRadius : 0,
-                isFill ? cornerRadius : 0)
+                (isFill && !fillAttached) ? cornerRadius : 0,
+                (isFill && !fillAttached) ? cornerRadius : 0)
             readonly property rect endCornerInputRect: frameLayer.maskRect(
                 isVertical ? (barPosition === "right" ? (barContentWidth - barHeight - cornerRadius) : barHeight) : (barContentWidth - cornerRadius),
                 isVertical ? (barContentHeight - cornerRadius) : (barPosition === "bottom" ? (baseOffsetY - cornerRadius) : (baseOffsetY + barHeight)),
-                isFill ? cornerRadius : 0,
-                isFill ? cornerRadius : 0)
+                (isFill && !fillAttached) ? cornerRadius : 0,
+                (isFill && !fillAttached) ? cornerRadius : 0)
 
             mask: Region {
                 Region {

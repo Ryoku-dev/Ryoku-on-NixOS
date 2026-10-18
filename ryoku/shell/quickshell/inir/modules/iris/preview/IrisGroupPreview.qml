@@ -46,7 +46,7 @@ ClippingRectangle {
             "bar/Visibility": "islandReserve", "bar/Interaction": "islandInteraction",
             "bar/Shape": "shapes", "bar/Layout": "islandEdge", "bar/Bar": "barZones",
             "appearance/Light": "light", "appearance/Shape": "shapes", "appearance/Colour theme": "glass", "appearance/Scheme": "glass", "appearance/Dark look": "glass", "appearance/Ink look": "glass", "appearance/Light look": "glass", "appearance/Corners per surface": "fusion", "appearance/Glass": "glass", "appearance/Edges": "glass",
-            "appearance/Menus": "menus", "appearance/Settings": "settings",
+            "appearance/Menus": "menus", "appearance/Settings": "settings", "appearance/Texture": "texture",
             "appearance/Material": "glass", "appearance/Material per surface": "glass", "appearance/Look": "fusion",
             "appearance/Adaptive": "fusion", "appearance/Accent": "controlCenter", "appearance/Highlight": "controlCenter",
             "appearance/Faces": "typography", "appearance/Text": "typography", "appearance/Frame": "frame",
@@ -108,7 +108,8 @@ ClippingRectangle {
                 spotlight: spotlightScene, controlCenter: controlScene, cards: cardsScene, menus: menusScene,
                 settings: settingsScene, panels: panelsScene, joining: joiningScene, feedback: feedbackScene,
                 tray: trayScene, player: playerScene, islandReserve: reserveScene, islandEdge: edgeScene, barZones: zonesScene,
-                light: lightScene, fusion: fusionScene, shapes: shapesScene, glass: glassScene, islandInteraction: interactionScene, islandPage: islandPageScene, bubbles: bubblesScene
+                light: lightScene, fusion: fusionScene, shapes: shapesScene, glass: glassScene, texture: textureScene,
+                islandInteraction: interactionScene, islandPage: islandPageScene, bubbles: bubblesScene
             })[root.scene] ?? null
         }
     }
@@ -930,6 +931,193 @@ ClippingRectangle {
             Caption {
                 glyph: "rounded_corner"
                 text: Translation.tr("Island shape") + " · " + shapeRoot.shapeName(IrisStyle.barShape) + "   " + Translation.tr("Dock shape") + " · " + shapeRoot.shapeName(IrisStyle.dockShape)
+            }
+        }
+    }
+
+    Component {
+        id: textureScene
+        Item {
+            id: textureRoot
+            readonly property real naturalWidth: Math.round(520 * root.d)
+            readonly property real naturalHeight: Math.round(280 * root.d)
+            readonly property bool lit: IrisStyle.afterglow
+            readonly property bool framed: IrisFrame.framed
+            readonly property real side: Math.round(24 * root.d)
+            readonly property real gap: Math.round(18 * root.d)
+            readonly property real bodyHeight: Math.round(104 * root.d)
+            readonly property var island: ({
+                x: Math.round((textureRoot.width - 170 * root.d) / 2),
+                y: textureRoot.framed ? -IrisFrame.islandBand : Math.round(18 * root.d),
+                width: Math.round(170 * root.d),
+                height: IrisFrame.islandBand + (textureRoot.framed ? IrisFrame.islandBand + IrisFrame.band : 0)
+            })
+            readonly property real rowY: textureRoot.island.y + textureRoot.island.height + textureRoot.gap
+            readonly property var card: ({
+                x: textureRoot.side,
+                y: textureRoot.rowY,
+                width: Math.round(238 * root.d),
+                height: textureRoot.bodyHeight
+            })
+            readonly property var panel: ({
+                x: textureRoot.card.x + textureRoot.card.width + textureRoot.gap,
+                y: textureRoot.rowY,
+                width: textureRoot.width - 2 * textureRoot.side - textureRoot.card.width - textureRoot.gap,
+                height: textureRoot.bodyHeight
+            })
+
+            Field.IrisField {
+                anchors.fill: parent
+                framed: textureRoot.framed
+                sceneSize: Qt.size(textureRoot.width, textureRoot.height)
+                shapes: [
+                    { id: "island", x: textureRoot.island.x, y: textureRoot.island.y,
+                        width: textureRoot.island.width, height: textureRoot.island.height,
+                        radius: IrisFrame.islandBand / 2, fuse: IrisStyle.fuse, joins: "frame" },
+                    { id: "panel", x: textureRoot.panel.x, y: textureRoot.panel.y,
+                        width: textureRoot.panel.width, height: textureRoot.panel.height,
+                        radius: IrisStyle.radiusPlate, fuse: IrisStyle.fuse }
+                ].concat(IrisStyle.leak ? [] : [{
+                    id: "card", x: textureRoot.card.x, y: textureRoot.card.y,
+                    width: textureRoot.card.width, height: textureRoot.card.height,
+                    radius: IrisStyle.radiusPlate, fuse: IrisStyle.fuse
+                }])
+            }
+
+            Loader {
+                x: textureRoot.card.x
+                y: textureRoot.card.y
+                width: textureRoot.card.width
+                height: textureRoot.card.height
+                active: IrisStyle.leak
+                sourceComponent: Field.IrisLeakPlate {
+                    at: Qt.point(textureRoot.card.x, textureRoot.card.y)
+                    output: Qt.size(textureRoot.width, textureRoot.height)
+                    radius: IrisStyle.radiusPlate
+                    strength: IrisStyle.leakWidgets
+                }
+            }
+
+            IrisClock {
+                x: textureRoot.island.x + Math.round((textureRoot.island.width - width) / 2)
+                y: textureRoot.island.y + textureRoot.island.height - IrisFrame.islandBand
+                    + Math.round((IrisFrame.islandBand - height) / 2)
+                pixelSize: IrisStyle.typeHeadline
+                separatorColor: IrisStyle.secondaryAccent
+            }
+
+            Column {
+                id: textureCard
+                readonly property int pad: IrisStyle.concentricPad(IrisStyle.radiusPlate, 16 * root.d)
+                x: textureRoot.card.x + textureCard.pad
+                y: textureRoot.card.y + Math.round((textureRoot.card.height - height) / 2)
+                width: textureRoot.card.width - 2 * textureCard.pad
+                spacing: Math.round(14 * root.d)
+                Row {
+                    spacing: Math.round(10 * root.d)
+                    Rectangle {
+                        width: Math.round(38 * root.d)
+                        height: width
+                        radius: IrisStyle.iconRadius(width)
+                        color: IrisStyle.fill
+                        MaterialSymbol {
+                            anchors.centerIn: parent
+                            text: "music_note"
+                            fill: 1
+                            iconSize: Math.round(19 * root.d)
+                            color: IrisStyle.textSecondary
+                        }
+                    }
+                    Column {
+                        anchors.verticalCenter: parent.verticalCenter
+                        IrisText {
+                            text: Translation.tr("Now playing")
+                            font.weight: IrisStyle.weight(Font.DemiBold)
+                            font.pixelSize: IrisStyle.typeLabel
+                        }
+                        IrisText {
+                            text: Translation.tr("Artist")
+                            color: IrisStyle.muted
+                            font.pixelSize: IrisStyle.typeMeta
+                        }
+                    }
+                }
+                Rectangle {
+                    width: parent.width
+                    height: Math.max(2, Math.round(4 * root.d))
+                    radius: height / 2
+                    color: IrisStyle.fill
+                    Rectangle {
+                        width: parent.width * 0.42
+                        height: parent.height
+                        radius: parent.radius
+                        color: IrisStyle.accent
+                    }
+                }
+            }
+
+            Grid {
+                id: texturePanel
+                readonly property int pad: IrisStyle.concentricPad(IrisStyle.radiusPlate, 14 * root.d)
+                readonly property real cell: Math.floor((textureRoot.panel.width - 2 * texturePanel.pad - texturePanel.spacing) / 2)
+                x: textureRoot.panel.x + texturePanel.pad
+                y: textureRoot.panel.y + Math.round((textureRoot.panel.height - height) / 2)
+                columns: 2
+                spacing: Math.round(8 * root.d)
+                Repeater {
+                    model: ["wifi", "bluetooth", "dark_mode", "do_not_disturb_on"]
+                    Rectangle {
+                        id: textureTile
+                        required property int index
+                        required property string modelData
+                        width: texturePanel.cell
+                        height: Math.round(38 * root.d)
+                        radius: IrisStyle.radiusTile
+                        color: textureTile.index === 0 ? IrisStyle.tintFill(IrisStyle.accent) : IrisStyle.fill
+                        MaterialSymbol {
+                            anchors.centerIn: parent
+                            text: textureTile.modelData
+                            fill: 1
+                            iconSize: Math.round(18 * root.d)
+                            color: textureTile.index === 0 ? IrisStyle.accent : IrisStyle.textSecondary
+                        }
+                    }
+                }
+            }
+
+            readonly property point leakBase: Qt.point(IrisStyle.leakSources[0].at[0], IrisStyle.leakSources[0].at[1])
+            DragHandler {
+                id: textureDrag
+                target: null
+                enabled: IrisStyle.leak
+                function held(): point {
+                    const at = textureDrag.centroid.position
+                    const clamp = value => Math.max(-0.5, Math.min(0.5, value))
+                    return Qt.point(clamp(at.x / Math.max(1, textureRoot.width) - textureRoot.leakBase.x),
+                        clamp(at.y / Math.max(1, textureRoot.height) - textureRoot.leakBase.y))
+                }
+                onCentroidChanged: if (textureDrag.active) IrisStyle.leakHeld = textureDrag.held()
+                onActiveChanged: {
+                    if (textureDrag.active) {
+                        IrisStyle.leakHeld = textureDrag.held()
+                        return
+                    }
+                    const at = IrisStyle.leakHeld
+                    if (at)
+                        Config.setNestedValues({
+                            "iris.appearance.leak.x": Math.round(at.x * 100),
+                            "iris.appearance.leak.y": Math.round(at.y * 100)
+                        })
+                    IrisStyle.leakHeld = null
+                }
+                onCanceled: IrisStyle.leakHeld = null
+            }
+
+            Caption {
+                glyph: textureRoot.lit ? "flare" : IrisStyle.leak ? "camera_roll" : "crop_square"
+                text: textureRoot.lit ? Translation.tr("Afterglow") + " · " + Translation.tr(IrisStyle.afterglowGrade)
+                    : IrisStyle.leak ? Translation.tr("Light leak") + " · " + Translation.tr(IrisStyle.leakGrade)
+                    : Translation.tr("Solid")
             }
         }
     }

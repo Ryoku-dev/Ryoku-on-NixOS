@@ -17,17 +17,13 @@ import (
 	"github.com/coder/websocket"
 )
 
-// `chat` connects the Super+S sidebar to the one shared agent session on
-// /ws/chat. The live mode is `--follow`: a transparent proxy between stdio and
-// the socket that writes every server frame to stdout as one JSON line and
-// forwards every stdin line as a client message, both unchanged, so the sidebar
-// sees the exact protocol the dashboard does. `--encode-image` is the single
-// helper the sidebar still shells out for, turning attached image paths into the
-// base64 payload a user message carries.
+// `chat` connects Rashin's Agent surfaces to the persistent Agent lane on
+// /ws/chat. In `--follow` mode it is a transparent proxy between stdio and the
+// socket: each server frame is one JSON line and every client line is forwarded
+// unchanged. `--encode-image` turns attached image paths into prompt payloads.
 
 func chatWSURL() string {
-	// The shell's bar and the terminal are the Ryoku lane; name it rather than
-	// lean on the default.
+	// The shell's Agent mode names its persistent lane explicitly.
 	return fmt.Sprintf("ws://127.0.0.1:%d/ws/chat?lane=ryoku", LoadConfig().Port)
 }
 

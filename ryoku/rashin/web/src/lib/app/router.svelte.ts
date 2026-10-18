@@ -10,7 +10,8 @@ export interface Sheet {
 }
 
 export const SHEETS: readonly Sheet[] = [
-  { id: "ryoku", label: "Ryoku", gloss: "力" },
+  { id: "agent", label: "Agent", gloss: "作業" },
+  { id: "ask", label: "Ask", gloss: "質問" },
   { id: "chat", label: "Chat", gloss: "対話" },
   { id: "wiki", label: "Wiki", gloss: "手引" },
   { id: "overview", label: "Overview", gloss: "概要" },
@@ -22,7 +23,7 @@ export const SHEETS: readonly Sheet[] = [
   { id: "about", label: "About", gloss: "案内" },
 ];
 
-export const DEFAULT_SHEET = "ryoku";
+export const DEFAULT_SHEET = "agent";
 
 function parse(hash: string): { sheet: string; rest: string[] } {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
@@ -36,13 +37,6 @@ export class Router {
 
   start(): void {
     const sync = () => {
-      const requested = location.hash.replace(/^#\/?/, "").split("/")[0];
-      if (requested === "ask") {
-        history.replaceState(null, "", "#/ryoku");
-        this.sheet = "ryoku";
-        this.rest = [];
-        return;
-      }
       const { sheet, rest } = parse(location.hash);
       this.sheet = sheet;
       this.rest = rest;

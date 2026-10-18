@@ -13,7 +13,7 @@ Item {
     anchors.fill: parent
     visible: rootObj.currentTab === tabIndex
 
-    property bool revealed: false
+    property bool revealed: true
     opacity: revealed ? 1.0 : 0.0
     property real slideY: revealed ? 0 : rootObj.s(10)
 
@@ -57,7 +57,7 @@ Item {
             Text {
                 id: iconText
                 text: "󰐊"
-                font.family: "Iosevka Nerd Font"
+                font.family: ThemeBackend.iconFont
                 font.pixelSize: rootObj.s(18)
                 color: bRoot.textColor
                 Behavior on color { ColorAnimation { duration: 150 } }
@@ -112,9 +112,14 @@ Item {
                 activateTab();
             }
         }
+        function onVisibleChanged() {
+            if (rootObj && rootObj.visible && welcomeTabRoot.visible) {
+                activateTab();
+            }
+        }
     }
 
-    property real logoFillLevel: 0.0
+    property real logoFillLevel: 1.15
 
     NumberAnimation {
         id: logoFillAnim
@@ -164,7 +169,7 @@ Item {
 
                 Rectangle { anchors.fill: parent; color: ThemeBackend.text }
 
-                Canvas {
+                ShaderEffect {
                     id: logoWaveCanvas
                     anchors.fill: parent
 
@@ -175,67 +180,12 @@ Item {
                         from: 0; to: Math.PI * 2; duration: 4500
                     }
 
-                    onWavePhaseChanged: requestPaint()
-                    Connections {
-                        target: welcomeTabRoot
-                        function onLogoFillLevelChanged() { logoWaveCanvas.requestPaint() }
-                    }
+                    property vector2d itemSize: Qt.vector2d(width, height)
+                    property real fillLevel: welcomeTabRoot.logoFillLevel
+                    property color baseColor: ThemeBackend.mauve
+                    property vector4d params: Qt.vector4d(rootObj.s(12), 0.0, 0.0, 0.0)
 
-                    onPaint: {
-                        var ctx = getContext("2d");
-                        ctx.clearRect(0, 0, width, height);
-
-                        var prog = welcomeTabRoot.logoFillLevel;
-                        if (prog <= 0.001) return;
-
-                        function drawWaterWipe(p, colorStr, ampMult, phaseOffset, waveCount) {
-                            if (p <= 0.0) return;
-                            if (p >= 1.0) {
-                                ctx.fillStyle = colorStr;
-                                ctx.fillRect(0, 0, width, height);
-                                return;
-                            }
-
-                            var fillY = height * (1.0 - p);
-                            var baseAmp = rootObj.s(12) * Math.sin(p * Math.PI) * ampMult;
-
-                            ctx.beginPath();
-                            ctx.moveTo(0, height);
-                            ctx.lineTo(0, fillY);
-
-                            var segments = 80;
-                            var localPhase = wavePhase + phaseOffset;
-
-                            for (var i = 0; i <= segments; i++) {
-                                var x = (i / segments) * width;
-                                var waveHeight = 0;
-
-                                for (var w = 1; w <= waveCount; w++) {
-                                    var frequency = w * 1.5;
-                                    var wAmp = baseAmp * (1.0 - (w - 1) * 0.3);
-                                    waveHeight += Math.sin(localPhase * frequency + x * 0.015 * frequency) * wAmp;
-                                }
-
-                                var y = fillY + waveHeight * 0.5;
-                                ctx.lineTo(x, y);
-                            }
-
-                            ctx.lineTo(width, height);
-                            ctx.closePath();
-                            ctx.fillStyle = colorStr;
-                            ctx.fill();
-                        }
-
-                        var speedFact = 1.15;
-                        var p1 = Math.max(0.0, Math.min(1.0, prog * speedFact));
-                        var p2 = Math.max(0.0, Math.min(1.0, (prog - 0.1) * speedFact));
-                        var p3 = Math.max(0.0, Math.min(1.0, (prog - 0.2) * speedFact));
-
-                        var baseColor = ThemeBackend.mauve;
-                        drawWaterWipe(p1, Qt.darker(baseColor, 2.2).toString(), 1.5, 0.0, 3);
-                        drawWaterWipe(p2, Qt.darker(baseColor, 1.6).toString(), 1.2, 0.8, 3);
-                        drawWaterWipe(p3, baseColor.toString(), 0.9, 1.6, 3);
-                    }
+                    fragmentShader: "file://" + Caching.assetsPath + "/shaders/fluid/logo_water_wave.frag.qsb"
                 }
             }
 

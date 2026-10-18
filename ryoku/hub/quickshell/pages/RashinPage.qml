@@ -242,14 +242,14 @@ Item {
     }
     Process { id: wireProc; onExited: pg.refresh() }
     Process { id: chatProc; onExited: pg.refresh() }
-    // Wiring drops the pointer + the ryoku skill + prowl's skills into an
-    // agent (or every present one); useChatAgent picks who drives the chat.
+    // Wiring adds the Ryoku and Prowl skills to an agent (or every present
+    // one); useChatAgent picks who answers in the Alt+Space bar.
     function wireAgent(id) { wireProc.command = ["ryoku-rashin", "wire", id]; wireProc.running = true; }
     function wireAll() { wireProc.command = ["ryoku-rashin", "wire"]; wireProc.running = true; }
     function useChatAgent(id) { chatProc.command = ["ryoku-rashin", "agent", "use", id]; chatProc.running = true; }
     // Copy the paste snippet for an agent Rashin does not wire directly.
     function copySnippet() { Quickshell.execDetached(["sh", "-c", "ryoku-rashin paths --snippet | wl-copy"]); }
-    // whether an agent can drive the Super+S chat (its ACP adapter is present).
+    // Whether an agent can answer the Alt+Space bar's Agent mode.
     function agentCanChat(id) {
         for (var i = 0; i < pg.chatBackends.length; i++)
             if (pg.chatBackends[i].id === id)
@@ -576,7 +576,7 @@ Item {
             // ── tagline ──────────────────────────────────────────────────────
             Text {
                 width: parent.width
-                text: I18n.tr("The optional local agent OS. A resident Hermes agent keeps a living map of this machine - hardware, packages, every config beside the binary that owns it - so your coding agents read the terrain instead of rediscovering it. Nothing ever leaves the box.")
+                text: I18n.tr("The optional local agent OS. Your agent keeps a living map of this machine - hardware, packages, every config beside the binary that owns it - so your coding agents read the terrain instead of rediscovering it. Nothing ever leaves the box.")
                 color: Tokens.ink; font.family: Tokens.mono; font.pixelSize: 14
                 wrapMode: Text.WordWrap; lineHeight: 1.5
             }
@@ -630,7 +630,8 @@ Item {
                     }
                 }
 
-                // Prowl is Rashin's model gateway and code-intelligence engine.
+                // Prowl is an external gateway and code index that Rashin hosts.
+                // It plugs into any harness.
                 Rectangle {
                     width: parent.colW
                     height: 96
@@ -689,11 +690,11 @@ Item {
                     }
                     FnCard {
                         width: fnGrid.cellW; index: "02"; kanji: "\u8a18\u61b6"; name: I18n.tr("MEMORY")
-                        desc: I18n.tr("What Hermes remembers, carried across every session.")
+                        desc: I18n.tr("What your agent remembers, carried across every session.")
                     }
                     FnCard {
                         width: fnGrid.cellW; index: "03"; kanji: "\u6280"; name: I18n.tr("SKILLS")
-                        desc: I18n.tr("Toolsets Hermes wields: search, files, the web.")
+                        desc: I18n.tr("Toolsets your agent wields: search, files, the web.")
                     }
                     FnCard {
                         width: fnGrid.cellW; index: "04"; kanji: "\u4e94\u4eba\u8846"; name: I18n.tr("AGENTS")
@@ -702,7 +703,7 @@ Item {
                     }
                     FnCard {
                         width: fnGrid.cellW; index: "05"; kanji: "\u5bfe\u8a71"; name: I18n.tr("CHAT")
-                        desc: I18n.tr("Talk to Hermes in the dashboard or a terminal.")
+                        desc: I18n.tr("Talk to your agent in the dashboard or a terminal.")
                     }
                     FnCard {
                         width: fnGrid.cellW; index: "06"; kanji: "\u7f85\u91dd"; name: I18n.tr("CODE")
@@ -718,7 +719,7 @@ Item {
                 Head { kanji: "\u4e94\u4eba\u8846"; title: I18n.tr("YOUR AGENTS") }
                 Text {
                     width: parent.width
-                    text: I18n.tr("Connect any coding agent to the same living map of this machine. One click adds the Ryoku and Prowl skills, then routes that agent's models through the Prowl gateway.")
+                    text: I18n.tr("Connect any coding agent to the same living map of this machine. One click adds the Ryoku and Prowl skills. It never changes the agent's own model; making Prowl auto the default is a separate switch.")
                     color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.4
                 }
                 Column {
@@ -767,14 +768,14 @@ Item {
                 PosterBtn { label: I18n.tr("COPY AGENT SNIPPET"); primary: true; on: pg.installed; onAct: pg.copySnippet() }
             }
 
-            // ── CHAT BACKEND: who answers Super+S (Hermes recommended) ────────
+            // ── CHAT AGENT: who answers in the Alt+Space bar (Hermes recommended) ──
             Column {
                 width: parent.width
                 spacing: Tokens.s3
                 Head { kanji: "\u5bfe\u8a71"; title: I18n.tr("CHAT BACKEND") }
                 Text {
                     width: parent.width
-                    text: I18n.tr("Which agent answers the Super+S chat. Hermes is recommended; others need their own ACP adapter installed.")
+                    text: I18n.tr("Which agent answers the Alt+Space bar's Agent mode. Hermes is recommended; others need their own ACP adapter installed.")
                     color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.4
                 }
                 Flow {

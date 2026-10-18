@@ -3,6 +3,46 @@
 ## Unreleased
 
 ### Added
+- **General can choose the icon theme.** The picker lists installed icon themes
+  by their own names, leaves cursor-only and hidden themes out, and applies the
+  choice together to GNOME settings, GTK 3/4, Qt 6, KDE apps and the Ryoku
+  shell (`quickshell/pages/IconThemeSettings.qml`, `backend/icon_theme.go`).
+- **General has a Sounds tab.** Turn the desktop's sounds on or off, set
+  their volume, and for each one (notifications, charger plugged and
+  unplugged, low and full battery, USB devices, screenshots, volume keys) play
+  it, choose your own audio file, go back to the built-in sound or switch it
+  off. The language, region, location and font rows sit under Region & fonts
+  (`quickshell/pages/SoundsSettings.qml`, `quickshell/pages/SoundEventRow.qml`).
+- **Window Manager can install optional package-backed features.** Its generic
+  install row opens a privileged package install in a terminal, then starts the
+  feature without waiting for the next login (`quickshell/SettingsSheet.qml`).
+- **Desktop > Notifications can show notification images.** The new switch
+  writes the shell's opt-in image setting; off keeps the shipped text-only
+  notification look (`quickshell/schema/DesktopPage.js`).
+- **Window Manager can size the Settings window.** Each compositor's page
+  offers Full page or a centred percentage-based custom size that stays large
+  enough for the Settings layout; on niri Full page preserves its existing
+  normal column (`../wm/{hyprland,niri,wayfire}/schema.json`).
+- **Connections > Phone.** One switch installs or removes everything the phone
+  feature needs on Arch, CachyOS, Fedora and Void (KDE Connect, scrcpy, adb,
+  v4l2loopback and the helpers). The card says where the phone stands
+  ("Connected to Pixel 8 · 72%") and opens Kit's Phone tab, where setup and
+  everyday use live; below it sit the notification, mirroring, webcam and
+  microphone settings, with everything else in a collapsed Advanced drawer
+  (`quickshell/pages/PhoneConnectionTab.qml`, `backend/phone.go`).
+- **Credits name the Kit and Phone sources.** ii-p3drovfx now credits Kit and
+  Phone as well, and Monkeytype is listed for the typing test's words and sounds
+  (`quickshell/pages/CreditsPage.qml`, `../../NOTICE`).
+- **The Rashin switch owns the package.** On Arch, switching Rashin off on its
+  page now stops the agent and removes `ryoku-rashin` through the host seam
+  (the polkit prompt, no terminal), and switching it on installs the package
+  when it is absent and starts the agent with the desktop. Both directions
+  re-author the compositor config, so the Ask bar and Rashin window shortcuts
+  leave and return with the package, and record the choice in the provisioning
+  ledger so the doctor never delivers Rashin a second time. On Fedora and Void
+  the desktop still requires the package, so the switch stops and starts the
+  agent and the card says so (`ryoku-hub rashin status|on|off`,
+  `quickshell/pages/RashinPage.qml`).
 - **Keybinds can be removed and restored.** Each shipped shortcut has a control
   that switches its action off without hiding the row, then restores it in one
   press (`quickshell/pages/KeybindsPage.qml`).
@@ -76,6 +116,15 @@
   Hermes's model, and connecting an agent now says it routes that agent's models
   through Prowl (`quickshell/pages/RashinPage.qml`).
 ### Fixed
+- **Saving a rice keeps its wallpaper after Ryogami optimises the image.**
+  Capture follows Ryogami's current wallpaper when the recorded file was
+  replaced by its WebP copy, and says so when it finds none. Applying a rice
+  whose wallpaper already sits in the wallpaper folder no longer copies it
+  again (`backend/rice.go`).
+- **Animation controls keep their names and copy inside each card.** Motion feel
+  chips wrap before the starting-point hint, curve notes use the room beside the
+  editor, and Advanced rows move their controls below the animation name when a
+  narrow column cannot hold both (`quickshell/pages/AnimationsPage.qml`).
 - **Global resets stay on the Global page, and Save says when it applies.**
   Reset restores only language, region, location and font choices instead of
   also changing the bar style or other pages. The window settings page now says

@@ -20,6 +20,7 @@ import (
 
 const monitorsHeader = "// Written by the display tooling from the neutral output layout: one block per\n" +
 	"// connected screen with its mode, scale, position, rotation and VRR resolved.\n" +
+	"// The provider watch temporarily enables a connected panel if every output is off.\n" +
 	"// niri watches this file, so a write applies live and persists to the next\n" +
 	"// login. Hand edits are lost on the next apply; put durable pins in\n" +
 	"// monitors_user.kdl, which loads after this file and wins.\n\n"
@@ -82,6 +83,103 @@ func monitorsKdl(layout []wm.OutputLayout) []byte {
 		b.WriteString("}\n")
 	}
 	return []byte(b.String())
+}
+
+// fallbackOutput returns the connected output to enable when every output is
+// off. The built-in panel is the safest first choice after undocking; otherwise
+// the provider uses the first output from niri's name-sorted snapshot.
+func fallbackOutput(outputs []wm.Output) string {
+	for _, output := range outputs {
+		if !output.Disabled {
+			return ""
+		}
+	}
+	for _, output := range outputs {
+		if output.Disabled && isInternalOutput(output.Name) {
+			return output.Name
+		}
+	}
+	for _, output := range outputs {
+		if output.Disabled {
+			return output.Name
+		}
+	}
+	return ""
+}
+
+func outputFallbackMarker() string {
+	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if runtimeDir == "" {
+		return ""
+	}
+	return filepath.Join(runtimeDir, "ryoku", "niri-output-fallback")
+}
+
+func readOutputFallbackMarker() string {
+	data, err := os.ReadFile(outputFallbackMarker())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func writeOutputFallbackMarker(name string) {
+	path := outputFallbackMarker()
+	if path == "" {
+		return
+	}
+	if os.MkdirAll(filepath.Dir(path), 0o700) == nil {
+		_ = os.WriteFile(path, []byte(name), 0o600)
+	}
+}
+
+func clearOutputFallbackMarker() {
+	if path := outputFallbackMarker(); path != "" {
+		_ = os.Remove(path)
+	}
+}
+
+// reconcileOutputFallback owns only the transient override it recorded. That
+// lets a hand-written monitors_user.kdl keep winning while the temporary panel
+// is turned off again as soon as another output is enabled.
+func reconcileOutputFallback(outputs []wm.Output) bool {
+	marker := readOutputFallbackMarker()
+	if marker != "" {
+		present, disabled, otherEnabled := false, false, false
+		for _, output := range outputs {
+			if output.Name == marker {
+				present = true
+				disabled = output.Disabled
+			} else if !output.Disabled {
+				otherEnabled = true
+			}
+		}
+		if !present {
+			clearOutputFallbackMarker()
+		} else if otherEnabled {
+			if disabled {
+				clearOutputFallbackMarker()
+				return false
+			}
+			if _, err := request(outputRequest(marker, "Off")); err == nil {
+				clearOutputFallbackMarker()
+				return true
+			}
+			return false
+		} else if !disabled {
+			return false
+		}
+	}
+
+	name := fallbackOutput(outputs)
+	if name == "" {
+		return false
+	}
+	if _, err := request(outputRequest(name, "On")); err != nil {
+		return false
+	}
+	writeOutputFallbackMarker(name)
+	return true
 }
 
 // waylandTransformToNiri maps the neutral wayland transform integer onto niri's

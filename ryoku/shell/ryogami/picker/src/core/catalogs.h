@@ -59,6 +59,7 @@ private:
     void loadRices();
     void parseThemes(const QByteArray &json);
     void parseRices(const QByteArray &json);
+    void refreshRiceWatches();
     void ensureSwatchPreviews();
 
     QProcess *m_themeProc = nullptr;
@@ -66,6 +67,7 @@ private:
     QTimer *m_themeDebounce = nullptr;
     QTimer *m_riceDebounce = nullptr;
     QFileSystemWatcher *m_watcher = nullptr;
+    QStringList m_riceWatchPaths;
     QVector<Theme> m_themes;
     QVector<Rice> m_rices;
     quint64 m_swatchGen = 0;

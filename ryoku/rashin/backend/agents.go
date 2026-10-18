@@ -22,15 +22,16 @@ const (
 const PointerBlock = pointerBegin + "\n" +
 	"## Ryoku Rashin system vault\n" +
 	"\n" +
-	"This machine runs Ryoku (Arch Linux with the Ryoku desktop on Hyprland or niri;\n" +
-	"`ryoku wm status` says which). A maintained map of the system lives at\n" +
-	"`~/.local/share/ryoku/rashin/`. Before exploring the machine or guessing paths,\n" +
-	"read `AGENTS.md` there: it says where every config lives, which binary owns it,\n" +
-	"and how to reload it. Write durable notes to `memory/` and dated notes to\n" +
-	"`journal/YYYY-MM-DD.md`. For code questions prefer `prowl` (cited code\n" +
-	"intelligence, reindexed each run): `prowl search \"<question>\"`, `find`, `def`,\n" +
-	"`references`, `outline`, `impact` -- one call instead of grepping. The `ryoku`\n" +
-	"agent skill (safety rules, the GUI map, the bar and dock, the window-manager\n" +
+	"This machine runs a Ryoku Linux desktop. Its edition and compositor are named\n" +
+	"in `desktop.md` and by `ryoku wm status`; detect them, never assume. A maintained\n" +
+	"map of the system lives at `~/.local/share/ryoku/rashin/`. Before exploring the\n" +
+	"machine or guessing paths, read `AGENTS.md` there: it says where every config\n" +
+	"lives, which binary owns it, and how to reload it. Write durable notes to\n" +
+	"`memory/` and dated notes to `journal/YYYY-MM-DD.md`. Prowl is an optional\n" +
+	"external plug-in for its model gateway, code index, and skills; it never overrides\n" +
+	"the user's model pick. When available, prefer its cited code intelligence:\n" +
+	"`prowl search \"<question>\"`, `find`, `def`, `references`, `outline`, `impact`.\n" +
+	"The `ryoku` agent skill (safety rules, the GUI map, the bar and dock, the window-manager\n" +
 	"seam, building the Ryoku way, and the command catalogue) is wired into this\n" +
 	"agent's skills directory; read it before customising the desktop, and cite the\n" +
 	"vault's `wiki/` pages to someone new. Answer a desktop \"how do I\" question\n" +
@@ -174,7 +175,7 @@ func WireAll() int {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	_ = migrateQuickProviderKeys(ctx)
-	_ = routeConnectedHarnesses(ctx)
+	_ = refreshConnectedHarnesses(ctx)
 	wireProwlSkills()
 	return n
 }
@@ -273,15 +274,14 @@ func tildeAbbrev(p string) string {
 // catalogue the same way it finds a hub- or agent-grown skill. Every link
 // points at one source dir, resolved in a single order.
 
-// skillRoots is the resolution order for the shipped skill's parent dir: an
-// explicit override, the packaged tree, then the dev checkout the last deploy
-// recorded. Each root holds a `ryoku` subdir.
+// skillRoots resolves the shipped skill's parent directory. An explicit
+// override is exclusive so tests, development runs, and alternate packages
+// cannot silently fall through to a host-installed copy.
 func skillRoots() []string {
-	var roots []string
 	if v := os.Getenv("RYOKU_RASHIN_SKILLS"); v != "" {
-		roots = append(roots, v)
+		return []string{v}
 	}
-	roots = append(roots, "/usr/share/ryoku/skills")
+	roots := []string{"/usr/share/ryoku/skills"}
 	if repo := recordedCheckout(); repo != "" {
 		roots = append(roots, filepath.Join(repo, "ryoku", "rashin", "skills"))
 	}
@@ -406,9 +406,9 @@ func agentSkillWired(d agentDef) bool {
 	return link != "" && isOurSkillLink(link)
 }
 
-// symlinkForce points link at target with `ln -sfn` semantics: an existing
-// symlink is replaced, a correct one is left alone, and a real file or foreign
-// skill dir is never clobbered. Hermes keeps skills in category folders
+// symlinkForce points link at target when the existing path is absent or ours.
+// A correct link is left alone, while a foreign link, file, or skill directory
+// is never clobbered. Hermes keeps skills in category folders
 // (skills/<category>/<name>), so a real directory without a SKILL.md of its
 // own is treated as a category and the link is laid inside it as <dir>/ryoku.
 // It reports whether a link now points at target.
@@ -422,6 +422,9 @@ func symlinkForce(link, target string) (bool, error) {
 		}
 		if dest, _ := os.Readlink(link); filepath.Clean(dest) == filepath.Clean(target) {
 			return true, nil
+		}
+		if !isOurSkillLink(link) {
+			return false, nil
 		}
 		if err := os.Remove(link); err != nil {
 			return false, err
@@ -524,7 +527,7 @@ func wireProwlSkills() {
 	_ = installProwlSkills(ctx, prowlSkillClients())
 }
 
-func connectHarness(ctx context.Context, id string) (bool, string, error) {
+func connectHarness(ctx context.Context, id string, activate bool) (bool, string, error) {
 	if id == "gemini" {
 		return false, "", errors.New(geminiRoutingReason)
 	}
@@ -540,15 +543,15 @@ func connectHarness(ctx context.Context, id string) (bool, string, error) {
 			}
 		}
 	}
-	pending, reason, err := routeProwlHarness(ctx, id)
+	pending, reason, err := routeProwlHarness(ctx, id, activate)
 	if err != nil {
 		return false, "", err
 	}
-	cfg := LoadConfig()
-	if cfg.AddProwlHarness(id) {
-		if err := SaveConfig(cfg); err != nil {
-			return false, "", err
-		}
+	if err := updateConfig(func(cfg *Config) error {
+		cfg.AddProwlHarness(id)
+		return nil
+	}); err != nil {
+		return false, "", err
 	}
 	if skills != "unsupported" {
 		if err := installProwlSkills(ctx, []string{id}); err != nil {
@@ -562,11 +565,11 @@ func disconnectHarness(ctx context.Context, id string) error {
 	if err := prowlGatewayJSON(ctx, http.MethodDelete, "/api/setup/harnesses/"+id, nil, nil); err != nil {
 		return err
 	}
-	cfg := LoadConfig()
-	if cfg.RemoveProwlHarness(id) {
-		if err := SaveConfig(cfg); err != nil {
-			return err
-		}
+	if err := updateConfig(func(cfg *Config) error {
+		cfg.RemoveProwlHarness(id)
+		return nil
+	}); err != nil {
+		return err
 	}
 	return unwireRashinHarness(id)
 }

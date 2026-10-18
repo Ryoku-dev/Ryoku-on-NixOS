@@ -67,9 +67,20 @@ function buildRows(section) {
     var out = [];
     var groups = ({});
     var displayGroup = null;
+    var sectionGroups = (section && section.groups) ? section.groups : [];
+    var emittedGroups = ({});
 
     for (var i = 0; i < controls.length; i++) {
         var c = controls[i];
+        if (c.group && !emittedGroups[c.group]) {
+            for (var gi = 0; gi < sectionGroups.length; gi++) {
+                if (sectionGroups[gi].id === c.group) {
+                    out.push({ type: "group", id: c.group, title: sectionGroups[gi].title });
+                    emittedGroups[c.group] = true;
+                    break;
+                }
+            }
+        }
 
         if (isDisplayControl(c)) {
             if (!displayGroup) {
@@ -82,7 +93,7 @@ function buildRows(section) {
 
         var base = _groupBase(c);
         if (!base) {
-            out.push({ type: "control", control: c });
+            out.push({ type: "control", control: c, group: emittedGroups[c.group] ? c.group : "" });
             continue;
         }
 

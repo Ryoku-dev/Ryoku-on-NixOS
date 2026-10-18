@@ -37,6 +37,13 @@ export interface PromptImage {
   data: string;
   mimeType: string;
 }
+export interface HandoffInput {
+  askId: string;
+  question: string;
+  answer: string;
+  run: boolean;
+}
+
 
 export type BannerState = "starting" | "ready" | "busy" | "dead" | "";
 
@@ -64,11 +71,15 @@ export interface WsOut {
   stopReason?: string;
   models?: ModelInfo[];
   current?: string;
+  pick?: string;
+  pickUnavailable?: boolean;
   agent?: string;
   prowl?: "active" | "pending";
   reason?: string;
   commands?: CommandInfo[];
   sessionId?: string;
+  askId?: string;
+  answer?: string;
   size?: number;
   used?: number;
   sessions?: SessionMeta[];
@@ -77,7 +88,8 @@ export interface WsOut {
 }
 
 export type WsIn =
-  | { type: "user"; text: string; images?: PromptImage[]; quick?: boolean }
+  | { type: "user"; text: string; images?: PromptImage[] }
+  | ({ type: "handoff" } & HandoffInput)
   | { type: "cancel" }
   | { type: "new" }
   | { type: "history" }

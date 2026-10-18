@@ -146,6 +146,11 @@ require_jq() {
 # (width/height 0), while a user-disabled one is removed from the layout and so
 # also reports 0x0. This is stable across Hyprland versions and leaves a sleeping
 # (DPMS-off) panel, which keeps its mode, enabled.
+#
+# FALLBACK is the placeholder Hyprland creates when no real output is enabled
+# (the internal panel saved as disabled and the external monitor unplugged). It
+# is not a display: counting it made the saved layout look unmatched, so the
+# panel was never re-enabled and the screen stayed black.
 monitors_json() {
   local raw
   if [[ -n ${RYOKU_MONITOR_JSON:-} ]]; then
@@ -153,7 +158,7 @@ monitors_json() {
   else
     raw="$(hyprctl monitors all -j)"
   fi
-  printf '%s' "$raw" | jq -c 'if type == "array" then map(.disabled = (((.width // 0) <= 0) or ((.height // 0) <= 0))) else . end' 2>/dev/null \
+  printf '%s' "$raw" | jq -c 'if type == "array" then map(select(.name != "FALLBACK") | .disabled = (((.width // 0) <= 0) or ((.height // 0) <= 0))) else . end' 2>/dev/null \
     || printf '%s' "$raw"
 }
 
@@ -523,7 +528,8 @@ cmd_list() {
 }
 
 # apply an explicit layout (JSON array of monitor specs on stdin) live, one
-# hl.monitor per entry.
+# hl.monitor per entry. A live rule keeps an output's earlier disabled state
+# unless it says otherwise, so an enabled entry carries disabled = false.
 apply_specs() {
   local args
   while IFS= read -r args; do
@@ -535,7 +541,7 @@ apply_specs() {
     # the Lua string and inject into the hl.monitor(...) call.
     .[] |
     if .disabled then "output = \((.output // "")|@json), disabled = true"
-    else "output = \((.output // "")|@json), mode = \((.mode // "")|@json), position = \((.position // "")|@json), scale = \(.scale)"
+    else "output = \((.output // "")|@json), disabled = false, mode = \((.mode // "")|@json), position = \((.position // "")|@json), scale = \(.scale)"
       + (if (.transform // 0) != 0 then ", transform = \(.transform)" else "" end)
       + (if (.vrr // 0) != 0 then ", vrr = \(.vrr)" else "" end)
       + (if (.mirror // "") != "" and (.mirror // "") != "none" then ", mirror = \(.mirror|@json)" else "" end)
@@ -557,6 +563,39 @@ sanitize_layout() {
         else ((.mode | capture("^(?<w>[0-9]+)x(?<h>[0-9]+)")) as $d
               | .scale = snap(($d.w | tonumber); ($d.h | tonumber); .scale))
         end)'
+}
+
+# Keep the saved disabled state as the preference, but never apply it when every
+# output the layout enables is unplugged. The generated config is rebuilt again
+# on monitor add/remove, so the fallback panel returns to disabled as soon as a
+# configured enabled output is connected.
+# A disabled stanza may carry no geometry, so the fallback falls back to the
+# panel's preferred mode instead of writing nulls Hyprland rejects.
+ensure_connected_output() {
+  local live
+  live="$(monitors_json)"
+  jq -c --argjson live "$live" '
+    ($live | map(.name)) as $connected
+    | ([.[] |
+        .output as $name |
+        select((($connected | index($name)) != null)
+               and (((.disabled // false) | not))) ] | length) as $enabled
+    | if $enabled > 0 then .
+      else
+        ([to_entries[] |
+          .value.output as $name |
+          select((.value.disabled // false)
+                 and (($connected | index($name)) != null)) |
+          . + { panel: ($name | test("^(eDP|LVDS|DSI)-")) }]
+         | sort_by([if .panel then 0 else 1 end, .key])
+         | .[0].key // null) as $fallback
+        | if $fallback == null then .
+          else .[$fallback] |= (.disabled = false
+                                | .mode = (.mode // "preferred")
+                                | .position = (.position // "auto")
+                                | .scale = (.scale // 1))
+          end
+      end'
 }
 
 # Force a custom resolution the panel does not advertise. The Hub sends a plain
@@ -669,16 +708,19 @@ retire_carried_pins() {
 # apply a layout live and remember it as the implicit applied layout, so the
 # choice (hand-set scale above all) survives a relogin: autoscale recalls it
 # for this display set instead of recomputing from DPI. JSON as $1 or on stdin.
+# The saved preference remains unchanged when the live set needs a temporary
+# fallback output.
 cmd_apply() {
   require_hyprctl
   require_jq
-  local json="${1:-}"
+  local json="${1:-}" effective
   [[ -n $json ]] || json="$(cat)"
   json="$(printf '%s' "$json" | sanitize_layout)"
   json="$(printf '%s' "$json" | expand_custom_modes)"
   json="$(printf '%s' "$json" | with_ids)"
-  printf '%s' "$json" | apply_specs
-  printf '%s' "$json" | write_monitors_explicit
+  effective="$(printf '%s' "$json" | ensure_connected_output)"
+  printf '%s' "$effective" | apply_specs
+  printf '%s' "$effective" | write_monitors_explicit
   mkdir -p "$(dirname "$applied_layout")"
   printf '%s' "$json" | jq '{monitors: .}' >"$applied_layout"
   retire_carried_pins "$json"
@@ -690,7 +732,7 @@ cmd_apply() {
 cmd_save() {
   require_hyprctl
   require_jq
-  local name="${1:-}" json="${2:-}"
+  local name="${1:-}" json="${2:-}" effective
   [[ -n $name ]] || { echo "ryoku-monitor: save needs a profile name" >&2; return 1; }
   [[ -n $json ]] || json="$(cat)"
   json="$(printf '%s' "$json" | sanitize_layout)"
@@ -698,8 +740,9 @@ cmd_save() {
   json="$(printf '%s' "$json" | with_ids)"
   mkdir -p "$monitors_dir"
   printf '%s' "$json" | jq '{monitors: .}' >"$monitors_dir/$name.json"
-  printf '%s' "$json" | apply_specs
-  printf '%s' "$json" | write_monitors_explicit
+  effective="$(printf '%s' "$json" | ensure_connected_output)"
+  printf '%s' "$effective" | apply_specs
+  printf '%s' "$effective" | write_monitors_explicit
   retire_carried_pins "$json"
   echo "ryoku-monitor: saved profile $name"
 }
@@ -767,7 +810,7 @@ matching_profile() {
 # shared by named-profile load and the implicit applied-layout recall.
 load_layout_file() {
   local file="$1" resolved
-  resolved="$(resolve_layout "$(monitors_json)" "$file" | jq -c '.monitors' | sanitize_layout)"
+  resolved="$(resolve_layout "$(monitors_json)" "$file" | jq -c '.monitors' | sanitize_layout | ensure_connected_output)"
   printf '%s' "$resolved" | apply_specs
   printf '%s' "$resolved" | write_monitors_explicit
 }

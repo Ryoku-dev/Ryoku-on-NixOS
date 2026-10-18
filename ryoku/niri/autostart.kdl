@@ -48,6 +48,10 @@ spawn-sh-at-startup "command -v ryoku-power >/dev/null 2>&1 && ryoku-power apply
 spawn-sh-at-startup "command -v ryoku-hub >/dev/null 2>&1 && ryoku-hub lighting apply"
 spawn-sh-at-startup "command -v ryoku-mic >/dev/null 2>&1 && ryoku-mic"
 
+// Key sounds: the optional engine reads the keyboard directly and adds nothing
+// to niri's own workload. A no-op until Window Manager > Behaviour installs it.
+spawn-sh-at-startup "command -v ryoku-keysounds >/dev/null 2>&1 && ! pgrep -x ryoku-keysounds >/dev/null 2>&1 && ryoku-keysounds"
+
 // A touchpad locked off with the FN key stays off across logins (the lock lives
 // in the generated settings niri reads), so name it once the shell can show a
 // toast; a pad left off is never a mystery. A no-op when the pad is on.

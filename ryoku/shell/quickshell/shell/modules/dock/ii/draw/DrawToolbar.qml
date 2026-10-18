@@ -66,6 +66,7 @@ Rectangle {
     property bool boardOn: false
     property bool spotlightOn: false
     property bool zoomOn: false
+    property bool showZoom: true
     property bool showShare: false
     property bool canShare: root.canClear
 
@@ -599,6 +600,7 @@ Rectangle {
                 onTriggered: root.spotlightToggled()
             }
             GroupButton {
+                visible: root.showZoom
                 symbol: "zoom_in"
                 active: root.zoomOn
                 tooltipText: Translation.tr("Zoom — magnify around the pointer")

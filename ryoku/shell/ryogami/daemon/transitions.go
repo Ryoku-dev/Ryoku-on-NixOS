@@ -365,7 +365,7 @@ type transitionPrefs struct {
 }
 
 func readTransitionPrefs() transitionPrefs {
-	out := transitionPrefs{Enabled: true, Shader: "random", DurationMs: 600}
+	out := transitionPrefs{Enabled: true, Shader: "random", DurationMs: 900}
 	if v, ok := settingValue("transition.enabled").(bool); ok {
 		out.Enabled = v
 	}

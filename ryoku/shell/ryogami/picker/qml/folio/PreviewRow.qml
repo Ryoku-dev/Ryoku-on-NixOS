@@ -32,7 +32,7 @@ Item {
     }
     readonly property real _cycle: {
         var d = Number(Settings.value("transition.durationMs"));
-        return Math.max(0.8, Math.min(5, (isNaN(d) || d <= 0 ? 2200 : d) / 1000));
+        return Math.max(0.8, Math.min(5, (isNaN(d) || d <= 0 ? 900 : d) / 1000));
     }
 
     property real _progress: 0

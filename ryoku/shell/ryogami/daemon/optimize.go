@@ -40,6 +40,7 @@ type Optimizer struct {
 	wallDir  string
 	videoDir string
 	emit     func(event string, data map[string]interface{})
+	repoint  func(oldPath, newPath string)
 
 	mu   sync.Mutex
 	jobs map[string]*jobState
@@ -273,6 +274,9 @@ func (o *Optimizer) optimizeOne(ctx context.Context, src string, quality int, re
 	if err := os.Rename(tmp, final); err != nil {
 		os.Remove(tmp)
 		return "fail"
+	}
+	if o.repoint != nil {
+		o.repoint(src, final)
 	}
 	return "ok"
 }

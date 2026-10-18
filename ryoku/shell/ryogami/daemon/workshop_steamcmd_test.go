@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSteamcmdArgs(t *testing.T) {
@@ -63,5 +67,74 @@ func TestIsAuthError(t *testing.T) {
 	}
 	if isAuthError("Success! Downloaded item.") {
 		t.Fatal("success line should not be auth error")
+	}
+}
+
+func setWorkshopDownloadTimeouts(t *testing.T, stall, overall time.Duration) {
+	t.Helper()
+	oldStall := workshopDownloadStallTimeout
+	oldOverall := workshopDownloadOverallTimeout
+	workshopDownloadStallTimeout = stall
+	workshopDownloadOverallTimeout = overall
+	t.Cleanup(func() {
+		workshopDownloadStallTimeout = oldStall
+		workshopDownloadOverallTimeout = oldOverall
+	})
+}
+
+func workshopTerminalEvent(t *testing.T, ch chan string) map[string]interface{} {
+	t.Helper()
+	var terminal map[string]interface{}
+	count := 0
+	for _, ev := range drainEvents(ch) {
+		if ev.Event != "ryogami.workshop.download" {
+			continue
+		}
+		var data map[string]interface{}
+		if err := json.Unmarshal(ev.Data, &data); err != nil {
+			t.Fatal(err)
+		}
+		if data["status"] != "downloading" {
+			terminal = data
+			count++
+		}
+	}
+	if terminal == nil {
+		t.Fatal("Workshop download emitted no terminal event")
+	}
+	if count != 1 {
+		t.Fatalf("Workshop download emitted %d terminal events", count)
+	}
+	return terminal
+}
+
+func TestSteamcmdWorkshopFailureExplainsOwnershipAndLogin(t *testing.T) {
+	d := newSettingsDaemon(t)
+	ch := d.events.subscribe()
+	defer d.events.unsubscribe(ch)
+	w := &workshopLib{d: d}
+	setWorkshopDownloadTimeouts(t, time.Second, 2*time.Second)
+
+	oldCommand := steamcmdCommandContext
+	steamcmdCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c",
+			"printf '%s\n' 'ERROR! Download item 1 failed (Failure).' >&2; exit 1")
+	}
+	t.Cleanup(func() { steamcmdCommandContext = oldCommand })
+
+	w.runDownload("1", true)
+	event := workshopTerminalEvent(t, ch)
+	if event["status"] != "auth_error" {
+		t.Fatalf("status = %v, want auth_error", event["status"])
+	}
+	message, _ := event["message"].(string)
+	for _, want := range []string{
+		"owns Wallpaper Engine (app " + workshopAppID + ")",
+		"Set your Steam username in the picker's settings",
+		"steamcmd +login <your-steam-username> +quit",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("message %q missing %q", message, want)
+		}
 	}
 }

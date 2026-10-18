@@ -107,3 +107,17 @@ func TestMemoryEntriesEmptyWhenOnlyFence(t *testing.T) {
 		t.Fatalf("expected no learned entries, got %q", got)
 	}
 }
+
+func TestMemoryReportNotesMissingSQLite(t *testing.T) {
+	seedHermes(t, map[string]string{"state.db": "present"})
+	t.Setenv("PATH", t.TempDir())
+
+	rep := MemoryReportNow()
+	const want = "session metadata unavailable: sqlite3 is not installed"
+	if rep.SessionsNote != want {
+		t.Fatalf("sessions note = %q, want %q", rep.SessionsNote, want)
+	}
+	if len(rep.Sessions) != 0 {
+		t.Fatalf("sessions = %+v, want none without sqlite3", rep.Sessions)
+	}
+}

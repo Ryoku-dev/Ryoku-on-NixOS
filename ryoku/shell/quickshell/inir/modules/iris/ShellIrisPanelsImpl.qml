@@ -99,12 +99,22 @@ Item {
         component: IrisStudio {}
     }
 
+    Component {
+        id: irisSettingsOverlayComponent
+        IrisSettingsOverlay {}
+    }
+    Component {
+        id: irisSettingsWindowComponent
+        IrisSettingsWindow {}
+    }
+
     OnDemandPanelLoader {
         identifier: "irisSettings"
         requireEnabledPanel: false
         open: GlobalStates.settingsOverlayOpen || GlobalStates.irisSettingsWarm
         closeGraceMs: IrisStyle.settleDuration + 120
-        component: IrisSettings {}
+        component: String(Config.options?.iris?.appearance?.settingsHost ?? "overlay") === "window"
+            ? irisSettingsWindowComponent : irisSettingsOverlayComponent
     }
 
     PanelLoader {

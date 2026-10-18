@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Effects
 import Ryoku.Blobs
 import Ryoku.Ui.Singletons
 import shell.services
@@ -15,12 +16,16 @@ Rectangle {
     property string working: ""
     property bool chatBusy: false
     property string chatActivity: ""
+    property bool pendingHandoff: false
     property bool horizontalNavigation: false
     property bool typing: false
     property alias text: input.text
     property alias inputItem: input
     readonly property bool motionAllowed: !Tokens.reduceMotion && !Motion.reduce
     readonly property bool workingActive: phase === "working" || (mode === "chat" && chatBusy)
+    // Green for a readable link only; ordinary typing is never marked wrong.
+    readonly property bool linkOk: mode === "tools"
+        && /^https?:\/\/[^\s\/?#]+(?:[\/?#][^\s]*)?$/i.test(String(text).trim())
 
     signal submitted(string text)
     signal prefixRequested(string mode, string text)
@@ -37,8 +42,12 @@ Rectangle {
     implicitHeight: 72 * s
     radius: Tokens.radius * s
     color: Tokens.paperLift
-    border.width: Tokens.border
-    border.color: input.activeFocus ? Tokens.lineStrong : Tokens.line
+    border.width: workingActive ? 2 * s : input.activeFocus ? 1.5 * s : Tokens.border
+    // Tertiary follows the wallpaper.
+    border.color: workingActive ? Tokens.bone
+        : root.linkOk ? Scheme.tertiary
+        : input.activeFocus ? Qt.alpha(Tokens.bone, 0.72) : Tokens.line
+    scale: input.activeFocus && motionAllowed ? 1.006 : 1
 
     function focusField() {
         Qt.callLater(() => input.forceActiveFocus());
@@ -58,6 +67,21 @@ Rectangle {
         interval: 600
         onTriggered: root.typing = false
     }
+    RectangularShadow {
+        anchors.fill: parent
+        z: -1
+        radius: root.radius
+        blur: 8 * root.s
+        spread: 1.5 * root.s
+        color: Qt.alpha(Tokens.bone, 0.26)
+        opacity: input.activeFocus ? 1 : 0
+        visible: opacity > 0.001
+        Behavior on opacity {
+            enabled: root.motionAllowed
+            NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+        }
+    }
+
 
     BorderBeam {
         anchors.fill: parent
@@ -65,8 +89,11 @@ Rectangle {
         mode: "line"
         radius: root.radius
         color: Tokens.bone
-        strength: 0.9
-        active: root.workingActive
+        strokeWidth: 2.25 * root.s
+        blur: 2.5 * root.s
+        strength: 1
+        duration: 2.6
+        active: root.workingActive && root.motionAllowed
     }
 
     AskOrb {
@@ -178,7 +205,8 @@ Rectangle {
         anchors.left: input.left
         anchors.verticalCenter: parent.verticalCenter
         visible: input.text.length === 0
-        text: root.mode === "chat" ? I18n.tr("Message Rashin…")
+        text: root.mode === "chat" && root.pendingHandoff ? I18n.tr("Continue from the ask…")
+            : root.mode === "chat" ? I18n.tr("Message Rashin…")
             : root.mode === "web" ? I18n.tr("Search the web…")
             : root.mode === "tools" ? I18n.tr("Pick a tool…")
             : I18n.tr("Ask anything…")
@@ -212,5 +240,13 @@ Rectangle {
     Behavior on border.color {
         enabled: root.motionAllowed
         ColorAnimation { duration: Tokens.snap }
+    }
+    Behavior on border.width {
+        enabled: root.motionAllowed
+        NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+    }
+    Behavior on scale {
+        enabled: root.motionAllowed
+        NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
     }
 }

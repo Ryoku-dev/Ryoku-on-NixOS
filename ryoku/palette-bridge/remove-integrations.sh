@@ -72,6 +72,8 @@ if [[ -f "$ownership_file" ]]; then
       spotify:"$config_root"/spicetify/Extensions/ryoku-wallpaper-colors.js|\
       vesktop:"$config_root"/ryoku/user_edits/matugen/templates/vesktop-colors.css|\
       vesktop:"$config_root"/vesktop/themes/midnight-ryoku.theme.css|\
+      vesktop:"$state_root"/vesktop/quickcss.sh|\
+      vesktop:"$state_root"/vesktop/palette.css|\
       zen:"$config_root"/ryoku/user_edits/matugen/templates/zen.css)
         remove_owned_file "$path"
         ;;

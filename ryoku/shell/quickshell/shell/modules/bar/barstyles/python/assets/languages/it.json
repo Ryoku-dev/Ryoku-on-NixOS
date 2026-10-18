@@ -101,6 +101,10 @@
         "title": "Centro notifiche vuoto",
         "desc": "Mostra il gattino che dorme quando il centro delle notifiche è vuoto"
       },
+      "right_click_close": {
+        "title": "Chiudi con clic destro",
+        "desc": "Chiudi una notifica con il clic destro"
+      },
       "test": "Prova notifica",
       "test_desc": "Questa è una notifica di prova"
     },
@@ -148,22 +152,27 @@
       },
       "dim": {
         "title": "Oscura schermo",
-        "desc": "Tempo prima di ridurre la luminosità dello schermo"
+        "desc": "Riduci la luminosità dello schermo prima del blocco"
       },
       "dpms": {
         "title": "Spegnimento schermo (DPMS)",
-        "desc": "Tempo prima che lo schermo si spenga completamente"
+        "desc": "Spegni il segnale dello schermo del monitor"
       },
       "lock": {
         "title": "Blocca sessione",
-        "desc": "Tempo prima di richiedere la password"
+        "desc": "Blocca la sessione dopo un periodo di inattività"
       },
       "suspend": {
         "title": "Sospensione sistema",
-        "desc": "Tempo prima di sospendere il dispositivo"
+        "desc": "Sospendi il sistema in modalità sospensione"
       },
       "hooks": {
         "title": "Azioni automatiche (comandi shell)"
+      },
+      "custom_action_desc": "Azione e comando personalizzati per timeout",
+      "lock_on_sleep": {
+        "title": "Blocca prima della sospensione",
+        "desc": "Blocca la sessione prima che il sistema si sospenda, ad esempio chiudendo il coperchio"
       }
     },
     "welcome": {
@@ -271,7 +280,8 @@
         "save_preset": {
           "title": "Salva preset"
         },
-        "preset_name_placeholder": "Inserisci il nome del preset..."
+        "preset_name_placeholder": "Inserisci il nome del preset...",
+        "screen_desc": "Configura e modifica i widget del desktop"
       }
     },
     "bar": {
@@ -322,17 +332,22 @@
         "title": "Larghezza barra",
         "desc": "Imposta come percentuale la larghezza della barra"
       },
+      "center_by_edges": {
+        "title": "Centra per i bordi",
+        "desc": "Mantiene margini uguali a sinistra e a destra della barra invece di centrare sul modulo centrale",
+        "desc_vertical": "Mantiene margini uguali in alto e in basso della barra invece di centrare sul modulo centrale"
+      },
       "workspaces": {
         "title": "Scegli il numero di spazi di lavoro da visualizzare",
         "desc": "Numero di spazi di lavoro da visualizzare",
         "hide_empty": {
           "title": "Nascondi spazi di lavoro vuoti",
           "desc": "Mostra solo gli spazi di lavoro occupati e quello attivo"
+        },
+        "style": {
+          "title": "Stile",
+          "desc": "Scegli lo stile visivo per gli indicatori degli spazi di lavoro"
         }
-      },
-      "opacity": {
-        "title": "Opacità barra",
-        "desc": "Imposta la percentuale di opacità della barra"
       },
       "style": {
         "title": "Stile barra",
@@ -374,6 +389,201 @@
         "show_date": {
           "title": "Mostra data",
           "desc": "Mostra il testo della data accanto all'orologio"
+        },
+        "style": {
+          "title": "Stile",
+          "desc": "Scegli lo stile visivo per l'orologio e la data"
+        }
+      },
+      "vis": {
+        "bars": {
+          "title": "Numero di barre",
+          "desc": "Numero di barre di frequenza da visualizzare"
+        },
+        "alignment": {
+          "title": "Allineamento",
+          "desc": "Centra il visualizzatore o allinealo in alto o in basso"
+        },
+        "align": {
+          "center": "Al centro",
+          "top": "In alto",
+          "bottom": "In basso",
+          "left": "A sinistra",
+          "right": "A destra"
+        },
+        "continuous": {
+          "title": "Onda continua",
+          "desc": "Mostra un onda fluida invece di barre discrete"
+        }
+      },
+      "sysmon": {
+        "style": {
+          "title": "Stile del cerchio",
+          "desc": "Aspetto visivo degli anelli di avanzamento",
+          "wave": "Onda",
+          "circle": "Cerchio"
+        },
+        "cpu": {
+          "title": "Uso CPU",
+          "desc": "Mostra l'anello di utilizzo del processore"
+        },
+        "ram": {
+          "title": "Uso memoria",
+          "desc": "Mostra l'anello di utilizzo della RAM"
+        },
+        "temp": {
+          "title": "Temperatura",
+          "desc": "Mostra l'anello della temperatura di sistema"
+        },
+        "disk": {
+          "title": "Uso disco",
+          "desc": "Mostra l'anello di utilizzo dello spazio disco"
+        }
+      },
+      "bat": {
+        "show_percent": {
+          "title": "Mostra percentuale",
+          "desc": "Mostra la percentuale numerica di carica della batteria"
+        },
+        "show_icon": {
+          "title": "Mostra icona",
+          "desc": "Mostra l'icona della batteria o l'indicatore grafico"
+        },
+        "style": {
+          "title": "Stile batteria",
+          "desc": "Scegli l'aspetto visivo dell'indicatore della batteria",
+          "name": {
+            "classic": "Classico",
+            "minimal": "Minimale",
+            "text": "Testo"
+          },
+          "classic": "Pillola con onda a gradiente",
+          "minimal": "Capsula in stile iOS/Android con cappuccio",
+          "text": "Testo e icona puliti senza sfondo"
+        }
+      },
+      "wifi": {
+        "show_icon": {
+          "title": "Mostra icona",
+          "desc": "Mostra l'icona di rete o l'indicatore del segnale"
+        },
+        "show_name": {
+          "title": "Mostra nome",
+          "desc": "Mostra l'SSID di rete o il testo dello stato di connessione"
+        },
+        "style": {
+          "title": "Stile",
+          "desc": "Scegli l'aspetto visivo del modulo di rete",
+          "name": {
+            "button": "Pulsante",
+            "text": "Testo"
+          },
+          "button": "Pulsante interattivo con sfondo",
+          "text": "Testo e icona puliti senza sfondo"
+        }
+      },
+      "bt": {
+        "show_icon": {
+          "title": "Mostra icona",
+          "desc": "Mostra l'icona di stato del Bluetooth"
+        },
+        "show_name": {
+          "title": "Mostra nome",
+          "desc": "Mostra il nome del dispositivo Bluetooth connesso"
+        },
+        "style": {
+          "title": "Stile",
+          "desc": "Scegli l'aspetto visivo del modulo Bluetooth",
+          "name": {
+            "button": "Pulsante",
+            "text": "Testo"
+          },
+          "button": "Pulsante interattivo con sfondo",
+          "text": "Testo e icona puliti senza sfondo"
+        }
+      },
+      "vol": {
+        "show_icon": {
+          "title": "Mostra icona",
+          "desc": "Mostra l'icona dell'altoparlante del volume"
+        },
+        "show_percent": {
+          "title": "Mostra percentuale",
+          "desc": "Mostra la percentuale numerica del volume"
+        },
+        "style": {
+          "title": "Stile",
+          "desc": "Scegli l'aspetto visivo del modulo volume",
+          "name": {
+            "button": "Pulsante",
+            "text": "Testo"
+          },
+          "button": "Pulsante interattivo con sfondo",
+          "text": "Testo e icona puliti senza sfondo"
+        }
+      },
+      "kb": {
+        "show_icon": {
+          "title": "Mostra icona",
+          "desc": "Mostra l'icona del layout della tastiera"
+        },
+        "style": {
+          "title": "Stile",
+          "desc": "Scegli l'aspetto visivo del modulo tastiera",
+          "name": {
+            "button": "Pulsante",
+            "text": "Testo"
+          },
+          "button": "Pulsante interattivo con sfondo",
+          "text": "Testo e icona puliti senza sfondo"
+        }
+      },
+      "media": {
+        "info_mode": {
+          "title": "Secondary info",
+          "desc": "Choose whether to show the song duration or its author",
+          "duration": "Duration",
+          "author": "Author"
+        },
+        "width": {
+          "title": "Width",
+          "desc": "Width of the song title area"
+        },
+        "show_icon": {
+          "title": "Mostra icona",
+          "desc": "Mostra la copertina dell'album o l'icona musicale"
+        },
+        "show_controls": {
+          "title": "Mostra controlli",
+          "desc": "Mostra i pulsanti precedente, riproduci e successivo"
+        },
+        "preview": {
+          "title": "Titolo del brano",
+          "author": "Song author"
+        }
+      },
+      "thickness": {
+        "title": "Spessore della barra",
+        "desc": "Cambia lo spessore della barra, i moduli si adattano"
+      },
+      "menu": {
+        "show_settings": {
+          "title": "Mostra icona impostazioni",
+          "desc": "Mostra il pulsante che apre le impostazioni"
+        },
+        "show_launcher": {
+          "title": "Mostra icona del launcher",
+          "desc": "Mostra il pulsante di ricerca che apre il launcher"
+        },
+        "style": {
+          "title": "Stile",
+          "desc": "Scegli l'aspetto visivo del modulo menu",
+          "name": {
+            "button": "Pulsante",
+            "icon": "Icona"
+          },
+          "button": "Pulsanti con icona interattivi e sfondo",
+          "icon": "Icone pulite senza sfondo"
         }
       }
     },
@@ -398,7 +608,20 @@
         "desc": "Cartella in cui cercare gli sfondi",
         "select_dir": "Seleziona cartella...",
         "select_wallpaper": "Seleziona sfondo",
-        "no_wallpaper_selected": "Nessuno sfondo selezionato"
+        "no_wallpaper_selected": "Nessuno sfondo selezionato",
+        "select": "Sfondo"
+      },
+      "element_opacity": {
+        "title": "Opacità degli elementi",
+        "desc": "Opacità di barra, dock, widget e di ogni altro elemento della shell"
+      },
+      "blur_background": {
+        "title": "Aggiungi uno sfondo sfocato del wallpaper",
+        "desc": "Sfoca il wallpaper dietro ogni elemento che usa la trasparenza",
+        "style": {
+          "blur": "Sfocatura",
+          "liquid": "Vetro liquido"
+        }
       }
     },
     "file_picker": {
@@ -413,7 +636,8 @@
         "pictures": "Immagini",
         "music": "Musica",
         "documents": "Documenti"
-      }
+      },
+      "done": "Fatto"
     },
     "font_picker": {
       "title": "Seleziona un font",
@@ -606,10 +830,6 @@
         "done": "Fatto",
         "empty": "Nessuna applicazione trovata"
       },
-      "opacity": {
-        "title": "Opacità dock",
-        "desc": "Regola il livello di opacità dello sfondo della dock"
-      },
       "override_bounds": {
         "title": "Ignora correzione dimensioni fuori schermo",
         "desc": "Mantieni dimensione personalizzata anche se la dock supera i limiti dello schermo"
@@ -641,11 +861,40 @@
       "smart_autohide": {
         "title": "Nascondi automaticamente intelligente",
         "desc": "Nascondi il dock solo quando ci sono finestre aperte, mantienilo visibile sul desktop"
+      },
+      "focus_running": {
+        "title": "Attiva finestra esistente",
+        "desc": "Facendo clic sull'icona di un'app si attiva la finestra aperta anziché avviarne una nuova istanza"
+      },
+      "show_running_indicators": {
+        "title": "Indicatori di esecuzione",
+        "desc": "Mostra indicatori a punto o barra sulle icone delle applicazioni aperte"
+      },
+      "show_running_apps": {
+        "title": "Mostra applicazioni aperte",
+        "desc": "Mostra le applicazioni aperte non bloccate nella dock"
+      },
+      "running_scope": {
+        "title": "Ambito finestre attive",
+        "desc": "Filtra le finestre in esecuzione visualizzate e controllate dalla dock",
+        "auto": "Automatico (predefinito del compositor)",
+        "all": "Tutti gli spazi di lavoro e schermi",
+        "output": "Solo schermo corrente",
+        "workspace": "Solo spazio di lavoro attivo"
+      },
+      "window_menu": {
+        "untitled": "Untitled"
       }
     },
     "lyrics_picker": {
       "title": "Seleziona file dei testi",
       "no_lyrics_selected": "Nessun file di testo selezionato"
+    },
+    "settings": "Impostazioni",
+    "search": {
+      "placeholder": "Cerca impostazioni...",
+      "prompt": "Digita per cercare impostazioni...",
+      "no_results": "Nessuna impostazione trovata"
     }
   },
   "sysnotif": {
@@ -679,7 +928,9 @@
     "placeholder": "Inizia con > per un comando...",
     "tab_applications": "Applicazioni",
     "tab_files": "File",
-    "placeholder_files": "Cerca file o inserisci percorso..."
+    "placeholder_files": "Cerca file o inserisci percorso...",
+    "tab_emojis": "Emoji",
+    "placeholder_emojis": "Cerca emoji o inserisci parola chiave..."
   },
   "calendar": {
     "loading": "Caricamento...",
@@ -717,6 +968,11 @@
       "authenticating": "Autenticazione...",
       "enter_pin": "Inserisci il PIN"
     },
+    "fingerprint": {
+      "ready": "Tocca il sensore",
+      "not_recognized": "Impronta non riconosciuta",
+      "recognized": "Impronta riconosciuta"
+    },
     "power": {
       "suspend": "Sospendi",
       "reboot": "Riavvia",
@@ -737,6 +993,26 @@
     "eq": {
       "apply": "Applica",
       "saved": "Salvati"
+    },
+    "audio": {
+      "title": "Audio",
+      "balance": "Bilanciamento canali",
+      "reset": "Ripristina",
+      "centered": "Centrato",
+      "left_slightly_favored": "Leggermente a sinistra",
+      "right_slightly_favored": "Leggermente a destra",
+      "left_only": "Solo sinistra",
+      "right_only": "Solo destra",
+      "left_favored": "Prevalenza a sinistra",
+      "right_favored": "Prevalenza a destra",
+      "test": "Prova",
+      "stop_test": "Ferma",
+      "mono": "Audio mono",
+      "swap": "Scambia S/D",
+      "dynamic_range": "Gamma dinamica",
+      "off": "Disattivato",
+      "balanced": "Bilanciato",
+      "night": "Notte"
     },
     "presets": {
       "flat": "Piatto",
@@ -775,7 +1051,8 @@
     },
     "actions": {
       "unpair": "Scollega",
-      "scan": "Scansiona"
+      "scan": "Scansiona",
+      "sign_in": "Accedi"
     }
   },
   "notifications": {
@@ -841,6 +1118,46 @@
         "pomo_skipped_focus_body": "Sessione di concentrazione saltata. Facciamo una pausa.",
         "pomo_skipped_break_body": "Pausa saltata. Ritorniamo a concentrarci."
       }
+    },
+    "draw": {
+      "notification": {
+        "app_name": "DrawAction",
+        "saved_title": "Disegno salvato",
+        "copied_title": "Disegno copiato",
+        "copied_body": "Disegno copiato negli appunti",
+        "failed_title": "Esportazione non riuscita",
+        "failed_body": "Impossibile salvare il disegno"
+      }
+    },
+    "notes": {
+      "title": "Note",
+      "add_note": "Aggiungi nota",
+      "new_note_title": "Nuova nota",
+      "edit_note": "Modifica",
+      "preview_note": "Anteprima markdown",
+      "delete_selected": "Elimina selezionate ({count})",
+      "no_notes": "Nessuna nota presente. Fai clic su «Aggiungi nota».",
+      "search_placeholder": "Cerca note...",
+      "title_placeholder": "Titolo della nota...",
+      "content_placeholder": "Scrivi la nota in markdown...",
+      "back": "Indietro",
+      "save": "Fatto",
+      "cancel": "Annulla",
+      "delete": "Elimina",
+      "select_all": "Seleziona tutto",
+      "deselect_all": "Deseleziona",
+      "selected_count": "{count} selezionate",
+      "pinned": "Fissati",
+      "recent": "Recenti",
+      "pin": "Fissa",
+      "unpin": "Sblocca"
+    },
+    "tabs": {
+      "draw": "Disegno",
+      "system": "Sistema",
+      "timer": "Timer",
+      "notes": "Note",
+      "tab": "Scheda"
     }
   },
   "screenshot": {
@@ -1037,7 +1354,8 @@
       "user": "Utente",
       "usage": "Utilizzo",
       "battery": "Batteria",
-      "github": "Github"
+      "github": "Github",
+      "time": "Ora"
     },
     "variants": {
       "digital": "Digitale",
@@ -1054,7 +1372,8 @@
       "material": "Material",
       "materialAnalog": "Material analogico",
       "lumen": "Lumen",
-      "lyrics": "Testo"
+      "lyrics": "Testo",
+      "simpleLyrics": "Testo semplice"
     },
     "presets": {
       "minimal": {
@@ -1080,6 +1399,15 @@
       "fetch_error": "Impossibile recuperare l'utente @{user}",
       "enter_username": "Inserisci un nome utente GitHub",
       "no_contributions": "Nessun contributo trovato"
+    },
+    "settings": {
+      "lyricsLines": "Righe",
+      "lyricsAlignment": "Allineamento"
+    },
+    "align": {
+      "left": "Sinistra",
+      "center": "Centro",
+      "right": "Destra"
     }
   },
   "cli": {
@@ -1245,7 +1573,11 @@
     "deploy": {
       "configuring_sddm": "Configurazione del display manager SDDM...",
       "disabling_dm": "-> Disabilitazione del display manager in conflitto: {dm}",
-      "sddm_success": "-> Tema SDDM Material You installato e servizio abilitato [ OK ]"
+      "sddm_success": "-> Tema SDDM Material You installato e servizio abilitato [ OK ]",
+      "sddm_no_wayland_compositor": "Nessun compositor Wayland supportato per la schermata di accesso (kwin_wayland/weston) trovato, uso di X11 per SDDM.",
+      "sddm_no_xorg": "Xorg non trovato, uso di {compositor} per SDDM.",
+      "sddm_no_backend": "Né Xorg né un compositor Wayland supportato per la schermata di accesso (kwin_wayland/weston) sono stati trovati in /usr/local/bin, /usr/bin o /bin.",
+      "sddm_skipped": "Configurazione di SDDM saltata: nessun server grafico o compositor di accesso utilizzabile trovato. Il display manager attuale resta invariato."
     }
   },
   "translator": {

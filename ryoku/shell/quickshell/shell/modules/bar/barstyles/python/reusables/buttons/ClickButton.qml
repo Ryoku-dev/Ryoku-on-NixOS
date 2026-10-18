@@ -51,13 +51,31 @@ Item {
 
     property bool isHoveredOrHighlighted: btnMa.containsMouse || root.action_highlight
 
+    property real bgOpacity: 1.0
+    property real glassTintScale: 1.0
+    readonly property color displayTextColor: (glass.active && (0.2126 * textColor.r + 0.7152 * textColor.g + 0.0722 * textColor.b) < 0.5) ? ThemeBackend.text : textColor
+    function withBgOpacity(c) { return Qt.rgba(c.r, c.g, c.b, c.a * root.bgOpacity); }
+
     Rectangle {
         id: btnShape
         anchors.fill: parent
         radius: root.cornerRadius
-        clip: true
-        color: (btnMa.pressed && root.enabled) ? Qt.darker(root.accentColor, 1.28) : (root.isHoveredOrHighlighted ? Qt.darker(root.accentColor, 1.14) : root.accentColor)
+        clip: !glass.active
+        color: glass.active ? "transparent" : root.withBgOpacity((btnMa.pressed && root.enabled) ? Qt.darker(root.accentColor, 1.28) : (root.isHoveredOrHighlighted ? Qt.darker(root.accentColor, 1.14) : root.accentColor))
         opacity: 1.0
+
+        GlassFill {
+            id: glass
+            anchors.fill: parent
+            shadow: 1
+            press: (btnMa.pressed && root.enabled) ? 1 : (root.isHoveredOrHighlighted ? 0.25 : 0)
+            pulse: Math.min(1, root.flashOpacity * 2.5)
+            Behavior on press { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+            radius: root.cornerRadius
+            tintColor: root.accentColor
+            tintAmount: ((btnMa.pressed && root.enabled) ? 0.55 : (root.isHoveredOrHighlighted ? 0.42 : 0.3)) * root.bgOpacity * root.glassTintScale
+            Behavior on tintAmount { NumberAnimation { duration: 180 } }
+        }
 
         Behavior on color { ColorAnimation { duration: 180 } }
         Behavior on opacity { NumberAnimation { duration: 180 } }
@@ -73,12 +91,15 @@ Item {
 
         RowLayout {
             id: mainRow
+            layoutDirection: I18n.layoutDirection
+            x: {
+                if (root.contentAlignment === Qt.AlignHCenter) {
+                    return Math.round((parent.width - width) / 2);
+                }
+                let alignLeft = (root.contentAlignment === Qt.AlignLeft && !I18n.rtl) || (root.contentAlignment === Qt.AlignRight && I18n.rtl);
+                return alignLeft ? root.horizontalPadding : (parent.width - width - root.horizontalPadding);
+            }
             anchors.verticalCenter: parent.verticalCenter
-            anchors.horizontalCenter: root.contentAlignment === Qt.AlignHCenter ? parent.horizontalCenter : undefined
-            anchors.left: root.contentAlignment === Qt.AlignLeft ? parent.left : undefined
-            anchors.leftMargin: root.contentAlignment === Qt.AlignLeft ? root.horizontalPadding : 0
-            anchors.right: root.contentAlignment === Qt.AlignRight ? parent.right : undefined
-            anchors.rightMargin: root.contentAlignment === Qt.AlignRight ? root.horizontalPadding : 0
             spacing: 8
 
             Text {
@@ -87,7 +108,7 @@ Item {
                 text: root.buttonIcon
                 font.family: root.iconFont
                 font.pixelSize: root.iconFontSize
-                color: root.textColor
+                color: root.displayTextColor
                 Layout.alignment: Qt.AlignVCenter
             }
 
@@ -104,7 +125,8 @@ Item {
                     font.family: ThemeBackend.fontFamily
                     font.weight: Font.Bold
                     font.pixelSize: root.textFontSize
-                    color: root.textColor
+                    color: root.displayTextColor
+                    horizontalAlignment: root.contentAlignment === Qt.AlignHCenter ? Text.AlignHCenter : I18n.textAlignment
                     elide: Text.ElideRight
                     Layout.maximumWidth: Math.ceil(root.maxTextWidth > 0 ? Math.min(root.maxTextWidth, root.availableTextWidth) : root.availableTextWidth) + 2
                 }
@@ -113,9 +135,10 @@ Item {
                     id: subLabel
                     visible: root.subText !== ""
                     text: root.subText
-                    font.family: "JetBrains Mono"
+                    font.family: ThemeBackend.fontFamily
                     font.pixelSize: Math.max(10, root.textFontSize - 6)
-                    color: root.textColor
+                    color: root.displayTextColor
+                    horizontalAlignment: root.contentAlignment === Qt.AlignHCenter ? Text.AlignHCenter : I18n.textAlignment
                     opacity: 0.75
                     elide: Text.ElideRight
                     Layout.maximumWidth: Math.ceil(root.maxTextWidth > 0 ? Math.min(root.maxTextWidth, root.availableTextWidth) : root.availableTextWidth) + 2
@@ -128,6 +151,7 @@ Item {
             radius: root.cornerRadius
             color: "#ffffff"
             opacity: root.flashOpacity
+            visible: !glass.active
             PropertyAnimation on opacity { id: btnFlashAnim; to: 0; duration: 350; easing.type: Easing.OutExpo }
         }
     }

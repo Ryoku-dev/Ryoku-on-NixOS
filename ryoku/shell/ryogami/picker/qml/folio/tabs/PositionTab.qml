@@ -117,6 +117,28 @@ FolioTabData {
             ]
         },
         {
+            title: I18n.tr("Duel"),
+            subtitle: "",
+            controls: [
+                { id: "components.wallpaperSelector.duelStageX",
+                  key: "components.wallpaperSelector.duelStageX",
+                  kind: "number",
+                  label: I18n.tr("Horizontal offset"),
+                  help: I18n.tr("Move the picker left or right by a percentage of half the screen width. Positive values move it right."),
+                  unit: I18n.tr("%"),
+                  perMode: true,
+                  search: ["components.wallpaperSelector.duelStageX", "duel", "horizontal", "offset", "number"] },
+                { id: "components.wallpaperSelector.duelStageY",
+                  key: "components.wallpaperSelector.duelStageY",
+                  kind: "number",
+                  label: I18n.tr("Vertical offset"),
+                  help: I18n.tr("Move the picker up or down by a percentage of half the screen height. Positive values move it down."),
+                  unit: I18n.tr("%"),
+                  perMode: true,
+                  search: ["components.wallpaperSelector.duelStageY", "duel", "vertical", "offset", "number"] }
+            ]
+        },
+        {
             title: I18n.tr("Search panel"),
             subtitle: "",
             controls: [

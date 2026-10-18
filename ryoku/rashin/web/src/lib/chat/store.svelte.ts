@@ -64,6 +64,10 @@ export class ChatStore {
     this.post({ type: "user", text: trimmed, images: images.length ? images : undefined });
     this.setDraft("");
   }
+  handoff(askId: string, question: string, answer: string, run: boolean): void {
+    this.post({ type: "handoff", askId, question, answer, run });
+  }
+
 
   setDraft(text: string): void {
     this.draft = text;
@@ -88,7 +92,7 @@ export class ChatStore {
   }
 
   setModel(id: string): void {
-    if (id && id !== this.state.currentModel) this.post({ type: "set_model", modelId: id });
+    if (id && (id !== this.state.currentModel || id !== this.state.pick)) this.post({ type: "set_model", modelId: id });
   }
 
   setApprovals(mode: ApprovalsMode): void {

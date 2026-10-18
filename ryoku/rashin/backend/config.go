@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 type Config struct {
@@ -155,6 +158,8 @@ func defaultConfig() Config {
 	return c
 }
 
+var configMu sync.Mutex
+
 func LoadConfig() Config {
 	c := defaultConfig()
 	b, err := os.ReadFile(ConfigPath())
@@ -177,23 +182,88 @@ func LoadConfig() Config {
 }
 
 func SaveConfig(c Config) error {
+	return withConfigWriteLock(func(path string) error {
+		return saveConfigAt(path, c)
+	})
+}
+
+// updateConfig keeps load-modify-save changes from overwriting one another.
+// The file lock extends the same guarantee to CLI and daemon processes.
+func updateConfig(update func(*Config) error) error {
+	return withConfigWriteLock(func(path string) error {
+		c := LoadConfig()
+		if err := update(&c); err != nil {
+			return err
+		}
+		return saveConfigAt(path, c)
+	})
+}
+
+func configLockPath() string {
+	base := os.Getenv("RYOKU_STATE_PATH")
+	if base == "" {
+		base = os.Getenv("XDG_STATE_HOME")
+		if base == "" {
+			base = filepath.Join(home(), ".local", "state")
+		}
+		base = filepath.Join(base, "ryoku")
+	}
+	return filepath.Join(base, "rashin-config.lock")
+}
+
+func withConfigWriteLock(write func(path string) error) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	path := ConfigPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	lockPath := configLockPath()
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	return write(path)
+}
+
+func saveConfigAt(path string, c Config) error {
 	if strings.TrimSpace(c.Quick.Route) == "" {
 		c.Quick.Route = "auto"
 	} else {
 		c.Quick.Route = strings.ToLower(strings.TrimSpace(c.Quick.Route))
 	}
 	c.normalizeProwlHarnesses()
-	p := ConfigPath()
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(c, "", "  ")
+	body, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o644); err != nil {
+	tmp, err := os.CreateTemp(
+		filepath.Dir(path),
+		"."+filepath.Base(path)+"."+strconv.Itoa(os.Getpid())+".*.tmp",
+	)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, p)
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(append(body, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }

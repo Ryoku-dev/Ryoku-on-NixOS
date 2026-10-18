@@ -200,10 +200,16 @@ Singleton {
     // Open a surface on the focused monitor: the menu global-shortcut handlers
     // call this so a keybind lands on the active screen, matching the old
     // `ryoku-shell menu <id>` which routed to the daemon's activeMonitor.
-    function requestSurfaceActive(id, screenName) {
+    //
+    // context travels to the surface untouched, the way requestSurface already
+    // carries the keyring's prompt id. A caller that has a trigger on screen
+    // passes { ownerRect: <global rect> } so the surface opens welded to it
+    // instead of taking its config anchor: that is what lets a bar style open a
+    // shell-owned menu under its own widget rather than in a screen corner.
+    function requestSurfaceActive(id, screenName, context) {
         const monitor = typeof screenName === "string" && screenName !== ""
             ? screenName : Wm.focusedOutput;
-        root.requestSurface(id, monitor, undefined);
+        root.requestSurface(id, monitor, context);
     }
 
     // Keyboard-return bounce bridge. A dismissed keyboard surface (the per-monitor

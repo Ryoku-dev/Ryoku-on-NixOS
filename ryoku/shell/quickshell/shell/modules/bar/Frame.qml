@@ -467,7 +467,13 @@ Scope {
                             Quickshell.execDetached(["ryogami", "wallpaper", "ui"]);
                             return;
                         }
-                        frameMenus.openSurface(id, null, mon, ctx);
+                        // A request that carries a trigger opens welded to it,
+                        // the same as a rail widget's own menuRequested above.
+                        // Without one openSurface falls back to the record's
+                        // config anchor, which a non-sumi bar folds into a
+                        // screen corner.
+                        const anchorRect = ctx && ctx.ownerRect ? ctx.ownerRect : null;
+                        frameMenus.openSurface(id, anchorRect, mon, ctx);
                     }
                     function onSurfaceClosed(id, mon) { frameMenus.closeSurface(id, mon); }
                     function onKeyringPromptChanged(pid) { frameMenus.retireKeyringPrompt(pid); }

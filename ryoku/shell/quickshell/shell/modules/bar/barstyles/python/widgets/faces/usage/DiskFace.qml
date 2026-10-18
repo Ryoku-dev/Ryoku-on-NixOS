@@ -40,13 +40,6 @@ Item {
         }
     }
 
-    property real wavePhase: waveClock.phase
-    WaveClock {
-        id: waveClock
-        duration: 1800
-        running: root.visible
-    }
-
     property real rawDisk: isNaN(SysData.diskPercent) ? 0.0 : SysData.diskPercent / 100.0
     property real diskUsagePercent: rawDisk
     Behavior on diskUsagePercent { enabled: root.visible; NumberAnimation { duration: 800; easing.type: Easing.OutQuint } }
@@ -56,14 +49,15 @@ Item {
 
     SystemUsageCard {
         anchors.fill: parent
+        blurred: !root.ryokuBare
+        bgOpacity: ThemeBackend.elementOpacity
         value: root.diskUsagePercent
         colorBase: root.ryokuBare ? "transparent" : ThemeBackend.surface0
         colorFill: Qt.darker(ThemeBackend.mauve, 1.15)
-        icon: "\uF0A0"
+        icon: String.fromCodePoint(0xF02CA)
         title: root.diskTotalText
         subText: root.diskUsedText
         valueText: Math.round(root.diskUsagePercent * 100) + "%"
-        wavePhase: root.wavePhase
         isLive: root.visible
         compact: root.compactMode
         scaleFunc: Scaler.s

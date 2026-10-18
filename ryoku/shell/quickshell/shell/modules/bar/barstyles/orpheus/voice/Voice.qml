@@ -15,7 +15,7 @@ Item {
 
     property double nowMs: Date.now()
     property double mediaUntil: 0
-    property bool unread: false
+    readonly property bool unread: Notifs.hasUnread
     property string displayState: ""
     property var displayNotice: null
     property real contentPhase: 1
@@ -135,11 +135,8 @@ Item {
     }
     onVisibleChanged: syncAudioClaim()
     onNoticeVersionChanged: {
-        if (newestArrival > 0 && !Notifs.dnd) {
-            unread = scene.cardKey !== "notifications";
-            if (displayState === "notice")
-                recompose();
-        }
+        if (newestArrival > 0 && !Notifs.dnd && displayState === "notice")
+            recompose();
     }
 
     Component.onCompleted: {
@@ -165,15 +162,6 @@ Item {
 
         function onPlayerChanged() {
             root.armMedia();
-        }
-    }
-
-    Connections {
-        target: root.scene
-
-        function onCardKeyChanged() {
-            if (root.scene.cardKey === "notifications")
-                root.unread = false;
         }
     }
 

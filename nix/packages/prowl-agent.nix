@@ -2,17 +2,17 @@
 
 pkgs.buildGoModule {
   pname = "prowl-agent";
-  version = "0.15.6";
+  version = "0.17.2";
 
   src =
     pkgs.fetchFromGitHub {
       owner = "neur0map";
       repo = "prowl-agent";
-      rev = "506e54fb7b049ceea556255205f8acd3ee20ac9e";
-      hash = "sha256-PDEyYPiWYRjwmFwAg9BswhmdTmItYIEC5DxhDJYTznY=";
+      rev = "5ba05eb922ff023e3cbc2b9a3768829179bca980";
+      hash = "sha256-OslMKhH48f0XcfUlZ5DaDWyRmLb+fWM/qnU0p9C+Zyo=";
     };
 
-  vendorHash = "sha256-kacn0Xevq6l6fxVtO2A527vxnH0y9fFDo6qYQRA6XMs=";
+  vendorHash = "sha256-EB+usU80HUIdhzg1MXAj/2uE/bOKqWVyX4A9Xk9NVUs=";
 
   # sqlite-vec includes <sqlite3.h> during CGO compilation.
   #

@@ -1,63 +1,85 @@
 # Rashin
 
 Rashin is Ryoku's optional local assistant system. Press Alt+Space to open its
-bar. The companion console, the `rashin` terminal command, and the knowledge
-vault use one local daemon. Prowl is the model gateway and code index underneath,
-so it appears as part of Rashin rather than as a second app.
+bar, or Super+Alt+Space for the companion console. The `rashin` terminal
+command and the knowledge vault use the same local daemon. Prowl is an external
+model gateway, code index, and skill source that can plug into the harnesses
+Rashin runs.
 
-## Two lanes, two purposes
+## Ask, Agent, and Chat
 
-**Ryoku** is the machine lane. The Needle works on this computer with the Ryoku
-vault, shipped `ryoku` skill, this wiki, Prowl's source index, and the selected
-approval mode. Use it to inspect, explain, troubleshoot, or change the machine.
-A session starts in the vault so the harness loads its generated `AGENTS.md` and
-machine contract.
+**Ask** gives quick read-only answers. It appears in the bar's Ask tab, the
+launcher's `\` ask, the console's Ask sheet, and the `rashin` terminal command.
+These surfaces share `rashin-asks.jsonl`, not the Agent transcript. A Prowl
+route can answer quickly with bounded read-only tools, or the selected Agent
+model can answer through a fresh private read-only harness session. Each
+escalated ask gets a new session and never presents an approval. If the request
+needs a change, the answer says the Agent is needed and explains what it would
+do.
 
-**Chat** is a plain conversation with the selected harness. It has no machine
-map, no Needle identity, and no quick path. Its session starts in a
-neutral directory so a repository `AGENTS.md` is not loaded. Use it when you
-want a normal conversation rather than work on Ryoku. The approval setting is
-shared by both lanes.
+**Agent** is the persistent machine-aware conversation. It appears in the bar's
+Agent tab, the pinned bubble, and the console's Agent sheet. Its harness starts
+in the vault and can use the machine map, shipped `ryoku` skill, wiki, code
+index, and the tools allowed by the current approval mode. Use it for changes,
+debugging, and work that needs continuing context.
 
-Each lane keeps its own transcript and session history. Starting or loading a
-session in one lane does not replace the other lane's conversation.
+**Chat** is a plain harness conversation in the console. It has its own
+transcript and sessions, no machine map, and no Needle identity. Starting or
+loading a Chat session does not replace the Agent conversation.
 
-## Quick and Agent in the Ryoku lane
+## Hand an ask to the Agent
 
-**Quick** sends a short question through Prowl's selected route, `auto` by
-default, with a small set of read-only machine tools. It suits explanations and
-lookups. If the question needs broader tools, edits, or a multi-step task, it
-escalates into the Ryoku lane's full agent rather than pretending the work is
-done.
+After Ask answers, **Continue with the agent** adds its question and answer to
+the Agent transcript as a **From Ask** card. The next Agent message continues
+from that context. While Ask is still working, or when the result needs the
+Agent, **Move to the agent** cancels the ask and immediately runs its original
+question as an Agent turn.
 
-**Agent** is the full harness session. It can use the vault, skill, wiki, Prowl,
-and the harness tools allowed by the current approval mode. Use it for changes,
-debugging, or work that must inspect several parts of the machine. Quick and
-Agent write into the same Ryoku transcript, so an escalated answer remains in
-context.
+No Ask reaches Agent by itself. The hand-off is always explicit.
+
+## Models and harnesses
+
+Rashin stores one model pick per harness. A pick made in any surface applies
+to Agent, Chat, every new or loaded session, respawns, and private Ask sessions
+for that harness. Every surface shows the saved pick. **Saved model
+unavailable** means the harness does not offer it right now; Rashin keeps the
+preference and leaves that session on its current model.
+
+The Ask route picker is separate. It offers **Agent model** first, followed by
+available Prowl routes. Changing the Ask route never changes the harness model.
+
+The Agent can run Hermes, Codex through `codex-acp`, Claude Code through
+`claude-code-acp` or `claude-agent-acp`, omp, opencode, or Gemini CLI. **Open
+in terminal** resumes the current session in the harness's own TUI where that
+harness supports it.
 
 ## Prowl inside Rashin
 
-Open the console's **Prowl** section to connect providers and sign-ins, manage
-keys and routing sets, inspect activity, index projects, connect harnesses, and
-install their toolkit. Every harness connected through Rashin uses Prowl's
-`auto` route, so provider and routing changes apply in one place.
+The console's **Prowl** section manages providers and sign-ins, routing sets,
+activity, project indexes, harness connections, and portable skills. Prowl
+remains its own tool even though Rashin hosts this control surface.
+
+**Connect** adds Prowl's `auto` choice to a harness without making it the
+default. **Default to Prowl auto** is a separate switch. `ryoku update` and
+`ryoku-rashin wire` only refresh credentials for harnesses that are already
+connected. They never change a harness default, replace the user's model pick,
+or restart the Agent.
 
 Prowl ships with Ryoku but stays off until Rashin starts. It stops with Rashin
 too. Its project indexes and gateway data remain available for the next start.
 
 ## Approval modes
 
-The labels say what runs without another prompt:
+Approval modes apply to Agent and Chat, not Ask:
 
-- **Ask:** every tool call asks first, including reads.
-- **Reads run:** read-only tools run automatically; writes and commands ask. This
-  is the default.
-- **All run:** every tool call runs automatically, including writes and commands.
-  This is an explicit choice, never the default.
+- **Ask for approval:** every tool call asks first, including reads.
+- **Reads run:** read-only tools run automatically; writes and commands ask.
+  This is the default.
+- **All run:** every tool call runs automatically, including writes and
+  commands. This is an explicit choice, never the default.
 
 Choose the narrowest mode that fits the work. An approval response applies to
-the live request; it does not turn a plain Chat session into the machine lane.
+the live request; it does not turn Chat into the machine-aware Agent.
 
 ## The vault and the Needle
 
@@ -80,10 +102,11 @@ Ask from a terminal with natural language:
 rashin take me to the fastfetch config
 ```
 
-The terminal command uses the Ryoku lane. It can answer directly or return a
+The command uses the same read-only Ask system and history as the bar,
+launcher, and console Ask sheet. It can answer directly or return a
 ready-to-run command plan informed by the vault and current directory. It does
-not execute the proposal by default; you review it and press Enter. The terminal
-surface is useful over SSH and when the desktop bar is not visible.
+not execute the proposal by default; you review it and press Enter. It never
+writes into the Agent conversation.
 
 For service state and maintenance, the daemon command lists its own verbs:
 

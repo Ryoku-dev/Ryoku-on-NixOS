@@ -15,6 +15,7 @@ Item {
     property bool modelMenuOpen: false
     property string draft: ""
     property bool showComposer: true
+    property bool agentSurfaceReported: false
     readonly property bool motionAllowed: active && !Tokens.reduceMotion && !Motion.reduce
 
     signal inputFocusRequested()
@@ -49,14 +50,27 @@ Item {
 
     onActiveChanged: {
         if (active) {
+            if (!agentSurfaceReported) {
+                Needle.agentSurfaceOpened();
+                agentSurfaceReported = true;
+            }
             Needle.noteOpened();
             root.scrollEnd();
             if (showComposer)
                 Qt.callLater(() => composer.forceActiveFocus());
         } else {
+            if (agentSurfaceReported) {
+                Needle.agentSurfaceClosed();
+                agentSurfaceReported = false;
+            }
             Needle.noteClosed();
             modelMenuOpen = false;
         }
+    }
+
+    Component.onDestruction: {
+        if (agentSurfaceReported)
+            Needle.agentSurfaceClosed();
     }
 
     Connections {
@@ -76,13 +90,20 @@ Item {
             Rectangle {
                 id: modelChip
                 anchors.left: parent.left
+                anchors.right: actionButtons.left
+                anchors.rightMargin: Tokens.s2 * root.s
                 anchors.verticalCenter: parent.verticalCenter
-                width: Math.min(parent.width * 0.68, modelLabel.implicitWidth + 54 * root.s)
                 height: 30 * root.s
                 radius: Tokens.radius * root.s
                 color: modelTap.pressed ? Tokens.tint16 : modelHover.hovered ? Tokens.tint10 : Tokens.tint5
                 border.width: Tokens.border
                 border.color: root.modelMenuOpen ? Tokens.bone : Tokens.lineStrong
+                scale: modelTap.pressed && root.motionAllowed ? 0.94
+                    : modelHover.hovered && root.motionAllowed ? 1.025 : 1
+                Behavior on scale {
+                    enabled: root.motionAllowed
+                    NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+                }
                 Text {
                     anchors.left: parent.left
                     anchors.leftMargin: Tokens.s3 * root.s
@@ -118,45 +139,109 @@ Item {
                 TapHandler { id: modelTap; onTapped: root.modelMenuOpen = !root.modelMenuOpen }
             }
 
-            Rectangle {
+            Row {
+                id: actionButtons
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                width: newChatText.implicitWidth + Tokens.s4 * root.s
-                height: 30 * root.s
-                radius: Tokens.radius * root.s
-                color: newTap.pressed ? Tokens.tint16 : newHover.hovered ? Tokens.tint10 : Tokens.tint5
-                border.width: Tokens.border
-                border.color: Tokens.lineStrong
-                Text {
-                    id: newChatText
-                    anchors.centerIn: parent
-                    text: I18n.tr("New chat")
-                    color: Tokens.inkDim
-                    font.family: Tokens.ui
-                    font.pixelSize: Tokens.fSmall * root.s
+                spacing: Tokens.s1 * root.s
+
+                Rectangle {
+                    width: terminalText.implicitWidth + Tokens.s4 * root.s
+                    height: 30 * root.s
+                    radius: Tokens.radius * root.s
+                    color: terminalTap.pressed ? Tokens.tint16
+                        : terminalHover.hovered ? Tokens.tint10 : Tokens.tint5
+                    border.width: Tokens.border
+                    border.color: Tokens.lineStrong
+                    scale: terminalTap.pressed && root.motionAllowed ? 0.94
+                        : terminalHover.hovered && root.motionAllowed ? 1.025 : 1
+                    Behavior on scale {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+                    }
+                    Text {
+                        id: terminalText
+                        anchors.centerIn: parent
+                        text: I18n.tr("Open in terminal")
+                        color: Tokens.inkDim
+                        font.family: Tokens.ui
+                        font.pixelSize: Tokens.fSmall * root.s
+                    }
+                    HoverHandler { id: terminalHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { id: terminalTap; onTapped: Needle.openInTerminal() }
                 }
-                HoverHandler { id: newHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler {
-                    id: newTap
-                    onTapped: {
-                        Needle.newChat();
-                        root.draft = "";
-                        if (root.showComposer) composer.forceActiveFocus();
-                        else root.inputFocusRequested();
+
+                Rectangle {
+                    width: newChatText.implicitWidth + Tokens.s4 * root.s
+                    height: 30 * root.s
+                    radius: Tokens.radius * root.s
+                    color: newTap.pressed ? Tokens.tint16 : newHover.hovered ? Tokens.tint10 : Tokens.tint5
+                    border.width: Tokens.border
+                    border.color: Tokens.lineStrong
+                    scale: newTap.pressed && root.motionAllowed ? 0.94
+                        : newHover.hovered && root.motionAllowed ? 1.025 : 1
+                    Behavior on scale {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+                    }
+                    Text {
+                        id: newChatText
+                        anchors.centerIn: parent
+                        text: I18n.tr("New chat")
+                        color: Tokens.inkDim
+                        font.family: Tokens.ui
+                        font.pixelSize: Tokens.fSmall * root.s
+                    }
+                    HoverHandler { id: newHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        id: newTap
+                        onTapped: {
+                            Needle.newChat();
+                            root.draft = "";
+                            if (root.showComposer) composer.forceActiveFocus();
+                            else root.inputFocusRequested();
+                        }
                     }
                 }
             }
         }
 
-        Rectangle {
+        Text {
             width: parent.width
-            visible: root.modelMenuOpen
-            height: visible ? Math.min(modelList.contentHeight + Tokens.s2 * root.s, 180 * root.s) : 0
+            visible: Needle.pickUnavailable
+            text: I18n.tr("Saved model unavailable in this session")
+            color: Tokens.inkMuted
+            font.family: Tokens.ui
+            font.pixelSize: Tokens.fTiny * root.s
+            wrapMode: Text.WordWrap
+        }
+
+        Rectangle {
+            id: modelMenu
+            readonly property real naturalHeight: Math.min(modelList.contentHeight + Tokens.s2 * root.s, 180 * root.s)
+            width: parent.width
+            visible: opacity > 0.001
+            height: root.modelMenuOpen ? naturalHeight : 0
+            opacity: root.modelMenuOpen ? 1 : 0
+            scale: root.modelMenuOpen ? 1 : 0.98
+            transformOrigin: Item.Top
             radius: Tokens.radius * root.s
             color: Tokens.paperLift
             border.width: Tokens.border
             border.color: Tokens.lineStrong
             clip: true
+            Behavior on height {
+                enabled: root.motionAllowed
+                NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+            }
+            Behavior on opacity {
+                enabled: root.motionAllowed
+                NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+            }
+            Behavior on scale {
+                enabled: root.motionAllowed
+                NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+            }
             ListView {
                 id: modelList
                 anchors.fill: parent
@@ -170,17 +255,25 @@ Item {
                     width: ListView.view ? ListView.view.width : 0
                     height: 32 * root.s
                     radius: Tokens.radius * root.s
-                    readonly property bool current: Needle.currentModel === String(modelData.id || "")
-                    color: current ? Tokens.bone
-                        : modelRowTap.pressed ? Tokens.tint16
+                    readonly property bool current: String(modelData.id || "")
+                        === String(Needle.pick || Needle.currentModel)
+                    color: modelRowTap.pressed ? Tokens.tint16
+                        : current ? Tokens.bone
                         : modelRowHover.hovered ? Tokens.tint10 : "transparent"
+                    scale: modelRowTap.pressed && root.motionAllowed ? 0.96
+                        : modelRowHover.hovered && root.motionAllowed ? 1.015 : 1
+                    Behavior on scale {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+                    }
                     Text {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.leftMargin: Tokens.s3 * root.s
                         anchors.rightMargin: Tokens.s3 * root.s
                         anchors.verticalCenter: parent.verticalCenter
-                        text: modelRow.modelData.name || root.shortModel(modelRow.modelData.id)
+                        text: (modelRow.current ? "✓  " : "")
+                            + (modelRow.modelData.name || root.shortModel(modelRow.modelData.id))
                         color: modelRow.current ? Tokens.inkOnBone : Tokens.ink
                         font.family: Tokens.ui
                         font.pixelSize: Tokens.fSmall * root.s
@@ -232,9 +325,14 @@ Item {
                 required property string diffsJson
                 required property bool auto
                 required property string permJson
+                required property string askId
+                required property string question
+                required property string answer
                 property bool outputOpen: false
+                property real revealProgress: 1
 
                 readonly property bool isTool: kind === "tool"
+                readonly property bool isHandoff: kind === "handoff"
                 readonly property bool isUser: role === "user"
                 readonly property var permission: {
                     if (!permJson) return null;
@@ -246,24 +344,71 @@ Item {
                 }
                 width: ListView.view ? ListView.view.width : 0
                 implicitHeight: rowBody.implicitHeight
+                opacity: revealProgress
+                transform: Translate {
+                    x: (1 - row.revealProgress) * (row.isUser ? Tokens.s2 * root.s : -Tokens.s2 * root.s)
+                }
+                Component.onCompleted: {
+                    if (root.motionAllowed) {
+                        revealProgress = 0;
+                        entrance.restart();
+                    }
+                }
+                NumberAnimation {
+                    id: entrance
+                    target: row
+                    property: "revealProgress"
+                    from: 0
+                    to: 1
+                    duration: Tokens.swap
+                    easing.type: Tokens.ease
+                }
 
                 Column {
                     id: rowBody
                     width: parent.width
                     spacing: Tokens.s2 * root.s
 
-                    Text {
-                        visible: !row.isTool && !row.cont
+                    AskHandoffCard {
+                        width: parent.width
+                        visible: row.isHandoff
+                        s: root.s
+                        askId: row.askId
+                        question: row.question
+                        answer: row.answer
+                    }
+
+                    Row {
+                        visible: !row.isTool && !row.isHandoff && (!row.cont || row.live)
                         anchors.right: row.isUser ? parent.right : undefined
-                        text: row.isUser ? I18n.tr("YOU") : I18n.tr("RASHIN")
-                        color: row.isUser ? Tokens.inkMuted : Tokens.inkDim
-                        font.family: Tokens.mono
-                        font.pixelSize: Tokens.fTiny * root.s
-                        font.letterSpacing: Tokens.trackLabel
+                        spacing: Tokens.s1 * root.s
+                        Rectangle {
+                            id: liveDot
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: row.live
+                            width: 6 * root.s
+                            height: width
+                            radius: width / 2
+                            color: Tokens.inkDim
+                            SequentialAnimation on opacity {
+                                running: root.motionAllowed && row.live
+                                loops: Animation.Infinite
+                                NumberAnimation { from: 1; to: 0.45; duration: Tokens.dur(420); easing.type: Easing.InOutSine }
+                                NumberAnimation { from: 0.45; to: 1; duration: Tokens.dur(420); easing.type: Easing.InOutSine }
+                                onStopped: liveDot.opacity = 1
+                            }
+                        }
+                        Text {
+                            text: row.isUser ? I18n.tr("YOU") : I18n.tr("RASHIN")
+                            color: row.isUser ? Tokens.inkMuted : Tokens.inkDim
+                            font.family: Tokens.mono
+                            font.pixelSize: Tokens.fTiny * root.s
+                            font.letterSpacing: Tokens.trackLabel
+                        }
                     }
 
                     Rectangle {
-                        visible: !row.isTool && row.isUser
+                        visible: !row.isTool && !row.isHandoff && row.isUser
                         anchors.right: parent.right
                         width: Math.min(parent.width * 0.78, 480 * root.s)
                         implicitHeight: userText.implicitHeight + Tokens.s3 * root.s * 2
@@ -287,7 +432,7 @@ Item {
 
                     Flow {
                         width: parent.width
-                        visible: !row.isTool && row.images.length > 0
+                        visible: !row.isTool && !row.isHandoff && row.images.length > 0
                         spacing: Tokens.s2 * root.s
                         Repeater {
                             model: row.images
@@ -315,7 +460,7 @@ Item {
                     }
 
                     Rectangle {
-                        visible: !row.isTool && !row.isUser && row.thought.length > 0
+                        visible: !row.isTool && !row.isHandoff && !row.isUser && row.thought.length > 0
                         width: parent.width
                         implicitHeight: thoughtColumn.implicitHeight + Tokens.s3 * root.s * 2
                         radius: Tokens.radius * root.s
@@ -350,7 +495,7 @@ Item {
                     }
 
                     TextEdit {
-                        visible: !row.isTool && !row.isUser && row.body.length > 0
+                        visible: !row.isTool && !row.isHandoff && !row.isUser && row.body.length > 0
                         width: parent.width
                         text: row.body.replace(/([^\n])\n(?!\n)/g, "$1  \n")
                         textFormat: TextEdit.MarkdownText
@@ -622,7 +767,8 @@ Item {
                 anchors.left: composer.left
                 anchors.verticalCenter: parent.verticalCenter
                 visible: composer.text.length === 0
-                text: I18n.tr("Message Rashin…")
+                text: Needle.pendingHandoff ? I18n.tr("Continue from the ask…")
+                    : I18n.tr("Message Rashin…")
                 color: Tokens.inkFaint
                 font.family: Tokens.ui
                 font.pixelSize: Tokens.fBody * root.s

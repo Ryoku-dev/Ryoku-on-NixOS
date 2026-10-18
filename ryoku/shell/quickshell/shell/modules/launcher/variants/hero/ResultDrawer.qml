@@ -61,7 +61,6 @@ Item {
     readonly property bool askBusy: askPanel.busy
     readonly property bool askResumeMode: askPanel.resumeMode
     readonly property bool askAnswerCurrent: askPanel.answerCurrent
-    readonly property bool askPermissionPending: askPanel.permPending
     readonly property int askChipCount: askPanel.chips.length
     readonly property string actionVisibleRange: actionShelf.visibleRange
     readonly property real actionShelfHeight: actionShelf.height

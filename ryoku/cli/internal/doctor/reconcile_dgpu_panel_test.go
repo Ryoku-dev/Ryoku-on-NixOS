@@ -19,9 +19,9 @@ func stubDgpu(t *testing.T, s dgpuState) {
 	gatherDgpuState = func() dgpuState { return s }
 }
 
-// The reconciler fires on either shape that leaves a discrete GPU pinned awake:
-// the panel wired to it (MUX in Discrete), or the panel elsewhere but an open fd
-// holding it up (MUX already Hybrid). Every other shape must report ok.
+// The reconciler fires when the internal panel pins the discrete GPU awake, or
+// when the panel is elsewhere, no output is attached to the dGPU, and the card
+// still never sleeps. An attached dGPU output is expected load, not idle drain.
 func TestDgpuPanelReconcile(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -56,7 +56,7 @@ func TestDgpuPanelReconcile(t *testing.T) {
 		},
 		{
 			name:      "laptop with the panel on an awake, never-suspended dGPU fires",
-			state:     dgpuState{laptop: true, present: true, slot: "0000:01:00.0", panelOnDgpu: true, status: "active", suspended: 0, watts: 10.4},
+			state:     dgpuState{laptop: true, present: true, slot: "0000:01:00.0", panelOnDgpu: true, dgpuOutputs: []string{"eDP-1"}, status: "active", suspended: 0, watts: 10.4},
 			fires:     true,
 			remedyHas: "ryoku-gpu-mux set hybrid",
 		},
@@ -110,6 +110,37 @@ func TestDgpuPanelReconcile(t *testing.T) {
 				t.Errorf("expected ok, got %v (%s)", got.status, got.detail)
 			}
 		})
+	}
+}
+
+func TestDgpuExternalOutputExplainsNeverSuspendedCard(t *testing.T) {
+	got := planDgpuPanel(dgpuState{
+		laptop:      true,
+		present:     true,
+		slot:        "0000:01:00.0",
+		panelOnDgpu: false,
+		dgpuOutputs: []string{"HDMI-A-1"},
+		status:      "active",
+		suspended:   0,
+		watts:       4.7,
+		rtd3:        "Enabled (fine-grained)",
+		holders:     []string{"Hyprland", "Xwayland"},
+	})
+
+	if got.status != recOK {
+		t.Fatalf("expected an informational result, got %v (%s)", got.status, got.detail)
+	}
+	want := "the discrete GPU is driving HDMI-A-1 and drawing 4.7 W; it cannot runtime-suspend while that display is attached"
+	if got.detail != want {
+		t.Fatalf("detail = %q, want %q", got.detail, want)
+	}
+	if got.remedy != "" {
+		t.Errorf("an attached dGPU display needs no idle-drain remedy, got %q", got.remedy)
+	}
+	for _, process := range []string{"Hyprland", "Xwayland"} {
+		if strings.Contains(got.detail, process) {
+			t.Errorf("expected display must not blame %s: %q", process, got.detail)
+		}
 	}
 }
 
@@ -239,11 +270,19 @@ func TestDgpuAllConnectorsOnDgpu(t *testing.T) {
 	if allConnectorsOnDgpu("card1", nil) {
 		t.Error("no connected connector must not read as panel-on-dGPU")
 	}
-	if !allConnectorsOnDgpu("card1", []string{"card1"}) {
+	if !allConnectorsOnDgpu("card1", []connectorInfo{{card: "card1", output: "eDP-1"}}) {
 		t.Error("the sole connected connector on the dGPU is panel-on-dGPU")
 	}
-	if allConnectorsOnDgpu("card1", []string{"card1", "card0"}) {
+	connected := []connectorInfo{
+		{card: "card1", output: "HDMI-A-1"},
+		{card: "card2", output: "eDP-1"},
+	}
+	if allConnectorsOnDgpu("card1", connected) {
 		t.Error("a connector on the iGPU means the panel is not solely on the dGPU")
+	}
+	outputs := outputsOnCard("card1", connected)
+	if len(outputs) != 1 || outputs[0] != "HDMI-A-1" {
+		t.Errorf("outputsOnCard(card1) = %v, want [HDMI-A-1]", outputs)
 	}
 }
 

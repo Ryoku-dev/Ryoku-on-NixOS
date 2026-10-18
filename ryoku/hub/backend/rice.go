@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/user"
@@ -307,6 +309,40 @@ func copyFile(src, dst string) error {
 	return atomicWrite(dst, b, 0o644)
 }
 
+func filesIdentical(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil || !ai.Mode().IsRegular() {
+		return false
+	}
+	bi, err := os.Stat(b)
+	if err != nil || !bi.Mode().IsRegular() || ai.Size() != bi.Size() {
+		return false
+	}
+	if os.SameFile(ai, bi) {
+		return true
+	}
+	digest := func(path string) ([sha256.Size]byte, bool) {
+		f, err := os.Open(path)
+		if err != nil {
+			return [sha256.Size]byte{}, false
+		}
+		defer f.Close()
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err != nil {
+			return [sha256.Size]byte{}, false
+		}
+		var sum [sha256.Size]byte
+		copy(sum[:], h.Sum(nil))
+		return sum, true
+	}
+	ah, ok := digest(a)
+	if !ok {
+		return false
+	}
+	bh, ok := digest(b)
+	return ok && ah == bh
+}
+
 func stateHome() string {
 	if b := os.Getenv("XDG_STATE_HOME"); b != "" {
 		return b
@@ -314,13 +350,80 @@ func stateHome() string {
 	return filepath.Join(os.Getenv("HOME"), ".local", "state")
 }
 
-// currentWallpaper reads the path the shell recorded for the live wallpaper.
-func currentWallpaper() string {
+func recordedWallpaper() string {
 	b, err := os.ReadFile(filepath.Join(stateHome(), "ryoku-wallpaper"))
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+func ryogamiCacheDir() string {
+	if paths, ok := readJSONMap(ryogamiStorePath())["paths"].(map[string]any); ok {
+		if path, _ := paths["cache"].(string); path != "" {
+			if strings.HasPrefix(path, "~/") {
+				return filepath.Join(os.Getenv("HOME"), path[2:])
+			}
+			return path
+		}
+	}
+	base := os.Getenv("XDG_CACHE_HOME")
+	if base == "" {
+		base = filepath.Join(os.Getenv("HOME"), ".cache")
+	}
+	return filepath.Join(base, "ryogami")
+}
+
+func optimizedWallpaperSibling(path string) string {
+	if path == "" || strings.EqualFold(filepath.Ext(path), ".webp") {
+		return ""
+	}
+	sibling := strings.TrimSuffix(path, filepath.Ext(path)) + ".webp"
+	if isFile(sibling) {
+		return sibling
+	}
+	return ""
+}
+
+func outputWallpapers() []string {
+	outputs := readJSONMap(filepath.Join(ryogamiCacheDir(), "outputs.json"))
+	keys := make([]string, 0, len(outputs))
+	for key := range outputs {
+		if key != "*" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	if _, ok := outputs["*"]; ok {
+		keys = append([]string{"*"}, keys...)
+	}
+	paths := make([]string, 0, len(keys))
+	for _, key := range keys {
+		entry, _ := outputs[key].(map[string]any)
+		path, _ := entry["path"].(string)
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+// currentWallpaper prefers live Ryogami output state when the legacy state
+// file was left behind by an optimized replacement.
+func currentWallpaper() string {
+	recorded := recordedWallpaper()
+	if isFile(recorded) {
+		return recorded
+	}
+	for _, path := range outputWallpapers() {
+		if isFile(path) {
+			return path
+		}
+		if sibling := optimizedWallpaperSibling(path); sibling != "" {
+			return sibling
+		}
+	}
+	return optimizedWallpaperSibling(recorded)
 }
 
 func launcherHero() string {
@@ -558,7 +661,8 @@ func captureRice(name string, layers []string) (Rice, error) {
 		return r, err
 	}
 	dir := filepath.Join(ricesDir(), slug)
-	if wp := currentWallpaper(); isFile(wp) {
+	wp := currentWallpaper()
+	if isFile(wp) {
 		asset := "wall" + filepath.Ext(wp)
 		if copyFile(wp, filepath.Join(dir, asset)) == nil {
 			r.Assets.Wallpaper = asset
@@ -567,6 +671,8 @@ func captureRice(name string, layers []string) (Rice, error) {
 		// look's own specimen, exact for stills and the tuned frame for a
 		// live (video) wall.
 		writeRicePreview(dir, wp)
+	} else if recorded := recordedWallpaper(); recorded != "" {
+		fmt.Fprintf(os.Stderr, "ryoku-hub: rice capture: wallpaper %q is missing and no Ryogami replacement was found\n", recorded)
 	}
 	if hero := launcherHero(); isFile(hero) {
 		asset := "hero" + filepath.Ext(hero)
@@ -950,7 +1056,8 @@ func applyRice(slug string, layers []string) error {
 		}
 		_ = os.MkdirAll(destDir, 0o755)
 		dst := filepath.Join(destDir, r.Slug+filepath.Ext(r.Assets.Wallpaper))
-		if copyFile(filepath.Join(dir, r.Assets.Wallpaper), dst) == nil {
+		src := filepath.Join(dir, r.Assets.Wallpaper)
+		if filesIdentical(src, dst) || copyFile(src, dst) == nil {
 			_ = riceRun("ryogami", "wallpaper", "set", dst)
 		}
 	}
