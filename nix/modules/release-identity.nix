@@ -13,6 +13,12 @@ let
       [ "" "" ]
       (builtins.readFile ../../CODENAME);
 
+  # The sync records which Ryoku build this tree was taken from.
+  upstream =
+    if builtins.pathExists ../sync/upstream.json
+    then (builtins.fromJSON (builtins.readFile ../sync/upstream.json)).upstream or { }
+    else { };
+
 in
 {
   config = lib.mkIf config.programs.ryoku.enable {
@@ -27,8 +33,8 @@ in
       NAME="${codename}"
       CHANNEL="nix"
       VERSION="${version}"
-      COMMIT=""
-      DATE=""
+      COMMIT="${upstream.commit or ""}"
+      DATE="${upstream.date or ""}"
     '';
   };
 }
