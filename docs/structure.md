@@ -218,15 +218,12 @@ When two subsystems need the same thing, it lives once and both reference it:
 `ryoku-hw-laptop` is the single laptop/desktop detector used by both GPU policy
 and the idle policy. Reuse the helper; never re-implement its logic.
 
-## `ryoku-shell-installer/` the no-ISO installer
+## No `ryoku-shell-installer/`
 
-The standalone way in: a curl-able `install.sh` bootstrap plus the
-`ryoku-shell-install` Go TUI that converts an existing Arch machine into a
-Ryoku one: config backup with a generated `restore.sh`, rival-shell and
-daemon migration, `[ryoku]` repo trust, the desktop set, SDDM/qylock wiring,
-`ryoku materialize`. After it runs once the machine updates through
-`ryoku update` like any other. The binary and its checksum are committed so
-raw.githubusercontent.com serves them with no release infrastructure.
+Upstream's no-ISO installer converts an existing Arch, Fedora or Void machine
+through a curl-able bootstrap. NixOS installs through `nix/installer`, and the
+installer's tests read the Fedora and Void package tables the port leaves out,
+so the port does not carry it.
 
 ## `release/` packaging
 
