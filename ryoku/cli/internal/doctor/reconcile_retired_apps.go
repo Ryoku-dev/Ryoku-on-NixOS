@@ -51,6 +51,13 @@ func reconcileRetiredApps(checkOnly bool) recResult {
 	if sys.NixBackend() {
 		return okRes(i18n.T("retired app packages are managed declaratively on NixOS"))
 	}
+	manager, err := doctorPackageManager()
+	if hasPacman() {
+		manager, err = host.Pacman, nil
+	}
+	if err != nil || manager != host.Pacman && manager != host.XBPS && manager != host.DNF {
+		return okRes(i18n.T("retired app package checks are not available on this host"))
+	}
 	var removed []string
 	for _, app := range retiredApps {
 		if !retiredAppInstalled(app.pkg) {

@@ -433,6 +433,13 @@ func reconcileNvidiaModeset(checkOnly bool) recResult {
 		return okRes("NVIDIA boot configuration is managed declaratively on NixOS")
 	}
 
+	if nvidiaPackageManager() == host.DNF {
+		if !strings.Contains(strings.ToLower(nvidiaPCIOutput()), "nvidia") {
+			return okRes(i18n.T("no NVIDIA GPU detected"))
+		}
+		return noteRes(i18n.T("Fedora keeps Nouveau active for NVIDIA graphics in this release; proprietary driver installation is a manual step")).
+			withFix(i18n.T("enable RPM Fusion, install its `akmod-nvidia` package, wait for the kernel module build, then run `sudo dracut --regenerate-all --force` and reboot"))
+	}
 	if !nvidiaDriverActive() {
 		return okRes(i18n.T("no proprietary NVIDIA driver in use"))
 	}
@@ -668,6 +675,9 @@ func reconcileNvidiaGuardHook(checkOnly bool) recResult {
 		return okRes("pacman NVIDIA hooks are not applicable on NixOS")
 	}
 
+	if nvidiaPackageManager() == host.DNF {
+		return okRes(i18n.T("Fedora kernel-module packages manage their own update hooks"))
+	}
 	if !nvidiaDriverActive() {
 		return okRes(i18n.T("no proprietary NVIDIA driver in use"))
 	}

@@ -9,6 +9,7 @@ import (
 
 func TestReconcileRetiredApps(t *testing.T) {
 	t.Setenv("RYOKU_UPDATE_BACKEND", "pacman")
+	stubPacmanHost(t, true)
 	oldInstalled := retiredAppInstalled
 	oldRemove := removeRetiredApp
 	t.Cleanup(func() {
@@ -61,6 +62,7 @@ func TestVoidRetiredAppRemovalUsesXBPS(t *testing.T) {
 
 func TestReconcileRetiredAppsQuietWhenAbsent(t *testing.T) {
 	t.Setenv("RYOKU_UPDATE_BACKEND", "pacman")
+	stubPacmanHost(t, true)
 	oldInstalled := retiredAppInstalled
 	oldRemove := removeRetiredApp
 	t.Cleanup(func() {

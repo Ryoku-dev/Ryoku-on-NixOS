@@ -834,6 +834,9 @@ func reconcileSnapper(checkOnly bool) recResult {
 		return okRes("Snapper configuration is managed declaratively on NixOS")
 	}
 
+	if supported, reason := doctorSnapshots(); !supported {
+		return noteRes("%s", reason)
+	}
 	st := gatherSnapperState()
 	outcome, problems := planSnapper(st)
 	switch outcome {
@@ -1094,6 +1097,9 @@ func reconcilePacmanLock(checkOnly bool) recResult {
 		return okRes("pacman state is not managed by Ryoku Doctor on NixOS")
 	}
 
+	if result, applicable := pacmanHost(i18n.T("the pacman database lock check")); !applicable {
+		return result
+	}
 	const lock = "/var/lib/pacman/db.lck"
 	if !sys.Exists(lock) {
 		return okRes(i18n.T("no stale pacman lock"))
@@ -1277,6 +1283,16 @@ func reconcileRyokuChannel(checkOnly bool) recResult {
 		return okRes("Ryoku package channels are not used on NixOS")
 	}
 
+	manager, err := doctorPackageManager()
+	if err == nil && manager == host.DNF {
+		return reconcileFedoraRyokuChannel(checkOnly)
+	}
+	if err == nil && manager == host.XBPS {
+		return reconcileVoidRyokuChannel(checkOnly)
+	}
+	if result, applicable := pacmanHost(i18n.T("the Ryoku pacman channel check")); !applicable {
+		return result
+	}
 	if !sys.PkgInstalled("ryoku-desktop") {
 		return okRes(i18n.T("not a packaged install (desktop runs from a checkout)"))
 	}
@@ -1497,6 +1513,16 @@ func reconcileRyokuSyncDB(checkOnly bool) recResult {
 		return okRes("pacman repository state is not applicable on NixOS")
 	}
 
+	manager, err := doctorPackageManager()
+	if err == nil && manager == host.DNF {
+		return reconcileFedoraRyokuSyncDB(checkOnly)
+	}
+	if err == nil && manager == host.XBPS {
+		return reconcileVoidRyokuSyncDB(checkOnly)
+	}
+	if result, applicable := pacmanHost(i18n.T("the Ryoku pacman database check")); !applicable {
+		return result
+	}
 	if !sys.PkgInstalled("ryoku-desktop") {
 		return okRes(i18n.T("not a packaged install (desktop runs from a checkout)"))
 	}
@@ -2636,8 +2662,9 @@ func reconcileSessionComponents(_ bool) recResult {
 		return okRes("desktop session components are managed declaratively by the Ryoku NixOS module")
 	}
 
-	if wm.Detect().Name == "" {
-		return okRes(i18n.T("no window manager provider"))
+	detected := wm.Detect()
+	if detected.Name == "" || !detected.Live {
+		return okRes(i18n.T("no running window manager provider"))
 	}
 	portalFix, portalPkgs := portalFrontendCheck()
 	checks := []sessionComponent{
@@ -4562,8 +4589,27 @@ func reconcilePacnew(checkOnly bool) recResult {
 		return okRes("pacman configuration repair is not applicable on NixOS")
 	}
 
-	out, _ := sys.RunOut("find", "/etc", "-name", "*.pacnew")
-	files := nonEmptyLines(out)
+	manager, err := doctorPackageManager()
+	if err != nil {
+		return noteRes(i18n.T("could not identify the package manager; pending config updates were not checked"))
+	}
+	if manager == host.DNF {
+		files := append(doctorFindPendingConfig("*.rpmnew"), doctorFindPendingConfig("*.rpmsave")...)
+		if len(files) == 0 {
+			return okRes(i18n.T("no pending package config updates"))
+		}
+		return warnRes(i18n.T("%d pending RPM config update(s) need review: %s"), len(files), strings.Join(files, ", ")).
+			withFix(i18n.T("merge each .rpmnew or .rpmsave file into its base config, then remove the reviewed files"))
+	}
+	if manager == host.XBPS {
+		files := doctorFindPendingConfig("*.new-*")
+		if len(files) == 0 {
+			return okRes(i18n.T("no pending config updates"))
+		}
+		return warnRes(i18n.T("%d pending XBPS config update(s) need review: %s"), len(files), strings.Join(files, ", ")).
+			withFix(i18n.T("merge each .new-<version> file into its base config, then remove the reviewed files with `sudo rm -f %s`"), strings.Join(files, " "))
+	}
+	files := doctorFindPendingConfig("*.pacnew")
 	if len(files) == 0 {
 		return okRes(i18n.T("no pending config updates"))
 	}
@@ -4819,6 +4865,9 @@ func reconcileConflictingRyokuFiles(checkOnly bool) recResult {
 		return okRes("package ownership repair is not applicable on NixOS")
 	}
 
+	if result, applicable := pacmanHost(i18n.T("pacman file ownership checks")); !applicable {
+		return result
+	}
 	// Only a packaged box hits the conflict. A dev checkout has no ryoku-desktop,
 	// and deploy.sh's unowned helpers there are correct, so leave them be.
 	if !sys.PkgInstalled("ryoku-desktop") {
