@@ -10,8 +10,6 @@ import (
 	"ryoku-cli/internal/updater"
 )
 
-const fedoraSnapshotsReason = "Snapshots are not available on Fedora: it boots through GRUB, which Ryoku's snapshot boot menu does not drive."
-
 func stubDoctorDNF(t *testing.T) {
 	t.Helper()
 	oldManager := doctorPackageManager
@@ -35,17 +33,89 @@ func assertNoForeignPackageAdvice(t *testing.T, result recResult) {
 	}
 }
 
-func TestFedoraSnapshotRowExplainsUnsupportedBootStack(t *testing.T) {
-	stubDoctorDNF(t)
-	oldSnapshots := doctorSnapshots
-	doctorSnapshots = func() (bool, string) { return false, fedoraSnapshotsReason }
-	t.Cleanup(func() { doctorSnapshots = oldSnapshots })
-
-	result := reconcileSnapper(true)
-	if result.status != recNote || result.detail != fedoraSnapshotsReason {
-		t.Fatalf("snapshot result = %+v", result)
+func TestFedoraSnapperPlanCreatesTheLayoutOnBtrfs(t *testing.T) {
+	outcome, _ := planSnapper(snapperState{manager: host.DNF, rootIsBtrfs: true, snapperInstalled: true})
+	if outcome != snapperCreate {
+		t.Fatalf("outcome = %v, want snapperCreate", outcome)
 	}
-	assertNoForeignPackageAdvice(t, result)
+}
+
+func TestFedoraSnapperProblemsNameSysconfigAndNoForeignTools(t *testing.T) {
+	outcome, problems := planSnapper(snapperState{
+		manager: host.DNF, rootIsBtrfs: true, configExists: true, snapperInstalled: true,
+		snapshotsExists: true, snapshotsIsSubvol: true, snapshotsMode: 0o750,
+		confdExists: true, confdContents: `SNAPPER_CONFIGS=""`,
+	})
+	if outcome != snapperWarnInconsistent || len(problems) != 1 {
+		t.Fatalf("outcome = %v, problems = %q", outcome, problems)
+	}
+	if !strings.Contains(problems[0], "/etc/sysconfig/snapper") {
+		t.Fatalf("problem = %q, want the Fedora sysconfig path", problems[0])
+	}
+	assertNoForeignPackageAdvice(t, recResult{detail: strings.Join(problems, "; ")})
+}
+
+func TestFedoraSnapperPlanMovesANestedSnapshotsSubvolume(t *testing.T) {
+	outcome, _ := planSnapper(snapperState{
+		manager: host.DNF, rootIsBtrfs: true, configExists: true, snapperInstalled: true,
+		snapshotsExists: true, snapshotsIsSubvol: true, snapshotsNested: true, snapshotsMode: 0o750,
+	})
+	if outcome != snapperMoveSnapshots {
+		t.Fatalf("outcome = %v, want snapperMoveSnapshots", outcome)
+	}
+}
+
+func TestFedoraSnapperFlagsSnapshotsMountedFromInsideTheRoot(t *testing.T) {
+	outcome, problems := planSnapper(snapperState{
+		manager: host.DNF, rootIsBtrfs: true, configExists: true, snapperInstalled: true,
+		snapshotsExists: true, snapshotsIsSubvol: true, snapshotsMountedInRoot: true, snapshotsMode: 0o750,
+	})
+	if outcome != snapperWarnInconsistent || len(problems) != 1 || !strings.Contains(problems[0], "inside the root") {
+		t.Fatalf("outcome = %v, problems = %q", outcome, problems)
+	}
+}
+
+func TestInsideSubvol(t *testing.T) {
+	for _, c := range []struct {
+		sub, parent string
+		want        bool
+	}{
+		{"/root/.snapshots", "/root", true},
+		{"/.snapshots", "/root", false},
+		{"/rootfs/.snapshots", "/root", false},
+		{"/.snapshots", "/", false},
+		{"/.snapshots", "", false},
+	} {
+		if got := insideSubvol(c.sub, c.parent); got != c.want {
+			t.Errorf("insideSubvol(%q, %q) = %v, want %v", c.sub, c.parent, got, c.want)
+		}
+	}
+}
+
+func TestSnapshotsFstabLineFollowsTheRootEntry(t *testing.T) {
+	fstab := "# comment\n" +
+		"UUID=ab / btrfs subvol=root,compress=zstd:1,x-systemd.device-timeout=0 0 0\n" +
+		"UUID=cd /boot ext4 defaults 1 2\n"
+	want := "UUID=ab /.snapshots btrfs subvol=.snapshots,compress=zstd:1,x-systemd.device-timeout=0 0 0"
+	if got := snapshotsFstabLine(fstab); got != want {
+		t.Fatalf("line = %q, want %q", got, want)
+	}
+	if got := snapshotsFstabLine("UUID=ab / btrfs subvolid=256,compress=zstd:1 0 0\n"); got != "" {
+		t.Fatalf("root without subvol= gave %q, want none", got)
+	}
+	if got := snapshotsFstabLine("UUID=ab / ext4 defaults 1 1\n"); got != "" {
+		t.Fatalf("ext4 root gave %q, want none", got)
+	}
+}
+
+func TestFstabMountsIgnoresComments(t *testing.T) {
+	fstab := "#UUID=ab /.snapshots btrfs subvol=.snapshots 0 0\nUUID=ab / btrfs subvol=root 0 0\n"
+	if fstabMounts(fstab, "/.snapshots") {
+		t.Fatal("a commented entry counted as a mount")
+	}
+	if !fstabMounts(fstab, "/") {
+		t.Fatal("the root entry was not found")
+	}
 }
 
 func TestFedoraManifestUsesNativePackageLane(t *testing.T) {

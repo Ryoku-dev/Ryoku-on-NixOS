@@ -226,6 +226,9 @@ func reconcileLimineLayout(checkOnly bool) recResult {
 		return okRes("bootloader layout is managed declaratively on NixOS")
 	}
 
+	if !limineManagedBoot() {
+		return unmanagedBootResult()
+	}
 	st := gatherLimineLayoutState()
 	outcome, actions := planLimineLayout(st)
 	switch outcome {
@@ -709,6 +712,9 @@ func reconcileLimineBootEntry(checkOnly bool) recResult {
 	if sys.NixBackend() {
 		return okRes("firmware boot-entry management is outside Ryoku Doctor on NixOS")
 	}
+	if !limineManagedBoot() {
+		return unmanagedBootResult()
+	}
 	if !liminePkgInstalled("limine") {
 		return okRes(i18n.T("not a limine-managed boot on this box"))
 	}
@@ -792,6 +798,12 @@ func reconcileLimineUKITree(checkOnly bool) recResult {
 		return okRes("Limine UKI management is not applicable on NixOS")
 	}
 
+	if xbpsHost() {
+		return okRes(i18n.T("Void boots a kernel plus a dracut initramfs image; the UKI boot-tree check does not apply"))
+	}
+	if !limineManagedBoot() {
+		return unmanagedBootResult()
+	}
 	if !liminePkgInstalled("limine") {
 		return okRes(i18n.T("not a limine-managed boot on this box"))
 	}
@@ -1282,7 +1294,10 @@ func reconcileLimineAutoboot(checkOnly bool) recResult {
 		return okRes("Limine autoboot configuration is not applicable on NixOS")
 	}
 
-	if !liminePkgInstalled("limine") {
+	if !limineManagedBoot() {
+		return unmanagedBootResult()
+	}
+	if !doctorPackageInstalled("limine") {
 		return okRes(i18n.T("not a limine-managed boot on this box"))
 	}
 	b, err := os.ReadFile(limineESPConf)

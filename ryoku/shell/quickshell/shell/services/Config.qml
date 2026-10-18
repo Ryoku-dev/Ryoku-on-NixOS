@@ -51,6 +51,7 @@ Singleton {
     // Each style owns its own bar, popouts and settings.
     property alias batteryAlerts: adapter.batteryAlerts
     property alias barStyle: adapter.barStyle
+    property alias notifications: adapter.notifications
 
     // obi: per-widget visibility for the Obi bar style, edited in Bar Studio.
     // A map of widgetId -> bool; an absent key reads as shown, so the bar is
@@ -364,6 +365,11 @@ Singleton {
             property string screenShader: ""
             property var frameBars: FrameBars.defaultConfig()
             property var batteryAlerts: ({ enabled: true, warningEnabled: true, criticalEnabled: true, warningPercent: 25, criticalPercent: 10 })
+            property var notifications: ({
+                "notification_position": "Right",
+                "popup_window_margins": 0,
+                "show_images": false
+            })
             property string barStyle: "orpheus"
             property string launcherTarget: "studio"
             property var obi: ({})

@@ -15,23 +15,23 @@ describe("readAskStream", () => {
   it("parses markers when chunks split a line", async () => {
     const seen: AskMarker[] = [];
     await readAskStream(
-      chunked("@work", "ing looking up the ", "machine\n@ans", 'wer {"text":"RTX 4060"}\n'),
+      chunked("@work", "ing looking up the ", "machine\n@ans", 'wer {"id":"a1","text":"RTX 4060","via":"Agent · Luna","needsAgent":false}\n'),
       (marker) => seen.push(marker),
     );
 
     expect(seen).toEqual([
       { kind: "working", detail: "looking up the machine" },
-      { kind: "answer", detail: "RTX 4060" },
+      { kind: "answer", answer: { id: "a1", text: "RTX 4060", via: "Agent · Luna", needsAgent: false } },
     ]);
   });
 
   it("keeps embedded JSON escapes and flushes the final unterminated line", async () => {
     const seen: AskMarker[] = [];
-    await readAskStream(chunked('@answer {"text":"first\\nsecond"}\n@perm Allow this command?'), (marker) => seen.push(marker));
+    await readAskStream(chunked('@answer {"id":"a2","text":"first\\nsecond"}\n@error cancelled'), (marker) => seen.push(marker));
 
     expect(seen).toEqual([
-      { kind: "answer", detail: "first\nsecond" },
-      { kind: "perm", detail: "Allow this command?" },
+      { kind: "answer", answer: { id: "a2", text: "first\nsecond" } },
+      { kind: "error", detail: "cancelled" },
     ]);
   });
 

@@ -25,7 +25,6 @@
   let actionError = $state("");
   let notice = $state("");
   let noticePending = $state(false);
-  let noticeProviders = $state(false);
   let busy = $state<Record<string, string>>({});
   let switching = $state(false);
 
@@ -82,12 +81,9 @@
     actionError = "";
     notice = "";
     try {
-      const result = await api.wire(id);
-      noticePending = Boolean(result.pending);
-      noticeProviders = Boolean(result.pending);
-      notice = result.pending
-        ? result.reason || "The harness is connected, but Prowl needs an available provider before it can route."
-        : "Harness connected and routed through Prowl.";
+      await api.wire(id);
+      noticePending = false;
+      notice = "Prowl is plugged into the harness. Its default and your explicit model pick are unchanged.";
       await load();
     } catch (reason) {
       actionError = reason instanceof Error
@@ -106,8 +102,7 @@
     try {
       await api.unwire(id);
       noticePending = false;
-      noticeProviders = false;
-      notice = "Harness disconnected. Its previous model was restored where the setting was still Prowl-managed.";
+      notice = "Prowl was removed from the harness. Its own model choice remains in control.";
       await load();
     } catch (reason) {
       actionError = reason instanceof Error
@@ -118,26 +113,23 @@
     }
   }
 
-  async function routeNow(id: string) {
+  async function setProwlDefault(id: string, prowl: boolean) {
     if (busy[id]) return;
-    setBusy(id, "route");
+    setBusy(id, "default");
     actionError = "";
     notice = "";
     try {
-      const result = await api.routeHarnesses();
-      const stillPending = result.pending.find((row) => row.id === id);
-      noticePending = Boolean(stillPending);
-      noticeProviders = Boolean(stillPending);
-      notice = stillPending
-        ? stillPending.reason
-        : result.routed.includes(id)
-          ? "Harness is now routed through Prowl."
-          : "Connected harnesses were checked. This harness did not need a routing change.";
+      await api.setAgentDefault(id, prowl);
+      noticePending = false;
+      notice = prowl
+        ? "Prowl auto is now this harness's default. Explicit model picks still take priority."
+        : "The harness now uses its own default. Prowl remains available as a model option.";
       await load();
     } catch (reason) {
       actionError = reason instanceof Error
-        ? `${reason.message} Open Providers and make the active set routable, then retry.`
-        : "The harness is still pending. Open Providers and make the active set routable, then retry.";
+        ? `${reason.message} The harness default was not changed.`
+        : "The harness default was not changed.";
+      await load();
     } finally {
       clearBusy(id);
     }
@@ -151,7 +143,6 @@
     try {
       const result = await prowl.setup.installSkills({ clients: [id] });
       noticePending = result.conflicts > 0;
-      noticeProviders = false;
       notice = result.conflicts > 0
         ? `${result.message}. Conflicting files were left untouched; review them before retrying.`
         : result.message;
@@ -178,8 +169,8 @@
       return result;
     } catch (reason) {
       chatError = reason instanceof Error
-        ? `${reason.message} Keep the harness connected, then retry.`
-        : "The chat agent did not change. Keep the harness connected, then retry.";
+        ? `${reason.message} Check that the harness is available, then retry.`
+        : "The agent harness did not change. Check that it is available, then retry.";
     } finally {
       switching = false;
     }
@@ -191,7 +182,7 @@
   });
 </script>
 
-<Page title="Harnesses" gloss="接続" lead="Connect local coding agents to Prowl and choose the one Rashin uses for chat.">
+<Page title="Harnesses" gloss="接続" lead="Prowl plugs models, code intelligence and skills into local harnesses. It never overrides a model you explicitly pick.">
   {#if loading}
     <Empty title="Inspecting coding harnesses" body="Rashin is matching installed agents with Prowl's routing and skills ledger." />
   {:else if error && harnesses.length === 0}
@@ -203,7 +194,7 @@
       {#if setup && !setup.routable}
         <div class="route-banner">
           <Lamp state="bad" />
-          <div><strong>Prowl cannot route yet</strong><p>{setup.reason || "Connect a provider and add an available model to the active set."}</p></div>
+          <div><strong>Prowl auto is unavailable</strong><p>{setup.reason || "Connect a provider and add an available model before making Prowl auto a harness default."}</p></div>
           <a href="#/prowl/providers">Open Providers</a>
         </div>
       {/if}
@@ -213,15 +204,14 @@
       {#if notice}
         <p class:pending={noticePending} class="notice" aria-live="polite">
           {notice}
-          {#if noticeProviders}<a href="#/prowl/providers">Open Providers</a>{/if}
         </p>
       {/if}
 
       <div class="summary">
         <div><strong>{installed}</strong><span>detected</span></div>
-        <div><strong>{active}</strong><span>routed</span></div>
-        <div><strong>{pending}</strong><span>pending</span></div>
-        <p>Connect writes only Prowl and Rashin-owned settings. Disconnect restores the previous model.</p>
+        <div><strong>{active}</strong><span>Prowl defaults</span></div>
+        <div><strong>{pending}</strong><span>waiting</span></div>
+        <p>Connect adds the Prowl plug-in without changing the harness default. Use the separate switch when you want Prowl auto.</p>
       </div>
 
       {#if harnesses.length}
@@ -229,11 +219,10 @@
           {#each harnesses as harness (harness.id)}
             <HarnessCard
               {harness}
-              routable={setup?.routable ?? false}
               busy={busy[harness.id]}
               onconnect={(id) => void connect(id)}
               ondisconnect={(id) => void disconnect(id)}
-              onroute={(id) => void routeNow(id)}
+              ondefault={(id, prowl) => void setProwlDefault(id, prowl)}
               onskills={(id) => void installSkills(id)}
             />
           {/each}
@@ -252,11 +241,10 @@
   .route-banner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border: 1px solid var(--line-strong); border-radius: var(--radius); }
   .route-banner strong { color: var(--ink); font-weight: 500; }
   .route-banner p { margin-top: var(--s1); color: var(--ink-mute); font-size: var(--f-small); }
-  .route-banner a, .notice a { color: var(--ink); font-size: var(--f-small); text-decoration: underline; text-underline-offset: 3px; }
+  .route-banner a { color: var(--ink); font-size: var(--f-small); text-decoration: underline; text-underline-offset: 3px; }
   .action-error, .notice { padding: var(--s3); border: 1px solid color-mix(in srgb, var(--alert) 45%, transparent); border-radius: var(--radius); color: var(--alert); font-size: var(--f-small); }
   .notice { border-color: var(--line-soft); color: var(--ink-dim); }
   .notice.pending { border-color: color-mix(in srgb, var(--alert) 45%, transparent); color: var(--alert); }
-  .notice a { margin-left: var(--s2); }
   .summary { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr); align-items: center; gap: var(--s5); padding: var(--s4) var(--s5); border: 1px solid var(--line-soft); border-radius: var(--radius); }
   .summary > div { display: flex; align-items: baseline; gap: var(--s2); }
   .summary strong { color: var(--ink); font-family: var(--display); font-size: 32px; font-weight: 400; }

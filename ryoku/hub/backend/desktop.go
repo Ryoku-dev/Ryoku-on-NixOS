@@ -14,20 +14,21 @@ import (
 	wm "ryoku-wm"
 )
 
-// ryoku-hub desktop is the neutral window-manager settings backend. It owns
-// ~/.config/ryoku/desktop.json (the single writer) and drives the active
-// compositor through the wm seam: apply authors the compositor config, act does
-// live changes. Nothing here knows which compositor is running.
+// ryoku-hub desktop owns settings that describe the desktop as a whole. The
+// neutral window-manager store is one part; toolkit appearance shared by every
+// compositor is another.
 //
-//	desktop get                 the store overlaid on the provider defaults, JSON
-//	desktop defaults            the provider's default subtree, JSON
-//	desktop save <json>         persist the store, then apply + reload live
-//	desktop preview <json>      push the draft live without persisting
-//	desktop restore             reload the saved config live
-//	desktop set-rebind <d> <c>  patch one keybind remap (for non-Hub apps)
-//	desktop cursors|layouts     enumerate installed cursor themes / kb layouts
-//	desktop variants <layout>   kb variants for a layout
-//	desktop plugins <verb>      the compositor plugin subsystem
+//	desktop get                         effective window-manager store, JSON
+//	desktop defaults                    provider defaults, JSON
+//	desktop save|preview <json>         persist or preview the store
+//	desktop restore                     restore the saved store live
+//	desktop set-rebind <default> <pick> patch one keybind remap
+//	desktop cursors|icons|layouts       enumerate installed choices
+//	desktop icon-theme                  print the applied icon theme
+//	desktop icon-theme set <theme>      validate, remember and apply a theme
+//	desktop icon-theme apply            reapply the remembered theme
+//	desktop variants <layout>           list keyboard variants
+//	desktop plugins <verb>              compositor plugin subsystem
 
 func desktopStorePath() string { return filepath.Join(ryokuConfigDir(), "desktop.json") }
 
@@ -82,7 +83,7 @@ func wmSplit() (string, map[string]bool) {
 
 func runDesktop(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("desktop needs get|defaults|schema|unhonored|save|preview|restore|set-rebind|cursors|layouts|variants|plugins|scheme|anim-preset")
+		return fmt.Errorf("desktop needs get|defaults|schema|unhonored|save|preview|restore|set-rebind|cursors|icons|icon-theme|layouts|variants|plugins|scheme|anim-preset")
 	}
 	switch args[0] {
 	case "get":
@@ -119,6 +120,27 @@ func runDesktop(args []string) error {
 		return pluginsDesktop(args[1:])
 	case "cursors":
 		return printJSON(listCursorThemes())
+	case "icons":
+		return printJSON(listIconThemes())
+	case "icon-theme":
+		if len(args) == 1 {
+			return printJSON(map[string]string{"theme": currentIconTheme()})
+		}
+		switch args[1] {
+		case "set":
+			if len(args) < 3 {
+				return fmt.Errorf("desktop icon-theme set needs a theme")
+			}
+			return applyIconTheme(args[2])
+		case "apply":
+			theme := storedIconTheme()
+			if theme == "" {
+				return nil
+			}
+			return applyIconTheme(theme)
+		default:
+			return fmt.Errorf("desktop icon-theme needs set <theme>|apply")
+		}
 	case "layouts":
 		return printJSON(listKbLayouts())
 	case "variants":

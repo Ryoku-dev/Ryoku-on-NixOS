@@ -571,7 +571,7 @@ StyledFlickable {
         Repeater {
             model: root.design === "ii" ? [
                 { key: "hoverToReveal", title: Translation.tr("Reveal at the edge"), subtitle: Translation.tr("A hidden dock comes back when the pointer reaches its edge"), symbol: "mouse", fallback: true },
-                { key: "blockHoverInFullscreen", title: Translation.tr("Not over fullscreen"), subtitle: Translation.tr("The edge stays quiet while a window or video is fullscreen"), symbol: "fullscreen", fallback: true },
+                { key: "blockHoverInFullscreen", title: Translation.tr("Not over fullscreen"), subtitle: Translation.tr("The dock steps aside while a window or video is fullscreen, even when pinned"), symbol: "fullscreen", fallback: true },
                 { key: "smartGrouping", title: Translation.tr("Smart grouping"), subtitle: Translation.tr("Sort apps by category; anything placed by hand stays put"), symbol: "category", fallback: false },
                 { key: "enableWidgetStack", title: Translation.tr("Widget stack"), subtitle: Translation.tr("Several widgets share one slot, turned with the wheel"), symbol: "stacks", fallback: false },
                 { key: "lockReorder", title: Translation.tr("Lock arrangement"), subtitle: Translation.tr("Nothing on the dock can be dragged out of place"), symbol: "lock", fallback: false },

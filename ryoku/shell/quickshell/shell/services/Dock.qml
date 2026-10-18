@@ -186,17 +186,20 @@ Singleton {
         const d = root.cfg(designName, {});
         return d && d[key] !== undefined && d[key] !== null ? d[key] : fallback;
     }
-    function setCfg(key, value) {
-        const cur = Config.dock || {};
-        const next = {};
-        for (const k in cur) next[k] = cur[k];
-        next[key] = value;
+    function writeCfg(next) {
         Config.dock = next;
         cfgCtl.queued += "call settings.patch " + JSON.stringify({ path: "dock", value: next }) + "\n";
         if (cfgCtl.connected)
             cfgCtl.flushQueued();
         else
             cfgCtl.connected = true;
+    }
+    function setCfg(key, value) {
+        const cur = Config.dock || {};
+        const next = {};
+        for (const k in cur) next[k] = cur[k];
+        next[key] = value;
+        root.writeCfg(next);
     }
     function setDesignCfg(designName, key, value) {
         const cur = root.cfg(designName, {});
@@ -205,7 +208,14 @@ Singleton {
         next[key] = value;
         root.setCfg(designName, next);
     }
-    function setPinned(array) { root.setCfg("pinned", root.normalizedPins(array)); }
+    function setPinned(array) {
+        const cur = Config.dock || {};
+        const next = {};
+        for (const k in cur) next[k] = cur[k];
+        next.pinned = root.normalizedPins(array);
+        next.pinnedConfigured = true;
+        root.writeCfg(next);
+    }
     function movePinned(from, to) {
         const pins = root.pinnedOrStarter();
         if (from < 0 || from >= pins.length || to < 0 || to >= pins.length || from === to)
@@ -242,11 +252,13 @@ Singleton {
         onConnectionStateChanged: if (cfgCtl.connected) cfgCtl.flushQueued()
     }
 
-    // The effective pin list: the user's order, or the starter set when empty, so
-    // an unconfigured dock still shows something instead of reading as broken.
+    // Starter pins are only a first-run fallback. Once the user has edited the
+    // list, an empty list is deliberate and must survive a shell reload.
     function pinnedOrStarter() {
         const p = root.normalizedPins(root.cfg("pinned", []));
-        return p.length ? p : root.normalizedPins(root.starterPins());
+        if (p.length || root.cfg("pinnedConfigured", false) === true)
+            return p;
+        return root.normalizedPins(root.starterPins());
     }
 
     // Desktop-entry icon, then class-as-icon-name; "" so callers can draw the

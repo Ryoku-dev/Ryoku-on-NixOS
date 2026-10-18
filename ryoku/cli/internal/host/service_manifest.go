@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"ryoku-cli/internal/sys"
 	i18n "ryoku-i18n"
 )
 
@@ -421,7 +422,7 @@ func (a *App) reconcileRunitUserServices(entries []serviceManifestEntry, checkOn
 		return ExitOK
 	}
 	if changed {
-		if err := writeFileAtomic(roster, body, 0o644); err != nil {
+		if err := sys.WriteFileAtomic(roster, string(body), 0o644); err != nil {
 			return a.failf(i18n.T("write runit session roster: %v"), err)
 		}
 	}
@@ -440,28 +441,4 @@ func (a *App) reconcileRunitUserServices(entries []serviceManifestEntry, checkOn
 		}
 	}
 	return ExitOK
-}
-
-func writeFileAtomic(path string, body []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".ryoku-roster-*")
-	if err != nil {
-		return err
-	}
-	name := temp.Name()
-	defer os.Remove(name)
-	if _, err := temp.Write(body); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Chmod(mode); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
 }

@@ -12,7 +12,7 @@ Item {
 
     property bool isActiveTab: typeof isCurrentTarget !== "undefined" ? isCurrentTarget : true
 
-    property string iconFont: "Font Awesome 6 Free Solid"
+    property string iconFont: ThemeBackend.iconFont
     property string safeActiveEdge: typeof activeEdge !== "undefined" ? activeEdge : "left"
 
     function s(val) {
@@ -67,7 +67,8 @@ Item {
     property color solidBgColor: ThemeBackend.mantle
     property color themeBaseColor: ThemeBackend.base
 
-    property color panelBgColor: Qt.rgba(themeBaseColor.r, themeBaseColor.g, themeBaseColor.b, 0.85)
+    property color panelBgColor: Qt.rgba(themeBaseColor.r, themeBaseColor.g, themeBaseColor.b, ThemeBackend.glassActive ? ThemeBackend.elementOpacity : 0.85)
+    property color popupBgColor: Qt.rgba(themeBaseColor.r, themeBaseColor.g, themeBaseColor.b, ThemeBackend.glassActive ? ThemeBackend.elementOpacity : 0.98)
     property color panelBorderColor: Qt.rgba(baseTextColor.r, baseTextColor.g, baseTextColor.b, 0.15)
 
     property real minZoom: 0.1
@@ -552,6 +553,12 @@ Item {
                 border.width: 1
                 border.color: root.panelBorderColor
 
+                WallpaperBlur {
+                    z: -1
+                    anchors.fill: parent
+                    radius: parent.radius
+                }
+
                 Row {
                     id: zoomRow
                     anchors.centerIn: parent
@@ -650,9 +657,15 @@ Item {
             width: s(260)
             height: s(64)
             radius: ThemeBackend.borderRadius
-            color: Qt.rgba(ThemeBackend.base.r, ThemeBackend.base.g, ThemeBackend.base.b, 0.98)
+            color: root.popupBgColor
             border.width: 1
             border.color: root.panelBorderColor
+
+            WallpaperBlur {
+                z: -1
+                anchors.fill: parent
+                radius: parent.radius
+            }
 
             anchors.bottom: toolbar.top
             anchors.bottomMargin: s(12)
@@ -783,9 +796,15 @@ Item {
             width: s(320)
             height: s(400)
             radius: ThemeBackend.borderRadius
-            color: Qt.rgba(ThemeBackend.base.r, ThemeBackend.base.g, ThemeBackend.base.b, 0.98)
+            color: root.popupBgColor
             border.width: 1
             border.color: root.panelBorderColor
+
+            WallpaperBlur {
+                z: -1
+                anchors.fill: parent
+                radius: parent.radius
+            }
 
             anchors.bottom: toolbar.top
             anchors.bottomMargin: s(12)
@@ -900,13 +919,19 @@ Item {
                 RowLayout {
                     width: parent.width
                     spacing: s(10)
+                    layoutDirection: I18n.layoutDirection
 
                     Text {
-                        text: root.colorPalettes[root.activePaletteIndex] ? root.colorPalettes[root.activePaletteIndex].name : "Palette"
+                        text: {
+                            let pName = root.colorPalettes[root.activePaletteIndex] ? root.colorPalettes[root.activePaletteIndex].name : "";
+                            if (pName === "Default") return I18n.t("quickactions.draw.palette_default", "Default");
+                            return pName || I18n.t("quickactions.draw.palette", "Palette");
+                        }
                         color: root.baseTextColor
                         font.pixelSize: s(14)
                         font.bold: true
                         Layout.fillWidth: true
+                        horizontalAlignment: I18n.textAlignment
                     }
 
                     IconButton {
@@ -924,6 +949,7 @@ Item {
                     columns: 8
                     spacing: s(12)
                     anchors.horizontalCenter: parent.horizontalCenter
+                    layoutDirection: I18n.layoutDirection
 
                     Repeater {
                         model: root.colorPalettes[root.activePaletteIndex] ? root.colorPalettes[root.activePaletteIndex].colors : []
@@ -954,9 +980,10 @@ Item {
                 Row {
                     spacing: s(10)
                     anchors.horizontalCenter: parent.horizontalCenter
+                    layoutDirection: I18n.layoutDirection
 
                     Text {
-                        text: "Hex"
+                        text: I18n.t("quickactions.draw.hex", "Hex")
                         color: Qt.rgba(root.baseTextColor.r, root.baseTextColor.g, root.baseTextColor.b, 0.6)
                         anchors.verticalCenter: parent.verticalCenter
                         font.pixelSize: s(13)
@@ -1006,6 +1033,12 @@ Item {
             color: root.panelBgColor
             border.width: 1
             border.color: root.panelBorderColor
+
+            WallpaperBlur {
+                z: -1
+                anchors.fill: parent
+                radius: parent.radius
+            }
 
             Row {
                 id: toolRow
@@ -1089,7 +1122,7 @@ Item {
                             model: [
                                 { id: "pen", icon: "\uF040" },
                                 { id: "brush", icon: "\uF1FC" },
-                                { id: "fill", icon: "\uF576" },
+                                { id: "fill", icon: "\uEE3F" },
                                 { id: "eraser", icon: "\uF12D" }
                             ]
 

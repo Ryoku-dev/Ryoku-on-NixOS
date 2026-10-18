@@ -341,8 +341,33 @@ Rectangle {
     onSettingIdChanged: searchRegTimer.restart()
     onHiddenByConfigChanged: searchRegTimer.restart()
 
+    readonly property var blobPlacement: {
+        let child = root;
+        let p = root.parent;
+        let nested = false;
+        while (p) {
+            if (p.isBlobColumn) return { inBlob: true, nested: nested, holder: child, column: p };
+            if (p.isGroupSubWrapper) nested = true;
+            if (p.tabIndex !== undefined || p.isGuidePopup || p.isGuideTab) break;
+            child = p;
+            p = p.parent;
+        }
+        return { inBlob: false, nested: false, holder: null, column: null };
+    }
+    readonly property bool inBlob: blobPlacement.inBlob
+
+    readonly property bool blobDividerVisible: {
+        let pl = blobPlacement;
+        if (!pl.inBlob || pl.nested) return false;
+        let sibs = pl.column.children;
+        for (let i = 0; i < sibs.length; i++) {
+            if (sibs[i] === pl.holder) return false;
+            if (sibs[i].visible && sibs[i].height > 0.01) return true;
+        }
+        return false;
+    }
     property real cornerRadius: ThemeBackend.borderRadius
-    property color baseColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+    property color baseColor: root.inBlob ? (root.blobPlacement.nested ? Qt.alpha(ThemeBackend.surface1, 0.25) : "transparent") : Qt.alpha(ThemeBackend.surface0, 0.4)
     property color hoverColor: Qt.alpha(ThemeBackend.surface1, 0.4)
     property color borderColor: "transparent"
     property int borderWidth: 0
@@ -395,15 +420,23 @@ Rectangle {
     property alias bottomContent: bottomCol.data
 
     radius: root.cornerRadius
-    color: {
+    readonly property color stateColor: {
         let base = (root.clickable && cardMa.containsMouse) ? root.hoverColor : root.baseColor;
         if (root.dimmed) base = Qt.alpha(base, base.a * 0.5);
         if (root.highlightFlash > 0.001) {
             let k = root.dimmed ? 0.2 : 0.12;
+            if (root.inBlob) {
+                if (base.a < 0.001) {
+                    let cardAlpha = 0.4;
+                    let overlayAlpha = k * cardAlpha / (1 - k + k * cardAlpha);
+                    return Qt.rgba(ThemeBackend.mauve.r, ThemeBackend.mauve.g, ThemeBackend.mauve.b, root.highlightFlash * overlayAlpha);
+                }
+            }
             return Qt.tint(base, Qt.rgba(ThemeBackend.mauve.r, ThemeBackend.mauve.g, ThemeBackend.mauve.b, root.highlightFlash * k));
         }
         return base;
     }
+    color: rowGlass.active ? (root.highlightFlash > 0.001 ? Qt.alpha(ThemeBackend.mauve, root.highlightFlash * 0.12) : "transparent") : stateColor
     border.color: root.borderColor
     border.width: root.borderWidth
     clip: true
@@ -415,6 +448,18 @@ Rectangle {
     Behavior on implicitHeight {
         enabled: root.animateHeight
         NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutCubic }
+    }
+
+    GlassFill {
+        id: rowGlass
+        anchors.fill: parent
+        allowed: !root.inBlob || root.blobPlacement.nested
+        radius: root.cornerRadius
+        tintColor: ThemeBackend.surface0
+        tintAmount: (root.clickable && cardMa.containsMouse ? 0.34 : 0.26) * (root.dimmed ? 0.5 : 1.0)
+        press: root.clickable && cardMa.containsMouse ? 0.2 : 0
+        Behavior on press { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on tintAmount { NumberAnimation { duration: 180 } }
     }
 
     MouseArea {
@@ -448,6 +493,7 @@ Rectangle {
 
         RowLayout {
             id: mainRow
+            layoutDirection: I18n.layoutDirection
             Layout.fillWidth: true
             spacing: root.spacing
 
@@ -487,6 +533,7 @@ Rectangle {
                 spacing: root.textSpacing
 
                 RowLayout {
+                    layoutDirection: I18n.layoutDirection
                     Layout.fillWidth: true
                     spacing: root.s(6)
                     visible: root.title !== "" || titleBadgeLoader.active
@@ -498,6 +545,7 @@ Rectangle {
                         font.pixelSize: root.s(root.titlePixelSize)
                         font.bold: root.titleBold
                         color: root.dimmed ? ThemeBackend.subtext0 : root.titleColor
+                        horizontalAlignment: I18n.textAlignment
                         elide: root.wrapText ? Text.ElideNone : Text.ElideRight
                         wrapMode: root.wrapText ? Text.WordWrap : Text.NoWrap
                         visible: text !== ""
@@ -523,6 +571,7 @@ Rectangle {
                     font.family: root.fontFamily
                     font.pixelSize: root.s(root.descriptionPixelSize)
                     color: root.dimmed ? ThemeBackend.subtext0 : root.descriptionColor
+                    horizontalAlignment: I18n.textAlignment
                     elide: root.wrapText ? Text.ElideNone : Text.ElideRight
                     wrapMode: root.wrapText ? Text.WordWrap : Text.NoWrap
                     visible: text !== ""
@@ -538,7 +587,7 @@ Rectangle {
                 id: controlRow
                 enabled: !root.dimmed
                 Layout.fillWidth: root.fillControlWidth
-                Layout.alignment: root.fillControlWidth ? Qt.AlignVCenter : (Qt.AlignRight | Qt.AlignVCenter)
+                Layout.alignment: root.fillControlWidth ? Qt.AlignVCenter : ((I18n.rtl ? Qt.AlignLeft : Qt.AlignRight) | Qt.AlignVCenter)
                 spacing: root.controlSpacing
             }
         }
@@ -558,6 +607,17 @@ Rectangle {
             spacing: root.bottomSpacing
             visible: children.length > 0
         }
+    }
+
+    Rectangle {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: root.horizontalPadding
+        anchors.rightMargin: root.horizontalPadding
+        height: 1
+        color: root.dividerColor
+        visible: root.blobDividerVisible
     }
 
     MouseArea {

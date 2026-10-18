@@ -227,7 +227,10 @@ func reconcilers() []reconciler {
 		{i18n.T("interface language"), reconcileShellLanguage},
 	}
 	if fedora {
-		checks = append(checks, reconciler{i18n.T("Fedora release"), reconcileFedoraRelease})
+		checks = append(checks,
+			reconciler{i18n.T("Fedora release"), reconcileFedoraRelease},
+			reconciler{i18n.T("earlier Fedora boot-menu leftovers"), reconcileFedoraLegacyBoot},
+		)
 	}
 	if !fedora {
 		checks = append(checks,
@@ -304,6 +307,7 @@ func reconcilers() []reconciler {
 		{i18n.T("window width cycle"), reconcileWidthCycle},
 		{i18n.T("ryogami wallpaper daemon"), reconcileRyogamiWallpaper},
 		{i18n.T("ryowalls app leftovers"), reconcileRyowallsRemoval},
+		{i18n.T("duplicate launcher entries"), reconcileLauncherDuplicates},
 		{i18n.T("quick-settings capture tab"), reconcileCaptureModule},
 		{i18n.T("quick-settings stage tab"), reconcileStageModule},
 		{i18n.T("ryostage cache"), reconcileRyostageCache},
@@ -318,6 +322,7 @@ func reconcilers() []reconciler {
 		{i18n.T("release control manifest"), reconcileManifest},
 		{i18n.T("ghostty theme include"), reconcileGhostty},
 		{i18n.T("obsidian palette snippet"), reconcileObsidianSnippet},
+		{i18n.T("Vesktop palette preservation"), reconcileVesktopPalette},
 		{i18n.T("flatpak app channel"), reconcileFlatpakRemote},
 		{i18n.T("browser theme host"), reconcileBrowserTheme},
 		{i18n.T("zen browser policy"), reconcileZen},
@@ -674,6 +679,15 @@ const snapperConfdRoot = `## Path: System/Snapper
 SNAPPER_CONFIGS="root"
 `
 
+// snapperConfdPath is where snapper's units read SNAPPER_CONFIGS: Fedora keeps
+// it under /etc/sysconfig.
+func snapperConfdPath(manager host.PackageManager) string {
+	if manager == host.DNF {
+		return "/etc/sysconfig/snapper"
+	}
+	return "/etc/conf.d/snapper"
+}
+
 // snapperOutcome: what planSnapper hands to reconcileSnapper. ok = leave the
 // box alone; the two warn variants surface as-is; create writes the canonical
 // layout.
@@ -686,26 +700,32 @@ const (
 	snapperCreate
 	snapperWarnMissingPkgs
 	snapperOptedOut
+	snapperMoveSnapshots
 )
 
 // snapperState: the slice of the filesystem reconcileSnapper looks at, lifted
 // to a value so planSnapper is unit-testable without real /etc or running
 // snapper/btrfs.
 type snapperState struct {
-	manager             host.PackageManager
-	rootIsBtrfs         bool
-	configExists        bool
-	optedOut            bool
-	snapshotsExists     bool
-	snapshotsIsSubvol   bool
-	snapshotsMode       os.FileMode
-	confdExists         bool
-	confdContents       string
-	snapperInstalled    bool
-	snapPacInstalled    bool
-	limineInstalled     bool
-	limineSyncInstalled bool
-	limineSyncEnabled   bool
+	manager           host.PackageManager
+	rootIsBtrfs       bool
+	configExists      bool
+	optedOut          bool
+	snapshotsExists   bool
+	snapshotsIsSubvol bool
+	// a /.snapshots subvolume inside the root subvolume, the layout
+	// `snapper create-config /` makes. Fedora's needs its own top-level one.
+	snapshotsNested bool
+	// a /.snapshots mounted, through fstab, from a subvolume inside the root.
+	snapshotsMountedInRoot bool
+	snapshotsMode          os.FileMode
+	confdExists            bool
+	confdContents          string
+	snapperInstalled       bool
+	snapPacInstalled       bool
+	limineInstalled        bool
+	limineSyncInstalled    bool
+	limineSyncEnabled      bool
 }
 
 // planSnapper picks the branch from observed state. pure, no IO. the
@@ -732,15 +752,21 @@ func planSnapper(s snapperState) (snapperOutcome, []string) {
 		}
 		return snapperCreate, nil
 	}
+	if s.snapshotsNested {
+		return snapperMoveSnapshots, nil
+	}
 	var problems []string
 	if s.snapshotsExists && !s.snapshotsIsSubvol {
 		problems = append(problems, i18n.T("/.snapshots is a plain directory, not a btrfs subvolume"))
+	}
+	if s.snapshotsMountedInRoot {
+		problems = append(problems, i18n.T("/.snapshots is mounted from a subvolume inside the root subvolume, so a restore would take the snapshots with it and the boot menu leaves them out"))
 	}
 	if s.snapshotsExists && s.snapshotsMode != 0o750 {
 		problems = append(problems, fmt.Sprintf(i18n.T("/.snapshots is mode %04o, expected 0750"), s.snapshotsMode))
 	}
 	if s.confdExists && !strings.Contains(s.confdContents, "root") {
-		problems = append(problems, i18n.T("/etc/conf.d/snapper does not list the root config (timers and hooks will skip it)"))
+		problems = append(problems, fmt.Sprintf(i18n.T("%s does not list the root config (timers and hooks will skip it)"), snapperConfdPath(manager)))
 	}
 	if !s.snapperInstalled {
 		problems = append(problems, fmt.Sprintf(i18n.T("snapper is not installed; the root config exists but cannot be used (%s)"), doctorInstallAdvice("snapper")))
@@ -787,8 +813,13 @@ func gatherSnapperState() snapperState {
 		s.snapshotsExists = true
 		s.snapshotsMode = fi.Mode().Perm()
 		s.snapshotsIsSubvol = sys.IsBtrfsSubvolumeRoot("/.snapshots")
+		if manager == host.DNF && s.snapshotsIsSubvol {
+			snaps := mountFSRoot("/.snapshots")
+			s.snapshotsNested = snaps == ""
+			s.snapshotsMountedInRoot = insideSubvol(snaps, mountFSRoot("/"))
+		}
 	}
-	if b, err := os.ReadFile("/etc/conf.d/snapper"); err == nil {
+	if b, err := os.ReadFile(snapperConfdPath(manager)); err == nil {
 		s.confdExists = true
 		s.confdContents = string(b)
 	}
@@ -803,6 +834,9 @@ func reconcileSnapper(checkOnly bool) recResult {
 		return okRes("Snapper configuration is managed declaratively on NixOS")
 	}
 
+	if supported, reason := doctorSnapshots(); !supported {
+		return noteRes("%s", reason)
+	}
 	st := gatherSnapperState()
 	outcome, problems := planSnapper(st)
 	switch outcome {
@@ -819,10 +853,27 @@ func reconcileSnapper(checkOnly bool) recResult {
 				withFix(i18n.T("ryoku doctor (creates the snapper root config)"))
 		}
 		return createSnapperRootConfig(st)
+	case snapperMoveSnapshots:
+		if checkOnly {
+			return wouldRes(i18n.T("/.snapshots sits inside the root subvolume, so snapshots cannot be booted or restored")).
+				withFix(i18n.T("ryoku doctor (moves it to its own top-level btrfs subvolume)"))
+		}
+		if err := moveNestedSnapshots(); err != nil {
+			return snapshotsMoveFailed(err)
+		}
+		_ = sys.Run("sudo", "chmod", "0750", "/.snapshots")
+		_ = sys.Run("sudo", "chown", "root:root", "/.snapshots")
+		return fixedRes(i18n.T("moved /.snapshots to its own top-level btrfs subvolume, so snapshots can be booted and restored"))
 	case snapperWarnInconsistent:
 		remedy := i18n.T("see https://wiki.archlinux.org/title/Snapper")
-		if st.manager == host.XBPS {
+		switch st.manager {
+		case host.XBPS:
 			remedy = i18n.T("run `ryoku doctor`; use `ryoku-host pkg advice <package>` for a missing snapshot package")
+		case host.DNF:
+			remedy = i18n.T("see https://docs.fedoraproject.org/en-US/quick-docs/snapper/")
+			if st.snapshotsMountedInRoot {
+				remedy = i18n.T("drop the /.snapshots line from /etc/fstab and run `sudo umount /.snapshots`; ryoku doctor then moves it to its own top-level subvolume")
+			}
 		}
 		return warnRes("%s", strings.Join(problems, "; ")).withFix(remedy)
 	}
@@ -885,9 +936,11 @@ func snapperReadableUnprivileged() bool {
 
 // createSnapperRootConfig lays the installer's layout down on a live box.
 // mirrors installation/backend/lib/snapshots.sh:
-//   - /.snapshots = btrfs subvolume, owned root:root, mode 0750.
+//   - /.snapshots = btrfs subvolume, owned root:root, mode 0750. On Fedora it
+//     is a top-level subvolume with its own fstab entry (snapshots_toplevel.go).
 //   - write /etc/snapper/configs/root.
-//   - register "root" in /etc/conf.d/snapper without dropping siblings.
+//   - register "root" in /etc/conf.d/snapper (Fedora: /etc/sysconfig/snapper)
+//     without dropping siblings.
 //   - best-effort enable snapper-cleanup.timer (+ limine-snapper-sync.service
 //     when its unit is present).
 //
@@ -898,6 +951,17 @@ func createSnapperRootConfig(st snapperState) recResult {
 	var actions []string
 
 	switch {
+	case !st.snapshotsExists && st.manager == host.DNF:
+		if err := createTopLevelSnapshots(); err != nil {
+			return failRes(i18n.T("setting up /.snapshots: %v"), err).
+				withFix(i18n.T("give /.snapshots its own top-level btrfs subvolume in /etc/fstab, then re-run ryoku doctor"))
+		}
+		actions = append(actions, "/.snapshots subvolume")
+	case st.snapshotsNested:
+		if err := moveNestedSnapshots(); err != nil {
+			return snapshotsMoveFailed(err)
+		}
+		actions = append(actions, "/.snapshots subvolume")
 	case !st.snapshotsExists:
 		if err := sys.Run("sudo", "btrfs", "subvolume", "create", "/.snapshots"); err != nil {
 			return failRes(i18n.T("creating /.snapshots subvolume: %v"), err).
@@ -923,10 +987,11 @@ func createSnapperRootConfig(st snapperState) recResult {
 
 	newConfd, changed := mergedConfdRoot(st.confdExists, st.confdContents)
 	if changed {
-		if err := writeRootFile("/etc/conf.d/snapper", newConfd, "0644"); err != nil {
-			return failRes(i18n.T("writing /etc/conf.d/snapper: %v"), err)
+		confd := snapperConfdPath(st.manager)
+		if err := writeRootFile(confd, newConfd, "0644"); err != nil {
+			return failRes(i18n.T("writing %s: %v"), confd, err)
 		}
-		actions = append(actions, "/etc/conf.d/snapper")
+		actions = append(actions, confd)
 	}
 
 	// Service enablement is best-effort. A healthy install has both; a package
@@ -1032,6 +1097,9 @@ func reconcilePacmanLock(checkOnly bool) recResult {
 		return okRes("pacman state is not managed by Ryoku Doctor on NixOS")
 	}
 
+	if result, applicable := pacmanHost(i18n.T("the pacman database lock check")); !applicable {
+		return result
+	}
 	const lock = "/var/lib/pacman/db.lck"
 	if !sys.Exists(lock) {
 		return okRes(i18n.T("no stale pacman lock"))
@@ -1215,6 +1283,16 @@ func reconcileRyokuChannel(checkOnly bool) recResult {
 		return okRes("Ryoku package channels are not used on NixOS")
 	}
 
+	manager, err := doctorPackageManager()
+	if err == nil && manager == host.DNF {
+		return reconcileFedoraRyokuChannel(checkOnly)
+	}
+	if err == nil && manager == host.XBPS {
+		return reconcileVoidRyokuChannel(checkOnly)
+	}
+	if result, applicable := pacmanHost(i18n.T("the Ryoku pacman channel check")); !applicable {
+		return result
+	}
 	if !sys.PkgInstalled("ryoku-desktop") {
 		return okRes(i18n.T("not a packaged install (desktop runs from a checkout)"))
 	}
@@ -1435,6 +1513,16 @@ func reconcileRyokuSyncDB(checkOnly bool) recResult {
 		return okRes("pacman repository state is not applicable on NixOS")
 	}
 
+	manager, err := doctorPackageManager()
+	if err == nil && manager == host.DNF {
+		return reconcileFedoraRyokuSyncDB(checkOnly)
+	}
+	if err == nil && manager == host.XBPS {
+		return reconcileVoidRyokuSyncDB(checkOnly)
+	}
+	if result, applicable := pacmanHost(i18n.T("the Ryoku pacman database check")); !applicable {
+		return result
+	}
 	if !sys.PkgInstalled("ryoku-desktop") {
 		return okRes(i18n.T("not a packaged install (desktop runs from a checkout)"))
 	}
@@ -2574,8 +2662,9 @@ func reconcileSessionComponents(_ bool) recResult {
 		return okRes("desktop session components are managed declaratively by the Ryoku NixOS module")
 	}
 
-	if wm.Detect().Name == "" {
-		return okRes(i18n.T("no window manager provider"))
+	detected := wm.Detect()
+	if detected.Name == "" || !detected.Live {
+		return okRes(i18n.T("no running window manager provider"))
 	}
 	portalFix, portalPkgs := portalFrontendCheck()
 	checks := []sessionComponent{
@@ -4500,8 +4589,27 @@ func reconcilePacnew(checkOnly bool) recResult {
 		return okRes("pacman configuration repair is not applicable on NixOS")
 	}
 
-	out, _ := sys.RunOut("find", "/etc", "-name", "*.pacnew")
-	files := nonEmptyLines(out)
+	manager, err := doctorPackageManager()
+	if err != nil {
+		return noteRes(i18n.T("could not identify the package manager; pending config updates were not checked"))
+	}
+	if manager == host.DNF {
+		files := append(doctorFindPendingConfig("*.rpmnew"), doctorFindPendingConfig("*.rpmsave")...)
+		if len(files) == 0 {
+			return okRes(i18n.T("no pending package config updates"))
+		}
+		return warnRes(i18n.T("%d pending RPM config update(s) need review: %s"), len(files), strings.Join(files, ", ")).
+			withFix(i18n.T("merge each .rpmnew or .rpmsave file into its base config, then remove the reviewed files"))
+	}
+	if manager == host.XBPS {
+		files := doctorFindPendingConfig("*.new-*")
+		if len(files) == 0 {
+			return okRes(i18n.T("no pending config updates"))
+		}
+		return warnRes(i18n.T("%d pending XBPS config update(s) need review: %s"), len(files), strings.Join(files, ", ")).
+			withFix(i18n.T("merge each .new-<version> file into its base config, then remove the reviewed files with `sudo rm -f %s`"), strings.Join(files, " "))
+	}
+	files := doctorFindPendingConfig("*.pacnew")
 	if len(files) == 0 {
 		return okRes(i18n.T("no pending config updates"))
 	}
@@ -4757,6 +4865,9 @@ func reconcileConflictingRyokuFiles(checkOnly bool) recResult {
 		return okRes("package ownership repair is not applicable on NixOS")
 	}
 
+	if result, applicable := pacmanHost(i18n.T("pacman file ownership checks")); !applicable {
+		return result
+	}
 	// Only a packaged box hits the conflict. A dev checkout has no ryoku-desktop,
 	// and deploy.sh's unowned helpers there are correct, so leave them be.
 	if !sys.PkgInstalled("ryoku-desktop") {

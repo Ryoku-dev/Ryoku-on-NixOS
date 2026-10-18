@@ -116,6 +116,8 @@ QtObject {
         Daemon.call("settings.action", { id: id, args: args || ({}) }, function(result, error) {
             if (error)
                 state.toast(error.message || I18n.tr("That action could not be completed."), "error")
+            else if (result && result.result && result.result.message)
+                state.toast(result.result.message, "info")
         })
     }
 

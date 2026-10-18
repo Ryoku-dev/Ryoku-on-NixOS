@@ -15,6 +15,7 @@ namespace {
 constexpr qreal Pi = 3.14159265358979323846;
 constexpr qreal Tau = Pi * 2.0;
 constexpr qint64 CrossfadeMilliseconds = 240;
+constexpr qint64 MinimumFrameIntervalMilliseconds = 15;
 constexpr qreal SolvingCycleSeconds = 3.0;
 
 qreal clamp01(qreal value) {
@@ -52,9 +53,9 @@ ThinkingOrb::ThinkingOrb(QQuickItem* parent)
     : QQuickPaintedItem(parent)
     , m_stateStartedAt(monotonicMilliseconds()) {
     setAntialiasing(true);
-    m_frameTimer.setInterval(33);
-    m_frameTimer.setTimerType(Qt::PreciseTimer);
-    connect(&m_frameTimer, &QTimer::timeout, this, &ThinkingOrb::requestAnimationFrame);
+    m_frameDelayTimer.setSingleShot(true);
+    m_frameDelayTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_frameDelayTimer, &QTimer::timeout, this, &ThinkingOrb::requestAnimationFrame);
     connect(this, &QQuickItem::windowChanged, this, &ThinkingOrb::handleWindowChanged);
     resizeFrames();
     if (window())
@@ -62,7 +63,8 @@ ThinkingOrb::ThinkingOrb(QQuickItem* parent)
 }
 
 ThinkingOrb::~ThinkingOrb() {
-    m_frameTimer.stop();
+    m_frameDelayTimer.stop();
+    QObject::disconnect(m_afterAnimatingConnection);
     if (m_observedWindow)
         m_observedWindow->removeEventFilter(this);
 }
@@ -183,11 +185,18 @@ void ThinkingOrb::resizeFrames() {
 }
 
 void ThinkingOrb::handleWindowChanged(QQuickWindow* window) {
+    m_frameDelayTimer.stop();
+    QObject::disconnect(m_afterAnimatingConnection);
     if (m_observedWindow)
         m_observedWindow->removeEventFilter(this);
     m_observedWindow = window;
-    if (m_observedWindow)
+    m_frameClockRunning = false;
+    m_lastFrameRequestedAt = 0;
+    if (m_observedWindow) {
         m_observedWindow->installEventFilter(this);
+        m_afterAnimatingConnection = connect(
+            m_observedWindow, &QQuickWindow::afterAnimating, this, &ThinkingOrb::requestAnimationFrame);
+    }
     updateAnimationState();
     update();
 }
@@ -195,21 +204,42 @@ void ThinkingOrb::handleWindowChanged(QQuickWindow* window) {
 void ThinkingOrb::updateAnimationState() {
     const bool shouldRun = m_animated && !m_paused && m_speed > 0.0 && isVisible() && m_observedWindow
         && m_observedWindow->isVisible() && m_observedWindow->isExposed();
-    if (shouldRun) {
-        if (!m_frameTimer.isActive())
-            m_frameTimer.start();
-    } else {
-        m_frameTimer.stop();
+    if (!shouldRun) {
+        m_frameDelayTimer.stop();
+        m_frameClockRunning = false;
+        return;
     }
+    if (m_frameClockRunning)
+        return;
+
+    m_frameClockRunning = true;
+    m_lastFrameRequestedAt = monotonicMilliseconds();
+    update();
+    m_observedWindow->update();
 }
 
 void ThinkingOrb::requestAnimationFrame() {
     if (!m_animated || m_paused || m_speed <= 0.0 || !isVisible() || !m_observedWindow
         || !m_observedWindow->isVisible() || !m_observedWindow->isExposed()) {
-        m_frameTimer.stop();
+        m_frameDelayTimer.stop();
+        m_frameClockRunning = false;
         return;
     }
+    if (!m_frameClockRunning)
+        return;
+
+    const qint64 now = monotonicMilliseconds();
+    const qint64 elapsed = now - m_lastFrameRequestedAt;
+    if (elapsed < MinimumFrameIntervalMilliseconds) {
+        if (!m_frameDelayTimer.isActive())
+            m_frameDelayTimer.start(static_cast<int>(MinimumFrameIntervalMilliseconds - elapsed));
+        return;
+    }
+
+    m_frameDelayTimer.stop();
+    m_lastFrameRequestedAt = now;
     update();
+    m_observedWindow->update();
 }
 
 void ThinkingOrb::itemChange(ItemChange change, const ItemChangeData& data) {

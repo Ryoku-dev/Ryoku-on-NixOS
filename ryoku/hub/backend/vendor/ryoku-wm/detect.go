@@ -264,7 +264,7 @@ var configFiles = map[string][]string{
 // copy the updater re-lays. A pure function of the store, so clearing the store
 // clears these, and a reset that restores pure defaults removes them.
 var generatedConfig = map[string][]string{
-	ProviderHyprland: {"hypr/settings.lua", "hypr/rebinds.lua", "ryoku/user_edits/hypr/settings.lua", "ryoku/user_edits/hypr/rebinds.lua"},
+	ProviderHyprland: {"hypr/settings.lua", "hypr/settings_window.lua", "hypr/rebinds.lua", "ryoku/user_edits/hypr/settings.lua", "ryoku/user_edits/hypr/settings_window.lua", "ryoku/user_edits/hypr/rebinds.lua"},
 	ProviderNiri:     {"niri/settings.kdl", "niri/rebinds.kdl", "ryoku/user_edits/niri/settings.kdl", "ryoku/user_edits/niri/rebinds.kdl"},
 	ProviderMango:    {"mango/settings.conf", "mango/rebinds.conf", "ryoku/user_edits/mango/settings.conf", "ryoku/user_edits/mango/rebinds.conf"},
 }

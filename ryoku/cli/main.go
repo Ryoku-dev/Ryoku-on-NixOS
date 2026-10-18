@@ -11,6 +11,7 @@
 //	ryoku update --gui      the same, in the background, driven from Ryoku Hub
 //	ryoku rollback          list releases + snapshots; --to <tag> moves back to a release; [id] guides a snapshot restore
 //	ryoku snapshots         list snapper snapshots
+//	ryoku boot-menu         Fedora's GRUB snapshot menu: sync; restore (from a look boot); restored
 //	ryoku status            version, commits behind the channel, snapshot count
 //	ryoku materialize       lay the base configs into ~/.config (override-safe)
 //	ryoku reset [path]      drop a user_edits override, back to the Ryoku default
@@ -70,6 +71,12 @@ func main() {
 			err = fmt.Errorf("the Arch Ryoku boot guard is not used on NixOS; recovery belongs to NixOS generations")
 		} else {
 			err = updater.BootGuard(os.Args[2:])
+		}
+	case "boot-menu":
+		if sys.NixBackend() {
+			err = fmt.Errorf("the Fedora snapshot boot menu is not used on NixOS; boot an earlier NixOS generation instead")
+		} else {
+			err = updater.BootMenu(os.Args[2:])
 		}
 	case "snapshots":
 		err = updater.Snapshots()

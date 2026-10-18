@@ -4,6 +4,7 @@
   livewall,
   waifu2x,
   qmlRoot,
+  paletteBridge,
 }:
 
 let
@@ -65,6 +66,12 @@ pkgs.stdenv.mkDerivation {
       --replace-fail \
         '/usr/share/waifu2x-ncnn-vulkan/models-cunet' \
         '${waifu2xModels}'
+
+    # The palette integration recipes live in the palette-bridge package.
+    substituteInPlace daemon/palette_bridge.go \
+      --replace-fail \
+        '"/usr/share/ryoku/palette-bridge"' \
+        '"${paletteBridge}/share/ryoku/palette-bridge"'
 
     install -Dm644 \
       ${src}/ryoku/assets/brand/logo-mark-v2.png \

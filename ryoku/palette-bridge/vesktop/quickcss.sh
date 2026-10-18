@@ -74,5 +74,19 @@ vesktop_write_palette() (
   else
     chmod 0644 "$temporary/quickCss.css"
   fi
-  mv -f "$temporary/quickCss.css" "$css"
+  if [[ -f "$css" ]]; then
+    # Vencord watches the file inode; replacing it drops future live updates.
+    cat "$temporary/quickCss.css" > "$css"
+  else
+    mv -f "$temporary/quickCss.css" "$css"
+  fi
 )
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  set -euo pipefail
+  [[ $# == 2 && -s "$2" ]] || {
+    printf 'Usage: %s <quickCss.css> <rendered-palette.css>\n' "${0##*/}" >&2
+    exit 2
+  }
+  vesktop_write_palette "$1" "$2"
+fi

@@ -21,6 +21,7 @@ export interface MergedHarness {
   connected: boolean;
   active: boolean;
   pending: boolean;
+  credentialStale: boolean;
   state: HarnessConnectionState;
   reason: string;
   files: string[];
@@ -34,12 +35,12 @@ export interface MergedHarness {
 export function connectionState(input: {
   supported: boolean;
   connected: boolean;
-  active: boolean;
+  pending: boolean;
 }): HarnessConnectionState {
   if (!input.supported) return "unsupported";
-  if (input.active) return "active";
-  if (input.connected) return "pending";
-  return "not-connected";
+  if (!input.connected) return "not-connected";
+  if (input.pending) return "pending";
+  return "active";
 }
 
 export function mergeHarnesses(ledger: Harness[], setup: HarnessRow[]): MergedHarness[] {
@@ -50,12 +51,13 @@ export function mergeHarnesses(ledger: Harness[], setup: HarnessRow[]): MergedHa
   return [...ids].map((id) => {
     const local = ledgerById.get(id);
     const remote = setupById.get(id);
-    const routingSupported = id !== "gemini" && (local ? local.routing.supported : Boolean(remote));
+    const routingSupported = local?.routing.supported ?? (id !== "gemini" && Boolean(remote));
     const injected = Boolean(remote?.injected || local?.routing.injected);
     const connected = Boolean(local?.routing.connected);
     const active = Boolean(remote?.active || local?.routing.active);
-    const pending = connected && !active;
-    const state = connectionState({ supported: routingSupported, connected, active });
+    const pending = Boolean(local?.routing.pending);
+    const credentialStale = Boolean(remote?.credentialStale || local?.routing.credentialStale);
+    const state = connectionState({ supported: routingSupported, connected: connected || injected, pending });
     return {
       id,
       name: local?.name || remote?.name || id,
@@ -66,6 +68,7 @@ export function mergeHarnesses(ledger: Harness[], setup: HarnessRow[]): MergedHa
       connected,
       active,
       pending,
+      credentialStale,
       state,
       reason: local?.routing.note || remote?.note || "",
       files: remote?.files ?? [],
@@ -83,10 +86,10 @@ export function mergeHarnesses(ledger: Harness[], setup: HarnessRow[]): MergedHa
 
 export function stateLabel(state: HarnessConnectionState): string {
   switch (state) {
-    case "unsupported": return "Cannot route through Prowl";
+    case "unsupported": return "Prowl plug-in unavailable";
     case "not-connected": return "Not connected";
-    case "pending": return "Pending route";
-    case "active": return "Routed through Prowl";
+    case "pending": return "Prowl default waiting";
+    case "active": return "Connected";
   }
 }
 

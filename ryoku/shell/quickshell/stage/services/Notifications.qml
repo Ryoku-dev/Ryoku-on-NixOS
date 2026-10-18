@@ -461,7 +461,9 @@ Singleton {
         bodyImagesSupported: true
         bodyMarkupSupported: true
         bodySupported: true
-        imageSupported: true
+        // The vendored Stage service stores image metadata but has no image
+        // renderer. Current iRiS bridges to shell.services.Notifs instead.
+        imageSupported: false
         keepOnReload: false
         persistenceSupported: true
 

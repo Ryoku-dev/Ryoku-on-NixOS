@@ -7,6 +7,13 @@ through Ryoku's window-manager seam, settings daemon, palette and services,
 and the launcher, clipboard, wallpaper, lock, screenshot and update surfaces
 are Ryoku's own and are not part of this port.
 
+This port tracks Serpantinum at commit cfdd810, past 2.2.12. Ryoku carries the
+upstream bar registry, orientation-aware faces, shader effects, liquid-glass
+material, settings guide, popups and widget-face library. It leaves out
+Serpantinum's launcher, clipboard, wallpaper, lock, capture, notification
+server, policy agent, idle service, updater, first-run flow, compositor
+trackers and desktop-widget host because Ryoku provides those facilities.
+
 Serpantinum is released under the GNU Affero General Public License, version 3
 or later (https://www.gnu.org/licenses/agpl-3.0.html); LICENSE beside this file
 is its text. The ported portions of this directory stay under that license.

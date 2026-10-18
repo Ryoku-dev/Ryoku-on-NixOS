@@ -18,13 +18,16 @@ Item {
     property alias answerText: askSession.answerText
     property alias answerImages: askSession.answerImages
     property alias answerActions: askSession.answerActions
+    property alias answerId: askSession.answerId
+    property alias needsAgent: askSession.needsAgent
+    property alias needsAgentReason: askSession.needsAgentReason
     property alias errorText: askSession.errorText
-    property alias permPending: askSession.permPending
     property alias fromHistory: askSession.fromHistory
     property alias askedQuestion: askSession.askedQuestion
     property int selectedChip: 0
     property int selectedRecent: 0
     property string flash: ""
+    readonly property bool motionAllowed: !Tokens.reduceMotion && !Motion.reduce
 
     readonly property bool busy: askSession.busy
     readonly property bool answerCurrent: askSession.answerCurrent
@@ -35,14 +38,16 @@ Item {
     readonly property var chips: {
         if (busy)
             return workChips;
-        if (permPending)
-            return [{ kind: "chat", value: "", label: I18n.tr("APPROVE IN CHAT") }];
         if (phase !== "done")
             return [];
-        const result = [{ kind: "copy", value: answerText, label: I18n.tr("COPY") }];
+        const result = [];
+        if (needsAgent)
+            result.push({ kind: "chat", value: "", label: I18n.tr("OPEN CHAT") });
+        result.push({ kind: "copy", value: answerText, label: I18n.tr("COPY") });
         for (let i = 0; i < answerActions.length; i++)
             result.push(answerActions[i]);
-        result.push({ kind: "chat", value: "", label: I18n.tr("OPEN CHAT") });
+        if (!needsAgent)
+            result.push({ kind: "chat", value: "", label: I18n.tr("OPEN CHAT") });
         return result;
     }
 
@@ -124,9 +129,17 @@ Item {
         case "url":
             Spawn.runApp(["xdg-open", String(chip.value)]);
             break;
-        case "chat":
+        case "chat": {
+            const runAgent = busy || needsAgent;
+            Svc.Needle.handoff(
+                runAgent ? "" : answerId,
+                askedQuestion,
+                runAgent ? "" : answerText,
+                runAgent
+            );
             Svc.ShellState.requestSurfaceActive("ask#chat", undefined);
             break;
+        }
         }
         root.finished();
     }
@@ -247,7 +260,7 @@ Item {
                 width: 8 * root.s
                 height: 8 * root.s
                 radius: width / 2
-                color: root.permPending ? Theme.verm : Theme.flameGlow
+                color: Theme.flameGlow
                 anchors.verticalCenter: parent.verticalCenter
 
                 SequentialAnimation on opacity {
@@ -347,9 +360,15 @@ Item {
                     width: chipRow.implicitWidth + 18 * root.s
                     height: chipRow.implicitHeight + 10 * root.s
                     radius: Theme.radius
+                    scale: chipTap.pressed && root.motionAllowed ? 0.94
+                        : chipHover.hovered && root.motionAllowed ? 1.025 : 1
                     color: current || chipHover.hovered ? (danger ? Theme.vermDeep : Theme.verm) : "transparent"
                     border.color: current || chipHover.hovered ? (danger ? Theme.vermDeep : Theme.verm) : Theme.border
                     border.width: 1
+                    Behavior on scale {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+                    }
 
                     Row {
                         id: chipRow
@@ -377,14 +396,14 @@ Item {
                     }
 
                     HoverHandler { id: chipHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: root.fire(chipBox.modelData) }
+                    TapHandler { id: chipTap; onTapped: root.fire(chipBox.modelData) }
                 }
             }
         }
 
         // key hints
         Text {
-            visible: (root.chips.length > 0 && !root.permPending) || root.resumeMode
+            visible: root.chips.length > 0 || root.resumeMode
             text: root.resumeMode
                 ? I18n.tr("\u2191\u2193 pick \u00b7 ENTER recall \u00b7 ESC back")
                 : (root.busy

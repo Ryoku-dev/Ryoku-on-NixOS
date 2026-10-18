@@ -23,8 +23,13 @@ Flickable {
     signal activated(bool closeRequested)
     signal selectionLost()
 
-    readonly property int columns: MainMetrics.gridColumns
-    readonly property real tile: MainMetrics.tileSize * s
+    readonly property real columnSpacing: 4 * s
+    readonly property real preferredTile: MainMetrics.tileSize * s
+    readonly property real minimumTile: MainMetrics.tileSize * 0.75 * s
+    readonly property int columns: Math.max(1, Math.min(MainMetrics.gridColumns,
+        Math.floor((width + columnSpacing) / (minimumTile + columnSpacing))))
+    readonly property real tile: Math.min(preferredTile,
+        Math.max(0, width - (columns - 1) * columnSpacing) / columns)
 
     clip: true
     contentWidth: width
@@ -199,8 +204,8 @@ Flickable {
 
                 Grid {
                     columns: grid.columns
-                    columnSpacing: 4 * grid.s
-                    rowSpacing: 4 * grid.s
+                    columnSpacing: grid.columnSpacing
+                    rowSpacing: grid.columnSpacing
 
                     Repeater {
                         model: sectionCol.section.items.length

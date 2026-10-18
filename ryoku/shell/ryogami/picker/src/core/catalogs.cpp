@@ -103,10 +103,10 @@ Catalogs::Catalogs(QObject *parent)
     });
 
     connect(m_watcher, &QFileSystemWatcher::directoryChanged, this, [this](const QString &path) {
-        if (path.contains(QStringLiteral("/themes")))
-            m_themeDebounce->start();
-        else
+        if (m_riceWatchPaths.contains(path))
             m_riceDebounce->start();
+        else
+            m_themeDebounce->start();
     });
 }
 
@@ -117,12 +117,26 @@ void Catalogs::start()
     // The picker saves and imports rices itself; without the folder there is nothing to
     // watch, and the first rice would never appear until the picker restarted.
     QDir().mkpath(ricesDir);
-    for (const QString &dir : {themesDir, ricesDir}) {
-        if (QFileInfo::exists(dir))
-            m_watcher->addPath(dir);
-    }
+    if (QFileInfo::exists(themesDir))
+        m_watcher->addPath(themesDir);
+    refreshRiceWatches();
     loadThemes();
     loadRices();
+}
+
+void Catalogs::refreshRiceWatches()
+{
+    const QString root = QDir(configHome()).filePath(QStringLiteral("ryoku/rices"));
+    QStringList paths{root};
+    const QFileInfoList rices = QDir(root).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+    paths.reserve(rices.size() + 1);
+    for (const QFileInfo &rice : rices)
+        paths.append(rice.absoluteFilePath());
+
+    if (!m_riceWatchPaths.isEmpty())
+        m_watcher->removePaths(m_riceWatchPaths);
+    m_riceWatchPaths = paths;
+    m_watcher->addPaths(m_riceWatchPaths);
 }
 
 const Theme *Catalogs::theme(const QString &id) const
@@ -249,6 +263,7 @@ void Catalogs::ensureSwatchPreviews()
 
 void Catalogs::parseRices(const QByteArray &json)
 {
+    refreshRiceWatches();
     const QJsonDocument doc = QJsonDocument::fromJson(json);
     if (!doc.isArray())
         return;

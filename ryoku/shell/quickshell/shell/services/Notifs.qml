@@ -12,9 +12,10 @@ import shell.modules.phone as Phone
 //            first, self-expiring per remove_expired.
 //   popups   the transient popup list: newest first (insert at 0), gated by DND,
 //            dedup-then-front by id, each with its own display timer.
-// Urgency is parsed by the server but has ZERO effect here: no styling, no
-// ordering, no timeout weighting, exactly as upstream. DND is shell-owned (bound
-// from Flags.dnd in shell.qml) and suppresses popups only; history still fills.
+// Urgency only picks the arrival cue (chime): no styling, no ordering, no
+// timeout weighting, exactly as upstream. DND is shell-owned (bound from
+// Flags.dnd in shell.qml) and suppresses popups and their cue; history still
+// fills.
 Singleton {
     id: root
 
@@ -33,6 +34,29 @@ Singleton {
 
     // Raw server-tracked notifications (the rail's has-notifs dot reads this).
     readonly property var tracked: server.trackedNotifications.values
+
+    // All screen-local bars acknowledge the same in-memory notification cursor.
+    property double seenMs: 0
+    readonly property double newestArrivalMs: {
+        const notifications = root.tracked || [];
+        let newest = 0;
+        for (let index = 0; index < notifications.length; ++index)
+            newest = Math.max(newest, Number(root.arrivalMs[notifications[index].id] || 0));
+        return newest;
+    }
+    readonly property bool hasUnread: !root.dnd && root.newestArrivalMs > root.seenMs
+
+    function markSeen(throughMs) {
+        const value = throughMs === undefined
+            ? root.newestArrivalMs : Number(throughMs || 0);
+        if (value > root.seenMs)
+            root.seenMs = value;
+    }
+
+    onDndChanged: {
+        if (dnd)
+            root.markSeen();
+    }
 
     // Panel list: flat, newest-first, transient excluded. A notification whose
     // remove_expired has elapsed has already left `tracked` (historyReaper calls
@@ -86,6 +110,20 @@ Singleton {
     // Add a popup: dedup-then-insert-front. A re-posted id, or a distinct id with
     // the same content, replaces the live card (moved to the top with a fresh
     // timer) rather than adding a twin; then arm its timer unless it is persistent.
+    // The arrival cue. The daemon owns the clip, the user's choice of file, the
+    // volume and the on/off switches (`sounds` in shell.json); a sender can still
+    // ask for silence with the spec's suppress-sound hint. A bar style that draws
+    // its own banners plays its own sound, so the shell's cue stands down.
+    function chime(n) {
+        if (Config.styleOwnsBanners)
+            return;
+        const hints = n.hints || {};
+        if (hints["suppress-sound"] === true)
+            return;
+        const critical = n.urgency === NotificationUrgency.Critical;
+        Quickshell.execDetached(["ryoku-shell", "sound", critical ? "notification-critical" : "notification"]);
+    }
+
     function addPopup(n) {
         var list = root.popups.filter(function(p) { return p.id !== n.id && !root.sameContent(p, n); });
         list.unshift(n);
@@ -117,6 +155,7 @@ Singleton {
     // fall away with them via the closed hook; a persistent popup (expire_timeout
     // 0, not in history) is deliberately left, matching dismiss_all.
     function clearAll() {
+        root.markSeen();
         var h = root.history.slice();
         for (var i = 0; i < h.length; i++)
             if (typeof h[i].dismiss === "function")
@@ -234,7 +273,7 @@ Singleton {
         keepOnReload: true
         bodySupported: true
         actionsSupported: true
-        imageSupported: true
+        imageSupported: Config.notifications?.show_images === true
 
         Component.onCompleted: {
             var l = trackedNotifications.values;
@@ -262,10 +301,14 @@ Singleton {
             var a = Object.assign({}, root.arrivalMs);
             a[n.id] = Date.now();
             root.arrivalMs = a;
+            if (root.dnd)
+                root.markSeen(a[n.id]);
             n.tracked = true;
             root.hookClosed(n);
-            if (!root.dnd)
+            if (!root.dnd) {
                 root.addPopup(n);
+                root.chime(n);
+            }
             root.scheduleHistoryReap();
         }
     }

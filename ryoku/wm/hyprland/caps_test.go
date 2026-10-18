@@ -65,6 +65,13 @@ func TestManifestIsDeliverable(t *testing.T) {
 	}
 }
 
+func TestClaimsWorkspaceFullscreenState(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if !c.Has(wm.CapWorkspaceFullscreenState) {
+		t.Error("Hyprland workspace frames carry hasfullscreen and must stay authoritative")
+	}
+}
+
 // The launcher's frost backdrop is gated on this capability, so Hyprland must
 // claim it or every Hyprland user loses the blurred launcher.
 func TestClaimsPersistentScreenCapture(t *testing.T) {

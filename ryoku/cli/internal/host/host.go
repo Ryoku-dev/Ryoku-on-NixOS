@@ -153,6 +153,7 @@ type Config struct {
 	XBPSConfigDir        string
 	XBPSShippedConfig    string
 	SnapperRootConfig    string
+	ProcCmdline          string
 	PAMDir               string
 	PAMModulePaths       []string
 	UIDSet               bool
@@ -245,6 +246,9 @@ func New(cfg Config) *App {
 	}
 	if cfg.SnapperRootConfig == "" {
 		cfg.SnapperRootConfig = "/etc/snapper/configs/root"
+	}
+	if cfg.ProcCmdline == "" {
+		cfg.ProcCmdline = "/proc/cmdline"
 	}
 	if cfg.PAMDir == "" {
 		cfg.PAMDir = "/etc/pam.d"

@@ -1,25 +1,37 @@
+export interface AskAction {
+  kind: "file" | "dir" | "url" | "cmd" | "color" | string;
+  value: string;
+  label: string;
+}
+
+export interface AskAnswer {
+  id: string;
+  text: string;
+  images?: string[];
+  actions?: AskAction[];
+  via?: string;
+  needsAgent?: boolean;
+  needsAgentReason?: string;
+}
+
 export type AskMarker =
   | { kind: "working"; detail: string }
-  | { kind: "perm"; detail: string }
-  | { kind: "answer"; detail: string }
+  | { kind: "answer"; answer: AskAnswer }
   | { kind: "error"; detail: string };
 
-const MARKER = /^@(working|perm|answer|error)(?:\s(.*))?$/;
+const MARKER = /^@(working|answer|error)(?:\s(.*))?$/;
 
 function parseLine(line: string): AskMarker | null {
   const match = MARKER.exec(line.replace(/\r$/, ""));
   if (!match) return null;
-  const kind = match[1] as AskMarker["kind"];
-  let detail = match[2] ?? "";
-  if (kind === "answer") {
-    try {
-      const payload = JSON.parse(detail) as { text?: unknown };
-      if (typeof payload.text === "string") detail = payload.text;
-    } catch {
-      // Older daemons emitted the answer directly after the marker.
-    }
+  const kind = match[1] as "working" | "answer" | "error";
+  const detail = match[2] ?? "";
+  if (kind !== "answer") return { kind, detail };
+  try {
+    return { kind: "answer", answer: JSON.parse(detail) as AskAnswer };
+  } catch {
+    return { kind: "error", detail: "The daemon returned an unreadable answer." };
   }
-  return { kind, detail };
 }
 
 export async function readAskStream(

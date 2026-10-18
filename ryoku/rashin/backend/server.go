@@ -87,15 +87,16 @@ func Serve(cfg Config) error {
 		}
 	}()
 
-	// Two lanes, two hubs, two agent processes. The Ryoku lane is the
-	// machine agent (the launcher bar, the terminal, the console's first
-	// sheet) and the only lane with a quick path; the chat lane is a plain
-	// conversation with the harness, spawned only when a surface joins it.
+	// Agent and Chat are persistent UI lanes. Ask is a lazy internal lane for
+	// one-shot read-only escalations and terminal requests; it is never exposed
+	// on /ws/chat.
 	hub := newChatHub(ryokuLane())
 	chatHubPlain := newChatHub(chatLane())
-	laneHubs = map[string]*chatHub{laneRyoku: hub, laneChat: chatHubPlain}
-	// Pre-warm the Ryoku session: hermes pays its Python cold start at boot,
-	// not on the user's first question.
+	askHub := newChatHub(askLane())
+	laneHubs = map[string]*chatHub{
+		laneRyoku: hub, laneChat: chatHubPlain, laneAsk: askHub,
+	}
+	// Keep the interactive Agent ready without creating an Ask session.
 	go hub.warm()
 	mux := http.NewServeMux()
 
@@ -166,13 +167,7 @@ func Serve(cfg Config) error {
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 		_, _ = w.Write(b)
 	})
-	mux.HandleFunc("POST /api/index", func(w http.ResponseWriter, r *http.Request) {
-		if err := Reindex(); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, map[string]bool{"ok": true})
-	})
+	mux.HandleFunc("POST /api/index", handleReindex)
 	migrationCtx, migrationCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	if err := migrateQuickProviderKeys(migrationCtx); err != nil {
 		fmt.Fprintln(os.Stderr, "ryoku-rashin: quick key migration:", err)
@@ -184,45 +179,14 @@ func Serve(cfg Config) error {
 	mux.HandleFunc("GET /api/harnesses", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"harnesses": HarnessesWithRouting(r.Context())})
 	})
-	mux.HandleFunc("POST /api/agents/wire", func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			ID string `json:"id"`
-		}
-		if json.NewDecoder(r.Body).Decode(&body) != nil || body.ID == "" {
-			http.Error(w, "missing agent id", http.StatusBadRequest)
-			return
-		}
-		pending, reason, err := connectHarness(r.Context(), body.ID)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if !pending && chatAgentInUse(body.ID, LoadConfig()) {
-			resetChatLanes(LoadConfig())
-		}
-		writeJSON(w, map[string]any{"ok": true, "pending": pending, "reason": reason})
-	})
+	mux.HandleFunc("POST /api/agents/wire", handleWireAgent)
 	mux.HandleFunc("POST /api/agents/unwire", handleUnwireAgent)
-	mux.HandleFunc("POST /api/harnesses/route", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, routeConnectedHarnesses(r.Context()))
-	})
+	mux.HandleFunc("POST /api/agents/default", handleSetHarnessDefault)
+	mux.HandleFunc("POST /api/harnesses/route", handleRefreshHarnesses)
 	mux.HandleFunc("GET /api/quick", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, quickInfo(r.Context(), LoadConfig()))
 	})
-	mux.HandleFunc("POST /api/quick", func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Route string `json:"route"`
-		}
-		if json.NewDecoder(r.Body).Decode(&body) != nil {
-			http.Error(w, "missing route", http.StatusBadRequest)
-			return
-		}
-		if err := setQuickRoute(r.Context(), body.Route); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		writeJSON(w, quickInfo(r.Context(), LoadConfig()))
-	})
+	mux.HandleFunc("POST /api/quick", handleSetQuickRoute)
 	mux.HandleFunc("GET /api/manifest", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, BuildManifest(LoadConfig()))
 	})
@@ -230,6 +194,7 @@ func Serve(cfg Config) error {
 		writeJSON(w, chatBackendInfos(LoadConfig()))
 	})
 	mux.HandleFunc("POST /api/chat/agent", handleSetChatAgent)
+	mux.HandleFunc("POST /api/chat/terminal", handleChatTerminal)
 
 	mux.HandleFunc("GET /api/hermes/skills", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, SkillsReportNow())
@@ -241,13 +206,12 @@ func Serve(cfg Config) error {
 	mux.HandleFunc("GET /api/about", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, AboutReportNow(cfg))
 	})
-	mux.HandleFunc("POST /api/ask", hub.handleAsk)
-	mux.HandleFunc("POST /api/ask/cancel", hub.handleAskCancel)
-	mux.HandleFunc("GET /api/ask/recent", hub.handleAskRecent)
-	mux.HandleFunc("POST /api/term", hub.handleTerm)
-	mux.HandleFunc("POST /api/term/cancel", hub.handleTermCancel)
-	mux.HandleFunc("POST /api/term/ran", hub.handleTermRan)
-	mux.HandleFunc("POST /api/perm", hub.handlePerm)
+	mux.HandleFunc("POST /api/ask", askHub.handleAsk)
+	mux.HandleFunc("POST /api/ask/cancel", askHub.handleAskCancel)
+	mux.HandleFunc("GET /api/ask/recent", askHub.handleAskRecent)
+	mux.HandleFunc("POST /api/term", askHub.handleTerm)
+	mux.HandleFunc("POST /api/term/cancel", askHub.handleTermCancel)
+	mux.HandleFunc("POST /api/term/ran", askHub.handleTermRan)
 
 	mux.HandleFunc("GET /ws/vitals", func(w http.ResponseWriter, r *http.Request) {
 		ws, err := acceptWS(w, r)
@@ -257,25 +221,7 @@ func Serve(cfg Config) error {
 		defer ws.CloseNow()
 		serveVitalsWS(r.Context(), ws)
 	})
-	mux.HandleFunc("GET /ws/chat", func(w http.ResponseWriter, r *http.Request) {
-		// ?lane= picks the conversation; an absent lane is the Ryoku lane,
-		// so every surface built before lanes existed keeps its meaning.
-		name := r.URL.Query().Get("lane")
-		if name == "" {
-			name = laneRyoku
-		}
-		h, ok := laneHubs[name]
-		if !ok {
-			http.Error(w, "unknown lane", http.StatusBadRequest)
-			return
-		}
-		ws, err := acceptWS(w, r)
-		if err != nil {
-			return
-		}
-		defer ws.CloseNow()
-		h.handle(r.Context(), ws)
-	})
+	mux.HandleFunc("GET /ws/chat", handleChatWS)
 
 	srv := &http.Server{
 		Addr:              net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.Port)),
@@ -304,16 +250,71 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func handleUnwireAgent(w http.ResponseWriter, r *http.Request) {
+func handleReindex(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, true) {
+		return
+	}
+	if err := Reindex(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func handleSetQuickRoute(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, true) {
+		return
+	}
 	var body struct {
-		ID string `json:"id"`
+		Route string `json:"route"`
+	}
+	if json.NewDecoder(r.Body).Decode(&body) != nil {
+		http.Error(w, "missing route", http.StatusBadRequest)
+		return
+	}
+	if err := setQuickRoute(r.Context(), body.Route); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, quickInfo(r.Context(), LoadConfig()))
+}
+
+func handleWireAgent(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, true) {
+		return
+	}
+	var body struct {
+		ID           string `json:"id"`
+		ProwlDefault bool   `json:"prowlDefault"`
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil || body.ID == "" {
 		http.Error(w, "missing agent id", http.StatusBadRequest)
 		return
 	}
-	if chatAgentInUse(body.ID, LoadConfig()) {
-		http.Error(w, "pick another Rashin chat agent before disconnecting this harness", http.StatusConflict)
+	pending, reason, err := connectHarness(r.Context(), body.ID, body.ProwlDefault)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "pending": pending, "reason": reason})
+}
+
+func handleRefreshHarnesses(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, true) {
+		return
+	}
+	writeJSON(w, refreshConnectedHarnesses(r.Context()))
+}
+
+func handleUnwireAgent(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, true) {
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if json.NewDecoder(r.Body).Decode(&body) != nil || body.ID == "" {
+		http.Error(w, "missing agent id", http.StatusBadRequest)
 		return
 	}
 	if err := disconnectHarness(r.Context(), body.ID); err != nil {
@@ -324,22 +325,91 @@ func handleUnwireAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSetChatAgent(w http.ResponseWriter, r *http.Request) {
-	routing, err := setChatAgent(r.Context(), r.URL.Query().Get("id"))
+	if !allowLocalMutation(w, r, false) {
+		return
+	}
+	if _, err := setChatAgent(r.Context(), r.URL.Query().Get("id")); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	cfg := LoadConfig()
+	resetChatLanes(cfg)
+	writeJSON(w, chatAgentSelection{
+		Agents: chatBackendInfos(cfg), Routing: chatHarnessRouting(r.Context(), activeChatAgentID(cfg)),
+	})
+}
+
+func handleSetHarnessDefault(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, true) {
+		return
+	}
+	var body struct {
+		ID    string `json:"id"`
+		Prowl bool   `json:"prowl"`
+	}
+	if json.NewDecoder(r.Body).Decode(&body) != nil || body.ID == "" {
+		http.Error(w, "missing agent id", http.StatusBadRequest)
+		return
+	}
+	row, err := setHarnessDefault(r.Context(), body.ID, body.Prowl)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	resetChatLanes(LoadConfig())
-	writeJSON(w, chatAgentSelection{Agents: chatBackendInfos(LoadConfig()), Routing: routing})
+	writeJSON(w, row)
+}
+
+func handleChatTerminal(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, true) {
+		return
+	}
+	h, ok := publicLaneHub(r.URL.Query().Get("lane"))
+	if !ok {
+		http.Error(w, "unknown lane", http.StatusBadRequest)
+		return
+	}
+	if err := openChatTerminal(h); err != nil {
+		var conflict chatTerminalConflict
+		if errors.As(err, &conflict) {
+			http.Error(w, conflict.Error(), http.StatusConflict)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // laneHubs holds the running daemon's chat lanes; it stays nil outside serve.
 var laneHubs map[string]*chatHub
 
-// resetChatLanes drops each lane's live harness process so the next turn
-// starts one that reads the harness's current config, as after Prowl routing
-// rewrote it. The daemon resets the lanes it owns; the CLI asks a running
-// daemon to do it through the chat-agent route, which also re-confirms routing.
+func publicLaneHub(name string) (*chatHub, bool) {
+	if name == "" {
+		name = laneRyoku
+	}
+	if name != laneRyoku && name != laneChat {
+		return nil, false
+	}
+	h, ok := laneHubs[name]
+	return h, ok
+}
+
+func handleChatWS(w http.ResponseWriter, r *http.Request) {
+	h, ok := publicLaneHub(r.URL.Query().Get("lane"))
+	if !ok {
+		http.Error(w, "unknown lane", http.StatusBadRequest)
+		return
+	}
+	ws, err := acceptWS(w, r)
+	if err != nil {
+		return
+	}
+	defer ws.CloseNow()
+	h.handle(r.Context(), ws)
+}
+
+// resetChatLanes drops each live agent process after the user changes the
+// harness backing the lanes.
 func resetChatLanes(cfg Config) {
 	if laneHubs != nil {
 		for _, h := range laneHubs {
@@ -350,13 +420,41 @@ func resetChatLanes(cfg Config) {
 	notifyDaemonChatAgent(cfg.Port, cfg.ChatAgent)
 }
 
-// notifyDaemonChatAgent tells a running daemon to switch (or re-confirm) its
-// chat agent, which drops its live sessions. A variable because it reaches a
-// real daemon on this machine's port: tests replace it.
+// notifyDaemonChatAgent asks a running daemon to apply an explicit chat-agent
+// change. Tests replace it so they never contact the live port.
 var notifyDaemonChatAgent = func(port int, id string) {
 	if pingDaemon(port) {
 		askPost(port, "/api/chat/agent?id="+url.QueryEscape(id))
 	}
+}
+
+// allowLocalMutation keeps browser POSTs on the dashboard's origin. JSON, or
+// the console marker, makes body-less actions non-simple requests so another
+// web page cannot trigger them without a CORS preflight. Query-only actions
+// require the dashboard's exact origin while command-line callers omit Origin.
+func allowLocalMutation(w http.ResponseWriter, r *http.Request, requireJSON bool) bool {
+	if !loopbackOrigin(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	if !requireJSON {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		u, err := url.Parse(origin)
+		if err != nil || !strings.EqualFold(u.Host, r.Host) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return false
+		}
+		return true
+	}
+	if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") &&
+		r.Header.Get("X-Rashin-Client") != "console" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 // loopbackOrigin reports whether a browser request came from this machine's
@@ -447,10 +545,13 @@ func haveSystemd() bool {
 }
 
 func cmdEnable(atBoot bool) error {
-	cfg := LoadConfig()
-	cfg.Enabled = true
-	cfg.OptedOut = false
-	if err := SaveConfig(cfg); err != nil {
+	var cfg Config
+	if err := updateConfig(func(current *Config) error {
+		current.Enabled = true
+		current.OptedOut = false
+		cfg = *current
+		return nil
+	}); err != nil {
 		return err
 	}
 	if haveSystemd() && unitKnown() {
@@ -459,9 +560,7 @@ func cmdEnable(atBoot bool) error {
 		if err := systemctlUser("enable", "--now", rashinUnit); err != nil {
 			return err
 		}
-		if err := ensureGateway(); err != nil {
-			return err
-		}
+		bootLingering := false
 		if atBoot {
 			// Lingering starts the user manager (and this unit) at BOOT,
 			// before login. Needs polkit auth or root once.
@@ -472,9 +571,15 @@ func cmdEnable(atBoot bool) error {
 			if err := lc.Run(); err != nil {
 				fmt.Fprintln(os.Stderr, "ryoku-rashin: enable-linger failed (dashboard will start at login instead of boot):", err)
 			} else {
-				fmt.Println("rashin enabled (starts at boot via lingering)")
-				return nil
+				bootLingering = true
 			}
+		}
+		if err := startGateway(); err != nil {
+			return err
+		}
+		if bootLingering {
+			fmt.Println("rashin enabled (starts at boot via lingering)")
+			return nil
 		}
 		fmt.Println("rashin enabled (systemd user unit, starts at login)")
 		return nil
@@ -494,7 +599,7 @@ func cmdEnable(atBoot bool) error {
 		}
 		_ = cmd.Process.Release()
 	}
-	if err := ensureGateway(); err != nil {
+	if err := startGateway(); err != nil {
 		return err
 	}
 	fmt.Println("rashin enabled")
@@ -502,10 +607,11 @@ func cmdEnable(atBoot bool) error {
 }
 
 func cmdDisable() error {
-	cfg := LoadConfig()
-	cfg.Enabled = false
-	cfg.OptedOut = true
-	if err := SaveConfig(cfg); err != nil {
+	if err := updateConfig(func(cfg *Config) error {
+		cfg.Enabled = false
+		cfg.OptedOut = true
+		return nil
+	}); err != nil {
 		return err
 	}
 	var stopErr error
@@ -531,7 +637,7 @@ func cmdEnsure() error {
 		return nil
 	}
 	if cfg.Enabled && rashinActive() {
-		return ensureGateway()
+		return startGateway()
 	}
 	return cmdEnable(true)
 }

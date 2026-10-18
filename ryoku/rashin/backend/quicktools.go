@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,16 +43,16 @@ func quickToolSchemas() []map[string]any {
 		}
 	}
 	return []map[string]any{
-		fn("system_query", "Read live system state on this Ryoku (Arch) machine.",
+		fn("system_query", "Read live system state on this Ryoku machine.",
 			map[string]any{"topic": map[string]any{
 				"type":        "string",
 				"enum":        []string{"packages", "updates", "service", "processes", "disk", "kernel", "gpu", "network"},
 				"description": "what to look up",
 			}, "arg": strProp("optional filter, e.g. a package or service name")},
 			[]string{"topic"}),
-		fn("read_file", "Read a text file under $HOME, /etc, /usr/share, or /proc.",
+		fn("read_file", "Read a text file in the Rashin vault or Ryoku configuration roots.",
 			map[string]any{"path": strProp("absolute or ~ path")}, []string{"path"}),
-		fn("list_dir", "List a directory under $HOME or /etc.",
+		fn("list_dir", "List a directory in the Rashin vault or Ryoku configuration roots.",
 			map[string]any{"path": strProp("absolute or ~ path")}, []string{"path"}),
 		fn("search_code", "Search the Ryoku source with prowl (when indexed).",
 			map[string]any{"query": strProp("free text or a symbol name")}, []string{"query"}),
@@ -133,26 +134,73 @@ func toolSystemQuery(ctx context.Context, topic, arg string) string {
 	}
 }
 
-// safeReadRoots bounds read_file to config, system share, and /proc: enough to
-// answer real questions, nothing under the user's private data by accident.
-var safeReadRoots = []string{"/etc", "/usr/share", "/proc", "/sys/class"}
-
-func withinSafeRoot(p string) bool {
-	if strings.HasPrefix(p, home()) {
-		return true
+func safeReadRoots() []string {
+	return []string{
+		VaultDir(),
+		filepath.Join(home(), ".config"),
+		filepath.Join(home(), ".local", "share", "ryoku"),
 	}
-	for _, r := range safeReadRoots {
-		if p == r || strings.HasPrefix(p, r+"/") {
+}
+
+func pathWithinRoot(p, root string) bool {
+	return p == root || strings.HasPrefix(p, root+string(filepath.Separator))
+}
+
+func absoluteQuickPath(p string) (string, error) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+	return filepath.Abs(filepath.Clean(expandHome(p)))
+}
+
+func withinSafeRoot(p string, resolveRoots bool) bool {
+	for _, root := range safeReadRoots() {
+		root, err := absoluteQuickPath(root)
+		if err != nil {
+			continue
+		}
+		if resolveRoots {
+			root, err = filepath.EvalSymlinks(root)
+			if err != nil {
+				continue
+			}
+		}
+		if pathWithinRoot(p, root) {
 			return true
 		}
 	}
 	return false
 }
 
+func quickReadPath(path string) (string, error) {
+	p, err := absoluteQuickPath(path)
+	if err != nil {
+		return "", err
+	}
+	if !withinSafeRoot(p, false) {
+		return "", fmt.Errorf("reads are limited to the Rashin vault, ~/.config, and ~/.local/share/ryoku")
+	}
+	if marker, secret := roSecretPath(p); secret {
+		return "", fmt.Errorf("refusing secret path (%s)", marker)
+	}
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return "", err
+	}
+	if !withinSafeRoot(resolved, true) {
+		return "", fmt.Errorf("resolved path leaves the allowed roots")
+	}
+	if marker, secret := roSecretPath(resolved); secret {
+		return "", fmt.Errorf("refusing secret path (%s)", marker)
+	}
+	return resolved, nil
+}
+
 func toolReadFile(path string) string {
-	p := filepath.Clean(expandHome(strings.TrimSpace(path)))
-	if !withinSafeRoot(p) {
-		return "error: reads are limited to $HOME, /etc, /usr/share, /proc"
+	p, err := quickReadPath(path)
+	if err != nil {
+		return "error: " + err.Error()
 	}
 	fi, err := os.Stat(p)
 	if err != nil {
@@ -173,9 +221,9 @@ func toolReadFile(path string) string {
 }
 
 func toolListDir(path string) string {
-	p := filepath.Clean(expandHome(strings.TrimSpace(path)))
-	if !strings.HasPrefix(p, home()) && !strings.HasPrefix(p, "/etc") {
-		return "error: listing is limited to $HOME and /etc"
+	p, err := quickReadPath(path)
+	if err != nil {
+		return "error: " + err.Error()
 	}
 	entries, err := os.ReadDir(p)
 	if err != nil {
@@ -214,15 +262,19 @@ func toolSearchCode(query string) string {
 	return strings.TrimSpace(b.String())
 }
 
+var quickFetchClient = func() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DialContext = quickDialContext
+	return &http.Client{Transport: transport, CheckRedirect: quickCheckRedirect}
+}()
+
 // toolFetchURL reads a public URL as text, refusing loopback and private
-// ranges so the fast lane cannot be pointed at the daemon or the LAN.
+// ranges on every hop so redirects and DNS changes cannot reach local services.
 func toolFetchURL(ctx context.Context, raw string) string {
 	raw = strings.TrimSpace(raw)
-	if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
-		return "error: only http(s) URLs"
-	}
-	if isPrivateURL(raw) {
-		return "error: refusing loopback or private-network URLs"
+	if err := validateQuickURL(raw); err != nil {
+		return "error: " + err.Error()
 	}
 	c, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
@@ -231,7 +283,7 @@ func toolFetchURL(ctx context.Context, raw string) string {
 		return "error: " + err.Error()
 	}
 	req.Header.Set("User-Agent", "ryoku-rashin/quick")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := quickFetchClient.Do(req)
 	if err != nil {
 		return "error: " + err.Error()
 	}
@@ -245,27 +297,91 @@ func toolFetchURL(ctx context.Context, raw string) string {
 	return fmt.Sprintf("[%d] %s\n%s", resp.StatusCode, raw, strings.TrimSpace(text))
 }
 
-func isPrivateURL(raw string) bool {
-	host := raw
-	if i := strings.Index(host, "://"); i >= 0 {
-		host = host[i+3:]
+func blockedQuickIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
+}
+
+func validateQuickURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
 	}
-	if i := strings.IndexAny(host, "/:"); i >= 0 {
-		host = host[:i]
+	if !strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https") {
+		return fmt.Errorf("only http(s) URLs")
 	}
-	if host == "localhost" {
-		return true
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL has no host")
+	}
+	if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
+		return fmt.Errorf("refusing loopback or private-network URLs")
+	}
+	ipHost := host
+	if before, _, found := strings.Cut(host, "%"); found {
+		ipHost = before
+	}
+	if ip := net.ParseIP(ipHost); ip != nil {
+		if blockedQuickIP(ip) {
+			return fmt.Errorf("refusing loopback or private-network URLs")
+		}
+		return nil
 	}
 	ips, err := net.LookupIP(host)
 	if err != nil {
-		return false // let the request fail naturally rather than block a real host
+		return fmt.Errorf("cannot resolve URL host: %w", err)
 	}
 	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
-			return true
+		if blockedQuickIP(ip) {
+			return fmt.Errorf("refusing loopback or private-network URLs")
 		}
 	}
-	return false
+	if len(ips) == 0 {
+		return fmt.Errorf("URL host has no addresses")
+	}
+	return nil
+}
+
+func isPrivateURL(raw string) bool {
+	return validateQuickURL(raw) != nil
+}
+
+func quickCheckRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) > 3 {
+		return fmt.Errorf("stopped after 3 redirects")
+	}
+	if err := validateQuickURL(req.URL.String()); err != nil {
+		return fmt.Errorf("refusing redirect: %w", err)
+	}
+	return nil
+}
+
+func quickDialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	for _, resolved := range ips {
+		if blockedQuickIP(resolved.IP) {
+			return nil, fmt.Errorf("refusing loopback or private-network address")
+		}
+	}
+	var dialer net.Dialer
+	var lastErr error
+	for _, resolved := range ips {
+		conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(resolved.IP.String(), port))
+		if dialErr == nil {
+			return conn, nil
+		}
+		lastErr = dialErr
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("URL host has no addresses")
 }
 
 // stripTags is a crude html-to-text: drop tags and script/style bodies so a

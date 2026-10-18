@@ -9,7 +9,7 @@ import (
 )
 
 // powersounds watches the system battery and AC line over sysfs and plays the
-// battery-low, plug, and unplug cues. It reads /sys/class/power_supply directly
+// battery-low, battery-full, plug, and unplug cues. It reads /sys/class/power_supply directly
 // rather than depend on a running UPower. A machine with no battery or no mains
 // simply never fires those cues.
 
@@ -31,6 +31,7 @@ type powerState struct {
 	online      bool // AC is plugged in
 	present     bool // the system battery is present
 	discharging bool // the system battery status is Discharging
+	full        bool // the system battery status is Full
 	percent     int  // system battery capacity 0..100
 }
 
@@ -64,8 +65,11 @@ func readPowerStateFrom(root string) powerState {
 			if readTrim(filepath.Join(base, "present")) == "1" {
 				st.present = true
 			}
-			if strings.EqualFold(readTrim(filepath.Join(base, "status")), "Discharging") {
+			switch strings.ToLower(readTrim(filepath.Join(base, "status"))) {
+			case "discharging":
 				st.discharging = true
+			case "full":
+				st.full = true
 			}
 			if n, err := strconv.Atoi(readTrim(filepath.Join(base, "capacity"))); err == nil {
 				st.percent = n
@@ -75,7 +79,8 @@ func readPowerStateFrom(root string) powerState {
 	return st
 }
 
-// watchPowerSounds fires the battery-low, plug, and unplug cues off sysfs.
+// watchPowerSounds fires the battery-low, battery-full, plug, and unplug cues off
+// sysfs.
 //
 // Plug/unplug: the very first AC reading only seeds the baseline so no cue fires
 // at login for the state the machine booted in; thereafter every online change
@@ -85,11 +90,16 @@ func readPowerStateFrom(root string) powerState {
 // percent, the cue plays at once on entering the state and then every 60 s until
 // it leaves. Leaving the state (charging, plugged, or risen above the threshold)
 // re-arms the immediate play for the next time it drops.
+//
+// Battery full: plays once when the plugged-in battery reaches Full. Like AC,
+// the first reading only seeds it, so a machine that boots full stays quiet.
 type powerCue struct {
 	acSeen    bool
 	lastAC    bool
 	lowActive bool
 	lastLow   time.Time
+	fullSeen  bool
+	lastFull  bool
 }
 
 // step folds one sysfs snapshot into the tracker and returns the cues to play.
@@ -111,6 +121,16 @@ func (c *powerCue) step(st powerState, now time.Time) []string {
 		}
 	}
 
+	if st.present {
+		full := st.full && (st.online || !st.haveAC)
+		if !c.fullSeen {
+			c.fullSeen = true
+		} else if full && !c.lastFull {
+			cues = append(cues, soundBatteryFull)
+		}
+		c.lastFull = full
+	}
+
 	low := st.present && st.discharging && st.percent < batteryLowPercent
 	if low {
 		if !c.lowActive || now.Sub(c.lastLow) >= batteryLowRepeat {
@@ -126,9 +146,20 @@ func (c *powerCue) step(st powerState, now time.Time) []string {
 
 func (d *daemon) watchPowerSounds() {
 	var c powerCue
+	var dc deviceCue
 	for {
-		for _, cue := range c.step(readPowerState(), time.Now()) {
-			playSound(cue)
+		now := time.Now()
+		for _, cue := range c.step(readPowerState(), now) {
+			d.playSound(cue)
+		}
+		// The USB list is read only while a device cue is on; turning one on
+		// later starts from a fresh seed, so it never plays for old changes.
+		if ev := d.soundPrefs().Events; ev.DeviceAdded.Enabled || ev.DeviceRemoved.Enabled {
+			for _, cue := range dc.step(usbDevices(usbDevicesRoot), now) {
+				d.playSound(cue)
+			}
+		} else {
+			dc = deviceCue{}
 		}
 		select {
 		case <-d.quit:

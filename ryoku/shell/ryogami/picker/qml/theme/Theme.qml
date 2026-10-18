@@ -122,7 +122,7 @@ QtObject {
     property SettingValue uiScaleSetting: SettingValue { key: "general.uiScale" }
     readonly property real scale: {
         var v = Number(theme.uiScaleSetting.value)
-        if (isNaN(v) || v <= 0) v = 1.0
+        if (isNaN(v) || v <= 0) v = 1.2
         return Math.max(0.5, Math.min(2.0, v))
     }
     // Text floor: shrink geometry freely but keep type readable.

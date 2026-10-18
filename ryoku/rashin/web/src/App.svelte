@@ -8,7 +8,8 @@
   import { machine } from "$lib/state/machine.svelte";
   import { theme } from "$lib/state/theme.svelte";
   import Offline from "$lib/app/Offline.svelte";
-  import RyokuSheet from "./pages/RyokuSheet.svelte";
+  import AgentSheet from "./pages/AgentSheet.svelte";
+  import AskSheet from "./pages/AskSheet.svelte";
   import ChatSheet from "./pages/ChatSheet.svelte";
   import WikiSheet from "./pages/WikiSheet.svelte";
   import OverviewSheet from "./pages/OverviewSheet.svelte";
@@ -20,7 +21,8 @@
   import AboutSheet from "./pages/AboutSheet.svelte";
 
   const SHEET_VIEWS = {
-    ryoku: RyokuSheet,
+    agent: AgentSheet,
+    ask: AskSheet,
     chat: ChatSheet,
     wiki: WikiSheet,
     overview: OverviewSheet,
@@ -32,7 +34,7 @@
     about: AboutSheet,
   } as const;
 
-  const View = $derived(SHEET_VIEWS[router.sheet as keyof typeof SHEET_VIEWS] ?? RyokuSheet);
+  const View = $derived(SHEET_VIEWS[router.sheet as keyof typeof SHEET_VIEWS] ?? AgentSheet);
 
   $effect(() => {
     router.start();

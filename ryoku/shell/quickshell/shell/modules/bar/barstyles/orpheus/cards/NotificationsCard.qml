@@ -14,6 +14,20 @@ K.Sheet {
     property var args: ({})
     property var collapsedGroups: ({})
 
+    onShownChanged: {
+        if (shown)
+            Notifs.markSeen();
+    }
+
+    Connections {
+        target: Notifs
+
+        function onNewestArrivalMsChanged() {
+            if (root.shown)
+                Notifs.markSeen();
+        }
+    }
+
     readonly property var groups: {
         const result = [];
         const byName = ({});

@@ -1,9 +1,9 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Io
-import Ryoku.Ui.Singletons
 import "../../"
+import "../../reusables"
+import shell.services as Ryoku
 
 Item {
     id: root
@@ -21,8 +21,8 @@ Item {
     property real itemSpacing: s(6)
     property real dockPadding: s(8)
 
-    property real dockThickness: iconSize + (dockPadding * 2)
-    property real dockSpan: appModel.count > 0 ? (appModel.count * iconSize) + ((appModel.count - 1) * itemSpacing) + (dockPadding * 2) : s(90)
+    readonly property var dockApps: Ryoku.Dock.pinnedOrStarter().slice(0, maxApps)
+    property real dockSpan: dockApps.length > 0 ? (dockApps.length * iconSize) + ((dockApps.length - 1) * itemSpacing) + (dockPadding * 2) : s(90)
 
     property real preferredWidth: dockThickness + s(6)
     property real preferredExtraLength: typeof floatingWidget !== "undefined" ? Math.max(0, dockSpan - floatingWidget.baseSidebarH + s(12)) : dockSpan
@@ -43,39 +43,6 @@ Item {
 
     function alpha(color, a) { return Qt.rgba(color.r, color.g, color.b, a); }
 
-    Process {
-        id: appFetcher
-        running: true
-        command: ["bash", "-c", "python3 " + Caching.qsDir + "/applauncher/app_fetcher.py"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                try {
-                    if (this.text && this.text.trim().length > 0) {
-                        let parsed = JSON.parse(this.text);
-                        appModel.clear();
-                        for (let i = 0; i < Math.min(root.maxApps, parsed.length); i++) {
-                            appModel.append(parsed[i]);
-                        }
-                    }
-                } catch(e) {}
-            }
-        }
-    }
-
-    ListModel {
-        id: appModel
-    }
-
-    function launchApp(appName, execStr) {
-        let safeName = appName.replace(/[^a-zA-Z0-9_\-\.]/g, "_").toLowerCase();
-        let logDir = Caching.getLogDir("applauncher");
-        let logFile = logDir + "/" + safeName + ".log";
-        let loggedCmd = execStr + " > \"" + logFile + "\" 2>&1";
-
-        Quickshell.execDetached(["python3", Caching.qsDir + "/applauncher/app_fetcher.py", "--log", appName]);
-        Spawn.runApp(["bash", "-c", loggedCmd]);
-        Quickshell.execDetached(["bash", Caching.scriptsPath + "/qs_manager.sh", "close"]);
-    }
 
     Item {
         id: orientedRoot
@@ -88,9 +55,18 @@ Item {
         Rectangle {
             anchors.fill: parent
             radius: ThemeBackend.borderRadius
-            color: root.alpha(root.cSurface0, 0.85)
+            color: dockGlass.active ? "transparent" : root.alpha(root.cSurface0, 0.85)
             border.color: root.alpha(root.cText, 0.1)
             border.width: 1
+
+            GlassFill {
+                id: dockGlass
+                anchors.fill: parent
+                radius: parent.radius
+                tintColor: root.cSurface0
+                tintAmount: 0.3
+                shadow: 1
+            }
 
             ListView {
                 id: dockList
@@ -98,19 +74,30 @@ Item {
                 anchors.margins: root.dockPadding
                 orientation: root.isHorizontal ? ListView.Horizontal : ListView.Vertical
                 spacing: root.itemSpacing
-                model: appModel
+                model: root.dockApps
                 interactive: false
                 boundsBehavior: Flickable.StopAtBounds
 
                 delegate: Item {
+                    required property string modelData
                     width: root.iconSize
                     height: root.iconSize
 
                     Rectangle {
                         anchors.fill: parent
                         radius: ThemeBackend.borderRadius
-                        color: itemMouseArea.containsMouse ? root.alpha(root.cSurface1, 0.4) : "transparent"
+                        color: (itemGlass.active || !itemMouseArea.containsMouse) ? "transparent" : root.alpha(root.cSurface1, 0.4)
                         Behavior on color { ColorAnimation { duration: 300 } }
+
+                        GlassFill {
+                            id: itemGlass
+                            anchors.fill: parent
+                            radius: parent.radius
+                            tintColor: root.cSurface1
+                            tintAmount: 0.2
+                            allowed: itemMouseArea.containsMouse
+                            press: itemMouseArea.pressed ? 1 : 0.3
+                        }
                     }
 
                     Item {
@@ -124,7 +111,7 @@ Item {
 
                         Image {
                             anchors.fill: parent
-                            source: model.icon ? (model.icon.startsWith("/") ? "file://" + model.icon : "image://icon/" + model.icon) : "image://icon/application-x-executable"
+                            source: Ryoku.Dock.iconFor(modelData)
                             sourceSize: Qt.size(64, 64)
                             fillMode: Image.PreserveAspectFit
                             smooth: true
@@ -137,7 +124,10 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.launchApp(model.name, model.exec)
+                        onClicked: {
+                            Ryoku.Dock.activate(modelData);
+                            Quickshell.execDetached(["bash", Caching.scriptsPath + "/qs_manager.sh", "close"]);
+                        }
                     }
                 }
             }

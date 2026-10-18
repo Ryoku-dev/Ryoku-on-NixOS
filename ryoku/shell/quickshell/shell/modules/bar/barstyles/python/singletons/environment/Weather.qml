@@ -104,7 +104,7 @@ Singleton {
     }
 
     function refresh(showLoader) {
-        if (!Caching.serpantinumDir) return;
+        if (!Caching.payloadDir) return;
         let shouldShowLoader = showLoader !== undefined ? !!showLoader : true;
         root._forceFetchMode = shouldShowLoader;
         if (shouldShowLoader) {
@@ -187,7 +187,7 @@ Singleton {
     Process {
         id: fetchProcess
         command: {
-            if (!Caching.serpantinumDir) return [];
+            if (!Caching.payloadDir) return [];
             let locObj = root.activeLocation || {};
             let locJson = JSON.stringify(locObj);
             let locEscaped = locJson.replace(/'/g, "'\\''");

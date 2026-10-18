@@ -143,7 +143,7 @@ AbstractBackgroundWidget {
                         }
                     }
 
-                    onClicked: Spawn.run(["ryoku-shell", "ask", "chat"])
+                    onClicked: Spawn.run(["ryoku-shell", "ask"])
                 }
             }
         }

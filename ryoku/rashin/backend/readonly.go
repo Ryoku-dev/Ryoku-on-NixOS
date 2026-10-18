@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/url"
 	"path/filepath"
 	"strings"
 )
@@ -17,12 +18,18 @@ import (
 // may run without asking, and a short reason when it may not.
 func readOnlyToolCall(kind, title string, rawInput json.RawMessage) (ok bool, reason string) {
 	switch kind {
-	case "read", "search", "think":
-		for _, p := range roReadPaths(rawInput, title) {
+	case "read", "search":
+		paths := roReadPaths(rawInput)
+		if len(paths) == 0 {
+			return false, "no path or query to inspect"
+		}
+		for _, p := range paths {
 			if m, bad := roSecretPath(p); bad {
 				return false, "touches a secret (" + m + ")"
 			}
 		}
+		return true, ""
+	case "think":
 		return true, ""
 	case "fetch":
 		return roFetchReadOnly(rawInput)
@@ -50,7 +57,8 @@ func readOnlyToolCall(kind, title string, rawInput json.RawMessage) (ok bool, re
 var roSecretFileMarkers = []string{
 	".ssh", ".gnupg", ".password-store", "keyrings", "id_rsa", "id_ed25519",
 	".env", ".netrc", "/etc/shadow", "/etc/gshadow", "/etc/sudoers", ".hermes",
-	"gateway/token", "logins.json", "key4.db", "cookies.sqlite",
+	"environ", "token", "secret", "api-key", "apikey", "password",
+	".config/prowl-agent", "gateway/token", "logins.json", "key4.db", "cookies.sqlite",
 	".docker/config.json", ".kube/config", "gh/hosts.yml", ".aws/credentials",
 }
 
@@ -63,9 +71,8 @@ func roPathSep(r rune) bool {
 	return r == '/' || r == '\\' || r == ' ' || r == '\t' || r == '\n' || r == ':' || r == ','
 }
 
-// roSecretFile reports whether a path names a credential file, by strong
-// name markers and the .pem/.key suffix. Safe to match anywhere because the
-// markers are specific enough not to trip an ordinary word.
+// roSecretFile reports whether a path names credential-bearing state, by name
+// markers and the .pem/.key suffix.
 func roSecretFile(p string) (marker string, secret bool) {
 	low := strings.ToLower(p)
 	for _, m := range roSecretFileMarkers {
@@ -98,9 +105,8 @@ func roSecretPath(p string) (marker string, secret bool) {
 }
 
 // roReadPaths pulls every path or pattern a read/search tool call names, so a
-// secret in any of them is caught. It falls back to the title when the input
-// carries none.
-func roReadPaths(raw json.RawMessage, title string) []string {
+// secret in any of them is caught. Titles are display text, not inspected input.
+func roReadPaths(raw json.RawMessage) []string {
 	m := roDecode(raw)
 	var out []string
 	for _, key := range []string{"path", "file_path", "filePath", "pattern", "query"} {
@@ -116,9 +122,6 @@ func roReadPaths(raw json.RawMessage, title string) []string {
 			out = append(out, s)
 		}
 	}
-	if len(out) == 0 && strings.TrimSpace(title) != "" {
-		out = append(out, title)
-	}
 	return out
 }
 
@@ -126,9 +129,17 @@ func roReadPaths(raw json.RawMessage, title string) []string {
 // other than GET, or any request body or upload, changes the far end and asks.
 func roFetchReadOnly(raw json.RawMessage) (bool, string) {
 	m := roDecode(raw)
+	rawURL, ok := roString(m, "url")
+	if !ok || strings.TrimSpace(rawURL) == "" {
+		return false, "no URL to inspect"
+	}
+	u, err := url.ParseRequestURI(strings.TrimSpace(rawURL))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false, "invalid URL"
+	}
 	if s, ok := roString(m, "method"); ok {
-		if u := strings.ToUpper(strings.TrimSpace(s)); u != "" && u != "GET" {
-			return false, "`" + u + "` is not a plain read"
+		if method := strings.ToUpper(strings.TrimSpace(s)); method != "" && method != "GET" {
+			return false, "`" + method + "` is not a plain read"
 		}
 	}
 	for _, key := range []string{"body", "data", "json", "form", "files", "upload"} {
@@ -222,7 +233,10 @@ func readOnlyCommand(cmd string) (ok bool, reason string) {
 		if len(argv) == 0 {
 			continue
 		}
-		stripped := roStripAssignments(argv)
+		stripped, assignmentReason := roStripAssignments(argv)
+		if assignmentReason != "" {
+			return false, assignmentReason
+		}
 		if len(stripped) == 0 {
 			return false, "sets variables without running a command"
 		}
@@ -243,10 +257,36 @@ func readOnlyCommand(cmd string) (ok bool, reason string) {
 	return true, ""
 }
 
-// roArgvSecret reports whether any argument of a segment names a credential
-// file, checking the value part of a --flag=value and skipping the command
-// word and bare flags.
+// roArgvSecret reports whether a segment names a credential file. Search
+// patterns are not paths, but grep pattern-file options and search targets are.
 func roArgvSecret(argv []string) (string, bool) {
+	if len(argv) == 0 {
+		return "", false
+	}
+	switch argv[0] {
+	case "grep", "egrep", "fgrep", "rg":
+		for i, a := range argv[1:] {
+			var tok string
+			switch {
+			case (a == "-f" || a == "--file") && i+2 < len(argv):
+				tok = argv[i+2]
+			case strings.HasPrefix(a, "-f") && len(a) > 2:
+				tok = a[2:]
+			case strings.HasPrefix(a, "--file="):
+				tok = strings.TrimPrefix(a, "--file=")
+			}
+			if m, bad := roSecretFile(tok); bad {
+				return m, true
+			}
+		}
+		_, targets := roSearchPatternTargets(argv[1:])
+		for _, tok := range targets {
+			if m, bad := roSecretFile(tok); bad {
+				return m, true
+			}
+		}
+		return "", false
+	}
 	for _, a := range argv[1:] {
 		tok, ok := roArgToken(a)
 		if !ok {
@@ -259,8 +299,8 @@ func roArgvSecret(argv []string) (string, bool) {
 	return "", false
 }
 
-// roArgToken returns the path-bearing part of an argument: a positional word as
-// is, or the value of a --flag=value. Bare flags carry no path.
+// roArgToken returns the value-bearing part of an argument. Short option
+// values must be inspected because tools such as grep accept -fPATH.
 func roArgToken(a string) (string, bool) {
 	if strings.HasPrefix(a, "--") {
 		if eq := strings.IndexByte(a, '='); eq >= 0 {
@@ -269,6 +309,9 @@ func roArgToken(a string) (string, bool) {
 		return "", false
 	}
 	if strings.HasPrefix(a, "-") && a != "-" {
+		if len(a) > 2 {
+			return a[2:], true
+		}
 		return "", false
 	}
 	return a, true
@@ -321,27 +364,43 @@ func roRecursiveSecretSearch(argv []string) bool {
 // roSearchPatternTargets splits grep/rg arguments into the search pattern and
 // the paths it searches, honouring -e/--regexp and skipping flags.
 func roSearchPatternTargets(args []string) (pattern string, targets []string) {
+	havePattern := false
 	i := 0
 	for i < len(args) {
 		a := args[i]
 		switch {
 		case a == "-e" || a == "--regexp":
-			if i+1 < len(args) && pattern == "" {
-				pattern = args[i+1]
+			if i+1 < len(args) {
+				if !havePattern {
+					pattern = args[i+1]
+				}
+				havePattern = true
 			}
 			i += 2
 		case strings.HasPrefix(a, "--regexp="):
-			if pattern == "" {
+			if !havePattern {
 				pattern = strings.TrimPrefix(a, "--regexp=")
 			}
+			havePattern = true
+			i++
+		case strings.HasPrefix(a, "-e") && len(a) > 2:
+			if !havePattern {
+				pattern = a[2:]
+			}
+			havePattern = true
 			i++
 		case a == "-f" || a == "--file":
-			i += 2 // pattern comes from a file; leave pattern empty
+			havePattern = true
+			i += 2
+		case strings.HasPrefix(a, "--file=") || strings.HasPrefix(a, "-f") && len(a) > 2:
+			havePattern = true
+			i++
 		case strings.HasPrefix(a, "-") && a != "-":
 			i++
 		default:
-			if pattern == "" {
+			if !havePattern {
 				pattern = a
+				havePattern = true
 			} else {
 				targets = append(targets, a)
 			}
@@ -609,14 +668,26 @@ func roInputRedirect(runes []rune, i int) (newi int, target, reason string) {
 	return ni, tgt, rj
 }
 
-// roStripAssignments drops leading NAME=value words so `FOO=1 cmd` classifies
-// as cmd.
-func roStripAssignments(argv []string) []string {
+// roStripAssignments rejects variables that can change how the shell locates
+// or executes a command before dropping harmless leading assignments.
+func roStripAssignments(argv []string) ([]string, string) {
 	i := 0
 	for i < len(argv) && roIsAssignment(argv[i]) {
+		name := argv[i][:strings.IndexByte(argv[i], '=')]
+		if roExecutionAssignment(name) {
+			return nil, "`" + name + "` changes command execution"
+		}
 		i++
 	}
-	return argv[i:]
+	return argv[i:], ""
+}
+
+func roExecutionAssignment(name string) bool {
+	switch name {
+	case "PATH", "IFS", "BASH_ENV", "ENV", "PS4", "PROMPT_COMMAND":
+		return true
+	}
+	return strings.HasPrefix(name, "LD_")
 }
 
 func roIsAssignment(w string) bool {
@@ -646,21 +717,21 @@ var roNeverCmds = map[string]string{
 	"printenv": "prints the environment",
 }
 
-// roCheckSegment allows one segment's command by its basename and argument
-// rules. `env` is the one wrapper allowed: it may set variables ahead of an
-// allowed command but never run bare, which would print the environment.
+// roCheckSegment allows one segment's command by name and argument rules.
+// `env` may carry harmless variables ahead of an allowed command.
 func roCheckSegment(argv []string) (bool, string) {
-	base := filepath.Base(argv[0])
+	if strings.ContainsRune(argv[0], '/') {
+		return false, "path-qualified executables are not allowed"
+	}
+	base := argv[0]
 	if reason, bad := roNeverCmds[base]; bad {
 		return false, "`" + base + "` " + reason
 	}
 	if base == "env" {
-		rest := argv[1:]
-		j := 0
-		for j < len(rest) && roIsAssignment(rest[j]) {
-			j++
+		rest, assignmentReason := roStripAssignments(argv[1:])
+		if assignmentReason != "" {
+			return false, assignmentReason
 		}
-		rest = rest[j:]
 		if len(rest) == 0 {
 			return false, "`env` prints the environment"
 		}
@@ -694,13 +765,14 @@ func init() {
 		"printf", "true", "false", "test", "[", "uname", "whoami", "id",
 		"groups", "uptime", "free", "df", "du", "lsblk", "blkid", "findmnt",
 		"lscpu", "lspci", "lsusb", "lsmod", "modinfo", "lshw",
-		"ps", "pgrep", "pidof", "lsof", "which", "whereis",
+		"pgrep", "pidof", "lsof", "which", "whereis",
 		"type", "strings", "od", "hexdump", "jq", "fc-list", "fc-match",
 		"nproc", "getconf", "locale", "fastfetch", "inxi", "pw-dump",
 		"checkupdates",
 	} {
 		roAllow[c] = roAlways
 	}
+	roAllow["ps"] = roPs
 	roAllow["head"] = roNoFollow
 	roAllow["tail"] = roNoFollow
 	roAllow["rg"] = roRg
@@ -801,8 +873,23 @@ func roShortHas(a string, c rune) bool {
 
 func roNoFollow(args []string) (bool, string) {
 	for _, a := range args {
-		if a == "-f" || a == "-F" || a == "--follow" || roShortHas(a, 'f') || roShortHas(a, 'F') {
+		if a == "-f" || a == "-F" || a == "--follow" || strings.HasPrefix(a, "--follow=") ||
+			roShortHas(a, 'f') || roShortHas(a, 'F') {
 			return false, "`-f` follows and never exits"
+		}
+	}
+	return true, ""
+}
+
+func roPs(args []string) (bool, string) {
+	for _, a := range args {
+		low := strings.ToLower(a)
+		if strings.Contains(low, "environ") ||
+			(!strings.HasPrefix(a, "-") && strings.ContainsRune(a, 'e')) ||
+			(strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") &&
+				len(a) > 2 && strings.ContainsRune(a, 'e') &&
+				strings.ContainsAny(a, "auxw")) {
+			return false, "`ps e` exposes process environments"
 		}
 	}
 	return true, ""
@@ -1185,7 +1272,7 @@ func roDmidecode(args []string) (bool, string) {
 
 func roJournalctl(args []string) (bool, string) {
 	for _, a := range args {
-		if a == "-f" || a == "--follow" {
+		if a == "-f" || a == "--follow" || strings.HasPrefix(a, "--follow=") {
 			return false, "`journalctl -f` never exits"
 		}
 		if strings.HasPrefix(a, "--vacuum-") {
@@ -1206,7 +1293,7 @@ func roSystemctl(args []string) (bool, string) {
 		"list-unit-files": true, "list-timers": true, "list-sockets": true,
 		"list-dependencies": true, "list-jobs": true, "is-active": true,
 		"is-enabled": true, "is-failed": true, "is-system-running": true,
-		"get-default": true, "show-environment": true,
+		"get-default": true,
 	}
 	i := 0
 	for i < len(args) {
@@ -1630,7 +1717,7 @@ func roDocker(args []string) (bool, string) {
 		return true, ""
 	case "logs":
 		for _, a := range args {
-			if a == "-f" || a == "--follow" {
+			if a == "-f" || a == "--follow" || strings.HasPrefix(a, "--follow=") {
 				return false, "`logs -f` never exits"
 			}
 		}
@@ -1820,6 +1907,8 @@ func roCurl(args []string) (bool, string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
+		case strings.HasPrefix(strings.ToLower(a), "file://"):
+			return false, "`curl file://` reads a local file"
 		case a == "-o" || a == "-O" || a == "--output" || a == "--remote-name" ||
 			strings.HasPrefix(a, "--output="):
 			return false, "`curl -o` writes a file"

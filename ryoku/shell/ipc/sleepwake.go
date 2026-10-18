@@ -1055,27 +1055,79 @@ var (
 	qylockUnlockGuardStop   = stopHostUserService
 )
 
+// How often the release below looks. It starts quick, because an unlock
+// should not be followed by a visible wait, and eases off while nothing is
+// happening, because the only thing a tick can notice then is a guard
+// appearing and nobody is waiting on that.
+var (
+	qylockGuardPoll    = 100 * time.Millisecond
+	qylockGuardPollMax = 5 * time.Second
+)
+
+// Release the fallback sleep guard once qylock is gone.
+//
+// Both questions this asks cost a process: lockProcessRunning runs pgrep and
+// qylockUnlockGuardActive runs ryoku-host. The sleep cycle is published at
+// login and stays set for the session, so a fixed 100 ms tick meant twenty
+// forks a second from login until logout, for work that is owed once per
+// unlock (#411).
+//
+// It cannot simply stop: a guard that reappears while qylock is not running
+// still has to be released, or it becomes an inhibitor nothing clears and the
+// machine stops suspending. So the tick eases off instead of latching, and
+// anything worth reacting to puts it back to full speed.
 func (d *daemon) releaseQylockUnlockGuardWhenReady() {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	wait := qylockGuardPoll
+	ticker := time.NewTicker(wait)
 	defer ticker.Stop()
+	// Quick again, for whatever just happened.
+	rouse := func() {
+		if wait == qylockGuardPoll {
+			return
+		}
+		wait = qylockGuardPoll
+		ticker.Reset(wait)
+	}
+	// Nothing to do; look a little less often than last time.
+	ease := func() {
+		if wait >= qylockGuardPollMax {
+			return
+		}
+		wait *= 2
+		if wait > qylockGuardPollMax {
+			wait = qylockGuardPollMax
+		}
+		ticker.Reset(wait)
+	}
 	for {
 		select {
 		case <-d.quit:
 			return
+		case <-d.guardKick:
+			rouse()
 		case <-ticker.C:
 			cycle := d.currentSleepCycle()
-			if cycle == nil || !cycle.ready() || !cycle.sessionActive() ||
-				lockProcessRunning() {
+			if cycle == nil || !cycle.ready() || !cycle.sessionActive() {
+				ease()
+				continue
+			}
+			if lockProcessRunning() {
+				// qylock holds its own guard, and the moment it goes is the
+				// one this loop exists for, so stay quick.
+				rouse()
 				continue
 			}
 			session := lockSessionID()
 			if session == "" {
+				ease()
 				continue
 			}
 			unit := "ryoku-qylock-unlock-guard-" + session + ".service"
 			if !qylockUnlockGuardActive(unit) {
+				ease()
 				continue
 			}
+			rouse()
 			if err := qylockUnlockGuardStop(unit); err != nil {
 				log.Printf("ryoku-shell: release qylock unlock sleep guard: %v", err)
 			}

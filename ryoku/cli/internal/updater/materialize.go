@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"ryoku-cli/internal/sys"
@@ -22,6 +23,53 @@ const wirePlumberPolicyRel = "wireplumber/wireplumber.conf.d/51-ryoku-bluetooth.
 const wpDropInDir = "wireplumber/wireplumber.conf.d"
 
 var ryokuDropIn = regexp.MustCompile(`^[0-9]+-ryoku-[^/]*\.conf$`)
+
+type iniProjection struct {
+	section string
+	key     string
+}
+
+var iconThemeProjections = map[string]iniProjection{
+	"gtk-3.0/settings.ini": {"Settings", "gtk-icon-theme-name"},
+	"gtk-4.0/settings.ini": {"Settings", "gtk-icon-theme-name"},
+	"qt6ct/qt6ct.conf":     {"Appearance", "icon_theme"},
+}
+
+// stripINIProjection removes the one line Ryoku derives from icon-theme state.
+// Comparing the remaining bytes keeps that projection from looking like a
+// whole-file user fork while preserving every unrelated edit.
+func stripINIProjection(body []byte, projection iniProjection) []byte {
+	lines := bytes.SplitAfter(body, []byte{'\n'})
+	out := make([]byte, 0, len(body))
+	section := ""
+	removed := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(string(line))
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			section = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "["), "]"))
+		}
+		if !removed && section == projection.section &&
+			!strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, ";") {
+			if key, _, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(key) == projection.key {
+				removed = true
+				continue
+			}
+		}
+		out = append(out, line...)
+	}
+	return out
+}
+
+// A picked icon theme is durable state under ~/.config/ryoku, while its GTK
+// and Qt projections are managed files refreshed during materialize. Reapply
+// after the base and user overlay land, then hash projected files without the
+// derived key so a later Hub choice never looks like a hand-edited fork.
+var reapplyIconTheme = func(configHome string) error {
+	if !sys.Exists(filepath.Join(configHome, "ryoku", "icon-theme")) {
+		return nil
+	}
+	return exec.Command("ryoku-hub", "desktop", "icon-theme", "apply").Run()
+}
 
 // generatedSeed: base files seeded once on a fresh install, then never
 // clobbered or pruned by an update. The machine owns them after first boot.
@@ -96,6 +144,13 @@ var applyProvider = func(name, store string) error {
 	return err
 }
 
+// providerInstalled reports whether a laid-down tree still has its provider
+// binary. Switched-away trees stay in place after their variant is removed, but
+// without the binary there is nothing to render. A var so tests stub the lookup.
+var providerInstalled = func(name string) bool {
+	return wm.OpenNamed(name).Available()
+}
+
 // applyGenerated completes every laid-down provider tree. Packages ship the
 // static half, while each provider owns files rendered from the neutral store.
 // A missing generated file can make the target reject its config at login, and
@@ -122,6 +177,9 @@ func applyGenerated(configHome string) {
 		dir := wm.ConfigDir(name)
 		if dir == "" || !sys.Exists(filepath.Join(configHome, dir)) {
 			continue // tree not laid down: nothing to complete
+		}
+		if !providerInstalled(name) {
+			continue // switched-away tree has no renderer
 		}
 		missing := false
 		authored := false
@@ -205,6 +263,7 @@ func Materialize() error {
 	// nor what this one ships was edited by hand; it becomes a fork under the
 	// overlay instead of being thrown away.
 	laidHashes := readManifestHashes(state)
+	iconThemeState := sys.Exists(filepath.Join(dest, "ryoku", "icon-theme"))
 	overlaid := map[string]bool{}
 	if rels, err := sys.UserEditFiles(); err == nil {
 		for _, rel := range rels {
@@ -237,7 +296,16 @@ func Materialize() error {
 		if forkable(rel) && !overlaid[rel] {
 			if laid, ok := laidHashes[rel]; ok {
 				if live, err := os.ReadFile(dst); err == nil {
-					if h := hashBytes(live); h != laid && h != hashes[rel] {
+					h := hashBytes(live)
+					untouched := h == laid || h == hashes[rel]
+					if !untouched && iconThemeState {
+						if projection, ok := iconThemeProjections[rel]; ok {
+							strippedLive := hashBytes(stripINIProjection(live, projection))
+							strippedShipped := hashBytes(stripINIProjection(shipped, projection))
+							untouched = strippedLive == laid || strippedLive == strippedShipped
+						}
+					}
+					if !untouched {
 						if err := sys.CopyFile(dst, filepath.Join(sys.UserEditsDir(), rel)); err != nil {
 							return fmt.Errorf(i18n.T("keep your edit of %s: %w"), rel, err)
 						}
@@ -326,8 +394,12 @@ func Materialize() error {
 	if err := overlayUserEdits(dest); err != nil {
 		return err
 	}
+	_ = reapplyIconTheme(dest)
 	for _, rel := range managed {
 		if live, err := os.ReadFile(filepath.Join(dest, rel)); err == nil {
+			if projection, ok := iconThemeProjections[rel]; ok && iconThemeState {
+				live = stripINIProjection(live, projection)
+			}
 			hashes[rel] = hashBytes(live)
 		}
 	}

@@ -1,91 +1,95 @@
 pragma Singleton
 import QtQuick
-import Quickshell
-import Quickshell.Io
 import shell.services
 import "../../"
 
-// Ryoku seam: serpantinum reads its whole skin through this one singleton, so
-// the port keeps the property names (base, mantle, crust, surface0..2, text,
-// subtext0/1, overlay0..2, and the Catppuccin accent hues) and retargets the
-// source: the shell's live Theme, which follows the wallpaper palette. The
-// scheme vocabulary (light, dark, ink) folds into Ryoku's scheme.
 Item {
     id: root
 
-    // Serpantinum ships an icon font for its glyphs; Ryoku's own mono face is
-    // already a Nerd Font, so the bundled name resolves without a FontLoader.
-    // The style's Config passes Ryoku's single global font through as
-    // globalFontFamily (inside this file's scope `Config` names the style's
-    // own singleton, which shadows the service of the same name).
-    property string fontFamily: (Config.globalFontFamily && Config.globalFontFamily.length > 0)
-        ? Config.globalFontFamily : "Iosevka Nerd Font"
-    // Upstream's buttons read the glyph face through `iconFont`, which it loads
-    // from a bundled SymbolsNerdFontMono. Ryoku's mono is already a Nerd Font, so
-    // the name resolves directly and the glyphs draw without a FontLoader.
-    readonly property string iconFont: root.fontFamily
+    // Serpantinum writes its glyphs into ordinary text, so the style's face must be a Nerd Font. The global
+    // font is used when it is one; otherwise the bar falls back to JetBrainsMono Nerd Font, which
+    // ryoku-desktop ships on every edition, rather than drawing other fonts' private-use glyphs.
+    readonly property string shippedNerdFont: "JetBrainsMono Nerd Font"
+    readonly property string globalFont: Config.globalFontFamily || ""
+    property string fontFamily: /Nerd Font|\bNF[MP]?\b/.test(root.globalFont) ? root.globalFont : root.shippedNerdFont
+    readonly property string iconFont: "JetBrainsMono Nerd Font Mono"
     readonly property bool iconFontReady: true
-    property int borderRadius: 8
-    property int clampedBorderRadius: {
+
+    property var overrides: Config.getSetting("theme", {})
+    property int borderRadius: overrides.borderRadius !== undefined ? Number(overrides.borderRadius) : 8
+    readonly property int clampedBorderRadius: {
         const r = borderRadius;
-        return Math.floor(
-            r <= 24
-                ? r
-                : 24 + Math.pow(r - 24, 0.55)
-        );
+        return Math.floor(r <= 24 ? r : 24 + Math.pow(r - 24, 0.55));
     }
 
-    // ---- Python's own overrides (shell.json under "python".theme) --------
-    // A preset picked in the style's guide is a full Catppuccin-slot palette;
-    // while one is active it wins over the wallpaper. No colours (the dynamic
-    // tile) means follow Ryoku's live palette like the rest of the desktop.
-    property var overrides: Config.getSetting("theme", {})
+    readonly property real configuredOpacity: {
+        const value = overrides.elementOpacity !== undefined ? Number(overrides.elementOpacity) : 100;
+        return isNaN(value) ? 1.0 : Math.max(0.2, Math.min(1.0, value / 100.0));
+    }
+    readonly property bool blurBackground: overrides.blurBackground === true
+    readonly property string blurStyle: overrides.blurStyle === "liquid" ? "liquid" : "blur"
+    readonly property real liquidGlassOpacity: 0.1
+    readonly property bool liquidGlass: blurBackground && blurStyle === "liquid"
+    readonly property real elementOpacity: liquidGlass ? liquidGlassOpacity : configuredOpacity
+    readonly property bool glassActive: blurBackground && elementOpacity < 0.999
+
     readonly property var palette: (overrides && overrides.colors) ? overrides.colors : ({})
 
-    function slot(name, fallback) {
-        const p = root.palette[name];
-        return (p !== undefined && p !== null && String(p).length > 0) ? p : fallback;
+    function mix(a, b, t) {
+        return Qt.rgba(a.r + (b.r - a.r) * t,
+                       a.g + (b.g - a.g) * t,
+                       a.b + (b.b - a.b) * t,
+                       a.a + (b.a - a.a) * t);
     }
 
-    // ---- Catppuccin slot names, filled from Ryoku's live palette ---------
-    property color base:     slot("base", Theme.surfaceContainerLowest)
-    property color mantle:   slot("mantle", Theme.surfaceContainerLow)
-    property color crust:    slot("crust", Theme.surface)
-    property color text:     slot("text", Theme.onSurface)
-    property color subtext0: slot("subtext0", Theme.onSurfaceVariant)
-    property color subtext1: slot("subtext1", mix(Theme.onSurfaceVariant, Theme.onSurface, 0.5))
+    function slot(name, fallback) {
+        const value = root.palette[name];
+        return value !== undefined && value !== null && String(value).length > 0 ? value : fallback;
+    }
+
+    property color base: slot("base", Theme.surfaceContainerLowest)
+    property color mantle: slot("mantle", Theme.surfaceContainerLow)
+    property color crust: slot("crust", Theme.surface)
+    // Liquid glass is clear over the wallpaper, so text on it is always white.
+    readonly property color text: liquidGlass ? "#ffffff" : slot("text", Theme.onSurface)
+    readonly property color subtext0: liquidGlass ? "#ffffff" : slot("subtext0", Theme.onSurfaceVariant)
+    readonly property color subtext1: liquidGlass ? "#ffffff" : slot("subtext1", mix(Theme.onSurfaceVariant, Theme.onSurface, 0.5))
     property color surface0: slot("surface0", Theme.surfaceContainer)
     property color surface1: slot("surface1", Theme.surfaceContainerHigh)
     property color surface2: slot("surface2", Theme.surfaceContainerHighest)
     property color overlay0: slot("overlay0", Theme.outline)
     property color overlay1: slot("overlay1", mix(Theme.outline, Theme.outlineVariant, 0.5))
     property color overlay2: slot("overlay2", mix(Theme.outlineVariant, Theme.onSurfaceVariant, 0.5))
-
-    // The accent hues: serpantinum spreads a palette across named slots; the
-    // wallpaper's Material roles carry the same intent, one accent + neighbours.
-    property color blue:     slot("blue", Theme.primary)
+    property color blue: slot("blue", Theme.primary)
     property color sapphire: slot("sapphire", mix(Theme.primary, Theme.tertiary, 0.4))
-    property color peach:    slot("peach", Theme.tertiary)
-    property color green:    slot("green", mix(Theme.secondary, Theme.tertiary, 0.3))
-    property color red:      slot("red", Theme.error)
-    property color mauve:    slot("mauve", mix(Theme.primary, Theme.error, 0.35))
-    property color pink:     slot("pink", mix(Theme.tertiary, Theme.error, 0.45))
-    property color yellow:   slot("yellow", mix(Theme.secondary, Theme.tertiary, 0.5))
-    property color maroon:   slot("maroon", mix(Theme.error, Theme.outline, 0.35))
-    property color teal:     slot("teal", mix(Theme.secondary, Theme.primary, 0.35))
+    property color peach: slot("peach", Theme.tertiary)
+    property color green: slot("green", mix(Theme.secondary, Theme.tertiary, 0.3))
+    property color red: slot("red", Theme.error)
+    property color mauve: slot("mauve", mix(Theme.primary, Theme.error, 0.35))
+    property color pink: slot("pink", mix(Theme.tertiary, Theme.error, 0.45))
+    property color yellow: slot("yellow", mix(Theme.secondary, Theme.tertiary, 0.5))
+    property color maroon: slot("maroon", mix(Theme.error, Theme.outline, 0.35))
+    property color teal: slot("teal", mix(Theme.secondary, Theme.primary, 0.35))
 
-    function mix(a, b, t) {
-        return Qt.rgba(a.r + (b.r - a.r) * t,
-                        a.g + (b.g - a.g) * t,
-                        a.b + (b.b - a.b) * t,
-                        a.a + (b.a - a.a) * t)
-    }
+    readonly property color primary: root.mauve
+    readonly property color surfaceVariant: root.surface0
+    readonly property color primaryContainer: Theme.primaryContainer
+    readonly property color secondaryContainer: Theme.secondaryContainer
+    readonly property color onSurface: root.text
+    readonly property color onSecondaryContainer: Theme.onSecondaryContainer
+    readonly property color lavender: mix(root.blue, root.mauve, 0.45)
+    readonly property color flamingo: mix(root.peach, root.pink, 0.5)
 
-    Connections {
-        target: Config
-        function onSettingsLoaded() {
-            root.updateColors();
-        }
+    readonly property var matugenColors: ({
+        "primary": root.mauve.toString(),
+        "primary_container": root.surface0.toString(),
+        "on_primary_container": root.text.toString(),
+        "secondary": root.peach.toString(),
+        "tertiary": root.teal.toString()
+    })
+
+    function faded(color) {
+        return Qt.alpha(color, root.elementOpacity);
     }
 
     function reloadColors() {
@@ -94,9 +98,12 @@ Item {
 
     function updateColors() {
         root.overrides = Config.getSetting("theme", {});
-        if (root.overrides.borderRadius !== undefined) {
-            root.borderRadius = root.overrides.borderRadius;
-        }
+    }
+
+    Connections {
+        target: Config
+        function onSettingsLoaded() { root.updateColors(); }
+        function onRawSettingsChanged() { root.updateColors(); }
     }
 
     Component.onCompleted: updateColors()

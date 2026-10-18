@@ -583,8 +583,7 @@ Item {
 
     function activateCurrent() {
         if (askMode) {
-            if (drawer.askResumeMode || drawer.askBusy
-                    || drawer.askAnswerCurrent || drawer.askPermissionPending)
+            if (drawer.askResumeMode || drawer.askBusy || drawer.askAnswerCurrent)
                 drawer.activateAsk();
             else
                 drawer.runAsk();

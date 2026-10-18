@@ -39,9 +39,10 @@ pkgs.hyprlandPlugins.mkHyprlandPlugin {
   postPatch = ''
     # The upstream Makefile can clone Mechvibes and discovers the importer
     # through PATH. Nix builds are network-isolated, so provide both inputs
-    # explicitly from immutable sources.
+    # explicitly from immutable sources. The importer and profiles.txt live
+    # in the shared ryoku/keysounds tree, outside this plugin source.
     cp \
-      ${src}/ryoku/hyprland/scripts/ryoku-keysounds-import \
+      ${src}/ryoku/keysounds/ryoku-keysounds-import \
       ./ryoku-keysounds-import
 
     substituteInPlace \
@@ -69,6 +70,7 @@ pkgs.hyprlandPlugins.mkHyprlandPlugin {
       CXX="$CXX" \
       MECHVIBES="${mechvibesSrc}" \
       IMPORTER="$PWD/ryoku-keysounds-import" \
+      PROFILES="${src}/ryoku/keysounds/profiles.txt" \
       keysounds.so \
       sounds
 
@@ -116,7 +118,7 @@ pkgs.hyprlandPlugins.mkHyprlandPlugin {
       "$out/share/doc/ryoku-keysounds/README.md"
 
     install -Dm644 \
-      profiles.txt \
+      ${src}/ryoku/keysounds/profiles.txt \
       "$out/share/doc/ryoku-keysounds/profiles.txt"
 
     runHook postInstall

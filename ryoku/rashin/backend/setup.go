@@ -121,26 +121,26 @@ func RunSetup() error {
 		return errors.New("hermes not found after install; open a new terminal and re-run setup")
 	}
 
-	// Route Hermes through Prowl before deciding whether it still needs its
-	// interactive setup. Injection can make a fresh install ACP-ready without
-	// asking the user to configure a second provider path.
+	// A configured Hermes keeps its own default; a fresh install can use Prowl
+	// to become ACP-ready before interactive onboarding.
+	hermesDefault := hermesProwlDefault()
 	acpReady := false
 	if setupDryRun() {
-		reportPhase("route", "would route Hermes through Prowl", true)
+		reportPhase("route", "would connect Hermes to Prowl", true)
 	} else {
-		if err := ensureGateway(); err != nil {
+		if err := startGateway(); err != nil {
 			return fmt.Errorf("start Prowl gateway: %w", err)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		pending, reason, err := connectHarness(ctx, "hermes")
+		pending, reason, err := connectHarness(ctx, "hermes", hermesDefault)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("route hermes through Prowl: %w", err)
+			return fmt.Errorf("connect hermes to Prowl: %w", err)
 		}
 		if pending {
 			reportPhase("route", "Hermes connected; "+reason, true)
 		} else {
-			reportPhase("route", "Hermes routed through Prowl", true)
+			reportPhase("route", "Hermes connected to Prowl", true)
 		}
 		if hermesBin != "" {
 			acpReady = exec.Command(hermesBin, "acp", "--check").Run() == nil
@@ -157,10 +157,10 @@ func RunSetup() error {
 		}
 		if !setupDryRun() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			_, _, err := connectHarness(ctx, "hermes")
+			_, _, err := connectHarness(ctx, "hermes", false)
 			cancel()
 			if err != nil {
-				return fmt.Errorf("restore Prowl routing after hermes setup: %w", err)
+				return fmt.Errorf("restore Prowl injection after hermes setup: %w", err)
 			}
 		}
 	}
@@ -211,6 +211,11 @@ func RunSetup() error {
 	fmt.Printf("\nRashin is ready: %s\npress enter to close\n", url)
 	fmt.Scanln()
 	return nil
+}
+
+func hermesProwlDefault() bool {
+	_, _, configured := hermesModel()
+	return !configured
 }
 
 // installHermes downloads the official installer to a temp file and runs it

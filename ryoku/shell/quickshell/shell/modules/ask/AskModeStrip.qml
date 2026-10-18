@@ -53,6 +53,12 @@ Item {
                 required property int index
                 width: root.width / root.modes.length
                 height: root.height
+                scale: modeTap.pressed && root.motionAllowed ? 0.96
+                    : modeHover.hovered && root.motionAllowed ? 0.985 : 1
+                Behavior on scale {
+                    enabled: root.motionAllowed
+                    NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+                }
 
                 Rectangle {
                     anchors.fill: parent

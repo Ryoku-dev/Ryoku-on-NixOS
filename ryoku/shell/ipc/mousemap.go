@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -862,13 +863,36 @@ type mouseReader struct {
 	sig    string
 }
 
+type mouseReaderDeath struct {
+	id  string
+	err error
+	ran bool
+}
+
+type mouseRetryWake struct {
+	id         string
+	generation uint64
+}
+
+type mouseRetryState struct {
+	failures   int
+	generation uint64
+	logged     bool
+	prompted   bool
+	waiting    bool
+}
+
 type mouseMapManager struct {
-	topic        *stateTopic
-	sysRoot      string
-	devRoot      string
-	byIDRoot     string
-	settingsPath string
-	openUinput   func() (*os.File, error)
+	topic           *stateTopic
+	sysRoot         string
+	devRoot         string
+	byIDRoot        string
+	settingsPath    string
+	openUinput      func() (*os.File, error)
+	openDevice      func(string) (*os.File, error)
+	classifyDevices func(string, string, string, mouseInputFactsCache) []mouseDevice
+	scheduleRetry   func(context.Context, time.Duration, mouseRetryWake, chan<- mouseRetryWake)
+	logf            func(string, ...any)
 
 	commands chan mouseCmd
 	done     chan struct{}
@@ -883,15 +907,45 @@ type mouseMapManager struct {
 func newMouseMapManager(sysRoot, devRoot, byIDRoot, settingsPath string, openUinput func() (*os.File, error)) *mouseMapManager {
 	settings := loadMouseSettings(settingsPath)
 	return &mouseMapManager{
-		sysRoot:      sysRoot,
-		devRoot:      devRoot,
-		byIDRoot:     byIDRoot,
-		settingsPath: settingsPath,
-		openUinput:   openUinput,
-		commands:     make(chan mouseCmd),
-		done:         make(chan struct{}),
-		curMaps:      settings.Maps,
+		sysRoot:         sysRoot,
+		devRoot:         devRoot,
+		byIDRoot:        byIDRoot,
+		settingsPath:    settingsPath,
+		openUinput:      openUinput,
+		openDevice:      os.Open,
+		classifyDevices: classifyMouseDevicesCached,
+		scheduleRetry:   scheduleMouseRetry,
+		logf:            log.Printf,
+		commands:        make(chan mouseCmd),
+		done:            make(chan struct{}),
+		curMaps:         settings.Maps,
 	}
+}
+
+func scheduleMouseRetry(ctx context.Context, delay time.Duration, wake mouseRetryWake, retries chan<- mouseRetryWake) {
+	go func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			select {
+			case retries <- wake:
+			case <-ctx.Done():
+			}
+		case <-ctx.Done():
+		}
+	}()
+}
+
+func mouseReaderRetryDelay(failures int) time.Duration {
+	delay := time.Second
+	for attempt := 1; attempt < failures && delay < 60*time.Second; attempt++ {
+		delay *= 2
+	}
+	if delay > 60*time.Second {
+		return 60 * time.Second
+	}
+	return delay
 }
 
 // watchMouseInputChanges replaces the periodic sysfs walk when inotify is
@@ -1010,8 +1064,10 @@ func (m *mouseMapManager) run(ctx context.Context) {
 	defer close(m.done)
 
 	events := make(chan capturePress, 64)
-	deaths := make(chan string, 8)
+	deaths := make(chan mouseReaderDeath, 8)
+	retryWakes := make(chan mouseRetryWake, 8)
 	readers := map[string]*mouseReader{}
+	retries := map[string]*mouseRetryState{}
 	var curDevices []mouseDevice
 	facts := mouseInputFactsCache{}
 
@@ -1031,14 +1087,24 @@ func (m *mouseMapManager) run(ctx context.Context) {
 			captureTimer.Stop()
 		}
 	}
+	resetRetries := func() {
+		for id, state := range retries {
+			state.generation++
+			delete(retries, id)
+		}
+	}
 
 	reconcile := func() bool {
-		devices := classifyMouseDevicesCached(m.sysRoot, m.devRoot, m.byIDRoot, facts)
+		devices := m.classifyDevices(m.sysRoot, m.devRoot, m.byIDRoot, facts)
 		present := make(map[string]bool, len(devices))
+		readersWanted := captureArmed || len(m.curMaps) > 0
 		for _, dev := range devices {
 			allCodes := deviceMapCodes(m.curMaps[dev.ID])
 			for _, iface := range dev.interfaces {
 				readerID := dev.ID + "\x00" + iface.node
+				if !readersWanted {
+					continue
+				}
 				present[readerID] = true
 				codes := mouseInterfaceMap(allCodes, iface.buttons)
 				sig := mouseCodeMapSig(codes)
@@ -1049,6 +1115,9 @@ func (m *mouseMapManager) run(ctx context.Context) {
 					reader.cancel()
 					delete(readers, readerID)
 				}
+				if retry := retries[readerID]; retry != nil && retry.waiting {
+					continue
+				}
 				readerCtx, cancel := context.WithCancel(ctx)
 				readers[readerID] = &mouseReader{cancel: cancel, sig: sig}
 				go m.readDevice(readerCtx, dev, iface, len(codes) > 0, codes, events, deaths, readerID)
@@ -1058,6 +1127,12 @@ func (m *mouseMapManager) run(ctx context.Context) {
 			if !present[id] {
 				reader.cancel()
 				delete(readers, id)
+			}
+		}
+		for id, state := range retries {
+			if !present[id] {
+				state.generation++
+				delete(retries, id)
 			}
 		}
 		changed := !mouseDevicesEqual(curDevices, devices)
@@ -1110,6 +1185,7 @@ func (m *mouseMapManager) run(ctx context.Context) {
 				startFallbackPoll()
 				continue
 			}
+			resetRetries()
 			if reconcile() {
 				publish(nil)
 			}
@@ -1117,23 +1193,51 @@ func (m *mouseMapManager) run(ctx context.Context) {
 			if reconcile() {
 				publish(nil)
 			}
-		case id := <-deaths:
-			if reader, ok := readers[id]; ok {
-				reader.cancel()
-				delete(readers, id)
+		case death := <-deaths:
+			reader, ok := readers[death.id]
+			if !ok {
+				continue
 			}
-			// Do not immediately reconcile a failed reader. If an event node is
-			// still present but unreadable, recreating it here produces a tight
-			// open/fail/rescan loop across all of /sys/class/input. The regular
-			// device ticker retries it without turning one bad HID into idle CPU.
+			reader.cancel()
+			delete(readers, death.id)
+
+			state := retries[death.id]
+			if state == nil {
+				state = &mouseRetryState{}
+				retries[death.id] = state
+			}
+			if !state.logged {
+				m.logf("ryoku-shell: mouse input unavailable: %s: %v", strings.SplitN(death.id, "\x00", 2)[1], death.err)
+				state.logged = true
+			}
+			delay := time.Duration(0)
+			if death.ran && !state.prompted {
+				state.prompted = true
+				state.failures = 0
+			} else {
+				state.failures++
+				delay = mouseReaderRetryDelay(state.failures)
+			}
+			state.generation++
+			state.waiting = true
+			m.scheduleRetry(ctx, delay, mouseRetryWake{id: death.id, generation: state.generation}, retryWakes)
+		case wake := <-retryWakes:
+			state := retries[wake.id]
+			if state == nil || state.generation != wake.generation || !state.waiting {
+				continue
+			}
+			state.waiting = false
+			reconcile()
 		case press := <-events:
 			if captureArmed {
 				disarm()
+				reconcile()
 				publish(&mousePressed{Device: press.device, Button: press.button})
 			}
 		case <-captureFire:
 			if captureArmed {
 				disarm()
+				reconcile()
 				publish(&mousePressed{})
 			}
 		case cmd := <-m.commands:
@@ -1148,11 +1252,14 @@ func (m *mouseMapManager) run(ctx context.Context) {
 					break
 				}
 				m.curMaps = next
+				resetRetries()
 				reconcile()
 				publish(nil)
 				cmd.reply <- mouseCmdReply{frame: m.currentFrame(curDevices, nil)}
 			case cmdCapture:
 				captureArmed = true
+				resetRetries()
+				reconcile()
 				if captureTimer == nil {
 					captureTimer = time.NewTimer(cmd.timeout)
 				} else {
@@ -1185,10 +1292,10 @@ func (w *lockedMouseWriter) Write(body []byte) (int, error) {
 // readDevice observes one interface of a logical mouse. Only the interface with
 // a live binding is grabbed, so an MMO side grid can be rewritten without
 // seizing an unrelated keyboard or even the pointer half of the same mouse.
-func (m *mouseMapManager) readDevice(ctx context.Context, dev mouseDevice, iface mouseInterface, grab bool, codes map[uint16]mouseTarget, events chan<- capturePress, deaths chan<- string, readerID string) {
-	src, err := os.Open(iface.node)
+func (m *mouseMapManager) readDevice(ctx context.Context, dev mouseDevice, iface mouseInterface, grab bool, codes map[uint16]mouseTarget, events chan<- capturePress, deaths chan<- mouseReaderDeath, readerID string) {
+	src, err := m.openDevice(iface.node)
 	if err != nil {
-		m.signalDeath(ctx, deaths, readerID)
+		m.signalDeath(ctx, deaths, readerID, err, false)
 		return
 	}
 	defer src.Close()
@@ -1204,15 +1311,17 @@ func (m *mouseMapManager) readDevice(ctx context.Context, dev mouseDevice, iface
 	var output *lockedMouseWriter
 	if grab {
 		if err := unix.IoctlSetInt(int(src.Fd()), evIoCGrab, 1); err != nil {
-			m.signalDeath(ctx, deaths, readerID)
+			m.signalDeath(ctx, deaths, readerID, err, false)
 			return
 		}
 		sub, err = newMouseSubstitutor(codes)
 		if err != nil {
+			m.signalDeath(ctx, deaths, readerID, err, false)
 			return
 		}
 		clone, err = m.makeClone(dev, iface)
 		if err != nil {
+			m.signalDeath(ctx, deaths, readerID, err, false)
 			return
 		}
 		defer m.destroyClone(clone)
@@ -1223,6 +1332,7 @@ func (m *mouseMapManager) readDevice(ctx context.Context, dev mouseDevice, iface
 		defer macro.stop()
 	}
 
+	ran := false
 	for {
 		if ctx.Err() != nil {
 			return
@@ -1232,20 +1342,21 @@ func (m *mouseMapManager) readDevice(ctx context.Context, dev mouseDevice, iface
 			if err == unix.EINTR {
 				continue
 			}
-			m.signalDeath(ctx, deaths, readerID)
+			m.signalDeath(ctx, deaths, readerID, err, ran)
 			return
 		}
 		if n == 0 {
 			continue
 		}
 		if pfd[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
-			m.signalDeath(ctx, deaths, readerID)
+			m.signalDeath(ctx, deaths, readerID, fmt.Errorf("evdev poll failed (revents %#x)", pfd[0].Revents), ran)
 			return
 		}
 		if _, err := io.ReadFull(src, raw); err != nil {
-			m.signalDeath(ctx, deaths, readerID)
+			m.signalDeath(ctx, deaths, readerID, err, ran)
 			return
 		}
+		ran = true
 		etype, code, value := decodeInputEvent(raw)
 		if etype == evKey && value == 1 && mouseCodeIn(iface.buttons, code) {
 			select {
@@ -1268,13 +1379,15 @@ func (m *mouseMapManager) readDevice(ctx context.Context, dev mouseDevice, iface
 		}
 		if out, consumed := sub.apply(etype, code, value); consumed {
 			for _, event := range out {
-				if writeInputEvent(output, event) != nil {
+				if err := writeInputEvent(output, event); err != nil {
+					m.signalDeath(ctx, deaths, readerID, err, ran)
 					return
 				}
 			}
 			continue
 		}
 		if _, err := output.Write(raw); err != nil {
+			m.signalDeath(ctx, deaths, readerID, err, ran)
 			return
 		}
 	}
@@ -1289,14 +1402,13 @@ func mouseCodeIn(codes []uint16, code uint16) bool {
 	return false
 }
 
-// signalDeath tells the run loop a reader died from a read error (an unplug) so
-// it republishes at once. A cancelled context is an orderly stop, not a death.
-func (m *mouseMapManager) signalDeath(ctx context.Context, deaths chan<- string, id string) {
+// signalDeath reports a failed reader unless cancellation deliberately stopped it.
+func (m *mouseMapManager) signalDeath(ctx context.Context, deaths chan<- mouseReaderDeath, id string, err error, ran bool) {
 	if ctx.Err() != nil {
 		return
 	}
 	select {
-	case deaths <- id:
+	case deaths <- mouseReaderDeath{id: id, err: err, ran: ran}:
 	case <-ctx.Done():
 	}
 }

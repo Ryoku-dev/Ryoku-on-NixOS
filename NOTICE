@@ -50,11 +50,12 @@ version 3 with additional section 7 terms; its NOTICE and LICENSE ship unchanged
 beside the code in ryoku/shell/quickshell/inir/.
 
 The Python bar style (ryoku/shell/quickshell/shell/modules/bar/barstyles/python/)
-is based on Serpantinum by ilyamiro and contributors
+is based on Serpantinum at commit cfdd810 (after 2.2.12) by ilyamiro and contributors
 (https://github.com/ilyamiro/serpantinum). It is a modified version: Ryoku
-renamed it, gave it its own mark, runs its data plane through Ryoku's
+renamed it, gave it its own mark, runs its data plane through Ryoku's neutral
 window-manager seam and services, and keeps the launcher, clipboard, wallpaper,
-lock, screenshot and update surfaces as Ryoku's own. Serpantinum is released
+lock, capture, notification server, policy agent, idle service, updater,
+first-run flow and desktop-widget host as Ryoku's own. Serpantinum is released
 under the GNU Affero General Public License version 3 or later; the ported
 portions keep that license (see the NOTICE and LICENSE beside the code), and
 AGPL-3.0 section 13 permits their combination with Ryoku's GPL-3 distribution.
@@ -68,6 +69,17 @@ version: Ryoku runs it over its own desktop, widgets, wallpaper, visualizer and
 depth services, gives it the Ryoku look, and leaves out its lock screen, bar and
 dock editing. ii-p3drovfx is released under the GNU General Public License
 version 3; the ported portions keep that license, compatible with Ryoku's GPL-3.
+
+The ii dock design (ryoku/shell/quickshell/shell/modules/dock/ii/) is based on
+the dock of the same shell, ii-p3drovfx by P3DROVFX, Scrimas and contributors
+(https://github.com/P3DROVFX/ii-p3drovfx), itself descended from end-4's
+illogical-impulse (https://github.com/end-4/dots-hyprland). It is a modified
+version: Ryoku reads and writes its options through its own shared dock store
+and stage configuration, takes its global state, theme, window data and
+keybinds from the Ryoku shell and window-manager seams, and adds the store
+bridge that keeps the design in sync with the other dock designs. It is
+released under the GNU General Public License version 3; the ported portions
+keep that license, compatible with Ryoku's GPL-3.
 
 Kit's Dev tools, Commands, Typing test and Phone tabs
 (ryoku/shell/quickshell/keys/) and the phone module behind the Phone tab
@@ -87,3 +99,28 @@ The word lists and key sounds under ryoku/shell/quickshell/keys/typing/assets/
 come from Monkeytype (https://github.com/monkeytypegame/monkeytype), released
 under the GNU General Public License version 3 only; the pinned upstream commit
 is recorded in the manifests beside them.
+
+The built-in desktop sounds under ryoku/shell/ipc/assets/ come from the
+freedesktop.org sound theme, renamed after the event they play for. Per that
+theme's credits: the notification sound (message-new-instant) is by Damien
+Sandras, GNU General Public License version 2 or later; battery-full (complete)
+is by Dr. Richard Boulanger et al, Creative Commons Attribution 3.0 Unported;
+the shutter (camera-shutter) is by freesound user horsthorstensen and
+volume-change (audio-volume-change) by Lucas McCallister, both Creative Commons
+Attribution-ShareAlike; the warning, plug, unplug and device sounds
+(dialog-warning, power-plug, power-unplug, device-added, device-removed) are by
+Ivica Bukvic, Creative Commons Attribution-ShareAlike.
+
+The QS Bar style at
+ryoku/shell/quickshell/shell/modules/bar/barstyles/qsbar/ is a port of
+Quickshell Rise by HANCORE-linux
+(https://github.com/HANCORE-linux/quickshell-dots). It is a modified version:
+Ryoku keeps Rise's island, full, fit, dock and notch forms, widgets, pop-up
+panels, settings panel and draggable editing, while replacing its Omarchy data
+and command integrations with Ryoku's wallpaper palette, neutral
+window-manager and host-service seams, package updates, wallpaper, media,
+audio, power and capture paths. Ryoku also rebrands the shell, merges its two
+runtime variants into one bar, and adds Ryoku settings and per-display
+controls. Quickshell Rise is released under the MIT License; that license is
+compatible with Ryoku's GPL-3 distribution, and the upstream license ships
+unchanged beside the port.

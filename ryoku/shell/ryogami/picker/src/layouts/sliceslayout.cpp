@@ -19,15 +19,15 @@ void SlicesLayout::readParams(const LayoutContext &ctx, SliceParams &out) const
 {
     const ParamSource &p = *ctx.params;
     const bool small = p.smallScreen();
-    out.sliceW = float(std::clamp(p.num(skey("sliceWidth"), small ? 110.0 : 170.0), 24.0, 2048.0));
-    out.expandedW = float(std::clamp(p.num(skey("expandedWidth"), small ? 500.0 : 720.0), 32.0, 8192.0));
-    out.sliceH = float(std::clamp(p.num(skey("sliceHeight"), small ? 360.0 : 520.0), 60.0, 4096.0));
-    out.spacing = float(std::clamp(p.num(skey("sliceSpacing"), 20.0), 0.0, 1024.0));
-    out.skew = float(std::clamp(p.num(skey("skewOffset"), 0.0), -2048.0, 2048.0));
+    out.sliceW = float(std::clamp(p.num(skey("sliceWidth"), small ? 188.0 : 289.0), 24.0, 2048.0));
+    out.expandedW = float(std::clamp(p.num(skey("expandedWidth"), small ? 650.0 : 942.0), 32.0, 8192.0));
+    out.sliceH = float(std::clamp(p.num(skey("sliceHeight"), small ? 269.0 : 389.0), 60.0, 4096.0));
+    out.spacing = float(std::clamp(p.num(skey("sliceSpacing"), 15.0), 0.0, 1024.0));
+    out.skew = float(std::clamp(p.num(skey("skewOffset"), small ? 82.0 : 119.0), -2048.0, 2048.0));
     out.edgeTilt = float(std::clamp(p.num(skey("sliceEdgeTilt"), 0.0), -2048.0, 2048.0));
     out.visibleCount = int(std::lround(std::clamp(
-        p.num(skey("visibleCount"), small ? 8.0 : 12.0), 1.0, 128.0)));
-    out.wobble = p.flag(skey("sliceWobble"), false);
+        p.num(skey("visibleCount"), small ? 5.0 : 7.0), 1.0, 128.0)));
+    out.wobble = p.flag(skey("sliceWobble"), true);
     out.wobbleStrength = float(std::clamp(p.num(skey("sliceWobbleStrength"), 100.0) / 100.0, 0.0, 2.0));
     out.parallax = p.flag(skey("sliceParallax"), false);
     out.shadows = p.flag(skey("sliceShadows"), true);

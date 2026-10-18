@@ -116,6 +116,32 @@ func TestSymlinkForceKeepsForeignSkillDir(t *testing.T) {
 	}
 }
 
+func TestSymlinkForceKeepsForeignSkillSymlink(t *testing.T) {
+	_, ours := skillEnv(t)
+	dir := t.TempDir()
+	foreign := filepath.Join(dir, "foreign")
+	if err := os.MkdirAll(foreign, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(foreign, "SKILL.md"), []byte("---\nname: someone-else\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "ryoku")
+	if err := os.Symlink(foreign, link); err != nil {
+		t.Fatal(err)
+	}
+	wrote, err := symlinkForce(link, ours)
+	if err != nil {
+		t.Fatalf("symlinkForce: %v", err)
+	}
+	if wrote {
+		t.Fatal("symlinkForce reported replacing a foreign link")
+	}
+	if dest, err := os.Readlink(link); err != nil || dest != foreign {
+		t.Fatalf("foreign link = %q, %v", dest, err)
+	}
+}
+
 // Hermes keeps skills in category folders: ~/.hermes/skills/ryoku is a real
 // directory (no SKILL.md of its own) and the skill lives inside it as a
 // nested ryoku link. Wire must lay the link inside, status must read the

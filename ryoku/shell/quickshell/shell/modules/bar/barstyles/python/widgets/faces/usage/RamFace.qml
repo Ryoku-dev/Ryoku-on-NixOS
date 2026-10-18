@@ -40,13 +40,6 @@ Item {
         }
     }
 
-    property real wavePhase: waveClock.phase
-    WaveClock {
-        id: waveClock
-        duration: 1800
-        running: root.visible
-    }
-
     property real rawRam: isNaN(SysData.ramPercent) ? 0.0 : SysData.ramPercent / 100.0
     property real ramUsage: rawRam
     Behavior on ramUsage { enabled: root.visible; NumberAnimation { duration: 800; easing.type: Easing.OutQuint } }
@@ -57,13 +50,14 @@ Item {
 
     SystemUsageCard {
         anchors.fill: parent
+        blurred: !root.ryokuBare
+        bgOpacity: ThemeBackend.elementOpacity
         value: root.ramUsage
         colorBase: root.ryokuBare ? "transparent" : ThemeBackend.surface0
         colorFill: Qt.lighter(ThemeBackend.mauve, 1.15)
-        icon: "\uF538"
+        icon: String.fromCodePoint(0xF035C)
         title: I18n.t("quickactions.systemusage.ram")
         valueText: root.ramUsedGb.toFixed(1) + "G"
-        wavePhase: root.wavePhase
         isLive: root.visible
         compact: root.compactMode
         scaleFunc: Scaler.s

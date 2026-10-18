@@ -41,6 +41,6 @@ struct FlipOptions {
     double durationMs = 1500.0;
     bool shader = true;
     bool back = true;
-    int effect = 0;
+    int effect = 3;
 };
 FlipOptions readFlipOptions(const ParamSource &p);

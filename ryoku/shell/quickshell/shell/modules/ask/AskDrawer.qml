@@ -23,7 +23,7 @@ Rectangle {
     property real maxHeight: 260 * s
     readonly property bool motionAllowed: !Tokens.reduceMotion && !Motion.reduce
     property int current: 0
-    readonly property var selectable: rows.filter(r => !r.section)
+    readonly property var selectable: rows.filter(r => !r.section && r.disabled !== true)
     // The natural (unclipped) height, so the owner can reserve room for it.
     readonly property real naturalHeight: contentColumn.implicitHeight + Tokens.s3 * s * 2
 
@@ -100,17 +100,18 @@ Rectangle {
                     required property var modelData
                     required property int index
                     readonly property bool isSection: Boolean(modelData.section)
+                    readonly property bool isDisabled: modelData.disabled === true
                     // Its position among selectable rows, for selection state.
                     readonly property int ordinal: {
-                        if (isSection)
+                        if (isSection || isDisabled)
                             return -1;
                         let n = 0;
                         for (let i = 0; i < index; i++)
-                            if (!drawer.rows[i].section)
+                            if (!drawer.rows[i].section && drawer.rows[i].disabled !== true)
                                 n++;
                         return n;
                     }
-                    readonly property bool selected: !isSection && ordinal === drawer.current
+                    readonly property bool selected: !isSection && !isDisabled && ordinal === drawer.current
 
                     width: contentColumn.width
                     height: isSection ? sectionColumn.implicitHeight : 44 * drawer.s
@@ -135,9 +136,15 @@ Rectangle {
                         visible: !row.isSection
                         anchors.fill: parent
                         radius: Tokens.radius * drawer.s
-                        color: row.selected ? Tokens.bone
+                        color: row.isDisabled ? Tokens.tint5
                             : rowTap.pressed ? Tokens.tint16
+                            : row.selected ? Tokens.bone
                             : rowHover.hovered ? Tokens.tint10 : "transparent"
+                        scale: rowTap.pressed && drawer.motionAllowed ? 0.985 : 1
+                        Behavior on scale {
+                            enabled: drawer.motionAllowed
+                            NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+                        }
                         Row {
                             anchors.left: parent.left
                             anchors.right: parent.right
@@ -153,7 +160,8 @@ Rectangle {
                                 Text {
                                     width: parent.width
                                     text: String(row.modelData.label || "")
-                                    color: row.selected ? Tokens.inkOnBone : Tokens.ink
+                                    color: row.isDisabled ? Tokens.inkMuted
+                                        : row.selected ? Tokens.inkOnBone : Tokens.ink
                                     font.family: Tokens.ui
                                     font.pixelSize: Tokens.fSmall * drawer.s
                                     font.weight: row.modelData.active ? Font.DemiBold : Font.Normal
@@ -163,7 +171,8 @@ Rectangle {
                                     visible: String(row.modelData.sub || "").length > 0
                                     width: parent.width
                                     text: String(row.modelData.sub || "")
-                                    color: row.selected ? Tokens.inkOnBone : Tokens.inkMuted
+                                    color: row.isDisabled ? Tokens.inkFaint
+                                        : row.selected ? Tokens.inkOnBone : Tokens.inkMuted
                                     font.family: Tokens.ui
                                     font.pixelSize: Tokens.fTiny * drawer.s
                                     elide: Text.ElideRight
@@ -180,11 +189,13 @@ Rectangle {
                             }
                         }
                         HoverHandler {
+                            enabled: !row.isDisabled
                             id: rowHover
                             cursorShape: Qt.PointingHandCursor
                             onHoveredChanged: if (hovered) drawer.current = row.ordinal
                         }
                         TapHandler {
+                            enabled: !row.isDisabled
                             id: rowTap
                             onTapped: {
                                 drawer.current = row.ordinal;
@@ -196,7 +207,7 @@ Rectangle {
             }
 
             Text {
-                visible: drawer.selectable.length === 0
+                visible: drawer.rows.filter(r => !r.section).length === 0
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 topPadding: Tokens.s4 * drawer.s

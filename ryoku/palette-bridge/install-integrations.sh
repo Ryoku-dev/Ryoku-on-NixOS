@@ -10,11 +10,8 @@ if [[ "$config_root" == "$HOME/.config" ]]; then
   # Literal paths written into apps.toml; Matugen expands the tilde.
   # shellcheck disable=SC2088
   matugen_template_root='~/.config/matugen/templates'
-  # shellcheck disable=SC2088
-  vesktop_quick_css='~/.config/vesktop/settings/quickCss.css'
 else
   matugen_template_root="$config_root/matugen/templates"
-  vesktop_quick_css="$config_root/vesktop/settings/quickCss.css"
 fi
 want_spotify=false
 want_vesktop=false
@@ -28,6 +25,7 @@ usage() {
 
 while (( $# )); do
   case "$1" in
+    --capabilities) printf 'vesktop-preserve-quickcss-v1\n'; exit 0 ;;
     --all) want_spotify=true; want_vesktop=true; want_zen=true ;;
     --spotify) want_spotify=true ;;
     --vesktop) want_vesktop=true ;;
@@ -84,7 +82,10 @@ record_owned() {
 }
 
 set_matugen_section() {
-  local section="$1" input_path="$2" output_path="$3" temporary
+  local section="$1" input_path="$2" output_path="$3" hook="${4:-}" temporary input_value output_value
+  command -v jq >/dev/null || { printf 'jq is required to write Matugen integrations\n' >&2; return 1; }
+  input_value=$(jq -Rn --arg value "$input_path" '$value')
+  output_value=$(jq -Rn --arg value "$output_path" '$value')
   temporary=$(mktemp)
   awk -v target="[$section]" '
     $0 == target { skip=1; next }
@@ -93,8 +94,11 @@ set_matugen_section() {
   ' "$overlay_apps" > "$temporary"
   {
     printf '\n[%s]\n' "$section"
-    printf 'input_path = "%s"\n' "$input_path"
-    printf 'output_path = "%s"\n' "$output_path"
+    printf 'input_path = %s\n' "$input_value"
+    printf 'output_path = %s\n' "$output_value"
+    if [[ -n "$hook" ]]; then
+      printf 'post_hook = %s\n' "$(jq -Rn --arg hook "$hook" '$hook')"
+    fi
   } >> "$temporary"
   install -m 0644 "$temporary" "$overlay_apps"
   rm -f "$temporary"
@@ -120,9 +124,17 @@ if $want_vesktop; then
   prepare_matugen_overlay
   install -m 0644 "$project_root/templates/vesktop-colors.css" "$overlay_root/templates/vesktop-colors.css"
   record_owned vesktop "$overlay_root/templates/vesktop-colors.css"
+  merge_root="$state_root/vesktop"
+  install -d "$merge_root"
+  install -m 0644 "$project_root/vesktop/quickcss.sh" "$merge_root/quickcss.sh"
+  install -m 0644 "$vesktop_rendered" "$merge_root/palette.css"
+  record_owned vesktop "$merge_root/quickcss.sh"
+  record_owned vesktop "$merge_root/palette.css"
+  shell_quote() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
+  merge_hook="bash $(shell_quote "$merge_root/quickcss.sh") $(shell_quote "$config_root/vesktop/settings/quickCss.css") $(shell_quote "$merge_root/palette.css")"
   set_matugen_section templates.vesktop \
     "$matugen_template_root/vesktop-colors.css" \
-    "$vesktop_quick_css"
+    "$merge_root/palette.css" "$merge_hook"
   # Ryoku consumes the same palette roles itself; stacking Midnight changes its layout.
   ryoku_selected=$(jq '(.enabledThemes // []) | any(ascii_downcase == "ryoku.theme.css")' "$settings")
   if [[ "$ryoku_selected" != true ]]; then
@@ -149,14 +161,40 @@ if $want_zen; then
   else
     profile_root=$(find "$zen_root" -mindepth 2 -maxdepth 2 -name .parentlock -printf '%h\n' -quit 2>/dev/null || true)
     if [[ -z "$profile_root" && -f "$zen_root/profiles.ini" ]]; then
-      profile_path=$(awk -F= '
-        /^\[Profile/ { active=1; path=""; preferred=0; next }
-        /^\[/ { if (active && preferred && path != "") { print path; exit }; active=0 }
-        active && $1 == "Path" { path=$2 }
-        active && $1 == "Default" && $2 == "1" { preferred=1 }
-        END { if (active && preferred && path != "") print path }
-      ' "$zen_root/profiles.ini" | head -n1)
-      [[ -n "$profile_path" ]] && profile_root="$zen_root/$profile_path"
+      while IFS= read -r candidate; do
+        if [[ -d "$candidate" ]]; then
+          profile_root="$candidate"
+          break
+        fi
+      done < <(awk -v root="$zen_root" '
+        function saveProfile() {
+          if (profile && preferred && path != "")
+            defaults[++profileCount] = relative == "0" ? path : root "/" path
+        }
+        { sub(/\r$/, "") }
+        /^\[/ {
+          saveProfile()
+          profile = ($0 ~ /^\[Profile[^]]+\]$/)
+          installation = ($0 ~ /^\[Install[^]]+\]$/)
+          path = ""; preferred = 0; relative = "1"
+          next
+        }
+        /^[;#]/ { next }
+        index($0, "=") {
+          key = substr($0, 1, index($0, "=") - 1)
+          value = substr($0, index($0, "=") + 1)
+          if (profile && key == "Path") path = value
+          if (profile && key == "IsRelative") relative = value
+          if (profile && key == "Default" && value == "1") preferred = 1
+          if (installation && key == "Default" && value != "")
+            installs[++installCount] = substr(value, 1, 1) == "/" ? value : root "/" value
+        }
+        END {
+          saveProfile()
+          for (i = 1; i <= installCount; i++) print installs[i]
+          for (i = 1; i <= profileCount; i++) print defaults[i]
+        }
+      ' "$zen_root/profiles.ini")
     fi
   fi
   [[ -n "${profile_root:-}" && -d "$profile_root" ]] || {

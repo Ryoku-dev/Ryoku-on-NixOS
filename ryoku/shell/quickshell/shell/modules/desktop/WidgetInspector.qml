@@ -907,7 +907,8 @@ Item {
                         width: parent.width
                         active: insp.hasOptions
                         source: !active ? "" : insp.isIi ? "options/IiFaceOptions.qml"
-                            : "options/" + insp.cap(insp.scope) + "Options.qml"
+                            : "options/" + (OptionsCatalog.panelFile(insp.scope)
+                                || insp.cap(insp.scope) + "Options.qml")
                         onLoaded: insp.rescan()
                         onItemChanged: insp.rescan()
                     }

@@ -117,7 +117,9 @@ FocusScope {
     function _openResult(t, s, cid) {
         folio.activeTabIndex = t; folio.activeSectionIndex = s;
         folio.searchOpen = false; folio.query = "";
-        folio.jumpControlId = cid;
+        // Reopening the same search result must expand its group again.
+        folio.jumpControlId = "";
+        Qt.callLater(function () { folio.jumpControlId = cid; });
     }
 
     property string capturingKey: ""

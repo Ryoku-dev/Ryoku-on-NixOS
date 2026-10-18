@@ -75,7 +75,7 @@ func (d *daemon) audio(sub string) string {
 	}
 	// The output cue fires for every up/down/mute, even when the sink change
 	// itself fails; input volume/mute have no verb here and stay silent.
-	playSound(soundVolumeChange)
+	d.playSound(soundVolumeChange)
 	if err := exec.Command("wpctl", argv...).Run(); err != nil {
 		return "err audio: " + err.Error()
 	}

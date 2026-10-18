@@ -2,6 +2,7 @@
 
 #include "collectionlayout.h"
 #include "depthlayout.h"
+#include "duellayout.h"
 #include "handlayout.h"
 #include "hexlayout.h"
 #include "sandylayout.h"
@@ -20,6 +21,8 @@ std::unique_ptr<Layout> makeLayout(const QString &mode)
         return std::make_unique<SandyLayout>();
     if (mode == QLatin1String("hand"))
         return std::make_unique<HandLayout>();
+    if (mode == QLatin1String("duel"))
+        return std::make_unique<DuelLayout>();
     if (mode == QLatin1String("collection"))
         return std::make_unique<CollectionLayout>();
     return std::make_unique<SlicesLayout>();

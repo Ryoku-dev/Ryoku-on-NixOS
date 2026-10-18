@@ -210,6 +210,16 @@ Singleton {
     property alias spotlight: keptSheets.spotlight
     /// The zoom: a still of the screen, magnified around the pointer.
     property alias zoom: keptSheets.zoom
+    /// The still is a whole-screen capture. Where only wlr-screencopy exists, Quickshell
+    /// takes it by binding a second wl_output, which Qt files as one of its own screens
+    /// and later reads after it is gone (quickshell#1094), and the shell crashes. The
+    /// zoom is only offered where an in-process screen capture is safe at all, like
+    /// the launcher frost.
+    readonly property bool zoomAvailable: Wm.caps.persistentScreenCapture === true
+    onZoomAvailableChanged: {
+        if (!root.zoomAvailable)
+            root.zoom = false;
+    }
 
     function setSpotlight(on) {
         if (on && !root.enabled)
@@ -219,7 +229,7 @@ Singleton {
     }
 
     function setZoom(on) {
-        if (on && !root.enabled)
+        if (on && (!root.enabled || !root.zoomAvailable))
             return;
         root.spotlight = false;
         root.zoom = on;

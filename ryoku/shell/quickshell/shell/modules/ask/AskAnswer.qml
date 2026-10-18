@@ -16,25 +16,25 @@ Item {
     property bool active: false
     property int selectedChip: 0
     property string flash: ""
+    property int chipEpoch: 0
     readonly property bool motionAllowed: active && !Tokens.reduceMotion && !Motion.reduce
     readonly property var chips: {
         if (session.busy)
             return [
-                { kind: "chat", value: "", label: I18n.tr("Continue with the agent") },
+                { kind: "chat", value: "", label: I18n.tr("Move to the agent") },
                 { kind: "app", value: "", label: I18n.tr("Open Rashin") },
                 { kind: "cancel", value: "", label: I18n.tr("Cancel") }
             ];
-        if (session.permPending)
-            return [
-                { kind: "chat", value: "", label: I18n.tr("Continue with the agent") },
-                { kind: "app", value: "", label: I18n.tr("Open Rashin") }
-            ];
         if (session.phase !== "done")
             return [];
-        const values = [{ kind: "copy", value: session.answerText, label: I18n.tr("Copy") }];
+        const values = [];
+        if (session.needsAgent)
+            values.push({ kind: "chat", value: "", label: I18n.tr("Move to the agent") });
+        values.push({ kind: "copy", value: session.answerText, label: I18n.tr("Copy") });
         for (let i = 0; i < session.answerActions.length; i++)
             values.push(session.answerActions[i]);
-        values.push({ kind: "chat", value: "", label: I18n.tr("Continue with the agent") });
+        if (!session.needsAgent)
+            values.push({ kind: "chat", value: "", label: I18n.tr("Continue with the agent") });
         values.push({ kind: "app", value: "", label: I18n.tr("Open Rashin") });
         values.push({ kind: "pin", value: "", label: I18n.tr("Pin bubble") });
         return values;
@@ -80,8 +80,16 @@ Item {
             Spawn.runApp(["kitty", "-e", "nvim", String(chip.value || "")]);
         else if (kind === "dir" || kind === "url")
             Spawn.runApp(["xdg-open", String(chip.value || "")]);
-        else if (kind === "chat")
+        else if (kind === "chat") {
+            const run = session.busy || session.needsAgent;
+            Needle.handoff(
+                run ? "" : session.answerId,
+                session.askedQuestion,
+                run ? "" : session.answerText,
+                run
+            );
             root.switchToChat();
+        }
         else if (kind === "app")
             root.openApp();
         else if (kind === "pin")
@@ -108,7 +116,10 @@ Item {
 
     Connections {
         target: root.session
-        function onAnswered() { root.selectedChip = 0; }
+        function onAnswered() {
+            root.selectedChip = 0;
+            root.chipEpoch++;
+        }
     }
     Column {
         id: content
@@ -190,8 +201,10 @@ Item {
         }
 
         TextEdit {
+            id: answerText
+            readonly property bool shown: root.session.phase === "done" && !root.session.recentOpen
             width: parent.width
-            visible: root.session.phase === "done" && !root.session.recentOpen
+            visible: opacity > 0.001
             text: root.session.answerText
             color: Tokens.inkDim
             font.family: Tokens.ui
@@ -201,9 +214,30 @@ Item {
             selectByMouse: true
             selectionColor: Tokens.bone
             selectedTextColor: Tokens.inkOnBone
-            opacity: visible ? 1 : 0
-            transform: Translate { y: root.motionAllowed && root.session.phase === "done" ? 0 : Tokens.s2 * root.s }
-            Behavior on opacity { enabled: root.motionAllowed; NumberAnimation { duration: Tokens.swap } }
+            opacity: shown ? 1 : 0
+            transform: Translate {
+                y: answerText.shown ? 0 : Tokens.s2 * root.s
+                Behavior on y {
+                    enabled: root.motionAllowed
+                    NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+                }
+            }
+            Behavior on opacity {
+                enabled: root.motionAllowed
+                NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+            }
+        }
+
+        Text {
+            width: parent.width
+            visible: root.session.needsAgent && root.session.needsAgentReason.length > 0
+                && !root.session.recentOpen
+            text: root.session.needsAgentReason
+            color: Tokens.inkMuted
+            font.family: Tokens.ui
+            font.pixelSize: Tokens.fSmall * root.s
+            font.italic: true
+            wrapMode: Text.WordWrap
         }
 
         Row {
@@ -260,21 +294,35 @@ Item {
                     required property var modelData
                     required property int index
                     property real revealProgress: root.motionAllowed ? 0 : 1
+                    property int revealEpoch: root.chipEpoch
                     readonly property bool current: index === root.selectedChip
                     width: chipContent.implicitWidth + Tokens.s4 * root.s
                     height: Tokens.ctlH * root.s
                     radius: Tokens.radius * root.s
-                    color: current ? Tokens.bone
-                        : chipTap.pressed ? Tokens.tint16
+                    color: chipTap.pressed ? Tokens.tint16
+                        : current ? Tokens.bone
                         : chipHover.hovered ? Tokens.tint10 : "transparent"
                     border.width: Tokens.border
                     border.color: current ? Tokens.bone : Tokens.line
                     opacity: revealProgress
+                    scale: chipTap.pressed && root.motionAllowed ? 0.94
+                        : chipHover.hovered && root.motionAllowed ? 1.025 : 1
                     transform: Translate { y: (1 - chip.revealProgress) * Tokens.s2 * root.s }
-                    Component.onCompleted: if (root.motionAllowed) reveal.restart()
+                    function restartReveal() {
+                        reveal.stop();
+                        revealProgress = root.motionAllowed ? 0 : 1;
+                        if (root.motionAllowed)
+                            reveal.restart();
+                    }
+                    onRevealEpochChanged: restartReveal()
+                    Component.onCompleted: restartReveal()
+                    Behavior on scale {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+                    }
                     SequentialAnimation {
                         id: reveal
-                        PauseAnimation { duration: chip.index * Math.round(Tokens.snap * 4 / 9) }
+                        PauseAnimation { duration: Math.min(chip.index * 60, 240) }
                         NumberAnimation {
                             target: chip
                             property: "revealProgress"

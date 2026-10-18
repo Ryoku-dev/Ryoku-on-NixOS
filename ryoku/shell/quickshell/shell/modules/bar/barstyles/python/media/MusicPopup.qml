@@ -9,13 +9,15 @@ import Quickshell.Io
 import Quickshell.Services.Mpris
 import "../"
 import "../reusables"
+import "../reusables/guide"
+import "../reusables/media"
 
 Item {
     id: root
-
+    visible: false
     focus: true
 
-    readonly property bool active: root.visible && (!Window.window || Window.window.visible)
+    readonly property bool active: root.visible
 
     property bool cavaRegistered: false
 
@@ -43,7 +45,17 @@ Item {
         return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
     }
 
+    property var exitCallback: null
+
+    function startExit(onFinished) {
+        introAnim.stop();
+        chargeAnim.stop();
+        exitCallback = onFinished;
+        exitAnim.restart();
+    }
+
     function resetAndPlayIntro() {
+        exitAnim.stop();
         introMain = 0;
         introCover = 0;
         introText = 0;
@@ -55,12 +67,13 @@ Item {
         maskRectOuter.drawProgress = 0;
         introAnim.restart();
         chargeAnim.restart();
+        if (bottomSectionSwitch.currentIndex === 1) playAudioIntro();
     }
 
     property bool lyricsSubscribed: false
 
     function updateLyricsSubscription() {
-        let shouldSub = root.active && (bottomSectionSwitch.currentIndex === 1);
+        let shouldSub = root.active && (bottomSectionSwitch.currentIndex === 2);
         if (shouldSub && !lyricsSubscribed) {
             lyricsSubscribed = true;
             Lyrics.customPlayer = root.targetPlayer;
@@ -78,7 +91,7 @@ Item {
         sequence: "Tab"
         enabled: root.active
         onActivated: {
-            bottomSectionSwitch.currentIndex = (bottomSectionSwitch.currentIndex === 0 ? 1 : 0);
+            bottomSectionSwitch.currentIndex = (bottomSectionSwitch.currentIndex + 1) % 3;
             root.updateLyricsSubscription();
         }
     }
@@ -87,7 +100,7 @@ Item {
         sequence: "Backtab"
         enabled: root.active
         onActivated: {
-            bottomSectionSwitch.currentIndex = (bottomSectionSwitch.currentIndex === 0 ? 1 : 0);
+            bottomSectionSwitch.currentIndex = (bottomSectionSwitch.currentIndex + 2) % 3;
             root.updateLyricsSubscription();
         }
     }
@@ -99,15 +112,9 @@ Item {
             resetAndPlayIntro();
             registerCava();
             triggerLocalArtFetch();
-            if (!eqProc.running) eqProc.running = true;
-            if (titleTextMain.implicitWidth > titleClipRect.width) {
-                marqueeContainer.x = 0;
-                titleAnim.restart();
-            }
         } else {
+            exitAnim.stop();
             unregisterCava();
-            titleAnim.stop();
-            marqueeContainer.x = 0;
             if (lyricsPickerPopup.visible || lyricsPickerPopup.opened) {
                 lyricsPickerPopup.closePicker();
             }
@@ -156,15 +163,66 @@ Item {
         font.bold: true
     }
 
+    Text {
+        id: resetMeasureText
+        visible: false
+        text: typeof I18n !== "undefined" ? I18n.t("music.audio.reset", "Reset") : "Reset"
+        font.family: ThemeBackend.fontFamily
+        font.pixelSize: root.s(11.5)
+        font.bold: true
+    }
+
+    Text {
+        id: testMeasureText
+        visible: false
+        text: root.audioTestRunning
+            ? (typeof I18n !== "undefined" ? I18n.t("music.audio.stop_test", "Stop") : "Stop")
+            : (typeof I18n !== "undefined" ? I18n.t("music.audio.test", "Test") : "Test")
+        font.family: ThemeBackend.fontFamily
+        font.pixelSize: root.s(11.5)
+        font.bold: true
+    }
+
     property real actionBtnMorph: 0.0
+    property real audioHeaderProgress: 0.0
     property real presetSlideProgress: 0.0
 
     readonly property real eqActionBtnWidth: Math.max(root.s(68), eqMeasureText.implicitWidth + root.s(26))
+    readonly property real audioActionBtnWidth: Math.max(root.s(84), resetMeasureText.implicitWidth + root.s(46))
+    readonly property real audioTestBtnWidth: Math.max(root.s(64), Math.min(root.s(82), testMeasureText.implicitWidth + root.s(34)))
     readonly property real lyricsActionBtnWidth: Math.max(root.s(116), lyricsMeasureText.implicitWidth + root.s(44))
-    readonly property real actionBtnCurrentWidth: eqActionBtnWidth + (lyricsActionBtnWidth - eqActionBtnWidth) * actionBtnMorph
+    readonly property real actionBtnCurrentWidth: actionBtnMorph <= 1.0
+        ? eqActionBtnWidth + (audioActionBtnWidth - eqActionBtnWidth) * actionBtnMorph
+        : audioActionBtnWidth + (lyricsActionBtnWidth - audioActionBtnWidth) * (actionBtnMorph - 1.0)
 
     ParallelAnimation {
         id: toLyricsAnim
+        running: false
+        NumberAnimation {
+            target: root
+            property: "actionBtnMorph"
+            to: 2.0
+            duration: 420
+            easing.type: Easing.OutCubic
+        }
+        NumberAnimation {
+            target: root
+            property: "presetSlideProgress"
+            to: 1.0
+            duration: 400
+            easing.type: Easing.OutCubic
+        }
+        NumberAnimation {
+            target: root
+            property: "audioHeaderProgress"
+            to: 0.0
+            duration: 320
+            easing.type: Easing.OutCubic
+        }
+    }
+
+    ParallelAnimation {
+        id: toAudioAnim
         running: false
         NumberAnimation {
             target: root
@@ -178,6 +236,13 @@ Item {
             property: "presetSlideProgress"
             to: 1.0
             duration: 400
+            easing.type: Easing.OutCubic
+        }
+        NumberAnimation {
+            target: root
+            property: "audioHeaderProgress"
+            to: 1.0
+            duration: 320
             easing.type: Easing.OutCubic
         }
     }
@@ -199,6 +264,13 @@ Item {
             duration: 400
             easing.type: Easing.OutCubic
         }
+        NumberAnimation {
+            target: root
+            property: "audioHeaderProgress"
+            to: 0.0
+            duration: 320
+            easing.type: Easing.OutCubic
+        }
     }
 
     property int barCount: 60
@@ -211,15 +283,10 @@ Item {
         when: root.active
     }
 
-    property var processedBars: {
+    // Sub-bass and kick strength for the glow and the disc bounce
+    property var beat: {
         let source = rawBarLevels;
-        let count = barCount;
-        let out = [];
-
-        if (!source || source.length === 0) {
-            for (let i = 0; i < count; i++) out.push(0.0);
-            return { levels: out, bass: 0.0, kick: 0.0 };
-        }
+        if (!source || source.length === 0) return { bass: 0.0, kick: 0.0 };
 
         let subBass = (source[0] || 0.0) * 0.50 + (source[1] || 0.0) * 0.35 + (source[2] || 0.0) * 0.15;
         let kickPunch = (source[1] || 0.0) * 0.30 + (source[2] || 0.0) * 0.45 + (source[3] || 0.0) * 0.25;
@@ -228,30 +295,11 @@ Item {
         let kick = rawKick > 0.10 ? Math.min(1.0, Math.pow((rawKick - 0.10) / 0.90, 1.8) * 1.4) : 0.0;
         let bass = Math.max(0.0, Math.min(1.0, subBass * 0.6 + kickPunch * 0.4));
 
-        let srcLen = source.length;
-        for (let i = 0; i < count; i++) {
-            let norm = i / (count - 1);
-            let pos = Math.pow(norm, 1.15) * (srcLen - 1);
-            let idx0 = Math.floor(pos);
-            let idx1 = Math.min(srcLen - 1, idx0 + 1);
-            let frac = pos - idx0;
-
-            let v0 = source[idx0] || 0.0;
-            let v1 = source[idx1] || 0.0;
-            let val = v0 + (v1 - v0) * frac;
-
-            val = Math.max(0.0, Math.min(1.0, val));
-            val = Math.pow(val, 1.08);
-
-            out.push(val);
-        }
-
-        return { levels: out, bass: bass, kick: kick };
+        return { bass: bass, kick: kick };
     }
 
-    property var barLevels: processedBars.levels
-    property real bassLevel: processedBars.bass
-    property real kickLevel: processedBars.kick
+    property real bassLevel: beat.bass
+    property real kickLevel: beat.kick
 
     property var playerList: {
         if (!Mpris.players || !Mpris.players.values) return [];
@@ -365,7 +413,7 @@ Item {
         id: customArtFetchProc
         command: [
             "bash",
-            Caching.qsDir + "/media/art_fetch.sh",
+            Caching.payloadDir + "/media/art_fetch.sh",
             root.targetPlayer ? (root.targetPlayer.trackArtUrl || "") : "",
             root.targetPlayer ? (root.targetPlayer.trackTitle || "") : "",
             root.targetPlayer ? (root.targetPlayer.trackArtist || "") : ""
@@ -409,14 +457,25 @@ Item {
     property var eqData: {
         "b1": 0, "b2": 0, "b3": 0, "b4": 0, "b5": 0,
         "b6": 0, "b7": 0, "b8": 0, "b9": 0, "b10": 0,
-        "preset": "Flat", "pending": false
+        "preset": "Flat", "pending": false, "balance": 0,
+        "mono": false, "swap": false, "dynamics": "off"
     }
 
     property var savedEqData: ({
         "b1": 0, "b2": 0, "b3": 0, "b4": 0, "b5": 0,
         "b6": 0, "b7": 0, "b8": 0, "b9": 0, "b10": 0,
-        "preset": "Flat", "pending": false
+        "preset": "Flat", "pending": false, "balance": 0,
+        "mono": false, "swap": false, "dynamics": "off"
     })
+
+    property bool audioTestRunning: false
+
+    Timer {
+        id: audioTestTimer
+        interval: 3200
+        repeat: false
+        onTriggered: root.audioTestRunning = false
+    }
 
     function restoreLastSavedEqualizer() {
         if (!root.savedEqData) return;
@@ -436,11 +495,11 @@ Item {
         if (needsRestore) {
             root.lastEqUpdate = Date.now();
             if (root.savedEqData.preset && root.savedEqData.preset !== "Custom") {
-                root.execCmd(Caching.qsDir + `/media/equalizer.sh preset ${root.savedEqData.preset}`);
+                root.execCmd(Caching.payloadDir + `/media/equalizer.sh preset ${root.savedEqData.preset}`);
             } else {
                 for (var b = 1; b <= 10; b++) {
                     if (root.savedEqData["b" + b] !== undefined) {
-                        root.execCmd(Caching.qsDir + `/media/equalizer.sh set_band ${b} ${root.savedEqData["b" + b]}`);
+                        root.execCmd(Caching.payloadDir + `/media/equalizer.sh set_band ${b} ${root.savedEqData["b" + b]}`);
                     }
                 }
             }
@@ -450,14 +509,6 @@ Item {
     property color eqAccentColor: ThemeBackend.mauve || "#cba6f7"
     property string accumulatedEqOut: ""
     property real lastEqUpdate: 0
-
-    property real globalOrbitAngle: 0
-    NumberAnimation on globalOrbitAngle {
-        from: 0; to: Math.PI * 2
-        duration: 90000
-        loops: Animation.Infinite
-        running: root.active
-    }
 
     property real eqLightningProgress: 0.0
     property real eqLightningFade: 1.0
@@ -495,6 +546,33 @@ Item {
     property real introEqHeader: 0
     property real introEqSliders: 0
     property real introPresets: 0
+    property real audioIntroBalance: 0
+    property real audioIntroFlags: 0
+    property real audioIntroDynamics: 0
+
+    ParallelAnimation {
+        id: audioIntroAnim
+        running: false
+
+        NumberAnimation { target: root; property: "audioIntroBalance"; from: 0; to: 1.0; duration: 560; easing.type: Easing.OutQuart }
+
+        SequentialAnimation {
+            PauseAnimation { duration: 70 }
+            NumberAnimation { target: root; property: "audioIntroFlags"; from: 0; to: 1.0; duration: 560; easing.type: Easing.OutQuart }
+        }
+
+        SequentialAnimation {
+            PauseAnimation { duration: 140 }
+            NumberAnimation { target: root; property: "audioIntroDynamics"; from: 0; to: 1.0; duration: 560; easing.type: Easing.OutQuart }
+        }
+    }
+
+    function playAudioIntro() {
+        audioIntroBalance = 0;
+        audioIntroFlags = 0;
+        audioIntroDynamics = 0;
+        audioIntroAnim.restart();
+    }
 
     ParallelAnimation {
         id: introAnim
@@ -535,6 +613,39 @@ Item {
         SequentialAnimation {
             PauseAnimation { duration: 550 }
             NumberAnimation { target: root; property: "introPresets"; from: 0; to: 1.0; duration: 810; easing.type: Easing.OutBack; easing.overshoot: 0.8 }
+        }
+    }
+
+    SequentialAnimation {
+        id: exitAnim
+        running: false
+        ParallelAnimation {
+            NumberAnimation { target: root; property: "introPresets"; to: 0.0; duration: 130; easing.type: Easing.InBack }
+            NumberAnimation { target: root; property: "introEqSliders"; to: 0.0; duration: 140; easing.type: Easing.InExpo }
+            SequentialAnimation {
+                PauseAnimation { duration: 30 }
+                NumberAnimation { target: root; property: "introEqHeader"; to: 0.0; duration: 130; easing.type: Easing.InCubic }
+                NumberAnimation { target: root; property: "introSeparator"; to: 0.0; duration: 130; easing.type: Easing.InCubic }
+            }
+            SequentialAnimation {
+                PauseAnimation { duration: 50 }
+                NumberAnimation { target: root; property: "introControls"; to: 0.0; duration: 140; easing.type: Easing.InBack }
+                NumberAnimation { target: root; property: "introText"; to: 0.0; duration: 140; easing.type: Easing.InCubic }
+                NumberAnimation { target: root; property: "introCover"; to: 0.0; duration: 150; easing.type: Easing.InBack }
+            }
+            SequentialAnimation {
+                PauseAnimation { duration: 70 }
+                NumberAnimation { target: root; property: "introMain"; to: 0.0; duration: 170; easing.type: Easing.InQuart }
+            }
+        }
+        ScriptAction {
+            script: {
+                if (root.exitCallback) {
+                    let cb = root.exitCallback;
+                    root.exitCallback = null;
+                    cb();
+                }
+            }
         }
     }
 
@@ -603,42 +714,119 @@ Item {
             root.lastEqUpdate = Date.now();
 
             root.triggerEqLightning();
-            execCmd(Caching.qsDir + `/media/equalizer.sh preset ${presetName}`);
+            execCmd(Caching.payloadDir + `/media/equalizer.sh preset ${presetName}`);
+        }
+    }
+
+    function setBalance(value) {
+        var clamped = Math.max(-1.0, Math.min(1.0, Number(value)));
+        if (isNaN(clamped)) return;
+
+        var temp = Object.assign({}, root.eqData);
+        temp.balance = Math.round(clamped * 100) / 100;
+        root.eqData = temp;
+        root.savedEqData = Object.assign({}, temp);
+        root.lastEqUpdate = Date.now();
+        root.execCmd(Caching.payloadDir + `/media/equalizer.sh set_balance ${temp.balance}`);
+    }
+
+    function setAudioFlag(name, value) {
+        if (name !== "mono" && name !== "swap") return;
+        var temp = Object.assign({}, root.eqData);
+        temp[name] = value === true;
+        root.eqData = temp;
+        root.savedEqData = Object.assign({}, temp);
+        root.lastEqUpdate = Date.now();
+        root.execCmd(Caching.payloadDir + `/media/equalizer.sh set_${name} ${temp[name]}`);
+    }
+
+    function setDynamics(value) {
+        if (["off", "balanced", "night"].indexOf(value) < 0) return;
+        var temp = Object.assign({}, root.eqData);
+        temp.dynamics = value;
+        root.eqData = temp;
+        root.savedEqData = Object.assign({}, temp);
+        root.lastEqUpdate = Date.now();
+        root.execCmd(Caching.payloadDir + `/media/equalizer.sh set_dynamics ${value}`);
+    }
+
+    function resetAudio() {
+        var temp = Object.assign({}, root.eqData);
+        temp.balance = 0;
+        temp.mono = false;
+        temp.swap = false;
+        temp.dynamics = "off";
+        root.eqData = temp;
+        root.savedEqData = Object.assign({}, temp);
+        root.audioTestRunning = false;
+        audioTestTimer.stop();
+        root.lastEqUpdate = Date.now();
+        root.execCmd(Caching.payloadDir + "/media/equalizer.sh reset_audio");
+    }
+
+    function toggleAudioTest() {
+        if (root.audioTestRunning) {
+            root.execCmd(Caching.payloadDir + "/media/equalizer.sh stop_test");
+            root.audioTestRunning = false;
+            audioTestTimer.stop();
+        } else {
+            root.execCmd(Caching.payloadDir + "/media/equalizer.sh test");
+            root.audioTestRunning = true;
+            audioTestTimer.restart();
+        }
+    }
+
+    property bool eqInitDone: false
+
+    function applyEqState(text) {
+        var outStr = text ? text.trim() : "";
+        if (outStr.length === 0) return;
+
+        // Our own writes land here too; skip them for a moment and re-read once they settle.
+        var sinceLocal = Date.now() - root.lastEqUpdate;
+        if (sinceLocal < 2000) {
+            eqResyncTimer.interval = 2000 - sinceLocal;
+            eqResyncTimer.restart();
+            return;
+        }
+
+        try {
+            var parsed = JSON.parse(outStr);
+            root.eqData = parsed;
+            if (!parsed.pending) {
+                root.savedEqData = Object.assign({}, parsed);
+            }
+        } catch(e) {}
+    }
+
+    // equalizer.sh keeps its state in this file; watch it instead of polling the script.
+    FileView {
+        id: eqStateFile
+        path: Caching.runDir + "/music/eq_state.json"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.applyEqState(text())
+        // The script creates the file with defaults on first use.
+        onLoadFailed: {
+            if (!root.eqInitDone && !eqInitProc.running) {
+                root.eqInitDone = true;
+                eqInitProc.running = true;
+            }
         }
     }
 
     Timer {
-        interval: 1000
-        running: root.active
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: {
-            if (!eqProc.running) eqProc.running = true;
-        }
+        id: eqResyncTimer
+        repeat: false
+        onTriggered: eqStateFile.reload()
     }
 
     Process {
-        id: eqProc
-        running: true
-        command: ["bash", "-c", Caching.qsDir + "/media/equalizer.sh get"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                if (this.text) {
-                    if (Date.now() - root.lastEqUpdate < 2000) return;
-
-                    var outStr = this.text.trim();
-                    if (outStr.length > 0) {
-                        try {
-                            var parsed = JSON.parse(outStr);
-                            root.eqData = parsed;
-                            if (!parsed.pending) {
-                                root.savedEqData = Object.assign({}, parsed);
-                            }
-                        } catch(e) {}
-                    }
-                }
-            }
-        }
+        id: eqInitProc
+        running: false
+        command: ["bash", "-c", Caching.payloadDir + "/media/equalizer.sh get"]
+        onExited: eqStateFile.reload()
     }
 
     LyricsPicker {
@@ -659,6 +847,7 @@ Item {
 
         Item {
             anchors.fill: parent
+            visible: !ThemeBackend.liquidGlass
 
             Shape {
                 id: maskRectOuter
@@ -727,6 +916,7 @@ Item {
                 id: gradContainer
                 anchors.fill: parent
                 visible: false
+                opacity: ThemeBackend.elementOpacity
                 clip: true
 
                 Rectangle {
@@ -760,9 +950,15 @@ Item {
         Rectangle {
             id: innerBg
             anchors.fill: parent
-            anchors.margins: root.s(3)
-            color: ThemeBackend.base
+            anchors.margins: ThemeBackend.liquidGlass ? 0 : root.s(3)
+            color: Qt.alpha(ThemeBackend.base, ThemeBackend.elementOpacity)
             radius: ThemeBackend.borderRadius
+
+            WallpaperBlur {
+                z: -1
+                anchors.fill: parent
+                radius: parent.radius
+            }
 
             Rectangle {
                 id: innerBgMask
@@ -785,6 +981,7 @@ Item {
                 Item {
                     id: blurCrossfader
                     anchors.fill: parent
+                    visible: ThemeBackend.elementOpacity >= 0.999
                     property string blurUrl: root.activeBlur ? (root.activeBlur.startsWith("file://") || root.activeBlur.startsWith("http") ? root.activeBlur : "file://" + root.activeBlur) : ""
                     property bool showingA: true
 
@@ -836,28 +1033,6 @@ Item {
                             showingA = true;
                         }
                     }
-                }
-
-                Rectangle {
-                    width: parent.width * 0.8; height: width; radius: width / 2
-                    x: (parent.width / 2 - width / 2) + Math.cos(root.globalOrbitAngle * 2) * root.s(150)
-                    y: (parent.height / 2 - height / 2) + Math.sin(root.globalOrbitAngle * 2) * root.s(100)
-
-                    opacity: (root.targetPlayer && root.targetPlayer.isPlaying) ? 0.025 : (root.hasTargetPlayer ? 0.01 : 0.0)
-                    color: (root.targetPlayer && root.targetPlayer.isPlaying) ? (ThemeBackend.mauve || "#cba6f7") : (ThemeBackend.surface2 || "#585b70")
-                    Behavior on color { ColorAnimation { duration: 1000 } }
-                    Behavior on opacity { NumberAnimation { duration: 1000 } }
-                }
-
-                Rectangle {
-                    width: parent.width * 0.9; height: width; radius: width / 2
-                    x: (parent.width / 2 - width / 2) + Math.sin(root.globalOrbitAngle * 1.5) * root.s(-150)
-                    y: (parent.height / 2 - height / 2) + Math.cos(root.globalOrbitAngle * 1.5) * root.s(-100)
-
-                    opacity: (root.targetPlayer && root.targetPlayer.isPlaying) ? 0.025 : (root.hasTargetPlayer ? 0.01 : 0.0)
-                    color: (root.targetPlayer && root.targetPlayer.isPlaying) ? (ThemeBackend.blue || "#89b4fa") : (ThemeBackend.surface1 || "#45475a")
-                    Behavior on color { ColorAnimation { duration: 1000 } }
-                    Behavior on opacity { NumberAnimation { duration: 1000 } }
                 }
             }
 
@@ -972,45 +1147,26 @@ Item {
                                 }
                             }
 
-                            Repeater {
-                                model: root.barCount
-                                delegate: Item {
-                                    anchors.centerIn: parent
-                                    width: 0
-                                    height: 0
-                                    rotation: index * (360 / root.barCount)
-
-                                    property real level: {
-                                        if (!root.barLevels || root.barLevels.length === 0) return 0.0;
-                                        return root.barLevels[index] || 0.0;
-                                    }
-
-                                    Rectangle {
-                                        anchors.bottom: parent.top
-                                        anchors.bottomMargin: coverHost.artRadius
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        width: coverHost.barWidth
-                                        height: Math.max(root.s(2), parent.level * coverHost.maxBarHeight * 1.4)
-                                        topLeftRadius: width / 2
-                                        topRightRadius: width / 2
-                                        bottomLeftRadius: 0
-                                        bottomRightRadius: 0
-                                        antialiasing: true
-                                        color: {
-                                            let mixRatio = (index / root.barCount) * 0.4 + (parent.level * 0.6);
-                                            let baseColor = ThemeBackend.mauve || "#cba6f7";
-                                            return Qt.tint(baseColor, Qt.rgba(1, 1, 1, mixRatio * 0.45));
-                                        }
-                                        opacity: 0.40 + (parent.level * 0.60)
-
-                                        Behavior on height {
-                                            NumberAnimation {
-                                                duration: 70
-                                                easing.type: Easing.OutCubic
-                                            }
-                                        }
-                                    }
-                                }
+                            Visualizer {
+                                anchors.centerIn: parent
+                                width: (coverHost.artRadius + coverHost.maxBarHeight * 1.4) * 2 + 2
+                                height: width
+                                active: root.cavaRegistered
+                                count: root.barCount
+                                color: ThemeBackend.mauve || "#cba6f7"
+                                mirrored: false
+                                curve: 1.15
+                                threshold: 0.0
+                                gamma: 1.08
+                                rise: 0.55
+                                fall: 0.55
+                                ringRadius: coverHost.artRadius
+                                ringBarWidth: coverHost.barWidth
+                                maxLength: coverHost.maxBarHeight * 1.4
+                                minLength: root.s(2)
+                                opacityBase: 0.4
+                                opacityRange: 0.6
+                                tintStrength: 0.45
                             }
 
                             Item {
@@ -1135,6 +1291,7 @@ Item {
                                         }
 
                                         Rectangle {
+                                            id: discTinter
                                             anchors.fill: parent
                                             radius: width / 2
                                             color: {
@@ -1213,69 +1370,24 @@ Item {
                         spacing: root.s(12)
 
                         ColumnLayout {
+                            z: 1
                             spacing: root.s(6)
                             opacity: root.introText
                             transform: Translate { x: root.s(25) * (1 - root.introText) }
 
-                            Item {
-                                id: titleClipRect
+                            MarqueeText {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: root.s(25)
-                                clip: true
+                                text: (root.targetPlayer && root.targetPlayer.trackTitle !== "") ? root.targetPlayer.trackTitle : I18n.t("music.nothing_playing")
+                                color: root.dynamicTextColor
+                                font.family: ThemeBackend.fontFamily
+                                font.pixelSize: root.s(19)
+                                font.bold: true
+                                marqueeSpacing: root.s(50)
+                                speed: 25
+                                active: root.active
 
-                                property int marqueeSpacing: root.s(50)
-
-                                Item {
-                                    id: marqueeContainer
-                                    height: parent.height
-
-                                    Row {
-                                        spacing: titleClipRect.marqueeSpacing
-                                        Text {
-                                            id: titleTextMain
-                                            text: (root.targetPlayer && root.targetPlayer.trackTitle !== "") ? root.targetPlayer.trackTitle : I18n.t("music.nothing_playing")
-                                            color: root.dynamicTextColor
-                                            font.family: ThemeBackend.fontFamily
-                                            font.pixelSize: root.s(19)
-                                            font.bold: true
-                                            Behavior on color { ColorAnimation { duration: 600 } }
-
-                                            onTextChanged: {
-                                                marqueeContainer.x = 0;
-                                                if (implicitWidth > titleClipRect.width && root.active) {
-                                                    titleAnim.restart();
-                                                } else {
-                                                    titleAnim.stop();
-                                                }
-                                            }
-                                        }
-                                        Text {
-                                            id: titleTextClone
-                                            text: titleTextMain.text
-                                            color: root.dynamicTextColor
-                                            font.family: ThemeBackend.fontFamily
-                                            font.pixelSize: root.s(19)
-                                            font.bold: true
-                                            visible: titleTextMain.implicitWidth > titleClipRect.width
-                                        }
-                                    }
-
-                                    SequentialAnimation on x {
-                                        id: titleAnim
-                                        loops: Animation.Infinite
-                                        running: root.active && titleTextMain.implicitWidth > titleClipRect.width
-
-                                        PauseAnimation { duration: 3000 }
-
-                                        NumberAnimation {
-                                            from: 0
-                                            to: -(titleTextMain.implicitWidth + titleClipRect.marqueeSpacing)
-                                            duration: (titleTextMain.implicitWidth + titleClipRect.marqueeSpacing) * 25
-                                        }
-
-                                        PropertyAction { target: marqueeContainer; property: "x"; value: 0 }
-                                    }
-                                }
+                                Behavior on color { ColorAnimation { duration: 600 } }
                             }
 
                             Text {
@@ -1299,6 +1411,7 @@ Item {
                                     buttonText: (root.activeDeviceIcon || "󰓃") + " " + (root.activeDeviceName || I18n.t("music.speaker"))
                                     textFontSize: root.s(11.5)
                                     accentColor: ThemeBackend.surface0 || "#313244"
+                                    bgOpacity: ThemeBackend.elementOpacity
                                     textColor: ThemeBackend.text || "#cdd6f4"
                                 }
                                 Dropdown {
@@ -1313,7 +1426,7 @@ Item {
                                     fontPixelSize: root.s(11.5)
                                     iconSize: root.s(12)
                                     accentColor: ThemeBackend.mauve || "#cba6f7"
-                                    baseColor: ThemeBackend.surface0 || "#313244"
+                                    baseColor: Qt.alpha(ThemeBackend.surface0 || "#313244", ThemeBackend.elementOpacity)
                                     hoverColor: ThemeBackend.surface1 || "#45475a"
                                     dropdownColor: ThemeBackend.surface0
                                     borderColor: Qt.alpha(ThemeBackend.surface2 || "#585b70", 0.6)
@@ -1332,6 +1445,7 @@ Item {
                                     buttonText: I18n.t("music.via_source", { "source": root.targetPlayer ? (root.targetPlayer.identity || root.targetPlayer.desktopEntry || "Media") : I18n.t("music.offline") })
                                     textFontSize: root.s(11.5)
                                     accentColor: ThemeBackend.surface0 || "#313244"
+                                    bgOpacity: ThemeBackend.elementOpacity
                                     textColor: ThemeBackend.subtext0 || "#9399b2"
                                 }
                             }
@@ -1419,8 +1533,9 @@ Item {
                                 Layout.preferredHeight: root.s(32)
                                 cornerRadius: ThemeBackend.borderRadius
                                 buttonIcon: "󰒮"
-                                iconFontSize: root.s(21)
+                                iconFontSize: root.s(11)
                                 accentColor: ThemeBackend.surface0 || "#313244"
+                                bgOpacity: ThemeBackend.liquidGlass ? 1.0 : ThemeBackend.elementOpacity
                                 textColor: isHoveredOrHighlighted ? (ThemeBackend.text || "#cdd6f4") : (ThemeBackend.subtext0 || "#a6adc8")
                                 Layout.alignment: Qt.AlignVCenter
                                 onClicked: if (root.targetPlayer && root.targetPlayer.canGoPrevious) root.targetPlayer.previous()
@@ -1428,13 +1543,13 @@ Item {
 
                             IconButton {
                                 id: playPauseBtn
-                                iconOffsetY: -2
                                 Layout.preferredWidth: root.s(43)
                                 Layout.preferredHeight: root.s(43)
                                 cornerRadius: ThemeBackend.borderRadius
                                 buttonIcon: (root.targetPlayer && root.targetPlayer.isPlaying) ? "󰏤" : "󰐊"
-                                iconFontSize: root.s(32)
+                                iconFontSize: root.s(15)
                                 accentColor: ThemeBackend.surface0 || "#313244"
+                                bgOpacity: ThemeBackend.liquidGlass ? 1.0 : ThemeBackend.elementOpacity
                                 textColor: isHoveredOrHighlighted ? (ThemeBackend.mauve || "#cba6f7") : (ThemeBackend.text || "#cdd6f4")
                                 Layout.alignment: Qt.AlignVCenter
                                 onClicked: if (root.targetPlayer && root.targetPlayer.canTogglePlaying) root.targetPlayer.togglePlaying()
@@ -1446,8 +1561,9 @@ Item {
                                 Layout.preferredHeight: root.s(32)
                                 cornerRadius: ThemeBackend.borderRadius
                                 buttonIcon: "󰒭"
-                                iconFontSize: root.s(21)
+                                iconFontSize: root.s(11)
                                 accentColor: ThemeBackend.surface0 || "#313244"
+                                bgOpacity: ThemeBackend.liquidGlass ? 1.0 : ThemeBackend.elementOpacity
                                 textColor: isHoveredOrHighlighted ? (ThemeBackend.text || "#cdd6f4") : (ThemeBackend.subtext0 || "#a6adc8")
                                 Layout.alignment: Qt.AlignVCenter
                                 onClicked: if (root.targetPlayer && root.targetPlayer.canGoNext) root.targetPlayer.next()
@@ -1480,28 +1596,42 @@ Item {
                         Switch {
                             id: bottomSectionSwitch
                             Layout.preferredHeight: root.s(26)
-                            Layout.preferredWidth: root.s(180)
+                            Layout.preferredWidth: root.s(224)
+                            Layout.minimumWidth: root.s(168)
+                            Layout.maximumWidth: root.s(224)
                             implicitHeight: root.s(26)
-                            implicitWidth: root.s(180)
+                            implicitWidth: root.s(224)
                             options: [
                                 typeof I18n !== "undefined" ? I18n.t("music.equalizer", "Equalizer") : "Equalizer",
+                                typeof I18n !== "undefined" ? I18n.t("music.audio.title", "Audio") : "Audio",
                                 typeof I18n !== "undefined" ? I18n.t("music.lyrics", "Lyrics") : "Lyrics"
                             ]
                             currentIndex: 0
                             accentColor: ThemeBackend.mauve || "#cba6f7"
-                            baseColor: ThemeBackend.surface0 || "#313244"
+                            baseColor: Qt.alpha(ThemeBackend.surface0 || "#313244", ThemeBackend.elementOpacity)
                             textColor: ThemeBackend.subtext0 || "#a6adc8"
                             activeTextColor: ThemeBackend.base || "#1e1e2e"
                             cornerRadius: ThemeBackend.borderRadius
                             fontPixelSize: root.s(11.5)
                             onCurrentIndexChanged: {
+                                if (currentIndex !== 1 && root.audioTestRunning) {
+                                    root.toggleAudioTest();
+                                }
                                 root.updateLyricsSubscription();
-                                if (currentIndex === 1) {
+                                if (currentIndex === 2) {
                                     toEqAnim.stop();
+                                    toAudioAnim.stop();
                                     toLyricsAnim.restart();
+                                    root.restoreLastSavedEqualizer();
+                                } else if (currentIndex === 1) {
+                                    toEqAnim.stop();
+                                    toLyricsAnim.stop();
+                                    toAudioAnim.restart();
+                                    root.playAudioIntro();
                                     root.restoreLastSavedEqualizer();
                                 } else {
                                     toLyricsAnim.stop();
+                                    toAudioAnim.stop();
                                     root.restoreLastSavedEqualizer();
                                     toEqAnim.restart();
                                 }
@@ -1514,42 +1644,84 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         ClickButton {
+                            id: audioTestBtn
+                            Layout.preferredHeight: root.s(26)
+                            Layout.preferredWidth: root.audioTestBtnWidth * root.audioHeaderProgress
+                            implicitWidth: Layout.preferredWidth
+                            visible: root.audioHeaderProgress > 0.01
+                            opacity: root.audioHeaderProgress
+                            clip: true
+                            cornerRadius: ThemeBackend.borderRadius
+                            horizontalPadding: root.s(8)
+                            buttonIcon: root.audioTestRunning ? "󰓛" : "󰋋"
+                            buttonText: root.audioTestRunning
+                                ? (typeof I18n !== "undefined" ? I18n.t("music.audio.stop_test", "Stop") : "Stop")
+                                : (typeof I18n !== "undefined" ? I18n.t("music.audio.test", "Test") : "Test")
+                            textFontSize: root.s(11.5)
+                            iconFontSize: root.s(12)
+                            accentColor: root.audioTestRunning
+                                ? (ThemeBackend.mauve || "#cba6f7")
+                                : (ThemeBackend.surface0 || "#313244")
+                            bgOpacity: ThemeBackend.elementOpacity
+                            textColor: root.audioTestRunning
+                                ? (ThemeBackend.base || "#1e1e2e")
+                                : (ThemeBackend.text || "#cdd6f4")
+                            onClicked: root.toggleAudioTest()
+                        }
+
+                        ClickButton {
                             id: actionBtn
                             Layout.preferredHeight: root.s(26)
                             Layout.preferredWidth: root.actionBtnCurrentWidth
                             implicitWidth: root.actionBtnCurrentWidth
                             cornerRadius: ThemeBackend.borderRadius
                             horizontalPadding: root.s(12)
-                            buttonIcon: bottomSectionSwitch.currentIndex === 1 && root.actionBtnMorph > 0.45 ? "󰈔" : ""
+                            buttonIcon: bottomSectionSwitch.currentIndex === 2
+                                ? "󰈔"
+                                : (bottomSectionSwitch.currentIndex === 1 ? "󰑐" : "")
                             buttonText: {
-                                if (bottomSectionSwitch.currentIndex === 1 && root.actionBtnMorph > 0.35) {
+                                if (bottomSectionSwitch.currentIndex === 2) {
                                     return typeof I18n !== "undefined" ? I18n.t("music.select_local_file", "Select file") : "Select file";
+                                }
+                                if (bottomSectionSwitch.currentIndex === 1) {
+                                    return typeof I18n !== "undefined" ? I18n.t("music.audio.reset", "Reset") : "Reset";
                                 }
                                 return root.eqData && root.eqData.pending ? I18n.t("music.eq.apply") : I18n.t("music.eq.saved");
                             }
                             textFontSize: root.s(11.5)
                             iconFontSize: root.s(13)
                             accentColor: {
-                                if (root.actionBtnMorph >= 0.5) {
+                                if (bottomSectionSwitch.currentIndex !== 0) {
                                     return ThemeBackend.surface0 || "#313244";
                                 }
                                 return root.eqData && root.eqData.pending ? (ThemeBackend.mauve || "#cba6f7") : (ThemeBackend.surface0 || "#313244");
                             }
+                            bgOpacity: ThemeBackend.elementOpacity
                             textColor: {
-                                if (root.actionBtnMorph >= 0.5) {
+                                if (bottomSectionSwitch.currentIndex !== 0) {
                                     return ThemeBackend.text || "#cdd6f4";
                                 }
                                 return root.eqData && root.eqData.pending ? (ThemeBackend.base || "#1e1e2e") : (ThemeBackend.text || "#cdd6f4");
                             }
-                            enabled: bottomSectionSwitch.currentIndex === 1 ? (root.hasTargetPlayer && !Lyrics.loading) : true
-                            opacity: bottomSectionSwitch.currentIndex === 1 ? (root.hasTargetPlayer && !Lyrics.loading ? 1.0 : 0.45) : 1.0
+                            enabled: bottomSectionSwitch.currentIndex === 2
+                                ? (root.hasTargetPlayer && !Lyrics.loading)
+                                : (bottomSectionSwitch.currentIndex === 1
+                                    ? (Math.abs(balanceSlider.value) >= 0.005 || root.eqData.mono === true || root.eqData.swap === true || String(root.eqData.dynamics || "off") !== "off")
+                                    : true)
+                            opacity: bottomSectionSwitch.currentIndex === 2
+                                ? (root.hasTargetPlayer && !Lyrics.loading ? 1.0 : 0.45)
+                                : (bottomSectionSwitch.currentIndex === 1
+                                    ? (enabled ? 1.0 : 0.45)
+                                    : 1.0)
                             Behavior on opacity { NumberAnimation { duration: 300 } }
                             Behavior on accentColor { ColorAnimation { duration: 320 } }
                             Behavior on textColor { ColorAnimation { duration: 320 } }
                             onClicked: {
-                                if (bottomSectionSwitch.currentIndex === 1) {
+                                if (bottomSectionSwitch.currentIndex === 2) {
                                     lyricsPickerPopup.targetScreen = (root.Window && root.Window.window) ? root.Window.window.screen : null;
                                     lyricsPickerPopup.openPicker();
+                                } else if (bottomSectionSwitch.currentIndex === 1) {
+                                    root.resetAudio();
                                 } else if (root.eqData && root.eqData.pending) {
                                     var temp = Object.assign({}, root.eqData);
                                     temp.pending = false;
@@ -1557,7 +1729,7 @@ Item {
                                     root.savedEqData = Object.assign({}, temp);
                                     root.lastEqUpdate = Date.now();
                                     root.triggerEqLightning();
-                                    root.execCmd(Caching.qsDir + "/media/equalizer.sh apply");
+                                    root.execCmd(Caching.payloadDir + "/media/equalizer.sh apply");
                                 }
                             }
                         }
@@ -1705,7 +1877,7 @@ Item {
 
                                                                 root.lastEqUpdate = Date.now();
 
-                                                                root.execCmd(Caching.qsDir + `/media/equalizer.sh set_band ${modelData.idx} ${Math.round(value)}`);
+                                                                root.execCmd(Caching.payloadDir + `/media/equalizer.sh set_band ${modelData.idx} ${Math.round(value)}`);
                                                             }
                                                         }
 
@@ -1718,7 +1890,15 @@ Item {
                                                             width: root.s(12); height: eqSlider.availableHeight
                                                             radius: ThemeBackend.borderRadius
 
-                                                            color: Qt.rgba((ThemeBackend.surface0 ? ThemeBackend.surface0.r : 0.2), (ThemeBackend.surface0 ? ThemeBackend.surface0.g : 0.2), (ThemeBackend.surface0 ? ThemeBackend.surface0.b : 0.3), 0.7)
+                                                            color: trackGlass.active ? "transparent" : Qt.rgba((ThemeBackend.surface0 ? ThemeBackend.surface0.r : 0.2), (ThemeBackend.surface0 ? ThemeBackend.surface0.g : 0.2), (ThemeBackend.surface0 ? ThemeBackend.surface0.b : 0.3), 0.7 * ThemeBackend.elementOpacity)
+
+                                                            GlassFill {
+                                                                id: trackGlass
+                                                                anchors.fill: parent
+                                                                radius: parent.radius
+                                                                tintColor: ThemeBackend.surface0
+                                                                tintAmount: 0.3
+                                                            }
 
                                                             layer.enabled: true
                                                             layer.effect: MultiEffect {
@@ -1764,9 +1944,21 @@ Item {
                                                                     layer.enabled: true
                                                                 }
 
+                                                                GlassFill {
+                                                                    id: eqFillGlass
+                                                                    anchors.fill: parent
+                                                                    radius: ThemeBackend.borderRadius
+                                                                    forceClear: true
+                                                                    tintColor: (root ? root.eqAccentColor : ThemeBackend.mauve)
+                                                                    tintAmount: 0.6
+                                                                    tintStrength: 1.0
+                                                                    press: eqSlider.pressed ? 0.5 : (eqSlider.hovered ? 0.2 : 0)
+                                                                    Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                                                }
+
                                                                 Rectangle {
                                                                     anchors.fill: parent
-                                                                    color: root.eqAccentColor
+                                                                    color: eqFillGlass.active ? "transparent" : (root ? root.eqAccentColor : ThemeBackend.mauve)
 
                                                                     Rectangle {
                                                                         anchors.fill: parent
@@ -1816,7 +2008,18 @@ Item {
                                                             property color handleHoverColor: Qt.lighter(root.eqAccentColor, 1.15)
                                                             property color handleDragColor: Qt.lighter(root.eqAccentColor, 1.30)
 
-                                                            color: eqSlider.pressed ? handleDragColor : (eqSlider.hovered ? handleHoverColor : handleColor)
+                                                            color: eqHandleGlass.active ? "transparent" : (eqSlider.pressed ? handleDragColor : (eqSlider.hovered ? handleHoverColor : handleColor))
+
+                                                            GlassFill {
+                                                                id: eqHandleGlass
+                                                                anchors.fill: parent
+                                                                radius: parent.radius
+                                                                tintColor: parent.handleColor
+                                                                tintAmount: 0.4
+                                                                shadow: 1
+                                                                press: eqSlider.pressed ? 1 : (eqSlider.hovered ? 0.3 : 0)
+                                                                Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                                            }
                                                             Behavior on color { ColorAnimation { duration: 150 } }
 
                                                             property real targetScale: {
@@ -1897,115 +2100,47 @@ Item {
                                         }
                                     }
 
-                                    Canvas {
+                                    ShaderEffect {
                                         id: lightningCanvas
                                         anchors.fill: parent
                                         opacity: 1.0 - root.eqLightningFade
                                         z: 0
 
-                                        renderTarget: Canvas.FramebufferObject
-
-                                        layer.enabled: true
-                                        layer.effect: MultiEffect {
-                                            shadowEnabled: true
-                                            shadowColor: root.eqAccentColor
-                                            shadowBlur: 1.0
-                                            shadowOpacity: 0.8
-                                            shadowVerticalOffset: 0
-                                            shadowHorizontalOffset: 0
+                                        property real animTime: 0.0
+                                        NumberAnimation on animTime {
+                                            running: root.active
+                                            loops: Animation.Infinite
+                                            from: 0; to: 1000
+                                            duration: 1000000
                                         }
 
-                                        Timer {
-                                            interval: 16
-                                            running: root.active && root.eqLightningFade < 1.0 && root.eqLightningProgress > 0.0
-                                            repeat: true
-                                            onTriggered: lightningCanvas.requestPaint()
-                                        }
+                                        property vector2d itemSize: Qt.vector2d(width, height)
+                                        property real time: animTime
+                                        property real progress: root.eqLightningProgress
+                                        property real fade: root.eqLightningFade
+                                        property real scale: root.s(1.0)
+                                        property color accentColor: root.eqAccentColor
 
-                                        onPaint: {
-                                            if (!root.active) return;
-                                            var ctx = getContext("2d");
-                                            ctx.clearRect(0, 0, width, height);
+                                        property vector4d bands0: Qt.vector4d(
+                                            root.eqData.b1 !== undefined ? Number(root.eqData.b1) : 0,
+                                            root.eqData.b2 !== undefined ? Number(root.eqData.b2) : 0,
+                                            root.eqData.b3 !== undefined ? Number(root.eqData.b3) : 0,
+                                            root.eqData.b4 !== undefined ? Number(root.eqData.b4) : 0
+                                        )
+                                        property vector4d bands1: Qt.vector4d(
+                                            root.eqData.b5 !== undefined ? Number(root.eqData.b5) : 0,
+                                            root.eqData.b6 !== undefined ? Number(root.eqData.b6) : 0,
+                                            root.eqData.b7 !== undefined ? Number(root.eqData.b7) : 0,
+                                            root.eqData.b8 !== undefined ? Number(root.eqData.b8) : 0
+                                        )
+                                        property vector4d bands2: Qt.vector4d(
+                                            root.eqData.b9 !== undefined ? Number(root.eqData.b9) : 0,
+                                            root.eqData.b10 !== undefined ? Number(root.eqData.b10) : 0,
+                                            root.s(10),
+                                            root.s(30)
+                                        )
 
-                                            if (root.eqLightningProgress <= 0.0 || root.eqLightningFade >= 1.0) return;
-
-                                            var time = Date.now() / 1000;
-                                            var maxIdx = root.eqLightningProgress;
-
-                                            ctx.lineJoin = "round";
-                                            ctx.lineCap = "round";
-
-                                            var pts = [];
-                                            for (var i = 1; i <= 10; i++) {
-                                                var val = root.eqData["b" + i] !== undefined ? Number(root.eqData["b" + i]) : 0;
-                                                var norm = 1.0 - ((val + 12) / 24);
-
-                                                var py = root.s(10) + norm * (height - root.s(30));
-                                                var px = (i - 0.5) * (width / 10);
-                                                pts.push({ x: px, y: py });
-                                            }
-
-                                            for (var s = 0; s < 4; s++) {
-                                                ctx.beginPath();
-                                                ctx.moveTo(pts[0].x, pts[0].y);
-
-                                                for (var i = 0; i < pts.length - 1; i++) {
-                                                    if (i > maxIdx) break;
-
-                                                    var p1 = pts[i];
-                                                    var p2 = pts[i+1];
-
-                                                    var fraction = 1.0;
-                                                    if (maxIdx < i + 1) {
-                                                        fraction = maxIdx - i;
-                                                    }
-
-                                                    var steps = s === 3 ? 6 : 8;
-                                                    for (var j = 1; j <= steps; j++) {
-                                                        var t = j / steps;
-                                                        if (t > fraction) t = fraction;
-
-                                                        var cx = p1.x + (p2.x - p1.x) * t;
-                                                        var cy = p1.y + (p2.y - p1.y) * t;
-
-                                                        var envelope = Math.sin(t * Math.PI);
-
-                                                        var noiseAmpX = s === 3 ? 1.0 : (4 - s) * 4;
-                                                        var noiseAmpY = s === 3 ? 1.0 : (4 - s) * 5;
-
-                                                        var sepWaveX = (s < 2) ? Math.sin(time * 3 + i + j + s) * root.s(9) * envelope : 0;
-                                                        var sepWaveY = (s < 2) ? Math.cos(time * 2.5 + i - j - s) * root.s(13.5) * envelope : 0;
-
-                                                        var noiseX = Math.sin(time * (10+s) + i + j) * Math.cos(time * 8 - i + j) * noiseAmpX * envelope * (1 - root.eqLightningFade);
-                                                        var noiseY = Math.cos(time * (9-s) + i - j) * Math.sin(time * 7 + i - j) * noiseAmpY * envelope * (1 - root.eqLightningFade);
-
-                                                        ctx.lineTo(cx + sepWaveX + noiseX, cy + sepWaveY + noiseY);
-
-                                                        if (t === fraction) break;
-                                                    }
-                                                }
-
-                                                if (s === 0) {
-                                                    ctx.lineWidth = root.s(18);
-                                                    ctx.strokeStyle = root.eqAccentColor;
-                                                    ctx.globalAlpha = 0.35;
-                                                } else if (s === 1) {
-                                                    ctx.lineWidth = root.s(9);
-                                                    ctx.strokeStyle = Qt.lighter(root.eqAccentColor, 1.25);
-                                                    ctx.globalAlpha = 0.65;
-                                                } else if (s === 2) {
-                                                    ctx.lineWidth = root.s(4.5);
-                                                    ctx.strokeStyle = Qt.lighter(root.eqAccentColor, 1.5);
-                                                    ctx.globalAlpha = 0.9;
-                                                } else if (s === 3) {
-                                                    ctx.lineWidth = root.s(2.2);
-                                                    ctx.strokeStyle = "#ffffff";
-                                                    ctx.globalAlpha = 1.0;
-                                                }
-
-                                                ctx.stroke();
-                                            }
-                                        }
+                                        fragmentShader: "file://" + Caching.assetsPath + "/shaders/vfx/eq_lightning.frag.qsb"
                                     }
                                 }
 
@@ -2037,11 +2172,14 @@ Item {
                         }
 
                         Item {
-                            id: lyricsView
+                            id: audioView
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
                             width: parent.width
-                            x: bottomSectionSwitch.currentIndex === 1 ? 0 : parent.width + root.s(24)
+                            x: {
+                                if (bottomSectionSwitch.currentIndex === 1) return 0;
+                                return bottomSectionSwitch.currentIndex < 1 ? parent.width + root.s(24) : -parent.width - root.s(24);
+                            }
                             opacity: bottomSectionSwitch.currentIndex === 1 ? 1.0 : 0.0
                             visible: opacity > 0.0
                             clip: true
@@ -2049,155 +2187,336 @@ Item {
                             Behavior on x { NumberAnimation { duration: 420; easing.type: Easing.OutQuart } }
                             Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
 
-                            Item {
+                            ColumnLayout {
+                                anchors.top: parent.top
+                                anchors.topMargin: root.s(9)
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                spacing: root.s(8)
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: root.s(82)
+                                    opacity: root.audioIntroBalance
+                                    transform: Translate { y: root.s(14) * (1 - root.audioIntroBalance) }
+                                    radius: ThemeBackend.borderRadius
+                                    color: balanceCardGlass.active ? "transparent" : Qt.alpha(ThemeBackend.surface0 || "#313244", ThemeBackend.elementOpacity)
+
+                                    GlassFill {
+                                        id: balanceCardGlass
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        tintColor: ThemeBackend.surface0
+                                        tintAmount: 0.3
+                                    }
+
+                                    Item {
+                                        id: balanceControl
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.leftMargin: root.s(14)
+                                        anchors.rightMargin: root.s(14)
+                                        anchors.topMargin: root.s(5)
+                                        height: root.s(45)
+                                        opacity: root.eqData.mono === true ? 0.45 : 1.0
+                                        Behavior on opacity { NumberAnimation { duration: 180 } }
+
+                                        Repeater {
+                                            model: 9
+                                            Rectangle {
+                                                required property int index
+                                                x: index * (balanceControl.width - width) / 8
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                width: root.s(index === 4 ? 3 : 2)
+                                                height: root.s(index === 4 ? 33 : (index % 2 === 0 ? 25 : 18))
+                                                radius: width / 2
+                                                color: ThemeBackend.subtext1 || "#bac2de"
+                                                opacity: index === 4 ? 0.7 : 0.32
+                                            }
+                                        }
+
+                                        Slider {
+                                            id: balanceSlider
+                                            anchors.fill: parent
+                                            from: -1.0
+                                            to: 1.0
+                                            stepSize: 0.01
+                                            value: Number(root.eqData.balance || 0)
+                                            hoverEnabled: true
+                                            enabled: root.eqData.mono !== true
+                                            readonly property real trackHeight: root.s(14)
+                                            readonly property real handleSize: root.s(22)
+
+                                        Connections {
+                                            target: root
+                                            function onEqDataChanged() {
+                                                if (!balanceSlider.pressed) {
+                                                    var nextBalance = Number(root.eqData.balance || 0);
+                                                    if (!isNaN(nextBalance)) balanceSlider.value = nextBalance;
+                                                }
+                                            }
+                                        }
+
+                                            onPressedChanged: if (!pressed) root.setBalance(value)
+
+                                            background: Rectangle {
+                                                x: balanceSlider.leftPadding
+                                                y: balanceSlider.topPadding + balanceSlider.availableHeight / 2 - height / 2
+                                                width: balanceSlider.availableWidth
+                                                height: balanceSlider.trackHeight
+                                                radius: height / 2
+                                                color: balanceTrackGlass.active ? "transparent" : Qt.alpha(ThemeBackend.surface2 || "#585b70", ThemeBackend.elementOpacity)
+                                                border.width: 1
+                                                border.color: Qt.rgba(1, 1, 1, 0.06)
+                                                clip: true
+
+                                                GlassFill {
+                                                    id: balanceTrackGlass
+                                                    anchors.fill: parent
+                                                    radius: parent.radius
+                                                    tintColor: ThemeBackend.surface2
+                                                    tintAmount: 0.3
+                                                }
+
+                                                Item {
+                                                    property real handleCenter: balanceSlider.handleSize / 2 + balanceSlider.visualPosition * (parent.width - balanceSlider.handleSize)
+                                                    x: Math.min(parent.width / 2, handleCenter)
+                                                    width: Math.abs(handleCenter - parent.width / 2)
+                                                    height: parent.height
+                                                    clip: true
+                                                    opacity: width > 0.5 ? 1.0 : 0.0
+                                                    Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+                                                    GlassFill {
+                                                        id: balanceFillGlass
+                                                        x: balanceFillRect.x
+                                                        width: balanceFillRect.width
+                                                        height: balanceFillRect.height
+                                                        radius: balanceFillRect.radius
+                                                        forceClear: true
+                                                        tintColor: ThemeBackend.mauve
+                                                        tintAmount: 0.6
+                                                        tintStrength: 1.0
+                                                        press: balanceSlider.pressed ? 0.5 : (balanceSlider.hovered ? 0.2 : 0)
+                                                        Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                                    }
+
+                                                    Rectangle {
+                                                        id: balanceFillRect
+                                                        visible: !balanceFillGlass.active
+                                                        x: balanceSlider.value < 0 ? 0 : -height / 2
+                                                        width: parent.width + height / 2
+                                                        height: parent.height
+                                                        radius: height / 2
+
+                                                        gradient: Gradient {
+                                                            orientation: Gradient.Horizontal
+                                                            GradientStop { position: 0.0; color: balanceSlider.value < 0 ? Qt.lighter(ThemeBackend.mauve || "#cba6f7", 1.10) : (ThemeBackend.mauve || "#cba6f7") }
+                                                            GradientStop { position: 0.5; color: Qt.lighter(ThemeBackend.mauve || "#cba6f7", 1.05) }
+                                                            GradientStop { position: 1.0; color: balanceSlider.value < 0 ? (ThemeBackend.mauve || "#cba6f7") : Qt.lighter(ThemeBackend.mauve || "#cba6f7", 1.10) }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            handle: Rectangle {
+                                                id: balanceHandle
+                                                x: balanceSlider.leftPadding + balanceSlider.visualPosition * (balanceSlider.availableWidth - width)
+                                                y: balanceSlider.topPadding + balanceSlider.availableHeight / 2 - height / 2
+                                                width: balanceSlider.handleSize
+                                                height: balanceSlider.handleSize
+                                                radius: height / 2
+                                                color: balanceHandleGlass.active ? "transparent" : (balanceSlider.pressed
+                                                    ? Qt.lighter(ThemeBackend.mauve || "#cba6f7", 1.30)
+                                                    : (balanceSlider.hovered ? Qt.lighter(ThemeBackend.mauve || "#cba6f7", 1.15) : (ThemeBackend.mauve || "#cba6f7")))
+
+                                                GlassFill {
+                                                    id: balanceHandleGlass
+                                                    anchors.fill: parent
+                                                    radius: parent.radius
+                                                    tintColor: ThemeBackend.mauve
+                                                    tintAmount: 0.45
+                                                    shadow: 1
+                                                    press: balanceSlider.pressed ? 1 : (balanceSlider.hovered ? 0.3 : 0)
+                                                    Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                                }
+                                                scale: balanceSlider.pressed ? 1.25 : (balanceSlider.hovered ? 1.12 : 1.0)
+
+                                                Behavior on color { ColorAnimation { duration: 150 } }
+                                                Behavior on width { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+                                            }
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        anchors.leftMargin: root.s(14)
+                                        anchors.rightMargin: root.s(14)
+                                        anchors.bottomMargin: root.s(9)
+
+                                        Text {
+                                            text: "L  " + Math.round((balanceSlider.value > 0 ? 1 - balanceSlider.value : 1) * 100) + "%"
+                                            color: ThemeBackend.subtext0 || "#a6adc8"
+                                            font.family: ThemeBackend.fontFamily
+                                            font.pixelSize: root.s(11.5)
+                                            font.bold: true
+                                        }
+
+                                        Item { Layout.fillWidth: true }
+
+                                        Text {
+                                            text: Math.abs(balanceSlider.value) >= 0.995
+                                                ? (balanceSlider.value < 0
+                                                    ? (typeof I18n !== "undefined" ? I18n.t("music.audio.left_only", "Left only") : "Left only")
+                                                    : (typeof I18n !== "undefined" ? I18n.t("music.audio.right_only", "Right only") : "Right only"))
+                                                : (Math.abs(balanceSlider.value) < 0.005
+                                                    ? (typeof I18n !== "undefined" ? I18n.t("music.audio.centered", "Centered") : "Centered")
+                                                    : (Math.abs(balanceSlider.value) < 0.25
+                                                        ? (balanceSlider.value < 0
+                                                            ? (typeof I18n !== "undefined" ? I18n.t("music.audio.left_slightly_favored", "Slightly left favored") : "Slightly left favored")
+                                                            : (typeof I18n !== "undefined" ? I18n.t("music.audio.right_slightly_favored", "Slightly right favored") : "Slightly right favored"))
+                                                        : (balanceSlider.value < 0
+                                                            ? (typeof I18n !== "undefined" ? I18n.t("music.audio.left_favored", "Left favored") : "Left favored")
+                                                            : (typeof I18n !== "undefined" ? I18n.t("music.audio.right_favored", "Right favored") : "Right favored"))))
+                                            color: ThemeBackend.mauve || "#cba6f7"
+                                            font.family: ThemeBackend.fontFamily
+                                            font.pixelSize: root.s(11.5)
+                                            font.bold: true
+                                        }
+
+                                        Item { Layout.fillWidth: true }
+
+                                        Text {
+                                            text: Math.round((balanceSlider.value < 0 ? 1 + balanceSlider.value : 1) * 100) + "%  R"
+                                            color: ThemeBackend.subtext0 || "#a6adc8"
+                                            font.family: ThemeBackend.fontFamily
+                                            font.pixelSize: root.s(11.5)
+                                            font.bold: true
+                                        }
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: root.s(8)
+                                    opacity: root.audioIntroFlags
+                                    transform: Translate { y: root.s(14) * (1 - root.audioIntroFlags) }
+
+                                    Repeater {
+                                        model: [
+                                            { key: "mono", label: typeof I18n !== "undefined" ? I18n.t("music.audio.mono", "Mono audio") : "Mono audio" },
+                                            { key: "swap", label: typeof I18n !== "undefined" ? I18n.t("music.audio.swap", "Swap L/R") : "Swap L/R" }
+                                        ]
+
+                                        delegate: SettingsRow {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            Layout.preferredWidth: 1
+                                            rootObj: root
+                                            baseColor: Qt.alpha(ThemeBackend.surface0 || "#313244", ThemeBackend.elementOpacity)
+                                            title: modelData.label
+                                            titlePixelSize: 12
+                                            titleBold: true
+                                            verticalPadding: root.s(9)
+                                            searchable: false
+
+                                            Toggle {
+                                                id: audioFlagToggle
+                                                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                                Layout.preferredWidth: root.s(44)
+                                                Layout.preferredHeight: root.s(24)
+                                                horizontalPadding: 0
+                                                checked: root.eqData[modelData.key] === true
+                                                accentColor: ThemeBackend.mauve || "#cba6f7"
+                                                baseColor: Qt.alpha(ThemeBackend.surface2 || "#585b70", ThemeBackend.elementOpacity)
+                                                handleColor: ThemeBackend.base || "#1e1e2e"
+                                                handleOffColor: ThemeBackend.text || "#cdd6f4"
+                                                onToggled: checked => root.setAudioFlag(modelData.key, checked)
+
+                                                Connections {
+                                                    target: root
+                                                    function onEqDataChanged() {
+                                                        audioFlagToggle.checked = root.eqData[modelData.key] === true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                SettingsRow {
+                                    Layout.fillWidth: true
+                                    rootObj: root
+                                    opacity: root.audioIntroDynamics
+                                    transform: Translate { y: root.s(14) * (1 - root.audioIntroDynamics) }
+                                    baseColor: Qt.alpha(ThemeBackend.surface0 || "#313244", ThemeBackend.elementOpacity)
+                                    title: typeof I18n !== "undefined" ? I18n.t("music.audio.dynamic_range", "Dynamic range") : "Dynamic range"
+                                    titlePixelSize: 12
+                                    titleBold: true
+                                    verticalPadding: root.s(9)
+                                    searchable: false
+
+                                    Switch {
+                                        id: dynamicsSwitch
+                                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                        Layout.preferredWidth: root.s(210)
+                                        Layout.preferredHeight: root.s(28)
+                                        options: [
+                                            typeof I18n !== "undefined" ? I18n.t("music.audio.off", "Off") : "Off",
+                                            typeof I18n !== "undefined" ? I18n.t("music.audio.balanced", "Balanced") : "Balanced",
+                                            typeof I18n !== "undefined" ? I18n.t("music.audio.night", "Night") : "Night"
+                                        ]
+                                        currentIndex: String(root.eqData.dynamics || "off") === "night" ? 2
+                                            : (String(root.eqData.dynamics || "off") === "balanced" ? 1 : 0)
+                                        accentColor: ThemeBackend.mauve || "#cba6f7"
+                                        baseColor: Qt.alpha(ThemeBackend.surface2 || "#585b70", ThemeBackend.elementOpacity)
+                                        textColor: ThemeBackend.subtext0 || "#a6adc8"
+                                        activeTextColor: ThemeBackend.base || "#1e1e2e"
+                                        cornerRadius: ThemeBackend.borderRadius
+                                        fontPixelSize: root.s(10.5)
+                                        minFontPixelSize: root.s(7)
+                                        onToggled: index => root.setDynamics(index === 2 ? "night" : (index === 1 ? "balanced" : "off"))
+
+                                        Connections {
+                                            target: root
+                                            function onEqDataChanged() {
+                                                var value = String(root.eqData.dynamics || "off");
+                                                dynamicsSwitch.currentIndex = value === "night" ? 2 : (value === "balanced" ? 1 : 0);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Item {
+                            id: lyricsView
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            x: bottomSectionSwitch.currentIndex === 2 ? 0 : parent.width + root.s(24)
+                            opacity: bottomSectionSwitch.currentIndex === 2 ? 1.0 : 0.0
+                            visible: opacity > 0.0
+                            clip: true
+
+                            Behavior on x { NumberAnimation { duration: 420; easing.type: Easing.OutQuart } }
+                            Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+
+                            LyricsView {
                                 id: popupLyricsViewport
                                 anchors.fill: parent
                                 visible: Lyrics.hasLyrics
-                                clip: true
-
-                                property real popupActiveItemCenterY: 0
-                                readonly property real popupSideMargin: root.s(4)
-                                readonly property real popupBaseActiveFont: root.s(18)
-                                readonly property real popupLineHeight: Math.max(root.s(30), popupBaseActiveFont * 1.4)
-                                readonly property real popupLineSpacing: Math.max(root.s(6), popupBaseActiveFont * 0.25)
-                                readonly property real popupItemStep: popupLineHeight + popupLineSpacing
-
-                                Connections {
-                                    target: Lyrics
-                                    function onCurrentIndexChanged() {
-                                        if (Lyrics.currentIndex >= 0 && popupLyricsRepeater && popupLyricsRepeater.count > Lyrics.currentIndex) {
-                                            let it = popupLyricsRepeater.itemAt(Lyrics.currentIndex);
-                                            if (it) {
-                                                popupLyricsViewport.popupActiveItemCenterY = it.y + it.height / 2;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                readonly property real popupTargetY: {
-                                    let center = popupLyricsViewport.height * 0.44;
-                                    if (Lyrics.currentIndex >= 0 && Lyrics.hasLyrics) {
-                                        if (popupActiveItemCenterY > 0) {
-                                            return center - popupActiveItemCenterY;
-                                        }
-                                        if (popupLyricsRepeater && popupLyricsRepeater.count > Lyrics.currentIndex) {
-                                            let it = popupLyricsRepeater.itemAt(Lyrics.currentIndex);
-                                            if (it) {
-                                                return center - (it.y + it.height / 2);
-                                            }
-                                        }
-                                        return center - (Lyrics.currentIndex * popupItemStep + popupLineHeight / 2);
-                                    }
-                                    return center - (popupLineHeight / 2);
-                                }
-
-                                Item {
-                                    id: popupScrollContainer
-                                    width: parent.width
-                                    height: popupLyricsColumn.height
-                                    y: popupLyricsViewport.popupTargetY
-
-                                    Behavior on y {
-                                        NumberAnimation {
-                                            duration: 650
-                                            easing.type: Easing.OutCubic
-                                        }
-                                    }
-
-                                    Column {
-                                        id: popupLyricsColumn
-                                        width: parent.width
-                                        spacing: popupLyricsViewport.popupLineSpacing
-
-                                        Repeater {
-                                            id: popupLyricsRepeater
-                                            model: Lyrics.lyrics
-
-                                            delegate: Item {
-                                                id: popupLineDelegate
-                                                width: popupLyricsColumn.width
-                                                height: Math.max(popupLyricsViewport.popupLineHeight, popupLineText.implicitHeight)
-
-                                                readonly property bool isCurrent: index === Lyrics.currentIndex
-
-                                                Component.onCompleted: {
-                                                    if (isCurrent) {
-                                                        popupLyricsViewport.popupActiveItemCenterY = y + height / 2;
-                                                    }
-                                                }
-
-                                                onIsCurrentChanged: {
-                                                    if (isCurrent) {
-                                                        popupLyricsViewport.popupActiveItemCenterY = y + height / 2;
-                                                    }
-                                                }
-
-                                                onYChanged: {
-                                                    if (isCurrent) {
-                                                        popupLyricsViewport.popupActiveItemCenterY = y + height / 2;
-                                                    }
-                                                }
-
-                                                onHeightChanged: {
-                                                    if (isCurrent) {
-                                                        popupLyricsViewport.popupActiveItemCenterY = y + height / 2;
-                                                    }
-                                                }
-
-                                                Text {
-                                                    id: popupLineText
-                                                    width: parent.width - (popupLyricsViewport.popupSideMargin * 2)
-                                                    x: popupLyricsViewport.popupSideMargin
-                                                    anchors.verticalCenter: parent.verticalCenter
-                                                    horizontalAlignment: Text.AlignLeft
-                                                    wrapMode: Text.WordWrap
-                                                    font.family: ThemeBackend.fontFamily
-                                                    font.weight: Font.Bold
-                                                    font.pixelSize: popupLyricsViewport.popupBaseActiveFont
-                                                    color: (index === Lyrics.currentIndex && (!modelData.words || modelData.words.length === 0)) ? (ThemeBackend.mauve || root.dynamicTextColor) : ThemeBackend.text
-                                                    opacity: Lyrics.getLineOpacity(index, Lyrics.currentIndex)
-                                                    scale: {
-                                                        if (index === Lyrics.currentIndex) return 1.0;
-                                                        let d = Math.abs(index - Lyrics.currentIndex);
-                                                        if (d === 1) return 0.86;
-                                                        return 0.80;
-                                                    }
-                                                    transformOrigin: Item.Left
-
-                                                    textFormat: (index === Lyrics.currentIndex && modelData.words && modelData.words.length > 0) ? Text.StyledText : Text.PlainText
-
-                                                    text: {
-                                                        if (index === Lyrics.currentIndex && modelData.words && modelData.words.length > 0) {
-                                                            return Lyrics.renderActiveLineText(modelData, Lyrics.currentPosition, (ThemeBackend.mauve || root.dynamicTextColor), ThemeBackend.text);
-                                                        }
-                                                        return modelData.text !== "" ? modelData.text : "♪";
-                                                    }
-
-                                                    Behavior on color {
-                                                        ColorAnimation {
-                                                            duration: 650
-                                                            easing.type: Easing.OutCubic
-                                                        }
-                                                    }
-
-                                                    Behavior on opacity {
-                                                        NumberAnimation {
-                                                            duration: 650
-                                                            easing.type: Easing.OutCubic
-                                                        }
-                                                    }
-
-                                                    Behavior on scale {
-                                                        NumberAnimation {
-                                                            duration: 650
-                                                            easing.type: Easing.OutCubic
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                sideMargin: root.s(4)
+                                baseActiveFont: root.s(18)
+                                lineHeight: Math.max(root.s(30), baseActiveFont * 1.4)
+                                lineSpacing: Math.max(root.s(6), baseActiveFont * 0.25)
+                                activeLineColor: ThemeBackend.mauve || root.dynamicTextColor
+                                inactiveLineColor: ThemeBackend.text || "#cdd6f4"
+                                fontFamily: ThemeBackend.fontFamily
                             }
 
                             ColumnLayout {
@@ -2209,7 +2528,7 @@ Item {
                                 Text {
                                     Layout.alignment: Qt.AlignHCenter
                                     text: "󰎈"
-                                    font.family: "Iosevka Nerd Font"
+                                    font.family: ThemeBackend.iconFont
                                     font.pixelSize: root.s(28)
                                     color: root.dynamicTextColor
                                     opacity: 0.75
@@ -2235,355 +2554,9 @@ Item {
         }
     }
 
-    component WavySeekBar : Item {
-        id: bar
-
-        property real from: 0.0
-        property real to: 100.0
-        property real value: 0.0
-        property bool playing: false
-
-        property color waveColor: ThemeBackend.mauve || "#cba6f7"
-        Behavior on waveColor { ColorAnimation { duration: 600 } }
-        property color primaryColor: waveColor
-        Behavior on primaryColor { ColorAnimation { duration: 600 } }
-        property color secondaryColor: ThemeBackend.lavender || "#b4befe"
-        Behavior on secondaryColor { ColorAnimation { duration: 600 } }
-        property color tertiaryColor: ThemeBackend.blue || "#89b4fa"
-        Behavior on tertiaryColor { ColorAnimation { duration: 600 } }
-
-        property real trackAlpha: 0.28
-        property color handleHoverColor: Qt.lighter(waveColor, 1.15)
-
-        property real handleSize: root.s(17)
-        property real strokeWidth: root.s(9)
-        property real amplitude: root.s(20)
-        property int cycleMs: 8000
-        property real restingLevel: 0.0
-
-        readonly property real cy: height - handleSize * 0.7
-        property real pad: handleSize / 2
-        property bool isDragging: mouseArea.pressed
-        signal moved(real val)
-
-        property real ampFactor: playing ? 1.0 : restingLevel
-        Behavior on ampFactor {
-            NumberAnimation { duration: 600; easing.type: Easing.OutQuad }
-        }
-
-        readonly property real liveAmp: ampFactor
-
-        property real progressFraction: (to > from) ? Math.max(0.0, Math.min(1.0, (value - from) / (to - from))) : 0.0
-        property real shownFraction: progressFraction
-        Behavior on shownFraction {
-            enabled: !bar.isDragging
-            NumberAnimation { duration: 250; easing.type: Easing.Linear }
-        }
-
-        readonly property real progressX: pad + shownFraction * (width - 2 * pad)
-
-        property real phase: 0
-
-        property real step: Math.max(2, root.s(2.5))
-        property real startTaperMin: root.s(24)
-        property real startTaperMax: root.s(64)
-
-        property string trackColorStr: ""
-        property string fullColorStr: ""
-        property var layerColorStrs: []
-        property var gridTables: []
-        property var cachedGradients: []
-        property real cachedGradTop: -9999
-        property real cachedGradA: -9999
-
-        property bool initialized: false
-        property var layers: [
-            { color: bar.primaryColor, amp: 0.86, alpha: 0.32, taper: root.s(70), comps: [
-                { len: root.s(245), mult: 1, off: 1.10, w: 0.65 },
-                { len: root.s(145), mult: 2, off: 1.90, w: 0.35 } ] },
-            { color: bar.primaryColor, amp: 0.93, alpha: 0.56, taper: root.s(80), comps: [
-                { len: root.s(300), mult: 1, off: 0.55, w: 0.65 },
-                { len: root.s(180), mult: 2, off: 1.25, w: 0.35 } ] },
-            { color: bar.primaryColor, amp: 1.00, alpha: 0.82, taper: root.s(90), comps: [
-                { len: root.s(360), mult: 1, off: 0.00, w: 0.68 },
-                { len: root.s(225), mult: 2, off: 0.60, w: 0.32 } ] }
-        ]
-
-        function rgbaCol(col, a) {
-            return "rgba(" + Math.round(col.r * 255) + "," + Math.round(col.g * 255) + "," + Math.round(col.b * 255) + "," + a + ")";
-        }
-
-        function easeQuintic(t) {
-            t = Math.max(0, Math.min(1, t));
-            return t * t * t * (t * (t * 6 - 15) + 10);
-        }
-
-        function updateColors() {
-            if (!bar.initialized) return;
-            trackColorStr = rgbaCol(bar.waveColor, bar.trackAlpha);
-            fullColorStr = rgbaCol(bar.waveColor, 1.0);
-            var arr = [];
-            var L = bar.layers;
-            for (var i = 0; i < L.length; i++) {
-                var curCol = L[i].color || bar.primaryColor;
-                arr.push({
-                    c0: rgbaCol(curCol, L[i].alpha * 0.55),
-                    c1: rgbaCol(curCol, L[i].alpha)
-                });
-            }
-            layerColorStrs = arr;
-            cachedGradients = [];
-        }
-
-        function rebuildGridTables() {
-            if (!bar.initialized) return;
-            var L = bar.layers;
-            if (!L || L.length === 0 || bar.width <= 0) return;
-            var maxSteps = Math.ceil(bar.width / bar.step) + 4;
-            var tables = [];
-            for (var li = 0; li < L.length; li++) {
-                var comps = L[li].comps;
-                var layerSins = [];
-                var layerCoss = [];
-                for (var k = 0; k < comps.length; k++) {
-                    var p = comps[k];
-                    var kFreq = (2 * Math.PI) / p.len;
-                    var sins = new Float64Array(maxSteps);
-                    var coss = new Float64Array(maxSteps);
-                    for (var i = 0; i < maxSteps; i++) {
-                        var x = bar.pad + i * bar.step;
-                        var angle = kFreq * x + p.off;
-                        sins[i] = Math.sin(angle);
-                        coss[i] = Math.cos(angle);
-                    }
-                    layerSins.push(sins);
-                    layerCoss.push(coss);
-                }
-                tables.push({ sins: layerSins, coss: layerCoss, maxSteps: maxSteps });
-            }
-            bar.gridTables = tables;
-        }
-
-        function hillFromGrid(table, comps, i, cosBetas, sinBetas) {
-            var n = 0;
-            for (var k = 0; k < comps.length; k++) {
-                n += comps[k].w * (table.sins[k][i] * cosBetas[k] - table.coss[k][i] * sinBetas[k]);
-            }
-            var base = (n + 0.85) / 1.85;
-            if (base <= 0) return 0;
-            if (base >= 1) base = 1;
-            return 0.5 * (1 - Math.cos(base * Math.PI));
-        }
-
-        function hillDirect(x, comps, phaseVal) {
-            var n = 0;
-            for (var k = 0; k < comps.length; k++) {
-                var p = comps[k];
-                n += p.w * Math.sin((2 * Math.PI / p.len) * x - phaseVal * p.mult + p.off);
-            }
-            var base = (n + 0.85) / 1.85;
-            if (base <= 0) return 0;
-            if (base >= 1) base = 1;
-            return 0.5 * (1 - Math.cos(base * Math.PI));
-        }
-
-        Component.onCompleted: {
-            bar.initialized = true;
-            updateColors();
-            rebuildGridTables();
-        }
-
-        Connections {
-            target: root
-            function onActiveChanged() {
-                if (root.active) {
-                    bar.updateColors();
-                    bar.rebuildGridTables();
-                    cv.requestPaint();
-                }
-            }
-        }
-
-        onLiveAmpChanged: { if (root.active) cv.requestPaint(); }
-        onWaveColorChanged: { updateColors(); if (root.active) cv.requestPaint(); }
-        onPrimaryColorChanged: { updateColors(); if (root.active) cv.requestPaint(); }
-        onSecondaryColorChanged: { if (root.active) cv.requestPaint(); }
-        onTertiaryColorChanged: { if (root.active) cv.requestPaint(); }
-        onShownFractionChanged: { if (root.active) cv.requestPaint(); }
-        onWidthChanged: { rebuildGridTables(); if (root.active) cv.requestPaint(); }
-        onPadChanged: { rebuildGridTables(); if (root.active) cv.requestPaint(); }
-        onStepChanged: { rebuildGridTables(); if (root.active) cv.requestPaint(); }
-        onLayersChanged: { updateColors(); rebuildGridTables(); if (root.active) cv.requestPaint(); }
-
-        Timer {
-            id: waveTimer
-            interval: 16
-            repeat: true
-            running: root.active && (bar.playing || bar.ampFactor > 0.001)
-            onTriggered: {
-                var now = Date.now();
-                bar.phase = ((now % bar.cycleMs) / bar.cycleMs) * Math.PI * 2;
-                cv.requestPaint();
-            }
-        }
-
-        Canvas {
-            id: cv
-            anchors.fill: parent
-            renderTarget: Canvas.FramebufferObject
-
-            opacity: (bar.isDragging || mouseArea.containsMouse) ? 1.0 : (bar.playing ? 1.0 : 0.55)
-            Behavior on opacity {
-                NumberAnimation { duration: 350; easing.type: Easing.OutQuad }
-            }
-
-            onPaint: {
-                if (!root.active || !bar.initialized) return;
-
-                var ctx = getContext("2d");
-                ctx.clearRect(0, 0, width, height);
-
-                var cy = bar.cy;
-                var pad = bar.pad;
-                var right = width - pad;
-                var endX = Math.max(pad, bar.progressX);
-                var strokeW = bar.strokeWidth;
-                var top = cy - strokeW / 2;
-                var step = bar.step;
-                var startTaper = Math.max(bar.startTaperMin, Math.min(bar.startTaperMax, (endX - pad) * 0.6));
-                var currentPhase = bar.phase;
-                var barAmp = bar.amplitude;
-                var currentLiveAmp = bar.liveAmp;
-                var L = bar.layers;
-
-                ctx.lineCap = "round";
-                ctx.lineJoin = "round";
-                ctx.lineWidth = strokeW;
-                ctx.globalAlpha = 1.0;
-
-                ctx.strokeStyle = bar.trackColorStr || bar.rgbaCol(bar.waveColor, bar.trackAlpha);
-                ctx.beginPath();
-                ctx.moveTo(endX, cy);
-                ctx.lineTo(right, cy);
-                ctx.stroke();
-
-                if (endX > pad + 1) {
-                    var tables = bar.gridTables;
-                    var hasTables = tables && tables.length === L.length;
-                    var gradients = bar.cachedGradients;
-                    var colorStrs = bar.layerColorStrs;
-
-                    for (var li = 0; li < L.length; li++) {
-                        var ly = L[li];
-                        var A = barAmp * ly.amp * currentLiveAmp;
-                        if (A < 0.3) continue;
-
-                        var endTaperLen = Math.max(1.0, ly.taper * Math.min(1.0, (endX - pad) / (ly.taper * 1.5)));
-
-                        var g = (gradients && gradients[li] && bar.cachedGradTop === top && bar.cachedGradA === A)
-                            ? gradients[li]
-                            : null;
-
-                        if (!g) {
-                            g = ctx.createLinearGradient(0, top - A, 0, top);
-                            var colPair = (colorStrs && colorStrs[li]) ? colorStrs[li] : {
-                                c0: bar.rgbaCol(ly.color || bar.primaryColor, ly.alpha * 0.55),
-                                c1: bar.rgbaCol(ly.color || bar.primaryColor, ly.alpha)
-                            };
-                            g.addColorStop(0.0, colPair.c0);
-                            g.addColorStop(1.0, colPair.c1);
-                            if (!gradients) gradients = [];
-                            gradients[li] = g;
-                        }
-
-                        var comps = ly.comps;
-                        var numComps = comps.length;
-                        var cosBetas = new Float64Array(numComps);
-                        var sinBetas = new Float64Array(numComps);
-                        for (var k = 0; k < numComps; k++) {
-                            var beta = comps[k].mult * currentPhase;
-                            cosBetas[k] = Math.cos(beta);
-                            sinBetas[k] = Math.sin(beta);
-                        }
-
-                        var table = hasTables ? tables[li] : null;
-                        var canUseGrid = table && table.sins && table.sins.length === numComps;
-
-                        ctx.fillStyle = g;
-                        ctx.beginPath();
-                        ctx.moveTo(pad, cy);
-
-                        var gridIdx = 0;
-                        for (var x = pad; x <= endX; x += step, gridIdx++) {
-                            var curX = Math.min(x, endX);
-                            var env = bar.easeQuintic((curX - pad) / startTaper) * bar.easeQuintic((endX - curX) / endTaperLen);
-                            var h = (canUseGrid && curX === x && gridIdx < table.maxSteps)
-                                ? bar.hillFromGrid(table, comps, gridIdx, cosBetas, sinBetas)
-                                : bar.hillDirect(curX, comps, currentPhase);
-                            var yPos = top - h * A * env;
-                            ctx.lineTo(curX, yPos);
-                            if (curX === endX) break;
-                        }
-                        ctx.lineTo(endX, top);
-                        ctx.lineTo(endX, cy);
-                        ctx.closePath();
-                        ctx.fill();
-                    }
-                    bar.cachedGradTop = top;
-                    bar.cachedGradA = A;
-                    bar.cachedGradients = gradients;
-                }
-
-                ctx.strokeStyle = bar.fullColorStr || bar.rgbaCol(bar.waveColor, 1.0);
-                ctx.beginPath();
-                ctx.moveTo(pad, cy);
-                ctx.lineTo(endX, cy);
-                ctx.stroke();
-            }
-        }
-
-        Rectangle {
-            id: handle
-            x: Math.max(0, Math.min(bar.width - width, bar.progressX - width / 2))
-            y: bar.cy - height / 2
-            width: bar.handleSize
-            height: bar.handleSize
-            radius: width / 2
-            color: bar.isDragging ? bar.handleHoverColor : (mouseArea.containsMouse ? bar.handleHoverColor : bar.waveColor)
-            opacity: 1.0
-            scale: bar.isDragging ? 1.25 : (mouseArea.containsMouse ? 1.15 : 1.0)
-            Behavior on scale {
-                NumberAnimation { duration: 150; easing.type: Easing.OutBack }
-            }
-            Behavior on color {
-                ColorAnimation { duration: 150 }
-            }
-        }
-
-        MouseArea {
-            id: mouseArea
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-
-            function updatePos(mx) {
-                var avail = bar.width - 2 * bar.pad;
-                if (avail <= 0) return;
-                var frac = Math.max(0.0, Math.min(1.0, (mx - bar.pad) / avail));
-                var newVal = bar.from + frac * (bar.to - bar.from);
-                bar.value = newVal;
-                bar.moved(newVal);
-            }
-
-            onPressed: mouse => updatePos(mouse.x)
-            onPositionChanged: mouse => {
-                if (pressed) updatePos(mouse.x);
-            }
-        }
-    }
-
     component PresetButton : ClickButton {
         property string name: ""
+        bgOpacity: ThemeBackend.elementOpacity
         Layout.fillWidth: true
         Layout.preferredWidth: 1
         implicitHeight: root.s(28)

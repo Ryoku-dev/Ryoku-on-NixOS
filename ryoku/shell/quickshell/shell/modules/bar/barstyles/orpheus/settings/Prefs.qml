@@ -64,7 +64,8 @@ Singleton {
     }
 
     function subset(value, allowed, fallback) {
-        const source = Array.isArray(value) ? value : fallback;
+        const copy = clone(value);
+        const source = Array.isArray(copy) ? copy : fallback;
         const result = [];
         for (let i = 0; i < source.length; ++i) {
             const entry = source[i];

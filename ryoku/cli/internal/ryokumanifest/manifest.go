@@ -178,6 +178,7 @@ func Apps() []App {
 		{"nautilus-python", "the Ryoku stash actions in Nautilus' right-click menu"},
 		{"waifu2x-ncnn-vulkan", "AI upscale behind ryoshot Beautify HD and ryowalls Enhance"},
 		{"ryoku-rashin", "Rashin, the AI agent: Ask, the Rashin window and the bar's AI usage pill"},
+		{"ryomanager", "system monitor and task manager"},
 		{"pavucontrol", "the GUI mixer the bar's Open audio button launches"},
 		{"songrec", "Recognize Music in the launcher"},
 		{"openrgb", "keyboard and mouse lighting (Ryogami settings > Lighting)"},

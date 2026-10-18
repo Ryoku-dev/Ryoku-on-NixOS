@@ -14,22 +14,22 @@ import (
 	"time"
 )
 
-// ask.go is the launcher's one-shot CLI: it POSTs the question to the running
-// daemon's /api/ask and pipes the streamed marker lines straight to stdout.
-// The daemon does the thinking (fast lane or hermes session) and records the
-// conversation in the shared transcript, so continuing in the Super+S chat
-// opens the very conversation this started.
+// ask.go is the launcher's one-shot client: it streams a quick answer from the
+// daemon while the persistent Agent conversation remains untouched. Continuing
+// with the agent is an explicit hand-off over the Agent socket.
 //
 // stdout protocol (one marker per line):
 //   @working <label>   what the agent is doing right now
-//   @perm <title>      a permission is waiting (answer it in the Super+S chat)
-//   @answer <json>     {"text":"...","images":["/abs.png"]} final answer
+//   @answer <json>     the final answer, source, actions, and hand-off state
 //   @error <message>   terminal failure
 
-// quickPreamble rides in front of session-lane questions so the model answers
-// tersely. The transcript records the RAW question; only hermes sees this.
+// quickPreamble keeps an escalated Ask terse and read-only. A request that
+// requires a machine change is handed back to the user for an explicit Agent
+// hand-off rather than attempted in the internal lane.
 const quickPreamble = "[quick ask from the launcher: reply with just the answer, " +
-	"one or two sentences or a tight list, no preamble, no follow-up questions] "
+	"one or two sentences or a tight list, no preamble, no follow-up questions. " +
+	"Do not change anything on this machine. If the request needs a change, reply " +
+	"NEEDS_AGENT: <one line why> and stop.] "
 
 func cmdAsk(question string) error {
 	question = strings.TrimSpace(question)
@@ -91,9 +91,13 @@ func askPost(port int, path string) {
 }
 
 type askAnswer struct {
-	Text    string      `json:"text"`
-	Images  []string    `json:"images,omitempty"`
-	Actions []askAction `json:"actions,omitempty"`
+	ID               string      `json:"id"`
+	Text             string      `json:"text"`
+	Images           []string    `json:"images"`
+	Actions          []askAction `json:"actions"`
+	Via              string      `json:"via"`
+	NeedsAgent       bool        `json:"needsAgent"`
+	NeedsAgentReason string      `json:"needsAgentReason"`
 }
 
 // askAction is one actionable entity found in an answer. The launcher renders

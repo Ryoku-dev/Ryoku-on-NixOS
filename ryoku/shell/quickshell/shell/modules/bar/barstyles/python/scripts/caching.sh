@@ -53,3 +53,16 @@ if [ -d "$QS_DIR" ]; then
 fi
 
 qs_ensure_cache "focustime"
+
+if [ ! -f "$QS_STATE_DIR/version" ]; then
+    ver=""
+    if [ -f "$SERPANTINUM_DIR/version.txt" ]; then
+        ver="$(cat "$SERPANTINUM_DIR/version.txt" 2>/dev/null | xargs)"
+    elif [ -f "$(dirname "$SERPANTINUM_DIR")/version.txt" ]; then
+        ver="$(cat "$(dirname "$SERPANTINUM_DIR")/version.txt" 2>/dev/null | xargs)"
+    fi
+    [ -z "$ver" ] && ver="${SERPANTINUM_VERSION:-2.0.0}"
+    echo "SERPANTINUM_VERSION=\"$ver\"" > "$QS_STATE_DIR/version"
+fi
+
+[ -f "$QS_STATE_DIR/quickactions/palettes.json" ] || echo "[]" > "$QS_STATE_DIR/quickactions/palettes.json"

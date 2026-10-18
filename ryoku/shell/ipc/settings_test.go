@@ -43,6 +43,13 @@ func frameNum(t *testing.T, frame []byte, path string) float64 {
 
 func rm(s string) json.RawMessage { return json.RawMessage(s) }
 
+func TestNotificationDefaultsMatchContract(t *testing.T) {
+	store := newTestStore(t)
+	if got := frameGet(t, store.frameLocked(), "notifications.show_images"); got != false {
+		t.Fatalf("notifications.show_images = %v, want false", got)
+	}
+}
+
 func TestPhoneDefaultsMatchContract(t *testing.T) {
 	store := newTestStore(t)
 	var want any
@@ -102,6 +109,7 @@ func TestPatchRejectsInvalidSchemaValues(t *testing.T) {
 		{"bad menu widget", "menus.clock_menu.widgets", `[{"type":"Bogus"}]`, "is not one of"},
 		{"border too high", "theme.attributes.sizing.border_width", `999`, "out of range"},
 		{"margin negative", "notifications.popup_window_margins", `-5`, "out of range"},
+		{"bad image switch", "notifications.show_images", `1`, "cannot unmarshal"},
 		{"min height too high", "bars.top_bar.minimum_height", `9000`, "out of range"},
 		{"bad ask enabled type", "ask.bubble.enabled", `1`, "cannot unmarshal"},
 		{"bad ask screen type", "ask.bubble.screen", `42`, "cannot unmarshal"},

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QColor>
+#include <QMetaObject>
 #include <QPointF>
 #include <QPointer>
 #include <QQuickPaintedItem>
@@ -88,7 +89,10 @@ private:
     qreal representativePhase() const;
 
     QPointer<QQuickWindow> m_observedWindow;
-    QTimer m_frameTimer;
+    QMetaObject::Connection m_afterAnimatingConnection;
+    QTimer m_frameDelayTimer;
+    bool m_frameClockRunning = false;
+    qint64 m_lastFrameRequestedAt = 0;
     QString m_stateName{QStringLiteral("breathing")};
     QString m_preset{QStringLiteral("avatar")};
     QColor m_ink{Qt::white};

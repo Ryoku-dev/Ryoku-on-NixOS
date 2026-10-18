@@ -49,7 +49,7 @@ AbstractBackgroundWidget {
     readonly property color colIconText: WidgetColorScheme.textColorOnPillTrack
 
     function getActionDetails(key) {
-        if (key === "ai_chat") return { defaultIcon: "neurology", label: Translation.tr("AI Chat") };
+        if (key === "ai_chat") return { defaultIcon: "neurology", label: Translation.tr("Ask") };
         if (key === "music_rec") return { defaultIcon: "music_note", label: Translation.tr("Music Recognition") };
         if (key === "translator") return { defaultIcon: "translate", label: Translation.tr("Translator") };
         if (key === "wallpapers") return { defaultIcon: "wallpaper", label: Translation.tr("Wallpapers") };
@@ -67,7 +67,7 @@ AbstractBackgroundWidget {
         } else if (key === "music_rec") {
             Spawn.run(["ryoku-cmd-songrec"]);
         } else if (key === "ai_chat") {
-            Spawn.run(["ryoku-shell", "ask", "chat"]);
+            Spawn.run(["ryoku-shell", "ask"]);
         } else if (key === "translator") {
             Spawn.run(["ryoku-shell", "quicksettings"]);
         } else if (key === "wallpapers") {

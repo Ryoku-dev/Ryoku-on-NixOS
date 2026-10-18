@@ -2,8 +2,11 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import Quickshell
+import Quickshell.Services.UPower
 import "../../"
+import "../../bar"
 import "../../reusables"
+import "../../reusables/guide"
 
 Item {
     id: barModulesRoot
@@ -21,6 +24,8 @@ Item {
     Behavior on opacity { NumberAnimation { duration: 250 } }
 
     property real cardRadius: ThemeBackend.clampedBorderRadius
+
+    property bool isDesktop: (typeof UPower !== "undefined" && UPower.displayDevice && UPower.displayDevice.ready) ? !UPower.displayDevice.isLaptopBattery : (typeof SystemInfo !== "undefined" ? SystemInfo.isDesktop : false)
 
     property string barPosition: {
         let bs = Config.getSetting("bar", {});
@@ -65,62 +70,192 @@ Item {
         return "HH:mm:ss";
     }
 
-    readonly property var workspaceStyles: [
-        {
-            "id": "pills",
-            "name": I18n.t("guide.bar.modules.workspaces.style.name.pills", "Pills"),
-            "desc": I18n.t("guide.bar.modules.workspaces.style.pills", "Minimal pill indicators"),
-            "icon": "󰮯",
-            "faceFile": isSideBar ? "workspaces/faces/SidePillsFace.qml" : "workspaces/faces/PillsFace.qml"
-        },
-        {
-            "id": "numbers",
-            "name": I18n.t("guide.bar.modules.workspaces.style.name.numbers", "Numbers"),
-            "desc": I18n.t("guide.bar.modules.workspaces.style.numbers", "Numbered indices"),
-            "icon": "󰎦",
-            "faceFile": isSideBar ? "workspaces/faces/SideNumbersFace.qml" : "workspaces/faces/NumbersFace.qml"
-        },
-        {
-            "id": "pacman",
-            "name": I18n.t("guide.bar.modules.workspaces.style.name.pacman", "Pacman"),
-            "desc": I18n.t("guide.bar.modules.workspaces.style.pacman", "Animated arcade dots"),
-            "icon": "󰮯",
-            "faceFile": isSideBar ? "workspaces/faces/SidePacmanFace.qml" : "workspaces/faces/PacmanFace.qml"
-        }
-    ]
+    property int visBarCount: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.visBarCount !== undefined) return bs.visBarCount;
+        return 16;
+    }
 
-    readonly property var timeStyles: [
-        {
-            "id": "classic",
-            "name": I18n.t("guide.bar.modules.timedate.style.name.classic", "Classic"),
-            "desc": I18n.t("guide.bar.modules.timedate.style.classic", "Clean stacked time and date"),
-            "icon": "󰥔",
-            "faceFile": isSideBar ? "timedate/faces/SideClassicFace.qml" : "timedate/faces/ClassicFace.qml"
-        },
-        {
-            "id": "material",
-            "name": I18n.t("guide.bar.modules.timedate.style.name.material", "Material"),
-            "desc": I18n.t("guide.bar.modules.timedate.style.material", "Diagonal bold accent numbers"),
-            "icon": "󰸗",
-            "faceFile": isSideBar ? "timedate/faces/SideMaterialFace.qml" : "timedate/faces/MaterialFace.qml"
-        },
-        {
-            "id": "badge",
-            "name": I18n.t("guide.bar.modules.timedate.style.name.badge", "Badge"),
-            "desc": I18n.t("guide.bar.modules.timedate.style.badge", "Pill-capsule segmented cards"),
-            "icon": "󰃰",
-            "faceFile": isSideBar ? "timedate/faces/SideBadgeFace.qml" : "timedate/faces/BadgeFace.qml"
+    property string visAlignment: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.visAlignment) return bs.visAlignment;
+        return "center";
+    }
+
+    property bool visContinuous: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.visContinuous !== undefined) return Boolean(bs.visContinuous);
+        return false;
+    }
+
+    property string sysmonStyle: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.sysmonStyle) return bs.sysmonStyle;
+        if (bs && bs.sysmon && bs.sysmon.style) return bs.sysmon.style;
+        return "wave";
+    }
+
+    property var sysmonStats: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && Array.isArray(bs.sysmonStats)) return bs.sysmonStats;
+        if (bs && bs.sysmon && Array.isArray(bs.sysmon.stats)) return bs.sysmon.stats;
+        if (bs && (bs.sysmonShowCpu !== undefined || bs.sysmonShowRam !== undefined || bs.sysmonShowTemp !== undefined || bs.sysmonShowDisk !== undefined)) {
+            let stats = [];
+            if (bs.sysmonShowCpu !== false) stats.push("cpu");
+            if (bs.sysmonShowRam !== false) stats.push("ram");
+            if (bs.sysmonShowTemp !== false) stats.push("temp");
+            if (bs.sysmonShowDisk === true) stats.push("disk");
+            return stats;
         }
-    ]
+        return ["cpu", "ram", "temp"];
+    }
+
+    readonly property var menuStyles: BarModuleRegistry.variantList("left")
+    readonly property var workspaceStyles: BarModuleRegistry.variantList("workspaces")
+    readonly property var timeStyles: BarModuleRegistry.variantList("timedate")
+    readonly property var batStyles: BarModuleRegistry.variantList("bat")
+    readonly property var wifiStyles: BarModuleRegistry.variantList("wifi")
+    readonly property var btStyles: BarModuleRegistry.variantList("bt")
+    readonly property var volStyles: BarModuleRegistry.variantList("vol")
+    readonly property var kbStyles: BarModuleRegistry.variantList("kb")
+
+    property string menuStyle: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.menuStyle) return bs.menuStyle;
+        return "button";
+    }
+
+    property bool menuShowSettings: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.menuShowSettings !== undefined) return Boolean(bs.menuShowSettings);
+        return true;
+    }
+
+    property bool menuShowLauncher: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.menuShowLauncher !== undefined) return Boolean(bs.menuShowLauncher);
+        return true;
+    }
+
+    property string wifiStyle: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.wifiStyle) return bs.wifiStyle;
+        return "button";
+    }
+
+    property bool wifiShowIcon: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.wifiShowIcon !== undefined) return Boolean(bs.wifiShowIcon);
+        return true;
+    }
+
+    property bool wifiShowName: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.wifiShowName !== undefined) return Boolean(bs.wifiShowName);
+        return true;
+    }
+
+    property string btStyle: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.btStyle) return bs.btStyle;
+        return "button";
+    }
+
+    property bool btShowIcon: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.btShowIcon !== undefined) return Boolean(bs.btShowIcon);
+        return true;
+    }
+
+    property bool btShowName: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.btShowName !== undefined) return Boolean(bs.btShowName);
+        return true;
+    }
+
+    property string volStyle: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.volStyle) return bs.volStyle;
+        return "button";
+    }
+
+    property bool volShowIcon: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.volShowIcon !== undefined) return Boolean(bs.volShowIcon);
+        return true;
+    }
+
+    property bool volShowPercent: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.volShowPercent !== undefined) return Boolean(bs.volShowPercent);
+        return true;
+    }
+
+    property string kbStyle: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.kbStyle) return bs.kbStyle;
+        return "button";
+    }
+
+    property bool kbShowIcon: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.kbShowIcon !== undefined) return Boolean(bs.kbShowIcon);
+        return true;
+    }
+
+    property string mediaInfoMode: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.mediaInfoMode) return bs.mediaInfoMode;
+        return "duration";
+    }
+
+    property int mediaWidth: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.mediaWidth !== undefined) return Math.round(Number(bs.mediaWidth));
+        return 120;
+    }
+
+    property bool mediaShowIcon: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.mediaShowIcon !== undefined) return Boolean(bs.mediaShowIcon);
+        return true;
+    }
+
+    property bool mediaShowControls: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.mediaShowControls !== undefined) return Boolean(bs.mediaShowControls);
+        return true;
+    }
+
+    property string batStyle: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.batStyle) return bs.batStyle;
+        return "classic";
+    }
+
+    property bool batShowPercent: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.batShowPercent !== undefined) return Boolean(bs.batShowPercent);
+        return true;
+    }
+
+    property bool batShowIcon: {
+        let bs = Config.getSetting("bar", {});
+        if (bs && bs.batShowIcon !== undefined) return Boolean(bs.batShowIcon);
+        return true;
+    }
+
+    property real barOpacity: ThemeBackend.elementOpacity
 
     readonly property var previewWidget: ({
-        "s": function(v) { return rootObj ? rootObj.s(v) : v; },
+        "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; },
         "workspaceCount": 5,
         "activeIndex": 1,
         "isCompact": false,
+        "orientation": barModulesRoot.isSideBar ? "vertical" : "horizontal",
         "isOccupied": function(idx) { return idx === 0 || idx === 1 || idx === 2; },
         "focusWorkspace": function(idx) {},
-        "barWindow": { "startupCascadeFinished": true },
+        "barWindow": { "startupCascadeFinished": true, "barOpacity": barModulesRoot.barOpacity },
         "moduleActive": true
     })
 
@@ -128,6 +263,7 @@ Item {
         id: previewTimeWidgetObj
         function s(v) { return rootObj ? rootObj.s(v) : v; }
         property bool isCompact: false
+        property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
         property bool showDate: barModulesRoot.timeShowDate
         property string timeStr: (typeof DateTime !== "undefined" && DateTime.time) ? DateTime.time : "14:28"
         property string hourStr: (typeof DateTime !== "undefined" && DateTime.hour) ? DateTime.hour : "14"
@@ -137,15 +273,131 @@ Item {
         property string monthStr: (typeof DateTime !== "undefined" && DateTime.monthShort) ? DateTime.monthShort : "Sep"
         property string fullDateStr: (typeof DateTime !== "undefined" && DateTime.fullDate) ? DateTime.fullDate : "Fri, Sep 18"
         property string dateStr: (typeof DateTime !== "undefined" && DateTime.fullDate) ? DateTime.fullDate : "Fri, Sep 18"
-        property var barWindow: ({ "startupCascadeFinished": true, "s": function(v) { return rootObj ? rootObj.s(v) : v; } })
-        property bool moduleActive: true
+        property var barWindow: ({ "startupCascadeFinished": true, "barOpacity": barModulesRoot.barOpacity, "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; } })
+        property bool moduleActive: barModulesRoot.visible
     }
 
-    function getFaceUrl(file) {
-        if (!file) return "";
-        let base = isSideBar ? "../../bar/sidemodules/" : "../../bar/modules/";
-        let path = file.indexOf("/") !== -1 ? file : ("workspaces/faces/" + file);
-        return Qt.resolvedUrl(base + path);
+    QtObject {
+        id: previewVisWidgetObj
+        function s(v) { return rootObj ? rootObj.s(v) : v; }
+        property bool isCompact: false
+        property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+        property int barCount: barModulesRoot.visBarCount
+        property string visAlignment: barModulesRoot.visAlignment
+        property bool visContinuous: barModulesRoot.visContinuous
+        property bool isPreview: true
+        property var barWindow: ({ "startupCascadeFinished": true, "isStartupReady": true, "barOpacity": barModulesRoot.barOpacity, "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; } })
+        property bool moduleActive: barModulesRoot.visible
+    }
+
+    QtObject {
+        id: previewSysWidgetObj
+        function s(v) { return rootObj ? rootObj.s(v) : v; }
+        property bool isCompact: false
+        property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+        property string sysmonStyle: barModulesRoot.sysmonStyle
+        property var sysmonStats: barModulesRoot.sysmonStats
+        property bool isPreview: true
+        property var barWindow: ({ "startupCascadeFinished": true, "isStartupReady": true, "isDataReady": true, "barOpacity": barModulesRoot.barOpacity, "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; } })
+        property bool moduleActive: barModulesRoot.visible
+    }
+
+    QtObject {
+        id: previewBatWidgetObj
+        function s(v) { return rootObj ? rootObj.s(v) : v; }
+        property bool isCompact: false
+        property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+        property string batStyle: barModulesRoot.batStyle
+        property bool batShowPercent: barModulesRoot.batShowPercent
+        property bool batShowIcon: barModulesRoot.batShowIcon
+        property bool isPreview: true
+        property var barWindow: ({ "startupCascadeFinished": true, "isStartupReady": true, "isDataReady": true, "barOpacity": barModulesRoot.barOpacity, "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; } })
+        property bool moduleActive: barModulesRoot.visible
+    }
+
+    QtObject {
+        id: previewMenuWidgetObj
+        function s(v) { return rootObj ? rootObj.s(v) : v; }
+        property bool isCompact: false
+        property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+        property string menuStyle: barModulesRoot.menuStyle
+        property bool menuShowSettings: barModulesRoot.menuShowSettings
+        property bool menuShowLauncher: barModulesRoot.menuShowLauncher
+        property bool isPreview: true
+        property var barWindow: ({ "startupCascadeFinished": true, "isStartupReady": true, "isDataReady": true, "barOpacity": barModulesRoot.barOpacity, "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; } })
+        property bool moduleActive: barModulesRoot.visible
+    }
+
+    QtObject {
+        id: previewWifiWidgetObj
+        function s(v) { return rootObj ? rootObj.s(v) : v; }
+        property bool isCompact: false
+        property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+        property string wifiStyle: barModulesRoot.wifiStyle
+        property bool wifiShowIcon: barModulesRoot.wifiShowIcon
+        property bool wifiShowName: barModulesRoot.wifiShowName
+        property bool isPreview: true
+        property var barWindow: ({ "startupCascadeFinished": true, "isStartupReady": true, "isDataReady": true, "barOpacity": barModulesRoot.barOpacity, "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; } })
+        property bool moduleActive: barModulesRoot.visible
+    }
+
+    QtObject {
+        id: previewBtWidgetObj
+        function s(v) { return rootObj ? rootObj.s(v) : v; }
+        property bool isCompact: false
+        property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+        property string btStyle: barModulesRoot.btStyle
+        property bool btShowIcon: barModulesRoot.btShowIcon
+        property bool btShowName: barModulesRoot.btShowName
+        property bool isPreview: true
+        property var barWindow: ({ "startupCascadeFinished": true, "isStartupReady": true, "isDataReady": true, "barOpacity": barModulesRoot.barOpacity, "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; } })
+        property bool moduleActive: barModulesRoot.visible
+    }
+
+    QtObject {
+        id: previewVolWidgetObj
+        function s(v) { return rootObj ? rootObj.s(v) : v; }
+        property bool isCompact: false
+        property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+        property string volStyle: barModulesRoot.volStyle
+        property bool volShowIcon: barModulesRoot.volShowIcon
+        property bool volShowPercent: barModulesRoot.volShowPercent
+        property bool isPreview: true
+        property var barWindow: ({ "startupCascadeFinished": true, "isStartupReady": true, "isDataReady": true, "barOpacity": barModulesRoot.barOpacity, "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; } })
+        property bool moduleActive: barModulesRoot.visible
+    }
+
+    QtObject {
+        id: previewKbWidgetObj
+        function s(v) { return rootObj ? rootObj.s(v) : v; }
+        property bool isCompact: false
+        property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+        property string kbStyle: barModulesRoot.kbStyle
+        property bool kbShowIcon: barModulesRoot.kbShowIcon
+        property bool isPreview: true
+        property var barWindow: ({ "startupCascadeFinished": true, "isStartupReady": true, "isDataReady": true, "barOpacity": barModulesRoot.barOpacity, "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; } })
+        property bool moduleActive: barModulesRoot.visible
+    }
+
+    QtObject {
+        id: previewMediaWidgetObj
+        function s(v) { return rootObj ? rootObj.s(v) : v; }
+        property bool isCompact: false
+        property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+        property string mediaInfoMode: barModulesRoot.mediaInfoMode
+        property int mediaWidth: barModulesRoot.mediaWidth
+        property bool mediaShowIcon: barModulesRoot.mediaShowIcon
+        property bool mediaShowControls: barModulesRoot.mediaShowControls
+        property bool isPreview: true
+        property var barWindow: ({ "startupCascadeFinished": true, "isStartupReady": true, "isDataReady": true, "barOpacity": barModulesRoot.barOpacity, "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; } })
+        property bool moduleActive: barModulesRoot.visible
+    }
+
+    function getFaceUrl(moduleId, variantId) {
+        if (!moduleId) return "";
+        let modId = (variantId !== undefined) ? moduleId : "workspaces";
+        let vId = (variantId !== undefined) ? variantId : moduleId;
+        return BarModuleRegistry.variantFaceFile(modId, vId);
     }
 
     function syncSettings() {
@@ -189,13 +441,168 @@ Item {
         } else {
             barModulesRoot.timeFormat = "HH:mm:ss";
         }
+
+        if (bs && bs.visBarCount !== undefined) {
+            barModulesRoot.visBarCount = bs.visBarCount;
+        } else {
+            barModulesRoot.visBarCount = 16;
+        }
+
+        if (bs && bs.visAlignment) {
+            barModulesRoot.visAlignment = bs.visAlignment;
+        } else {
+            barModulesRoot.visAlignment = "center";
+        }
+
+        if (bs && bs.visContinuous !== undefined) {
+            barModulesRoot.visContinuous = Boolean(bs.visContinuous);
+        } else {
+            barModulesRoot.visContinuous = false;
+        }
+
+        if (bs && bs.sysmonStyle) {
+            barModulesRoot.sysmonStyle = bs.sysmonStyle;
+        } else {
+            barModulesRoot.sysmonStyle = "wave";
+        }
+
+        if (bs && Array.isArray(bs.sysmonStats)) {
+            barModulesRoot.sysmonStats = bs.sysmonStats;
+        } else if (bs && (bs.sysmonShowCpu !== undefined || bs.sysmonShowRam !== undefined || bs.sysmonShowTemp !== undefined || bs.sysmonShowDisk !== undefined)) {
+            let stats = [];
+            if (bs.sysmonShowCpu !== false) stats.push("cpu");
+            if (bs.sysmonShowRam !== false) stats.push("ram");
+            if (bs.sysmonShowTemp !== false) stats.push("temp");
+            if (bs.sysmonShowDisk === true) stats.push("disk");
+            barModulesRoot.sysmonStats = stats;
+        } else {
+            barModulesRoot.sysmonStats = ["cpu", "ram", "temp"];
+        }
+
+        if (bs && bs.batStyle) {
+            barModulesRoot.batStyle = bs.batStyle;
+        } else {
+            barModulesRoot.batStyle = "classic";
+        }
+
+        if (bs && bs.batShowPercent !== undefined) {
+            barModulesRoot.batShowPercent = Boolean(bs.batShowPercent);
+        } else {
+            barModulesRoot.batShowPercent = true;
+        }
+
+        if (bs && bs.batShowIcon !== undefined) {
+            barModulesRoot.batShowIcon = Boolean(bs.batShowIcon);
+        } else {
+            barModulesRoot.batShowIcon = true;
+        }
+
+        barModulesRoot.menuStyle = (bs && bs.menuStyle) ? bs.menuStyle : "button";
+        barModulesRoot.menuShowSettings = (bs && bs.menuShowSettings !== undefined) ? Boolean(bs.menuShowSettings) : true;
+        barModulesRoot.menuShowLauncher = (bs && bs.menuShowLauncher !== undefined) ? Boolean(bs.menuShowLauncher) : true;
+        if (!barModulesRoot.menuShowSettings && !barModulesRoot.menuShowLauncher) {
+            barModulesRoot.menuShowSettings = true;
+        }
+
+        if (bs && bs.wifiStyle) {
+            barModulesRoot.wifiStyle = bs.wifiStyle;
+        } else {
+            barModulesRoot.wifiStyle = "button";
+        }
+
+        if (bs && bs.wifiShowIcon !== undefined) {
+            barModulesRoot.wifiShowIcon = Boolean(bs.wifiShowIcon);
+        } else {
+            barModulesRoot.wifiShowIcon = true;
+        }
+
+        if (bs && bs.wifiShowName !== undefined) {
+            barModulesRoot.wifiShowName = Boolean(bs.wifiShowName);
+        } else {
+            barModulesRoot.wifiShowName = true;
+        }
+
+        if (bs && bs.btStyle) {
+            barModulesRoot.btStyle = bs.btStyle;
+        } else {
+            barModulesRoot.btStyle = "button";
+        }
+
+        if (bs && bs.btShowIcon !== undefined) {
+            barModulesRoot.btShowIcon = Boolean(bs.btShowIcon);
+        } else {
+            barModulesRoot.btShowIcon = true;
+        }
+
+        if (bs && bs.btShowName !== undefined) {
+            barModulesRoot.btShowName = Boolean(bs.btShowName);
+        } else {
+            barModulesRoot.btShowName = true;
+        }
+
+        if (bs && bs.volStyle) {
+            barModulesRoot.volStyle = bs.volStyle;
+        } else {
+            barModulesRoot.volStyle = "button";
+        }
+
+        if (bs && bs.volShowIcon !== undefined) {
+            barModulesRoot.volShowIcon = Boolean(bs.volShowIcon);
+        } else {
+            barModulesRoot.volShowIcon = true;
+        }
+
+        if (bs && bs.volShowPercent !== undefined) {
+            barModulesRoot.volShowPercent = Boolean(bs.volShowPercent);
+        } else {
+            barModulesRoot.volShowPercent = true;
+        }
+
+        if (bs && bs.kbStyle) {
+            barModulesRoot.kbStyle = bs.kbStyle;
+        } else {
+            barModulesRoot.kbStyle = "button";
+        }
+
+        if (bs && bs.kbShowIcon !== undefined) {
+            barModulesRoot.kbShowIcon = Boolean(bs.kbShowIcon);
+        } else {
+            barModulesRoot.kbShowIcon = true;
+        }
+
+        barModulesRoot.mediaInfoMode = (bs && bs.mediaInfoMode) ? bs.mediaInfoMode : "duration";
+        barModulesRoot.mediaWidth = (bs && bs.mediaWidth !== undefined) ? Math.round(Number(bs.mediaWidth)) : 120;
+
+        if (bs && bs.mediaShowIcon !== undefined) {
+            barModulesRoot.mediaShowIcon = Boolean(bs.mediaShowIcon);
+        } else {
+            barModulesRoot.mediaShowIcon = true;
+        }
+
+        if (bs && bs.mediaShowControls !== undefined) {
+            barModulesRoot.mediaShowControls = Boolean(bs.mediaShowControls);
+        } else {
+            barModulesRoot.mediaShowControls = true;
+        }
+
+        if (!barModulesRoot.batShowPercent && !barModulesRoot.batShowIcon) {
+            barModulesRoot.batShowIcon = true;
+        }
+        if (!barModulesRoot.wifiShowIcon && !barModulesRoot.wifiShowName) {
+            barModulesRoot.wifiShowIcon = true;
+        }
+        if (!barModulesRoot.btShowIcon && !barModulesRoot.btShowName) {
+            barModulesRoot.btShowIcon = true;
+        }
+        if (!barModulesRoot.volShowIcon && !barModulesRoot.volShowPercent) {
+            barModulesRoot.volShowIcon = true;
+        }
     }
 
     function setWorkspacesStyle(styleName) {
         barModulesRoot.workspacesStyle = styleName;
         let current = Config.getSetting("bar", {});
         current.workspacesStyle = styleName;
-        if (current.sideWorkspacesStyle !== undefined) delete current.sideWorkspacesStyle;
         Config.setSetting("bar", current);
     }
 
@@ -203,7 +610,6 @@ Item {
         barModulesRoot.workspaceCount = count;
         let current = Config.getSetting("bar", {});
         current.workspaceCount = count;
-        if (current.sideWorkspaceCount !== undefined) delete current.sideWorkspaceCount;
         Config.setSetting("bar", current);
     }
 
@@ -211,7 +617,6 @@ Item {
         barModulesRoot.hideEmptyWorkspaces = val;
         let current = Config.getSetting("bar", {});
         current.hideEmptyWorkspaces = val;
-        if (current.sideHideEmptyWorkspaces !== undefined) delete current.sideHideEmptyWorkspaces;
         Config.setSetting("bar", current);
     }
 
@@ -219,7 +624,6 @@ Item {
         barModulesRoot.timeStyle = styleName;
         let current = Config.getSetting("bar", {});
         current.timeStyle = styleName;
-        if (current.sideTimeStyle !== undefined) delete current.sideTimeStyle;
         Config.setSetting("bar", current);
     }
 
@@ -228,7 +632,6 @@ Item {
         let current = Config.getSetting("bar", {});
         current.timeShowDate = show;
         if (current.showDate !== undefined) delete current.showDate;
-        if (current.sideTimeShowDate !== undefined) delete current.sideTimeShowDate;
         Config.setSetting("bar", current);
     }
 
@@ -237,8 +640,249 @@ Item {
         let current = Config.getSetting("bar", {});
         if (!current.time) current.time = {};
         current.time.format = fmt;
-        if (current.sideTime !== undefined) delete current.sideTime;
         Config.setSetting("bar", current);
+    }
+
+    function setVisBarCount(count) {
+        barModulesRoot.visBarCount = count;
+        let current = Config.getSetting("bar", {});
+        current.visBarCount = count;
+        Config.setSetting("bar", current);
+    }
+
+    function setVisAlignment(align) {
+        barModulesRoot.visAlignment = align;
+        let current = Config.getSetting("bar", {});
+        current.visAlignment = align;
+        Config.setSetting("bar", current);
+    }
+
+    function setVisContinuous(val) {
+        barModulesRoot.visContinuous = val;
+        let current = Config.getSetting("bar", {});
+        current.visContinuous = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setSysmonStyle(styleName) {
+        barModulesRoot.sysmonStyle = styleName;
+        let current = Config.getSetting("bar", {});
+        current.sysmonStyle = styleName;
+        Config.setSetting("bar", current);
+    }
+
+    function isSysmonStatEnabled(stat) {
+        return barModulesRoot.sysmonStats && barModulesRoot.sysmonStats.indexOf(stat) !== -1;
+    }
+
+    function toggleSysmonStat(stat, enabled) {
+        let list = barModulesRoot.sysmonStats ? barModulesRoot.sysmonStats.slice() : ["cpu", "ram", "temp"];
+        let allStats = ["cpu", "ram", "temp", "disk"];
+        let set = {};
+        for (let i = 0; i < list.length; i++) set[list[i]] = true;
+        if (enabled) {
+            set[stat] = true;
+        } else {
+            delete set[stat];
+        }
+        let res = [];
+        for (let i = 0; i < allStats.length; i++) {
+            if (set[allStats[i]]) res.push(allStats[i]);
+        }
+        barModulesRoot.sysmonStats = res;
+        let current = Config.getSetting("bar", {});
+        current.sysmonStats = res;
+        Config.setSetting("bar", current);
+    }
+
+    function setBatStyle(styleName) {
+        barModulesRoot.batStyle = styleName;
+        let current = Config.getSetting("bar", {});
+        current.batStyle = styleName;
+        Config.setSetting("bar", current);
+    }
+
+    function setBatShowPercent(val) {
+        if (!val && !barModulesRoot.batShowIcon) return;
+        barModulesRoot.batShowPercent = val;
+        let current = Config.getSetting("bar", {});
+        current.batShowPercent = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setBatShowIcon(val) {
+        if (!val && !barModulesRoot.batShowPercent) return;
+        barModulesRoot.batShowIcon = val;
+        let current = Config.getSetting("bar", {});
+        current.batShowIcon = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setMenuStyle(styleName) {
+        barModulesRoot.menuStyle = styleName;
+        let current = Config.getSetting("bar", {});
+        current.menuStyle = styleName;
+        Config.setSetting("bar", current);
+    }
+
+    function setMenuShowSettings(val) {
+        if (!val && !barModulesRoot.menuShowLauncher) return;
+        barModulesRoot.menuShowSettings = val;
+        let current = Config.getSetting("bar", {});
+        current.menuShowSettings = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setMenuShowLauncher(val) {
+        if (!val && !barModulesRoot.menuShowSettings) return;
+        barModulesRoot.menuShowLauncher = val;
+        let current = Config.getSetting("bar", {});
+        current.menuShowLauncher = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setWifiStyle(styleName) {
+        barModulesRoot.wifiStyle = styleName;
+        let current = Config.getSetting("bar", {});
+        current.wifiStyle = styleName;
+        Config.setSetting("bar", current);
+    }
+
+    function setWifiShowIcon(val) {
+        if (!val && !barModulesRoot.wifiShowName) return;
+        barModulesRoot.wifiShowIcon = val;
+        let current = Config.getSetting("bar", {});
+        current.wifiShowIcon = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setWifiShowName(val) {
+        if (!val && !barModulesRoot.wifiShowIcon) return;
+        barModulesRoot.wifiShowName = val;
+        let current = Config.getSetting("bar", {});
+        current.wifiShowName = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setBtStyle(styleName) {
+        barModulesRoot.btStyle = styleName;
+        let current = Config.getSetting("bar", {});
+        current.btStyle = styleName;
+        Config.setSetting("bar", current);
+    }
+
+    function setBtShowIcon(val) {
+        if (!val && !barModulesRoot.btShowName) return;
+        barModulesRoot.btShowIcon = val;
+        let current = Config.getSetting("bar", {});
+        current.btShowIcon = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setBtShowName(val) {
+        if (!val && !barModulesRoot.btShowIcon) return;
+        barModulesRoot.btShowName = val;
+        let current = Config.getSetting("bar", {});
+        current.btShowName = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setVolStyle(styleName) {
+        barModulesRoot.volStyle = styleName;
+        let current = Config.getSetting("bar", {});
+        current.volStyle = styleName;
+        Config.setSetting("bar", current);
+    }
+
+    function setVolShowIcon(val) {
+        if (!val && !barModulesRoot.volShowPercent) return;
+        barModulesRoot.volShowIcon = val;
+        let current = Config.getSetting("bar", {});
+        current.volShowIcon = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setVolShowPercent(val) {
+        if (!val && !barModulesRoot.volShowIcon) return;
+        barModulesRoot.volShowPercent = val;
+        let current = Config.getSetting("bar", {});
+        current.volShowPercent = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setKbStyle(styleName) {
+        barModulesRoot.kbStyle = styleName;
+        let current = Config.getSetting("bar", {});
+        current.kbStyle = styleName;
+        Config.setSetting("bar", current);
+    }
+
+    function setKbShowIcon(val) {
+        barModulesRoot.kbShowIcon = val;
+        let current = Config.getSetting("bar", {});
+        current.kbShowIcon = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setMediaInfoMode(val) {
+        barModulesRoot.mediaInfoMode = val;
+        let current = Config.getSetting("bar", {});
+        current.mediaInfoMode = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setMediaWidth(val) {
+        let current = Config.getSetting("bar", {});
+        current.mediaWidth = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setMediaShowIcon(val) {
+        barModulesRoot.mediaShowIcon = val;
+        let current = Config.getSetting("bar", {});
+        current.mediaShowIcon = val;
+        Config.setSetting("bar", current);
+    }
+
+    function setMediaShowControls(val) {
+        barModulesRoot.mediaShowControls = val;
+        let current = Config.getSetting("bar", {});
+        current.mediaShowControls = val;
+        Config.setSetting("bar", current);
+    }
+
+    onVisAlignmentChanged: {
+        let a = barModulesRoot.visAlignment;
+        if (visAlignSwitch) {
+            if (barModulesRoot.isSideBar) {
+                visAlignSwitch.currentIndex = (a === "left" || a === "top") ? 0 : ((a === "right" || a === "bottom") ? 2 : 1);
+            } else {
+                visAlignSwitch.currentIndex = (a === "top" || a === "left") ? 0 : ((a === "bottom" || a === "right") ? 2 : 1);
+            }
+        }
+    }
+
+    onIsSideBarChanged: {
+        let a = barModulesRoot.visAlignment;
+        if (visAlignSwitch) {
+            if (barModulesRoot.isSideBar) {
+                visAlignSwitch.currentIndex = (a === "left" || a === "top") ? 0 : ((a === "right" || a === "bottom") ? 2 : 1);
+            } else {
+                visAlignSwitch.currentIndex = (a === "top" || a === "left") ? 0 : ((a === "bottom" || a === "right") ? 2 : 1);
+            }
+        }
+    }
+
+    function inView(item) {
+        if (!item || !visible) return false;
+        void modulesFlick.contentY;
+        void modulesFlick.contentHeight;
+        void modulesFlick.height;
+        void item.y;
+        void item.height;
+        const top = item.mapToItem(modulesFlick.contentItem, 0, 0).y;
+        const margin = modulesFlick.height * 0.5;
+        return top + item.height > modulesFlick.contentY - margin && top < modulesFlick.contentY + modulesFlick.height + margin;
     }
 
     onVisibleChanged: {
@@ -256,9 +900,13 @@ Item {
         function onSettingsLoaded() {
             barModulesRoot.syncSettings();
         }
+        function onRawSettingsChanged() {
+            barModulesRoot.syncSettings();
+        }
     }
 
     Flickable {
+        id: modulesFlick
         anchors.fill: parent
         anchors.topMargin: rootObj.s(4)
         anchors.leftMargin: rootObj.s(8)
@@ -286,13 +934,371 @@ Item {
             spacing: rootObj.s(12)
 
             Rectangle {
+                id: menuModuleBox
+                Layout.fillWidth: true
+                implicitHeight: menuCardLayout.implicitHeight + rootObj.s(24)
+                radius: ThemeBackend.borderRadius
+                color: ThemeBackend.liquidGlass ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gfMenu
+                    anchors.fill: parent
+                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
+                border.color: Qt.alpha(ThemeBackend.surface1, 0.4)
+                border.width: ThemeBackend.liquidGlass ? 0 : 1
+                clip: true
+
+                ColumnLayout {
+                    id: menuCardLayout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: rootObj.s(12)
+                    spacing: rootObj.s(6)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: rootObj.s(6)
+                        Layout.leftMargin: rootObj.s(4)
+                        Layout.rightMargin: rootObj.s(4)
+                        spacing: rootObj.s(8)
+
+                        Text {
+                            text: I18n.t("guide.bar.modules.actions", "Menu")
+                            font.family: ThemeBackend.fontFamily
+                            font.pixelSize: rootObj.s(16)
+                            font.bold: true
+                            color: ThemeBackend.text
+                        }
+                    }
+
+                    Rectangle {
+                        id: menuPreviewBox
+                        Layout.fillWidth: true
+                        implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 120 : 72)
+                        radius: ThemeBackend.borderRadius
+                        color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                        WallpaperBlur {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            standalone: true
+                            surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                        }
+                        GlassFill {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                            tintColor: ThemeBackend.base
+                        }
+                        clip: true
+
+                        Item {
+                            anchors.fill: parent
+                            enabled: false
+
+                            Loader {
+                                id: menuFacePreviewLoader
+                                anchors.centerIn: parent
+                                width: item ? item.implicitWidth : 0
+                                height: item ? item.implicitHeight : 0
+                                scale: Math.min(1.0, Math.min((menuPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (menuPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                asynchronous: false
+                                property bool seen: false
+                                readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                active: seen || wanted
+                                onWantedChanged: if (wanted) seen = true
+                                Component.onCompleted: if (wanted) seen = true
+                                source: Qt.resolvedUrl("../../bar/faces/left/LeftFace.qml")
+
+                                onLoaded: {
+                                    if (item) {
+                                        item.widget = previewMenuWidgetObj;
+                                        item.width = Qt.binding(function() { return item.implicitWidth; });
+                                        item.height = Qt.binding(function() { return item.implicitHeight; });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_menu_show_settings"
+                        searchKeywords: "menu settings gear guide icon button"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰒓"
+                        title: I18n.t("guide.bar.menu.show_settings.title", "Show settings icon")
+                        description: I18n.t("guide.bar.menu.show_settings.desc", "Display the button that opens settings")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.menuShowSettings
+                            enabled: !checked || barModulesRoot.menuShowLauncher
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setMenuShowSettings(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_menu_show_launcher"
+                        searchKeywords: "menu launcher search apps icon button"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰍉"
+                        title: I18n.t("guide.bar.menu.show_launcher.title", "Show launcher icon")
+                        description: I18n.t("guide.bar.menu.show_launcher.desc", "Display the search button that opens the launcher")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.menuShowLauncher
+                            enabled: !checked || barModulesRoot.menuShowSettings
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setMenuShowLauncher(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        id: menuStyleRow
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_menu_style"
+                        searchKeywords: "menu style look button icon layout"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰒓"
+                        title: I18n.t("guide.bar.menu.style.title", "Style")
+                        description: I18n.t("guide.bar.menu.style.desc", "Choose the visual appearance of the menu module")
+
+                        bottomContent: GridLayout {
+                            id: menuStylesGrid
+                            Layout.fillWidth: true
+                            columns: Math.max(1, Math.min(3, Math.floor(menuCardLayout.width / rootObj.s(160))))
+                            rowSpacing: rootObj.s(10)
+                            columnSpacing: rootObj.s(10)
+
+                            Repeater {
+                                model: barModulesRoot.menuStyles
+                                delegate: Rectangle {
+                                    id: menuStyleCard
+                                    required property var modelData
+                                    required property int index
+
+                                    readonly property bool isSelected: barModulesRoot.menuStyle === modelData.id
+                                    property real popScale: 1.0
+                                    property real flashOpacity: 0.0
+
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    implicitHeight: menuStyleInnerCol.implicitHeight + rootObj.s(16)
+                                    radius: ThemeBackend.borderRadius
+                                    clip: true
+
+                                    color: ThemeBackend.liquidGlass ? "transparent" : (menuCardMouse.pressed
+                                        ? Qt.darker(ThemeBackend.surface0, 1.15)
+                                        : (isSelected
+                                            ? (menuCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.30) : Qt.lighter(ThemeBackend.surface0, 1.24))
+                                            : (menuCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.10) : ThemeBackend.surface0)))
+
+                                    GlassFill {
+                                        id: menuCardGlass
+                                        anchors.fill: parent
+                                        allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                        radius: parent.radius
+                                        tintColor: ThemeBackend.surface0
+                                        tintAmount: isSelected ? 0.45 : 0.25
+                                        press: menuCardMouse.pressed ? 0.8 : (menuCardHover.hovered ? 0.25 : 0)
+                                        Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    border.width: ThemeBackend.liquidGlass ? 0 : 1
+                                    border.color: isSelected
+                                        ? Qt.alpha(ThemeBackend.surface2, 0.75)
+                                        : (menuCardHover.hovered ? Qt.alpha(ThemeBackend.surface2, 0.5) : Qt.alpha(ThemeBackend.surface1, 0.4))
+
+                                    Behavior on color { ColorAnimation { duration: 180 } }
+                                    Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                                    scale: (menuCardMouse.pressed ? 0.985 : (menuCardHover.hovered ? 1.015 : 1.0)) * menuStyleCard.popScale
+                                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutQuint } }
+
+                                    HoverHandler {
+                                        id: menuCardHover
+                                    }
+
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        color: "#ffffff"
+                                        opacity: menuStyleCard.flashOpacity
+                                        visible: !menuCardGlass.active
+                                        PropertyAnimation on opacity { id: menuFlashAnim; to: 0; duration: 350; easing.type: Easing.OutExpo }
+                                    }
+
+                                    SequentialAnimation {
+                                        id: menuPopAnim
+                                        NumberAnimation { target: menuStyleCard; property: "popScale"; to: 1.02; duration: 100; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: menuStyleCard; property: "popScale"; to: 1.0; duration: 350; easing.type: Easing.OutQuint }
+                                    }
+
+                                    MouseArea {
+                                        id: menuCardMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            menuPopAnim.start();
+                                            menuStyleCard.flashOpacity = 0.15;
+                                            menuFlashAnim.start();
+                                            if (typeof Sounds !== "undefined") {
+                                                Sounds.playSfx("reusables/clickbutton/click.wav");
+                                            }
+                                            barModulesRoot.setMenuStyle(modelData.id);
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        id: menuStyleInnerCol
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: rootObj.s(8)
+                                        spacing: rootObj.s(8)
+
+                                        Rectangle {
+                                            id: menuCardPreviewBox
+                                            Layout.fillWidth: true
+                                            implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 140 : 72)
+                                            radius: ThemeBackend.borderRadius
+                                            color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                                            WallpaperBlur {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                standalone: true
+                                                surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                            }
+                                            GlassFill {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                tintColor: ThemeBackend.base
+                                            }
+                                            clip: true
+
+                                            Item {
+                                                anchors.fill: parent
+                                                enabled: false
+
+                                                QtObject {
+                                                    id: menuCardMockWidget
+                                                    function s(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    property bool isCompact: false
+                                                    property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+                                                    property string menuStyle: modelData.id
+                                                    property bool menuShowSettings: barModulesRoot.menuShowSettings
+                                                    property bool menuShowLauncher: barModulesRoot.menuShowLauncher
+                                                    property bool isPreview: true
+                                                    property var barWindow: ({
+                                                        "startupCascadeFinished": true,
+                                                        "isStartupReady": true,
+                                                        "isDataReady": true,
+                                                        "barOpacity": barModulesRoot.barOpacity,
+                                                        "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    })
+                                                    property bool moduleActive: barModulesRoot.visible
+                                                }
+
+                                                Loader {
+                                                    id: menuCardFaceLoader
+                                                    anchors.centerIn: parent
+                                                    width: item ? item.implicitWidth : 0
+                                                    height: item ? item.implicitHeight : 0
+                                                    scale: Math.min(1.0, Math.min((menuCardPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (menuCardPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                                    asynchronous: false
+                                                    property bool seen: false
+                                                    readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                    active: seen || wanted
+                                                    onWantedChanged: if (wanted) seen = true
+                                                    Component.onCompleted: if (wanted) seen = true
+                                                    source: Qt.resolvedUrl("../../bar/faces/left/LeftFace.qml")
+
+                                                    onLoaded: {
+                                                        if (item) {
+                                                            item.width = Qt.binding(function() { return item.implicitWidth; });
+                                                            item.height = Qt.binding(function() { return item.implicitHeight; });
+                                                            item.widget = menuCardMockWidget;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                color: "transparent"
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: rootObj.s(2)
+                                            Layout.rightMargin: rootObj.s(2)
+                                            Layout.bottomMargin: rootObj.s(2)
+                                            text: modelData.name
+                                            font.family: ThemeBackend.fontFamily
+                                            font.pixelSize: rootObj.s(13)
+                                            font.weight: Font.Bold
+                                            color: ThemeBackend.text
+                                        }
+                                    }
+                                }
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                visible: menuStylesGrid.columns === 3
+                            }
+                        }
+                    }
+                }
+            }
+
+
+            Rectangle {
                 id: workspacesModuleBox
                 Layout.fillWidth: true
                 implicitHeight: workspacesCardLayout.implicitHeight + rootObj.s(24)
                 radius: ThemeBackend.borderRadius
-                color: Qt.alpha(ThemeBackend.surface0, 0.4)
+                color: ThemeBackend.liquidGlass ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gf1
+                    anchors.fill: parent
+                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
                 border.color: Qt.alpha(ThemeBackend.surface1, 0.4)
-                border.width: 1
+                border.width: ThemeBackend.liquidGlass ? 0 : 1
                 clip: true
 
                 ColumnLayout {
@@ -378,219 +1384,264 @@ Item {
                         }
                     }
 
-                    GridLayout {
-                        id: stylesGrid
-                        Layout.fillWidth: true
-                        columns: Math.max(1, Math.min(3, Math.floor(workspacesCardLayout.width / rootObj.s(160))))
-                        rowSpacing: rootObj.s(10)
-                        columnSpacing: rootObj.s(10)
+                    SettingsRow {
+                        id: workspacesStyleRow
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_workspaces_style"
+                        searchKeywords: "pills numbers pacman workspaces style"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰮯"
+                        title: I18n.t("guide.bar.workspaces.style.title", "Workspaces style")
+                        description: I18n.t("guide.bar.workspaces.style.desc", "Choose the visual style for workspace indicators")
 
-                        Repeater {
-                            model: barModulesRoot.workspaceStyles
-                            delegate: Rectangle {
-                                id: styleCard
-                                required property var modelData
-                                required property int index
+                        bottomContent: GridLayout {
+                            id: stylesGrid
+                            Layout.fillWidth: true
+                            columns: Math.max(1, Math.min(3, Math.floor(workspacesCardLayout.width / rootObj.s(160))))
+                            rowSpacing: rootObj.s(10)
+                            columnSpacing: rootObj.s(10)
 
-                                readonly property bool isSelected: barModulesRoot.workspacesStyle === modelData.id
-                                property real popScale: 1.0
-                                property real flashOpacity: 0.0
+                            Repeater {
+                                model: barModulesRoot.workspaceStyles
+                                delegate: Rectangle {
+                                    id: styleCard
+                                    required property var modelData
+                                    required property int index
 
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 1
-                                implicitHeight: styleInnerCol.implicitHeight + rootObj.s(16)
-                                radius: ThemeBackend.borderRadius
-                                clip: true
+                                    readonly property bool isSelected: barModulesRoot.workspacesStyle === modelData.id
+                                    property real popScale: 1.0
+                                    property real flashOpacity: 0.0
 
-                                color: cardMouse.pressed
-                                    ? Qt.darker(ThemeBackend.surface0, 1.15)
-                                    : (isSelected
-                                        ? (cardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.30) : Qt.lighter(ThemeBackend.surface0, 1.24))
-                                        : (cardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.10) : ThemeBackend.surface0))
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    implicitHeight: styleInnerCol.implicitHeight + rootObj.s(16)
+                                    radius: ThemeBackend.borderRadius
+                                    clip: true
 
-                                border.width: 1
-                                border.color: isSelected
-                                    ? Qt.alpha(ThemeBackend.surface2, 0.75)
-                                    : (cardHover.hovered ? Qt.alpha(ThemeBackend.surface2, 0.5) : Qt.alpha(ThemeBackend.surface1, 0.4))
+                                    color: ThemeBackend.liquidGlass ? "transparent" : (cardMouse.pressed
+                                        ? Qt.darker(ThemeBackend.surface0, 1.15)
+                                        : (isSelected
+                                            ? (cardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.30) : Qt.lighter(ThemeBackend.surface0, 1.24))
+                                            : (cardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.10) : ThemeBackend.surface0)))
 
-                                Behavior on color { ColorAnimation { duration: 180 } }
-                                Behavior on border.color { ColorAnimation { duration: 180 } }
-
-                                scale: (cardMouse.pressed ? 0.985 : (cardHover.hovered ? 1.015 : 1.0)) * styleCard.popScale
-                                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutQuint } }
-
-                                HoverHandler {
-                                    id: cardHover
-                                }
-
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: parent.radius
-                                    color: "#ffffff"
-                                    opacity: styleCard.flashOpacity
-                                    PropertyAnimation on opacity { id: flashAnim; to: 0; duration: 350; easing.type: Easing.OutExpo }
-                                }
-
-                                SequentialAnimation {
-                                    id: popAnim
-                                    NumberAnimation { target: styleCard; property: "popScale"; to: 1.02; duration: 100; easing.type: Easing.OutQuad }
-                                    NumberAnimation { target: styleCard; property: "popScale"; to: 1.0; duration: 350; easing.type: Easing.OutQuint }
-                                }
-
-                                MouseArea {
-                                    id: cardMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        popAnim.start();
-                                        styleCard.flashOpacity = 0.15;
-                                        flashAnim.start();
-                                        if (typeof Sounds !== "undefined") {
-                                            Sounds.playSfx("reusables/clickbutton/click.wav");
-                                        }
-                                        barModulesRoot.setWorkspacesStyle(modelData.id);
+                                    GlassFill {
+                                        id: cardGlass1
+                                        anchors.fill: parent
+                                        allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                        radius: parent.radius
+                                        tintColor: ThemeBackend.surface0
+                                        tintAmount: isSelected ? 0.45 : 0.25
+                                        press: cardMouse.pressed ? 0.8 : (cardHover.hovered ? 0.25 : 0)
+                                        Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                                     }
-                                }
 
-                                ColumnLayout {
-                                    id: styleInnerCol
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    anchors.margins: rootObj.s(8)
-                                    spacing: rootObj.s(8)
+                                    border.width: ThemeBackend.liquidGlass ? 0 : 1
+                                    border.color: isSelected
+                                        ? Qt.alpha(ThemeBackend.surface2, 0.75)
+                                        : (cardHover.hovered ? Qt.alpha(ThemeBackend.surface2, 0.5) : Qt.alpha(ThemeBackend.surface1, 0.4))
+
+                                    Behavior on color { ColorAnimation { duration: 180 } }
+                                    Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                                    scale: (cardMouse.pressed ? 0.985 : (cardHover.hovered ? 1.015 : 1.0)) * styleCard.popScale
+                                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutQuint } }
+
+                                    HoverHandler {
+                                        id: cardHover
+                                    }
 
                                     Rectangle {
-                                        id: previewBox
-                                        Layout.fillWidth: true
-                                        implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 160 : 72)
-                                        radius: ThemeBackend.borderRadius
-                                        color: Qt.darker(ThemeBackend.mantle, 1.1)
-                                        clip: true
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        color: "#ffffff"
+                                        opacity: styleCard.flashOpacity
+                                        visible: !cardGlass1.active
+                                        PropertyAnimation on opacity { id: flashAnim; to: 0; duration: 350; easing.type: Easing.OutExpo }
+                                    }
 
-                                        Item {
-                                            anchors.fill: parent
-                                            enabled: false
+                                    SequentialAnimation {
+                                        id: popAnim
+                                        NumberAnimation { target: styleCard; property: "popScale"; to: 1.02; duration: 100; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: styleCard; property: "popScale"; to: 1.0; duration: 350; easing.type: Easing.OutQuint }
+                                    }
 
-                                            Loader {
-                                                id: facePreviewLoader
-                                                anchors.centerIn: parent
-                                                width: item ? item.implicitWidth : 0
-                                                height: item ? item.implicitHeight : 0
-                                                scale: Math.min(1.0, Math.min((previewBox.width - rootObj.s(16)) / Math.max(1, width), (previewBox.height - rootObj.s(16)) / Math.max(1, height)))
-                                                asynchronous: false
-                                                source: barModulesRoot.getFaceUrl(modelData.faceFile)
-
-                                                onLoaded: {
-                                                    if (item) {
-                                                        item.width = Qt.binding(function() { return item.implicitWidth; });
-                                                        item.height = Qt.binding(function() { return item.implicitHeight; });
-                                                        item.widget = barModulesRoot.previewWidget;
-                                                    }
-                                                }
+                                    MouseArea {
+                                        id: cardMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            popAnim.start();
+                                            styleCard.flashOpacity = 0.15;
+                                            flashAnim.start();
+                                            if (typeof Sounds !== "undefined") {
+                                                Sounds.playSfx("reusables/clickbutton/click.wav");
                                             }
-
-                                            RowLayout {
-                                                anchors.centerIn: parent
-                                                visible: !barModulesRoot.isSideBar && (facePreviewLoader.status === Loader.Error || !facePreviewLoader.item)
-                                                spacing: rootObj.s(6)
-
-                                                Repeater {
-                                                    model: 5
-                                                    delegate: Rectangle {
-                                                        required property int index
-                                                        readonly property bool isActive: index === 1
-                                                        width: modelData.id === "pills"
-                                                            ? (isActive ? rootObj.s(22) : rootObj.s(8))
-                                                            : rootObj.s(18)
-                                                        height: modelData.id === "pills" ? rootObj.s(8) : rootObj.s(18)
-                                                        radius: modelData.id === "pills" ? height / 2 : rootObj.s(4)
-                                                        color: isActive ? ThemeBackend.mauve : Qt.alpha(ThemeBackend.surface2, 0.7)
-
-                                                        Text {
-                                                            anchors.centerIn: parent
-                                                            visible: modelData.id === "numbers"
-                                                            text: String(index + 1)
-                                                            font.family: ThemeBackend.fontFamily
-                                                            font.pixelSize: rootObj.s(10)
-                                                            font.bold: isActive
-                                                            color: isActive ? ThemeBackend.crust : ThemeBackend.text
-                                                        }
-
-                                                        Text {
-                                                            anchors.centerIn: parent
-                                                            visible: modelData.id === "pacman"
-                                                            text: isActive ? "󰮯" : "•"
-                                                            font.family: ThemeBackend.fontFamily
-                                                            font.pixelSize: rootObj.s(14)
-                                                            font.bold: false
-                                                            color: isActive ? ThemeBackend.yellow : ThemeBackend.subtext0
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            ColumnLayout {
-                                                anchors.centerIn: parent
-                                                visible: barModulesRoot.isSideBar && (facePreviewLoader.status === Loader.Error || !facePreviewLoader.item)
-                                                spacing: rootObj.s(6)
-
-                                                Repeater {
-                                                    model: 5
-                                                    delegate: Rectangle {
-                                                        required property int index
-                                                        readonly property bool isActive: index === 1
-                                                        width: rootObj.s(18)
-                                                        height: modelData.id === "pills"
-                                                            ? (isActive ? rootObj.s(36) : rootObj.s(18))
-                                                            : rootObj.s(18)
-                                                        radius: modelData.id === "pills" ? width / 2 : rootObj.s(4)
-                                                        color: isActive ? ThemeBackend.mauve : Qt.alpha(ThemeBackend.surface2, 0.7)
-
-                                                        Text {
-                                                            anchors.centerIn: parent
-                                                            visible: modelData.id === "numbers"
-                                                            text: String(index + 1)
-                                                            font.family: ThemeBackend.fontFamily
-                                                            font.pixelSize: rootObj.s(10)
-                                                            font.bold: isActive
-                                                            color: isActive ? ThemeBackend.crust : ThemeBackend.text
-                                                        }
-
-                                                        Text {
-                                                            anchors.centerIn: parent
-                                                            visible: modelData.id === "pacman"
-                                                            text: isActive ? "󰮯" : "•"
-                                                            font.family: ThemeBackend.fontFamily
-                                                            font.pixelSize: rootObj.s(14)
-                                                            font.bold: false
-                                                            color: isActive ? ThemeBackend.yellow : ThemeBackend.subtext0
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            anchors.fill: parent
-                                            radius: parent.radius
-                                            color: "transparent"
-                                            border.width: 1
-                                            border.color: Qt.alpha(ThemeBackend.surface2, 0.25)
+                                            barModulesRoot.setWorkspacesStyle(modelData.id);
                                         }
                                     }
 
-                                    Text {
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: rootObj.s(2)
-                                        Layout.rightMargin: rootObj.s(2)
-                                        Layout.bottomMargin: rootObj.s(2)
-                                        text: modelData.name
-                                        font.family: ThemeBackend.fontFamily
-                                        font.pixelSize: rootObj.s(13)
-                                        font.weight: Font.Bold
-                                        color: ThemeBackend.text
+                                    ColumnLayout {
+                                        id: styleInnerCol
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: rootObj.s(8)
+                                        spacing: rootObj.s(8)
+
+                                        Rectangle {
+                                            id: previewBox
+                                            Layout.fillWidth: true
+                                            implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 160 : 72)
+                                            radius: ThemeBackend.borderRadius
+                                            color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                                            WallpaperBlur {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                standalone: true
+                                                surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                            }
+                                            GlassFill {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                tintColor: ThemeBackend.base
+                                            }
+                                            clip: true
+
+                                            Item {
+                                                anchors.fill: parent
+                                                enabled: false
+
+                                                Loader {
+                                                    id: facePreviewLoader
+                                                    anchors.centerIn: parent
+                                                    width: item ? item.implicitWidth : 0
+                                                    height: item ? item.implicitHeight : 0
+                                                    scale: Math.min(1.0, Math.min((previewBox.width - rootObj.s(16)) / Math.max(1, width), (previewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                                    asynchronous: false
+                                                    property bool seen: false
+                                                    readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                    active: seen || wanted
+                                                    onWantedChanged: if (wanted) seen = true
+                                                    Component.onCompleted: if (wanted) seen = true
+                                                    source: barModulesRoot.getFaceUrl("workspaces", modelData.id)
+
+                                                    onLoaded: {
+                                                        if (item) {
+                                                            item.width = Qt.binding(function() { return item.implicitWidth; });
+                                                            item.height = Qt.binding(function() { return item.implicitHeight; });
+                                                            item.widget = barModulesRoot.previewWidget;
+                                                        }
+                                                    }
+                                                }
+
+                                                RowLayout {
+                                                    anchors.centerIn: parent
+                                                    visible: !barModulesRoot.isSideBar && (facePreviewLoader.status === Loader.Error || !facePreviewLoader.item)
+                                                    spacing: rootObj.s(6)
+
+                                                    Repeater {
+                                                        model: 5
+                                                        delegate: Rectangle {
+                                                            required property int index
+                                                            readonly property bool isActive: index === 1
+                                                            width: modelData.id === "pills"
+                                                                ? (isActive ? rootObj.s(22) : rootObj.s(8))
+                                                                : rootObj.s(18)
+                                                            height: modelData.id === "pills" ? rootObj.s(8) : rootObj.s(18)
+                                                            Layout.preferredWidth: width
+                                                            Layout.preferredHeight: height
+                                                            radius: modelData.id === "pills" ? height / 2 : rootObj.s(4)
+                                                            color: isActive ? ThemeBackend.mauve : Qt.alpha(ThemeBackend.surface2, 0.7)
+
+                                                            Text {
+                                                                anchors.centerIn: parent
+                                                                visible: modelData.id === "numbers"
+                                                                text: String(index + 1)
+                                                                font.family: ThemeBackend.fontFamily
+                                                                font.pixelSize: rootObj.s(10)
+                                                                font.bold: isActive
+                                                                color: isActive ? ThemeBackend.crust : ThemeBackend.text
+                                                            }
+
+                                                            Text {
+                                                                anchors.centerIn: parent
+                                                                visible: modelData.id === "pacman"
+                                                                text: isActive ? "󰮯" : "•"
+                                                                font.family: ThemeBackend.fontFamily
+                                                                font.pixelSize: rootObj.s(14)
+                                                                font.bold: false
+                                                                color: isActive ? ThemeBackend.yellow : ThemeBackend.subtext0
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    anchors.centerIn: parent
+                                                    visible: barModulesRoot.isSideBar && (facePreviewLoader.status === Loader.Error || !facePreviewLoader.item)
+                                                    spacing: rootObj.s(6)
+
+                                                    Repeater {
+                                                        model: 5
+                                                        delegate: Rectangle {
+                                                            required property int index
+                                                            readonly property bool isActive: index === 1
+                                                            width: rootObj.s(18)
+                                                            height: modelData.id === "pills"
+                                                                ? (isActive ? rootObj.s(36) : rootObj.s(18))
+                                                                : rootObj.s(18)
+                                                            Layout.preferredWidth: width
+                                                            Layout.preferredHeight: height
+                                                            radius: modelData.id === "pills" ? width / 2 : rootObj.s(4)
+                                                            color: isActive ? ThemeBackend.mauve : Qt.alpha(ThemeBackend.surface2, 0.7)
+
+                                                            Text {
+                                                                anchors.centerIn: parent
+                                                                visible: modelData.id === "numbers"
+                                                                text: String(index + 1)
+                                                                font.family: ThemeBackend.fontFamily
+                                                                font.pixelSize: rootObj.s(10)
+                                                                font.bold: isActive
+                                                                color: isActive ? ThemeBackend.crust : ThemeBackend.text
+                                                            }
+
+                                                            Text {
+                                                                anchors.centerIn: parent
+                                                                visible: modelData.id === "pacman"
+                                                                text: isActive ? "󰮯" : "•"
+                                                                font.family: ThemeBackend.fontFamily
+                                                                font.pixelSize: rootObj.s(14)
+                                                                font.bold: false
+                                                                color: isActive ? ThemeBackend.yellow : ThemeBackend.subtext0
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                color: "transparent"
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: rootObj.s(2)
+                                            Layout.rightMargin: rootObj.s(2)
+                                            Layout.bottomMargin: rootObj.s(2)
+                                            text: modelData.name
+                                            font.family: ThemeBackend.fontFamily
+                                            font.pixelSize: rootObj.s(13)
+                                            font.weight: Font.Bold
+                                            color: ThemeBackend.text
+                                        }
                                     }
                                 }
                             }
@@ -604,9 +1655,18 @@ Item {
                 Layout.fillWidth: true
                 implicitHeight: timeDateCardLayout.implicitHeight + rootObj.s(24)
                 radius: ThemeBackend.borderRadius
-                color: Qt.alpha(ThemeBackend.surface0, 0.4)
+                color: ThemeBackend.liquidGlass ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gf2
+                    anchors.fill: parent
+                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
                 border.color: Qt.alpha(ThemeBackend.surface1, 0.4)
-                border.width: 1
+                border.width: ThemeBackend.liquidGlass ? 0 : 1
                 clip: true
 
                 ColumnLayout {
@@ -625,7 +1685,7 @@ Item {
                         spacing: rootObj.s(8)
 
                         Text {
-                            text: I18n.t("guide.bar.modules.timedate.name", "Time & Date")
+                            text: I18n.t("guide.bar.modules.timedate.name", "Time & date")
                             font.family: ThemeBackend.fontFamily
                             font.pixelSize: rootObj.s(16)
                             font.bold: true
@@ -637,7 +1697,7 @@ Item {
                         rootObj: barModulesRoot.rootObj
                         baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
                         icon: "󰃭"
-                        title: I18n.t("guide.bar.timedate.show_date.title", "Show Date")
+                        title: I18n.t("guide.bar.timedate.show_date.title", "Show date")
                         description: I18n.t("guide.bar.timedate.show_date.desc", "Display the date text alongside the clock")
 
                         Toggle {
@@ -657,7 +1717,7 @@ Item {
                         rootObj: barModulesRoot.rootObj
                         baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
                         icon: "󰅐"
-                        title: I18n.t("guide.bar.time.title", "Time Format")
+                        title: I18n.t("guide.bar.time.title", "Time format")
                         description: I18n.t("guide.bar.time.desc", "Format pattern (e.g. HH:mm:ss)")
 
                         Input {
@@ -682,205 +1742,2659 @@ Item {
                         }
                     }
 
-                    GridLayout {
-                        id: timeStylesGrid
-                        Layout.fillWidth: true
-                        columns: Math.max(1, Math.min(3, Math.floor(timeDateCardLayout.width / rootObj.s(160))))
-                        rowSpacing: rootObj.s(10)
-                        columnSpacing: rootObj.s(10)
+                    SettingsRow {
+                        id: timeStyleRow
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_timedate_style"
+                        searchKeywords: "classic material badge time date clock style"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰥔"
+                        title: I18n.t("guide.bar.timedate.style.title", "Time & date style")
+                        description: I18n.t("guide.bar.timedate.style.desc", "Choose the visual style for the clock and date display")
 
-                        Repeater {
-                            model: barModulesRoot.timeStyles
-                            delegate: Rectangle {
-                                id: timeStyleCard
-                                required property var modelData
-                                required property int index
+                        bottomContent: GridLayout {
+                            id: timeStylesGrid
+                            Layout.fillWidth: true
+                            columns: Math.max(1, Math.min(3, Math.floor(timeDateCardLayout.width / rootObj.s(160))))
+                            rowSpacing: rootObj.s(10)
+                            columnSpacing: rootObj.s(10)
 
-                                readonly property bool isSelected: barModulesRoot.timeStyle === modelData.id
-                                property real popScale: 1.0
-                                property real flashOpacity: 0.0
+                            Repeater {
+                                model: barModulesRoot.timeStyles
+                                delegate: Rectangle {
+                                    id: timeStyleCard
+                                    required property var modelData
+                                    required property int index
 
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 1
-                                implicitHeight: timeStyleInnerCol.implicitHeight + rootObj.s(16)
-                                radius: ThemeBackend.borderRadius
-                                clip: true
+                                    readonly property bool isSelected: barModulesRoot.timeStyle === modelData.id
+                                    property real popScale: 1.0
+                                    property real flashOpacity: 0.0
 
-                                color: timeCardMouse.pressed
-                                    ? Qt.darker(ThemeBackend.surface0, 1.15)
-                                    : (isSelected
-                                        ? (timeCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.30) : Qt.lighter(ThemeBackend.surface0, 1.24))
-                                        : (timeCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.10) : ThemeBackend.surface0))
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    implicitHeight: timeStyleInnerCol.implicitHeight + rootObj.s(16)
+                                    radius: ThemeBackend.borderRadius
+                                    clip: true
 
-                                border.width: 1
-                                border.color: isSelected
-                                    ? Qt.alpha(ThemeBackend.surface2, 0.75)
-                                    : (timeCardHover.hovered ? Qt.alpha(ThemeBackend.surface2, 0.5) : Qt.alpha(ThemeBackend.surface1, 0.4))
+                                    color: ThemeBackend.liquidGlass ? "transparent" : (timeCardMouse.pressed
+                                        ? Qt.darker(ThemeBackend.surface0, 1.15)
+                                        : (isSelected
+                                            ? (timeCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.30) : Qt.lighter(ThemeBackend.surface0, 1.24))
+                                            : (timeCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.10) : ThemeBackend.surface0)))
 
-                                Behavior on color { ColorAnimation { duration: 180 } }
-                                Behavior on border.color { ColorAnimation { duration: 180 } }
-
-                                scale: (timeCardMouse.pressed ? 0.985 : (timeCardHover.hovered ? 1.015 : 1.0)) * timeStyleCard.popScale
-                                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutQuint } }
-
-                                HoverHandler {
-                                    id: timeCardHover
-                                }
-
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: parent.radius
-                                    color: "#ffffff"
-                                    opacity: timeStyleCard.flashOpacity
-                                    PropertyAnimation on opacity { id: timeFlashAnim; to: 0; duration: 350; easing.type: Easing.OutExpo }
-                                }
-
-                                SequentialAnimation {
-                                    id: timePopAnim
-                                    NumberAnimation { target: timeStyleCard; property: "popScale"; to: 1.02; duration: 100; easing.type: Easing.OutQuad }
-                                    NumberAnimation { target: timeStyleCard; property: "popScale"; to: 1.0; duration: 350; easing.type: Easing.OutQuint }
-                                }
-
-                                MouseArea {
-                                    id: timeCardMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        timePopAnim.start();
-                                        timeStyleCard.flashOpacity = 0.15;
-                                        timeFlashAnim.start();
-                                        if (typeof Sounds !== "undefined") {
-                                            Sounds.playSfx("reusables/clickbutton/click.wav");
-                                        }
-                                        barModulesRoot.setTimeStyle(modelData.id);
+                                    GlassFill {
+                                        id: timeCardGlass
+                                        anchors.fill: parent
+                                        allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                        radius: parent.radius
+                                        tintColor: ThemeBackend.surface0
+                                        tintAmount: isSelected ? 0.45 : 0.25
+                                        press: timeCardMouse.pressed ? 0.8 : (timeCardHover.hovered ? 0.25 : 0)
+                                        pulse: Math.min(1, timeStyleCard.flashOpacity * 2.5)
+                                        Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                                     }
-                                }
 
-                                ColumnLayout {
-                                    id: timeStyleInnerCol
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    anchors.margins: rootObj.s(8)
-                                    spacing: rootObj.s(8)
+                                    border.width: ThemeBackend.liquidGlass ? 0 : 1
+                                    border.color: isSelected
+                                        ? Qt.alpha(ThemeBackend.surface2, 0.75)
+                                        : (timeCardHover.hovered ? Qt.alpha(ThemeBackend.surface2, 0.5) : Qt.alpha(ThemeBackend.surface1, 0.4))
+
+                                    Behavior on color { ColorAnimation { duration: 180 } }
+                                    Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                                    scale: (timeCardMouse.pressed ? 0.985 : (timeCardHover.hovered ? 1.015 : 1.0)) * timeStyleCard.popScale
+                                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutQuint } }
+
+                                    HoverHandler {
+                                        id: timeCardHover
+                                    }
 
                                     Rectangle {
-                                        id: timePreviewBox
-                                        Layout.fillWidth: true
-                                        implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 140 : 72)
-                                        radius: ThemeBackend.borderRadius
-                                        color: Qt.darker(ThemeBackend.mantle, 1.1)
-                                        clip: true
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        color: "#ffffff"
+                                        opacity: timeStyleCard.flashOpacity
+                                        visible: !timeCardGlass.active
+                                        PropertyAnimation on opacity { id: timeFlashAnim; to: 0; duration: 350; easing.type: Easing.OutExpo }
+                                    }
 
-                                        Item {
-                                            anchors.fill: parent
-                                            enabled: false
+                                    SequentialAnimation {
+                                        id: timePopAnim
+                                        NumberAnimation { target: timeStyleCard; property: "popScale"; to: 1.02; duration: 100; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: timeStyleCard; property: "popScale"; to: 1.0; duration: 350; easing.type: Easing.OutQuint }
+                                    }
 
-                                            Loader {
-                                                id: timeFacePreviewLoader
-                                                anchors.centerIn: parent
-                                                width: item ? item.implicitWidth : 0
-                                                height: item ? item.implicitHeight : 0
-                                                scale: Math.min(1.0, Math.min((timePreviewBox.width - rootObj.s(16)) / Math.max(1, width), (timePreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
-                                                asynchronous: false
-                                                source: barModulesRoot.getFaceUrl(modelData.faceFile)
+                                    MouseArea {
+                                        id: timeCardMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            timePopAnim.start();
+                                            timeStyleCard.flashOpacity = 0.15;
+                                            timeFlashAnim.start();
+                                            if (typeof Sounds !== "undefined") {
+                                                Sounds.playSfx("reusables/clickbutton/click.wav");
+                                            }
+                                            barModulesRoot.setTimeStyle(modelData.id);
+                                        }
+                                    }
 
-                                                onLoaded: {
-                                                    if (item) {
-                                                        item.width = Qt.binding(function() { return item.implicitWidth; });
-                                                        item.height = Qt.binding(function() { return item.implicitHeight; });
-                                                        item.widget = previewTimeWidgetObj;
+                                    ColumnLayout {
+                                        id: timeStyleInnerCol
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: rootObj.s(8)
+                                        spacing: rootObj.s(8)
+
+                                        Rectangle {
+                                            id: timePreviewBox
+                                            Layout.fillWidth: true
+                                            implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 140 : 72)
+                                            radius: ThemeBackend.borderRadius
+                                            color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                                            WallpaperBlur {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                standalone: true
+                                                surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                            }
+                                            GlassFill {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                tintColor: ThemeBackend.base
+                                            }
+                                            clip: true
+
+                                            Item {
+                                                anchors.fill: parent
+                                                enabled: false
+
+                                                Loader {
+                                                    id: timeFacePreviewLoader
+                                                    anchors.centerIn: parent
+                                                    width: item ? item.implicitWidth : 0
+                                                    height: item ? item.implicitHeight : 0
+                                                    scale: Math.min(1.0, Math.min((timePreviewBox.width - rootObj.s(16)) / Math.max(1, width), (timePreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                                    asynchronous: false
+                                                    property bool seen: false
+                                                    readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                    active: seen || wanted
+                                                    onWantedChanged: if (wanted) seen = true
+                                                    Component.onCompleted: if (wanted) seen = true
+                                                    source: barModulesRoot.getFaceUrl("timedate", modelData.id)
+
+                                                    onLoaded: {
+                                                        if (item) {
+                                                            item.width = Qt.binding(function() { return item.implicitWidth; });
+                                                            item.height = Qt.binding(function() { return item.implicitHeight; });
+                                                            item.widget = previewTimeWidgetObj;
+                                                        }
+                                                    }
+                                                }
+
+                                                RowLayout {
+                                                    anchors.centerIn: parent
+                                                    visible: !barModulesRoot.isSideBar && (timeFacePreviewLoader.status === Loader.Error || !timeFacePreviewLoader.item)
+                                                    spacing: rootObj.s(6)
+
+                                                    Text {
+                                                        text: "14:28:00"
+                                                        font.family: ThemeBackend.fontFamily
+                                                        font.pixelSize: rootObj.s(13)
+                                                        font.bold: true
+                                                        color: ThemeBackend.text
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    anchors.centerIn: parent
+                                                    visible: barModulesRoot.isSideBar && (timeFacePreviewLoader.status === Loader.Error || !timeFacePreviewLoader.item)
+                                                    spacing: rootObj.s(3)
+
+                                                    Text {
+                                                        Layout.alignment: Qt.AlignHCenter
+                                                        text: "14"
+                                                        font.family: ThemeBackend.fontFamily
+                                                        font.pixelSize: rootObj.s(13)
+                                                        font.bold: true
+                                                        color: ThemeBackend.blue
+                                                    }
+
+                                                    Text {
+                                                        Layout.alignment: Qt.AlignHCenter
+                                                        text: "28"
+                                                        font.family: ThemeBackend.fontFamily
+                                                        font.pixelSize: rootObj.s(13)
+                                                        font.bold: true
+                                                        color: ThemeBackend.sapphire
+                                                    }
+
+                                                    Rectangle {
+                                                        Layout.alignment: Qt.AlignHCenter
+                                                        width: rootObj.s(14)
+                                                        height: 2
+                                                        radius: 1
+                                                        color: ThemeBackend.surface1
+                                                    }
+
+                                                    Text {
+                                                        Layout.alignment: Qt.AlignHCenter
+                                                        text: "18"
+                                                        font.family: ThemeBackend.fontFamily
+                                                        font.pixelSize: rootObj.s(10)
+                                                        font.bold: true
+                                                        color: ThemeBackend.text
+                                                    }
+
+                                                    Text {
+                                                        Layout.alignment: Qt.AlignHCenter
+                                                        text: "Sep"
+                                                        font.family: ThemeBackend.fontFamily
+                                                        font.pixelSize: rootObj.s(8)
+                                                        font.bold: true
+                                                        color: ThemeBackend.subtext0
                                                     }
                                                 }
                                             }
 
-                                            RowLayout {
-                                                anchors.centerIn: parent
-                                                visible: !barModulesRoot.isSideBar && (timeFacePreviewLoader.status === Loader.Error || !timeFacePreviewLoader.item)
-                                                spacing: rootObj.s(6)
-
-                                                Text {
-                                                    text: "14:28:00"
-                                                    font.family: ThemeBackend.fontFamily
-                                                    font.pixelSize: rootObj.s(13)
-                                                    font.bold: true
-                                                    color: ThemeBackend.text
-                                                }
-                                            }
-
-                                            ColumnLayout {
-                                                anchors.centerIn: parent
-                                                visible: barModulesRoot.isSideBar && (timeFacePreviewLoader.status === Loader.Error || !timeFacePreviewLoader.item)
-                                                spacing: rootObj.s(3)
-
-                                                Text {
-                                                    Layout.alignment: Qt.AlignHCenter
-                                                    text: "14"
-                                                    font.family: ThemeBackend.fontFamily
-                                                    font.pixelSize: rootObj.s(13)
-                                                    font.bold: true
-                                                    color: ThemeBackend.blue
-                                                }
-
-                                                Text {
-                                                    Layout.alignment: Qt.AlignHCenter
-                                                    text: "28"
-                                                    font.family: ThemeBackend.fontFamily
-                                                    font.pixelSize: rootObj.s(13)
-                                                    font.bold: true
-                                                    color: ThemeBackend.sapphire
-                                                }
-
-                                                Rectangle {
-                                                    Layout.alignment: Qt.AlignHCenter
-                                                    width: rootObj.s(14)
-                                                    height: 2
-                                                    radius: 1
-                                                    color: ThemeBackend.surface1
-                                                }
-
-                                                Text {
-                                                    Layout.alignment: Qt.AlignHCenter
-                                                    text: "18"
-                                                    font.family: ThemeBackend.fontFamily
-                                                    font.pixelSize: rootObj.s(10)
-                                                    font.bold: true
-                                                    color: ThemeBackend.text
-                                                }
-
-                                                Text {
-                                                    Layout.alignment: Qt.AlignHCenter
-                                                    text: "Sep"
-                                                    font.family: ThemeBackend.fontFamily
-                                                    font.pixelSize: rootObj.s(8)
-                                                    font.bold: true
-                                                    color: ThemeBackend.subtext0
-                                                }
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                color: "transparent"
                                             }
                                         }
 
-                                        Rectangle {
-                                            anchors.fill: parent
-                                            radius: parent.radius
-                                            color: "transparent"
-                                            border.width: 1
-                                            border.color: Qt.alpha(ThemeBackend.surface2, 0.25)
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: rootObj.s(2)
+                                            Layout.rightMargin: rootObj.s(2)
+                                            Layout.bottomMargin: rootObj.s(2)
+                                            text: modelData.name
+                                            font.family: ThemeBackend.fontFamily
+                                            font.pixelSize: rootObj.s(13)
+                                            font.weight: Font.Bold
+                                            color: ThemeBackend.text
                                         }
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        Layout.leftMargin: rootObj.s(2)
-                                        Layout.rightMargin: rootObj.s(2)
-                                        Layout.bottomMargin: rootObj.s(2)
-                                        text: modelData.name
-                                        font.family: ThemeBackend.fontFamily
-                                        font.pixelSize: rootObj.s(13)
-                                        font.weight: Font.Bold
-                                        color: ThemeBackend.text
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                id: visModuleBox
+                Layout.fillWidth: true
+                implicitHeight: visCardLayout.implicitHeight + rootObj.s(24)
+                radius: ThemeBackend.borderRadius
+                color: ThemeBackend.liquidGlass ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gf3
+                    anchors.fill: parent
+                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
+                border.color: Qt.alpha(ThemeBackend.surface1, 0.4)
+                border.width: ThemeBackend.liquidGlass ? 0 : 1
+                clip: true
+
+                ColumnLayout {
+                    id: visCardLayout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: rootObj.s(12)
+                    spacing: rootObj.s(6)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: rootObj.s(6)
+                        Layout.leftMargin: rootObj.s(4)
+                        Layout.rightMargin: rootObj.s(4)
+                        spacing: rootObj.s(8)
+
+                        Text {
+                            text: I18n.t("guide.bar.modules.vis", "Visualizer")
+                            font.family: ThemeBackend.fontFamily
+                            font.pixelSize: rootObj.s(16)
+                            font.bold: true
+                            color: ThemeBackend.text
+                        }
+                    }
+
+                    Rectangle {
+                        id: visPreviewBox
+                        Layout.fillWidth: true
+                        implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 120 : 72)
+                        radius: ThemeBackend.borderRadius
+                        color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                        WallpaperBlur {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            standalone: true
+                            surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                        }
+                        GlassFill {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                            tintColor: ThemeBackend.base
+                        }
+                        clip: true
+
+                        Item {
+                            anchors.fill: parent
+                            enabled: false
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: (visFacePreviewLoader.item ? visFacePreviewLoader.item.implicitWidth : 0) * visFacePreviewLoader.scale
+                                height: (visFacePreviewLoader.item ? visFacePreviewLoader.item.implicitHeight : rootObj.s(32)) * visFacePreviewLoader.scale
+                                radius: ThemeBackend.borderRadius
+                                color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.alpha(ThemeBackend.surface0, 0.5)
+
+                                WallpaperBlur {
+                                    z: -1
+                                    anchors.fill: parent
+                                    radius: parent.radius
+                                    standalone: true
+                                    surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                }
+                                GlassFill {
+                                    z: -1
+                                    anchors.fill: parent
+                                    radius: parent.radius
+                                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                    tintColor: ThemeBackend.base
+                                }
+                                visible: width > 0 && height > 0
+                            }
+
+                            Loader {
+                                id: visFacePreviewLoader
+                                anchors.centerIn: parent
+                                width: item ? item.implicitWidth : 0
+                                height: item ? item.implicitHeight : rootObj.s(32)
+                                scale: Math.min(1.0, Math.min((visPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (visPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                asynchronous: false
+                                property bool seen: false
+                                readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                active: seen || wanted
+                                onWantedChanged: if (wanted) seen = true
+                                Component.onCompleted: if (wanted) seen = true
+                                source: Qt.resolvedUrl("../../bar/faces/vis/VisFace.qml")
+
+                                onLoaded: {
+                                    if (item) {
+                                        item.widget = previewVisWidgetObj;
+                                        item.width = Qt.binding(function() { return item.implicitWidth; });
+                                        item.height = Qt.binding(function() { return item.implicitHeight; });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_vis_bar_count"
+                        searchKeywords: "visualizer bars count amount cava"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰝚"
+                        title: I18n.t("guide.bar.vis.bars.title", "Amount of bars")
+                        description: I18n.t("guide.bar.vis.bars.desc", "Number of frequency bars to display")
+
+                        NumberSelector {
+                            id: visBarCountSelector
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            implicitWidth: rootObj.s(140)
+                            implicitHeight: rootObj.s(32)
+                            from: 4
+                            to: 64
+                            stepSize: 1
+                            decimals: 0
+                            value: barModulesRoot.visBarCount
+                            baseColor: ThemeBackend.surface0
+                            accentColor: ThemeBackend.mauve
+                            buttonColor: ThemeBackend.surface1
+                            buttonTextColor: ThemeBackend.text
+                            textColor: ThemeBackend.text
+                            subTextColor: ThemeBackend.subtext0
+                            borderColor: Qt.alpha(ThemeBackend.surface2, 0.6)
+                            cornerRadius: ThemeBackend.borderRadius
+                            fontFamily: ThemeBackend.fontFamily
+                            fontPixelSize: rootObj.s(12)
+                            onValueChanged: {
+                                let rounded = Math.round(visBarCountSelector.value);
+                                if (barModulesRoot.visBarCount !== rounded) {
+                                    barModulesRoot.setVisBarCount(rounded);
+                                }
+                            }
+                            onTriggered: {
+                                barModulesRoot.setVisBarCount(Math.round(visBarCountSelector.value));
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_vis_alignment"
+                        searchKeywords: "visualizer alignment center top bottom align"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰆑"
+                        title: I18n.t("guide.bar.vis.alignment.title", "Alignment")
+                        description: I18n.t("guide.bar.vis.alignment.desc", "Center the visualizer or align to top or bottom")
+
+                        Switch {
+                            id: visAlignSwitch
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            implicitWidth: rootObj.s(220)
+                            implicitHeight: rootObj.s(32)
+                            cornerRadius: ThemeBackend.borderRadius
+                            fontPixelSize: rootObj.s(11)
+                            options: barModulesRoot.isSideBar
+                                ? [
+                                    I18n.t("guide.bar.vis.align.left", "Left"),
+                                    I18n.t("guide.bar.vis.align.center", "Center"),
+                                    I18n.t("guide.bar.vis.align.right", "Right")
+                                ]
+                                : [
+                                    I18n.t("guide.bar.vis.align.top", "Top"),
+                                    I18n.t("guide.bar.vis.align.center", "Center"),
+                                    I18n.t("guide.bar.vis.align.bottom", "Bottom")
+                                ]
+                            currentIndex: {
+                                let a = barModulesRoot.visAlignment;
+                                if (barModulesRoot.isSideBar) {
+                                    if (a === "left" || a === "top") return 0;
+                                    if (a === "right" || a === "bottom") return 2;
+                                    return 1;
+                                } else {
+                                    if (a === "top" || a === "left") return 0;
+                                    if (a === "bottom" || a === "right") return 2;
+                                    return 1;
+                                }
+                            }
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface0
+                            textColor: ThemeBackend.text
+                            activeTextColor: ThemeBackend.crust
+                            onValueChanged: function(index, value) {
+                                let align = "center";
+                                if (barModulesRoot.isSideBar) {
+                                    align = index === 0 ? "left" : (index === 2 ? "right" : "center");
+                                } else {
+                                    align = index === 0 ? "top" : (index === 2 ? "bottom" : "center");
+                                }
+                                barModulesRoot.setVisAlignment(align);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_vis_continuous"
+                        searchKeywords: "visualizer continuous wave smooth fluid"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰓃"
+                        title: I18n.t("guide.bar.vis.continuous.title", "Continuous wave")
+                        description: I18n.t("guide.bar.vis.continuous.desc", "Render a smooth fluid wave instead of discrete bars")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.visContinuous
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setVisContinuous(c);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                id: sysmonModuleBox
+                Layout.fillWidth: true
+                implicitHeight: sysmonCardLayout.implicitHeight + rootObj.s(24)
+                radius: ThemeBackend.borderRadius
+                color: ThemeBackend.liquidGlass ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gf5
+                    anchors.fill: parent
+                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
+                border.color: Qt.alpha(ThemeBackend.surface1, 0.4)
+                border.width: ThemeBackend.liquidGlass ? 0 : 1
+                clip: true
+
+                ColumnLayout {
+                    id: sysmonCardLayout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: rootObj.s(12)
+                    spacing: rootObj.s(6)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: rootObj.s(6)
+                        Layout.leftMargin: rootObj.s(4)
+                        Layout.rightMargin: rootObj.s(4)
+                        spacing: rootObj.s(8)
+
+                        Text {
+                            text: I18n.t("guide.bar.modules.sysmon", "System monitor")
+                            font.family: ThemeBackend.fontFamily
+                            font.pixelSize: rootObj.s(16)
+                            font.bold: true
+                            color: ThemeBackend.text
+                        }
+                    }
+
+                    Rectangle {
+                        id: sysmonPreviewBox
+                        Layout.fillWidth: true
+                        implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 150 : 72)
+                        radius: ThemeBackend.borderRadius
+                        color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                        WallpaperBlur {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            standalone: true
+                            surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                        }
+                        GlassFill {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                            tintColor: ThemeBackend.base
+                        }
+                        clip: true
+
+                        Item {
+                            anchors.fill: parent
+                            enabled: false
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: (sysmonFacePreviewLoader.item ? sysmonFacePreviewLoader.item.implicitWidth : 0) * sysmonFacePreviewLoader.scale
+                                height: (sysmonFacePreviewLoader.item ? sysmonFacePreviewLoader.item.implicitHeight : rootObj.s(32)) * sysmonFacePreviewLoader.scale
+                                radius: ThemeBackend.borderRadius
+                                color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.alpha(ThemeBackend.surface0, 0.5)
+
+                                WallpaperBlur {
+                                    z: -1
+                                    anchors.fill: parent
+                                    radius: parent.radius
+                                    standalone: true
+                                    surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                }
+                                GlassFill {
+                                    z: -1
+                                    anchors.fill: parent
+                                    radius: parent.radius
+                                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                    tintColor: ThemeBackend.base
+                                }
+                                visible: width > 0 && height > 0
+                            }
+
+                            Loader {
+                                id: sysmonFacePreviewLoader
+                                anchors.centerIn: parent
+                                width: item ? item.implicitWidth : 0
+                                height: item ? item.implicitHeight : rootObj.s(32)
+                                scale: Math.min(1.0, Math.min((sysmonPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (sysmonPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                asynchronous: false
+                                property bool seen: false
+                                readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                active: seen || wanted
+                                onWantedChanged: if (wanted) seen = true
+                                Component.onCompleted: if (wanted) seen = true
+                                source: Qt.resolvedUrl("../../bar/faces/sysmon/SysMonFace.qml")
+
+                                onLoaded: {
+                                    if (item) {
+                                        item.widget = previewSysWidgetObj;
+                                        item.width = Qt.binding(function() { return item.implicitWidth; });
+                                        item.height = Qt.binding(function() { return item.implicitHeight; });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_sysmon_style"
+                        searchKeywords: "sysmon system monitor circle style wave ring"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󱐋"
+                        title: I18n.t("guide.bar.sysmon.style.title", "Circle style")
+                        description: I18n.t("guide.bar.sysmon.style.desc", "Visual appearance of the progress rings")
+
+                        Switch {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            implicitWidth: rootObj.s(200)
+                            implicitHeight: rootObj.s(32)
+                            cornerRadius: ThemeBackend.borderRadius
+                            fontPixelSize: rootObj.s(11)
+                            options: [
+                                I18n.t("guide.bar.sysmon.style.wave", "Wave"),
+                                I18n.t("guide.bar.sysmon.style.circle", "Circle")
+                            ]
+                            currentIndex: barModulesRoot.sysmonStyle === "circle" ? 1 : 0
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface0
+                            textColor: ThemeBackend.text
+                            activeTextColor: ThemeBackend.crust
+                            onValueChanged: function(index, value) {
+                                barModulesRoot.setSysmonStyle(index === 1 ? "circle" : "wave");
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_sysmon_cpu"
+                        searchKeywords: "sysmon cpu processor load usage"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰍛"
+                        title: I18n.t("guide.bar.sysmon.cpu.title", "CPU usage")
+                        description: I18n.t("guide.bar.sysmon.cpu.desc", "Display processor utilization ring")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.isSysmonStatEnabled("cpu")
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.toggleSysmonStat("cpu", c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_sysmon_ram"
+                        searchKeywords: "sysmon ram memory usage"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰘚"
+                        title: I18n.t("guide.bar.sysmon.ram.title", "Memory usage")
+                        description: I18n.t("guide.bar.sysmon.ram.desc", "Display memory (RAM) utilization ring")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.isSysmonStatEnabled("ram")
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.toggleSysmonStat("ram", c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_sysmon_temp"
+                        searchKeywords: "sysmon temperature temp degrees"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰔏"
+                        title: I18n.t("guide.bar.sysmon.temp.title", "Temperature")
+                        description: I18n.t("guide.bar.sysmon.temp.desc", "Display system temperature ring")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.isSysmonStatEnabled("temp")
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.toggleSysmonStat("temp", c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_sysmon_disk"
+                        searchKeywords: "sysmon disk storage usage space drive"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰋊"
+                        title: I18n.t("guide.bar.sysmon.disk.title", "Disk usage")
+                        description: I18n.t("guide.bar.sysmon.disk.desc", "Display storage disk utilization ring")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.isSysmonStatEnabled("disk")
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.toggleSysmonStat("disk", c);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                id: batteryModuleBox
+                visible: !barModulesRoot.isDesktop
+                Layout.fillWidth: true
+                implicitHeight: visible ? (batteryCardLayout.implicitHeight + rootObj.s(24)) : 0
+                radius: ThemeBackend.borderRadius
+                color: ThemeBackend.liquidGlass ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gf7
+                    anchors.fill: parent
+                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
+                border.color: Qt.alpha(ThemeBackend.surface1, 0.4)
+                border.width: ThemeBackend.liquidGlass ? 0 : 1
+                clip: true
+
+                ColumnLayout {
+                    id: batteryCardLayout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: rootObj.s(12)
+                    spacing: rootObj.s(6)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: rootObj.s(6)
+                        Layout.leftMargin: rootObj.s(4)
+                        Layout.rightMargin: rootObj.s(4)
+                        spacing: rootObj.s(8)
+
+                        Text {
+                            text: I18n.t("guide.bar.modules.battery", "Battery")
+                            font.family: ThemeBackend.fontFamily
+                            font.pixelSize: rootObj.s(16)
+                            font.bold: true
+                            color: ThemeBackend.text
+                        }
+                    }
+
+                    Rectangle {
+                        id: batPreviewBox
+                        Layout.fillWidth: true
+                        implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 120 : 72)
+                        radius: ThemeBackend.borderRadius
+                        color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                        WallpaperBlur {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            standalone: true
+                            surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                        }
+                        GlassFill {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                            tintColor: ThemeBackend.base
+                        }
+                        clip: true
+
+                        Item {
+                            anchors.fill: parent
+                            enabled: false
+
+                            Loader {
+                                id: batFacePreviewLoader
+                                anchors.centerIn: parent
+                                width: item ? item.implicitWidth : 0
+                                height: item ? item.implicitHeight : 0
+                                scale: Math.min(1.0, Math.min((batPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (batPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                asynchronous: false
+                                property bool seen: false
+                                readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                active: seen || wanted
+                                onWantedChanged: if (wanted) seen = true
+                                Component.onCompleted: if (wanted) seen = true
+                                source: Qt.resolvedUrl("../../bar/faces/bat/BatFace.qml")
+
+                                onLoaded: {
+                                    if (item) {
+                                        item.widget = previewBatWidgetObj;
+                                        item.width = Qt.binding(function() { return item.implicitWidth; });
+                                        item.height = Qt.binding(function() { return item.implicitHeight; });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_bat_show_percent"
+                        searchKeywords: "battery charge percentage percent number"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰚥"
+                        title: I18n.t("guide.bar.bat.show_percent.title", "Show percentage")
+                        description: I18n.t("guide.bar.bat.show_percent.desc", "Display the numeric battery charge percentage")
+                        visible: !barModulesRoot.isSideBar
+                        searchable: !barModulesRoot.isSideBar
+                        hiddenByConfig: barModulesRoot.isSideBar
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.batShowPercent
+                            enabled: !checked || barModulesRoot.batShowIcon
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setBatShowPercent(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_bat_show_icon"
+                        searchKeywords: "battery icon symbol indicator"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰁹"
+                        title: I18n.t("guide.bar.bat.show_icon.title", "Show icon")
+                        description: I18n.t("guide.bar.bat.show_icon.desc", "Display the battery icon or graphic indicator")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.batShowIcon
+                            enabled: !checked || barModulesRoot.batShowPercent
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setBatShowIcon(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        id: batStyleRow
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_bat_style"
+                        searchKeywords: "battery style look visual classic minimal text ios android capsule"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰂄"
+                        title: I18n.t("guide.bar.bat.style.title", "Battery style")
+                        description: I18n.t("guide.bar.bat.style.desc", "Choose the visual appearance of the battery indicator")
+
+                        bottomContent: GridLayout {
+                            id: batStylesGrid
+                            Layout.fillWidth: true
+                            columns: Math.max(1, Math.min(3, Math.floor(batteryCardLayout.width / rootObj.s(160))))
+                            rowSpacing: rootObj.s(10)
+                            columnSpacing: rootObj.s(10)
+
+                            Repeater {
+                                model: barModulesRoot.batStyles
+                                delegate: Rectangle {
+                                    id: batStyleCard
+                                    required property var modelData
+                                    required property int index
+
+                                    readonly property bool isSelected: barModulesRoot.batStyle === modelData.id
+                                    property real popScale: 1.0
+                                    property real flashOpacity: 0.0
+
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    implicitHeight: batStyleInnerCol.implicitHeight + rootObj.s(16)
+                                    radius: ThemeBackend.borderRadius
+                                    clip: true
+
+                                    color: ThemeBackend.liquidGlass ? "transparent" : (batCardMouse.pressed
+                                        ? Qt.darker(ThemeBackend.surface0, 1.15)
+                                        : (isSelected
+                                            ? (batCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.30) : Qt.lighter(ThemeBackend.surface0, 1.24))
+                                            : (batCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.10) : ThemeBackend.surface0)))
+
+                                    GlassFill {
+                                        id: cardGlass2
+                                        anchors.fill: parent
+                                        allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                        radius: parent.radius
+                                        tintColor: ThemeBackend.surface0
+                                        tintAmount: isSelected ? 0.45 : 0.25
+                                        press: batCardMouse.pressed ? 0.8 : (batCardHover.hovered ? 0.25 : 0)
+                                        Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    border.width: ThemeBackend.liquidGlass ? 0 : 1
+                                    border.color: isSelected
+                                        ? Qt.alpha(ThemeBackend.surface2, 0.75)
+                                        : (batCardHover.hovered ? Qt.alpha(ThemeBackend.surface2, 0.5) : Qt.alpha(ThemeBackend.surface1, 0.4))
+
+                                    Behavior on color { ColorAnimation { duration: 180 } }
+                                    Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                                    scale: (batCardMouse.pressed ? 0.985 : (batCardHover.hovered ? 1.015 : 1.0)) * batStyleCard.popScale
+                                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutQuint } }
+
+                                    HoverHandler {
+                                        id: batCardHover
+                                    }
+
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        color: "#ffffff"
+                                        opacity: batStyleCard.flashOpacity
+                                        visible: !cardGlass2.active
+                                        PropertyAnimation on opacity { id: batFlashAnim; to: 0; duration: 350; easing.type: Easing.OutExpo }
+                                    }
+
+                                    SequentialAnimation {
+                                        id: batPopAnim
+                                        NumberAnimation { target: batStyleCard; property: "popScale"; to: 1.02; duration: 100; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: batStyleCard; property: "popScale"; to: 1.0; duration: 350; easing.type: Easing.OutQuint }
+                                    }
+
+                                    MouseArea {
+                                        id: batCardMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            batPopAnim.start();
+                                            batStyleCard.flashOpacity = 0.15;
+                                            batFlashAnim.start();
+                                            if (typeof Sounds !== "undefined") {
+                                                Sounds.playSfx("reusables/clickbutton/click.wav");
+                                            }
+                                            barModulesRoot.setBatStyle(modelData.id);
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        id: batStyleInnerCol
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: rootObj.s(8)
+                                        spacing: rootObj.s(8)
+
+                                        Rectangle {
+                                            id: batCardPreviewBox
+                                            Layout.fillWidth: true
+                                            implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 140 : 72)
+                                            radius: ThemeBackend.borderRadius
+                                            color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                                            WallpaperBlur {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                standalone: true
+                                                surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                            }
+                                            GlassFill {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                tintColor: ThemeBackend.base
+                                            }
+                                            clip: true
+
+                                            Item {
+                                                anchors.fill: parent
+                                                enabled: false
+
+                                                QtObject {
+                                                    id: batCardMockWidget
+                                                    function s(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    property bool isCompact: false
+                                                    property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+                                                    property string batStyle: modelData.id
+                                                    property bool batShowPercent: barModulesRoot.batShowPercent
+                                                    property bool batShowIcon: barModulesRoot.batShowIcon
+                                                    property bool isPreview: true
+                                                    property var barWindow: ({
+                                                        "startupCascadeFinished": true,
+                                                        "isStartupReady": true,
+                                                        "isDataReady": true,
+                                                        "barOpacity": barModulesRoot.barOpacity,
+                                                        "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    })
+                                                    property bool moduleActive: barModulesRoot.visible
+                                                }
+
+                                                Loader {
+                                                    id: batCardFaceLoader
+                                                    anchors.centerIn: parent
+                                                    width: item ? item.implicitWidth : 0
+                                                    height: item ? item.implicitHeight : 0
+                                                    scale: Math.min(1.0, Math.min((batCardPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (batCardPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                                    asynchronous: false
+                                                    property bool seen: false
+                                                    readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                    active: seen || wanted
+                                                    onWantedChanged: if (wanted) seen = true
+                                                    Component.onCompleted: if (wanted) seen = true
+                                                    source: Qt.resolvedUrl("../../bar/faces/bat/BatFace.qml")
+
+                                                    onLoaded: {
+                                                        if (item) {
+                                                            item.width = Qt.binding(function() { return item.implicitWidth; });
+                                                            item.height = Qt.binding(function() { return item.implicitHeight; });
+                                                            item.widget = batCardMockWidget;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                color: "transparent"
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: rootObj.s(2)
+                                            Layout.rightMargin: rootObj.s(2)
+                                            Layout.bottomMargin: rootObj.s(2)
+                                            text: modelData.name
+                                            font.family: ThemeBackend.fontFamily
+                                            font.pixelSize: rootObj.s(13)
+                                            font.weight: Font.Bold
+                                            color: ThemeBackend.text
+                                        }
+                                    }
+                                }
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                visible: batStylesGrid.columns === 3
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                id: wifiModuleBox
+                Layout.fillWidth: true
+                implicitHeight: wifiCardLayout.implicitHeight + rootObj.s(24)
+                radius: ThemeBackend.borderRadius
+                color: ThemeBackend.liquidGlass ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gf8
+                    anchors.fill: parent
+                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
+                border.color: Qt.alpha(ThemeBackend.surface1, 0.4)
+                border.width: ThemeBackend.liquidGlass ? 0 : 1
+                clip: true
+
+                ColumnLayout {
+                    id: wifiCardLayout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: rootObj.s(12)
+                    spacing: rootObj.s(6)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: rootObj.s(6)
+                        Layout.leftMargin: rootObj.s(4)
+                        Layout.rightMargin: rootObj.s(4)
+                        spacing: rootObj.s(8)
+
+                        Text {
+                            text: I18n.t("guide.bar.modules.network", "Network")
+                            font.family: ThemeBackend.fontFamily
+                            font.pixelSize: rootObj.s(16)
+                            font.bold: true
+                            color: ThemeBackend.text
+                        }
+                    }
+
+                    Rectangle {
+                        id: wifiPreviewBox
+                        Layout.fillWidth: true
+                        implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 120 : 72)
+                        radius: ThemeBackend.borderRadius
+                        color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                        WallpaperBlur {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            standalone: true
+                            surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                        }
+                        GlassFill {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                            tintColor: ThemeBackend.base
+                        }
+                        clip: true
+
+                        Item {
+                            anchors.fill: parent
+                            enabled: false
+
+                            Loader {
+                                id: wifiFacePreviewLoader
+                                anchors.centerIn: parent
+                                width: item ? item.implicitWidth : 0
+                                height: item ? item.implicitHeight : 0
+                                scale: Math.min(1.0, Math.min((wifiPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (wifiPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                asynchronous: false
+                                property bool seen: false
+                                readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                active: seen || wanted
+                                onWantedChanged: if (wanted) seen = true
+                                Component.onCompleted: if (wanted) seen = true
+                                source: Qt.resolvedUrl("../../bar/faces/wifi/WifiFace.qml")
+
+                                onLoaded: {
+                                    if (item) {
+                                        item.widget = previewWifiWidgetObj;
+                                        item.width = Qt.binding(function() { return item.implicitWidth; });
+                                        item.height = Qt.binding(function() { return item.implicitHeight; });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_wifi_show_icon"
+                        searchKeywords: "network wifi ethernet icon symbol indicator"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰤨"
+                        title: I18n.t("guide.bar.wifi.show_icon.title", "Show icon")
+                        description: I18n.t("guide.bar.wifi.show_icon.desc", "Display the network icon or signal indicator")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.wifiShowIcon
+                            enabled: !checked || barModulesRoot.wifiShowName
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setWifiShowIcon(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_wifi_show_name"
+                        searchKeywords: "network wifi ethernet ssid name title"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰤥"
+                        title: I18n.t("guide.bar.wifi.show_name.title", "Show name")
+                        description: I18n.t("guide.bar.wifi.show_name.desc", "Display the network SSID or connection status text")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.wifiShowName
+                            enabled: !checked || barModulesRoot.wifiShowIcon
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setWifiShowName(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        id: wifiStyleRow
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_wifi_style"
+                        searchKeywords: "network wifi style look button text layout"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰤨"
+                        title: I18n.t("guide.bar.wifi.style.title", "Style")
+                        description: I18n.t("guide.bar.wifi.style.desc", "Choose the visual appearance of the network module")
+
+                        bottomContent: GridLayout {
+                            id: wifiStylesGrid
+                            Layout.fillWidth: true
+                            columns: Math.max(1, Math.min(3, Math.floor(wifiCardLayout.width / rootObj.s(160))))
+                            rowSpacing: rootObj.s(10)
+                            columnSpacing: rootObj.s(10)
+
+                            Repeater {
+                                model: barModulesRoot.wifiStyles
+                                delegate: Rectangle {
+                                    id: wifiStyleCard
+                                    required property var modelData
+                                    required property int index
+
+                                    readonly property bool isSelected: barModulesRoot.wifiStyle === modelData.id
+                                    property real popScale: 1.0
+                                    property real flashOpacity: 0.0
+
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    implicitHeight: wifiStyleInnerCol.implicitHeight + rootObj.s(16)
+                                    radius: ThemeBackend.borderRadius
+                                    clip: true
+
+                                    color: ThemeBackend.liquidGlass ? "transparent" : (wifiCardMouse.pressed
+                                        ? Qt.darker(ThemeBackend.surface0, 1.15)
+                                        : (isSelected
+                                            ? (wifiCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.30) : Qt.lighter(ThemeBackend.surface0, 1.24))
+                                            : (wifiCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.10) : ThemeBackend.surface0)))
+
+                                    GlassFill {
+                                        id: cardGlass3
+                                        anchors.fill: parent
+                                        allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                        radius: parent.radius
+                                        tintColor: ThemeBackend.surface0
+                                        tintAmount: isSelected ? 0.45 : 0.25
+                                        press: wifiCardMouse.pressed ? 0.8 : (wifiCardHover.hovered ? 0.25 : 0)
+                                        Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    border.width: ThemeBackend.liquidGlass ? 0 : 1
+                                    border.color: isSelected
+                                        ? Qt.alpha(ThemeBackend.surface2, 0.75)
+                                        : (wifiCardHover.hovered ? Qt.alpha(ThemeBackend.surface2, 0.5) : Qt.alpha(ThemeBackend.surface1, 0.4))
+
+                                    Behavior on color { ColorAnimation { duration: 180 } }
+                                    Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                                    scale: (wifiCardMouse.pressed ? 0.985 : (wifiCardHover.hovered ? 1.015 : 1.0)) * wifiStyleCard.popScale
+                                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutQuint } }
+
+                                    HoverHandler {
+                                        id: wifiCardHover
+                                    }
+
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        color: "#ffffff"
+                                        opacity: wifiStyleCard.flashOpacity
+                                        visible: !cardGlass3.active
+                                        PropertyAnimation on opacity { id: wifiFlashAnim; to: 0; duration: 350; easing.type: Easing.OutExpo }
+                                    }
+
+                                    SequentialAnimation {
+                                        id: wifiPopAnim
+                                        NumberAnimation { target: wifiStyleCard; property: "popScale"; to: 1.02; duration: 100; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: wifiStyleCard; property: "popScale"; to: 1.0; duration: 350; easing.type: Easing.OutQuint }
+                                    }
+
+                                    MouseArea {
+                                        id: wifiCardMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            wifiPopAnim.start();
+                                            wifiStyleCard.flashOpacity = 0.15;
+                                            wifiFlashAnim.start();
+                                            if (typeof Sounds !== "undefined") {
+                                                Sounds.playSfx("reusables/clickbutton/click.wav");
+                                            }
+                                            barModulesRoot.setWifiStyle(modelData.id);
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        id: wifiStyleInnerCol
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: rootObj.s(8)
+                                        spacing: rootObj.s(8)
+
+                                        Rectangle {
+                                            id: wifiCardPreviewBox
+                                            Layout.fillWidth: true
+                                            implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 140 : 72)
+                                            radius: ThemeBackend.borderRadius
+                                            color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                                            WallpaperBlur {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                standalone: true
+                                                surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                            }
+                                            GlassFill {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                tintColor: ThemeBackend.base
+                                            }
+                                            clip: true
+
+                                            Item {
+                                                anchors.fill: parent
+                                                enabled: false
+
+                                                QtObject {
+                                                    id: wifiCardMockWidget
+                                                    function s(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    property bool isCompact: false
+                                                    property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+                                                    property string wifiStyle: modelData.id
+                                                    property bool wifiShowIcon: barModulesRoot.wifiShowIcon
+                                                    property bool wifiShowName: barModulesRoot.wifiShowName
+                                                    property bool isPreview: true
+                                                    property var barWindow: ({
+                                                        "startupCascadeFinished": true,
+                                                        "isStartupReady": true,
+                                                        "isDataReady": true,
+                                                        "barOpacity": barModulesRoot.barOpacity,
+                                                        "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    })
+                                                    property bool moduleActive: barModulesRoot.visible
+                                                }
+
+                                                Loader {
+                                                    id: wifiCardFaceLoader
+                                                    anchors.centerIn: parent
+                                                    width: item ? item.implicitWidth : 0
+                                                    height: item ? item.implicitHeight : 0
+                                                    scale: Math.min(1.0, Math.min((wifiCardPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (wifiCardPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                                    asynchronous: false
+                                                    property bool seen: false
+                                                    readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                    active: seen || wanted
+                                                    onWantedChanged: if (wanted) seen = true
+                                                    Component.onCompleted: if (wanted) seen = true
+                                                    source: Qt.resolvedUrl("../../bar/faces/wifi/WifiFace.qml")
+
+                                                    onLoaded: {
+                                                        if (item) {
+                                                            item.width = Qt.binding(function() { return item.implicitWidth; });
+                                                            item.height = Qt.binding(function() { return item.implicitHeight; });
+                                                            item.widget = wifiCardMockWidget;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                color: "transparent"
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: rootObj.s(2)
+                                            Layout.rightMargin: rootObj.s(2)
+                                            Layout.bottomMargin: rootObj.s(2)
+                                            text: modelData.name
+                                            font.family: ThemeBackend.fontFamily
+                                            font.pixelSize: rootObj.s(13)
+                                            font.weight: Font.Bold
+                                            color: ThemeBackend.text
+                                        }
+                                    }
+                                }
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                visible: wifiStylesGrid.columns === 3
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                id: btModuleBox
+                Layout.fillWidth: true
+                implicitHeight: btCardLayout.implicitHeight + rootObj.s(24)
+                radius: ThemeBackend.borderRadius
+                color: ThemeBackend.liquidGlass ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gf9
+                    anchors.fill: parent
+                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
+                border.color: Qt.alpha(ThemeBackend.surface1, 0.4)
+                border.width: ThemeBackend.liquidGlass ? 0 : 1
+                clip: true
+
+                ColumnLayout {
+                    id: btCardLayout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: rootObj.s(12)
+                    spacing: rootObj.s(6)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: rootObj.s(6)
+                        Layout.leftMargin: rootObj.s(4)
+                        Layout.rightMargin: rootObj.s(4)
+                        spacing: rootObj.s(8)
+
+                        Text {
+                            text: I18n.t("guide.bar.modules.bluetooth", "Bluetooth")
+                            font.family: ThemeBackend.fontFamily
+                            font.pixelSize: rootObj.s(16)
+                            font.bold: true
+                            color: ThemeBackend.text
+                        }
+                    }
+
+                    Rectangle {
+                        id: btPreviewBox
+                        Layout.fillWidth: true
+                        implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 120 : 72)
+                        radius: ThemeBackend.borderRadius
+                        color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                        WallpaperBlur {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            standalone: true
+                            surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                        }
+                        GlassFill {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                            tintColor: ThemeBackend.base
+                        }
+                        clip: true
+
+                        Item {
+                            anchors.fill: parent
+                            enabled: false
+
+                            Loader {
+                                id: btFacePreviewLoader
+                                anchors.centerIn: parent
+                                width: item ? item.implicitWidth : 0
+                                height: item ? item.implicitHeight : 0
+                                scale: Math.min(1.0, Math.min((btPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (btPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                asynchronous: false
+                                property bool seen: false
+                                readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                active: seen || wanted
+                                onWantedChanged: if (wanted) seen = true
+                                Component.onCompleted: if (wanted) seen = true
+                                source: Qt.resolvedUrl("../../bar/faces/bt/BtFace.qml")
+
+                                onLoaded: {
+                                    if (item) {
+                                        item.widget = previewBtWidgetObj;
+                                        item.width = Qt.binding(function() { return item.implicitWidth; });
+                                        item.height = Qt.binding(function() { return item.implicitHeight; });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_bt_show_icon"
+                        searchKeywords: "bluetooth icon symbol indicator"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰂲"
+                        title: I18n.t("guide.bar.bt.show_icon.title", "Show icon")
+                        description: I18n.t("guide.bar.bt.show_icon.desc", "Display the bluetooth status icon")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.btShowIcon
+                            enabled: !checked || barModulesRoot.btShowName
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setBtShowIcon(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_bt_show_name"
+                        searchKeywords: "bluetooth device name title connected"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰂯"
+                        title: I18n.t("guide.bar.bt.show_name.title", "Show name")
+                        description: I18n.t("guide.bar.bt.show_name.desc", "Display the connected bluetooth device name")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.btShowName
+                            enabled: !checked || barModulesRoot.btShowIcon
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setBtShowName(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        id: btStyleRow
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_bt_style"
+                        searchKeywords: "bluetooth style look button text layout"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰂲"
+                        title: I18n.t("guide.bar.bt.style.title", "Style")
+                        description: I18n.t("guide.bar.bt.style.desc", "Choose the visual appearance of the bluetooth module")
+
+                        bottomContent: GridLayout {
+                            id: btStylesGrid
+                            Layout.fillWidth: true
+                            columns: Math.max(1, Math.min(3, Math.floor(btCardLayout.width / rootObj.s(160))))
+                            rowSpacing: rootObj.s(10)
+                            columnSpacing: rootObj.s(10)
+
+                            Repeater {
+                                model: barModulesRoot.btStyles
+                                delegate: Rectangle {
+                                    id: btStyleCard
+                                    required property var modelData
+                                    required property int index
+
+                                    readonly property bool isSelected: barModulesRoot.btStyle === modelData.id
+                                    property real popScale: 1.0
+                                    property real flashOpacity: 0.0
+
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    implicitHeight: btStyleInnerCol.implicitHeight + rootObj.s(16)
+                                    radius: ThemeBackend.borderRadius
+                                    clip: true
+
+                                    color: ThemeBackend.liquidGlass ? "transparent" : (btCardMouse.pressed
+                                        ? Qt.darker(ThemeBackend.surface0, 1.15)
+                                        : (isSelected
+                                            ? (btCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.30) : Qt.lighter(ThemeBackend.surface0, 1.24))
+                                            : (btCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.10) : ThemeBackend.surface0)))
+
+                                    GlassFill {
+                                        id: cardGlass4
+                                        anchors.fill: parent
+                                        allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                        radius: parent.radius
+                                        tintColor: ThemeBackend.surface0
+                                        tintAmount: isSelected ? 0.45 : 0.25
+                                        press: btCardMouse.pressed ? 0.8 : (btCardHover.hovered ? 0.25 : 0)
+                                        Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    border.width: ThemeBackend.liquidGlass ? 0 : 1
+                                    border.color: isSelected
+                                        ? Qt.alpha(ThemeBackend.surface2, 0.75)
+                                        : (btCardHover.hovered ? Qt.alpha(ThemeBackend.surface2, 0.5) : Qt.alpha(ThemeBackend.surface1, 0.4))
+
+                                    Behavior on color { ColorAnimation { duration: 180 } }
+                                    Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                                    scale: (btCardMouse.pressed ? 0.985 : (btCardHover.hovered ? 1.015 : 1.0)) * btStyleCard.popScale
+                                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutQuint } }
+
+                                    HoverHandler {
+                                        id: btCardHover
+                                    }
+
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        color: "#ffffff"
+                                        opacity: btStyleCard.flashOpacity
+                                        visible: !cardGlass4.active
+                                        PropertyAnimation on opacity { id: btFlashAnim; to: 0; duration: 350; easing.type: Easing.OutExpo }
+                                    }
+
+                                    SequentialAnimation {
+                                        id: btPopAnim
+                                        NumberAnimation { target: btStyleCard; property: "popScale"; to: 1.02; duration: 100; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: btStyleCard; property: "popScale"; to: 1.0; duration: 350; easing.type: Easing.OutQuint }
+                                    }
+
+                                    MouseArea {
+                                        id: btCardMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            btPopAnim.start();
+                                            btStyleCard.flashOpacity = 0.15;
+                                            btFlashAnim.start();
+                                            if (typeof Sounds !== "undefined") {
+                                                Sounds.playSfx("reusables/clickbutton/click.wav");
+                                            }
+                                            barModulesRoot.setBtStyle(modelData.id);
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        id: btStyleInnerCol
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: rootObj.s(8)
+                                        spacing: rootObj.s(8)
+
+                                        Rectangle {
+                                            id: btCardPreviewBox
+                                            Layout.fillWidth: true
+                                            implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 140 : 72)
+                                            radius: ThemeBackend.borderRadius
+                                            color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                                            WallpaperBlur {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                standalone: true
+                                                surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                            }
+                                            GlassFill {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                tintColor: ThemeBackend.base
+                                            }
+                                            clip: true
+
+                                            Item {
+                                                anchors.fill: parent
+                                                enabled: false
+
+                                                QtObject {
+                                                    id: btCardMockWidget
+                                                    function s(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    property bool isCompact: false
+                                                    property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+                                                    property string btStyle: modelData.id
+                                                    property bool btShowIcon: barModulesRoot.btShowIcon
+                                                    property bool btShowName: barModulesRoot.btShowName
+                                                    property bool isPreview: true
+                                                    property var barWindow: ({
+                                                        "startupCascadeFinished": true,
+                                                        "isStartupReady": true,
+                                                        "isDataReady": true,
+                                                        "barOpacity": barModulesRoot.barOpacity,
+                                                        "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    })
+                                                    property bool moduleActive: barModulesRoot.visible
+                                                }
+
+                                                Loader {
+                                                    id: btCardFaceLoader
+                                                    anchors.centerIn: parent
+                                                    width: item ? item.implicitWidth : 0
+                                                    height: item ? item.implicitHeight : 0
+                                                    scale: Math.min(1.0, Math.min((btCardPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (btCardPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                                    asynchronous: false
+                                                    property bool seen: false
+                                                    readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                    active: seen || wanted
+                                                    onWantedChanged: if (wanted) seen = true
+                                                    Component.onCompleted: if (wanted) seen = true
+                                                    source: Qt.resolvedUrl("../../bar/faces/bt/BtFace.qml")
+
+                                                    onLoaded: {
+                                                        if (item) {
+                                                            item.width = Qt.binding(function() { return item.implicitWidth; });
+                                                            item.height = Qt.binding(function() { return item.implicitHeight; });
+                                                            item.widget = btCardMockWidget;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                color: "transparent"
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: rootObj.s(2)
+                                            Layout.rightMargin: rootObj.s(2)
+                                            Layout.bottomMargin: rootObj.s(2)
+                                            text: modelData.name
+                                            font.family: ThemeBackend.fontFamily
+                                            font.pixelSize: rootObj.s(13)
+                                            font.weight: Font.Bold
+                                            color: ThemeBackend.text
+                                        }
+                                    }
+                                }
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                visible: btStylesGrid.columns === 3
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                id: volModuleBox
+                Layout.fillWidth: true
+                implicitHeight: volCardLayout.implicitHeight + rootObj.s(24)
+                radius: ThemeBackend.borderRadius
+                color: ThemeBackend.liquidGlass ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gf10
+                    anchors.fill: parent
+                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
+                border.color: Qt.alpha(ThemeBackend.surface1, 0.4)
+                border.width: ThemeBackend.liquidGlass ? 0 : 1
+                clip: true
+
+                ColumnLayout {
+                    id: volCardLayout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: rootObj.s(12)
+                    spacing: rootObj.s(6)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: rootObj.s(6)
+                        Layout.leftMargin: rootObj.s(4)
+                        Layout.rightMargin: rootObj.s(4)
+                        spacing: rootObj.s(8)
+
+                        Text {
+                            text: I18n.t("guide.bar.modules.volume", "Volume")
+                            font.family: ThemeBackend.fontFamily
+                            font.pixelSize: rootObj.s(16)
+                            font.bold: true
+                            color: ThemeBackend.text
+                        }
+                    }
+
+                    Rectangle {
+                        id: volPreviewBox
+                        Layout.fillWidth: true
+                        implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 120 : 72)
+                        radius: ThemeBackend.borderRadius
+                        color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                        WallpaperBlur {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            standalone: true
+                            surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                        }
+                        GlassFill {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                            tintColor: ThemeBackend.base
+                        }
+                        clip: true
+
+                        Item {
+                            anchors.fill: parent
+                            enabled: false
+
+                            Loader {
+                                id: volFacePreviewLoader
+                                anchors.centerIn: parent
+                                width: item ? item.implicitWidth : 0
+                                height: item ? item.implicitHeight : 0
+                                scale: Math.min(1.0, Math.min((volPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (volPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                asynchronous: false
+                                property bool seen: false
+                                readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                active: seen || wanted
+                                onWantedChanged: if (wanted) seen = true
+                                Component.onCompleted: if (wanted) seen = true
+                                source: Qt.resolvedUrl("../../bar/faces/vol/VolFace.qml")
+
+                                onLoaded: {
+                                    if (item) {
+                                        item.widget = previewVolWidgetObj;
+                                        item.width = Qt.binding(function() { return item.implicitWidth; });
+                                        item.height = Qt.binding(function() { return item.implicitHeight; });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_vol_show_icon"
+                        searchKeywords: "volume audio sound icon symbol indicator"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰕾"
+                        title: I18n.t("guide.bar.vol.show_icon.title", "Show icon")
+                        description: I18n.t("guide.bar.vol.show_icon.desc", "Display the volume speaker icon")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.volShowIcon
+                            enabled: !checked || barModulesRoot.volShowPercent
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setVolShowIcon(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_vol_show_percent"
+                        searchKeywords: "volume percentage percent level audio sound"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰚥"
+                        title: I18n.t("guide.bar.vol.show_percent.title", "Show percentage")
+                        description: I18n.t("guide.bar.vol.show_percent.desc", "Display the numeric audio volume percentage")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.volShowPercent
+                            enabled: !checked || barModulesRoot.volShowIcon
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setVolShowPercent(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        id: volStyleRow
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_vol_style"
+                        searchKeywords: "volume audio style look button text layout"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰕾"
+                        title: I18n.t("guide.bar.vol.style.title", "Style")
+                        description: I18n.t("guide.bar.vol.style.desc", "Choose the visual appearance of the volume module")
+
+                        bottomContent: GridLayout {
+                            id: volStylesGrid
+                            Layout.fillWidth: true
+                            columns: Math.max(1, Math.min(3, Math.floor(volCardLayout.width / rootObj.s(160))))
+                            rowSpacing: rootObj.s(10)
+                            columnSpacing: rootObj.s(10)
+
+                            Repeater {
+                                model: barModulesRoot.volStyles
+                                delegate: Rectangle {
+                                    id: volStyleCard
+                                    required property var modelData
+                                    required property int index
+
+                                    readonly property bool isSelected: barModulesRoot.volStyle === modelData.id
+                                    property real popScale: 1.0
+                                    property real flashOpacity: 0.0
+
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    implicitHeight: volStyleInnerCol.implicitHeight + rootObj.s(16)
+                                    radius: ThemeBackend.borderRadius
+                                    clip: true
+
+                                    color: ThemeBackend.liquidGlass ? "transparent" : (volCardMouse.pressed
+                                        ? Qt.darker(ThemeBackend.surface0, 1.15)
+                                        : (isSelected
+                                            ? (volCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.30) : Qt.lighter(ThemeBackend.surface0, 1.24))
+                                            : (volCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.10) : ThemeBackend.surface0)))
+
+                                    GlassFill {
+                                        id: cardGlass5
+                                        anchors.fill: parent
+                                        allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                        radius: parent.radius
+                                        tintColor: ThemeBackend.surface0
+                                        tintAmount: isSelected ? 0.45 : 0.25
+                                        press: volCardMouse.pressed ? 0.8 : (volCardHover.hovered ? 0.25 : 0)
+                                        Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    border.width: ThemeBackend.liquidGlass ? 0 : 1
+                                    border.color: isSelected
+                                        ? Qt.alpha(ThemeBackend.surface2, 0.75)
+                                        : (volCardHover.hovered ? Qt.alpha(ThemeBackend.surface2, 0.5) : Qt.alpha(ThemeBackend.surface1, 0.4))
+
+                                    Behavior on color { ColorAnimation { duration: 180 } }
+                                    Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                                    scale: (volCardMouse.pressed ? 0.985 : (volCardHover.hovered ? 1.015 : 1.0)) * volStyleCard.popScale
+                                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutQuint } }
+
+                                    HoverHandler {
+                                        id: volCardHover
+                                    }
+
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        color: "#ffffff"
+                                        opacity: volStyleCard.flashOpacity
+                                        visible: !cardGlass5.active
+                                        PropertyAnimation on opacity { id: volFlashAnim; to: 0; duration: 350; easing.type: Easing.OutExpo }
+                                    }
+
+                                    SequentialAnimation {
+                                        id: volPopAnim
+                                        NumberAnimation { target: volStyleCard; property: "popScale"; to: 1.02; duration: 100; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: volStyleCard; property: "popScale"; to: 1.0; duration: 350; easing.type: Easing.OutQuint }
+                                    }
+
+                                    MouseArea {
+                                        id: volCardMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            volPopAnim.start();
+                                            volStyleCard.flashOpacity = 0.15;
+                                            volFlashAnim.start();
+                                            if (typeof Sounds !== "undefined") {
+                                                Sounds.playSfx("reusables/clickbutton/click.wav");
+                                            }
+                                            barModulesRoot.setVolStyle(modelData.id);
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        id: volStyleInnerCol
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: rootObj.s(8)
+                                        spacing: rootObj.s(8)
+
+                                        Rectangle {
+                                            id: volCardPreviewBox
+                                            Layout.fillWidth: true
+                                            implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 140 : 72)
+                                            radius: ThemeBackend.borderRadius
+                                            color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                                            WallpaperBlur {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                standalone: true
+                                                surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                            }
+                                            GlassFill {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                tintColor: ThemeBackend.base
+                                            }
+                                            clip: true
+
+                                            Item {
+                                                anchors.fill: parent
+                                                enabled: false
+
+                                                QtObject {
+                                                    id: volCardMockWidget
+                                                    function s(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    property bool isCompact: false
+                                                    property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+                                                    property string volStyle: modelData.id
+                                                    property bool volShowIcon: barModulesRoot.volShowIcon
+                                                    property bool volShowPercent: barModulesRoot.volShowPercent
+                                                    property bool isPreview: true
+                                                    property var barWindow: ({
+                                                        "startupCascadeFinished": true,
+                                                        "isStartupReady": true,
+                                                        "isDataReady": true,
+                                                        "barOpacity": barModulesRoot.barOpacity,
+                                                        "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    })
+                                                    property bool moduleActive: barModulesRoot.visible
+                                                }
+
+                                                Loader {
+                                                    id: volCardFaceLoader
+                                                    anchors.centerIn: parent
+                                                    width: item ? item.implicitWidth : 0
+                                                    height: item ? item.implicitHeight : 0
+                                                    scale: Math.min(1.0, Math.min((volCardPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (volCardPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                                    asynchronous: false
+                                                    property bool seen: false
+                                                    readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                    active: seen || wanted
+                                                    onWantedChanged: if (wanted) seen = true
+                                                    Component.onCompleted: if (wanted) seen = true
+                                                    source: Qt.resolvedUrl("../../bar/faces/vol/VolFace.qml")
+
+                                                    onLoaded: {
+                                                        if (item) {
+                                                            item.width = Qt.binding(function() { return item.implicitWidth; });
+                                                            item.height = Qt.binding(function() { return item.implicitHeight; });
+                                                            item.widget = volCardMockWidget;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                color: "transparent"
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: rootObj.s(2)
+                                            Layout.rightMargin: rootObj.s(2)
+                                            Layout.bottomMargin: rootObj.s(2)
+                                            text: modelData.name
+                                            font.family: ThemeBackend.fontFamily
+                                            font.pixelSize: rootObj.s(13)
+                                            font.weight: Font.Bold
+                                            color: ThemeBackend.text
+                                        }
+                                    }
+                                }
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                visible: volStylesGrid.columns === 3
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                id: kbModuleBox
+                Layout.fillWidth: true
+                implicitHeight: kbCardLayout.implicitHeight + rootObj.s(24)
+                radius: ThemeBackend.borderRadius
+                color: ThemeBackend.liquidGlass ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gf11
+                    anchors.fill: parent
+                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
+                border.color: Qt.alpha(ThemeBackend.surface1, 0.4)
+                border.width: ThemeBackend.liquidGlass ? 0 : 1
+                clip: true
+
+                ColumnLayout {
+                    id: kbCardLayout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: rootObj.s(12)
+                    spacing: rootObj.s(6)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: rootObj.s(6)
+                        Layout.leftMargin: rootObj.s(4)
+                        Layout.rightMargin: rootObj.s(4)
+                        spacing: rootObj.s(8)
+
+                        Text {
+                            text: I18n.t("guide.bar.modules.keyboard", "Keyboard")
+                            font.family: ThemeBackend.fontFamily
+                            font.pixelSize: rootObj.s(16)
+                            font.bold: true
+                            color: ThemeBackend.text
+                        }
+                    }
+
+                    Rectangle {
+                        id: kbPreviewBox
+                        Layout.fillWidth: true
+                        implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 120 : 72)
+                        radius: ThemeBackend.borderRadius
+                        color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                        WallpaperBlur {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            standalone: true
+                            surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                        }
+                        GlassFill {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                            tintColor: ThemeBackend.base
+                        }
+                        clip: true
+
+                        Item {
+                            anchors.fill: parent
+                            enabled: false
+
+                            Loader {
+                                id: kbFacePreviewLoader
+                                anchors.centerIn: parent
+                                width: item ? item.implicitWidth : 0
+                                height: item ? item.implicitHeight : 0
+                                scale: Math.min(1.0, Math.min((kbPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (kbPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                asynchronous: false
+                                property bool seen: false
+                                readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                active: seen || wanted
+                                onWantedChanged: if (wanted) seen = true
+                                Component.onCompleted: if (wanted) seen = true
+                                source: Qt.resolvedUrl("../../bar/faces/kb/KbFace.qml")
+
+                                onLoaded: {
+                                    if (item) {
+                                        item.widget = previewKbWidgetObj;
+                                        item.width = Qt.binding(function() { return item.implicitWidth; });
+                                        item.height = Qt.binding(function() { return item.implicitHeight; });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_kb_show_icon"
+                        searchKeywords: "keyboard layout icon symbol indicator"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰌌"
+                        title: I18n.t("guide.bar.kb.show_icon.title", "Show icon")
+                        description: I18n.t("guide.bar.kb.show_icon.desc", "Display the keyboard layout icon")
+                        visible: !barModulesRoot.isSideBar
+                        searchable: !barModulesRoot.isSideBar
+                        hiddenByConfig: barModulesRoot.isSideBar
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.kbShowIcon
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setKbShowIcon(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        id: kbStyleRow
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_kb_style"
+                        searchKeywords: "keyboard layout style look button text layout"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰌌"
+                        title: I18n.t("guide.bar.kb.style.title", "Style")
+                        description: I18n.t("guide.bar.kb.style.desc", "Choose the visual appearance of the keyboard module")
+
+                        bottomContent: GridLayout {
+                            id: kbStylesGrid
+                            Layout.fillWidth: true
+                            columns: Math.max(1, Math.min(3, Math.floor(kbCardLayout.width / rootObj.s(160))))
+                            rowSpacing: rootObj.s(10)
+                            columnSpacing: rootObj.s(10)
+
+                            Repeater {
+                                model: barModulesRoot.kbStyles
+                                delegate: Rectangle {
+                                    id: kbStyleCard
+                                    required property var modelData
+                                    required property int index
+
+                                    readonly property bool isSelected: barModulesRoot.kbStyle === modelData.id
+                                    property real popScale: 1.0
+                                    property real flashOpacity: 0.0
+
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    implicitHeight: kbStyleInnerCol.implicitHeight + rootObj.s(16)
+                                    radius: ThemeBackend.borderRadius
+                                    clip: true
+
+                                    color: ThemeBackend.liquidGlass ? "transparent" : (kbCardMouse.pressed
+                                        ? Qt.darker(ThemeBackend.surface0, 1.15)
+                                        : (isSelected
+                                            ? (kbCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.30) : Qt.lighter(ThemeBackend.surface0, 1.24))
+                                            : (kbCardHover.hovered ? Qt.lighter(ThemeBackend.surface0, 1.10) : ThemeBackend.surface0)))
+
+                                    GlassFill {
+                                        id: cardGlass6
+                                        anchors.fill: parent
+                                        allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                        radius: parent.radius
+                                        tintColor: ThemeBackend.surface0
+                                        tintAmount: isSelected ? 0.45 : 0.25
+                                        press: kbCardMouse.pressed ? 0.8 : (kbCardHover.hovered ? 0.25 : 0)
+                                        Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    border.width: ThemeBackend.liquidGlass ? 0 : 1
+                                    border.color: isSelected
+                                        ? Qt.alpha(ThemeBackend.surface2, 0.75)
+                                        : (kbCardHover.hovered ? Qt.alpha(ThemeBackend.surface2, 0.5) : Qt.alpha(ThemeBackend.surface1, 0.4))
+
+                                    Behavior on color { ColorAnimation { duration: 180 } }
+                                    Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                                    scale: (kbCardMouse.pressed ? 0.985 : (kbCardHover.hovered ? 1.015 : 1.0)) * kbStyleCard.popScale
+                                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutQuint } }
+
+                                    HoverHandler {
+                                        id: kbCardHover
+                                    }
+
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: parent.radius
+                                        color: "#ffffff"
+                                        opacity: kbStyleCard.flashOpacity
+                                        visible: !cardGlass6.active
+                                        PropertyAnimation on opacity { id: kbFlashAnim; to: 0; duration: 350; easing.type: Easing.OutExpo }
+                                    }
+
+                                    SequentialAnimation {
+                                        id: kbPopAnim
+                                        NumberAnimation { target: kbStyleCard; property: "popScale"; to: 1.02; duration: 100; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: kbStyleCard; property: "popScale"; to: 1.0; duration: 350; easing.type: Easing.OutQuint }
+                                    }
+
+                                    MouseArea {
+                                        id: kbCardMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            kbPopAnim.start();
+                                            kbStyleCard.flashOpacity = 0.15;
+                                            kbFlashAnim.start();
+                                            if (typeof Sounds !== "undefined") {
+                                                Sounds.playSfx("reusables/clickbutton/click.wav");
+                                            }
+                                            barModulesRoot.setKbStyle(modelData.id);
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        id: kbStyleInnerCol
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: rootObj.s(8)
+                                        spacing: rootObj.s(8)
+
+                                        Rectangle {
+                                            id: kbCardPreviewBox
+                                            Layout.fillWidth: true
+                                            implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 140 : 72)
+                                            radius: ThemeBackend.borderRadius
+                                            color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                                            WallpaperBlur {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                standalone: true
+                                                surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                            }
+                                            GlassFill {
+                                                z: -1
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                tintColor: ThemeBackend.base
+                                            }
+                                            clip: true
+
+                                            Item {
+                                                anchors.fill: parent
+                                                enabled: false
+
+                                                QtObject {
+                                                    id: kbCardMockWidget
+                                                    function s(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    property bool isCompact: false
+                                                    property string orientation: barModulesRoot.isSideBar ? "vertical" : "horizontal"
+                                                    property string kbStyle: modelData.id
+                                                    property bool kbShowIcon: barModulesRoot.kbShowIcon
+                                                    property bool isPreview: true
+                                                    property var barWindow: ({
+                                                        "startupCascadeFinished": true,
+                                                        "isStartupReady": true,
+                                                        "isDataReady": true,
+                                                        "barOpacity": barModulesRoot.barOpacity,
+                                                        "s": function(v) { return rootObj ? rootObj.s(v) : v; }, "cs": function(v) { return rootObj ? rootObj.s(v) : v; }
+                                                    })
+                                                    property bool moduleActive: barModulesRoot.visible
+                                                }
+
+                                                Loader {
+                                                    id: kbCardFaceLoader
+                                                    anchors.centerIn: parent
+                                                    width: item ? item.implicitWidth : 0
+                                                    height: item ? item.implicitHeight : 0
+                                                    scale: Math.min(1.0, Math.min((kbCardPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (kbCardPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                                    asynchronous: false
+                                                    property bool seen: false
+                                                    readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                                    active: seen || wanted
+                                                    onWantedChanged: if (wanted) seen = true
+                                                    Component.onCompleted: if (wanted) seen = true
+                                                    source: Qt.resolvedUrl("../../bar/faces/kb/KbFace.qml")
+
+                                                    onLoaded: {
+                                                        if (item) {
+                                                            item.widget = kbCardMockWidget;
+                                                            item.width = Qt.binding(function() { return item.implicitWidth; });
+                                                            item.height = Qt.binding(function() { return item.implicitHeight; });
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: parent.radius
+                                                color: "transparent"
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: rootObj.s(2)
+                                            Layout.rightMargin: rootObj.s(2)
+                                            Layout.bottomMargin: rootObj.s(2)
+                                            text: modelData.name
+                                            font.family: ThemeBackend.fontFamily
+                                            font.pixelSize: rootObj.s(13)
+                                            font.weight: Font.Bold
+                                            color: ThemeBackend.text
+                                        }
+                                    }
+                                }
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                visible: kbStylesGrid.columns === 3
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                id: mediaModuleBox
+                Layout.fillWidth: true
+                implicitHeight: mediaCardLayout.implicitHeight + rootObj.s(24)
+                radius: ThemeBackend.borderRadius
+                color: ThemeBackend.liquidGlass ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gf12
+                    anchors.fill: parent
+                    allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
+                border.color: Qt.alpha(ThemeBackend.surface1, 0.4)
+                border.width: ThemeBackend.liquidGlass ? 0 : 1
+                clip: true
+
+                ColumnLayout {
+                    id: mediaCardLayout
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: rootObj.s(12)
+                    spacing: rootObj.s(6)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: rootObj.s(6)
+                        Layout.leftMargin: rootObj.s(4)
+                        Layout.rightMargin: rootObj.s(4)
+                        spacing: rootObj.s(8)
+
+                        Text {
+                            text: I18n.t("guide.bar.modules.media", "Media")
+                            font.family: ThemeBackend.fontFamily
+                            font.pixelSize: rootObj.s(16)
+                            font.bold: true
+                            color: ThemeBackend.text
+                        }
+                    }
+
+                    Rectangle {
+                        id: mediaPreviewBox
+                        Layout.fillWidth: true
+                        implicitHeight: rootObj.s(barModulesRoot.isSideBar ? 160 : 72)
+                        radius: ThemeBackend.borderRadius
+                        color: ThemeBackend.glassActive ? ThemeBackend.faded(ThemeBackend.base) : Qt.darker(ThemeBackend.mantle, 1.1)
+
+                        WallpaperBlur {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            standalone: true
+                            surfaceEnabled: !ThemeBackend.liquidGlass && (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                        }
+                        GlassFill {
+                            z: -1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            allowed: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                            tintColor: ThemeBackend.base
+                        }
+                        clip: true
+
+                        Item {
+                            anchors.fill: parent
+                            enabled: false
+
+                            Loader {
+                                id: mediaFacePreviewLoader
+                                anchors.centerIn: parent
+                                width: item ? item.implicitWidth : 0
+                                height: item ? item.implicitHeight : 0
+                                scale: Math.min(1.0, Math.min((mediaPreviewBox.width - rootObj.s(16)) / Math.max(1, width), (mediaPreviewBox.height - rootObj.s(16)) / Math.max(1, height)))
+                                asynchronous: false
+                                property bool seen: false
+                                readonly property bool wanted: (barModulesRoot ? barModulesRoot.inView(parent) : true)
+                                active: seen || wanted
+                                onWantedChanged: if (wanted) seen = true
+                                Component.onCompleted: if (wanted) seen = true
+                                source: Qt.resolvedUrl("../../bar/faces/media/MediaFace.qml")
+
+                                onLoaded: {
+                                    if (item) {
+                                        item.widget = previewMediaWidgetObj;
+                                        item.width = Qt.binding(function() { return item.implicitWidth; });
+                                        item.height = Qt.binding(function() { return item.implicitHeight; });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_media_info_mode"
+                        searchKeywords: "media song track duration time position length author artist"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰥔"
+                        title: I18n.t("guide.bar.media.info_mode.title", "Secondary info")
+                        description: I18n.t("guide.bar.media.info_mode.desc", "Choose whether to show the song duration or its author")
+                        visible: !barModulesRoot.isSideBar
+                        searchable: !barModulesRoot.isSideBar
+                        hiddenByConfig: barModulesRoot.isSideBar
+
+                        Switch {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            implicitWidth: rootObj.s(200)
+                            implicitHeight: rootObj.s(32)
+                            cornerRadius: ThemeBackend.borderRadius
+                            fontPixelSize: rootObj.s(11)
+                            options: [
+                                I18n.t("guide.bar.media.info_mode.duration", "Duration"),
+                                I18n.t("guide.bar.media.info_mode.author", "Author")
+                            ]
+                            currentIndex: barModulesRoot.mediaInfoMode === "author" ? 1 : 0
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface0
+                            textColor: ThemeBackend.text
+                            activeTextColor: ThemeBackend.crust
+                            onToggled: function(idx) {
+                                barModulesRoot.setMediaInfoMode(idx === 1 ? "author" : "duration");
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_media_width"
+                        searchKeywords: "media song track size width length resize"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰩨"
+                        title: I18n.t("guide.bar.media.width.title", "Width")
+                        description: I18n.t("guide.bar.media.width.desc", "Width of the song title area")
+                        visible: !barModulesRoot.isSideBar
+                        searchable: !barModulesRoot.isSideBar
+                        hiddenByConfig: barModulesRoot.isSideBar
+
+                        Draggable {
+                            id: mediaSizeSlider
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            Layout.rightMargin: rootObj.s(8)
+                            implicitWidth: rootObj.s(220)
+                            implicitHeight: rootObj.s(18)
+                            from: 80
+                            to: 300
+                            stepSize: 1
+                            defaultValue: 120
+                            showValueBubble: true
+                            valueFormatter: function(v) { return Math.round(v) + "px" }
+                            value: barModulesRoot.mediaWidth
+                            backgroundColor: ThemeBackend.surface0
+                            accentColor: ThemeBackend.mauve
+                            handleColor: ThemeBackend.text
+                            handleBorderColor: ThemeBackend.mantle
+                            onMoved: function(val) {
+                                barModulesRoot.mediaWidth = Math.round(val);
+                            }
+                            onDragFinished: {
+                                barModulesRoot.setMediaWidth(barModulesRoot.mediaWidth);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_media_show_icon"
+                        searchKeywords: "media song track icon album art cover thumbnail"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰎈"
+                        title: I18n.t("guide.bar.media.show_icon.title", "Show icon")
+                        description: I18n.t("guide.bar.media.show_icon.desc", "Display the album art or music icon")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.mediaShowIcon
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setMediaShowIcon(c);
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        rootObj: barModulesRoot.rootObj
+                        settingId: "bar_media_show_controls"
+                        searchKeywords: "media song track controls buttons play pause previous next"
+                        baseColor: Qt.alpha(ThemeBackend.surface1, 0.35)
+                        icon: "󰐊"
+                        title: I18n.t("guide.bar.media.show_controls.title", "Show controls")
+                        description: I18n.t("guide.bar.media.show_controls.desc", "Display the previous, play and next buttons")
+
+                        Toggle {
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            checked: barModulesRoot.mediaShowControls
+                            accentColor: ThemeBackend.mauve
+                            baseColor: ThemeBackend.surface1
+                            handleColor: ThemeBackend.crust
+                            handleOffColor: ThemeBackend.text
+                            onToggled: function(c) {
+                                barModulesRoot.setMediaShowControls(c);
                             }
                         }
                     }

@@ -301,6 +301,7 @@ ShellRoot {
                 screen: perScreen.modelData
                 enabled: Config.askBubble.enabled
                     && Config.askBubble.screen === perScreen.modelData.name
+                suppressed: perScreen.st ? perScreen.st.askOpen : false
             }
 
             // One cheap host per monitor loads only the selected dock design.

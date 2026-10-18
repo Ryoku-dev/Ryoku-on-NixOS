@@ -22,7 +22,6 @@ on:
       - 'ryoku/i18n/**'
       - 'installation/tui/*.go'
       - 'installation/backend/**'
-      - 'ryoku-shell-installer/*.go'
       - 'ryoku/cli/**/*.go'
       - 'ryoku/shell/ipc/*.go'
       - 'ryoku/hub/backend/*.go'

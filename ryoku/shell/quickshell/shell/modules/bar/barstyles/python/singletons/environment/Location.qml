@@ -66,14 +66,14 @@ Item {
     }
 
     function detectAuto() {
-        if (!Caching.serpantinumDir) return;
+        if (!Caching.payloadDir) return;
         root.isDetecting = true;
         autoProcess.running = false;
         autoProcess.running = true;
     }
 
     function setManual(lat, lon) {
-        if (!Caching.serpantinumDir) return;
+        if (!Caching.payloadDir) return;
         root.isDetecting = true;
         manualProcess.lat = lat.toString();
         manualProcess.lon = lon.toString();

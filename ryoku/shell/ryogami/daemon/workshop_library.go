@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +20,19 @@ const workshopAppID = "431960"
 
 // Matches the renderer's cap on preset dependency chains.
 const maxPresetDepth = 32
+
+type workshopFetchError struct {
+	status  string
+	message string
+}
+
+func (e *workshopFetchError) Error() string {
+	return e.message
+}
+
+func workshopFetchFailure(status, message string) error {
+	return &workshopFetchError{status: status, message: message}
+}
 
 type workshopLib struct {
 	d     *daemon
@@ -655,14 +669,19 @@ func steamInstalled() bool {
 func (w *workshopLib) runDownload(id string, useSteamcmd bool) {
 	d := w.d
 	d.emitWorkshopDownload(id, "downloading", 0, "", "")
-	fetch := func(item string) bool {
+	fetch := func(item string) error {
 		if useSteamcmd {
 			return w.steamcmdDownload(item, id)
 		}
 		return w.steamworksDownload(item, id)
 	}
 	if err := w.installChain(id, fetch); err != nil {
-		d.emitWorkshopDownload(id, "error", 0, err.Error(), "")
+		status := "error"
+		var fetchErr *workshopFetchError
+		if errors.As(err, &fetchErr) && fetchErr.status != "" {
+			status = fetchErr.status
+		}
+		d.emitWorkshopDownload(id, status, 0, err.Error(), "")
 		return
 	}
 	d.emitWorkshopDownload(id, "done", 1.0, "", filepath.Join(w.workshopDir(), id))
@@ -670,7 +689,7 @@ func (w *workshopLib) runDownload(id string, useSteamcmd bool) {
 	d.broadcast("ryogami.workshop.changed", map[string]interface{}{})
 }
 
-func (w *workshopLib) installChain(id string, fetch func(item string) bool) error {
+func (w *workshopLib) installChain(id string, fetch func(item string) error) error {
 	dir := w.workshopDir()
 	cur := id
 	visited := map[string]bool{}
@@ -692,8 +711,10 @@ func (w *workshopLib) installChain(id string, fetch func(item string) bool) erro
 				}
 			}
 		}
-		if (derr != nil || incomplete) && !fetch(cur) {
-			return fmt.Errorf("download failed for Workshop item %s", cur)
+		if derr != nil || incomplete {
+			if err := fetch(cur); err != nil {
+				return err
+			}
 		}
 		doc, err := readProject(item)
 		if err != nil {

@@ -23,7 +23,7 @@ ships it and no node runs on an installed box.
   palette's warm family, with an expression per agent state, blobatar's idle
   motion, and eyes that follow the pointer through its `gaze` attachment.
 - The chat reducer is the shell's (`ryoku/shell/quickshell/shell/services/lib/
-  chatstate.js`), aliased as `$chatstate`. The Ryoku and Chat stores each fold
+  chatstate.js`), aliased as `$chatstate`. The Agent and Chat stores each fold
   their own `/ws/chat?lane=` stream through that reducer.
 
 ## Map
@@ -37,21 +37,25 @@ ships it and no node runs on an installed box.
 |`src/lib/app/`|The frame: `TopBar` (brand, sheets, combined lane presence), `Page`, `Offline`, and `router.svelte.ts` (hash routes and sheet order).|
 |`src/lib/api/`|`client.ts` owns Rashin daemon routes, `prowl.ts` is the only client for proxied Prowl gateway routes, and `socket.ts` owns reconnecting JSON WebSockets.|
 |`src/lib/state/`|`theme.svelte.ts` (wears the wallpaper palette), `machine.svelte.ts` (status + vitals stream).|
-|`src/lib/chat/`|`protocol.ts` (wire shapes), `store.svelte.ts` (the separate Ryoku and Chat lane connections).|
+|`src/lib/chat/`|`protocol.ts` (wire shapes), `store.svelte.ts` (the separate Agent and Chat lane connections).|
 |`src/lib/content/`|`markdown.ts` (escape-first renderer, tested) and `Markdown.svelte`.|
-|`src/lib/pages/chat/ChatWorkspace.svelte`|The shared sessions, transcript, approval, composer and inspector workspace used by both conversation sheets.|
-|`src/lib/pages/wiki/`|Wiki-specific helpers and reader parts; `WikiSheet.svelte` owns the route and lazy document loading.|
+|`src/lib/pages/chat/ChatWorkspace.svelte`|The shared sessions, transcript, approval, composer and inspector workspace used by Agent and Chat.|
+|`src/lib/pages/ask/`|Ask stream parsing and the reusable recent-asks list used by `AskSheet.svelte`.|
+|`src/lib/pages/wiki/`|Wiki-specific helpers and reader parts; `WikiSheet` owns the route and lazy document loading.|
 |`src/lib/pages/prowl/`|The Prowl section: gateway overview, providers, routing, activity, project indexes, harness setup and command toolkit behind `ProwlSheet.svelte`.|
 |`src/pages/<Name>Sheet.svelte`|One sheet per route. Its parts live under `src/lib/pages/<name>/`.|
 
 ## Conversation lanes
 
-- **Ryoku** (`#/ryoku`, `/ws/chat?lane=ryoku`) is the machine lane. Its agent
-  can use the vault, skills, code index and approval flow. The composer can
-  send a full agent turn or a Quick request through `POST /api/ask?q=`.
+- **Agent** (`#/agent`, `/ws/chat?lane=ryoku`) is the continuous machine-work
+  lane. Its harness can use the vault, skills, code index and approval flow.
+- **Ask** (`#/ask`, `POST /api/ask`) is a separate read-only question flow.
+  Each result stays in Ask history until the user explicitly hands it to
+  Agent.
 - **Chat** (`#/chat`, `/ws/chat?lane=chat`) is the plain harness lane. It has
   its own transcript, sessions, draft and pane preferences, and deliberately
-  receives no machine context. Both lanes show the daemon-wide approval mode.
+  receives no machine context. Agent and Chat show the daemon-wide approval
+  mode.
 - **Wiki** (`#/wiki/<page>`) lists `wiki/*.md` from `GET /api/vault` and reads
   a page through `GET /api/vault/file?p=wiki/<page>.md`. `#/wiki` opens
   `wiki/README.md`.

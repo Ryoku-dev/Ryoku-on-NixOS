@@ -61,6 +61,60 @@ var (
 	}
 )
 
+// updateOptions is every user option `ryoku update` acts on. An option outside
+// this set used to be ignored, so a mistyped flag, or `--help`, ran a full
+// system update instead of being answered: the password prompt, the whole
+// config tree re-laid, the desktop restarted.
+var updateOptions = map[string]bool{
+	"-v": true, "--verbose": true, "--channel-switch": true, "--system": true,
+	"--full": true, "--wait": true, "--force": true, "--unchecked": true,
+	// The Hub's plumbing. It is answered above, where only the first argument
+	// is read, so these are named here too rather than refused in any other
+	// position.
+	"--gui": true, "--gui-host": true, "--auth": true, "--cancel": true,
+}
+
+// readUpdateOptions reports whether the run was only asking for help, and the
+// first option this command does not know.
+func readUpdateOptions(args []string) (help bool, unknown string) {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			return true, ""
+		}
+		if !strings.HasPrefix(a, "-") || updateOptions[a] {
+			continue
+		}
+		return false, a
+	}
+	return false, ""
+}
+
+// readUpdateInvocation keeps the internal stage2 handoff out of user option
+// parsing. A newer stage1 may pass flags an older installed binary does not
+// know, after the package transaction is already complete.
+func readUpdateInvocation(args []string) (stage2, help bool, unknown string) {
+	if len(args) > 0 && args[0] == "--stage2" {
+		return true, false, ""
+	}
+	help, unknown = readUpdateOptions(args)
+	return false, help, unknown
+}
+
+func updateUsage() string {
+	return i18n.T(`usage: ryoku update [options]
+
+Updates the Ryoku packages, re-lays the configuration, reloads the desktop and
+heals what the doctor finds. The base system stays as it is unless --system.
+
+  --system, --full    update the base system packages too
+  --channel-switch    allow the run to move between release channels
+  --force, --unchecked  update even when the release checks say to wait
+  --wait              wait for a run that is already in progress
+  -v, --verbose       keep the full package output on screen
+  -h, --help          show this
+`)
+}
+
 // Update runs the whole safe update. On hosts that provide Ryoku's snapshot
 // stack it wraps the run in a snapper pre/post pair; elsewhere the snapshot
 // step explains why it is skipped. A checkout box follows the git channel and
@@ -89,7 +143,17 @@ func Update(args []string) (err error) {
 			return cancelRun()
 		}
 	}
-	stage2 := len(args) >= 2 && args[0] == "--stage2"
+	stage2, help, unknown := readUpdateInvocation(args)
+	if unknown != "" {
+		return fmt.Errorf(i18n.T("`ryoku update` does not take %s; `ryoku update --help` lists what it does take"), unknown)
+	}
+	if help {
+		fmt.Print(updateUsage())
+		return nil
+	}
+	if stage2 && len(args) < 2 {
+		return errors.New(i18n.T("the update stage2 handoff is missing its snapshot value"))
+	}
 	channelSwitch := false
 	withSystem := false
 	updateWait = false
@@ -217,6 +281,13 @@ func Update(args []string) (err error) {
 	stopKeepalive := sudoKeepalive()
 	defer stopKeepalive()
 
+	if snapshotPreview() != "" {
+		_, reason := snapshotCapability()
+		err := errors.New(reason)
+		progress.fail(err)
+		return err
+	}
+
 	progress.at("snapshot")
 	snapshotsSupported, _ := snapshotCapability()
 	pre := snapperPre(snapshotDesc())
@@ -316,7 +387,7 @@ func Update(args []string) (err error) {
 					case host.XBPS:
 						hint = i18n.T("no pre-update snapshot exists (snapper was unavailable), so `ryoku rollback` cannot revert this; recover with XBPS directly")
 					case host.DNF:
-						hint = i18n.T("snapshots are unavailable on Fedora; recover with DNF directly")
+						hint = i18n.T("no pre-update snapshot exists (snapper was unavailable), so `ryoku rollback` cannot revert this; recover with DNF directly")
 					}
 					if pre != "" {
 						hint = i18n.T("see `ryoku rollback` (pre-update snapshot ") + pre + ")"
@@ -1020,6 +1091,7 @@ func updateStage2(pre string, withSystem bool) (err error) {
 			progress.fail(err)
 			return fmt.Errorf("reload compositor power bindings: %w", err)
 		}
+		shellStarted := time.Now()
 		if err := startShell(); err != nil {
 			restartWallpaper(wallpaperWasActive)
 			progress.fail(err)
@@ -1039,6 +1111,9 @@ func updateStage2(pre string, withSystem bool) (err error) {
 			}
 		}
 		restartWallpaper(wallpaperWasActive)
+		if !waitForDesktopLoaded(shellStarted) {
+			progress.logf(i18n.T("the desktop has not reported a finished load yet; `ryoku doctor` says why"))
+		}
 		dropAbort("shell")
 		reopen()
 	}
@@ -1431,18 +1506,30 @@ func rashinReindex() {
 	}
 }
 
+// prowlManagedLine names the package manager that owns prowl. The line used to
+// say "pacman" on every distribution, which is wrong on the two that are not
+// Arch: the ownership lookup behind it already asks whichever manager the host
+// runs.
+func prowlManagedLine(manager host.PackageManager) string {
+	if manager == "" {
+		return i18n.T("prowl comes from a package; refreshed with the system packages")
+	}
+	return fmt.Sprintf(i18n.T("prowl is managed by %s; refreshed with the system packages"), manager)
+}
+
 // prowlRefresh keeps a dev box's prowl current after an update. A packaged box
-// already got it through `pacman -Syu`, so this runs `<bin> update` only when
-// the binary is on PATH but not owned by a pacman package (a dev or manual
-// install). Best effort, one line either way.
+// already got it with the rest of the system packages, so this runs
+// `<bin> update` only when the binary is on PATH but not owned by a package (a
+// dev or manual install). Best effort, one line either way.
 func prowlRefresh() {
 	path, err := exec.LookPath("prowl")
 	if err != nil {
 		return
 	}
-	switch prowlDecide(true, prowlPacmanOwned(path)) {
+	switch prowlDecide(true, prowlPackageOwned(path)) {
 	case prowlManaged:
-		progress.detailf(i18n.T("prowl is managed by pacman; refreshed with the system packages"))
+		manager, _ := host.Default().PackageManager()
+		progress.detailf("%s", prowlManagedLine(manager))
 	case prowlSelfUpdate:
 		progress.detailf(i18n.T("Updating prowl"))
 		if err := sys.Run(path, "update"); err != nil {
@@ -1451,8 +1538,8 @@ func prowlRefresh() {
 	}
 }
 
-// prowlPacmanOwned reports whether path belongs to an installed package.
-func prowlPacmanOwned(path string) bool {
+// prowlPackageOwned reports whether path belongs to an installed package.
+func prowlPackageOwned(path string) bool {
 	_, err := host.Default().PackageOwner(path)
 	return err == nil
 }
@@ -1499,6 +1586,12 @@ func clearStalePacmanLock() {
 
 func snapshotCapability() (supported bool, reason string) {
 	return host.Default().Snapshots()
+}
+
+// snapshotPreview names the snapshot this boot looks at, or "" for an ordinary
+// boot.
+func snapshotPreview() string {
+	return host.Default().SnapshotPreview()
 }
 
 // snapHelpers: the snapshot facts the offer gates on, composed from sys
@@ -1666,6 +1759,15 @@ func Rollback(args []string) error {
 			i++
 		}
 	}
+	// A look boot's changes stay in RAM, so neither way back can start here;
+	// the one step left is the restore, which the reason names.
+	if supported, reason := snapshotCapability(); !supported && snapshotPreview() != "" {
+		if to != "" {
+			return errors.New(reason)
+		}
+		fmt.Println(reason)
+		return nil
+	}
 	if to != "" {
 		if !sys.IsFrozenVersion(to) {
 			return fmt.Errorf(i18n.T("--to takes a release tag or unstable build (see `ryoku rollback` for the list), got %q"), to)
@@ -1685,9 +1787,12 @@ func Rollback(args []string) error {
 	if supported {
 		fmt.Println(i18n.T("Two ways back:"))
 		fmt.Println(i18n.T("  the Ryoku set (its packages and config) to a published release, live;"))
-		if updatePackageManager() == host.XBPS {
+		switch updatePackageManager() {
+		case host.XBPS:
 			fmt.Println(i18n.T("  the whole system (Void included) to a snapshot, from the boot menu."))
-		} else {
+		case host.DNF:
+			fmt.Println(i18n.T("  the whole system (Fedora included) to a snapshot, from the boot menu."))
+		default:
 			fmt.Println(i18n.T("  the whole system (Arch included) to a snapshot, from the boot menu."))
 		}
 	} else {
@@ -1798,6 +1903,10 @@ func restoreGuide(id string) error {
 		}
 	}
 	fmt.Printf(i18n.T("Restoring snapshot %s\n\n"), label)
+	if updatePackageManager() == host.DNF {
+		fedoraRestoreGuide(id)
+		return nil
+	}
 	fmt.Println(i18n.T("Ryoku boots the @ subvolume directly, so a live `snapper rollback` cannot"))
 	fmt.Println(i18n.T("restore the system; the restore runs from the boot menu:"))
 	fmt.Printf(i18n.T("  1. Reboot, and in the Limine menu open Snapshots -> %s.\n"), id)
@@ -1817,6 +1926,27 @@ func restoreGuide(id string) error {
 		}
 	}
 	return nil
+}
+
+// fedoraRestoreGuide is the Fedora restore: look at the snapshot from the
+// "Ryoku snapshots" GRUB submenu, then make it the system from inside that boot.
+// With no snapshot in the menu, snapper reverts the changed files on the
+// running system instead.
+func fedoraRestoreGuide(id string) {
+	if !snapshotsListed() {
+		fmt.Println(i18n.T("The boot menu lists no snapshots (`journalctl -u ryoku-snapshot-menu` says"))
+		fmt.Println(i18n.T("why), so the restore runs on the running system with snapper:"))
+		fmt.Printf(i18n.T("  1. See what changed since then:  sudo snapper -c root status %s..0\n"), id)
+		fmt.Printf(i18n.T("  2. Put those files back:         sudo snapper -c root undochange %s..0\n"), id)
+		fmt.Println(i18n.T("  3. Reboot."))
+		fmt.Println(i18n.T("Kernels on /boot are not part of the snapshot and stay as they are."))
+		return
+	}
+	fmt.Println(i18n.T("The restore runs from the boot menu:"))
+	fmt.Printf(i18n.T("  1. Boot the snapshot: hold Shift (or press Esc) while the machine starts and\n     pick Ryoku snapshots -> Snapshot %s, or send only the next boot there:\n       sudo grub2-reboot '%s'\n"), id, snapshotEntryID(id))
+	fmt.Println(i18n.T("     The root and /home run read-only, with their changes kept in RAM."))
+	fmt.Println(i18n.T("  2. If it is the one, make it the system:  sudo ryoku boot-menu restore"))
+	fmt.Println(i18n.T("  3. Reboot into the restored system. The one it replaced is kept for two weeks."))
 }
 
 // Snapshots prints the root snapshot table when this host provides it.
@@ -1929,9 +2059,14 @@ func printSnapshotTable(rows []snapshotRow) {
 	if free := rootFree(); free != "" {
 		summary += ", " + free + i18n.T(" free on /")
 	}
-	if snapshotsInBootMenu() {
+	switch {
+	case updatePackageManager() == host.DNF && snapshotsListed():
+		summary += i18n.T(", listed in the GRUB boot menu")
+	case updatePackageManager() == host.DNF:
+		summary += i18n.T(", NOT in the GRUB boot menu (`journalctl -u ryoku-snapshot-menu` says why)")
+	case snapshotsInBootMenu():
 		summary += i18n.T(", listed in the Limine boot menu")
-	} else {
+	default:
 		summary += i18n.T(", NOT in the boot menu (ryoku doctor fixes that)")
 	}
 	fmt.Println(summary)
@@ -2059,6 +2194,8 @@ func Status(args []string) error {
 	// like a real empty store -- the opposite meaning), and the real count.
 	snapshotsSupported, snapshotsReason := snapshotCapability()
 	switch {
+	case !snapshotsSupported && snapshotPreview() != "":
+		fmt.Println(i18n.T("snapshots:     this boot runs one read-only (sudo ryoku boot-menu restore keeps it)"))
 	case !snapshotsSupported:
 		fmt.Printf(i18n.T("snapshots:     unavailable (%s)\n"), snapshotsReason)
 	case !sys.Exists("/etc/snapper/configs/root"):
@@ -2491,6 +2628,25 @@ func Deploy(_ []string) error {
 
 // --- snapper pre/post (best-effort on supported hosts) ----------------------
 
+// updateSnapshotMarker names the update that owns the open snapper pair on
+// Fedora, so the dnf hook (fedora/system/snapshots/ryoku-dnf-snapshot) adds no
+// pair inside it for the dnf runs the update and its doctor make through sudo,
+// which drops RYOKU_MANAGED_UPDATE from the environment. It holds the pid and
+// that process's start time: the pid survives the stage2 exec, and a pid
+// reused by another process does not match the time.
+const updateSnapshotMarker = "/run/ryoku/update-snapshot"
+
+// procStartTime is field 22 of /proc/<pid>/stat, the process's start time in
+// clock ticks since boot, or "".
+func procStartTime(pid int) string {
+	stat := readText(fmt.Sprintf("/proc/%d/stat", pid))
+	_, rest, ok := strings.Cut(stat, ") ")
+	if f := strings.Fields(rest); ok && len(f) >= 20 {
+		return f[19]
+	}
+	return ""
+}
+
 func snapperPre(desc string) string {
 	if supported, reason := snapshotCapability(); !supported {
 		fmt.Fprintln(os.Stderr, "warning: "+reason)
@@ -2512,6 +2668,9 @@ func snapperPre(desc string) string {
 		fmt.Fprintf(os.Stderr, i18n.T("note: pre-update snapshot skipped: %v\n"), err)
 		return ""
 	}
+	if start := procStartTime(os.Getpid()); start != "" && updatePackageManager() == host.DNF {
+		_ = sys.WriteRootFile(updateSnapshotMarker, fmt.Sprintf("%d %s\n", os.Getpid(), start), "0644")
+	}
 	return strings.TrimSpace(out)
 }
 
@@ -2524,6 +2683,9 @@ func snapperPost(pre, desc string) {
 	}
 	_ = sys.Sudo("snapper", "-c", snapperConfig, "create",
 		"-t", "post", "--pre-number", pre, "-c", "number", "-d", desc)
+	if updatePackageManager() == host.DNF {
+		_ = sys.Sudo("rm", "-f", updateSnapshotMarker)
+	}
 	// Prune here, on the path every update takes: snapper-cleanup.timer is
 	// unreliable (its service is coupled to limine-snapper-sync), so without
 	// this the pile grows unbounded. best-effort.
@@ -2776,6 +2938,41 @@ func graphicalSessionState() (present bool, active bool, local bool, err error) 
 		return false, false, false, fmt.Errorf("inspect login1 sessions: %w", inspectErr)
 	}
 	return present, false, local, nil
+}
+
+// desktopLoadWait bounds the wait for Quickshell to finish parsing the tree the
+// update just laid down. A box that loads the desktop in a second is the norm;
+// a slow one with many plugins takes several.
+var desktopLoadWait = 25 * time.Second
+
+// waitForDesktopLoaded waits until Quickshell reports a finished load, which is
+// not what `sleep-ready` proves. That answers as soon as the daemon's sleep
+// guard exists, while Quickshell may still be parsing QML or respawning after a
+// load failure. Handing that state to the healing step makes the doctor report a
+// load failure the update is still in the middle of causing, and the desktop
+// then comes back only because the doctor restarts the daemon afterwards.
+//
+// The daemon recreates this file with os.Create on every spawn attempt. Its
+// modification time must not predate the moment this update started the shell,
+// so a finished-load line left by the previous run cannot satisfy the wait. The
+// kernel stamps files from a coarse clock that can lag time.Now by a tick, hence
+// the second of slack.
+func waitForDesktopLoaded(started time.Time) bool {
+	path := filepath.Join(sys.Xdg("XDG_STATE_HOME", ".local/state"), "ryoku", "surfaces", "shell.log")
+	deadline := time.Now().Add(desktopLoadWait)
+	notBefore := started.Add(-time.Second)
+	for {
+		info, statErr := os.Stat(path)
+		b, _ := os.ReadFile(path)
+		if statErr == nil && !info.ModTime().Before(notBefore) &&
+			strings.Contains(string(b), "Configuration Loaded") {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
 }
 
 func waitForShellReady(expected bool) (bool, error) {

@@ -77,7 +77,7 @@ func cmdPaths(format string) error {
 		fmt.Printf("  %-10s present=%-5v wired=%-5v skill=%-5v %s\n", a.ID, a.Present, a.Wired, a.SkillWired, a.File)
 	}
 	fmt.Println()
-	fmt.Println("Chat backends (Super+S; Hermes recommended):")
+	fmt.Println("Agent backends (Hermes recommended):")
 	for _, b := range m.ChatBackends {
 		tag := ""
 		if b.Recommended {

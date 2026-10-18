@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,51 +13,56 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-// ws.go fans one shared hermes ACP session out to every dashboard chat
-// socket, and pushes vitals samples. The session is lazy: hermes spawns on
-// the first chat client, survives client disconnects, and is restarted on
-// the next user message after a death.
+// ws.go fans each persistent ACP lane out to its dashboard clients. Ask is an
+// internal lane and never joins this websocket path.
 
 type wsOut struct {
-	Type       string        `json:"type"`
-	State      string        `json:"state,omitempty"`
-	Error      string        `json:"error,omitempty"`
-	Text       string        `json:"text,omitempty"`
-	ID         string        `json:"id,omitempty"`
-	Title      string        `json:"title,omitempty"`
-	Kind       string        `json:"kind,omitempty"`
-	Status     string        `json:"status,omitempty"`
-	Input      string        `json:"input,omitempty"`
-	Output     string        `json:"output,omitempty"`
-	Diffs      []ToolDiff    `json:"diffs,omitempty"`
-	Auto       bool          `json:"auto,omitempty"`
-	ToolID     string        `json:"toolId,omitempty"`
-	RequestID  string        `json:"requestId,omitempty"`
-	Options    []PermOption  `json:"options,omitempty"`
-	Outcome    string        `json:"outcome,omitempty"`
-	Mode       string        `json:"mode,omitempty"`
-	StopReason string        `json:"stopReason,omitempty"`
-	Models     []ModelInfo   `json:"models,omitempty"`
-	Current    string        `json:"current,omitempty"`
-	Agent      string        `json:"agent,omitempty"`
-	Prowl      string        `json:"prowl,omitempty"`
-	Reason     string        `json:"reason,omitempty"`
-	Commands   []CommandInfo `json:"commands,omitempty"`
-	SessionID  string        `json:"sessionId,omitempty"`
-	Size       int           `json:"size,omitempty"`
-	Used       int           `json:"used,omitempty"`
-	Sessions   []SessionMeta `json:"sessions,omitempty"`
+	Type            string        `json:"type"`
+	State           string        `json:"state,omitempty"`
+	Error           string        `json:"error,omitempty"`
+	Text            string        `json:"text,omitempty"`
+	Answer          string        `json:"answer,omitempty"`
+	AskID           string        `json:"askId,omitempty"`
+	ID              string        `json:"id,omitempty"`
+	Title           string        `json:"title,omitempty"`
+	Kind            string        `json:"kind,omitempty"`
+	Status          string        `json:"status,omitempty"`
+	Input           string        `json:"input,omitempty"`
+	Output          string        `json:"output,omitempty"`
+	Diffs           []ToolDiff    `json:"diffs,omitempty"`
+	Auto            bool          `json:"auto,omitempty"`
+	ToolID          string        `json:"toolId,omitempty"`
+	RequestID       string        `json:"requestId,omitempty"`
+	Options         []PermOption  `json:"options,omitempty"`
+	Outcome         string        `json:"outcome,omitempty"`
+	Mode            string        `json:"mode,omitempty"`
+	StopReason      string        `json:"stopReason,omitempty"`
+	Models          []ModelInfo   `json:"models,omitempty"`
+	Current         string        `json:"current,omitempty"`
+	Pick            string        `json:"pick,omitempty"`
+	PickUnavailable bool          `json:"pickUnavailable,omitempty"`
+	Agent           string        `json:"agent,omitempty"`
+	Prowl           string        `json:"prowl,omitempty"`
+	Reason          string        `json:"reason,omitempty"`
+	Commands        []CommandInfo `json:"commands,omitempty"`
+	SessionID       string        `json:"sessionId,omitempty"`
+	Size            int           `json:"size,omitempty"`
+	Used            int           `json:"used,omitempty"`
+	Sessions        []SessionMeta `json:"sessions,omitempty"`
 }
 
 type wsIn struct {
 	Type      string        `json:"type"`
 	Text      string        `json:"text"`
+	AskID     string        `json:"askId"`
+	Question  string        `json:"question"`
+	Answer    string        `json:"answer"`
+	Run       bool          `json:"run"`
 	RequestID string        `json:"requestId"`
 	OptionID  string        `json:"optionId"`
 	Images    []PromptImage `json:"images"`
 	ModelID   string        `json:"modelId"`
 	SessionID string        `json:"sessionId"`
-	Quick     bool          `json:"quick"`
 	Mode      string        `json:"mode"`
 }
 
@@ -68,34 +72,29 @@ type chatClient struct {
 }
 
 type chatHub struct {
-	// lane says what this hub's conversation is for: its session cwd (the
-	// agent's context), whether quick asks land here, and the first-turn
-	// preamble. Hubs never share an agent process.
-	lane     lane
-	mu       sync.Mutex
-	conn     *acpConn
-	clients  map[*chatClient]bool
-	last     wsOut // last state frame, replayed to joiners
-	models   wsOut // last models frame, replayed to joiners
-	commands wsOut // last commands frame, replayed to joiners
-	// transcript is the current session's conversation, replayed to every
-	// joiner so a chat begun anywhere (launcher ask, another tab) is already
-	// on screen when the dashboard opens.
+	lane       lane
+	mu         sync.Mutex
+	conn       *acpConn
+	clients    map[*chatClient]bool
+	last       wsOut
+	models     wsOut
+	commands   wsOut
 	transcript []wsOut
-	// perms are the approvals still waiting on a person, in arrival order;
-	// a joiner gets them after the replay so any surface can answer one.
-	perms []wsOut
-	// introduced guards the one-time Needle identity preamble: it rides the
-	// first non-slash chat turn of a session and only hermes sees it.
+	perms      []wsOut
 	introduced bool
-	// askCancel stops the in-flight quick ask (Escape in the launcher);
-	// askCancelGen keys it so a finished ask never clears a newer one.
+	// pending survives session changes until the user's next Agent prompt.
+	pending *wsOut
+
 	askCancel    func()
 	askGen       uint64
 	askCancelGen uint64
-	// termCancels keys in-flight terminal asks by request id, so concurrent
-	// terminals cancel independently; termHist is the last terminal exchange,
-	// the continuation context behind `rashin -c`.
+	// The internal Ask connection owns one current ACP session, so escalations
+	// serialize while fast-lane requests remain independent.
+	askSerial  sync.Mutex
+	askRunning bool
+	askReset   bool
+	askIdle    *time.Timer
+
 	termCancels map[string]context.CancelFunc
 	termHist    []chatMessage
 }
@@ -105,18 +104,19 @@ type chatHub struct {
 const transcriptCap = 400
 
 // needlePersona is who the assistant is on this machine, for every agent Rashin
-// starts: the shared chat session and a Fix with AI harness in a terminal.
-const needlePersona = "You are the Needle, the resident assistant on this Ryoku machine " +
-	"(Arch Linux with the Ryoku desktop). If asked who you are, you are the Needle. Be direct and " +
-	"technical; you know this machine through the vault, and you use your tools, skills, and the prowl " +
-	"code index freely. A \"how do I\" question asks for guidance, not for you to change " +
-	"anything: answer it, never run the change. When asked how to change the desktop, name " +
-	"the GUI path first: the Ryoku Hub page (Super+comma, or `ryoku-shell hub open <section>`), " +
-	"the Super+W wallpaper/theme picker, or QS Bar Settings for the bar and dock; then give the " +
-	"command as the headless fallback and how you act. When you do make a change, say what " +
-	"changed and how to see or undo it. When the user reports something broken, gather the logs yourself first: run " +
-	"`ryoku-rashin logs <app>` and read logs.md, then diagnose before you touch anything. Before editing any file " +
-	"check `ryoku owner <path>` and never edit a Ryoku-owned file."
+// starts: the persistent Agent session and a Fix with AI harness in a terminal.
+const needlePersona = "You are the Needle, the resident assistant on a Ryoku Linux desktop. " +
+	"The edition and compositor are named in desktop.md and by `ryoku wm status`; detect them, never assume. " +
+	"If asked who you are, you are the Needle. Be direct and technical; you know this machine through the vault, " +
+	"and you use your tools and skills freely. Prowl is an optional external tool that plugs into harnesses " +
+	"(model gateway, code index, skills); it never overrides the user's model pick. A \"how do I\" question asks " +
+	"for guidance, not for you to change anything: answer it, never run the change. When asked how to change the " +
+	"desktop, name the GUI path first: the Ryoku Hub page (Super+comma, or `ryoku-shell hub open <section>`), " +
+	"the Super+W wallpaper/theme picker, or QS Bar Settings for the bar and dock; then give the command as the " +
+	"headless fallback and how you act. When you do make a change, say what changed and how to see or undo it. " +
+	"When the user reports something broken, gather the logs yourself first: run `ryoku-rashin logs <app>` and " +
+	"read logs.md, then diagnose before you touch anything. Before editing any file check `ryoku owner <path>` " +
+	"and never edit a Ryoku-owned file."
 
 // needleIdentity rides in front of the Ryoku lane's first turn, since ACP has
 // no system prompt. Like quickPreamble the transcript records the raw
@@ -152,11 +152,11 @@ func allHubs() []*chatHub {
 	return append([]*chatHub(nil), hubs...)
 }
 
-// transcriptWorthy: the conversation itself, not ephemeral status. Open
-// approvals are held apart in perms: once answered they are history.
+// transcriptWorthy keeps durable conversation frames and excludes ephemeral
+// state, model, usage, and approval frames.
 func transcriptWorthy(t string) bool {
 	switch t {
-	case "user_text", "agent_text", "agent_thought", "tool", "turn_end":
+	case "user_text", "agent_text", "agent_thought", "tool", "turn_end", "handoff":
 		return true
 	}
 	return false
@@ -248,9 +248,8 @@ func (h *chatHub) broadcastExcept(m wsOut, skip *chatClient) {
 	h.mu.Unlock()
 }
 
-// ensureConn starts hermes if there is no live session, and replaces one that
-// outlived a hermes reconfigure (the process would keep answering with the
-// provider and keys it loaded at spawn). Called with h.mu held.
+// ensureConn starts the lane's harness if there is no live session. Called
+// with h.mu held.
 func (h *chatHub) ensureConnLocked() (spawned bool) {
 	if h.conn != nil && h.conn.stale() {
 		old := h.conn
@@ -261,7 +260,7 @@ func (h *chatHub) ensureConnLocked() (spawned bool) {
 		return false
 	}
 	h.last = wsOut{Type: "state", State: "starting"}
-	if err := os.MkdirAll(h.lane.Cwd, 0o700); err != nil {
+	if err := prepareLane(h.lane); err != nil {
 		h.conn = nil
 		h.last = wsOut{Type: "state", State: "dead", Error: "lane dir: " + err.Error()}
 		go h.broadcast(h.last)
@@ -297,10 +296,29 @@ func (h *chatHub) dropConn(c *acpConn) {
 	c.Close()
 }
 
-// resetConn drops the live session so the next turn respawns it -- used when
-// the chat backend changes, so switching agents takes effect immediately.
+// resetConn drops a live public session so switching harnesses takes effect on
+// the next turn. An internal Ask finishes its read-only turn before its process
+// is retired.
 func (h *chatHub) resetConn() {
 	h.mu.Lock()
+	if h.lane.Name == laneAsk {
+		if h.askRunning {
+			h.askReset = true
+			h.mu.Unlock()
+			return
+		}
+		old := h.conn
+		h.conn = nil
+		if h.askIdle != nil {
+			h.askIdle.Stop()
+			h.askIdle = nil
+		}
+		h.mu.Unlock()
+		if old != nil {
+			old.Close()
+		}
+		return
+	}
 	old := h.conn
 	h.conn = nil
 	h.mu.Unlock()
@@ -331,6 +349,8 @@ func (h *chatHub) pump(c *acpConn) {
 			h.broadcast(wsOut{Type: "agent_thought", Text: ev.Text})
 		case "user_text":
 			h.broadcast(wsOut{Type: "user_text", Text: ev.Text})
+		case "handoff":
+			h.broadcast(wsOut{Type: "handoff", AskID: ev.AskID, Text: ev.Text, Answer: ev.Answer})
 		case "tool":
 			t := ev.Tool
 			h.broadcast(wsOut{Type: "tool", ID: t.ID, Title: t.Title, Kind: t.Kind, Status: t.Status,
@@ -345,7 +365,8 @@ func (h *chatHub) pump(c *acpConn) {
 			h.broadcast(wsOut{Type: "state", State: "ready"})
 		case "models":
 			m := wsOut{
-				Type: "models", Models: ev.Models, Current: ev.CurrentModel, Agent: ev.AgentName,
+				Type: "models", Models: ev.Models, Current: ev.CurrentModel,
+				Pick: ev.Pick, PickUnavailable: ev.PickUnavailable, Agent: ev.AgentName,
 				Prowl: ev.Prowl, Reason: ev.ProwlReason,
 			}
 			h.mu.Lock()
@@ -397,11 +418,9 @@ func (h *chatHub) handle(ctx context.Context, ws *websocket.Conn) {
 		greeting = append(greeting, h.commands)
 	}
 	greeting = append(greeting, approvalsFrame())
-	// Replay the running conversation so a joiner lands mid-session with the
-	// transcript already on screen (this is how a launcher ask is waiting in
-	// the dashboard when the user clicks "continue"), then the approvals still
-	// waiting, so any surface can answer one. An empty replay still goes out:
-	// a client reconnecting to a restarted daemon must drop what it showed.
+	// Replay the current conversation, then approvals still waiting for a
+	// person. An empty replay still tells a reconnecting client to clear stale
+	// local state.
 	replay := append([]wsOut{{Type: "replay_start"}}, h.transcript...)
 	replay = append(replay, wsOut{Type: "replay_end"})
 	replay = append(replay, h.perms...)
@@ -432,6 +451,10 @@ func (h *chatHub) handle(ctx context.Context, ws *websocket.Conn) {
 			h.setApprovals(in.Mode)
 			continue
 		}
+		if in.Type == "handoff" {
+			h.handleHandoff(in, cl)
+			continue
+		}
 		h.mu.Lock()
 		spawned := false
 		if in.Type == "user" || in.Type == "new" {
@@ -444,27 +467,9 @@ func (h *chatHub) handle(ctx context.Context, ws *websocket.Conn) {
 		}
 		switch in.Type {
 		case "user":
-			// The author renders its own message; everyone else (and the
-			// transcript) gets it as user_text. Quick asks ride a terse
-			// preamble that only hermes sees; a lane's first real turn
-			// carries the lane's intro, which the chat lane leaves empty.
 			h.broadcastExcept(wsOut{Type: "user_text", Text: in.Text}, cl)
 			h.broadcast(wsOut{Type: "state", State: "busy"})
-			prompt := in.Text
-			if in.Quick && h.lane.Quick {
-				prompt = quickPreamble + prompt
-			} else {
-				h.mu.Lock()
-				intro := !h.introduced && !strings.HasPrefix(strings.TrimSpace(in.Text), "/")
-				if intro {
-					h.introduced = true
-				}
-				h.mu.Unlock()
-				if intro {
-					prompt = h.lane.Intro() + prompt
-				}
-			}
-			conn.Prompt(prompt, in.Images)
+			conn.Prompt(h.userPrompt(in.Text), in.Images)
 		case "cancel":
 			conn.Cancel()
 		case "permission":
@@ -473,22 +478,7 @@ func (h *chatHub) handle(ctx context.Context, ws *websocket.Conn) {
 			}
 		case "set_model":
 			if in.ModelID != "" {
-				go func(c *acpConn, id string) {
-					if err := c.SetModel(id); err != nil {
-						h.mu.Lock()
-						st := h.last.State
-						h.mu.Unlock()
-						h.broadcast(wsOut{Type: "state", State: st, Error: "model switch failed: " + err.Error()})
-						return
-					}
-					saveSessionModel(id)
-					h.mu.Lock()
-					m := h.models
-					m.Current = id
-					h.models = m
-					h.mu.Unlock()
-					h.broadcast(m)
-				}(conn, in.ModelID)
+				go h.applyModelPick(conn, in.ModelID)
 			}
 		case "history":
 			go func(c *acpConn, target *chatClient) {
@@ -551,6 +541,72 @@ func (h *chatHub) handle(ctx context.Context, ws *websocket.Conn) {
 	<-writerDone
 }
 
+func (h *chatHub) userPrompt(text string) string {
+	h.mu.Lock()
+	pending := h.pending
+	h.pending = nil
+	intro := !h.introduced && !strings.HasPrefix(strings.TrimSpace(text), "/")
+	if intro {
+		h.introduced = true
+	}
+	h.mu.Unlock()
+	prompt := text
+	if pending != nil {
+		prompt = formatHandoffBlock(pending.Text, pending.Answer, text)
+	}
+	if intro {
+		prompt = h.lane.Intro() + prompt
+	}
+	return prompt
+}
+
+func (h *chatHub) handleHandoff(in wsIn, target *chatClient) {
+	if h.lane.Name != laneRyoku {
+		return
+	}
+	question, answer := strings.TrimSpace(in.Question), strings.TrimSpace(in.Answer)
+	if in.AskID != "" {
+		if rec, ok := askByID(in.AskID); ok {
+			question, answer = rec.Question, rec.Answer
+		}
+	}
+	if question == "" {
+		if target != nil {
+			h.mu.Lock()
+			state := h.last.State
+			h.mu.Unlock()
+			select {
+			case target.out <- wsOut{Type: "state", State: state, Error: "handoff needs a question"}:
+			default:
+			}
+		}
+		return
+	}
+	frame := wsOut{Type: "handoff", AskID: in.AskID, Text: question, Answer: answer}
+	h.mu.Lock()
+	h.pending = &frame
+	h.mu.Unlock()
+	if in.Run {
+		if askHub := laneHubs[laneAsk]; askHub != nil {
+			askHub.cancelAskTurn()
+		}
+	}
+	h.broadcast(frame)
+	if !in.Run {
+		return
+	}
+	h.mu.Lock()
+	h.ensureConnLocked()
+	conn := h.conn
+	h.mu.Unlock()
+	if conn == nil {
+		return
+	}
+	h.broadcast(wsOut{Type: "user_text", Text: question})
+	h.broadcast(wsOut{Type: "state", State: "busy"})
+	conn.Prompt(h.userPrompt(question), nil)
+}
+
 // approvalsFrame reports the current approval mode to a surface.
 func approvalsFrame() wsOut {
 	return wsOut{Type: "approvals", Mode: LoadConfig().ApprovalsMode()}
@@ -563,9 +619,10 @@ func (h *chatHub) setApprovals(mode string) {
 	if mode != approvalsReadOnly && mode != approvalsAsk && mode != approvalsAuto {
 		return
 	}
-	cfg := LoadConfig()
-	cfg.Approvals = mode
-	if err := SaveConfig(cfg); err != nil {
+	if err := updateConfig(func(cfg *Config) error {
+		cfg.Approvals = mode
+		return nil
+	}); err != nil {
 		return
 	}
 	frame := approvalsFrame()

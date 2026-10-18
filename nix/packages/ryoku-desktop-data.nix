@@ -12,6 +12,7 @@ pkgs.stdenv.mkDerivation {
   nativeBuildInputs = [
     pkgs.cmake
     pkgs.ninja
+    pkgs.perl
     pkgs.pkg-config
   ];
 
@@ -379,6 +380,8 @@ pkgs.stdenv.mkDerivation {
       install -Dm755 \
         "$helper" \
         "$out/bin/$(basename "$helper")"
+      substituteInPlace "$out/bin/$(basename "$helper")" \
+        --replace-fail '#!/usr/bin/env python3' '#!${pkgs.python3}/bin/python3'
     done
 
     # ── Ryotunes ───────────────────────────────────────────────
@@ -464,6 +467,34 @@ user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
       ryoku/assets/brand/. \
       "$out/share/ryoku/brand/"
 
+    # ── Packaged rices ─────────────────────────────────────────
+    #
+    # The Hub reads these through RYOKU_SYSTEM_RICES_DIR. Applying a rice
+    # copies them into user state, so commands stay bare names and the
+    # fastfetch tagline keeps the distro token.
+
+    mkdir -p "$out/share/ryoku/rices"
+
+    cp -a \
+      ryoku/assets/rices/. \
+      "$out/share/ryoku/rices/"
+
+    for rice in "$out/share/ryoku/rices"/*/; do
+      if [ -f "$rice/fastfetch.jsonc" ]; then
+        substituteInPlace "$rice/fastfetch.jsonc" \
+          --replace-quiet 'a hand-built Arch desktop' 'a hand-built {$RYOKU_BASE_OS} desktop'
+      fi
+      if [ -f "$rice/rice.json" ]; then
+        substituteInPlace "$rice/rice.json" \
+          --replace-quiet '"/usr/bin/kitty"' '"kitty"'
+      fi
+    done
+
+    if grep -lw 'Arch' "$out/share/ryoku/rices"/*/fastfetch.jsonc; then
+      echo "Ryoku Nix branding guard: a packaged fastfetch style still names Arch" >&2
+      exit 1
+    fi
+
     # ── Nix runtime path normalization ─────────────────────────
     #
     # Upstream iNiR is developed on FHS distributions and many QML Process{}
@@ -473,11 +504,17 @@ user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
     # (plus optional commands to bare names) in the packaged payload. Upstream
     # source stays distro-neutral and future syncs cannot silently resurrect the
     # same NixOS failure class.
+    #
+    # Replace whole paths only: a substring match also hits paths an earlier
+    # row already rewrote ('/bin/bash' inside '…-bash/bin/bash'). A JS escape
+    # such as \n right before a path still counts as a boundary.
     rewrite_runtime_path() {
       from="$1"
       to="$2"
       while IFS= read -r -d "" file; do
-        substituteInPlace "$file" --replace-warn "$from" "$to"
+        from="$from" to="$to" perl -pi -e \
+          's#(?:(?<![A-Za-z0-9._+-])|(?<=\\[nrt]))\Q$ENV{from}\E(?![A-Za-z0-9._+-])#$ENV{to}#g' \
+          "$file"
       done < <(grep -IlZR -- "$from" "$cfg/quickshell" 2>/dev/null || true)
     }
 
@@ -537,6 +574,15 @@ user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
     rewrite_runtime_path '/usr/share/applications' '/run/current-system/sw/share/applications'
     rewrite_runtime_path '/usr/share/icons' '/run/current-system/sw/share/icons'
     rewrite_runtime_path '/usr/share/sounds' '/run/current-system/sw/share/sounds'
+
+    # A spliced path (…-bash/nix/store/…) never resolves. grep exits 2 on read
+    # errors, which must not pass as nothing found.
+    spliced_status=0
+    grep -IRnE '(^|[^\\])[A-Za-z0-9._+-]/nix/store/' "$cfg/quickshell" || spliced_status=$?
+    if [ "$spliced_status" -ne 1 ]; then
+      echo "Ryoku Nix runtime guard: store path spliced into another path (grep status $spliced_status)" >&2
+      exit 1
+    fi
 
     if grep -IRnE '/usr/bin/(bash|pkexec|env|mkdir|mv|rm|cp|stat|sleep|base64|basename|cat|df|id|install|date|timeout|test|find|grep|awk|getent|curl|python3|notify-send|busctl|systemctl|file|pgrep|pkill|which|lscpu|wl-copy|pw-play|pactl|grim|magick|hyprpicker|xdg-settings)' "$cfg/quickshell"; then
       echo "Ryoku Nix runtime guard: critical FHS command path survived packaging" >&2

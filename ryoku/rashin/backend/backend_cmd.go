@@ -24,36 +24,72 @@ type quickInfoJSON struct {
 }
 
 func quickInfo(ctx context.Context, cfg Config) quickInfoJSON {
-	route := strings.ToLower(strings.TrimSpace(cfg.Quick.Route))
-	if route == "" {
-		route = "auto"
+	configured := strings.ToLower(strings.TrimSpace(cfg.Quick.Route))
+	if configured == "" {
+		configured = "auto"
 	}
-	routes, routesErr := quickRoutes(ctx)
+	agentRoute := quickAgentRoute(cfg)
 	info := quickInfoJSON{
-		Route:   route,
-		Label:   route,
-		Routes:  routes,
+		Route:   configured,
+		Label:   configured,
+		Routes:  []quickRouteJSON{agentRoute},
 		Gateway: quickGatewayJSON{URL: prowlGatewayBase()},
 	}
-	for _, candidate := range routes {
-		if candidate.ID == route {
+	_, agentReady := resolveChatBackend(cfg)
+	routing, routingErr := gatewayRouting(ctx)
+	prowlReady := routingErr == nil && routing.Routable
+	if routingErr == nil {
+		info.Gateway.Running = true
+	}
+	if prowlReady {
+		routes, err := quickRoutes(ctx)
+		info.Routes = append(info.Routes, routes...)
+		if err != nil {
+			info.Reason = quickGatewayError(err).Error()
+		}
+	} else if configured != "agent" {
+		info.Route = "agent"
+	}
+	if info.Route == "agent" {
+		info.Ready = agentReady
+	} else {
+		info.Ready = prowlReady
+	}
+	if !info.Ready {
+		info.Reason = "Ask needs an agent harness with an ACP adapter or a connected Prowl provider."
+	} else if routingErr != nil && configured != "agent" {
+		info.Reason = quickGatewayError(routingErr).Error()
+	} else if !routing.Routable && configured != "agent" {
+		info.Reason = "Prowl has no provider connected; using the Agent model"
+	}
+	for _, candidate := range info.Routes {
+		if candidate.ID == info.Route {
 			info.Label = candidate.Label
 			break
 		}
 	}
-	routing, err := gatewayRouting(ctx)
-	if err != nil {
-		info.Reason = quickGatewayError(err).Error()
-		return info
-	}
-	info.Gateway.Running = true
-	info.Ready = routing.Routable
-	if !routing.Routable {
-		info.Reason = "Prowl has no provider connected; open Prowl > Providers in Rashin"
-	} else if routesErr != nil {
-		info.Reason = quickGatewayError(routesErr).Error()
-	}
 	return info
+}
+
+func quickAgentRoute(cfg Config) quickRouteJSON {
+	id := activeChatAgentID(cfg)
+	name := id
+	if backend, ok := lookupChatBackend(id); ok {
+		name = backend.Name
+	}
+	model := modelPick(id)
+	if model == "" {
+		for _, def := range harnessDefs() {
+			if def.id == id {
+				model, _ = harnessModelChoice(id, def.home())
+				break
+			}
+		}
+	}
+	if model == "" {
+		model = "Default"
+	}
+	return quickRouteJSON{ID: "agent", Label: "Agent model", Sub: name + " · " + model}
 }
 
 func cmdBackend(args []string) error {

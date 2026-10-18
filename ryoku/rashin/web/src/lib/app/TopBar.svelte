@@ -45,7 +45,7 @@
   </nav>
 
   <div class="island presence">
-    <a href="#/ryoku" class="needle" aria-label="The Needle: {presence}">
+    <a href="#/agent" class="needle" aria-label="The Needle: {presence}">
       <NeedleFace seed={ryoku.state.session.id || "the needle"} {mood} size={28} label="The Needle" />
       <span class="needle-word">{presence}</span>
     </a>

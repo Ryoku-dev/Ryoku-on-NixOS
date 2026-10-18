@@ -91,6 +91,40 @@ func TestFixTerminalHoldsOnlyAFailure(t *testing.T) {
 	}
 }
 
+func TestLaunchTerminalFallsBackWithoutSystemd(t *testing.T) {
+	oldLookPath, oldRun, oldStart := terminalLookPath, terminalRun, terminalStart
+	t.Cleanup(func() {
+		terminalLookPath, terminalRun, terminalStart = oldLookPath, oldRun, oldStart
+	})
+	terminalLookPath = func(name string) (string, error) {
+		if name == "ryoku-app" {
+			return "/test/bin/ryoku-app", nil
+		}
+		return "", exec.ErrNotFound
+	}
+	terminalRun = func(string, []string) ([]byte, error) {
+		t.Fatal("systemd-run path used without systemd-run")
+		return nil, nil
+	}
+	var gotName, gotCwd string
+	var gotArgs []string
+	terminalStart = func(name, cwd string, args []string) error {
+		gotName, gotCwd = name, cwd
+		gotArgs = append([]string(nil), args...)
+		return nil
+	}
+
+	if err := launchTerminal("/tmp/vault", "ryoku-chat-", []string{"codex", "resume", "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if gotName != "/test/bin/ryoku-app" || gotCwd != "/tmp/vault" {
+		t.Fatalf("start = %q in %q", gotName, gotCwd)
+	}
+	if got := strings.Join(gotArgs, "\x00"); got != "terminal\x00--\x00codex\x00resume\x00s1" {
+		t.Fatalf("args = %q", gotArgs)
+	}
+}
+
 func TestCleanTitleDropsATitleCutInsideANote(t *testing.T) {
 	cases := map[string]string{
 		"plain question":                     "plain question",

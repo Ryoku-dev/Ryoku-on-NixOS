@@ -1,4 +1,9 @@
-{ pkgs, src }:
+{
+  pkgs,
+  src,
+  paletteBridge,
+  desktopData,
+}:
 
 pkgs.stdenv.mkDerivation {
   pname = "ryoku-hub";
@@ -18,7 +23,10 @@ pkgs.stdenv.mkDerivation {
       --replace-fail '"/usr/bin/zsh"' '"/run/current-system/sw/bin/zsh"'
 
     substituteInPlace desktop_enum.go \
-      --replace-warn '"/usr/share/icons"' '"/run/current-system/sw/share/icons"'
+      --replace-fail '"/usr/local/share:/usr/share"' '"/run/current-system/sw/share:/usr/local/share:/usr/share"'
+
+    substituteInPlace palettebridge.go \
+      --replace-fail '"/usr/share/ryoku/palette-bridge"' '"${paletteBridge}/share/ryoku/palette-bridge"'
   '';
 
   buildPhase = ''
@@ -50,7 +58,8 @@ pkgs.stdenv.mkDerivation {
       "$out/libexec/ryoku-hub" \
       "$out/bin/ryoku-hub" \
       --set RYOKU_XKB_RULES_DIR "${pkgs.xkeyboard_config}/share/X11/xkb/rules" \
-      --set XKB_CONFIG_ROOT "${pkgs.xkeyboard_config}/share/X11/xkb"
+      --set XKB_CONFIG_ROOT "${pkgs.xkeyboard_config}/share/X11/xkb" \
+      --set-default RYOKU_SYSTEM_RICES_DIR "${desktopData}/share/ryoku/rices"
 
     runHook postInstall
   '';

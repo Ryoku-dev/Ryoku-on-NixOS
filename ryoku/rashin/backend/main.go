@@ -12,8 +12,9 @@ const usage = `ryoku-rashin: the Ryoku agent OS daemon
   serve [--if-enabled]   run Rashin and bring up Prowl on 127.0.0.1
   index                  regenerate the vault maps (system, desktop, packages, repo, user, habits)
   repo-index <root> [out]  build the Ryoku source map from a checkout (build/deploy time)
-  ask <question>         one-shot quick ask against the shared session (launcher)
+  ask <question>         one-shot read-only ask (fast lane or the Ask lane)
   term <question>        terminal ask: answer + a ready-to-run command plan (the 'rashin' command)
+  terminal [--lane ryoku|chat]  open the current agent session in its harness TUI
   setup                  one-click Hermes install, onboarding, and wiring
   wire [agent]           apply vault pointers (all detected agents, or one)
   unwire [agent]         remove vault pointers
@@ -63,6 +64,8 @@ func main() {
 		err = cmdChat(os.Args[2:])
 	case "term":
 		err = cmdTerm(os.Args[2:])
+	case "terminal":
+		err = cmdChatTerminal(os.Args[2:])
 	case "setup":
 		err = cmdSetup()
 	case "wire":

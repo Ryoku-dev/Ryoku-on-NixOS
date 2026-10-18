@@ -14,8 +14,11 @@ Scope {
     property string answerText: ""
     property var answerImages: []
     property var answerActions: []
+    property string answerId: ""
+    property string answerVia: ""
+    property bool needsAgent: false
+    property string needsAgentReason: ""
     property string errorText: ""
-    property bool permPending: false
     property string askedQuestion: ""
     property var recent: []
     property bool recentOpen: false
@@ -35,8 +38,11 @@ Scope {
         answerText = "";
         answerImages = [];
         answerActions = [];
+        answerId = "";
+        answerVia = "";
+        needsAgent = false;
+        needsAgentReason = "";
         errorText = "";
-        permPending = false;
         askedQuestion = "";
         recent = [];
         recentOpen = false;
@@ -56,8 +62,11 @@ Scope {
         answerText = "";
         answerImages = [];
         answerActions = [];
+        answerId = "";
+        answerVia = "";
+        needsAgent = false;
+        needsAgentReason = "";
         errorText = "";
-        permPending = false;
         fromHistory = false;
         recentOpen = false;
         askedQuestion = next;
@@ -83,10 +92,13 @@ Scope {
         answerText = String(entry && entry.a || "");
         answerImages = entry && entry.images || [];
         answerActions = entry && entry.actions || [];
+        answerId = String(entry && entry.id || "");
+        answerVia = String(entry && entry.via || "");
+        needsAgent = entry && entry.needsAgent === true;
+        needsAgentReason = String(entry && entry.needsAgentReason || "");
         askedQuestion = String(entry && entry.q || "");
         fromHistory = true;
         recentOpen = false;
-        permPending = false;
         errorText = "";
         phase = "done";
         answered();
@@ -95,7 +107,6 @@ Scope {
     function cancel() {
         phase = "cancelled";
         working = "";
-        permPending = false;
         askProc.running = false;
         Quickshell.execDetached(["ryoku-rashin", "ask", "--cancel"]);
     }
@@ -121,17 +132,17 @@ Scope {
                 const marker = String(line);
                 if (marker.indexOf("@working ") === 0) {
                     root.working = marker.slice(9);
-                } else if (marker.indexOf("@perm ") === 0) {
-                    root.permPending = true;
-                    root.working = I18n.tr("Waiting for approval: %1").arg(marker.slice(6));
                 } else if (marker.indexOf("@answer ") === 0) {
                     try {
                         const answer = JSON.parse(marker.slice(8));
                         root.answerText = String(answer.text || "");
                         root.answerImages = answer.images || [];
                         root.answerActions = answer.actions || [];
+                        root.answerId = String(answer.id || "");
+                        root.answerVia = String(answer.via || "");
+                        root.needsAgent = answer.needsAgent === true;
+                        root.needsAgentReason = String(answer.needsAgentReason || "");
                         root.fromHistory = false;
-                        root.permPending = false;
                         root.phase = "done";
                         root.answered();
                     } catch (error) {
@@ -145,7 +156,7 @@ Scope {
             }
         }
         onExited: code => {
-            if (root.phase === "working" && !root.permPending) {
+            if (root.phase === "working") {
                 root.errorText = code === 0 ? I18n.tr("No answer")
                     : code === 127 ? I18n.tr("Rashin is off · switch it on in Ryoku Hub")
                     : I18n.tr("Ask failed");

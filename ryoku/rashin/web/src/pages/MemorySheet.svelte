@@ -36,6 +36,7 @@
     };
     heatmap: HeatmapEntry[];
     sessions: MemorySession[];
+    sessionsNote?: string;
   }
 
   let report = $state<MemoryReport | null>(null);
@@ -106,7 +107,11 @@
   {:else if error}
     <Empty icon="thought" title="Memory unavailable" body={error} />
   {:else if report && !hasMemory}
-    <Empty icon="thought" title="Hermes has no memory yet" body="Memory, sessions and activity appear here after Hermes has retained its first notes." />
+    <Empty
+      icon="thought"
+      title={report.sessionsNote ? "Hermes memory is empty" : "Hermes has no memory yet"}
+      body={report.sessionsNote || "Memory, sessions and activity appear here after Hermes has retained its first notes."}
+    />
   {:else if report}
     <div class="memory-sheet">
       <section class="readouts" aria-label="Memory summary">
@@ -177,7 +182,7 @@
                 {/each}
               </div>
             {:else}
-              <p class="side-empty">No Hermes sessions recorded.</p>
+              <p class="side-empty">{report.sessionsNote || "No Hermes sessions recorded."}</p>
             {/if}
           </Card>
         </aside>

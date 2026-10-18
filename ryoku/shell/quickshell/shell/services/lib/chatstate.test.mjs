@@ -133,17 +133,33 @@ test("replay_start clears the stream and stale approvals, replay_end resumes liv
     assert.equal(s.replaying, false);
 });
 
-test("models frame records model and Prowl routing state", () => {
-    const s = applyEvent(initialState(), {
+test("models frame records model, pick, and Prowl routing state", () => {
+    const initial = initialState();
+    assert.equal(initial.pick, "");
+    assert.equal(initial.pickUnavailable, false);
+    const s = applyEvent(initial, {
         type: "models", agent: "Oh My Pi", current: "anthropic/claude-haiku-4-5",
         models: [{ id: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5" }],
+        pick: "openai-codex:gpt-6-luna", pickUnavailable: true,
         prowl: "pending", reason: "no provider"
     });
     assert.equal(s.agent, "Oh My Pi");
     assert.equal(s.currentModel, "anthropic/claude-haiku-4-5");
+    assert.equal(s.pick, "openai-codex:gpt-6-luna");
+    assert.equal(s.pickUnavailable, true);
     assert.equal(s.models.length, 1);
     assert.equal(s.prowl, "pending");
     assert.equal(s.prowlReason, "no provider");
+});
+
+test("handoff frame appends an Ask context card", () => {
+    const s = applyEvent(initialState(), {
+        type: "handoff", askId: "a42", text: "Fix the dock?", answer: "The setting is stale."
+    });
+    assert.deepEqual(s.items, [{
+        kind: "handoff", id: "h1", askId: "a42",
+        question: "Fix the dock?", answer: "The setting is stale."
+    }]);
 });
 
 test("applyEvent never mutates the state it was given", () => {

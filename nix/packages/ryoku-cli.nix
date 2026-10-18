@@ -3,6 +3,7 @@
   src,
   version,
   desktopData,
+  paletteBridge,
 }:
 
 pkgs.stdenv.mkDerivation {
@@ -15,6 +16,14 @@ pkgs.stdenv.mkDerivation {
     pkgs.go
     pkgs.makeWrapper
   ];
+
+  postPatch = ''
+    # The Vesktop migration runs the packaged recipe from the palette-bridge package.
+    substituteInPlace internal/doctor/reconcile_vesktop_palette.go \
+      --replace-fail \
+        '"/usr/share/ryoku/palette-bridge/install-integrations.sh"' \
+        '"${paletteBridge}/share/ryoku/palette-bridge/install-integrations.sh"'
+  '';
 
   buildPhase = ''
     runHook preBuild

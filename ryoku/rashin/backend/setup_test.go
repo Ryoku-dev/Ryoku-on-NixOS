@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -40,5 +42,22 @@ func TestHermesInstallerFlags(t *testing.T) {
 		if got := hermesInstallerFlags(tc.script); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: hermesInstallerFlags = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestHermesProwlDefaultOnlyBeforeConfiguration(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if !hermesProwlDefault() {
+		t.Fatal("an unconfigured Hermes should initially default to Prowl")
+	}
+	path := hermesConfig()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("model: openrouter/anthropic/claude-sonnet-4.5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if hermesProwlDefault() {
+		t.Fatal("a configured Hermes must keep its own default")
 	}
 }

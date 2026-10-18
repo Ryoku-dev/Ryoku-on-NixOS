@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,8 @@ import (
 // The skwd-steam helper needs Steam running and an account that owns Wallpaper Engine.
 
 const steamHelperBin = "skwd-steam"
+
+var steamworksCommandContext = exec.CommandContext
 
 func resolveSteamHelper() string {
 	if exe, err := os.Executable(); err == nil {
@@ -36,38 +39,37 @@ func isExecutableFile(p string) bool {
 	return err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0
 }
 
-func (w *workshopLib) steamworksDownload(item, requested string) bool {
+func (w *workshopLib) steamworksDownload(item, requested string) error {
 	d := w.d
 	bin := resolveSteamHelper()
 	if bin == "" {
-		d.emitWorkshopDownload(requested, "error", 0, "Steam Client helper (skwd-steam) is not installed", "")
-		return false
+		return workshopFetchFailure("error", "Steam Client helper (skwd-steam) is not installed")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), workshopDownloadOverallTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, item)
+	cmd := steamworksCommandContext(ctx, bin, item)
 	cmd.Stdin = nil
+	prepareWorkshopCommand(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		d.emitWorkshopDownload(requested, "error", 0, "Steam Client helper output could not be read", "")
-		return false
+		return workshopFetchFailure("error", "Steam Client helper output could not be read")
 	}
+	cmd.Stderr = cmd.Stdout
 	if err := cmd.Start(); err != nil {
-		d.emitWorkshopDownload(requested, "error", 0, "failed to start Steam Client helper", "")
-		return false
+		return workshopFetchFailure("error", "failed to start Steam Client helper")
 	}
 
 	var folder, lastError string
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64*1024), 1024*1024)
-	for sc.Scan() {
+	stalled, waitErr, scanErr := scanWorkshopCommand(ctx, cancel, cmd, sc, func(raw []byte) {
 		var ev map[string]interface{}
-		if json.Unmarshal(sc.Bytes(), &ev) != nil {
-			continue
+		if json.Unmarshal(raw, &ev) != nil {
+			return
 		}
 		id, _ := ev["id"].(string)
 		if id == "" {
-			continue
+			return
 		}
 		status, _ := ev["status"].(string)
 		progress, _ := ev["progress"].(float64)
@@ -89,20 +91,31 @@ func (w *workshopLib) steamworksDownload(item, requested string) bool {
 		default:
 			d.emitWorkshopDownload(requested, "downloading", progress, msg, "")
 		}
-	}
-	_ = cmd.Wait()
+	})
 
 	if folder != "" {
 		reconcileWeItem(w.workshopDir(), item, folder)
 	}
 	if dirExists(filepath.Join(w.workshopDir(), item)) {
-		return true
+		return nil
 	}
-	if lastError == "" {
-		lastError = "Steam couldn't install the item - make sure Steam is running and signed in to the account that owns Wallpaper Engine"
+	switch {
+	case stalled:
+		return workshopFetchFailure("error",
+			"Steam Client helper stopped responding and was stopped - start Steam, sign in to the account that owns Wallpaper Engine, then retry")
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return workshopFetchFailure("error", "Steam Client helper exceeded the six-hour download limit and was stopped")
+	case lastError != "":
+		return workshopFetchFailure("error", lastError)
+	case scanErr != nil:
+		return workshopFetchFailure("error", "Steam Client helper output could not be read: "+scanErr.Error())
+	case waitErr != nil:
+		return workshopFetchFailure("error",
+			"Steam couldn't install the item - make sure Steam is running and signed in to the account that owns Wallpaper Engine")
+	default:
+		return workshopFetchFailure("error",
+			"Steam couldn't install the item - make sure Steam is running and signed in to the account that owns Wallpaper Engine")
 	}
-	d.emitWorkshopDownload(requested, "error", 0, lastError, "")
-	return false
 }
 
 func (w *workshopLib) steamworksSearch(ctx context.Context, p steamSearchParams) (searchPage, error) {

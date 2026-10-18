@@ -1,14 +1,12 @@
-// The pure protocol-v3 reducer behind the Super+S chat. It owns every piece of
-// transcript state so the QML view is a projection of it and the daemon bridge
-// only feeds it frames. applyEvent never mutates its input; it returns a fresh
-// state the view reconciles against, so the node tests and QML share one source
-// of truth. It handles the v3 stream: tool partial merges (input, output,
-// diffs, auto), permissions keyed by requestId and dropped on
-// permission_resolved, and an approvals mode.
+// The pure protocol-v3 reducer shared by Rashin's Agent frontends. It owns the
+// transcript state so each view is a projection and each transport only feeds
+// it frames. applyEvent never mutates its input; it returns a fresh state for
+// QML and Svelte to reconcile. It handles streaming messages, hand-offs, tool
+// partials, permissions keyed by requestId, model picks and approvals.
 
 function initialState() {
     return {
-        items: [], // ordered stream: {kind:'msg'|'tool', ...}
+        items: [], // ordered stream: {kind:'msg'|'tool'|'handoff', ...}
         permissions: [], // pending approvals, keyed by requestId
         banner: { state: "starting", error: "" },
         approvals: "read-only", // what runs unasked: "ask" nothing, "read-only" reads, "auto" everything
@@ -16,6 +14,8 @@ function initialState() {
         seq: 0,
         models: [],
         currentModel: "",
+        pick: "",
+        pickUnavailable: false,
         agent: "",
         prowl: "",
         prowlReason: "",
@@ -99,6 +99,12 @@ function applyEvent(state, ev) {
     case "user_text":
         pushUser(s, state, ev.text || "", ev.images || []);
         return s;
+    case "handoff":
+        s.items = state.items.concat({
+            kind: "handoff", id: "h" + (++s.seq), askId: ev.askId || "",
+            question: ev.text || "", answer: ev.answer || ""
+        });
+        return s;
     case "agent_text":
         return appendToSegment(s, state, "text", ev.text || "", function () { return true; });
     case "agent_thought":
@@ -163,6 +169,8 @@ function applyEvent(state, ev) {
     case "models":
         s.models = ev.models || [];
         s.currentModel = ev.current || "";
+        s.pick = ev.pick || "";
+        s.pickUnavailable = ev.pickUnavailable === true;
         s.agent = ev.agent || "";
         s.prowl = ev.prowl || "";
         s.prowlReason = ev.reason || "";

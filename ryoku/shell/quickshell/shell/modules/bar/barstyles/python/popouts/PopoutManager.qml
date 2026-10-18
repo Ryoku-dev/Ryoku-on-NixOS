@@ -11,4 +11,5 @@ Item {
     Osd {}
     TrayBase {}
     SideMusicPopout {}
+    DockAppMenu {}
 }

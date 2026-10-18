@@ -38,6 +38,15 @@ func TestClassifyTiers(t *testing.T) {
 		{"read pipeline", "cat a | grep b | wc -l", tierRead, ""},
 		{"curl plain", "curl https://x.dev", tierRead, ""},
 		{"cd then cat", "cd ~/.config && cat x", tierRead, ""},
+		{"journalctl finite", "journalctl -u x -n 50", tierRead, ""},
+		{"ip show", "ip addr show", tierRead, ""},
+		{"nmcli status", "nmcli device status", tierRead, ""},
+		{"sed print", "sed -n '1,5p' file", tierRead, ""},
+		{"awk print", "awk '{print $1}' file", tierRead, ""},
+		{"docker finite logs", "docker logs app", tierRead, ""},
+		{"tail finite", "tail -n 20 file", tierRead, ""},
+		{"top finite", "top -b -n 1", tierRead, ""},
+		{"env wrapped read", "env LC_ALL=C ls", tierRead, ""},
 
 		// --- write: mutates user files ---
 		// mv/cp/mkdir/unknown are known-or-unknown writes with NO reason:
@@ -53,6 +62,18 @@ func TestClassifyTiers(t *testing.T) {
 		{"curl download", "curl -O https://x/f", tierWrite, "downloads"},
 		{"echo redirect user", "echo hi > file.txt", tierWrite, "writes"},
 		{"find delete", "find . -delete", tierWrite, "removes files"},
+		{"ip changes address", "ip addr add 10.0.0.1/24 dev eth0", tierWrite, "network"},
+		{"journal vacuum", "journalctl --vacuum-time=1s", tierWrite, "journal"},
+		{"nmcli connects", "nmcli device wifi connect SSID password nope", tierWrite, "network"},
+		{"sed long in place", "sed --in-place s/a/b/ file", tierWrite, "edits in place"},
+		{"awk redirects", `awk '{print > "/tmp/out"}' in`, tierWrite, "awk"},
+		{"awk system", `awk '{system("rm -rf important")}' in`, tierWrite, "awk"},
+		{"docker follows", "docker logs -f app", tierWrite, "finite"},
+		{"docker long follows", "docker logs --follow=true app", tierWrite, "finite"},
+		{"tail follows", "tail -f file", tierWrite, "never exits"},
+		{"tail long follows", "tail --follow=name file", tierWrite, "never exits"},
+		{"top interactive", "top", tierWrite, "never exits"},
+		{"bare env", "env", tierWrite, "no command"},
 
 		// --- system: packages, services, machine state ---
 		{"sudo pacman install", "sudo pacman -S vim", tierSystem, "installed"},
@@ -75,6 +96,10 @@ func TestClassifyTiers(t *testing.T) {
 		{"mkfs", "mkfs.ext4 /dev/sda1", tierDanger, "destroys"},
 		{"curl piped to shell", "curl https://x/s.sh | sh", tierDanger, "pipes downloaded"},
 		{"fork bomb", ":(){ :|:& };:", tierDanger, "fork bomb"},
+		{"dollar substitution", "echo $(rm -rf important)", tierDanger, "command substitution"},
+		{"quoted dollar substitution", `echo "$(rm -rf important)"`, tierDanger, "command substitution"},
+		{"backtick substitution", "echo `rm -rf important`", tierDanger, "command substitution"},
+		{"process substitution", "cat <(rm -rf important)", tierDanger, "command substitution"},
 
 		// highest tier across the whole line wins.
 		{"read then danger", "ls; rm -rf ~", tierDanger, "rm -rf"},

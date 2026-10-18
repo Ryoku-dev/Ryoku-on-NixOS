@@ -6,6 +6,7 @@ import Quickshell
 import Quickshell.Io
 import "../../"
 import "../../reusables"
+import "../../reusables/guide"
 
 Item {
     id: themeTabRoot
@@ -24,6 +25,9 @@ Item {
     property var defaultThemeSettings: {
         "fontFamily": ThemeBackend.fontFamily,
         "borderRadius": ThemeBackend.borderRadius,
+        "elementOpacity": 100,
+        "blurBackground": false,
+        "blurStyle": "blur",
         "activePreset": "Matugen",
         "matugen": true,
         "colors": {}
@@ -32,9 +36,12 @@ Item {
     property var themeSettings: Config.getSetting("theme", defaultThemeSettings)
     property string currentFontFamily: Config.globalFontFamily
     property int currentBorderRadius: themeSettings.borderRadius !== undefined ? themeSettings.borderRadius : ThemeBackend.borderRadius
+    property int currentElementOpacity: themeSettings.elementOpacity !== undefined ? Number(themeSettings.elementOpacity) : 100
+    property string currentBlurStyle: themeSettings.blurStyle === "liquid" ? "liquid" : "blur"
+    property bool currentBlurBackground: themeSettings.blurBackground !== undefined ? Boolean(themeSettings.blurBackground) : false
     property string currentPreset: themeSettings.activePreset !== undefined ? themeSettings.activePreset : "Matugen"
 
-    readonly property var curatedFonts: ["Iosevka Nerd Font", "JetBrainsMono Nerd Font", "JetBrains Mono"]
+    readonly property var curatedFonts: ["JetBrainsMono Nerd Font", "FiraCode Nerd Font", "Hack Nerd Font"]
     property var blockedFontPatterns: [".notdef", "cursor", "emoji", "symbol", "pcf"]
     property var availableFonts: []
 
@@ -120,6 +127,27 @@ Item {
         return result;
     }
 
+    readonly property int presetTotal: Math.max(filteredUserPresets.length, filteredSystemPresets.length)
+    property int revealedCount: 0
+
+    function restartReveal() {
+        themeTabRoot.revealedCount = Math.min(themeTabRoot.presetTotal, 12);
+        if (themeTabRoot.revealedCount < themeTabRoot.presetTotal) revealTimer.restart();
+        else revealTimer.stop();
+    }
+
+    onFilteredUserPresetsChanged: restartReveal()
+    onFilteredSystemPresetsChanged: restartReveal()
+
+    Timer {
+        id: revealTimer
+        interval: 16
+        repeat: true
+        onTriggered: {
+            themeTabRoot.revealedCount = Math.min(themeTabRoot.presetTotal, themeTabRoot.revealedCount + 8);
+            if (themeTabRoot.revealedCount >= themeTabRoot.presetTotal) revealTimer.stop();
+        }
+    }
 
     property string activeScreenName: (Quickshell.screens && Quickshell.screens.length > 0 && Quickshell.screens[0].name) ? Quickshell.screens[0].name : ""
     property string currentWallpaperPath: ""
@@ -127,7 +155,8 @@ Item {
     property bool wallpaperIsLive: false
     readonly property bool isWallpaperVideo: wallpaperIsLive
 
-    property real tileWidth: (typeof themesSectionCol !== "undefined" && themesSectionCol && themesSectionCol.width > 0) ? Math.max(0, (themesSectionCol.width - rootObj.s(20)) / 3) : Math.max(0, (themeTabRoot.width - rootObj.s(72)) / 3)
+    property real gridAvailableWidth: Math.max(0, settingsCol.width - rootObj.s(24))
+    property real tileWidth: Math.max(rootObj.s(80), (gridAvailableWidth - 2 * rootObj.s(10)) / 3)
 
     Timer {
         id: borderRadiusDebounceTimer
@@ -138,6 +167,14 @@ Item {
         }
     }
 
+    Timer {
+        id: elementOpacityDebounceTimer
+        interval: 100
+        repeat: false
+        onTriggered: {
+            themeTabRoot.updateElementOpacitySetting();
+        }
+    }
     function getSnappedRadius(rawVal) {
         let snapPoints = [0, 2, 4, 8, 10, 16, 24, 32, 48, 52, 58, 64];
         let rounded = Math.round(rawVal);
@@ -192,6 +229,7 @@ Item {
         }
     }
 
+
     function activateTab() {
         themeTabRoot.loadAvailableFonts();
         if (themeTabRoot._needsReload) {
@@ -228,10 +266,10 @@ Item {
         id: themesLoader
         running: false
         command: {
-            let assetsPath = Caching.serpantinumDir ? (Caching.assetsPath + "/themes") : "";
+            let assetsPath = Caching.assetsPath ? (Caching.assetsPath + "/themes") : "";
             let userPath = Caching.stateDir ? (Caching.stateDir + "/themes") : (Caching.home + "/.local/state/serpantinum/themes");
             let cachePath = Caching.getCacheDir("themes") + "/theme_sort_cache.json";
-            let scriptPath = Caching.qsDir ? (Caching.qsDir + "/guide/theme/theme_sorter.py") : "theme_sorter.py";
+            let scriptPath = Caching.payloadDir ? (Caching.payloadDir + "/guide/theme/theme_sorter.py") : "theme_sorter.py";
             return ["python3", scriptPath, assetsPath, userPath, cachePath];
         }
         stdout: StdioCollector {
@@ -271,7 +309,10 @@ Item {
     }
 
     Component.onCompleted: {
-        activateTab();
+        themeTabRoot.loadAvailableFonts();
+        if (visible) {
+            activateTab();
+        }
     }
 
     function saveCustomTheme(themeObj) {
@@ -309,6 +350,9 @@ Item {
             let ts = Config.getSetting("theme", themeTabRoot.defaultThemeSettings);
             themeTabRoot.currentFontFamily = Config.globalFontFamily;
             themeTabRoot.currentBorderRadius = ts.borderRadius !== undefined ? ts.borderRadius : ThemeBackend.borderRadius;
+            themeTabRoot.currentElementOpacity = ts.elementOpacity !== undefined ? Number(ts.elementOpacity) : 100;
+            themeTabRoot.currentBlurBackground = ts.blurBackground !== undefined ? Boolean(ts.blurBackground) : false;
+            themeTabRoot.currentBlurStyle = ts.blurStyle === "liquid" ? "liquid" : "blur";
             themeTabRoot.currentPreset = ts.activePreset !== undefined ? ts.activePreset : "Matugen";
             themeTabRoot.themeSettings = ts;
         }
@@ -328,6 +372,26 @@ Item {
         if (typeof ThemeBackend !== "undefined") {
             ThemeBackend.reloadColors();
         }
+    }
+
+    function updateElementOpacitySetting() {
+        let current = Config.getSetting("theme", themeTabRoot.defaultThemeSettings);
+        current.elementOpacity = themeTabRoot.currentElementOpacity;
+        Config.setSetting("theme", current);
+    }
+
+    function updateBlurBackgroundSetting(val) {
+        themeTabRoot.currentBlurBackground = val;
+        let current = Config.getSetting("theme", themeTabRoot.defaultThemeSettings);
+        current.blurBackground = val;
+        Config.setSetting("theme", current);
+    }
+
+    function updateBlurStyleSetting(val) {
+        themeTabRoot.currentBlurStyle = val;
+        let current = Config.getSetting("theme", themeTabRoot.defaultThemeSettings);
+        current.blurStyle = val;
+        Config.setSetting("theme", current);
     }
 
     function applyPreset(modelData) {
@@ -352,15 +416,20 @@ Item {
         id: presetDelegateComp
         Loader {
             id: delegateLoader
-            asynchronous: true
-            Layout.columnSpan: modelData.isDivider === true ? 3 : 1
-            Layout.fillWidth: modelData.isDivider === true
-            Layout.preferredWidth: modelData.isDivider === true ? -1 : themeTabRoot.tileWidth
-            Layout.maximumWidth: modelData.isDivider === true ? -1 : themeTabRoot.tileWidth
-            Layout.preferredHeight: modelData.isDivider === true ? rootObj.s(17) : rootObj.s(44)
-            sourceComponent: modelData.isDivider === true ? dividerComp : tileComp
             property var themeData: modelData
             property int itemIndex: index
+            readonly property bool isDiv: modelData.isDivider === true
+
+            active: isDiv || itemIndex < themeTabRoot.revealedCount
+            asynchronous: false
+            sourceComponent: isDiv ? dividerComp : tileComp
+
+            Layout.columnSpan: isDiv ? 3 : 1
+            Layout.fillWidth: true
+            Layout.preferredWidth: isDiv ? themeTabRoot.gridAvailableWidth : themeTabRoot.tileWidth
+            Layout.minimumWidth: isDiv ? 0 : themeTabRoot.tileWidth
+            Layout.preferredHeight: isDiv ? rootObj.s(17) : rootObj.s(44)
+            Layout.alignment: Qt.AlignLeft | Qt.AlignTop
         }
     }
 
@@ -403,15 +472,7 @@ Item {
 
             property bool isHovered: delegateHover.hovered
 
-            Component.onCompleted: {
-                popInTimer.start();
-            }
-
-            Timer {
-                id: popInTimer
-                interval: Math.min(delegateContainer.itemIndex * 10, 200)
-                onTriggered: delegateContainer.opacity = 1.0
-            }
+            Component.onCompleted: opacity = 1.0
 
             Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutQuint } }
             Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutQuint } }
@@ -445,9 +506,8 @@ Item {
                             asynchronous: true
                             smooth: true
                             mipmap: true
-                            cache: false
-                            sourceSize.width: delegateContainer.width
-                            sourceSize.height: delegateContainer.height
+                            cache: true
+                            sourceSize: Qt.size(Math.round(rootObj.s(360)), Math.round(rootObj.s(120)))
                         }
 
                         MultiEffect {
@@ -562,14 +622,17 @@ Item {
                     }
                 }
 
-                DeleteButton {
-                    visible: modelData.isCustom === true
-                    size: rootObj.s(24)
-                    cornerRadius: Math.min(ThemeBackend.borderRadius, rootObj.s(6))
-                    iconFontSize: rootObj.s(12)
+                Loader {
+                    active: modelData.isCustom === true
+                    visible: active
                     Layout.alignment: Qt.AlignVCenter
-                    onClicked: {
-                        themeTabRoot.deleteCustomTheme(delegateContainer.modelData.name);
+                    sourceComponent: DeleteButton {
+                        size: rootObj.s(24)
+                        cornerRadius: Math.min(ThemeBackend.borderRadius, rootObj.s(6))
+                        iconFontSize: rootObj.s(12)
+                        onClicked: {
+                            themeTabRoot.deleteCustomTheme(delegateContainer.modelData.name);
+                        }
                     }
                 }
             }
@@ -705,6 +768,147 @@ Item {
                 Layout.topMargin: rootObj.s(6)
                 Layout.bottomMargin: rootObj.s(4)
 
+                property real highlightFlash: 0.0
+                property int handledHighlightToken: -1
+
+                function resolveTabInfo() {
+                    let p = wpPreviewContainer.parent;
+                    let targetTabIdx = -1;
+                    let targetSubTabIdx = -1;
+                    while (p) {
+                        if (targetSubTabIdx === -1 && p.subTabIndex !== undefined) targetSubTabIdx = p.subTabIndex;
+                        if (targetTabIdx === -1 && p.tabIndex !== undefined) targetTabIdx = p.tabIndex;
+                        p = p.parent;
+                    }
+                    let r = themeTabRoot.rootObj;
+                    let tab = "";
+                    let subtab = "";
+                    if (r && r.tabsModel && targetTabIdx >= 0 && targetTabIdx < r.tabsModel.length) {
+                        let tModel = r.tabsModel[targetTabIdx];
+                        tab = tModel.key || tModel.id || "";
+                        if (tModel.subtabs && targetSubTabIdx >= 0 && targetSubTabIdx < tModel.subtabs.length) {
+                            subtab = tModel.subtabs[targetSubTabIdx].key || tModel.subtabs[targetSubTabIdx].id || "";
+                        }
+                    }
+                    return { tab: tab, subtab: subtab };
+                }
+
+                function registerWithSearch() {
+                    let r = themeTabRoot.rootObj;
+                    if (!r || typeof r.registerSearchItem !== "function") return;
+                    let info = resolveTabInfo();
+                    r.registerSearchItem({
+                        id: "wallpaper",
+                        title: I18n.t("guide.theme.wallpaper.select") || "Wallpaper",
+                        desc: I18n.t("guide.theme.wallpaper.desc") || "Select and preview current wallpaper",
+                        description: I18n.t("guide.theme.wallpaper.desc") || "Select and preview current wallpaper",
+                        tab: info.tab,
+                        subtab: info.subtab,
+                        icon: "󰸉",
+                        keywords: "wallpaper background image video select screen current desktop",
+                        target: wpPreviewContainer,
+                        unavailable: false
+                    });
+                }
+
+                function unregisterFromSearch() {
+                    let r = themeTabRoot.rootObj;
+                    if (!r || typeof r.unregisterSearchItem !== "function") return;
+                    r.unregisterSearchItem("wallpaper");
+                }
+
+                function ensureVisibleInFlickable() {
+                    let p = wpPreviewContainer.parent;
+                    let flick = null;
+                    while (p) {
+                        if (p.contentY !== undefined && p.contentHeight !== undefined) {
+                            flick = p;
+                            break;
+                        }
+                        p = p.parent;
+                    }
+                    if (flick) {
+                        let targetPos = wpPreviewContainer.mapToItem(flick.contentItem, 0, 0);
+                        if (targetPos) {
+                            let viewTop = flick.contentY;
+                            let viewBottom = flick.contentY + flick.height;
+                            if (targetPos.y < viewTop || targetPos.y + wpPreviewContainer.height > viewBottom) {
+                                flick.contentY = Math.max(0, Math.min(targetPos.y - flick.height / 2 + wpPreviewContainer.height / 2, flick.contentHeight - flick.height));
+                            }
+                        }
+                    }
+                }
+
+                function triggerHighlightAnimation() {
+                    highlightAnimation.restart();
+                    wpPreviewContainer.ensureVisibleInFlickable();
+                    ensureVisibleTimer.restart();
+                }
+
+                function checkHighlight() {
+                    let r = themeTabRoot.rootObj;
+                    if (!r) return;
+                    if (r.highlightToken === wpPreviewContainer.handledHighlightToken) return;
+                    if (r.highlightedSettingId && (r.highlightedSettingId === "wallpaper" || r.highlightedSettingId === "wallpaper_preview")) {
+                        wpPreviewContainer.handledHighlightToken = r.highlightToken;
+                        r.highlightedSettingId = "";
+                        highlightDelayTimer.restart();
+                    }
+                }
+
+                Connections {
+                    target: themeTabRoot.rootObj
+                    ignoreUnknownSignals: true
+                    function onHighlightTokenChanged() {
+                        wpPreviewContainer.checkHighlight();
+                    }
+                }
+
+                onVisibleChanged: {
+                    searchRegTimer.restart();
+                    if (visible) {
+                        wpPreviewContainer.checkHighlight();
+                    }
+                }
+
+                Timer {
+                    id: searchRegTimer
+                    interval: 10
+                    repeat: false
+                    onTriggered: wpPreviewContainer.registerWithSearch()
+                }
+
+                Timer {
+                    id: ensureVisibleTimer
+                    interval: 320
+                    repeat: false
+                    onTriggered: wpPreviewContainer.ensureVisibleInFlickable()
+                }
+
+                Timer {
+                    id: highlightDelayTimer
+                    interval: 80
+                    repeat: false
+                    onTriggered: wpPreviewContainer.triggerHighlightAnimation()
+                }
+
+                SequentialAnimation {
+                    id: highlightAnimation
+                    PropertyAction { target: wpPreviewContainer; property: "highlightFlash"; value: 0.0 }
+                    NumberAnimation { target: wpPreviewContainer; property: "highlightFlash"; from: 0.0; to: 1.0; duration: 400; easing.type: Easing.OutCubic }
+                    PauseAnimation { duration: 1500 }
+                    NumberAnimation { target: wpPreviewContainer; property: "highlightFlash"; from: 1.0; to: 0.0; duration: 900; easing.type: Easing.InOutSine }
+                }
+
+                Component.onCompleted: {
+                    searchRegTimer.restart();
+                    checkHighlight();
+                }
+
+                Component.onDestruction: {
+                    unregisterFromSearch();
+                }
+
                 Rectangle {
                     id: wpCardMask
                     anchors.fill: parent
@@ -724,7 +928,15 @@ Item {
                         id: wpCardBg
                         anchors.fill: parent
                         radius: ThemeBackend.borderRadius
-                        color: ThemeBackend.surface0
+                        color: gf1.active ? "transparent" : ThemeBackend.surface0
+
+                        GlassFill {
+                            id: gf1
+                            anchors.fill: parent
+                            radius: parent.radius
+                            tintColor: ThemeBackend.surface0
+                            tintAmount: 0.25
+                        }
                     }
 
                     Image {
@@ -758,6 +970,17 @@ Item {
                     source: wpCardContent
                     maskEnabled: true
                     maskSource: wpCardMask
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: ThemeBackend.borderRadius
+                    color: ThemeBackend.mauve
+                    opacity: wpPreviewContainer.highlightFlash * 0.2
+                    visible: opacity > 0.001
+                    border.color: ThemeBackend.mauve
+                    border.width: wpPreviewContainer.highlightFlash > 0.01 ? 2 : 0
+                    Behavior on opacity { NumberAnimation { duration: 180 } }
                 }
 
                 IconButton {
@@ -849,207 +1072,268 @@ Item {
                 }
             }
 
+            SettingsBlob {
             SettingsRow {
                 rootObj: themeTabRoot.rootObj
+                settingId: "font"
                 icon: "󰛖"
                 title: I18n.t("guide.theme.font.title")
                 description: I18n.t("guide.theme.font.desc")
+                searchKeywords: "font typeface family typography text"
 
-                IconButton {
-                    Layout.preferredWidth: rootObj.s(32)
-                    Layout.preferredHeight: rootObj.s(32)
-                    Layout.alignment: Qt.AlignVCenter
-                    cornerRadius: rootObj.s(6)
-                    buttonIcon: "󰉋"
-                    iconOffsetX: -2
-                    iconFontSize: rootObj.s(14)
-                    accentColor: ThemeBackend.surface0
-                    textColor: isHoveredOrHighlighted ? ThemeBackend.text : ThemeBackend.overlay2
-                    onClicked: {
-                        let userFontsPath = (Quickshell.env("XDG_DATA_HOME") || (Quickshell.env("HOME") + "/.local/share")) + "/fonts";
-                        let escapeBash = function(str) { return String(str).replace(/(["\\$`])/g, '\\$1'); };
-                        Quickshell.execDetached(["bash", "-c", "mkdir -p \"" + escapeBash(userFontsPath) + "\" && xdg-open \"" + escapeBash(userFontsPath) + "\""]);
+                    IconButton {
+                        Layout.preferredWidth: rootObj.s(32)
+                        Layout.preferredHeight: rootObj.s(32)
+                        Layout.alignment: Qt.AlignVCenter
+                        cornerRadius: rootObj.s(6)
+                        buttonIcon: "󰐕"
+                        iconFontSize: rootObj.s(14)
+                        accentColor: ThemeBackend.surface0
+                        textColor: isHoveredOrHighlighted ? ThemeBackend.text : ThemeBackend.overlay2
+                        onClicked: fontPickerPopup.openPicker()
                     }
-                }
 
-                IconButton {
-                    Layout.preferredWidth: rootObj.s(32)
-                    Layout.preferredHeight: rootObj.s(32)
-                    Layout.alignment: Qt.AlignVCenter
-                    cornerRadius: rootObj.s(6)
-                    buttonIcon: "󰐕"
-                    iconFontSize: rootObj.s(14)
-                    accentColor: ThemeBackend.surface0
-                    textColor: isHoveredOrHighlighted ? ThemeBackend.text : ThemeBackend.overlay2
-                    onClicked: fontPickerPopup.openPicker()
-                }
-
-                Dropdown {
-                    id: fontDropdown
-                    Layout.preferredWidth: rootObj.s(220)
-                    Layout.preferredHeight: rootObj.s(32)
-                    Layout.alignment: Qt.AlignVCenter
-                    options: themeTabRoot.availableFonts
-                    currentIndex: options.indexOf(themeTabRoot.currentFontFamily) >= 0 ? options.indexOf(themeTabRoot.currentFontFamily) : 0
-                    placeholderText: I18n.t("guide.theme.font.select")
-                    fontFamily: ThemeBackend.fontFamily
-                    useOptionAsFontFamily: true
-                    accentColor: ThemeBackend.mauve
-                    baseColor: ThemeBackend.surface0
-                    hoverColor: ThemeBackend.surface1
-                    dropdownColor: ThemeBackend.surface0
-                    borderColor: Qt.alpha(ThemeBackend.surface2, 0.6)
-                    textColor: ThemeBackend.text
-                    activeTextColor: ThemeBackend.crust
-                    cornerRadius: ThemeBackend.borderRadius
-                    fontPixelSize: rootObj.s(11)
-                    onValueChanged: function(index, value) {
-                        themeTabRoot.currentFontFamily = value;
-                        themeTabRoot.updateFontSetting();
-                    }
-                    onClicked: {
-                        themeTabRoot.loadAvailableFonts();
-                    }
-                }
-            }
-
-            SettingsRow {
-                rootObj: themeTabRoot.rootObj
-                icon: "󰞁"
-                title: I18n.t("guide.theme.radius.title")
-                description: I18n.t("guide.theme.radius.desc")
-
-                NumberSelector {
-                    id: radiusSelector
-                    implicitWidth: rootObj.s(150)
-                    implicitHeight: rootObj.s(32)
-                    from: 0
-                    to: 64
-                    stepSize: 1
-                    decimals: 0
-                    suffix: "px"
-                    value: themeTabRoot.currentBorderRadius
-                    baseColor: ThemeBackend.surface0
-                    accentColor: ThemeBackend.mauve
-                    buttonColor: ThemeBackend.surface1
-                    buttonTextColor: ThemeBackend.text
-                    textColor: ThemeBackend.text
-                    subTextColor: ThemeBackend.subtext0
-                    borderColor: Qt.alpha(ThemeBackend.surface2, 0.6)
-                    cornerRadius: ThemeBackend.borderRadius
-                    fontFamily: ThemeBackend.fontFamily
-                    fontPixelSize: rootObj.s(11)
-                    onValueChanged: function(val) {
-                        let num = (typeof val === "number" && !isNaN(val)) ? val : value;
-                        let rounded = Math.round(num);
-                        let snapped = themeTabRoot.getSnappedRadius(rounded);
-                        if (!isNaN(snapped) && snapped >= 0 && snapped <= 64 && themeTabRoot.currentBorderRadius !== snapped) {
-                            themeTabRoot.currentBorderRadius = snapped;
-                            borderRadiusDebounceTimer.restart();
+                    Dropdown {
+                        id: fontDropdown
+                        Layout.preferredWidth: rootObj.s(220)
+                        Layout.preferredHeight: rootObj.s(32)
+                        Layout.alignment: Qt.AlignVCenter
+                        options: themeTabRoot.availableFonts
+                        currentIndex: options.indexOf(themeTabRoot.currentFontFamily) >= 0 ? options.indexOf(themeTabRoot.currentFontFamily) : 0
+                        placeholderText: I18n.t("guide.theme.font.select")
+                        fontFamily: ThemeBackend.fontFamily
+                        useOptionAsFontFamily: true
+                        accentColor: ThemeBackend.mauve
+                        baseColor: ThemeBackend.surface0
+                        hoverColor: ThemeBackend.surface1
+                        dropdownColor: ThemeBackend.surface0
+                        borderColor: Qt.alpha(ThemeBackend.surface2, 0.6)
+                        textColor: ThemeBackend.text
+                        activeTextColor: ThemeBackend.crust
+                        cornerRadius: ThemeBackend.borderRadius
+                        fontPixelSize: rootObj.s(11)
+                        onValueChanged: function(index, value) {
+                            themeTabRoot.currentFontFamily = value;
+                            themeTabRoot.updateFontSetting();
+                        }
+                        onClicked: {
+                            themeTabRoot.loadAvailableFonts();
                         }
                     }
-                    onTriggered: {
-                        let rounded = Math.round(radiusSelector.value);
-                        let snapped = themeTabRoot.getSnappedRadius(rounded);
-                        themeTabRoot.currentBorderRadius = snapped;
-                        themeTabRoot.updateBorderRadiusSetting();
+                }
+
+                SettingsRow {
+                    rootObj: themeTabRoot.rootObj
+                    settingId: "border_radius"
+                    icon: "󰞁"
+                    title: I18n.t("guide.theme.radius.title")
+                    description: I18n.t("guide.theme.radius.desc")
+                    searchKeywords: "border radius corner round curvature rounding px"
+
+                    NumberSelector {
+                        id: radiusSelector
+                        implicitWidth: rootObj.s(150)
+                        implicitHeight: rootObj.s(32)
+                        from: 0
+                        to: 64
+                        stepSize: 1
+                        decimals: 0
+                        suffix: "px"
+                        value: themeTabRoot.currentBorderRadius
+                        baseColor: ThemeBackend.surface0
+                        accentColor: ThemeBackend.mauve
+                        buttonColor: ThemeBackend.surface1
+                        buttonTextColor: ThemeBackend.text
+                        textColor: ThemeBackend.text
+                        subTextColor: ThemeBackend.subtext0
+                        borderColor: Qt.alpha(ThemeBackend.surface2, 0.6)
+                        cornerRadius: ThemeBackend.borderRadius
+                        fontFamily: ThemeBackend.fontFamily
+                        fontPixelSize: rootObj.s(11)
+                        onValueChanged: function(val) {
+                            let num = (typeof val === "number" && !isNaN(val)) ? val : value;
+                            let rounded = Math.round(num);
+                            let snapped = themeTabRoot.getSnappedRadius(rounded);
+                            if (!isNaN(snapped) && snapped >= 0 && snapped <= 64 && themeTabRoot.currentBorderRadius !== snapped) {
+                                themeTabRoot.currentBorderRadius = snapped;
+                                borderRadiusDebounceTimer.restart();
+                            }
+                        }
+                        onTriggered: {
+                            let rounded = Math.round(radiusSelector.value);
+                            let snapped = themeTabRoot.getSnappedRadius(rounded);
+                            themeTabRoot.currentBorderRadius = snapped;
+                            themeTabRoot.updateBorderRadiusSetting();
+                        }
                     }
                 }
+
+                SettingsRow {
+                    rootObj: themeTabRoot.rootObj
+                    settingId: "element_opacity"
+                    visible: !(themeTabRoot.currentBlurBackground && themeTabRoot.currentBlurStyle === "liquid")
+                    icon: "󰃟"
+                    title: I18n.t("guide.theme.element_opacity.title", "Element opacity")
+                    description: I18n.t("guide.theme.element_opacity.desc", "Opacity of the bar, dock, widgets and every other shell element")
+                    searchKeywords: "element opacity transparency transparent translucent alpha bar dock widgets"
+
+                    Draggable {
+                        id: elementOpacitySlider
+                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                        Layout.rightMargin: rootObj.s(8)
+                        implicitWidth: rootObj.s(220)
+                        implicitHeight: rootObj.s(18)
+                        from: 20
+                        to: 100
+                        stepSize: 1
+                        defaultValue: 100
+                        showValueBubble: true
+                        valueFormatter: function(v) { return Math.round(v) + "%" }
+                        value: themeTabRoot.currentElementOpacity
+                        backgroundColor: ThemeBackend.surface0
+                        accentColor: ThemeBackend.mauve
+                        handleColor: ThemeBackend.text
+                        handleBorderColor: ThemeBackend.mantle
+                        onMoved: function(val) {
+                            let rounded = Math.round(val);
+                            if (themeTabRoot.currentElementOpacity !== rounded) {
+                                themeTabRoot.currentElementOpacity = rounded;
+                                elementOpacityDebounceTimer.restart();
+                            }
+                        }
+                        onDragFinished: {
+                            elementOpacityDebounceTimer.stop();
+                            themeTabRoot.updateElementOpacitySetting();
+                        }
+                    }
+                }
+
+                SettingsRow {
+                    rootObj: themeTabRoot.rootObj
+                    settingId: "blur_background"
+                    icon: "󰂵"
+                    title: I18n.t("guide.theme.blur_background.title", "Add a blurred wallpaper background")
+                    description: I18n.t("guide.theme.blur_background.desc", "Blur the wallpaper behind every element that uses transparency")
+                    searchKeywords: "blur blurred wallpaper background frosted glass liquid glass apple transparency opacity"
+
+                    Switch {
+                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                        implicitWidth: rootObj.s(200)
+                        implicitHeight: rootObj.s(32)
+                        cornerRadius: ThemeBackend.borderRadius
+                        fontPixelSize: rootObj.s(11)
+                        enabled: themeTabRoot.currentBlurBackground
+                        options: [
+                            I18n.t("guide.theme.blur_background.style.blur", "Blur"),
+                            I18n.t("guide.theme.blur_background.style.liquid", "Liquid glass")
+                        ]
+                        currentIndex: themeTabRoot.currentBlurStyle === "liquid" ? 1 : 0
+                        accentColor: ThemeBackend.mauve
+                        baseColor: ThemeBackend.surface1
+                        textColor: ThemeBackend.text
+                        activeTextColor: ThemeBackend.crust
+                        onValueChanged: function(index, value) {
+                            themeTabRoot.updateBlurStyleSetting(index === 1 ? "liquid" : "blur");
+                        }
+                    }
+
+                    Toggle {
+                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                        checked: themeTabRoot.currentBlurBackground
+                        accentColor: ThemeBackend.mauve
+                        baseColor: ThemeBackend.surface1
+                        handleColor: ThemeBackend.crust
+                        handleOffColor: ThemeBackend.text
+                        onToggled: function(val) {
+                            themeTabRoot.updateBlurBackgroundSetting(val);
+                        }
+                    }
+                }
+
             }
 
             Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: themesSectionCol.implicitHeight + rootObj.s(24)
+                implicitHeight: themesSectionCol.implicitHeight + rootObj.s(12)
                 radius: ThemeBackend.borderRadius
-                color: Qt.alpha(ThemeBackend.surface0, 0.4)
+                color: gf2.active ? "transparent" : Qt.alpha(ThemeBackend.surface0, 0.4)
+
+                GlassFill {
+                    id: gf2
+                    anchors.fill: parent
+                    radius: parent.radius
+                    tintColor: Qt.alpha(ThemeBackend.surface0, 0.4)
+                    tintAmount: 0.25
+                }
                 border.width: 0
+                clip: true
 
                 ColumnLayout {
                     id: themesSectionCol
-                    anchors.fill: parent
-                    anchors.margins: rootObj.s(12)
-                    spacing: rootObj.s(14)
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    spacing: 0
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: rootObj.s(12)
+                    SettingsRow {
+                        id: colorSchemesRow
+                        rootObj: themeTabRoot.rootObj
+                        settingId: "colors"
+                        icon: "󰏘"
+                        title: I18n.t("guide.theme.colors.title")
+                        description: I18n.t("guide.theme.colors.desc")
+                        searchKeywords: "colors theme presets scheme palette matugen catppuccin"
+                        baseColor: "transparent"
+                        hoverColor: "transparent"
+                        borderWidth: 0
+                        color: highlightFlash > 0.001 ? Qt.rgba(ThemeBackend.mauve.r, ThemeBackend.mauve.g, ThemeBackend.mauve.b, highlightFlash * 0.18) : "transparent"
 
                         IconButton {
-                            enabled: false
+                            Layout.alignment: Qt.AlignVCenter
                             size: rootObj.s(32)
                             Layout.preferredWidth: rootObj.s(32)
                             Layout.preferredHeight: rootObj.s(32)
-                            Layout.alignment: Qt.AlignVCenter
-                            cornerRadius: ThemeBackend.borderRadius
-                            buttonIcon: "󰏘"
-                            iconFontSize: rootObj.s(16)
+                            cornerRadius: rootObj.s(8)
+                            buttonIcon: "󰐕"
+                            iconFontSize: rootObj.s(14)
                             accentColor: ThemeBackend.surface0
-                            textColor: "#ffffff"
+                            textColor: isHoveredOrHighlighted ? ThemeBackend.text : ThemeBackend.overlay2
+                            onClicked: {
+                                if (typeof Sounds !== "undefined") Sounds.playSfx("reusables/clickbutton/click.wav");
+                                themeEditorPopup.openForNew();
+                            }
                         }
 
-                        ColumnLayout {
-                            Layout.fillWidth: true
+                        Input {
+                            id: themeSearchInput
                             Layout.alignment: Qt.AlignVCenter
-                            spacing: rootObj.s(2)
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: I18n.t("guide.theme.colors.title")
-                                font.family: ThemeBackend.fontFamily
-                                font.pixelSize: rootObj.s(13)
-                                color: ThemeBackend.text
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: I18n.t("guide.theme.colors.desc")
-                                font.family: ThemeBackend.fontFamily
-                                font.pixelSize: rootObj.s(11)
-                                color: ThemeBackend.subtext0
-                                wrapMode: Text.WordWrap
-                            }
+                            implicitWidth: rootObj.s(180)
+                            placeholderText: I18n.t("guide.theme.colors.search")
+                            baseColor: ThemeBackend.surface0
+                            accentColor: ThemeBackend.mauve
+                            textColor: ThemeBackend.text
+                            subTextColor: ThemeBackend.subtext0
+                            borderColor: Qt.alpha(ThemeBackend.surface2, 0.6)
+                            cornerRadius: ThemeBackend.borderRadius
+                            fontPixelSize: rootObj.s(11)
+                            charSpacing: 1
+                            onTextEdited: newText => themeTabRoot.themeSearchText = newText
                         }
+                    }
 
-                        RowLayout {
-                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                            spacing: rootObj.s(8)
-
-                            IconButton {
-                                Layout.alignment: Qt.AlignVCenter
-                                size: rootObj.s(32)
-                                Layout.preferredWidth: rootObj.s(32)
-                                Layout.preferredHeight: rootObj.s(32)
-                                cornerRadius: rootObj.s(8)
-                                buttonIcon: "󰐕"
-                                iconFontSize: rootObj.s(14)
-                                accentColor: ThemeBackend.surface0
-                                textColor: isHoveredOrHighlighted ? ThemeBackend.text : ThemeBackend.overlay2
-                                onClicked: {
-                                    if (typeof Sounds !== "undefined") Sounds.playSfx("reusables/clickbutton/click.wav");
-                                    themeEditorPopup.openForNew();
-                                }
-                            }
-
-                            Input {
-                                id: themeSearchInput
-                                Layout.alignment: Qt.AlignVCenter
-                                implicitWidth: rootObj.s(180)
-                                placeholderText: I18n.t("guide.theme.colors.search")
-                                baseColor: ThemeBackend.surface0
-                                accentColor: ThemeBackend.mauve
-                                textColor: ThemeBackend.text
-                                subTextColor: ThemeBackend.subtext0
-                                borderColor: Qt.alpha(ThemeBackend.surface2, 0.6)
-                                cornerRadius: ThemeBackend.borderRadius
-                                fontPixelSize: rootObj.s(11)
-                                charSpacing: 1
-                                onTextEdited: newText => themeTabRoot.themeSearchText = newText
-                            }
-                        }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: Qt.alpha(ThemeBackend.surface1, 0.3)
                     }
 
                     GridLayout {
                         id: themesGrid
                         Layout.fillWidth: true
+                        Layout.leftMargin: rootObj.s(12)
+                        Layout.rightMargin: rootObj.s(12)
+                        Layout.topMargin: rootObj.s(12)
+                        Layout.bottomMargin: rootObj.s(12)
                         columns: 3
                         rowSpacing: rootObj.s(10)
                         columnSpacing: rootObj.s(10)

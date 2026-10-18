@@ -14,13 +14,17 @@ const (
 	CapSpecialWorkspace      Capability = "specialWorkspace"
 	CapWorkspaceMoveToOutput Capability = "workspaceMoveToOutput"
 	CapWindowWorkspaceMap    Capability = "windowWorkspaceMap"
-	CapWindowGeometry        Capability = "windowGeometry"
-	CapFocusHistory          Capability = "focusHistory"
-	CapWindowRules           Capability = "windowRules"
-	CapLayerRules            Capability = "layerRules"
-	CapSubmap                Capability = "submap"
-	CapGlobalShortcuts       Capability = "globalShortcuts"
-	CapFocusGrab             Capability = "focusGrab"
+	// CapWorkspaceFullscreenState means workspace frames authoritatively carry
+	// their fullscreen bit. Without it the shell may enrich the active workspace
+	// from a matching foreign-toplevel handle.
+	CapWorkspaceFullscreenState Capability = "workspaceFullscreenState"
+	CapWindowGeometry           Capability = "windowGeometry"
+	CapFocusHistory             Capability = "focusHistory"
+	CapWindowRules              Capability = "windowRules"
+	CapLayerRules               Capability = "layerRules"
+	CapSubmap                   Capability = "submap"
+	CapGlobalShortcuts          Capability = "globalShortcuts"
+	CapFocusGrab                Capability = "focusGrab"
 	// CapWorkspaceSlideStyle is set when the compositor reports how it slides
 	// between workspaces (axis, distance, curve, duration, fade), so a
 	// full-screen overlay can match the real motion instead of assuming one.
@@ -80,16 +84,16 @@ const (
 	// records them and regenerates the file it watches; the capability says the
 	// border can follow the wallpaper, never how.
 	CapPaletteBorder Capability = "paletteBorder"
-	// CapPersistentScreenCapture is set when the compositor tolerates a
-	// layer-shell surface that captures the whole screen and stays created for
-	// the session's life, re-armed per use instead of rebuilt. A compositor
-	// without it still answers one-shot captures (the overview, a window
-	// preview, grim); it is the long-lived capturing surface that races output
-	// enter and leave, and where the client is Qt the race takes the whole
-	// shell down while resolving a screen that no longer exists. Named for the
-	// surface shape the consumer wants, never for a compositor: a shell that
-	// wants a live blurred backdrop behind a transient panel asks for this and
-	// falls back to a solid panel when it is absent.
+	// CapPersistentScreenCapture is set when the shell can capture a whole
+	// output inside its own process without being taken down by it. Where the
+	// compositor offers only wlr-screencopy, Quickshell takes a screen capture
+	// by binding a second wl_output, Qt files that object as one of its own
+	// screens and reads it after the capture is gone, so even a one-shot
+	// capture can crash the whole shell. Captures that run in another process
+	// (grim, a separate capture tool) are not affected. Named for what the
+	// consumer wants, never for a compositor: a shell that wants a blurred
+	// backdrop or a still of the screen asks for this and falls back to a
+	// solid panel or no still when it is absent.
 	CapPersistentScreenCapture Capability = "persistentScreenCapture"
 	// CapKeyboardGrabSharesPointer is set when a layer-shell surface can hold
 	// exclusive keyboard focus while the pointer still reaches every other
@@ -111,7 +115,7 @@ const (
 func All() []Capability {
 	return []Capability{
 		CapWorkspaces, CapSpecialWorkspace, CapWorkspaceMoveToOutput,
-		CapWindowWorkspaceMap, CapWindowGeometry, CapFocusHistory,
+		CapWindowWorkspaceMap, CapWorkspaceFullscreenState, CapWindowGeometry, CapFocusHistory,
 		CapWindowRules, CapLayerRules, CapSubmap, CapGlobalShortcuts,
 		CapFocusGrab, CapWorkspaceSlideStyle,
 		CapScreenShader, CapPlugins, CapLiveConfigEval, CapConfigReload,

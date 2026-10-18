@@ -119,6 +119,9 @@ var shellNames = map[string]bool{"sh": true, "bash": true, "zsh": true, "fish": 
 // classify returns the highest tier across a command line's pipeline
 // segments, with a short reason for anything above read.
 func classify(cmd string) (dangerTier, string) {
+	if hasUnquotedSubstitution(cmd) {
+		return tierDanger, "command substitution is not allowed"
+	}
 	segs := splitSegments(cmd)
 	tier, reason := tierRead, ""
 	bump := func(t dangerTier, r string) {
@@ -180,7 +183,7 @@ func classify(cmd string) (dangerTier, string) {
 func classifyArgv(argv []string) (dangerTier, string) {
 	argv = unwrap(argv)
 	if len(argv) == 0 {
-		return tierRead, ""
+		return tierWrite, "wrapper has no command"
 	}
 	name := filepath.Base(argv[0])
 	sub := ""
@@ -235,6 +238,46 @@ func classifyArgv(argv []string) (dangerTier, string) {
 		return tierRead, ""
 	case name == "xbps-install" || name == "xbps-remove":
 		return tierSystem, "changes installed packages"
+	case name == "ip":
+		if ok, _ := roIP(argv[1:]); ok {
+			return tierRead, ""
+		}
+		return tierWrite, "ip arguments may change the network"
+	case name == "journalctl":
+		if ok, _ := roJournalctl(argv[1:]); ok {
+			return tierRead, ""
+		}
+		return tierWrite, "journalctl arguments change or continuously read the journal"
+	case name == "nmcli":
+		if ok, _ := roNmcli(argv[1:]); ok {
+			return tierRead, ""
+		}
+		return tierWrite, "nmcli arguments may change network state"
+	case name == "sed":
+		if ok, reason := roSed(argv[1:]); !ok && strings.Contains(reason, "in place") {
+			return tierWrite, "sed edits in place"
+		}
+		return tierRead, ""
+	case name == "awk" || name == "gawk" || name == "mawk":
+		if ok, _ := roAwk(argv[1:]); ok {
+			return tierRead, ""
+		}
+		return tierWrite, "awk program may write or run a command"
+	case name == "docker" || name == "podman":
+		if ok, _ := roDocker(argv[1:]); ok {
+			return tierRead, ""
+		}
+		return tierWrite, name + " arguments are not a finite read"
+	case name == "tail":
+		if ok, _ := roNoFollow(argv[1:]); ok {
+			return tierRead, ""
+		}
+		return tierWrite, "tail follows and never exits"
+	case name == "top":
+		if ok, _ := roTop(argv[1:]); ok {
+			return tierRead, ""
+		}
+		return tierWrite, "top is interactive or never exits"
 	case name == "curl" || name == "wget":
 		for _, a := range argv[1:] {
 			if a == "-o" || a == "-O" || strings.HasPrefix(a, "--output") || a == "--remote-name" {
@@ -262,10 +305,6 @@ func classifyArgv(argv []string) (dangerTier, string) {
 	case systemLevel[name]:
 		return tierSystem, name + " changes system state"
 	case readOnly[name]:
-		// sed reads unless editing in place.
-		if name == "sed" && hasFlag(argv, "-i") {
-			return tierWrite, "sed edits in place"
-		}
 		return tierRead, ""
 	default:
 		// Unknown binaries never classify as read.
@@ -373,6 +412,52 @@ func expandHomeRef(a string) string {
 type segment struct {
 	text      string
 	pipedInto bool // this segment consumes the previous one's stdout
+}
+
+// hasUnquotedSubstitution rejects shell constructs that run a command before
+// the visible argv is executed. Single quotes suppress expansion; double
+// quotes still expand command substitutions.
+func hasUnquotedSubstitution(cmd string) bool {
+	runes := []rune(cmd)
+	quote := rune(0)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if quote == '\'' {
+			if r == '\'' {
+				quote = 0
+			}
+			continue
+		}
+		if r == '\\' {
+			i++
+			continue
+		}
+		if quote == '"' {
+			if r == '"' {
+				quote = 0
+				continue
+			}
+			if r == '`' || r == '$' && i+1 < len(runes) && runes[i+1] == '(' {
+				return true
+			}
+			continue
+		}
+		if r == '\'' {
+			quote = '\''
+			continue
+		}
+		if r == '"' {
+			quote = '"'
+			continue
+		}
+		if r == '`' || r == '$' && i+1 < len(runes) && runes[i+1] == '(' {
+			return true
+		}
+		if (r == '<' || r == '>') && i+1 < len(runes) && runes[i+1] == '(' {
+			return true
+		}
+	}
+	return false
 }
 
 // splitSegments cuts a command line at top-level ;, &&, ||, | and newlines,

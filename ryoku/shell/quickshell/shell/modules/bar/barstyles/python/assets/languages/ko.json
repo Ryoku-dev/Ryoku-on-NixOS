@@ -101,6 +101,10 @@
         "title": "빈 알림 센터 애니메이션",
         "desc": "알림 센터가 비어 있을 때 잠자는 고양이 그래픽을 표시합니다"
       },
+      "right_click_close": {
+        "title": "오른쪽 클릭으로 닫기",
+        "desc": "마우스 오른쪽 클릭으로 알림을 닫습니다"
+      },
       "test": "알림 테스트",
       "test_desc": "이것은 테스트 알림입니다"
     },
@@ -152,18 +156,23 @@
       },
       "dpms": {
         "title": "화면 끄기 (DPMS)",
-        "desc": "화면을 완전히 끄기까지의 시간"
+        "desc": "모니터 디스플레이 신호 끄기"
       },
       "lock": {
         "title": "세션 잠금",
-        "desc": "비밀번호를 요구하기까지의 시간"
+        "desc": "일정 시간 비활성 후 세션 잠금"
       },
       "suspend": {
         "title": "시스템 절전",
-        "desc": "시스템을 절전 모드로 전환하기까지의 시간"
+        "desc": "시스템을 절전 모드로 전환"
       },
       "hooks": {
         "title": "훅 (셸 명령)"
+      },
+      "custom_action_desc": "사용자 정의 시간 초과 동작 및 명령",
+      "lock_on_sleep": {
+        "title": "절전 전에 잠금",
+        "desc": "덮개를 닫을 때 등 시스템이 절전 모드로 들어가기 전에 세션을 잠급니다"
       }
     },
     "welcome": {
@@ -271,7 +280,8 @@
         "save_preset": {
           "title": "프리셋 저장"
         },
-        "preset_name_placeholder": "프리셋 이름 입력..."
+        "preset_name_placeholder": "프리셋 이름 입력...",
+        "screen_desc": "바탕화면 위젯 설정 및 편집"
       }
     },
     "bar": {
@@ -322,6 +332,11 @@
         "title": "바 너비",
         "desc": "바의 너비를 백분율로 설정합니다"
       },
+      "center_by_edges": {
+        "title": "가장자리 기준 가운데 정렬",
+        "desc": "가운데 모듈 대신 바의 왼쪽과 오른쪽 여백을 동일하게 유지합니다",
+        "desc_vertical": "가운데 모듈 대신 바의 위쪽과 아래쪽 여백을 동일하게 유지합니다"
+      },
       "workspaces": {
         "title": "표시할 작업 공간 개수를 선택하세요",
         "disc": "참고: 이 설정은 컴포지터의 실제 작업 공간 개수에는 영향을 주지 않습니다",
@@ -329,11 +344,11 @@
         "hide_empty": {
           "title": "빈 작업 공간 숨기기",
           "desc": "사용 중인 작업 공간과 현재 작업 공간만 표시"
+        },
+        "style": {
+          "title": "스타일",
+          "desc": "워크스페이스 표시기의 시각적 스타일을 선택합니다"
         }
-      },
-      "opacity": {
-        "title": "바 불투명도",
-        "desc": "바의 불투명도를 백분율로 설정합니다"
       },
       "style": {
         "title": "바 스타일",
@@ -375,6 +390,201 @@
         "show_date": {
           "title": "날짜 표시",
           "desc": "시계 옆에 날짜 텍스트를 표시합니다"
+        },
+        "style": {
+          "title": "스타일",
+          "desc": "시계 및 날짜 표시의 시각적 스타일을 선택합니다"
+        }
+      },
+      "vis": {
+        "bars": {
+          "title": "막대 개수",
+          "desc": "표시할 주파수 막대의 개수"
+        },
+        "alignment": {
+          "title": "정렬",
+          "desc": "시각화 도구를 중앙, 상단 또는 하단에 정렬"
+        },
+        "align": {
+          "center": "중앙",
+          "top": "상단",
+          "bottom": "하단",
+          "left": "왼쪽",
+          "right": "오른쪽"
+        },
+        "continuous": {
+          "title": "연속 파동",
+          "desc": "개별 막대 대신 부드러운 파동으로 렌더링"
+        }
+      },
+      "sysmon": {
+        "style": {
+          "title": "원 스타일",
+          "desc": "진행률 링의 시각적 모양",
+          "wave": "웨이브",
+          "circle": "원형"
+        },
+        "cpu": {
+          "title": "CPU 사용량",
+          "desc": "프로세서 사용률 링 표시"
+        },
+        "ram": {
+          "title": "메모리 사용량",
+          "desc": "메모리(RAM) 사용률 링 표시"
+        },
+        "temp": {
+          "title": "온도",
+          "desc": "시스템 온도 링 표시"
+        },
+        "disk": {
+          "title": "디스크 사용량",
+          "desc": "스토리지 디스크 사용률 링 표시"
+        }
+      },
+      "bat": {
+        "show_percent": {
+          "title": "백분율 표시",
+          "desc": "배터리 충전 백분율을 숫자로 표시합니다"
+        },
+        "show_icon": {
+          "title": "아이콘 표시",
+          "desc": "배터리 아이콘 또는 그래픽 표시기를 표시합니다"
+        },
+        "style": {
+          "title": "배터리 스타일",
+          "desc": "배터리 표시기의 시각적 모양을 선택합니다",
+          "name": {
+            "classic": "클래식",
+            "minimal": "미니멀",
+            "text": "텍스트"
+          },
+          "classic": "그라디언트 웨이브 알약 스타일",
+          "minimal": "캡이 있는 iOS/Android 캡슐 스타일",
+          "text": "배경 없는 깔끔한 텍스트 및 아이콘"
+        }
+      },
+      "wifi": {
+        "show_icon": {
+          "title": "아이콘 표시",
+          "desc": "네트워크 아이콘 또는 신호 표시기를 표시합니다"
+        },
+        "show_name": {
+          "title": "이름 표시",
+          "desc": "네트워크 SSID 또는 연결 상태 텍스트를 표시합니다"
+        },
+        "style": {
+          "title": "스타일",
+          "desc": "네트워크 모듈의 시각적 모양을 선택합니다",
+          "name": {
+            "button": "버튼",
+            "text": "텍스트"
+          },
+          "button": "배경이 있는 인터랙티브 버튼 캡슐",
+          "text": "배경 없는 깔끔한 텍스트 및 아이콘"
+        }
+      },
+      "bt": {
+        "show_icon": {
+          "title": "아이콘 표시",
+          "desc": "블루투스 상태 아이콘을 표시합니다"
+        },
+        "show_name": {
+          "title": "이름 표시",
+          "desc": "연결된 블루투스 기기 이름을 표시합니다"
+        },
+        "style": {
+          "title": "스타일",
+          "desc": "블루투스 모듈의 시각적 모양을 선택합니다",
+          "name": {
+            "button": "버튼",
+            "text": "텍스트"
+          },
+          "button": "배경이 있는 인터랙티브 버튼 캡슐",
+          "text": "배경 없는 깔끔한 텍스트 및 아이콘"
+        }
+      },
+      "vol": {
+        "show_icon": {
+          "title": "아이콘 표시",
+          "desc": "볼륨 스피커 아이콘을 표시합니다"
+        },
+        "show_percent": {
+          "title": "백분율 표시",
+          "desc": "볼륨 백분율을 숫자로 표시합니다"
+        },
+        "style": {
+          "title": "스타일",
+          "desc": "볼륨 모듈의 시각적 모양을 선택합니다",
+          "name": {
+            "button": "버튼",
+            "text": "텍스트"
+          },
+          "button": "배경이 있는 인터랙티브 버튼 캡슐",
+          "text": "배경 없는 깔끔한 텍스트 및 아이콘"
+        }
+      },
+      "kb": {
+        "show_icon": {
+          "title": "아이콘 표시",
+          "desc": "키보드 배열 아이콘을 표시합니다"
+        },
+        "style": {
+          "title": "스타일",
+          "desc": "키보드 모듈의 시각적 모양을 선택합니다",
+          "name": {
+            "button": "버튼",
+            "text": "텍스트"
+          },
+          "button": "배경이 있는 인터랙티브 버튼 캡슐",
+          "text": "배경 없는 깔끔한 텍스트 및 아이콘"
+        }
+      },
+      "media": {
+        "info_mode": {
+          "title": "Secondary info",
+          "desc": "Choose whether to show the song duration or its author",
+          "duration": "Duration",
+          "author": "Author"
+        },
+        "width": {
+          "title": "Width",
+          "desc": "Width of the song title area"
+        },
+        "show_icon": {
+          "title": "아이콘 표시",
+          "desc": "앨범 아트 또는 음악 아이콘을 표시합니다"
+        },
+        "show_controls": {
+          "title": "컨트롤 표시",
+          "desc": "이전, 재생, 다음 버튼을 표시합니다"
+        },
+        "preview": {
+          "title": "곡 제목",
+          "author": "Song author"
+        }
+      },
+      "thickness": {
+        "title": "바 두께",
+        "desc": "바의 두께를 변경합니다. 모듈이 그에 맞게 조정됩니다"
+      },
+      "menu": {
+        "show_settings": {
+          "title": "설정 아이콘 표시",
+          "desc": "설정을 여는 버튼을 표시합니다"
+        },
+        "show_launcher": {
+          "title": "런처 아이콘 표시",
+          "desc": "런처를 여는 검색 버튼을 표시합니다"
+        },
+        "style": {
+          "title": "스타일",
+          "desc": "메뉴 모듈의 시각적 모양을 선택하세요",
+          "name": {
+            "button": "버튼",
+            "icon": "아이콘"
+          },
+          "button": "배경이 있는 인터랙티브 아이콘 버튼",
+          "icon": "배경 없는 깔끔한 아이콘"
         }
       }
     },
@@ -399,7 +609,20 @@
         "desc": "배경화면을 검색할 디렉터리",
         "select_dir": "디렉터리 선택...",
         "select_wallpaper": "배경화면 선택",
-        "no_wallpaper_selected": "선택된 배경화면 없음"
+        "no_wallpaper_selected": "선택된 배경화면 없음",
+        "select": "배경화면"
+      },
+      "element_opacity": {
+        "title": "요소 불투명도",
+        "desc": "바, 독, 위젯 및 기타 모든 셸 요소의 불투명도"
+      },
+      "blur_background": {
+        "title": "흐린 배경화면 배경 추가",
+        "desc": "투명도를 사용하는 모든 요소 뒤의 배경화면을 흐리게 합니다",
+        "style": {
+          "blur": "흐림",
+          "liquid": "리퀴드 글라스"
+        }
       }
     },
     "file_picker": {
@@ -414,7 +637,8 @@
         "pictures": "사진",
         "music": "음악",
         "documents": "문서"
-      }
+      },
+      "done": "완료"
     },
     "font_picker": {
       "title": "글꼴 선택",
@@ -607,10 +831,6 @@
         "done": "완료",
         "empty": "일치하는 애플리케이션이 없습니다"
       },
-      "opacity": {
-        "title": "독 불투명도",
-        "desc": "독 배경 불투명도 수준 조절"
-      },
       "override_bounds": {
         "title": "화면 범위 초과 시 크기 자동 보정 비활성화",
         "desc": "독이 화면 한계를 초과하더라도 사용자 지정 요소 크기를 유지합니다"
@@ -642,11 +862,40 @@
       "smart_autohide": {
         "title": "스마트 자동 숨기기",
         "desc": "창이 열려 있을 때만 독을 숨기고 바탕화면에서는 항상 표시"
+      },
+      "focus_running": {
+        "title": "기존 창 포커스",
+        "desc": "앱 아이콘을 클릭하면 새 인스턴스를 시작하는 대신 열려 있는 창을 활성화합니다"
+      },
+      "show_running_indicators": {
+        "title": "실행 표시기",
+        "desc": "열려 있는 애플리케이션 아이콘에 점 또는 알약 모양 표시기를 표시합니다"
+      },
+      "show_running_apps": {
+        "title": "열려 있는 애플리케이션 표시",
+        "desc": "고정되지 않은 열려 있는 애플리케이션을 독에 표시합니다"
+      },
+      "running_scope": {
+        "title": "활성 창 범위",
+        "desc": "독에 표시되고 제어되는 실행 중인 창을 필터링합니다",
+        "auto": "자동 (컴포지터 기본값)",
+        "all": "모든 작업 공간 및 모니터",
+        "output": "현재 모니터만",
+        "workspace": "활성 작업 공간만"
+      },
+      "window_menu": {
+        "untitled": "Untitled"
       }
     },
     "lyrics_picker": {
       "title": "가사 파일 선택",
       "no_lyrics_selected": "선택된 가사 없음"
+    },
+    "settings": "설정",
+    "search": {
+      "placeholder": "설정 검색...",
+      "prompt": "설정을 검색하려면 입력하세요...",
+      "no_results": "설정을 찾을 수 없습니다"
     }
   },
   "sysnotif": {
@@ -680,7 +929,9 @@
     "placeholder": "명령을 실행하려면 > 로 시작하세요...",
     "tab_applications": "애플리케이션",
     "tab_files": "파일",
-    "placeholder_files": "파일 검색 또는 경로 입력..."
+    "placeholder_files": "파일 검색 또는 경로 입력...",
+    "tab_emojis": "이모지",
+    "placeholder_emojis": "이모지 검색 또는 키워드 입력..."
   },
   "calendar": {
     "loading": "불러오는 중...",
@@ -718,6 +969,11 @@
       "authenticating": "인증 중...",
       "enter_pin": "PIN 입력"
     },
+    "fingerprint": {
+      "ready": "센서를 터치하세요",
+      "not_recognized": "지문을 인식하지 못했습니다",
+      "recognized": "지문이 인식되었습니다"
+    },
     "power": {
       "suspend": "절전",
       "reboot": "다시 시작",
@@ -738,6 +994,26 @@
     "eq": {
       "apply": "적용",
       "saved": "저장됨"
+    },
+    "audio": {
+      "title": "오디오",
+      "balance": "채널 밸런스",
+      "reset": "초기화",
+      "centered": "중앙",
+      "left_slightly_favored": "왼쪽 약간 강조",
+      "right_slightly_favored": "오른쪽 약간 강조",
+      "left_only": "왼쪽만",
+      "right_only": "오른쪽만",
+      "left_favored": "왼쪽 강조",
+      "right_favored": "오른쪽 강조",
+      "test": "테스트",
+      "stop_test": "중지",
+      "mono": "모노 오디오",
+      "swap": "좌우 바꾸기",
+      "dynamic_range": "다이내믹 레인지",
+      "off": "끔",
+      "balanced": "균형",
+      "night": "야간"
     },
     "presets": {
       "flat": "플랫",
@@ -776,7 +1052,8 @@
     },
     "actions": {
       "unpair": "페어링 해제",
-      "scan": "검색"
+      "scan": "검색",
+      "sign_in": "로그인"
     }
   },
   "notifications": {
@@ -842,6 +1119,46 @@
         "pomo_skipped_focus_body": "집중 세션을 건너뛰고 휴식으로 넘어갑니다.",
         "pomo_skipped_break_body": "휴식을 건너뛰고 다시 집중으로 넘어갑니다."
       }
+    },
+    "draw": {
+      "notification": {
+        "app_name": "DrawAction",
+        "saved_title": "Drawing saved",
+        "copied_title": "Drawing copied",
+        "copied_body": "Drawing copied to clipboard",
+        "failed_title": "Export failed",
+        "failed_body": "Could not save drawing"
+      }
+    },
+    "notes": {
+      "title": "메모",
+      "add_note": "메모 추가",
+      "new_note_title": "새 메모",
+      "edit_note": "편집",
+      "preview_note": "마크다운 미리보기",
+      "delete_selected": "선택 삭제 ({count})",
+      "no_notes": "메모가 없습니다. «메모 추가»를 클릭하세요.",
+      "search_placeholder": "메모 검색...",
+      "title_placeholder": "메모 제목...",
+      "content_placeholder": "마크다운으로 작성하세요...",
+      "back": "뒤로",
+      "save": "완료",
+      "cancel": "취소",
+      "delete": "삭제",
+      "select_all": "모두 선택",
+      "deselect_all": "선택 해제",
+      "selected_count": "{count}개 선택됨",
+      "pinned": "고정됨",
+      "recent": "최근",
+      "pin": "고정",
+      "unpin": "고정 해제"
+    },
+    "tabs": {
+      "draw": "그리기",
+      "system": "시스템",
+      "timer": "타이머",
+      "notes": "메모",
+      "tab": "탭"
     }
   },
   "screenshot": {
@@ -1038,7 +1355,8 @@
       "user": "사용자",
       "usage": "사용량",
       "battery": "배터리",
-      "github": "Github"
+      "github": "Github",
+      "time": "시간"
     },
     "variants": {
       "digital": "디지털",
@@ -1055,7 +1373,8 @@
       "material": "머티리얼",
       "materialAnalog": "머티리얼 아날로그",
       "lumen": "루멘",
-      "lyrics": "가사"
+      "lyrics": "가사",
+      "simpleLyrics": "단순 가사"
     },
     "presets": {
       "minimal": {
@@ -1081,6 +1400,15 @@
       "fetch_error": "@{user} 사용자를 가져올 수 없습니다",
       "enter_username": "GitHub 사용자명을 입력하세요",
       "no_contributions": "기여 내역이 없습니다"
+    },
+    "settings": {
+      "lyricsLines": "줄 수",
+      "lyricsAlignment": "정렬"
+    },
+    "align": {
+      "left": "왼쪽",
+      "center": "가운데",
+      "right": "오른쪽"
     }
   },
   "cli": {
@@ -1246,7 +1574,11 @@
     "deploy": {
       "configuring_sddm": "SDDM 디스플레이 관리자를 설정하는 중...",
       "disabling_dm": "-> 충돌하는 디스플레이 관리자를 비활성화합니다: {dm}",
-      "sddm_success": "-> SDDM material you 테마 설치 및 서비스 활성화 완료 [ OK ]"
+      "sddm_success": "-> SDDM material you 테마 설치 및 서비스 활성화 완료 [ OK ]",
+      "sddm_no_wayland_compositor": "로그인 화면용으로 지원되는 Wayland 컴포지터(kwin_wayland/weston)를 찾을 수 없어 SDDM에 X11을 사용합니다.",
+      "sddm_no_xorg": "Xorg를 찾을 수 없어 SDDM에 {compositor}을(를) 사용합니다.",
+      "sddm_no_backend": "/usr/local/bin, /usr/bin, /bin에서 Xorg와 로그인 화면용으로 지원되는 Wayland 컴포지터(kwin_wayland/weston)를 모두 찾을 수 없습니다.",
+      "sddm_skipped": "SDDM 설정을 건너뜁니다. 사용 가능한 디스플레이 서버 또는 로그인 컴포지터를 찾을 수 없습니다. 현재 디스플레이 매니저는 변경되지 않습니다."
     }
   },
   "translator": {

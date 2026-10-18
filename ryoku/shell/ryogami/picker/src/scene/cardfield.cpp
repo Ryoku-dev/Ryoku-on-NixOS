@@ -580,10 +580,6 @@ void CardField::keyPressEvent(QKeyEvent *event)
     case Qt::Key_End:
         setCurrentIndex(count > 0 ? count - 1 : 0);
         break;
-    case Qt::Key_Return:
-    case Qt::Key_Enter:
-        emit activated(m_current);
-        break;
     default:
         QQuickItem::keyPressEvent(event);
         return;

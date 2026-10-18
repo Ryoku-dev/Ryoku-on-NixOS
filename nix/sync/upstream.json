@@ -1,0 +1,20 @@
+{
+  "base_method": "treematch",
+  "port_upstream": {
+    "branch": "unstable-dev",
+    "commit": "f5b2ebc1e32fc4aa7e22e499418719b90e461723",
+    "repo": "https://github.com/aethctl/Ryoku-on-NixOS"
+  },
+  "schema": 1,
+  "tool": "ryoku-nix-sync 0.1.0",
+  "upstream": {
+    "branch": "unstable-dev",
+    "channel": "unstable",
+    "commit": "ffa0dbb681db16e81531a64aba9046b5442212eb",
+    "date": "2026-10-18T20:41:58Z",
+    "name": "Onogoro",
+    "release": "v0.102.3-beta.20.dev.849+gffa0dbb",
+    "repo": "https://github.com/Ryoku-dev/ryoku",
+    "version": "0.102.3-beta.20"
+  }
+}

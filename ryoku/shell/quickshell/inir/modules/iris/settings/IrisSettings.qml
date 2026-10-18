@@ -4,7 +4,6 @@ import QtQuick.Controls
 import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Wayland
 import Quickshell.Widgets
 import inir
 import inir.services
@@ -21,8 +20,12 @@ import inir.modules.iris.preview
 import inir.modules.iris.widgets
 import Ryoku.Ui.Singletons
 
-PanelWindow {
+Item {
     id: root
+    // Hosted by IrisSettingsOverlay over the desktop or IrisSettingsWindow beside other application windows.
+    property bool windowed: false
+    readonly property alias frame: frame
+    readonly property var screen: root.QsWindow.window?.screen ?? null
     property string section: "general"
     property int advancedPage: -1
     property string query: ""
@@ -330,34 +333,6 @@ PanelWindow {
     onOpenGroupChanged: { settingsFlick.contentY = 0; pageEnter.restart() }
     onAdvancedPageChanged: pageEnter.restart()
 
-    visible: GlobalStates.settingsOverlayOpen || frame.progress > 0
-    IrisOutputHold {
-        id: outputHold
-        wanted: GlobalStates.focusedScreen
-        live: root.visible
-    }
-    screen: outputHold.output
-    color: "transparent"
-    anchors { left: true; right: true; top: true; bottom: true }
-    margins {
-        left: IrisFrame.band
-        right: IrisFrame.band
-        top: IrisFrame.band
-        bottom: IrisFrame.band
-    }
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.namespace: "quickshell:iris-settings"
-    Field.IrisBlurRegion {
-        id: placeBlur
-        window: root
-        shapes: frame.blurShapes
-        windowWidth: root.width
-        windowHeight: root.height
-    }
-    WlrLayershell.layer: GlobalStates.settingsNativeDialogOpen ? WlrLayer.Bottom : WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: GlobalStates.settingsNativeDialogOpen ? WlrKeyboardFocus.None : WlrKeyboardFocus.Exclusive
-    mask: GlobalStates.settingsOverlayOpen && frame.armed ? null : frameRegion
-    Region { id: frameRegion; item: frame }
     Shortcut {
         sequence: "Escape"
         enabled: GlobalStates.settingsOverlayOpen
@@ -365,10 +340,16 @@ PanelWindow {
             if (root.searching) searchField.text = ""
             else if (root.group.length > 0) root.leaveGroup()
             else if (root.advancedPage >= 0) root.go({ section: root.section, group: "", advancedPage: -1 })
-            else GlobalStates.settingsOverlayOpen = false
+            else if (!root.windowed) GlobalStates.settingsOverlayOpen = false
         }
     }
     Shortcut { sequence: "Ctrl+F"; enabled: GlobalStates.settingsOverlayOpen; onActivated: searchField.forceActiveFocus() }
+    // Carry the current place into the other host before the loader swaps it.
+    function switchHost(): void {
+        GlobalStates.settingsOverlayRequestedSection = root.section + (root.group.length > 0 ? "/" + root.group : "")
+        GlobalStates.settingsOverlayRequestedPage = -1
+        Config.setNestedValue("iris.appearance.settingsHost", root.windowed ? "overlay" : "window")
+    }
     function stepSection(delta: int): void {
         const index = root.sections.findIndex(section => section.id === root.section)
         const next = root.sections[Math.max(0, Math.min(root.sections.length - 1, index + delta))]
@@ -378,23 +359,25 @@ PanelWindow {
     Shortcut { sequence: "Ctrl+Up"; enabled: GlobalStates.settingsOverlayOpen; onActivated: root.stepSection(-1) }
     Shortcut { sequences: ["Alt+Left", "Ctrl+["]; enabled: GlobalStates.settingsOverlayOpen; onActivated: root.goBack() }
     Shortcut { sequences: ["Alt+Right", "Ctrl+]"]; enabled: GlobalStates.settingsOverlayOpen; onActivated: root.goForward() }
-    MouseArea { anchors.fill: parent; onClicked: GlobalStates.settingsOverlayOpen = false }
+    MouseArea { anchors.fill: parent; enabled: !root.windowed; onClicked: GlobalStates.settingsOverlayOpen = false }
 
     IrisMorphSurface {
         motionSurface: "settings"
         settles: true
-        windowOffset: Qt.point(IrisFrame.band, IrisFrame.band)
+        windowOffset: root.windowed ? Qt.point(0, 0) : Qt.point(IrisFrame.band, IrisFrame.band)
         ownField: true
         id: frame
         compositorBlurred: true
-        open: GlobalStates.settingsOverlayOpen
+        open: root.windowed || GlobalStates.settingsOverlayOpen
         light: IrisStyle.surfaceLight("settings", IrisStyle.wallpaperLight)
-        radius: IrisStyle.surfaceRadius("settings", IrisStyle.radiusPanel)
+        radius: root.windowed ? 0 : IrisStyle.surfaceRadius("settings", IrisStyle.radiusPanel)
         onClosed: GlobalStates.irisMorphOwner = ""
-        x: (parent.width - width) / 2
-        y: (parent.height - height) / 2
-        width: Math.min(parent.width - 32 - IrisFrame.musicReach("left") - IrisFrame.musicReach("right"), 1180 * root.d)
-        height: Math.min(parent.height - 48 - IrisFrame.musicReach("top") - IrisFrame.musicReach("bottom"), 820 * root.d)
+        x: root.windowed ? 0 : (parent.width - width) / 2
+        y: root.windowed ? 0 : (parent.height - height) / 2
+        width: root.windowed ? parent.width
+            : Math.min(parent.width - 32 - IrisFrame.musicReach("left") - IrisFrame.musicReach("right"), 1180 * root.d)
+        height: root.windowed ? parent.height
+            : Math.min(parent.height - 48 - IrisFrame.musicReach("top") - IrisFrame.musicReach("bottom"), 820 * root.d)
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.BackButton | Qt.ForwardButton
@@ -816,6 +799,11 @@ PanelWindow {
                         text: Translation.tr("Restore defaults")
                         buttonRadius: height / 2
                         onClicked: resettable.forEach(spec => IrisOptions.commit(spec, spec.fallback))
+                    }
+                    IrisIconButton {
+                        materialIcon: root.windowed ? "layers" : "web_asset"
+                        onClicked: root.switchHost()
+                        Accessible.name: root.windowed ? Translation.tr("Open over the desktop") : Translation.tr("Open as a window")
                     }
                     IrisIconButton {
                         materialIcon: "close"

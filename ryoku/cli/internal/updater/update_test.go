@@ -247,6 +247,7 @@ func TestFilteredDNSUpdateError(t *testing.T) {
 // file conflict otherwise aborts the whole transaction and blocks every user
 // update, so pin them here.
 func TestRyokuInstallArgsStayInTheRyokuLane(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
 	set := []string{"ryoku/ryoku-desktop", "ryoku/ryogami"}
 	args := ryokuInstallArgs(set)
 	joined := strings.Join(args, " ")

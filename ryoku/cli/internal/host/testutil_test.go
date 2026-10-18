@@ -2,6 +2,7 @@ package host
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"syscall"
 )
@@ -42,7 +43,7 @@ func (f *fakeRunner) Alive(pid int) bool { return f.alive[pid] }
 
 func testApp(runner *fakeRunner, env map[string]string) (*App, *bytes.Buffer, *bytes.Buffer) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
-	app := New(Config{Runner: runner, Stdout: stdout, Stderr: stderr, Getenv: func(key string) string { return env[key] }})
+	app := New(Config{Runner: runner, Stdout: stdout, Stderr: stderr, Getenv: func(key string) string { return env[key] }, ProcCmdline: os.DevNull})
 	return app, stdout, stderr
 }
 

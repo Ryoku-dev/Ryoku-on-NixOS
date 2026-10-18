@@ -38,7 +38,7 @@ Item {
     readonly property var _modeLabels: ({
         slices: I18n.tr("Slices"), depth: I18n.tr("Depth"), hex: I18n.tr("Geometric"),
         wall: I18n.tr("Wall"), sandy: I18n.tr("Sandy"), hand: I18n.tr("Card hand"),
-        collection: I18n.tr("Collection")
+        collection: I18n.tr("Collection"), duel: I18n.tr("Duel")
     })
     readonly property string _modeLabel: studio._modeLabels[studio._mode] ? studio._modeLabels[studio._mode] : studio._mode
 

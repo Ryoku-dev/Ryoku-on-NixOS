@@ -25,7 +25,7 @@ Rectangle {
         : mode === "web" ? web.implicitHeight
         : answer.implicitHeight
     readonly property real bodyBudget: Math.max(90 * s,
-        maximumHeight - 72 * s - 38 * s - Tokens.s7 * s)
+        maximumHeight - 72 * s - 38 * s - (mode === "ask" ? 30 * s : 0) - Tokens.s7 * s)
     // A drawer hangs below the header and the surface is clipped, so the bar
     // grows by exactly the room the open drawer spills past its bottom edge,
     // never past the bar's own maximum height.
@@ -36,6 +36,28 @@ Rectangle {
         const base = content.implicitHeight + Tokens.s4 * s * 2;
         const spill = drawer.y + drawer.naturalHeight + Tokens.s4 * s - base;
         return Math.max(0, Math.min(spill, maximumHeight - base));
+    }
+    readonly property string headerLabel: mode === "chat" ? I18n.tr("RASHIN // AGENT")
+        : mode === "tools" ? I18n.tr("RASHIN // TOOLS")
+        : mode === "web" ? I18n.tr("RASHIN // WEB")
+        : I18n.tr("RASHIN // ASK")
+    readonly property string routeLabel: {
+        if (session.phase === "done" && session.answerVia.length > 0)
+            return session.answerVia;
+        const lane = Needle.quickLane;
+        const active = lane && lane.route ? String(lane.route) : "agent";
+        const routes = lane && lane.routes ? lane.routes : [];
+        for (let i = 0; i < routes.length; i++) {
+            const route = routes[i];
+            if (String(route.id || "") !== active)
+                continue;
+            const label = String(route.label || route.id || "");
+            const sub = String(route.sub || "");
+            if (active === "agent")
+                return sub.length > 0 ? label + " · " + sub : label;
+            return I18n.tr("Prowl · %1").arg(label);
+        }
+        return I18n.tr("Ask route");
     }
 
     signal requestClose()
@@ -72,19 +94,24 @@ Rectangle {
     function closeDrawers() {
         historyOpen = false;
         modelOpen = false;
+        chat.modelMenuOpen = false;
     }
 
     function toggleHistory() {
+        chat.modelMenuOpen = false;
         modelOpen = false;
         historyOpen = !historyOpen;
         if (historyOpen) {
             Needle.noteOpened();
-            Needle.loadSessions();
-            Needle.loadRecentAsks();
+            if (mode === "chat")
+                Needle.loadSessions();
+            else if (mode === "ask")
+                Needle.loadRecentAsks();
         }
     }
 
     function toggleModel() {
+        chat.modelMenuOpen = false;
         historyOpen = false;
         modelOpen = !modelOpen;
         if (modelOpen) {
@@ -94,7 +121,7 @@ Rectangle {
     }
 
     function handleEscape() {
-        if (historyOpen || modelOpen)
+        if (historyOpen || modelOpen || chat.modelMenuOpen)
             closeDrawers();
         else
             root.requestClose();
@@ -102,26 +129,18 @@ Rectangle {
 
     function pickHistory(row) {
         historyOpen = false;
-        if (row.kind === "session") {
+        if (row.kind === "session")
             Needle.switchSession(row.value);
-            if (mode !== "chat")
-                modeRequested("chat");
-        } else if (row.kind === "ask") {
-            if (mode !== "ask")
-                modeRequested("ask");
+        else if (row.kind === "ask")
             session.loadRecent(row.value);
-        }
     }
 
     function pickModel(row) {
         modelOpen = false;
         if (row.kind === "lane")
             Needle.setQuickLane(row.value);
-        else if (row.kind === "model") {
+        else if (row.kind === "model")
             Needle.setModel(row.value);
-            if (mode !== "chat")
-                modeRequested("chat");
-        }
     }
 
     // "3m ago" from an RFC3339 stamp; anything unreadable renders as "".
@@ -143,25 +162,13 @@ Rectangle {
         return I18n.tr("%1d ago").arg(Math.round(hours / 24));
     }
 
-    // The drawer rows, assembled from the shared Needle session state.
+    // Each mode owns its own history and model namespace.
     readonly property var historyRows: {
         const rows = [];
-        const sessions = Needle.sessions || [];
-        if (sessions.length > 0) {
-            rows.push({ section: I18n.tr("Chats") });
-            for (let i = 0; i < sessions.length; i++) {
-                const s = sessions[i];
-                rows.push({
-                    kind: "session", value: String(s.id || ""),
-                    label: String(s.title || s.id || ""),
-                    sub: root.relTime(s.updatedAt),
-                    active: String(s.id || "") === Needle.currentSession
-                });
-            }
-        }
-        const asks = Needle.recentAsks || [];
-        if (asks.length > 0) {
-            rows.push({ section: I18n.tr("Asks") });
+        if (mode === "ask") {
+            const asks = Needle.recentAsks || [];
+            if (asks.length > 0)
+                rows.push({ section: I18n.tr("Recent asks") });
             for (let i = 0; i < asks.length; i++) {
                 const a = asks[i];
                 rows.push({
@@ -170,41 +177,69 @@ Rectangle {
                     sub: String(a.a || "").replace(/\n/g, " ")
                 });
             }
+            return rows;
+        }
+        if (mode === "chat") {
+            const sessions = Needle.sessions || [];
+            if (sessions.length > 0)
+                rows.push({ section: I18n.tr("Agent sessions") });
+            for (let i = 0; i < sessions.length; i++) {
+                const sessionRow = sessions[i];
+                rows.push({
+                    kind: "session", value: String(sessionRow.id || ""),
+                    label: String(sessionRow.title || sessionRow.id || ""),
+                    sub: root.relTime(sessionRow.updatedAt),
+                    active: String(sessionRow.id || "") === Needle.currentSession
+                });
+            }
         }
         return rows;
     }
 
     readonly property var modelRows: {
         const rows = [];
-        const lane = Needle.quickLane;
-        rows.push({ section: I18n.tr("Fast lane") });
-        const activeRoute = lane && lane.route ? String(lane.route) : "auto";
-        const routes = lane && lane.routes ? lane.routes : [];
-        for (let i = 0; i < routes.length; i++) {
-            const route = routes[i];
-            rows.push({
-                kind: "lane", value: String(route.id || ""),
-                label: String(route.label || route.id || ""),
-                sub: String(route.sub || ""),
-                active: String(route.id || "") === activeRoute
-            });
+        if (mode === "ask") {
+            const lane = Needle.quickLane;
+            rows.push({ section: I18n.tr("Ask routes") });
+            const activeRoute = lane && lane.route ? String(lane.route) : "agent";
+            const routes = lane && lane.routes ? lane.routes : [];
+            for (let i = 0; i < routes.length; i++) {
+                const route = routes[i];
+                rows.push({
+                    kind: "lane", value: String(route.id || ""),
+                    label: String(route.label || route.id || ""),
+                    sub: String(route.sub || ""),
+                    active: String(route.id || "") === activeRoute
+                });
+            }
+            return rows;
         }
-        rows.push({ section: I18n.tr("Chat models") });
+        if (mode !== "chat")
+            return rows;
+        rows.push({ section: I18n.tr("Agent models") });
         const models = Needle.models || [];
         if (models.length === 0) {
             rows.push({
-                kind: "noop",
-                label: I18n.tr("Chat models load with the agent"),
-                sub: I18n.tr("send a chat message to fetch them")
+                kind: "note", disabled: true,
+                label: I18n.tr("Models load with the agent"),
+                sub: I18n.tr("Send an Agent message to fetch them")
             });
         }
+        const chosen = Needle.pick || Needle.currentModel;
         for (let i = 0; i < models.length; i++) {
-            const m = models[i];
+            const model = models[i];
             rows.push({
-                kind: "model", value: String(m.id || ""),
-                label: String(m.name || m.id || ""),
-                sub: String(m.description || ""),
-                active: String(m.id || "") === Needle.currentModel
+                kind: "model", value: String(model.id || ""),
+                label: String(model.name || model.id || ""),
+                sub: String(model.description || ""),
+                active: String(model.id || "") === chosen
+            });
+        }
+        if (Needle.pickUnavailable) {
+            rows.push({
+                kind: "note", disabled: true,
+                label: I18n.tr("Saved model unavailable"),
+                sub: I18n.tr("The agent is using its current model")
             });
         }
         return rows;
@@ -239,7 +274,7 @@ Rectangle {
         } else if (session.phase === "done" && text.length > 0) {
             answer.selectedChip = 0;
             session.ask(text);
-        } else if (answer.chips.length > 0 && (session.busy || session.permPending)) {
+        } else if (answer.chips.length > 0 && session.busy) {
             answer.activate();
         } else {
             answer.selectedChip = 0;
@@ -298,7 +333,7 @@ Rectangle {
                 anchors.left: seal.right
                 anchors.leftMargin: Tokens.s2 * root.s
                 anchors.verticalCenter: parent.verticalCenter
-                text: I18n.tr("RASHIN // ASK")
+                text: root.headerLabel
                 color: Tokens.inkMuted
                 font.family: Tokens.mono
                 font.pixelSize: Tokens.fMicro * root.s
@@ -316,9 +351,12 @@ Rectangle {
 
                 Rectangle {
                     id: historyBtn
+                    visible: root.mode === "ask" || root.mode === "chat"
                     width: 30 * root.s
                     height: width
                     radius: Tokens.radius * root.s
+                    scale: historyTap.pressed && root.motionAllowed ? 0.9
+                        : historyHover.hovered && root.motionAllowed ? 1.04 : 1
                     color: root.historyOpen ? Tokens.bone
                         : historyTap.pressed ? Tokens.tint16
                         : historyHover.hovered ? Tokens.tint10 : "transparent"
@@ -337,13 +375,20 @@ Rectangle {
                         enabled: root.motionAllowed
                         ColorAnimation { duration: Tokens.snap }
                     }
+                    Behavior on scale {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+                    }
                 }
 
                 Rectangle {
                     id: modelBtn
+                    visible: root.mode === "ask" || root.mode === "chat"
                     width: 30 * root.s
                     height: width
                     radius: Tokens.radius * root.s
+                    scale: modelTap.pressed && root.motionAllowed ? 0.9
+                        : modelHover.hovered && root.motionAllowed ? 1.04 : 1
                     color: root.modelOpen ? Tokens.bone
                         : modelTap.pressed ? Tokens.tint16
                         : modelHover.hovered ? Tokens.tint10 : "transparent"
@@ -378,6 +423,10 @@ Rectangle {
                         enabled: root.motionAllowed
                         ColorAnimation { duration: Tokens.snap }
                     }
+                    Behavior on scale {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+                    }
                 }
             }
         }
@@ -392,6 +441,7 @@ Rectangle {
             working: root.session.working
             chatBusy: Needle.busy
             chatActivity: Needle.activity
+            pendingHandoff: Needle.pendingHandoff
             horizontalNavigation: root.mode === "ask" && answer.chips.length > 0
             text: root.query
             onTextChanged: if (root.query !== text) root.query = text
@@ -411,6 +461,52 @@ Rectangle {
             onModelRequested: root.toggleModel()
         }
 
+        Rectangle {
+            id: routePill
+            width: parent.width
+            height: 28 * root.s
+            visible: root.mode === "ask"
+            radius: Tokens.radius * root.s
+            color: routeTap.pressed ? Tokens.tint16
+                : routeHover.hovered ? Tokens.tint10 : Tokens.tint5
+            border.width: Tokens.border
+            border.color: root.modelOpen ? Tokens.bone : Tokens.lineSoft
+            scale: routeTap.pressed && root.motionAllowed ? 0.94
+                : routeHover.hovered && root.motionAllowed ? 1.025 : 1
+            Row {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Tokens.s3 * root.s
+                anchors.rightMargin: Tokens.s3 * root.s
+                spacing: Tokens.s2 * root.s
+                Text {
+                    text: "route"
+                    color: Tokens.inkMuted
+                    font.family: "Material Symbols Rounded"
+                    font.pixelSize: Tokens.fSmall * root.s
+                }
+                Text {
+                    width: parent.width - Tokens.s6 * root.s
+                    text: root.routeLabel
+                    color: Tokens.inkDim
+                    font.family: Tokens.ui
+                    font.pixelSize: Tokens.fTiny * root.s
+                    elide: Text.ElideRight
+                }
+            }
+            HoverHandler { id: routeHover; cursorShape: Qt.PointingHandCursor }
+            TapHandler { id: routeTap; onTapped: root.toggleModel() }
+            Behavior on color {
+                enabled: root.motionAllowed
+                ColorAnimation { duration: Tokens.snap }
+            }
+            Behavior on scale {
+                enabled: root.motionAllowed
+                NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+            }
+        }
+
         Flickable {
             id: modeViewport
             width: parent.width
@@ -424,11 +520,25 @@ Rectangle {
 
             AskAnswer {
                 id: answer
+                property bool shown: root.mode === "ask"
                 width: modeViewport.width
                 s: root.s
                 session: root.session
-                active: root.active && root.mode === "ask"
-                visible: root.mode === "ask"
+                active: root.active && shown
+                visible: opacity > 0.001
+                opacity: shown ? 1 : 0
+                z: shown ? 1 : 0
+                transform: Translate {
+                    y: answer.shown ? 0 : Tokens.s2 * root.s
+                    Behavior on y {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+                    }
+                }
+                Behavior on opacity {
+                    enabled: root.motionAllowed
+                    NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+                }
                 onSwitchToChat: root.requestMode("chat")
                 onOpenApp: {
                     // The chip's promise: leave the quick bar and land in the
@@ -447,32 +557,81 @@ Rectangle {
 
             AskChat {
                 id: chat
+                property bool shown: root.mode === "chat"
                 width: modeViewport.width
                 s: root.s
                 showComposer: false
-                active: root.active && root.mode === "chat"
-                visible: root.mode === "chat"
+                active: root.active && shown
+                visible: opacity > 0.001
+                opacity: shown ? 1 : 0
+                z: shown ? 1 : 0
+                transform: Translate {
+                    y: chat.shown ? 0 : Tokens.s2 * root.s
+                    Behavior on y {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+                    }
+                }
+                Behavior on opacity {
+                    enabled: root.motionAllowed
+                    NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+                }
+                onModelMenuOpenChanged: {
+                    if (modelMenuOpen) {
+                        root.historyOpen = false;
+                        root.modelOpen = false;
+                    }
+                }
                 onInputFocusRequested: root.focusField()
                 maximumHeight: root.screenHeight * 0.46
             }
 
             AskTools {
                 id: tools
+                property bool shown: root.mode === "tools"
                 width: modeViewport.width
                 s: root.s
-                active: root.active && root.mode === "tools"
-                visible: root.mode === "tools"
+                active: root.active && shown
+                visible: opacity > 0.001
+                opacity: shown ? 1 : 0
+                z: shown ? 1 : 0
+                transform: Translate {
+                    y: tools.shown ? 0 : Tokens.s2 * root.s
+                    Behavior on y {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+                    }
+                }
+                Behavior on opacity {
+                    enabled: root.motionAllowed
+                    NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+                }
                 query: root.query
                 tool: root.tool
                 maximumHeight: root.bodyBudget
+                onAccepted: root.query = ""
             }
 
             AskWeb {
                 id: web
+                property bool shown: root.mode === "web"
                 width: modeViewport.width
                 s: root.s
-                active: root.active && root.mode === "web"
-                visible: root.mode === "web"
+                active: root.active && shown
+                visible: opacity > 0.001
+                opacity: shown ? 1 : 0
+                z: shown ? 1 : 0
+                transform: Translate {
+                    y: web.shown ? 0 : Tokens.s2 * root.s
+                    Behavior on y {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+                    }
+                }
+                Behavior on opacity {
+                    enabled: root.motionAllowed
+                    NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease }
+                }
                 query: root.query
             }
         }

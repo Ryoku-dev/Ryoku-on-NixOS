@@ -1965,6 +1965,14 @@ in
     systemd.user.services.ryoku-ai-usage = {
       description = "Ryoku AI usage collectors";
 
+      # The collectors look up claude and codex on PATH, which a user unit
+      # only has from the system and the user's profiles.
+      path = [
+        "/run/current-system/sw"
+        "/etc/profiles/per-user/%u"
+        "%h/.nix-profile"
+      ];
+
       serviceConfig = {
         Type = "oneshot";
 

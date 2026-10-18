@@ -6,12 +6,11 @@ import Quickshell.Io
 import Ryoku.Ui.Singletons
 import "lib/chatstate.js" as ChatState
 
-// Needle: the Super+S sidebar's live window onto the one shared agent session.
-// A single resident `ryoku-rashin chat --follow` process proxies /ws/chat both
-// ways; every server frame feeds the pure v3 reducer (lib/chatstate.js) and the
-// projected state drives a ListModel the view binds to. Because the session is
-// shared, a turn started from the CLI or a Fix with AI terminal shows here too,
-// and a shell reload just reconnects and replays. No per-turn process, no reset.
+// Needle is the resident bridge to the Agent lane. One
+// `ryoku-rashin chat --follow` process proxies /ws/chat both ways; every server
+// frame feeds the shared reducer and the projected state drives the transcript
+// ListModel. A turn started from another Rashin frontend arrives here too, and a
+// shell reload reconnects and replays without owning a second session.
 Singleton {
     id: root
 
@@ -24,6 +23,8 @@ Singleton {
     property string bannerState: "starting"
     property var models: []
     property string currentModel: ""
+    property string pick: ""
+    property bool pickUnavailable: false
     property string currentAgent: ""
     property var commands: []
     property var sessions: []
@@ -33,12 +34,14 @@ Singleton {
     // Approvals with no tool row yet (a permission that arrived before its
     // tool_call), rendered as trailing cards.
     property var standalonePerms: []
+    property bool pendingHandoff: false
+    property int visibleAgentSurfaces: 0
 
     // Recent quick asks (the launcher's \resume history), newest first. The
     // Ask bar's history drawer reads this; it reloads when an ask completes.
     property var recentAsks: []
-    // Resolved fast-lane state (`backend --json`): the active Prowl route,
-    // available routes, gateway state, and readiness.
+    // Resolved Ask route state (`backend --json`): the selected route and every
+    // Agent or optional Prowl route currently available.
     property var quickLane: null
 
     // All chat-capable agents (agent --json) for the "what's answering" picker.
@@ -101,10 +104,26 @@ Singleton {
     function switchSession(id) { if (id) root._send({ type: "load", sessionId: String(id) }); }
     function loadSessions() { root._send({ type: "history" }); }
 
+    function handoff(askId, question, answer, run) {
+        root._send({
+            type: "handoff",
+            askId: String(askId || ""),
+            question: String(question || ""),
+            answer: String(answer || ""),
+            run: run === true
+        });
+    }
+
+    function openInTerminal() {
+        Quickshell.execDetached(["ryoku-rashin", "terminal", "--lane", "ryoku"]);
+    }
+
     function setModel(id) {
-        if (!id || id === root.currentModel)
+        if (!id || (id === root.currentModel && id === root.pick))
             return;
         root.currentModel = String(id);
+        root.pick = String(id);
+        root.pickUnavailable = false;
         root._send({ type: "set_model", modelId: String(id) });
     }
 
@@ -151,9 +170,17 @@ Singleton {
 
     function noteClosed() {}
 
+    function agentSurfaceOpened() {
+        root.visibleAgentSurfaces++;
+    }
+
+    function agentSurfaceClosed() {
+        root.visibleAgentSurfaces = Math.max(0, root.visibleAgentSurfaces - 1);
+    }
+
     function loadRecentAsks() { recentProc.running = true; }
 
-    // Point the fast ask lane at a Prowl route, then reload the resolved state.
+    // Change only the Ask route; Agent model selection is a separate contract.
     function setQuickLane(route) {
         if (!route)
             return;
@@ -165,6 +192,55 @@ Singleton {
 
     // ---- inbound (frame -> reducer -> projection) ----------------------------
 
+    function _firstLine(value) {
+        var lines = String(value || "").split(/\r?\n/);
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i].trim();
+            if (line.length > 0)
+                return line;
+        }
+        return "";
+    }
+
+    function _replyFirstLine(items) {
+        var start = 0;
+        for (var i = items.length - 1; i >= 0; i--) {
+            if (items[i].kind === "handoff"
+                    || (items[i].kind === "msg" && items[i].role === "user")) {
+                start = i + 1;
+                break;
+            }
+        }
+        for (var j = start; j < items.length; j++) {
+            if (items[j].kind === "msg" && items[j].role === "agent") {
+                var line = root._firstLine(items[j].text);
+                if (line.length > 0)
+                    return line;
+            }
+        }
+        return "";
+    }
+
+    function _rashinFocused() {
+        var win = Wm.focusedWindow;
+        if (!win)
+            return false;
+        var appId = String(win.appId || "").toLowerCase();
+        return appId === "dev.ryoku.rashin" || appId === "rashin-app"
+            || String(win.title || "") === "Rashin";
+    }
+
+    function _notifyIfHidden(text) {
+        var body = root._firstLine(text);
+        if (body.length === 0 || root.visibleAgentSurfaces > 0 || root._rashinFocused())
+            return;
+        Quickshell.execDetached([
+            "sh", "-c",
+            "choice=$(notify-send -a \"$1\" -i rashin-app -A default=\"$2\" -A open=\"$2\" --wait \"$1\" \"$3\"); case \"$choice\" in default|open) exec ryoku-shell ask chat;; esac",
+            "sh", I18n.tr("Rashin"), I18n.tr("Open"), body
+        ]);
+    }
+
     function _frame(line) {
         var f;
         try {
@@ -174,8 +250,25 @@ Singleton {
         }
         if (!f || !f.type)
             return;
+        var wasReplaying = root._state.replaying === true;
+        var permissionKnown = false;
+        if (f.type === "permission") {
+            var currentPerms = root._state.permissions || [];
+            for (var i = 0; i < currentPerms.length; i++)
+                if (currentPerms[i].requestId === f.requestId)
+                    permissionKnown = true;
+        }
         root._state = ChatState.applyEvent(root._state, f);
         root._project();
+        if (wasReplaying)
+            return;
+        if (f.type === "turn_end") {
+            var reply = root._replyFirstLine(root._state.items || []);
+            if (reply.length > 0)
+                root._notifyIfHidden(reply);
+        } else if (f.type === "permission" && !permissionKnown) {
+            root._notifyIfHidden(String(f.title || ""));
+        }
     }
 
     function _project() {
@@ -186,6 +279,8 @@ Singleton {
         root.approvalsMode = st.approvals || "read-only";
         root.models = st.models || [];
         root.currentModel = st.currentModel || "";
+        root.pick = st.pick || "";
+        root.pickUnavailable = st.pickUnavailable === true;
         if (st.agent && st.agent.length > 0)
             root.currentAgent = st.agent;
         root.commands = st.commands || [];
@@ -197,6 +292,8 @@ Singleton {
         var perms = st.permissions || [];
         root._sync(items, perms);
         root.standalonePerms = root._standalone(items, perms);
+        var newest = items.length > 0 ? items[items.length - 1] : null;
+        root.pendingHandoff = newest !== null && newest.kind === "handoff";
         root.touched();
     }
 
@@ -214,9 +311,14 @@ Singleton {
             kind: it.kind, key: String(it.id),
             role: "", body: "", thought: "", open: false, live: false, cont: false, failed: false, imagesJson: "[]",
             toolId: "", title: "", tkind: "", status: "", input: "", output: "",
-            diffsJson: "[]", auto: false, permJson: ""
+            diffsJson: "[]", auto: false, permJson: "",
+            askId: "", question: "", answer: ""
         };
-        if (it.kind === "tool") {
+        if (it.kind === "handoff") {
+            row.askId = String(it.askId || "");
+            row.question = String(it.question || "");
+            row.answer = String(it.answer || "");
+        } else if (it.kind === "tool") {
             row.toolId = String(it.id);
             row.title = it.title || "";
             row.tkind = it.kind2 || "";

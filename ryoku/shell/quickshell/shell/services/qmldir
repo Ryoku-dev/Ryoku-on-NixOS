@@ -25,6 +25,7 @@ singleton BarProducts BarProducts.qml
 singleton Devices Devices.qml
 singleton Weather Weather.qml
 singleton Updates Updates.qml
+singleton AiUsage AiUsage.qml
 singleton Camera Camera.qml
 singleton Keypresses Keypresses.qml
 singleton Toggles Toggles.qml

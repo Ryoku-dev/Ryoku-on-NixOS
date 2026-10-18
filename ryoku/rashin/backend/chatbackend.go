@@ -32,15 +32,20 @@ type chatAgentSelection struct {
 	Routing chatAgentRouting  `json:"routing"`
 }
 
-// chatBackends lists the agents Rashin can run as the chat's ACP session, in
-// preference order (Hermes leads). Every backend here must route its models
-// through Prowl.
+// chatBackends lists the agents Rashin can run as an ACP session, in
+// preference order.
 func chatBackends() []chatBackend {
+	claudeACP := "claude-code-acp"
+	if _, err := exec.LookPath(claudeACP); err != nil {
+		claudeACP = "claude-agent-acp"
+	}
 	return []chatBackend{
 		{ID: "hermes", Name: "Hermes", Argv: hermesACPArgv(), Recommended: true},
+		{ID: "codex", Name: "Codex", Argv: []string{"codex-acp"}},
+		{ID: "claude", Name: "Claude Code", Argv: []string{claudeACP}},
 		{ID: "omp", Name: "Oh My Pi", Argv: []string{"omp", "acp"}},
 		{ID: "opencode", Name: "opencode", Argv: []string{"opencode", "acp"}},
-		{ID: "claude", Name: "Claude Code", Argv: []string{"claude-code-acp"}},
+		{ID: "gemini", Name: "Gemini CLI", Argv: []string{"gemini", "--experimental-acp"}},
 	}
 }
 
@@ -98,9 +103,9 @@ func lookupChatBackend(id string) (chatBackend, bool) {
 	return chatBackend{}, false
 }
 
-// setChatAgent connects the requested backend to Prowl before persisting it.
+// setChatAgent persists the harness choice without changing its model routing.
 // "" and "auto" both select the recommended backend, Hermes.
-func setChatAgent(ctx context.Context, id string) (chatAgentRouting, error) {
+func setChatAgent(_ context.Context, id string) (chatAgentRouting, error) {
 	id = strings.TrimSpace(id)
 	selected := id
 	if id == "" || id == "auto" {
@@ -110,16 +115,13 @@ func setChatAgent(ctx context.Context, id string) (chatAgentRouting, error) {
 	if _, ok := lookupChatBackend(selected); !ok {
 		return chatAgentRouting{}, fmt.Errorf("unknown chat agent %q", selected)
 	}
-	pending, reason, err := connectHarness(ctx, selected)
-	if err != nil {
+	if err := updateConfig(func(cfg *Config) error {
+		cfg.ChatAgent = id
+		return nil
+	}); err != nil {
 		return chatAgentRouting{}, err
 	}
-	cfg := LoadConfig()
-	cfg.ChatAgent = id
-	if err := SaveConfig(cfg); err != nil {
-		return chatAgentRouting{}, err
-	}
-	return chatAgentRouting{Active: !pending, Pending: pending, Reason: reason}, nil
+	return chatAgentRouting{}, nil
 }
 
 func activeChatAgentID(cfg Config) string {
@@ -130,14 +132,6 @@ func activeChatAgentID(cfg Config) string {
 		return cfg.ChatAgent
 	}
 	return "hermes"
-}
-
-func chatAgentInUse(id string, cfg Config) bool {
-	selected := cfg.ChatAgent
-	if selected == "" || selected == "auto" {
-		selected = "hermes"
-	}
-	return id == selected || id == activeChatAgentID(cfg)
 }
 
 // chatModelProwlAlias identifies the duplicate auto entries a routed provider

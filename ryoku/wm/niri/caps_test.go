@@ -64,9 +64,17 @@ func TestManifestIsDeliverable(t *testing.T) {
 	}
 }
 
-// niri recreates its outputs under a long-lived capturing layer surface and
-// the Qt client dies resolving the vanished screen, so the manifest must keep
-// denying this or the launcher frost comes back and takes the shell with it.
+func TestDeniesWorkspaceFullscreenState(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if c.Has(wm.CapWorkspaceFullscreenState) {
+		t.Error("niri workspace frames have no fullscreen field; the shell must enrich them from foreign toplevels")
+	}
+}
+
+// A screen capture on niri goes through wlr-screencopy and a second wl_output
+// the Qt client later reads after it is gone, so the manifest must keep
+// denying this or the launcher frost and the LiveDraw zoom come back and take
+// the shell with them.
 func TestDeniesPersistentScreenCapture(t *testing.T) {
 	c := wm.Caps{Supports: capsManifest}
 	if c.Has(wm.CapPersistentScreenCapture) {

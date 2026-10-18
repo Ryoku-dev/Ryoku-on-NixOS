@@ -87,7 +87,7 @@ AbstractBackgroundWidget {
         if (key === "ai_chat") return {
             defaultIcon: "neurology",
             iconAsset: root.getAiIconAsset(),
-            label: Translation.tr("AI Chat")
+            label: Translation.tr("Ask")
         };
         if (key === "music_rec") return { defaultIcon: "music_note", iconAsset: "", label: Translation.tr("Music Recognition") };
         if (key === "translator") return { defaultIcon: "translate", iconAsset: "", label: Translation.tr("Translator") };
@@ -106,7 +106,7 @@ AbstractBackgroundWidget {
         } else if (key === "music_rec") {
             Spawn.run(["ryoku-cmd-songrec"]);
         } else if (key === "ai_chat") {
-            Spawn.run(["ryoku-shell", "ask", "chat"]);
+            Spawn.run(["ryoku-shell", "ask"]);
         } else if (key === "translator") {
             Spawn.run(["ryoku-shell", "quicksettings"]);
         } else if (key === "wallpapers") {

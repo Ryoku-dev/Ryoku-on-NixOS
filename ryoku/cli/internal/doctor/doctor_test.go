@@ -3092,3 +3092,47 @@ func TestVoidReportUsesHostCommandsWithSnapshotsSupported(t *testing.T) {
 		}
 	}
 }
+
+func TestVoidReportSaysUnreadableOnlyForSupervisedSystemServices(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read runit's system supervise state")
+	}
+
+	oldManager, oldInit := doctorPackageManager, doctorInitSystem
+	oldVersion, oldService := reportPackageVersion, doctorService
+	oldOrphans, oldPending, oldSnapshots := doctorOrphans, doctorFindPendingConfig, doctorSnapshots
+	t.Cleanup(func() {
+		doctorPackageManager, doctorInitSystem = oldManager, oldInit
+		reportPackageVersion, doctorService = oldVersion, oldService
+		doctorOrphans, doctorFindPendingConfig, doctorSnapshots = oldOrphans, oldPending, oldSnapshots
+	})
+	doctorPackageManager = func() (host.PackageManager, error) { return host.XBPS, nil }
+	doctorInitSystem = func() (host.InitSystem, error) { return host.Runit, nil }
+	reportPackageVersion = func(string) (string, bool) { return "", false }
+	doctorService = func(args ...string) int {
+		if len(args) == 3 && args[0] == "--system" && args[1] == "is-enabled" && args[2] == "sddm" {
+			return host.ExitOK
+		}
+		return host.ExitAbsent
+	}
+	doctorOrphans = func() ([]string, error) { return nil, nil }
+	doctorFindPendingConfig = func(string) []string { return nil }
+	doctorSnapshots = func() (bool, string) { return true, "" }
+
+	report := gatherReport(nil)
+	for _, want := range []string{
+		"system sddm: active=unreadable without root enabled=yes",
+		"system bluetooth: active=absent enabled=absent",
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("runit report missing %q", want)
+		}
+	}
+
+	doctorInitSystem = func() (host.InitSystem, error) { return host.Systemd, nil }
+	report = gatherReport(nil)
+	want := "system sddm: active=absent enabled=yes"
+	if !strings.Contains(report, want) {
+		t.Fatalf("systemd report missing %q", want)
+	}
+}

@@ -164,7 +164,18 @@ Singleton {
             return false;
         const key = String(o.activeWorkspace);
         const ws = root.workspaceById(key) || root.workspaceByName(key);
-        return !!ws && ws.fullscreen === true;
+        const providerFullscreen = !!ws && ws.fullscreen === true;
+        if (providerFullscreen || root.caps.workspaceFullscreenState === true)
+            return providerFullscreen;
+        const wins = root.windows;
+        for (let i = 0; i < wins.length; i++) {
+            const w = wins[i];
+            if (String(w.workspace || "") === key
+                    && String(w.output || "") === String(name)
+                    && w.toplevel?.fullscreen === true)
+                return true;
+        }
+        return false;
     }
 
     // Daemon window residue (identity, workspace, focus order, geometry) joined to

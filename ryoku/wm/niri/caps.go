@@ -17,6 +17,10 @@ import (
 // shell cannot draw a general overview. Floating windows do report position and
 // size for persistence, while CapNativeOverview supplies the general overview.
 //
+// CapWorkspaceFullscreenState: niri's IPC windows carry no fullscreen field.
+// The shell instead enriches the active workspace from the matching
+// foreign-toplevel handle, whose fullscreen state niri publishes.
+//
 // CapSubmap, CapGlobalShortcuts, CapFocusGrab, CapScreenShader, CapPlugins:
 // niri implements none of these protocols or subsystems.
 //
@@ -35,12 +39,12 @@ import (
 //
 // CapSpecialWorkspace: niri has no scratchpad workspace.
 //
-// CapPersistentScreenCapture: niri tears its outputs down and recreates them on
-// a config reload and on a mode change, so a layer-shell surface that captures
-// the whole screen and lives for the session races an output leaving under it.
-// The Qt client segfaults resolving a screen that is already gone. niri still
-// answers one-shot captures (the overview, a window preview, grim), so this is
-// about the long-lived surface, not screencopy itself.
+// CapPersistentScreenCapture: niri offers only wlr-screencopy for outputs, so
+// Quickshell takes a screen capture by binding a second wl_output that the Qt
+// client later reads as one of its own screens after the capture is gone
+// (quickshell#1094). One capture is enough to segfault the shell. grim and
+// other out-of-process captures are fine. A niri release that ships
+// ext-image-copy-capture can claim this again.
 var foreignAPIs = []wm.ForeignAPI{}
 
 var capsManifest = []wm.Capability{

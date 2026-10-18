@@ -3,14 +3,15 @@
   "slug": "default",
   "name": "Default",
   "author": "nero",
-  "createdWith": "0.88.4-beta.20.dev.710+g5a5551e",
+  "createdWith": "0.88.8-beta.20",
   "color": {
     "mode": "wallpaper",
     "themeApps": true
   },
   "assets": {
-    "fastfetchStyle": "fastfetch.jsonc",
-    "cursor": "Bibata-Modern-Ice"
+    "wallpaper": "wall.webp",
+    "cursor": "Bibata-Modern-Ice",
+    "fastfetchStyle": "fastfetch.jsonc"
   },
   "look": {
     "decor": {},
@@ -97,28 +98,17 @@
       "components": {
         "wallpaperSelector": {
           "displayMode": "slices",
-          "enabled": true,
-          "expandedWidth": 942,
           "flipEffect": "Ash",
-          "visibleCount": 7,
-          "skewOffset": 119,
           "sliceEdgeTilt": 0,
-          "sliceHeight": 389,
           "sliceParallax": false,
           "sliceShadows": true,
           "sliceSpacing": 15,
-          "sliceWidth": 289,
           "sliceWobble": true,
           "tagCloudRows": "3"
         }
       },
-      "display": {},
       "effects": {
         "autoRecolor": false
-      },
-      "features": {
-        "videoPreview": false,
-        "videoPreviewInstant": false
       },
       "launch": {
         "animation": "rise"
@@ -139,7 +129,6 @@
       "transition": {
         "durationMs": 900,
         "enabled": true,
-        "lastShader": "morph",
         "shader": "random"
       },
       "wallpaperMute": true,
@@ -151,12 +140,11 @@
       "ask": {
         "bubble": {
           "enabled": false,
-          "screen": "",
           "x": 0.94,
           "y": 0.68
         }
       },
-      "barStyle": "orpheus",
+      "barStyle": "qsbar",
       "bars": {
         "bottom_bar": {
           "center_widgets": [],
@@ -166,6 +154,7 @@
           "right_widgets": []
         },
         "frame": {
+          "enable_frame": true,
           "monitor_filter": []
         },
         "left_bar": {
@@ -1420,7 +1409,6 @@
           "monochromeIcons": true,
           "notificationBadge": true,
           "pinnedApps": [
-            "org.gnome.Nautilus",
             "kitty"
           ],
           "pinnedOnStartup": true,
@@ -2220,11 +2208,7 @@
               "nsfw": "",
               "sfw": ""
             },
-            "gelbooru": {
-              "userId": ""
-            },
-            "limit": 20,
-            "zerochan": {}
+            "limit": 20
           },
           "cardStyle": false,
           "collapseEmptyNotifications": false,
@@ -2393,7 +2377,7 @@
             "note": false,
             "quickLaunch": [
               {
-                "cmd": "/usr/bin/nautilus",
+                "cmd": "ryoku-app files",
                 "icon": "folder",
                 "name": "Files"
               },
@@ -2401,6 +2385,11 @@
                 "cmd": "/usr/bin/kitty",
                 "icon": "terminal",
                 "name": "Terminal"
+              },
+              {
+                "cmd": "ryoku-app browser",
+                "icon": "web",
+                "name": "Browser"
               }
             ],
             "spacing": 8,
@@ -2671,27 +2660,7 @@
           "visibleElements": 7
         },
         "general": {
-          "avatarPath": "",
           "language": "en",
-          "location": {
-            "asn": "AS11351",
-            "city": "Pittsfield",
-            "country_code": "US",
-            "country_name": "United States",
-            "currency": "USD",
-            "ip": "76.179.80.122",
-            "languages": "en-US,es-US,haw,fr",
-            "latitude": 42.449923,
-            "longitude": -73.244608,
-            "org": "Charter Communications Inc",
-            "postal": "01201",
-            "region": "Massachusetts",
-            "region_code": "MA",
-            "source": "ipapi.co",
-            "timezone": "America/New_York",
-            "updated_at": 1791312270,
-            "utc_offset": "-0400"
-          },
           "muteSfx": false,
           "quickactions": true,
           "screenshotCaptureOnRelease": false,
@@ -2897,7 +2866,7 @@
       "bloom": 0.6,
       "color": "",
       "color2": "",
-      "enabled": true,
+      "enabled": false,
       "extras": [],
       "fps": 60,
       "gain": 1,
@@ -3394,7 +3363,6 @@
       "irisWorldStyle": "inir",
       "irisWorldX": 120,
       "irisWorldY": 600,
-      "widgetFont": "",
       "musicAnchor": "bottom-left",
       "musicApp": "",
       "musicColor": "",
@@ -3672,7 +3640,8 @@
       "weatherOpacity": 1,
       "weatherScale": 1,
       "weatherX": 80,
-      "weatherY": 80
+      "weatherY": 80,
+      "widgetFont": ""
     },
     "wm": {
       "niri": {
@@ -3751,11 +3720,9 @@
           }
         },
         "animationSlowdown": 1,
-        "workspaceShadowSpread": 10,
         "backdropColor": "",
         "backgroundColor": "",
         "borderGradient": false,
-        "workspaceShadowSoftness": 40,
         "frame": "border",
         "gradientAngle": 180,
         "gradientFrom": "#e0563b",
@@ -3765,9 +3732,11 @@
         "tabIndicatorHideSingle": true,
         "tabIndicatorWidth": 4,
         "urgentColor": "#9b0000",
-        "workspaceShadowOffsetY": 10,
         "workspaceShadow": true,
-        "workspaceShadowColor": ""
+        "workspaceShadowColor": "",
+        "workspaceShadowOffsetY": 10,
+        "workspaceShadowSoftness": 40,
+        "workspaceShadowSpread": 10
       },
       "hyprland": {
         "appearance": {
@@ -3864,9 +3833,6 @@
       "clickfinger": false,
       "disableWhileTyping": true,
       "followMouse": 1,
-      "touchScrollFactor": 1,
-      "tapAndDrag": true,
-      "tapToClick": true,
       "leftHanded": false,
       "middleClickPaste": true,
       "middleEmulation": false,
@@ -3876,7 +3842,10 @@
       "numlockByDefault": false,
       "repeatDelay": 600,
       "repeatRate": 25,
-      "sensitivity": 0
+      "sensitivity": 0,
+      "tapAndDrag": true,
+      "tapToClick": true,
+      "touchScrollFactor": 1
     }
   }
 }

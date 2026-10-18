@@ -1,15 +1,16 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import Quickshell
 import shell.services
 import "../../components"
 
 // One notification card, shared by the history panel and the popup surface
 // (contract 07 sec 2.3). A bordered surface tile with a header (app name, time,
 // and an open/expand/close cluster), a bold summary, an optional body, and one
-// primary button per action. No app icon and no image are drawn, matching the
-// reference widget. The card fills the width its host gives it and is sized
-// entirely from tokens.
+// primary button per action. The reference text-only look remains the default;
+// the opt-in image setting adds a token-sized thumbnail without reserving space
+// when no source resolves.
 //
 // Popups pass `compact: true`: the body clamps to two lines and the actions
 // hide, so the toast stays a tidy glance; the expand chevron slides the card
@@ -76,6 +77,23 @@ Rectangle {
     readonly property bool showFull: !card.compact || card.expanded
     readonly property bool bodyOverflows: bodyMeasure.lineCount > card.compactLines
     readonly property bool expandable: card.compact && (card.visibleActions.length > 0 || card.bodyOverflows)
+
+    readonly property bool imagesEnabled: Config.notifications?.show_images === true
+    function imageSource(value, themed) {
+        const raw = String(value || "");
+        if (raw.length === 0)
+            return "";
+        if (raw.charAt(0) === "/" || raw.indexOf("file:") === 0)
+            return raw.indexOf("file:") === 0 ? raw : "file://" + raw;
+        if (raw.indexOf(":") > 0)
+            return raw;
+        return themed ? Quickshell.iconPath(raw, true) : raw;
+    }
+    readonly property string notificationImageSource: card.imagesEnabled
+        ? card.imageSource(card.n().image, false) : ""
+    readonly property string appIconSource: card.imagesEnabled
+        ? card.imageSource(card.n().appIcon, true) : ""
+    readonly property bool hasNotificationImage: card.notificationImageSource.length > 0
 
     // Countdown frame (popups only): a border that traces the card and drains
     // over the popup's lifespan, so a glance shows how long is left. The history
@@ -217,6 +235,43 @@ Rectangle {
                     glyph: "close"
                     onClicked: Notifs.dismiss(card.notif)
                 }
+            }
+        }
+
+        Rectangle {
+            id: thumbnail
+            readonly property bool imageReady: notificationImage.status === Image.Ready
+            readonly property bool iconReady: appIconImage.status === Image.Ready
+            readonly property bool useImage: card.hasNotificationImage && thumbnail.imageReady
+            readonly property bool useIcon: (!card.hasNotificationImage
+                || notificationImage.status === Image.Error) && thumbnail.iconReady
+
+            visible: card.imagesEnabled && (thumbnail.useImage || thumbnail.useIcon)
+            width: (Theme.iconLg + Theme.paddingLg) * card.us
+            height: width
+            radius: Theme.radiusWidget * card.us
+            color: "transparent"
+            clip: true
+
+            Image {
+                id: notificationImage
+                anchors.fill: parent
+                source: card.notificationImageSource
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                smooth: true
+                visible: thumbnail.useImage
+            }
+
+            Image {
+                id: appIconImage
+                anchors.fill: parent
+                anchors.margins: Theme.paddingSm * card.us
+                source: card.appIconSource
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                smooth: true
+                visible: thumbnail.useIcon
             }
         }
 

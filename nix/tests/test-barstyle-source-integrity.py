@@ -66,10 +66,12 @@ if serialized:
         + "\n  ".join(serialized)
     )
 
+# Guard against serialized (one-line) copies of the largest sources.
 for relative, minimum_lines in (
-    ("bar/sidemodules/SideTrayWidget.qml", 200),
+    ("bar/faces/tray/TrayFace.qml", 200),
     ("guide/GuidePopup.qml", 1000),
-    ("bar/modules/qmldir", 10),
+    ("bar/BarModuleRegistry.qml", 200),
+    ("widgets/faces/qmldir", 10),
 ):
     path = python_root / relative
     lines = path.read_text().splitlines()

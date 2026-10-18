@@ -1,8 +1,6 @@
 -- A floating window sized past the monitor reads as a broken fullscreen (issue
 -- 147: Files on a 1366x768 panel). Every fixed size below is capped to the
 -- monitor the window opens on; Hyprland evaluates the expressions per window.
--- `page()` is the one exception: a full-page surface (Ryoku Settings) asks for
--- 99% of the monitor, so it stays proportional to whatever screen it opens on.
 local function fit(w, h)
     return {
         "min(" .. w .. ", monitor_w * 0.92)",
@@ -10,17 +8,34 @@ local function fit(w, h)
     }
 end
 
+local settings_window = { mode = "full", width = 0.5, height = 0.5 }
+if package.searchpath == nil or package.searchpath("settings_window", package.path) then
+    local ok, configured = pcall(require, "settings_window")
+    if ok and type(configured) == "table" then settings_window = configured end
+end
+
+local function settings_fraction(value)
+    return math.max(0.25, math.min(tonumber(value) or 0.5, 1))
+end
+
+-- The Settings layout needs this much room to remain usable.
+local SETTINGS_MIN_WIDTH, SETTINGS_MIN_HEIGHT = 1120, 820
+
 local function page()
+    if settings_window.mode == "custom" then
+        return {
+            "monitor_w * " .. settings_fraction(settings_window.width),
+            "monitor_h * " .. settings_fraction(settings_window.height),
+        }
+    end
     return { "monitor_w * 0.99", "monitor_h * 0.96" }
 end
 
--- Rule expressions only see the whole monitor, so a page window would slide
--- under whatever the shell reserves (a frame edge, a bar). Once it opens, fit
--- it to the work area with the same gaps and border a tiled window gets.
-local PAGE_TITLES = { ["Ryoku Settings"] = true }
-
+-- Rule expressions only see the whole monitor. Once the Hub opens, fit its full
+-- page or custom fraction inside the work area with the same gaps and border a
+-- tiled window gets.
 local function fit_page_to_work_area(win)
-    if not win or not PAGE_TITLES[win.title] then return end
+    if not win or win.title ~= "Ryoku Settings" then return end
     local mon = win.monitor
     if not mon then return end
     local scale = mon.scale or 1
@@ -33,9 +48,17 @@ local function fit_page_to_work_area(win)
     local top = r.top + gap.top + border
     local right = r.right + gap.right + border
     local bottom = r.bottom + gap.bottom + border
+    local aw, ah = mw - left - right, mh - top - bottom
+    local width, height = aw, ah
+    if settings_window.mode == "custom" then
+        width = math.max(aw * settings_fraction(settings_window.width), math.min(SETTINGS_MIN_WIDTH, aw))
+        height = math.max(ah * settings_fraction(settings_window.height), math.min(SETTINGS_MIN_HEIGHT, ah))
+    end
+    local x = mon.x + left + (aw - width) / 2
+    local y = mon.y + top + (ah - height) / 2
     local target = "address:" .. win.address
-    hl.dispatch(hl.dsp.window.resize({ x = math.floor(mw - left - right + 0.5), y = math.floor(mh - top - bottom + 0.5), exact = true, window = target }))
-    hl.dispatch(hl.dsp.window.move({ x = math.floor(mon.x + left), y = math.floor(mon.y + top), window = target }))
+    hl.dispatch(hl.dsp.window.resize({ x = math.floor(width + 0.5), y = math.floor(height + 0.5), exact = true, window = target }))
+    hl.dispatch(hl.dsp.window.move({ x = math.floor(x + 0.5), y = math.floor(y + 0.5), window = target }))
 end
 hl.on("window.open", fit_page_to_work_area)
 

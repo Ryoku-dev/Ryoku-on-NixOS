@@ -2,7 +2,37 @@
 
 ## Unreleased
 
+### Fixed
+- **Vesktop keeps following wallpaper changes.** Palette updates preserve the
+  QuickCSS file inode so Vencord's file watcher continues receiving changes
+  after the first update (`palette-bridge/vesktop/quickcss.sh`).
+
 ### Added
+- **Ryogami offers opt-in Spotify styling and palette bridge controls.**
+  Integrations > Palette bridge adds neutral Spotify styling, accent strength,
+  surface brightness, separate sidebar/player/card tint, independent button,
+  progress and link accents, neutral text and colour-wash controls in collapsible
+  groups. The original palette
+  mapping stays the default; preferences repaint the running client without
+  an app restart. The page also offers explicit per-app setup/removal, service
+  controls, status and palette health checks (`shell/ryogami/`, `palette-bridge/`).
+- **Ryoku Settings has a per-compositor window size.** Full page remains the
+  default on Hyprland and Wayfire; niri keeps its normal column unless Custom
+  is chosen. Custom centres a percentage-based size without shrinking below
+  the Settings layout's usable floor (`wm/{hyprland,niri,wayfire}/`,
+  `hyprland/modules/window_rules.lua`).
+- **Phone windows float on every compositor.** The scrcpy mirror and app
+  windows (`ryoku-phone-*`) open floating at a phone's proportions on Hyprland,
+  niri and Wayfire, and the Super+K bind is listed as Kit
+  (`wm/binds.go`, `wm/niri/config_rules.go`, `wm/wayfire/config_rules.go`,
+  `hyprland/modules/window_rules.lua`).
+- **A catalogue bind can need a program.** `wm.CatalogBind.Needs` names the
+  optional app a bind launches; while that program is not on PATH every
+  provider registers no chord for it (the Hyprland K() table carries `false`,
+  niri and Wayfire leave it out of the rendered config) and the legend row
+  names what is missing. The Ask bar and the Rashin window are the first two,
+  so removing Rashin takes Alt+Space and Super+Alt+Space with it instead of
+  leaving keys that open a surface that can only say it is gone.
 - **`FileDialogHost` (`Ryoku.Ui`): the one way a surface opens the system file
   or folder dialog.** It takes a `FileDialog`'s `title`, `nameFilters` and
   `currentFolder`, builds the dialog for the window it opens in and drops it
@@ -28,33 +58,29 @@
   wallpaper. On the first graphical login Ryoku waits for the desktop services,
   applies the look, and chooses a random wallpaper from the seeded library
   (`assets/rices/default/`, `shell/scripts/ryoku-session-intro`).
-- **Prowl lives inside Rashin.** The console's Prowl section (Overview,
-  Providers, Routing, Activity, Projects, Harnesses, Toolkit) is the one place
-  to run Prowl, Ryoku's model gateway and code index: add API keys, keyless free
-  tiers, browser sign-ins and custom endpoints; build routing sets from presets
-  and order their models; read traffic, failures and gateway logs; register and
-  reindex projects; connect coding harnesses. It replaces the Agents and Models
-  sheets. The daemon proxies the gateway's management API under `/api/prowl/`
-  with the machine token and answers only its own console
-  (`rashin/web/src/lib/pages/prowl/`, `rashin/backend/prowlgw.go`).
-- **Rashin's chat picker lists Prowl once and keeps the agent's own models.**
-  Prowl's route takes one Active set entry instead of three, the models from the
-  agent's other providers stay available, and picking Active set switches back
-  to Prowl from any of them (`rashin/backend/acp.go`).
+- **Prowl plugs into Rashin without owning a harness.** The console's Prowl
+  section manages its external model gateway, code index, portable skills,
+  providers, routing sets, activity, projects, and harness connections. The
+  daemon proxies the management API with the machine token and accepts it only
+  from its own console (`rashin/web/src/lib/pages/prowl/`,
+  `rashin/backend/prowlgw.go`).
+- **A Prowl connection and a Prowl default are separate choices.** Connect
+  adds `auto` and Prowl's toolkit without changing the harness default; a new
+  Default to Prowl auto switch makes that explicit choice. Updates and
+  `ryoku-rashin wire` refresh credentials only for connected harnesses, without
+  adding one, changing a default, or restarting the Agent
+  (`rashin/backend/agents.go`, `rashin/backend/harnesses.go`,
+  `rashin/web/src/lib/pages/prowl/`).
+- **Rashin keeps one model pick per harness.** A choice made in any surface is
+  applied to Agent, Chat, new and loaded sessions, respawns, and private Ask
+  sessions. The saved pick stays visible when unavailable instead of silently
+  falling back, while Prowl's Active set remains one option beside the
+  harness's own models (`rashin/backend/modelpick.go`,
+  `rashin/backend/acp.go`, `rashin/web/src/lib/chat/`).
 - **Prowl ships off and starts with Rashin.** `ryoku-prowl.service` (port 8788)
   has no install target: `ryoku-rashin.service` wants it and it is bound to
   Rashin, so enabling Rashin brings both up and disabling Rashin stops both
   (`rashin/systemd/`).
-- **Every harness you connect routes through Prowl.** Connecting Hermes, Claude
-  Code, Codex, opencode or Oh My Pi wires the Ryoku pointer and skills and makes
-  Prowl's `auto` route that harness's default model; Disconnect restores the
-  model it had. With no provider that can serve `auto`, the harness waits as
-  pending and routes once one connects. Detected harnesses keep their own models:
-  `ryoku-rashin wire` and updates re-route only harnesses you connected, so
-  Disconnect is never undone by a later update. Rashin's own chat follows suit:
-  choosing its chat agent connects it. New chats start on Prowl's `auto`, and
-  the agent's other models stay one pick away (`rashin/backend/agents.go`,
-  `rashin/backend/harnesses.go`, `rashin/backend/chatbackend.go`).
 - **The Stage Editor is the desktop's edit mode.** Its toolbar frames one
   monitor at a time, names the edited display and cycles displays from its chip,
   while the drawer keeps the active catalogue instead of repeating those tabs.
@@ -88,15 +114,20 @@
   (`shell/quickshell/shell/modules/stage/StageDepthPage.qml`,
   `shell/quickshell/shell/modules/stage/StageDepthOptions.qml`,
   `shell/quickshell/shell/modules/stage/StageDepthHero.qml`).
-- **Rashin splits into a Ryoku lane and a Chat lane.** The Ryoku lane is the
-  machine agent: the Needle with the vault, the `ryoku` skill, the wiki, prowl
-  over the Ryoku source and the approval modes, on the Alt+Space bar, in the
-  terminal and on the companion window's first sheet; its quick path answers
-  fast and hands tool jobs to the same lane's agent. The Chat lane is a plain
-  conversation with the harness, nothing about the machine in front of it. Each
-  lane is its own agent process in its own cwd, and the Ryoku lane's system
-  prompt is the vault's `AGENTS.md` the daemon writes (`rashin/backend/`,
-  `rashin/web/`).
+- **Ask, Agent, and Chat have separate jobs and histories.** Ask serves the bar,
+  launcher, console Ask sheet, and `rashin` command through a Prowl route or a
+  fresh private read-only harness session, recording only
+  `rashin-asks.jsonl`. Agent is the persistent machine-aware session on the
+  bar, bubble, and console; Chat is the plain console harness session.
+  Continue with the agent adds a From Ask card for the next turn, while Move
+  to the agent runs the question immediately (`rashin/backend/askserve.go`,
+  `rashin/backend/handoff.go`, `rashin/web/src/pages/AskSheet.svelte`).
+- **The Agent can open in its harness terminal.** `ryoku-rashin terminal`
+  resumes the current session in Hermes, omp, Claude Code, or Codex when
+  supported. Agent backends now include Hermes, Codex through `codex-acp`,
+  Claude Code through either ACP adapter, omp, opencode, and Gemini CLI
+  (`rashin/backend/chatbackend.go`, `rashin/backend/chatterminal.go`,
+  `rashin/web/src/lib/pages/chat/ChatWorkspace.svelte`).
 - **A wiki for people new to Ryoku.** Plain-language guides (Linux basics, the
   desktop, Hyprland in Lua, niri in KDL, Quickshell QML, the Go tools, Rashin)
   ship with Rashin, are mirrored into the vault so the Needle cites them, and
@@ -117,20 +148,14 @@
   `session-start` restarts the shell services, so a fresh niri desktop is
   covered from the greeter handoff until the loaded shell releases it,
   matching Hyprland (`niri/autostart.kdl`).
-- **Rashin, the AI companion app, joins the desktop.** A window
-  (`ryoku/apps/rashin-app/`, GTK3 + WebKitGTK) that hosts the Rashin console
-  the daemon serves, one Svelte app (`ryoku/rashin/web/`) that is also the
-  dashboard: the shared agent chat as a three-pane workspace (sessions, the
-  transcript with thinking folds, tool rows, diffs and inline approvals, the
-  composer with slash commands and images, the inspector), the fast-lane
-  Ask, and every dashboard sheet (overview, system, vault, memory, skills,
-  agents, models, about) rebuilt on bits-ui with the Libraries.dev effects
-  (the Needle's face, thinking orbs, a beam on the composer while it works).
-  Super+Alt+Space summons it on both compositors, the Ask bar's new OPEN
-  RASHIN chip raises it from a quick answer, and the Ask bar's header grew
-  its history and model drawers (`apps/rashin-app/`, `rashin/web/`,
-  `wm/binds.go`, `wm/niri/config_binds.go`,
-  `shell/quickshell/shell/modules/ask/`).
+- **Rashin's companion window opens the full console.** `rashin-app` hosts the
+  daemon's Svelte console at `#/agent`, with separate Agent, Ask, and Chat
+  sheets. Agent carries sessions, tools, approvals, model controls, hand-off
+  cards, and Open in terminal; Ask carries streaming read-only answers, route
+  choice, history, cancel, and the Agent hand-off. Super+Alt+Space summons the
+  single window, and Open Rashin raises it from the bar
+  (`rashin/app/`, `rashin/web/`, `wm/binds.go`,
+  `wm/niri/config_binds.go`).
 - **The night light can run on the clock.** Hub > Displays > Night light
   gained an AT THE CLOCK switch with START AT and OFF AT rows: a 12-hour
   time you step by the hour, flip AM/PM, or type, wrapping midnight, so a
@@ -203,16 +228,12 @@
   `apps/rashin-app/` to `rashin/app/`. The dev deploy builds and installs them
   from there, and the desktop's materialized config no longer carries the AI
   usage units.
-- **The fast lane asks Prowl.** Quick asks post to Prowl's
-  `/v1/chat/completions` on a route (`auto`, an axis such as `auto:fast`, or one
-  of your sets) instead of calling a provider directly. `ryoku-rashin backend
-  <route>` and the Ask bar pick it, and keys left in `~/.config/ryoku/rashin.env`
-  are imported into Prowl once (`rashin/backend/quick.go`).
+- **Ask can use the Agent model or a Prowl route.** Its separate route picker
+  lists Agent model first, then Prowl's active set, capability axes, and named
+  sets when available. Changing it never changes the harness model
+  (`rashin/backend/quick.go`, `rashin/backend/backend_cmd.go`).
 
 ### Removed
-- **Gemini is no longer a chat agent.** Gemini CLI speaks neither the OpenAI nor
-  the Anthropic API, so it cannot route through Prowl
-  (`rashin/backend/chatbackend.go`).
 - **Rashin no longer knows prowl-agent.** It runs only the `prowl` binary, and
   the standalone `prowl api` server it used to spawn is replaced by the
   gateway's own code routes.
@@ -225,6 +246,57 @@
   `hub/quickshell/schema/DesktopScenePage.js`, `shell/ipc/control.go`).
 
 ### Fixed
+- **Zen palette setup finds absolute and installation-specific profiles.** The
+  bridge installer honours `IsRelative=0` and modern `Install` defaults when
+  Zen is closed, while explicit and running profiles keep precedence
+  (`palette-bridge/install-integrations.sh`).
+- **Wallpaper app colours recover when the palette cache is replaced.** The
+  palette bridge reattaches after its cache directory or an ancestor is moved,
+  deleted, or recreated, and reads the current palette as soon as it attaches.
+  A first palette written during startup is picked up without another change.
+- **Vesktop keeps custom QuickCSS and imports on wallpaper changes.** Palette
+  updates merge only the bridge-owned colour block. Updates repair the exact
+  legacy registration for enabled integrations; disabled and edited setups stay
+  unchanged (`palette-bridge/`, `cli/internal/doctor/reconcile_vesktop_palette.go`).
+- **The palette bridge waits for the first login instead of restart-looping at
+  boot.** It starts without a palette, reports it unavailable until one is
+  written, and watches for the cache directory to appear
+  (`palette-bridge/main.go`, `palette-bridge/main_test.go`).
+- **`ryoku-rashin ensure` starts Prowl's gateway before it exits.** The short
+  CLI path now waits for the start command, and enabling Rashin completes
+  `loginctl enable-linger` before a gateway start failure can be returned
+  (`rashin/backend/prowlgw.go`, `rashin/backend/server.go`).
+- **Niri keeps a connected display on after undocking.** Its provider watches
+  the output-changing workspace event and transiently enables the built-in
+  panel whenever every connected output is off. The generated KDL keeps the
+  user's panel-off preference, so reconnecting the configured external display
+  restores the chosen layout (`wm/niri/outputs.go`, `wm/niri/watch.go`).
+- **Model choices no longer reset to Prowl auto.** The saved choice is keyed
+  only by harness and is reapplied to every new, loaded, or respawned session;
+  an unavailable choice stays saved and is reported honestly
+  (`rashin/backend/modelpick.go`, `rashin/backend/acp.go`).
+- **Ask no longer leaks into the Agent conversation.** Fast and escalated asks
+  stay in Ask history, and Continue with the agent now carries the question and
+  answer into a From Ask card that the next Agent turn receives
+  (`rashin/backend/askserve.go`, `rashin/backend/handoff.go`,
+  `rashin/backend/ws.go`).
+- **Prowl maintenance no longer overrides harness defaults.** Update, deploy,
+  doctor, daemon start, and `ryoku-rashin wire` refresh stale credentials only
+  for already-connected harnesses and never activate Prowl auto or reset the
+  Agent (`rashin/backend/harnesses.go`, `cli/internal/updater/update.go`).
+- **Ask is read-only at both tool boundaries.** The classifier covers the
+  commands that previously slipped through, quick tools stay bounded to reads,
+  and denied work returns `needsAgent` with a reason instead of opening an Ask
+  approval (`rashin/backend/readonly.go`, `rashin/backend/quicktools.go`,
+  `rashin/backend/askserve.go`).
+- **Mutating daemon routes reject browser forgery.** Agent, harness, default,
+  terminal-resume, and fix routes require the dashboard origin and a non-simple
+  request where applicable, while command-line callers on loopback still work
+  (`rashin/backend/server.go`, `rashin/backend/fixsession.go`).
+- **Keyboard repair rebuilds Fedora and Void boot images.** The CLI still
+  prefers `mkinitcpio -P` where it is installed, then falls back to
+  `dracut --regenerate-all --force` so the boot prompt keymap converges on
+  hosts that use dracut.
 - **A failed update names the packages that conflict.** pacman reports the pair
   on a `::` line and only the `error:` summary reached the terminal, so an
   aborted transaction read as "conflicting dependencies" with nothing to act on.
@@ -495,17 +567,14 @@
   looked dead. A second toggle within 0.7 s is now treated as the same press,
   on Hyprland and niri. A pad left locked off is also named with a toast at
   login, since the lock survives reboots by design.
-- **Rashin's chat no longer stalls on harmless commands or leaves tool calls
+- **Agent and Chat no longer stall on harmless commands or leave tool calls
   pending.** Tool updates carry their output as a list of blocks, which the
-  daemon could not parse, so every row froze at PENDING with nothing to show;
-  rows now carry the command, a status that finishes, and the output or diff.
-  Calls that only read the machine (`journalctl`, `sed -n ...p`, `pacman -Q`,
-  `systemctl status`, file reads outside secret paths) run without asking,
-  under a "Run read-only tools without asking" switch stored as `approvals` in
-  `rashin.json`; anything that writes, installs, or reads a secret still asks,
-  and an approval answered anywhere clears everywhere. Agents that offer their
-  models as a config option (Oh My Pi) now show and switch their full model list
-  (`rashin/backend/acp.go`, `acptools.go`, `readonly.go`, `ws.go`, `config.go`).
+  daemon could not parse, so rows froze at PENDING. Rows now carry the command,
+  final status, and output or diff. Read-only calls can run under the shared
+  approval mode; writes, installs, and secret reads still ask. Harnesses that
+  expose models as a config option also show and switch their complete list
+  (`rashin/backend/acp.go`, `acptools.go`, `readonly.go`, `ws.go`,
+  `config.go`).
 - **Rashin's Hermes setup passes only the installer flags that build supports.**
   Setup hardcoded `--non-interactive --skip-browser --skip-computer-use`, but
   the official installer exits 1 on any option it does not recognize, so the
@@ -611,15 +680,13 @@
   hand-written group indices that were often wrong.
 
 ### Changed
-- **Fix with AI opens your agent in a terminal.** The doctor, the Hub's Updates
-  page, the dashboard's tips and findings, and `ryoku-rashin fix` open the chat
-  agent's own terminal interface (Oh My Pi, Hermes, or Claude Code) in the vault
-  with the problem as its first message, instead of a chat panel: in place when
-  run from a terminal, in the Default Apps terminal otherwise, as its own user
-  unit so a daemon restart never closes it. The dashboard's chat page is gone;
-  the Super+S chat is the one chat window, and the launcher's quick ask
-  continues there (`rashin/backend/fixterm.go`, `fixcli.go`, `fixsession.go`,
-  `rashin/backend/web/`).
+- **Fix with AI opens the selected Agent harness in a terminal.** The doctor,
+  Hub Updates page, console tips and findings, and `ryoku-rashin fix` launch a
+  supported harness in the vault with the problem as its first message. It
+  opens in place from a terminal or in the Default Apps terminal from a GUI,
+  under its own user unit so a daemon restart does not close it
+  (`rashin/backend/fixterm.go`, `fixcli.go`, `fixsession.go`,
+  `rashin/web/`).
 - **The Hub's chrome is one fixed layout, not a per-page guess.** The `FILES` and
   `UPDATES` chips are control-sized (`30` tall, `S4` padding) and take the page's
   own right inset, so they line up with the last card instead of floating inside
@@ -757,14 +824,6 @@
   size in `hyprland/modules/window_rules.lua` is now capped at the monitor
   (92% wide, 88% tall) through Hyprland's size expressions, so the same rule
   fits a laptop panel and a desktop monitor.
-- **Rashin chat follows a hermes reconfigure (#145).** Switching hermes to a
-  new provider in the terminal (say NVIDIA NIM) left the dashboard chat failing
-  with "HTTP 404" on every turn: the daemon re-applied the model it had
-  remembered from before the switch onto the new endpoint, and the resident
-  `hermes acp` process kept the provider and keys it loaded at spawn. The
-  remembered pick is now tied to the hermes config it was made under and
-  dropped when that changes, and a chat turn after `config.yaml` or `.env`
-  changed respawns the session first (`rashin/backend/`).
 - **Google Chrome loads pages and shares the keyring, like Chromium.** Ryoku
   pinned native Wayland and the GNOME keyring for Chromium (`chromium-flags.conf`)
   and for Electron apps (`ELECTRON_OZONE_PLATFORM_HINT`), but Google Chrome reads
@@ -1115,32 +1174,19 @@
   delos bar's power access, since power leaves the island, but the bind works
   in every bar style.
 - `rashin/backend` + `apps/fish` + `docs/rashin-terminal.md`: **Rashin in the
-  terminal**, a third surface on the one brain (launcher `\`, dashboard, and
-  now the command line). A new `rashin` command (the `ryoku-rashin` binary
-  under a second name; argv0 routes a bare argument to a terminal ask) turns
-  natural language into an answer plus a ready-to-run command plan and drops it
-  on the fish prompt: `rashin take me to the fastfetch config`, `rashin scan
-  Documents for pngs and move them into Pictures`. It answers on the daemon's
-  fast lane (`POST /api/term`), the same direct chat-completions loop as the
-  launcher, with a terminal persona, the terminal context (cwd, last command
-  and its exit status), the read-only tools, and one action tool, `propose`,
-  whose commands the daemon validates (binary on PATH, source paths exist) and
-  tiers (read/write/system/danger via a deny-first Go classifier in
-  `danger.go`). It never runs anything itself; the buffer is the confirmation
-  and the tiers gate `--run`. Heavy asks escalate to the pre-warmed hermes
-  session, and session-lane permission prompts are answered right in the
-  terminal (`POST /api/perm`, answered exactly once even if the dashboard
-  races). A `conf.d/rashin.fish` weave adds the interactive wrapper, an
-  **Alt+R** binding that transmutes the current command line, a `fish_postexec`
-  hook that reports proposed-vs-ran corrections, and the recipes loader. New
-  **habits layer** (`habits.md`) mines this user's XDG directory names, modern
-  tool substitutions (eza/zoxide/fd/rg/bat), and fish-history rhythms
-  (secret-filtered, opt-out) into both ask lanes, so a command knows the folder
-  is really `Pictures`. Repeated asks become saved **recipes** (`rr-<name>` fish
-  abbreviations). Every surface reads and writes one ask history, so `\resume`,
-  `rashin --resume`, and "continue in dashboard" see one conversation. New
-  verbs: `term`, `term --report`; the `rashin` command also passes through
-  `status`/`enable`/`disable`/`setup`/`index`.
+  terminal**, the command-line surface for the read-only Ask system. The
+  `rashin` command turns natural language into an answer plus an optional
+  ready-to-run command plan and places the selected command on the shell
+  prompt. Its Prowl fast path gets terminal context, vault maps, bounded
+  read-only tools, and the `propose` schema; its fallback is a fresh private
+  read-only harness session. Neither path runs a command, presents an Ask
+  approval, or writes to the Agent transcript. The daemon validates binaries
+  and paths and assigns read/write/system/danger tiers. Shell adapters add
+  Alt+R, correction reporting, and recipes; `habits.md` carries directory
+  names and shell rhythms. The bar, launcher, console Ask sheet, and terminal
+  share `rashin-asks.jsonl`, while `rashin -c` carries only the previous
+  terminal exchange into a new ask (`rashin/backend/termserve.go`,
+  `rashin/backend/termcli.go`, `apps/fish/conf.d/rashin.fish`).
 - `shell/quickshell/overview` + `hyprland`: a new full-screen workspace overview
   (Super+Tab), a launcher-style expo that replaces the pill's workspace switcher.
   The compositor blurs the desktop (an `overview` layer rule) and a filmstrip
@@ -1159,101 +1205,53 @@
   current desktop from the active workspace and makes `Super+N` / `Super+Alt+N`
   desktop-relative (on desktop 2, `Super+3` focuses ws13, never ws3, and windows
   never jump desktops); the redundant Alt+Tab window switcher bind is removed.
-- `rashin/backend` + `shell/quickshell/launcher`: the quick ask got real
-  powers. The fast lane is now a bounded agent loop, not a one-shot: on a
-  direct-provider connection it can call a small set of read-only Go-native
-  tools (`system_query` for packages/updates/service/processes/disk/kernel/
-  gpu/network, `read_file`, `list_dir`, `search_code` via prowl-agent, and
-  `fetch_url`), up to four rounds, then answer, all still in a second or two.
-  Tools are deliberately a safe Go set, not hermes's Python toolset; anything
-  heavier (file or image generation, a real browser, a skill, system changes)
-  replies `TOOLS_REQUIRED` and escalates to the pre-warmed session lane. Tool
-  runs surface as cards in the dashboard and as the working label in the
-  launcher. Every turn now runs on a background context, so **CONTINUE IN
-  DASHBOARD** can open the live turn mid-flight and it keeps going after the
-  launcher closes (proven: a SIGKILL'd CLI still completed the turn into
-  hermes state.db and the ask history); **CANCEL** / Escape stops it via
-  `/api/ask/cancel`. `\resume` lists recent asks from a persisted JSONL
-  (`$XDG_STATE_HOME/ryoku/rashin-asks.jsonl`) and recalls a cached answer with
-  its chips, no model call. New verbs: `ask --recent`, `ask --cancel`.
-- `rashin/` + `hub/quickshell/RashinPage.qml` + `hyprland/modules/autostart`:
-  **Ryoku Rashin**, an optional agent OS (off by default). `rashin/backend`
-  (`ryoku-rashin`, one Go program) maintains a machine-generated markdown vault
-  at `~/.local/share/ryoku/rashin/` (system, desktop, and package maps, fenced
-  between `<!-- rashin:generated -->` markers so a reindex never clobbers user or
-  agent notes), serves a hand-authored dashboard embedded under
-  `rashin/backend/web/` on `127.0.0.1:3600` (localhost only), and bridges the
-  Hermes agent over ACP into a web chat. A one-click `setup` installs and
-  onboards Hermes, then wires reversible, marker-fenced vault pointers
-  (`<!-- ryoku-rashin -->`) into every detected agent's global instructions
-  (Claude Code, codex, opencode, omp, Hermes); an existing Hermes is never
-  clobbered, and `serve` re-checks the wiring on start with any drift reported by
-  `status`. The Hub gains a Rashin page in the Advanced group (enable toggle,
-  one-click Hermes setup watched live, open-dashboard button), and `autostart`
-  launches `ryoku-rashin serve --if-enabled`, which exits at once until enabled.
-  See `docs/rashin.md`.
-- `rashin/backend`: the dashboard grows from a glance into a **full local-agent
-  utility** (v0.2.0), seven panels. Chat v2: image attach/paste/drag-drop (sent
-  as ACP image blocks, downscaled client-side), clickable links, a `/` command
-  legend fed live from Hermes's slash commands, a model picker with recents
-  (switches over `session/set_model`), a session-history drawer that replays
-  stored transcripts (`session/list` + `session/load`), a context-usage meter,
-  token fade-in streaming, and a response-ready toast for backgrounded tabs.
-  New **Memory** panel: provider detection (builtin or honcho/mem0/supermemory/
-  hindsight and friends, plus Obsidian vault detection), a force-directed graph
-  of the vault's notes and references, a 26-week activity heatmap, and Hermes
-  session history read from `~/.hermes/state.db` (sqlite3, read-only). New
-  **Skills** panel: all Hermes skills by category with origin counts (bundled /
-  hub / agent-grown), live search, and the enabled toolbelt grouped into
-  families. New **About** panel: what Rashin is, live facts, quick start, and a
-  command crib pointing at `hermes -h`, `hermes gateway`, `hermes model`. The
-  Overview gains a **code intelligence card**: when the user has `prowl-agent`
-  installed and an indexed repo, the daemon surfaces doctor finding counts,
-  files/symbols, and top hotspots (read-only exec, cached, degrades to hidden;
-  prowl stays user-installed because upstream ships no license yet). New API:
-  `/api/hermes/skills`, `/api/hermes/memory`, `/api/prowl`, `/api/prowl/search`,
-  `/api/about`; the chat WebSocket learns models/commands/history/usage frames.
-  Hermes onboarding detection now reads the mapping-form `model:` block, and
-  session titles surface correctly.
-- `shell/quickshell/launcher` + `rashin/backend`: a quick-ask answer is now a
-  launch point, not a dead end. The answer text is selectable (mouse-copy any
-  fragment), and `/api/ask` returns an `actions` array of entities the daemon
-  detected in the answer and verified against the machine: real files, real
-  directories, `http(s)` URLs, backtick commands whose first word is on
-  `PATH`, and hex colors. The launcher renders each as a chip that does the
-  obvious thing (file opens in nvim, folder in the file manager, URL in the
-  browser, command and color copy with a live swatch), plus COPY for the whole
-  answer and CONTINUE IN DASHBOARD. Chips walk with the arrow keys and fire
-  with ENTER, typing re-asks, and copyables flash COPIED. Nonexistent paths
-  and non-runnable spans are dropped so a chip never lies.
-- `rashin/backend`: quick asks got fast. `/api/ask` now runs **two lanes**: a
-  fabric-style fast lane makes ONE direct streaming chat-completions call on
-  the same model connection hermes is configured with (openrouter, openai,
-  groq, ollama, or any local endpoint; key read from `~/.hermes/.env`), a
-  terse pattern prompt plus the vault maps as context, no Python spawn, no
-  agent loop, answers in a second or two; the model replies `TOOLS_REQUIRED`
-  when the ask genuinely needs tools, which escalates it to the session lane.
-  OAuth backends (openai-codex) go straight to the session lane, and the
-  daemon now **pre-warms the hermes session at boot**, cutting the first ask
-  on this machine from ~19s to ~8s. The lane's connection is overridable in
-  `rashin.json` (`quick.model` / `quick.baseUrl` / `quick.keyEnv`) for a
-  cheaper or local quick-answer model. The ask CLI is now a thin pipe over
-  `/api/ask`, both lanes land in the shared transcript, and consecutive
-  duplicate working markers are deduped.
-- `shell/quickshell/launcher` + `rashin/backend`: the launcher learns to ask
-  the agent. A `\` prefix routes to Rashin: type `\why is my mic quiet?`,
-  ENTER, and a pulsing strip names what hermes is doing (the running tool,
-  thinking, writing) until one deliberately terse answer renders inline,
-  image results (image_gen, screenshots) previewing as thumbnails. It rides
-  a new `ryoku-rashin ask` one-shot that joins the daemon's shared session
-  over the chat WebSocket with a quick-mode preamble only the model sees,
-  and streams `@working`/`@perm`/`@answer` markers to stdout. Because it is
-  the same session, the new CONTINUE IN DASHBOARD button opens the exact
-  conversation, already on screen: the chat hub now keeps a per-session
-  transcript (capped at 400 frames) and replays it to every joining client,
-  which also means refreshing the dashboard no longer blanks the chat. A
-  pending tool approval surfaces as APPROVE IN DASHBOARD. The `\` prefix
-  joins the launcher help sheet.
+- `rashin/backend` + `shell/quickshell/launcher`: **Quick Ask has bounded
+  read-only tools.** A selected Prowl route can inspect machine facts, files,
+  the Prowl code index, and URLs before answering. Broader read-only work opens
+  a fresh private harness session; work that needs mutation returns
+  `needsAgent` with a reason. Turns continue after the launcher closes, Cancel
+  stops only the active ask, and `\resume` recalls `rashin-asks.jsonl` without
+  another model call (`rashin/backend/quicktools.go`,
+  `rashin/backend/askserve.go`, `rashin/backend/askhistory.go`).
+- `rashin/` + `hub/quickshell/RashinPage.qml`: **Ryoku Rashin** is an optional
+  local agent OS, off by default. One daemon maintains the fenced machine
+  vault, serves the embedded Svelte console on loopback, runs Agent and Chat
+  harness sessions, and handles separate read-only asks. Setup can install
+  Hermes without clobbering an existing configuration; wiring adds reversible
+  vault and skill pointers to detected harnesses. The Hub controls the gate,
+  setup, and console, while the user service exits immediately until enabled
+  (`rashin/backend/`, `rashin/web/`, `rashin/systemd/`).
+- `rashin/web` + `rashin/backend`: the console grows from a glance into a
+  **full local-agent utility**. Agent and Chat use separate three-pane
+  workspaces with sessions, transcripts, tools, approvals, images, models, and
+  usage; Ask gets its own read-only sheet and history. Memory, Skills, System,
+  Vault, Wiki, Prowl, and About expose the daemon's local machine state. The
+  Prowl section hosts the external gateway, code index, portable skills, and
+  harness connections without replacing the user's harness model
+  (`rashin/web/`, `rashin/backend/server.go`,
+  `rashin/backend/prowlgw.go`).
+- `shell/quickshell/launcher` + `rashin/backend`: a quick Ask answer is a
+  launch point, not a dead end. The answer text is selectable and `/api/ask`
+  returns verified action chips for files, directories, URLs, runnable
+  backtick commands, and colours. Copy handles the whole answer; Continue with
+  the agent carries a completed question and answer into Agent, while Move to
+  the agent runs unfinished or `needsAgent` work there. Nonexistent paths and
+  non-runnable command spans are dropped
+  (`shell/quickshell/launcher/shared/AskPanel.qml`,
+  `rashin/backend/ask.go`, `rashin/backend/handoff.go`).
+- `rashin/backend`: **Ask has a fast route and a private harness route.** Prowl
+  routes use its authenticated chat-completions gateway and bounded read-only
+  tools. Agent model skips that path, and broader inspection opens a fresh
+  read-only harness session for the ask. Both record only
+  `rashin-asks.jsonl`; neither joins the Agent transcript or offers approvals
+  (`rashin/backend/quick.go`, `askserve.go`, `lane.go`).
+- `shell/quickshell/launcher` + `rashin/backend`: **The launcher learns the
+  read-only Ask flow.** A `\` prefix streams working and answer markers, shows
+  verified action chips, and can explicitly hand the result to Agent. Continue
+  with the agent adds a From Ask card for the next message; Move to the agent
+  runs the question immediately. No Ask tool call waits on an approval
+  (`shell/quickshell/launcher/shared/AskPanel.qml`,
+  `rashin/backend/handoff.go`).
 - `rashin/systemd` + `rashin/backend` + `hyprland/modules/autostart`: the
   daemon now runs as a **systemd user unit** (`ryoku-rashin.service`) instead
   of riding the Hyprland session. `ryoku-rashin enable` does

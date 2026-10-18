@@ -3,43 +3,43 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 )
 
-// askserve.go runs quick asks INSIDE the daemon (POST /api/ask): fast lane
-// first, session lane as escalation, both recorded in the hub transcript so
-// the conversation is already in the Super+S chat when the user continues there.
-// The response streams the same marker lines the ask CLI used to emit:
-// @working / @perm / @answer / @error.
+// askserve.go keeps one-shot answers outside the persistent Agent transcript.
+// Prowl handles the fast path and an isolated read-only ACP lane handles
+// escalations.
 type askSink struct {
 	w       http.ResponseWriter
 	f       http.Flusher
-	answer  strings.Builder
 	started bool
 	lastMk  string
-	// permJSON: the terminal lane's consumer answers permissions itself, so
-	// its @perm payload carries {id, title, options} instead of a bare title.
-	permJSON bool
 }
 
 func (s *askSink) marker(kind, detail string) {
 	line := "@" + kind + " " + strings.ReplaceAll(detail, "\n", " ")
 	if line == s.lastMk {
-		return // a stream of identical thinking markers is noise
+		return
 	}
 	s.lastMk = line
 	fmt.Fprintln(s.w, line)
 	s.f.Flush()
 }
 
-// handleAsk is the /api/ask HTTP handler on the running daemon. The turn runs
-// on a background context, not the request's, so closing the launcher (to
-// continue in the Super+S chat) never aborts the work; only an explicit
-// /api/ask/cancel or the timeout stops it. The CLI is a viewer.
+type sessionAskResult struct {
+	Text   string
+	Via    string
+	Denied string
+}
+
 func (h *chatHub) handleAsk(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, false) {
+		return
+	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
 		http.Error(w, "missing q", http.StatusBadRequest)
@@ -53,65 +53,59 @@ func (h *chatHub) handleAsk(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	sink := &askSink{w: w, f: f}
+	id := newAskID('a')
 
-	// Background context: survives the launcher closing. Cancelable by the
-	// user (Escape -> /api/ask/cancel) and bounded by a timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), quickTimeout+2*time.Minute)
 	defer cancel()
 	gen := h.setAskCancel(cancel)
 	defer h.clearAskCancel(gen)
 
-	// The question enters the shared transcript immediately, so a chat
-	// opened mid-ask already shows it.
-	h.broadcast(wsOut{Type: "user_text", Text: q})
-	h.broadcast(wsOut{Type: "state", State: "busy"})
-
-	if target, err := resolveQuickTarget(LoadConfig()); err == nil {
+	target, targetErr := resolveQuickTarget(LoadConfig())
+	if targetErr == nil {
 		sink.marker("working", "thinking ("+target.Label+")")
 		qctx, qcancel := context.WithTimeout(ctx, quickTimeout)
-		answer, qerr := quickComplete(qctx, target, q, func(delta string) {
+		answer, model, qerr := quickComplete(qctx, target, q, func(string) {
 			if !sink.started {
 				sink.started = true
 				sink.marker("working", "writing")
 			}
-			h.broadcast(wsOut{Type: "agent_text", Text: delta})
-		}, func(id, title, status string) {
+		}, func(_ string, title, status string) {
 			if status == "in_progress" {
 				sink.marker("working", title)
 			}
-			h.broadcast(wsOut{Type: "tool", ID: id, Title: title, Kind: "quick", Status: status})
 		})
 		qcancel()
 		switch {
 		case qerr == nil:
-			h.broadcast(wsOut{Type: "turn_end", StopReason: "end_turn"})
-			h.broadcast(wsOut{Type: "state", State: "ready"})
-			recordAsk(askRecord{At: nowRFC3339(), Question: q, Answer: answer,
-				Images: extractImages(answer), Actions: extractActions(answer)})
-			sink.marker("answer", mustAskJSON(answer))
+			viaModel := strings.TrimSpace(model)
+			if viaModel == "" {
+				viaModel = target.Label
+			}
+			rec := makeAskRecord(id, "", q, answer, "Prowl · "+viaModel, "")
+			recordAsk(rec)
+			sink.marker("answer", mustAskJSON(rec))
 			return
 		case qerr == errNeedsTools:
-			sink.marker("working", "needs tools, waking the full agent")
+			sink.marker("working", "needs the read-only agent")
 		case ctx.Err() != nil:
-			h.broadcast(wsOut{Type: "state", State: "ready"})
 			sink.marker("error", "cancelled")
 			return
 		default:
-			sink.marker("working", "fast lane unavailable: "+qerr.Error()+"; waking the full agent")
+			sink.marker("working", "fast lane unavailable: "+qerr.Error()+"; waking the agent")
 		}
-	} else {
-		sink.marker("working", "fast lane unavailable: "+err.Error()+"; waking the full agent")
+	} else if !errors.Is(targetErr, errAgentRoute) {
+		sink.marker("working", "fast lane unavailable: "+targetErr.Error()+"; waking the agent")
 	}
 
-	if ans, ok := h.sessionAsk(ctx, sink, quickPreamble, q); ok {
-		recordAsk(askRecord{At: nowRFC3339(), Kind: "quick", Question: q, Answer: ans,
-			Images: extractImages(ans), Actions: extractActions(ans)})
-		sink.marker("answer", mustAskJSON(ans))
+	result, ok := h.sessionAsk(ctx, sink, quickPreamble, q)
+	if !ok {
+		return
 	}
+	rec := makeAskRecord(id, "", q, result.Text, result.Via, result.Denied)
+	recordAsk(rec)
+	sink.marker("answer", mustAskJSON(rec))
 }
 
-// setAskCancel registers the current ask's cancel func, keyed by a generation
-// so a finished ask never clears a newer one. One user, one launcher.
 func (h *chatHub) setAskCancel(c context.CancelFunc) uint64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -129,116 +123,280 @@ func (h *chatHub) clearAskCancel(gen uint64) {
 	h.mu.Unlock()
 }
 
-func (h *chatHub) handleAskCancel(w http.ResponseWriter, r *http.Request) {
+func (h *chatHub) cancelAskTurn() {
 	h.mu.Lock()
-	c := h.askCancel
+	cancel := h.askCancel
 	h.askCancel = nil
-	conn := h.conn
 	h.mu.Unlock()
-	if c != nil {
-		c()
-		if conn != nil {
-			conn.Cancel() // interrupt a session-lane turn too
-		}
+	if cancel != nil {
+		cancel()
 	}
+}
+
+func (h *chatHub) handleAskCancel(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, false) {
+		return
+	}
+	h.cancelAskTurn()
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleAskRecent serves the resume list as JSON.
 func (h *chatHub) handleAskRecent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, RecentAsks(12))
 }
 
-// sessionAsk runs the question through the real hermes session, translating
-// hub frames into markers until the turn ends. It joins as an internal client
-// so every chat surface sees the same stream. The answer comes back for the
-// caller to record and emit; error paths emit @error here and report false.
-func (h *chatHub) sessionAsk(ctx context.Context, sink *askSink, preamble, q string) (string, bool) {
-	cl := &chatClient{out: make(chan wsOut, 256)}
-	h.mu.Lock()
-	h.clients[cl] = true
-	h.ensureConnLocked()
-	conn := h.conn
-	h.mu.Unlock()
-	defer func() {
-		h.mu.Lock()
-		if h.clients[cl] {
-			delete(h.clients, cl)
-			close(cl.out)
+// sessionAsk serializes the internal lane because one ACP connection owns one
+// current session. Every call opens a fresh session and consumes its events
+// directly, so none can enter a UI hub transcript.
+func (h *chatHub) sessionAsk(ctx context.Context, sink *askSink, preamble, q string) (sessionAskResult, bool) {
+	conn, err := h.beginAskSession(ctx)
+	if err != nil {
+		if _, ok := resolveChatBackend(LoadConfig()); !ok {
+			sink.marker("error", "Ask needs an agent harness with an ACP adapter or a connected Prowl provider.")
+		} else {
+			sink.marker("error", "agent unavailable: "+err.Error())
 		}
-		h.mu.Unlock()
-	}()
-	if conn == nil {
-		h.broadcast(wsOut{Type: "state", State: "ready"})
-		sink.marker("error", "hermes is unavailable; run setup from Ryoku Settings")
-		return "", false
+		return sessionAskResult{}, false
 	}
-	// The user_text is already in the transcript; hand hermes the terse-mode
-	// prompt directly.
-	conn.Prompt(preamble+q, nil)
+	defer h.finishAskSession(conn)
 
+	drainAskEvents(conn)
+	conn.Prompt(h.lane.Intro()+preamble+q, nil)
 	var answer strings.Builder
+	via := modelEventVia(conn.currentModelsEvent(), quickAgentRoute(LoadConfig()).Sub)
 	for {
 		select {
 		case <-ctx.Done():
-			sink.marker("error", "timed out waiting for the answer")
-			return "", false
-		case f, ok := <-cl.out:
-			if !ok {
-				sink.marker("error", "daemon shutting down")
-				return "", false
+			conn.Cancel()
+			h.dropAskConn(conn)
+			if errors.Is(ctx.Err(), context.Canceled) {
+				sink.marker("error", "cancelled")
+			} else {
+				sink.marker("error", "timed out waiting for the answer")
 			}
-			switch f.Type {
+			return sessionAskResult{}, false
+		case ev, open := <-conn.Events():
+			if !open {
+				h.dropAskConn(conn)
+				sink.marker("error", "agent stopped before answering")
+				return sessionAskResult{}, false
+			}
+			switch ev.Type {
 			case "state":
-				if f.State == "dead" {
-					msg := "hermes died mid-answer"
-					if f.Error != "" {
-						msg += ": " + f.Error
+				if ev.State == "dead" {
+					h.dropAskConn(conn)
+					msg := "agent stopped before answering"
+					if ev.Err != "" {
+						msg += ": " + ev.Err
 					}
 					sink.marker("error", msg)
-					return "", false
+					return sessionAskResult{}, false
 				}
+			case "models":
+				via = modelEventVia(ev, via)
 			case "agent_thought":
 				sink.marker("working", "thinking")
 			case "tool":
-				if f.Status == "pending" || f.Status == "in_progress" {
-					label := f.Title
+				if ev.Tool.Status == "pending" || ev.Tool.Status == "in_progress" {
+					label := ev.Tool.Title
 					if label == "" {
-						label = "running a tool"
+						label = "using a read-only tool"
 					}
 					sink.marker("working", label)
 				}
 			case "agent_text":
-				answer.WriteString(f.Text)
+				answer.WriteString(ev.Text)
 				if !sink.started {
 					sink.started = true
 					sink.marker("working", "writing")
 				}
-			case "permission":
-				if sink.permJSON {
-					b, err := json.Marshal(map[string]any{
-						"id": f.RequestID, "title": f.Title, "options": f.Options,
-					})
-					if err == nil {
-						sink.marker("perm", string(b))
-						break
-					}
-				}
-				sink.marker("perm", f.Title)
 			case "turn_end":
-				return strings.TrimSpace(answer.String()), true
+				return sessionAskResult{
+					Text: strings.TrimSpace(answer.String()), Via: via,
+					Denied: conn.takeAskDenied(),
+				}, true
 			}
 		}
 	}
 }
 
-func mustAskJSON(text string) string {
-	if text == "" {
-		text = "(no answer)"
+const askIdleTimeout = 10 * time.Minute
+
+var startAskACP = startACP
+
+func (h *chatHub) beginAskSession(ctx context.Context) (*acpConn, error) {
+	h.askSerial.Lock()
+	if err := ctx.Err(); err != nil {
+		h.askSerial.Unlock()
+		return nil, err
 	}
-	b, err := json.Marshal(askAnswer{Text: text, Images: extractImages(text), Actions: extractActions(text)})
+	h.mu.Lock()
+	h.askRunning = true
+	if h.askIdle != nil {
+		h.askIdle.Stop()
+		h.askIdle = nil
+	}
+	conn := h.conn
+	var stale *acpConn
+	if conn != nil && (conn.stale() || conn.isClosed()) {
+		stale = conn
+		h.conn = nil
+		conn = nil
+	}
+	h.mu.Unlock()
+	if stale != nil {
+		stale.Close()
+	}
+	if conn == nil {
+		if err := prepareLane(h.lane); err != nil {
+			h.abortAskSession()
+			return nil, err
+		}
+		var err error
+		conn, err = startAskACP(h.lane.Cwd)
+		if err != nil {
+			h.abortAskSession()
+			return nil, err
+		}
+		conn.mu.Lock()
+		conn.askOnly = h.lane.ReadOnly
+		conn.mu.Unlock()
+		h.mu.Lock()
+		h.conn = conn
+		h.mu.Unlock()
+		if err := conn.Initialize(h.lane.Cwd); err != nil {
+			h.dropAskConn(conn)
+			h.abortAskSession()
+			return nil, err
+		}
+		return conn, nil
+	}
+	conn.resetAskDenied()
+	if err := conn.NewSession(); err != nil {
+		h.dropAskConn(conn)
+		h.abortAskSession()
+		return nil, err
+	}
+	return conn, nil
+}
+
+func (h *chatHub) abortAskSession() {
+	h.mu.Lock()
+	h.askRunning = false
+	h.mu.Unlock()
+	h.askSerial.Unlock()
+}
+
+func (h *chatHub) finishAskSession(conn *acpConn) {
+	h.mu.Lock()
+	h.askRunning = false
+	closeNow := false
+	keepWarm := false
+	if h.conn == conn {
+		if h.askReset {
+			h.askReset = false
+			h.conn = nil
+			closeNow = true
+		} else {
+			keepWarm = true
+			h.askIdle = time.AfterFunc(askIdleTimeout, func() {
+				h.mu.Lock()
+				if h.askRunning || h.conn != conn {
+					h.mu.Unlock()
+					return
+				}
+				h.conn = nil
+				h.askIdle = nil
+				h.mu.Unlock()
+				conn.Close()
+			})
+		}
+	}
+	h.mu.Unlock()
+	if closeNow {
+		conn.Close()
+	} else if keepWarm {
+		drainAskEvents(conn)
+	}
+	h.askSerial.Unlock()
+}
+
+func (h *chatHub) dropAskConn(conn *acpConn) {
+	h.mu.Lock()
+	if h.conn == conn {
+		h.conn = nil
+		h.askReset = false
+	}
+	h.mu.Unlock()
+	conn.Close()
+}
+
+func drainAskEvents(conn *acpConn) {
+	for {
+		select {
+		case _, open := <-conn.Events():
+			if !open {
+				return
+			}
+		default:
+			return
+		}
+	}
+}
+
+func modelEventVia(ev AcpEvent, fallback string) string {
+	agent := strings.TrimSpace(ev.AgentName)
+	model := strings.TrimSpace(ev.CurrentModel)
+	for _, offered := range ev.Models {
+		if offered.ID == model && strings.TrimSpace(offered.Name) != "" {
+			model = strings.TrimSpace(offered.Name)
+			break
+		}
+	}
+	if agent == "" || model == "" {
+		return fallback
+	}
+	return agent + " · " + model
+}
+
+func makeAskRecord(id, kind, question, text, via, denied string) askRecord {
+	text = strings.TrimSpace(text)
+	reason := oneLine(strings.TrimSpace(denied), 500)
+	needsAgent := reason != ""
+	if strings.HasPrefix(text, "NEEDS_AGENT:") {
+		reason = oneLine(strings.TrimSpace(strings.TrimPrefix(text, "NEEDS_AGENT:")), 500)
+		text = reason
+		needsAgent = true
+	}
+	if text == "" {
+		if reason != "" {
+			text = reason
+		} else {
+			text = "(no answer)"
+		}
+	}
+	return askRecord{
+		ID: id, At: nowRFC3339(), Kind: kind, Question: question, Answer: text,
+		Images: extractImages(text), Actions: extractActions(text), Via: via,
+		NeedsAgent: needsAgent, NeedsAgentReason: reason,
+	}
+}
+
+func mustAskJSON(rec askRecord) string {
+	images := rec.Images
+	if images == nil {
+		images = []string{}
+	}
+	actions := rec.Actions
+	if actions == nil {
+		actions = []askAction{}
+	}
+	b, err := json.Marshal(askAnswer{
+		ID: rec.ID, Text: rec.Answer, Images: images, Actions: actions,
+		Via: rec.Via, NeedsAgent: rec.NeedsAgent, NeedsAgentReason: rec.NeedsAgentReason,
+	})
 	if err != nil {
-		return `{"text":"(unreadable answer)"}`
+		return `{"id":"` + rec.ID + `","text":"(unreadable answer)"}`
 	}
 	return string(b)
 }

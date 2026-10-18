@@ -175,9 +175,9 @@ else:
     while True:
         if os.getppid() != _parent_pid:
             break
-        time.sleep(0.08)
+        time.sleep(0.25)
         count += 1
-        if count >= 60:
+        if count >= 120:
             count = 0
             caps_fds = open_leds(caps_glob, caps_fds)
             num_fds = open_leds(num_glob, num_fds)
@@ -249,7 +249,7 @@ else:
             echo "numlock $n"
             last_n=$n
         fi
-        sleep 0.1
+        sleep 0.25
     done
 }
 

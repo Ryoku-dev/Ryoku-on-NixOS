@@ -22,9 +22,6 @@ QtObject {
     readonly property string home: Quickshell.env("HOME")
     readonly property string xdgRuntimeDir: Quickshell.env("XDG_RUNTIME_DIR")
 
-    // Backwards-compatible aliases for the ported tree's vocabulary.
-    readonly property string serpantinumDir: root.payloadDir
-    readonly property string qsDir: root.payloadDir
 
     // Persistent data on disk
     readonly property string cacheDir: (Quickshell.env("XDG_CACHE_HOME") || (home + "/.cache")) + "/ryoku/python"

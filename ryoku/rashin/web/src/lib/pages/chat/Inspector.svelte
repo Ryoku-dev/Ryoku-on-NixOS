@@ -21,6 +21,8 @@
     cwd?: string;
     agent: string;
     currentModel: string;
+    pick: string;
+    pickUnavailable: boolean;
     models: ModelInfo[];
     usage: { size: number; used: number } | null;
     items: Item[];
@@ -31,7 +33,7 @@
     oncollapse: () => void;
   }
 
-  let { session, cwd, agent, currentModel, models, usage, items, permissions, commands, oncollapse, busy = false }: Props = $props();
+  let { session, cwd, agent, currentModel, pick, pickUnavailable, models, usage, items, permissions, commands, oncollapse, busy = false }: Props = $props();
 
   const modelName = $derived(models.find((model) => model.id === currentModel)?.name || currentModel || "Not selected");
   const usagePercent = $derived(usage && usage.size > 0 ? Math.min(100, (usage.used / usage.size) * 100) : 0);
@@ -71,6 +73,9 @@
     <section class="inspector-section identity">
       <div class="fact"><span>Agent</span><strong>{agent || "Starting"}</strong></div>
       <div class="fact"><span>Model</span><strong title={currentModel}>{modelName}</strong></div>
+      {#if pick}
+        <div class="fact"><span>Pick</span><strong class:unavailable={pickUnavailable} title={pick}>{pick}{pickUnavailable ? " · unavailable" : ""}</strong></div>
+      {/if}
     </section>
 
     {#if usage}
@@ -144,6 +149,7 @@
   .fact { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: var(--s3); font-size: var(--f-small); }
   .fact span { color: var(--ink-mute); }
   .fact strong { overflow: hidden; color: var(--ink); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+  .fact strong.unavailable { color: var(--alert); white-space: normal; }
   .usage-copy { display: flex; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s2); font-size: var(--f-small); }
   .usage-copy span { color: var(--ink-mute); }
   .usage-copy strong { color: var(--ink); font-family: var(--mono); font-size: var(--f-micro); font-weight: 400; }

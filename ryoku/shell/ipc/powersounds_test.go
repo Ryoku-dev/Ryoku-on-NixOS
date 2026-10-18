@@ -8,7 +8,7 @@ import (
 )
 
 func TestKnownSound(t *testing.T) {
-	for _, ev := range []string{soundShutter, soundVolumeChange, soundBatteryLow, soundPowerPlug, soundPowerUnplug} {
+	for _, ev := range soundNames {
 		if !knownSound(ev) {
 			t.Errorf("knownSound(%q) = false, want true", ev)
 		}

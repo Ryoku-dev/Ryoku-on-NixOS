@@ -141,7 +141,7 @@
     try {
       quick = await api.setQuick(route);
     } catch (reason) {
-      quickError = errorMessage(reason, "The fast lane did not change. Check its provider and try again.");
+      quickError = errorMessage(reason, "The Ask route did not change. Check its provider and try again.");
     } finally {
       quickBusy = false;
     }

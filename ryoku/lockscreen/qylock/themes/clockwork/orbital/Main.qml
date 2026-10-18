@@ -119,6 +119,7 @@ Rectangle {
     property int curM: new Date().getMinutes()
     property int curS: new Date().getSeconds()
     property int curMS: new Date().getMilliseconds()
+    property date curDate: new Date()
     readonly property real localTimeMS: (curH * 3600000) + (curM * 60000) + (curS * 1000) + curMS
 
     Timer {
@@ -126,6 +127,11 @@ Rectangle {
         onTriggered: {
             var d = new Date()
             root.curH = d.getHours(); root.curM = d.getMinutes(); root.curS = d.getSeconds(); root.curMS = d.getMilliseconds()
+            if (d.getFullYear() !== root.curDate.getFullYear()
+                    || d.getMonth() !== root.curDate.getMonth()
+                    || d.getDate() !== root.curDate.getDate()) {
+                root.curDate = d
+            }
         }
     }
 
@@ -305,8 +311,8 @@ Rectangle {
             Column {
                 anchors.left: indicatorPill.right; anchors.leftMargin: 110 * s; anchors.verticalCenter: parent.verticalCenter; spacing: 5 * s
                 Text { visible: !root.clock24h; text: root.curH < 12 ? "AM" : "PM"; font.family: outfitFont.name; font.pixelSize: 18 * s; color: root.mainText }
-                Text { text: Qt.formatDate(new Date(), "dd MMM yyyy").toUpperCase(); font.family: outfitFont.name; font.pixelSize: 13 * s; font.letterSpacing: 4 * s; color: root.subColor }
-                Text { text: Qt.formatDate(new Date(), "dddd").toUpperCase(); font.family: outfitFont.name; font.pixelSize: 18 * s; font.letterSpacing: 8 * s; font.weight: Font.Bold; color: root.mainText }
+                Text { text: Qt.formatDate(root.curDate, "dd MMM yyyy").toUpperCase(); font.family: outfitFont.name; font.pixelSize: 13 * s; font.letterSpacing: 4 * s; color: root.subColor }
+                Text { text: Qt.formatDate(root.curDate, "dddd").toUpperCase(); font.family: outfitFont.name; font.pixelSize: 18 * s; font.letterSpacing: 8 * s; font.weight: Font.Bold; color: root.mainText }
             }
         }
     }

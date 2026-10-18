@@ -2,9 +2,14 @@ package doctor
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"ryoku-cli/internal/host"
 )
@@ -244,5 +249,37 @@ func TestAiUsageCollectorUsesRunitServiceAndSettles(t *testing.T) {
 	}
 	if r := reconcileAiUsageTimer(false); r.status != recOK {
 		t.Fatalf("second run = %s %q, want settled ok", r.status.label(), r.detail)
+	}
+}
+
+// A gateway systemd already calls started but that listens a moment later
+// counts as restored, not failed; one that never answers still fails.
+func TestAwaitProwlGatewayWaitsForALateStart(t *testing.T) {
+	var probes atomic.Int32
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/ping" || probes.Add(1) < 3 {
+			http.Error(w, "starting", http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	defer gateway.Close()
+	addr, err := url.Parse(gateway.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RYOKU_PROWL_PORT", addr.Port())
+	old := prowlGatewaySettle
+	t.Cleanup(func() { prowlGatewaySettle = old })
+
+	prowlGatewaySettle = 5 * time.Second
+	if !awaitProwlGateway() {
+		t.Fatalf("a gateway answering on probe 3 was reported down after %d probes", probes.Load())
+	}
+
+	probes.Store(-1000)
+	prowlGatewaySettle = 300 * time.Millisecond
+	if awaitProwlGateway() {
+		t.Fatal("a gateway that never answers was reported up")
 	}
 }

@@ -162,6 +162,7 @@ func runDaemon() error {
 			go d.rescan(true)
 		}
 	})
+	d.optimizer.repoint = d.repointOptimizedWallpaper
 
 	// grade.* runs synchronously (no job), so it needs no event sink -- the RPC
 	// returns the written path. upscale.* is a cancellable job like optimize.*:
