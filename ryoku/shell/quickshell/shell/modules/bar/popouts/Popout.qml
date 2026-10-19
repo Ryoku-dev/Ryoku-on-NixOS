@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Ryoku.Blobs
 import shell.services
+import "../../../components"
 
 // surface popout that grows out of a frame edge (left/right/top/bottom) on
 // hover and melts back into the border through the SHARED blob field. joins
@@ -57,6 +58,12 @@ Item {
     property real hoverW: 0                // hover-band span along the edge (0 = match body)
     property real hoverH: 0                // hover-band depth from the edge (0 = frameThickness)
     property real s: 1
+    // A bar style's seam (RailGeometry.seamSpec). On the top edge the body then
+    // hangs flush from the bar and slides out from under it, welded on with the
+    // style's fillets, instead of scaling out of its trigger point.
+    property var seam: null
+    readonly property bool welded: !!root.seam && root.atTop && !root.centered
+    readonly property real weldFillet: root.welded ? root.seam.fillet : 0
     property bool pinned: false           // force open (IPC / inspection)
     // False disables the edge hover band, so only an explicit pin opens the
     // surface.
@@ -139,7 +146,7 @@ Item {
     // corner. the wall is the on-screen frame lip (frameBorder - 50, the same
     // the frame border and barVisibleH use), NOT the bar's full thickness --
     // using frameThickness held a corner popout a whole band's width off.
-    readonly property real edgeInset: 12 * s
+    readonly property real edgeInset: root.welded ? root.seam.margin : 12 * s
     function alignPos(span, sz) {
         if (effectiveAlong >= 0)
             return Math.max(edgeInset, Math.min(span - sz - edgeInset, effectiveAlong - sz / 2));
@@ -166,8 +173,8 @@ Item {
     readonly property bool hugRight: !noWeld && !centered && !vertical && width > 0 && bodyOpenW > 0 && alongX >= width - bodyOpenW - edgeInset - 0.5
 
     // body geometry in window coords; grows inward from the border.
-    readonly property real curW: Math.max(0, bodyOpenW * prog)
-    readonly property real curH: Math.max(0, bodyOpenH * prog)
+    readonly property real curW: root.welded ? bodyOpenW : Math.max(0, bodyOpenW * prog)
+    readonly property real curH: root.welded ? bodyOpenH : Math.max(0, bodyOpenH * prog)
     // the gap holds the open body off the frame lip but drains with prog, so the
     // close melt retracts fully into the frame edge instead of stranding a gap.
     readonly property real bodyX: centered ? (width - curW) / 2
@@ -178,6 +185,7 @@ Item {
                                  : alongX + (bodyOpenW - curW) / 2
     readonly property real bodyY: centered ? (height - curH) / 2
                                  : spanning ? 0
+                                 : root.welded ? frameThickness - bodyOpenH * (1 - Math.min(1, prog))
                                  : atTop ? frameThickness + edgeGap * prog
                                  : atBottom ? (height - frameThickness - curH - edgeGap * prog)
                                  : alongY + (bodyOpenH - curH) / 2
@@ -208,13 +216,14 @@ Item {
                                 : atRight ? (width - frameThickness - bodyOpenW - edgeGap)
                                 : hugRight ? (width - bodyOpenW)
                                 : hugLeft ? 0
-                                : alongX
+                                : alongX - root.weldFillet
     readonly property real maskY: centered ? (height - bodyOpenH) / 2
                                 : spanning ? 0
                                 : atTop ? frameThickness + edgeGap
                                 : atBottom ? (height - frameThickness - bodyOpenH - edgeGap)
                                 : alongY
-    readonly property real maskW: heldOpen ? bodyOpenW : 0
+    // A welded body's fillets swallow presses, as the style's own panels do.
+    readonly property real maskW: heldOpen ? bodyOpenW + root.weldFillet * 2 : 0
     readonly property real maskH: heldOpen ? bodyOpenH : 0
 
     states: State {
@@ -222,14 +231,16 @@ Item {
         when: root.heldOpen
         PropertyChanges { root.prog: 1 }
     }
+    // A welded body moves like the bar style's own panels. An empty curve keeps
+    // the close's OutCubic: any non-empty one would turn it into a spline.
     transitions: [
         Transition {
             to: "open"
             NumberAnimation {
                 property: "prog"
-                duration: Motion.spatial
+                duration: root.welded ? Motion.morph : Motion.spatial
                 easing.type: Easing.BezierSpline
-                easing.bezierCurve: Motion.spatialCurve
+                easing.bezierCurve: root.welded ? Motion.effectsCurve : Motion.spatialCurve
             }
         },
         Transition {
@@ -237,7 +248,8 @@ Item {
             NumberAnimation {
                 property: "prog"
                 duration: Motion.morph
-                easing.type: Easing.OutCubic
+                easing.type: root.welded ? Easing.BezierSpline : Easing.OutCubic
+                easing.bezierCurve: root.welded ? Motion.effectsCurve : []
             }
         }
     ]
@@ -273,7 +285,7 @@ Item {
         group: root.group
         // A closed zero-size popout can still pull a smooth-min nub into another
         // shape at the same trigger, so remove it from the field until it opens.
-        visible: root.prog > 0.004
+        visible: root.prog > 0.004 && !root.welded
         // noWeld has no frame band to weld into (frame off, or a free-floating
         // islands), so it grows no neck -- but it stays a blob and still buries its
         // inner face on close (see `burial`), so it hits zero size cleanly instead
@@ -299,18 +311,40 @@ Item {
         implicitHeight: root.spanning ? (root.height + 120) : (root.bodyH <= 0 ? 0 : Math.max(0, root.bodyH + neckH - (root.vertical ? 0 : root.burial)))
     }
 
+    // A welded body is cut at the bar's edge while it slides, so it reads as
+    // coming out from under the bar; its fillets only form in the last stretch.
+    Item {
+        id: seamClip
+        visible: root.welded && root.prog > 0.004
+        y: root.frameThickness - 1
+        width: root.width
+        height: Math.max(0, root.height - y)
+        clip: true
+
+        WeldShape {
+            x: root.bodyX
+            y: root.bodyY - seamClip.y
+            width: root.bodyW
+            height: root.bodyH
+            opacity: root.prog
+            fillet: Math.max(0, Math.min(root.weldFillet, root.weldFillet - root.bodyOpenH * (1 - Math.min(1, root.prog))))
+            radius: root.welded ? root.seam.radius : 0
+            role: root.welded ? root.seam.fill : "surface"
+        }
+    }
+
     // content at full size, revealed by a widening clip anchored to the border
     // side -> curtain reveals edge-first; content never reflows.
     Item {
         id: bodyClip
         x: root.bodyX
-        y: root.bodyY
+        y: root.welded ? Math.max(root.bodyY, root.frameThickness) : root.bodyY
         width: root.bodyW
-        height: root.bodyH
+        height: root.welded ? root.bodyY + root.bodyH - y : root.bodyH
         clip: true
         visible: root.prog > 0.004
-        opacity: root.heldOpen ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Motion.effects; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.effectsCurve } }
+        opacity: root.welded ? root.prog : (root.heldOpen ? 1 : 0)
+        Behavior on opacity { enabled: !root.welded; NumberAnimation { duration: Motion.effects; easing.type: Easing.BezierSpline; easing.bezierCurve: Motion.effectsCurve } }
 
         HoverHandler { id: bodyHH }
 
@@ -319,8 +353,9 @@ Item {
             width: root.openW
             height: root.openH
             x: root.atRight ? (bodyClip.width - root.openW) : 0
-            y: root.atBottom ? (bodyClip.height - root.openH) : 0
-            transform: Matrix4x4 { matrix: bodyBlob.deformMatrix }
+            y: root.welded ? root.bodyY - bodyClip.y
+                : root.atBottom ? (bodyClip.height - root.openH) : 0
+            transform: Matrix4x4 { matrix: root.welded ? Qt.matrix4x4() : bodyBlob.deformMatrix }
         }
     }
 

@@ -19,12 +19,18 @@ Popout {
     // The trigger centre the manager derives for the surface (its owning bar
     // widget or the screen centre for an IPC open).
     property real triggerAlong: -1
+    // The bar style's seam. Only the rail cards weld onto it; prompts, voice and
+    // capture keep their own chrome.
+    property var barSeam: null
 
     signal requestClose()
 
     readonly property real fallbackMinWidth: 200
     readonly property real minWidth: record && record.minWidth ? record.minWidth : fallbackMinWidth
     readonly property string kind: record && record.kind ? record.kind : ""
+    readonly property bool railCard: root.kind === "music" || root.kind === "bluetooth"
+        || root.kind === "battery" || root.kind === "network" || root.kind === "sysmon"
+        || root.kind === "audio"
     // stays true through the close melt so the body tears down only once flush.
     readonly property bool effectiveOpen: menuOpen || prog > 0.004
 
@@ -35,6 +41,7 @@ Popout {
          : (anchor.indexOf("-right") >= 0) ? "end"
          : "center"
     fullSpan: record && record.fullSpan === true
+    seam: root.railCard ? root.barSeam : null
     hoverOpen: false
     pinned: root.menuOpen
     // A keybind open centres the surface on the screen midpoint (triggerAlong).
@@ -50,8 +57,8 @@ Popout {
     openH: root.fullSpan ? root.height
         : (body.item ? body.item.implicitHeight : 0)
 
-    // Card popouts float off the frame lip.
-    edgeGap: (root.kind === "music" || root.kind === "bluetooth" || root.kind === "battery" || root.kind === "network" || root.kind === "voice" || root.kind === "sysmon" || root.kind === "audio" || root.kind === "screenshot") ? 10 * root.s : 0
+    // Card popouts float off the frame lip, unless they weld onto a seam.
+    edgeGap: !root.welded && (root.railCard || root.kind === "voice" || root.kind === "screenshot") ? 10 * root.s : 0
 
     readonly property bool sideMenu: root.edge === "left" || root.edge === "right"
 
@@ -126,6 +133,7 @@ Popout {
         id: musicBody
         MusicPopout {
             s: root.s
+            welded: root.welded
             open: root.effectiveOpen
         }
     }
@@ -133,6 +141,7 @@ Popout {
         id: bluetoothBody
         BluetoothPopout {
             s: root.s
+            welded: root.welded
             open: root.effectiveOpen
         }
     }
@@ -140,6 +149,7 @@ Popout {
         id: batteryBody
         BatteryPopout {
             s: root.s
+            welded: root.welded
             open: root.effectiveOpen
         }
     }
@@ -147,6 +157,7 @@ Popout {
         id: networkBody
         NetworkPopout {
             s: root.s
+            welded: root.welded
             open: root.effectiveOpen
         }
     }
@@ -154,6 +165,7 @@ Popout {
         id: sysmonBody
         SysMonitorPopout {
             s: root.s
+            welded: root.welded
             open: root.effectiveOpen
         }
     }
@@ -161,6 +173,7 @@ Popout {
         id: audioBody
         AudioPopout {
             s: root.s
+            welded: root.welded
             open: root.effectiveOpen
         }
     }

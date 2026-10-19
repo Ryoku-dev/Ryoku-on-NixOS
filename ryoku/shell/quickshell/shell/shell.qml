@@ -273,7 +273,7 @@ ShellRoot {
                     active: controlsLoader.showNow
                 }
             }
-            Timer { id: controlsHold; interval: SidebarState.exitDuration + 48 }
+            Timer { id: controlsHold; interval: SidebarState.exitDurationFor(perScreen.modelData) + 48 }
 
 
             LazyLoader {

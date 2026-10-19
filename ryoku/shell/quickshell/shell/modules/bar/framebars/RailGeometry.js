@@ -66,4 +66,45 @@ function cardPlacement(trigger, width, height, clearances, gap, cardWidth, cardH
     return Object.assign({ edge: edge }, across, along);
 }
 
-if (typeof module !== "undefined" && module.exports) module.exports = { edgeRect, reserve, edgeNearest, edgeForTrigger, cardPlacement };
+// A bar style's seam: where its bar's bottom edge runs and how its own panels
+// weld onto it. Anything that is not a top seam with a real depth is no seam,
+// so a style that does not declare one keeps the floating cards.
+function seamSpec(raw) {
+    if (!raw || typeof raw !== "object" || raw.edge !== "top")
+        return null;
+    const depth = Number(raw.depth);
+    if (!isFinite(depth) || depth < 1)
+        return null;
+    const number = value => {
+        const n = Number(value);
+        return isFinite(n) && n > 0 ? n : 0;
+    };
+    const fillet = number(raw.fillet);
+    const fill = typeof raw.fill === "string" && /^surface[A-Za-z]*$/.test(raw.fill) ? raw.fill : "surface";
+    return { edge: "top", depth: depth, fillet: fillet, radius: number(raw.radius),
+        margin: Math.max(fillet, number(raw.margin)), fill: fill };
+}
+
+// The left edge of a welded card of width span centred on center, kept margin
+// clear of both screen sides so its fillets never run into the frame corner.
+function seamLeft(center, span, width, margin) {
+    return Math.max(margin, Math.min(Math.max(margin, width - margin - span), center - span / 2));
+}
+
+// Where a card sits on a seam: flush at its depth, centred on the trigger. A
+// trigger that is not on the top edge keeps the floating placement.
+function seamPlacement(trigger, width, height, clearances, seam, gap, cardWidth, cardHeight) {
+    if (trigger) {
+        const edge = edgeForTrigger(trigger.x + trigger.width / 2, trigger.y + trigger.height / 2,
+            width, height, clearances || {});
+        if (edge !== "top")
+            return Object.assign({ welded: false },
+                cardPlacement(trigger, width, height, clearances, gap, cardWidth, cardHeight));
+    }
+    const left = trigger
+        ? seamLeft(trigger.x + trigger.width / 2, cardWidth, width, seam.margin)
+        : seam.margin;
+    return { edge: "top", welded: true, corner: !trigger, x: "left", left: left, y: "top", top: seam.depth };
+}
+
+if (typeof module !== "undefined" && module.exports) module.exports = { edgeRect, reserve, edgeNearest, edgeForTrigger, cardPlacement, seamSpec, seamLeft, seamPlacement };

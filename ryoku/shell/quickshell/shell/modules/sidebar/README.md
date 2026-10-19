@@ -1,7 +1,8 @@
 # Sidebar module
 
 Controls is the compact panel shared by every bar style and compositor. It opens
-top-left, or beside the bar widget that asked for it with an `ownerRect`.
+top-left, or beside the bar widget that asked for it with an `ownerRect`, and
+welds onto the bar of a style that declares a seam.
 
 - `Sidebar.qml` owns placement, the content window, and click-away input.
 - `SidebarFrame.qml` and `SidebarChrome.qml` provide the shared surface and header.

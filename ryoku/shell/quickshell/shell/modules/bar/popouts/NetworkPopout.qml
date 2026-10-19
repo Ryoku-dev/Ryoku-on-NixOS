@@ -18,6 +18,7 @@ Item {
 
     property real s: 1
     property bool open: false
+    property bool welded: false
 
     // a hidden network has no scanned AP, so it joins through the daemon intent
     // with 802-11-wireless.hidden set; these drive the inline join card.
@@ -161,7 +162,7 @@ Item {
     implicitWidth: 250 * root.s
     implicitHeight: content.implicitHeight + root.pad * 2
 
-    PopoutCard { anchors.fill: parent }
+    PopoutCard { anchors.fill: parent; bare: root.welded }
 
     // an available-network row: signal + SSID (+ lock), tap to join or, when a
     // password is needed, expand an inline field.

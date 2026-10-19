@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- **The shell's menus can weld onto a bar style's own edge.** A top bar style
+  that declares a `seam` on its Scene gets the rail cards, the theme and
+  weather menus and Controls drawn flush with its bar in the bar's colour, with
+  concave fillets and no outline, sliding out from under the bar like the
+  style's own panels. Styles without a seam keep the floating cards
+  (`quickshell/shell/{components/WeldShape.qml,modules/bar/framebars/RailGeometry.js,modules/bar/Frame.qml,modules/bar/FrameMenuManager.qml,modules/bar/FrameMenu.qml,modules/bar/FrameSurface.qml,modules/bar/popouts/,modules/sidebar/Sidebar.qml,services/SidebarState.qml}`).
 - **Bar styles can open Controls beside their own widget.** A request for
   `sidebar-left` that carries `{ ownerRect: <global rect> }` places the card
   under that widget on a top bar, above it on a bottom bar, and beside it on a
