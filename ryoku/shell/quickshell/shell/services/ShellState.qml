@@ -206,6 +206,9 @@ Singleton {
     // passes { ownerRect: <global rect> } so the surface opens welded to it
     // instead of taking its config anchor: that is what lets a bar style open a
     // shell-owned menu under its own widget rather than in a screen corner.
+    // The rect is only right from a window that starts at its screen's top-left
+    // corner, and only with that screen's name, since QtWayland reports every
+    // layer window at its screen's origin.
     function requestSurfaceActive(id, screenName, context) {
         const monitor = typeof screenName === "string" && screenName !== ""
             ? screenName : Wm.focusedOutput;

@@ -729,11 +729,34 @@ not bar widgets, so they are the same in every style. They normally anchor to
 the Sumi rail edges and read against the
 frame band. The two sidebars (Super+Escape left, Super+S right) are not frame
 menus: they are independent screen-edge overlays (`docs/sidebars.md`), which is
-why they behave identically under every style. A folder style has no rails and hides the band, so `shell.qml` sets
+why they look and work the same under every style; Controls opens where the
+requesting style asks (see below). A folder style has no rails and hides the band, so `shell.qml` sets
 `topBar` on the per-monitor `FrameMenuManager`: side and bottom anchors fold up to
 the matching top edge or corner, the menus drop a small inset below the bar, and
 each menu paints its own card since the frame is not there to draw it. Nothing
 per-style is needed; a top-bar folder style like QS Bar gets this for free.
+
+### Opening shell surfaces under a widget
+
+A style opens a frame menu or Controls under its own widget by passing the
+widget's global rectangle and its own screen name:
+
+```qml
+const at = owner.mapToGlobal(0, 0);
+ShellState.requestSurfaceActive(id, modelData.name, {
+    ownerRect: { x: at.x, y: at.y, width: owner.width, height: owner.height }
+});
+```
+
+Frame menus such as `network`, `audio` or `weather`, and Controls
+(`sidebar-left`), then open on the edge the rectangle sits on, picked by one
+rule in `modules/bar/framebars/RailGeometry.js`. Without a rectangle a menu
+keeps its configured anchor and Controls opens top-left. A rectangle that lies
+off the named screen opens no menu, and Controls falls back to top-left. A
+request without a screen name goes to the focused output. `mapToGlobal` gives
+the right rectangle only from a window that starts at its screen's top-left
+corner, such as a full-screen or top-anchored bar; QtWayland reports every
+layer window at its screen's origin.
 
 ## Checklist to ship a style
 

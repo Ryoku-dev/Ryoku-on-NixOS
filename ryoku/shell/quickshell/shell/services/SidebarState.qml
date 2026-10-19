@@ -117,13 +117,25 @@ Singleton {
             slice.tab = root.normalizedTab(tab);
     }
 
-    function open(screen, tab) {
+    // The trigger is taken only when the card opens, so a tab switch or the
+    // close keeps the same trigger.
+    function open(screen, tab, trigger) {
         const slice = root.sliceFor(screen);
         if (!slice)
             return;
         const shellSlice = ShellState.forScreen(slice.modelData);
         if (shellSlice)
             shellSlice.askOpen = false;
+        if (!slice.open) {
+            const local = trigger ? Screens.localRect(trigger, slice.modelData) : null;
+            if (local) {
+                slice.triggerX = local.x;
+                slice.triggerY = local.y;
+                slice.triggerWidth = local.width;
+                slice.triggerHeight = local.height;
+            }
+            slice.anchored = local !== null;
+        }
         slice.tab = root.normalizedTab(tab);
         slice.open = true;
     }
@@ -140,7 +152,7 @@ Singleton {
             list[i].open = false;
     }
 
-    function toggle(screen, tab) {
+    function toggle(screen, tab, trigger) {
         const slice = root.sliceFor(screen);
         if (!slice)
             return;
@@ -148,7 +160,28 @@ Singleton {
         if (slice.open && (!tab || nextTab === slice.tab))
             root.close(screen);
         else
-            root.open(screen, nextTab);
+            root.open(screen, nextTab, trigger);
+    }
+
+    function triggerFor(screen) {
+        const slice = root.sliceFor(screen);
+        return slice && slice.anchored
+            ? { x: slice.triggerX, y: slice.triggerY, width: slice.triggerWidth, height: slice.triggerHeight }
+            : null;
+    }
+
+    // A request from a widget on screen carries its global rect as ownerRect. A
+    // 1x1 rect is a point rather than a widget, as it is for the frame menus.
+    function triggerFrom(context) {
+        const rect = context && typeof context === "object" ? context.ownerRect : null;
+        if (!rect)
+            return null;
+        const trigger = { x: Number(rect.x), y: Number(rect.y),
+            width: Number(rect.width), height: Number(rect.height) };
+        const finite = isFinite(trigger.x) && isFinite(trigger.y)
+            && isFinite(trigger.width) && isFinite(trigger.height);
+        const widget = trigger.width > 0 && trigger.height > 0 && (trigger.width > 1 || trigger.height > 1);
+        return finite && widget ? trigger : null;
     }
 
     function railClearances(screen) {
@@ -193,7 +226,7 @@ Singleton {
         else if (!tab && context && typeof context === "object")
             tab = context.tab || context.page || "";
         if (id === "sidebar-left")
-            root.toggle(monitor, tab);
+            root.toggle(monitor, tab, root.triggerFrom(context));
     }
 
     Connections {
@@ -221,6 +254,11 @@ Singleton {
             required property var modelData
             property bool open: false
             property string tab: "controls"
+            property bool anchored: false
+            property real triggerX: 0
+            property real triggerY: 0
+            property real triggerWidth: 0
+            property real triggerHeight: 0
             property real railTop: 0
             property real railLeft: 0
             property real railBottom: 0
