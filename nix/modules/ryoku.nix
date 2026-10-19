@@ -20,6 +20,12 @@ let
   ryokuPaletteBridge = ryokuPkgs.ryoku-palette-bridge;
   ryokuQuickshell = ryokuNixpkgs.quickshell;
 
+  # qylock's PAM stacks are loaded inside ryokuQuickshell, so their modules
+  # must come from the package set that built its libpam and glibc. The host
+  # PAM package follows the host's nixpkgs, and once that glibc is newer
+  # pam_unix.so cannot load in the lock and no password unlocks it.
+  ryokuPam = ryokuNixpkgs.pam;
+
   # Keep the preview share picker in Ryoku's pinned package universe rather
   # than the host package set. NixOS stable releases may not expose this
   # attribute even though Ryoku's xdph.conf expects the binary.
@@ -274,7 +280,7 @@ EOF
     # NixOS does not provide Ryoku's Arch-only fingerprint grosshack.
     # Keep the fingerprint conversation fail-closed and give typed passwords
     # their own PAM service, matching qylock's parallel auth design. Every
-    # module path points into the active NixOS PAM package.
+    # module path points into the PAM package Ryoku's Quickshell links.
     pam_dir="$tmp/assets/pam"
     mkdir -p "$pam_dir"
 
@@ -284,10 +290,10 @@ EOF
 # Fingerprint authentication is unavailable in the NixOS qylock runtime.
 # Deny it explicitly while retaining valid account and session handling.
 
-auth       required  ${config.security.pam.package}/lib/security/pam_deny.so
-account    required  ${config.security.pam.package}/lib/security/pam_unix.so
-password   required  ${config.security.pam.package}/lib/security/pam_deny.so
-session    required  ${config.security.pam.package}/lib/security/pam_unix.so
+auth       required  ${ryokuPam}/lib/security/pam_deny.so
+account    required  ${ryokuPam}/lib/security/pam_unix.so
+password   required  ${ryokuPam}/lib/security/pam_deny.so
+session    required  ${ryokuPam}/lib/security/pam_unix.so
 EOF
 
     chmod 600 "$pam_dir/ryoku-lock"
@@ -297,10 +303,10 @@ EOF
 #
 # Password authentication runs separately from the fingerprint conversation.
 
-auth       required  ${config.security.pam.package}/lib/security/pam_unix.so nullok
-account    required  ${config.security.pam.package}/lib/security/pam_unix.so
-password   required  ${config.security.pam.package}/lib/security/pam_deny.so
-session    required  ${config.security.pam.package}/lib/security/pam_unix.so
+auth       required  ${ryokuPam}/lib/security/pam_unix.so nullok
+account    required  ${ryokuPam}/lib/security/pam_unix.so
+password   required  ${ryokuPam}/lib/security/pam_deny.so
+session    required  ${ryokuPam}/lib/security/pam_unix.so
 EOF
 
     chmod 600 "$pam_dir/ryoku-lock-pw"
@@ -309,10 +315,10 @@ EOF
     # Unknown services must fail closed.
     cat > "$pam_dir/other" <<'EOF'
 #%PAM-1.0
-auth       required  ${config.security.pam.package}/lib/security/pam_deny.so
-account    required  ${config.security.pam.package}/lib/security/pam_deny.so
-password   required  ${config.security.pam.package}/lib/security/pam_deny.so
-session    required  ${config.security.pam.package}/lib/security/pam_deny.so
+auth       required  ${ryokuPam}/lib/security/pam_deny.so
+account    required  ${ryokuPam}/lib/security/pam_deny.so
+password   required  ${ryokuPam}/lib/security/pam_deny.so
+session    required  ${ryokuPam}/lib/security/pam_deny.so
 EOF
 
     chmod 600 "$pam_dir/other"
