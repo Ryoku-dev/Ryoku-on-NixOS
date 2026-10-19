@@ -15,7 +15,6 @@ Singleton {
     readonly property real _initTime: Date.now()
     property var _lastPlayed: ({})
     readonly property var _minIntervalMs: ({
-        notifications: 500,
         volumeChange: 150,
         screenshot: 300,
         devices: 1000
@@ -81,16 +80,13 @@ Singleton {
         root._playCandidates(root._candidates(category, events, "", true));
     }
 
-    function playEventFile(category, path): void {
-        let soundCategory = String(category ?? "");
-        let soundPath = path;
-        if (soundPath === undefined) {
-            soundPath = category;
-            soundCategory = "";
-        }
-        if (!root.enabled || !root._categoryEnabled(soundCategory))
+    // A notification chime is the Hub's notification cue, so the master switch,
+    // the cue's own switch, the volume and the user's file in General > Sounds
+    // apply to it. The daemon plays it once this service's own switches pass.
+    function playNotificationCue(critical: bool): void {
+        if (!root.enabled || !root._categoryEnabled("notifications"))
             return;
-        root._playCandidates([String(soundPath ?? "").replace(/^file:\/\//, "")]);
+        Quickshell.execDetached(["ryoku-shell", "sound", critical ? "notification-critical" : "notification"]);
     }
 
     function preview(themeId, events): void {

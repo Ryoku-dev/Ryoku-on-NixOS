@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -72,6 +73,78 @@ func TestResolveSoundFallsBackToBuiltIn(t *testing.T) {
 		if _, err := soundAssets.ReadFile("assets/" + name + ".oga"); err != nil {
 			t.Errorf("no built-in clip for %s", name)
 		}
+	}
+}
+
+// The shell's notification server and the Stage service both ask for their
+// chime through the `sound` verb, so the master switch and each cue's own
+// switch in Hub > General > Sounds have to hold there.
+func TestSoundVerbHonoursHubSwitches(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	bin := t.TempDir()
+	played := filepath.Join(t.TempDir(), "played")
+	shim := "#!/bin/sh\nfor f; do :; done\nprintf '%s\\n' \"${f##*/}\" >> '" + played + "'\n"
+	if err := os.WriteFile(filepath.Join(bin, "pw-play"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	// Another test's cached clips sit in its removed temp dir, and its last
+	// plays would hold these cues inside their gap.
+	forget := func() {
+		soundMu.Lock()
+		soundReady, soundLast = map[string]string{}, map[string]time.Time{}
+		soundMu.Unlock()
+	}
+	forget()
+	t.Cleanup(forget)
+
+	s := newTestStore(t)
+	d := &daemon{settings: s}
+	set := func(path, value string) {
+		t.Helper()
+		if err := s.patch(path, rm(value)); err != nil {
+			t.Fatalf("patch %s: %v", path, err)
+		}
+	}
+	ask := func(events ...string) {
+		t.Helper()
+		for _, ev := range events {
+			if got := d.dispatch("sound " + ev); got != "ok" {
+				t.Fatalf("sound %s = %q, want ok", ev, got)
+			}
+		}
+	}
+	// Players run in the background: wait for the plays expected so far, then
+	// a little longer so one that should not have happened shows up too.
+	plays := func(n int) []string {
+		t.Helper()
+		for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			if len(strings.Fields(readTrim(played))) >= n {
+				break
+			}
+		}
+		time.Sleep(150 * time.Millisecond)
+		return strings.Fields(readTrim(played))
+	}
+
+	set("sounds.enabled", `false`)
+	ask(soundNotification, soundNotificationCritical)
+	set("sounds.enabled", `true`)
+	ask(soundShutter)
+	if got := plays(1); len(got) != 1 || got[0] != "shutter.oga" {
+		t.Fatalf("with the master switch off, then the shutter: played %v, want only the shutter", got)
+	}
+
+	set("sounds.events.notification.enabled", `false`)
+	ask(soundNotification, soundNotificationCritical)
+	if got := plays(2); len(got) != 2 || got[1] != "notification-critical.oga" {
+		t.Fatalf("with the notification cue off: played %v, want only the urgent cue added", got)
+	}
+
+	set("sounds.events.notification.enabled", `true`)
+	ask(soundNotification)
+	if got := plays(3); len(got) != 3 || got[2] != "notification.oga" {
+		t.Fatalf("with the notification cue back on: played %v", got)
 	}
 }
 
