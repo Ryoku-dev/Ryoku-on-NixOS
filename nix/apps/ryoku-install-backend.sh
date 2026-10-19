@@ -1225,10 +1225,55 @@ flake_root="$(readlink -f "$flake_root")"
 flake_file="$flake_root/flake.nix"
 module_file="$flake_root/ryoku.nix"
 
-[ -f "$flake_file" ] || {
-  echo "ryoku-install: no flake.nix found at $flake_root" >&2
-  exit 1
+if [ ! -f "$flake_file" ]; then
+  [ "$flake_root" = "/etc/nixos" ] ||
+    die "no flake.nix found at $flake_root"
+
+  [ -f "$flake_root/configuration.nix" ] ||
+    die "configuration.nix not found at $flake_root"
+
+  [ -f "$flake_root/hardware-configuration.nix" ] ||
+    die "hardware-configuration.nix not found at $flake_root"
+
+  if [ "$dry_run" -eq 1 ]; then
+    die "no flake.nix found. Run the installer without --dry-run to create a base flake."
+  fi
+
+  current_host="$(cat /proc/sys/kernel/hostname)"
+  valid_hostname "$current_host" ||
+    die "could not use the current hostname to generate flake.nix"
+
+  nixpkgs_url="github:NixOS/nixpkgs/nixos-unstable"
+
+  temp_flake="$(mktemp)"
+
+  cat > "$temp_flake" <<EOF
+{
+  description = "NixOS configuration bootstrapped by Ryoku";
+
+  inputs.nixpkgs.url = "$nixpkgs_url";
+
+  outputs = { self, nixpkgs, ... }: {
+    nixosConfigurations."$current_host" = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+
+      modules = [
+        ./configuration.nix
+      ];
+    };
+  };
 }
+EOF
+
+  if ! run_root install -m 0644 "$temp_flake" "$flake_file"; then
+    rm -f "$temp_flake"
+    die "failed to create $flake_file"
+  fi
+
+  rm -f "$temp_flake"
+
+  echo "ryoku-install: created a base flake at $flake_file"
+fi
 
 if [ -z "$host" ]; then
   current_host="$(cat /proc/sys/kernel/hostname)"
