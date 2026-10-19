@@ -149,6 +149,9 @@ Singleton {
         const base = (id || "").split("#")[0];
         if (base.indexOf("plugin:") === 0)
             return true;
+        // Only the overview the shell draws hangs from the seam.
+        if (base === "overview")
+            return !Wm.caps.nativeOverview && !!Wm.caps.windowGeometry;
         return ["launcher", "clipboard", "ask", "sidebar-left", "network", "bluetooth", "audio",
             "battery", "sysmon", "music", "theme", "weather"].indexOf(base) >= 0;
     }

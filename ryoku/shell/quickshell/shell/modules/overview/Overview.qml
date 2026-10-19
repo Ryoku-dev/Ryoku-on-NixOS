@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Wayland
 import "Singletons"
 import Ryoku.Ui.Singletons
+import "filmstrip.js" as Filmstrip
 
 /**
  * The overview body for one monitor. Two levels, macOS-style:
@@ -40,6 +41,17 @@ Item {
     property bool dataReady: false
     property bool focusHere: false
     signal requestClose()
+
+    // Compact: a strip hanging from a bar's seam instead of filling the screen,
+    // one row of cells at most cellMax tall that shrinks, then wraps, to fit
+    // maxWidth.
+    property bool compact: false
+    property real maxWidth: 0
+    property real cellMax: 0
+    // The previews stay painted while a compact strip slides closed.
+    property bool previewsLive: root.active
+    readonly property real pad: 12 * root.s
+    readonly property real stripGap: 10 * root.s
 
     // ---- monitor geometry (logical layout coordinates) ------------------------
     readonly property var mon: Wm.outputByName(root.screenName)
@@ -114,7 +126,7 @@ Item {
     // Only desktops that actually hold workspaces, then ONE trailing "add
     // desktop" card. Empty desktops in between are never shown, so the strip
     // stays short (no wall of blank "NEW" cards).
-    readonly property var deskList: {
+    readonly property var liveDesks: {
         var out = [];
         var seen = ({});
         for (var i = 0; i < root.allWsIds.length; i++)
@@ -171,31 +183,37 @@ Item {
                 return id;
         return root.newDesktopIdx * root.perDesktop + 1;
     }
-    // The viewed desktop's occupied workspaces as full live cells, then ONE
-    // full-size "+" add cell. Empty / gap positions are not shown, and the add
-    // cell is always a full-size target (never a thin slat), so it is easy to
-    // hit and clicking it opens the next free workspace.
-    readonly property var slotModel: {
+    // The viewed desktop's occupied workspaces as full live cells, then ONE "+"
+    // add cell that opens the next free workspace. Empty / gap positions are not
+    // shown. The expo makes the add cell full size so it is easy to hit; the
+    // compact strip has a slat there.
+    readonly property var liveSlots: {
         var out = [];
         for (var i = 0; i < root.wsList.length; i++) {
             var id = root.wsList[i];
             if (root.wsHasWindows(id) || id === root.activeWsId)
                 out.push({ pos: id - root.blockBase, wsId: id, add: false, full: true });
         }
-        out.push({ pos: out.length + 1, wsId: -1, add: true, full: true });
+        out.push({ pos: out.length + 1, wsId: -1, add: true, full: !root.compact });
         return out;
     }
+    // A compact strip keeps the layout it closed with: the switch it commits
+    // lands while it still slides, and must not rebuild its cells or resize it.
+    property var frozenSlots: null
+    property var frozenDesks: null
+    readonly property var slotModel: root.frozenSlots || root.liveSlots
+    readonly property var deskList: root.frozenDesks || root.liveDesks
     readonly property int slotCount: root.slotModel.length
 
     // ---- desktop card geometry (shared with DesktopStrip + the drag hit-test) -
-    readonly property real deskCardW: 122 * root.s
-    readonly property real deskCardH: 58 * root.s
-    readonly property real deskGap: 14 * root.s
-    readonly property real stripTopMargin: 40 * root.s
+    readonly property real deskCardW: (root.compact ? 76 : 122) * root.s
+    readonly property real deskCardH: (root.compact ? 22 : 58) * root.s
+    readonly property real deskGap: (root.compact ? 6 : 14) * root.s
+    readonly property real stripTopMargin: root.compact ? root.pad : 40 * root.s
 
     // ---- layout: cells wrap into as many rows as needed, shrinking so every
     // row fits the width AND all rows fit the height (no overflow, no scroll) ---
-    readonly property real regionTop: root.stripTopMargin + root.deskCardH + 46 * root.s
+    readonly property real regionTop: root.stripTopMargin + root.deskCardH + (root.compact ? root.stripGap : 46 * root.s)
     readonly property real regionBottom: root.height - 78 * root.s
     readonly property real availW: root.width - 2 * (72 * root.s)
     readonly property real availH: Math.max(150 * root.s, root.regionBottom - root.regionTop)
@@ -224,9 +242,14 @@ Item {
         var blockH = rows.length * h + Math.max(0, rows.length - 1) * root.rowGap;
         return { rows: rows, blockH: blockH };
     }
+    // The compact strip's own size comes from this layout, which never reads
+    // the item's size, so switching layouts cannot loop through it.
+    readonly property var stripLay: Filmstrip.layout(root.slotModel, root.aspect, Math.max(1, root.maxWidth - 2 * root.pad),
+        root.cellMax, Math.min(root.cellMax, 84), 36 * root.s, root.stripGap)
+    readonly property var lay: root.compact ? root.stripLay : root.expoLay
     // Largest full-cell height (capped) whose packing fits the height budget.
     // Search downward in fixed steps; monotone, so the first fit is the biggest.
-    readonly property var lay: {
+    readonly property var expoLay: {
         var hi = Math.min(root.availH, 460 * root.s);
         var lo = 132 * root.s;
         var step = 6 * root.s;
@@ -273,6 +296,14 @@ Item {
     // active workspace, not the one left over from the previous open. A fresh
     // instance got this for free; a resident one must reset it per show.
     onActiveChanged: {
+        root.frozenSlots = !root.active && root.compact ? root.liveSlots : null;
+        root.frozenDesks = !root.active && root.compact ? root.liveDesks : null;
+        // A strip reopened before its switch ran stays where it is: the switch
+        // would take the keyboard from it.
+        if (root.active && root.compact) {
+            commitTimer.stop();
+            root.pendingCommit = null;
+        }
         if (root.active) {
             root.seeded = false;
             root.trySeed();
@@ -429,9 +460,21 @@ Item {
         return root.deskList[i];
     }
 
+    implicitWidth: root.compact ? Math.max(stripWrap.width, root.stripLay.width) + 2 * root.pad : 0
+    implicitHeight: root.compact ? root.regionTop + root.stripLay.height + root.pad : 0
+
+    // A press on the compact strip's own background stays on it; only one off
+    // the card reaches the scrim and closes it.
+    MouseArea {
+        anchors.fill: parent
+        enabled: root.compact
+        acceptedButtons: Qt.AllButtons
+    }
+
     // ---- poster mark, top-left ------------------------------------------------
     Row {
         id: mark
+        visible: !root.compact
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.leftMargin: 52 * root.s
@@ -478,14 +521,15 @@ Item {
     }
 
     // ---- the wrapped grid -----------------------------------------------------
-    // gridWrap spans the whole available region; each cell is placed absolutely
-    // from lay.items (rows centred, block centred), so hit-test == render.
+    // gridWrap spans the whole available region, or the compact row block;
+    // each cell is placed absolutely from lay.items (rows centred, block
+    // centred), so hit-test == render.
     Item {
         id: gridWrap
-        x: 72 * root.s
+        x: root.compact ? (root.width - root.lay.width) / 2 : 72 * root.s
         y: root.regionTop
-        width: root.availW
-        height: root.availH
+        width: root.compact ? root.lay.width : root.availW
+        height: root.compact ? root.lay.height : root.availH
 
         Repeater {
             model: root.slotModel
@@ -498,7 +542,8 @@ Item {
                 y: cell.box.y
                 width: cell.box.w
                 height: cell.box.h
-                s: root.s
+                // A compact cell keeps its chrome in proportion to its size.
+                s: root.compact ? Math.min(root.s, root.lay.cellH / 220) : root.s
                 ov: root
                 idx: cell.index
                 wsId: cell.modelData.wsId
@@ -513,6 +558,7 @@ Item {
 
     // ---- footer hint ----------------------------------------------------------
     Text {
+        visible: !root.compact
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 38 * root.s
@@ -552,8 +598,10 @@ Item {
         Rectangle {
             id: ghost
             visible: root.dragging
-            width: 150 * root.s
-            height: Math.round(150 * root.s * root.aspect)
+            // A compact strip's ghost follows its cells' height, which keeps it
+            // readable on a very wide screen.
+            width: root.compact ? Math.round(ghost.height / root.aspect) : 150 * root.s
+            height: root.compact ? Math.round(root.lay.cellH * 0.6) : Math.round(150 * root.s * root.aspect)
             x: root.dragX - width / 2
             y: root.dragY - height / 2
             radius: Theme.radius
