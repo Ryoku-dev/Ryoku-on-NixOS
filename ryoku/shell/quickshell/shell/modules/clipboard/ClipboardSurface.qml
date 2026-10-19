@@ -411,10 +411,16 @@ Scope {
         readonly property bool isFocused: !root.focusedMon || root.focusedMon === (root.screen ? root.screen.name : "")
         readonly property bool shown: root.active
 
+        // Under a bar style's seam the card hangs from the bar like the style's
+        // own panels, under the mark that opened it. The namespace is fixed when
+        // the layer maps, so it follows the seam the card will weld to.
+        readonly property bool welded: weld.welded
+
         screen: root.screen
+        mask: win.welded ? weld.inputMask : null
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.namespace: "clipboard"
+        WlrLayershell.namespace: weld.welded ? "ryoku-weld-clipboard" : "clipboard"
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: (shown && isFocused) ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
         // Full-screen while open, so a click anywhere off the card can dismiss it:
@@ -437,12 +443,16 @@ Scope {
             rise.stop();
             fall.stop();
             if (shown) {
+                // A welded card keeps its list while it slides shut, so its
+                // filter is cleared when it opens again instead.
+                root.query = "";
                 rise.from = win.reveal;
                 rise.start();
             } else {
                 // A reopen always shows the whole history: a filter left behind
                 // would silently hide entries the user came back for.
-                root.query = "";
+                if (!win.welded)
+                    root.query = "";
                 fall.from = win.reveal;
                 fall.start();
             }
@@ -450,7 +460,7 @@ Scope {
 
         // Mapped for the whole move: the exit animates the card off the edge, so
         // the layer outlives the open flag until that has finished.
-        visible: shown || reveal > 0.001
+        visible: (shown || reveal > 0.001) && !weld.remap
 
         // Outside click dismisses. The card sits above this, and swallows presses
         // over its own chrome, so only a press off the card closes the surface.
@@ -461,17 +471,39 @@ Scope {
             onPressed: root.hide()
         }
 
-        // The card, centred on the bottom edge of the monitor it draws on.
+        WeldedCard {
+            id: weld
+            screen: root.screen
+            surfaceId: "clipboard"
+            open: win.shown
+            hostVisible: win.visible
+            onSeamLost: root.hide()
+            ownReveal: false
+            reveal: win.reveal
+            cardWidth: bodyWrap.width
+            cardHeight: bodyWrap.height
+        }
+
+        // The card, centred on the bottom edge of the monitor it draws on, or
+        // welded under the bar, narrower and clear of the screen's bottom.
         Item {
             id: bodyWrap
-            readonly property real bodyW: Math.min(1100 * win.s, (root.screen ? root.screen.width : 1600) * root.widthPercent / 100)
-            readonly property real bodyH: Math.min((root.screen ? root.screen.height : 900) * root.heightPercent / 100, bodyWrap.bodyW * 0.52)
+            readonly property real screenW: root.screen ? root.screen.width : 1600
+            readonly property real screenH: root.screen ? root.screen.height : 900
+            readonly property real bodyW: win.welded
+                ? Math.min(720 * win.s, bodyWrap.screenW - weld.place.margin * 2, bodyWrap.screenW * root.widthPercent / 100)
+                : Math.min(1100 * win.s, bodyWrap.screenW * root.widthPercent / 100)
+            readonly property real bodyH: win.welded
+                ? Math.min(400 * win.s, bodyWrap.screenH * root.heightPercent / 100, bodyWrap.bodyW * 0.52,
+                    bodyWrap.screenH - weld.place.depth - weld.place.margin)
+                : Math.min(bodyWrap.screenH * root.heightPercent / 100, bodyWrap.bodyW * 0.52)
 
+            parent: win.welded ? weld.slot : win.contentItem
             width: bodyWrap.bodyW
             height: bodyWrap.bodyH
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: Math.round((root.screen ? root.screen.height : 900) * root.bottomPercent / 100)
+            x: win.welded ? 0 : Math.round(win.width / 2) - Math.round(width / 2)
+            y: win.welded ? 0
+                : win.height - height - Math.round(bodyWrap.screenH * root.bottomPercent / 100)
 
             // The panel's own area swallows presses: tapping its chrome (the gap
             // between cards, the header's dead space) must not dismiss the
@@ -485,7 +517,7 @@ Scope {
             // screen edge and settles on the emphasized curve, and drops back
             // through the edge on the shorter exit curve. Opacity and scale stay
             // fixed, so nothing about the contents fades or re-settles.
-            transform: Translate { y: Math.round((1 - win.reveal) * win.slide) }
+            transform: Translate { y: win.welded ? 0 : Math.round((1 - win.reveal) * win.slide) }
 
             // The two halves of that move. They live inside the card so a stopped
             // one leaves the reveal where it was; the value is read, never
@@ -495,18 +527,18 @@ Scope {
                 target: win
                 property: "reveal"
                 to: 1
-                duration: Motion.sidebarEnter
+                duration: win.welded ? ((Motion.reduce || Tokens.reduceMotion) ? 0 : Motion.morph) : Motion.sidebarEnter
                 easing.type: Easing.BezierSpline
-                easing.bezierCurve: Motion.sidebarEnterCurve
+                easing.bezierCurve: win.welded ? Motion.effectsCurve : Motion.sidebarEnterCurve
             }
             NumberAnimation {
                 id: fall
                 target: win
                 property: "reveal"
                 to: 0
-                duration: Motion.sidebarExit
+                duration: win.welded ? ((Motion.reduce || Tokens.reduceMotion) ? 0 : Motion.morph) : Motion.sidebarExit
                 easing.type: Easing.BezierSpline
-                easing.bezierCurve: Motion.sidebarExitCurve
+                easing.bezierCurve: win.welded ? Motion.effectsCurve : Motion.sidebarExitCurve
             }
 
             // The soft 20px pass is a gaussian the size of the card, and the
@@ -523,7 +555,7 @@ Scope {
                 offset: Qt.vector2d(0, Math.round(8 * win.s))
                 color: Qt.rgba(0, 0, 0, 0.32)
                 z: -2
-                visible: win.reveal >= 0.999
+                visible: win.reveal >= 0.999 && !win.welded
             }
 
             // The tight 7px pass always rides the card: it is cheap, and it is
@@ -536,14 +568,15 @@ Scope {
                 offset: Qt.vector2d(0, Math.round(2 * win.s))
                 color: Qt.rgba(0, 0, 0, 0.42)
                 z: -1
+                visible: !win.welded
             }
 
             Rectangle {
                 id: cardBg
                 anchors.fill: parent
                 radius: Math.round(root.panelRadius * win.s)
-                color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.9)
-                border.width: Theme.borderWidth
+                color: win.welded ? "transparent" : Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.9)
+                border.width: win.welded ? 0 : Theme.borderWidth
                 border.color: Qt.rgba(Theme.onSurface.r, Theme.onSurface.g, Theme.onSurface.b, 0.12)
 
                 Row {

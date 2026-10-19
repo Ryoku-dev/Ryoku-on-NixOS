@@ -141,7 +141,45 @@ Singleton {
         slice.askOpen = false;
     }
 
-    function routeOwnedSurface(id, mon) {
+    // The surfaces that share a bar style's seam one at a time per screen: the
+    // welded panels and cards, and plugin popouts, which close them too.
+    // Prompts and the voice toast are never among them: closing a prompt
+    // would cancel it.
+    function isWeldBody(id) {
+        const base = (id || "").split("#")[0];
+        if (base.indexOf("plugin:") === 0)
+            return true;
+        return ["launcher", "clipboard", "ask", "sidebar-left", "network", "bluetooth", "audio",
+            "battery", "sysmon", "music", "theme", "weather"].indexOf(base) >= 0;
+    }
+
+    // The widget a welded panel was asked for from, in its screen's pixels, so
+    // the panel can hang under it. A keybind open has none and centres.
+    function setWeldTrigger(mon, id, context) {
+        const slice = root.sliceForMonitor(mon);
+        if (!slice)
+            return;
+        const rect = Screens.localRect(SidebarState.triggerFrom(context), slice.modelData);
+        if (rect) {
+            slice.weldTriggerX = rect.x;
+            slice.weldTriggerY = rect.y;
+            slice.weldTriggerWidth = rect.width;
+            slice.weldTriggerHeight = rect.height;
+        }
+        slice.weldTriggerId = rect ? id : "";
+    }
+
+    function weldTriggerFor(mon, id) {
+        const slice = root.sliceForMonitor(mon);
+        return slice && slice.weldTriggerId === id ? {
+            x: slice.weldTriggerX,
+            y: slice.weldTriggerY,
+            width: slice.weldTriggerWidth,
+            height: slice.weldTriggerHeight
+        } : null;
+    }
+
+    function routeOwnedSurface(id, mon, context) {
         const split = id.indexOf("#");
         const base = split >= 0 ? id.substring(0, split) : id;
         const route = split >= 0 ? id.substring(split + 1) : "";
@@ -162,6 +200,8 @@ Singleton {
             : route.indexOf("tools") === 0 ? "tools" : "ask";
         slice.askTool = route === "tools/compress" ? "compress"
             : route === "tools/install" ? "install" : "";
+        if (!slice.askOpen)
+            root.setWeldTrigger(mon, "ask", context);
         slice.askOpen = true;
         root.surfaceClosed("sidebar-left", slice.modelData.name);
         return true;
@@ -173,7 +213,7 @@ Singleton {
         if (base === "sidebar-left")
             root.closeTransientSurfaces(mon);
         else
-            root.routeOwnedSurface(value, mon);
+            root.routeOwnedSurface(value, mon, context);
         root.surfaceRequested(value, mon || "", context);
     }
 
@@ -240,6 +280,11 @@ Singleton {
             property bool askOpen: false
             property string askMode: "ask"
             property string askTool: ""
+            property string weldTriggerId: ""
+            property real weldTriggerX: 0
+            property real weldTriggerY: 0
+            property real weldTriggerWidth: 0
+            property real weldTriggerHeight: 0
 
             // The frame bar's master reveal for this monitor. Resting policy is
             // revealed: each edge then follows its Config reveal flag, and the

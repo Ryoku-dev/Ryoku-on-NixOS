@@ -484,6 +484,11 @@ Scope {
                         // Without one openSurface falls back to the record's
                         // config anchor, which a non-sumi bar folds into a
                         // screen corner.
+                        // A plugin popout closes the other cards itself, and
+                        // asking for it again must still close it.
+                        if (root.barSeam && ShellState.isWeldBody(id) && !frameMenus.hasRecord(id)
+                                && id.indexOf("plugin:") !== 0)
+                            frameMenus.foldBodies();
                         const anchorRect = ctx && ctx.ownerRect ? ctx.ownerRect : null;
                         frameMenus.openSurface(id, anchorRect, mon, ctx);
                     }

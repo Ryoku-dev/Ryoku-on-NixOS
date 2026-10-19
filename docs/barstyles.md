@@ -784,6 +784,19 @@ is not a `surface` role paints `surface`. While a fullscreen window covers the
 screen the cards float again, since the bar steps aside. A style without a
 seam, or with one the shell cannot read, keeps the floating cards.
 
+The app launcher (its `main` variant), the clipboard history and the ask bar
+weld the same way, without their dim, frost or shadow, and the clipboard
+narrows to a panel under the bar. Under a seam one panel is open per screen:
+opening any of them, Controls, a card or a plugin popout closes the others
+there, and the style's own panels with them if it listens on the surface bus.
+Prompts and the voice toast never close for it. A style hangs a panel under its
+own mark the same way it does a card:
+`ShellState.requestSurfaceActive("launcher", modelData.name, { ownerRect })`,
+or `"clipboard"` and `"ask"`; a keybind opens it centred on the bar. The bar
+itself stays clickable while a panel is open, so another mark switches to its
+panel. The keyboard layout notice moves to the bottom of the screen, above the
+volume OSD, so it does not cover a panel's search row.
+
 ## Checklist to ship a style
 
 1. **Folder.** Create `barstyles/<id>/` with a `Scene.qml` (a per-monitor

@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- **The launcher, the clipboard and the ask bar weld onto a seam too.** Under
+  a bar style that declares a seam, the `main` launcher, the clipboard history
+  and the ask bar hang flush from the bar like its panels and slide out from
+  under it, with no dim, frost or shadow; a style can hang each under its own
+  mark with an `ownerRect`. One welded panel is open per screen, the bar stays
+  clickable while one is, and the keyboard layout notice moves to the bottom.
+  Styles without a seam are unchanged
+  (`quickshell/shell/{components/WeldedCard.qml,shell.qml,services/ShellState.qml,modules/launcher/variants/main/,modules/clipboard/ClipboardSurface.qml,modules/ask/,modules/osd/KeyboardOsdWindow.qml}`).
 - **The shell's menus can weld onto a bar style's own edge.** A top bar style
   that declares a `seam` on its Scene gets the rail cards, the theme and
   weather menus and Controls drawn flush with its bar in the bar's colour, with

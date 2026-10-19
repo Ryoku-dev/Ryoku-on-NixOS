@@ -83,7 +83,10 @@ Scope {
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.namespace: "ryoku-corner-dismiss"
         // Both windows must be modal for the click-away surface to receive input.
-        WlrLayershell.keyboardFocus: root.active ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+        // Under a seam they take the keyboard on demand instead: an exclusive
+        // layer would keep the bar's marks from being pressed on Hyprland.
+        WlrLayershell.keyboardFocus: !root.active ? WlrKeyboardFocus.None
+            : root.seam ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.Exclusive
         mask: Region {
             width: dismiss.width
             height: dismiss.height
@@ -119,8 +122,9 @@ Scope {
         implicitWidth: root.cardWidth + root.wing * 2
         implicitHeight: root.cardHeight + root.tuck
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.namespace: "ryoku-sidebar-left"
-        WlrLayershell.keyboardFocus: root.active ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+        WlrLayershell.namespace: root.seam ? "ryoku-weld-controls" : "ryoku-sidebar-left"
+        WlrLayershell.keyboardFocus: !root.active ? WlrKeyboardFocus.None
+            : root.seam ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.Exclusive
         FocusScope {
             id: surface
             anchors.fill: parent
