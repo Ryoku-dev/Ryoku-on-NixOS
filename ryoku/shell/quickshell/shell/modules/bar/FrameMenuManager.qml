@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import "framebars/MenuState.js" as MenuState
+import "framebars/RailGeometry.js" as RailGeometry
 import Ryoku.FrameBars
 import shell.services
 import "popouts"
@@ -397,35 +398,8 @@ Item {
         for (const anchor in mon) if (mon[anchor] && mon[anchor].id === id) return anchor;
         return "";
     }
-    // The screen edge (top/bottom/left/right) nearest a point, so a popout welds
-    // to the rail edge its trigger widget hugs.
-    function edgeNearest(x, y) {
-        const d = { top: y, bottom: root.height - y, left: x, right: root.width - x };
-        let best = "top";
-        for (const e in d) if (d[e] < d[best]) best = e;
-        return best;
-    }
-
-    // The rail edge a trigger widget sits ON. A rail is a thin strip along one
-    // screen edge (railClearances is its inside depth), so a widget within a
-    // rail's depth welds its popout to THAT rail -- even a left-rail widget at
-    // the very bottom, which edgeNearest would mis-assign to the bottom edge and
-    // melt with the wrong (dipping, centre-narrowing) geometry. Only edges that
-    // carry a live rail (clearance > 0) qualify; otherwise fall back to nearest.
-    // Corner ownership decides the order. A horizontal rail spans the full width
-    // and owns both shared corners (Bar.qml gives it leadInset 0); a vertical one
-    // is inset to fit BETWEEN them. So a point in a shared corner belongs to the
-    // horizontal rail, and top/bottom must be tested first -- testing left first
-    // stole every top/bottom widget sitting within a side rail's depth and opened
-    // its menu welded to the wrong edge.
     function edgeForTrigger(x, y) {
-        const c = root.railClearances || ({});
-        const cl = c.left || 0, cr = c.right || 0, ct = c.top || 0, cb = c.bottom || 0;
-        if (ct > 0 && y <= ct) return "top";
-        if (cb > 0 && root.height - y <= cb) return "bottom";
-        if (cl > 0 && x <= cl) return "left";
-        if (cr > 0 && root.width - x <= cr) return "right";
-        return root.edgeNearest(x, y);
+        return RailGeometry.edgeForTrigger(x, y, root.width, root.height, root.railClearances);
     }
 
     // Single-open invariant (contract 05 sec 4): before revealing a menu or

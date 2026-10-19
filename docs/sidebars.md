@@ -15,6 +15,14 @@ ryoshot has its own close control. The shortcuts are editable in
 
 Controls is a compact, configurable 688-logical-pixel panel.
 
+A bar widget can open Controls beside itself by passing its global rectangle:
+`ShellState.requestSurfaceActive("sidebar-left", screenName, { ownerRect: rect })`.
+The card then opens under the widget on a top bar, above it on a bottom bar,
+and beside it on a side rail, inside the screen. `docs/barstyles.md` (Opening
+shell surfaces under a widget) says how to get a correct rectangle. The
+shortcut, `ryoku-shell quicksettings` and any request without a rectangle keep
+the top-left corner.
+
 ### Vitals
 
 The hero is a compact system monitor. It shows the user and host, uptime and
@@ -160,7 +168,7 @@ Controls components live under
 
 | File | Responsibility |
 |---|---|
-| `Sidebar.qml` | Top-left placement, focus, input region, and click-away dismissal |
+| `Sidebar.qml` | Placement from `../bar/framebars/RailGeometry.js` (`cardPlacement`) and the trigger kept by `services/SidebarState.qml`, focus, input region, and click-away dismissal |
 | `SidebarFrame.qml`, `SidebarChrome.qml` | Shared surface, header, and board routing |
 | `ControlsBoard.qml` | Persisted section order, visibility, and lazy block loading |
 | `ControlsHero.qml`, `Vital*.qml` | Native activity graphs and individual system readings |

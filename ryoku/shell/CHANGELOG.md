@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- **Bar styles can open Controls beside their own widget.** A request for
+  `sidebar-left` that carries `{ ownerRect: <global rect> }` places the card
+  under that widget on a top bar, above it on a bottom bar, and beside it on a
+  side rail, kept inside the screen; switching tabs keeps it beside that
+  widget. The shortcut, the CLI and every request without a rect keep the
+  top-left corner. Controls and the frame menus pick the trigger's edge with
+  one shared rule
+  (`quickshell/shell/{services/SidebarState.qml,modules/sidebar/Sidebar.qml,modules/bar/framebars/RailGeometry.js,modules/bar/FrameMenuManager.qml}`).
 - **Orpheus can show coding-agent limits and a paired phone.** Its Layout editor
   now offers an AI usage module backed by the same watched caches as QS Bar, and
   a phone module with connection, battery, and unread state that opens Kit's

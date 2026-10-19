@@ -1,6 +1,7 @@
 # Sidebar module
 
-Controls is the compact top-left panel shared by every bar style and compositor.
+Controls is the compact panel shared by every bar style and compositor. It opens
+top-left, or beside the bar widget that asked for it with an `ownerRect`.
 
 - `Sidebar.qml` owns placement, the content window, and click-away input.
 - `SidebarFrame.qml` and `SidebarChrome.qml` provide the shared surface and header.

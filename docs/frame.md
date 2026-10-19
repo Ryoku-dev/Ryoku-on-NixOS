@@ -24,6 +24,9 @@ The `FrameBars` singleton is the only runtime normalizer. It preserves valid
 frame-bar choices, rejects incompatible widget placements, and supplies the
 safe default profile when data is missing or malformed.
 
+`framebars/RailGeometry.js` also decides which rail a trigger widget sits on.
+The frame menus and Controls both use that rule, so changing it moves both.
+
 ## Surface ownership
 
 `FrameMenuManager.qml` owns active menu and surface state for a single monitor.
