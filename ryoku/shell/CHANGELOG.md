@@ -26,6 +26,16 @@
   terminal once (`scripts/ryoku-session-intro`).
 
 ### Fixed
+- **Switching sounds off in the Hub silences notifications.** The Stage
+  service behind the ii dock and the desktop widgets runs its own notification
+  server, which hears every notification the shell's server hears, and it
+  played a chime of its own beside the shell's: two per notification, still
+  there with Hub > General > Sounds off or under Do Not Disturb. The shell's
+  server is now the only one that chimes on arrival. Stage's own notifications
+  (reminders, tasks due) play the Hub's notification cue once Stage's switches
+  let them through (`quickshell/stage/services/Notifications.qml`,
+  `quickshell/stage/services/SoundService.qml`, `ipc/sounds_test.go`,
+  `tests/notification-sounds.sh`).
 - **Ryogami keeps the current wallpaper when it optimises the file.** Outputs,
   workspace wallpapers, library entries, playlists and the recorded wallpaper
   move to the WebP copy, so restores and rice saves no longer point at the

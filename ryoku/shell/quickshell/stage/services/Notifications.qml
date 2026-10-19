@@ -284,34 +284,6 @@ Singleton {
     property list<string> appNameList: appNameListForGroups(root.groupsByAppName)
     property list<string> popupAppNameList: appNameListForGroups(root.popupGroupsByAppName)
 
-    // fdo notification categories → sound naming spec events. Exact match is
-    // tried first, then the part before the first dot ("im.received" → "im").
-    readonly property var categorySoundMap: ({
-        "im.received": "message-new-instant",
-        "im": "message",
-        "email.arrived": "message-new-email",
-        "email": "message-new-email",
-        "call.incoming": "phone-incoming-call",
-        "device.added": "device-added",
-        "device.removed": "device-removed",
-        "device.error": "dialog-error",
-        "network.connected": "network-connectivity-established",
-        "network.disconnected": "network-connectivity-lost",
-        "transfer.complete": "complete",
-        "transfer.error": "dialog-error"
-    })
-
-    function soundPolicyFor(appName) {
-        const conf = Config.options?.sounds;
-        if (!conf) return "play";
-        const lower = (appName || "").toLowerCase();
-        const neverApps = conf.neverPlayApps ?? [];
-        const alwaysApps = conf.alwaysPlayApps ?? [];
-        if (neverApps.some(app => app.toLowerCase() === lower)) return "mute";
-        if (alwaysApps.some(app => app.toLowerCase() === lower)) return "play";
-        return conf.notificationDefaultPolicy ?? "play";
-    }
-
     function appSoundsMuted(appName) {
         const conf = Config.options?.sounds;
         if (!conf) return false;
@@ -333,32 +305,6 @@ Singleton {
             conf.alwaysPlayApps = alwaysApps.filter(app => app.toLowerCase() !== lower);
             conf.neverPlayApps = [...neverApps, appName];
         }
-    }
-
-    // Follows the fdo notification spec: apps can suppress the sound or request
-    // a specific one via hints. Do-not-disturb (silent) mutes everything.
-    function playNotificationSound(notification) {
-        if (root.effectiveSilent) return;
-        const hints = notification.hints ?? {};
-        if (hints["suppress-sound"] || notification.expireTimeout === 0) return;
-        if (root.soundPolicyFor(notification.appName) === "mute") return;
-
-        if (hints["sound-file"]) {
-            SoundService.playEventFile("notifications", hints["sound-file"]);
-            return;
-        }
-
-        const events = [];
-        if (hints["sound-name"]) events.push(hints["sound-name"]);
-        const category = hints["category"] ?? "";
-        if (category !== "") {
-            if (root.categorySoundMap[category]) events.push(root.categorySoundMap[category]);
-            const prefix = category.split(".")[0];
-            if (root.categorySoundMap[prefix]) events.push(root.categorySoundMap[prefix]);
-        }
-        if (notification.urgency === NotificationUrgency.Critical) events.push("dialog-warning");
-        events.push("message-new-instant");
-        SoundService.playEvent("notifications", events);
     }
 
     // Quickshell's notification IDs starts at 1 on each run, while saved notifications
@@ -447,12 +393,17 @@ Singleton {
             root.unread++;
         }
         if (options?.sound === true && !root.appSoundsMuted(appName))
-            SoundService.playEvent("notifications", ["message-new-instant"]);
+            SoundService.playNotificationCue(notifObject.urgency === "critical");
         root.notify(notifObject);
         root.scheduleDiskWrite();
         return notificationId;
     }
 
+    // Quickshell keeps one notification server per process and hands every
+    // notification to each NotificationServer, so this one hears the same
+    // traffic as shell/services/Notifs.qml. That server draws the banner and
+    // plays the arrival chime under Hub > General > Sounds. A sound from here
+    // would be a second chime that neither the Hub nor Do Not Disturb silences.
 	NotificationServer {
         id: notifServer
         // actionIconsSupported: true
@@ -520,11 +471,6 @@ Singleton {
                 return;
             }
 
-            try {
-                root.playNotificationSound(notification);
-            } catch (e) {
-                console.log("[Notifications] Sound playback error: " + e);
-            }
             const newNotifObject = notifComponent.createObject(root, {
                 "notificationId": notificationId,
                 "notification": notification,
