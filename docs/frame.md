@@ -26,6 +26,8 @@ safe default profile when data is missing or malformed.
 
 `framebars/RailGeometry.js` also decides which rail a trigger widget sits on.
 The frame menus and Controls both use that rule, so changing it moves both.
+For a bar style that declares a seam, the top clearance is the seam's depth
+and the same file places the welded cards on it (`seamSpec`, `seamPlacement`).
 
 ## Surface ownership
 

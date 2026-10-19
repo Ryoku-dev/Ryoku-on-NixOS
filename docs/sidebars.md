@@ -21,7 +21,10 @@ The card then opens under the widget on a top bar, above it on a bottom bar,
 and beside it on a side rail, inside the screen. `docs/barstyles.md` (Opening
 shell surfaces under a widget) says how to get a correct rectangle. The
 shortcut, `ryoku-shell quicksettings` and any request without a rectangle keep
-the top-left corner.
+the top-left corner. Under a bar style that declares a seam (`docs/barstyles.md`,
+Welding shell surfaces to the bar) the card hangs flush from the bar and
+slides out from under it instead; without a trigger it welds at the style's
+left margin.
 
 ### Vitals
 

@@ -19,6 +19,7 @@ Item {
 
     property real s: 1
     property bool open: false
+    property bool welded: false
 
     readonly property real pad: 11 * root.s
     readonly property color ink: Theme.ink(Theme.effectiveSurface)
@@ -38,7 +39,7 @@ Item {
     implicitWidth: 300 * root.s
     implicitHeight: content.implicitHeight + root.pad * 2
 
-    PopoutCard { anchors.fill: parent }
+    PopoutCard { anchors.fill: parent; bare: root.welded }
 
     Column {
         id: content

@@ -6,6 +6,7 @@ import "framebars/RailGeometry.js" as RailGeometry
 import Ryoku.FrameBars
 import shell.services
 import "popouts"
+import "../../components"
 
 // The single per-monitor frame menu manager. It repeats the configured menu
 // records and owns which record is active at each anchor for THIS monitor.
@@ -40,6 +41,11 @@ Item {
     // other rails, so frame menus fold to barEdge or its matching corner.
     property bool topBar: false
     property string barEdge: "top"   // the edge the folded bar sits on: top | bottom
+    // The bar style's seam (RailGeometry.seamSpec). Compact menus on the top edge
+    // then slide out from under the bar welded onto it, like the style's panels.
+    property var seam: null
+    readonly property bool weldMenus: !!root.seam && !root.chromeSide
+        && root.chromeAnchor.indexOf("top") === 0
     function mapAnchor(a) {
         if (!root.topBar || !a) return a;
         if (root.barEdge === "bottom") {
@@ -165,7 +171,7 @@ Item {
     readonly property bool chromeSwitchPending: !!(root.pendingChrome && root.pendingChrome.id)
     Timer {
         id: chromeSwitchTimer
-        interval: root.chromeSide ? Motion.sidebarExit : Motion.diagonal
+        interval: root.chromeSide ? Motion.sidebarExit : root.weldMenus ? Motion.morph : Motion.diagonal
         onTriggered: {
             const next = root.pendingChrome;
             root.pendingChrome = ({});
@@ -186,10 +192,10 @@ Item {
         NumberAnimation {
             duration: root.chromeSide
                 ? (root.chromeEntering ? Motion.sidebarEnter : Motion.sidebarExit)
-                : Motion.diagonal
-            easing.type: root.chromeSide ? Easing.BezierSpline : Motion.diagonalCurve
-            easing.bezierCurve: root.chromeEntering
-                ? Motion.sidebarEnterCurve : Motion.sidebarExitCurve
+                : root.weldMenus ? Motion.morph : Motion.diagonal
+            easing.type: root.chromeSide || root.weldMenus ? Easing.BezierSpline : Motion.diagonalCurve
+            easing.bezierCurve: root.weldMenus ? Motion.effectsCurve
+                : root.chromeEntering ? Motion.sidebarEnterCurve : Motion.sidebarExitCurve
         }
     }
     property real chromeOpacity: 0
@@ -279,6 +285,8 @@ Item {
             return { anchor: a, x: r.x - (r.x + r.w) * (1 - p), y: r.y, w: r.w, h: r.h };
         if (root.chromeSide && (a === "right" || a.indexOf("-right") >= 0))
             return { anchor: a, x: r.x + (root.width - r.x) * (1 - p), y: r.y, w: r.w, h: r.h };
+        if (root.weldMenus)
+            return { anchor: a, x: r.x, y: r.y - r.h * (1 - p), w: r.w, h: r.h };
         if (a === "left")         return { anchor: a, x: r.x,         y: r.y,     w: wp, h: r.h };
         if (a === "right")        return { anchor: a, x: rr - wp,     y: r.y,     w: wp, h: r.h };
         if (a === "top")          return { anchor: a, x: cx - wp / 2, y: r.y,     w: wp, h: hp };
@@ -524,6 +532,33 @@ Item {
 
     onActiveChanged: if (!root.active) root.closeAll()
 
+    // The welded menus' card, cut at the bar's edge so it reads as coming out
+    // from under the bar; its fillets only form in the last stretch.
+    Item {
+        id: seamClip
+
+        readonly property var panel: root.chromePanel
+        readonly property real fillet: root.seam ? root.seam.fillet : 0
+
+        visible: root.weldMenus && seamClip.panel.w > 0 && seamClip.panel.h > 0 && root.chromeReveal > 0.004
+        y: root.seam ? root.seam.depth - 1 : 0
+        width: root.width
+        height: Math.max(0, root.height - y)
+        clip: true
+
+        WeldShape {
+            x: seamClip.panel.x
+            y: seamClip.panel.y - seamClip.y
+            width: seamClip.panel.w
+            height: seamClip.panel.h
+            opacity: root.chromeReveal
+            fillet: Math.max(0, Math.min(seamClip.fillet,
+                seamClip.fillet - (root.chromeRest.y - seamClip.panel.y)))
+            radius: root.seam ? root.seam.radius : 0
+            role: root.seam ? root.seam.fill : "surface"
+        }
+    }
+
     Repeater {
         id: menuRepeater
         model: root.records
@@ -551,6 +586,7 @@ Item {
             s: root.scale
             active: root.active
             manager: root
+            seam: root.seam
             record: modelData
             anchor: effectiveAnchor
             menuOpen: root.active && liveAnchor !== ""

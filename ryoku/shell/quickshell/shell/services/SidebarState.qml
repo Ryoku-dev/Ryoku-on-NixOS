@@ -206,6 +206,37 @@ Singleton {
         slice.railRight = Math.max(0, Number(clearances.right) || 0);
     }
 
+    // The seam of the bar style on this screen, pushed by its Frame the same way
+    // as the rail clearances, so Controls welds onto that bar.
+    function setSeam(screen, seam) {
+        const slice = root.sliceFor(screen);
+        if (!slice)
+            return;
+        slice.seamDepth = seam ? seam.depth : 0;
+        slice.seamFillet = seam ? seam.fillet : 0;
+        slice.seamRadius = seam ? seam.radius : 0;
+        slice.seamMargin = seam ? seam.margin : 0;
+        slice.seamFill = seam ? seam.fill : "surface";
+    }
+
+    function seamFor(screen) {
+        const slice = root.sliceFor(screen);
+        return slice && slice.seamDepth > 0 ? {
+            edge: "top",
+            depth: slice.seamDepth,
+            fillet: slice.seamFillet,
+            radius: slice.seamRadius,
+            margin: slice.seamMargin,
+            fill: slice.seamFill
+        } : null;
+    }
+
+    // A welded card slides out of its bar with the bar's own panel motion, which
+    // takes longer than the fade; the Controls speed setting still applies.
+    function exitDurationFor(screen) {
+        return root.seamFor(screen) ? root.motionDuration(Motion.morph) : root.exitDuration;
+    }
+
     function motionDuration(base) {
         return (Motion.reduce || Tokens.reduceMotion)
             ? 0 : Math.round(base * root.speedScale);
@@ -259,6 +290,11 @@ Singleton {
             property real triggerY: 0
             property real triggerWidth: 0
             property real triggerHeight: 0
+            property real seamDepth: 0
+            property real seamFillet: 0
+            property real seamRadius: 0
+            property real seamMargin: 0
+            property string seamFill: "surface"
             property real railTop: 0
             property real railLeft: 0
             property real railBottom: 0

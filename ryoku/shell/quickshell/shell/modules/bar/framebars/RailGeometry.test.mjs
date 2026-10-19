@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const { edgeRect, reserve, edgeForTrigger, cardPlacement } = require("./RailGeometry.js");
+const { edgeRect, reserve, edgeForTrigger, cardPlacement, seamSpec, seamLeft, seamPlacement } = require("./RailGeometry.js");
 
 let failed = 0;
 function ok(cond, msg) {
@@ -92,6 +92,31 @@ ok(inside(cardPlacement(reach, width, height, topBar, gap, card, 1004), topBar, 
     "a trigger reaching past its bar never pushes a full card off screen");
 ok(inside(cardPlacement(mark(5, 530), width, height, {}, gap, card, tall), {}, card, tall),
     "without any rail a floating trigger keeps the card on screen");
+
+const naht = { edge: "top", depth: 52, fillet: 17, radius: 23, margin: 49, fill: "surface" };
+eq(seamSpec(naht), naht, "a top seam with a depth is kept as declared");
+eq(seamSpec(undefined), null, "no seam keeps the floating cards");
+eq(seamSpec({ edge: "bottom", depth: 52 }), null, "only a top seam welds");
+eq(seamSpec({ edge: "top", depth: "deep" }), null, "a seam needs a numeric depth");
+eq(seamSpec({ edge: "top", depth: 0.5 }), null, "a seam needs a real depth");
+eq(seamSpec({ edge: "top", depth: 52, fillet: 17, margin: 4 }).margin, 17, "the margin is never narrower than the fillet");
+eq(seamSpec({ edge: "top", depth: 52, fill: "red" }).fill, "surface", "only surface roles fill a seam");
+eq(seamSpec({ edge: "top", depth: 52, fill: "surfaceContainer" }).fill, "surfaceContainer", "a surface role is kept");
+eq(seamSpec({ edge: "top", depth: 52, fillet: -3 }).fillet, 0, "a negative fillet reads as none");
+eq(seamLeft(960, 300, width, 49), 810, "a welded card centres on its trigger");
+eq(seamLeft(20, 300, width, 49), 49, "a welded card keeps the margin on the left");
+eq(seamLeft(1900, 300, width, 49), 1571, "a welded card keeps the margin on the right");
+eq(seamLeft(960, 1900, width, 49), 49, "a card wider than the room starts at the margin");
+eq(seamPlacement(mark(727, 15), width, height, topBar, naht, gap, card, tall),
+    { edge: "top", welded: true, corner: false, x: "left", left: 393, y: "top", top: 52 },
+    "a bar trigger hangs the card flush from the seam");
+eq(seamPlacement(null, width, height, topBar, naht, gap, card, tall),
+    { edge: "top", welded: true, corner: true, x: "left", left: 49, y: "top", top: 52 },
+    "without a trigger the card welds at the left margin");
+eq(seamPlacement(mark(1890, 15), width, height, topBar, naht, gap, card, tall).left, 1183,
+    "a trigger at the right end keeps the margin");
+eq(seamPlacement(mark(900, 1050), width, height, topBar, naht, gap, card, tall).welded, false,
+    "a trigger off the top edge keeps the floating card");
 
 if (failed > 0) { console.log("\n" + failed + " test(s) FAILED"); process.exit(1); }
 console.log("\nAll tests PASSED");

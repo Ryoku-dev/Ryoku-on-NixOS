@@ -758,6 +758,32 @@ the right rectangle only from a window that starts at its screen's top-left
 corner, such as a full-screen or top-anchored bar; QtWayland reports every
 layer window at its screen's origin.
 
+### Welding shell surfaces to the bar
+
+A top bar style whose own panels grow out of its bottom edge can have the
+shell's surfaces do the same. It declares a `seam` on its Scene root, in
+logical pixels:
+
+```qml
+readonly property var seam: ({
+    edge: "top",     // only a top seam welds
+    depth: 52,       // where the bar's bottom edge runs
+    fillet: 17,      // radius of the two concave fillets into the bar
+    radius: 23,      // radius of the card's bottom corners
+    margin: 49,      // closest a card comes to a screen side
+    fill: "surface"  // the bar's Theme role: surface or another surface* role
+})
+```
+
+The rail cards (network, Bluetooth, sound, battery, system monitor, player),
+the theme and weather menus and Controls then hang flush from that edge in the
+bar's colour, with no outline, and slide out from under the bar the way the
+style's panels do. A press on a fillet is swallowed, not a click-away.
+Prompts, voice, capture and plugin popouts keep their own look. A `fill` that
+is not a `surface` role paints `surface`. While a fullscreen window covers the
+screen the cards float again, since the bar steps aside. A style without a
+seam, or with one the shell cannot read, keeps the floating cards.
+
 ## Checklist to ship a style
 
 1. **Folder.** Create `barstyles/<id>/` with a `Scene.qml` (a per-monitor
