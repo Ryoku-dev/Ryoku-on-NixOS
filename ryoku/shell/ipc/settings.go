@@ -57,6 +57,7 @@ var contractKeys = map[string]bool{
 	"controls":      true,
 	"batteryAlerts": true,
 	"sounds":        true,
+	"urgentUpdates": true,
 }
 
 // Value domains, in the display order of contract 14 section 8. Stored as stable
@@ -130,6 +131,7 @@ type settings struct {
 	Controls      controlsSettings      `json:"controls"`
 	BatteryAlerts batteryAlertsSettings `json:"batteryAlerts"`
 	Sounds        soundsSettings        `json:"sounds"`
+	UrgentUpdates urgentUpdatesSettings `json:"urgentUpdates"`
 }
 
 type generalSettings struct {
@@ -462,6 +464,7 @@ func defaultSettings() *settings {
 		Controls:      controlsSettings{Sections: controls, Hidden: []string{}},
 		BatteryAlerts: batteryAlertsSettings{Enabled: true, WarningEnabled: true, CriticalEnabled: true, WarningPercent: 25, CriticalPercent: 10},
 		Sounds:        defaultSoundsSettings(),
+		UrgentUpdates: urgentUpdatesSettings{Enabled: true},
 	}
 }
 
@@ -927,6 +930,7 @@ func buildSettings(raw map[string]any, strict bool) (*settings, error) {
 		"controls":      &s.Controls,
 		"batteryAlerts": &s.BatteryAlerts,
 		"sounds":        &s.Sounds,
+		"urgentUpdates": &s.UrgentUpdates,
 	}
 	for k, ptr := range dst {
 		raw, ok := raw[k]
