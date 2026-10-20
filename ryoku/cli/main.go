@@ -13,6 +13,7 @@
 //	ryoku snapshots         list snapper snapshots
 //	ryoku boot-menu         Fedora's GRUB snapshot menu: sync; restore (from a look boot); restored
 //	ryoku status            version, commits behind the channel, snapshot count
+//	ryoku status --urgent   only the urgent commits the next update brings (Nix; the shell's hourly probe)
 //	ryoku materialize       lay the base configs into ~/.config (override-safe)
 //	ryoku reset [path]      drop a user_edits override, back to the Ryoku default
 //	ryoku reload            restart the shell + reload Hyprland

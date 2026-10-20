@@ -600,6 +600,25 @@
             touch "$out"
           '';
 
+        # Nix update status: the commits behind the urgent-update lookup
+        ryoku-nix-update-status = pkgs.runCommand
+          "ryoku-nix-update-status-check"
+          {
+            nativeBuildInputs = with pkgs; [
+              bash
+              coreutils
+              git
+              gnugrep
+              gnused
+              jq
+            ];
+          }
+          ''
+            RYOKU_NIX_UPDATE_TEST_HELPER=${./nix/scripts/ryoku-nix-update} \
+              bash ${./nix/tests/test-nix-update-status.sh}
+            touch "$out"
+          '';
+
         # CLI integration
         ryoku-cli-config-base = pkgs.runCommand
           "ryoku-cli-config-base-check"
