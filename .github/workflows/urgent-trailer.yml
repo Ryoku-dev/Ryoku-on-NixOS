@@ -1,0 +1,42 @@
+name: Urgent trailer
+
+# An `Urgent:` trailer asks every NixOS box without its commit to update now
+# (docs/nixos.md, "Urgent updates"). Only a maintainer sets one, in their own
+# commit or in the merge commit they write, so a pull request whose commits
+# carry one cannot land as it is.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  urgent:
+    name: No Urgent trailer in pull request commits
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the pull request's commits
+        shell: bash
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          bad=0
+          while read -r sha; do
+            if git show -s --format=%B "$sha" | grep -qiE '^[[:space:]]*urgent:'; then
+              echo "::error::$(git show -s --format='%h %s' "$sha") carries an Urgent: trailer. Only a maintainer marks a commit urgent, in the merge commit; drop it from this pull request."
+              bad=1
+            fi
+          done < <(git rev-list "$PR_HEAD" "^$PR_BASE")
+          if ((bad == 0)); then
+            echo "No commit in $PR_BASE..$PR_HEAD carries an Urgent: trailer."
+          fi
+          exit "$bad"

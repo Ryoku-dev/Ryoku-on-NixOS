@@ -27,6 +27,9 @@ Singleton {
     readonly property string latestName: root.frame.channelReleaseName || ""
     readonly property var commits: root.frame.updates || []
     readonly property var packages: root.frame.packages || []
+    // commits marked `Urgent:` the next update brings, newest first
+    // (UrgentUpdates.qml raises the alert).
+    readonly property var urgent: root.frame.urgent || []
     readonly property string buildState: root.frame.channelBuild ? (root.frame.channelBuild.state || "") : ""
     readonly property string buildCommit: root.frame.channelBuild ? String(root.frame.channelBuild.commit || "").slice(0, 7) : ""
     readonly property string buildRun: root.frame.channelBuild ? (root.frame.channelBuild.run || "") : ""

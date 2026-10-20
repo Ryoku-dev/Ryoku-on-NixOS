@@ -140,6 +140,12 @@ latest="$installed"
 can_update=false
 locked_rev=""
 remote_rev=""
+# The commit this generation was built from, the tip of the branch it follows,
+# and that branch's GitHub repository: `ryoku status` reads the Urgent:
+# trailers between the two (ryoku/cli/internal/updater/nix_urgent.go).
+urgent_repo=""
+urgent_base=""
+urgent_head=""
 
 load_source() {
     [ -f "$lock" ] ||
@@ -195,6 +201,9 @@ load_source() {
                 source_ref="$source_ref/$ref"
             fi
 
+            urgent_repo="$slug"
+            urgent_base="$locked_rev"
+            urgent_head="$remote_rev"
             can_update=true
 
             remote_version="$(
@@ -267,6 +276,15 @@ load_source() {
                         if [ -n "$remote_version" ]; then
                             latest="$remote_version"
                         fi
+
+                        urgent_repo="$slug"
+                        urgent_base="$(git -C "$source_path" rev-parse HEAD 2>/dev/null || true)"
+                        urgent_head="$(
+                            git ls-remote "https://github.com/$slug.git" "refs/heads/$source_branch" 2>/dev/null |
+                                head -n 1 |
+                                cut -f 1 ||
+                                true
+                        )"
                     fi
                 fi
             fi
@@ -337,6 +355,9 @@ status_json() {
         --arg latestVersion "$latest" \
         --arg channel "$channel" \
         --arg source "$source_ref" \
+        --arg repository "$urgent_repo" \
+        --arg installedRev "$urgent_base" \
+        --arg latestRev "$urgent_head" \
         --argjson available "$available" \
         --argjson pendingUpdates "$pending" \
         --argjson canUpdate "$can_update" \
@@ -354,7 +375,10 @@ status_json() {
             packages: [],
             backend: "nix",
             canUpdate: $canUpdate,
-            source: $source
+            source: $source,
+            repository: $repository,
+            installedRev: $installedRev,
+            latestRev: $latestRev
         }'
 }
 

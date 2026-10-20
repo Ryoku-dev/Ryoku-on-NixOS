@@ -250,6 +250,53 @@ updater. Update the checkout yourself and rebuild the host flake normally.
 Because updates produce ordinary NixOS generations, standard NixOS rollback
 mechanisms remain available.
 
+### Urgent updates
+
+A fix every box should take right away (a lock screen that opens without a
+password, an update that breaks the session) is marked with a trailer in its
+commit message, beside `Note:`:
+
+```text
+Urgent: the lock screen could be skipped after waking from sleep
+```
+
+The reason is the alert's text: one plain sentence, 160 characters at most.
+The commit-msg hook checks that it sits in the last paragraph and that a
+commit carries one at most.
+
+Only a maintainer of this repository marks a commit urgent, in their own
+commit on `unstable-dev` or `main`, or in the merge commit of a pull request.
+A box reads the trailer only on its branch's first-parent line, so a
+contributor's commit, which arrives as the second parent of its merge, never
+alerts anyone, and the **Urgent trailer** workflow fails a pull request whose
+commits carry one. Upstream Ryoku commits never alert: when a sync brings a
+fix that cannot wait, the sync's merge commit carries the trailer.
+
+A box sees an urgent commit once the branch its Ryoku flake input follows
+carries it and the box does not run it yet. `ryoku-nix-update status` names
+the input's GitHub repository, the commit in `flake.lock` and the branch tip;
+`ryoku status` reads the trailers between the two through GitHub's compare
+API and caches the answer until either commit moves. A local `path:` checkout
+with a GitHub `origin` compares its `HEAD` with the tip of its branch there;
+any other input sees nothing.
+
+`ryoku status --json` lists them under `urgent`, newest first, and
+`ryoku status --urgent` prints that list alone. The shell daemon asks
+`ryoku status --urgent` every hour between its full checks and runs a full
+check when an urgent commit appears. The shell then raises a critical
+notification that stays up, comes through Do Not Disturb and offers
+**Update now** (`ryoku update --gui`, with the Hub on its Updates page) and
+**Later**. Closing it snoozes it for six hours; it comes back at the next
+login and goes away once the update lands. The Hub's Updates page marks the
+update URGENT with each reason.
+
+`urgentUpdates.enabled` in `shell.json` (Hub > Updates, **Urgent alerts**)
+turns the alert and the hourly probe off, and automatic checks set to off
+stop the probe too. A rice never carries the switch. Nothing is sent
+anywhere: the probe reads the public branch tip and GitHub's public compare
+API with no identifier. Offline or rate-limited, it shows nothing new and
+tries again an hour later.
+
 ## Package reporting
 
 The Hub reports NixOS packages as:

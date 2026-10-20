@@ -33,6 +33,8 @@ Singleton {
     property var recent: []
     // system packages the host distribution's full upgrade would pull: [{ name, old, new }].
     property var packages: []
+    // commits marked `Urgent:` the next update brings: [{ commit, subject, reason }].
+    property var urgent: []
     readonly property string buildState: root.frame.channelBuild ? (root.frame.channelBuild.state || "") : ""
     readonly property string buildCommit: root.frame.channelBuild ? String(root.frame.channelBuild.commit || "").slice(0, 7) : ""
     readonly property string buildRun: root.frame.channelBuild ? (root.frame.channelBuild.run || "") : ""
@@ -92,6 +94,7 @@ Singleton {
             root.updates = o.updates || [];
             root.recent = o.recent || [];
             root.packages = o.packages || [];
+            root.urgent = o.urgent || [];
             root.available = o.available === true;
             root.lastChecked = new Date();
         } catch (e) {}

@@ -14,17 +14,43 @@ import (
 // bar's update glyph read, so a check happens whether or not the Hub is open.
 // It polls `ryoku status --json` on the configured cadence (hub.toml
 // update_interval), publishes the frame on the "updates" topic, and caches it.
+// Between those checks it asks `ryoku status --urgent` every hour and runs a
+// full check as soon as the channel serves an urgent commit the last frame did
+// not list, so the shell's alert (services/UrgentUpdates.qml) does not wait for
+// the next daily check.
 type updatesState struct {
-	topic *stateTopic
-	wake  chan struct{}
-	quit  chan struct{}
+	topic  *stateTopic
+	wake   chan struct{}
+	quit   chan struct{}
+	alerts func() bool
+	// urgent holds the commits the last published frame listed as urgent.
+	urgent map[string]bool
+}
+
+// urgentUpdatesSettings is shell.json's `urgentUpdates`: whether the shell
+// raises the urgent-update alert and the daemon probes for one.
+type urgentUpdatesSettings struct {
+	Enabled bool `json:"enabled"`
+}
+
+// urgentProbeEvery is how often the daemon looks for an urgent commit between
+// full checks. A probe costs one small fetch, plus one GitHub compare only when
+// the channel has moved since the last.
+const urgentProbeEvery = time.Hour
+
+// ryokuStatus runs `ryoku status` with args. A var so tests stand in for it.
+var ryokuStatus = func(args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	return exec.CommandContext(ctx, "ryoku", append([]string{"status"}, args...)...).Output()
 }
 
 func (d *daemon) startUpdates() {
 	s := &updatesState{
-		topic: d.registerTopic("updates"),
-		wake:  make(chan struct{}, 1),
-		quit:  d.quit,
+		topic:  d.registerTopic("updates"),
+		wake:   make(chan struct{}, 1),
+		quit:   d.quit,
+		alerts: d.urgentAlertsEnabled,
 	}
 	d.registerCall("updates.check", func(json.RawMessage) (any, error) {
 		select {
@@ -36,44 +62,109 @@ func (d *daemon) startUpdates() {
 	go s.run()
 }
 
+func (d *daemon) urgentAlertsEnabled() bool {
+	if d == nil || d.settings == nil {
+		return true
+	}
+	d.settings.mu.Lock()
+	defer d.settings.mu.Unlock()
+	if d.settings.cur == nil {
+		return true
+	}
+	return d.settings.cur.UrgentUpdates.Enabled
+}
+
 // run checks once at startup for a login baseline, then on the interval or a
-// forced wake. "off" disables the periodic tick but still answers a manual check.
+// forced wake, with urgent probes in between. "off" disables both, but still
+// answers a manual check.
 func (s *updatesState) run() {
 	s.check()
+	last := time.Now()
 	for {
-		d := updateCheckInterval()
-		if d <= 0 {
+		wait, probe := nextUpdateWake(time.Since(last), updateCheckInterval(), s.alerts())
+		if wait < 0 {
 			select {
 			case <-s.quit:
 				return
 			case <-s.wake:
 				s.check()
+				last = time.Now()
 			}
 			continue
 		}
-		t := time.NewTimer(d)
+		t := time.NewTimer(wait)
 		select {
 		case <-s.quit:
 			t.Stop()
 			return
 		case <-s.wake:
 			t.Stop()
-			s.check()
 		case <-t.C:
-			s.check()
+			if probe && !s.urgentNews() {
+				continue
+			}
 		}
+		s.check()
+		last = time.Now()
 	}
 }
 
+// nextUpdateWake says how long to sleep once `since` has passed since the last
+// full check, and whether that wake is an urgent probe rather than the check.
+// A negative wait means periodic checks are off.
+func nextUpdateWake(since, full time.Duration, alerts bool) (time.Duration, bool) {
+	if full <= 0 {
+		return -1, false
+	}
+	remaining := max(full-since, 0)
+	if alerts && urgentProbeEvery < remaining {
+		return urgentProbeEvery, true
+	}
+	return remaining, false
+}
+
 func (s *updatesState) check() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "ryoku", "status", "--json").Output()
+	out, err := ryokuStatus("--json")
 	if err != nil || len(out) == 0 {
 		return
 	}
+	s.urgent = urgentSet(out)
 	writeUpdateCache(out)
 	s.topic.publish(out)
+}
+
+// urgentNews asks the probe whether the channel now serves an urgent commit the
+// last frame did not list. A failed probe is no news.
+func (s *updatesState) urgentNews() bool {
+	out, err := ryokuStatus("--urgent", "--json")
+	if err != nil {
+		return false
+	}
+	for commit := range urgentSet(out) {
+		if !s.urgent[commit] {
+			return true
+		}
+	}
+	return false
+}
+
+// urgentSet reads the commits a status frame lists under "urgent".
+func urgentSet(frame []byte) map[string]bool {
+	var f struct {
+		Urgent []struct {
+			Commit string `json:"commit"`
+		} `json:"urgent"`
+	}
+	set := map[string]bool{}
+	if json.Unmarshal(frame, &f) != nil {
+		return set
+	}
+	for _, u := range f.Urgent {
+		if u.Commit != "" {
+			set[u.Commit] = true
+		}
+	}
+	return set
 }
 
 func updateCheckInterval() time.Duration {
