@@ -562,6 +562,8 @@ ShellRoot {
         case "overview":
             if (Wm.caps.nativeOverview)
                 Wm.toggleOverview();
+            else if (Wm.caps.windowGeometry && SidebarState.seamFor(Wm.focusedOutput))
+                ShellState.requestSurfaceActive("overview", Wm.focusedOutput);
             else if (Wm.caps.windowGeometry && st)
                 st.overviewOpen = !st.overviewOpen;
             break;
@@ -617,6 +619,8 @@ ShellRoot {
             st.clipboardOpen = false;
         if (base !== "ask")
             st.askOpen = false;
+        if (base !== "overview")
+            st.overviewOpen = false;
     }
 
     // A welded flag panel opens on the screen that asked, under its trigger.
@@ -624,13 +628,11 @@ ShellRoot {
         const st = ShellState.sliceForMonitor(mon);
         if (!st)
             return;
-        const opening = id === "launcher" ? !st.launcherOpen : !st.clipboardOpen;
+        const flag = id === "launcher" ? "launcherOpen" : id === "clipboard" ? "clipboardOpen" : "overviewOpen";
+        const opening = !st[flag];
         if (opening)
             ShellState.setWeldTrigger(mon, id, ctx);
-        if (id === "launcher")
-            st.launcherOpen = opening;
-        else
-            st.clipboardOpen = opening;
+        st[flag] = opening;
     }
 
     // With no global-shortcuts protocol a keybind reaches the shell by spawning
@@ -649,8 +651,13 @@ ShellRoot {
                 else
                     root.toggleSurface(id);
                 break;
-            case "barToggle":
             case "overview":
+                if (SidebarState.seamFor(mon) && !Wm.caps.nativeOverview && Wm.caps.windowGeometry)
+                    root.flipFlag(id, mon, ctx);
+                else
+                    root.toggleSurface(id);
+                break;
+            case "barToggle":
             case "screenshot":
             case "visualizer":
             case "visualizer-overlay":
@@ -668,6 +675,8 @@ ShellRoot {
                 st.launcherOpen = false;
             else if (st && id === "clipboard")
                 st.clipboardOpen = false;
+            else if (st && id === "overview")
+                st.overviewOpen = false;
         }
     }
 

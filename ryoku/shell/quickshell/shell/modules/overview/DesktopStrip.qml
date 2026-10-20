@@ -18,7 +18,9 @@ Row {
     id: strip
     property real s: 1
     property var ov: null
-    spacing: 14 * strip.s
+    // A compact strip lays a desktop out on one line, number and dots side by side.
+    readonly property bool compact: !!strip.ov && strip.ov.compact
+    spacing: strip.ov ? strip.ov.deskGap : 14 * strip.s
 
     Repeater {
         model: strip.ov ? strip.ov.deskList : []
@@ -35,8 +37,8 @@ Row {
             property bool hovered: false
             readonly property bool lit: dcard.viewed || dcard.activeD || dcard.hovered || dcard.dropHot
 
-            width: 122 * strip.s
-            height: 58 * strip.s
+            width: strip.ov ? strip.ov.deskCardW : 122 * strip.s
+            height: strip.ov ? strip.ov.deskCardH : 58 * strip.s
 
             // subtle hard offset shadow (small chrome; a heavy one reads as a box).
             Rectangle {
@@ -65,7 +67,38 @@ Row {
                 Behavior on border.color { ColorAnimation { duration: Motion.highlight } }
                 Behavior on color { ColorAnimation { duration: Motion.highlight } }
 
+                Row {
+                    visible: strip.compact
+                    anchors.centerIn: parent
+                    spacing: 5 * strip.s
+
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: dcard.isNew ? "+" : ("0" + (dcard.deskIdx + 1)).slice(-2)
+                        color: dcard.activeD ? Theme.brand : (dcard.isNew ? Theme.faint : Theme.cream)
+                        font.family: Theme.mono
+                        font.pixelSize: 11 * strip.s
+                        font.weight: Font.DemiBold
+                    }
+                    Row {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2 * strip.s
+                        visible: !dcard.isNew
+                        Repeater {
+                            model: dcard.dots
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: 3 * strip.s
+                                height: 3 * strip.s
+                                radius: width / 2
+                                color: modelData ? (dcard.activeD ? Theme.brand : Theme.cream) : Theme.faint
+                            }
+                        }
+                    }
+                }
+
                 Column {
+                    visible: !strip.compact
                     anchors.centerIn: parent
                     spacing: 7 * strip.s
 

@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- **The overview welds onto a seam as a compact strip.** Where the shell draws
+  its own overview, a bar style with a seam gets it hanging from the bar like
+  the other panels: the desktops as a row of chips over one row of live
+  workspace previews sized to fit under the bar, wrapping only when they would
+  get too small. A style can hang it under its own mark with an `ownerRect`.
+  Styles without a seam and compositors with their own overview are unchanged
+  (`quickshell/shell/{modules/overview/,shell.qml,services/ShellState.qml}`).
 - **The launcher, the clipboard and the ask bar weld onto a seam too.** Under
   a bar style that declares a seam, the `main` launcher, the clipboard history
   and the ask bar hang flush from the bar like its panels and slide out from

@@ -797,6 +797,14 @@ itself stays clickable while a panel is open, so another mark switches to its
 panel. The keyboard layout notice moves to the bottom of the screen, above the
 volume OSD, so it does not cover a panel's search row.
 
+Where the shell draws the overview itself, on a compositor that reports window
+geometry and has no overview of its own, the overview welds too, as a compact
+strip under the bar: the desktops as a row of chips over one row of live
+workspace previews. The row shrinks to fit the screen and wraps only once a
+preview would get too small to read. It opens under a mark with `"overview"`
+and an `ownerRect` like the others. A compositor with its own overview, such
+as niri, keeps opening that one.
+
 ## Checklist to ship a style
 
 1. **Folder.** Create `barstyles/<id>/` with a `Scene.qml` (a per-monitor

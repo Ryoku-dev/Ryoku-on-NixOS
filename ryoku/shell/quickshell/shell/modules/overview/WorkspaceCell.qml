@@ -352,10 +352,22 @@ Item {
                 // A one-shot capture (not live): the overview is a momentary
                 // picker, so per-frame window capture is what dropped it to 30fps.
                 ScreencopyView {
+                    id: shot
                     anchors.fill: parent
-                    captureSource: (!!cell.ov && cell.ov.active && tile.modelData.tl) ? tile.modelData.tl : null
+                    captureSource: (!!cell.ov && cell.ov.previewsLive && tile.modelData.tl) ? tile.modelData.tl : null
                     live: false
                     visible: tile.modelData.tl !== null
+
+                    // A compact strip reopened while it still slides keeps its
+                    // sources, so it takes a fresh frame of each.
+                    Connections {
+                        target: cell.ov
+                        enabled: !!cell.ov && cell.ov.compact
+                        function onActiveChanged() {
+                            if (cell.ov.active && shot.captureSource)
+                                shot.captureFrame();
+                        }
+                    }
                 }
 
                 MouseArea {
