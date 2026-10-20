@@ -524,6 +524,20 @@ Item {
         const anchor = root.liveAnchorFor(id);
         if (anchor !== "") root.closeAt(anchor);
     }
+    // Another welded panel took the bar's seam: close every card but the
+    // prompts and the voice toast, which must never fold.
+    function foldBodies() {
+        const mon = root.menuState[root.monitorName];
+        if (!mon) return;
+        for (const anchor in mon) {
+            const rec = mon[anchor];
+            if (rec && rec.id !== "voice" && rec.id !== "keyring" && rec.id !== "polkit")
+                root.closeAt(anchor);
+        }
+    }
+    function hasRecord(id) {
+        return !!MenuState.recordFor(root.records, (id || "").split("#")[0]);
+    }
     function closeAll() {
         const mon = root.menuState[root.monitorName];
         if (!mon) return;

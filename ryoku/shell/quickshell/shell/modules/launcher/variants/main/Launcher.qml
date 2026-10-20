@@ -17,6 +17,9 @@ Item {
 
     property real s: 1
     property bool shown: false
+    // Welded onto a bar's seam: the seam's card draws the body and slides it,
+    // and the results stay put while it slides closed.
+    property bool welded: false
     property string query: ""
     property bool allApps: false
     property bool help: false
@@ -116,6 +119,8 @@ Item {
     function evaluateResults() {
         root.evaluationQueued = false;
         if (!root.shown) {
+            if (root.welded)
+                return;
             root.results = [];
             root.appEntries = [];
             root.totalCount = 0;
@@ -216,9 +221,11 @@ Item {
     // open/close morph: the card inflates from its top edge (where the search row
     // sits) and fades, rather than popping in at full size. Synced to the window
     // timer in shell.qml so the close plays fully before the window drops.
+    // A welded card that hides still slides for a while; it takes no input then.
+    enabled: shown || !welded
     transformOrigin: Item.Top
-    opacity: shown ? 1 : 0
-    scale: shown ? 1 : 0.92
+    opacity: shown || welded ? 1 : 0
+    scale: shown || welded ? 1 : 0.92
     Behavior on opacity { NumberAnimation { duration: Motion.open; easing.type: Easing.OutCubic } }
     Behavior on scale {
         NumberAnimation { duration: Motion.open; easing.type: Motion.easeMorph; easing.bezierCurve: Motion.morphCurve }
@@ -265,6 +272,7 @@ Item {
 
     MainVariant.Squircle {
         anchors.fill: parent
+        visible: !root.welded
         radius: LauncherConfig.radius
         power: 4
         color: Theme.cardTop

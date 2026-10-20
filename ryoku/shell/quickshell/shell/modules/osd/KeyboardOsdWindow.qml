@@ -42,11 +42,18 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.namespace: "ryoku-keyboard-osd"
 
-    anchors.top: true
+    // Under a bar style's seam the welded panels hang where this would sit, over
+    // their search rows, so it shows at the bottom instead, one volume OSD
+    // above that one's place.
+    readonly property bool belowPanels: !!SidebarState.seamFor(modelData)
+
+    anchors.top: !win.belowPanels
+    anchors.bottom: win.belowPanels
     anchors.left: true
     anchors.right: true
 
-    margins.top: 24 * us
+    margins.top: win.belowPanels ? 0 : 24 * us
+    margins.bottom: win.belowPanels ? 120 * us : 0
 
     implicitHeight: box.height + slide
 

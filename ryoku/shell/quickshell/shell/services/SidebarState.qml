@@ -258,6 +258,8 @@ Singleton {
             tab = context.tab || context.page || "";
         if (id === "sidebar-left")
             root.toggle(monitor, tab, root.triggerFrom(context));
+        else if (ShellState.isWeldBody(id) && root.seamFor(monitor))
+            root.close(monitor);
     }
 
     Connections {

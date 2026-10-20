@@ -14,6 +14,8 @@ Rectangle {
     required property var screen
     required property Services.AskSession session
     property bool active: false
+    // Welded onto a bar's seam, whose card is the bar's own colour behind it.
+    property bool welded: false
     property string mode: "ask"
     property string tool: ""
     property string query: ""
@@ -69,8 +71,8 @@ Rectangle {
 
     implicitHeight: Math.min(maximumHeight, content.implicitHeight + drawerReserve + Tokens.s4 * s * 2)
     radius: Tokens.radius * s
-    color: Tokens.paper
-    border.width: Tokens.border
+    color: root.welded ? "transparent" : Tokens.paper
+    border.width: root.welded ? 0 : Tokens.border
     border.color: Tokens.lineStrong
     clip: true
 
