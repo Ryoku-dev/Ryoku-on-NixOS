@@ -33,7 +33,7 @@ func TestShellCaptureOmitsPersonalAndOverlaysWhole(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte(`{"barStyle":"noctalia","frameBars":{"style":"slate-frame"},"weatherLocation":"Oslo","fontScale":1.3}`), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte(`{"barStyle":"noctalia","frameBars":{"style":"slate-frame"},"weatherLocation":"Oslo","fontScale":1.3,"urgentUpdates":{"enabled":false}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -44,6 +44,9 @@ func TestShellCaptureOmitsPersonalAndOverlaysWhole(t *testing.T) {
 	}
 	if _, ok := look["weatherLocation"]; ok {
 		t.Fatal("omit leaked a personal key")
+	}
+	if _, ok := look["urgentUpdates"]; ok {
+		t.Fatal("a rice must not carry the author's urgent-update switch")
 	}
 
 	// apply onto a recipient: every captured key lands, and a personal key the

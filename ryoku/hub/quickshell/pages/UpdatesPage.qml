@@ -101,6 +101,20 @@ Item {
         onTriggered: Updates.check()
     }
 
+    // ── urgent-update alert (urgentUpdates.enabled in shell.json) ───────────
+    readonly property bool urgentAlerts: {
+        Settings.revision;
+        return Settings.get("urgentUpdates.enabled") !== false;
+    }
+    property string urgentError: ""
+    function setUrgentAlerts(on) {
+        pg.urgentError = "";
+        Settings.patch("urgentUpdates.enabled", on, function(ok, error) {
+            if (!ok)
+                pg.urgentError = I18n.tr(error);
+        });
+    }
+
     // ── live run state (published by `ryoku update`) ────────────────────────
     property string phase: "idle"   // idle | running | prompt | auth | done | error
     property real progress: 0
@@ -636,6 +650,41 @@ Item {
                             font.letterSpacing: Tokens.trackMark
                         }
 
+                        // an urgent update, inverted: the one mark on the page
+                        // that asks to be acted on, with each reason given.
+                        Column {
+                            visible: Updates.urgent.length > 0
+                            spacing: Tokens.s1
+
+                            Rectangle {
+                                width: urgentMark.implicitWidth + Tokens.s3 * 2
+                                height: urgentMark.implicitHeight + Tokens.s1 * 2
+                                color: Tokens.bone
+                                antialiasing: false
+
+                                Text {
+                                    id: urgentMark
+                                    anchors.centerIn: parent
+                                    text: I18n.tr("URGENT UPDATE")
+                                    color: Tokens.inkOnBone; font.family: Tokens.ui
+                                    font.pixelSize: Tokens.fMicro; font.weight: Font.Medium
+                                    font.letterSpacing: Tokens.trackMark
+                                }
+                            }
+
+                            Repeater {
+                                model: Updates.urgent
+                                delegate: Text {
+                                    required property var modelData
+                                    width: Math.max(0, status.width - statusCol.x)
+                                    text: (modelData.reason || modelData.subject) + "  \u00b7  " + modelData.commit
+                                    color: Tokens.ink; font.family: Tokens.ui
+                                    font.pixelSize: Tokens.fSmall
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                        }
+
                         // the release line this box runs, and the next one when
                         // the channel has moved on ("Onogoro -> Amaterasu").
                         Text {
@@ -739,6 +788,30 @@ Item {
                     Text {
                         anchors.right: parent.right
                         text: pg.intervalBlurb(pg.interval)
+                        color: Tokens.inkMuted; font.family: Tokens.ui
+                        font.pixelSize: Tokens.fSmall
+                    }
+
+                    Item { width: 1; height: Tokens.s3 }
+                    Text {
+                        anchors.right: parent.right
+                        text: I18n.tr("URGENT ALERTS")
+                        color: Tokens.inkMuted; font.family: Tokens.ui
+                        font.pixelSize: Tokens.fMicro; font.weight: Font.Medium
+                        font.letterSpacing: Tokens.trackMark
+                    }
+                    Sw {
+                        anchors.right: parent.right
+                        enabled: Settings.ready
+                        on: pg.urgentAlerts
+                        onToggled: value => pg.setUrgentAlerts(value)
+                    }
+                    Text {
+                        anchors.right: parent.right
+                        text: pg.urgentError !== "" ? pg.urgentError
+                            : pg.interval === "off" ? I18n.tr("only after a manual check while checks are off")
+                            : pg.urgentAlerts ? I18n.tr("a notification when an update must not wait")
+                            : I18n.tr("no notification; this page still marks them")
                         color: Tokens.inkMuted; font.family: Tokens.ui
                         font.pixelSize: Tokens.fSmall
                     }
