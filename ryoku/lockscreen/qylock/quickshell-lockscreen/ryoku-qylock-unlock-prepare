@@ -10,12 +10,13 @@ session_id=${1:-}
 unit="ryoku-qylock-unlock-guard-${session_id}"
 who="ryoku-qylock-unlock-${session_id}"
 proof_helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/proof.sh"
-for command in ryoku-host jq loginctl busctl; do
+for command in ryoku-host jq loginctl busctl sleep; do
   command -v "$command" >/dev/null 2>&1 || {
     printf 'ryoku-qylock-unlock-prepare: %s is required\n' "$command" >&2
     exit 1
   }
 done
+sleep_bin="$(command -v sleep)"
 
 if ! ryoku-host transient is-active "$unit"; then
   ryoku-host svc --user reset-failed "$unit" >/dev/null 2>&1 || true
@@ -24,7 +25,7 @@ if ! ryoku-host transient is-active "$unit"; then
     ryoku-host inhibit --what=sleep --mode=block \
     --who="$who" \
     --why="keep suspend blocked until the compositor lock is released" \
-    /usr/bin/sleep infinity
+    "$sleep_bin" infinity
 fi
 
 guard_ready=0
