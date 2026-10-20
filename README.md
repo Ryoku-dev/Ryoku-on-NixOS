@@ -10,7 +10,7 @@
 Ryoku on NixOS is the official NixOS port of [**Ryoku**](https://github.com/Ryoku-dev/ryoku),
 a complete Wayland desktop with deep customisation, integrated applications and the best and most expansive ecosystem to ever be made on a shell.
 
-[**Website**](https://aethctl.github.io/Ryoku-on-NixOS/) · [**Install on NixOS**](#install) · [**Installer ISO**](https://github.com/aethctl/Ryoku-on-NixOS/releases) · [**Discord**](https://discord.gg/8KjBmUEyKA) · [**Documentation**](docs/README.md) · [**Upstream Ryoku**](https://github.com/Ryoku-dev/ryoku)
+[**Website**](https://aethctl.github.io/Ryoku-on-NixOS/) · [**Install on NixOS**](#install) · [**Installer ISO**](https://github.com/aethctl/Ryoku-on-NixOS/releases) · [**Discord**](https://discord.gg/xvr69NRsmt) · [**Documentation**](docs/README.md) · [**Upstream Ryoku**](https://github.com/Ryoku-dev/ryoku)
 
 <br />
 
