@@ -310,7 +310,7 @@ that was actually performed.
 
 Ryoku on NixOS is actively maintained and contributions are welcome.
 
-- [**Join the Ryoku Discord**](https://discord.gg/8KjBmUEyKA) for installation help, testing and development discussion.
+- [**Join the Ryoku Discord**](https://discord.gg/xvr69NRsmt) for installation help, testing and development discussion.
 - [**Browse open issues**](https://github.com/aethctl/Ryoku-on-NixOS/issues) for current work.
 - [**Start with a good first issue**](https://github.com/aethctl/Ryoku-on-NixOS/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22) if you want a bounded first contribution.
 - Read [**CONTRIBUTING.md**](CONTRIBUTING.md) for the development workflow, testing expectations and upstream/NixOS ownership boundary.
