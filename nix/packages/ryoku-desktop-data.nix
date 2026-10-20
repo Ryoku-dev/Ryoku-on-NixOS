@@ -505,6 +505,15 @@ user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
     # source stays distro-neutral and future syncs cannot silently resurrect the
     # same NixOS failure class.
     #
+    # The qylock payload gets the same treatment. ryoku-qylock-materialize copies
+    # it into the home for the in-session lock, and its helpers run outside the
+    # shell service: the unlock helper's sleep guard is a transient unit started
+    # with an absolute /usr/bin/sleep, so on NixOS it died at once and every
+    # correct password was answered with a failed unlock.
+    # Searches use -r, not -R: the qylock imports vendor QtGraphicalEffects as
+    # symlinks into /usr/lib/qt6, which dangle here and are not ours to rewrite.
+    runtime_roots=("$cfg/quickshell" "$out/share/ryoku/lockscreen")
+
     # Replace whole paths only: a substring match also hits paths an earlier
     # row already rewrote ('/bin/bash' inside '…-bash/bin/bash'). A JS escape
     # such as \n right before a path still counts as a boundary.
@@ -515,7 +524,7 @@ user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
         from="$from" to="$to" perl -pi -e \
           's#(?:(?<![A-Za-z0-9._+-])|(?<=\\[nrt]))\Q$ENV{from}\E(?![A-Za-z0-9._+-])#$ENV{to}#g' \
           "$file"
-      done < <(grep -IlZR -- "$from" "$cfg/quickshell" 2>/dev/null || true)
+      done < <(grep -IlZr -- "$from" "''${runtime_roots[@]}" 2>/dev/null || true)
     }
 
     rewrite_runtime_path '/usr/bin/bash' '${pkgs.bash}/bin/bash'
@@ -578,13 +587,13 @@ user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
     # A spliced path (…-bash/nix/store/…) never resolves. grep exits 2 on read
     # errors, which must not pass as nothing found.
     spliced_status=0
-    grep -IRnE '(^|[^\\])[A-Za-z0-9._+-]/nix/store/' "$cfg/quickshell" || spliced_status=$?
+    grep -IrnE '(^|[^\\])[A-Za-z0-9._+-]/nix/store/' "''${runtime_roots[@]}" || spliced_status=$?
     if [ "$spliced_status" -ne 1 ]; then
       echo "Ryoku Nix runtime guard: store path spliced into another path (grep status $spliced_status)" >&2
       exit 1
     fi
 
-    if grep -IRnE '/usr/bin/(bash|pkexec|env|mkdir|mv|rm|cp|stat|sleep|base64|basename|cat|df|id|install|date|timeout|test|find|grep|awk|getent|curl|python3|notify-send|busctl|systemctl|file|pgrep|pkill|which|lscpu|wl-copy|pw-play|pactl|grim|magick|hyprpicker|xdg-settings)' "$cfg/quickshell"; then
+    if grep -IrnE '/usr/bin/(bash|pkexec|env|mkdir|mv|rm|cp|stat|sleep|base64|basename|cat|df|id|install|date|timeout|test|find|grep|awk|getent|curl|python3|notify-send|busctl|systemctl|file|pgrep|pkill|which|lscpu|wl-copy|pw-play|pactl|grim|magick|hyprpicker|xdg-settings)' "''${runtime_roots[@]}"; then
       echo "Ryoku Nix runtime guard: critical FHS command path survived packaging" >&2
       exit 1
     fi
