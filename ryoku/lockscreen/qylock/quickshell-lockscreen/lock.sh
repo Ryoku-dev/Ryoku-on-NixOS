@@ -152,7 +152,7 @@ while :; do
     # The guard and generation flocks must not reach the client's tree: an
     # inherited fd keeps the flock alive in any coprocess that outlives the
     # client, and a stuck guard makes every later lock a silent no-op.
-    if (exec 7>&- 9>&-; exec quickshell -p "$DIR/lock_shell.qml"); then
+    if (exec 7>&- 9>&-; exec env QSG_RENDER_LOOP=basic quickshell -p "$DIR/lock_shell.qml"); then
         rc=0
     else
         rc=$?
