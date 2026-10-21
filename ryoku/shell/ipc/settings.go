@@ -45,34 +45,6 @@ import (
 // A patch whose first path segment is one of these is validated; anything else is
 // passthrough.
 var contractKeys = map[string]bool{
-<<<<<<< port
-	"deckFrost":     true,
-	"general":       true,
-	"theme":         true,
-	"bars":          true,
-	"menus":         true,
-	"notifications": true,
-	"wallpaper":     true,
-	"ask":           true,
-	"phone":         true,
-	"controls":      true,
-	"batteryAlerts": true,
-	"sounds":        true,
-	"urgentUpdates": true,
-||||||| base
-	"deckFrost":     true,
-	"general":       true,
-	"theme":         true,
-	"bars":          true,
-	"menus":         true,
-	"notifications": true,
-	"wallpaper":     true,
-	"ask":           true,
-	"phone":         true,
-	"controls":      true,
-	"batteryAlerts": true,
-	"sounds":        true,
-=======
 	"deckFrostEnabled": true,
 	"deckFrost":        true,
 	"general":          true,
@@ -86,7 +58,7 @@ var contractKeys = map[string]bool{
 	"controls":         true,
 	"batteryAlerts":    true,
 	"sounds":           true,
->>>>>>> upstream
+	"urgentUpdates":    true,
 }
 
 // Value domains, in the display order of contract 14 section 8. Stored as stable
@@ -148,34 +120,6 @@ var (
 // icon-theme group, custom-CSS file, and app-launcher menu that Ryoku does not
 // consume. Ask and Controls are Ryoku's typed shell state.
 type settings struct {
-<<<<<<< port
-	DeckFrost     float64               `json:"deckFrost"`
-	General       generalSettings       `json:"general"`
-	Theme         themeSettings         `json:"theme"`
-	Bars          barsSettings          `json:"bars"`
-	Menus         menusSettings         `json:"menus"`
-	Notifications notificationsSettings `json:"notifications"`
-	Wallpaper     wallpaperSettings     `json:"wallpaper"`
-	Ask           askSettings           `json:"ask"`
-	Phone         phoneSettings         `json:"phone"`
-	Controls      controlsSettings      `json:"controls"`
-	BatteryAlerts batteryAlertsSettings `json:"batteryAlerts"`
-	Sounds        soundsSettings        `json:"sounds"`
-	UrgentUpdates urgentUpdatesSettings `json:"urgentUpdates"`
-||||||| base
-	DeckFrost     float64               `json:"deckFrost"`
-	General       generalSettings       `json:"general"`
-	Theme         themeSettings         `json:"theme"`
-	Bars          barsSettings          `json:"bars"`
-	Menus         menusSettings         `json:"menus"`
-	Notifications notificationsSettings `json:"notifications"`
-	Wallpaper     wallpaperSettings     `json:"wallpaper"`
-	Ask           askSettings           `json:"ask"`
-	Phone         phoneSettings         `json:"phone"`
-	Controls      controlsSettings      `json:"controls"`
-	BatteryAlerts batteryAlertsSettings `json:"batteryAlerts"`
-	Sounds        soundsSettings        `json:"sounds"`
-=======
 	DeckFrostEnabled bool                  `json:"deckFrostEnabled"`
 	DeckFrost        float64               `json:"deckFrost"`
 	General          generalSettings       `json:"general"`
@@ -189,7 +133,7 @@ type settings struct {
 	Controls         controlsSettings      `json:"controls"`
 	BatteryAlerts    batteryAlertsSettings `json:"batteryAlerts"`
 	Sounds           soundsSettings        `json:"sounds"`
->>>>>>> upstream
+	UrgentUpdates    urgentUpdatesSettings `json:"urgentUpdates"`
 }
 
 type generalSettings struct {
@@ -977,34 +921,6 @@ func resolveThemePalette(full map[string]any, themeName string) {
 func buildSettings(raw map[string]any, strict bool) (*settings, error) {
 	s := defaultSettings()
 	dst := map[string]any{
-<<<<<<< port
-		"deckFrost":     &s.DeckFrost,
-		"general":       &s.General,
-		"theme":         &s.Theme,
-		"bars":          &s.Bars,
-		"menus":         &s.Menus,
-		"notifications": &s.Notifications,
-		"wallpaper":     &s.Wallpaper,
-		"ask":           &s.Ask,
-		"phone":         &s.Phone,
-		"controls":      &s.Controls,
-		"batteryAlerts": &s.BatteryAlerts,
-		"sounds":        &s.Sounds,
-		"urgentUpdates": &s.UrgentUpdates,
-||||||| base
-		"deckFrost":     &s.DeckFrost,
-		"general":       &s.General,
-		"theme":         &s.Theme,
-		"bars":          &s.Bars,
-		"menus":         &s.Menus,
-		"notifications": &s.Notifications,
-		"wallpaper":     &s.Wallpaper,
-		"ask":           &s.Ask,
-		"phone":         &s.Phone,
-		"controls":      &s.Controls,
-		"batteryAlerts": &s.BatteryAlerts,
-		"sounds":        &s.Sounds,
-=======
 		"deckFrostEnabled": &s.DeckFrostEnabled,
 		"deckFrost":        &s.DeckFrost,
 		"general":          &s.General,
@@ -1018,7 +934,7 @@ func buildSettings(raw map[string]any, strict bool) (*settings, error) {
 		"controls":         &s.Controls,
 		"batteryAlerts":    &s.BatteryAlerts,
 		"sounds":           &s.Sounds,
->>>>>>> upstream
+		"urgentUpdates":    &s.UrgentUpdates,
 	}
 	for k, ptr := range dst {
 		raw, ok := raw[k]

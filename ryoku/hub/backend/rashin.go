@@ -51,29 +51,6 @@ func rashinInstalled() bool {
 	return err == nil
 }
 
-<<<<<<< port
-// rashinRemovable reports whether this host's desktop package lets Rashin go:
-// pacman lists it as an optional dependency, the RPM and XBPS desktops still
-// require it, so removing it there would take the desktop with it.
-func rashinRemovable() bool {
-	if nixManagedHost() {
-		return false
-	}
-	out, err := exec.Command("ryoku-host", "pkgmgr").Output()
-	return err == nil && strings.TrimSpace(string(out)) == "pacman"
-}
-
-||||||| base
-// rashinRemovable reports whether this host's desktop package lets Rashin go:
-// pacman lists it as an optional dependency, the RPM and XBPS desktops still
-// require it, so removing it there would take the desktop with it.
-func rashinRemovable() bool {
-	out, err := exec.Command("ryoku-host", "pkgmgr").Output()
-	return err == nil && strings.TrimSpace(string(out)) == "pacman"
-}
-
-=======
->>>>>>> upstream
 // privileged runs a ryoku-host verb as root through pkexec, so the polkit agent
 // asks for the password the way every other privileged Hub action does. Its
 // output goes to stderr: stdout is the page's JSON channel.
