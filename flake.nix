@@ -135,7 +135,7 @@
 
       ryokuNixosModule =
         import ./nix/modules/ryoku.nix {
-          inherit self hermesAgent;
+          inherit self hermesAgent ryokuUpstream;
           ryokuNixpkgs = pkgs;
         };
 
@@ -193,6 +193,14 @@
         };
         modules = [ ./nix/iso ];
       };
+
+      # Evaluation-only configuration: never activated by the installer.
+      nixosConfigurations.ryoku-iso-upstream-validation =
+        (mkIsoConfigSystem { }).extendModules {
+          modules = [
+            { programs.ryoku.upstreamPackages.enable = true; }
+          ];
+        };
 
       packages.${system} = {
         ryoku-upstream-desktop = ryokuUpstream.packages.${system}.ryoku-desktop;
