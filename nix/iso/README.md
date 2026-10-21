@@ -124,6 +124,13 @@ To build the newest `unstable-dev` without a checkout:
 nix build github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev#ryoku-iso
 ```
 
+## Automated builds
+
+The `NixOS ISO build` workflow builds the ISO on every push to `unstable-dev`
+(and `main`), boots it, and uploads it with its SHA-256 as a workflow artifact
+for 14 days. The `NixOS ISO` workflow runs the installer checks and the boot
+test on pull requests that touch the installer or the ISO.
+
 ## Tests
 
 - `checks.x86_64-linux.ryoku-iso-boot` boots the ISO with UEFI and with legacy
