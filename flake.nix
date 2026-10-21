@@ -139,6 +139,23 @@
           ryokuNixpkgs = pkgs;
         };
 
+      ryokuRepo = "github:Ryoku-dev/Ryoku-on-NixOS";
+
+      # Bootable Ryoku-on-NixOS live/install image. The live environment tracks
+      # the flake's nixos-unstable input; Ryoku-owned packages remain pinned to
+      # Ryoku's separate package universe. Both are locked by flake.lock.
+      # `channel` is the branch installed systems follow afterwards.
+      mkRyokuIso = channel: nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = {
+          inherit self ryokuInstall ryokuRepo;
+          ryokuIsoChannel = channel;
+          ryokuIsoNixpkgsRev = nixpkgs.rev or "";
+          ryokuIsoRyokuRev = self.rev or "";
+        };
+        modules = [ ./nix/iso ];
+      };
+
       mkIsoConfigSystem = {
         gpuVendors ? [ ],
         firmware ? "uefi",
@@ -165,7 +182,7 @@
               shell = "fish";
               optionalApps = [ "prompt" ];
               binaryCache = true;
-              ryokuSource = "github:aethctl/Ryoku-on-NixOS/main";
+              ryokuSource = "${ryokuRepo}/unstable-dev";
               nixpkgsSource = "github:NixOS/nixpkgs/nixos-unstable";
             };
           };
@@ -181,18 +198,9 @@
 
       nixosModules.default = ryokuNixosModule;
 
-      # Bootable Ryoku-on-NixOS live/install image. The live environment tracks
-      # the flake's nixos-unstable input; Ryoku-owned packages remain pinned to
-      # Ryoku's separate package universe. Both are locked by flake.lock.
-      nixosConfigurations.ryoku-iso = nixpkgs.lib.nixosSystem {
-        inherit system;
-        specialArgs = {
-          inherit self ryokuInstall;
-          ryokuIsoNixpkgsRev = nixpkgs.rev or "";
-          ryokuIsoRyokuRev = self.rev or "";
-        };
-        modules = [ ./nix/iso ];
-      };
+      # Installs follow unstable-dev; ryoku-iso-stable is for images built from main.
+      nixosConfigurations.ryoku-iso = mkRyokuIso "unstable-dev";
+      nixosConfigurations.ryoku-iso-stable = mkRyokuIso "main";
 
       # Evaluation-only configuration: never activated by the installer.
       nixosConfigurations.ryoku-iso-upstream-validation =
@@ -208,6 +216,7 @@
         ryoku-install = ryokuInstall;
         ryoku-install-backend = ryokuInstallBackend;
         ryoku-iso = self.nixosConfigurations.ryoku-iso.config.system.build.isoImage;
+        ryoku-iso-stable = self.nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage;
         ryoku-shell = ryoku.shell;
         ryoku-ui = ryoku.ui;
         ryoku-plugin-kit = ryoku.pluginKit;

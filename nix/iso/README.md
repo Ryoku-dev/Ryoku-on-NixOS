@@ -87,10 +87,12 @@ The canonical installed config comes from [`../iso-configs`](../iso-configs):
 ```
 
 Only `install-values.nix` and `hardware-configuration.nix` are machine-specific.
-The other files stay clean and user-editable. Release ISOs keep the normal
-`main` / `nixos-unstable` input URLs while the generated `flake.lock` pins both
-Ryoku and Nixpkgs to the exact revisions tested by the image. A later
-`nix flake update` therefore advances normally.
+The other files stay clean and user-editable. The installed `flake.nix` keeps
+moving branch URLs: `nixos-unstable` for Nixpkgs and the branch the ISO was
+built from for Ryoku (`unstable-dev` for `ryoku-iso`, `main` for
+`ryoku-iso-stable`). The generated `flake.lock` pins both to the exact revisions
+in the image, so a later `nix flake update` advances along that branch.
+`ryoku track stable|unstable` switches the branch afterwards.
 
 Rebuild an installed system with:
 
@@ -106,4 +108,13 @@ From the repository root:
 nix build .#ryoku-iso
 ```
 
-The resulting ISO is under `result/iso/`.
+The resulting ISO is under `result/iso/`. Its name carries the channel and the
+source revision, for example
+`ryoku-nixos-0.103.5-beta.20-unstable-dev-586140e-x86_64-linux.iso`.
+`.#ryoku-iso-stable` builds the same image for installs that follow `main`.
+
+To build the newest `unstable-dev` without a checkout:
+
+```bash
+nix build github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev#ryoku-iso
+```
