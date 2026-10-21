@@ -156,6 +156,24 @@
         modules = [ ./nix/iso ];
       };
 
+      # The release ISO plus NixOS' test instrumentation, which only adds the
+      # test driver's backdoor shell. A faster squashfs level keeps CI short.
+      ryokuTestIso = self.nixosConfigurations.ryoku-iso.extendModules {
+        modules = [
+          "${nixpkgs}/nixos/modules/testing/test-instrumentation.nix"
+          { isoImage.squashfsCompression = "zstd -Xcompression-level 6"; }
+        ];
+      };
+
+      isoPkgs = nixpkgs.legacyPackages.${system};
+
+      ryokuIsoTestArgs = {
+        pkgs = isoPkgs;
+        isoSystem = ryokuTestIso;
+        source = if self ? rev then "${ryokuRepo}/${self.rev}" else "path:/etc/ryoku/source";
+        track = "${ryokuRepo}/unstable-dev";
+      };
+
       mkIsoConfigSystem = {
         gpuVendors ? [ ],
         firmware ? "uefi",
@@ -413,6 +431,8 @@
           pkgs.runCommand "ryoku-iso-configs-check" { } ''
             touch "$out"
           '';
+
+        ryoku-iso-boot = import ./nix/tests/iso-boot.nix ryokuIsoTestArgs;
 
         ryoku-installer-wrapper = import ./nix/tests/installer-wrapper.nix {
           inherit pkgs;
