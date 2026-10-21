@@ -128,8 +128,11 @@ nix build github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev#ryoku-iso
 
 The `NixOS ISO build` workflow builds the ISO on every push to `unstable-dev`
 (and `main`), boots it, and uploads it with its SHA-256 as a workflow artifact
-for 14 days. The `NixOS ISO` workflow runs the installer checks and the boot
-test on pull requests that touch the installer or the ISO.
+for 14 days. On the same pushes it builds `.#ryoku-install-closure`, what a
+default guided install needs, and pushes it to the Ryotunes Cachix cache. The
+installer already trusts that cache, so installs download Ryoku's own packages
+instead of compiling them. The `NixOS ISO` workflow runs the installer checks
+and the boot test on pull requests that touch the installer or the ISO.
 
 ## Tests
 
