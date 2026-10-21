@@ -1,5 +1,19 @@
-{ self, pkgs, lib, modulesPath, ryokuIsoNixpkgsRev ? "", ryokuIsoRyokuRev ? "", ... }:
+{
+  self,
+  pkgs,
+  lib,
+  modulesPath,
+  ryokuRepo,
+  ryokuIsoChannel ? "unstable-dev",
+  ryokuIsoNixpkgsRev ? "",
+  ryokuIsoRyokuRev ? "",
+  ...
+}:
 
+let
+  # Release images carry their Git revision; dirty development trees do not.
+  sourceLabel = self.shortRev or self.dirtyShortRev or "dirty";
+in
 {
   imports = [
     "${modulesPath}/installer/cd-dvd/installation-cd-base.nix"
@@ -11,7 +25,7 @@
   networking.hostName = "ryoku-live";
 
   image.baseName = lib.mkForce
-    "ryoku-nixos-${self.lib.version}-${pkgs.stdenv.hostPlatform.system}";
+    "ryoku-nixos-${self.lib.version}-${ryokuIsoChannel}-${sourceLabel}-${pkgs.stdenv.hostPlatform.system}";
 
   isoImage = {
     volumeID = lib.mkForce "RYOKU_NIXOS";
@@ -52,8 +66,12 @@
     # uncommitted code in the image.
     RYOKU_INSTALL_TARGET_SOURCE =
       if ryokuIsoRyokuRev != ""
-      then "github:aethctl/Ryoku-on-NixOS/${ryokuIsoRyokuRev}"
+      then "${ryokuRepo}/${ryokuIsoRyokuRev}"
       else "path:/etc/ryoku/source";
+
+    # The installed flake follows the branch this image was built from, so
+    # `nix flake update` on an unstable-dev install stays on unstable-dev.
+    RYOKU_INSTALL_TARGET_TRACK = "${ryokuRepo}/${ryokuIsoChannel}";
 
     RYOKU_INSTALL_NIXPKGS_SOURCE =
       if ryokuIsoNixpkgsRev != ""

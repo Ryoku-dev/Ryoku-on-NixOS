@@ -55,20 +55,20 @@ class ISOInstallerTests(unittest.TestCase):
     def test_explicit_source_overrides_iso_target_environment(self):
         env = dict(
             os.environ,
-            RYOKU_INSTALL_TARGET_SOURCE="github:aethctl/Ryoku-on-NixOS/pinned-release",
+            RYOKU_INSTALL_TARGET_SOURCE="github:Ryoku-dev/Ryoku-on-NixOS/pinned-release",
         )
         result = self.run_backend(
             "--iso", "--dry-run", "--yes",
-            "--source", "github:aethctl/Ryoku-on-NixOS/unstable-dev",
+            "--source", "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev",
             "--disk", "/dev/vda", "--confirm-disk", "/dev/vda",
             "--gpu", "none",
             env=env,
         )
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
-        self.assertIn("Ryoku      github:aethctl/Ryoku-on-NixOS/unstable-dev", output)
+        self.assertIn("Ryoku      github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev", output)
         self.assertIn(
-            'ryokuSource = "github:aethctl/Ryoku-on-NixOS/unstable-dev"',
+            'ryokuSource = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev"',
             output,
         )
         self.assertNotIn("pinned-release", output)
@@ -102,7 +102,7 @@ class ISOInstallerTests(unittest.TestCase):
     def test_dry_run_uses_canonical_iso_configs(self):
         env = dict(
             os.environ,
-            RYOKU_INSTALL_TARGET_SOURCE="github:aethctl/Ryoku-on-NixOS/deadbeef",
+            RYOKU_INSTALL_TARGET_SOURCE="github:Ryoku-dev/Ryoku-on-NixOS/deadbeef",
             RYOKU_INSTALL_NIXPKGS_SOURCE="github:NixOS/nixpkgs/cafebabe",
         )
         result = self.run_backend(
@@ -155,8 +155,9 @@ class ISOInstallerTests(unittest.TestCase):
         # tested revisions in flake.lock with --override-input instead.
         self.assertIn("nixosConfigurations.ryoku", output)
         self.assertIn('nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"', output)
-        self.assertIn('ryoku.url = "github:aethctl/Ryoku-on-NixOS/main"', output)
-        self.assertIn('ryokuSource = "github:aethctl/Ryoku-on-NixOS/deadbeef"', output)
+        self.assertIn('ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/main"', output)
+        self.assertIn("Follows    github:Ryoku-dev/Ryoku-on-NixOS/main", output)
+        self.assertIn('ryokuSource = "github:Ryoku-dev/Ryoku-on-NixOS/deadbeef"', output)
         self.assertIn('nixpkgsSource = "github:NixOS/nixpkgs/cafebabe"', output)
         self.assertIn("./ryoku.nix", output)
         self.assertIn("./configuration.nix", output)
@@ -280,10 +281,32 @@ class ISOInstallerTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, output)
             self.assertIn("filesystem/disk declarations outside hardware-configuration.nix", output)
 
+    def test_installed_flake_follows_iso_track(self):
+        env = dict(
+            os.environ,
+            RYOKU_INSTALL_TARGET_SOURCE="github:Ryoku-dev/Ryoku-on-NixOS/deadbeef",
+            RYOKU_INSTALL_TARGET_TRACK="github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev",
+        )
+        result = self.run_backend(
+            "--iso", "--dry-run", "--yes",
+            "--disk", "/dev/vda", "--confirm-disk", "/dev/vda",
+            "--gpu", "none",
+            env=env,
+        )
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        # flake.nix follows the ISO's branch; the lock step pins deadbeef.
+        self.assertIn('ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";', output)
+        self.assertIn("Ryoku      github:Ryoku-dev/Ryoku-on-NixOS/deadbeef", output)
+        self.assertIn("Follows    github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev", output)
+        self.assertIn('ryokuSource = "github:Ryoku-dev/Ryoku-on-NixOS/deadbeef"', output)
+        self.assertNotIn("Ryoku-on-NixOS/main", output)
+
     def test_live_iso_source_is_rebased_into_target_flake(self):
         env = dict(
             os.environ,
             RYOKU_INSTALL_TARGET_SOURCE="path:/etc/ryoku/source",
+            RYOKU_INSTALL_TARGET_TRACK="github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev",
         )
         result = self.run_backend(
             "--iso",
@@ -300,6 +323,7 @@ class ISOInstallerTests(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
         self.assertIn('ryoku.url = "path:./ryoku-source"', output)
+        self.assertIn("Follows    path:./ryoku-source", output)
         self.assertIn('ryokuSource = "path:./ryoku-source"', output)
         self.assertNotIn('ryoku.url = "path:/etc/ryoku/source"', output)
 

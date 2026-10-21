@@ -36,7 +36,7 @@ NIX
     output="$(${installer}/bin/ryoku-install \
       --cli \
       --flake "$fixture#host" \
-      --source github:aethctl/Ryoku-on-NixOS/main \
+      --source github:Ryoku-dev/Ryoku-on-NixOS/main \
       --compositor niri \
       --browser firefox \
       --shell zsh \
