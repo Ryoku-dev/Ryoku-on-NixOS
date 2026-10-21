@@ -2,6 +2,8 @@
   description = "Nix packaging for the Ryoku desktop";
 
   inputs = {
+    ryokuUpstream.url = "github:Ryoku-dev/ryoku/unstable-dev";
+
     # Compatibility input for existing consumers which follow their host
     # nixpkgs. Ryoku-owned packages deliberately do not build from this input.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -54,7 +56,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, ryokuPackagesNixpkgs, glazepkg, hermesAgent, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ryomanagerSrc, ryotunesSrc, ... }:
+  outputs = { self, ryokuUpstream, nixpkgs, ryokuPackagesNixpkgs, glazepkg, hermesAgent, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ryomanagerSrc, ryotunesSrc, ... }:
     let
       version =
         builtins.replaceStrings
@@ -115,6 +117,20 @@
       ryokuInstall = import ./nix/apps/ryoku-install.nix {
         inherit pkgs;
         backend = ryokuInstallBackend;
+      };
+
+      # Temporary composition test for the cross-repository migration.
+      # The active NixOS module continues using the existing package set.
+      ryokuUpstreamNixosBundle = pkgs.symlinkJoin {
+        name = "ryoku-upstream-nixos-bundle";
+
+        # The NixOS bridge must take precedence over upstream
+        # helpers with the same executable names.
+        paths = [
+          ryoku.nixosSystemBridge
+          ryoku.nixUpdate
+          ryokuUpstream.packages.${system}.ryoku-desktop
+        ];
       };
 
       ryokuNixosModule =
@@ -179,6 +195,8 @@
       };
 
       packages.${system} = {
+        ryoku-upstream-desktop = ryokuUpstream.packages.${system}.ryoku-desktop;
+        ryoku-upstream-nixos-bundle = ryokuUpstreamNixosBundle;
         ryoku-install = ryokuInstall;
         ryoku-install-backend = ryokuInstallBackend;
         ryoku-iso = self.nixosConfigurations.ryoku-iso.config.system.build.isoImage;
