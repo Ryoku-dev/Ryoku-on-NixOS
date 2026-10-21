@@ -2,7 +2,7 @@
   description = "Nix packaging for the Ryoku desktop";
 
   inputs = {
-    ryokuUpstream.url = "github:Ryoku-dev/ryoku/b6120bd747b20556dd120c082fa6abe93787a0d7";
+    ryokuUpstream.url = "github:Ryoku-dev/ryoku/unstable-dev";
 
     # Compatibility input for existing consumers which follow their host
     # nixpkgs. Ryoku-owned packages deliberately do not build from this input.
