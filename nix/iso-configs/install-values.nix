@@ -39,6 +39,6 @@
     "mise"
   ];
 
-  ryokuSource = "github:aethctl/Ryoku-on-NixOS/main";
+  ryokuSource = "github:Ryoku-dev/Ryoku-on-NixOS/main";
   nixpkgsSource = "github:NixOS/nixpkgs/nixos-unstable";
 }

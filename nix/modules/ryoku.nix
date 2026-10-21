@@ -1084,6 +1084,19 @@ in
       '';
     };
 
+    graphics.matchRyokuMesa = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+
+      description = ''
+        Use Mesa from Ryoku's package set as the system OpenGL and Vulkan
+        driver. Ryoku's compositors come from that package set and load the
+        system driver; a Mesa built against a newer glibc than Ryoku's makes
+        Hyprland fail at startup. Enable this when the host nixpkgs is newer
+        than Ryoku's, as on systems installed from the Ryoku ISO.
+      '';
+    };
+
     binaryCache.enable = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -1604,8 +1617,11 @@ in
         "default.target"
       ];
 
+      # Per-user units start for every user manager, including the display
+      # manager's system account. Run them for real users only.
       unitConfig = {
         ConditionPathExistsGlob = "/sys/class/bluetooth/*";
+        ConditionUser = "!@system";
       };
 
       serviceConfig = {
@@ -1671,6 +1687,11 @@ in
     environment.systemPackages =
       runtimePackages;
 
+
+    hardware.graphics = lib.mkIf cfg.graphics.matchRyokuMesa {
+      package = ryokuNixpkgs.mesa;
+      package32 = ryokuNixpkgs.pkgsi686Linux.mesa;
+    };
 
     # A fresh installer can choose the initial compositor while all three
     # remain available for runtime switching. Manual integrations leave this
@@ -1981,8 +2002,11 @@ in
         RYOKU_UPDATE_BACKEND = "nix";
       };
 
+      # SDDM's greeter account would otherwise take 127.0.0.1:3600 first and
+      # leave the user's daemon restarting on "address already in use".
       unitConfig = {
         StartLimitIntervalSec = 0;
+        ConditionUser = "!@system";
       };
 
       serviceConfig = {
@@ -2028,6 +2052,8 @@ in
       wantedBy = [
         "timers.target"
       ];
+
+      unitConfig.ConditionUser = "!@system";
 
       timerConfig = {
         OnBootSec = "2min";
@@ -2108,6 +2134,8 @@ in
       wantedBy = [
         "sockets.target"
       ];
+
+      unitConfig.ConditionUser = "!@system";
 
       socketConfig = {
         ListenStream = "%t/ryotunes/ryotunesd.sock";

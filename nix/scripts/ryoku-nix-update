@@ -739,7 +739,7 @@ track_nix() {
         die "no flake.nix found at $flake_root"
 
     host="$(resolve_host)"
-    source="github:aethctl/Ryoku-on-NixOS/$branch"
+    source="github:Ryoku-dev/Ryoku-on-NixOS/$branch"
 
     nix_bin="$(command -v nix)"
     nixos_rebuild_bin="$(command -v nixos-rebuild)"

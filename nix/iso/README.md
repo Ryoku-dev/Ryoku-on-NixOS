@@ -87,10 +87,17 @@ The canonical installed config comes from [`../iso-configs`](../iso-configs):
 ```
 
 Only `install-values.nix` and `hardware-configuration.nix` are machine-specific.
-The other files stay clean and user-editable. Release ISOs keep the normal
-`main` / `nixos-unstable` input URLs while the generated `flake.lock` pins both
-Ryoku and Nixpkgs to the exact revisions tested by the image. A later
-`nix flake update` therefore advances normally.
+The other files stay clean and user-editable. The installed `flake.nix` keeps
+moving branch URLs: `nixos-unstable` for Nixpkgs and the branch the ISO was
+built from for Ryoku (`unstable-dev` for `ryoku-iso`, `main` for
+`ryoku-iso-stable`). The generated `flake.lock` pins both to the exact revisions
+in the image, so a later `nix flake update` advances along that branch.
+`ryoku track stable|unstable` switches the branch afterwards.
+
+`ryoku.nix` also enables `programs.ryoku.graphics.matchRyokuMesa`. The
+installed system's nixpkgs is newer than Ryoku's own package set, and Ryoku's
+compositors crash at startup when they load a Mesa built against a newer glibc,
+so the system's GL driver comes from Ryoku's set.
 
 Rebuild an installed system with:
 
@@ -106,4 +113,38 @@ From the repository root:
 nix build .#ryoku-iso
 ```
 
-The resulting ISO is under `result/iso/`.
+The resulting ISO is under `result/iso/`. Its name carries the channel and the
+source revision, for example
+`ryoku-nixos-0.103.5-beta.20-unstable-dev-586140e-x86_64-linux.iso`.
+`.#ryoku-iso-stable` builds the same image for installs that follow `main`.
+
+To build the newest `unstable-dev` without a checkout:
+
+```bash
+nix build github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev#ryoku-iso
+```
+
+## Automated builds
+
+The `NixOS ISO build` workflow builds the ISO on every push to `unstable-dev`
+(and `main`), boots it, and uploads it with its SHA-256 as a workflow artifact
+for 14 days. On the same pushes it builds `.#ryoku-install-closure`, what a
+default guided install needs, and pushes it to the Ryotunes Cachix cache. The
+installer already trusts that cache, so installs download Ryoku's own packages
+instead of compiling them. The `NixOS ISO` workflow runs the installer checks
+and the boot test on pull requests that touch the installer or the ISO.
+
+## Tests
+
+- `checks.x86_64-linux.ryoku-iso-boot` boots the ISO with UEFI and with legacy
+  BIOS, checks that the guided installer opens on tty1, verifies the live
+  store, and checks that an unattended dry run renders a flake that follows
+  the ISO's branch. It runs offline in the build sandbox.
+- `nix run .#ryoku-iso-install-test` installs Ryoku from the ISO onto an empty
+  VM disk, boots the result, logs in through the qylock SDDM greeter and checks
+  that Hyprland and niri start with the Ryoku shell. It needs KVM, network and
+  a host GPU render node (the installed desktop renders through virgl) and
+  takes about an hour; `RYOKU_VM_CORES` and `RYOKU_VM_MEMORY` (MiB) size the VM.
+
+Both tests use the release image plus NixOS' test instrumentation, which only
+adds the test driver's backdoor shell, packed with a faster squashfs level.

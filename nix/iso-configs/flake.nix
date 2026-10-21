@@ -2,11 +2,12 @@
   description = "Ryoku on NixOS";
 
   inputs = {
-    # Keep normal moving branch URLs here. The installer writes a lock file
-    # pinned to the exact revisions tested by the ISO, so future `nix flake
-    # update` calls can advance normally instead of pinning users forever.
+    # Keep normal moving branch URLs here. The installer points ryoku.url at
+    # the branch the ISO was built from and writes a lock file pinned to the
+    # exact revisions tested by the ISO, so future `nix flake update` calls can
+    # advance normally instead of pinning users forever.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    ryoku.url = "github:aethctl/Ryoku-on-NixOS/main";
+    ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/main";
   };
 
   outputs = { nixpkgs, ryoku, ... }@inputs:
