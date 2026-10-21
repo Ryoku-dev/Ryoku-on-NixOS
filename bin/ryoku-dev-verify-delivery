@@ -22,7 +22,8 @@ cd "$repo"
 
 # delivery paths: the package base config, the installer's one-time seeds, and
 # the dev deploy. an app config is "delivered" if any of them references it.
-sources=(release/packages/*/PKGBUILD installation/backend/lib/deploy.sh ryoku/shell/deploy.sh)
+# On NixOS the packages under nix/ lay the configs, so they count as delivery paths too.
+sources=(release/packages/*/PKGBUILD installation/backend/lib/deploy.sh ryoku/shell/deploy.sh nix/packages/*.nix)
 
 # delivered = the file, or any ancestor dir up to apps/, is named by a delivery
 # path. a wholesale `cp -a apps/foo/.` ships every file under foo, so a match on
