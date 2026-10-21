@@ -56,7 +56,20 @@ PanelWindow {
     property bool mapped: false
 
     screen: modelData
-    visible: mapped && Config.barStyle !== "nacre"
+    readonly property bool tansuOwnsNotifications: {
+        if (BarProducts.sceneUrl("tansu") === "")
+            return false
+
+        for (const screen of Quickshell.screens) {
+            if (screen && screen.name
+                    && Tokens.barEnabledFor(screen.name)
+                    && Config.barStyleFor(screen.name) === "tansu")
+                return true
+        }
+        return false
+    }
+
+    visible: mapped && Config.barStyle !== "nacre" && !tansuOwnsNotifications
     color: "transparent"
     // Exclusive zone 0: reserve nothing, respect other layers' zones (contract
     // 12 sec 1). ExclusionMode.Ignore would request -1 instead.
