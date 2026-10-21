@@ -1,6 +1,6 @@
 # Ryoku on NixOS system configuration.
 # Help: https://search.nixos.org/options
-# Ryoku: https://github.com/Ryoku-dev/Ryoku-on-NixOS
+# Ryoku: https://github.com/aethctl/Ryoku-on-NixOS
 
 { lib, pkgs, install, ... }:
 

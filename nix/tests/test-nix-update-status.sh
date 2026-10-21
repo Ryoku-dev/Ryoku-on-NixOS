@@ -42,8 +42,8 @@ cat >"$work/flake/flake.lock" <<'JSON'
   "nodes": {
     "root": { "inputs": { "ryoku": "ryoku" } },
     "ryoku": {
-      "locked": { "type": "github", "owner": "Ryoku-dev", "repo": "Ryoku-on-NixOS", "rev": "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-      "original": { "type": "github", "owner": "Ryoku-dev", "repo": "Ryoku-on-NixOS", "ref": "unstable-dev" }
+      "locked": { "type": "github", "owner": "aethctl", "repo": "Ryoku-on-NixOS", "rev": "0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+      "original": { "type": "github", "owner": "aethctl", "repo": "Ryoku-on-NixOS", "ref": "unstable-dev" }
     }
   },
   "root": "root",
@@ -51,7 +51,7 @@ cat >"$work/flake/flake.lock" <<'JSON'
 }
 JSON
 out=$(status)
-[ "$(jq -r .repository <<<"$out")" = Ryoku-dev/Ryoku-on-NixOS ] || fail "github input: repository in $out"
+[ "$(jq -r .repository <<<"$out")" = aethctl/Ryoku-on-NixOS ] || fail "github input: repository in $out"
 [ "$(jq -r .installedRev <<<"$out")" = 0000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ] || fail "github input: installedRev in $out"
 [ "$(jq -r .latestRev <<<"$out")" = 4444444dddddddddddddddddddddddddddddddd ] || fail "github input: latestRev in $out"
 [ "$(jq -r .available <<<"$out")" = true ] || fail "github input: a moved branch is an update: $out"

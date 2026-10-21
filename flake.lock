@@ -417,13 +417,13 @@
       "locked": {
         "lastModified": 1792184455,
         "narHash": "sha256-69+vyEh4V/YqqAGNScnjA0I92qdSyxHeQJqcNIbgMMg=",
-        "owner": "Ryoku-dev",
+        "owner": "aethctl",
         "repo": "ryomanager",
         "rev": "459c6714e31276f73025369e722cf4ab48eccbc3",
         "type": "github"
       },
       "original": {
-        "owner": "Ryoku-dev",
+        "owner": "aethctl",
         "repo": "ryomanager",
         "rev": "459c6714e31276f73025369e722cf4ab48eccbc3",
         "type": "github"
