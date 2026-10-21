@@ -182,6 +182,7 @@
         nvidiaBranch ? "stable",
         nvidiaOpen ? true,
         kernel ? "default",
+        optionalApps ? [ "prompt" ],
       }:
         nixpkgs.lib.nixosSystem {
           inherit system;
@@ -200,7 +201,7 @@
               compositor = "hyprland";
               browser = "chromium";
               shell = "fish";
-              optionalApps = [ "prompt" ];
+              inherit optionalApps;
               binaryCache = true;
               ryokuSource = "${ryokuRepo}/unstable-dev";
               nixpkgsSource = "github:NixOS/nixpkgs/nixos-unstable";
@@ -237,6 +238,18 @@
         ryoku-install-backend = ryokuInstallBackend;
         ryoku-iso = self.nixosConfigurations.ryoku-iso.config.system.build.isoImage;
         ryoku-iso-stable = self.nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage;
+
+        # What a default guided install builds: every compositor and the
+        # installer's preselected optional apps. CI pushes it to the binary
+        # cache so installs download Ryoku's own packages instead of compiling.
+        ryoku-install-closure = (mkIsoConfigSystem {
+          optionalApps = [
+            "prompt" "bash-edit" "fastfetch" "yazi" "cli-tools" "git-tools"
+            "pavucontrol" "songrec" "openrgb" "upscale" "localsend"
+            "gamescope" "gamemode" "mangohud" "vm" "docker" "flatpak"
+            "go" "pytools" "mise"
+          ];
+        }).config.system.build.toplevel;
         ryoku-shell = ryoku.shell;
         ryoku-ui = ryoku.ui;
         ryoku-plugin-kit = ryoku.pluginKit;
