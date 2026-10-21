@@ -15,7 +15,7 @@ import (
 // record`), pins the Whisper engine + model, and manages the user service.
 // Models download and remove in-process, so the Hub never shells out to a
 // terminal. Only engines that work without a root binary swap are offered:
-// local Whisper and Whisper through an OpenAI-compatible API.
+// local Whisper, the installed Redux adapter, and a remote Whisper API.
 //
 //	ryoku-hub voxtype get             presets + current state as JSON
 //	ryoku-hub voxtype set <json>      apply a preset (writes config, manages service)
@@ -45,12 +45,10 @@ type voxtypePreset struct {
 	lang  string // whisper language
 }
 
-// The curated set. Every entry uses the default Whisper binary, so selecting one
-// never needs sudo or a binary swap. Parakeet and the ONNX engines are omitted:
-// switching to them rewrites the root-owned /usr/bin/voxtype symlink, which the
-// Hub cannot do without a terminal sudo prompt.
+// The curated set uses stock Voxtype without a privileged binary swap.
+// Redux is offered when the separately installed resident adapter is available.
 func voxtypePresets() []voxtypePreset {
-	return []voxtypePreset{
+	presets := []voxtypePreset{
 		{Key: "whisper-tiny-en", Label: "Tiny English", Provider: "Whisper", Detail: "English only. The smallest and fastest local model.", Size: "39 MB", SizeBytes: 39_000_000, Group: "english", Language: "English", Speed: "fastest", model: "tiny.en", lang: "en"},
 		{Key: "whisper-fast", Label: "Base English", Provider: "Whisper", Detail: "English only. A quick everyday model with a little more accuracy.", Size: "142 MB", SizeBytes: 142_000_000, Group: "english", Language: "English", Speed: "fast", model: "base.en", lang: "en"},
 		{Key: "whisper-small-en", Label: "Small English", Provider: "Whisper", Detail: "English only. The best balance of speed and accuracy for English dictation.", Size: "466 MB", SizeBytes: 466_000_000, Group: "english", Language: "English", Speed: "balanced", model: "small.en", lang: "en"},
@@ -59,6 +57,18 @@ func voxtypePresets() []voxtypePreset {
 		{Key: "whisper-accurate", Label: "Large Turbo", Provider: "Whisper", Detail: "Fast, high-accuracy multilingual dictation for more capable hardware.", Size: "1.6 GB", SizeBytes: 1_600_000_000, Group: "multilingual", Language: "99+ languages", Speed: "fast + accurate", model: "large-v3-turbo", lang: "auto"},
 		{Key: "openai", Label: "OpenAI API", Provider: "OpenAI", Detail: "Cloud Whisper through OpenAI's API. Needs a key; audio leaves your machine.", Size: "cloud", Group: "cloud", Language: "99+ languages", Speed: "cloud", Cloud: true, KeyKind: "openai", model: "whisper-1", lang: "en"},
 	}
+	if hostUsesSystemd() {
+		redux := voxtypePreset{Key: reduxPresetKey, Label: "Redux Multilingual + Adapter", Provider: "Parakeet", Detail: "Fast everyday dictation across 25 European languages using the Voxtype Redux adapter.", Size: "213 MB + runtime", SizeBytes: 213_319_296, Group: "multilingual", Language: "25 languages", Speed: "fast", model: "redux-packed.gguf", lang: "auto"}
+		for i, p := range presets {
+			if p.Key == "whisper-medium" {
+				presets = append(presets, voxtypePreset{})
+				copy(presets[i+1:], presets[i:])
+				presets[i] = redux
+				break
+			}
+		}
+	}
+	return presets
 }
 
 func presetByKey(k string) (voxtypePreset, bool) {
@@ -91,6 +101,9 @@ func voxtypeUnitPath() string {
 
 // whisper models land in ~/.local/share/voxtype/models as ggml-<model>.bin.
 func modelFilePath(p voxtypePreset) string {
+	if p.Key == reduxPresetKey {
+		return reduxModelPath()
+	}
 	return filepath.Join(dataHome(), "voxtype", "models", "ggml-"+p.model+".bin")
 }
 
@@ -128,6 +141,12 @@ func voxtypeGet() error {
 	presets := voxtypePresets()
 	for i := range presets {
 		presets[i].Present = presets[i].Cloud || fileExists(modelFilePath(presets[i]))
+		if presets[i].Key == reduxPresetKey {
+			presets[i].Present = reduxInstalled()
+			if info, err := os.Stat(reduxModelPath()); err == nil {
+				presets[i].Size = fmt.Sprintf("%d MB + adapter", info.Size()/1_000_000)
+			}
+		}
 	}
 	available, reason := voxtypePackageAvailability()
 	out := map[string]any{
@@ -166,6 +185,9 @@ func voxtypeSet(arg string) error {
 	if !ok {
 		return fmt.Errorf("unknown preset: %s", req.Preset)
 	}
+	if p.Key == reduxPresetKey && !reduxInstalled() {
+		return fmt.Errorf("install Redux and its adapter from the model card first")
+	}
 	openaiKey := req.OpenAIKey
 	if openaiKey == "" {
 		openaiKey = extractConfigString(readFileString(voxtypeConfigPath()), "remote_api_key")
@@ -173,12 +195,28 @@ func voxtypeSet(arg string) error {
 	if err := atomicWrite(voxtypeConfigPath(), []byte(buildVoxtypeConfig(p, openaiKey)), 0o600); err != nil {
 		return err
 	}
+	if err := configureReduxService(p.Key == reduxPresetKey, req.Enabled); err != nil {
+		return err
+	}
 	if req.Enabled {
 		ensureVoxtypeUnit()
-		_ = userService("enable", "voxtype")
-		_ = userService("restart", "voxtype")
+		if err := userService("enable", "voxtype"); err != nil {
+			return err
+		}
+		if err := userService("restart", "voxtype"); err != nil {
+			return err
+		}
 	} else {
-		_ = userService("disable", "--now", "voxtype")
+		if err := userService("disable", "--now", "voxtype"); err != nil {
+			return err
+		}
+	}
+	if p.Key != reduxPresetKey || !req.Enabled {
+		if reduxInstalled() {
+			if err := userService("disable", "--now", "voxtype-redux"); err != nil {
+				return err
+			}
+		}
 	}
 	fmt.Println("ok")
 	return nil
@@ -211,18 +249,44 @@ func voxtypeDownload(key string) error {
 	if !ok {
 		return fmt.Errorf("unknown preset: %s", key)
 	}
+	if p.Key == reduxPresetKey {
+		if reduxInstalled() {
+			return nil
+		}
+		return runReduxSetup("install")
+	}
 	if p.Cloud || p.model == "" {
 		return fmt.Errorf("%s has no downloadable model", key)
 	}
-	cmd := exec.Command("voxtype", "setup", "--download", "--model", p.model, "--no-post-install")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	target := modelFilePath(p)
+	if fileExists(target) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return err
 	}
-	if !fileExists(modelFilePath(p)) {
-		return fmt.Errorf("voxtype did not create %s", modelFilePath(p))
+	stage, err := os.MkdirTemp(filepath.Dir(target), ".ryoku-model-install-")
+	if err != nil {
+		return err
 	}
+	defer os.RemoveAll(stage)
+	cmd := exec.Command("voxtype", "setup", "--download", "--model", p.model, "--no-post-install")
+	cmd.Env = append(os.Environ(), "XDG_DATA_HOME="+stage)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := runCancelableInstall(cmd); err != nil {
+		return err
+	}
+	downloaded := filepath.Join(stage, "voxtype", "models", filepath.Base(target))
+	if !fileExists(downloaded) {
+		return fmt.Errorf("voxtype did not create %s", downloaded)
+	}
+	// Same filesystem, atomic and exclusive; a canceled transfer never becomes
+	// an installed model and an existing user model is never overwritten.
+	if err := os.Link(downloaded, target); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -231,6 +295,9 @@ func voxtypeRmModel(key string) error {
 	p, ok := presetByKey(key)
 	if !ok {
 		return fmt.Errorf("unknown preset: %s", key)
+	}
+	if p.Key == reduxPresetKey {
+		return removeRedux()
 	}
 	if p.Cloud {
 		return fmt.Errorf("%s has no local model", key)
@@ -255,9 +322,19 @@ func buildVoxtypeConfig(p voxtypePreset, openaiKey string) string {
 	fmt.Fprintf(&b, "# ryoku-preset: %s\n\n", p.Key)
 	b.WriteString("state_file = \"auto\"\n\n")
 	b.WriteString("[hotkey]\nenabled = false\n\n")
-	b.WriteString("[audio]\ndevice = \"default\"\nsample_rate = 16000\nmax_duration_secs = 60\npause_media = true\n\n")
+	duration := 60
+	if p.Key == reduxPresetKey {
+		duration = 120
+	}
+	fmt.Fprintf(&b, "[audio]\ndevice = \"default\"\nsample_rate = 16000\nmax_duration_secs = %d\npause_media = true\n\n", duration)
 	b.WriteString("[whisper]\n")
-	if p.Cloud {
+	if p.Key == reduxPresetKey {
+		b.WriteString("mode = \"cli\"\n")
+		fmt.Fprintf(&b, "whisper_cli_path = %q\nmodel = %q\nlanguage = \"auto\"\ntranslate = false\n", reduxAdapterPath(), reduxModelPath())
+		if openaiKey != "" {
+			fmt.Fprintf(&b, "remote_api_key = %q\n", openaiKey)
+		}
+	} else if p.Cloud {
 		b.WriteString("mode = \"remote\"\n")
 		b.WriteString("model = \"base.en\"\n")
 		b.WriteString("language = \"en\"\n")

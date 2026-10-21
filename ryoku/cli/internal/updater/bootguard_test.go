@@ -481,6 +481,7 @@ func setupDNFReleaseHost(t *testing.T) string {
 	home := isolateHome(t)
 	t.Setenv("RYOKU_HOST_PKGMGR", "dnf")
 	t.Setenv("RYOKU_RELEASE_BASE", "")
+	t.Setenv("RYOKU_DNF_CACHE_DIR", t.TempDir())
 	osRelease := filepath.Join(home, "os-release")
 	if err := os.WriteFile(osRelease, []byte("ID=fedora\nVERSION_ID=44\n"), 0o644); err != nil {
 		t.Fatal(err)

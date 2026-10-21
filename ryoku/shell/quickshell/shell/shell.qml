@@ -316,9 +316,11 @@ ShellRoot {
 
             // The dock's right-click context menu: a full-screen overlay on the
             // monitor that owns the open menu (the thin dock strip cannot host it).
+            // The Ryoku design and docks installed from RyoStore share it.
             LazyLoader {
                 id: dockMenuLoader
-                property bool open: Dock.design === "ryoku" && Dock.menuOpen && Dock.menuScreen === perScreen.modelData.name
+                property bool open: (Dock.design === "ryoku" || Dock.storeDesign)
+                    && Dock.menuOpen && Dock.menuScreen === perScreen.modelData.name
                 activeAsync: open || dockMenuHold.running
                 onOpenChanged: if (!open && active) dockMenuHold.restart()
                 DockMenuOverlay {

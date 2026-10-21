@@ -31,4 +31,18 @@ function resolve(pinned, activeClients) {
     return result;
 }
 
-if (typeof module !== "undefined" && module.exports) module.exports = { pin, unpin, resolve };
+// A RyoStore dock's runtime root: the Dock.qml inside the view its docks.json
+// row names, as a file URL. A malformed row, or one whose view is not its own
+// (dock-views/<id>/<digest>), names nothing.
+const STORE_VIEW = /^dock-views\/([a-z0-9]+(?:-[a-z0-9]+)*)\/[a-f0-9]{64}$/;
+
+function storeDesignUrl(rows, id, stateRoot) {
+    for (const row of Array.isArray(rows) ? rows : []) {
+        const match = STORE_VIEW.exec(String(row && row.view || ""));
+        if (row && row.id === id && match && match[1] === id && String(row.version || "") !== "")
+            return "file://" + stateRoot + "/" + row.view + "/Dock.qml";
+    }
+    return "";
+}
+
+if (typeof module !== "undefined" && module.exports) module.exports = { pin, unpin, resolve, storeDesignUrl };

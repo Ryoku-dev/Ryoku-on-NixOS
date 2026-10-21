@@ -390,6 +390,74 @@ func TestDnsHelperPathPrefersPackaged(t *testing.T) {
 	}
 }
 
+// vpnProfileFrames lists only type "vpn" profiles, in service order, and marks
+// connecting/ip4 only for the ones with live state.
+func TestVpnProfileFrames(t *testing.T) {
+	saved := []savedConn{
+		{typ: "802-11-wireless", uuid: "w", id: "home"},
+		{typ: "vpn", uuid: "a", id: "Office", vpnService: "org.freedesktop.NetworkManager.openvpn"},
+		{typ: "wireguard", uuid: "g", id: "wg0"},
+		{typ: "vpn", uuid: "b", id: "Lab", vpnService: "org.freedesktop.NetworkManager.openconnect"},
+	}
+	live := map[string]vpnLive{"b": {connecting: true, ip4: "10.8.0.6"}}
+	got := vpnProfileFrames(saved, live)
+	if len(got) != 2 {
+		t.Fatalf("want 2 vpn profiles, got %d: %v", len(got), got)
+	}
+	if got[0]["name"] != "Office" || got[0]["service"] != "openvpn" || got[0]["active"] != false || got[0]["ip4"] != "" {
+		t.Errorf("idle profile wrong: %v", got[0])
+	}
+	if got[1]["name"] != "Lab" || got[1]["service"] != "openconnect" || got[1]["active"] != true ||
+		got[1]["connecting"] != true || got[1]["ip4"] != "10.8.0.6" {
+		t.Errorf("live profile wrong: %v", got[1])
+	}
+	if out := vpnProfileFrames(nil, nil); out == nil || len(out) != 0 {
+		t.Errorf("no profiles should marshal as an empty list, got %v", out)
+	}
+}
+
+// vpnServiceName keeps only the plugin's own name.
+func TestVpnServiceName(t *testing.T) {
+	for in, want := range map[string]string{
+		"org.freedesktop.NetworkManager.openvpn": "openvpn",
+		"openvpn":                                "openvpn",
+		"":                                       "",
+	} {
+		if got := vpnServiceName(in); got != want {
+			t.Errorf("vpnServiceName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// isVpnProfile accepts vpn and wireguard profiles only, so the VPN switch can
+// never deactivate Wi-Fi or Ethernet.
+func TestIsVpnProfile(t *testing.T) {
+	saved := []savedConn{
+		{typ: "vpn", uuid: "v"},
+		{typ: "wireguard", uuid: "g"},
+		{typ: "802-3-ethernet", uuid: "e"},
+	}
+	for uuid, want := range map[string]bool{"v": true, "g": true, "e": false, "missing": false} {
+		if got := isVpnProfile(uuid, saved); got != want {
+			t.Errorf("isVpnProfile(%q) = %v, want %v", uuid, got, want)
+		}
+	}
+}
+
+// firstAddress skips entries without an address.
+func TestFirstAddress(t *testing.T) {
+	data := []map[string]dbus.Variant{
+		{"prefix": dbus.MakeVariant(uint32(24))},
+		{"address": dbus.MakeVariant("10.8.0.6"), "prefix": dbus.MakeVariant(uint32(24))},
+	}
+	if got := firstAddress(data); got != "10.8.0.6" {
+		t.Errorf("firstAddress = %q", got)
+	}
+	if got := firstAddress(nil); got != "" {
+		t.Errorf("firstAddress(nil) = %q", got)
+	}
+}
+
 // TestLiveNetworkFrame exercises the real snapshot path against the running
 // NetworkManager and prints the frame, as evidence the topic renders live data.
 // Gated so the default `go test` stays deterministic and bus-free.
@@ -413,7 +481,7 @@ func TestLiveNetworkFrame(t *testing.T) {
 		if err := json.Unmarshal(frame, &m); err != nil {
 			t.Fatalf("frame is not valid JSON: %v", err)
 		}
-		for _, k := range []string{"wifi", "wired", "accessPoints", "wireguard", "dns"} {
+		for _, k := range []string{"wifi", "wired", "accessPoints", "wireguard", "vpn", "dns"} {
 			if _, ok := m[k]; !ok {
 				t.Errorf("frame missing key %q", k)
 			}

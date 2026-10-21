@@ -28,10 +28,6 @@ Item {
 
     // ── status snapshot (page readouts, not stored config) ───────────────────
     property bool installed: true
-    // Whether this host's desktop package lets Rashin go. pacman lists it as
-    // optional; the Fedora and Void desktops still require it, so there the
-    // switch stops the agent and leaves the package.
-    property bool removable: true
     property bool daemonEnabled: false
     property bool running: false
     property bool serviceBusy: false
@@ -80,7 +76,6 @@ Item {
                 try {
                     var o = JSON.parse(this.text);
                     pg.installed = o.installed === true;
-                    pg.removable = o.removable === true;
                 } catch (e) {}
             }
         }
@@ -157,15 +152,15 @@ Item {
         }
     }
     // The switch is the agent: on starts it with the desktop, installing the
-    // package first when it is absent; off stops it and, where the host lets
-    // the package go, removes it. It moves at once; refresh() settles it on
-    // what actually happened once the verb returns.
+    // package first when it is absent; off stops it and removes the package.
+    // It moves at once; refresh() settles it on what actually happened once the
+    // verb returns.
     function setEnabled(on) {
         if (pg.serviceBusy)
             return;
         pg.busyLabel = on
             ? (pg.installed ? I18n.tr("Starting\u2026") : I18n.tr("Installing ryoku-rashin\u2026"))
-            : (pg.removable ? I18n.tr("Stopping and removing ryoku-rashin\u2026") : I18n.tr("Stopping\u2026"));
+            : I18n.tr("Stopping and removing ryoku-rashin\u2026");
         pg.serviceBusy = true;
         pg.serviceError = "";
         pg.daemonEnabled = on;
@@ -612,9 +607,7 @@ Item {
                             text: pg.serviceError !== "" ? pg.serviceError
                                 : pg.serviceBusy ? pg.busyLabel
                                 : !pg.installed ? I18n.tr("Not installed \u00b7 switch on to install it, with its Ask shortcut")
-                                : pg.running ? (pg.removable
-                                    ? I18n.tr("Running \u00b7 127.0.0.1:%1 \u00b7 off removes it and its Ask shortcut").arg(pg.port)
-                                    : I18n.tr("Running \u00b7 127.0.0.1:%1").arg(pg.port))
+                                : pg.running ? I18n.tr("Running \u00b7 127.0.0.1:%1 \u00b7 off removes it and its Ask shortcut").arg(pg.port)
                                 : pg.daemonEnabled ? I18n.tr("Enabled \u00b7 starting\u2026")
                                 : I18n.tr("Off \u00b7 switch on to start it with the desktop")
                             color: pg.serviceError !== "" ? Tokens.alert : Tokens.inkDim

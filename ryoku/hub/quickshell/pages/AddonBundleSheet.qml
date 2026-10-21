@@ -21,7 +21,9 @@ FocusScope {
     readonly property var installedComponents: sheet.components.filter(item => item.installed === true)
     readonly property var missingComponents: sheet.components.filter(item => item.installed !== true)
     readonly property int installedCount: Number(sheet.bundle.installedCount || 0)
-    readonly property int totalCount: Number(sheet.bundle.totalCount || sheet.components.length)
+    // Every part, including those this system cannot have, which the sheet lists
+    // greyed with their reason.
+    readonly property int totalCount: sheet.components.length
     readonly property int missingCount: Math.max(0, sheet.totalCount - sheet.installedCount)
     readonly property var unavailableComponents: sheet.missingComponents
         .filter(item => item.available === false)

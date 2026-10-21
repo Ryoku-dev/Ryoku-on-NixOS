@@ -43,8 +43,8 @@ case $name in
   omarchy-restart-shell|omarchy-refresh-shell) exec ryoku-shell reload ;;
   omarchy-system-lock) exec ryoku-qylock-lock ;;
   omarchy-system-logout) exec ryoku wm act session.exit ;;
-  omarchy-system-reboot) exec systemctl reboot ;;
-  omarchy-system-shutdown) exec systemctl poweroff ;;
+  omarchy-system-reboot) exec ryoku-host power reboot ;;
+  omarchy-system-shutdown) exec ryoku-host power poweroff ;;
   omarchy-system-sleep-lock) ryoku-qylock-lock; exec ryoku-shell suspend ;;
   omarchy-system-wake) exec ryoku wm act output.power on ;;
   omarchy-toggle-nightlight) exec ryoku-shell call nightlight.toggle '{}' ;;
@@ -171,18 +171,16 @@ case $name in
   omarchy-cmd-present) command -v "${1:-}" >/dev/null 2>&1 ;;
   omarchy-cmd-missing) ! command -v "${1:-}" >/dev/null 2>&1 ;;
   omarchy-pkg-present)
-    if [[ $(ryoku-host pkgmgr 2>/dev/null) == dnf ]]; then
-      ryoku-host pkg installed "${1:-}" >/dev/null 2>&1
-    else
-      pacman -Q "${1:-}" >/dev/null 2>&1
-    fi
+    case $(ryoku-host pkgmgr 2>/dev/null) in
+      pacman|'') pacman -Q "${1:-}" >/dev/null 2>&1 ;;
+      *) ryoku-host pkg installed "${1:-}" >/dev/null 2>&1 ;;
+    esac
     ;;
   omarchy-pkg-missing)
-    if [[ $(ryoku-host pkgmgr 2>/dev/null) == dnf ]]; then
-      ! ryoku-host pkg installed "${1:-}" >/dev/null 2>&1
-    else
-      ! pacman -Q "${1:-}" >/dev/null 2>&1
-    fi
+    case $(ryoku-host pkgmgr 2>/dev/null) in
+      pacman|'') ! pacman -Q "${1:-}" >/dev/null 2>&1 ;;
+      *) ! ryoku-host pkg installed "${1:-}" >/dev/null 2>&1 ;;
+    esac
     ;;
   omarchy-capture-screenshot) exec ryoku-shell screenshot ;;
   omarchy-capture-screenrecording) if (($#)); then exec ryoku-shell record "$@"; else exec ryoku-shell screenshot; fi ;;

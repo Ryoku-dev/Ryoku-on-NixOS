@@ -10,7 +10,7 @@ var rows = [
         "group": "LAUNCHER",
         "key": "variant",
         "label": "Style",
-        "desc": "Selects Main, Hero, or OkShell for Super+Space",
+        "desc": "Picks the launcher Super+Space opens, shipped or from RyoStore",
         "ctl": "seg",
         "src": "launcher.json"
     },

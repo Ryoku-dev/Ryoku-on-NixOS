@@ -10,6 +10,9 @@ Item {
     property real _pressScale: pressed ? 0.98 : 1
     readonly property real pressScale: _pressScale
     property real _wheelDelta: 0
+    // Only a press that steps something on the wheel takes it; any other one
+    // (every list row) lets it through to the card that scrolls underneath.
+    property bool wheelSteps: false
 
     signal down(var mouse)
     signal clicked(var mouse)
@@ -50,7 +53,7 @@ Item {
     }
 
     WheelHandler {
-        enabled: root.enabled
+        enabled: root.enabled && root.wheelSteps
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: event => {
             const delta = event.angleDelta.y !== 0 ? event.angleDelta.y : event.pixelDelta.y;

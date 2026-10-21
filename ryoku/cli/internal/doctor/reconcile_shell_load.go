@@ -134,18 +134,26 @@ func shellLoadLog() string {
 	return string(b)
 }
 
-// probeConfig loads the config once, for a box whose daemon kept no log.
+// probeConfig loads the config once, for a box whose daemon kept no log. A
+// failed load exits with its full report, but a config that loads stays up as
+// a desktop, so the probe stops once it says so: left running it held the
+// post-update doctor open and became the session's only shell, gone again
+// once the update window closed (#451).
 func probeConfig() string {
 	// no renderer to ask: the quickshell check owns that failure
 	if _, err := exec.LookPath("qs"); err != nil {
 		return ""
 	}
-	out, _ := exec.Command("qs", "-c", "shell").CombinedOutput()
-	if isLoadFailure(string(out)) {
-		return string(out)
+	out := runBoundedProbe(exec.Command("qs", "-c", "shell"), shellProbeWindow, func(out string) bool {
+		return strings.Contains(out, "Configuration Loaded")
+	})
+	if isLoadFailure(out) {
+		return out
 	}
 	return ""
 }
+
+var shellProbeWindow = 20 * time.Second
 
 func isLoadFailure(s string) bool {
 	return strings.Contains(s, "Failed to load configuration") ||

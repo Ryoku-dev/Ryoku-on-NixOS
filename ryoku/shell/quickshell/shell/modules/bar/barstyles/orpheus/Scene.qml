@@ -103,7 +103,7 @@ Item {
 
     function validCardKey(key) {
         return ["today", "media", "weather", "controls", "notifications",
-            "tray", "power", "system", "session", "recording"]
+            "tray", "power", "system", "session", "recording", "vpn"]
             .indexOf(normalKey(key)) >= 0;
     }
 

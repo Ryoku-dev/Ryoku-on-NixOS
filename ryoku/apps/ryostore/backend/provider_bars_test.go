@@ -165,7 +165,7 @@ func TestBarProviderUsesRegistryReceiptsAndDerivedIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantRow.View = barStyleView(wantRow, receipt)
+	wantRow.View = barStyleViews.path("obi", receipt)
 	if len(rows) != 1 || rows[0] != wantRow {
 		t.Fatalf("installed index = %+v", rows)
 	}

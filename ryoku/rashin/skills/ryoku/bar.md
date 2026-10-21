@@ -7,7 +7,9 @@ page picks a liquid or square form; the square one keeps crisp corners and shows
 sound as blocks. Left-click its 力 logo to open its settings, where the Layout
 page arranges its modules by drag and drop; right-click the logo for the
 launcher. Optional modules include coding-agent limits from the shared usage
-caches and a paired phone shortcut into Kit; neither is in the default layout.
+caches, a paired phone shortcut into Kit, and a VPN mark whose card switches
+Tailscale and NetworkManager VPN/WireGuard profiles; none is in the default
+layout.
 Its keys live under `orpheus` in `shell.json` and are listed in
 `docs/barstyles.md`. Pick another style with `ryoku-shell barstyle <id>`, for
 example `ryoku-shell barstyle qsbar`.

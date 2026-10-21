@@ -51,6 +51,7 @@ Item {
         case "system": return Qt.resolvedUrl("../cards/SystemCard.qml");
         case "session": return Qt.resolvedUrl("../cards/SessionCard.qml");
         case "recording": return Qt.resolvedUrl("../cards/RecordingCard.qml");
+        case "vpn": return Qt.resolvedUrl("../cards/VpnCard.qml");
         default: return "";
         }
     }

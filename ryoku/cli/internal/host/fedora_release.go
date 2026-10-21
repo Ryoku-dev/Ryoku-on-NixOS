@@ -7,10 +7,13 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
 	"ryoku-cli/internal/sys"
+
+	i18n "ryoku-i18n"
 )
 
 const (
@@ -20,10 +23,18 @@ const (
 )
 
 type FedoraReleaseStatus struct {
-	Version           string
-	Published         bool
-	RepositoryChecked bool
-	Supported         []string
+	Version              string
+	Published            bool
+	RepositoryChecked    bool
+	Supported            []string
+	AwaitingFirstRelease bool
+}
+
+func (s FedoraReleaseStatus) UnpublishedNotice() string {
+	if s.AwaitingFirstRelease {
+		return i18n.Tf("the stable channel has no Fedora %s packages until Ryoku's first Fedora release; the shell installer's --ref unstable-dev sets up the testing packages", s.Version)
+	}
+	return i18n.Tf("Ryoku has not published Fedora %s yet; Ryoku packages stay at their current version until it does", s.Version)
 }
 
 func (a *App) FedoraReleaseStatus() (FedoraReleaseStatus, error) {
@@ -50,14 +61,33 @@ func (a *App) FedoraReleaseStatus() (FedoraReleaseStatus, error) {
 	} else if err != nil {
 		return status, err
 	}
-	repoURL = strings.TrimRight(ExpandRepoURL(repoURL), "/") + "/repodata/repomd.xml"
-	published, checked, repoErr := fedoraRepositoryPublished(ctx, a.cfg.HTTPClient, repoURL)
+	published, checked, repoErr := fedoraRepositoryPublished(ctx, a.cfg.HTTPClient, fedoraRepomdURL(repoURL, status.Version))
 	status.Published = published
 	status.RepositoryChecked = checked
 
 	supported, releasesErr := fetchFedoraReleases(ctx, a.cfg.HTTPClient, a.cfg.FedoraReleasesURL)
 	status.Supported = supported
+	if checked && !published && RepoChannelOf(DNF, repoURL) == sys.ChannelStable && slices.Contains(supported, status.Version) {
+		status.AwaitingFirstRelease = channelPublishesNoFedora(ctx, a.cfg.HTTPClient, repoURL, supported)
+	}
 	return status, errors.Join(repoErr, releasesErr)
+}
+
+func fedoraRepomdURL(repoURL, release string) string {
+	return strings.TrimRight(ExpandRepoURL(strings.ReplaceAll(repoURL, "$releasever", release)), "/") + "/repodata/repomd.xml"
+}
+
+// channelPublishesNoFedora is true only when every listed release is
+// confirmed absent. The releases list is shared with testing, so a listed
+// release says nothing about whether stable has shipped it.
+func channelPublishesNoFedora(ctx context.Context, client *http.Client, repoURL string, releases []string) bool {
+	for _, release := range releases {
+		published, checked, _ := fedoraRepositoryPublished(ctx, client, fedoraRepomdURL(repoURL, release))
+		if published || !checked {
+			return false
+		}
+	}
+	return true
 }
 
 func fedoraRepositoryPublished(ctx context.Context, client *http.Client, url string) (bool, bool, error) {

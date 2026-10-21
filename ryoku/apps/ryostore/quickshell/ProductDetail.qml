@@ -105,8 +105,9 @@ FocusScope {
     readonly property var optionalGroups: groupSections(optionalComponents)
     property var sel: ({})
     property var lastComponents: null
-    readonly property var selectedNames: components.filter(c => sel[String(c.name)] === true).map(c => String(c.name))
-    readonly property var allNames: components.map(c => String(c.name))
+    readonly property var selectedNames: components.filter(c => sel[String(c.name)] === true && c.available !== false).map(c => String(c.name))
+    // A part this edition cannot have is listed but never sent to the installer.
+    readonly property var allNames: components.filter(c => c.available !== false).map(c => String(c.name))
     onItemChanged: { rebuildSelection(); galleryIndex = 0; }
     readonly property real targetX: Tokens.s6
     readonly property real targetY: Tokens.s6
@@ -177,7 +178,8 @@ FocusScope {
         var next = {};
         for (var i = 0; i < comps.length; i++) {
             var c = comps[i];
-            next[String(c.name)] = (c.installed === true) || (String(c.tier || "core") !== "optional");
+            next[String(c.name)] = c.available !== false
+                && ((c.installed === true) || (String(c.tier || "core") !== "optional"));
         }
         sel = next;
     }
@@ -443,9 +445,14 @@ FocusScope {
                 readonly property string cname: String(modelData.name || "")
                 readonly property bool ison: detail.sel[cname] === true
                 readonly property bool isinstalled: modelData.installed === true
+                // A part this edition cannot have: greyed, not selectable, and
+                // its line says why instead of what it is.
+                readonly property bool unavailableHere: modelData.available === false
+                readonly property bool locked: isinstalled || unavailableHere
                 width: bundleCol.width
                 implicitHeight: rowInfo.implicitHeight + Tokens.s2
                 height: implicitHeight
+                opacity: unavailableHere ? 0.55 : 1
 
                 Rectangle {
                     id: box
@@ -458,9 +465,9 @@ FocusScope {
                     border.color: (compRow.ison || compRow.isinstalled) ? Tokens.bone : Tokens.line
                     Text {
                         anchors.centerIn: parent
-                        visible: compRow.ison || compRow.isinstalled
-                        text: "\u2713"
-                        color: Tokens.inkOnBone
+                        visible: compRow.ison || compRow.isinstalled || compRow.unavailableHere
+                        text: compRow.unavailableHere ? "\u2013" : "\u2713"
+                        color: compRow.unavailableHere ? Tokens.inkDim : Tokens.inkOnBone
                         font.family: Tokens.ui
                         font.pixelSize: 11
                     }
@@ -472,7 +479,8 @@ FocusScope {
                     spacing: 0
                     Text {
                         width: parent.width
-                        text: compRow.cname + (compRow.isinstalled ? I18n.tr("  \u00b7 INSTALLED") : "")
+                        text: compRow.cname + (compRow.isinstalled ? I18n.tr("  \u00b7 INSTALLED")
+                            : compRow.unavailableHere ? I18n.tr("  \u00b7 NOT ON THIS SYSTEM") : "")
                         color: Tokens.ink
                         font.family: Tokens.mono
                         font.pixelSize: Tokens.fMicro
@@ -481,7 +489,9 @@ FocusScope {
                     }
                     Text {
                         width: parent.width
-                        text: String(compRow.modelData.summary || "")
+                        text: compRow.unavailableHere
+                            ? String(compRow.modelData.unavailableReason || "")
+                            : String(compRow.modelData.summary || "")
                         visible: text !== ""
                         color: Tokens.inkDim
                         font.family: Tokens.ui
@@ -492,8 +502,8 @@ FocusScope {
                     }
                 }
 
-                HoverHandler { cursorShape: Qt.PointingHandCursor; enabled: !compRow.isinstalled }
-                TapHandler { enabled: !compRow.isinstalled; onTapped: detail.toggleSel(compRow.cname) }
+                HoverHandler { cursorShape: Qt.PointingHandCursor; enabled: !compRow.locked }
+                TapHandler { enabled: !compRow.locked; onTapped: detail.toggleSel(compRow.cname) }
             }
         }
 
@@ -724,7 +734,7 @@ FocusScope {
                 objectName: "ryostore-detail-selected"
                 width: parent.width
                 visible: detail.isBundle && detail.components.length > 0
-                text: I18n.tr("%1 / %2 SELECTED").arg(detail.selectedNames.length).arg(detail.components.length)
+                text: I18n.tr("%1 / %2 SELECTED").arg(detail.selectedNames.length).arg(detail.allNames.length)
                 color: Tokens.inkDim
                 font.family: Tokens.mono
                 font.pixelSize: Tokens.fMicro

@@ -289,10 +289,9 @@ func Update(args []string) (err error) {
 	}
 
 	progress.at("snapshot")
-	snapshotsSupported, _ := snapshotCapability()
 	pre := snapperPre(snapshotDesc())
 	progress.setSnapshot(pre)
-	if !snapshotsSupported {
+	if pre == "" {
 		progress.skip("snapshot")
 	}
 
@@ -924,7 +923,7 @@ func updateStage2(pre string, withSystem bool) (err error) {
 	defer stopKeepalive()
 	progress.setSnapshot(pre)
 	progress.markDone("packages")
-	if supported, _ := snapshotCapability(); supported {
+	if pre != "" {
 		progress.markDone("snapshot")
 	} else {
 		progress.skip("snapshot")

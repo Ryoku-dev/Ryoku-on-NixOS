@@ -3,6 +3,46 @@
 ## Unreleased
 
 ### Added
+- **`deckFrostEnabled` turns the deck frost off.** A validated shell.json bool,
+  default true, that the desktop haze and the bar's matching translucency both
+  obey, so the strength survives switching it off and back on
+  (`ipc/settings.go`, `quickshell/shell/services/Config.qml`,
+  `quickshell/shell/modules/desktop/Desktop.qml`).
+- **The dock can be one installed from RyoStore.** `UniversalDockHost` runs a
+  store dock's `Dock.qml` from its installed view as the design of that id,
+  with the same screen, visibility and Stage Editor inputs the shipped designs
+  get; it waits for the Store's `docks.json` so a saved store dock never flashes
+  the Ryoku design first, swaps an update in without a restart, and draws the
+  Ryoku design (and logs why) when a store dock fails to load. Store docks
+  share the Ryoku design's right-click menu. Edit desktop -> Dock lists them
+  beside the shipped designs with an Update button and a Browse RyoStore row,
+  and the daemon drops a Store removal's dock marker on any dock edit so
+  recovery never brings back a removed design. The Store index reader is one
+  `StoreIndex` type shared with the launcher's
+  (`quickshell/shell/modules/dock/UniversalDockHost.qml`,
+  `quickshell/shell/services/DockProducts.qml`,
+  `quickshell/shell/services/StoreIndex.qml`,
+  `quickshell/stage/modules/ii/editMode/EditDockDesignPicker.qml`,
+  `ipc/settings.go`).
+- **Super+Space opens launchers installed from RyoStore.** The launcher host
+  adds the Store's `launchers.json` rows to its catalog as entries that load
+  from their installed view (a shipped id always wins), waits for that index
+  before resolving the saved choice so a store launcher opens on the first press
+  after login, and swaps an updated launcher in without a restart
+  (`quickshell/shell/modules/launcher/Launcher.qml`,
+  `quickshell/shell/modules/launcher/shared/Singletons/LauncherProducts.qml`,
+  `quickshell/shell/modules/launcher/shared/lib/catalog.js`).
+- **Orpheus can watch and switch VPNs.** A VPN module, offered in the Layout
+  editor and kept out of the default layout, shows a lock and the live tunnel's
+  name; its card switches Tailscale (picking or clearing its exit node, LAN
+  access through it, offering this machine as one, peers and the operator
+  authorisation it needs) and every NetworkManager VPN and WireGuard profile,
+  and shows the public IP (checkip.amazonaws.com, read only while it is open).
+  The daemon's `network` topic now lists saved VPN profiles under `vpn` and
+  takes `network.vpnActivate` / `network.vpnDeactivate`, which refuse anything
+  that is not a VPN or WireGuard profile (`ipc/network.go`,
+  `quickshell/shell/services/{Network,Tailscale}.qml`,
+  `quickshell/shell/modules/bar/barstyles/orpheus/`).
 - **The overview welds onto a seam as a compact strip.** Where the shell draws
   its own overview, a bar style with a seam gets it hanging from the bar like
   the other panels: the desktops as a row of chips over one row of live
@@ -48,13 +88,43 @@
   (`ipc/sounds.go`, `ipc/powersounds.go`, `ipc/devicesounds.go`,
   `quickshell/shell/services/Notifs.qml`).
 - **Default and NOC ship as rices with their wallpapers.** A fresh login
-  applies Default and keeps its wallpaper instead of picking a random one
-  (`../assets/rices/`, `scripts/ryoku-session-intro`).
+  applies Default and keeps its wallpaper instead of picking a random one.
+  Each carries the desktop widgets it was made with (Default none, NOC five),
+  and both readouts name the distribution they run on, so Void says "a
+  hand-built Void desktop" (`../assets/rices/`, `scripts/ryoku-session-intro`).
 - **The first login opens Rashin's Hermes setup.** When the installer left
   Rashin on, the first login with an internet connection opens the setup
   terminal once (`scripts/ryoku-session-intro`).
 
 ### Fixed
+- **Nomarchy's package probes and power commands work on Void.**
+  `omarchy-pkg-present` and `omarchy-pkg-missing` asked pacman on every edition
+  but Fedora, so on Void every package read as missing; they now ask
+  `ryoku-host pkg installed` wherever pacman is not the package manager.
+  `omarchy-system-reboot` and `omarchy-system-shutdown` go through
+  `ryoku-host power` instead of `systemctl`, which Void does not have
+  (`nomarchy/bin/`, `tests/nomarchy-host-seam.sh`).
+- **Orpheus cards scroll with the wheel over their rows.** Every list row
+  swallowed the wheel, so a long card such as VPN or Notifications only
+  scrolled from the gaps between rows. Only the bar pieces that step something
+  on the wheel (volume, workspaces, the voice pages) take it now
+  (`quickshell/shell/modules/bar/barstyles/orpheus/kit/Press.qml`).
+- **Store plugins added to the desktop show up.** A plugin that offers both a
+  bar glyph and a desktop tile stayed on the bar after Add widget, so only its
+  position was saved and no tile appeared. Adding it now moves it to the
+  desktop, as adding it in QS Bar moves it to the bar
+  (`quickshell/shell/modules/stage/StageWidgetProvider.qml`). Found and fixed
+  by Josevi Canet.
+- **Switching sounds off in the Hub silences notifications.** The Stage
+  service behind the ii dock and the desktop widgets runs its own notification
+  server, which hears every notification the shell's server hears, and it
+  played a chime of its own beside the shell's: two per notification, still
+  there with Hub > General > Sounds off or under Do Not Disturb. The shell's
+  server is now the only one that chimes on arrival. Stage's own notifications
+  (reminders, tasks due) play the Hub's notification cue once Stage's switches
+  let them through (`quickshell/stage/services/Notifications.qml`,
+  `quickshell/stage/services/SoundService.qml`, `ipc/sounds_test.go`,
+  `tests/notification-sounds.sh`).
 - **Switching sounds off in the Hub silences notifications.** The Stage
   service behind the ii dock and the desktop widgets runs its own notification
   server, which hears every notification the shell's server hears, and it

@@ -177,6 +177,11 @@ Singleton {
     ]
     readonly property string design: String(root.cfg("design", "ryoku"))
     onDesignChanged: root.closeMenu()
+    // The designs the shell ships. Any other design names a dock installed from
+    // RyoStore (DockProducts), which UniversalDockHost runs from its own view and
+    // which shares the Ryoku design's context menu below.
+    readonly property var builtinDesigns: ["ryoku", "python", "shima", "ii", "none"]
+    readonly property bool storeDesign: !root.builtinDesigns.includes(root.design)
 
     function cfg(key, fallback) {
         const d = Config.dock;

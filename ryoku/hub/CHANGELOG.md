@@ -3,6 +3,38 @@
 ## Unreleased
 
 ### Added
+- **Deck frost has an on/off switch.** Desktop > General gains a Deck frost
+  switch for the blur and dim behind open windows, on Hyprland and niri alike;
+  the strength slider shows only while it is on. The slider now saves too: it
+  was missing from the page's defaults, so Save never wrote it
+  (`quickshell/schema/DesktopPage.js`, `quickshell/Hub.qml`).
+- **Add-ons reads part availability from the actuator.** The bundle card and
+  sheet take each part's availability and reason from `ryostore-install
+  status` instead of probing every package with `ryoku-host pkg available`,
+  so the Hub and the Store agree on what an edition can install, and Bar
+  studio and Launcher tag a product an edition cannot have *Not on this
+  system* (`quickshell/pages/AddonsPage.qml`).
+- **App Launcher shows launchers from RyoStore.** The style switch becomes a
+  gallery of every launcher: the shipped six and each RyoStore launcher, tagged
+  STORE (selectable once installed, with UPDATE when a newer version is out),
+  plus BROWSE RYOSTORE. A store launcher previews with its own `Preview.qml`, or
+  its store art when it has none, and picking and saving it works as for a
+  shipped one (`quickshell/pages/LauncherPage.qml`).
+- **Credits name Ron's Ryoku Discord theme.** The projects list gains
+  ryoku-discord by Ron (niqqudim), the default Discord theme, and the root
+  NOTICE records its MIT license and midnight lineage
+  (`quickshell/pages/CreditsPage.qml`, `../../NOTICE`).
+- **Dictation offers Redux Multilingual.** On systemd desktops the Dictation
+  page lists Redux, a fast Parakeet model for 25 European languages that runs
+  through a resident worker. Picking it builds the speech runtime from pinned
+  source on the machine and downloads the checksum-pinned model; the card shows
+  each step and one progress bar while the build stays at low priority, and
+  every installing model can be cancelled. Switching away keeps Redux for a
+  quick return and stops its worker. Contributed by Sipper1236, whose MIT
+  adapter ships unmodified and is credited on Credits and in `NOTICE`
+  (`backend/voxtype_install.go`, `backend/voxtype_redux.go`,
+  `backend/assets/redux/`, `quickshell/pages/DictationPage.qml`,
+  `../../docs/dictation.md`).
 - **General can choose the icon theme.** The picker lists installed icon themes
   by their own names, leaves cursor-only and hidden themes out, and applies the
   choice together to GNOME settings, GTK 3/4, Qt 6, KDE apps and the Ryoku
@@ -33,16 +65,14 @@
 - **Credits name the Kit and Phone sources.** ii-p3drovfx now credits Kit and
   Phone as well, and Monkeytype is listed for the typing test's words and sounds
   (`quickshell/pages/CreditsPage.qml`, `../../NOTICE`).
-- **The Rashin switch owns the package.** On Arch, switching Rashin off on its
-  page now stops the agent and removes `ryoku-rashin` through the host seam
-  (the polkit prompt, no terminal), and switching it on installs the package
-  when it is absent and starts the agent with the desktop. Both directions
-  re-author the compositor config, so the Ask bar and Rashin window shortcuts
-  leave and return with the package, and record the choice in the provisioning
-  ledger so the doctor never delivers Rashin a second time. On Fedora and Void
-  the desktop still requires the package, so the switch stops and starts the
-  agent and the card says so (`ryoku-hub rashin status|on|off`,
-  `quickshell/pages/RashinPage.qml`).
+- **The Rashin switch owns the package.** On every edition, switching Rashin
+  off on its page now stops the agent and removes `ryoku-rashin` through the
+  host seam (the polkit prompt, no terminal), and switching it on installs the
+  package when it is absent and starts the agent with the desktop. Both
+  directions re-author the compositor config, so the Ask bar and Rashin window
+  shortcuts leave and return with the package, and record the choice in the
+  provisioning ledger so the doctor never delivers Rashin a second time
+  (`ryoku-hub rashin status|on|off`, `quickshell/pages/RashinPage.qml`).
 - **Keybinds can be removed and restored.** Each shipped shortcut has a control
   that switches its action off without hiding the row, then restores it in one
   press (`quickshell/pages/KeybindsPage.qml`).
@@ -116,6 +146,15 @@
   Hermes's model, and connecting an agent now says it routes that agent's models
   through Prowl (`quickshell/pages/RashinPage.qml`).
 ### Fixed
+- **A rice is an exact copy of the desktop it was saved from.** Saving one
+  records the desktop widgets that desktop shows and where, including a
+  desktop edited on its own output, so the rice looks the same on a machine
+  whose screens have other names. Applying a rice leaves exactly its widgets:
+  any desktop or plugin widget it does not have switches off, and a rice with
+  none clears the desktop instead of keeping the old ones. Applying a shipped
+  rice also brings an untouched earlier copy of it up to the version the
+  package ships, so fixes to Default and NOC reach boxes that applied them
+  before; a rice you saved over stays yours (`backend/rice.go`).
 - **Saving a rice keeps its wallpaper after Ryogami optimises the image.**
   Capture follows Ryogami's current wallpaper when the recorded file was
   replaced by its WebP copy, and says so when it finds none. Applying a rice

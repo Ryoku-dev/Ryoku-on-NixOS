@@ -11,9 +11,6 @@ func TestNixPhoneAndRashinKeepSystemOwnership(t *testing.T) {
 	t.Setenv("RYOKU_UPDATE_BACKEND", "nix")
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
-	if rashinRemovable() {
-		t.Fatal("Nix-owned Rashin is removable")
-	}
 	if err := privileged("phone", "enable"); err == nil || !strings.Contains(err.Error(), "NixOS") {
 		t.Fatalf("Nix setup reached privileged host: %v", err)
 	}

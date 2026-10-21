@@ -107,6 +107,7 @@ Item {
                             updateAvailable: item.updateAvailable === true,
                             active: page.activeStyle === item.id,
                             unavailable: item.unavailable === true,
+                            unavailableEdition: item.unavailableEdition === true,
                             unavailableReason: item.unavailableReason || "",
                             requiredWindowManager: item.requiredWindowManager || "",
                             downloadPaused: item.downloadPaused === true,
@@ -510,7 +511,8 @@ Item {
                                             return I18n.tr(styleCard.modelData.desc);
                                         if (styleCard.modelData.unavailable) {
                                             const wm = ("" + styleCard.modelData.requiredWindowManager).toUpperCase();
-                                            const tag = wm.length > 0 ? I18n.tr("%1 only").arg(wm) : I18n.tr("Unavailable");
+                                            const tag = styleCard.modelData.unavailableEdition ? I18n.tr("Not on this system")
+                                                : wm.length > 0 ? I18n.tr("%1 only").arg(wm) : I18n.tr("Unavailable");
                                             return styleCard.modelData.unavailableReason.length > 0
                                                 ? tag + " \u00b7 " + styleCard.modelData.unavailableReason : tag;
                                         }

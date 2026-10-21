@@ -72,7 +72,11 @@ func (a *App) fedoraTablePath() string {
 }
 
 func (a *App) fedoraTable() (packageTable, error) {
-	return a.packageTable(a.fedoraTablePath(), "fedora")
+	table, err := a.packageTable(a.fedoraTablePath(), "fedora")
+	if err != nil {
+		return nil, err
+	}
+	return a.withOverlay(table, "fedora")
 }
 
 func (a *App) dnfPackageWhy(name string) int {
@@ -190,7 +194,11 @@ func (a *App) dnf(args []string) int {
 		}
 		return ExitOK
 	case "version":
-		result := a.query("rpm", "-q", "--whatprovides", "--qf", "%{EPOCHNUM}:%{VERSION}-%{RELEASE}\n", translated[0])
+		args := []string{"-q", "--whatprovides", "--qf", "%{EPOCHNUM}:%{VERSION}-%{RELEASE}\n", translated[0]}
+		if rpmArchQualified(translated[0]) {
+			args = []string{"-q", "--qf", "%{EPOCHNUM}:%{VERSION}-%{RELEASE}\n", translated[0]}
+		}
+		result := a.query("rpm", args...)
 		if result.Code != 0 {
 			return ExitFalse
 		}
@@ -235,15 +243,37 @@ func (a *App) dnf(args []string) int {
 	return ExitUsage
 }
 
+// rpmArchQualified reports a name spelled with its architecture, the way Fedora
+// names a 32-bit package (mesa-dri-drivers.i686). That is a package spec, not a
+// capability: --whatprovides never matches it, so it is queried as a name.
+func rpmArchQualified(name string) bool {
+	dot := strings.LastIndexByte(name, '.')
+	if dot <= 0 {
+		return false
+	}
+	switch name[dot+1:] {
+	case "i686", "x86_64", "aarch64", "noarch":
+		return true
+	}
+	return false
+}
+
 func (a *App) dnfPackageInstalled(name string) bool {
+	if rpmArchQualified(name) {
+		return a.probe("rpm", "-q", "--quiet", name).Code == 0
+	}
 	return a.probe("rpm", "-q", "--whatprovides", "--quiet", name).Code == 0
 }
 
 func (a *App) dnfPackageAvailable(name string) bool {
 	command := a.dnfCommand()
-	args := []string{"repoquery", "-y", "--whatprovides=" + name, "--qf", dnfNameQueryFormat}
+	spec := "--whatprovides=" + name
+	if rpmArchQualified(name) {
+		spec = name
+	}
+	args := []string{"repoquery", "-y", spec, "--qf", dnfNameQueryFormat}
 	if command == "dnf5" {
-		args = []string{"repoquery", "-y", "--available", "--whatprovides=" + name, "--qf", dnfNameQueryFormat}
+		args = []string{"repoquery", "-y", "--available", spec, "--qf", dnfNameQueryFormat}
 	}
 	result := a.query(command, args...)
 	return result.Code == 0 && strings.TrimSpace(result.Output) != ""

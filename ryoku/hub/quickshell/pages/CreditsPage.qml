@@ -43,7 +43,9 @@ Item {
         { "name": "skwd-wall",    "by": "liixini",        "role": I18n.tr("ryogami wallpaper engine"), "url": "https://github.com/liixini/skwd-wall" },
         { "name": "ii-p3drovfx",  "by": "P3DROVFX",       "role": I18n.tr("Stage Editor, ii dock, Kit, Phone (GPL-3.0)"), "url": "https://github.com/P3DROVFX/ii-p3drovfx" },
         { "name": "Monkeytype",   "by": "Miodec",         "role": I18n.tr("typing test words and sounds (GPL-3.0)"), "url": "https://github.com/monkeytypegame/monkeytype" },
-        { "name": "Quickshell Rise", "by": "HANCORE-linux", "role": I18n.tr("QS Bar source (MIT)"), "url": "https://github.com/HANCORE-linux/quickshell-dots" }
+        { "name": "Quickshell Rise", "by": "HANCORE-linux", "role": I18n.tr("QS Bar source (MIT)"), "url": "https://github.com/HANCORE-linux/quickshell-dots" },
+        { "name": "voxtype-redux-adapter", "by": "Sipper1236", "role": I18n.tr("Redux dictation adapter (MIT)"), "url": "https://github.com/Sipper1236/voxtype-redux-adapter" },
+        { "name": "ryoku-discord", "by": "Ron (niqqudim)", "role": I18n.tr("default Discord theme (MIT)"), "url": "https://github.com/niqqudim/ryoku-discord" }
     ]
 
     // the alpha/beta crew, constantly stress-testing and filing bugs. each name

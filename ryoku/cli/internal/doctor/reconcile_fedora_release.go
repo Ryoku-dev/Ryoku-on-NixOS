@@ -28,5 +28,5 @@ func reconcileFedoraRelease(_ bool) recResult {
 	if status.Published {
 		return okRes(i18n.T("Ryoku publishes packages for Fedora %s"), status.Version)
 	}
-	return warnRes(i18n.T("Ryoku has not published Fedora %s yet; Ryoku packages stay at their current version until it does"), status.Version)
+	return warnRes("%s", status.UnpublishedNotice())
 }

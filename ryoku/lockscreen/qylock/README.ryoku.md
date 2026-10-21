@@ -35,5 +35,8 @@ The in-session shim diverges from upstream in two places:
    scan timeout falls through to `pam_unix`, the conversation stays alive
    waiting for a typed key, the scan never re-arms, and a password typed
    mid-scan is only flushed when the prompt finally arrives.
+   A password conversation that ends before PAM ever prompts is a stack that
+   cannot run, not a wrong password, so it re-arms on a doubling delay (1s to
+   30s) instead of restarting on the same tick.
 
 Everything else is upstream verbatim.

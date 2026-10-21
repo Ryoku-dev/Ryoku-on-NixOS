@@ -8,7 +8,7 @@ import (
 
 var storeSections = map[string]struct{}{
 	"discover": {}, "library": {}, "rices": {}, "lockscreens": {},
-	"barstyles": {}, "fastfetch": {}, "plugins": {}, "bundles": {}, "decors": {},
+	"barstyles": {}, "docks": {}, "launchers": {}, "fastfetch": {}, "plugins": {}, "bundles": {}, "decors": {},
 	"launcher-images": {}, "fastfetch-emblems": {}, "ryotunes-skins": {},
 	"vesktop-themes": {},
 }
@@ -19,24 +19,32 @@ func storeSection(section string) bool {
 }
 
 // settingsSection maps a Store category to the Hub page that applies or manages
-// it. The lockscreen and app-launcher pages are only for editing config, not for
-// applying a store install, and the flat-image categories (decors, launcher
-// images) have no page at all, so none of them appear here and none shows an
-// "open in settings" action.
+// it. The lockscreen page only edits config, not a store install, and the
+// flat-image categories (decors, launcher images) have no page at all, so none
+// of them appear here and none shows an "open in settings" action.
 func settingsSection(category string) (string, bool) {
 	section, ok := map[string]string{
 		"rices":     "appearance",
 		"plugins":   "addons",
 		"bundles":   "addons",
 		"barstyles": "bar-studio",
+		"launchers": "launcher",
 		"fastfetch": "fastfetch",
 	}[category]
 	return section, ok
 }
 
+// editorSection maps a Store category the desktop editor wears to its Stage
+// Editor catalogue: a dock is picked in Edit desktop -> Dock, not in the Hub.
+func editorSection(category string) (string, bool) {
+	section, ok := map[string]string{"docks": "dock"}[category]
+	return section, ok
+}
+
 func hasSettingsSection(category string) bool {
-	_, ok := settingsSection(category)
-	return ok
+	_, hub := settingsSection(category)
+	_, editor := editorSection(category)
+	return hub || editor
 }
 
 func runOpen(args []string) error {
@@ -50,11 +58,23 @@ func runSettings(args []string) error {
 	if len(args) < 1 || len(args) > 2 {
 		return fmt.Errorf("settings needs <category> [id]")
 	}
+	if section, ok := editorSection(args[0]); ok {
+		return openEditorSection(section)
+	}
 	section, ok := settingsSection(args[0])
 	if !ok {
 		return fmt.Errorf("unknown settings category %q", args[0])
 	}
 	return openConfig("hub", "/tmp/ryoku-hub.lock", section)
+}
+
+// openEditorSection opens the Stage Editor on one catalogue of the focused
+// monitor. The shell is resident, so there is nothing to start first.
+func openEditorSection(section string) error {
+	if err := exec.Command("qs", "-c", "shell", "ipc", "call", "desktop", "editSection", section, "").Run(); err != nil {
+		return fmt.Errorf("open the desktop editor's %s section: %w", section, err)
+	}
+	return nil
 }
 
 func openConfig(config, lock, section string) error {

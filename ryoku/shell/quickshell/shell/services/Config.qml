@@ -31,11 +31,15 @@ Singleton {
     property alias osdRadius:  adapter.osdRadius
     property alias osdOpacity: adapter.osdOpacity
 
-    // The desktop and the bar read one shell.json value, so their haze agrees.
-    // Zero is a hard off switch even when several windows are stacked.
+    // The desktop and the bar read one shell.json pair, so their haze agrees.
+    // deckFrostEnabled is the on/off switch; deckFrost is its strength, and zero
+    // is a hard off too even when several windows are stacked.
+    property alias deckFrostEnabled: adapter.deckFrostEnabled
     property alias deckFrost: adapter.deckFrost
 
     function deckFrostIntensity(n: int): real {
+        if (root.deckFrostEnabled === false)
+            return 0;
         const base = Math.max(0, Math.min(1, Number(root.deckFrost) || 0));
         if (base === 0)
             return 0;
@@ -355,6 +359,7 @@ Singleton {
             property real frameCorner: 8
             property real osdRadius: 0
             property real osdOpacity: 1
+            property bool deckFrostEnabled: true
             property real deckFrost: 0.45
             property real fontScale: 1.3
             property string fontFamily: "Space Grotesk"

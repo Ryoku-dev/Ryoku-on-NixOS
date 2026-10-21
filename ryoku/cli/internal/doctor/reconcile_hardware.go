@@ -316,6 +316,8 @@ func reconcileKeplerNvidia(checkOnly bool) recResult {
 	return fixedRes(i18n.T("removed unsupported 580xx from Kepler hardware and restored Nouveau for the next boot"))
 }
 
+var nvidiaModuleDir = "/sys/module/nvidia"
+
 func nvidiaDriverActive() bool {
 	return nvidiaDriverActiveFor(keplerGpuPresent(), nvidiaDriverPackagePresent(), gpuDriversLoaded())
 }
@@ -436,6 +438,9 @@ func reconcileNvidiaModeset(checkOnly bool) recResult {
 	if nvidiaPackageManager() == host.DNF {
 		if !strings.Contains(strings.ToLower(nvidiaPCIOutput()), "nvidia") {
 			return okRes(i18n.T("no NVIDIA GPU detected"))
+		}
+		if sys.Exists(nvidiaModuleDir) {
+			return okRes(i18n.T("the proprietary NVIDIA driver is loaded; Ryoku leaves its setup on Fedora to you"))
 		}
 		return noteRes(i18n.T("Fedora keeps Nouveau active for NVIDIA graphics in this release; proprietary driver installation is a manual step")).
 			withFix(i18n.T("enable RPM Fusion, install its `akmod-nvidia` package, wait for the kernel module build, then run `sudo dracut --regenerate-all --force` and reboot"))

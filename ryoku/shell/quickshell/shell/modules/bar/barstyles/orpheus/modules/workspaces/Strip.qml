@@ -383,6 +383,7 @@ Item {
                             root.activated(slot.modelData.key);
                     }
                     onRightClicked: root.overviewRequested()
+                    wheelSteps: true
                     onWheel: steps => root.scrolled(steps)
                 }
 

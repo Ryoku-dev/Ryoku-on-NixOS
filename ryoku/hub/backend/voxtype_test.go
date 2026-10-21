@@ -8,6 +8,8 @@ import (
 )
 
 func TestVoxtypePresetsAreCuratedWhisperCatalogue(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
 	want := []struct {
 		key, model, size, language, speed, group, configLanguage string
 		sizeBytes                                                int64
@@ -52,7 +54,7 @@ func TestVoxtypeLocalModelsUseWhisperFilenames(t *testing.T) {
 		"whisper-accurate": "ggml-large-v3-turbo.bin",
 	}
 	for _, p := range voxtypePresets() {
-		if p.Cloud {
+		if p.Cloud || p.Key == reduxPresetKey {
 			continue
 		}
 		expected := filepath.Join(root, "voxtype", "models", want[p.Key])

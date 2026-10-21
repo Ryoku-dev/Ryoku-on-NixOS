@@ -160,6 +160,114 @@ func TestVesktopThemeInterruptedInstallRecoversLink(t *testing.T) {
 	}
 }
 
+// isolateVesktopFlatpak keeps the system-wide Flathub check off the machine
+// running the test and returns the Flathub build's theme folder.
+func isolateVesktopFlatpak(t *testing.T) string {
+	t.Helper()
+	original := vesktopFlatpakSystemApp
+	vesktopFlatpakSystemApp = filepath.Join(t.TempDir(), "system", vesktopFlatpakID)
+	t.Cleanup(func() { vesktopFlatpakSystemApp = original })
+	return filepath.Join(os.Getenv("HOME"), vesktopFlatpakThemesRel())
+}
+
+func markVesktopFlatpakRun(t *testing.T) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".var", "app", vesktopFlatpakID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVesktopThemeCopiesIntoFlathubVesktop(t *testing.T) {
+	setTransactionXDG(t)
+	themes := isolateVesktopFlatpak(t)
+	markVesktopFlatpakRun(t)
+	if err := installLocalVesktopTheme(t, "1.0.0", "Ryoku.theme.css", "theme one\n"); err != nil {
+		t.Fatal(err)
+	}
+	theme := filepath.Join(themes, "Ryoku.theme.css")
+	if info, err := os.Lstat(theme); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("Flathub theme = %v, %v; the sandbox cannot follow a link", info, err)
+	}
+	if raw, err := os.ReadFile(theme); err != nil || string(raw) != "theme one\n" {
+		t.Fatalf("Flathub theme content = %q, %v", raw, err)
+	}
+	if err := installLocalVesktopTheme(t, "2.0.0", "Ryoku.theme.css", "theme two\n"); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := os.ReadFile(theme); err != nil || string(raw) != "theme two\n" {
+		t.Fatalf("Flathub theme after update = %q, %v", raw, err)
+	}
+	if err := removeProduct(context.Background(), vesktopThemesCategory, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(theme); !os.IsNotExist(err) {
+		t.Fatalf("Flathub theme remains after removal: %v", err)
+	}
+}
+
+func TestVesktopThemeCreatesNoFlathubFolderWithoutFlathubVesktop(t *testing.T) {
+	setTransactionXDG(t)
+	isolateVesktopFlatpak(t)
+	if err := installLocalVesktopTheme(t, "1.0.0", "Ryoku.theme.css", "theme\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(os.Getenv("HOME"), ".var")); !os.IsNotExist(err) {
+		t.Fatalf("install created a Flathub folder for a Vesktop that is not there: %v", err)
+	}
+}
+
+func TestVesktopThemeFlathubPreservesUserTheme(t *testing.T) {
+	setTransactionXDG(t)
+	themes := isolateVesktopFlatpak(t)
+	if err := os.MkdirAll(themes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	user := filepath.Join(themes, "Ryoku.theme.css")
+	if err := os.WriteFile(user, []byte("user theme\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := installLocalVesktopTheme(t, "1.0.0", "Ryoku.theme.css", "store theme\n"); err == nil {
+		t.Fatal("install replaced a theme the user put in the Flathub folder")
+	}
+	if raw, err := os.ReadFile(user); err != nil || string(raw) != "user theme\n" {
+		t.Fatalf("user theme changed: %q, %v", raw, err)
+	}
+	link := filepath.Join(configHome(), "vesktop", "themes", "Ryoku.theme.css")
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("failed install left the native link: %v", err)
+	}
+	if _, err := readReceipt(vesktopThemesCategory, "demo"); !os.IsNotExist(err) {
+		t.Fatalf("failed install left a receipt: %v", err)
+	}
+}
+
+func TestVesktopThemeFlathubUpdateRollbackRestoresCopy(t *testing.T) {
+	for _, newName := range []string{"Ryoku.theme.css", "Other.theme.css"} {
+		t.Run(newName, func(t *testing.T) {
+			setTransactionXDG(t)
+			themes := isolateVesktopFlatpak(t)
+			markVesktopFlatpakRun(t)
+			if err := installLocalVesktopTheme(t, "1.0.0", "Ryoku.theme.css", "old\n"); err != nil {
+				t.Fatal(err)
+			}
+			original := writeProductRevision
+			writeProductRevision = func(StoreRevision) error { return errors.New("revision unavailable") }
+			t.Cleanup(func() { writeProductRevision = original })
+			if err := installLocalVesktopTheme(t, "2.0.0", newName, "new\n"); err == nil {
+				t.Fatal("update unexpectedly succeeded")
+			}
+			if raw, err := os.ReadFile(filepath.Join(themes, "Ryoku.theme.css")); err != nil || string(raw) != "old\n" {
+				t.Fatalf("prior Flathub theme was not restored: %q, %v", raw, err)
+			}
+			if newName != "Ryoku.theme.css" {
+				if _, err := os.Lstat(filepath.Join(themes, newName)); !os.IsNotExist(err) {
+					t.Fatalf("new Flathub theme remains after rollback: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestVesktopThemeRequiresFlatCSS(t *testing.T) {
 	if validVesktopThemeName("nested/Ryoku.theme.css") || validVesktopThemeName("theme.css") {
 		t.Fatal("accepted a theme filename Vesktop cannot load")
