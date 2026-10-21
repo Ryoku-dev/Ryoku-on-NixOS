@@ -242,7 +242,7 @@ FloatingWindow {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: Qt.openUrlExternally("https://github.com/Ryoku-dev/ryomanager")
+                                onClicked: Qt.openUrlExternally("https://github.com/aethctl/ryomanager")
                             }
                         }
 

@@ -11,9 +11,5 @@
     shell = install.shell;
     optionalApps = install.optionalApps;
     updateFlake = "/etc/nixos";
-
-    # This system's nixpkgs is newer than Ryoku's package set, so the GL driver
-    # must come from Ryoku's set for Hyprland and niri to start.
-    graphics.matchRyokuMesa = true;
   };
 }

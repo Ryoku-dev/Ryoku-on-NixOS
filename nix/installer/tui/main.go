@@ -112,7 +112,7 @@ type options struct {
 }
 
 func defaultOptions() options {
-	return options{flake: "/etc/nixos", source: envDefault("RYOKU_INSTALL_SOURCE", "github:Ryoku-dev/Ryoku-on-NixOS/main")}
+	return options{flake: "/etc/nixos", source: envDefault("RYOKU_INSTALL_SOURCE", "github:aethctl/Ryoku-on-NixOS/main")}
 }
 func envDefault(k, d string) string {
 	if v := strings.TrimSpace(os.Getenv(k)); v != "" {

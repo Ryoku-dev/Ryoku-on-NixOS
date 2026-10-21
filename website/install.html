@@ -23,7 +23,7 @@
       <a class="active" href="install.html">Install guide</a>
       <a href="patch-notes.html">Patch notes</a>
       <a href="index.html#faq">FAQ</a>
-      <a class="nav-github" href="https://github.com/Ryoku-dev/Ryoku-on-NixOS" target="_blank" rel="noreferrer">GitHub ↗</a>
+      <a class="nav-github" href="https://github.com/aethctl/Ryoku-on-NixOS" target="_blank" rel="noreferrer">GitHub ↗</a>
     </nav>
   </header>
 
@@ -166,14 +166,14 @@
           <div class="eyebrow">04 // PREVIEW RYOKU</div>
           <h2>See what the installer will do first.</h2>
           <p>Run this as your normal user. Do <strong>not</strong> put <code>sudo</code> in front of it; the installer asks for elevated access only when it actually needs it.</p>
-          <pre><code>nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install -- --dry-run</code><button class="copy" data-copy="nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install -- --dry-run">COPY</button></pre>
+          <pre><code>nix run github:aethctl/Ryoku-on-NixOS/main#install -- --dry-run</code><button class="copy" data-copy="nix run github:aethctl/Ryoku-on-NixOS/main#install -- --dry-run">COPY</button></pre>
           <p>The dry run does not install Ryoku. It gives you a chance to inspect the planned integration first.</p>
         </section>
 
         <section id="install" class="docs-section">
           <div class="eyebrow">05 // INSTALL</div>
           <h2>Install Ryoku.</h2>
-          <pre><code>nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install</code><button class="copy" data-copy="nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install">COPY</button></pre>
+          <pre><code>nix run github:aethctl/Ryoku-on-NixOS/main#install</code><button class="copy" data-copy="nix run github:aethctl/Ryoku-on-NixOS/main#install">COPY</button></pre>
           <p>The installer integrates Ryoku into your existing flake, builds a new NixOS generation, and switches only after that build succeeds.</p>
           <div class="docs-callout"><strong>Ryoku does not reinstall NixOS.</strong> It does not repartition your drives, replace your bootloader, or take ownership of your hardware-specific GPU configuration.</div>
         </section>
@@ -192,7 +192,7 @@
           <div class="docs-callout"><strong>Useful support information:</strong> copy the final error from your terminal, say which step of this guide you were on, and include whether your system rebuilt successfully with <code>/etc/nixos#nixos</code> before Ryoku.</div>
           <div class="status-actions">
             <a class="button primary" href="https://discord.gg/8KjBmUEyKA" target="_blank" rel="noreferrer">Discord support ↗</a>
-            <a class="button" href="https://github.com/Ryoku-dev/Ryoku-on-NixOS/issues" target="_blank" rel="noreferrer">GitHub issues ↗</a>
+            <a class="button" href="https://github.com/aethctl/Ryoku-on-NixOS/issues" target="_blank" rel="noreferrer">GitHub issues ↗</a>
           </div>
         </section>
       </div>

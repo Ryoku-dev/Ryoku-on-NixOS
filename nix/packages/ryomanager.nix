@@ -66,7 +66,7 @@ DESKTOP
 
   meta = {
     description = "Ryoku-native system task manager";
-    homepage = "https://github.com/Ryoku-dev/ryomanager";
+    homepage = "https://github.com/aethctl/ryomanager";
     license = pkgs.lib.licenses.gpl3Plus;
     platforms = [ "x86_64-linux" ];
     mainProgram = "ryomanager";
