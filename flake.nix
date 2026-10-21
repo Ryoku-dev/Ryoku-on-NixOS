@@ -174,6 +174,8 @@
         track = "${ryokuRepo}/unstable-dev";
       };
 
+      ryokuIsoInstallTest = import ./nix/tests/iso-install.nix ryokuIsoTestArgs;
+
       mkIsoConfigSystem = {
         gpuVendors ? [ ],
         firmware ? "uefi",
@@ -311,6 +313,13 @@
           type = "app";
           program = "${ryokuMaterialize}/bin/ryoku-materialize";
           meta.description = "Materialize the packaged Ryoku desktop into the user configuration";
+        };
+
+        # Needs network and KVM, so it runs outside the Nix build sandbox.
+        ryoku-iso-install-test = {
+          type = "app";
+          program = "${ryokuIsoInstallTest.driver}/bin/nixos-test-driver";
+          meta.description = "Install Ryoku from the ISO in a VM and check SDDM, Hyprland and niri";
         };
 
         default = {

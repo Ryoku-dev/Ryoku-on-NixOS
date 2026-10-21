@@ -130,6 +130,11 @@ nix build github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev#ryoku-iso
   BIOS, checks that the guided installer opens on tty1, verifies the live
   store, and checks that an unattended dry run renders a flake that follows
   the ISO's branch. It runs offline in the build sandbox.
+- `nix run .#ryoku-iso-install-test` installs Ryoku from the ISO onto an empty
+  VM disk, boots the result, logs in through the qylock SDDM greeter and checks
+  that Hyprland and niri start with the Ryoku shell. It needs KVM, network and
+  a host GPU render node (the installed desktop renders through virgl) and
+  takes about an hour; `RYOKU_VM_CORES` and `RYOKU_VM_MEMORY` (MiB) size the VM.
 
-The test uses the release image plus NixOS' test instrumentation, which only
+Both tests use the release image plus NixOS' test instrumentation, which only
 adds the test driver's backdoor shell, packed with a faster squashfs level.
