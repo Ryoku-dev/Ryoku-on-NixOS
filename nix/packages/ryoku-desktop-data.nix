@@ -128,11 +128,17 @@ pkgs.stdenv.mkDerivation {
     grep -Fq '"karuma": "barstyles/karuma/Scene.qml"' "$karuma_products"
     grep -Fq 'property string barStyle: "karuma"' "$karuma_config"
     phone_dir="$cfg/quickshell/shell/modules/phone"
+    # Not every phone file uses both forms, so a miss per file is expected; the
+    # grep below still fails the build when a bare python3 is left anywhere.
     while IFS= read -r -d "" file; do
       substituteInPlace "$file" \
-        --replace-warn '"python3"' '"${phonePython}/bin/python3"' \
-        --replace-warn "python3 -c" "${phonePython}/bin/python3 -c"
+        --replace-quiet '"python3"' '"${phonePython}/bin/python3"' \
+        --replace-quiet "python3 -c" "${phonePython}/bin/python3 -c"
     done < <(find "$phone_dir" -name '*.qml' -print0)
+    if grep -rlE --include='*.qml' '"python3"|(^|[^/])python3 -c' "$phone_dir"; then
+      echo "phone QML still calls a bare python3" >&2
+      exit 1
+    fi
 
     # iNiR's shared app launcher is written for FHS distributions and uses
     # absolute /usr/bin paths. NixOS intentionally has no /usr/bin/bash,
