@@ -1,4 +1,4 @@
-{ self, ryokuNixpkgs, hermesAgent }:
+{ self, ryokuNixpkgs, hermesAgent, ryokuUpstream }:
 
 { config, lib, pkgs, options, ... }:
 
@@ -7,7 +7,19 @@ let
 
   system = pkgs.stdenv.hostPlatform.system;
 
-  ryokuPkgs = self.packages.${system};
+  # Keep legacy NixOS customizations available during migration.
+  legacyRyokuPkgs = self.packages.${system};
+
+  ryokuPkgs =
+    legacyRyokuPkgs // (lib.optionalAttrs cfg.upstreamPackages.enable {
+      ryoku-bundle = legacyRyokuPkgs.ryoku-upstream-nixos-bundle;
+      ryoku-shell = ryokuUpstream.packages.${system}.ryoku-shell;
+      ryoku-qml = ryokuUpstream.packages.${system}.ryoku-qml;
+      ryoku-wm-hyprland =
+        ryokuUpstream.packages.${system}.ryoku-wm-hyprland;
+      ryoku-wm-niri =
+        ryokuUpstream.packages.${system}.ryoku-wm-niri;
+    });
 
   ryokuShell = ryokuPkgs.ryoku-shell;
   ryokuRashin = ryokuPkgs.ryoku-rashin;
@@ -1062,6 +1074,15 @@ in
 
   options.programs.ryoku = {
     enable = lib.mkEnableOption "Ryoku desktop";
+
+    upstreamPackages.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Preview upstream Ryoku packaging while preserving NixOS-specific
+        desktop data, Mango, system services and materialization.
+      '';
+    };
 
     binaryCache.enable = lib.mkOption {
       type = lib.types.bool;
