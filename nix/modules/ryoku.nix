@@ -1612,8 +1612,11 @@ in
         "default.target"
       ];
 
+      # Per-user units start for every user manager, including the display
+      # manager's system account. Run them for real users only.
       unitConfig = {
         ConditionPathExistsGlob = "/sys/class/bluetooth/*";
+        ConditionUser = "!@system";
       };
 
       serviceConfig = {
@@ -1994,8 +1997,11 @@ in
         RYOKU_UPDATE_BACKEND = "nix";
       };
 
+      # SDDM's greeter account would otherwise take 127.0.0.1:3600 first and
+      # leave the user's daemon restarting on "address already in use".
       unitConfig = {
         StartLimitIntervalSec = 0;
+        ConditionUser = "!@system";
       };
 
       serviceConfig = {
@@ -2041,6 +2047,8 @@ in
       wantedBy = [
         "timers.target"
       ];
+
+      unitConfig.ConditionUser = "!@system";
 
       timerConfig = {
         OnBootSec = "2min";
@@ -2121,6 +2129,8 @@ in
       wantedBy = [
         "sockets.target"
       ];
+
+      unitConfig.ConditionUser = "!@system";
 
       socketConfig = {
         ListenStream = "%t/ryotunes/ryotunesd.sock";
