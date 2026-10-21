@@ -309,6 +309,18 @@ pkgs.stdenv.mkDerivation {
     mkdir -p "$cfg/yazi"
     cp ryoku/apps/yazi/yazi.toml "$cfg/yazi/yazi.toml"
 
+    # The Vencord settings are a seed: materialize lays them only where the
+    # client has not written its own yet. The theme's MIT license stays out of
+    # the user's themes folder.
+    for discord in vesktop equibop; do
+      install -Dm644 ryoku/apps/vesktop/themes/ryoku-discord.theme.css \
+        "$cfg/$discord/themes/ryoku-discord.theme.css"
+      install -Dm644 ryoku/apps/vesktop/settings/settings.json \
+        "$cfg/$discord/settings/settings.json"
+    done
+    install -Dm644 ryoku/apps/vesktop/themes/LICENSE \
+      "$out/share/licenses/ryoku-desktop/LICENSE.ryoku-discord"
+
     mkdir -p "$cfg/nvim"
     cp ryoku/apps/nvim/init.lua "$cfg/nvim/init.lua"
     cp ryoku/apps/nvim/.ryoku-lazyvim "$cfg/nvim/.ryoku-lazyvim"
