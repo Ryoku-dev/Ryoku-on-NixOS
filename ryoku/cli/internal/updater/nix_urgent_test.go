@@ -119,7 +119,7 @@ func stubUrgentCompare(t *testing.T, fixtures []urgentFixture) (*httptest.Server
 	return srv, &hits, &paths
 }
 
-var portSource = nixUrgentSource{Repository: "aethctl/Ryoku-on-NixOS", InstalledRev: "0000000aaaaaa", LatestRev: "4444444dddddd"}
+var portSource = nixUrgentSource{Repository: "Ryoku-dev/Ryoku-on-NixOS", InstalledRev: "0000000aaaaaa", LatestRev: "4444444dddddd"}
 
 func TestNixUrgentAsksThePortRepository(t *testing.T) {
 	srv, hits, paths := stubUrgentCompare(t, portMergedPR)
@@ -130,7 +130,7 @@ func TestNixUrgentAsksThePortRepository(t *testing.T) {
 	if len(got) != 2 || got[0].Reason != "head fix" || got[1].Reason != "maintainer fix" {
 		t.Fatalf("urgent = %+v, want the head and the maintainer's commit", got)
 	}
-	if want := "/repos/aethctl/Ryoku-on-NixOS/compare/0000000aaaaaa...4444444dddddd"; (*paths)[0] != want {
+	if want := "/repos/Ryoku-dev/Ryoku-on-NixOS/compare/0000000aaaaaa...4444444dddddd"; (*paths)[0] != want {
 		t.Errorf("asked %s, want %s", (*paths)[0], want)
 	}
 	// The hourly probe asks again with the same pair: the cache answers.
@@ -158,8 +158,8 @@ func TestNixUrgentNothingToCompare(t *testing.T) {
 
 	for _, src := range []nixUrgentSource{
 		{},
-		{Repository: "aethctl/Ryoku-on-NixOS", InstalledRev: "4444444dddddd", LatestRev: "4444444dddddd"},
-		{Repository: "aethctl/Ryoku-on-NixOS", InstalledRev: "0000000aaaaaa"},
+		{Repository: "Ryoku-dev/Ryoku-on-NixOS", InstalledRev: "4444444dddddd", LatestRev: "4444444dddddd"},
+		{Repository: "Ryoku-dev/Ryoku-on-NixOS", InstalledRev: "0000000aaaaaa"},
 		{InstalledRev: "0000000aaaaaa", LatestRev: "4444444dddddd"},
 	} {
 		if got := nixUrgent(src); got == nil || len(got) != 0 {
@@ -189,7 +189,7 @@ func TestNixUrgentReadsEveryPage(t *testing.T) {
 	t.Setenv("RYOKU_GITHUB_API", srv.URL)
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
-	got := nixUrgent(nixUrgentSource{Repository: "aethctl/Ryoku-on-NixOS", InstalledRev: "0000000aaaaaa", LatestRev: fixtures[329].sha})
+	got := nixUrgent(nixUrgentSource{Repository: "Ryoku-dev/Ryoku-on-NixOS", InstalledRev: "0000000aaaaaa", LatestRev: fixtures[329].sha})
 	if len(got) != 2 || got[0].Reason != "fix 329" || got[1].Reason != "fix 5" {
 		t.Errorf("urgent = %+v, want fix 329 and fix 5", got)
 	}
@@ -248,7 +248,7 @@ func TestNixStatusCarriesUrgent(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	fakeNixUpdate(t, `{"installedVersion":"0.102.3-beta.20","latestVersion":"0.102.3-beta.20","available":true,"pendingUpdates":1,`+
 		`"updates":[],"recent":[],"channel":"unstable-dev","packages":[],"backend":"nix","canUpdate":true,`+
-		`"source":"github:aethctl/Ryoku-on-NixOS/unstable-dev","repository":"aethctl/Ryoku-on-NixOS",`+
+		`"source":"github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev","repository":"Ryoku-dev/Ryoku-on-NixOS",`+
 		`"installedRev":"0000000aaaaaa","latestRev":"4444444dddddd"}`)
 
 	r := nixStatus()
@@ -265,7 +265,7 @@ func TestUrgentStatusIsNixOnly(t *testing.T) {
 	srv, hits, _ := stubUrgentCompare(t, portMergedPR)
 	t.Setenv("RYOKU_GITHUB_API", srv.URL)
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	ran := fakeNixUpdate(t, `{"repository":"aethctl/Ryoku-on-NixOS","installedRev":"0000000aaaaaa","latestRev":"4444444dddddd"}`)
+	ran := fakeNixUpdate(t, `{"repository":"Ryoku-dev/Ryoku-on-NixOS","installedRev":"0000000aaaaaa","latestRev":"4444444dddddd"}`)
 
 	t.Setenv("RYOKU_UPDATE_BACKEND", "pacman")
 	if got := urgentStatus(); got == nil || len(got) != 0 {

@@ -44,7 +44,7 @@
 
     # RyoManager task manager, pinned to the approved Ryoku UI build.
     ryomanagerSrc = {
-      url = "github:aethctl/ryomanager/459c6714e31276f73025369e722cf4ab48eccbc3";
+      url = "github:Ryoku-dev/ryomanager/459c6714e31276f73025369e722cf4ab48eccbc3";
       flake = false;
     };
 
@@ -139,12 +139,50 @@
           ryokuNixpkgs = pkgs;
         };
 
+      ryokuRepo = "github:Ryoku-dev/Ryoku-on-NixOS";
+
+      # Bootable Ryoku-on-NixOS live/install image. The live environment tracks
+      # the flake's nixos-unstable input; Ryoku-owned packages remain pinned to
+      # Ryoku's separate package universe. Both are locked by flake.lock.
+      # `channel` is the branch installed systems follow afterwards.
+      mkRyokuIso = channel: nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = {
+          inherit self ryokuInstall ryokuRepo;
+          ryokuIsoChannel = channel;
+          ryokuIsoNixpkgsRev = nixpkgs.rev or "";
+          ryokuIsoRyokuRev = self.rev or "";
+        };
+        modules = [ ./nix/iso ];
+      };
+
+      # The release ISO plus NixOS' test instrumentation, which only adds the
+      # test driver's backdoor shell. A faster squashfs level keeps CI short.
+      ryokuTestIso = self.nixosConfigurations.ryoku-iso.extendModules {
+        modules = [
+          "${nixpkgs}/nixos/modules/testing/test-instrumentation.nix"
+          { isoImage.squashfsCompression = "zstd -Xcompression-level 6"; }
+        ];
+      };
+
+      isoPkgs = nixpkgs.legacyPackages.${system};
+
+      ryokuIsoTestArgs = {
+        pkgs = isoPkgs;
+        isoSystem = ryokuTestIso;
+        source = if self ? rev then "${ryokuRepo}/${self.rev}" else "path:/etc/ryoku/source";
+        track = "${ryokuRepo}/unstable-dev";
+      };
+
+      ryokuIsoInstallTest = import ./nix/tests/iso-install.nix ryokuIsoTestArgs;
+
       mkIsoConfigSystem = {
         gpuVendors ? [ ],
         firmware ? "uefi",
         nvidiaBranch ? "stable",
         nvidiaOpen ? true,
         kernel ? "default",
+        optionalApps ? [ "prompt" ],
       }:
         nixpkgs.lib.nixosSystem {
           inherit system;
@@ -163,9 +201,9 @@
               compositor = "hyprland";
               browser = "chromium";
               shell = "fish";
-              optionalApps = [ "prompt" ];
+              inherit optionalApps;
               binaryCache = true;
-              ryokuSource = "github:aethctl/Ryoku-on-NixOS/main";
+              ryokuSource = "${ryokuRepo}/unstable-dev";
               nixpkgsSource = "github:NixOS/nixpkgs/nixos-unstable";
             };
           };
@@ -181,18 +219,9 @@
 
       nixosModules.default = ryokuNixosModule;
 
-      # Bootable Ryoku-on-NixOS live/install image. The live environment tracks
-      # the flake's nixos-unstable input; Ryoku-owned packages remain pinned to
-      # Ryoku's separate package universe. Both are locked by flake.lock.
-      nixosConfigurations.ryoku-iso = nixpkgs.lib.nixosSystem {
-        inherit system;
-        specialArgs = {
-          inherit self ryokuInstall;
-          ryokuIsoNixpkgsRev = nixpkgs.rev or "";
-          ryokuIsoRyokuRev = self.rev or "";
-        };
-        modules = [ ./nix/iso ];
-      };
+      # Installs follow unstable-dev; ryoku-iso-stable is for images built from main.
+      nixosConfigurations.ryoku-iso = mkRyokuIso "unstable-dev";
+      nixosConfigurations.ryoku-iso-stable = mkRyokuIso "main";
 
       # Evaluation-only configuration: never activated by the installer.
       nixosConfigurations.ryoku-iso-upstream-validation =
@@ -208,6 +237,19 @@
         ryoku-install = ryokuInstall;
         ryoku-install-backend = ryokuInstallBackend;
         ryoku-iso = self.nixosConfigurations.ryoku-iso.config.system.build.isoImage;
+        ryoku-iso-stable = self.nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage;
+
+        # What a default guided install builds: every compositor and the
+        # installer's preselected optional apps. CI pushes it to the binary
+        # cache so installs download Ryoku's own packages instead of compiling.
+        ryoku-install-closure = (mkIsoConfigSystem {
+          optionalApps = [
+            "prompt" "bash-edit" "fastfetch" "yazi" "cli-tools" "git-tools"
+            "pavucontrol" "songrec" "openrgb" "upscale" "localsend"
+            "gamescope" "gamemode" "mangohud" "vm" "docker" "flatpak"
+            "go" "pytools" "mise"
+          ];
+        }).config.system.build.toplevel;
         ryoku-shell = ryoku.shell;
         ryoku-ui = ryoku.ui;
         ryoku-plugin-kit = ryoku.pluginKit;
@@ -284,6 +326,13 @@
           type = "app";
           program = "${ryokuMaterialize}/bin/ryoku-materialize";
           meta.description = "Materialize the packaged Ryoku desktop into the user configuration";
+        };
+
+        # Needs network and KVM, so it runs outside the Nix build sandbox.
+        ryoku-iso-install-test = {
+          type = "app";
+          program = "${ryokuIsoInstallTest.driver}/bin/nixos-test-driver";
+          meta.description = "Install Ryoku from the ISO in a VM and check SDDM, Hyprland and niri";
         };
 
         default = {
@@ -380,6 +429,8 @@
           assert generic.config.networking.hostName == "ryoku-ci";
           assert generic.config.programs.ryoku.enable;
           assert generic.config.programs.ryoku.binaryCache.enable;
+          assert generic.config.hardware.graphics.package == pkgs.mesa;
+          assert generic.config.hardware.graphics.package32 == pkgs.pkgsi686Linux.mesa;
           assert generic.config.nix.package == nixpkgs.legacyPackages.${system}.nixVersions.latest;
           assert nvidia.config.services.xserver.videoDrivers == [ "nvidia" ];
           assert nvidia.config.hardware.nvidia.modesetting.enable;
@@ -402,6 +453,8 @@
           pkgs.runCommand "ryoku-iso-configs-check" { } ''
             touch "$out"
           '';
+
+        ryoku-iso-boot = import ./nix/tests/iso-boot.nix ryokuIsoTestArgs;
 
         ryoku-installer-wrapper = import ./nix/tests/installer-wrapper.nix {
           inherit pkgs;

@@ -19,7 +19,7 @@ The shared desktop stays close to upstream; NixOS-specific packaging, modules, i
 <br />
 
 ```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#install
+nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install
 ```
 
 <sub>Existing flake-based NixOS system required.</sub>
@@ -244,7 +244,7 @@ Ryoku on NixOS installs on top of an existing **flake-based NixOS system**.
 Run the installer as your normal user:
 
 ```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#install
+nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install
 ```
 
 The installer:

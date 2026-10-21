@@ -28,7 +28,7 @@ the host's graphics-driver configuration.
 Run the installer as your normal user:
 
 ```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#install
+nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install
 ```
 
 The installer requests elevated privileges only when it needs to write system
@@ -37,7 +37,7 @@ configuration or build/switch the NixOS generation.
 For a preview first:
 
 ```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#install -- \
+nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install -- \
 ```
 
 A dry run prints the proposed `flake.nix` changes and generated `ryoku.nix`
@@ -51,7 +51,7 @@ host when it can.
 For another flake location or a multi-host configuration:
 
 ```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#install -- \
+nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install -- \
   --flake /path/to/nixos#hostname
 ```
 
@@ -112,7 +112,7 @@ Add the NixOS port as an input:
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     ryoku = {
-      url = "github:aethctl/Ryoku-on-NixOS";
+      url = "github:Ryoku-dev/Ryoku-on-NixOS";
     };
   };
 }
@@ -153,7 +153,7 @@ sudo nixos-rebuild switch --flake .#my-host
 For a manual integration, the packaged materializer is also exposed as:
 
 ```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#ryoku-materialize
+nix run github:Ryoku-dev/Ryoku-on-NixOS/main#ryoku-materialize
 ```
 
 Normal installer-managed systems run materialization automatically after a
