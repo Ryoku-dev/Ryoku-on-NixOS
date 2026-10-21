@@ -146,6 +146,11 @@ Scope {
         const store = WidgetStore.Config;
         if (widgetId.indexOf("plugin:") === 0) {
             const pid = widgetId.slice(7);
+            // A plugin draws on one host at a time, and the desktop draws only
+            // the desktopWidget one: a store plugin that also offers a bar
+            // glyph arrives on the bar host and would stay there, invisible.
+            // QS Bar's own add claims topbarGlyph the same way.
+            root.enqueue([root.placeTool, pid, "host", "desktopWidget"]);
             root.enqueue([root.placeTool, pid, "enabled", "true"]);
             if (x !== undefined && y !== undefined)
                 root.enqueue([root.placeTool, pid, "desktopWidget", "" + Math.round(x), "" + Math.round(y)]);

@@ -568,3 +568,34 @@ func TestWriteEffectiveFastfetchRebuildsOnModeTransition(t *testing.T) {
 		t.Fatalf("cache kept stale fixed-mode brand red after unset:\n%s", b)
 	}
 }
+
+// A rice lays its readout verbatim, so a tagline captured with a distribution
+// baked in told every Void box it was "a hand-built Arch desktop".
+func TestShippedRiceTaglinesNameTheRunningDistribution(t *testing.T) {
+	readouts, err := filepath.Glob(filepath.Join("..", "..", "assets", "rices", "*", "fastfetch.jsonc"))
+	if err != nil || len(readouts) == 0 {
+		t.Fatalf("no shipped rice readouts found: %v", err)
+	}
+	for _, readout := range readouts {
+		data, err := os.ReadFile(readout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", dir)
+		t.Setenv("RYOKU_BASE_OS", "Void")
+		if err := os.MkdirAll(filepath.Join(dir, "fastfetch"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "fastfetch", "config.jsonc"), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		m, err := loadFastfetch()
+		if err != nil {
+			t.Fatalf("%s: %v", readout, err)
+		}
+		if r := rowByKind(m.Rows, "tagline"); r == nil || !strings.Contains(r.Text, "a hand-built Void desktop") {
+			t.Errorf("%s tagline on Void = %+v", readout, r)
+		}
+	}
+}

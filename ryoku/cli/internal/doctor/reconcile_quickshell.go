@@ -137,6 +137,9 @@ func quickshellUpgradeAdvice() string {
 // any version compare.
 func quickshellVersion(bin string) (string, error) {
 	cmd := exec.Command(bin, "--version")
+	// after the kill below, a child still holding the output pipe must not
+	// keep doctor waiting either
+	cmd.WaitDelay = 2 * time.Second
 	done := make(chan struct{})
 	var out []byte
 	var err error

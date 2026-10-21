@@ -6,6 +6,14 @@
 - The built-in in-session clockwork lockscreen follows the global 12/24-hour preference, including AM/PM.
 
 ### Fixed
+- **A lock whose PAM stack cannot run no longer loops.** When the password
+  conversation ended before PAM ever asked for a key (a module that will not
+  load, a service that denies outright), the in-session lock started it again
+  on the same tick and shook the field as a wrong password. One NixOS user's
+  journal showed over 70 PAM children in one second while the field shook with
+  nothing typed. Such a failure now re-arms after 1s, doubling to 30s, and
+  stays quiet; a wrong password still shakes and re-prompts at once, and a key
+  typed during the wait is tried immediately (`tests/lock-pam-backoff.sh`).
 - **The clockwork lockscreen's date turns over at midnight.** The day and date
   labels read the date once when the lock opened, so a screen locked on
   Thursday still said Thursday on Friday while the clock kept moving. They now

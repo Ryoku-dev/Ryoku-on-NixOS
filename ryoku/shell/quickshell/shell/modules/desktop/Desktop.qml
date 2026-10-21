@@ -115,8 +115,9 @@ Scope {
         }
     }
     // The frost is a desktop-wide effect, so skip even the workspace count when
-    // its user control is off.
-    readonly property bool deckFrostEnabled: Number(Services.Config.deckFrost) > 0
+    // its user switch is off or its strength is zero.
+    readonly property bool deckFrostEnabled: Services.Config.deckFrostEnabled !== false
+        && Number(Services.Config.deckFrost) > 0
     readonly property int deckFrostCount: (root.deckFrostEnabled
         && !root.stageComposing && !root.stageEditing)
         ? CompositorService.windowsOnActiveWorkspace(root.monitorName)

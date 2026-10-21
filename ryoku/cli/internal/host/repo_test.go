@@ -325,6 +325,7 @@ func TestDNFRepoConfigRewritesOnlyRyokuBaseURL(t *testing.T) {
 	app, _, _ := testApp(&fakeRunner{}, map[string]string{
 		"RYOKU_HOST_PKGMGR":     "dnf",
 		"RYOKU_DNF_REPO_CONFIG": path,
+		"RYOKU_DNF_CACHE_DIR":   t.TempDir(),
 	})
 	wantURL := RepoURLFor(DNF, "testing")
 	if err := app.RepoSetChannel("testing"); err != nil {

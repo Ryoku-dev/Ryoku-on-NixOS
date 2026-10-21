@@ -111,7 +111,11 @@ func (a *App) xbpsTable() (packageTable, error) {
 	if path == "" {
 		path = a.cfg.PackageTable
 	}
-	return a.packageTable(path, "void")
+	table, err := a.packageTable(path, "void")
+	if err != nil {
+		return nil, err
+	}
+	return a.withOverlay(table, "void")
 }
 
 func translatePackage(table packageTable, name string) packageMapping {

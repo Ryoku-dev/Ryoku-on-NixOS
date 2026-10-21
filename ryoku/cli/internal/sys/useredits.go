@@ -44,10 +44,10 @@ func UserEditFiles() ([]string, error) {
 
 // LiveOwnedConfig are the files edited at their normal ~/.config path and loaded
 // there directly: the tool's own user-include files, Hub-owned Starship and
-// Fastfetch choices, Matugen palette siblings, and each provider's display, GPU
-// and keyboard state. They must NEVER live in the overlay: overlayUserEdits
-// would re-lay a frozen copy over the live file on every update and silently
-// wipe edits made afterward.
+// Fastfetch choices, Matugen palette siblings, the Vencord settings Vesktop and
+// Equibop rewrite, and each provider's display, GPU and keyboard state. They must
+// NEVER live in the overlay: overlayUserEdits would re-lay a frozen copy over
+// the live file on every update and silently wipe edits made afterward.
 var LiveOwnedConfig = liveOwnedConfig()
 
 // compositorLiveOwned are the live-owned files under a provider's config dir.
@@ -60,6 +60,8 @@ func liveOwnedConfig() []string {
 		"starship/ryoku-colors.toml",
 		"kitty/current-theme.conf",
 		"ghostty/ryoku-colors",
+		"vesktop/settings/settings.json",
+		"equibop/settings/settings.json",
 	}
 	// Every provider's files are kept regardless of which one is running, so an
 	// update under Hyprland never prunes a niri box's seeds and vice versa. The

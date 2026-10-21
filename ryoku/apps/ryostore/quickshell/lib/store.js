@@ -34,7 +34,8 @@ function downloadPauseReason(item) {
     return isDownloadPaused(item) ? String((item && item.downloadPauseReason) || "") : "";
 }
 
-// unavailable: a product the catalogue wrote for another window manager. It is
+// unavailable: a product this machine cannot run, because the catalogue wrote it
+// for another window manager or another edition (package manager). It is
 // refused for install and update by the backend (a client cannot bypass that),
 // stays listed, and keeps any installed copy removable; every surface here must
 // show it greyed with the reason instead of an action that cannot work.
@@ -42,11 +43,14 @@ function isUnavailable(item) {
     return Boolean(item && item.unavailable);
 }
 
-// The chip and the disabled action both name the window manager the product
-// wants, taken from the product itself rather than from a list of names here.
+// The chip and the disabled action name the cause: the window manager the
+// product wants, taken from the product itself rather than from a list of names
+// here, or this system when the edition is what rules it out.
 function unavailableLabel(item) {
     if (!isUnavailable(item))
         return "";
+    if (item.unavailableEdition)
+        return "NOT ON THIS SYSTEM";
     var want = String((item && item.requiredWindowManager) || "").toUpperCase();
     return want.length > 0 ? want + " ONLY" : "UNAVAILABLE";
 }

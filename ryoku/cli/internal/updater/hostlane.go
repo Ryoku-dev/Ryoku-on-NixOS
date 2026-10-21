@@ -7,8 +7,6 @@ import (
 
 	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
-
-	i18n "ryoku-i18n"
 )
 
 func repositoryHost() *host.App {
@@ -44,7 +42,7 @@ func fedoraReleaseNotice() string {
 	if !status.RepositoryChecked || status.Published {
 		return ""
 	}
-	return i18n.Tf("Ryoku has not published Fedora %s yet; Ryoku packages stay at their current version until it does", status.Version)
+	return status.UnpublishedNotice()
 }
 
 func updateInitSystem() host.InitSystem {

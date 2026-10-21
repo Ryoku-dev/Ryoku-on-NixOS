@@ -80,13 +80,19 @@ type Item struct {
 	UpdateAvailable    bool     `json:"updateAvailable"`
 	DownloadPaused     bool     `json:"downloadPaused"`
 	// RequiredWindowManager is the window manager the product was authored for,
-	// empty when it runs on any; Unavailable says it is not the running one and
-	// UnavailableReason carries the catalogue's human note, if it wrote one.
-	RequiredWindowManager string         `json:"requiredWindowManager,omitempty"`
-	Unavailable           bool           `json:"unavailable"`
-	UnavailableReason     string         `json:"unavailableReason,omitempty"`
-	HasSettings           bool           `json:"hasSettings,omitempty"`
-	Metadata              map[string]any `json:"metadata,omitempty"`
+	// empty when it runs on any; RequiredPackageManagers the package managers
+	// (editions) it runs on, empty for all. Unavailable says this host cannot run
+	// it and UnavailableReason carries the catalogue's human note, if it wrote
+	// one. UnavailableEdition names the cause: set when it is this edition (its
+	// package manager, or a bundle with no part to offer here), clear when it is
+	// the window manager.
+	RequiredWindowManager   string         `json:"requiredWindowManager,omitempty"`
+	RequiredPackageManagers []string       `json:"requiredPackageManagers,omitempty"`
+	Unavailable             bool           `json:"unavailable"`
+	UnavailableEdition      bool           `json:"unavailableEdition,omitempty"`
+	UnavailableReason       string         `json:"unavailableReason,omitempty"`
+	HasSettings             bool           `json:"hasSettings,omitempty"`
+	Metadata                map[string]any `json:"metadata,omitempty"`
 }
 
 // SourceState is a provider's fetch outcome: whether it fell back to cached data

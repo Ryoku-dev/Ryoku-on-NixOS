@@ -90,3 +90,45 @@ test("catalog requires its default and fallback IDs to exist", () => {
     }), /default and fallback must name entries/);
   }
 });
+
+const digest = "a".repeat(64);
+const storeRow = (id, extra = {}) => ({
+  id,
+  version: "1.0.0",
+  preview: "Preview.qml",
+  view: `launcher-views/${id}/${digest}`,
+  ...extra
+});
+
+test("installed Store launchers join the catalog and run from their views", () => {
+  const catalog = Catalog.withStore(Catalog.normalize(raw), [storeRow("tatami")], "/home/u/.local/state/ryoku/store");
+  const tatami = Catalog.entry(catalog, "tatami");
+
+  assert.equal(tatami.id, "tatami");
+  assert.equal(tatami.url, `file:///home/u/.local/state/ryoku/store/launcher-views/tatami/${digest}/Main.qml`);
+  assert.equal(tatami.previewUrl, `file:///home/u/.local/state/ryoku/store/launcher-views/tatami/${digest}/Preview.qml`);
+  assert.equal(Catalog.defaultEntry(catalog).id, "hero");
+  assert.equal(Catalog.entry(catalog, "gone").id, "hero");
+});
+
+test("a Store launcher without a preview has no preview URL", () => {
+  const [entry] = Catalog.storeVariants(Catalog.normalize(raw), [storeRow("tatami", { preview: "" })], "/s");
+  assert.equal(entry.previewUrl, "");
+});
+
+test("Store rows that are malformed, borrowed or shadowing are dropped", () => {
+  const rows = [
+    storeRow("hero"),
+    storeRow("theft", { view: `launcher-views/tatami/${digest}` }),
+    storeRow("escape", { view: `launcher-views/escape/../../../etc` }),
+    storeRow("short", { view: "launcher-views/short/abc" }),
+    storeRow("unversioned", { version: "" }),
+    storeRow("Bad_Id", { view: `launcher-views/Bad_Id/${digest}` }),
+    storeRow("tatami"),
+    storeRow("tatami", { version: "2.0.0" })
+  ];
+  const variants = Catalog.storeVariants(Catalog.normalize(raw), rows, "/s");
+
+  assert.deepEqual(variants.map(variant => [variant.id, variant.version]), [["tatami", "1.0.0"]]);
+  assert.match(Catalog.entry(Catalog.withStore(Catalog.normalize(raw), rows, "/s"), "hero").entrypoint, /^variants\/hero\//);
+});

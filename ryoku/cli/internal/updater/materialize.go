@@ -76,22 +76,26 @@ var reapplyIconTheme = func(configHome string) error {
 // Two kinds qualify: per-machine files the runtime regenerates (monitors.lua,
 // gpu.lua; Matugen's app palette siblings) and user-owned config the package
 // only seeds a starting point for (keyboard.lua; hypr/user.lua;
-// fastfetch/config.jsonc; the Starship layout selected in the Hub).
-// Slash-separated paths, relative to the config base. Most are also in
-// sys.LiveOwnedConfig so the overlay never re-lays a frozen copy over a file
-// edited in place; ghostty/config is the exception -- it is a seed the user may
-// instead fork through the overlay, so it stays overlay-able (not live-owned).
+// fastfetch/config.jsonc; the Starship layout selected in the Hub; the Vencord
+// settings of Vesktop and Equibop, which enable the shipped Ryoku Discord theme
+// until the client writes its own). Slash-separated paths, relative to the
+// config base. Most are also in sys.LiveOwnedConfig so the overlay never re-lays
+// a frozen copy over a file edited in place; ghostty/config is the exception --
+// it is a seed the user may instead fork through the overlay, so it stays
+// overlay-able (not live-owned).
 var generatedSeed = generatedSeedSet()
 
 func generatedSeedSet() map[string]bool {
 	seed := map[string]bool{
-		"fastfetch/config.jsonc":      true,
-		"fastfetch/ryoku-colors.json": true,
-		"starship.toml":               true,
-		"starship/ryoku-colors.toml":  true,
-		"kitty/current-theme.conf":    true,
-		"ghostty/config":              true,
-		"ghostty/ryoku-colors":        true,
+		"fastfetch/config.jsonc":         true,
+		"fastfetch/ryoku-colors.json":    true,
+		"starship.toml":                  true,
+		"starship/ryoku-colors.toml":     true,
+		"kitty/current-theme.conf":       true,
+		"ghostty/config":                 true,
+		"ghostty/ryoku-colors":           true,
+		"vesktop/settings/settings.json": true,
+		"equibop/settings/settings.json": true,
 	}
 	// Every provider's per-machine files are seeded and kept regardless of which
 	// compositor is running, so an update under one never prunes another's. The

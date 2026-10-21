@@ -12,6 +12,7 @@ var entries = [
     { id: "activity", file: "Activity.qml", label: "Activity", icon: "sensors", card: "", desc: "Show recording and microphone use" },
     { id: "ai", file: "Ai.qml", label: "AI usage", icon: "auto_awesome", card: "", desc: "Watch coding-agent usage limits" },
     { id: "phone", file: "Phone.qml", label: "Phone", icon: "smartphone", card: "", desc: "Open phone tools in Kit" },
+    { id: "vpn", file: "Vpn.qml", label: "VPN", icon: "vpn_lock", card: "vpn", desc: "Watch and switch VPN tunnels" },
     { id: "updates", file: "Updates.qml", label: "Updates", icon: "system_update_alt", card: "", desc: "Show pending updates" },
     { id: "tray", file: "Tray.qml", label: "Tray", icon: "apps", card: "tray", desc: "Open background applications" },
     { id: "notifications", file: "Notifications.qml", label: "Notifications", icon: "notifications", card: "notifications", desc: "Read notifications" },

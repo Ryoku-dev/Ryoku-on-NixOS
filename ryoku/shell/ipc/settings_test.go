@@ -459,7 +459,7 @@ func TestMalformedFileFirstLoad(t *testing.T) {
 			t.Fatalf("first-load fallback carried %d top-level keys, want %d (schema only)", len(s.raw), len(contractKeys))
 		}
 		for _, k := range []string{
-			"deckFrost", "general", "theme", "bars", "menus", "notifications",
+			"deckFrostEnabled", "deckFrost", "general", "theme", "bars", "menus", "notifications",
 			"wallpaper", "ask", "controls", "batteryAlerts",
 		} {
 			if _, ok := s.raw[k]; !ok {
@@ -732,6 +732,27 @@ func TestBarStyleCommandUsesSettingsStore(t *testing.T) {
 	}
 	if got := d.dispatch("barstyle ../obi"); !strings.HasPrefix(got, "err ") {
 		t.Fatalf("invalid barstyle command = %q", got)
+	}
+}
+
+// A Store dock removal marks the design it moved to its fallback; once the user
+// edits the dock themselves, recovery must not put the removed design back.
+func TestDockEditDropsTheStoreRemovalMarker(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.patch(dockTransactionKey, json.RawMessage(`"engawa-1"`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.patch("weatherLocation", json.RawMessage(`"Oslo"`)); err != nil {
+		t.Fatal(err)
+	}
+	if !frameHas(t, store.frameLocked(), dockTransactionKey) {
+		t.Fatal("an unrelated edit dropped the dock marker")
+	}
+	if err := store.patch("dock", json.RawMessage(`{"design":"ryoku","autohide":false}`)); err != nil {
+		t.Fatal(err)
+	}
+	if frameHas(t, store.frameLocked(), dockTransactionKey) {
+		t.Fatal("a dock edit retained the store removal marker")
 	}
 }
 

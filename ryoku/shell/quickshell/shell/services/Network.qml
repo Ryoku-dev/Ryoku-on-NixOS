@@ -6,7 +6,7 @@ import "../utils/menupoll.js" as MenuPoll
 
 // QML view of the daemon `network` topic. NetworkManager lives in ryoku-shell
 // (network.go), so QML never shells out to nmcli nor speaks D-Bus itself.
-// `subscribe network` streams a full frame; Wi-Fi, WireGuard, and DNS changes use
+// `subscribe network` streams a full frame; Wi-Fi, WireGuard, VPN, and DNS changes use
 // `call network.*` intents on a second connection. The status derivations the
 // rail and collapsed row read (kind/level/wifiRadio), the active WireGuard
 // indicator, and DNS provider state are computed from that typed frame.
@@ -18,6 +18,9 @@ Singleton {
     property var wired: ({ present: false, connectivity: "Disconnected" })
     property var accessPoints: []
     property var wgTunnels: []
+    // Saved NetworkManager VPN profiles (OpenVPN, OpenConnect, ...), service
+    // order: { uuid, name, service, active, connecting, ip4 }.
+    property var vpnProfiles: []
     property var dns: ({ provider: "dhcp", servers: [] })
 
     // --- derived status the rail + collapsed row bind to (preserved interface) ---
@@ -36,6 +39,17 @@ Singleton {
     readonly property var activeWg: root.wgTunnels.filter(t => t && t.active)
     readonly property bool vpnActive: root.activeWg.length > 0
     readonly property string vpnName: root.activeWg.length > 0 ? (root.activeWg[0].name || "") : ""
+
+    // Every saved tunnel a VPN switch drives, VPN profiles then WireGuard, in
+    // one shape: { uuid, name, service, active, connecting, ip4 }.
+    readonly property var vpnTunnels: root.vpnProfiles.concat(root.wgTunnels.map(tunnel => ({
+        uuid: tunnel.uuid,
+        name: tunnel.name || "",
+        service: "wireguard",
+        active: tunnel.active === true,
+        connecting: false,
+        ip4: ""
+    })))
 
     // vpnPolling ownership is retained for the rail/menu lifecycle (RailVpn and
     // MenuNetwork claim it on reveal); the topic streams regardless of who
@@ -120,6 +134,13 @@ Singleton {
     function wgActivate(uuid) { root.call("network.wgActivate", { uuid: uuid }); }
     function wgDeactivate(uuid) { root.call("network.wgDeactivate", { uuid: uuid }); }
     function wgImport(path) { root.call("network.wgImport", { path: path }); }
+    function vpnActivate(uuid) { return root.call("network.vpnActivate", { uuid: uuid }); }
+    function vpnDeactivate(uuid) { return root.call("network.vpnDeactivate", { uuid: uuid }); }
+    function setVpnTunnel(tunnel, on) {
+        if (!tunnel || !tunnel.uuid)
+            return 0;
+        return on ? root.vpnActivate(tunnel.uuid) : root.vpnDeactivate(tunnel.uuid);
+    }
     function setDnsProvider(provider, servers) {
         return root.call("network.dnsSet", {
             provider: provider || "",
@@ -142,6 +163,7 @@ Singleton {
             if (f.wired) root.wired = f.wired;
             root.accessPoints = Array.isArray(f.accessPoints) ? f.accessPoints : [];
             root.wgTunnels = Array.isArray(f.wireguard) ? f.wireguard : [];
+            root.vpnProfiles = Array.isArray(f.vpn) ? f.vpn : [];
             if (f.dns) root.dns = f.dns;
         } catch (e) {
             // A malformed frame keeps the last good state.

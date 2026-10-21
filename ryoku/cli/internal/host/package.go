@@ -8,7 +8,8 @@ import (
 )
 
 func (a *App) Package(args []string) int {
-	if len(args) == 0 {
+	args, ok := a.packageOverlayArgs(args)
+	if !ok || len(args) == 0 {
 		return ExitUsage
 	}
 	manager, err := a.PackageManager()
@@ -27,6 +28,11 @@ func (a *App) Package(args []string) int {
 			return ExitUsage
 		}
 		return a.packageInstalledAt(manager, args[1])
+	case "status":
+		if len(args) < 2 {
+			return ExitUsage
+		}
+		return a.packageStatus(manager, args[1:])
 	case "why":
 		if len(args) != 2 {
 			return ExitUsage
@@ -418,8 +424,10 @@ func (a *App) xbps(args []string) int {
 		}
 		return ExitOK
 	case "available":
-		for _, name := range translated {
-			if a.probe("xbps-query", "-R", name).Code != 0 {
+		installed := func(name string) bool { return a.probe("xbps-query", name).Code == 0 }
+		remote := func(name string) bool { return a.probe("xbps-query", "-R", name).Code == 0 }
+		for _, name := range rest {
+			if !xbpsRowAvailable(translatePackage(table, name), installed, remote) {
 				return ExitFalse
 			}
 		}
@@ -434,6 +442,9 @@ func (a *App) xbps(args []string) int {
 		fmt.Fprintln(a.cfg.Stdout, value)
 		return ExitOK
 	case "install":
+		if code := a.ensureXBPSEnablers(xbpsEnablersFor(table, rest)); code != ExitOK {
+			return code
+		}
 		if upgrade {
 			return commandExit(a.run("xbps-install", append([]string{"-Syu"}, translated...)...))
 		}

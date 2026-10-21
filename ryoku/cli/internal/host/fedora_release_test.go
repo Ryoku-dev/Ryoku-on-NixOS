@@ -197,3 +197,59 @@ func TestFedoraReleaseStatusKeepsRepositoryResultWhenReleaseListFails(t *testing
 		t.Fatalf("status = %+v", status)
 	}
 }
+
+func TestFedoraReleaseStatusKnowsWhetherStableHasShipped(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		basePath  string
+		published []string
+		wantWait  bool
+	}{
+		{name: "stable before the first release", basePath: "/fedora/$releasever/x86_64", wantWait: true},
+		{name: "stable after the first release", basePath: "/fedora/$releasever/x86_64", published: []string{"/fedora/45/x86_64/repodata/repomd.xml"}},
+		{name: "testing", basePath: "/fedora/$releasever/channels/testing/x86_64"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/fedora/releases" {
+					_, _ = w.Write([]byte("44\n45\n"))
+					return
+				}
+				for _, path := range tc.published {
+					if r.URL.Path == path {
+						return
+					}
+				}
+				http.NotFound(w, r)
+			}))
+			defer server.Close()
+
+			osRelease := filepath.Join(t.TempDir(), "os-release")
+			if err := os.WriteFile(osRelease, []byte("VERSION_ID=44\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			repoConfig := filepath.Join(t.TempDir(), "ryoku.repo")
+			if err := os.WriteFile(repoConfig, []byte("[ryoku]\nbaseurl="+server.URL+tc.basePath+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("RYOKU_HOST_PKGMGR", "dnf")
+			t.Setenv("RYOKU_OS_RELEASE", osRelease)
+			t.Setenv("RYOKU_DNF_REPO_CONFIG", repoConfig)
+			t.Setenv("RYOKU_RELEASE_BASE", server.URL+"/fedora/$releasever")
+
+			status, err := New(Config{
+				HTTPClient:        server.Client(),
+				FedoraReleasesURL: server.URL + "/fedora/releases",
+			}).FedoraReleaseStatus()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status.Published || status.AwaitingFirstRelease != tc.wantWait {
+				t.Fatalf("status = %+v", status)
+			}
+			if got := strings.Contains(status.UnpublishedNotice(), "first Fedora release"); got != tc.wantWait {
+				t.Fatalf("notice = %q", status.UnpublishedNotice())
+			}
+		})
+	}
+}

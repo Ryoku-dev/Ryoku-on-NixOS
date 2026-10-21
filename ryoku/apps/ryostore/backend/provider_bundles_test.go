@@ -25,7 +25,7 @@ func TestBundleProviderNormalization(t *testing.T) {
 
 	prov := bundleProvider{
 		cache:  newCache(),
-		status: func(context.Context) map[string]map[string]bool { return nil },
+		status: func(context.Context, string) bundleStatus { return nil },
 		launch: func(string, []string) error { return nil },
 	}
 	if prov.Category().ID != "bundles" {
@@ -66,8 +66,8 @@ func TestBundleProviderPartialAndFullCounts(t *testing.T) {
 
 	partial := bundleProvider{
 		cache: newCache(),
-		status: func(context.Context) map[string]map[string]bool {
-			return map[string]map[string]bool{"demo": {"cmatrix": true, "demo-cli": false}}
+		status: func(context.Context, string) bundleStatus {
+			return bundleStatus{"demo": {"cmatrix": {State: "present"}, "demo-cli": {State: "absent"}}}
 		},
 		launch: func(string, []string) error { return nil },
 	}
@@ -85,8 +85,8 @@ func TestBundleProviderPartialAndFullCounts(t *testing.T) {
 
 	full := bundleProvider{
 		cache: newCache(),
-		status: func(context.Context) map[string]map[string]bool {
-			return map[string]map[string]bool{"demo": {"cmatrix": true, "demo-cli": true}}
+		status: func(context.Context, string) bundleStatus {
+			return bundleStatus{"demo": {"cmatrix": {State: "present"}, "demo-cli": {State: "present"}}}
 		},
 		launch: func(string, []string) error { return nil },
 	}
@@ -100,6 +100,55 @@ func TestBundleProviderPartialAndFullCounts(t *testing.T) {
 	}
 }
 
+// A part this edition cannot have stays listed with its reason but leaves the
+// counts, so the bundle reads complete once everything it can have is in; a
+// bundle with nothing to offer here is unavailable as a whole.
+func TestBundleProviderEditionAvailability(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	srv, _ := fixtureServer(t)
+	t.Setenv("RYOKU_EXTRAS_BASE", srv.URL)
+
+	load := func(parts map[string]partState) Item {
+		t.Helper()
+		prov := bundleProvider{
+			cache:  newCache(),
+			status: func(context.Context, string) bundleStatus { return bundleStatus{"demo": parts} },
+			launch: func(string, []string) error { return nil },
+		}
+		got, _, err := prov.Load(context.Background(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return itemsByID(got)["demo"]
+	}
+
+	d := load(map[string]partState{
+		"cmatrix":  {State: "present"},
+		"demo-cli": {State: "unavailable", Reason: "Not packaged for Void."},
+	})
+	if d.TotalCount != 1 || d.InstalledCount != 1 || !d.Installed || d.Unavailable {
+		t.Fatalf("bundle with one unavailable part = %d/%d installed=%v unavailable=%v", d.InstalledCount, d.TotalCount, d.Installed, d.Unavailable)
+	}
+	parts, _ := d.Metadata["items"].([]map[string]any)
+	var cli map[string]any
+	for _, part := range parts {
+		if part["name"] == "demo-cli" {
+			cli = part
+		}
+	}
+	if cli == nil || cli["available"] != false || cli["unavailableReason"] != "Not packaged for Void." {
+		t.Fatalf("unavailable part = %+v", cli)
+	}
+
+	d = load(map[string]partState{
+		"cmatrix":  {State: "unavailable", Reason: "No."},
+		"demo-cli": {State: "unavailable", Reason: "No."},
+	})
+	if !d.Unavailable || !d.UnavailableEdition || d.TotalCount != 0 || d.UnavailableReason == "" {
+		t.Fatalf("bundle with nothing available here = %+v", d)
+	}
+}
+
 // TestBundleProviderInstallLaunches proves Install delegates to the floating
 // terminal launcher with the bundle id rather than mutating anything itself.
 func TestBundleProviderInstallLaunches(t *testing.T) {
@@ -107,7 +156,7 @@ func TestBundleProviderInstallLaunches(t *testing.T) {
 	got := ""
 	prov := bundleProvider{
 		cache:  newCache(),
-		status: func(context.Context) map[string]map[string]bool { return nil },
+		status: func(context.Context, string) bundleStatus { return nil },
 		launch: func(id string, _ []string) error { got = id; return nil },
 	}
 	if err := prov.Install(context.Background(), "demo"); err != nil {
@@ -126,7 +175,7 @@ func TestBundleProviderInstallComponents(t *testing.T) {
 	var gotOnly []string
 	prov := bundleProvider{
 		cache:  newCache(),
-		status: func(context.Context) map[string]map[string]bool { return nil },
+		status: func(context.Context, string) bundleStatus { return nil },
 		launch: func(id string, only []string) error { gotID = id; gotOnly = only; return nil },
 	}
 	if err := prov.InstallComponents(context.Background(), "demo", []string{"steam", "lutris"}); err != nil {
@@ -169,7 +218,7 @@ func TestBundleProviderBrowseFetchesRegistryOnly(t *testing.T) {
 
 	prov := bundleProvider{
 		cache:  newCache(),
-		status: func(context.Context) map[string]map[string]bool { return nil },
+		status: func(context.Context, string) bundleStatus { return nil },
 		launch: func(string, []string) error { return nil },
 	}
 	got, _, err := prov.Load(context.Background(), false)
@@ -336,7 +385,7 @@ func TestBundleProviderRejectsMalformedDefinition(t *testing.T) {
 
 	prov := bundleProvider{
 		cache:  newCache(),
-		status: func(context.Context) map[string]map[string]bool { return nil },
+		status: func(context.Context, string) bundleStatus { return nil },
 		launch: func(string, []string) error { return nil },
 	}
 	if _, _, err := prov.Load(context.Background(), false); err == nil {
@@ -358,7 +407,7 @@ func TestBundleProviderRejectsMissingDefinition(t *testing.T) {
 
 	prov := bundleProvider{
 		cache:  newCache(),
-		status: func(context.Context) map[string]map[string]bool { return nil },
+		status: func(context.Context, string) bundleStatus { return nil },
 		launch: func(string, []string) error { return nil },
 	}
 	if _, _, err := prov.Load(context.Background(), false); err == nil {
@@ -576,7 +625,7 @@ func TestBundleProviderRejectsDotID(t *testing.T) {
 	t.Setenv("RYOKU_EXTRAS_BASE", srv.URL)
 	prov := bundleProvider{
 		cache:  newCache(),
-		status: func(context.Context) map[string]map[string]bool { return nil },
+		status: func(context.Context, string) bundleStatus { return nil },
 		launch: func(string, []string) error { return nil },
 	}
 	if _, _, err := prov.Load(context.Background(), false); err == nil {
@@ -686,7 +735,7 @@ func TestBundleComponentGroupReachesUI(t *testing.T) {
 
 	prov := bundleProvider{
 		cache:  newCache(),
-		status: func(context.Context) map[string]map[string]bool { return nil },
+		status: func(context.Context, string) bundleStatus { return nil },
 		launch: func(string, []string) error { return nil },
 	}
 	got, _, err := prov.Load(context.Background(), false)

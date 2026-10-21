@@ -45,6 +45,7 @@ import (
 // A patch whose first path segment is one of these is validated; anything else is
 // passthrough.
 var contractKeys = map[string]bool{
+<<<<<<< port
 	"deckFrost":     true,
 	"general":       true,
 	"theme":         true,
@@ -58,6 +59,34 @@ var contractKeys = map[string]bool{
 	"batteryAlerts": true,
 	"sounds":        true,
 	"urgentUpdates": true,
+||||||| base
+	"deckFrost":     true,
+	"general":       true,
+	"theme":         true,
+	"bars":          true,
+	"menus":         true,
+	"notifications": true,
+	"wallpaper":     true,
+	"ask":           true,
+	"phone":         true,
+	"controls":      true,
+	"batteryAlerts": true,
+	"sounds":        true,
+=======
+	"deckFrostEnabled": true,
+	"deckFrost":        true,
+	"general":          true,
+	"theme":            true,
+	"bars":             true,
+	"menus":            true,
+	"notifications":    true,
+	"wallpaper":        true,
+	"ask":              true,
+	"phone":            true,
+	"controls":         true,
+	"batteryAlerts":    true,
+	"sounds":           true,
+>>>>>>> upstream
 }
 
 // Value domains, in the display order of contract 14 section 8. Stored as stable
@@ -119,6 +148,7 @@ var (
 // icon-theme group, custom-CSS file, and app-launcher menu that Ryoku does not
 // consume. Ask and Controls are Ryoku's typed shell state.
 type settings struct {
+<<<<<<< port
 	DeckFrost     float64               `json:"deckFrost"`
 	General       generalSettings       `json:"general"`
 	Theme         themeSettings         `json:"theme"`
@@ -132,6 +162,34 @@ type settings struct {
 	BatteryAlerts batteryAlertsSettings `json:"batteryAlerts"`
 	Sounds        soundsSettings        `json:"sounds"`
 	UrgentUpdates urgentUpdatesSettings `json:"urgentUpdates"`
+||||||| base
+	DeckFrost     float64               `json:"deckFrost"`
+	General       generalSettings       `json:"general"`
+	Theme         themeSettings         `json:"theme"`
+	Bars          barsSettings          `json:"bars"`
+	Menus         menusSettings         `json:"menus"`
+	Notifications notificationsSettings `json:"notifications"`
+	Wallpaper     wallpaperSettings     `json:"wallpaper"`
+	Ask           askSettings           `json:"ask"`
+	Phone         phoneSettings         `json:"phone"`
+	Controls      controlsSettings      `json:"controls"`
+	BatteryAlerts batteryAlertsSettings `json:"batteryAlerts"`
+	Sounds        soundsSettings        `json:"sounds"`
+=======
+	DeckFrostEnabled bool                  `json:"deckFrostEnabled"`
+	DeckFrost        float64               `json:"deckFrost"`
+	General          generalSettings       `json:"general"`
+	Theme            themeSettings         `json:"theme"`
+	Bars             barsSettings          `json:"bars"`
+	Menus            menusSettings         `json:"menus"`
+	Notifications    notificationsSettings `json:"notifications"`
+	Wallpaper        wallpaperSettings     `json:"wallpaper"`
+	Ask              askSettings           `json:"ask"`
+	Phone            phoneSettings         `json:"phone"`
+	Controls         controlsSettings      `json:"controls"`
+	BatteryAlerts    batteryAlertsSettings `json:"batteryAlerts"`
+	Sounds           soundsSettings        `json:"sounds"`
+>>>>>>> upstream
 }
 
 type generalSettings struct {
@@ -392,7 +450,8 @@ func defaultSettings() *settings {
 		{ID: "bottomControls", Visible: true},
 	}
 	return &settings{
-		DeckFrost: 0.45,
+		DeckFrostEnabled: true,
+		DeckFrost:        0.45,
 		General: generalSettings{
 			ClockFormat24H:       false,
 			WeatherLocationQuery: locationQuery{Type: "Coordinates", Lat: 0, Lon: 0, Name: "", Country: ""},
@@ -918,6 +977,7 @@ func resolveThemePalette(full map[string]any, themeName string) {
 func buildSettings(raw map[string]any, strict bool) (*settings, error) {
 	s := defaultSettings()
 	dst := map[string]any{
+<<<<<<< port
 		"deckFrost":     &s.DeckFrost,
 		"general":       &s.General,
 		"theme":         &s.Theme,
@@ -931,6 +991,34 @@ func buildSettings(raw map[string]any, strict bool) (*settings, error) {
 		"batteryAlerts": &s.BatteryAlerts,
 		"sounds":        &s.Sounds,
 		"urgentUpdates": &s.UrgentUpdates,
+||||||| base
+		"deckFrost":     &s.DeckFrost,
+		"general":       &s.General,
+		"theme":         &s.Theme,
+		"bars":          &s.Bars,
+		"menus":         &s.Menus,
+		"notifications": &s.Notifications,
+		"wallpaper":     &s.Wallpaper,
+		"ask":           &s.Ask,
+		"phone":         &s.Phone,
+		"controls":      &s.Controls,
+		"batteryAlerts": &s.BatteryAlerts,
+		"sounds":        &s.Sounds,
+=======
+		"deckFrostEnabled": &s.DeckFrostEnabled,
+		"deckFrost":        &s.DeckFrost,
+		"general":          &s.General,
+		"theme":            &s.Theme,
+		"bars":             &s.Bars,
+		"menus":            &s.Menus,
+		"notifications":    &s.Notifications,
+		"wallpaper":        &s.Wallpaper,
+		"ask":              &s.Ask,
+		"phone":            &s.Phone,
+		"controls":         &s.Controls,
+		"batteryAlerts":    &s.BatteryAlerts,
+		"sounds":           &s.Sounds,
+>>>>>>> upstream
 	}
 	for k, ptr := range dst {
 		raw, ok := raw[k]
@@ -1138,7 +1226,12 @@ func lockSettingsFile(path string) (func(), error) {
 	}, nil
 }
 
-const barStyleTransactionKey = "ryoStoreBarStyleTransaction"
+// The markers a Store removal leaves beside the setting it moved to its
+// fallback, so a crashed removal's recovery reverts only its own write.
+const (
+	barStyleTransactionKey = "ryoStoreBarStyleTransaction"
+	dockTransactionKey     = "ryoStoreDockTransaction"
+)
 
 // patch sets one leaf. A schema path is validated and clamped; native
 // passthrough paths are merged without validation. Retired settings namespaces
@@ -1176,6 +1269,11 @@ func (s *settingsStore) patch(path string, value json.RawMessage) error {
 	}
 	if len(segs) == 1 && segs[0] == "barStyle" {
 		delete(full, barStyleTransactionKey)
+	}
+	// Any dock edit is the user driving the dock now, so the removal's
+	// fallback no longer owns its design.
+	if segs[0] == "dock" {
+		delete(full, dockTransactionKey)
 	}
 	wasNomarchy := nomarchySelectedIn(diskRaw)
 	isNomarchy := nomarchySelectedIn(full)

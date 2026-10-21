@@ -25,6 +25,13 @@ maps to a place under `~/.config` (except the small helper script noted below).
 - `nautilus/` The graphical file manager. Ships one `nautilus-python` extension,
   the Ryoku stash actions on the right-click menu (install, compress, LocalSend);
   see its README. No dconf settings to ship.
+- `vesktop/` Discord, for Vesktop and Equibop (which keeps the same layout).
+  `themes/ryoku-discord.theme.css` is Ron's Ryoku theme, laid beside Matugen's
+  Midnight (`matugen.css`). `settings/settings.json` enables it and is seeded only
+  into a profile the client has not written yet; `ryoku doctor` switches an
+  older profile once, and copies the theme into the Flathub Vesktop's own
+  folder, which its sandbox keeps apart from `~/.config` (see
+  `../cli/internal/doctor/reconcile_discord_theme.go`).
 - `mimeapps.list` The default-application map (text files route to neovim).
 
 ## GUI apps
@@ -131,6 +138,7 @@ in `window_rules.lua` (see `float-ryostore`).
 | `yazi/`         | `~/.config/yazi/`                         |
 | `npm/`          | `~/.npmrc`                                 |
 | `pip/`          | `~/.config/pip/pip.conf`                  |
+| `vesktop/`      | `~/.config/vesktop/` and `~/.config/equibop/`: the theme under `themes/`, the Vencord settings seed at `settings/settings.json` |
 | `mimeapps.list` | `~/.config/mimeapps.list`                 |
 
 The `ryoku-fastfetch` wrapper must also land on `PATH` (for example

@@ -76,4 +76,22 @@ if XDG_CONFIG_HOME="$config" XDG_STATE_HOME="$test_root/missing-state" \
   printf 'FAIL: missing explicit Zen profile was accepted\n' >&2
   exit 1
 fi
+# The Flathub build keeps its profiles in its own ~/.var/app folder, under .zen
+# or its XDG config. With no native profile, setup finds the default one there.
+for flatpak_root in .var/app/app.zen_browser.zen/.zen .var/app/app.zen_browser.zen/config/zen; do
+  home="$test_root/flatpak-${flatpak_root//\//-}"
+  zen="$home/$flatpak_root"
+  mkdir -p "$zen/flat.default" "$home/.config/matugen"
+  printf '[config]\n' > "$home/.config/matugen/apps.toml"
+  printf '[Profile0]\nPath=flat.default\nIsRelative=1\nDefault=1\n' > "$zen/profiles.ini"
+  HOME="$home" XDG_CONFIG_HOME="$home/.config" XDG_STATE_HOME="$home/state" \
+    PATH="$test_root/bin:$PATH" "$project_root/install-integrations.sh" --zen > "$home/output" 2>&1 || {
+      cat "$home/output" >&2
+      printf 'FAIL: Flathub Zen profile: %s\n' "$flatpak_root" >&2
+      exit 1
+    }
+  grep -Fxq '@import "ryoku-colors.css";' "$zen/flat.default/chrome/userChrome.css"
+  grep -Fxq "output_path = \"~/$flatpak_root/flat.default/chrome/ryoku-colors.css\"" \
+    "$home/.config/ryoku/user_edits/matugen/apps.toml"
+done
 printf 'PASS: Zen profile defaults, absolute paths, and explicit/running precedence\n'

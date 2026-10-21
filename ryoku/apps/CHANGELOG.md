@@ -3,6 +3,53 @@
 ## Unreleased
 
 ### Added
+- `ryostore/`: **Every product says whether this edition can have it.** A
+  registry entry, or a single bundle item, may carry `packageManagers`
+  (`pacman`, `dnf`, `xbps`) and a `packageManagersReason`; on any other
+  edition the item comes back unavailable with `unavailableEdition` set, the
+  store tags it *Not on this system*, and install is refused on a fresh
+  registry read. A window-manager gate wins when both apply. Bundle parts the
+  running edition does not ship, by the catalogue's `bundles/packages/` table,
+  stay listed in the detail greyed out with the reason, cannot be selected,
+  and drop out of **Install all** and the part count. `ryostore internal
+  package-table` serves that table to the actuator
+  (`backend/host_package_manager.go`, `backend/provider_bundles.go`,
+  `quickshell/ProductDetail.qml`).
+- `ryostore/`: **Docks is a Store section.** Community docks install from the
+  ryostore `docks/` registry and publish `docks.json` with a content-addressed
+  view per dock. Install never selects one; removing the dock in use moves
+  `shell.json` `dock.design` back to `ryoku` in the same journaled transaction,
+  and the ids of the shipped designs are reserved. A dock's **Open in Settings**
+  opens the Stage Editor's Dock section in the running shell instead of the Hub.
+  Launchers and docks are one shell-QML provider now, with one generic index
+  and test suite, and the worn-product fallback reaches a setting inside a
+  section of its file such as `dock.design` (`backend/provider_shell_qml.go`,
+  `backend/product_selection.go`, `backend/routing.go`).
+- `ryostore/`: **App launchers is a Store section.** A launchers provider
+  installs community launchers from the ryostore `launchers/` registry through
+  the common transaction engine and publishes `launchers.json` with a
+  content-addressed view per launcher. Install never selects one; removing the
+  launcher in use resets `launcher.json` `variant` to the default in the same
+  journaled transaction, and the ids of the shipped launchers are reserved. The
+  view publishing and the worn-product fallback that bar styles already had are
+  now shared by plugins, bar styles and launchers instead of copied
+  (`backend/provider_shell_qml.go`, `backend/product_views.go`,
+  `backend/product_selection.go`).
+- `vesktop/`: **Ryoku's Discord theme is the default in Vesktop and Equibop.**
+  Ron's Ryoku theme (ryoku-discord v3.0.0) ships as `ryoku-discord.theme.css`
+  beside Matugen's Midnight (`matugen.css`), and a profile with no Vencord
+  settings yet starts with it turned on. An existing profile switches once on
+  update: Midnight, the Palette Bridge's Midnight base or no theme at all
+  becomes the Ryoku theme, and a theme picked from elsewhere stays. An open
+  client takes the switch at its next start, and a later choice in its theme
+  settings is kept. The Flathub Vesktop that Fedora and Void use gets the same
+  switch once it has run, with a copy of the theme in its own folder that the
+  doctor keeps current. The Ryostore copy of the theme gives way to the
+  shipped one once no open client can still be showing it, and a Palette
+  Bridge setup no longer layers Midnight under it (`vesktop/`,
+  `../cli/internal/doctor/reconcile_discord_theme.go`,
+  `../cli/internal/updater/materialize.go`,
+  `../palette-bridge/install-integrations.sh`).
 - `ryostore/`: **Ryostore looks like the Hub and shows products properly.** The
   store moves to the Hub's rail, page head and action bar, with Discover,
   categories, search and Library in the rail. An opened product leads with its
@@ -117,6 +164,13 @@
   v0.56.0-beta.19") via `ryoku version --pretty` (`config.jsonc`).
 
 ### Fixed
+- `ryostore/`: **A Vesktop theme reaches the Flathub Vesktop.** Fedora and Void
+  users get Vesktop from Flathub, whose sandbox sees only its own `~/.var/app`
+  folder, so a theme linked into `~/.config/vesktop/themes` never showed up.
+  When the Flathub build is installed or has run, the install also puts a copy
+  in its theme folder. An update or removal replaces or takes out only a copy
+  whose content is a version the Store installed, and a rollback restores the
+  previous one (`backend/vesktop_theme.go`, `backend/product_transaction.go`).
 - `ryostore/`: **An offline catalogue no longer claims it is ready.** Built-in
   bars no longer mask a failed remote fetch with no cache, and the action bar
   reports the offline state with a refresh hint.

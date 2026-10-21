@@ -27,6 +27,7 @@ var rows = [
             "whisper-fast",
             "whisper-small-en",
             "whisper-base",
+            "parakeet-redux",
             "whisper-medium",
             "whisper-accurate",
             "openai"

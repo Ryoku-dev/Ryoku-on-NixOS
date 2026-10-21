@@ -199,6 +199,107 @@ func extractStore(path string, allow []string) map[string]any {
 	return pick(readJSONMap(path), allow)
 }
 
+// portableWidgets is the widget store a rice carries: the primary output's
+// fork folded over the shared values, so the rice shows that desktop on any
+// machine whatever its outputs are called. The forks stay as captured, so
+// the same machine gets every output back exactly.
+func portableWidgets(store map[string]any, primary string) map[string]any {
+	out := make(map[string]any, len(store))
+	for k, v := range store {
+		out[k] = v
+	}
+	monitors, _ := store["monitors"].(map[string]any)
+	if fork, ok := monitors[primary].(map[string]any); ok {
+		for k, v := range fork {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// widgetPrimaryOutput names the output whose desktop a captured rice shows:
+// the only forked output, else the focused one, else the first by name. The
+// compositor is asked only when several outputs are forked.
+func widgetPrimaryOutput(store map[string]any, focused func() string) string {
+	monitors, _ := store["monitors"].(map[string]any)
+	var forked []string
+	for name, fork := range monitors {
+		if _, ok := fork.(map[string]any); ok {
+			forked = append(forked, name)
+		}
+	}
+	switch len(forked) {
+	case 0:
+		return ""
+	case 1:
+		return forked[0]
+	}
+	sort.Strings(forked)
+	current := focused()
+	for _, name := range forked {
+		if name == current {
+			return name
+		}
+	}
+	return forked[0]
+}
+
+// focusedOutput is the compositor's focused output, or "" off a session.
+func focusedOutput() string {
+	snap, err := desktopClient().State()
+	if err != nil {
+		return ""
+	}
+	for _, o := range snap.Outputs {
+		if o.Focused {
+			return o.Name
+		}
+	}
+	return ""
+}
+
+// applyWidgetLayout makes the desktop show exactly the rice's widgets: its
+// values replace the recipient's, its forks replace the recipient's forks,
+// and every widget it does not switch on stays off. Every <widget>Enabled key
+// is a widget's presence flag in this store, so a rice without widgets
+// clears the desktop.
+func applyWidgetLayout(path string, src map[string]any) error {
+	cur := readJSONMap(path)
+	for k := range cur {
+		if strings.HasSuffix(k, "Enabled") {
+			cur[k] = false
+		}
+	}
+	for k, v := range src {
+		cur[k] = v
+	}
+	monitors, _ := src["monitors"].(map[string]any)
+	if monitors == nil {
+		monitors = map[string]any{}
+	}
+	cur["monitors"] = monitors
+	return atomicWrite(path, mustJSON(cur), 0o644)
+}
+
+// applyPluginRoster lands the rice's plugin roster and switches off every
+// plugin the rice does not carry, so a plugin widget left by another rice
+// does not stay on the desktop. Their settings are kept for a later rice.
+func applyPluginRoster(path string, src map[string]any) error {
+	cur := readJSONMap(path)
+	for id, entry := range cur {
+		if _, carried := src[id]; carried {
+			continue
+		}
+		if fields, ok := entry.(map[string]any); ok {
+			fields["enabled"] = false
+		}
+	}
+	for id, entry := range src {
+		cur[id] = entry
+	}
+	return atomicWrite(path, mustJSON(cur), 0o644)
+}
+
 func loadRiceFrom(dir string) (Rice, error) {
 	var r Rice
 	b, err := os.ReadFile(filepath.Join(dir, "rice.json"))
@@ -590,6 +691,7 @@ func captureRice(name string, layers []string) (Rice, error) {
 		return Rice{}, fmt.Errorf("a rice needs a name")
 	}
 	hy := readHyprSections()
+	widgets := extractStore(widgetsStorePath(), nil)
 	r := Rice{
 		Schema:      riceSchema,
 		Slug:        slug,
@@ -600,7 +702,7 @@ func captureRice(name string, layers []string) (Rice, error) {
 			"hypr":       pick(hy, riceWindowLook),
 			"shell":      omit(readJSONMap(shellStorePath()), riceShellOmit),
 			"launcher":   omit(readJSONMap(launcherStorePath()), riceLauncherOmit),
-			"widgets":    extractStore(widgetsStorePath(), nil),
+			"widgets":    portableWidgets(widgets, widgetPrimaryOutput(widgets, focusedOutput)),
 			"visualizer": extractStore(visualizerStorePath(), nil),
 			"decor":      extractStore(decorStorePath(), nil),
 			"theme":      readJSONMap(themeStatePath()),
@@ -878,25 +980,50 @@ func restoreRice(slot string) error {
 	return nil
 }
 
-// ensureUserRice makes a packaged rice editable before its first apply. The
-// manifest lands last so an interrupted copy is never mistaken for a complete
-// user rice.
+// packagedRiceRecord names the file in a user rice that records the sha256 of
+// the packaged manifest it was copied from.
+const packagedRiceRecord = ".packaged"
+
+// legacyPackagedRices are the sha256 sums of every rice.json the packages
+// shipped before copies recorded their source. An untouched copy of one of
+// them is refreshed like a recorded copy; a rice the user saved never matches.
+var legacyPackagedRices = map[string]bool{
+	"9fa0c626c7a1a147fcbe8c6fa640e9ceabd40257bf3f25dc1897eeeece526d67": true, // default 079d51151
+	"9a0e99672665e358abff6b89cd951e566c16a7e34a2e31420ec5c6bc6c6a2fe5": true, // default 0d774cf63
+	"9bc76f34224282dfb2825b8c6976079a42c424a0a3a6fa2579bb152284dd736f": true, // default 956fddaa3
+	"68d1f892352aa27eeec3a2f7c84c5842f325a53eccba5477665ee1507df95b72": true, // default 0ef1974e9
+	"c670376566d9d50e22bf314dec3aab5d84b6288962e3f251337c8995472fe8ca": true, // default 6e471b63d
+	"4ef679f9bf0ed220891492c56376714746c69d0dd78b4aeb7814cc2222ed5f73": true, // default 453f8e6d8
+	"355ea2757cb1a69bb00f349bc8052cc867980a1298ec1d659ed1bb62af2ba9da": true, // noc 6e471b63d
+	"6484cdcf55bf0ff80454412b49d01790b17b414dd89a3ad845e7400c58a6d430": true, // noc 453f8e6d8
+}
+
+// ensureUserRice makes a packaged rice editable before its first apply, and
+// brings an untouched copy up to the packaged version after an update, so a
+// fix to a shipped rice reaches the boxes that applied it before. A copy the
+// user saved over stays theirs. The manifest lands last so an interrupted copy
+// is never mistaken for a complete user rice.
 func ensureUserRice(slug string) error {
 	if !validRiceSlug(slug) {
 		return fmt.Errorf("bad rice slug %q", slug)
 	}
-	if isFile(ricePath(slug)) {
-		return nil
-	}
 	src := filepath.Join(systemRicesDir(), slug)
 	if _, err := loadRiceFrom(src); err != nil {
+		return nil
+	}
+	packaged, err := os.ReadFile(filepath.Join(src, "rice.json"))
+	if err != nil {
+		return err
+	}
+	packagedSum := fmt.Sprintf("%x", sha256.Sum256(packaged))
+	dst := filepath.Join(ricesDir(), slug)
+	if isFile(ricePath(slug)) && !stalePackagedCopy(dst, packagedSum) {
 		return nil
 	}
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
-	dst := filepath.Join(ricesDir(), slug)
 	for _, e := range entries {
 		if e.IsDir() || strings.HasPrefix(e.Name(), ".") || e.Name() == "rice.json" {
 			continue
@@ -908,7 +1035,25 @@ func ensureUserRice(slug string) error {
 	if err := copyFile(filepath.Join(src, "rice.json"), filepath.Join(dst, "rice.json")); err != nil {
 		return fmt.Errorf("copy packaged rice manifest: %w", err)
 	}
-	return nil
+	return atomicWrite(filepath.Join(dst, packagedRiceRecord), []byte(packagedSum+"\n"), 0o644)
+}
+
+// stalePackagedCopy reports whether the user rice in dir is an untouched copy
+// of an older packaged manifest: its rice.json still matches the recorded
+// source, or a legacy shipped one, and the package now ships something else.
+func stalePackagedCopy(dir, packagedSum string) bool {
+	current, err := os.ReadFile(filepath.Join(dir, "rice.json"))
+	if err != nil {
+		return false
+	}
+	sum := fmt.Sprintf("%x", sha256.Sum256(current))
+	if sum == packagedSum {
+		return false
+	}
+	if recorded, err := os.ReadFile(filepath.Join(dir, packagedRiceRecord)); err == nil {
+		return strings.TrimSpace(string(recorded)) == sum
+	}
+	return legacyPackagedRices[sum]
 }
 
 // riceWindowSections overlays the active provider's look onto the shared
@@ -996,10 +1141,8 @@ func applyRice(slug string, layers []string) error {
 	if err := overlayStore(launcherStorePath(), r.Look["launcher"], nil); err != nil {
 		return fmt.Errorf("apply launcher look: %w", err)
 	}
-	if len(r.Look["widgets"]) > 0 {
-		if err := overlayStore(widgetsStorePath(), r.Look["widgets"], nil); err != nil {
-			return fmt.Errorf("apply widgets look: %w", err)
-		}
+	if err := applyWidgetLayout(widgetsStorePath(), r.Look["widgets"]); err != nil {
+		return fmt.Errorf("apply widgets look: %w", err)
 	}
 	if len(r.Look["visualizer"]) > 0 {
 		if err := overlayStore(visualizerStorePath(), r.Look["visualizer"], nil); err != nil {
@@ -1022,10 +1165,8 @@ func applyRice(slug string, layers []string) error {
 	// desktop widgets and bar plugins alike. A plugin that is not installed on
 	// the recipient's box stays inert in the file (the registry only renders
 	// what discover.sh finds), so carrying the roster never breaks a lean box.
-	if len(r.Look["plugins"]) > 0 {
-		if err := overlayStore(pluginsStorePath(), r.Look["plugins"], nil); err != nil {
-			return fmt.Errorf("apply plugins look: %w", err)
-		}
+	if err := applyPluginRoster(pluginsStorePath(), r.Look["plugins"]); err != nil {
+		return fmt.Errorf("apply plugins look: %w", err)
 	}
 	if len(r.Look["stage"]) > 0 {
 		if err := overlayStore(stageStorePath(), r.Look["stage"], nil); err != nil {
@@ -1278,8 +1419,8 @@ func riceTouches(r Rice, dir string) []riceTouch {
 		{homeRel(filepath.Join(cfg, "shell.json")), "config", "widgets", "Shell: every bar style and its widgets", len(r.Look["shell"]) > 0},
 		{homeRel(filepath.Join(cfg, "theme.json")), "config", "palette", "Colours: palette master", r.Color.Mode != "" || len(r.Look["theme"]) > 0},
 		{homeRel(filepath.Join(cfg, "launcher.json")), "config", "rocket", "Launcher: hero and card", len(r.Look["launcher"]) > 0 || r.Assets.Hero != ""},
-		{homeRel(filepath.Join(cfg, "widgets.json")), "config", "widgets", "Desktop widgets: look and placement", len(r.Look["widgets"]) > 0},
-		{homeRel(filepath.Join(cfg, "plugins.json")), "config", "widgets", "Plugin widgets: placement and settings", len(r.Look["plugins"]) > 0},
+		{homeRel(filepath.Join(cfg, "widgets.json")), "config", "widgets", "Desktop widgets: look and placement", true},
+		{homeRel(filepath.Join(cfg, "plugins.json")), "config", "widgets", "Plugin widgets: placement and settings", true},
 		{homeRel(filepath.Join(cfg, "stage.json")), "config", "widgets", "Widget stage: depth and motion", len(r.Look["stage"]) > 0},
 		{homeRel(filepath.Join(cfg, "visualizer.json")), "config", "widgets", "Audio visualiser", len(r.Look["visualizer"]) > 0},
 		{homeRel(filepath.Join(cfg, "matugen.json")), "config", "palette", "Palette engine: scheme and apps", len(r.Look["matugen"]) > 0},

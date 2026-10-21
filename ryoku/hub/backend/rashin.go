@@ -12,20 +12,18 @@ import (
 )
 
 // ryoku-hub rashin is the Rashin page's master switch. Rashin is an optional
-// app, so the switch owns the package as well as the agent: `on` installs
-// ryoku-rashin when it is absent and starts the agent with the desktop; `off`
-// stops the agent and removes the package where the host lets it go. The
-// Fedora and Void desktops still require Rashin, so there `off` only stops it
-// and `status` says so through `removable`. Either way the compositor config is
-// re-authored afterwards, which is what takes the Ask and Rashin window chords
-// away with the package and gives them back with it, and the choice is written
-// to the provisioning ledger so the doctor never delivers Rashin a second time.
+// app on every edition, so the switch owns the package as well as the agent:
+// `on` installs ryoku-rashin when it is absent and starts the agent with the
+// desktop; `off` stops the agent and removes the package. Either way the
+// compositor config is re-authored afterwards, which is what takes the Ask and
+// Rashin window chords away with the package and gives them back with it, and
+// the choice is written to the provisioning ledger so the doctor never delivers
+// Rashin a second time.
 
 const rashinPackage = "ryoku-rashin"
 
 type rashinStatus struct {
 	Installed bool `json:"installed"`
-	Removable bool `json:"removable"`
 }
 
 func runRashin(args []string) error {
@@ -34,7 +32,7 @@ func runRashin(args []string) error {
 	}
 	switch args[0] {
 	case "status":
-		b, err := json.Marshal(rashinStatus{Installed: rashinInstalled(), Removable: rashinRemovable()})
+		b, err := json.Marshal(rashinStatus{Installed: rashinInstalled()})
 		if err != nil {
 			return err
 		}
@@ -53,6 +51,7 @@ func rashinInstalled() bool {
 	return err == nil
 }
 
+<<<<<<< port
 // rashinRemovable reports whether this host's desktop package lets Rashin go:
 // pacman lists it as an optional dependency, the RPM and XBPS desktops still
 // require it, so removing it there would take the desktop with it.
@@ -64,6 +63,17 @@ func rashinRemovable() bool {
 	return err == nil && strings.TrimSpace(string(out)) == "pacman"
 }
 
+||||||| base
+// rashinRemovable reports whether this host's desktop package lets Rashin go:
+// pacman lists it as an optional dependency, the RPM and XBPS desktops still
+// require it, so removing it there would take the desktop with it.
+func rashinRemovable() bool {
+	out, err := exec.Command("ryoku-host", "pkgmgr").Output()
+	return err == nil && strings.TrimSpace(string(out)) == "pacman"
+}
+
+=======
+>>>>>>> upstream
 // privileged runs a ryoku-host verb as root through pkexec, so the polkit agent
 // asks for the password the way every other privileged Hub action does. Its
 // output goes to stderr: stdout is the page's JSON channel.
@@ -104,21 +114,19 @@ func rashinOn() error {
 	return applyDesktop()
 }
 
-// rashinOff stops the agent, then removes the package where the host lets it
-// go. A stop that fails (a wedged daemon that will not exit) is reported, not
-// obeyed: the user asked for Rashin gone, the config already records it off,
-// and leaving the package behind because one process hung would make the switch
-// lie about what is installed.
+// rashinOff stops the agent, then removes the package. A stop that fails (a
+// wedged daemon that will not exit) is reported, not obeyed: the user asked for
+// Rashin gone, the config already records it off, and leaving the package
+// behind because one process hung would make the switch lie about what is
+// installed.
 func rashinOff() error {
 	var stopErr error
 	if rashinInstalled() {
 		if out, err := exec.Command(rashinPackage, "disable").CombinedOutput(); err != nil {
 			stopErr = fmt.Errorf("the running agent did not stop (%s); it ends with the session", strings.TrimSpace(string(out)))
 		}
-		if rashinRemovable() {
-			if err := privileged("pkg", "remove", rashinPackage); err != nil {
-				return err
-			}
+		if err := privileged("pkg", "remove", rashinPackage); err != nil {
+			return err
 		}
 	}
 	if err := recordProvisioned(rashinPackage); err != nil {

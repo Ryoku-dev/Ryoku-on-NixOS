@@ -179,6 +179,7 @@ Item {
         onDown: mouse => root.pressedX = mouse.x
         onClicked: mouse => root.scene.toggleCard("controls", root, { page: "home" })
         onRightClicked: root.handleRightClick(root.pressedX)
+        wheelSteps: true
         onWheel: steps => root.stepVolume(steps)
     }
 

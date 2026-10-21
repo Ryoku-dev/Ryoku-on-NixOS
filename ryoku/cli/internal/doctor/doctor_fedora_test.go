@@ -3,10 +3,12 @@ package doctor
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"ryoku-cli/internal/host"
+	"ryoku-cli/internal/sys"
 	"ryoku-cli/internal/updater"
 )
 
@@ -169,12 +171,16 @@ func TestFedoraPackageChannelReadsRPMRepo(t *testing.T) {
 
 func TestFedoraPackageChannelRestoresSignedStableRepo(t *testing.T) {
 	stubDoctorDNF(t)
-	oldInstalled := doctorPackageInstalled
+	oldInstalled, oldKey := doctorPackageInstalled, dnfRepoKeyPresent
 	oldWrite, oldRefresh := writeDNFRepoConfig, refreshDNFRepoMetadata
+	oldIntent := sys.ChannelIntentFile
 	doctorPackageInstalled = func(name string) bool { return name == "ryoku-desktop" }
+	dnfRepoKeyPresent = func() bool { return true }
+	sys.ChannelIntentFile = filepath.Join(t.TempDir(), "channel-intent")
 	t.Cleanup(func() {
-		doctorPackageInstalled = oldInstalled
+		doctorPackageInstalled, dnfRepoKeyPresent = oldInstalled, oldKey
 		writeDNFRepoConfig, refreshDNFRepoMetadata = oldWrite, oldRefresh
+		sys.ChannelIntentFile = oldIntent
 	})
 
 	path := t.TempDir() + "/ryoku.repo"
@@ -392,11 +398,12 @@ func TestFedoraPendingConfigAndOrphanAdvice(t *testing.T) {
 
 func TestFedoraNvidiaStaysOnNouveauWithManualRPMFusionAdvice(t *testing.T) {
 	stubDoctorDNF(t)
-	oldManager, oldPCI := nvidiaPackageManager, nvidiaPCIOutput
+	oldManager, oldPCI, oldModule := nvidiaPackageManager, nvidiaPCIOutput, nvidiaModuleDir
 	nvidiaPackageManager = func() host.PackageManager { return host.DNF }
 	nvidiaPCIOutput = func() string { return "NVIDIA Corporation AD107M" }
+	nvidiaModuleDir = filepath.Join(t.TempDir(), "nvidia")
 	t.Cleanup(func() {
-		nvidiaPackageManager, nvidiaPCIOutput = oldManager, oldPCI
+		nvidiaPackageManager, nvidiaPCIOutput, nvidiaModuleDir = oldManager, oldPCI, oldModule
 	})
 
 	if pkg := nvidia580Package(); pkg != "akmod-nvidia" {
@@ -557,4 +564,109 @@ func TestFedoraShippedAndRetiredAppsUseNativePackageAdvice(t *testing.T) {
 
 func writeTestFile(path, body string) error {
 	return os.WriteFile(path, []byte(body), 0o644)
+}
+
+func TestFedoraPackageChannelRestoresTheRecordedChannel(t *testing.T) {
+	stubDoctorDNF(t)
+	oldInstalled, oldKey := doctorPackageInstalled, dnfRepoKeyPresent
+	oldWrite, oldRefresh := writeDNFRepoConfig, refreshDNFRepoMetadata
+	oldIntent := sys.ChannelIntentFile
+	doctorPackageInstalled = func(name string) bool { return name == "ryoku-desktop" }
+	dnfRepoKeyPresent = func() bool { return true }
+	sys.ChannelIntentFile = filepath.Join(t.TempDir(), "channel-intent")
+	t.Cleanup(func() {
+		doctorPackageInstalled, dnfRepoKeyPresent = oldInstalled, oldKey
+		writeDNFRepoConfig, refreshDNFRepoMetadata = oldWrite, oldRefresh
+		sys.ChannelIntentFile = oldIntent
+	})
+	if err := os.WriteFile(sys.ChannelIntentFile, []byte("testing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RYOKU_DNF_REPO_CONFIG", t.TempDir()+"/ryoku.repo")
+	var gotConfig string
+	writeDNFRepoConfig = func(_, contents string) error {
+		gotConfig = contents
+		return nil
+	}
+	refreshDNFRepoMetadata = func() error { return nil }
+
+	if result := reconcileRyokuChannel(false); result.status != recFixed {
+		t.Fatalf("channel repair result = %+v", result)
+	}
+	if !strings.Contains(gotConfig, "baseurl="+host.RepoURLFor(host.DNF, sys.ChannelTesting)+"\n") {
+		t.Fatalf("a testing box was restored onto another channel: %q", gotConfig)
+	}
+}
+
+func TestFedoraPackageChannelDoesNotRestoreARepoWithoutItsKey(t *testing.T) {
+	stubDoctorDNF(t)
+	oldInstalled, oldKey, oldWrite := doctorPackageInstalled, dnfRepoKeyPresent, writeDNFRepoConfig
+	doctorPackageInstalled = func(name string) bool { return name == "ryoku-desktop" }
+	dnfRepoKeyPresent = func() bool { return false }
+	wrote := false
+	writeDNFRepoConfig = func(string, string) error {
+		wrote = true
+		return nil
+	}
+	t.Cleanup(func() {
+		doctorPackageInstalled, dnfRepoKeyPresent, writeDNFRepoConfig = oldInstalled, oldKey, oldWrite
+	})
+	t.Setenv("RYOKU_DNF_REPO_CONFIG", t.TempDir()+"/ryoku.repo")
+
+	result := reconcileRyokuChannel(false)
+	if wrote || result.status != recWarn || !strings.Contains(result.remedy, "installer") {
+		t.Fatalf("restored a repository that names a missing key: %+v wrote=%v", result, wrote)
+	}
+}
+
+func TestFedoraMetadataWithoutRyokuDesktopIsNotHealthy(t *testing.T) {
+	stubPath(t, map[string]string{"dnf5": "echo 'Updating and loading repositories:'"})
+	if _, err := checkDNFRepoMetadata(); !errors.Is(err, errDNFRepoEmpty) {
+		t.Fatalf("an empty repository passed the metadata check: %v", err)
+	}
+}
+
+func TestFedoraEmptyStableBeforeTheFirstReleaseIsANote(t *testing.T) {
+	stubDoctorDNF(t)
+	oldInstalled, oldCheck, oldStatus := doctorPackageInstalled, checkDNFRepoMetadata, doctorFedoraReleaseStatus
+	doctorPackageInstalled = func(name string) bool { return name == "ryoku-desktop" }
+	checkDNFRepoMetadata = func() (string, error) { return "", errDNFRepoEmpty }
+	doctorFedoraReleaseStatus = func() (host.FedoraReleaseStatus, error) {
+		return host.FedoraReleaseStatus{Version: "44", RepositoryChecked: true, Supported: []string{"44", "45"}, AwaitingFirstRelease: true}, nil
+	}
+	t.Cleanup(func() {
+		doctorPackageInstalled, checkDNFRepoMetadata, doctorFedoraReleaseStatus = oldInstalled, oldCheck, oldStatus
+	})
+	path := t.TempDir() + "/ryoku.repo"
+	t.Setenv("RYOKU_DNF_REPO_CONFIG", path)
+	if err := writeTestFile(path, dnfRepoConfig("stable")); err != nil {
+		t.Fatal(err)
+	}
+
+	result := reconcileRyokuSyncDB(false)
+	if result.status != recNote || !strings.Contains(result.detail, "first Fedora release") {
+		t.Fatalf("empty pre-release stable result = %+v", result)
+	}
+}
+
+func TestFedoraNvidiaAdviceFollowsTheLoadedModule(t *testing.T) {
+	stubDoctorDNF(t)
+	oldManager, oldPCI, oldInstalled, oldModule := nvidiaPackageManager, nvidiaPCIOutput, nvidiaPackageInstalled, nvidiaModuleDir
+	nvidiaPackageManager = func() host.PackageManager { return host.DNF }
+	nvidiaPCIOutput = func() string { return "NVIDIA Corporation AD107M" }
+	nvidiaPackageInstalled = func(name string) bool { return name == "akmod-nvidia" }
+	nvidiaModuleDir = filepath.Join(t.TempDir(), "nvidia")
+	t.Cleanup(func() {
+		nvidiaPackageManager, nvidiaPCIOutput, nvidiaPackageInstalled, nvidiaModuleDir = oldManager, oldPCI, oldInstalled, oldModule
+	})
+
+	if result := reconcileNvidiaModeset(true); result.status != recNote || !strings.Contains(result.remedy, "dracut") {
+		t.Fatalf("an installed but unloaded driver lost its setup advice: %+v", result)
+	}
+	if err := os.Mkdir(nvidiaModuleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if result := reconcileNvidiaModeset(true); result.status != recOK || result.remedy != "" {
+		t.Fatalf("a loaded proprietary driver was reported as Nouveau: %+v", result)
+	}
 }

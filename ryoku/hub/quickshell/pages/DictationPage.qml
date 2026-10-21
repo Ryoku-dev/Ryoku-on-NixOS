@@ -38,14 +38,25 @@ Item {
     readonly property bool installAvailable: pg.packageAvailable
     readonly property string installUnavailableReason: pg.packageReason
     property bool openaiKeySet: false
+    property bool cancelRequested: false
+    property string installError: ""
     property string downloading: ""    // preset key whose model is downloading, or ""
     property string pendingDownload: "" // large model awaiting download confirmation
     property string busyError: ""
     property string notice: ""    // one-shot info banner, e.g. after a download
     // streamed download percent, -1 while indeterminate (voxtype emits progress
-    // to stdout; a newline-terminated percent lights the determinate track, and
-    // otherwise the heartbeat dot carries the wait).
+    // to stdout; a newline-terminated percent lights the determinate track).
     property real dlPercent: -1
+    // the step a multi-step install is on (Redux builds its runtime before the
+    // model downloads), worded here from the installer's `stage: <step>` lines.
+    property string dlStage: ""
+    readonly property var stageWords: ({
+        "fetch": I18n.tr("  \u00b7  fetching the source\u2026"),
+        "configure": I18n.tr("  \u00b7  preparing the build\u2026"),
+        "build": I18n.tr("  \u00b7  building the speech runtime\u2026"),
+        "download": I18n.tr("  \u00b7  downloading the model\u2026"),
+        "install": I18n.tr("  \u00b7  installing\u2026")
+    })
 
     readonly property var sel: {
         for (var i = 0; i < pg.presets.length; i++)
@@ -92,6 +103,7 @@ Item {
     // Clicking a missing local model starts its download. Models above 1 GB stop
     // at the size confirmation first.
     function choose(key) {
+        if (pg.downloading !== "") return;
         var p = pg.presetFor(key);
         if (p !== null && !p.cloud && !p.present) {
             pg.requestDownload(key);
@@ -125,11 +137,20 @@ Item {
         pg.busyError = "";
         pg.notice = "";
         pg.dlPercent = -1;
+        pg.dlStage = "";
+        pg.cancelRequested = false;
+        pg.installError = "";
         pg.downloading = key;
         dlProc.command = ["ryoku-hub", "voxtype", "download", key];
         dlProc.running = true;
     }
+    function cancelDownload() {
+        if (pg.downloading === "" || pg.cancelRequested) return;
+        pg.cancelRequested = true;
+        dlProc.signal(15);
+    }
     function removeModel(key) {
+        if (pg.downloading !== "") return;
         pg.busyError = "";
         rmProc.command = ["ryoku-hub", "voxtype", "rmmodel", key];
         rmProc.running = true;
@@ -151,6 +172,7 @@ Item {
     onWindowActiveChanged: if (pg.windowActive) pg.reload()
 
     Component.onCompleted: pg.reload()
+    Component.onDestruction: if (pg.downloading !== "") pg.cancelDownload()
 
     Process {
         id: getProc
@@ -191,21 +213,36 @@ Item {
         stdout: SplitParser {
             splitMarker: "\n"
             onRead: (line) => {
-                var m = String(line).match(/(\d+(?:\.\d+)?)\s*%/);
+                var text = String(line);
+                if (text.startsWith("stage: ")) {
+                    pg.dlStage = text.slice(7).trim();
+                    return;
+                }
+                var m = text.match(/(\d+(?:\.\d+)?)\s*%/);
                 if (m)
                     pg.dlPercent = Math.max(0, Math.min(100, parseFloat(m[1])));
             }
         }
-        onExited: (code) => {
+        stderr: StdioCollector {
+            onStreamFinished: pg.installError = this.text.trim().split("\n").slice(-4).join("\n")
+        }
+        onStarted: if (pg.cancelRequested) dlProc.signal(15)
+        onExited: (code, exitStatus) => {
             var k = pg.downloading;
+            var canceled = pg.cancelRequested;
             pg.downloading = "";
             pg.dlPercent = -1;
-            if (code === 0) {
+            pg.dlStage = "";
+            pg.cancelRequested = false;
+            if (canceled) {
+                pg.notice = I18n.tr("Installation canceled. Your selected model is unchanged.");
+                pg.reload();
+            } else if (code === 0 && exitStatus === 0) {
                 pg.selected = k;
-                pg.notice = I18n.tr("Model downloaded. If dictation doesn't respond, a reboot may be needed to apply it.");
+                pg.notice = I18n.tr("Model installed.");
                 pg.apply(null);
             } else {
-                pg.busyError = I18n.tr("Download failed (voxtype exited %1).").arg(code);
+                pg.busyError = pg.installError || I18n.tr("Installation failed (exit %1).").arg(code);
                 pg.reload();
             }
         }
@@ -477,7 +514,7 @@ Item {
                                         text: I18n.tr(card.modelData.language)
                                             + "  \u00b7  " + I18n.tr(card.modelData.speed)
                                             + "  \u00b7  " + card.modelData.size
-                                            + (card.busy ? I18n.tr("  \u00b7  downloading\u2026")
+                                            + (card.busy ? (pg.stageWords[pg.dlStage] || I18n.tr("  \u00b7  installing\u2026"))
                                                 : (card.modelData.cloud ? ""
                                                     : (card.modelData.present ? I18n.tr("  \u00b7  downloaded") : I18n.tr("  \u00b7  not downloaded"))))
                                         color: (card.busy || (!card.modelData.cloud && !card.modelData.present)) ? Tokens.ink : Tokens.inkFaint
@@ -539,30 +576,25 @@ Item {
                                     font.pixelSize: 7
                                 }
 
-                                // trailing action: heartbeat while downloading, else
-                                // a download or remove glyph for local models (cloud:
-                                // none). the MouseArea consumes its own clicks so the
-                                // card's tap-to-select does not double-fire here.
+                                // Each installing model keeps a visible cancel action on its card.
                                 Item {
                                     id: action
                                     anchors.right: parent.right
                                     anchors.verticalCenter: parent.verticalCenter
                                     anchors.rightMargin: Tokens.s3
-                                    width: 26
+                                    width: card.busy ? cancelModelBtn.implicitWidth : 26
                                     height: 26
 
-                                    Rectangle {
-                                        anchors.centerIn: parent
+                                    Btn {
+                                        id: cancelModelBtn
+                                        objectName: "dictation-cancel-" + card.modelData.key
+                                        anchors.fill: parent
                                         visible: card.busy
-                                        width: 6; height: 6; radius: 3
-                                        color: Tokens.ink
-                                        // a heartbeat, not an alarm: 600ms each way (DESIGN.md section 5).
-                                        SequentialAnimation on opacity {
-                                            running: card.busy
-                                            loops: Animation.Infinite
-                                            NumberAnimation { to: 0.3; duration: 600 }
-                                            NumberAnimation { to: 1.0; duration: 600 }
-                                        }
+                                        compact: true
+                                        text: pg.cancelRequested ? I18n.tr("Canceling…") : I18n.tr("Cancel")
+                                        armed: !pg.cancelRequested
+                                        enabled: !pg.cancelRequested
+                                        onAct: pg.cancelDownload()
                                     }
                                     Rectangle {
                                         id: actBtn

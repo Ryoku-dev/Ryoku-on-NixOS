@@ -1,5 +1,5 @@
 {
-  "base_method": "treematch",
+  "base_method": "recorded",
   "port_upstream": {
     "branch": "unstable-dev",
     "commit": "f5b2ebc1e32fc4aa7e22e499418719b90e461723",
@@ -10,11 +10,11 @@
   "upstream": {
     "branch": "unstable-dev",
     "channel": "unstable",
-    "commit": "ffa0dbb681db16e81531a64aba9046b5442212eb",
-    "date": "2026-10-18T20:41:58Z",
+    "commit": "0c974fc6cd98c39e9f935aa2c5779629096433cc",
+    "date": "2026-10-20T22:35:54Z",
     "name": "Onogoro",
-    "release": "v0.102.3-beta.20.dev.849+gffa0dbb",
+    "release": "v0.103.5-beta.20.dev.861+g0c974fc",
     "repo": "https://github.com/Ryoku-dev/ryoku",
-    "version": "0.102.3-beta.20"
+    "version": "0.103.5-beta.20"
   }
 }

@@ -30,8 +30,17 @@ Scope {
             hide();
     }
 
-    property var catalog: null
+    // The shipped catalog.json joined with the launchers RyoStore installed,
+    // once both are read: a Store pick then loads first instead of after the
+    // default.
+    property var builtinCatalog: null
+    readonly property var catalog: builtinCatalog && LauncherProducts.ready
+        ? Catalog.withStore(builtinCatalog, LauncherProducts.rows, LauncherProducts.stateRoot)
+        : null
     property string activeId: ""
+    // The URL the active variant runs from: a Store update keeps the id and
+    // moves the view, so a changed URL is a switch too.
+    property string activeSource: ""
     property string requestedId: LauncherConfig.variant
     property string pendingId: ""
     property bool fallbackTried: false
@@ -43,19 +52,24 @@ Scope {
         return catalog ? Catalog.entry(catalog, id) : null;
     }
 
+    function sourceOf(entry) {
+        return String(entry.url || Qt.resolvedUrl(entry.entrypoint));
+    }
+
     function activate(id) {
         var next = selectEntry(id);
         if (!next)
             return;
         activeId = next.id;
-        variantLoader.source = Qt.resolvedUrl(next.entrypoint);
+        activeSource = sourceOf(next);
+        variantLoader.source = activeSource;
     }
 
     function requestVariant(id) {
         var next = selectEntry(id);
         if (!next)
             return;
-        if (next.id === activeId) {
+        if (next.id === activeId && sourceOf(next) === activeSource) {
             pendingId = "";
             return;
         }
@@ -78,6 +92,9 @@ Scope {
             root.pendingId = "";
             root.fallbackTried = false;
             root.activate(next);
+            // a show that arrived while the switch was pending opens the new one
+            if (root.active)
+                root.syncOpen();
         });
     }
 
@@ -96,12 +113,17 @@ Scope {
         path: Qt.resolvedUrl("catalog.json")
         blockLoading: true
         printErrors: true
-        onLoaded: {
-            root.catalog = Catalog.normalize(JSON.parse(text()));
-            root.activate(LauncherConfig.variant);
-        }
+        onLoaded: root.builtinCatalog = Catalog.normalize(JSON.parse(text()))
     }
 
+    onCatalogChanged: {
+        if (!catalog)
+            return;
+        if (activeId === "")
+            activate(requestedId);
+        else
+            requestVariant(requestedId);
+    }
     onRequestedIdChanged: if (catalog) requestVariant(requestedId)
 
     Loader {
@@ -114,7 +136,8 @@ Scope {
             if (!root.fallbackTried && fallback && root.activeId !== fallback.id) {
                 root.fallbackTried = true;
                 root.activeId = fallback.id;
-                source = Qt.resolvedUrl(fallback.entrypoint);
+                root.activeSource = root.sourceOf(fallback);
+                source = root.activeSource;
             }
         }
     }

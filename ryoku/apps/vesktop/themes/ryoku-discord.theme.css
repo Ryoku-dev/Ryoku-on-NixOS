@@ -1,0 +1,288 @@
+/**
+ * @name Ryoku
+ * @description Ryoku, Paper and ink.
+ * @author Ron
+ * @version 3.0.0
+ * @invite Sf7sGwy4kG
+ * @website https://ryoku.dev
+ * @source https://github.com/niqqudim/ryoku-discord/blob/main/theme/ryoku.theme.css
+ * @authorId 681210857337913387
+*/
+
+/* import theme modules */
+@import url('https://niqqudim.github.io/ryoku-discord/build/ryoku.css');
+
+body {
+    /* fonts, change to '' for default discord font */
+    --font: 'Space Grotesk';
+    --code-font: 'JetBrains Mono';
+    font-weight: 400; /* DOES NOT AFFECT BOLD TEXT */
+    letter-spacing: 0;
+
+    /* sizes */
+    --gap: 7px; /* spacing between panels */
+    --divider-thickness: 2px; /* thickness of unread messages divider and highlighted message borders */
+    --border-thickness: 1px; /* thickness of borders around main panels. DOES NOT AFFECT OTHER BORDERS */
+    --border-hover-transition: 90ms cubic-bezier(0.33, 1, 0.68, 1);
+    --roundness: 6px; /* corner roundness of the main panels (0px = square)*/
+
+    /* animation */
+    --animations: on;
+    --list-item-transition: 90ms cubic-bezier(0.33, 1, 0.68, 1);
+    --dms-icon-svg-transition: 170ms cubic-bezier(0.33, 1, 0.68, 1);
+    --hover-slide: on; /* (active now cards and the settings menu) */
+    --hover-slide-distance: 8px; /* how far they move */
+    --hover-slide-duration: 170ms;
+    --chat-open-animation: on;
+    --chat-open-duration: 210ms;
+    --send-animation: on;
+    --send-animation-duration: 210ms;
+    --friends-animation: on;
+    --requests-animation: on; /* message requests */
+    --quests-animation: on;
+    --shop-animation: on;
+
+    /* top bar options */
+    --top-bar-height: var(--gap); /* height of the top bar (discord default is 36px, var(--gap) recommended if button position is set to titlebar) */
+    --top-bar-button-position: titlebar; /* off: default position, hide: hide buttons completely, serverlist: move inbox button to server list, titlebar: move inbox button to channel titlebar (will hide title) */
+    --top-bar-title-position: off; /* off: default centered position, hide: hide title completely, left: left align title (like old discord) */
+    --subtle-top-bar-title: off; /* off: default, on: hide the icon and use subtle text color (like old discord) */
+
+    /* window controls */
+    --custom-window-controls: off; /* off: default window controls, on: custom window controls */
+    --window-control-size: 14px;
+
+    /* dms button options */
+    --custom-dms-icon: custom; /* off: default discord icon, hide: remove icon, custom: ryoku svg */
+    --dms-icon-svg-url: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%2241.5 -831.0 896.0 896.0%22%3E%3Cpath transform=%22scale%281 -1%29%22 fill=%22%23fff%22 d=%22M462 736C462 772 455 821 415 821C398 821 391 817 375 799C356 778 347 746 347 744C347 743 351 733 353 728C354 726 359 678 359 675C359 641 348 549 343 511C311 502 295 498 246 489C234 486 173 477 160 474C138 471 121 468 121 451C121 412 188 412 203 412C212 412 232 412 248 416L332 435C329 423 316 364 313 351C302 309 295 293 233 144L199 68C197 64 196 51 208 51C214 51 219 52 229 62C260 91 284 123 296 141C328 186 372 290 395 361L420 442C421 451 421 452 423 454C426 457 468 467 474 468L553 489L635 510C653 515 677 527 677 540C677 558 656 558 652 558C648 558 637 557 624 556C578 551 571 549 533 540L442 523L441 526C442 530 447 554 448 560C449 571 455 630 456 637L461 727ZM501 -24C501 -39 511 -55 524 -55C569 -55 709 138 790 271C805 296 858 395 858 430C858 437 857 448 851 459C834 480 832 482 818 503C782 540 767 555 745 555C730 555 723 536 723 525C723 523 724 521 724 520C732 491 733 487 733 472C733 402 659 243 651 226C629 176 552 61 528 35C505 11 501 6 501 -24Z%22/%3E%3C/svg%3E"); /* icon svg url. MUST BE A SVG. */
+    --dms-icon-svg-size: 90%; /* css mask-size property */
+    --dms-icon-scale: 1.6;
+    --dms-icon-color-before: var(--icon-subtle); /* normal icon color */
+    --dms-icon-color-after: var(--white); /* icon color when button is hovered/pressed*/
+    --custom-dms-background: off; /* 'image' to use a background image (must set url variable below), color to use a custom color/gradient */
+    --dms-background-image-url: url('');
+    --dms-background-image-size: cover; /* css background-size property */
+    --dms-background-color: linear-gradient(70deg, var(--yellow-2), var(--red-2)); /* css background property */
+    --background-image: off;
+    --background-image-url: url('');
+
+    /* transparency/blur options */
+    /* NOTE: TO USE TRANSPARENCY/BLUR, YOU MUST HAVE TRANSPARENT BG COLORS. FOR EXAMPLE: --bg-4: hsla(0, 0%, 4%, 0.7); */
+    --transparency-tweaks: off; /* off: no changes, on: remove some elements for better transparency */
+    --remove-bg-layer: off; /* off: no changes, on: remove the base --bg-3 layer for use with window transparency (WILL OVERRIDE BACKGROUND IMAGE) */
+    --panel-blur: off; /* off: no changes, on: blur the background of panels */
+    --blur-amount: 12px; /* amount of blur */
+    --bg-floating: var(--bg-3); /* set this to a more opaque color if floating panels look too transparent. only applies if panel blur is on  */
+
+    /* chatbar */
+    --custom-chatbar: off; /* off: default chatbar, separated: chatbar separated from chat */
+    --chatbar-height: 56px;
+
+    /* styling options */
+    --custom-spotify-bar: on; /* off: default, on: custom text-like spotify progress bar */
+    --ryoku-loader: on; /* loading animation */
+    --corner-ticks: on; /* off: rounded panels from --roundness */
+    --chat-ghost: on; /* big name at the top of a chat */
+    --chat-ghost-color: var(--text-1);
+    --server-ghost-color: var(--accent-2); /* the server name at the top of a server */
+    --friends-ghost: on; /* big FRIENDS behind the friends list */
+    --friends-ghost-color: var(--text-1);
+    --colophon: on; /* the vertical text in the member list and active now */
+    --dossier-top-bar: on; /* chat title restyle: 'direct message', 'group chat', the channel hanko and // */
+    --ryoku-loader-size: 220px;
+
+    /* panel labels(titles, like //nav) */
+    --panel-labels: on; 
+    --label-color: var(--text-4); /* color of labels */
+    --label-hover-color: var(--accent-2); /* color of labels when the panel is hovered */
+    --label-font-weight: 400; /* font weight of labels */
+
+    /* gap color */
+    --gap-color: var(--bg-3); /* color of the empty space between panels */
+}
+
+/* color options */
+:root {
+    --colors: on; /* off: discord default colors, on: custom colors below */
+
+    /* text colors */
+    --text-0: #000; /* text on colored elements */
+    --text-1: #cdc4ba; /* other normally white text (bone) */
+    --text-2: #cdc4ba; /* headings and important text (ink) */
+    --text-3: #b0a9a0; /* normal text */
+    --text-4: #958f87; /* icon buttons and channels */
+    --text-5: #74706a; /* muted channels/chats and timestamps */
+
+    /* background and dark colors */
+    --bg-1: #242424; /* dark buttons when clicked */
+    --bg-2: #1c1c1c; /* dark buttons */
+    --bg-3: #111111; /* spacing, secondary elements */
+    --bg-4: #0a0a0a; /* main background color (paper) */
+    --hover: color-mix(in srgb, var(--text-1) 10%, transparent); /* channels and buttons when hovered */
+    --active: color-mix(in srgb, var(--text-1) 16%, transparent); /* channels and buttons when clicked or pressed */
+    --active-2: color-mix(in srgb, var(--text-1) 22%, transparent); /* for transparent buttons */
+    --message-hover: color-mix(in srgb, var(--text-1) 5%, transparent); 
+
+    /* accent colors */
+    --accent-1: #cdc4ba; /* links and other accent text (bone) */
+    --accent-2: #e2342a; /* small accent elements (vermillion) */
+    --accent-3: #cdc4ba; /*  buttons */
+    --accent-4: #e8d8c9; /* buttons when hovered */
+    --accent-5: #b0a9a0; /* buttons when clicked */
+    --accent-new: #e2342a; /* stuff that's normally red  */
+
+    /* artwork colours, drawing, plate, and +g rid */
+    --art-ink: var(--text-1); /* drawings, plate frames and lettering,+ grids */
+    --art-gold: color-mix(in srgb, var(--text-1) 55%, transparent); /* gold corner marks, links and the loader's slashes */
+    --art-seal: var(--accent-2); /* red seals, the sun */
+    --mention: color-mix(in srgb, var(--text-1) 6%, transparent); /* background of messages that mention you */
+    --mention-hover: color-mix(in srgb, var(--text-1) 9%, transparent); /* background of messages that mention you when hovered */
+    --reply: linear-gradient(to right, color-mix(in hsl, var(--text-3), transparent 90%) 40%, transparent); /* background of messages that reply to you */
+    --reply-hover: linear-gradient(to right, color-mix(in hsl, var(--text-3), transparent 95%) 40%, transparent); /* background of messages that reply to you when hovered */
+
+    /* status indicator colors, discord default is the comments*/
+    --online: var(--green-2); /* #40a258 */
+    --dnd: var(--red-2); /* #d83a41 */
+    --idle: var(--yellow-2); /* #cc954c */
+    --streaming: var(--purple-2); /* #9147ff */
+    --offline: var(--text-4); /* #82838b */
+
+    /* border colors */
+    --border-light: color-mix(in srgb, var(--text-1) 13%, transparent); /* general light border color */
+    --border: color-mix(in srgb, var(--text-1) 26%, transparent); /* general normal border color */
+    --border-hover: color-mix(in srgb, var(--text-1) 42%, transparent); /* border color of panels when hovered */
+    --button-border: color-mix(in srgb, var(--text-1) 26%, transparent); /* normal border color of buttons */
+
+    /* base colors */
+    --red-1: #f06a62;
+    --red-2: #e2342a;
+    --red-3: #c42d25;
+    --red-4: #8c211b;
+    --red-5: #6a1914;
+
+    --green-1: #a8d090;
+    --green-2: #8fbf7a;
+    --green-3: #6ea35c;
+    --green-4: #4e7d42;
+    --green-5: #3a5c32;
+
+    --blue-1: #d9a441;
+    --blue-2: #e2342a;
+    --blue-3: #e2342a;
+    --blue-4: #c42d25;
+    --blue-5: #8c211b;
+
+    --yellow-1: #e8c56a;
+    --yellow-2: #d9a441;
+    --yellow-3: #b88830;
+    --yellow-4: #8f6a24;
+    --yellow-5: #6a4e1a;
+
+    --purple-1: #c9a0d4;
+    --purple-2: #a87bb8;
+    --purple-3: #875a96;
+    --purple-4: #664074;
+    --purple-5: #4a2e54;
+}
+
+/* code blocks */
+body {
+    --ryo-plus-color: var(--art-ink); /* + field behind the expanded code view */
+    --ryo-plus-gap-chat: 150px;
+    --ryo-plus-alpha-chat: 0.07;
+    --ryo-plus-show-chat: 1; /* 1 on, 0 off */
+
+    --ryo-code-kanji-size: 12rem;
+    --ryo-code-kanji-color: var(--text-1);
+    --ryo-code-kanji-show: 1;
+    --ryo-code-kanji-opacity: 0.2;
+    --ryo-code-kanji-tilt: -11deg;
+    --ryo-code-kanji-right: 28px;
+    --ryo-code-kanji-bottom: 138px;
+}
+
+/* settings hands */
+body {
+    --ryo-hands-show: 1; /* 1 on, 0 off */
+    --ryo-hands-color: var(--art-ink); /* also used for the server settings hands */
+    --ryo-hands-left: 7%;
+    --ryo-hands-top: 50%;
+    --ryo-hands-x: -50%;
+    --ryo-hands-y: -50%;
+    --ryo-hands-width: 72%;
+    --ryo-hands-height: 22%;
+    --ryo-hands-rotate: 90deg;
+    --ryo-hands-scale-x: 1.18;
+    --ryo-hands-scale-y: 1;
+    --ryo-hands-opacity: 0.22;
+    --ryo-hands-blur: 0px;
+    --ryo-hands-z: 20;
+}
+
+/* server settings hands */
+body {
+    --server-sidebar-hands: on;
+    --server-hands-opacity: 0.22;
+    --server-hands-blur: 0px;
+    --server-hands-inset: 24px; /* gap  */
+    --server-hands-stretch-y: 1.2;
+    --server-hands-stretch-x: 1;
+    --server-hands-nav-width: 248px; /* the hands fill the space left of it */
+}
+
+/* settings 力 */
+body {
+    --ryo-settings-kanji-show: 1; /* 1 on, 0 off */
+    --ryo-settings-kanji-size: min(46.2vw, 506px);
+    --ryo-settings-kanji-color: var(--text-1);
+    --ryo-settings-kanji-opacity: 0.08;
+    --ryo-settings-kanji-right: -2%;
+    --ryo-settings-kanji-bottom: -15%;
+}
+
+/* + grids */
+body {
+    --chat-plus-grid: on;
+    --chat-plus-gap: 150px;
+    --chat-plus-alpha: 7%;
+    --chat-plus-lock: fixed; /* fixed or local (scrolls with the messages) */
+
+    --settings-plus-grid: on;
+    --settings-plus-gap: 200px;
+    --settings-plus-alpha: 7%;
+    --settings-plus-lock: local; /* local or fixed */
+}
+
+/* channels sun */
+body {
+    --channels-sun: on;
+    --channels-sun-size: 192px;
+    --channels-sun-opacity: 0.45;
+    --channels-sun-x: 81px; /* negative = cut off by the left edge */
+    --channels-sun-under-panel: 52px; /* how much under the user panel */
+    --sun-color: var(--art-seal); /* both suns */
+
+    --discover-sun: on;
+    --discover-sun-size: 192px;
+    --discover-sun-opacity: 0.45;
+    --discover-sun-x: -40px; /* negative = cut off by the right edge */
+    --discover-sun-y: 5px;
+}
+
+/* dm list kanji */
+body {
+    --dm-kanji-icons: on;
+    --dm-kanji-size: 15px;
+}
+
+/* panel labels */
+body {
+    --panel-label-position: center; /* left, center or right */
+    --panel-label-prefix: '//';
+    --panel-label-offset: 10px; /* from the panel edge when left or right */
+    --panel-label-top: -0.6em;
+    --panel-label-size: 10px;
+    --panel-label-padding: 0 6px;
+    --panel-label-letter-spacing: 1.4px;
+    --panel-label-font: 'SpaceMono Nerd Font', 'Space Mono', 'JetBrains Mono', ui-monospace, monospace;
+}

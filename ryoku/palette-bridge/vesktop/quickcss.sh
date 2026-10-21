@@ -1,5 +1,31 @@
 #!/usr/bin/env bash
 
+# The Flathub build's sandbox sees only its own ~/.var/app folder, so it keeps
+# its settings and themes there instead of in the config directory.
+vesktop_flatpak_root() {
+  printf '%s\n' "$HOME/.var/app/dev.vencord.Vesktop/config/vesktop"
+}
+
+# The Vesktop directory in use under config root $1. Ryoku seeds the native
+# Vencord settings on every box, so the native directory wins only once
+# Vesktop itself has run there (it keeps state.json and sessionData beside
+# them); otherwise the Flathub build's wins when it has settings. Fails when
+# neither has settings yet.
+vesktop_config_root() {
+  local native="$1/vesktop" flatpak
+  flatpak=$(vesktop_flatpak_root)
+  if [[ -f "$native/settings/settings.json" ]] &&
+    [[ -e "$native/state.json" || -e "$native/sessionData" ]]; then
+    printf '%s\n' "$native"
+  elif [[ -f "$flatpak/settings/settings.json" ]]; then
+    printf '%s\n' "$flatpak"
+  elif [[ -f "$native/settings/settings.json" ]]; then
+    printf '%s\n' "$native"
+  else
+    return 1
+  fi
+}
+
 vesktop_render_palette() (
   set -e
   local template="$1" carrier="$2" output="$3" temporary

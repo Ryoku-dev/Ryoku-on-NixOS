@@ -166,6 +166,8 @@ type Config struct {
 
 type App struct {
 	cfg Config
+	// overlay is the catalogue package table of the current pkg call, if any.
+	overlay string
 }
 
 func New(cfg Config) *App {

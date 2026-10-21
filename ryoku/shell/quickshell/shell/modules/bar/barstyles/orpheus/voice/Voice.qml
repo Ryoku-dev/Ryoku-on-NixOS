@@ -300,6 +300,7 @@ Item {
         onClicked: root.togglePage()
         onRightClicked: root.scene.openCard("controls", root, {})
         onMiddleClicked: if (Media.present) Media.toggle()
+        wheelSteps: true
         onWheel: steps => root.cyclePage(steps)
         onHoveredChanged: if (S.Prefs.hoverOpen)
             root.scene.hoverCard(root.page, root, hovered)

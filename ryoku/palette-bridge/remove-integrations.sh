@@ -35,6 +35,14 @@ remove_matugen_section() {
   rm -f "$temporary"
 }
 
+script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+helper="$script_root/vesktop/quickcss.sh"
+if [[ ! -f "$helper" ]]; then
+  helper="$script_root/../share/ryoku/palette-bridge/vesktop/quickcss.sh"
+fi
+# shellcheck source=ryoku/palette-bridge/vesktop/quickcss.sh
+source "$helper"
+
 case "$want" in
   spotify)
     if command -v spicetify >/dev/null; then
@@ -43,16 +51,10 @@ case "$want" in
     fi
     ;;
   vesktop)
-    script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    helper="$script_root/vesktop/quickcss.sh"
-    if [[ ! -f "$helper" ]]; then
-      helper="$script_root/../share/ryoku/palette-bridge/vesktop/quickcss.sh"
-    fi
-    # shellcheck source=ryoku/palette-bridge/vesktop/quickcss.sh
-    source "$helper"
-    vesktop_write_palette "$config_root/vesktop/settings/quickCss.css"
+    vesktop_root=$(vesktop_config_root "$config_root") || vesktop_root="$config_root/vesktop"
+    vesktop_write_palette "$vesktop_root/settings/quickCss.css"
     remove_matugen_section templates.vesktop
-    settings="$config_root/vesktop/settings/settings.json"
+    settings="$vesktop_root/settings/settings.json"
     if [[ -f "$settings" ]] && command -v jq >/dev/null; then
       temporary=$(mktemp)
       jq '.enabledThemes = ((.enabledThemes // []) | map(select(. != "midnight-ryoku.theme.css")))' "$settings" > "$temporary"
@@ -72,6 +74,7 @@ if [[ -f "$ownership_file" ]]; then
       spotify:"$config_root"/spicetify/Extensions/ryoku-wallpaper-colors.js|\
       vesktop:"$config_root"/ryoku/user_edits/matugen/templates/vesktop-colors.css|\
       vesktop:"$config_root"/vesktop/themes/midnight-ryoku.theme.css|\
+      vesktop:"$(vesktop_flatpak_root)"/themes/midnight-ryoku.theme.css|\
       vesktop:"$state_root"/vesktop/quickcss.sh|\
       vesktop:"$state_root"/vesktop/palette.css|\
       zen:"$config_root"/ryoku/user_edits/matugen/templates/zen.css)

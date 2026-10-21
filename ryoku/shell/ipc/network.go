@@ -15,9 +15,11 @@ import (
 )
 
 // network.go owns the NetworkManager integration: it reads Wi-Fi radio state,
-// the active connection, scanned access points, saved WireGuard tunnels, and
-// global DNS configuration over the system bus. It streams them to QML on the
-// "network" state topic and drives Wi-Fi, WireGuard, and DNS changes on request.
+// the active connection, scanned access points, saved WireGuard tunnels, saved
+// VPN profiles (OpenVPN, OpenConnect, and any other NetworkManager VPN plugin),
+// and global DNS configuration over the system bus. It streams them to QML on
+// the "network" state topic and drives Wi-Fi, WireGuard, VPN, and DNS changes on
+// request.
 // The bus name, object paths, interfaces, and signals are from the
 // NetworkManager specification.
 // The reveal-side derivations live in QML per contract 06 sec 9: the widget
@@ -35,6 +37,7 @@ const (
 	nmApIface       = "org.freedesktop.NetworkManager.AccessPoint"
 	nmActiveIface   = "org.freedesktop.NetworkManager.Connection.Active"
 	nmSettConnIface = "org.freedesktop.NetworkManager.Settings.Connection"
+	nmIp4Iface      = "org.freedesktop.NetworkManager.IP4Config"
 	nmPropsIface    = "org.freedesktop.DBus.Properties"
 )
 
@@ -65,7 +68,7 @@ type apInfo struct {
 
 // savedConn is one stored NetworkManager profile, used to mark an AP "saved"
 // (so the reveal knows whether to show a password field) and to enumerate the
-// WireGuard tunnels (which are saved profiles of type wireguard).
+// WireGuard tunnels and VPN profiles (saved profiles of type wireguard / vpn).
 type savedConn struct {
 	path        dbus.ObjectPath
 	uuid        string
@@ -73,6 +76,16 @@ type savedConn struct {
 	typ         string
 	ssid        string
 	autoconnect bool
+	// vpnService is vpn.service-type for a type "vpn" profile, e.g.
+	// "org.freedesktop.NetworkManager.openvpn"; empty for every other type.
+	vpnService string
+}
+
+// vpnLive is what an active VPN profile adds to its saved entry: whether it is
+// still coming up, and the first IPv4 address NetworkManager assigned.
+type vpnLive struct {
+	connecting bool
+	ip4        string
 }
 
 // startNetwork brings the NetworkManager integration up, registers the topic
@@ -190,6 +203,24 @@ func (d *daemon) startNetwork() {
 		}
 		return nil, wgImport(a.Path)
 	})
+	d.registerCall("network.vpnActivate", func(raw json.RawMessage) (any, error) {
+		var a struct {
+			Uuid string `json:"uuid"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return nil, err
+		}
+		return nil, n.vpnSetActive(a.Uuid, true)
+	})
+	d.registerCall("network.vpnDeactivate", func(raw json.RawMessage) (any, error) {
+		var a struct {
+			Uuid string `json:"uuid"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return nil, err
+		}
+		return nil, n.vpnSetActive(a.Uuid, false)
+	})
 	d.registerCall("network.wgDelete", func(raw json.RawMessage) (any, error) {
 		var a struct {
 			Uuid string `json:"uuid"`
@@ -289,6 +320,7 @@ func (n *networkState) snapshot() map[string]any {
 		"wired":        wired,
 		"accessPoints": aps,
 		"wireguard":    n.wireguardTunnels(saved, active),
+		"vpn":          vpnProfileFrames(saved, n.vpnLiveState(saved, active)),
 		"dns":          n.dnsFrame(),
 	}
 }
@@ -372,6 +404,9 @@ func (n *networkState) savedConnections() []savedConn {
 				c.ssid = decodeSsid(b)
 			}
 		}
+		if v := s["vpn"]; v != nil {
+			c.vpnService, _ = v["service-type"].Value().(string)
+		}
 		out = append(out, c)
 	}
 	return out
@@ -412,6 +447,33 @@ func (n *networkState) wireguardTunnels(saved []savedConn, active map[string]dbu
 			"name":   c.id,
 			"active": isActive,
 		})
+	}
+	return out
+}
+
+// vpnLiveState reads, for each saved VPN profile that has an active
+// connection, whether it is still activating and its first IPv4 address. Only
+// active VPN profiles cost a property read, so an idle machine pays nothing.
+func (n *networkState) vpnLiveState(saved []savedConn, active map[string]dbus.ObjectPath) map[string]vpnLive {
+	out := map[string]vpnLive{}
+	for _, c := range saved {
+		if c.typ != "vpn" {
+			continue
+		}
+		ac, ok := active[c.uuid]
+		if !ok {
+			continue
+		}
+		o := n.obj(ac)
+		live := vpnLive{connecting: n.uintProp(o, nmActiveIface+".State") == nmActiveActivating}
+		if cfg := n.pathProp(o, nmActiveIface+".Ip4Config"); cfg != "" && cfg != "/" {
+			if v, err := n.obj(cfg).GetProperty(nmIp4Iface + ".AddressData"); err == nil {
+				if data, ok := v.Value().([]map[string]dbus.Variant); ok {
+					live.ip4 = firstAddress(data)
+				}
+			}
+		}
+		out[c.uuid] = live
 	}
 	return out
 }
@@ -729,6 +791,19 @@ func (n *networkState) wgSetActive(uuid string, active bool) error {
 	return fmt.Errorf("tunnel not active: %s", uuid)
 }
 
+// vpnSetActive activates or deactivates a saved VPN profile by UUID. It
+// refuses any other profile type, so the VPN switch can never take down Wi-Fi
+// or Ethernet; the activation itself is the same call WireGuard uses.
+func (n *networkState) vpnSetActive(uuid string, active bool) error {
+	if uuid == "" {
+		return fmt.Errorf("empty uuid")
+	}
+	if !isVpnProfile(uuid, n.savedConnections()) {
+		return fmt.Errorf("not a VPN profile: %s", uuid)
+	}
+	return n.wgSetActive(uuid, active)
+}
+
 // wgDelete removes a saved WireGuard tunnel by UUID (the reveal's Delete action).
 func (n *networkState) wgDelete(uuid string) error {
 	if uuid == "" {
@@ -802,6 +877,62 @@ func (n *networkState) pathProp(o dbus.BusObject, name string) dbus.ObjectPath {
 }
 
 // --- pure helpers (unit-tested) ---
+
+// nmActiveActivating is NMActiveConnectionState ACTIVATING.
+const nmActiveActivating = 1
+
+// vpnProfileFrames returns the saved VPN profiles in service order, each with
+// its plugin's short name and, when active, whether it is still connecting and
+// its IPv4 address. WireGuard profiles stay in the "wireguard" list.
+func vpnProfileFrames(saved []savedConn, live map[string]vpnLive) []map[string]any {
+	out := []map[string]any{}
+	for _, c := range saved {
+		if c.typ != "vpn" {
+			continue
+		}
+		l, isActive := live[c.uuid]
+		out = append(out, map[string]any{
+			"uuid":       c.uuid,
+			"name":       c.id,
+			"service":    vpnServiceName(c.vpnService),
+			"active":     isActive,
+			"connecting": isActive && l.connecting,
+			"ip4":        l.ip4,
+		})
+	}
+	return out
+}
+
+// vpnServiceName shortens a vpn.service-type to the plugin's own name:
+// "org.freedesktop.NetworkManager.openvpn" becomes "openvpn".
+func vpnServiceName(service string) string {
+	if i := strings.LastIndex(service, "."); i >= 0 {
+		return service[i+1:]
+	}
+	return service
+}
+
+// isVpnProfile reports whether uuid names a saved profile of type vpn or
+// wireguard.
+func isVpnProfile(uuid string, saved []savedConn) bool {
+	for _, c := range saved {
+		if c.uuid == uuid {
+			return c.typ == "vpn" || c.typ == "wireguard"
+		}
+	}
+	return false
+}
+
+// firstAddress returns the first "address" entry of an IP4Config AddressData.
+func firstAddress(data []map[string]dbus.Variant) string {
+	for _, entry := range data {
+		if a, ok := entry["address"].Value().(string); ok && a != "" {
+			return a
+		}
+	}
+	return ""
+}
+
 var (
 	cloudflareDnsServers = []string{
 		"1.1.1.1", "1.0.0.1",

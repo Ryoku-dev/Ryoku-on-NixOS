@@ -36,6 +36,13 @@ Item {
         return cfg + "/quickshell/shell/modules/launcher";
     }
     property var catalog: ({ version: 0, fallback: "", variants: [] })
+    // Launchers from RyoStore, installed or not: the catalogue says which can be
+    // worn here and which to fetch first. Install stays in RyoStore; this page
+    // shows their state, offers their updates, and wears what is yours.
+    property var storeLaunchers: []
+    property string updatingId: ""
+    readonly property string storeRoot: (Quickshell.env("XDG_STATE_HOME")
+        || (Quickshell.env("HOME") + "/.local/state")) + "/ryoku/store"
 
     property var draft: pg.clone(pg.factory)
     property var committed: pg.clone(pg.factory)
@@ -51,8 +58,15 @@ Item {
         return pg.catalog && Array.isArray(pg.catalog.variants)
             ? pg.catalog.variants : [];
     }
+    // Every launcher Super+Space can open here: the shipped ones, then each one
+    // installed from RyoStore that runs on this desktop.
+    function wearableVariants() {
+        return pg.catalogVariants().concat(pg.storeLaunchers.filter(function (entry) {
+            return entry.installed && !entry.unavailable;
+        }));
+    }
     function variantEntry(id) {
-        var variants = pg.catalogVariants();
+        var variants = pg.wearableVariants();
         var requested = String(id || "");
         for (var i = 0; i < variants.length; i++)
             if (String(variants[i].id || "") === requested)
@@ -64,18 +78,30 @@ Item {
         return variants.length > 0 ? variants[0]
             : ({ id: "", name: "", description: "", preview: "", capabilities: [] });
     }
-    function variantNames() {
-        return pg.catalogVariants().map(function (entry) {
-            return String(entry.name || "");
-        });
+    // A Store launcher's Settings preview is the Preview.qml in its installed
+    // view; the store's view path is checked before it becomes a file URL.
+    function storePreviewUrl(item) {
+        var meta = item.metadata || {};
+        var view = String(meta.view || "");
+        var pattern = new RegExp("^launcher-views/" + item.id + "/[a-f0-9]{64}$");
+        return meta.preview === "Preview.qml" && pattern.test(view)
+            ? "file://" + pg.storeRoot + "/" + view + "/Preview.qml" : "";
     }
-    function idForVariantName(name) {
-        var variants = pg.catalogVariants();
-        var requested = String(name || "");
-        for (var i = 0; i < variants.length; i++)
-            if (String(variants[i].name || "") === requested)
-                return String(variants[i].id || "");
-        return String(pg.draft.variant || "");
+    function browseStore() {
+        Quickshell.execDetached(["ryostore", "open", "launchers"]);
+    }
+    // Settings owns updates (docs/store.md): re-running the install replaces the
+    // launcher in place, and the shell swaps the new view in without a reload.
+    function updateLauncher(id) {
+        if (!id || pg.updatingId !== "")
+            return;
+        pg.updatingId = id;
+        launcherUpdate.command = ["ryostore", "install", "launchers", id];
+        launcherUpdate.running = true;
+    }
+    function refreshStoreLaunchers() {
+        storeCatalog.running = false;
+        storeCatalog.running = true;
     }
     function activeCapabilities() {
         var capabilities = pg.variantEntry(pg.draft.variant).capabilities;
@@ -148,6 +174,57 @@ Item {
         blockLoading: true
         printErrors: true
         onLoaded: pg.catalog = JSON.parse(text())
+    }
+
+    Process {
+        id: storeCatalog
+        command: ["ryostore", "catalog", "--category", "launchers"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const catalog = JSON.parse(this.text || "{}");
+                    // A launcher written for another compositor that you have
+                    // not installed can neither run nor be fetched here, so it
+                    // is not offered.
+                    pg.storeLaunchers = (catalog.items || [])
+                        .filter(item => item.category === "launchers"
+                            && !(item.unavailable === true && item.installed !== true))
+                        .map(item => ({
+                            id: item.id,
+                            name: item.name || item.id,
+                            description: item.summary || item.description || "",
+                            store: true,
+                            previewUrl: item.installed === true ? pg.storePreviewUrl(item) : "",
+                            art: item.art || "",
+                            capabilities: [],
+                            installed: item.installed === true,
+                            version: item.version || "",
+                            installedVersion: item.installedVersion || "",
+                            updateAvailable: item.updateAvailable === true,
+                            unavailable: item.unavailable === true,
+                            unavailableEdition: item.unavailableEdition === true,
+                            unavailableReason: item.unavailableReason || "",
+                            requiredWindowManager: item.requiredWindowManager || "",
+                            downloadPaused: item.downloadPaused === true,
+                            downloadPauseReason: item.downloadPauseReason || ""
+                        }));
+                } catch (e) {
+                    pg.storeLaunchers = [];
+                }
+            }
+        }
+    }
+
+    // An update installs into your own data tree, so it runs in the background
+    // with no terminal; any outcome re-reads the shelf so a failed update keeps
+    // its UPDATE button instead of leaving a dead one.
+    Process {
+        id: launcherUpdate
+        onExited: {
+            pg.updatingId = "";
+            pg.refreshStoreLaunchers();
+        }
     }
 
     FileView {
@@ -240,6 +317,8 @@ Item {
             anchors.fill: parent
             clip: true
 
+            readonly property var entry: pg.variantEntry(pg.draft.variant)
+
             Loader {
                 id: variantPreview
                 anchors.centerIn: parent
@@ -251,16 +330,32 @@ Item {
                         (previewStage.height - 12) / item.implicitHeight))
                     : 1
                 source: {
-                    var file = String(pg.variantEntry(pg.draft.variant).preview || "");
+                    var entry = previewStage.entry;
+                    if (entry.store)
+                        return entry.previewUrl || "";
+                    var file = String(entry.preview || "");
                     return file.length > 0
                         ? "file://" + pg.launcherRoot + "/" + file : "";
                 }
+                // A Store preview may skip the editing half of the contract.
                 onLoaded: {
-                    item.settings = Qt.binding(function () { return pg.draft; });
-                    item.editRequested.connect(function (key, value) {
-                        pg.edit(key, value);
-                    });
+                    if ("settings" in item)
+                        item.settings = Qt.binding(function () { return pg.draft; });
+                    if (item.editRequested)
+                        item.editRequested.connect(function (key, value) {
+                            pg.edit(key, value);
+                        });
                 }
+            }
+
+            // A Store launcher that ships no Preview.qml shows its store art.
+            Image {
+                anchors.fill: parent
+                anchors.margins: Tokens.s3
+                visible: previewStage.entry.store === true && variantPreview.source.toString() === ""
+                source: visible ? previewStage.entry.art : ""
+                asynchronous: true
+                fillMode: Image.PreserveAspectFit
             }
         }
     }
@@ -289,23 +384,149 @@ Item {
             fillTo: flick.height
 
             SettingCard {
+                // The primary choice of the page takes the band across the
+                // columns: the shipped launchers and every one in RyoStore wrap
+                // into as many rows of tiles as they need.
+                property bool fullWidth: true
                 width: col.colWidth
                 title: I18n.tr("LAUNCHER")
 
-                SettingRow {
-                    anchors.left: parent.left; anchors.right: parent.right
-                    block: true
-                    label: I18n.tr("Style")
-                    desc: String(pg.variantEntry(pg.draft.variant).description || "")
-                    def: String(pg.variantEntry(pg.committed.variant).name || "")
-                    changed: !pg.same(pg.draft.variant, pg.committed.variant)
-                    source: "launcher.json"
-                    Seg {
-                        anchors.left: parent.left; anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        options: pg.variantNames()
-                        current: String(pg.variantEntry(pg.draft.variant).name || "")
-                        onChose: name => pg.edit("variant", pg.idForVariantName(name))
+                Item {
+                    width: parent.width
+                    height: styleBody.height + Tokens.s3 + Tokens.s4
+                    Column {
+                        id: styleBody
+                        anchors { left: parent.left; right: parent.right; top: parent.top }
+                        anchors.leftMargin: Tokens.s4; anchors.rightMargin: Tokens.s4; anchors.topMargin: Tokens.s3
+                        spacing: Tokens.s3
+                        // The height is computed, not measured: a Flow reports its
+                        // post-wrap height a polish pass late, and CardColumns would
+                        // place the next card over this one's second row.
+                        Flow {
+                            id: styleRow
+                            width: parent.width
+                            spacing: Tokens.s2
+                            readonly property string worn: String(pg.variantEntry(pg.draft.variant).id || "")
+                            readonly property int perRow: Math.max(2, Math.floor((width + Tokens.s2) / 210))
+                            readonly property int tileH: 64
+                            readonly property int rowCount: Math.max(1, Math.ceil(styleRep.count / perRow))
+                            height: rowCount * tileH + (rowCount - 1) * spacing
+                            Repeater {
+                                id: styleRep
+                                model: pg.catalogVariants().concat(pg.storeLaunchers)
+                                delegate: Rectangle {
+                                    id: styleTile
+                                    required property var modelData
+                                    readonly property bool fromStore: styleTile.modelData.store === true
+                                    // A shipped launcher is always yours; a Store one
+                                    // once it is installed and runs on this compositor.
+                                    readonly property bool applyable: !styleTile.fromStore
+                                        || (styleTile.modelData.installed && !styleTile.modelData.unavailable)
+                                    readonly property bool on: styleTile.applyable && styleRow.worn === styleTile.modelData.id
+                                    // offered only where re-running the install can succeed
+                                    readonly property bool updatable: styleTile.fromStore
+                                        && styleTile.modelData.updateAvailable === true
+                                        && styleTile.modelData.version.length > 0
+                                        && !styleTile.modelData.unavailable && !styleTile.modelData.downloadPaused
+                                    // the launcher's own blurb when it is yours to wear,
+                                    // otherwise the honest reason it is not
+                                    readonly property string subText: {
+                                        const item = styleTile.modelData;
+                                        if (styleTile.updatable) {
+                                            const from = item.installedVersion.length > 0 ? item.installedVersion : item.version;
+                                            return I18n.tr("%1 \u2192 %2").arg(from).arg(item.version);
+                                        }
+                                        if (styleTile.applyable)
+                                            return String(item.description || "");
+                                        if (item.unavailable) {
+                                            const wm = String(item.requiredWindowManager).toUpperCase();
+                                            const tag = item.unavailableEdition ? I18n.tr("Not on this system")
+                                                : wm.length > 0 ? I18n.tr("%1 only").arg(wm) : I18n.tr("Unavailable");
+                                            return item.unavailableReason.length > 0 ? tag + " \u00b7 " + item.unavailableReason : tag;
+                                        }
+                                        if (item.downloadPaused)
+                                            return item.downloadPauseReason.length > 0
+                                                ? I18n.tr("Under construction") + " \u00b7 " + item.downloadPauseReason
+                                                : I18n.tr("Under construction");
+                                        return I18n.tr("Available \u00b7 install from RyoStore");
+                                    }
+
+                                    objectName: "launcher-style-" + styleTile.modelData.id
+                                    width: Math.floor((styleRow.width - (styleRow.perRow - 1) * Tokens.s2) / styleRow.perRow)
+                                    height: styleRow.tileH
+                                    radius: Tokens.radius
+                                    opacity: styleTile.applyable ? 1.0 : 0.55
+                                    color: styleTile.on ? Tokens.bone : (styleMouse.containsMouse ? Tokens.tint5 : "transparent")
+                                    border.width: Tokens.border
+                                    border.color: styleTile.on ? Tokens.bone : Tokens.line
+                                    Behavior on color { ColorAnimation { duration: Tokens.snap } }
+
+                                    Column {
+                                        anchors {
+                                            left: parent.left
+                                            right: updateBtn.visible ? updateBtn.left : parent.right
+                                            margins: Tokens.s3; rightMargin: updateBtn.visible ? Tokens.s2 : Tokens.s3
+                                            verticalCenter: parent.verticalCenter
+                                        }
+                                        spacing: 3
+                                        Row {
+                                            spacing: Tokens.s2
+                                            Text {
+                                                text: String(styleTile.modelData.name || styleTile.modelData.id).toUpperCase()
+                                                color: styleTile.on ? Tokens.inkOnBone : Tokens.inkDim
+                                                font.family: Tokens.ui
+                                                font.pixelSize: 12
+                                                font.weight: Font.Medium
+                                                font.letterSpacing: Tokens.trackLabel
+                                            }
+                                            // marks community work apart from the
+                                            // launchers the shell ships
+                                            Text {
+                                                visible: styleTile.fromStore
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: I18n.tr("STORE")
+                                                color: styleTile.on ? Tokens.inkOnBoneDim : Tokens.inkFaint
+                                                font.family: Tokens.mono
+                                                font.pixelSize: Tokens.fTiny
+                                                font.letterSpacing: Tokens.trackLabel
+                                            }
+                                        }
+                                        Text {
+                                            width: parent.width
+                                            text: styleTile.subText
+                                            color: styleTile.on ? Tokens.inkOnBoneDim : Tokens.inkFaint
+                                            font.family: Tokens.ui
+                                            font.pixelSize: Tokens.fTiny
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+                                    MouseArea {
+                                        id: styleMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        preventStealing: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: styleTile.applyable ? pg.edit("variant", styleTile.modelData.id) : pg.browseStore()
+                                    }
+                                    // Declared after the MouseArea so it stacks above it:
+                                    // the tile wears the launcher on click, and the update
+                                    // must not be stolen by that handler.
+                                    Btn {
+                                        id: updateBtn
+                                        anchors { right: parent.right; rightMargin: Tokens.s3; verticalCenter: parent.verticalCenter }
+                                        visible: styleTile.updatable
+                                        compact: true
+                                        armed: pg.updatingId === ""
+                                        text: pg.updatingId === styleTile.modelData.id ? I18n.tr("UPDATING") : I18n.tr("UPDATE")
+                                        onAct: pg.updateLauncher(styleTile.modelData.id)
+                                    }
+                                }
+                            }
+                        }
+                        Btn {
+                            text: I18n.tr("BROWSE RYOSTORE")
+                            onAct: pg.browseStore()
+                        }
                     }
                 }
             }

@@ -25,17 +25,20 @@ var (
 )
 
 type productTransactionJournal struct {
-	Schema                  int             `json:"schema"`
-	Category                string          `json:"category"`
-	ID                      string          `json:"id"`
-	Version                 string          `json:"version"`
-	Operation               string          `json:"operation"`
-	Phase                   string          `json:"phase"`
-	HadDestination          bool            `json:"hadDestination,omitempty"`
-	Adopted                 bool            `json:"adopted,omitempty"`
-	BaseRevision            uint64          `json:"baseRevision"`
-	PriorReceipt            *Receipt        `json:"priorReceipt,omitempty"`
-	VesktopThemeFile        string          `json:"vesktopThemeFile,omitempty"`
+	Schema           int      `json:"schema"`
+	Category         string   `json:"category"`
+	ID               string   `json:"id"`
+	Version          string   `json:"version"`
+	Operation        string   `json:"operation"`
+	Phase            string   `json:"phase"`
+	HadDestination   bool     `json:"hadDestination,omitempty"`
+	Adopted          bool     `json:"adopted,omitempty"`
+	BaseRevision     uint64   `json:"baseRevision"`
+	PriorReceipt     *Receipt `json:"priorReceipt,omitempty"`
+	VesktopThemeFile string   `json:"vesktopThemeFile,omitempty"`
+	// The new theme file's sha256, so a rollback recognises the copy it made
+	// for the Flathub build of Vesktop. Empty in journals from before copies.
+	VesktopThemeSHA256      string          `json:"vesktopThemeSHA256,omitempty"`
 	SelectionToken          string          `json:"selectionToken,omitempty"`
 	PluginPlacement         json.RawMessage `json:"pluginPlacement,omitempty"`
 	PluginPlacementPresent  bool            `json:"pluginPlacementPresent,omitempty"`
@@ -97,12 +100,13 @@ func installProductFrom(ctx context.Context, cache *Cache, category string, entr
 	if manifest.Destination != expectedDestination {
 		return fmt.Errorf("%s/%s: destination %q is outside the category allowlist", category, entry.ID, manifest.Destination)
 	}
-	vesktopThemeFile := ""
+	vesktopThemeFile, vesktopThemeSHA256 := "", ""
 	if category == vesktopThemesCategory {
-		vesktopThemeFile, err = vesktopThemeManifestFile(manifest.Files)
+		theme, err := vesktopThemeManifestFile(manifest.Files)
 		if err != nil {
 			return err
 		}
+		vesktopThemeFile, vesktopThemeSHA256 = theme.Destination, theme.SHA256
 	}
 
 	globalUnlock, err := lockTree(storeTransactionLockPath())
@@ -231,16 +235,17 @@ func installProductFrom(ctx context.Context, cache *Cache, category string, entr
 		return err
 	}
 	journal := productTransactionJournal{
-		Schema:           1,
-		Category:         category,
-		ID:               entry.ID,
-		Version:          entry.Version,
-		Operation:        operation,
-		Phase:            "install-prepared",
-		BaseRevision:     baseRevision,
-		HadDestination:   hadDestination,
-		Adopted:          adopting,
-		VesktopThemeFile: vesktopThemeFile,
+		Schema:             1,
+		Category:           category,
+		ID:                 entry.ID,
+		Version:            entry.Version,
+		Operation:          operation,
+		Phase:              "install-prepared",
+		BaseRevision:       baseRevision,
+		HadDestination:     hadDestination,
+		Adopted:            adopting,
+		VesktopThemeFile:   vesktopThemeFile,
+		VesktopThemeSHA256: vesktopThemeSHA256,
 	}
 	if hadReceipt {
 		priorCopy := prior
@@ -395,7 +400,7 @@ func removeProduct(_ context.Context, category, id string) error {
 		return err
 	}
 	selectionToken := ""
-	if category == "barstyles" {
+	if _, selects := selectionFor(category); selects {
 		selectionToken = fmt.Sprintf("%s-%d", id, time.Now().UnixNano())
 	}
 	journal := productTransactionJournal{
@@ -479,7 +484,7 @@ func removeProduct(_ context.Context, category, id string) error {
 
 func recoverStoreTransactions() error {
 	root := storeTransactionsDir()
-	for _, category := range []string{"rices", "lockscreens", "barstyles", "fastfetch", "plugins", "bundles", vesktopThemesCategory} {
+	for _, category := range []string{"rices", "lockscreens", "barstyles", "launchers", "docks", "fastfetch", "plugins", "bundles", vesktopThemesCategory} {
 		directory := filepath.Join(root, category)
 		entries, err := os.ReadDir(directory)
 		if os.IsNotExist(err) {
@@ -701,8 +706,8 @@ func rollbackProductJournal(journal productTransactionJournal) error {
 }
 
 func cleanupCommittedProductJournal(journal productTransactionJournal) error {
-	if journal.Category == "barstyles" && journal.Operation == "remove" {
-		if err := finishBarStyleFallback(defaultShellConfigPath(), journal.ID, journal.SelectionToken, true); err != nil {
+	if selection, selects := selectionFor(journal.Category); selects && journal.Operation == "remove" {
+		if err := selection.finishFallback(journal.ID, journal.SelectionToken, true); err != nil {
 			return err
 		}
 	}
@@ -747,17 +752,21 @@ func validateProductJournal(journal productTransactionJournal) error {
 		if journal.Operation != "remove" && !validVesktopThemeName(journal.VesktopThemeFile) {
 			return fmt.Errorf("invalid Vesktop theme transaction filename")
 		}
-		if journal.Operation == "remove" && journal.VesktopThemeFile != "" {
+		if journal.Operation == "remove" && (journal.VesktopThemeFile != "" || journal.VesktopThemeSHA256 != "") {
 			return fmt.Errorf("Vesktop theme removal has a new filename")
 		}
-	} else if journal.VesktopThemeFile != "" {
+		if journal.VesktopThemeSHA256 != "" && !productHashPattern.MatchString(journal.VesktopThemeSHA256) {
+			return fmt.Errorf("invalid Vesktop theme transaction checksum")
+		}
+	} else if journal.VesktopThemeFile != "" || journal.VesktopThemeSHA256 != "" {
 		return fmt.Errorf("non-Vesktop transaction has a theme filename")
 	}
-	if journal.SelectionToken != "" && (journal.Category != "barstyles" || journal.Operation != "remove") {
+	_, selects := selectionFor(journal.Category)
+	if journal.SelectionToken != "" && (!selects || journal.Operation != "remove") {
 		return fmt.Errorf("invalid product selection transaction")
 	}
-	if journal.Category == "barstyles" && journal.Operation == "remove" && journal.SelectionToken == "" {
-		return fmt.Errorf("barstyle removal has no selection transaction")
+	if selects && journal.Operation == "remove" && journal.SelectionToken == "" {
+		return fmt.Errorf("%s removal has no selection transaction", journal.Category)
 	}
 	if journal.Category == "plugins" && journal.Operation == "install" {
 		if !journal.PluginPlacementCaptured {
@@ -795,25 +804,32 @@ func validateProductJournal(journal productTransactionJournal) error {
 }
 
 func syncProductDerivedState(journal productTransactionJournal, committed bool) error {
-	if journal.Category == vesktopThemesCategory {
+	switch journal.Category {
+	case vesktopThemesCategory:
 		return syncVesktopTheme(journal, committed)
-	}
-	if journal.Category == "plugins" {
+	case "plugins":
 		return writePluginIndexLocked()
-	}
-	if journal.Category != "barstyles" {
-		return nil
-	}
-	if err := writeBarStyleIndexLocked(); err != nil {
-		return err
+	case "barstyles":
+		if err := writeBarStyleIndexLocked(); err != nil {
+			return err
+		}
+	default:
+		product, ok := shellQMLProductFor(journal.Category)
+		if !ok {
+			return nil
+		}
+		if err := product.writeIndexLocked(); err != nil {
+			return err
+		}
 	}
 	if journal.Operation != "remove" {
 		return nil
 	}
+	selection, _ := selectionFor(journal.Category)
 	if committed {
-		return applyBarStyleFallback(defaultShellConfigPath(), journal.ID, journal.SelectionToken)
+		return selection.applyFallback(journal.ID, journal.SelectionToken)
 	}
-	return finishBarStyleFallback(defaultShellConfigPath(), journal.ID, journal.SelectionToken, false)
+	return selection.finishFallback(journal.ID, journal.SelectionToken, false)
 }
 
 func journalRevision(journal productTransactionJournal) StoreRevision {

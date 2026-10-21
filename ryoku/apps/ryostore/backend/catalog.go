@@ -27,6 +27,8 @@ func providers() []Provider {
 		newRiceProvider(c),
 		newColorschemeProvider(c),
 		newBarProvider(c),
+		newShellQMLProvider(dockProducts, c),
+		newShellQMLProvider(launcherProducts, c),
 		newFastfetchProvider(c),
 		newRyotunesSkinsProvider(c),
 		newVesktopThemesProvider(c),

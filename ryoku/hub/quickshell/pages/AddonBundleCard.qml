@@ -15,8 +15,9 @@ Rectangle {
     signal removeRequested()
 
     readonly property int installedCount: Number(card.bundle.installedCount || 0)
-    readonly property int totalCount: Number(card.bundle.totalCount
-        || ((card.bundle.metadata || {}).items || []).length)
+    // Every part, including those this system cannot have: the card reports
+    // those as unavailable rather than leaving them out of the bundle.
+    readonly property int totalCount: ((card.bundle.metadata || {}).items || []).length
     readonly property int missingCount: Math.max(0, totalCount - installedCount)
     readonly property var unavailableComponents: ((card.bundle.metadata || {}).items || [])
         .filter(item => item.available === false && item.installed !== true)

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1302,5 +1304,165 @@ func TestRiceExportCreatesMissingDest(t *testing.T) {
 	}
 	if !isFile(filepath.Join(out, "rice.json")) {
 		t.Fatal("manifest missing from the export")
+	}
+}
+
+// A desktop that forked its output shows the fork, not the shared values an
+// unforked output follows. The capture carries what that desktop showed, so
+// the rice lands the same on an output with another name.
+func TestRiceCaptureCarriesTheDesktopAsShown(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+	t.Setenv("HOME", dir)
+	t.Setenv("RYOKU_SYSTEM_RICES_DIR", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(dir, "ryoku"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store := `{"clockEnabled":true,"clockX":10,"weatherEnabled":false,"weatherX":5,
+	  "monitors":{"eDP-1":{"clockEnabled":false,"weatherEnabled":true,"weatherX":900}}}`
+	if err := os.WriteFile(widgetsStorePath(), []byte(store), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := captureRice("Desk", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := r.Look["widgets"]
+	if w["clockEnabled"] != false || w["weatherEnabled"] != true || w["weatherX"] != 900.0 {
+		t.Fatalf("captured shared values do not show eDP-1's desktop: %v", w)
+	}
+	if monitors, _ := w["monitors"].(map[string]any); monitors["eDP-1"] == nil {
+		t.Fatalf("captured forks lost: %v", w["monitors"])
+	}
+}
+
+func TestWidgetPrimaryOutputPrefersTheFocusedFork(t *testing.T) {
+	focused := func(name string) func() string { return func() string { return name } }
+	both := map[string]any{"monitors": map[string]any{"HDMI-A-1": map[string]any{}, "eDP-1": map[string]any{}}}
+	if got := widgetPrimaryOutput(both, focused("eDP-1")); got != "eDP-1" {
+		t.Fatalf("focused fork not chosen: %q", got)
+	}
+	if got := widgetPrimaryOutput(both, focused("DP-2")); got != "HDMI-A-1" {
+		t.Fatalf("unforked focus did not fall back to the first fork by name: %q", got)
+	}
+	one := map[string]any{"monitors": map[string]any{"eDP-1": map[string]any{}}}
+	if got := widgetPrimaryOutput(one, focused("HDMI-A-1")); got != "eDP-1" {
+		t.Fatalf("the only fork was not chosen: %q", got)
+	}
+}
+
+// Applying a rice leaves exactly its widgets on the desktop: a widget it does
+// not switch on goes off, the recipient's forks give way to the rice's, plugin
+// widgets it does not carry switch off, and a rice without widgets clears the
+// desktop.
+func TestRiceApplyLeavesExactlyItsWidgets(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(dir, "cache"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+	t.Setenv("HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "ryoku"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origRun, origReload := riceRun, riceReload
+	riceRun = func(string, ...string) error { return nil }
+	riceReload = func() {}
+	t.Cleanup(func() { riceRun, riceReload = origRun, origReload })
+	w := func(p, body string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w(widgetsStorePath(), `{"clockEnabled":true,"calendarEnabled":true,"monitors":{"eDP-1":{"shapeEnabled":true}}}`)
+	w(pluginsStorePath(), `{"mjw-sticker":{"enabled":true,"host":"desktopWidget","settings":{"size":200}}}`)
+	w(ricePath("desk"), `{"schema":1,"slug":"desk","name":"Desk","look":{
+	  "widgets":{"weatherEnabled":true,"weatherX":900},
+	  "plugins":{"mjw-calc":{"enabled":true,"host":"desktopWidget"}}}}`)
+	if err := applyRice("desk", nil); err != nil {
+		t.Fatal(err)
+	}
+	got := readJSONMap(widgetsStorePath())
+	if got["weatherEnabled"] != true || got["clockEnabled"] != false || got["calendarEnabled"] != false {
+		t.Fatalf("desktop widgets after apply: %v", got)
+	}
+	if monitors, _ := got["monitors"].(map[string]any); len(monitors) != 0 {
+		t.Fatalf("the recipient's forks survived the apply: %v", monitors)
+	}
+	plugins := readJSONMap(pluginsStorePath())
+	if sticker, _ := plugins["mjw-sticker"].(map[string]any); sticker["enabled"] != false {
+		t.Fatalf("a plugin widget the rice lacks stayed on: %v", sticker)
+	}
+	if calc, _ := plugins["mjw-calc"].(map[string]any); calc["enabled"] != true {
+		t.Fatalf("the rice's plugin widget did not land: %v", calc)
+	}
+
+	w(ricePath("bare"), `{"schema":1,"slug":"bare","name":"Bare","look":{}}`)
+	if err := applyRice("bare", nil); err != nil {
+		t.Fatal(err)
+	}
+	if readJSONMap(widgetsStorePath())["weatherEnabled"] != false {
+		t.Fatal("a rice without widgets left a widget on the desktop")
+	}
+}
+
+// A fix to a shipped rice used to stop at boxes that had applied it once: the
+// copy in the user's library won forever. Applying now refreshes a copy that
+// is still byte-for-byte a packaged version, recorded or legacy, and leaves a
+// rice the user saved over, or wrote, alone.
+func TestApplyRefreshesOnlyUntouchedPackagedCopies(t *testing.T) {
+	dir := t.TempDir()
+	system := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("RYOKU_SYSTEM_RICES_DIR", system)
+	sum := func(s string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(s))) }
+	write := func(p, body string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := func(slug, rev string) string {
+		return `{"schema":1,"slug":"` + slug + `","name":"` + rev + `","look":{}}`
+	}
+	legacy := manifest("old", "shipped-before-records")
+	legacyPackagedRices[sum(legacy)] = true
+	t.Cleanup(func() { delete(legacyPackagedRices, sum(legacy)) })
+
+	for _, c := range []struct {
+		slug, user, record string
+		refreshed          bool
+	}{
+		{"recorded", manifest("recorded", "v1"), sum(manifest("recorded", "v1")), true},
+		{"edited", manifest("edited", "mine"), sum(manifest("edited", "v1")), false},
+		{"old", legacy, "", true},
+		{"own", manifest("own", "mine"), "", false},
+	} {
+		write(filepath.Join(system, c.slug, "rice.json"), manifest(c.slug, "v2"))
+		write(filepath.Join(system, c.slug, "fastfetch.jsonc"), "v2 readout")
+		write(ricePath(c.slug), c.user)
+		if c.record != "" {
+			write(filepath.Join(ricesDir(), c.slug, packagedRiceRecord), c.record+"\n")
+		}
+		if err := ensureUserRice(c.slug); err != nil {
+			t.Fatalf("%s: %v", c.slug, err)
+		}
+		got, _ := os.ReadFile(ricePath(c.slug))
+		if refreshed := string(got) == manifest(c.slug, "v2"); refreshed != c.refreshed {
+			t.Fatalf("%s: refreshed=%v, want %v (manifest %s)", c.slug, refreshed, c.refreshed, got)
+		}
+		if !c.refreshed {
+			continue
+		}
+		readout, _ := os.ReadFile(filepath.Join(ricesDir(), c.slug, "fastfetch.jsonc"))
+		record, _ := os.ReadFile(filepath.Join(ricesDir(), c.slug, packagedRiceRecord))
+		if string(readout) != "v2 readout" || strings.TrimSpace(string(record)) != sum(manifest(c.slug, "v2")) {
+			t.Fatalf("%s: refreshed copy has readout %q and record %q", c.slug, readout, record)
+		}
 	}
 }

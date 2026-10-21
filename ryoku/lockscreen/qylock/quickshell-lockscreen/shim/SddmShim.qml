@@ -17,7 +17,8 @@
 //   6. Leaving the foreground aborts both conversations and cancels any pending
 //      authenticated reveal
 //   7. A failed scan re-arms after 1s; a wrong password re-prompts immediately
-//      without starving the other method
+//      without starving the other method; a password stack that fails before
+//      it ever prompts re-arms on a doubling delay instead of looping
 
 import QtQuick
 import Quickshell
@@ -61,6 +62,11 @@ Item {
     property int fpBackoffMs: 5000           // re-probe gap while unavailable, doubling to a cap
     readonly property real fpInstantFailMs: 1500  // a failure faster than this cannot be a touch
 
+    // Password re-arm gap after a conversation that ended before any prompt:
+    // the stack itself cannot run, so nothing typed can fix it. Doubles to a
+    // 30s cap and drops back once the stack reaches a prompt again.
+    property int pwBackoffMs: 1000
+
     // arm the moment the lock secures; probes alone race and lose it.
     onArmWhenReadyChanged: {
         if (shim.armWhenReady)
@@ -80,6 +86,7 @@ Item {
         armPrepProc.running = false;
         rearmTimer.stop();
         fpProbeTimer.stop();
+        pwRetryTimer.stop();
         pamFp.abort();
         pamPw.pendingPassword = "";
         pamPw.abort();
@@ -319,6 +326,8 @@ Item {
             pamPw.pendingPassword = password;
             if (password === "" && !shim.fingerprintReady)
                 return;
+            // a typed key gets its attempt now, not after the backoff
+            pwRetryTimer.stop();
             shim.startPw();
         }
 
@@ -467,6 +476,8 @@ Item {
         // the moment PAM asks. Usually PAM is already asking by the time
         // login() stashes it, so the response goes out on the same tick.
         onResponseRequiredChanged: {
+            if (responseRequired)
+                shim.pwBackoffMs = 1000;
             if (responseRequired && pendingPassword !== "") {
                 shim.fpTyped = true;
                 respond(pendingPassword);
@@ -475,7 +486,10 @@ Item {
         }
 
         onCompleted: (result) => {
-            if (shim.unlocked)
+            // Quickshell follows error() with completed(Error) for the same
+            // conversation; onError already handled it, and a second pass
+            // would read the failure as untyped.
+            if (shim.unlocked || result === PamResult.Error)
                 return;
             if (result === PamResult.Success && shim.armWhenReady && shim.loginSessionActive) {
                 shim.unlocked = true;
@@ -487,21 +501,45 @@ Item {
                 shim.unlocked = false;
                 shim.fingerprintState = "idle";
             } else {
-                // Wrong password: shake the field — the sensor conversation
-                // is untouched and keeps scanning — then re-prompt right
-                // away so the retry answers instantly.
-                shim.fpTyped = false;
-                shim.sddm.loginFailed();
-                if (shim.armWhenReady)
-                    shim.startPw();
+                shim.notePwFailure();
             }
         }
         onError: (error) => {
             if (!shim.armWhenReady || shim.unlocked)
                 return;
-            if (shim.fpTyped || pamPw.pendingPassword !== "")
-                shim.sddm.loginFailed();
-            shim.fpTyped = false;
+            shim.notePwFailure();
+        }
+    }
+
+    // A key that reached PAM and failed is a wrong password: shake the field
+    // (the sensor conversation is untouched and keeps scanning), then
+    // re-prompt right away so the retry answers instantly. A conversation that
+    // ended before any key reached it is the stack failing on its own, such as
+    // a module that will not load or a service that denies outright. Starting
+    // it again at once forks a PAM child per event-loop turn and shakes the
+    // field with nothing typed, so it re-arms on a doubling delay instead.
+    function notePwFailure() {
+        var typed = shim.fpTyped;
+        shim.fpTyped = false;
+        if (typed || pamPw.pendingPassword !== "")
+            shim.sddm.loginFailed();
+        if (typed) {
+            if (shim.armWhenReady)
+                shim.startPw();
+            return;
+        }
+        pamPw.pendingPassword = "";
+        if (!shim.armWhenReady || !shim.loginSessionActive || shim.unlocked)
+            return;
+        console.warn("[pw] password conversation ended before any prompt; retrying in", shim.pwBackoffMs, "ms");
+        pwRetryTimer.restart();
+    }
+
+    Timer {
+        id: pwRetryTimer
+        interval: shim.pwBackoffMs
+        onTriggered: {
+            shim.pwBackoffMs = Math.min(30000, shim.pwBackoffMs * 2);
             shim.startPw();
         }
     }
@@ -603,8 +641,10 @@ Item {
         shim.fpUnavailable = false;
         shim.fpBackoffMs = 5000;
         shim.fpArmTs = 0;
+        shim.pwBackoffMs = 1000;
         fpProbeTimer.stop();
         rearmTimer.stop();
+        pwRetryTimer.stop();
         pamFp.abort();
         pamPw.abort();
         if (shim.fingerprintState !== "idle")
@@ -621,9 +661,10 @@ Item {
 
     // Once the secure proof is published and this login1 session owns the
     // foreground, keep the password conversation alive so a typed key is
-    // answered instantly. Idempotent: safe from every probe and re-arm.
+    // answered instantly. Idempotent: safe from every probe and re-arm, and
+    // a pending backoff holds them off until it fires.
     function startPw() {
-        if (!shim.armWhenReady || !shim.loginSessionActive || shim.unlocked || pamPw.active)
+        if (!shim.armWhenReady || !shim.loginSessionActive || shim.unlocked || pamPw.active || pwRetryTimer.running)
             return;
         pamPw.user = Quickshell.env("USER") || "traveler";
         var started = pamPw.start();
