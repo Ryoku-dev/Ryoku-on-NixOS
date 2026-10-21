@@ -94,6 +94,11 @@ built from for Ryoku (`unstable-dev` for `ryoku-iso`, `main` for
 in the image, so a later `nix flake update` advances along that branch.
 `ryoku track stable|unstable` switches the branch afterwards.
 
+`ryoku.nix` also enables `programs.ryoku.graphics.matchRyokuMesa`. The
+installed system's nixpkgs is newer than Ryoku's own package set, and Ryoku's
+compositors crash at startup when they load a Mesa built against a newer glibc,
+so the system's GL driver comes from Ryoku's set.
+
 Rebuild an installed system with:
 
 ```bash

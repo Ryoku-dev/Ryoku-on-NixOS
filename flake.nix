@@ -389,6 +389,8 @@
           assert generic.config.networking.hostName == "ryoku-ci";
           assert generic.config.programs.ryoku.enable;
           assert generic.config.programs.ryoku.binaryCache.enable;
+          assert generic.config.hardware.graphics.package == pkgs.mesa;
+          assert generic.config.hardware.graphics.package32 == pkgs.pkgsi686Linux.mesa;
           assert generic.config.nix.package == nixpkgs.legacyPackages.${system}.nixVersions.latest;
           assert nvidia.config.services.xserver.videoDrivers == [ "nvidia" ];
           assert nvidia.config.hardware.nvidia.modesetting.enable;

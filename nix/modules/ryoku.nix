@@ -1084,6 +1084,19 @@ in
       '';
     };
 
+    graphics.matchRyokuMesa = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+
+      description = ''
+        Use Mesa from Ryoku's package set as the system OpenGL and Vulkan
+        driver. Ryoku's compositors come from that package set and load the
+        system driver; a Mesa built against a newer glibc than Ryoku's makes
+        Hyprland fail at startup. Enable this when the host nixpkgs is newer
+        than Ryoku's, as on systems installed from the Ryoku ISO.
+      '';
+    };
+
     binaryCache.enable = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -1666,6 +1679,11 @@ in
     environment.systemPackages =
       runtimePackages;
 
+
+    hardware.graphics = lib.mkIf cfg.graphics.matchRyokuMesa {
+      package = ryokuNixpkgs.mesa;
+      package32 = ryokuNixpkgs.pkgsi686Linux.mesa;
+    };
 
     # A fresh installer can choose the initial compositor while all three
     # remain available for runtime switching. Manual integrations leave this
