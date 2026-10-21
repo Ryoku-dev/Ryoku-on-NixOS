@@ -123,3 +123,13 @@ To build the newest `unstable-dev` without a checkout:
 ```bash
 nix build github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev#ryoku-iso
 ```
+
+## Tests
+
+- `checks.x86_64-linux.ryoku-iso-boot` boots the ISO with UEFI and with legacy
+  BIOS, checks that the guided installer opens on tty1, verifies the live
+  store, and checks that an unattended dry run renders a flake that follows
+  the ISO's branch. It runs offline in the build sandbox.
+
+The test uses the release image plus NixOS' test instrumentation, which only
+adds the test driver's backdoor shell, packed with a faster squashfs level.
