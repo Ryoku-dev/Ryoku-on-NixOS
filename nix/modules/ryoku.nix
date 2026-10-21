@@ -868,7 +868,13 @@ EOF
 
     # ii desktop/dock runtime helpers. Upstream installs these in its base
     # package set; on NixOS they live in the Ryoku service PATH instead.
-    khal
+    #
+    # khal comes from Ryoku's pinned set. On current nixos-unstable, Python
+    # packages default to structured attrs while sphinxHook still reads
+    # sphinxBuilders as a string, so khal 0.14.1 never builds its man page
+    # and fails every system rebuild. NixOS/nixpkgs#573479 fixes the hook but
+    # has not reached the channel yet.
+    ryokuNixpkgs.khal
     vdirsyncer
     translate-shell
 
