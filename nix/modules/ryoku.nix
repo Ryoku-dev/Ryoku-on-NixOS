@@ -1239,6 +1239,11 @@ in
       package = lib.mkForce ryokuNiri;
     };
 
+    hardware.graphics = {
+      package = lib.mkForce ryokuNixpkgs.mesa;
+      package32 = lib.mkForce ryokuNixpkgs.pkgsi686Linux.mesa;
+    };
+
     xdg.portal = {
       enable = true;
 
