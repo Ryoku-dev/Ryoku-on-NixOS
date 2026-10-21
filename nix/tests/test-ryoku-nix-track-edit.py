@@ -43,7 +43,7 @@ class TrackEditorTests(unittest.TestCase):
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     ryoku = {
-      url = "github:aethctl/Ryoku-on-NixOS/main";
+      url = "github:Ryoku-dev/Ryoku-on-NixOS/main";
     };
   };
 
@@ -53,11 +53,11 @@ class TrackEditorTests(unittest.TestCase):
 
         got = edit(
             text,
-            "github:aethctl/Ryoku-on-NixOS/unstable-dev",
+            "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev",
         )
 
         self.assertIn(
-            'url = "github:aethctl/Ryoku-on-NixOS/unstable-dev";',
+            'url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";',
             got,
         )
 
@@ -68,7 +68,7 @@ class TrackEditorTests(unittest.TestCase):
 
     def test_dotted_input(self):
         text = """{
-  inputs.ryoku.url = "github:aethctl/Ryoku-on-NixOS/main";
+  inputs.ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/main";
 
   outputs = { self, ryoku, ... }: {};
 }
@@ -76,11 +76,11 @@ class TrackEditorTests(unittest.TestCase):
 
         got = edit(
             text,
-            "github:aethctl/Ryoku-on-NixOS/unstable-dev",
+            "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev",
         )
 
         self.assertIn(
-            'inputs.ryoku.url = "github:aethctl/Ryoku-on-NixOS/unstable-dev";',
+            'inputs.ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";',
             got,
         )
 
