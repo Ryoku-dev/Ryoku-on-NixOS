@@ -6,6 +6,12 @@
 - The built-in in-session clockwork lockscreen follows the global 12/24-hour preference, including AM/PM.
 
 ### Fixed
+- **The lock screen's restart and shut down buttons work again on systemd.**
+  Since the init seam they ran `loginctl reboot` and `loginctl poweroff`, verbs
+  only elogind's loginctl has; systemd's answers "Unknown command verb" and the
+  buttons did nothing. They now go through `ryoku-host power`, which picks
+  `systemctl` or `loginctl` for the running init, as the shell's own power
+  menus already do (`tests/lock-power-actions.sh`).
 - **A lock whose PAM stack cannot run no longer loops.** When the password
   conversation ended before PAM ever asked for a key (a module that will not
   load, a service that denies outright), the in-session lock started it again
