@@ -21,8 +21,9 @@ The in-session shim diverges from upstream in two places:
    `material-you` and `nothing` gate login and power behind `!isQuickshell`,
    leaving their password field, reboot, and shutdown dead under the in-session
    lock. The shim now reports a real `hostName` (making `isQuickshell` false),
-   implements `sddm.suspend()`, and exposes SDDM's `keyboard` object (skins
-   assign `keyboard.numLock`).
+   implements `sddm.suspend()`, routes `reboot()` and `powerOff()` through
+   `ryoku-host power`, and exposes SDDM's `keyboard` object (skins assign
+   `keyboard.numLock`).
 
 2. **Parallel PAM conversations** — once the compositor-secure lock proof is
    published for the foreground login1 session,

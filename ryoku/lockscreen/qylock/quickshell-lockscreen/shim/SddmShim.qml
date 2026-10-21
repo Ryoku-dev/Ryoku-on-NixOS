@@ -331,8 +331,10 @@ Item {
             shim.startPw();
         }
 
-        function reboot() { Quickshell.execDetached(["loginctl", "reboot"]); }
-        function powerOff() { Quickshell.execDetached(["loginctl", "poweroff"]); }
+        // ryoku-host picks systemctl or loginctl for the running init, like
+        // the shell's power menus; systemd's loginctl has no power verbs.
+        function reboot() { Quickshell.execDetached(["ryoku-host", "power", "reboot"]); }
+        function powerOff() { Quickshell.execDetached(["ryoku-host", "power", "poweroff"]); }
         function suspend() { Quickshell.execDetached(["ryoku-shell", "suspend"]); }
     }
 
