@@ -40,7 +40,7 @@ def load_parser():
 
 
 PARSER = load_parser()
-SOURCE = "github:aethctl/Ryoku-on-NixOS/main"
+SOURCE = "github:Ryoku-dev/Ryoku-on-NixOS/main"
 
 
 class InstallerEditTests(unittest.TestCase):
