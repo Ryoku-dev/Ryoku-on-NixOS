@@ -163,9 +163,12 @@ while :; do
             while kill -0 "$ql_pid" 2>/dev/null; do
                 all_off=1
                 for f in $dpms_files; do
-                    if [ "$(cat "$f" 2>/dev/null)" = "On" ]; then
-                        all_off=0
-                        break
+                    status_file="${f%/dpms}/status"
+                    if [ "$(cat "$status_file" 2>/dev/null)" = "connected" ]; then
+                        if [ "$(cat "$f" 2>/dev/null)" != "Off" ]; then
+                            all_off=0
+                            break
+                        fi
                     fi
                 done
                 
