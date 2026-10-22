@@ -152,11 +152,36 @@ while :; do
     # The guard and generation flocks must not reach the client's tree: an
     # inherited fd keeps the flock alive in any coprocess that outlives the
     # client, and a stuck guard makes every later lock a silent no-op.
-    if (exec 7>&- 9>&-; exec env QSG_RENDER_LOOP=basic quickshell -p "$DIR/lock_shell.qml"); then
-        rc=0
-    else
-        rc=$?
-    fi
+    (
+        exec 7>&- 9>&-
+        env QSG_RENDER_LOOP=basic quickshell -p "$DIR/lock_shell.qml" &
+        ql_pid=$!
+        
+        dpms_files=$(find /sys/class/drm/*/dpms -type f 2>/dev/null)
+        
+        if [ -n "$dpms_files" ]; then
+            while kill -0 "$ql_pid" 2>/dev/null; do
+                all_off=1
+                for f in $dpms_files; do
+                    if [ "$(cat "$f" 2>/dev/null)" = "On" ]; then
+                        all_off=0
+                        break
+                    fi
+                done
+                
+                if [ "$all_off" = "1" ]; then
+                    kill -STOP "$ql_pid" 2>/dev/null || true
+                else
+                    kill -CONT "$ql_pid" 2>/dev/null || true
+                fi
+                sleep 1
+            done
+        fi
+        
+        wait "$ql_pid"
+        exit $?
+    )
+    rc=$?
     lifetime_ns=$(( $(date +%s%N) - attempt_started ))
     "$proof_helper" retire "$proof_token" "$session_id" >/dev/null 2>&1 || true
     proof_token=""
