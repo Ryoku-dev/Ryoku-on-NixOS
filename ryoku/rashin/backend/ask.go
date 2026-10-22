@@ -26,10 +26,7 @@ import (
 // quickPreamble keeps an escalated Ask terse and read-only. A request that
 // requires a machine change is handed back to the user for an explicit Agent
 // hand-off rather than attempted in the internal lane.
-const quickPreamble = "[quick ask from the launcher: reply with just the answer, " +
-	"one or two sentences or a tight list, no preamble, no follow-up questions. " +
-	"Do not change anything on this machine. If the request needs a change, reply " +
-	"NEEDS_AGENT: <one line why> and stop.] "
+const quickPreamble = "[quick ask from the launcher: if the answer depends on this machine's current state, use your read-only tools first; then reply with only the answer in one or two sentences or a tight list, with no preamble or follow-up questions. Do not change anything on this machine. If the request needs a change, reply NEEDS_AGENT: <one line why> and stop.] "
 
 func cmdAsk(question string) error {
 	question = strings.TrimSpace(question)

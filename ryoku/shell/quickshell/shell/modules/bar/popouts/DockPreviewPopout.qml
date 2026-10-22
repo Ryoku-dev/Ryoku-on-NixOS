@@ -115,6 +115,12 @@ Popout {
                     id: tile
                     required property var modelData
                     readonly property bool hasCapture: !!(tile.modelData && tile.modelData.toplevel)
+                    // A handle is not a capture. Frames only arrive where the
+                    // compositor offers a window-copy protocol, and a window on a
+                    // hidden workspace never renders, so the tile must follow real
+                    // content: keyed on the handle alone the empty view paints its
+                    // surfaceContainer as a black box.
+                    readonly property bool shown: tile.hasCapture && sc.hasContent
                     width: root.tileW
                     height: root.tileH
 
@@ -129,17 +135,18 @@ Popout {
                         clip: true
 
                         ScreencopyView {
+                            id: sc
                             anchors.fill: parent
                             anchors.margins: Theme.borderWidth
                             captureSource: tile.hasCapture ? tile.modelData.toplevel : null // qmllint disable unresolved-type
                             live: root.prog > 0.004
-                            visible: tile.hasCapture
+                            visible: tile.shown
                         }
                         Image {
                             anchors.centerIn: parent
                             width: 40 * root.s
                             height: 40 * root.s
-                            visible: !tile.hasCapture && root.appIcon !== ""
+                            visible: !tile.shown && root.appIcon !== ""
                             source: root.appIcon
                             sourceSize.width: width
                             sourceSize.height: height

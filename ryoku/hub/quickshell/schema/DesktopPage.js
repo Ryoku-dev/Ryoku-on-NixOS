@@ -9,27 +9,6 @@ var rows = [{
         "ctl": "reload-cover",
         "src": "brand"
     },{
-        "tab": "General",
-        "group": "DESKTOP APPEARANCE",
-        "key": "deckFrostEnabled",
-        "label": "Deck frost",
-        "desc": "Blurs and darkens the desktop behind open windows",
-        "ctl": "sw",
-        "src": "shell"
-    },{
-        "tab": "General",
-        "group": "DESKTOP APPEARANCE",
-        "key": "deckFrost",
-        "label": "Deck frost strength",
-        "desc": "How heavy the haze behind open windows gets",
-        "ctl": "slid",
-        "src": "shell",
-        "lo": 0.0,
-        "hi": 1.0,
-        "unit": "%",
-        "pct": true,
-        "when": { "deckFrostEnabled": [true] }
-    },{
         "tab": "Notifications",
         "group": "APPEARANCE",
         "key": "notifications.show_images",

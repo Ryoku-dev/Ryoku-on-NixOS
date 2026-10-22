@@ -7,16 +7,16 @@ import "../schema/GlobalPage.js" as GlobalSchema
 
 // Global: the cross-cutting preferences that are not tied to one surface: the
 // interface language, regional formats used for dates and numbers, machine
-// location, fonts, app icons and, on a tab of their own, desktop sounds.
-// Rendered through the shared SchemaPage; the ledger and action bar belong to
-// the shell.
+// location, fonts, app icons, the blur and dim behind open windows and, on a
+// tab of their own, desktop sounds. Rendered through the shared SchemaPage; the
+// ledger and action bar belong to the shell.
 Item {
     id: pg
     property var hub
 
     readonly property string pTitle: I18n.tr("Global")
     readonly property string pEyebrow: I18n.tr("GLOBAL")
-    readonly property string pBlurb: I18n.tr("Language, regional formats, location, fonts, icons and sounds.")
+    readonly property string pBlurb: I18n.tr("Language, regional formats, location, fonts, icons, window blur and sounds.")
     readonly property string soundsTab: "Sounds"
     function focusKey(k) { sp.focusKey(k) }
     function resetDefaults() {

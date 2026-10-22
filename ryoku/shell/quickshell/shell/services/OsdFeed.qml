@@ -15,6 +15,12 @@ Singleton {
 
     property real brightness: 0
     property int brightnessSeq: 0
+    property int previewSeq: 0
+
+    IpcHandler {
+        target: "osd"
+        function preview(): void { root.previewSeq++; }
+    }
     readonly property string sockPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ryoku-shell.sock"
 
     function apply(line) {

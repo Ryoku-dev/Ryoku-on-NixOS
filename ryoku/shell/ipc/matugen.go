@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/godbus/dbus/v5"
 	wm "ryoku-wm"
 )
 
@@ -605,7 +606,7 @@ func (d *daemon) matugenApply(img string) error {
 
 	// Toolkit nudges so running apps re-read the regenerated configs. Hyprland is
 	// reloaded by the caller (paintWorker).
-	matugenReload(mode)
+	matugenReload(mode, d.kdePaletteEmitter())
 	return nil
 }
 
@@ -695,7 +696,7 @@ func (d *daemon) matugenApplyStatic(name string) error {
 	}
 	k := readMatugenKnobs()
 	matugenRenderTemplates(matugenShellPalette(shell), k, false)
-	matugenReload(staticPaletteMode(shell))
+	matugenReload(staticPaletteMode(shell), d.kdePaletteEmitter())
 	// A catalog theme has no ramps, so the last wallpaper's are now wrong. The
 	// file's absence is the gate: Ink re-lights the theme's own roles instead.
 	_ = os.Remove(matugenTonesPath())
@@ -1324,7 +1325,7 @@ var (
 // restarts. The writes below are still worth making: every app launched after
 // this point is correct, and they are what an X11 or xsettings-backed session
 // needs to follow along.
-func matugenReload(mode string) {
+func matugenReload(mode string, emitter kdePaletteSignalEmitter) {
 	scheme := "prefer-dark"
 	if mode == "light" {
 		scheme = "prefer-light"
@@ -1332,7 +1333,7 @@ func matugenReload(mode string) {
 	_ = runCommand("gsettings", "set", "org.gnome.desktop.interface", "color-scheme", scheme)
 
 	applyGnomeAccent()
-	applyKdeColors()
+	applyKdeColors(emitter)
 
 	// gtkTheme "system" (name == "") means the user owns gtk-theme, so Ryoku
 	// leaves it entirely alone. Otherwise land the variant for this mode.
@@ -1453,6 +1454,19 @@ func kdeOwnedGroup(name string) bool {
 		name == "WM"
 }
 
+type kdePaletteSignalEmitter interface {
+	Emit(path dbus.ObjectPath, name string, values ...interface{}) error
+}
+
+// The tray owns the daemon's long-lived session-bus connection. Reusing it
+// avoids opening a new connection for every wallpaper repaint.
+func (d *daemon) kdePaletteEmitter() kdePaletteSignalEmitter {
+	if d == nil || d.tray == nil {
+		return nil
+	}
+	return d.tray.conn
+}
+
 // applyKdeColors merges the rendered colour groups into kdeglobals. KDE apps
 // (Dolphin, Ark, Gwenview, Kate) resolve their palette through KColorScheme
 // rather than the qt6ct one, so without this they paint at Qt's defaults: on a
@@ -1460,8 +1474,9 @@ func kdeOwnedGroup(name string) bool {
 //
 // Merged rather than written over, because kdeglobals is shared with the KDE
 // apps themselves. A file that does not exist yet is fine and yields a
-// colours-only one.
-func applyKdeColors() {
+// colours-only one. Once the atomic rename succeeds, notifyChange makes running
+// apps re-read the palette.
+func applyKdeColors(emitter kdePaletteSignalEmitter) {
 	rendered, err := os.ReadFile(matugenKdeColorsPath())
 	if err != nil {
 		return
@@ -1477,7 +1492,14 @@ func applyKdeColors() {
 			continue
 		}
 		if group.name == "General" {
-			group.rows = setIniRow(group.rows, "ColorScheme", "Ryoku")
+			rows := group.rows[:0]
+			for _, row := range group.rows {
+				if row[0] == "ColorScheme" && row[1] == "Ryoku" {
+					continue
+				}
+				rows = append(rows, row)
+			}
+			group.rows = rows
 		}
 		out = append(out, renderIniGroup(group))
 	}
@@ -1492,6 +1514,15 @@ func applyKdeColors() {
 	// Rename so a KDE app reading concurrently never sees half a palette.
 	if err := os.Rename(tmp, kdeglobalsPath()); err != nil {
 		_ = os.Remove(tmp)
+		return
+	}
+	if emitter != nil {
+		_ = emitter.Emit(
+			dbus.ObjectPath("/KGlobalSettings"),
+			"org.kde.KGlobalSettings.notifyChange",
+			int32(0),
+			int32(0),
+		)
 	}
 }
 

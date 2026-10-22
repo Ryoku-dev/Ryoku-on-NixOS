@@ -11,6 +11,17 @@ import (
 	"time"
 )
 
+func TestQuickPreambleUsesToolsBeforeAnsweringCurrentState(t *testing.T) {
+	if strings.Contains(quickPreamble, "\n") {
+		t.Fatal("quick preamble must stay on one line")
+	}
+	tools := strings.Index(quickPreamble, "use your read-only tools first")
+	answer := strings.Index(quickPreamble, "then reply with only the answer")
+	if tools < 0 || answer < 0 || tools > answer {
+		t.Fatalf("quick preamble does not put current-state tools before the answer: %q", quickPreamble)
+	}
+}
+
 func TestAskFastLaneLeavesAgentHubUntouched(t *testing.T) {
 	quickTestEnv(t)
 	quickGateway(t, func(w http.ResponseWriter, r *http.Request) {

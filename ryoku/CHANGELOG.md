@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Fixed
+- **Rashin's quick Ask checks the live machine before answering.** Its one-line
+  launcher instruction now puts read-only tools ahead of brevity for
+  current-state questions, and the overview reads AMD Radeon utilisation and
+  VRAM from amdgpu sysfs instead of treating every non-NVIDIA GPU as absent
+  (`rashin/backend/ask.go`, `rashin/backend/vitals.go`).
 - **The palette bridge themes the Flathub Vesktop and Zen.** Fedora and Void
   users get both from Flathub, which keeps each app's settings in its own
   `~/.var/app` folder. Vesktop setup and removal use the Flathub settings,

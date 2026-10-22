@@ -262,7 +262,7 @@ Item {
                         onTriggered: back._openInFiles()
                     }
                     FolioDestructiveAction {
-                        visible: back.isWallpaper
+                        visible: back.isWallpaper && !back.isWe
                         label: I18n.tr("Delete")
                         confirm: true
                         onTriggered: {

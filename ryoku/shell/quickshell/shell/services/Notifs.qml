@@ -9,7 +9,7 @@ import shell.modules.phone as Phone
 // (contract 07 sec 4.3, sec 8; verified against monitoring.rs). Two flat,
 // newest-first lists with NO app grouping:
 //   history  the panel list: every tracked, non-transient notification, newest
-//            first, self-expiring per remove_expired.
+//            first, kept until dismissed or closed by its sender.
 //   popups   the transient popup list: newest first (insert at 0), gated by DND,
 //            dedup-then-front by id, each with its own display timer.
 // Urgency only picks the arrival cue (chime): no styling, no ordering, no
@@ -58,16 +58,15 @@ Singleton {
             root.markSeen();
     }
 
-    // Panel list: flat, newest-first, transient excluded. A notification whose
-    // remove_expired has elapsed has already left `tracked` (historyReaper calls
-    // expire()); expire_timeout 0 is excluded here because it is removed from
-    // history at once while its popup persists (contract 07 sec 8 asymmetry).
+    // Panel list: flat, newest-first, transient excluded. A sender's
+    // expire_timeout only times its popup; the notification stays here until the
+    // user dismisses it or the sender closes it, so the panel is a real history.
     readonly property var history: {
         var t = root.tracked;
         var out = [];
         for (var i = 0; i < t.length; i++) {
             var n = t[i];
-            if (n.transient || n.expireTimeout === 0)
+            if (n.transient)
                 continue;
             out.push(n);
         }
@@ -112,10 +111,10 @@ Singleton {
     // timer) rather than adding a twin; then arm its timer unless it is persistent.
     // The arrival cue. The daemon owns the clip, the user's choice of file, the
     // volume and the on/off switches (`sounds` in shell.json); a sender can still
-    // ask for silence with the spec's suppress-sound hint. A bar style that draws
-    // its own banners plays its own sound, so the shell's cue stands down.
+    // ask for silence with the spec's suppress-sound hint. A bar style that
+    // plays its own sound for its banners takes the cue over.
     function chime(n) {
-        if (Config.styleOwnsBanners)
+        if (Config.styleOwnsNotificationSound)
             return;
         const hints = n.hints || {};
         if (hints["suppress-sound"] === true)
@@ -160,8 +159,7 @@ Singleton {
     }
 
     // Clear all (contract 07 sec 4.3): dismiss every history item. Their popups
-    // fall away with them via the closed hook; a persistent popup (expire_timeout
-    // 0, not in history) is deliberately left, matching dismiss_all.
+    // fall away with them via the closed hook.
     function clearAll() {
         root.markSeen();
         var h = root.history.slice();
@@ -225,42 +223,15 @@ Singleton {
         }
     }
 
-    // History reaper (remove_expired, contract 07 sec 8): a notification with
-    // expire_timeout n>0 leaves history at arrival + n (full, uncapped); -1 and
-    // 0 are handled elsewhere (-1 never, 0 excluded from history immediately).
-    Timer {
-        id: historyReaper
-        onTriggered: {
-            var now = Date.now();
-            var t = root.tracked;
-            for (var i = 0; i < t.length; i++) {
-                var n = t[i];
-                if (n.transient || n.expireTimeout <= 0)
-                    continue;
-                if ((root.arrivalMs[n.id] || 0) + n.expireTimeout <= now && typeof n.expire === "function")
-                    n.expire();
-            }
-            root.scheduleHistoryReap();
-        }
-    }
+    // Oldest history entries are released past this many, so a chatty sender
+    // cannot grow the tracked list for the whole session.
+    readonly property int historyLimit: 100
 
-    function scheduleHistoryReap() {
-        var now = Date.now();
-        var soonest = -1;
-        var t = root.tracked;
-        for (var i = 0; i < t.length; i++) {
-            var n = t[i];
-            if (n.transient || n.expireTimeout <= 0)
-                continue;
-            var due = (root.arrivalMs[n.id] || 0) + n.expireTimeout;
-            if (soonest < 0 || due < soonest)
-                soonest = due;
-        }
-        historyReaper.stop();
-        if (soonest >= 0) {
-            historyReaper.interval = Math.max(1, soonest - now);
-            historyReaper.start();
-        }
+    function trimHistory() {
+        var h = root.history;
+        for (var i = h.length - 1; i >= root.historyLimit; i--)
+            if (typeof h[i].expire === "function")
+                h[i].expire();
     }
 
     // On close (dismiss / expire / app request): drop the popup and forget the
@@ -272,7 +243,6 @@ Singleton {
             delete a[n.id];
             root.arrivalMs = a;
             root.schedulePopupReap();
-            root.scheduleHistoryReap();
         });
     }
 
@@ -292,7 +262,7 @@ Singleton {
                 root.hookClosed(l[i]);
             }
             root.arrivalMs = a;
-            root.scheduleHistoryReap();
+            root.trimHistory();
         }
 
         onNotification: function(n) {
@@ -317,7 +287,7 @@ Singleton {
                 root.addPopup(n);
                 root.chime(n);
             }
-            root.scheduleHistoryReap();
+            root.trimHistory();
         }
     }
 }

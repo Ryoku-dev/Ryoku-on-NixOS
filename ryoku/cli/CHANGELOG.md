@@ -72,6 +72,12 @@
   what the switch itself installed (`internal/host/phone.go`).
 
 ### Fixed
+- **`ryoku update` never rolls the desktop back.** Offline, it could not read
+  the Testing gate, stayed on a checkout a week behind the running desktop and
+  deployed it anyway, which took the default bar away with every newer
+  change. Without the gate it now keeps the desktop that is running, and it
+  never lays down a checked commit older than the one already deployed
+  (`internal/updater/channel.go`).
 - **Fedora's 32-bit packages resolve.** A name with an architecture suffix,
   such as `mesa-dri-drivers.i686`, is looked up as a package, not as something
   a package provides, so `ryoku-host pkg status`, `install` and `version` find

@@ -9,8 +9,11 @@ import (
 )
 
 const (
-	launcherTransactionKey = "ryoStoreLauncherTransaction"
-	dockTransactionKey     = "ryoStoreDockTransaction"
+	launcherTransactionKey     = "ryoStoreLauncherTransaction"
+	dockTransactionKey         = "ryoStoreDockTransaction"
+	osdTransactionKey          = "ryoStoreOsdTransaction"
+	notificationTransactionKey = "ryoStoreNotificationTransaction"
+	sidebarTransactionKey      = "ryoStoreSidebarTransaction"
 )
 
 // productSelection is the user setting that wears a product: shell.json names
@@ -40,6 +43,12 @@ func selectionFor(category string) (productSelection, bool) {
 		return productSelection{path: defaultLauncherConfigPath, key: "variant", fallback: "", marker: launcherTransactionKey}, true
 	case "docks":
 		return productSelection{path: defaultShellConfigPath, object: "dock", key: "design", fallback: "ryoku", marker: dockTransactionKey}, true
+	case "osds":
+		return productSelection{path: defaultShellConfigPath, object: "designs", key: "osd", fallback: "ryoku", marker: osdTransactionKey}, true
+	case "notifications":
+		return productSelection{path: defaultShellConfigPath, object: "designs", key: "notification", fallback: "ryoku", marker: notificationTransactionKey}, true
+	case "sidebars":
+		return productSelection{path: defaultShellConfigPath, object: "designs", key: "sidebar", fallback: "ryoku", marker: sidebarTransactionKey}, true
 	}
 	return productSelection{}, false
 }
