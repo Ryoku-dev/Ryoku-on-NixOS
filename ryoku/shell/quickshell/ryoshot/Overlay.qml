@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import "lib/coords.js" as Coords
+import "lib/capture-backend.js" as CaptureBackend
 import "Singletons"
 import Ryoku.Ui.Singletons
 
@@ -52,7 +53,10 @@ Item {
 
     // grim renders the same output the compositor would hand screencopy, so the
     // fallback frame lines up pixel for pixel with the layer surface above it.
-    readonly property bool forceFallback: Quickshell.env("RYOSHOT_FORCE_FALLBACK") === "1"
+    readonly property bool forceFallback: CaptureBackend.shouldUseGrim(
+        Quickshell.env("RYOSHOT_FORCE_FALLBACK"),
+        Quickshell.env("XDG_CURRENT_DESKTOP"),
+        Quickshell.env("NIRI_SOCKET"))
     property bool fallbackActive: false
     readonly property string fallbackPath: "/tmp/ryoshot-fallback-" + scrName + ".png"
 
@@ -92,13 +96,19 @@ Item {
             id: plate
             anchors.fill: parent
 
-            ScreencopyView {
-                id: shot
+            Loader {
+                id: shotLoader
                 anchors.fill: parent
-                captureSource: overlay.screenData
-                live: false
-                paintCursor: false
-                visible: !overlay.fallbackActive
+                active: !overlay.forceFallback
+                sourceComponent: Component {
+                    ScreencopyView {
+                        anchors.fill: parent
+                        captureSource: overlay.screenData
+                        live: false
+                        paintCursor: false
+                        visible: !overlay.fallbackActive
+                    }
+                }
             }
 
             Image {
@@ -155,7 +165,9 @@ Item {
 
     function startFallback() {
         if (overlay.fallbackActive || grimProc.running) return;
-        console.error("ryoshot: no screencopy frame for " + overlay.scrName + ", falling back to grim");
+        console.log(overlay.forceFallback
+            ? "ryoshot: using grim capture for " + overlay.scrName
+            : "ryoshot: no screencopy frame for " + overlay.scrName + ", falling back to grim");
         grimProc.running = true;
     }
 
@@ -167,11 +179,12 @@ Item {
         property int tries: 0
         onTriggered: {
             tries += 1;
-            if (shot.hasContent) {
+            var shot = shotLoader.item;
+            if (shot && shot.hasContent) {
                 running = false;
                 overlay.ready = true;
                 overlay.frozen();
-            } else if (tries > 60) {
+            } else if (!shot || tries > 60) {
                 running = false;
                 overlay.startFallback();
             } else {

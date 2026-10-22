@@ -1149,6 +1149,14 @@ const (
 	dockTransactionKey     = "ryoStoreDockTransaction"
 )
 
+// designTransactionKeys names the marker of each overlay design in shell.json's
+// designs, so an edit of one design leaves the other two's recovery alone.
+var designTransactionKeys = map[string]string{
+	"osd":          "ryoStoreOsdTransaction",
+	"notification": "ryoStoreNotificationTransaction",
+	"sidebar":      "ryoStoreSidebarTransaction",
+}
+
 // patch sets one leaf. A schema path is validated and clamped; native
 // passthrough paths are merged without validation. Retired settings namespaces
 // are rejected rather than silently resurrected. The change is persisted before
@@ -1190,6 +1198,13 @@ func (s *settingsStore) patch(path string, value json.RawMessage) error {
 	// fallback no longer owns its design.
 	if segs[0] == "dock" {
 		delete(full, dockTransactionKey)
+	}
+	if segs[0] == "designs" {
+		for design, marker := range designTransactionKeys {
+			if len(segs) == 1 || segs[1] == design {
+				delete(full, marker)
+			}
+		}
 	}
 	wasNomarchy := nomarchySelectedIn(diskRaw)
 	isNomarchy := nomarchySelectedIn(full)

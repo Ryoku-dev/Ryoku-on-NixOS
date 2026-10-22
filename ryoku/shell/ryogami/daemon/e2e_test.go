@@ -393,6 +393,63 @@ func TestE2ESetFavouriteBroadcastsCached(t *testing.T) {
 	}
 }
 
+func TestE2EWallDeleteRequiresSubfolderCatalogKey(t *testing.T) {
+	d := startDaemon(t)
+	img := filepath.Join(d.root, "Pictures", "Wallpapers", "sub", "a.png")
+	writeE2EPNG(t, img)
+	d.send(`{"method":"wall.cache_rebuild","id":1}`)
+
+	const key = "sub--a.png"
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		reply := d.send(`{"method":"wall.list","id":2}`)
+		var resp map[string]interface{}
+		_ = json.Unmarshal([]byte(reply), &resp)
+		found := false
+		if res, ok := resp["result"].(map[string]interface{}); ok {
+			if walls, ok := res["wallpapers"].([]interface{}); ok {
+				for _, wall := range walls {
+					row, _ := wall.(map[string]interface{})
+					if row["key"] == key && row["name"] == "sub/a.png" {
+						found = true
+						break
+					}
+				}
+			}
+		}
+		if found {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("subfolder wallpaper never reached the catalog")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	favourite := fmt.Sprintf(`{"method":"wall.set_favourite","params":{"key":%q,"favourite":true},"id":3}`, key)
+	if got := d.send(favourite); !strings.Contains(got, `"ok"`) {
+		t.Fatalf("favourite reply: %s", got)
+	}
+	if got := d.send(`{"method":"wall.list","params":{"favourites":true},"id":4}`); !strings.Contains(got, `"key":"sub--a.png"`) {
+		t.Fatalf("subfolder favourite was not stored under its catalog key: %s", got)
+	}
+
+	if got := d.send(`{"method":"wall.delete","params":{},"id":5}`); !strings.Contains(got, `"error"`) {
+		t.Fatalf("delete without a key replied: %s", got)
+	}
+	if _, err := os.Stat(img); err != nil {
+		t.Fatalf("delete without a key touched the wallpaper: %v", err)
+	}
+
+	req := fmt.Sprintf(`{"method":"wall.delete","params":{"key":%q},"id":6}`, key)
+	if got := d.send(req); !strings.Contains(got, `"ok"`) {
+		t.Fatalf("delete reply: %s", got)
+	}
+	if _, err := os.Stat(img); !os.IsNotExist(err) {
+		t.Fatalf("wall.delete left the source file behind: %v", err)
+	}
+}
+
 // Regression: ryogami owns the wallpaper now, but rice capture, the overview
 // backdrop and the Super+W on-air dot still read ~/.local/state/ryoku-wallpaper.
 // A `wall.apply` must write that legacy state file with the applied path, or

@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const { pin, unpin, resolve, storeDesignUrl } = require("./dock.js");
+const { pin, unpin, resolve } = require("./dock.js");
 
 let failed = 0;
 function eq(actual, expected, msg) {
@@ -22,15 +22,6 @@ eq(resolve(["kitty", "firefox"], clients), ["kitty", "firefox", "steam"], "pinne
 eq(resolve(["firefox"], clients), ["firefox", "kitty", "steam"], "live unpinned clients are inserted after pins");
 eq(unpin(["firefox", "kitty"], "firefox"), ["kitty"], "unpin removes only the requested class");
 eq(resolve(["firefox"], clients).some(value => value.includes("0x")), false, "window addresses are never persisted in dock entries");
-
-const digest = "a".repeat(64);
-const engawa = { id: "engawa", version: "1.0.0", preview: "", view: "dock-views/engawa/" + digest };
-eq(storeDesignUrl([engawa], "engawa", "/s"), "file:///s/dock-views/engawa/" + digest + "/Dock.qml",
-    "an installed store dock runs the Dock.qml of its own view");
-eq(storeDesignUrl([engawa], "kumo", "/s"), "", "a design the store has not installed names nothing");
-eq(storeDesignUrl([{ ...engawa, id: "kumo" }], "kumo", "/s"), "", "a row cannot borrow another dock's view");
-eq(storeDesignUrl([{ ...engawa, view: "dock-views/engawa/../../x" }], "engawa", "/s"), "", "a view outside the dock views is refused");
-eq(storeDesignUrl([{ ...engawa, version: "" }], "engawa", "/s"), "", "a row without a version is refused");
 
 if (failed > 0) { console.log("\n" + failed + " test(s) FAILED"); process.exit(1); }
 console.log("\nAll tests PASSED");

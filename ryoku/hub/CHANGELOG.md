@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- **Overlays chooses shell surface designs.** The new Desktop > Overlays page
+  wears installed RyoStore designs for pop-ups, notification cards and the
+  Super+Escape panel, previews each surface, and keeps Bar Studio's style
+  gallery on the same shared catalogue component
+  (`quickshell/pages/OverlaysPage.qml`,
+  `quickshell/pages/StoreDesignGallery.qml`,
+  `quickshell/pages/BarStudioPage.qml`, `quickshell/Hub.qml`).
 - **Deck frost has an on/off switch.** Desktop > General gains a Deck frost
   switch for the blur and dim behind open windows, on Hyprland and niri alike;
   the strength slider shows only while it is on. The slider now saves too: it
@@ -146,6 +153,13 @@
   Hermes's model, and connecting an agent now says it routes that agent's models
   through Prowl (`quickshell/pages/RashinPage.qml`).
 ### Fixed
+- **The blur and dim behind open windows switches off from General.** Its
+  switch sat on the Desktop page as *Deck frost*, where nobody looking for it
+  would find it. It now lives on General > Appearance as *Blur and dim behind
+  windows*, with its strength beside it, and the Hub search reaches it and
+  every other General setting (`quickshell/schema/GlobalPage.js`,
+  `quickshell/schema/DesktopPage.js`, `quickshell/pages/GlobalPage.qml`,
+  `quickshell/Hub.qml`).
 - **A rice is an exact copy of the desktop it was saved from.** Saving one
   records the desktop widgets that desktop shows and where, including a
   desktop edited on its own output, so the rice looks the same on a machine

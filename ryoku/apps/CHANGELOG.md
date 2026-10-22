@@ -35,6 +35,17 @@
   now shared by plugins, bar styles and launchers instead of copied
   (`backend/provider_shell_qml.go`, `backend/product_views.go`,
   `backend/product_selection.go`).
+- `ryostore/`: **OSDs, notification cards and sidebars are Store sections.**
+  The shared shell-QML provider installs `osds`, `notifications`, and `sidebars`
+  and publishes their `Osd.qml`, `Card.qml`, and `Sidebar.qml` entry points in
+  content-addressed `osd-views`, `notification-views`, and `sidebar-views`.
+  Each category reserves its shipped `ryoku` design. Install never selects a
+  design; removing the worn one resets `shell.json` `designs.osd`,
+  `designs.notification`, or `designs.sidebar` to `ryoku` in the same journaled
+  transaction. **Open in Settings** and `ryostore settings <category>` open the
+  Hub's Overlays page (`backend/provider_shell_qml.go`,
+  `backend/product_selection.go`, `backend/product_views.go`,
+  `backend/routing.go`).
 - `vesktop/`: **Ryoku's Discord theme is the default in Vesktop and Equibop.**
   Ron's Ryoku theme (ryoku-discord v3.0.0) ships as `ryoku-discord.theme.css`
   beside Matugen's Midnight (`matugen.css`), and a profile with no Vencord

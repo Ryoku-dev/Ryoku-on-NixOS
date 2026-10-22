@@ -1,117 +1,23 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import Quickshell.Services.Pipewire
 import shell.services
 import "../../components"
 
-// One OSD: an icon, a value bar and a percentage, for volume-out, mic-in, or
-// brightness. The content itself does not animate; the hosting window fades and
-// slides the whole pill up as `flashing` turns true, holds it for 1000 ms, then
-// eases it back down. A re-trigger restarts that hold. Volume and mic read
-// PipeWire; brightness reads the daemon `osd` feed.
-//
-// Startup grace (contract 12 sec 4): a fresh shell reads its initial volume,
-// mic and brightness as it connects, firing change signals that are not user
-// actions. The OSD arms a short settle once its source first appears and
-// swallows every flash until then, so it never pops for those login syncs while
-// the first real change after arming shows at once.
+// The shipped OSD stays presentation-only: an icon, value bar and percentage.
+// Its source owns device state and timing so installed designs see the same data.
 Item {
     id: root
 
-    property string kind: "volume"          // volume | mic | brightness
-    property bool suppressed: false
-    // Per-monitor UI scale, threaded from the hosting OsdWindow (default 1 = no-op).
+    property string kind: "volume"
     property real us: 1
-
-    readonly property bool isVolume: kind === "volume"
-    readonly property bool isMic: kind === "mic"
-    readonly property bool isBrightness: kind === "brightness"
-
-    // --- value and mute per kind -------------------------------------------
-    readonly property var device: isVolume ? Pipewire.defaultAudioSink
-        : isMic ? Pipewire.defaultAudioSource : null
-    readonly property var audio: (device && device.audio) ? device.audio : null
-    readonly property bool muted: audio ? audio.muted : false
-    // With BOOST on, the sink legitimately runs past unity, so the OSD has to be
-    // able to say so: it spans up to the same 150% the media keys allow and marks
-    // where unity sits. Clamping at 1 made every boosted keypress look identical.
-    readonly property real maxValue: (isVolume && Config.qsbar
-        && Config.qsbar.audioBoost === true) ? 1.5 : 1.0
-    readonly property real value: isBrightness
-        ? OsdFeed.brightness
-        : (audio ? Math.max(0, Math.min(root.maxValue, audio.volume)) : 0)
+    property real value: 0
+    property real maxValue: 1
+    property bool muted: false
+    property string iconName: ""
     readonly property bool over: root.value > 1.005
 
-    // Bucket -> freedesktop symbolic glyph, muted winning, on the reference
-    // thresholds (contract 12 sec 3): audio >66 high, >33 medium, >0 low, else
-    // muted; mic identical on the microphone-sensitivity set; brightness >66
-    // high, >33 medium, else low. Names are the shell's own glyph set
-    // (framebars/icons), never a font.
-    readonly property string iconName: {
-        var pct = Math.round(value * 100);
-        if (isBrightness)
-            return pct > 66 ? "brightness-high" : pct > 33 ? "brightness-medium" : "brightness-low";
-        if (isMic)
-            return (muted || pct <= 0) ? "microphone-sensitivity-muted"
-                : pct > 66 ? "microphone-sensitivity-high"
-                : pct > 33 ? "microphone-sensitivity-medium"
-                : "microphone-sensitivity-low";
-        return (muted || pct <= 0) ? "audio-volume-muted"
-            : pct > 66 ? "audio-volume-high"
-            : pct > 33 ? "audio-volume-medium"
-            : "audio-volume-low";
-    }
-
-    // --- flash state machine ------------------------------------------------
-    property bool flashing: false
-
-    // Startup grace: swallow flashes until a short settle after the source first
-    // appears (see the note above). A fixed count gate ate real presses whenever
-    // the login sync count came up short.
-    property bool armed: false
-    readonly property var gateSource: root.isBrightness ? OsdFeed : root.audio
-    onGateSourceChanged: if (root.gateSource && !root.armed && !armTimer.running) armTimer.restart()
-    Component.onCompleted: if (root.gateSource && !armTimer.running) armTimer.restart()
-    Timer { id: armTimer; interval: 700; onTriggered: root.armed = true }
-
-    function flash() {
-        if (suppressed || !root.armed)
-            return;
-        flashing = true;
-        hideTimer.restart();
-    }
-
-    onSuppressedChanged: if (suppressed) {
-        hideTimer.stop();
-        flashing = false;
-    }
-
-    // The 1000 ms auto-hide hold, restarted on every value change.
-    Timer {
-        id: hideTimer
-        interval: Motion.osdHide
-        onTriggered: root.flashing = false
-    }
-
-    // Audio triggers: any volume or mute change on the tracked default device.
-    PwObjectTracker { objects: root.device ? [root.device] : [] }
-    Connections {
-        target: root.audio
-        function onVolumesChanged() { root.flash(); }
-        function onMutedChanged() { root.flash(); }
-    }
-    // Brightness trigger: the daemon feed bumps its sequence on each change.
-    Connections {
-        target: root.isBrightness ? OsdFeed : null
-        function onBrightnessSeqChanged() { root.flash(); }
-    }
-
-    // --- content: icon + value bar + percentage (contract 12 sec 2) ---------
-    // Base logical px: inner box width 250, spacing 16, icon 40, bar height 6,
-    // percentage readout 46. These are multiplied by the per-monitor UI scale
-    // `us` the hosting window threads in (1.0 = the base above), so one monitor's
-    // OSD shrinks or grows without touching the compositor scale.
+    // Base logical size is scaled per output without changing compositor scale.
     implicitWidth: 250 * root.us
     implicitHeight: 40 * root.us
 
@@ -124,9 +30,6 @@ Item {
         color: Theme.onSurface
     }
 
-    // Value bar: trough (surfaceContainerLow) + fill (secondary), min-height 8,
-    // radius 8, thumb hidden. The live-reference palette resolves these tokens to
-    // trough #1a1d1f and fill #a8adb0 under the Solitude defaults.
     Rectangle {
         id: trough
         anchors.left: glyph.right
@@ -138,7 +41,6 @@ Item {
         radius: Theme.radiusWidget * root.us
         color: Theme.surfaceContainerLow
 
-        // unity fill
         Rectangle {
             anchors.left: parent.left
             anchors.top: parent.top
@@ -148,7 +50,7 @@ Item {
             color: Theme.secondary
             visible: width > 0
         }
-        // the stretch past unity, in the error tone
+
         Rectangle {
             x: Math.round(parent.width / root.maxValue)
             anchors.top: parent.top
@@ -158,7 +60,7 @@ Item {
             color: Theme.error
             visible: width > 0.5
         }
-        // where 100% sits, once there is room past it
+
         Rectangle {
             x: Math.round(parent.width / root.maxValue) - root.us
             anchors.verticalCenter: parent.verticalCenter
@@ -171,10 +73,6 @@ Item {
         }
     }
 
-    // Percentage readout (mono, the pill's data face): the same clamped 0..1
-    // `value` the bar fills to, so the number and the bar never disagree. Fixed
-    // width, right-aligned, so the bar edge holds still as the digit count
-    // changes (5% -> 100%). Volume is capped at 100% upstream (wpctl -l 1).
     Text {
         id: pct
         anchors.right: parent.right

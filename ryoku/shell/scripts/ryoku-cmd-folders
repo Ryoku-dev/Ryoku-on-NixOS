@@ -66,6 +66,13 @@ for f in "$src/folder-$color.svg" "$src"/folder-"$color"-*.svg "$src"/user-"$col
   b=$(basename "$f"); d=${b/-$color-/-}; d=${d/-$color./.}
   cp -L "$f" "$tmp/places/$d"
 done
+# Preserve every standard directory name Papirus maps to folder.svg. Without
+# these local aliases, icon lookup falls through to Papirus's blue originals.
+for f in "$src"/*.svg; do
+  [ -L "$f" ] || continue
+  [ "$(readlink "$f")" = "folder.svg" ] || continue
+  ln -s folder.svg "$tmp/places/$(basename "$f")"
+done
 cat > "$tmp/index.theme" <<'EOF'
 [Icon Theme]
 Name=Ryoku Folders

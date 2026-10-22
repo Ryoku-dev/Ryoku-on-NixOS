@@ -23,6 +23,7 @@ singleton DockPreview DockPreview.qml
 singleton MusicPreview MusicPreview.qml
 singleton BarProducts BarProducts.qml
 singleton DockProducts DockProducts.qml
+singleton Designs Designs.qml
 StoreIndex StoreIndex.qml
 singleton Devices Devices.qml
 singleton Weather Weather.qml

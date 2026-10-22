@@ -32,6 +32,16 @@
   (`quickshell/shell/modules/launcher/Launcher.qml`,
   `quickshell/shell/modules/launcher/shared/Singletons/LauncherProducts.qml`,
   `quickshell/shell/modules/launcher/shared/lib/catalog.js`).
+- **OSDs, notification cards and the Super+Escape panel can wear RyoStore
+  designs.** Their saved choices are `shell.json` `designs.osd`,
+  `designs.notification`, and `designs.sidebar`, each defaulting to the shipped
+  `ryoku` design. The shell still owns every window, timer, value and input while
+  an installed design only draws; a design that fails to load falls back to
+  Ryoku's own. Python, Nomarchy, Tansu and Nacre keep the banners or OSD they own.
+  The Hub's new Settings -> Overlays page selects each installed design and has
+  Try actions, including an `osd preview` IPC call that flashes the volume OSD
+  (`quickshell/shell/services/{Config,Designs}.qml`,
+  `quickshell/shell/modules/{osd,notifications,sidebar}/`).
 - **Orpheus can watch and switch VPNs.** A VPN module, offered in the Layout
   editor and kept out of the default layout, shows a lock and the live tunnel's
   name; its card switches Tailscale (picking or clearing its exit node, LAN
@@ -97,6 +107,45 @@
   terminal once (`scripts/ryoku-session-intro`).
 
 ### Fixed
+- **The first thing you install from RyoStore shows up without a restart.** On
+  a box that had never installed from the store, the shell started before the
+  store's index folder existed, and a file watch cannot see files appear in a
+  folder that is not there, so a first OSD, notification, sidebar, dock or
+  launcher design kept drawing Ryoku's own until the shell restarted. The
+  daemon now makes that folder before it starts the shell (`ipc/daemon.go`).
+- **Tansu shows each notification once, and Nomarchy and Tansu keep their
+  sound.** Tansu's phone alerts now replace the shell's banners instead of
+  doubling them. Owning the banners also used to silence the arrival cue, but
+  only the Python style plays a sound of its own, so the shell's cue now stands
+  down only there (`quickshell/shell/services/{Config,Notifs}.qml`).
+- **The keyboard-layout OSD appears when the layout changes.** It listened for
+  a signal `KeyboardLayout` never had, so changing layouts could not raise the
+  popup; it now follows the layout property that actually changes
+  (`quickshell/shell/modules/osd/OsdSource.qml`).
+- **Every Store design resolves through the same checked view path.** The shared
+  validator now resolves dock, OSD, notification and sidebar views alike, so
+  each host rejects an invalid entry and can draw its shipped design instead
+  (`quickshell/shell/services/lib/storeview.js`,
+  `quickshell/shell/services/DockProducts.qml`,
+  `quickshell/shell/services/Designs.qml`).
+- **Ryogami deletes the wallpaper its card identifies.** Delete now keeps the
+  catalogue row when removing the source fails, reports that failure in the
+  picker, and is not offered for Wallpaper Engine scenes managed by Steam
+  Workshop. Subfolder wallpapers use their catalogue key for delete and
+  favourites (`ryogami/{daemon,picker}/`).
+- **Folder accents and KDE app palettes now update completely.** The generated
+  `ryoku-folders` theme carries Papirus's plain-directory aliases so Dolphin no
+  longer falls back to blue folders, and running KDE apps receive the palette
+  change after `kdeglobals` is merged without a dangling named colour scheme
+  (`scripts/ryoku-cmd-folders`, `ipc/matugen.go`).
+- **Notifications stay in the panel, and the bars move for quiet sounds too.**
+  A notification used to leave the history as soon as its sender's timeout ran
+  out, and one that never expires was never listed, so the Orpheus card often
+  read empty. The timeout now only times the popup; the panel keeps the newest
+  100 until they are dismissed. The shared spectrum feed was tuned on loud
+  music, so videos, games and anything at lower volume barely moved the drops;
+  a slow peak follower now lifts quiet sources while loud ones keep their real
+  dynamics (`quickshell/shell/services/{Notifs,AudioBars}.qml`).
 - **Nomarchy's package probes and power commands work on Void.**
   `omarchy-pkg-present` and `omarchy-pkg-missing` asked pacman on every edition
   but Fedora, so on Void every package read as missing; they now ask

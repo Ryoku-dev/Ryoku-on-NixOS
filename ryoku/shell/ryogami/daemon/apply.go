@@ -753,9 +753,12 @@ func (d *daemon) setAudio(mute *bool, volume *int, requested []string) {
 // deleteWallpaper removes the source for good, as skwd does, drops the row and
 // tells every client; the trash only keeps originals that optimisation replaced.
 func (d *daemon) deleteWallpaper(key string) error {
-	e, okKey := d.store.remove(key)
+	e, okKey := d.store.get(key)
 	if !okKey {
 		return fmt.Errorf("unknown wallpaper: %s", key)
+	}
+	if e.Type == "we" {
+		return fmt.Errorf("Wallpaper Engine items are managed through Steam Workshop")
 	}
 	src := e.Path
 	if src == "" {
@@ -764,13 +767,16 @@ func (d *daemon) deleteWallpaper(key string) error {
 	if err := os.Remove(src); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	if _, removed := d.store.remove(key); !removed {
+		return fmt.Errorf("unknown wallpaper: %s", key)
+	}
 	// Thumbnails and an animated still's clip are cache of the file just removed.
 	for _, t := range []string{e.Thumb, e.ThumbSm, e.VideoFile} {
 		if t != "" && t != src {
 			_ = os.Remove(t)
 		}
 	}
-	d.broadcast("ryogami.wall.file_removed", map[string]interface{}{"name": e.Name, "type": e.Type})
+	d.broadcast("ryogami.wall.file_removed", map[string]interface{}{"key": e.Key, "name": e.Name, "type": e.Type})
 	return nil
 }
 

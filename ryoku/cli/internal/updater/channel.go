@@ -107,7 +107,8 @@ func channelStatus() (statusReport, bool) {
 }
 
 // channelUpdate advances a checkout only as far as the testing gate permits,
-// then redeploys it. Stable source tracking follows main directly.
+// then redeploys it unless that would roll the desktop back. Stable source
+// tracking follows main directly.
 func channelUpdate() error {
 	repo := sys.ResolveRepo()
 	if repo == "" {
@@ -119,9 +120,10 @@ func channelUpdate() error {
 	progress.detailf(i18n.T("Fetching origin/%s"), ch)
 	gitFetch(repo, ch)
 
+	gated := ch == "unstable-dev" && !updateForce
 	var pointer checkedPointer
 	pointerOK := false
-	if ch == "unstable-dev" && !updateForce {
+	if gated {
 		pointer, pointerOK = readCheckedPointer()
 		if updateWait {
 			pointer, pointerOK = waitForChannelCheck(repo, ch, pointer, pointerOK)
@@ -130,6 +132,13 @@ func channelUpdate() error {
 	target, note := resolveChannelTarget(repo, ch, pointer, pointerOK, updateForce)
 	if note != "" {
 		progress.logf("%s", note)
+	}
+	// Without the gate nothing new may be taken, and the checkout can sit far
+	// behind the desktop that runs: deploying it anyway once rolled a box back a
+	// week while it was offline, removing the default bar.
+	if gated && !pointerOK {
+		progress.logf(i18n.T("Keeping the desktop that is running; nothing was deployed"))
+		return nil
 	}
 
 	// Report what the sync actually did; "Update complete" alone hid a box that
@@ -144,6 +153,18 @@ func channelUpdate() error {
 		progress.logf(i18n.T("Already on the latest %s (v%s, %s)"), ch, readVersion(repo), before)
 	} else {
 		progress.logf(i18n.T("Already on the latest checked %s commit (v%s, %s)"), ch, readVersion(repo), before)
+	}
+
+	// The last checked commit can trail one already deployed, from another
+	// checkout or by hand. Laying it down would roll that work back, so the
+	// desktop waits until the gate reaches what it runs.
+	if gated {
+		if running := deployedBase(repo); running != "HEAD" && !sameCommit(repo, "HEAD", running) &&
+			isAncestor(repo, "HEAD", running) {
+			progress.logf(i18n.T("The desktop already runs %s, newer than %s; nothing was deployed"),
+				gitShort(repo, running), gitShort(repo, "HEAD"))
+			return nil
+		}
 	}
 
 	progress.at("deploy")

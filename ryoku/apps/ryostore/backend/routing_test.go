@@ -14,7 +14,11 @@ func TestSettingsSectionRoutesStoreCategories(t *testing.T) {
 		"bundles":   "addons",
 		"barstyles": "bar-studio",
 		"launchers": "launcher",
-		"fastfetch": "fastfetch",
+		// one Hub page wears all three overlays
+		"osds":          "overlays",
+		"notifications": "overlays",
+		"sidebars":      "overlays",
+		"fastfetch":     "fastfetch",
 	}
 	for category, want := range cases {
 		got, ok := settingsSection(category)

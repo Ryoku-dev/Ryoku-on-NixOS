@@ -80,6 +80,11 @@ Singleton {
         && !(root.python && root.python.general && root.python.general.notifications === false))
         || (barStyle === "nomarchy"
         && !(root.nomarchy && root.nomarchy.notifications === false))
+        || barStyle === "tansu"
+    // Only a style that plays its own notification sound silences the shell's
+    // cue; Nomarchy and Tansu draw banners but play nothing themselves.
+    readonly property bool styleOwnsNotificationSound: barStyle === "python"
+        && !(root.python && root.python.general && root.python.general.notifications === false)
     readonly property bool styleOwnsFeedback: (barStyle === "python"
         && !(root.python && root.python.general && root.python.general.osd === false))
         || (barStyle === "nomarchy"
@@ -89,6 +94,11 @@ Singleton {
     // placement and pins survive bar-style and dock-design changes. Stage
     // Editor writes it through the Dock singleton; every renderer reads it.
     property alias dock: adapter.dock
+
+    // designs: the OSD, notification card and Super+Esc sidebar every bar
+    // style shares. "ryoku" is the shipped design of each; any other id is a
+    // design RyoStore installed. Designs resolves them for the hosts.
+    property alias designs: adapter.designs
 
     // clipboard: geometry and corner treatment for the bottom-centred history
     // surface. The adapter keeps it a self-contained shell.json subtree so it
@@ -427,6 +437,11 @@ Singleton {
                     "revealOnEmpty": true,
                     "badges": true
                 }
+            })
+            property var designs: ({
+                "osd": "ryoku",
+                "notification": "ryoku",
+                "sidebar": "ryoku"
             })
             property var clipboard: ({
                 "widthPercent": 65,

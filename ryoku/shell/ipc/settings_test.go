@@ -756,6 +756,36 @@ func TestDockEditDropsTheStoreRemovalMarker(t *testing.T) {
 	}
 }
 
+// An overlay design the user picks drops only that design's removal marker; the
+// other designs' recoveries stay theirs. Replacing the whole designs object
+// drops all three.
+func TestDesignEditDropsOnlyItsStoreRemovalMarker(t *testing.T) {
+	store := newTestStore(t)
+	for _, marker := range designTransactionKeys {
+		if err := store.patch(marker, json.RawMessage(`"remove-1"`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.patch("designs.osd", json.RawMessage(`"ito"`)); err != nil {
+		t.Fatal(err)
+	}
+	frame := store.frameLocked()
+	if frameHas(t, frame, designTransactionKeys["osd"]) {
+		t.Fatal("an OSD design edit retained its store removal marker")
+	}
+	if !frameHas(t, frame, designTransactionKeys["notification"]) || !frameHas(t, frame, designTransactionKeys["sidebar"]) {
+		t.Fatal("an OSD design edit dropped another design's marker")
+	}
+	if err := store.patch("designs", json.RawMessage(`{"osd":"ryoku","notification":"ryoku","sidebar":"ryoku"}`)); err != nil {
+		t.Fatal(err)
+	}
+	for design, marker := range designTransactionKeys {
+		if frameHas(t, store.frameLocked(), marker) {
+			t.Fatalf("replacing designs retained the %s marker", design)
+		}
+	}
+}
+
 func TestPatchRejectsMalformedConcurrentWriter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "shell.json")
 	if err := os.WriteFile(path, []byte("{\"barStyle\":\"obi\",\"keep\":true}\n"), 0o644); err != nil {

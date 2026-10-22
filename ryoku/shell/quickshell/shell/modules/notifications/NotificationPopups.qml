@@ -54,6 +54,9 @@ PanelWindow {
 
     readonly property var popups: Notifs.popups
     property bool mapped: false
+    readonly property string notificationUrl: Designs.notificationUrl
+    property string failedNotificationUrl: ""
+    onNotificationUrlChanged: win.failedNotificationUrl = ""
 
     screen: modelData
     visible: mapped
@@ -218,20 +221,129 @@ PanelWindow {
             NumberAnimation { property: "scale"; to: 1; duration: Motion.notifIn; easing.type: Motion.easeType; easing.bezierCurve: Motion.notifInCurve }
         }
 
-        delegate: NotificationCard {
+        delegate: Item {
+            id: popupDelegate
+
             required property var entry
+            readonly property int lifespanMs: {
+                const ttl = Notifs.popupTtl(popupDelegate.entry);
+                return ttl < 0 ? 0 : ttl;
+            }
+            readonly property bool storeRuns: Designs.notification !== Designs.shipped
+                && Designs.notificationReady
+                && win.notificationUrl !== ""
+                && win.notificationUrl !== win.failedNotificationUrl
+
             width: ListView.view ? ListView.view.width : implicitWidth
-            notif: entry
-            us: win.us
-            // Popups are compact and expand on demand; the grow/collapse scales
-            // about the anchored corner (top-right, top-left or top-centre).
-            compact: true
+            implicitHeight: storeLoader.visible && storeLoader.item
+                ? storeLoader.item.implicitHeight
+                : shippedLoader.item ? shippedLoader.item.implicitHeight : 0
+            height: implicitHeight
             transformOrigin: win.position === "Left" ? Item.TopLeft
                 : win.position === "Center" ? Item.Top : Item.TopRight
-            // The popup drains its countdown frame over its own display lifespan;
-            // a persistent popup (ttl -1) passes 0 and draws no frame.
-            lifespanMs: { const t = Notifs.popupTtl(entry); return t < 0 ? 0 : t; }
-            // The popup has no menu to close, so it ignores actionInvoked.
+
+            Loader {
+                id: shippedLoader
+
+                width: popupDelegate.width
+                height: item ? item.implicitHeight : 0
+                active: !popupDelegate.storeRuns || storeLoader.status === Loader.Error
+                visible: active
+                sourceComponent: Component {
+                    NotificationCard {
+                        width: popupDelegate.width
+                        height: implicitHeight
+                        notif: popupDelegate.entry
+                        us: win.us
+                        // Popups are compact and expand on demand; the grow/collapse scales
+                        // about the anchored corner (top-right, top-left or top-centre).
+                        compact: true
+                        transformOrigin: popupDelegate.transformOrigin
+                        // The popup drains its countdown frame over its own display lifespan;
+                        // a persistent popup (ttl -1) passes 0 and draws no frame.
+                        lifespanMs: popupDelegate.lifespanMs
+                        // The popup has no menu to close, so it ignores actionInvoked.
+                    }
+                }
+            }
+
+            Loader {
+                id: storeLoader
+
+                readonly property string url: win.notificationUrl
+                property string loadedUrl: ""
+                property string loadedDesign: ""
+
+                width: popupDelegate.width
+                height: item ? item.implicitHeight : 0
+                active: popupDelegate.storeRuns
+                visible: active && status === Loader.Ready
+                // Built in the same frame the card is inserted, so the column
+                // lays it out at its real height. Loaded later, a taller card
+                // grew after its neighbours had already been displaced and sat
+                // flush against the one below.
+                asynchronous: false
+
+                function load() {
+                    if (!storeLoader.active || storeLoader.url === ""
+                            || storeLoader.loadedUrl === storeLoader.url)
+                        return;
+                    storeLoader.loadedUrl = storeLoader.url;
+                    storeLoader.loadedDesign = Designs.notification;
+                    storeLoader.setSource(storeLoader.url, {
+                        notification: popupDelegate.entry,
+                        us: win.us,
+                        lifespanMs: popupDelegate.lifespanMs,
+                        position: win.position,
+                        showImages: Config.notifications.show_images === true
+                    });
+                }
+
+                onActiveChanged: {
+                    if (storeLoader.active)
+                        storeLoader.load();
+                    else
+                        storeLoader.loadedUrl = "";
+                }
+                onUrlChanged: storeLoader.load()
+                Component.onCompleted: storeLoader.load()
+                onStatusChanged: {
+                    if (storeLoader.status !== Loader.Error)
+                        return;
+                    const brokenUrl = storeLoader.loadedUrl;
+                    if (brokenUrl === "" || brokenUrl !== win.notificationUrl
+                            || brokenUrl === win.failedNotificationUrl)
+                        return;
+                    console.warn("notifications: the store card " + storeLoader.loadedDesign
+                        + " did not load; drawing the Ryoku card");
+                    win.failedNotificationUrl = brokenUrl;
+                }
+
+                Binding {
+                    when: storeLoader.item !== null
+                    target: storeLoader.item
+                    property: "us"
+                    value: win.us
+                }
+                Binding {
+                    when: storeLoader.item !== null
+                    target: storeLoader.item
+                    property: "lifespanMs"
+                    value: popupDelegate.lifespanMs
+                }
+                Binding {
+                    when: storeLoader.item !== null
+                    target: storeLoader.item
+                    property: "position"
+                    value: win.position
+                }
+                Binding {
+                    when: storeLoader.item !== null
+                    target: storeLoader.item
+                    property: "showImages"
+                    value: Config.notifications.show_images === true
+                }
+            }
         }
     }
 }

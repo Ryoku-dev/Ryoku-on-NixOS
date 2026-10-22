@@ -18,6 +18,15 @@ Item {
     }
 
     implicitHeight: (Tokens.rowH + Tokens.s3) * s
+    // The narrowest width that still fits every visible control: icon-only
+    // session buttons, the divider, the toggles and the gear. Store sidebar
+    // designs size their panel from it so the row never runs past the edge.
+    implicitWidth: {
+        const parts = [sessionActions.minWidth, divider.visible ? divider.width : 0,
+            toggles.hasControls ? toggles.implicitWidth : 0, gear.visible ? gear.implicitWidth : 0]
+            .filter(part => part > 0);
+        return parts.reduce((sum, part) => sum + part, 0) + bar.spacing * Math.max(0, parts.length - 1);
+    }
 
     Rectangle {
         anchors.left: parent.left
@@ -46,8 +55,9 @@ Item {
             ]
             readonly property var actions: allActions.filter(entry => root.elementVisible(entry.id))
             readonly property int actionCount: actions.length
-            width: actionCount > 0 ? Math.max(
-                (Tokens.ctlH + Tokens.s3) * root.s * actionCount + spacing * Math.max(0, actionCount - 1),
+            readonly property real minWidth: actionCount > 0
+                ? (Tokens.ctlH + Tokens.s3) * root.s * actionCount + spacing * Math.max(0, actionCount - 1) : 0
+            width: actionCount > 0 ? Math.max(sessionActions.minWidth,
                 bar.width - toggles.implicitWidth - gear.implicitWidth - divider.width - bar.spacing * 3) : 0
             anchors.verticalCenter: parent.verticalCenter
             spacing: Tokens.s1 * root.s

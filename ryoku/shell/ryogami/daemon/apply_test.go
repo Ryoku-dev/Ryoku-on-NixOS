@@ -63,3 +63,51 @@ func TestHealAnimatedWebp(t *testing.T) {
 		t.Fatalf("second run must be a no-op, but reclassified to %q", e.Type)
 	}
 }
+
+func TestDeleteWallpaperKeepsCatalogEntryWhenRemoveFails(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "not-a-wallpaper")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "child"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var cfg config
+	cfg.Paths.Cache = filepath.Join(root, "cache")
+	d := &daemon{cfg: cfg, store: openStore(cfg.Paths.Cache)}
+	const key = "broken.png"
+	d.store.entries[key] = Entry{Key: key, Name: key, Type: "static", Path: src}
+
+	if err := d.deleteWallpaper(key); err == nil {
+		t.Fatal("delete of a non-file source succeeded")
+	}
+	if _, ok := d.store.get(key); !ok {
+		t.Fatal("failed source removal dropped the catalog entry")
+	}
+}
+
+func TestDeleteWallpaperRejectsWorkshopEntry(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "workshop", "123")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var cfg config
+	cfg.Paths.Cache = filepath.Join(root, "cache")
+	d := &daemon{cfg: cfg, store: openStore(cfg.Paths.Cache)}
+	const key = "we:123"
+	d.store.entries[key] = Entry{Key: key, Name: "Scene", Type: "we", Path: src, WeID: "123"}
+
+	if err := d.deleteWallpaper(key); err == nil {
+		t.Fatal("Wallpaper Engine delete succeeded outside Steam Workshop")
+	}
+	if _, ok := d.store.get(key); !ok {
+		t.Fatal("rejected Wallpaper Engine delete dropped the catalog entry")
+	}
+	if _, err := os.Stat(src); err != nil {
+		t.Fatalf("rejected Wallpaper Engine delete touched its item directory: %v", err)
+	}
+}

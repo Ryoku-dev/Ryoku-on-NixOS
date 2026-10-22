@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/godbus/dbus/v5"
 )
 
 // TestMatugenArgs pins the argv the pipeline hands matugen for each knob
@@ -278,6 +280,19 @@ func TestTemplateGroup(t *testing.T) {
 	}
 }
 
+type recordingKdeSignalEmitter struct {
+	path   dbus.ObjectPath
+	name   string
+	values []interface{}
+}
+
+func (e *recordingKdeSignalEmitter) Emit(path dbus.ObjectPath, name string, values ...interface{}) error {
+	e.path = path
+	e.name = name
+	e.values = append([]interface{}(nil), values...)
+	return nil
+}
+
 // TestApplyKdeColors is the merge contract: the colour groups come from the
 // render, and everything else in kdeglobals is the user's and survives. The
 // fixture carries the two shapes a general INI reader gets wrong, the
@@ -326,7 +341,8 @@ BackgroundNormal=#101010
 activeBackground=#202020
 `)
 
-	applyKdeColors()
+	emitter := &recordingKdeSignalEmitter{}
+	applyKdeColors(emitter)
 
 	b, err := os.ReadFile(kdeglobalsPath())
 	if err != nil {
@@ -335,10 +351,10 @@ activeBackground=#202020
 	out := string(b)
 
 	for _, want := range []string{
-		"font=Comic Sans,11", // the user's font
-		"Theme=breeze-dark",  // the user's icon theme
-		"widgetStyle=Darkly", // the user's widget style
-		"ColorScheme=Ryoku",  // the one General key the palette owns
+		"font=Comic Sans,11",        // the user's font
+		"Theme=breeze-dark",         // the user's icon theme
+		"widgetStyle=Darkly",        // the user's widget style
+		"ColorScheme=SomethingElse", // the user's selected named scheme
 		"BackgroundNormal=#101010",
 		"BackgroundAlternate=#181818",
 		"[Colors:Header][Inactive]",
@@ -351,8 +367,14 @@ activeBackground=#202020
 	if strings.Contains(out, "#ffffff") {
 		t.Errorf("stale colour survived the merge; got:\n%s", out)
 	}
-	if strings.Contains(out, "ColorScheme=SomethingElse") {
-		t.Errorf("stale scheme name survived the merge; got:\n%s", out)
+	if emitter.path != dbus.ObjectPath("/KGlobalSettings") {
+		t.Errorf("palette signal path = %q, want /KGlobalSettings", emitter.path)
+	}
+	if emitter.name != "org.kde.KGlobalSettings.notifyChange" {
+		t.Errorf("palette signal name = %q, want org.kde.KGlobalSettings.notifyChange", emitter.name)
+	}
+	if !slices.Equal(emitter.values, []interface{}{int32(0), int32(0)}) {
+		t.Errorf("palette signal values = %#v, want int32(0), int32(0)", emitter.values)
 	}
 }
 
@@ -376,7 +398,7 @@ func TestApplyKdeColorsWithoutKdeglobals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	applyKdeColors()
+	applyKdeColors(nil)
 
 	b, err := os.ReadFile(kdeglobalsPath())
 	if err != nil {
@@ -408,6 +430,7 @@ func TestApplyKdeColorsForeignSectionSurvives(t *testing.T) {
 
 	mustWrite(kdeglobalsPath(), `[General]
 font=Comic Sans,11
+ColorScheme=Ryoku
 
 [SomeSection]
 key=value
@@ -419,7 +442,7 @@ BackgroundNormal=#ffffff
 BackgroundNormal=#101010
 `)
 
-	applyKdeColors()
+	applyKdeColors(nil)
 
 	b, err := os.ReadFile(kdeglobalsPath())
 	if err != nil {
@@ -439,6 +462,9 @@ BackgroundNormal=#101010
 	}
 	if strings.Contains(out, "#ffffff") {
 		t.Errorf("stale colour survived the merge; got:\n%s", out)
+	}
+	if strings.Contains(out, "ColorScheme=Ryoku") {
+		t.Errorf("obsolete Ryoku named scheme survived the merge; got:\n%s", out)
 	}
 }
 
@@ -521,7 +547,7 @@ func TestMatugenReload(t *testing.T) {
 		return false
 	}
 
-	matugenReload("dark")
+	matugenReload("dark", nil)
 	if !has("gsettings", "set", "org.gnome.desktop.interface", "color-scheme", "prefer-dark") {
 		t.Errorf("dark: color-scheme prefer-dark not set; got %v", *got)
 	}
@@ -540,7 +566,7 @@ func TestMatugenReload(t *testing.T) {
 	}
 
 	*got = nil
-	matugenReload("light")
+	matugenReload("light", nil)
 	if !has("gsettings", "set", "org.gnome.desktop.interface", "color-scheme", "prefer-light") {
 		t.Errorf("light: color-scheme prefer-light not set; got %v", *got)
 	}
@@ -557,7 +583,7 @@ func TestMatugenReloadSystemNoGtkTheme(t *testing.T) {
 	got := gtkReloadEnv(t,
 		`{"gtkTheme":"system","gnomeAccent":false}`,
 		`{"primary":"#3584e4"}`)
-	matugenReload("light")
+	matugenReload("light", nil)
 	for _, c := range *got {
 		if len(c) >= 5 && c[0] == "gsettings" && c[4] == "gtk-theme" {
 			t.Errorf("system: wrote gtk-theme %v", c)

@@ -52,135 +52,6 @@ Item {
     readonly property var railWas: page.committedBars && page.committedBars.rails ? page.committedBars.rails[page.edge] : null
     readonly property bool horizontal: page.edge === "top" || page.edge === "bottom"
 
-    property var barStyles: []
-    property string updatingId: ""    // the style whose update is in flight
-
-    function browseBarStyles() {
-        Quickshell.execDetached(["ryostore", "open", "barstyles"]);
-    }
-
-    // Settings owns updates (docs/store.md); RyoStore only installs. The same
-    // transaction engine serves both, so this re-runs an install over the
-    // receipt-owned tree, which replaces the style in place. Install never
-    // activates, and only a removal rewrites the bar selection, so updating the
-    // style you are wearing is safe: the shell keys style URLs to the store
-    // revision and swaps the new content without a reload.
-    function updateStyle(id) {
-        if (!id || page.updatingId !== "")
-            return;
-        page.updatingId = id;
-        updateProc.command = ["ryostore", "install", "barstyles", id];
-        updateProc.running = true;
-    }
-
-    function refreshBarStyles() {
-        styleProc.running = false;
-        styleProc.running = true;
-    }
-
-    Process {
-        id: styleProc
-        command: ["ryostore", "catalog", "--category", "barstyles"]
-        running: true
-        stdout: StdioCollector {
-            onStreamFinished: {
-                try {
-                    const catalog = JSON.parse(this.text || "{}");
-                    // Every bar style the catalogue carries, not only the ones
-                    // already installed: a style you have yet to fetch still
-                    // belongs on the shelf so you can see it exists and how to
-                    // get it. The one style hidden here is one written for
-                    // another compositor that you have not installed -- it can
-                    // neither run nor be fetched, so it is not offered. Install
-                    // still lives in RyoStore; this page only shows state and
-                    // applies what is yours.
-                    const storeStyles = (catalog.items || [])
-                        .filter(item => item.category === "barstyles"
-                            && !(item.unavailable === true && item.installed !== true))
-                        .map(item => ({
-                            id: item.id,
-                            name: item.name || item.id,
-                            desc: item.summary || item.description || "",
-                            installed: item.installed === true,
-                            version: item.version || "",
-                            installedVersion: item.installedVersion || "",
-                            updateAvailable: item.updateAvailable === true,
-                            active: page.activeStyle === item.id,
-                            unavailable: item.unavailable === true,
-                            unavailableEdition: item.unavailableEdition === true,
-                            unavailableReason: item.unavailableReason || "",
-                            requiredWindowManager: item.requiredWindowManager || "",
-                            downloadPaused: item.downloadPaused === true,
-                            downloadPauseReason: item.downloadPauseReason || ""
-                        }));
-
-                    const out = [];
-
-                    for (let i = 0; i < BarStyles.builtins.length; ++i) {
-                        const builtin = BarStyles.builtins[i];
-                        let found = null;
-
-                        for (let j = 0; j < storeStyles.length; ++j) {
-                            if (storeStyles[j].id === builtin.id) {
-                                found = storeStyles[j];
-                                break;
-                            }
-                        }
-
-                        if (found) {
-                            out.push(found);
-                        } else {
-                            out.push({
-                                id: builtin.id,
-                                name: builtin.name || builtin.id,
-                                desc: builtin.desc || "",
-                                installed: true,
-                                version: "",
-                                installedVersion: "",
-                                updateAvailable: false,
-                                active: page.activeStyle === builtin.id,
-                                unavailable: builtin.unavailable === true,
-                                unavailableReason: "",
-                                requiredWindowManager: "",
-                                downloadPaused: false,
-                                downloadPauseReason: ""
-                            });
-                        }
-                    }
-
-                    for (let i = 0; i < storeStyles.length; ++i) {
-                        let exists = false;
-
-                        for (let j = 0; j < out.length; ++j) {
-                            if (out[j].id === storeStyles[i].id) {
-                                exists = true;
-                                break;
-                            }
-                        }
-
-                        if (!exists)
-                            out.push(storeStyles[i]);
-                    }
-
-                    page.barStyles = out;
-                } catch (e) {
-                    page.barStyles = [];
-                }
-            }
-        }
-    }
-
-    // The update runs in the background: a bar style installs into the user's
-    // own data tree, so unlike a package there is no sudo prompt and no terminal
-    // to hand it. On any outcome the shelf is re-read, so a failed update leaves
-    // the same UPDATE affordance up rather than a dead button.
-    Process {
-        id: updateProc
-        onExited: {
-            page.updatingId = "";
-            page.refreshBarStyles();
-        }
-    }
 
     // The Obi bar's widgets, for the per-widget show/hide toggles below. Mirrors
     // barstyles/obi/Scene.qml; Workspaces is the bar's identity and has no toggle.
@@ -202,8 +73,9 @@ Item {
     readonly property string activeStyle: page.fval("barStyle", "orpheus")
     readonly property bool sumiActive: page.activeStyle === "sumi"
     readonly property string activeName: {
-        for (let i = 0; i < page.barStyles.length; i++)
-            if (page.barStyles[i].id === page.activeStyle) return page.barStyles[i].name;
+        const designs = styleGallery.designs || [];
+        for (let i = 0; i < designs.length; i++)
+            if (designs[i].id === page.activeStyle) return designs[i].name;
         return page.activeStyle;
     }
 
@@ -452,146 +324,13 @@ Item {
                 width: col.colWidth
                 title: I18n.tr("BAR STYLE")
 
-                Item {
+                StoreDesignGallery {
+                    id: styleGallery
                     width: parent.width
-                    height: styleBody.height + Tokens.s3 + Tokens.s4
-                    Column {
-                        id: styleBody
-                        anchors { left: parent.left; right: parent.right; top: parent.top }
-                        anchors.leftMargin: Tokens.s4; anchors.rightMargin: Tokens.s4; anchors.topMargin: Tokens.s3
-                        spacing: Tokens.s3
-                        // A gallery, not a filmstrip: with a bar style per tile the
-                        // captions are what tell them apart, so the tiles wrap into
-                        // as many rows as they need instead of squeezing 8 into one.
-                        // The height is computed, not measured: a Flow reports its
-                        // post-wrap height a polish pass late, and CardColumns would
-                        // place the next card over this one's second row.
-                        Flow {
-                            id: styleRow
-                            width: parent.width
-                            spacing: Tokens.s2
-                            readonly property int perRow: Math.max(2, Math.floor((width + Tokens.s2) / 210))
-                            readonly property int tileH: 64
-                            readonly property int rowCount: Math.max(1, Math.ceil(styleRep.count / perRow))
-                            height: rowCount * tileH + (rowCount - 1) * spacing
-                            Repeater {
-                                id: styleRep
-                                model: page.barStyles
-                                delegate: Rectangle {
-                                    id: styleCard
-                                    required property var modelData
-                                    // A style applies only when it is installed
-                                    // and can run on this compositor. A paused
-                                    // style stays applyable once installed (the
-                                    // pause blocks only new downloads); a
-                                    // not-installed or wm-gated one cannot.
-                                    readonly property bool applyable: styleCard.modelData.installed && !styleCard.modelData.unavailable
-                                    readonly property bool on: styleCard.applyable && page.activeStyle === styleCard.modelData.id
-                                    // The backend refuses an install over a paused download or a
-                                    // product written for another compositor, so an update is
-                                    // offered only where re-running the install can succeed --
-                                    // never a button that is guaranteed to do nothing.
-                                    readonly property bool updatable: styleCard.modelData.updateAvailable === true
-                                        && styleCard.modelData.version.length > 0
-                                        && !styleCard.modelData.unavailable && !styleCard.modelData.downloadPaused
-                                    // The sub line reads the style's own blurb
-                                    // when it is yours to apply, otherwise the
-                                    // honest reason it is not: the compositor it
-                                    // wants, that it is under construction, or
-                                    // where to fetch it. A style with an update
-                                    // shows the version it would move to, so the
-                                    // UPDATE button next to it is self-explanatory.
-                                    readonly property string subText: {
-                                        if (styleCard.updatable) {
-                                            const cur = styleCard.modelData.installedVersion.length > 0
-                                                ? styleCard.modelData.installedVersion : styleCard.modelData.version;
-                                            return I18n.tr("%1 \u2192 %2").arg(cur).arg(styleCard.modelData.version);
-                                        }
-                                        if (styleCard.applyable)
-                                            return I18n.tr(styleCard.modelData.desc);
-                                        if (styleCard.modelData.unavailable) {
-                                            const wm = ("" + styleCard.modelData.requiredWindowManager).toUpperCase();
-                                            const tag = styleCard.modelData.unavailableEdition ? I18n.tr("Not on this system")
-                                                : wm.length > 0 ? I18n.tr("%1 only").arg(wm) : I18n.tr("Unavailable");
-                                            return styleCard.modelData.unavailableReason.length > 0
-                                                ? tag + " \u00b7 " + styleCard.modelData.unavailableReason : tag;
-                                        }
-                                        if (styleCard.modelData.downloadPaused)
-                                            return styleCard.modelData.downloadPauseReason.length > 0
-                                                ? I18n.tr("Under construction") + " \u00b7 " + styleCard.modelData.downloadPauseReason
-                                                : I18n.tr("Under construction");
-                                        return I18n.tr("Available \u00b7 install from RyoStore");
-                                    }
-
-                                    objectName: "bar-style-" + styleCard.modelData.id
-                                    // fill the row evenly: as many ~210px tiles as the
-                                    // measure holds, stretched to close the last gap.
-                                    width: Math.floor((styleRow.width - (styleRow.perRow - 1) * Tokens.s2) / styleRow.perRow)
-                                    height: styleRow.tileH
-                                    radius: Tokens.radius
-                                    // dim a style you cannot apply from here
-                                    opacity: styleCard.applyable ? 1.0 : 0.55
-                                    color: styleCard.on ? Tokens.bone : (sma.containsMouse ? Tokens.tint5 : "transparent")
-                                    border.width: Tokens.border
-                                    border.color: styleCard.on ? Tokens.bone : Tokens.line
-                                    Behavior on color { ColorAnimation { duration: Tokens.snap } }
-
-                                    Column {
-                                        anchors {
-                                            left: parent.left
-                                            right: updateBtn.visible ? updateBtn.left : parent.right
-                                            margins: Tokens.s3; rightMargin: updateBtn.visible ? Tokens.s2 : Tokens.s3
-                                            verticalCenter: parent.verticalCenter
-                                        }
-                                        spacing: 3
-                                        Text {
-                                            text: styleCard.modelData.name.toUpperCase()
-                                            color: styleCard.on ? Tokens.inkOnBone : Tokens.inkDim
-                                            font.family: Tokens.ui
-                                            font.pixelSize: 12
-                                            font.weight: Font.Medium
-                                            font.letterSpacing: Tokens.trackLabel
-                                        }
-                                        Text {
-                                            width: parent.width
-                                            text: styleCard.subText
-                                            color: styleCard.on ? Tokens.inkOnBoneDim : Tokens.inkFaint
-                                            font.family: Tokens.ui
-                                            font.pixelSize: Tokens.fTiny
-                                            elide: Text.ElideRight
-                                        }
-                                    }
-                                    MouseArea {
-                                        id: sma
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        preventStealing: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: styleCard.applyable ? page.fedit("barStyle", styleCard.modelData.id) : page.browseBarStyles()
-                                    }
-                                    // Declared after the MouseArea so it stacks
-                                    // above it: the tile applies on click, and the
-                                    // update must not be stolen by that handler.
-                                    Btn {
-                                        id: updateBtn
-                                        anchors { right: parent.right; rightMargin: Tokens.s3; verticalCenter: parent.verticalCenter }
-                                        visible: styleCard.updatable
-                                        compact: true
-                                        armed: page.updatingId === ""
-                                        text: page.updatingId === styleCard.modelData.id
-                                            ? I18n.tr("UPDATING")
-                                            : I18n.tr("UPDATE")
-                                        objectName: "bar-style-update-" + styleCard.modelData.id
-                                        onAct: page.updateStyle(styleCard.modelData.id)
-                                    }
-                                }
-                            }
-                        }
-                        Btn {
-                            text: I18n.tr("BROWSE RYOSTORE")
-                            onAct: page.browseBarStyles()
-                        }
-                    }
+                    category: "barstyles"
+                    wornId: page.activeStyle
+                    shippedDesigns: []
+                    onWear: designId => page.fedit("barStyle", designId)
                 }
             }
 

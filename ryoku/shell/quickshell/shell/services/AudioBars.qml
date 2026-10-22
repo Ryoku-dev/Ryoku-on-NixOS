@@ -49,6 +49,17 @@ Singleton {
     property real energy: 0
     property real lastReadMs: 0
 
+    // The fixed sensitivity is tuned on loud masters, so a video, a game or a
+    // track at half volume barely lifted the bars. A slow peak follower lifts
+    // quiet sources (up to quietBoostMax) until their peaks reach peakTarget;
+    // loud sources sit above the target and pass through unchanged, so their
+    // real ups and downs survive. The slow release keeps a quiet bridge in a
+    // loud song quiet rather than normalising it away.
+    readonly property real peakTarget: 0.6
+    readonly property real quietBoostMax: 4
+    readonly property real peakReleaseMs: 8000
+    property real peak: 0
+
     function flat() {
         var a = [];
         for (var i = 0; i < root.bars; i++)
@@ -59,7 +70,7 @@ Singleton {
     Process {
         id: cavaProc
         // playback spectrum via cava's native pipewire backend, source=auto (the default sink's monitor). the pulse backend can't connect here ("Connection terminated") even with pipewire-pulse up, and this path needs no pactl. exec so quickshell's SIGTERM reaches cava, leaving no orphaned analyser when the surface unloads.
-        command: ["sh", "-c", "command -v cava >/dev/null 2>&1 || exit 0; cfg=\"${XDG_RUNTIME_DIR:-/tmp}/ryoku-cava-pill.conf\"; printf '%s\\n' '[general]' 'framerate = " + root.fps + "' 'bars = " + root.bars + "' 'autosens = 0' 'sensitivity = 180' '' '[input]' 'method = pipewire' 'source = auto' '' '[output]' 'method = raw' 'raw_target = /dev/stdout' 'data_format = ascii' 'ascii_max_range = 100' 'channels = mono' 'mono_option = average' '' '[smoothing]' 'noise_reduction = 45' > \"$cfg\"; exec cava -p \"$cfg\""]
+        command: ["sh", "-c", "command -v cava >/dev/null 2>&1 || exit 0; cfg=\"${XDG_RUNTIME_DIR:-/tmp}/ryoku-cava-pill.conf\"; printf '%s\\n' '[general]' 'framerate = " + root.fps + "' 'bars = " + root.bars + "' 'autosens = 0' 'sensitivity = 180' '' '[input]' 'method = pipewire' 'source = auto' '' '[output]' 'method = raw' 'raw_target = /dev/stdout' 'data_format = ascii' 'ascii_max_range = 1000' 'channels = mono' 'mono_option = average' '' '[smoothing]' 'noise_reduction = 45' > \"$cfg\"; exec cava -p \"$cfg\""]
         // Bound, never assigned. `cavaProc.running = true` from the restart timer
         // used to live here, and an imperative write destroys the binding: from the
         // first restart onward `running` no longer followed `analysing`, so cava
@@ -102,6 +113,7 @@ Singleton {
     onAnalysingChanged: {
         levels = flat();
         energy = 0;
+        peak = 0;
         if (analysing)
             lastReadMs = 0;
     }
@@ -110,7 +122,7 @@ Singleton {
         var n = parseInt(v);
         if (isNaN(n))
             return 0;
-        return Math.max(0, Math.min(1, n / 100));
+        return Math.max(0, Math.min(1, n / 1000));
     }
 
     function readBars(line) {
@@ -120,18 +132,31 @@ Singleton {
         var parts = t.split(/[;\s]+/);
         if (parts.length < root.bars)
             return;
+        var raw = [];
+        var frameMax = 0;
+        for (var i = 0; i < root.bars; i++) {
+            var r = root.norm(parts[i]);
+            raw.push(r);
+            if (r > frameMax)
+                frameMax = r;
+        }
+        var now = Date.now();
+        var dt = root.lastReadMs > 0 ? Math.min(now - root.lastReadMs, 1000) : 0;
+        root.peak = Math.max(frameMax, root.peak * Math.exp(-dt / root.peakReleaseMs));
+        var gain = root.peak > 0
+            ? Math.max(1, Math.min(root.quietBoostMax, root.peakTarget / root.peak)) : 1;
         var out = [];
         var sum = 0;
-        for (var i = 0; i < root.bars; i++) {
+        for (var j = 0; j < root.bars; j++) {
             // A band at the noise floor reads as silent, so a quiet room
             // leaves every surface at rest.
-            var v = root.norm(parts[i]);
+            var v = Math.min(1, raw[j] * gain);
             if (v < 0.02)
                 v = 0;
             out.push(v);
             sum += v;
         }
-        root.lastReadMs = Date.now();
+        root.lastReadMs = now;
         // A silent frame after a silent frame changes nothing; skipping it
         // spares every bound surface a re-read.
         if (sum === 0 && root.energy === 0)

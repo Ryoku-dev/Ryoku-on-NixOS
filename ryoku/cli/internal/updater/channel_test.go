@@ -1,6 +1,9 @@
 package updater
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -438,6 +441,106 @@ func TestChannelUpdateReconcilesDivergence(t *testing.T) {
 	}
 	if r, _ := channelStatus(); r.Behind != 0 {
 		t.Errorf("after reconcile, behind = %d, want 0", r.Behind)
+	}
+}
+
+// gatedDeployFixture is a source box on unstable-dev whose checkout sits on the
+// seed commit while origin has moved on to a commit the gate checked and, past
+// it, one still being checked. Its deploy stub leaves a marker, so a test can
+// tell whether the update laid the checkout down. gate builds the testing gate's
+// answer once those commits exist.
+func gatedDeployFixture(t *testing.T, gate func(checked, unchecked string) http.HandlerFunc) (work, state, marker, seed, checked, unchecked string) {
+	t.Helper()
+	root := t.TempDir()
+	origin := filepath.Join(root, "origin.git")
+	work = filepath.Join(root, "work")
+	marker = filepath.Join(root, "deploy-ran")
+
+	mustGit(t, "", "init", "--bare", "-b", "unstable-dev", origin)
+	mustGit(t, "", "clone", origin, work)
+	writeFile(t, filepath.Join(work, "ryoku", "shell", "deploy.sh"), "#!/bin/sh\ntouch '"+marker+"'\n")
+	if err := os.Chmod(filepath.Join(work, "ryoku", "shell", "deploy.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, work, "add", "-A")
+	mustGit(t, work, "commit", "-m", "seed with deploy stub")
+	mustGit(t, work, "push", "origin", "unstable-dev")
+	seed = strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD"))
+
+	other := filepath.Join(root, "other")
+	mustGit(t, "", "clone", origin, other)
+	commitPush(t, other, "checked", "c\n", "checked work", "unstable-dev")
+	checked = strings.TrimSpace(mustGit(t, other, "rev-parse", "HEAD"))
+	commitPush(t, other, "unchecked", "u\n", "work still being checked", "unstable-dev")
+	unchecked = strings.TrimSpace(mustGit(t, other, "rev-parse", "HEAD"))
+
+	server := httptest.NewServer(gate(checked, unchecked))
+	t.Cleanup(server.Close)
+	state = t.TempDir()
+	t.Setenv("RYOKU_REPO", work)
+	t.Setenv("RYOKU_CHANNEL", "unstable-dev")
+	t.Setenv("RYOKU_RELEASE_BASE", server.URL)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // isolate TrackedChannel from the host's environment.d
+	t.Setenv("XDG_RUNTIME_DIR", root)
+	t.Setenv("XDG_STATE_HOME", state)
+	force, wait := updateForce, updateWait
+	updateForce, updateWait = false, false
+	t.Cleanup(func() { updateForce, updateWait = force, wait })
+	return work, state, marker, seed, checked, unchecked
+}
+
+// Regression: offline, the update could not read the gate, stayed on a checkout
+// a week behind the running desktop and deployed it anyway, removing the
+// default bar. Without the gate there is nothing new to lay down.
+func TestChannelUpdateKeepsTheDesktopWhenTheGateIsUnreadable(t *testing.T) {
+	work, state, marker, seed, _, unchecked := gatedDeployFixture(t, func(_, _ string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "unreachable", http.StatusServiceUnavailable)
+		}
+	})
+	writeFile(t, filepath.Join(state, "ryoku", "deployed"), unchecked+"\n")
+
+	if err := channelUpdate(); err != nil {
+		t.Fatalf("channelUpdate: %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the checkout was deployed although the gate could not be read")
+	}
+	if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != seed {
+		t.Errorf("checkout moved to %s without the gate, want it left on %s", head, seed)
+	}
+}
+
+// The checkout advances to the last checked commit either way, but it is laid
+// down only when that is not older than the commit the desktop already runs.
+func TestChannelUpdateNeverDeploysOlderThanTheRunningDesktop(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		running    func(seed, unchecked string) string
+		wantDeploy bool
+	}{
+		{"running a newer commit", func(seed, unchecked string) string { return unchecked }, false},
+		{"running an older commit", func(seed, unchecked string) string { return seed }, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			work, state, marker, seed, checked, unchecked := gatedDeployFixture(t, func(checked, unchecked string) http.HandlerFunc {
+				pointer := fmt.Sprintf(`{"commit":%q,"state":"checking","run":"r","at":%q,"passed":{"commit":%q}}`,
+					unchecked, time.Now().UTC().Format(time.RFC3339), checked)
+				return func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, pointer) }
+			})
+			writeFile(t, filepath.Join(state, "ryoku", "deployed"), tc.running(seed, unchecked)+"\n")
+
+			if err := channelUpdate(); err != nil {
+				t.Fatalf("channelUpdate: %v", err)
+			}
+			if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != checked {
+				t.Errorf("checkout on %s, want the last checked commit %s", head, checked)
+			}
+			_, err := os.Stat(marker)
+			if deployed := err == nil; deployed != tc.wantDeploy {
+				t.Errorf("deployed = %v, want %v", deployed, tc.wantDeploy)
+			}
+		})
 	}
 }
 

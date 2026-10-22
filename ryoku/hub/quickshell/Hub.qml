@@ -13,6 +13,7 @@ import "Singletons"
 // fails to load.
 import "pages"
 import "schema/DesktopPage.js" as DesktopSchema
+import "schema/GlobalPage.js" as GlobalSchema
 import "schema/BarStudioPage.js" as BarStudioSchema
 import "schema/ControlsPage.js" as ControlsSchema
 import "schema/WindowSettings.js" as WindowSettingsSchema
@@ -160,7 +161,8 @@ Rectangle {
             { key: "layerrules", name: "Layer Rules", adv: true, needs: { rows: true } } ] },
         { name: "DESKTOP", items: [
             { key: "bar-studio", name: "Bar Studio", wired: true }, { key: "desktop", name: "Desktop", wired: true },
-            { key: "controls", name: "Controls", wired: true }, { key: "launcher", name: "App Launcher" } ] },
+            { key: "controls", name: "Controls", wired: true }, { key: "overlays", name: "Overlays", wired: true },
+            { key: "launcher", name: "App Launcher" } ] },
         { name: "KEYS & APPS", items: [
             { key: "keybinds", name: "Keybinds" }, { key: "appoverrides", name: "App Overrides", adv: true },
             { key: "windowrules", name: "Window Rules", adv: true } ] },
@@ -186,7 +188,7 @@ Rectangle {
         "profile": "横顔", "displays": "画面", "input": "入力", "keybinds": "操作",
         "connections": "接続", "gpu": "演算", "recording": "録画", "dictation": "音声",
         "plugins": "補", "bar-studio": "帯", "desktop": "卓上", "controls": "操作",
-        "launcher": "起動", "fastfetch": "情報", "lockscreen": "施錠", "animations": "動き",
+        "overlays": "重ね", "launcher": "起動", "fastfetch": "情報", "lockscreen": "施錠", "animations": "動き",
         "addons": "拡張", "windowrules": "規則", "appoverrides": "上書", "layerrules": "階層",
         "session": "起動", "performance": "性能", "rashin": "羅針",
         "updates": "更新", "nixos-info": "雪", "credits": "謝辞", "global": "全般", "import": "取込", "windowmanager": "合成"
@@ -211,6 +213,7 @@ Rectangle {
         "bar-studio": "bar frame rails zones widgets menus surfaces style catalogue layout framebars sidebar dock dockapps pinned pin magnify autohide auto-hide media chip peek labels edge taskbar",
         "desktop": "desktop brand logo mark name wallpaper picker clipboard sidebar sidebars controls today panel corner",
         "controls": "controls quick settings super escape sidebar panel layout sections order graph vitals levels media plugins",
+        "overlays": "osd volume popup brightness popup notifications popups toasts sidebar super escape quick settings design designs store",
         "launcher": "launcher spotlight command palette greeting weather home",
         "fastfetch": "fetch neofetch terminal system info logo ascii emblem readout",
         "lockscreen": "lock screensaver signin greeter skin theme login",
@@ -246,7 +249,7 @@ Rectangle {
         "windowrules": WindowRulesSchema.rows, "appoverrides": AppOverridesSchema.rows,
         "layerrules": LayerRulesSchema.rows, "session": SessionSchema.rows,
         "performance": PerformanceSchema.rows,
-        "updates": UpdatesSchema.rows
+        "updates": UpdatesSchema.rows, "global": GlobalSchema.rows
     })
     readonly property var searchIndex: {
         var srcs = hub.sectionRows;
@@ -550,7 +553,7 @@ Rectangle {
     function pageFile(s) {
         var map = {
             "plugins": "PluginsPage", "profile": "ProfilePage",
-            "bar-studio": "BarStudioPage", "desktop": "DesktopPage", "controls": "ControlsPage", "session": "SessionPage",
+            "bar-studio": "BarStudioPage", "desktop": "DesktopPage", "controls": "ControlsPage", "overlays": "OverlaysPage", "session": "SessionPage",
             "layerrules": "LayerRulesPage", "windowrules": "WindowRulesPage",
             "appoverrides": "AppOverridesPage", "animations": "AnimationsPage",
             "input": "InputPage", "keybinds": "KeybindsPage",

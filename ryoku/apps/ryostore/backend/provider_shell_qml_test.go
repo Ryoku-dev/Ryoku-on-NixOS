@@ -16,7 +16,8 @@ import (
 )
 
 // shellQMLCase is one shell QML category and the setting that wears it: the
-// launcher variant in launcher.json, the dock design inside shell.json's dock.
+// launcher variant in launcher.json, the dock design inside shell.json's dock,
+// an overlay design inside shell.json's designs.
 type shellQMLCase struct {
 	product shellQMLProduct
 	id      string // the store product the fixture serves
@@ -62,6 +63,46 @@ func shellQMLCases() []shellQMLCase {
 				return config["barStyle"] == "orpheus" && dock["edge"] == "left" &&
 					fmt.Sprint(dock["pinned"]) == "[kitty]"
 			},
+		},
+		overlayCase(osdProducts, "ito", "osd"),
+		overlayCase(notificationProducts, "tegami", "notification"),
+		overlayCase(sidebarProducts, "byobu", "sidebar"),
+	}
+}
+
+// overlayCase wears one of shell.json's designs beside the other two and an
+// unrelated dock, so a fallback that rewrites the wrong key shows up as a loss.
+func overlayCase(product shellQMLProduct, id, key string) shellQMLCase {
+	others := map[string]any{"osd": "ryoku", "notification": "ryoku", "sidebar": "ryoku"}
+	return shellQMLCase{
+		product: product, id: id, shipped: "ryoku",
+		wear: func(t *testing.T, id string) {
+			designs := map[string]any{}
+			for k, v := range others {
+				designs[k] = v
+			}
+			designs[key] = id
+			writeTestConfig(t, defaultShellConfigPath(), map[string]any{
+				"barStyle": "orpheus",
+				"dock":     map[string]any{"design": "engawa"},
+				"designs":  designs,
+			})
+		},
+		worn: func(t *testing.T) string {
+			designs, _ := readTestConfig(t, defaultShellConfigPath())["designs"].(map[string]any)
+			value, _ := designs[key].(string)
+			return value
+		},
+		kept: func(t *testing.T) bool {
+			config := readTestConfig(t, defaultShellConfigPath())
+			dock, _ := config["dock"].(map[string]any)
+			designs, _ := config["designs"].(map[string]any)
+			for k, v := range others {
+				if k != key && designs[k] != v {
+					return false
+				}
+			}
+			return config["barStyle"] == "orpheus" && dock["design"] == "engawa"
 		},
 	}
 }

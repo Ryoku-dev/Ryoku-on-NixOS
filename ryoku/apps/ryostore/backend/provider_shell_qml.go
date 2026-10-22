@@ -63,10 +63,48 @@ var (
 		},
 		views: dockViews,
 	}
+	// The overlays every bar style shares. Each ships one design of its own,
+	// "ryoku", drawn by the shell's OSD, popup and Controls hosts.
+	osdProducts = shellQMLProduct{
+		category: Category{
+			ID:          "osds",
+			Name:        "On-screen displays",
+			Group:       "wear",
+			Description: "Community volume, brightness and keyboard pop-ups. Install here, pick one in Settings -> Overlays.",
+		},
+		noun:     "OSD design",
+		entry:    "Osd.qml",
+		builtins: map[string]bool{"ryoku": true},
+		views:    osdViews,
+	}
+	notificationProducts = shellQMLProduct{
+		category: Category{
+			ID:          "notifications",
+			Name:        "Notifications",
+			Group:       "wear",
+			Description: "Community notification cards. Install here, pick one in Settings -> Overlays.",
+		},
+		noun:     "notification design",
+		entry:    "Card.qml",
+		builtins: map[string]bool{"ryoku": true},
+		views:    notificationViews,
+	}
+	sidebarProducts = shellQMLProduct{
+		category: Category{
+			ID:          "sidebars",
+			Name:        "Sidebars",
+			Group:       "wear",
+			Description: "Community designs for the Super+Esc panel. Install here, pick one in Settings -> Overlays.",
+		},
+		noun:     "sidebar design",
+		entry:    "Sidebar.qml",
+		builtins: map[string]bool{"ryoku": true},
+		views:    sidebarViews,
+	}
 )
 
 func shellQMLProductFor(category string) (shellQMLProduct, bool) {
-	for _, product := range []shellQMLProduct{launcherProducts, dockProducts} {
+	for _, product := range []shellQMLProduct{launcherProducts, dockProducts, osdProducts, notificationProducts, sidebarProducts} {
 		if product.category.ID == category {
 			return product, true
 		}

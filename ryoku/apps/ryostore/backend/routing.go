@@ -8,7 +8,8 @@ import (
 
 var storeSections = map[string]struct{}{
 	"discover": {}, "library": {}, "rices": {}, "lockscreens": {},
-	"barstyles": {}, "docks": {}, "launchers": {}, "fastfetch": {}, "plugins": {}, "bundles": {}, "decors": {},
+	"barstyles": {}, "docks": {}, "launchers": {}, "osds": {}, "notifications": {}, "sidebars": {},
+	"fastfetch": {}, "plugins": {}, "bundles": {}, "decors": {},
 	"launcher-images": {}, "fastfetch-emblems": {}, "ryotunes-skins": {},
 	"vesktop-themes": {},
 }
@@ -29,7 +30,11 @@ func settingsSection(category string) (string, bool) {
 		"bundles":   "addons",
 		"barstyles": "bar-studio",
 		"launchers": "launcher",
-		"fastfetch": "fastfetch",
+		// The overlays are worn on one Hub page.
+		"osds":          "overlays",
+		"notifications": "overlays",
+		"sidebars":      "overlays",
+		"fastfetch":     "fastfetch",
 	}[category]
 	return section, ok
 }

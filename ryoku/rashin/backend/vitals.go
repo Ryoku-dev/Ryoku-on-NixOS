@@ -294,16 +294,19 @@ func dgpuAsleep() bool {
 	return false
 }
 
-// gpuVitals queries nvidia-smi; any failure (no tool, no GPU, timeout) is nil.
-//
-// A suspended discrete GPU is reported as absent rather than probed. nvidia-smi
-// wakes the card out of runtime D3 (about 10 W on a hybrid laptop), and the
-// vitals websocket ticks every 2s, so probing here would hold the card awake for
-// as long as any Rashin client is connected and quietly undo the power saving.
+// gpuVitals prefers NVIDIA's own telemetry, then reads AMD's amdgpu sysfs
+// counters. A suspended NVIDIA card is not probed because nvidia-smi wakes it
+// out of runtime D3; an active AMD card can still be reported on a hybrid host.
 func gpuVitals() *GPUVitals {
-	if dgpuAsleep() {
-		return nil
+	if !dgpuAsleep() {
+		if gpu := nvidiaGPUVitals(); gpu != nil {
+			return gpu
+		}
 	}
+	return amdGPUVitals("/sys/class/drm")
+}
+
+func nvidiaGPUVitals() *GPUVitals {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "nvidia-smi",
@@ -333,6 +336,64 @@ func gpuVitals() *GPUVitals {
 		VRAMUsed:  usedMiB * miB,
 		VRAMTotal: totalMiB * miB,
 	}
+}
+
+func amdGPUVitals(drmRoot string) *GPUVitals {
+	entries, err := os.ReadDir(drmRoot)
+	if err != nil {
+		return nil
+	}
+	var best GPUVitals
+	found := false
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, "card") {
+			continue
+		}
+		if _, err := strconv.Atoi(strings.TrimPrefix(name, "card")); err != nil {
+			continue
+		}
+		device := filepath.Join(drmRoot, name, "device")
+		vendor, err := os.ReadFile(filepath.Join(device, "vendor"))
+		if err != nil || strings.TrimSpace(string(vendor)) != "0x1002" {
+			continue
+		}
+		if status, err := os.ReadFile(filepath.Join(device, "power", "runtime_status")); err == nil &&
+			strings.TrimSpace(string(status)) == "suspended" {
+			continue
+		}
+		pct64, _ := readGPUCounter(filepath.Join(device, "gpu_busy_percent"))
+		if pct64 < 0 {
+			pct64 = 0
+		} else if pct64 > 100 {
+			pct64 = 100
+		}
+		used, _ := readGPUCounter(filepath.Join(device, "mem_info_vram_used"))
+		total, _ := readGPUCounter(filepath.Join(device, "mem_info_vram_total"))
+		candidate := GPUVitals{
+			Name:      "AMD Radeon",
+			Percent:   int(pct64),
+			VRAMUsed:  used,
+			VRAMTotal: total,
+		}
+		if !found || candidate.VRAMTotal > best.VRAMTotal {
+			best = candidate
+			found = true
+		}
+	}
+	if !found {
+		return nil
+	}
+	return &best
+}
+
+func readGPUCounter(path string) (int64, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	return n, err == nil
 }
 
 // firstLine returns the first line of s without its terminator.

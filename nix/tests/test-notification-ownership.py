@@ -54,7 +54,7 @@ class NotificationOwnershipTest(unittest.TestCase):
 """
         self.assertIn(binding, shell)
         self.assertIn("property bool dnd: false", notifs)
-        self.assertIn("if (!root.dnd)", notifs)
+        self.assertIn("if (!root.dnd || root.isUrgentUpdate(n))", notifs)
 
     def test_notifications_follow_the_live_wallpaper_palette(self):
         scheme = SCHEME_QML.read_text()
