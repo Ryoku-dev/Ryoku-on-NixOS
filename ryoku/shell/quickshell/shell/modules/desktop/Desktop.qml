@@ -54,6 +54,9 @@ Scope {
     // controller hook; the desktop layer defaults on.
     property bool active: true
     property bool widgetsEnabled: true
+    // A Store frame-family can host its own widget canvas in this wallpaper
+    // surface; no second competing Bottom-layer window is created.
+    property bool gokkoActive: false
     property string wallpaperUrl: ""
     property string wallpaperPath: ""
     property string wallpaperFit: "Cover"
@@ -119,7 +122,7 @@ Scope {
     readonly property bool deckFrostEnabled: Services.Config.deckFrostEnabled !== false
         && Number(Services.Config.deckFrost) > 0
     readonly property int deckFrostCount: (root.deckFrostEnabled
-        && !root.stageComposing && !root.stageEditing)
+        && !root.gokkoActive && !root.stageComposing && !root.stageEditing)
         ? CompositorService.windowsOnActiveWorkspace(root.monitorName)
         : 0
     property real deckFrost: root.deckFrostCount > 0
@@ -754,6 +757,19 @@ Scope {
             videoMuted: root.videoMuted
             videoVolume: root.videoVolume
             videoPaused: root.videoPaused
+        }
+
+        // Gokko's widgets render as wallpaper siblings rather than creating
+        // another Bottom-layer Wayland surface that could be occluded.
+        Loader {
+            id: gokkoCanvas
+            z: 3
+            anchors.fill: parent
+            readonly property var controller: Services.BarProducts.gokkoWidgets
+            active: root.gokkoActive && controller !== null && controller.ready
+                && controller.widgetOutput === root.monitorName
+                && (controller.widgetCount > 0 || controller.editing)
+            sourceComponent: controller ? controller.desktopCanvasComponent : undefined
         }
 
         // The Parallax backdrop: the inpainted background.png drifting just
