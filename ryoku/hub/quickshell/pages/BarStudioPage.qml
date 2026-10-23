@@ -329,7 +329,7 @@ Item {
                     width: parent.width
                     category: "barstyles"
                     wornId: page.activeStyle
-                    shippedDesigns: []
+                    shippedDesigns: BarStyles.builtins
                     onWear: designId => page.fedit("barStyle", designId)
                 }
             }

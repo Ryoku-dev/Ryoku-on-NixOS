@@ -7,6 +7,7 @@ QtObject {
     id: root
 
     readonly property var builtins: [
+        { "id": "karuma", "name": "Karuma", "desc": "The Karuma bar shipped with Ryoku on NixOS.", "installed": true, "unavailable": false },
         { "id": "sumi", "name": "Sumi", "desc": "The framed Ryoku desktop.", "installed": true, "unavailable": false },
         { "id": "qsbar", "name": "QS Bar", "desc": "The configurable module bar.", "installed": true, "unavailable": false },
         { "id": "chroma", "name": "Chroma", "desc": "A vivid compact status bar.", "installed": true, "unavailable": false },
