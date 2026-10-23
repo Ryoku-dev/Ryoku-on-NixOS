@@ -81,6 +81,7 @@ Singleton {
         || (barStyle === "nomarchy"
         && !(root.nomarchy && root.nomarchy.notifications === false))
         || barStyle === "tansu"
+        || barStyle === "gokko"
     // Only a style that plays its own notification sound silences the shell's
     // cue; Nomarchy and Tansu draw banners but play nothing themselves.
     readonly property bool styleOwnsNotificationSound: barStyle === "python"
@@ -191,10 +192,12 @@ Singleton {
         const style = outputName && outputName.length > 0
             ? root.barStyleFor(outputName)
             : root.barStyle;
-        return style === "python"
+        // A Store-installed Gokko frame owns its banners; preserve Python's
+        // existing per-style notification switch untouched.
+        return style === "gokko" || (style === "python"
             && !(root.python
                 && root.python.general
-                && root.python.general.notifications === false);
+                && root.python.general.notifications === false));
     }
 
     function styleOwnsFeedbackFor(outputName) {
