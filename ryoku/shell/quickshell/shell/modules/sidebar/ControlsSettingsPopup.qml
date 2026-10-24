@@ -77,6 +77,114 @@ QQC.Popup {
 
         Text {
             width: parent.width
+            text: I18n.tr("Position")
+            color: Tokens.inkMuted
+            font.family: Tokens.mono
+            font.pixelSize: Tokens.fMicro * root.s
+            font.capitalization: Font.AllUppercase
+            font.letterSpacing: Tokens.trackLabel
+        }
+
+        SidebarSegments {
+            width: parent.width
+            s: root.s
+            options: ["top-left", "top-right", "center"]
+            labels: ({ "top-left": "Top left", "top-right": "Top right", "center": "Center" })
+            current: SidebarState.position
+            onChose: key => SidebarState.setPosition(key)
+        }
+
+        Text {
+            width: parent.width
+            text: I18n.tr("Where Controls opens on the screen")
+            color: Tokens.inkFaint
+            font.family: Tokens.ui
+            font.pixelSize: Tokens.fSmall * root.s
+            wrapMode: Text.WordWrap
+        }
+
+        Item {
+            width: parent.width
+            height: Math.max(edgeGapLabel.implicitHeight, edgeGapValue.implicitHeight)
+
+            Text {
+                id: edgeGapLabel
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                text: I18n.tr("Edge gap")
+                color: Tokens.inkMuted
+                font.family: Tokens.mono
+                font.pixelSize: Tokens.fMicro * root.s
+                font.capitalization: Font.AllUppercase
+                font.letterSpacing: Tokens.trackLabel
+            }
+
+            Text {
+                id: edgeGapValue
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                text: SidebarState.edgeGap + " px"
+                color: Tokens.inkDim
+                font.family: Tokens.mono
+                font.pixelSize: Tokens.fSmall * root.s
+            }
+        }
+
+        QQC.Slider {
+            id: edgeGapSlider
+            width: parent.width
+            implicitHeight: Tokens.ctlH * root.s
+            from: 0
+            to: SidebarState.maxEdgeGap
+            stepSize: 1
+            snapMode: QQC.Slider.SnapAlways
+            value: SidebarState.edgeGap
+            Accessible.name: I18n.tr("Controls edge gap")
+            Accessible.description: I18n.tr("Distance from the screen edge")
+            onMoved: SidebarState.setEdgeGap(value)
+
+            background: Rectangle {
+                x: edgeGapSlider.leftPadding
+                y: edgeGapSlider.topPadding + edgeGapSlider.availableHeight / 2 - height / 2
+                width: edgeGapSlider.availableWidth
+                height: Math.max(Tokens.border * 2, Tokens.s1 * root.s)
+                radius: height / 2
+                color: Tokens.tint10
+
+                Rectangle {
+                    width: edgeGapSlider.visualPosition * parent.width
+                    height: parent.height
+                    radius: parent.radius
+                    color: Tokens.sun
+                }
+            }
+
+            handle: Rectangle {
+                x: edgeGapSlider.leftPadding
+                    + edgeGapSlider.visualPosition * (edgeGapSlider.availableWidth - width)
+                y: edgeGapSlider.topPadding + edgeGapSlider.availableHeight / 2 - height / 2
+                implicitWidth: Tokens.s4 * root.s
+                implicitHeight: Tokens.s4 * root.s
+                radius: width / 2
+                color: edgeGapSlider.pressed ? Tokens.sunDeep : Tokens.sun
+                border.width: Tokens.border
+                border.color: Tokens.paperLift
+            }
+        }
+
+        Text {
+            width: parent.width
+            text: I18n.tr("Distance between Controls and the nearest screen edge")
+            color: Tokens.inkFaint
+            font.family: Tokens.ui
+            font.pixelSize: Tokens.fSmall * root.s
+            wrapMode: Text.WordWrap
+        }
+
+        Item { width: parent.width; height: Tokens.s1 * root.s }
+
+        Text {
+            width: parent.width
             visible: extensionRow.visible
             text: I18n.tr("EXTENSIONS")
             color: Tokens.inkMuted

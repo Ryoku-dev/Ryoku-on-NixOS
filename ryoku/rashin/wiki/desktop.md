@@ -32,6 +32,7 @@ helps when you want to change something.
 | Super+Tab | Workspace overview |
 | Super+Escape | Controls |
 | Super+comma | Ryoku Hub |
+| Super+Shift+D | Stage Editor on the focused screen |
 | Super+W | Wallpaper and theme picker |
 | Super+V | Clipboard history |
 | Super+Shift+S | Screenshot and recording action bar |

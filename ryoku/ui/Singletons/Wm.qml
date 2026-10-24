@@ -22,7 +22,47 @@ Singleton {
     property var _v: null
 
     property bool _ready: false
-    property var _caps: ({})
+    readonly property var emptyCaps: ({
+        workspaces: false,
+        specialWorkspace: false,
+        workspaceMoveToOutput: false,
+        windowWorkspaceMap: false,
+        workspaceFullscreenState: false,
+        windowGeometry: false,
+        focusHistory: false,
+        windowRules: false,
+        layerRules: false,
+        submap: false,
+        globalShortcuts: false,
+        focusGrab: false,
+        workspaceSlideStyle: false,
+        screenShader: false,
+        plugins: false,
+        liveConfigEval: false,
+        configReload: false,
+        animations: false,
+        cursorSet: false,
+        nativeOverview: false,
+        overviewBackdrop: false,
+        overviewState: false,
+        outputPower: false,
+        keyboardLayoutSwitch: false,
+        monitorConfig: false,
+        outputMirror: false,
+        outputHdr: false,
+        windowFloat: false,
+        tiledLayout: false,
+        columnFill: false,
+        deckLayout: false,
+        sessionExit: false,
+        nightLight: false,
+        touchpadToggle: false,
+        paletteBorder: false,
+        persistentScreenCapture: false,
+        keyboardGrabSharesPointer: false,
+        systemLidEdgeSource: false
+    })
+    property var _caps: root.emptyCaps
     property string _workspaceModel: "fixed"
     property string _provider: ""
     property var _configFiles: []
@@ -359,7 +399,7 @@ Singleton {
             if (!v) {
                 root._v = null;
                 root._ready = frame.ready === true;
-                root._caps = frame.caps || ({});
+                root._caps = frame.caps || root.emptyCaps;
                 root._workspaceModel = frame.workspaceModel || "fixed";
                 root._provider = frame.provider || "";
                 root._configFiles = frame.configFiles || [];
@@ -374,7 +414,7 @@ Singleton {
             }
             if (root._newer(v, "ready")) {
                 root._ready = frame.ready === true;
-                root._caps = frame.caps || ({});
+                root._caps = frame.caps || root.emptyCaps;
                 root._workspaceModel = frame.workspaceModel || "fixed";
                 root._provider = frame.provider || "";
                 root._configFiles = frame.configFiles || [];

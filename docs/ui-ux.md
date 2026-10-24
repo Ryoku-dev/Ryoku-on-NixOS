@@ -574,6 +574,7 @@ and per-monitor visibility from `ShellState`.
 |**Ask**|`Alt+Space`|quick Rashin answers, chat, tools, web search, and the optional desktop bubble|
 |**clipboard**|`Super+V`|clipboard history at the bottom edge, with fuzzy search and a starred pane|
 |**wallpaper and theme menu**|`Super+W`|the wallpaper carousel and theme picker|
+|**Stage Editor**|`Super+Shift+D`|edit the desktop on the focused screen|
 |**visualiser placement**|`Super+Alt+M`|open the Stage Editor's Visualizer catalogue|
 |**voice**|`Super+grave`|speech to text with a live mic wave|
 |**Ryoku Settings**|`Super+,`|the Hub|

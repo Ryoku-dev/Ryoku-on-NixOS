@@ -37,6 +37,32 @@ func TestEveryCatalogueIdMappedOrReasoned(t *testing.T) {
 	}
 }
 
+func TestDirectionalFocusFallsThroughToAdjacentMonitor(t *testing.T) {
+	defs := defaultBinds()
+	for id, want := range map[string]string{
+		"focus.left":  "focus-column-or-monitor-left",
+		"focus.right": "focus-column-or-monitor-right",
+		"focus.up":    "focus-window-or-monitor-up",
+		"focus.down":  "focus-window-or-monitor-down",
+	} {
+		if got := defs[id].action; got != want {
+			t.Errorf("%s action = %q, want %q", id, got, want)
+		}
+	}
+
+	rendered, _ := genBinds(loadStore(""))
+	for _, want := range []string{
+		"Super+Left { focus-column-or-monitor-left; }",
+		"Super+Right { focus-column-or-monitor-right; }",
+		"Super+Up { focus-window-or-monitor-up; }",
+		"Super+Down { focus-window-or-monitor-down; }",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("generated binds missing %q", want)
+		}
+	}
+}
+
 func emittedChords(s niriStore) []string {
 	out, _ := resolveBinds(s)
 	chords := make([]string, len(out))

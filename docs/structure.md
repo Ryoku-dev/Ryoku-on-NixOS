@@ -29,7 +29,7 @@ Start with the guide that matches the job:
   [compositors](compositors.md), [adding a window
   manager](adding-a-window-manager.md), [Hyprland
   plugins](hyprland-plugins.md), [Rashin](rashin.md), [Rashin in the
-  terminal](rashin-terminal.md) and [upstream dictation guide](https://github.com/Ryoku-dev/ryoku/blob/main/docs/dictation.md).
+  terminal](rashin-terminal.md) and [dictation](dictation.md).
 
 The rest of this page maps those guides to the source tree.
 

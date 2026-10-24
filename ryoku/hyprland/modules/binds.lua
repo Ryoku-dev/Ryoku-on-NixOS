@@ -36,11 +36,31 @@ hl.bind(K(mod .. " + P"),         hl.dsp.exec_cmd("ryoku-monitor toggle"))      
 -- move focuses the neighbour and leaves the maximized window maximized.
 hl.config({ binds = { movefocus_cycles_fullscreen = true } })
 
+-- A fullscreen cycle cannot cross outputs, so take an adjacent screen first.
+local function focus_direction(dir)
+    local win = hl.get_active_window()
+    local mon = win and win.fullscreen ~= 0 and hl.get_active_monitor() or nil
+    if mon then
+        local x = mon.position.x + mon.size.x / 2
+        local y = mon.position.y + mon.size.y / 2
+        if dir == "left" then x = mon.position.x - 1
+        elseif dir == "right" then x = mon.position.x + mon.size.x + 1
+        elseif dir == "up" then y = mon.position.y - 1
+        else y = mon.position.y + mon.size.y + 1 end
+        local next_mon = hl.get_monitor_at(x, y)
+        if next_mon and next_mon.id ~= mon.id then
+            hl.dispatch(hl.dsp.focus({ monitor = dir:sub(1, 1) }))
+            return
+        end
+    end
+    hl.dispatch(hl.dsp.focus({ direction = dir }))
+end
+
 -- Focus and move windows
-hl.bind(K(mod .. " + Left"),          hl.dsp.focus({ direction = "left" }))        -- focus left
-hl.bind(K(mod .. " + Right"),         hl.dsp.focus({ direction = "right" }))       -- focus right
-hl.bind(K(mod .. " + Up"),            hl.dsp.focus({ direction = "up" }))          -- focus up
-hl.bind(K(mod .. " + Down"),          hl.dsp.focus({ direction = "down" }))        -- focus down
+hl.bind(K(mod .. " + Left"),          function() focus_direction("left") end)       -- focus left
+hl.bind(K(mod .. " + Right"),         function() focus_direction("right") end)      -- focus right
+hl.bind(K(mod .. " + Up"),            function() focus_direction("up") end)         -- focus up
+hl.bind(K(mod .. " + Down"),          function() focus_direction("down") end)       -- focus down
 hl.bind(K(mod .. " + SHIFT + Left"),  hl.dsp.window.move({ direction = "left" }))  -- move window left
 hl.bind(K(mod .. " + SHIFT + Right"), hl.dsp.window.move({ direction = "right" })) -- move window right
 hl.bind(K(mod .. " + SHIFT + Up"),    hl.dsp.window.move({ direction = "up" }))    -- move window up
@@ -82,7 +102,7 @@ hl.bind(K("ALT + Space"),         hl.dsp.global("ryoku:ask"))                   
 hl.bind(K(mod .. " + ALT + Space"), hl.dsp.exec_cmd("ryoku-summon Rashin flock -n -o /tmp/rashin-app.lock rashin-app")) -- Rashin app: the AI companion window (a second press focuses it)
 hl.bind(K(mod .. " + K"),         hl.dsp.exec_cmd("pkill -x -f 'qs -c keys' 2>/dev/null || flock -n -o /tmp/ryoku-keys.lock qs -c keys")) -- Kit: toggle (press to open, press again to close)
 hl.bind(K(mod .. " + L"),         hl.dsp.exec_cmd("ryoku-shell lock"))             -- lock the screen
-hl.bind(K(mod .. " + Escape"),    hl.dsp.global("ryoku:quicksettings")) -- quick settings: power, logout, restart, shutdown, wifi
+hl.bind(K(mod .. " + Escape"),    hl.dsp.global("ryoku:quicksettings"), { dont_inhibit = true }) -- quick settings: power, logout, restart, shutdown, wifi
 hl.bind(K(mod .. " + W"),         hl.dsp.exec_cmd("ryogami wallpaper ui"))     -- ryogami wallpaper picker (full-screen browser: hero cards, colour filters, effects); the frame-blob menu stays on the bar logo
 hl.bind(K(mod .. " + SHIFT + W"), hl.dsp.exec_cmd("ryogami wallpaper random")) -- random wallpaper, random transition
 hl.bind(K(mod .. " + SHIFT + V"), hl.dsp.exec_cmd("ryoku-summon ryovm flock -n -o /tmp/ryovm.lock qs -c ryovm")) -- ryovm: summon to current workspace
@@ -94,6 +114,7 @@ hl.bind(K(mod .. " + SHIFT + M"), hl.dsp.global("ryoku:visualizer-overlay")) -- 
 hl.bind(K(mod .. " + ALT + M"),   hl.dsp.global("ryoku:visualizer-place"))   -- move the audio visualiser: drag the ring or orb into place
 hl.bind(K(mod .. " + grave"),     hl.dsp.exec_cmd("ryoku-shell voice"))             -- voice typing: speech-to-text with a mic wave (tap again to stop)
 hl.bind(K(mod .. " + comma"),     hl.dsp.exec_cmd("ryoku-shell hub open"))     -- ryoku settings
+hl.bind(K(mod .. " + SHIFT + D"), hl.dsp.exec_cmd("ryoku-shell hub open widgets")) -- Stage Editor: edit the desktop on the focused screen
 hl.bind(K(mod .. " + SHIFT + S"), hl.dsp.exec_cmd("ryoku-cmd-ryoshot")) -- screenshot: capture, annotate and beautify
 hl.bind(K(mod .. " + SHIFT + C"), hl.dsp.exec_cmd("hyprpicker -a"))                 -- pick a color
 

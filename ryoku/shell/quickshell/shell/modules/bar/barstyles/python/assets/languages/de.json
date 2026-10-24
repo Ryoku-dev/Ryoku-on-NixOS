@@ -344,7 +344,7 @@
         "desc": "Anzahl der anzuzeigenden Arbeitsflächen",
         "hide_empty": {
           "title": "Leere Arbeitsbereiche ausblenden",
-          "desc": "Nur belegte und den aktiven Arbeitsbereich anzeigen"
+          "desc": "Belegte Arbeitsbereiche und alle Arbeitsbereiche bis zum aktiven anzeigen"
         },
         "style": {
           "title": "Stil",

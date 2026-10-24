@@ -35,11 +35,11 @@ BorderSurface {
   signal closeRequested()
   signal cardClicked()
   // Prefer per-notification media/avatar data, then fall back to the app icon.
-  // The `check` flag avoids Qt's missing-texture placeholder for unknown names.
-  readonly property string smallIconSource: image.length > 0 ? image : iconSource(appIcon)
+  readonly property string smallIconSource: image.length > 0 ? iconSource(image) : iconSource(appIcon)
   readonly property bool hasGlyph: glyph.length > 0
   readonly property bool compactGlyph: NotificationLogic.shouldRenderCompactGlyph(glyph, smallIconSource, singleLineToast)
   readonly property bool hasSmallIcon: smallIconSource.length > 0
+  readonly property bool fallbackIcon: !hasGlyph && (!hasSmallIcon || smallIconImage.status === Image.Error)
   readonly property bool summaryStartsWithGlyph: NotificationLogic.summaryStartsWithGlyph(summary)
   readonly property bool singleLineToast: sanitizedBody.length === 0
   readonly property bool collapseRedundantIcon: singleLineToast && !hasGlyph && summaryStartsWithGlyph
@@ -58,9 +58,12 @@ BorderSurface {
   function iconSource(icon) {
     var value = String(icon || "")
     if (value.length === 0) return ""
+    if (value.indexOf("image://icon/") === 0)
+      value = decodeURIComponent(value.substring(13))
     if (value.indexOf("file://") === 0 || value.indexOf("image://") === 0) return value
     if (value.charAt(0) === "/") return Util.fileUrl(value)
-    return Quickshell.iconPath(value, true)
+    if (value.indexOf(":") > 0) return value
+    return Quickshell.iconPath(value, "")
   }
 
   implicitWidth: Style.space(380)
@@ -113,10 +116,8 @@ BorderSurface {
         Layout.preferredWidth: visible ? Style.space(40) : 0
         Layout.preferredHeight: visible ? Style.space(40) : 0
         Layout.alignment: Qt.AlignVCenter
-        // Hide the slot when the icon failed to resolve (themed-icon name
-        // not in the user's icon theme) AND we don't have a glyph fallback
-        // — prevents rendering Qt's pink broken-image placeholder.
-        visible: !root.collapseRedundantIcon && !root.compactGlyph && (root.hasSmallIcon || root.hasGlyph) && (root.hasGlyph || smallIconImage.status !== Image.Error)
+        visible: !root.collapseRedundantIcon && !root.compactGlyph
+          && (root.hasSmallIcon || root.hasGlyph || root.fallbackIcon)
 
         Image {
           id: smallIconImage
@@ -127,19 +128,19 @@ BorderSurface {
           fillMode: Image.PreserveAspectFit
           asynchronous: true
           smooth: true
-          visible: !root.hasGlyph || smallIconImage.status === Image.Ready
+          visible: smallIconImage.status === Image.Ready
         }
 
-        // Glyph fallback (Nerd Font character) when no image icon is
-        // available. Used by omarchy-notification-send's `-g` flag.
         Text {
           textFormat: Text.PlainText
           anchors.centerIn: parent
-          visible: root.hasGlyph && smallIconImage.status !== Image.Ready
-          text: root.glyph
+          visible: root.hasGlyph
+            ? smallIconImage.status !== Image.Ready
+            : root.fallbackIcon
+          text: root.hasGlyph ? root.glyph : (root.urgency === 2 ? "!" : "●")
           color: Color.notifications.text
           font.family: root.fontFamily
-          font.pixelSize: Style.font.displayLarge
+          font.pixelSize: root.hasGlyph ? Style.font.displayLarge : Style.font.icon
         }
       }
 

@@ -827,7 +827,8 @@ Scope {
                 // the shape the chassis had on the previous frame. Measured at 3 ms
                 // per open/close for the whole chain — cheaper than one frame of lag.
                 readonly property var fieldShapes: {
-                    const dockBody = dockLoader.item?.bodyShape ?? null
+                    const screenName = barWindow.screen?.name ?? ""
+                    const dockBody = dockLoader.item?.bodyShape ?? GlobalStates.irisDockBody?.[screenName] ?? null
                     const hung = (controlCentreLoader.item?.fieldShapes ?? [])
                         .concat(stage.fieldShapes)
                         .concat(editLoader.item?.fieldShapes ?? [])
@@ -1077,8 +1078,8 @@ Scope {
                 }
 
                 // The universal per-output host in shell.qml owns the selected
-                // dock. Keep this null loader as the optional input expected by
-                // the Shima chassis while no dock is embedded in the bar window.
+                // dock. Its body arrives through GlobalStates; this null loader
+                // keeps the chassis's optional interaction hooks uncomplicated.
                 Loader {
                     id: dockLoader
                     active: false

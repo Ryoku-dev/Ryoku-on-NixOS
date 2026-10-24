@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
@@ -1789,8 +1790,8 @@ func reconcileShellConfig(checkOnly bool) recResult {
 // reconcileDockStore converges retired dock stores onto shell.json's top-level
 // dock object and removes Stage Editor widget keys retired from its schema. The
 // shell store carries old QS and Python settings plus frame-bar pins; Stage
-// carries the former iRiS pins. Pins keep source order, aliases are normalised
-// to desktop ids, and old keys are removed after merge.
+// carries the former iRiS pins and Shima appearance. Pins keep source order,
+// current universal values win, and retired keys are removed after merge.
 func reconcileDockStore(checkOnly bool) recResult {
 	path := filepath.Join(sys.ConfigHome(), "ryoku", "shell.json")
 	raw, err := os.ReadFile(path)
@@ -1810,9 +1811,10 @@ func reconcileDockStore(checkOnly bool) recResult {
 	stageRaw, stageErr := os.ReadFile(stagePath)
 	var stageMigrated []byte
 	var stagePins []string
+	var stageShima map[string]json.RawMessage
 	stageChanged := false
 	if stageErr == nil {
-		stageMigrated, stagePins, stageChanged, err = migrateStageDockStore(stageRaw)
+		stageMigrated, stagePins, stageShima, stageChanged, err = migrateStageDockStore(stageRaw)
 		if err != nil {
 			return warnRes(i18n.T("stage-editor.json does not parse (%v); Stage falls back to defaults"), err).
 				withFix(i18n.T("delete %s to re-seed it"), stagePath)
@@ -1828,12 +1830,20 @@ func reconcileDockStore(checkOnly bool) recResult {
 		}
 		shellChanged = shellChanged || merged
 	}
+	if len(stageShima) > 0 {
+		var merged bool
+		migrated, merged, err = mergeLegacyShimaDock(migrated, stageShima)
+		if err != nil {
+			return warnRes(i18n.T("shell.json does not parse (%v); the shell falls back to defaults"), err)
+		}
+		shellChanged = shellChanged || merged
+	}
 	if !shellChanged && !stageChanged {
 		return okRes(i18n.T("Stage and dock settings use their current stores"))
 	}
 	if checkOnly {
 		return wouldRes(i18n.T("retired Stage Editor or dock settings still exist")).
-			withFix(i18n.T("ryoku doctor removes them and merges retired pins into shell.json"))
+			withFix(i18n.T("ryoku doctor moves custom Shima styling and retired pins into shell.json"))
 	}
 	if shellChanged {
 		tmp := path + ".ryoku-tmp"
@@ -2102,23 +2112,67 @@ func deleteJSONPath(object map[string]json.RawMessage, path []string) (bool, err
 	return true, err
 }
 
-func migrateStageDockStore(raw []byte) ([]byte, []string, bool, error) {
+var retiredIrisDockDefaults = map[string]json.RawMessage{
+	"enable":        json.RawMessage(`true`),
+	"autoHide":      json.RawMessage(`false`),
+	"reserveSpace":  json.RawMessage(`true`),
+	"blur":          json.RawMessage(`false`),
+	"material":      json.RawMessage(`"inherit"`),
+	"notch":         json.RawMessage(`true`),
+	"iconSize":      json.RawMessage(`40`),
+	"magnification": json.RawMessage(`false`),
+	"magnifySize":   json.RawMessage(`150`),
+	"badges":        json.RawMessage(`true`),
+	"launcher":      json.RawMessage(`true`),
+	"revealOnEmpty": json.RawMessage(`true`),
+	"position":      json.RawMessage(`"auto"`),
+}
+
+var universalDockDefaults = map[string]json.RawMessage{
+	"enabled":  json.RawMessage(`false`),
+	"autohide": json.RawMessage(`false`),
+	"size":     json.RawMessage(`44`),
+	"magnify":  json.RawMessage(`true`),
+	"edge":     json.RawMessage(`"auto"`),
+}
+
+var shimaDockDefaults = map[string]json.RawMessage{
+	"shape":         json.RawMessage(`"auto"`),
+	"notch":         json.RawMessage(`true`),
+	"material":      json.RawMessage(`"inherit"`),
+	"magnifySize":   json.RawMessage(`150`),
+	"launcher":      json.RawMessage(`true`),
+	"reserveSpace":  json.RawMessage(`true`),
+	"revealOnEmpty": json.RawMessage(`true`),
+	"badges":        json.RawMessage(`true`),
+	"blur":          json.RawMessage(`false`),
+}
+
+func jsonValuesEqual(left, right json.RawMessage) bool {
+	var a, b any
+	if json.Unmarshal(left, &a) != nil || json.Unmarshal(right, &b) != nil {
+		return bytes.Equal(bytes.TrimSpace(left), bytes.TrimSpace(right))
+	}
+	return reflect.DeepEqual(a, b)
+}
+
+func migrateStageDockStore(raw []byte) ([]byte, []string, map[string]json.RawMessage, bool, error) {
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &top); err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
 	changed := false
 	for _, path := range retiredStageEditorPaths {
 		removed, err := deleteJSONPath(top, path)
 		if err != nil {
-			return nil, nil, false, err
+			return nil, nil, nil, false, err
 		}
 		changed = changed || removed
 	}
 
 	dock, err := decodeObject(top["dock"])
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
 	var pins []string
 	if oldPins, ok := dock["pinnedApps"]; ok {
@@ -2126,18 +2180,121 @@ func migrateStageDockStore(raw []byte) ([]byte, []string, bool, error) {
 		delete(dock, "pinnedApps")
 		top["dock"], err = encodeObject(dock)
 		if err != nil {
-			return nil, nil, false, err
+			return nil, nil, nil, false, err
 		}
 		changed = true
 	}
+
+	legacyShima := map[string]json.RawMessage{}
+	iris, err := decodeObject(top["iris"])
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+	irisDock, err := decodeObject(iris["dock"])
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+	for key, fallback := range retiredIrisDockDefaults {
+		if value, ok := irisDock[key]; ok {
+			if !jsonValuesEqual(value, fallback) {
+				legacyShima[key] = value
+			}
+			delete(irisDock, key)
+			changed = true
+		}
+	}
+	if value, ok := irisDock["shape"]; ok {
+		legacyShima["shape"] = value
+		delete(irisDock, "shape")
+		changed = true
+	}
+	if _, hadIrisDock := iris["dock"]; hadIrisDock {
+		if len(irisDock) == 0 {
+			delete(iris, "dock")
+		} else {
+			iris["dock"], err = encodeObject(irisDock)
+			if err != nil {
+				return nil, nil, nil, false, err
+			}
+		}
+		if len(iris) == 0 {
+			delete(top, "iris")
+		} else {
+			top["iris"], err = encodeObject(iris)
+			if err != nil {
+				return nil, nil, nil, false, err
+			}
+		}
+	}
+
 	if !changed {
-		return nil, nil, false, nil
+		return nil, nil, nil, false, nil
 	}
 	out, err := json.MarshalIndent(top, "", "  ")
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
-	return append(out, '\n'), pins, true, nil
+	return append(out, '\n'), pins, legacyShima, true, nil
+}
+
+func mergeLegacyShimaDock(raw []byte, legacy map[string]json.RawMessage) ([]byte, bool, error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return nil, false, err
+	}
+	dock, err := decodeObject(top["dock"])
+	if err != nil {
+		return nil, false, err
+	}
+	shima, err := decodeObject(dock["shima"])
+	if err != nil {
+		return nil, false, err
+	}
+	changed := false
+	shared := map[string]string{
+		"enable": "enabled", "autoHide": "autohide", "iconSize": "size",
+		"magnification": "magnify", "position": "edge",
+	}
+	for old, current := range shared {
+		value, ok := legacy[old]
+		if !ok {
+			continue
+		}
+		existing, present := dock[current]
+		if present && !jsonValuesEqual(existing, universalDockDefaults[current]) {
+			continue
+		}
+		dock[current] = value
+		changed = true
+	}
+	for _, key := range []string{"shape", "notch", "material", "magnifySize", "launcher", "reserveSpace", "revealOnEmpty", "badges", "blur"} {
+		value, ok := legacy[key]
+		if !ok {
+			continue
+		}
+		existing, present := shima[key]
+		if present && !jsonValuesEqual(existing, shimaDockDefaults[key]) {
+			continue
+		}
+		shima[key] = value
+		changed = true
+	}
+	if !changed {
+		return raw, false, nil
+	}
+	dock["shima"], err = encodeObject(shima)
+	if err != nil {
+		return nil, false, err
+	}
+	top["dock"], err = encodeObject(dock)
+	if err != nil {
+		return nil, false, err
+	}
+	out, err := json.MarshalIndent(top, "", "  ")
+	if err != nil {
+		return nil, false, err
+	}
+	return append(out, '\n'), true, nil
 }
 
 func mergeDockPins(raw []byte, extra []string) ([]byte, bool, error) {

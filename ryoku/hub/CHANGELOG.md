@@ -6,6 +6,11 @@
 - **The sidebar identifies a CachyOS install as RYOKU CACHYOS.** It reads the
   reported distribution before falling back to the package manager, so
   CachyOS no longer appears as RYOKU ARCH (`quickshell/Hub.qml`).
+- **Fastfetch follows the current wallpaper colours.** Wallpaper mode now builds
+  its accent and `ryoku:recolor` roles from the shared live palette and refreshes
+  its effective config after Matugen renders, rather than keeping the older
+  generated accent (`backend/fastfetch.go`, `backend/fastfetch_test.go`,
+  `../shell/matugen/config.toml`).
 
 ### Added
 - **General manages people on this computer.** The Users tab lists local

@@ -2496,6 +2496,21 @@
       ]
     },
     {
+      "id": "ryoku.ryoku-shell.hub.open.widgets",
+      "group": "ryoku-look",
+      "title": "Open Stage Editor",
+      "command": "ryoku-shell hub open widgets",
+      "description": "Opens the Stage Editor for the desktop on the focused screen.",
+      "tool": "ryoku-shell",
+      "level": "basic",
+      "featured": true,
+      "compositors": [
+        "hyprland",
+        "niri",
+        "wayfire"
+      ]
+    },
+    {
       "id": "ryoku.ryoku-shell.hub.open",
       "group": "ryoku-shell",
       "title": "Open Ryoku Hub",
@@ -3790,9 +3805,9 @@
     {
       "id": "ryoku.ryoku-shell.stage.set-effect",
       "group": "ryoku-look",
-      "title": "Set the wallpaper depth effect",
-      "command": "ryoku-shell stage set-effect <effect>",
-      "description": "Changes the generated depth or parallax effect for the current wallpaper.",
+      "title": "Set the wallpaper Stage mode",
+      "command": "ryoku-shell stage set-effect <off|depth|parallax|spatial>",
+      "description": "Uses a plain wallpaper, a still cut-out, drifting layers, or a Spatial 3D scene.",
       "tool": "ryoku-shell",
       "level": "advanced",
       "compositors": [

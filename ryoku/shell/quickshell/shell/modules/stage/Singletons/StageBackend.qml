@@ -21,53 +21,53 @@ Singleton {
     property string installingModel: ""
     property bool removing: false
     property string removingModel: ""
-    // Curated catalogue objects: {id,tier,label,size,installed,licence,upstream}.
+    // Curated cut catalogue objects: {id,tier,label,size,installed,licence,upstream}.
     property var models: []
     property string progress: ""
 
-    property bool depthInstalled: false
-    property bool depthChecking: false
-    property bool depthInstalling: false
-    property bool depthRemoving: false
-    property string depthProgress: ""
-    property var depthModels: []
-    property string depthInstalledModel: "small"
+    property bool spatialInstalled: false
+    property bool spatialChecking: false
+    property bool spatialInstalling: false
+    property bool spatialRemoving: false
+    property string spatialProgress: ""
+    property var spatialModels: []
+    property string spatialInstalledModel: "small"
 
-    function depthModelById(id) {
-        const m = root.depthModels || [];
-        for (var i = 0; i < m.length; i++)
-            if (m[i].id === id) return m[i];
+    function spatialModelById(id) {
+        const models = root.spatialModels || [];
+        for (var i = 0; i < models.length; i++)
+            if (models[i].id === id) return models[i];
         return null;
     }
-    function installDepth(model) {
-        if (root.depthInstalling || root.depthRemoving) return;
+    function installSpatialModel(model) {
+        if (root.spatialInstalling || root.spatialRemoving) return;
         const id = model || "small";
-        root.depthInstalledModel = id;
-        root.depthInstalling = true;
-        root.depthProgress = "";
-        depthInstallProc.command = [root.bin, "depth-install", "--model", id];
-        depthInstallProc.running = false;
-        depthInstallProc.running = true;
+        root.spatialInstalledModel = id;
+        root.spatialInstalling = true;
+        root.spatialProgress = "";
+        spatialInstallProc.command = [root.bin, "depth-install", "--model", id];
+        spatialInstallProc.running = false;
+        spatialInstallProc.running = true;
     }
-    function removeDepth(model) {
-        if (root.depthInstalling || root.depthRemoving) return;
-        root.depthRemoving = true;
-        root.depthProgress = "";
-        depthRemoveProc.command = [root.bin, "depth-remove", "--model", model || "small"];
-        depthRemoveProc.running = false;
-        depthRemoveProc.running = true;
+    function removeSpatialModel(model) {
+        if (root.spatialInstalling || root.spatialRemoving) return;
+        root.spatialRemoving = true;
+        root.spatialProgress = "";
+        spatialRemoveProc.command = [root.bin, "depth-remove", "--model", model || "small"];
+        spatialRemoveProc.running = false;
+        spatialRemoveProc.running = true;
     }
 
     function recheck() { checkProc.running = false; checkProc.running = true; }
-    function recheckDepth() {
-        root.depthChecking = true;
-        depthCheckProc.running = false;
-        const pick = String(Config.depthModel);
-        depthCheckProc.command = [root.bin, "depth-check", "--json", "--model",
+    function recheckSpatial() {
+        root.spatialChecking = true;
+        spatialCheckProc.running = false;
+        const pick = String(Config.spatialModel);
+        spatialCheckProc.command = [root.bin, "depth-check", "--json", "--model",
             ["small", "base", "large"].indexOf(pick) >= 0 ? pick : "small"];
-        depthCheckProc.running = true;
+        spatialCheckProc.running = true;
     }
-    function regenerateDepth() { root.call("depth-refresh"); }
+    function rebuildSpatialMap() { root.call("depth-refresh"); }
     function install(model) {
         if (root.installing || !model || model.length === 0) return;
         root.installing = true;
@@ -87,23 +87,14 @@ Singleton {
         removeProc.running = true;
     }
     function modelById(id) {
-        const m = root.models || [];
-        for (var i = 0; i < m.length; i++) if (m[i].id === id) return m[i];
+        const models = root.models || [];
+        for (var i = 0; i < models.length; i++)
+            if (models[i].id === id) return models[i];
         return null;
     }
-    function defaultModelId(q) {
-        return q === "fine" ? "birefnet-general-lite" : "u2netp";
-    }
-    function selectedModelId(q, choices) {
-        const selected = choices && typeof choices[q] === "string" ? choices[q] : "";
-        return root.modelById(selected) ? selected : root.defaultModelId(q);
-    }
-    function modelForQuality(q, choices) {
-        return root.modelById(root.selectedModelId(q, choices));
-    }
-    function qualityInstalled(q, choices) {
-        const m = root.modelForQuality(q, choices);
-        return !!(m && m.installed === true);
+    function cutModelInstalled(id) {
+        const model = root.modelById(id);
+        return !!(model && model.installed === true);
     }
 
     Process {
@@ -112,8 +103,8 @@ Singleton {
         stdout: StdioCollector {
             onStreamFinished: {
                 root.available = ("" + this.text).trim() === "available";
-                // Static catalogue: fetch it even before anything is installed,
-                // so the Quality control has sizes to offer the first Download.
+                // Fetch the static catalogue before anything is installed so
+                // the model tab can offer the first download.
                 modelsProc.running = true;
             }
         }
@@ -154,44 +145,44 @@ Singleton {
         }
     }
     Process {
-        id: depthCheckProc
+        id: spatialCheckProc
         command: [root.bin, "depth-check", "--json"]
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
                     const state = JSON.parse(("" + this.text).trim() || "{}");
-                    root.depthInstalled = state.installed === true;
+                    root.spatialInstalled = state.installed === true;
                     if (state.model)
-                        root.depthInstalledModel = String(state.model);
+                        root.spatialInstalledModel = String(state.model);
                     if (Array.isArray(state.models))
-                        root.depthModels = state.models;
+                        root.spatialModels = state.models;
                 } catch (error) {
-                    root.depthInstalled = false;
+                    root.spatialInstalled = false;
                 }
-                root.depthChecking = false;
+                root.spatialChecking = false;
             }
         }
     }
     Process {
-        id: depthInstallProc
+        id: spatialInstallProc
         command: [root.bin, "depth-install"]
-        stdout: SplitParser { onRead: line => root.depthProgress = line }
-        stderr: SplitParser { onRead: line => root.depthProgress = line }
+        stdout: SplitParser { onRead: line => root.spatialProgress = line }
+        stderr: SplitParser { onRead: line => root.spatialProgress = line }
         onExited: {
-            root.depthInstalling = false;
-            root.recheckDepth();
-            root.regenerateDepth();
+            root.spatialInstalling = false;
+            root.recheckSpatial();
+            root.rebuildSpatialMap();
         }
     }
     Process {
-        id: depthRemoveProc
+        id: spatialRemoveProc
         command: [root.bin, "depth-remove"]
-        stdout: SplitParser { onRead: line => root.depthProgress = line }
-        stderr: SplitParser { onRead: line => root.depthProgress = line }
+        stdout: SplitParser { onRead: line => root.spatialProgress = line }
+        stderr: SplitParser { onRead: line => root.spatialProgress = line }
         onExited: {
-            root.depthRemoving = false;
-            root.recheckDepth();
-            root.regenerateDepth();
+            root.spatialRemoving = false;
+            root.recheckSpatial();
+            root.rebuildSpatialMap();
         }
     }
 
@@ -315,13 +306,23 @@ Singleton {
 
     // Per-wall lookups (each monitor reads its own wallpaper path).
     function wallOf(path) { return (path && root.frame.walls) ? (root.frame.walls[path] || null) : null; }
-    function effectFor(path) { const w = root.wallOf(path); return w && w.effect ? w.effect : "off"; }
+    function effectFor(path) {
+        const wall = root.wallOf(path);
+        return wall && ["depth", "parallax", "spatial"].indexOf(wall.effect) >= 0
+            ? wall.effect : "off";
+    }
     function layersFor(path) { const w = root.wallOf(path); return (w && w.layers) ? w.layers : []; }
     function subjectFor(path) { const w = root.wallOf(path); return (w && w.subject) ? w.subject : ""; }
     function backgroundFor(path) { const w = root.wallOf(path); return (w && w.background) ? w.background : ""; }
     function layerCountFor(path) { return root.layersFor(path).length; }
     function isActiveFor(path) { return root.effectFor(path) !== "off"; }
-    function isParallaxFor(path) { return root.effectFor(path) === "parallax" && root.layerCountFor(path) > 0; }
+    function isCutModeFor(path) {
+        const effect = root.effectFor(path);
+        return effect === "depth" || effect === "parallax";
+    }
+    function isParallaxFor(path) {
+        return root.effectFor(path) === "parallax" && root.layerCountFor(path) > 0;
+    }
 
     // The subject (layer 0) draws from the top-level `subject`, set only once the
     // cut lands; every url is busted with the per-wall `rev`.
@@ -350,21 +351,21 @@ Singleton {
         return "file://" + depth + "?v=" + (w && w.rev ? w.rev : 0);
     }
     function hasDepthFor(path) { return root.depthFor(path) !== ""; }
-    // Depth textures the wallpaper alone; parallax also needs the inpainted
-    // backdrop the cut brought.
     function spatialFor(path) {
-        if (!root.isActiveFor(path) || !root.hasDepthFor(path))
+        const effect = root.effectFor(path);
+        if (!root.hasDepthFor(path))
             return false;
-        if (root.effectFor(path) === "depth")
+        if (effect === "spatial")
             return true;
-        return root.backgroundFor(path) !== "";
+        return effect === "parallax" && Config.depthBackdrop
+            && root.backgroundFor(path) !== "";
     }
     function backdropUrlFor(path) {
-        const bg = root.backgroundUrlFor(path);
-        if (bg !== "")
-            return bg;
-        if (root.effectFor(path) === "depth")
-            return "file://" + path;
+        const effect = root.effectFor(path);
+        if (effect === "parallax")
+            return root.backgroundUrlFor(path);
+        if (effect === "spatial")
+            return path === "" ? "" : "file://" + path;
         return "";
     }
 
@@ -396,7 +397,10 @@ Singleton {
         for (var i = 1; i < arguments.length; i++) cmd.push("" + arguments[i]);
         Quickshell.execDetached(cmd);
     }
-    function setEffect(e) { root.call("set-effect", e); }
+    function setEffect(e) {
+        if (["off", "depth", "parallax", "spatial"].indexOf(e) >= 0)
+            root.call("set-effect", e);
+    }
     function refresh() { root.call("refresh"); }
     function cancel() { root.call("cancel"); }
     function addLayer(png) { root.call("add-layer", png); }
@@ -456,6 +460,6 @@ Singleton {
 
     Component.onCompleted: {
         root.recheck();
-        root.recheckDepth();
+        root.recheckSpatial();
     }
 }

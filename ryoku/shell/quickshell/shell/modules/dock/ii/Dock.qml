@@ -38,6 +38,7 @@ Scope {
         const concaveCrossPad = (opts.isFullWidthConcave ?? false) ? Math.max(0, opts.concaveCornerRadius || 0) : 0
         const isAttached = opts.isAttachedToEdge ?? false
         const gapsOut = opts.gapsOut
+        const edgeGap = Math.max(0, Math.min(64, Number(opts.edgeGap || 0)))
         const shadowPad = Math.round(Appearance.sizes.elevationMargin * 1.2)
 
         const concaveReserve = isDynamic ? Math.max(0, opts.concaveCornerRadius || 0) : 0
@@ -80,8 +81,8 @@ Scope {
             ? (flushMainH ? maxH : Math.min(contentH + (isDynamic ? concaveReserve * 2 : 0), trayCapH))
             : baseContentH)
 
-        const baseDockW = opts.isVertical ? baseContentW + Math.max(crossSafety, concaveCrossPad) + crossPad : Math.min(baseContentW + mainSafety + mainPad, maxW)
-        const baseDockH = opts.isVertical ? Math.min(baseContentH + mainSafety + mainPad, maxH) : Math.min(baseContentH + Math.max(crossSafety, concaveCrossPad) + crossPad, maxH)
+        const baseDockW = opts.isVertical ? baseContentW + Math.max(crossSafety, concaveCrossPad) + crossPad + edgeGap : Math.min(baseContentW + mainSafety + mainPad, maxW)
+        const baseDockH = opts.isVertical ? Math.min(baseContentH + mainSafety + mainPad, maxH) : Math.min(baseContentH + Math.max(crossSafety, concaveCrossPad) + crossPad + edgeGap, maxH)
 
         const fullDockW = Math.min(flushMainW ? maxW : baseDockW, maxW)
         const fullDockH = Math.min(flushMainH ? maxH : baseDockH, maxH)
@@ -92,11 +93,10 @@ Scope {
             dockWidth: fullDockW,
             dockHeight: fullDockH,
             dockThickness: opts.isVertical ? fullDockW : fullDockH,
-            // What windows keep clear of. The full-width styles sit flush on
-            // the screen edge, so it is the tray alone: adding the outer gap
-            // to crossPad would leave windows a shadow width too far away.
-            unmagnifiedThickness: opts.isVertical ? baseContentW + (isFullWidth ? 0 : crossPad) : baseContentH + (isFullWidth ? 0 : crossPad),
-            surfaceMargin: floatingPad,
+            // What windows keep clear of. Keep each style's existing reserve,
+            // then add the user's shared clearance outside the visible tray.
+            unmagnifiedThickness: (opts.isVertical ? baseContentW + (isFullWidth ? 0 : crossPad) : baseContentH + (isFullWidth ? 0 : crossPad)) + edgeGap,
+            surfaceMargin: floatingPad + edgeGap,
             // Main-axis room the tray keeps from the window edge for its shadow.
             mainEdgePad: isDynamic ? 0 : mainPad / 2,
             backgroundWidth: bgW,
@@ -272,6 +272,7 @@ Scope {
             function sizingInputs(concaveCornerRadius) {
                 return {
                     gapsOut: Appearance.sizes.windowGapsOut,
+                    edgeGap: Config.options?.dock?.edgeGap ?? 0,
                     isDynamicIsland: dockRoot.isDynamicIsland,
                     isHug: dockRoot.isHug,
                     isFullWidth: dockRoot.isFullWidth,

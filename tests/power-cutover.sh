@@ -365,6 +365,46 @@ grep -q -- '--property=StartLimitIntervalSec=0' "$tmp/schedule-ok" \
   || fail "first-rollout migration did not disable transient-unit rate limiting"
 
 if (( EUID == 0 )); then
+  mkdir -p "$tmp/systemd-package-bin"
+  ln -s "$tmp/ryoku-host" "$tmp/systemd-package-bin/ryoku-host"
+  cat >"$tmp/systemd-package-bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $* == *'stop ryoku-qylock-cutover-wait.service'* &&
+      -e ${STAGED_HELPER:?} ]]; then
+  printf 'late waiter retirement\n' >>"$CUTOVER_LOG"
+fi
+printf 'systemctl %s\n' "$*" >>"$CUTOVER_LOG"
+EOF
+  for command in systemd-inhibit systemd-run pgrep; do
+    cat >"$tmp/systemd-package-bin/$command" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  done
+  chmod +x "$tmp/systemd-package-bin"/*
+  : >"$tmp/systemd-package.log"
+  CUTOVER_LOG="$tmp/systemd-package.log" \
+    STAGED_HELPER="$tmp/systemd-package-helper" \
+    RYOKU_HOST_BIN="$tmp/systemd-package-bin/ryoku-host" \
+    RYOKU_CUTOVER_RUNTIME_HELPER="$tmp/systemd-package-helper" \
+    RYOKU_CUTOVER_RUNTIME_SESSIONS="$tmp/systemd-package-sessions" \
+    RYOKU_CUTOVER_MARKER="$tmp/systemd-package-marker" \
+    PATH="$tmp/systemd-package-bin:$PATH" \
+    bash -c 'source "$1"
+      package_session_users() { printf "alice 1000 9\n"; }
+      start_guard() { return 0; }
+      prepare_package' _ "$helper"
+  grep -qxF \
+    'systemctl --user --machine=alice@ stop ryoku-qylock-cutover-wait.service' \
+    "$tmp/systemd-package.log" ||
+    fail "package preparation did not retire the session waiter"
+  if grep -qF 'late waiter retirement' "$tmp/systemd-package.log"; then
+    fail "package preparation staged the runtime helper before retiring its waiter"
+  fi
+  [[ -x $tmp/systemd-package-helper ]] ||
+    fail "package preparation did not stage its runtime helper"
+
   mkdir -p "$tmp/runit-package-bin" "$tmp/runit-package-state" \
     "$tmp/runit-package-target"
   cat >"$tmp/runit-package-bin/elogind-inhibit" <<'EOF'
@@ -582,7 +622,16 @@ if [[ $name == systemd-run ]]; then
   elif [[ $* == *ryoku-qylock-cutover-wait* ]]; then
     printf 'systemd-run qylock-wait\n' >>"$CUTOVER_LOG"
     if [[ -n ${QYLOCK_WAITER_PATH_LOG:-} ]]; then
-      printf '%s\n' "${*: -2:1}" >"$QYLOCK_WAITER_PATH_LOG"
+      printf '%s\n' "${*: -1}" >"$QYLOCK_WAITER_PATH_LOG"
+    fi
+    if [[ -n ${QYLOCK_WAITER_COMMAND_LOG:-} ]]; then
+      printf '%s\n' "$*" >"$QYLOCK_WAITER_COMMAND_LOG"
+    fi
+    if [[ ${QYLOCK_WAITER_EXECUTE:-0} == 1 ]]; then
+      rm -f "${*: -1}"
+      while (($#)) && [[ $1 != /bin/sh ]]; do shift; done
+      [[ ${1:-} == /bin/sh ]] || exit 91
+      "$@"
     fi
   elif [[ $* == *ryoku-idle*" start" ]]; then
     printf 'systemd-run idle-daemon\n' >>"$CUTOVER_LOG"
@@ -761,6 +810,7 @@ cp "$helper" "$tmp/installed-cutover-helper"
 chmod +x "$tmp/staged-cutover-helper" "$tmp/installed-cutover-helper"
 : >"$tmp/calls"
 QYLOCK_WAITER_PATH_LOG="$tmp/qylock-waiter-path" \
+  QYLOCK_WAITER_COMMAND_LOG="$tmp/qylock-waiter-command" \
   CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
   RYOKU_CUTOVER_RUNTIME_HELPER="$tmp/staged-cutover-helper" \
   RYOKU_CUTOVER_INSTALLED_HELPER="$tmp/installed-cutover-helper" \
@@ -771,6 +821,22 @@ QYLOCK_WAITER_PATH_LOG="$tmp/qylock-waiter-path" \
 grep -qxF \
   'systemctl --user stop ryoku-qylock-cutover-wait.service' "$tmp/calls" ||
   fail "deferred qylock cutover did not replace the previous waiter"
+grep -qF -- '--property=StartLimitIntervalSec=600' \
+  "$tmp/qylock-waiter-command" ||
+  fail "deferred qylock cutover did not bound its retry interval"
+grep -qF -- '--property=StartLimitBurst=3' "$tmp/qylock-waiter-command" ||
+  fail "deferred qylock cutover did not bound its restart burst"
+grep -qF -- '/bin/sh -c test -x "$1" || exit 0;' \
+  "$tmp/qylock-waiter-command" ||
+  fail "deferred qylock cutover did not guard a removed executable"
+cp "$helper" "$tmp/disposable-cutover-helper"
+chmod +x "$tmp/disposable-cutover-helper"
+QYLOCK_WAITER_EXECUTE=1 CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
+  RYOKU_CUTOVER_INSTALLED_HELPER="$tmp/disposable-cutover-helper" \
+  PATH="$tmp/bin:$PATH" \
+  bash -c 'source "$1"; schedule_qylock_cutover' _ "$tmp/staged-cutover-helper"
+[[ ! -e $tmp/disposable-cutover-helper ]] ||
+  fail "missing-executable waiter fixture did not remove its executable"
 
 
 : >"$tmp/calls"
@@ -835,6 +901,7 @@ systemctl --user stop ryoku-session.target
 systemctl --user stop ryoku-session-guard@*.service
 systemctl --user reset-failed ryoku-session-guard@9.service
 systemd-run session-guard
+systemctl --user reset-failed ryoku-shell.service ryogami.service ryoku-idle.service ryoku-clamshell.service
 systemctl --user start ryoku-session.target
 systemctl --user cat ryoku-idle.service
 systemctl --user stop ryoku-idle-cutover.service
@@ -842,6 +909,7 @@ systemctl --user reset-failed ryoku-idle.service
 systemctl --user restart ryoku-idle.service
 ryoku-idle status
 ryoku wm act config.reload
+systemctl --user reset-failed ryoku-shell.service
 systemctl --user restart ryoku-shell.service
 ryoku-shell sleep-ready
 ryoku-clamshell is-laptop
@@ -850,6 +918,7 @@ systemctl --user stop ryoku-clamshell-cutover.service
 systemctl --user reset-failed ryoku-clamshell.service
 systemctl --user restart ryoku-clamshell.service
 ryoku-clamshell status
+systemctl --user reset-failed ryogami.service
 systemctl --user restart ryogami.service
 loginctl show-session 9 -p State --value
 systemctl --user stop ryoku-power-cutover-guard.service
@@ -954,6 +1023,13 @@ CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
   XDG_RUNTIME_DIR="$tmp/runtime-user" XDG_SESSION_ID=9 \
   RYOKU_CUTOVER_INSTALLED_HELPER="$helper" PATH="$tmp/bin:$PATH" \
   bash -c 'source "$1"; start_session_lifecycle 9' _ "$helper"
+reset_line=$(grep -nF \
+  'systemctl --user reset-failed ryoku-shell.service ryogami.service ryoku-idle.service ryoku-clamshell.service' \
+  "$tmp/calls" | cut -d: -f1)
+target_line=$(grep -nF 'systemctl --user start ryoku-session.target' \
+  "$tmp/calls" | cut -d: -f1)
+[[ -n $reset_line && -n $target_line && $reset_line -lt $target_line ]] ||
+  fail "session binding did not clear service start limits before target start"
 mapfile -t handoff_calls <"$tmp/calls"
 [[ ${handoff_calls[0]:-} == 'loginctl show-session 9 -p State --value' &&
    ${handoff_calls[1]:-} == 'loginctl show-session 9 -p Active --value' &&
@@ -1415,6 +1491,36 @@ RYOKU_CUTOVER_TARGET_ROOT="$tmp/missing-target" \
   PATH="$tmp/bin:$PATH" bash -c 'source "$1"; start_target_session' _ "$helper"
 [[ ! -s $tmp/calls ]] \
   || fail "base removal restarted a partial desktop from a surviving shell dependency"
+
+: >"$tmp/calls"
+rm -f "$tmp/state/stopped" "$tmp/state/started"
+CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
+  RYOKU_CUTOVER_INSTALLED_HELPER="$tmp/missing-cutover-helper" \
+  RYOKU_QYLOCK_INSTALLER="$tmp/missing-qylock-installer" \
+  PATH="$tmp/bin:$PATH" bash -c 'source "$1"
+    target_policy_present() { return 0; }
+    start_session_lifecycle() { user_unit_start ryoku-session.target; }
+    start_target_idle() { return 0; }
+    reload_wm_config() { return 0; }
+    start_target_clamshell() { return 0; }
+    start_target_session' _ "$helper"
+target_line=$(grep -nF 'systemctl --user start ryoku-session.target' \
+  "$tmp/calls" | cut -d: -f1)
+shell_reset_line=$(grep -nF 'systemctl --user reset-failed ryoku-shell.service' \
+  "$tmp/calls" | cut -d: -f1)
+shell_restart_line=$(grep -nF 'systemctl --user restart ryoku-shell.service' \
+  "$tmp/calls" | cut -d: -f1)
+wallpaper_reset_line=$(grep -nF 'systemctl --user reset-failed ryogami.service' \
+  "$tmp/calls" | cut -d: -f1)
+wallpaper_restart_line=$(grep -nF 'systemctl --user restart ryogami.service' \
+  "$tmp/calls" | cut -d: -f1)
+[[ -n $target_line && -n $shell_reset_line && -n $shell_restart_line &&
+   -n $wallpaper_reset_line && -n $wallpaper_restart_line &&
+   $target_line -lt $shell_reset_line &&
+   $shell_reset_line -lt $shell_restart_line &&
+   $shell_restart_line -lt $wallpaper_reset_line &&
+   $wallpaper_reset_line -lt $wallpaper_restart_line ]] ||
+  fail "target session did not reset each service immediately before restart"
 
 : >"$tmp/calls"
 if SHELL_RESTART_FAIL=1 CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \

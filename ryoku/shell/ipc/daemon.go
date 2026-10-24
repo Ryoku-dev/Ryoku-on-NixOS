@@ -1506,7 +1506,7 @@ func (d *daemon) dispatch(line string) string {
 		return "err hub: expected open [section] or close"
 	case "stage":
 		// One verb surface for Ryostage (docs/stage.md): set-effect records the
-		// three-way effect per wallpaper; set-layer applies a layer's arrangement
+		// four-way effect per wallpaper; set-layer applies a layer's arrangement
 		// flags (enabled/front/depth); add-layer / cut-layer / remove-layer manage
 		// the manual layers; refresh forces a re-cut; depth-refresh rebuilds only
 		// the 3D depth map; depth-sample reads one depth value for the widget
@@ -1522,12 +1522,13 @@ func (d *daemon) dispatch(line string) string {
 		// would truncate at the first space.
 		switch args[0] {
 		case "set-effect":
-			if len(args) < 2 {
-				return "err stage set-effect: expected off|depth|parallax"
+			if len(args) != 2 {
+				return "err stage set-effect: expected off|depth|parallax|spatial"
 			}
 			eff := stageEffect(args[1])
-			if eff != stageEffectOff && eff != stageEffectDepth && eff != stageEffectParallax {
-				return "err stage set-effect: expected off|depth|parallax"
+			if eff != stageEffectOff && eff != stageEffectDepth &&
+				eff != stageEffectParallax && eff != stageEffectSpatial {
+				return "err stage set-effect: expected off|depth|parallax|spatial"
 			}
 			d.stageSetEffect(eff)
 			return "ok"

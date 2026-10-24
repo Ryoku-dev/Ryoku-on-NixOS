@@ -33,6 +33,23 @@ MaterialShape { // App icon
             || (appIconIsFileUrl && String(summary ?? "").toLowerCase().includes("screenshot")))
     readonly property bool hasVisualImage: imageValue.length > 0 && !imageIsIconHint
 
+    function resolveAppIcon(value) {
+        let raw = String(value ?? "").trim()
+        if (raw.length === 0)
+            return ""
+        if (raw.startsWith("image://icon/"))
+            raw = decodeURIComponent(raw.substring(13))
+        else if (raw.startsWith("/") || raw.startsWith("file:") || raw.indexOf(":") > 0)
+            return raw
+        return Quickshell.iconPath(raw, "")
+    }
+    readonly property string resolvedAppIcon: root.resolveAppIcon(root.effectiveAppIcon)
+    readonly property string resolvedSmallAppIcon: root.resolveAppIcon(root.appIconValue)
+    property bool appIconFailed: false
+    property bool smallAppIconFailed: false
+    onResolvedAppIconChanged: root.appIconFailed = false
+    onResolvedSmallAppIconChanged: root.smallAppIconFailed = false
+
     implicitSize: 38 * scale
     property list<var> urgentShapes: [
         MaterialShape.Shape.VerySunny,
@@ -49,7 +66,7 @@ MaterialShape { // App icon
         // notification artwork. Prefer a semantic Material Symbol when the
         // summary identifies one (for example screenshot notifications).
         active: root.preferMaterialSymbol
-            || (root.effectiveAppIcon == "" && !root.hasVisualImage)
+            || (!root.hasVisualImage && (root.resolvedAppIcon === "" || root.appIconFailed))
         anchors.fill: parent
         sourceComponent: MaterialSymbol {
             text: {
@@ -69,13 +86,14 @@ MaterialShape { // App icon
     Loader {
         id: appIconLoader
         active: !root.hasVisualImage && !root.preferMaterialSymbol
-            && root.effectiveAppIcon != ""
+            && root.resolvedAppIcon !== "" && !root.appIconFailed
         anchors.centerIn: parent
         sourceComponent: IconImage {
             id: appIconImage
             implicitSize: root.appIconSize
             asynchronous: true
-            source: Quickshell.iconPath(root.effectiveAppIcon, "image-missing")
+            source: root.resolvedAppIcon
+            onStatusChanged: if (status === Image.Error) root.appIconFailed = true
         }
     }
     Loader {
@@ -122,15 +140,30 @@ MaterialShape { // App icon
                     }
                 }
             }
-            Loader {
-                id: notifImageAppIconLoader
-                active: root.appIconValue.length > 0
+            Item {
+                id: notifImageAppIcon
+                visible: root.appIconValue.length > 0
                 anchors.bottom: parent.bottom
                 anchors.right: parent.right
-                sourceComponent: IconImage {
+                width: root.smallAppIconSize
+                height: root.smallAppIconSize
+
+                IconImage {
+                    anchors.fill: parent
+                    visible: root.resolvedSmallAppIcon !== "" && !root.smallAppIconFailed
                     implicitSize: root.smallAppIconSize
                     asynchronous: true
-                    source: Quickshell.iconPath(root.appIconValue, "image-missing")
+                    source: root.resolvedSmallAppIcon
+                    onStatusChanged: if (status === Image.Error) root.smallAppIconFailed = true
+                }
+                MaterialSymbol {
+                    anchors.fill: parent
+                    visible: root.resolvedSmallAppIcon === "" || root.smallAppIconFailed
+                    text: "notifications"
+                    color: Appearance.zzzEverywhere ? Appearance.zzz.ink : Appearance.colors.colOnSecondaryContainer
+                    iconSize: root.smallAppIconSize
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
                 }
             }
         }

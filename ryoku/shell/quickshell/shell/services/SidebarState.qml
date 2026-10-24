@@ -16,6 +16,9 @@ Singleton {
     readonly property var enterCurve: [0.16, 1, 0.3, 1, 1, 1]
     readonly property var exitCurve: [0, 0, 0.58, 1, 1, 1]
     readonly property string speed: preferences.speed
+    readonly property string position: controls.position
+    readonly property int maxEdgeGap: 96
+    readonly property int edgeGap: controls.edgeGap
     readonly property var defaultSections: [
         { id: "vitals", visible: true },
         { id: "connections", visible: true },
@@ -71,7 +74,9 @@ Singleton {
                 hidden.push(id);
             }
         }
-        return { sections: sections, hidden: hidden };
+        const position = root.normalizedPosition(source.position);
+        const edgeGap = root.normalizedEdgeGap(source.edgeGap);
+        return { position: position, edgeGap: edgeGap, sections: sections, hidden: hidden };
     }
 
 
@@ -176,6 +181,25 @@ Singleton {
     function motionDuration(base) {
         return (Motion.reduce || Tokens.reduceMotion)
             ? 0 : Math.round(base * root.speedScale);
+    }
+
+    function normalizedPosition(value) {
+        const candidate = String(value ?? "");
+        return candidate === "top-right" || candidate === "center" ? candidate : "top-left";
+    }
+
+    function normalizedEdgeGap(value) {
+        const candidate = Number(value);
+        return Number.isFinite(candidate)
+            ? Math.max(0, Math.min(root.maxEdgeGap, Math.round(candidate))) : 12;
+    }
+
+    function setPosition(value) {
+        Config.patchControl("position", root.normalizedPosition(value));
+    }
+
+    function setEdgeGap(value) {
+        Config.patchControl("edgeGap", root.normalizedEdgeGap(value));
     }
 
     function setSpeed(value) {
