@@ -19,4 +19,5 @@ that ground: the first releases with a name, a channel, and a way back.
 ## Amaterasu
 
 Once the land was made, Izanagi washed the world from his eyes and the sun
-was born: Amaterasu, the light everything after runs under. The 1.0 line.
+was born: Amaterasu, the light everything after runs under. The 1.0 line: a
+power release, the system made whole.
