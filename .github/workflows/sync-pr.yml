@@ -1,0 +1,51 @@
+name: Sync PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [unstable-dev, main]
+
+permissions:
+  contents: read
+
+# Bot pushes made with GITHUB_TOKEN do not trigger pull_request workflows. The
+# sync workflow checks clean bot commits; this workflow covers maintainer pushes.
+jobs:
+  markers:
+    name: 'Sync PR: no conflict markers left'
+    if: startsWith(github.head_ref, 'sync/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout sync head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Find unresolved conflict markers
+        run: nix/sync/ryoku-sync-markers --base "origin/${{ github.base_ref }}" --annotate
+
+  checks:
+    name: 'Sync PR: Nix checks'
+    needs: markers
+    if: startsWith(github.head_ref, 'sync/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout sync head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        with:
+          determinate: false
+          extra-conf: |
+            extra-substituters = https://ryotunes.cachix.org
+            extra-trusted-public-keys = ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs=
+
+      - name: Run NixOS checks
+        run: nix/sync/run-checks

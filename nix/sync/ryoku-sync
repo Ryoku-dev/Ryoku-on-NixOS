@@ -14,6 +14,8 @@ FORK_OWNED_PATHS=(
 )
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=nix/sync/lib-markers.sh
+source "$script_dir/lib-markers.sh"
 upstream_wins_file="$script_dir/upstream-wins"
 [[ -f $upstream_wins_file ]] || {
   printf 'ryoku-sync: missing %s\n' "$upstream_wins_file" >&2
@@ -27,6 +29,7 @@ fork_remote="origin"
 upstream_repo="${RYOKU_UPSTREAM_REPO:-Ryoku-dev/ryoku}"
 gh_command="${RYOKU_SYNC_GH:-gh}"
 repository="${GITHUB_REPOSITORY:-Ryoku-dev/Ryoku-on-NixOS}"
+body_cap=${RYOKU_SYNC_BODY_CAP:-60000}
 
 usage() {
   cat <<'USAGE'
@@ -78,6 +81,8 @@ while (($#)); do
 done
 
 [[ $lane == unstable || $lane == stable ]] || die "--lane must be unstable or stable"
+[[ $body_cap =~ ^[0-9]+$ ]] && ((body_cap > 0)) \
+  || die "RYOKU_SYNC_BODY_CAP must be a positive integer"
 git rev-parse --git-dir >/dev/null 2>&1 || die "run this from a Ryoku-on-NixOS checkout"
 
 if [[ $lane == unstable ]]; then
@@ -382,21 +387,165 @@ collect_notes() {
   done < <(git rev-list --reverse "$range")
 }
 
-build_pr_body() {
-  local previous=$1 target=$2 check_text conflict
+relabel_conflict_file() {
+  local index=$1 path=$2 entry mode blob stage line read_status
+  local source="$tmp_dir/conflict-source" relabelled="$tmp_dir/conflict-relabelled"
+
+  entry=$(GIT_INDEX_FILE=$index git ls-files --stage -- "$path")
+  read -r mode blob stage _ <<<"$entry"
+  [[ $stage == 0 && -n $mode && -n $blob ]] \
+    || die "could not read merged conflict file: $path"
+  git cat-file blob "$blob" >"$source"
+  : >"$relabelled"
+  while true; do
+    if IFS= read -r line <&3; then
+      read_status=0
+    else
+      read_status=$?
+    fi
+    ((read_status == 0)) || [[ -n $line ]] || break
+    case "$line" in
+      '<<<<<<< '*) line="<<<<<<< port ($base_branch)" ;;
+      '||||||| '*) line="||||||| last sync (${merge_base:0:7})" ;;
+      '>>>>>>> '*) line=">>>>>>> upstream Ryoku $version (${target:0:7})" ;;
+    esac
+    if ((read_status == 0)); then
+      printf '%s\n' "$line" >>"$relabelled"
+    else
+      printf '%s' "$line" >>"$relabelled"
+      break
+    fi
+  done 3<"$source"
+  blob=$(git hash-object -w "$relabelled")
+  GIT_INDEX_FILE=$index git update-index --add --cacheinfo "$mode,$blob,$path"
+}
+
+upstream_history_markdown() {
+  local path=$1 item index total shown=5 result=""
+  local -a entries
+  mapfile -t entries \
+    < <(git log --format='%H%x09%s' "$previous_recorded..$target" -- "$path")
+  total=${#entries[@]}
+  if ((total == 0)); then
+    printf '%s' 'none found in this sync range'
+    return
+  fi
+  ((total < shown)) && shown=$total
+  for ((index = 0; index < shown; index += 1)); do
+    IFS=$'\t' read -r commit subject <<<"${entries[index]}"
+    item="[\`${commit:0:7}\`](https://github.com/$upstream_repo/commit/$commit) $subject"
+    [[ -z $result ]] || result+="; "
+    result+=$item
+  done
+  if ((total > shown)); then
+    result+="; and $((total - shown)) more"
+  fi
+  printf '%s' "$result"
+}
+
+upstream_subjects() {
+  local path=$1 subject result=""
+  while IFS= read -r subject; do
+    [[ -z $result ]] || result+="; "
+    result+=$subject
+  done < <(git log -n 5 --format='%s' "$previous_recorded..$target" -- "$path")
+  printf '%s' "${result:-No upstream subject found}"
+}
+
+port_history_markdown() {
+  local path=$1 commit subject author item result=""
+  while IFS=$'\t' read -r commit subject author; do
+    item="\`$commit\` $subject ($author)"
+    [[ -z $result ]] || result+="; "
+    result+=$item
+  done < <(git log -n 3 --format='%h%x09%s%x09%an' "$ours" -- "$path")
+  printf '%s' "${result:-none found}"
+}
+
+build_conflict_report() {
+  local path=$1 include_details=$2 file="$tmp_dir/conflict-report-file"
+  local range start end link links="" report excerpt length omitted
+  local -a hunks
+
+  git show "$sync_commit:$path" >"$file"
+  mapfile -t hunks < <(ryoku_marker_hunks "$file")
+  report="#### \`$path\`"$'\n'
+  for range in "${hunks[@]}"; do
+    start=${range%%:*}
+    end=${range##*:}
+    link="[$start-$end](https://github.com/$repository/blob/$sync_commit/$path#L$start-L$end)"
+    [[ -z $links ]] || links+=" · "
+    links+=$link
+  done
+  report+="Lines ${links:-not found}"$'\n'
+  report+="- Upstream changed it in: $(upstream_history_markdown "$path")"$'\n'
+  report+="- Last port changes: $(port_history_markdown "$path")"$'\n'
+
+  if ((include_details)); then
+    report+=$'\n<details><summary>Show the conflict</summary>\n\n```text\n'
+    for range in "${hunks[@]}"; do
+      start=${range%%:*}
+      end=${range##*:}
+      report+="@@ Lines $start-$end @@"$'\n'
+      excerpt=$(LC_ALL=C awk -v start="$start" -v end="$end" '
+        NR >= start && NR <= end && NR < start + 40 { print }
+      ' "$file")
+      report+="$excerpt"$'\n'
+      length=$((end - start + 1))
+      if ((length > 40)); then
+        omitted=$((length - 40))
+        report+="... $omitted more lines"$'\n'
+      fi
+    done
+    report+=$'```\n</details>\n'
+  fi
+  printf '%s' "$report"
+}
+
+build_pr_body_variant() {
+  local previous=$1 target=$2 include_details=$3 file_limit=$4
+  local excerpts_omitted=$5 check_text path report index omitted
+
   if ((${#conflicts[@]})); then
-    check_text="Blocked until the conflicts below are resolved."
+    pr_body="**What to do:** ${#conflicts[@]} files need a decision (listed below). Fix them on this branch, push, merge once the Sync PR checks are green."
+    check_text="Blocked until the files under Needs a decision are fixed."
   else
+    pr_body='**What to do:** merge once the ryoku-sync/checks status is green.'
     check_text="Pending: the ryoku-sync/checks status runs against this commit."
   fi
-
-  pr_body=$(printf 'Syncs Ryoku `%s...%s`.\n\nUpstream: https://github.com/Ryoku-dev/ryoku/compare/%s...%s\n' \
-    "$previous" "$target" "$previous" "$target")
+  pr_body+=$(printf '\n\nSyncs Ryoku `%s...%s`.\n\nUpstream: https://github.com/%s/compare/%s...%s\n' \
+    "$previous" "$target" "$upstream_repo" "$previous" "$target")
+  if ((${#conflicts[@]})); then
+    pr_body+=$'\n### Needs a decision: '
+    pr_body+="${#conflicts[@]} files"$'\n\n'
+    pr_body+='Check out the branch, fix the marked lines, push. The bot stops touching the branch once you push; the "Sync PR" checks then run on your commit.'
+    pr_body+=$'\n\n    git fetch origin && git switch sync/'
+    pr_body+="$lane"$'\n'
+    if ((excerpts_omitted)); then
+      pr_body+=$'\nConflict excerpts omitted to keep this report under the body limit.\n'
+    fi
+    for ((index = 0; index < file_limit; index += 1)); do
+      report=$(build_conflict_report "${conflicts[index]}" "$include_details")
+      pr_body+=$'\n'
+      pr_body+="$report"$'\n'
+    done
+    omitted=$((${#conflicts[@]} - file_limit))
+    if ((omitted > 0)); then
+      pr_body+=$'\nand '
+      pr_body+="$omitted more files"$'\n'
+    fi
+  fi
   if ((${#notes[@]})); then
-    pr_body+=$'\nNotes:\n'
+    pr_body+=$'\n### What changed upstream\n\n'
+    if ((${#notes[@]} > 15)); then
+      pr_body+="${#notes[@]} user-facing changes."$'\n\n<details>\n<summary>Show them</summary>\n\n'
+    fi
     for note in "${notes[@]}"; do
       pr_body+="- $note"$'\n'
     done
+    if ((${#notes[@]} > 15)); then
+      pr_body+=$'\n</details>\n'
+    fi
   fi
   if ((${#stale_copies[@]})); then
     pr_body+=$'\n### Stale copies refreshed from upstream\n\n'
@@ -431,17 +580,79 @@ build_pr_body() {
       pr_body+=$'\n</details>\n'
     fi
   fi
-  if ((${#conflicts[@]})); then
-    pr_body+=$'\nConflicts:\n'
-    for conflict in "${conflicts[@]}"; do
-      pr_body+="- \`$conflict\`"$'\n'
-    done
-    pr_body+=$'\nResolve the marked files on this branch, remove the markers, then commit the result. The bot will leave the branch alone after a maintainer commit.\n'
-  fi
   pr_body+=$'\nChecks: '
   pr_body+="$check_text"
   pr_body+=$'\n\n'
   pr_body+="<!-- ryoku-sync-head: $sync_commit -->"
+}
+
+build_pr_body() {
+  local previous=$1 target=$2 file_limit=${#conflicts[@]}
+
+  build_pr_body_variant "$previous" "$target" 1 "$file_limit" 0
+  if ((${#pr_body} >= body_cap)) && ((file_limit > 0)); then
+    build_pr_body_variant "$previous" "$target" 0 "$file_limit" 1
+  fi
+  while ((${#pr_body} >= body_cap)) && ((file_limit > 0)); do
+    ((file_limit -= 1))
+    build_pr_body_variant "$previous" "$target" 0 "$file_limit" 1
+  done
+  ((${#pr_body} < body_cap)) \
+    || die "pull request body cannot fit within RYOKU_SYNC_BODY_CAP=$body_cap"
+}
+
+create_conflict_check() {
+  local path file="$tmp_dir/check-conflict-file" range start end message
+  local annotations='[]' payload="$tmp_dir/check-run.json"
+  local total=0 included=0 remaining summary
+
+  for path in "${conflicts[@]}"; do
+    git show "$sync_commit:$path" >"$file"
+    message="Port and upstream both changed these lines. Upstream: $(upstream_subjects "$path")"
+    while IFS=: read -r start end; do
+      [[ -n $start && -n $end ]] || continue
+      ((total += 1))
+      if ((included < 50)); then
+        annotations=$(jq -c \
+          --arg path "$path" \
+          --argjson start "$start" \
+          --argjson end "$end" \
+          --arg message "$message" \
+          '. + [{
+            path: $path,
+            start_line: $start,
+            end_line: $end,
+            annotation_level: "failure",
+            message: $message
+          }]' <<<"$annotations")
+        ((included += 1))
+      fi
+    done < <(ryoku_marker_hunks "$file")
+  done
+
+  summary="$total conflict hunks across ${#conflicts[@]} files. Fix the marked lines on sync/$lane, then push."
+  remaining=$((total - included))
+  if ((remaining > 0)); then
+    summary+=" $remaining more hunks are listed in the pull request because GitHub accepts 50 annotations per request."
+  fi
+  jq -n \
+    --arg head "$sync_commit" \
+    --arg title "${#conflicts[@]} files need a decision" \
+    --arg summary "$summary" \
+    --argjson annotations "$annotations" \
+    '{
+      name: "Sync conflicts",
+      head_sha: $head,
+      status: "completed",
+      conclusion: "action_required",
+      output: {
+        title: $title,
+        summary: $summary,
+        annotations: $annotations
+      }
+    }' >"$payload"
+  "$gh_command" api "repos/$repository/check-runs" \
+    --method POST --input "$payload" >/dev/null
 }
 
 gh_find_pr() {
@@ -628,12 +839,16 @@ while IFS= read -r -d '' path; do
 done < <(git diff-tree --no-commit-id --name-only -r -z "$merge_base" "$ours")
 
 
-sync_blob=$(printf '%s\n' "$target" | git hash-object -w --stdin)
-GIT_INDEX_FILE=$index git update-index --add --cacheinfo "100644,$sync_blob,nix/sync/ryoku-commit"
-final_tree=$(GIT_INDEX_FILE=$index git write-tree)
 version=$(git show "$target:VERSION")
 version=${version%%$'\n'*}
 [[ -n $version ]] || die "upstream VERSION is empty"
+for path in "${conflicts[@]}"; do
+  relabel_conflict_file "$index" "$path"
+done
+
+sync_blob=$(printf '%s\n' "$target" | git hash-object -w --stdin)
+GIT_INDEX_FILE=$index git update-index --add --cacheinfo "100644,$sync_blob,nix/sync/ryoku-commit"
+final_tree=$(GIT_INDEX_FILE=$index git write-tree)
 
 commit_message=$(printf 'sync: Ryoku %s (%s)\n\nRyoku-Commit: %s\nRyoku-Lane: %s\n' \
   "$version" "$lane" "$target" "$lane")
@@ -692,6 +907,10 @@ fi
 git push --quiet \
   "--force-with-lease=refs/heads/sync/$lane:$expected_old" \
   "$fork_remote" "$sync_commit:refs/heads/sync/$lane"
+if ((${#conflicts[@]})); then
+  create_conflict_check
+fi
+
 
 pr_title="sync: Ryoku $version ($lane)"
 pr_number=$(gh_find_pr)
