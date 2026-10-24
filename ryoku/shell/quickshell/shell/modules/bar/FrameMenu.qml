@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import "framebars/menus"
-import "framebars/RailGeometry.js" as RailGeometry
 import shell.services
 
 // One reference frame menu (contract 05 sec 7). It is NOT a window, overlay
@@ -39,9 +38,6 @@ Item {
     property real frameThickness: 0
     property real radius: 8
     property real smoothing: 0
-    // The bar style's seam: a compact top menu then welds onto the bar, its card
-    // drawn by the manager, and keeps the style's margin from the screen sides.
-    property var seam: null
 
     signal requestClose()
 
@@ -87,8 +83,6 @@ Item {
     readonly property bool atLeft: root.anchor === "left" || root.anchor.indexOf("-left") >= 0
     readonly property bool atRight: root.anchor === "right" || root.anchor.indexOf("-right") >= 0
     readonly property bool atBottom: root.anchor.indexOf("bottom") === 0
-    readonly property bool welded: !!root.seam && root.edge === "top" && !root.sideMenu && !root.fillsBand
-    readonly property real weldMargin: root.welded ? Math.max(root.seam.margin, root.clL, root.clR) : 0
 
     // Natural body height; side menus fill the band (top-pinned content), edge
     // and corner menus size to content, capped at the band with the panel's own
@@ -108,18 +102,12 @@ Item {
     // the side rails, instead of always jumping to the centre of the screen --
     // the same "grows out of its trigger" reading the side rails already give.
     function alongX(w) {
-        if (root.welded)
-            return RailGeometry.seamLeft(root.triggerAlong >= 0 ? root.triggerAlong : root.width / 2,
-                w, root.width, root.weldMargin);
         if (root.triggerAlong < 0) return (root.clL + root.width - root.clR) / 2 - w / 2;
         return Math.max(root.clL, Math.min(root.width - root.clR - w, root.triggerAlong - w / 2));
     }
-    function restXFor(w) {
-        return root.atLeft ? Math.max(root.clL, root.weldMargin)
-            : root.atRight ? (root.width - Math.max(root.clR, root.weldMargin) - w)
-            : root.alongX(w);
-    }
-    readonly property real restX: root.restXFor(root.restW)
+    readonly property real restX: root.atLeft ? root.clL
+        : root.atRight ? (root.width - root.clR - root.restW)
+        : root.alongX(root.restW)
     readonly property real restY: root.atBottom ? (root.height - root.clB - root.restH) : root.clT
 
     // The animated panel is shared by one menu at a time. A cross-anchor swap
@@ -142,7 +130,9 @@ Item {
         // never lags a just-changed height.
         const w = root.restW;
         const h = root.restH;
-        const x = root.restXFor(w);
+        const x = root.atLeft ? root.clL
+            : root.atRight ? (root.width - root.clR - w)
+            : root.alongX(w);
         const y = root.atBottom ? (root.height - root.clB - h) : root.clT;
         root.manager.setChromeSource(root.record.id, root.anchor, x, y, w, h,
             root.sideMenu || root.fillsBand);
@@ -166,32 +156,26 @@ Item {
     // Input mask: the resting panel rect while open. The manager's `anyVisible`
     // keeps the overlay's full input region through the closing animation even
     // after this per-menu rect drops away.
-    // A welded menu's fillets swallow presses, as the style's own panels do.
-    readonly property real weldFillet: root.welded ? root.seam.fillet : 0
-    readonly property real maskX: root.isMenu ? root.restX - root.weldFillet : (surfaceHost.item ? surfaceHost.item.maskX : 0)
+    readonly property real maskX: root.isMenu ? root.restX : (surfaceHost.item ? surfaceHost.item.maskX : 0)
     readonly property real maskY: root.isMenu ? root.restY : (surfaceHost.item ? surfaceHost.item.maskY : 0)
-    readonly property real maskW: root.isMenu ? (root.menuOpen ? root.restW + root.weldFillet * 2 : 0) : (surfaceHost.item ? surfaceHost.item.maskW : 0)
+    readonly property real maskW: root.isMenu ? (root.menuOpen ? root.restW : 0) : (surfaceHost.item ? surfaceHost.item.maskW : 0)
     readonly property real maskH: root.isMenu ? (root.menuOpen ? root.restH : 0) : (surfaceHost.item ? surfaceHost.item.maskH : 0)
 
     // ---- Reference-menu path: a plain clipped body riding the panel rect.
     Item {
         id: clipHost
-
-        // A welded menu slides out from under the bar, so its body is cut there.
-        readonly property real seamCut: root.welded && root.panel ? Math.max(0, root.clT - root.panel.y) : 0
-
         clip: true
         visible: root.isMenu && root.effectiveOpen && root.bodyReady
         enabled: root.menuOpen
         x: root.panel ? root.panel.x : root.restX
-        y: (root.panel ? root.panel.y : root.restY) + clipHost.seamCut
+        y: root.panel ? root.panel.y : root.restY
         width: root.panel ? root.panel.w : 0
-        height: root.panel ? Math.max(0, root.panel.h - clipHost.seamCut) : 0
+        height: root.panel ? root.panel.h : 0
 
         // A folder bar style hides the frame band, so a menu that would ride it
         // paints its own card here instead, in the same rect the band would fill.
         Rectangle {
-            visible: !!(root.manager && root.manager.topBar) && !root.welded
+            visible: !!(root.manager && root.manager.topBar)
             x: menuBody.x
             y: menuBody.y
             width: root.restW
@@ -217,7 +201,7 @@ Item {
             x: root.atLeft ? 0
                 : root.atRight ? (clipHost.width - root.restW)
                 : ((clipHost.width - root.restW) / 2)
-            y: root.atBottom ? (clipHost.height - root.restH) : -clipHost.seamCut
+            y: root.atBottom ? (clipHost.height - root.restH) : 0
             opacity: menuBody.status === Loader.Ready
                 ? ((root.sideMenu && root.manager)
                     ? root.manager.chromeOpacity * (root.stableSidePanel ? root.bodyReveal : 1)
@@ -263,7 +247,6 @@ Item {
             anchor: root.anchor
             menuOpen: root.menuOpen
             triggerAlong: root.triggerAlong
-            barSeam: root.seam
             onRequestClose: root.requestClose()
         }
     }

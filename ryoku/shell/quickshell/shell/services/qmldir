@@ -56,4 +56,3 @@ singleton StatsFeed StatsFeed.qml
 singleton AppLaunch AppLaunch.qml
 singleton Icons Icons.qml
 singleton BatteryAlerts BatteryAlerts.qml
-singleton UrgentUpdates UrgentUpdates.qml

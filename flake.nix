@@ -156,33 +156,12 @@
         modules = [ ./nix/iso ];
       };
 
-      # The release ISO plus NixOS' test instrumentation, which only adds the
-      # test driver's backdoor shell. A faster squashfs level keeps CI short.
-      ryokuTestIso = self.nixosConfigurations.ryoku-iso.extendModules {
-        modules = [
-          "${nixpkgs}/nixos/modules/testing/test-instrumentation.nix"
-          { isoImage.squashfsCompression = "zstd -Xcompression-level 6"; }
-        ];
-      };
-
-      isoPkgs = nixpkgs.legacyPackages.${system};
-
-      ryokuIsoTestArgs = {
-        pkgs = isoPkgs;
-        isoSystem = ryokuTestIso;
-        source = if self ? rev then "${ryokuRepo}/${self.rev}" else "path:/etc/ryoku/source";
-        track = "${ryokuRepo}/unstable-dev";
-      };
-
-      ryokuIsoInstallTest = import ./nix/tests/iso-install.nix ryokuIsoTestArgs;
-
       mkIsoConfigSystem = {
         gpuVendors ? [ ],
         firmware ? "uefi",
         nvidiaBranch ? "stable",
         nvidiaOpen ? true,
         kernel ? "default",
-        optionalApps ? [ "prompt" ],
       }:
         nixpkgs.lib.nixosSystem {
           inherit system;
@@ -201,7 +180,7 @@
               compositor = "hyprland";
               browser = "chromium";
               shell = "fish";
-              inherit optionalApps;
+              optionalApps = [ "prompt" ];
               binaryCache = true;
               ryokuSource = "${ryokuRepo}/unstable-dev";
               nixpkgsSource = "github:NixOS/nixpkgs/nixos-unstable";
@@ -238,18 +217,10 @@
         ryoku-install-backend = ryokuInstallBackend;
         ryoku-iso = self.nixosConfigurations.ryoku-iso.config.system.build.isoImage;
         ryoku-iso-stable = self.nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage;
-
-        # What a default guided install builds: every compositor and the
-        # installer's preselected optional apps. CI pushes it to the binary
-        # cache so installs download Ryoku's own packages instead of compiling.
-        ryoku-install-closure = (mkIsoConfigSystem {
-          optionalApps = [
-            "prompt" "bash-edit" "fastfetch" "yazi" "cli-tools" "git-tools"
-            "pavucontrol" "songrec" "openrgb" "upscale" "localsend"
-            "gamescope" "gamemode" "mangohud" "vm" "docker" "flatpak"
-            "go" "pytools" "mise"
-          ];
-        }).config.system.build.toplevel;
+        # The system a default install builds; nix-cache.yml pushes it to the
+        # binary cache so installs and updates download Ryoku instead of
+        # compiling it.
+        ryoku-default-system = (mkIsoConfigSystem { }).config.system.build.toplevel;
         ryoku-shell = ryoku.shell;
         ryoku-ui = ryoku.ui;
         ryoku-plugin-kit = ryoku.pluginKit;
@@ -326,13 +297,6 @@
           type = "app";
           program = "${ryokuMaterialize}/bin/ryoku-materialize";
           meta.description = "Materialize the packaged Ryoku desktop into the user configuration";
-        };
-
-        # Needs network and KVM, so it runs outside the Nix build sandbox.
-        ryoku-iso-install-test = {
-          type = "app";
-          program = "${ryokuIsoInstallTest.driver}/bin/nixos-test-driver";
-          meta.description = "Install Ryoku from the ISO in a VM and check SDDM, Hyprland and niri";
         };
 
         default = {
@@ -429,8 +393,6 @@
           assert generic.config.networking.hostName == "ryoku-ci";
           assert generic.config.programs.ryoku.enable;
           assert generic.config.programs.ryoku.binaryCache.enable;
-          assert generic.config.hardware.graphics.package == pkgs.mesa;
-          assert generic.config.hardware.graphics.package32 == pkgs.pkgsi686Linux.mesa;
           assert generic.config.nix.package == nixpkgs.legacyPackages.${system}.nixVersions.latest;
           assert nvidia.config.services.xserver.videoDrivers == [ "nvidia" ];
           assert nvidia.config.hardware.nvidia.modesetting.enable;
@@ -453,8 +415,6 @@
           pkgs.runCommand "ryoku-iso-configs-check" { } ''
             touch "$out"
           '';
-
-        ryoku-iso-boot = import ./nix/tests/iso-boot.nix ryokuIsoTestArgs;
 
         ryoku-installer-wrapper = import ./nix/tests/installer-wrapper.nix {
           inherit pkgs;
@@ -676,25 +636,6 @@
           ''
             RYOKU_NIX_UPDATE_TEST_HELPER=${./nix/scripts/ryoku-nix-update} \
               bash ${./nix/tests/test-nix-update-refresh.sh}
-            touch "$out"
-          '';
-
-        # Nix update status: the commits behind the urgent-update lookup
-        ryoku-nix-update-status = pkgs.runCommand
-          "ryoku-nix-update-status-check"
-          {
-            nativeBuildInputs = with pkgs; [
-              bash
-              coreutils
-              git
-              gnugrep
-              gnused
-              jq
-            ];
-          }
-          ''
-            RYOKU_NIX_UPDATE_TEST_HELPER=${./nix/scripts/ryoku-nix-update} \
-              bash ${./nix/tests/test-nix-update-status.sh}
             touch "$out"
           '';
 

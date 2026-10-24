@@ -1,0 +1,87 @@
+name: Nix binary cache
+
+# Every merge into a lane branch changes what installed systems build on their
+# next update. Build the default install's system closure once here and push it
+# to the cache that installed systems and the installer already trust.
+on:
+  push:
+    branches:
+      - unstable-dev
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: NixOS checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        with:
+          determinate: false
+          extra-conf: |
+            extra-substituters = https://ryotunes.cachix.org
+            extra-trusted-public-keys = ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs=
+
+      - name: Run NixOS checks
+        run: |
+          set -euo pipefail
+          nix build --no-link \
+            .#checks.x86_64-linux.ryoku-installer-options \
+            .#checks.x86_64-linux.ryoku-installer-transaction \
+            .#checks.x86_64-linux.ryoku-installer-disk-identity \
+            .#checks.x86_64-linux.ryoku-installer-iso \
+            .#checks.x86_64-linux.ryoku-installer-wrapper \
+            .#checks.x86_64-linux.ryoku-session-bootstrap \
+            .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
+            .#checks.x86_64-linux.ryoku-iso-configs
+
+  cache:
+    # Only a tree whose checks passed reaches the cache.
+    needs: checks
+    name: Cache the default install closure
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+
+    steps:
+      - name: Check cache configuration
+        env:
+          CACHE: ${{ vars.CACHIX_CACHE }}
+          TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          test -n "$CACHE" || { echo 'Missing repository variable: CACHIX_CACHE' >&2; exit 1; }
+          test -n "$TOKEN" || { echo 'Missing repository secret: CACHIX_AUTH_TOKEN' >&2; exit 1; }
+
+      - name: Free build disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        with:
+          determinate: false
+
+      - name: Configure Cachix
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ${{ vars.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build the default install closure
+        run: nix build -L --no-link .#ryoku-default-system

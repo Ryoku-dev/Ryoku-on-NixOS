@@ -6,7 +6,6 @@ import Quickshell.Wayland
 import Ryoku.Ui.Singletons
 import "Singletons"
 import "../../services/lib/screens.js" as Screens
-import "../../components" as C
 
 /**
  * Ryoku workspace overview: a full-screen expo, migrated to a per-monitor module
@@ -51,26 +50,15 @@ Scope {
         readonly property real s: Screens.monitorScale(root.screen, Wm.outputScale(root.screen ? root.screen.name : ""), 1.25) * Math.max(0.8, Math.min(1.4, Config.fontScale)) * Tokens.uiScaleFor(root.screen ? root.screen.name : "")
         readonly property bool isFocused: !root.focusedMon || root.focusedMon === (root.screen ? root.screen.name : "")
         readonly property bool shown: root.active && root.available
-        // Under a bar style's seam the overview is a strip of cells hanging
-        // from the bar like the style's own panels, not a full-screen expo.
-        readonly property bool welded: weld.welded
 
         screen: root.screen
-        visible: (shown || closing.running || weld.moving) && !weld.remap
-        mask: win.welded ? weld.inputMask : null
+        visible: shown || closing.running
         color: "transparent"
-        // A welded strip needs the window to start at the top of the screen;
-        // the expo stays clear of the bars' reserved edges.
-        exclusionMode: win.welded ? ExclusionMode.Ignore : ExclusionMode.Normal
-        // The namespace is fixed when the layer maps; the welded one keeps the
-        // expo's full-screen blur rule off the strip.
-        WlrLayershell.namespace: win.welded ? "ryoku-weld-expo" : "overview"
+        exclusiveZone: 0
+        WlrLayershell.namespace: "overview"
         WlrLayershell.layer: WlrLayer.Overlay
         // Only the focused monitor grabs the keyboard, so keys never double-fire.
-        // A welded strip takes it on demand, so the bar's marks stay pressable on
-        // Hyprland.
-        WlrLayershell.keyboardFocus: !(shown && isFocused) ? WlrKeyboardFocus.None
-            : win.welded ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.Exclusive
+        WlrLayershell.keyboardFocus: (shown && isFocused) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
         anchors { top: true; bottom: true; left: true; right: true }
 
         // Hold the layer mapped through the outro, then unmap once it settles.
@@ -87,45 +75,16 @@ Scope {
         // Dim scrim over the (compositor-blurred) desktop; click-out dismisses.
         Rectangle {
             anchors.fill: parent
-            color: win.welded ? "transparent" : Qt.rgba(0, 0, 0, 0.32)
+            color: Qt.rgba(0, 0, 0, 0.32)
             opacity: win.shown ? 1 : 0
             visible: opacity > 0.001
             Behavior on opacity { NumberAnimation { duration: Motion.window; easing.type: Motion.easeStandard } }
             MouseArea { anchors.fill: parent; onClicked: root.hide() }
         }
 
-        C.WeldedCard {
-            id: weld
-            screen: root.screen
-            surfaceId: "overview"
-            open: win.shown
-            hostVisible: win.visible
-            cardWidth: body.width
-            cardHeight: body.height
-            onSeamLost: root.hide()
-        }
-
-        // A welded strip cycles on a wheel turn anywhere, like the expo.
-        WheelHandler {
-            enabled: win.welded && win.shown
-            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-            onWheel: (e) => {
-                if (e.angleDelta.y !== 0)
-                    body.cycle(e.angleDelta.y < 0 ? 1 : -1);
-            }
-        }
-
         Overview {
             id: body
-            parent: win.welded ? weld.slot : win.contentItem
-            x: 0
-            y: 0
-            width: win.welded ? implicitWidth : win.width
-            height: win.welded ? implicitHeight : win.height
-            compact: win.welded
-            maxWidth: win.welded ? win.width - weld.place.margin * 2 : 0
-            cellMax: Math.round((root.screen ? root.screen.height : 1080) * 0.11)
-            previewsLive: win.shown || weld.moving
+            anchors.fill: parent
             s: win.s
             screenName: root.screen ? root.screen.name : ""
             active: win.shown
@@ -134,10 +93,9 @@ Scope {
             focusHere: win.isFocused
             onRequestClose: root.hide()
 
-            // reveal: fade + a small scale settle, like the launcher window. A
-            // welded strip slides instead.
-            opacity: win.welded || win.shown ? 1 : 0
-            scale: win.welded || win.shown ? 1 : 0.97
+            // reveal: fade + a small scale settle, like the launcher window.
+            opacity: win.shown ? 1 : 0
+            scale: win.shown ? 1 : 0.97
             Behavior on opacity { NumberAnimation { duration: Motion.window; easing.type: Motion.easeStandard } }
             Behavior on scale { NumberAnimation { duration: Motion.window; easing.type: Motion.easeExpo } }
         }

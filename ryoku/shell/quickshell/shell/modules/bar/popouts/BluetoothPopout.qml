@@ -20,7 +20,6 @@ Item {
 
     property real s: 1
     property bool open: false
-    property bool welded: false
 
     readonly property real pad: 11 * root.s
     readonly property color ink: Theme.ink(Theme.effectiveSurface)
@@ -171,7 +170,7 @@ Item {
     implicitHeight: content.implicitHeight + root.pad * 2
 
     // the shared card skin: same frame + click-swallow the music card uses.
-    PopoutCard { anchors.fill: parent; bare: root.welded }
+    PopoutCard { anchors.fill: parent }
 
     // a hairline device chip in the rail: class glyph, name, connected/pending pip.
     component DeviceChip: Item {

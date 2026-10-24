@@ -1,0 +1,651 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Paths maintained by the NixOS port. Upstream changes below these paths never
+# enter a sync commit.
+FORK_OWNED_PATHS=(
+  nix
+  flake.nix
+  flake.lock
+  .github
+  README.md
+  docs/nixos.md
+  website
+)
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+upstream_wins_file="$script_dir/upstream-wins"
+[[ -f $upstream_wins_file ]] || {
+  printf 'ryoku-sync: missing %s\n' "$upstream_wins_file" >&2
+  exit 1
+}
+
+lane=""
+dry_run=0
+upstream="https://github.com/Ryoku-dev/ryoku.git"
+fork_remote="origin"
+checked_url="${RYOKU_CHECKED_URL:-https://repo.ryoku.dev/stable/channels/testing/checked.json}"
+gh_command="${RYOKU_SYNC_GH:-gh}"
+repository="${GITHUB_REPOSITORY:-Ryoku-dev/Ryoku-on-NixOS}"
+
+usage() {
+  cat <<'USAGE'
+Usage: nix/sync/ryoku-sync --lane unstable|stable [options]
+
+Options:
+  --lane LANE          Sync unstable or stable
+  --dry-run            Compute and print the result without pushing or using GitHub
+  --upstream URL       Ryoku git URL or local repository path
+  --fork-remote NAME   Remote for Ryoku-on-NixOS (default: origin)
+  -h, --help           Show this help
+USAGE
+}
+
+die() {
+  printf 'ryoku-sync: %s\n' "$*" >&2
+  exit 1
+}
+
+while (($#)); do
+  case "$1" in
+    --lane)
+      (($# >= 2)) || die "--lane needs a value"
+      lane=$2
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    --upstream)
+      (($# >= 2)) || die "--upstream needs a value"
+      upstream=$2
+      shift 2
+      ;;
+    --fork-remote)
+      (($# >= 2)) || die "--fork-remote needs a value"
+      fork_remote=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ $lane == unstable || $lane == stable ]] || die "--lane must be unstable or stable"
+git rev-parse --git-dir >/dev/null 2>&1 || die "run this from a Ryoku-on-NixOS checkout"
+
+if [[ $lane == unstable ]]; then
+  base_branch=unstable-dev
+else
+  base_branch=main
+fi
+upstream_ref="refs/ryoku-sync/upstream/unstable-dev"
+upstream_tags="refs/ryoku-sync/tags"
+fork_base_ref="refs/remotes/$fork_remote/$base_branch"
+fork_unstable_ref="refs/remotes/$fork_remote/unstable-dev"
+sync_ref="refs/remotes/$fork_remote/sync/$lane"
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/ryoku-sync.XXXXXX")
+trap 'rm -rf "$tmp_dir"' EXIT
+
+fetch_fork_branch() {
+  local branch=$1
+  local destination="refs/remotes/$fork_remote/$branch"
+  git fetch --quiet --no-tags "$fork_remote" "+refs/heads/$branch:$destination"
+}
+
+fetch_optional_fork_branch() {
+  local branch=$1
+  local destination="refs/remotes/$fork_remote/$branch"
+  if git ls-remote --exit-code --heads "$fork_remote" "$branch" >/dev/null 2>&1; then
+    git fetch --quiet --no-tags "$fork_remote" "+refs/heads/$branch:$destination"
+    return 0
+  fi
+  git update-ref -d "$destination" 2>/dev/null || true
+  return 1
+}
+
+fetch_upstream_branch() {
+  local source_ref="refs/heads/unstable-dev"
+  if ! git ls-remote --exit-code "$upstream" "$source_ref" >/dev/null 2>&1; then
+    source_ref="refs/remotes/origin/unstable-dev"
+  fi
+  git ls-remote --exit-code "$upstream" "$source_ref" >/dev/null 2>&1 \
+    || die "upstream has no unstable-dev branch or origin/unstable-dev remote ref"
+  git fetch --quiet --no-tags "$upstream" "+$source_ref:$upstream_ref"
+}
+
+fetch_upstream_tags() {
+  git fetch --quiet --no-tags "$upstream" "+refs/tags/v*:$upstream_tags/v*"
+}
+
+read_sync_commit() {
+  local commit=$1
+  local value
+  if value=$(git show "$commit:nix/sync/ryoku-commit" 2>/dev/null); then
+    value=${value%%$'\n'*}
+    [[ $value =~ ^[0-9a-f]{40}$ ]] || die "invalid nix/sync/ryoku-commit at $commit"
+    printf '%s\n' "$value"
+    return
+  fi
+  if value=$(git show "$commit:nix/sync/upstream.json" 2>/dev/null); then
+    value=$(jq -er '.upstream.commit' <<<"$value") \
+      || die "invalid nix/sync/upstream.json at $commit"
+    [[ $value =~ ^[0-9a-f]{40}$ ]] || die "invalid upstream commit at $commit"
+    printf '%s\n' "$value"
+    return
+  fi
+  die "no recorded upstream commit at $commit"
+}
+
+upstream_target_unstable() {
+  local checked passed tip sha author subject
+  checked=$(curl -fsSL "$checked_url") || die "could not read checked.json"
+  if [[ $(jq -r '.state // empty' <<<"$checked") == passed ]]; then
+    passed=$(jq -er '.commit' <<<"$checked") || die "checked.json has no passed commit"
+  else
+    passed=$(jq -er '.passed.commit' <<<"$checked") || die "checked.json has no previous passed commit"
+  fi
+  [[ $passed =~ ^[0-9a-f]{40}$ ]] || die "checked.json contains an invalid commit"
+  git cat-file -e "$passed^{commit}" 2>/dev/null || die "checked commit is not in upstream unstable-dev history"
+
+  tip=$(git rev-parse "$upstream_ref^{commit}")
+  if ! git merge-base --is-ancestor "$passed" "$tip"; then
+    printf '%s\n' "$passed"
+    return
+  fi
+  while IFS= read -r sha; do
+    [[ -n $sha ]] || continue
+    author=$(git show -s --format=%an "$sha")
+    subject=$(git show -s --format=%s "$sha")
+    if [[ $author != 'github-actions[bot]' || $subject != release:\ bump\ unstable\ to\ * ]]; then
+      printf '%s\n' "$passed"
+      return
+    fi
+  done < <(git rev-list "$passed..$tip")
+  printf '%s\n' "$tip"
+}
+
+upstream_target_stable() {
+  local -a tag_refs
+  mapfile -t tag_refs < <(git for-each-ref --sort=-version:refname --format='%(refname)' "$upstream_tags/v*")
+  ((${#tag_refs[@]})) || die "upstream has no v* release tag"
+  git rev-parse "${tag_refs[0]}^{commit}"
+}
+
+find_stable_fork_state() {
+  local target=$1 commit recorded
+  while IFS= read -r commit; do
+    if ! recorded=$(read_sync_commit "$commit" 2>/dev/null); then
+      continue
+    fi
+    if git cat-file -e "$recorded^{commit}" 2>/dev/null \
+      && git merge-base --is-ancestor "$recorded" "$target"; then
+      printf '%s %s\n' "$commit" "$recorded"
+      return 0
+    fi
+  done < <(git rev-list --first-parent "$fork_unstable_ref")
+  return 1
+}
+
+
+extract_sync_marker() {
+  local body=$1 line value marker=""
+  local prefix='<!-- ryoku-sync-head: ' suffix=' -->'
+  while IFS= read -r line; do
+    if [[ $line == "$prefix"*"$suffix" ]]; then
+      value=${line#"$prefix"}
+      value=${value%"$suffix"}
+      [[ $value =~ ^[0-9a-f]{40}$ ]] && marker=$value
+    fi
+  done <<<"$body"
+  printf '%s\n' "$marker"
+}
+
+sync_branch_is_reusable() {
+  local branch_head body marker
+  branch_head=$(git rev-parse "$sync_ref")
+  open_pr_number=$(gh_find_pr)
+  # Without an open PR nobody is working on the branch: it was merged or the
+  # PR was closed, so the next target may replace it.
+  [[ -n $open_pr_number ]] || return 0
+  body=$(gh_get_pr_body "$open_pr_number")
+  marker=$(extract_sync_marker "$body")
+  [[ $marker == "$branch_head" ]]
+}
+
+path_exists() {
+  local tree=$1 path=$2
+  git cat-file -e "$tree:$path" 2>/dev/null
+}
+
+is_fork_owned() {
+  local path=$1 owned
+  for owned in "${FORK_OWNED_PATHS[@]}"; do
+    if [[ $path == "$owned" || $path == "$owned/"* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+is_upstream_wins() {
+  local path=$1 rule prefix
+  local result=1
+  while IFS= read -r rule || [[ -n $rule ]]; do
+    rule=${rule%$'\r'}
+    rule=${rule#"${rule%%[![:space:]]*}"}
+    rule=${rule%"${rule##*[![:space:]]}"}
+    [[ -n $rule && $rule != \#* ]] || continue
+
+    local include=1
+    if [[ $rule == '!'* ]]; then
+      include=0
+      rule=${rule#!}
+    fi
+
+    if [[ $rule == */ ]]; then
+      prefix=${rule%/}
+      if [[ $path != "$prefix" && $path != "$prefix/"* ]]; then
+        continue
+      fi
+    elif [[ $rule != */* ]]; then
+      [[ ${path##*/} == "$rule" ]] || continue
+    else
+      [[ $path == "$rule" ]] || continue
+    fi
+
+    if ((include)); then
+      result=0
+    else
+      result=1
+    fi
+  done <"$upstream_wins_file"
+  return "$result"
+}
+declare -A STALE_COPY_SET=()
+stale_copies=()
+
+collect_stale_copies() {
+  local base=$1 ours_tree=$2 path blob object_type metadata history_path
+  local old_blob new_blob candidate offset
+  local -a changed_paths candidate_paths chunk
+  local -A candidate_blobs=() seen=()
+
+  mapfile -d '' -t changed_paths \
+    < <(git diff-tree --no-commit-id --name-only -r -z "$base" "$ours_tree")
+  for path in "${changed_paths[@]}"; do
+    is_fork_owned "$path" && continue
+    path_exists "$ours_tree" "$path" || continue
+    # A file upstream had already dropped by the base is one the port chose to
+    # keep, even when its bytes match an old upstream version.
+    path_exists "$base" "$path" || continue
+    blob=$(git rev-parse "$ours_tree:$path")
+    object_type=$(git cat-file -t "$blob")
+    [[ $object_type == blob ]] || continue
+    candidate_paths+=("$path")
+    candidate_blobs["$path"]=$blob
+  done
+
+  for ((offset = 0; offset < ${#candidate_paths[@]}; offset += 128)); do
+    chunk=("${candidate_paths[@]:offset:128}")
+    while IFS= read -r -d '' metadata && IFS= read -r -d '' history_path; do
+      metadata=${metadata#:}
+      read -r _ _ old_blob new_blob _ <<<"$metadata"
+      candidate=${candidate_blobs["$history_path"]-}
+      [[ -n $candidate ]] || continue
+      if [[ $candidate == "$old_blob" || $candidate == "$new_blob" ]]; then
+        seen["$history_path"]=1
+      fi
+    done < <(git log --raw -z --no-abbrev --no-renames --format= \
+      "$base" -- "${chunk[@]}")
+  done
+
+  STALE_COPY_SET=()
+  stale_copies=()
+  for path in "${candidate_paths[@]}"; do
+    [[ -n ${seen["$path"]-} ]] || continue
+    STALE_COPY_SET["$path"]=1
+    stale_copies+=("$path")
+  done
+}
+
+
+
+under_removed_directory() {
+  local path=$1 base=$2 ours=$3 prefix="" component depth=0
+  local directory=${path%/*}
+  [[ $directory != "$path" ]] || return 1
+  IFS='/' read -r -a components <<<"$directory"
+  for component in "${components[@]}"; do
+    ((depth += 1))
+    ((depth <= 2)) || break
+    if [[ -z $prefix ]]; then
+      prefix=$component
+    else
+      prefix="$prefix/$component"
+    fi
+    if path_exists "$base" "$prefix" && ! path_exists "$ours" "$prefix"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+remove_index_paths() {
+  local index=$1
+  shift
+  GIT_INDEX_FILE=$index git rm -r -q -f --cached --ignore-unmatch -- "$@"
+}
+
+restore_index_paths() {
+  local index=$1 source=$2
+  shift 2
+  git ls-tree -r -z "$source" -- "$@" \
+    | GIT_INDEX_FILE=$index git update-index -z --index-info
+}
+
+set_index_file() {
+  local index=$1 source=$2 path=$3
+  remove_index_paths "$index" "$path"
+  restore_index_paths "$index" "$source" "$path"
+}
+
+collect_notes() {
+  local range=$1 commit line
+  notes=()
+  while IFS= read -r commit; do
+    while IFS= read -r line; do
+      [[ $line == Note:* ]] && notes+=("${line#Note: }")
+    done < <(git show -s --format=%B "$commit" | git interpret-trailers --parse)
+  done < <(git rev-list --reverse "$range")
+}
+
+build_pr_body() {
+  local previous=$1 target=$2 check_text conflict
+  if ((${#conflicts[@]})); then
+    check_text="Blocked until the conflicts below are resolved."
+  else
+    check_text="Pending: the ryoku-sync/checks status runs against this commit."
+  fi
+
+  pr_body=$(printf 'Syncs Ryoku `%s...%s`.\n\nUpstream: https://github.com/Ryoku-dev/ryoku/compare/%s...%s\n' \
+    "$previous" "$target" "$previous" "$target")
+  if ((${#notes[@]})); then
+    pr_body+=$'\nNotes:\n'
+    for note in "${notes[@]}"; do
+      pr_body+="- $note"$'\n'
+    done
+  fi
+  if ((${#stale_copies[@]})); then
+    pr_body+=$'\n### Stale copies refreshed from upstream\n\n'
+    pr_body+="${#stale_copies[@]} paths were reset to their current upstream versions."$'\n'
+    if ((${#stale_copies[@]} > 20)); then
+      pr_body+=$'\n<details>\n<summary>Show paths</summary>\n\n'
+    fi
+    for path in "${stale_copies[@]}"; do
+      pr_body+="- \`$path\`"$'\n'
+    done
+    if ((${#stale_copies[@]} > 20)); then
+      pr_body+=$'\n</details>\n'
+    fi
+  fi
+  if ((${#removed_paths[@]})); then
+    pr_body+=$'\n### Removed because upstream removed them\n\n'
+    pr_body+="Check that the port does not still need these:"$'\n'
+    if ((${#removed_paths[@]} > 20)); then
+      pr_body+=$'\n<details>\n<summary>Show paths</summary>\n\n'
+    fi
+    for path in "${removed_paths[@]}"; do
+      pr_body+="- \`$path\`"$'\n'
+    done
+    if ((${#removed_paths[@]} > 20)); then
+      pr_body+=$'\n</details>\n'
+    fi
+  fi
+  if ((${#conflicts[@]})); then
+    pr_body+=$'\nConflicts:\n'
+    for conflict in "${conflicts[@]}"; do
+      pr_body+="- \`$conflict\`"$'\n'
+    done
+    pr_body+=$'\nResolve the marked files on this branch, remove the markers, then commit the result. The bot will leave the branch alone after a maintainer commit.\n'
+  fi
+  pr_body+=$'\nChecks: '
+  pr_body+="$check_text"
+  pr_body+=$'\n\n'
+  pr_body+="<!-- ryoku-sync-head: $sync_commit -->"
+}
+
+gh_find_pr() {
+  "$gh_command" api "repos/$repository/pulls" --method GET \
+    -f state=open -f base="$base_branch" -f head="${repository%%/*}:sync/$lane" \
+    --jq '.[0].number // empty'
+}
+gh_get_pr_body() {
+  local number=$1
+  "$gh_command" api "repos/$repository/pulls/$number" --method GET --jq '.body // ""'
+}
+
+
+gh_create_pr() {
+  local title=$1 body=$2
+  "$gh_command" api "repos/$repository/pulls" --method POST \
+    -f title="$title" -f head="sync/$lane" -f base="$base_branch" -f body="$body" \
+    --jq '.number'
+}
+
+gh_update_pr() {
+  local number=$1 title=$2 body=$3
+  "$gh_command" api "repos/$repository/pulls/$number" --method PATCH \
+    -f title="$title" -f base="$base_branch" -f body="$body" >/dev/null
+}
+
+gh_set_pr_body() {
+  local number=$1 body=$2
+  "$gh_command" api "repos/$repository/pulls/$number" --method PATCH \
+    -f body="$body" >/dev/null
+}
+
+# Keeps one "Newer Ryoku waiting" line in the PR body, replaced on each run,
+# instead of a new comment every twenty minutes.
+note_waiting_target() {
+  local number=$1 message=$2 body line kept=""
+  body=$(gh_get_pr_body "$number")
+  while IFS= read -r line; do
+    [[ $line == 'Newer Ryoku waiting: '* ]] && continue
+    kept+="$line"$'\n'
+  done <<<"$body"
+  gh_set_pr_body "$number" "${kept%$'\n'}"$'\n\n'"$message"
+}
+
+gh_label_pr() {
+  local number=$1
+  "$gh_command" api "repos/$repository/issues/$number/labels" --method POST \
+    -f 'labels[]=sync' >/dev/null
+}
+
+emit_output() {
+  local key=$1 value=$2
+  [[ -n ${GITHUB_OUTPUT:-} ]] || return 0
+  printf '%s=%s\n' "$key" "$value" >>"$GITHUB_OUTPUT"
+}
+
+fetch_fork_branch "$base_branch"
+fetch_optional_fork_branch "sync/$lane" || true
+fetch_upstream_branch
+
+if [[ $lane == stable ]]; then
+  fetch_fork_branch unstable-dev
+  fetch_upstream_tags
+  target=$(upstream_target_stable)
+  if ! stable_state=$(find_stable_fork_state "$target"); then
+    printf 'no fork state matches the stable release yet\n'
+    emit_output created false
+    emit_output conflicts 0
+    exit 0
+  fi
+  read -r ours merge_base <<<"$stable_state"
+  parent=$(git rev-parse "$fork_base_ref^{commit}")
+  previous_recorded=$(read_sync_commit "$parent")
+else
+  target=$(upstream_target_unstable)
+  ours=$(git rev-parse "$fork_base_ref^{commit}")
+  parent=$ours
+  merge_base=$(read_sync_commit "$ours")
+  previous_recorded=$merge_base
+fi
+
+git cat-file -e "$merge_base^{commit}" 2>/dev/null || die "recorded upstream commit is unavailable: $merge_base"
+git cat-file -e "$previous_recorded^{commit}" 2>/dev/null \
+  || die "base branch upstream commit is unavailable: $previous_recorded"
+if git merge-base --is-ancestor "$target" "$previous_recorded"; then
+  printf 'Ryoku %s already includes target %s\n' "$lane" "$target"
+  emit_output created false
+  emit_output conflicts 0
+  exit 0
+fi
+
+open_pr_number=""
+if ((dry_run == 0)) && git show-ref --verify --quiet "$sync_ref" \
+  && ! sync_branch_is_reusable; then
+  message="Newer Ryoku waiting: $target. sync/$lane has a maintainer commit, so the bot left it unchanged; merge this PR and the next sync follows."
+  printf '%s\n' "$message"
+  note_waiting_target "$open_pr_number" "$message"
+  emit_output created false
+  emit_output conflicts 0
+  exit 0
+fi
+
+merge_output="$tmp_dir/merge-output"
+set +e
+git merge-tree --write-tree --merge-base="$merge_base" --name-only --no-messages -z \
+  "$ours" "$target" >"$merge_output"
+merge_status=$?
+set -e
+((merge_status <= 1)) || die "git merge-tree failed"
+mapfile -d '' -t merge_records <"$merge_output"
+((${#merge_records[@]} >= 1)) || die "git merge-tree produced no tree"
+merged_tree=${merge_records[0]}
+initial_conflicts=("${merge_records[@]:1}")
+collect_stale_copies "$merge_base" "$ours"
+
+
+index="$tmp_dir/index"
+rm -f "$index"
+GIT_INDEX_FILE=$index git read-tree "$merged_tree"
+remove_index_paths "$index" "${FORK_OWNED_PATHS[@]}"
+restore_index_paths "$index" "$ours" "${FORK_OWNED_PATHS[@]}"
+set_index_file "$index" "$target" VERSION
+for path in "${stale_copies[@]}"; do
+  set_index_file "$index" "$target" "$path"
+done
+
+
+conflicts=()
+for path in "${initial_conflicts[@]}"; do
+  if is_fork_owned "$path" || [[ $path == VERSION ]]; then
+    continue
+  fi
+  if [[ -n ${STALE_COPY_SET["$path"]-} ]]; then
+    continue
+  fi
+  if ! path_exists "$ours" "$path" && path_exists "$merge_base" "$path"; then
+    remove_index_paths "$index" "$path"
+    continue
+  fi
+  if is_upstream_wins "$path"; then
+    set_index_file "$index" "$target" "$path"
+    continue
+  fi
+
+  if ! path_exists "$merge_base" "$path" && path_exists "$target" "$path" \
+    && under_removed_directory "$path" "$merge_base" "$ours"; then
+    remove_index_paths "$index" "$path"
+    continue
+  fi
+  conflicts+=("$path")
+done
+
+while IFS= read -r -d '' path; do
+  is_fork_owned "$path" && continue
+  if under_removed_directory "$path" "$merge_base" "$ours"; then
+    remove_index_paths "$index" "$path"
+  fi
+done < <(git diff-tree --no-commit-id --name-only --diff-filter=A -r -z "$merge_base" "$target")
+while IFS= read -r -d '' path; do
+  is_fork_owned "$path" && continue
+  if is_upstream_wins "$path" && path_exists "$merge_base" "$path" \
+    && path_exists "$ours" "$path"; then
+    set_index_file "$index" "$target" "$path"
+  fi
+done < <(git diff-tree --no-commit-id --name-only -r -z "$merge_base" "$ours")
+
+
+sync_blob=$(printf '%s\n' "$target" | git hash-object -w --stdin)
+GIT_INDEX_FILE=$index git update-index --add --cacheinfo "100644,$sync_blob,nix/sync/ryoku-commit"
+final_tree=$(GIT_INDEX_FILE=$index git write-tree)
+version=$(git show "$target:VERSION")
+version=${version%%$'\n'*}
+[[ -n $version ]] || die "upstream VERSION is empty"
+
+commit_message=$(printf 'sync: Ryoku %s (%s)\n\nRyoku-Commit: %s\nRyoku-Lane: %s\n' \
+  "$version" "$lane" "$target" "$lane")
+sync_commit=$(printf '%s' "$commit_message" \
+  | GIT_AUTHOR_NAME='github-actions[bot]' \
+    GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com' \
+    GIT_COMMITTER_NAME='github-actions[bot]' \
+    GIT_COMMITTER_EMAIL='41898282+github-actions[bot]@users.noreply.github.com' \
+    git commit-tree "$final_tree" -p "$parent")
+
+mapfile -d '' -t changed_paths < <(git diff-tree --no-commit-id --name-only -r -z "$parent" "$sync_commit")
+removed_paths=()
+while IFS= read -r -d '' path; do
+  is_upstream_wins "$path" || removed_paths+=("$path")
+done < <(git diff-tree --no-commit-id --name-only --diff-filter=D -r -z "$parent" "$sync_commit")
+collect_notes "$previous_recorded..$target"
+build_pr_body "$previous_recorded" "$target"
+
+printf 'Target: %s\n' "$target"
+printf 'Tree: %s\n' "$final_tree"
+printf 'Commit: %s\n' "$sync_commit"
+printf 'Changed files: %d\n' "${#changed_paths[@]}"
+printf 'Stale copies refreshed: %d\n' "${#stale_copies[@]}"
+printf 'Removed by upstream: %d\n' "${#removed_paths[@]}"
+if ((${#conflicts[@]})); then
+  printf 'Conflicts (%d):\n' "${#conflicts[@]}"
+  printf '  %s\n' "${conflicts[@]}"
+else
+  printf 'Conflicts: none\n'
+fi
+printf '\nPR body:\n%s\n' "$pr_body"
+
+emit_output created true
+emit_output head "$sync_commit"
+emit_output conflicts "${#conflicts[@]}"
+emit_output changed_files "${#changed_paths[@]}"
+
+if ((dry_run)); then
+  exit 0
+fi
+
+if git show-ref --verify --quiet "$sync_ref"; then
+  expected_old=$(git rev-parse "$sync_ref")
+else
+  expected_old=""
+fi
+git push --quiet \
+  "--force-with-lease=refs/heads/sync/$lane:$expected_old" \
+  "$fork_remote" "$sync_commit:refs/heads/sync/$lane"
+
+pr_title="sync: Ryoku $version ($lane)"
+pr_number=$(gh_find_pr)
+if [[ -z $pr_number ]]; then
+  pr_number=$(gh_create_pr "$pr_title" "$pr_body")
+else
+  gh_update_pr "$pr_number" "$pr_title" "$pr_body"
+fi
+gh_label_pr "$pr_number"

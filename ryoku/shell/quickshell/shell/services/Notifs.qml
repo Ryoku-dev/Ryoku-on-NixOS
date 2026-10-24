@@ -14,8 +14,8 @@ import shell.modules.phone as Phone
 //            dedup-then-front by id, each with its own display timer.
 // Urgency only picks the arrival cue (chime): no styling, no ordering, no
 // timeout weighting, exactly as upstream. DND is shell-owned (bound from
-// Flags.dnd in shell.qml) and suppresses popups and their cue, all but Ryoku's
-// own urgent-update alert; history still fills.
+// Flags.dnd in shell.qml) and suppresses popups and their cue; history still
+// fills.
 Singleton {
     id: root
 
@@ -142,14 +142,6 @@ Singleton {
         var e = Object.assign({}, root.popupExpireAt);
         delete e[n.id];
         root.popupExpireAt = e;
-    }
-
-    // The urgent-update alert (UrgentUpdates.qml) is the one popup Do Not
-    // Disturb lets through: the update it asks for should not wait, and closing
-    // it only snoozes it.
-    function isUrgentUpdate(n) {
-        return !!n && n.urgency === NotificationUrgency.Critical
-            && (n.hints || {})["x-ryoku-urgent-update"] === true;
     }
 
     // Close button (contract 07 sec 4.3): DismissedByUser.
@@ -283,7 +275,7 @@ Singleton {
                 root.markSeen(a[n.id]);
             n.tracked = true;
             root.hookClosed(n);
-            if (!root.dnd || root.isUrgentUpdate(n)) {
+            if (!root.dnd) {
                 root.addPopup(n);
                 root.chime(n);
             }

@@ -144,12 +144,6 @@ Scope {
         return ((rail.enabled && root.railHasWidgets(rail, edge)) ? rail.size * root.uiScale : 1) + root.frameBorderPx;
     }
 
-    // The seam a loaded bar style declares, so the shell's own cards weld onto
-    // its bar like the style's panels instead of floating below it. A style's
-    // bar steps aside for a fullscreen window, and its seam goes with it.
-    readonly property var barSeam: root.sumiActive || !barStyleLoader.item || overlay.monFullscreen
-        ? null : RailGeometry.seamSpec(barStyleLoader.item.seam)
-
     readonly property var sidebarRailClearances: !root.barEnabled ? ({
         top: 0, left: 0, bottom: 0, right: 0
     }) : root.sumiActive ? ({
@@ -157,21 +151,16 @@ Scope {
         left: overlay.railClearance("left"),
         bottom: overlay.railClearance("bottom"),
         right: overlay.railClearance("right")
-    }) : root.barSeam ? ({
-        top: root.barSeam.depth, left: 0, bottom: 0, right: 0
     }) : (overlay.qsBarEdge === "bottom"
         ? ({ top: 0, left: 0, bottom: 52, right: 0 })
         : ({ top: 52, left: 0, bottom: 0, right: 0 }))
 
     function syncSidebarRailClearances() {
-        if (!root.modelData)
-            return;
-        SidebarState.setRailClearances(root.modelData, root.sidebarRailClearances);
-        SidebarState.setSeam(root.modelData, root.barSeam);
+        if (root.modelData)
+            SidebarState.setRailClearances(root.modelData, root.sidebarRailClearances);
     }
 
     onSidebarRailClearancesChanged: root.syncSidebarRailClearances()
-    onBarSeamChanged: root.syncSidebarRailClearances()
     Component.onCompleted: Qt.callLater(root.syncSidebarRailClearances)
 
     // Four background reservation surfaces, mapped top, bottom, left, right in
@@ -459,9 +448,8 @@ Scope {
                 scale: overlay.s
                 group: blobGroup
                 topBar: !root.sumiActive || !root.barEnabled
-                barEdge: root.barSeam ? "top" : overlay.qsBarEdge
+                barEdge: overlay.qsBarEdge
                 railClearances: root.sidebarRailClearances
-                seam: root.barSeam
                 active: !overlay.monFullscreen
                 onSurfaceClosed: (id, context) => surfaceLifecycle.handleClosed(id, context)
 
@@ -484,11 +472,6 @@ Scope {
                         // Without one openSurface falls back to the record's
                         // config anchor, which a non-sumi bar folds into a
                         // screen corner.
-                        // A plugin popout closes the other cards itself, and
-                        // asking for it again must still close it.
-                        if (root.barSeam && ShellState.isWeldBody(id) && !frameMenus.hasRecord(id)
-                                && id.indexOf("plugin:") !== 0)
-                            frameMenus.foldBodies();
                         const anchorRect = ctx && ctx.ownerRect ? ctx.ownerRect : null;
                         frameMenus.openSurface(id, anchorRect, mon, ctx);
                     }

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 
 # Ryoku commit-msg hook.
-# Enforces a short conventional subject (with optional legacy impact prefix),
-# validates the release-note trailer consumed by the release tooling, and keeps
-# an Urgent: trailer well formed.
+# Enforces a short conventional subject (with optional legacy impact prefix) and
+# validates the release-note trailer consumed by the release tooling.
 
 set -euo pipefail
 
@@ -44,30 +43,5 @@ while IFS= read -r line; do
     fi
   fi
 done < "$msg_file"
-
-# An Urgent: trailer asks every NixOS box without the commit to update now
-# (docs/nixos.md, "Urgent updates"). `ryoku status` reads it from the last
-# paragraph of a commit on the followed branch's first-parent line; only a
-# maintainer sets one, and the Urgent trailer workflow refuses it in a PR.
-trailers=$(sed '/^#/d' "$msg_file" | awk 'BEGIN { RS = "" } { last = $0 } END { if (NR > 1) print last }')
-urgent=0
-while IFS= read -r line; do
-  [[ ${line,,} == urgent:* ]] || continue
-  urgent=$((urgent + 1))
-  if ! grep -qxF -- "$line" <<<"$trailers"; then
-    fail "Urgent: is a trailer: put it in the last paragraph, below the body, with Note: and the others."
-  fi
-  reason="${line#*:}"
-  reason="${reason#"${reason%%[![:space:]]*}"}"
-  if [[ -z $reason ]]; then
-    fail "malformed Urgent: trailer. Use 'Urgent: why every box should update now'."
-  fi
-  if ((${#reason} > 160)); then
-    fail "the Urgent: reason is ${#reason} chars; keep it to one sentence of 160 or fewer, it is the alert's text."
-  fi
-done < "$msg_file"
-if ((urgent > 1)); then
-  fail "one Urgent: trailer per commit."
-fi
 
 exit 0

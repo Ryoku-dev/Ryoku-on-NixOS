@@ -71,7 +71,7 @@ ShellRoot {
     // Construct the shared services (ShellState's per-monitor state now, heavier
     // providers as surfaces migrate) at load rather than on the first keybind.
     ServiceLoader {
-        services: [ShellState, ScreenTime, Keypresses, KeyboardLayout, BatteryAlerts, UrgentUpdates]
+        services: [ShellState, ScreenTime, Keypresses, KeyboardLayout, BatteryAlerts]
     }
 
     // The bridge stays resident even when phone support is off so Kit always
@@ -275,7 +275,7 @@ ShellRoot {
                     active: controlsLoader.showNow
                 }
             }
-            Timer { id: controlsHold; interval: SidebarState.exitDurationFor(perScreen.modelData) + 48 }
+            Timer { id: controlsHold; interval: SidebarState.exitDuration + 48 }
 
 
             LazyLoader {
@@ -559,16 +559,12 @@ ShellRoot {
                 st.barRevealed = !st.barRevealed;
             break;
         case "launcher":
-            if (SidebarState.seamFor(Wm.focusedOutput))
-                ShellState.requestSurfaceActive("launcher", Wm.focusedOutput);
-            else if (st)
+            if (st)
                 st.launcherOpen = !st.launcherOpen;
             break;
         case "overview":
             if (Wm.caps.nativeOverview)
                 Wm.toggleOverview();
-            else if (Wm.caps.windowGeometry && SidebarState.seamFor(Wm.focusedOutput))
-                ShellState.requestSurfaceActive("overview", Wm.focusedOutput);
             else if (Wm.caps.windowGeometry && st)
                 st.overviewOpen = !st.overviewOpen;
             break;
@@ -589,9 +585,7 @@ ShellRoot {
             ShellState.requestSurfaceActive("wallpaper", undefined);
             break;
         case "clipboard":
-            if (SidebarState.seamFor(Wm.focusedOutput))
-                ShellState.requestSurfaceActive("clipboard", Wm.focusedOutput);
-            else if (st)
+            if (st)
                 st.clipboardOpen = !st.clipboardOpen;
             break;
         case "screenshot":
@@ -609,37 +603,6 @@ ShellRoot {
         }
     }
 
-    // Under a bar style's seam the welded panels share the bar the way the
-    // style's own panels do: opening one closes the others on that screen.
-    function foldWeldBodies(id, mon) {
-        if (!ShellState.isWeldBody(id) || !SidebarState.seamFor(mon))
-            return;
-        const base = id.split("#")[0];
-        const st = ShellState.sliceForMonitor(mon);
-        if (!st)
-            return;
-        if (base !== "launcher")
-            st.launcherOpen = false;
-        if (base !== "clipboard")
-            st.clipboardOpen = false;
-        if (base !== "ask")
-            st.askOpen = false;
-        if (base !== "overview")
-            st.overviewOpen = false;
-    }
-
-    // A welded flag panel opens on the screen that asked, under its trigger.
-    function flipFlag(id, mon, ctx) {
-        const st = ShellState.sliceForMonitor(mon);
-        if (!st)
-            return;
-        const flag = id === "launcher" ? "launcherOpen" : id === "clipboard" ? "clipboardOpen" : "overviewOpen";
-        const opening = !st[flag];
-        if (opening)
-            ShellState.setWeldTrigger(mon, id, ctx);
-        st[flag] = opening;
-    }
-
     // With no global-shortcuts protocol a keybind reaches the shell by spawning
     // `ryoku-shell <id>`. Shell-wide flag surfaces are handled here; frame menus
     // and sidebars consume the same surfaceRequested bus in their per-monitor
@@ -647,22 +610,11 @@ ShellRoot {
     Connections {
         target: ShellState
         function onSurfaceRequested(id, mon, ctx) {
-            root.foldWeldBodies(id, mon);
             switch (id) {
-            case "launcher":
-            case "clipboard":
-                if (SidebarState.seamFor(mon))
-                    root.flipFlag(id, mon, ctx);
-                else
-                    root.toggleSurface(id);
-                break;
-            case "overview":
-                if (SidebarState.seamFor(mon) && !Wm.caps.nativeOverview && Wm.caps.windowGeometry)
-                    root.flipFlag(id, mon, ctx);
-                else
-                    root.toggleSurface(id);
-                break;
             case "barToggle":
+            case "launcher":
+            case "overview":
+            case "clipboard":
             case "screenshot":
             case "visualizer":
             case "visualizer-overlay":
@@ -670,18 +622,6 @@ ShellRoot {
                 root.toggleSurface(id);
                 break;
             }
-        }
-        // A bar style that welds panels closes the one it opened by id.
-        function onSurfaceClosed(id, mon) {
-            if (!SidebarState.seamFor(mon))
-                return;
-            const st = ShellState.sliceForMonitor(mon);
-            if (st && id === "launcher")
-                st.launcherOpen = false;
-            else if (st && id === "clipboard")
-                st.clipboardOpen = false;
-            else if (st && id === "overview")
-                st.overviewOpen = false;
         }
     }
 

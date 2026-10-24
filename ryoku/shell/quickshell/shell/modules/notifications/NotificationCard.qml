@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
-import Quickshell.Services.Notifications
 import shell.services
 import "../../components"
 
@@ -34,10 +33,9 @@ Rectangle {
     signal actionInvoked()
 
     // Popups start compact and expand on demand; the history panel is always
-    // full (compact stays false). A critical popup opens expanded, so the
-    // buttons it asks the user to press show without a click first.
+    // full (compact stays false).
     property bool compact: false
-    property bool expanded: card.n().urgency === NotificationUrgency.Critical
+    property bool expanded: false
     property bool unifiedFrame: false
 
     // Per-monitor UI scale, threaded from the popup surface (default 1 = no-op,

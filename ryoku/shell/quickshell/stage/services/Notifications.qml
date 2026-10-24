@@ -213,7 +213,7 @@ Singleton {
         // above, so those reads land on empty strings instead.
         Qt.callLater(() => notifObject.destroy());
     }
-
+    
     onListChanged: {
         // Update latest time for each app reactively via reassignment
         const nextLatestTime = Object.assign({}, root.latestTimeForApp);
@@ -683,7 +683,7 @@ Singleton {
             const action = notifServerNotif.actions.find((action) => action.identifier === notifIdentifier);
             // console.log("Action found: " + JSON.stringify(action));
             action.invoke()
-        }
+        } 
         else {
             console.log("Notification not found in server: " + id)
         }

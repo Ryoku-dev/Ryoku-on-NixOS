@@ -62,7 +62,6 @@ func nixStatus() statusReport {
 	}
 
 	report.Backend = "nix"
-	report.Urgent = nixUrgentFrom(out)
 
 	if report.Updates == nil {
 		report.Updates = []updateItem{}

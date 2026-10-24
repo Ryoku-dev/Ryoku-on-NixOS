@@ -12,13 +12,8 @@ import shell.services
 Item {
     id: root
 
-    // A card welded onto a bar's seam is drawn by its Popout, so only the
-    // click-swallow stays.
-    property bool bare: false
-
     Rectangle {
         anchors.fill: parent
-        visible: !root.bare
         radius: Theme.radiusWindow
         color: Theme.surface
         border.width: Theme.borderWidth

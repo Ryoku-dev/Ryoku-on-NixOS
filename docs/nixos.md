@@ -250,53 +250,6 @@ updater. Update the checkout yourself and rebuild the host flake normally.
 Because updates produce ordinary NixOS generations, standard NixOS rollback
 mechanisms remain available.
 
-### Urgent updates
-
-A fix every box should take right away (a lock screen that opens without a
-password, an update that breaks the session) is marked with a trailer in its
-commit message, beside `Note:`:
-
-```text
-Urgent: the lock screen could be skipped after waking from sleep
-```
-
-The reason is the alert's text: one plain sentence, 160 characters at most.
-The commit-msg hook checks that it sits in the last paragraph and that a
-commit carries one at most.
-
-Only a maintainer of this repository marks a commit urgent, in their own
-commit on `unstable-dev` or `main`, or in the merge commit of a pull request.
-A box reads the trailer only on its branch's first-parent line, so a
-contributor's commit, which arrives as the second parent of its merge, never
-alerts anyone, and the **Urgent trailer** workflow fails a pull request whose
-commits carry one. Upstream Ryoku commits never alert: when a sync brings a
-fix that cannot wait, the sync's merge commit carries the trailer.
-
-A box sees an urgent commit once the branch its Ryoku flake input follows
-carries it and the box does not run it yet. `ryoku-nix-update status` names
-the input's GitHub repository, the commit in `flake.lock` and the branch tip;
-`ryoku status` reads the trailers between the two through GitHub's compare
-API and caches the answer until either commit moves. A local `path:` checkout
-with a GitHub `origin` compares its `HEAD` with the tip of its branch there;
-any other input sees nothing.
-
-`ryoku status --json` lists them under `urgent`, newest first, and
-`ryoku status --urgent` prints that list alone. The shell daemon asks
-`ryoku status --urgent` every hour between its full checks and runs a full
-check when an urgent commit appears. The shell then raises a critical
-notification that stays up, comes through Do Not Disturb and offers
-**Update now** (`ryoku update --gui`, with the Hub on its Updates page) and
-**Later**. Closing it snoozes it for six hours; it comes back at the next
-login and goes away once the update lands. The Hub's Updates page marks the
-update URGENT with each reason.
-
-`urgentUpdates.enabled` in `shell.json` (Hub > Updates, **Urgent alerts**)
-turns the alert and the hourly probe off, and automatic checks set to off
-stop the probe too. A rice never carries the switch. Nothing is sent
-anywhere: the probe reads the public branch tip and GitHub's public compare
-API with no identifier. Offline or rate-limited, it shows nothing new and
-tries again an hour later.
-
 ## Package reporting
 
 The Hub reports NixOS packages as:
@@ -341,6 +294,57 @@ The same Ryoku desktop can sit on top of two different system-management models:
 
 The UI and desktop product remain Ryoku; the operating-system integration follows
 the conventions of the host platform.
+
+## Syncing with Ryoku
+
+This port follows upstream Ryoku on the same two lanes as every other edition:
+
+| Lane | Port branch | Follows | Moves when |
+|---|---|---|---|
+| unstable | `unstable-dev` | Ryoku `unstable-dev` commits that passed the Testing gate (`channels/testing/checked.json`) | Every upstream push that passes |
+| stable | `main` | The newest Ryoku `v*` tag | A maintainer fast-forwards Ryoku `main` and dispatches Stable Release |
+
+Every 20 minutes the **Sync Ryoku** workflow (`.github/workflows/sync-ryoku.yml`)
+looks for a newer upstream target on each lane. When there is one, it pushes a
+single commit to `sync/unstable` or `sync/stable` and opens or updates the pull
+request for that lane. Nothing lands on a lane branch until a maintainer merges
+that pull request. After a merge, `nix-cache.yml` pushes the new system closure
+to the binary cache, and users get the change on their next `ryoku update`.
+
+How the merge works:
+
+- `nix/sync/ryoku-commit` records the upstream commit the branch is synced to.
+  The bot runs a three-way merge from there, so only upstream's new changes come in.
+- `nix/`, `flake.nix`, `flake.lock`, `.github/`, `website/`, `README.md` and
+  this file belong to the port. Upstream edits to them never come in.
+- Paths listed in `nix/sync/upstream-wins` take upstream's version: the Arch
+  installer, PKGBUILDs, changelogs, upstream docs and tests. Edit that file when
+  the port starts or stops carrying a change somewhere.
+- A file that is still byte-identical to an older upstream version takes
+  upstream's newest version. Folders the port deleted stay deleted.
+- Anything else that both sides changed is committed with conflict markers and
+  listed in the pull request.
+
+Merging a sync:
+
+1. A clean sync gets a `ryoku-sync/checks` status (installer, ISO and package
+   checks). When it is green, merge the pull request with any merge method.
+2. A conflicted sync has no checks yet. Check out `sync/<lane>`, fix the listed
+   files, commit, push, then merge once the files build. You can add your own
+   NixOS commits to the branch the same way.
+3. Once a maintainer has pushed to the branch, the bot leaves it alone. When a
+   newer upstream target arrives, it adds a "Newer Ryoku waiting" line to the
+   pull request instead. Merge, and the next run opens the next sync.
+
+Run it by hand from **Actions > Sync Ryoku > Run workflow** (choose a lane), or
+from a checkout:
+
+```bash
+nix/sync/ryoku-sync --lane unstable --dry-run
+```
+
+`--dry-run` prints the target, the conflicts and the pull request body without
+pushing or calling GitHub.
 
 ## Development
 

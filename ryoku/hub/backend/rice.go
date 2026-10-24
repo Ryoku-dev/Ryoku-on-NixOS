@@ -126,9 +126,8 @@ var riceRyogamiLook = []string{"components", "display", "effects", "features", "
 // riceShellOmit / riceLauncherOmit are the keys held back from the whole-store
 // shell / launcher capture: the author's weather city and unit, locale, UI
 // language, the units/weather block, and per-monitor scaling never travel, and
-// the launcher hero travels as a bundled asset rather than an absolute path. A
-// look never turns off the recipient's urgent-update alert either.
-var riceShellOmit = []string{"weatherLocation", "weatherUnit", "formatLocale", "language", "general", "displays", "urgentUpdates"}
+// the launcher hero travels as a bundled asset rather than an absolute path.
+var riceShellOmit = []string{"weatherLocation", "weatherUnit", "formatLocale", "language", "general", "displays"}
 var riceLauncherOmit = []string{"weatherUnit", "heroImage"}
 
 // readJSONMap reads a store file into a generic map; a missing or torn file

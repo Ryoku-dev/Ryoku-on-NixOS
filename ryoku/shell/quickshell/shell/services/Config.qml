@@ -54,7 +54,6 @@ Singleton {
     // left rail; other ids select another shipped or installed folder style.
     // Each style owns its own bar, popouts and settings.
     property alias batteryAlerts: adapter.batteryAlerts
-    property alias urgentUpdates: adapter.urgentUpdates
     property alias barStyle: adapter.barStyle
     property alias notifications: adapter.notifications
 
@@ -384,7 +383,6 @@ Singleton {
             property string screenShader: ""
             property var frameBars: FrameBars.defaultConfig()
             property var batteryAlerts: ({ enabled: true, warningEnabled: true, criticalEnabled: true, warningPercent: 25, criticalPercent: 10 })
-            property var urgentUpdates: ({ enabled: true })
             property var notifications: ({
                 "notification_position": "Right",
                 "popup_window_margins": 0,
