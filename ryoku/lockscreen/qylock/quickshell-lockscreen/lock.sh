@@ -156,33 +156,39 @@ while :; do
         exec 7>&- 9>&-
         env QSG_RENDER_LOOP=basic quickshell -p "$DIR/lock_shell.qml" &
         ql_pid=$!
-        
+
         dpms_files=$(find /sys/class/drm/*/dpms -type f 2>/dev/null)
-        
-        if [ -n "$dpms_files" ]; then
-            while kill -0 "$ql_pid" 2>/dev/null; do
-                all_off=1
-                for f in $dpms_files; do
-                    status_file="${f%/dpms}/status"
-                    if [ "$(cat "$status_file" 2>/dev/null)" = "connected" ]; then
-                        if [ "$(cat "$f" 2>/dev/null)" != "Off" ]; then
-                            all_off=0
-                            break
-                        fi
-                    fi
-                done
-                
-                if [ "$all_off" = "1" ]; then
-                    kill -STOP "$ql_pid" 2>/dev/null || true
-                else
-                    kill -CONT "$ql_pid" 2>/dev/null || true
+        [ -n "$dpms_files" ] || { wait "$ql_pid"; exit $?; }
+
+        # While every connected output is off the client is stopped, so its
+        # render loop cannot grow amdgpu's TTM/shmem pages until the OOM killer
+        # fires. Outputs are checked once a second, but the client exiting
+        # (an unlock or a crash) ends the wait at once: the retry budget
+        # below counts lifetimes, and a late exit would read as a healthy run.
+        while :; do
+            sleep 1 &
+            tick=$!
+            wait -n -p finished "$ql_pid" "$tick"
+            status=$?
+            if [ "$finished" = "$ql_pid" ]; then
+                kill "$tick" 2>/dev/null || true
+                exit "$status"
+            fi
+
+            all_off=1
+            for f in $dpms_files; do
+                [ "$(cat "${f%/dpms}/status" 2>/dev/null)" = connected ] || continue
+                if [ "$(cat "$f" 2>/dev/null)" != Off ]; then
+                    all_off=0
+                    break
                 fi
-                sleep 1
             done
-        fi
-        
-        wait "$ql_pid"
-        exit $?
+            if [ "$all_off" = 1 ]; then
+                kill -STOP "$ql_pid" 2>/dev/null || true
+            else
+                kill -CONT "$ql_pid" 2>/dev/null || true
+            fi
+        done
     )
     rc=$?
     lifetime_ns=$(( $(date +%s%N) - attempt_started ))
