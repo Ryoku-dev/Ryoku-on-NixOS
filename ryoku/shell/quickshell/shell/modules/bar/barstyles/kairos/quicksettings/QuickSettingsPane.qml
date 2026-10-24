@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import shell.services
+import Ryoku.Ui.Singletons
 
 // The quick-settings face drawn inside the island's clock pill. The island owns
 // the growth; this owns the pages and the push between them: two scrollers, only
@@ -14,6 +15,23 @@ Item {
     property string page: "home"
     property int dir: 1
     property bool frontIsA: true
+    // Probe ownership belongs to the pane, not its briefly overlapping pages.
+    // The caches survive route changes and repeated opens.
+    property bool devicesHeld: false
+    property var ddcBrightness: ({})
+    property var ddcBrightnessAt: ({})
+    property var monitorSnapshot: []
+    property bool monitorSnapshotValid: false
+
+    function holdDevices(held) {
+        if (pane.devicesHeld === held)
+            return;
+        pane.devicesHeld = held;
+        if (held)
+            Devices.startProbes(pane);
+        else
+            Devices.stopProbes(pane);
+    }
 
     function urlFor(id) {
         if (id === "wifi") return "pages/WifiPage.qml";
@@ -46,7 +64,42 @@ Item {
         scrollerB.opacity = 0;
     }
 
-    onVisibleChanged: if (!pane.visible) pane.reset()
+    onVisibleChanged: {
+        if (pane.visible) {
+            releaseProbes.stop();
+            pane.holdDevices(true);
+            return;
+        }
+        pane.reset();
+        releaseProbes.restart();
+    }
+    Component.onCompleted: {
+        if (pane.visible)
+            pane.holdDevices(true);
+    }
+    Component.onDestruction: Devices.stopProbes(pane)
+
+    Timer {
+        id: releaseProbes
+        interval: 600
+        onTriggered: pane.holdDevices(false)
+    }
+    Connections {
+        target: Wm
+        function onOutputsChanged() {
+            pane.monitorSnapshot = [];
+            pane.monitorSnapshotValid = false;
+            pane.ddcBrightness = ({});
+            pane.ddcBrightnessAt = ({});
+        }
+    }
+    Connections {
+        target: Devices
+        function onDdcMonitorsChanged() {
+            pane.ddcBrightness = ({});
+            pane.ddcBrightnessAt = ({});
+        }
+    }
     onPageChanged: {
         if (!pane.visible) return;
         var outScroll = pane.frontIsA ? scrollerA : scrollerB;

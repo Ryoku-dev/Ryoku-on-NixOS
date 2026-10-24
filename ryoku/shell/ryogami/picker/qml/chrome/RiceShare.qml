@@ -109,7 +109,7 @@ Item {
 
     property string job: ""
     property string jobBuf: ""
-    readonly property bool busy: jobProc.running
+    readonly property bool busy: preProc.running || jobProc.running
     Process {
         id: jobProc
         stdout: SplitParser { splitMarker: ""; onRead: data => root.jobBuf += data }

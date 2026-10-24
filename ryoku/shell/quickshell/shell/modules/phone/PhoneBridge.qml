@@ -61,7 +61,6 @@ Item {
         PhoneState.runtimeReady = ready
         if (ready) {
             KdeConnectService.refresh()
-            KdeConnectService._probeAdb()
             PhoneScrcpyService.refresh()
             PhoneCameraService.refresh()
             PhoneMicService.refresh()
@@ -388,18 +387,27 @@ Item {
         }
     }
 
-    FloatingWindow {
-        id: fileDialogWindow
-        visible: false
-        implicitWidth: 1
-        implicitHeight: 1
-        Ui.FileDialogHost {
-            id: filePicker
-            title: I18n.tr("Send a file to phone")
-            currentFolder: "file://" + (Quickshell.env("HOME") || "/")
-            onAccepted: {
-                KdeConnectService.sendFile([String(selectedFile)], KdeConnectService.activeDeviceId)
-                root.showToast(I18n.tr("File sent to the phone"), false)
+    LazyLoader {
+        id: fileDialogLoader
+        property bool requested: false
+        active: requested
+        onItemChanged: if (item) item.open()
+
+        FloatingWindow {
+            visible: false
+            implicitWidth: 1
+            implicitHeight: 1
+            function open(): void { filePicker.open() }
+            Ui.FileDialogHost {
+                id: filePicker
+                title: I18n.tr("Send a file to phone")
+                currentFolder: "file://" + (Quickshell.env("HOME") || "/")
+                onAccepted: {
+                    KdeConnectService.sendFile([String(selectedFile)], KdeConnectService.activeDeviceId)
+                    root.showToast(I18n.tr("File sent to the phone"), false)
+                    fileDialogLoader.requested = false
+                }
+                onRejected: fileDialogLoader.requested = false
             }
         }
     }
@@ -453,7 +461,10 @@ Item {
         }
         function pickFiles(): string {
             if (!KdeConnectService.activeReachable) return root.fail(I18n.tr("The phone is not connected"))
-            filePicker.open()
+            if (fileDialogLoader.item)
+                fileDialogLoader.item.open()
+            else
+                fileDialogLoader.requested = true
             return root.ok()
         }
         function share(text: string): string {
@@ -674,7 +685,9 @@ Item {
 
     Component.onCompleted: {
         ensureDir.running = true
-        root.refresh()
+        statusProc.running = true
+        if (root.enabled)
+            networkProc.running = true
     }
 
     Component.onDestruction: {

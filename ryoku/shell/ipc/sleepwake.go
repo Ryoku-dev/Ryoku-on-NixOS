@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -176,6 +177,8 @@ type sleepCycle struct {
 	now             func() time.Time
 	logf            func(string, ...any)
 	retryProtect    chan struct{}
+	guardKick       func()
+	resumeKick      func()
 	disconnected    <-chan struct{}
 	sessionPath     dbus.ObjectPath
 	activeCheck     func(context.Context) (bool, error)
@@ -318,6 +321,14 @@ func (s *sleepCycle) ready() bool {
 	return s.delay.held() && !s.block.held() && s.inactiveSessionSecured()
 }
 
+func (s *sleepCycle) secureLock(deadline time.Time) error {
+	err := s.lock(deadline)
+	if s.guardKick != nil {
+		s.guardKick()
+	}
+	return err
+}
+
 // protect takes the hard block first. An inactive session releases it only
 // after qylock is compositor-secure, so a startup or fast-user-switch race
 // cannot leave logind with only a finite delay inhibitor protecting the lock.
@@ -343,7 +354,7 @@ func (s *sleepCycle) protectLocked() bool {
 	if active {
 		return s.protected()
 	}
-	if err := s.lock(s.now().Add(lockBudget(s.delay.limit()))); err != nil {
+	if err := s.secureLock(s.now().Add(lockBudget(s.delay.limit()))); err != nil {
 		s.logf("ryoku-shell: inactive session lock is not compositor-secure; retaining sleep block: %v", err)
 		return false
 	}
@@ -376,10 +387,13 @@ func (s *sleepCycle) handle(sleeping bool) bool {
 }
 
 func (s *sleepCycle) handleLocked(sleeping bool) bool {
+	if s.guardKick != nil {
+		defer s.guardKick()
+	}
 	if sleeping {
 		s.stopWake()
 		s.setSleeping(true)
-		if err := s.lock(s.now().Add(lockBudget(s.delay.limit()))); err != nil {
+		if err := s.secureLock(s.now().Add(lockBudget(s.delay.limit()))); err != nil {
 			// A delay inhibitor has a finite ceiling. Recover the hard block as
 			// well, so failed re-verification cannot authorize insecure sleep.
 			if blockErr := acquireSleepInhibitor(s.block); blockErr != nil {
@@ -395,6 +409,9 @@ func (s *sleepCycle) handleLocked(sleeping bool) bool {
 	}
 	s.setSleeping(false)
 	s.markWakeOffset()
+	if s.resumeKick != nil {
+		s.resumeKick()
+	}
 
 	// Display recovery belongs to the foreground compositor. This daemon
 	// reacquires its delay and hard blocks here; session handoff closes them
@@ -474,7 +491,7 @@ func (s *sleepCycle) requestSuspendContext(requestCtx context.Context) error {
 	if !s.protected() {
 		return fmt.Errorf("sleep guard is not ready")
 	}
-	if err := s.lock(s.now().Add(lockBudget(s.delay.limit()))); err != nil {
+	if err := s.secureLock(s.now().Add(lockBudget(s.delay.limit()))); err != nil {
 		return fmt.Errorf("session lock is not compositor-secure: %w", err)
 	}
 	if err := requestCtx.Err(); err != nil {
@@ -770,6 +787,9 @@ func runSleepSignals(
 				continue
 			}
 			cycle.logf("ryoku-shell: sleep protection restored")
+			if cycle.guardKick != nil {
+				cycle.guardKick()
+			}
 			retry = nil
 			retryC = nil
 		case sig, ok := <-sigs:
@@ -785,6 +805,9 @@ func runSleepSignals(
 				cycle.setSessionActive(active)
 				if cycle.protect() {
 					stopRetry()
+					if active && cycle.guardKick != nil {
+						cycle.guardKick()
+					}
 				} else {
 					scheduleRetry()
 				}
@@ -897,6 +920,8 @@ func (d *daemon) connectSleepGuard() (_ *connectedSleepGuard, err error) {
 		lock:         ensureSessionLocked,
 		wake:         d.holdAwake,
 		lighting:     applyWakeLighting,
+		guardKick:    d.kickQylockGuardWatcher,
+		resumeKick:   d.kickSunMode,
 		retryProtect: make(chan struct{}, 1),
 		disconnected: conn.Context().Done(),
 		sessionPath:  sessionPath,
@@ -1050,88 +1075,266 @@ func (d *daemon) superviseSleepWake() {
 	}
 }
 
-var (
-	qylockUnlockGuardActive = hostUserServiceActive
-	qylockUnlockGuardStop   = stopHostUserService
+const (
+	systemdUserBus   = "org.freedesktop.systemd1"
+	systemdUserPath  = dbus.ObjectPath("/org/freedesktop/systemd1")
+	systemdUserIface = "org.freedesktop.systemd1.Manager"
+	systemdUnitIface = "org.freedesktop.systemd1.Unit"
 )
 
-// How often the release below looks. It starts quick, because an unlock
-// should not be followed by a visible wait, and eases off while nothing is
-// happening, because the only thing a tick can notice then is a guard
-// appearing and nobody is waiting on that.
-var (
-	qylockGuardPoll    = 100 * time.Millisecond
-	qylockGuardPollMax = 5 * time.Second
+type systemdUserErrorKind uint8
+
+const (
+	systemdUserErrorNone systemdUserErrorKind = iota
+	systemdUserErrorUnitAbsent
+	systemdUserErrorUnavailable
+	systemdUserErrorOther
 )
 
-// Release the fallback sleep guard once qylock is gone.
-//
-// Both questions this asks cost a process: lockProcessRunning runs pgrep and
-// qylockUnlockGuardActive runs ryoku-host. The sleep cycle is published at
-// login and stays set for the session, so a fixed 100 ms tick meant twenty
-// forks a second from login until logout, for work that is owed once per
-// unlock (#411).
-//
-// It cannot simply stop: a guard that reappears while qylock is not running
-// still has to be released, or it becomes an inhibitor nothing clears and the
-// machine stops suspending. So the tick eases off instead of latching, and
-// anything worth reacting to puts it back to full speed.
+var qylockSystemdUserUnavailable atomic.Bool
+
+func classifySystemdUserError(err error) systemdUserErrorKind {
+	if err == nil {
+		return systemdUserErrorNone
+	}
+	if errors.Is(err, dbus.ErrClosed) {
+		return systemdUserErrorUnavailable
+	}
+	var busErr dbus.Error
+	if !errors.As(err, &busErr) {
+		return systemdUserErrorOther
+	}
+	switch busErr.Name {
+	case "org.freedesktop.systemd1.NoSuchUnit":
+		return systemdUserErrorUnitAbsent
+	case "org.freedesktop.DBus.Error.ServiceUnknown",
+		"org.freedesktop.DBus.Error.NameHasNoOwner",
+		"org.freedesktop.DBus.Error.Disconnected",
+		"org.freedesktop.DBus.Error.NoReply":
+		return systemdUserErrorUnavailable
+	default:
+		return systemdUserErrorOther
+	}
+}
+
+func qylockGuardTransientName(unit string) string {
+	return strings.TrimSuffix(unit, ".service")
+}
+
+func qylockGuardHostActive(unit string) bool {
+	return exec.Command("ryoku-host", "transient", "is-active", qylockGuardTransientName(unit)).Run() == nil
+}
+
+func stopQylockGuardHost(unit string) error {
+	err := exec.Command("ryoku-host", "transient", "stop", qylockGuardTransientName(unit)).Run()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && (exitErr.ExitCode() == 3 || exitErr.ExitCode() == 4) {
+		return nil
+	}
+	return err
+}
+
+func qylockGuardUnitActive(unit string) bool {
+	if qylockSystemdUserUnavailable.Load() {
+		return qylockGuardHostActive(unit)
+	}
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		qylockSystemdUserUnavailable.Store(true)
+		return qylockGuardHostActive(unit)
+	}
+	defer conn.Close()
+	var path dbus.ObjectPath
+	err = conn.Object(systemdUserBus, systemdUserPath).
+		Call(systemdUserIface+".GetUnit", 0, unit).Store(&path)
+	switch classifySystemdUserError(err) {
+	case systemdUserErrorUnitAbsent:
+		return false
+	case systemdUserErrorUnavailable:
+		qylockSystemdUserUnavailable.Store(true)
+		return qylockGuardHostActive(unit)
+	}
+	if err != nil {
+		return qylockGuardHostActive(unit)
+	}
+	value, err := conn.Object(systemdUserBus, path).GetProperty(systemdUnitIface + ".ActiveState")
+	if err != nil {
+		if classifySystemdUserError(err) == systemdUserErrorUnavailable {
+			qylockSystemdUserUnavailable.Store(true)
+		}
+		return qylockGuardHostActive(unit)
+	}
+	state, _ := value.Value().(string)
+	return state == "active" || state == "reloading" || state == "activating"
+}
+
+func stopQylockGuardUnit(unit string) error {
+	if qylockSystemdUserUnavailable.Load() {
+		return stopQylockGuardHost(unit)
+	}
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		qylockSystemdUserUnavailable.Store(true)
+		return stopQylockGuardHost(unit)
+	}
+	defer conn.Close()
+	err = conn.Object(systemdUserBus, systemdUserPath).
+		Call(systemdUserIface+".StopUnit", 0, unit, "replace").Err
+	switch classifySystemdUserError(err) {
+	case systemdUserErrorUnitAbsent:
+		return nil
+	case systemdUserErrorUnavailable:
+		qylockSystemdUserUnavailable.Store(true)
+		return stopQylockGuardHost(unit)
+	}
+	if err != nil {
+		return stopQylockGuardHost(unit)
+	}
+	return nil
+}
+
+var (
+	qylockUnlockGuardActive = qylockGuardUnitActive
+	qylockUnlockGuardStop   = stopQylockGuardUnit
+)
+
+var qylockGuardFallback = 5 * time.Minute
+
+func (d *daemon) qylockGuardWakeFD() (int, func(), error) {
+	fd, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
+	if err != nil {
+		return -1, nil, err
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-d.quit:
+				signalEventFD(fd)
+				return
+			case <-stop:
+				return
+			case <-d.guardKick:
+				signalEventFD(fd)
+			}
+		}
+	}()
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() { close(stop) })
+		<-done
+	}
+	return fd, cancel, nil
+}
+
+// releaseQylockUnlockGuardWhenReady scans only while this session owns a guard.
+// A live lock client contributes a pidfd, so its exit is the next wake rather
+// than something a timer has to rediscover.
 func (d *daemon) releaseQylockUnlockGuardWhenReady() {
-	wait := qylockGuardPoll
-	ticker := time.NewTicker(wait)
-	defer ticker.Stop()
-	// Quick again, for whatever just happened.
-	rouse := func() {
-		if wait == qylockGuardPoll {
+	wakeFD, stopWake, err := d.qylockGuardWakeFD()
+	if err != nil {
+		log.Printf("ryoku-shell: qylock guard events unavailable, using slow reconciliation: %v", err)
+		d.releaseQylockUnlockGuardFallback()
+		return
+	}
+	var closeOnce sync.Once
+	closeWake := func() {
+		closeOnce.Do(func() {
+			stopWake()
+			unix.Close(wakeFD)
+		})
+	}
+	defer closeWake()
+
+	for {
+		select {
+		case <-d.quit:
+			return
+		default:
+		}
+
+		pid := 0
+		knownReleased := false
+		cycle := d.currentSleepCycle()
+		if cycle != nil && cycle.ready() && cycle.sessionActive() {
+			session := lockSessionID()
+			if session != "" {
+				unit := "ryoku-qylock-unlock-guard-" + session + ".service"
+				if !qylockUnlockGuardActive(unit) {
+					knownReleased = true
+				} else {
+					pid = lockProcessPID()
+					if pid == 0 {
+						if err := qylockUnlockGuardStop(unit); err != nil {
+							log.Printf("ryoku-shell: release qylock unlock sleep guard: %v", err)
+						} else {
+							knownReleased = true
+						}
+					}
+				}
+			}
+		}
+
+		pidfd := -1
+		if pid > 0 {
+			pidfd, err = unix.PidfdOpen(pid, 0)
+			if err == unix.ESRCH {
+				continue
+			}
+		}
+		pfds := []unix.PollFd{{Fd: int32(wakeFD), Events: unix.POLLIN | unix.POLLERR}}
+		if pidfd >= 0 {
+			pfds = append(pfds, unix.PollFd{Fd: int32(pidfd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP})
+		}
+		timeout := int(qylockGuardFallback / time.Millisecond)
+		if knownReleased {
+			timeout = -1
+		}
+		_, err = unix.Poll(pfds, timeout)
+		if pidfd >= 0 {
+			unix.Close(pidfd)
+		}
+		if err != nil {
+			if err == unix.EINTR {
+				continue
+			}
+			log.Printf("ryoku-shell: qylock guard event wait failed, using slow reconciliation: %v", err)
+			closeWake()
+			d.releaseQylockUnlockGuardFallback()
 			return
 		}
-		wait = qylockGuardPoll
-		ticker.Reset(wait)
-	}
-	// Nothing to do; look a little less often than last time.
-	ease := func() {
-		if wait >= qylockGuardPollMax {
-			return
+		if pfds[0].Revents != 0 {
+			var value [8]byte
+			_, _ = unix.Read(wakeFD, value[:])
 		}
-		wait *= 2
-		if wait > qylockGuardPollMax {
-			wait = qylockGuardPollMax
-		}
-		ticker.Reset(wait)
 	}
+}
+
+func (d *daemon) releaseQylockUnlockGuardFallback() {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
 	for {
 		select {
 		case <-d.quit:
 			return
 		case <-d.guardKick:
-			rouse()
-		case <-ticker.C:
-			cycle := d.currentSleepCycle()
-			if cycle == nil || !cycle.ready() || !cycle.sessionActive() {
-				ease()
-				continue
-			}
-			if lockProcessRunning() {
-				// qylock holds its own guard, and the moment it goes is the
-				// one this loop exists for, so stay quick.
-				rouse()
-				continue
-			}
+		case <-timer.C:
+		}
+		cycle := d.currentSleepCycle()
+		if cycle != nil && cycle.ready() && cycle.sessionActive() {
 			session := lockSessionID()
-			if session == "" {
-				ease()
-				continue
-			}
-			unit := "ryoku-qylock-unlock-guard-" + session + ".service"
-			if !qylockUnlockGuardActive(unit) {
-				ease()
-				continue
-			}
-			rouse()
-			if err := qylockUnlockGuardStop(unit); err != nil {
-				log.Printf("ryoku-shell: release qylock unlock sleep guard: %v", err)
+			if session != "" {
+				unit := "ryoku-qylock-unlock-guard-" + session + ".service"
+				if qylockUnlockGuardActive(unit) && !lockProcessRunning() {
+					if err := qylockUnlockGuardStop(unit); err != nil {
+						log.Printf("ryoku-shell: release qylock unlock sleep guard: %v", err)
+					}
+				}
 			}
 		}
+		timer.Reset(qylockGuardFallback)
 	}
 }
 
@@ -1154,10 +1357,7 @@ func applyWakeLighting(ctx context.Context) {
 }
 
 func outputStatePaths() (string, string) {
-	dir := filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "ryoku-idle-output")
-	if os.Getenv("XDG_RUNTIME_DIR") == "" {
-		dir = filepath.Join(os.TempDir(), "ryoku-idle-output")
-	}
+	dir := idleOutputStateDir()
 	return filepath.Join(dir, "lock"), filepath.Join(dir, "generation")
 }
 

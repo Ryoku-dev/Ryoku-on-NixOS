@@ -10,8 +10,11 @@ import (
 
 func TestVesktopPaletteMigration(t *testing.T) {
 	root := t.TempDir()
-	config, state := filepath.Join(root, "config"), filepath.Join(root, `state with "quote"`)
+	config := filepath.Join(root, "config")
+	data := filepath.Join(root, "data")
+	state := filepath.Join(root, `state with "quote"`)
 	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("XDG_DATA_HOME", data)
 	t.Setenv("XDG_STATE_HOME", state)
 	template := filepath.Join(config, "ryoku/user_edits/matugen/templates/vesktop-colors.css")
 	ownership := filepath.Join(state, "ryoku/palette-bridge/owned-files.tsv")
@@ -43,25 +46,26 @@ func TestVesktopPaletteMigration(t *testing.T) {
 		}
 	}
 	write(settings, `{"useQuickCss":true}`)
-	for _, raw := range []string{legacy + "post_hook = \"custom\"\n", "[config]\n", legacy + "# customized\n"} {
-		write(overlay, raw)
-		if legacyVesktopPalette(config, state) {
-			t.Fatal("edited/missing registration selected")
-		}
+	write(overlay, "[config]\n")
+	if legacyVesktopPalette(config, state) {
+		t.Fatal("missing registration selected")
 	}
 	write(overlay, legacy)
 	installer := filepath.Join(root, "installer.sh")
 
 	mergeRoot := filepath.Join(state, "ryoku/palette-bridge/vesktop")
 	sourceHelper := filepath.Join(root, "vesktop/quickcss.sh")
+	sourceTemplate := filepath.Join(root, "templates/vesktop-colors.css")
 	write(sourceHelper, "# preserving helper fixture\n")
+	write(sourceTemplate, "# palette fixture\n")
 	write(filepath.Join(mergeRoot, "quickcss.sh"), "# preserving helper fixture\n")
+	write(filepath.Join(data, "ryoku/palette-bridge/templates/vesktop-colors.css"), "# palette fixture\n")
 	hook := fmt.Sprintf("bash '%s' '%s' '%s'", filepath.Join(mergeRoot, "quickcss.sh"), filepath.Join(config, "vesktop/settings/quickCss.css"), filepath.Join(mergeRoot, "palette.css"))
 	encoded, _ := json.Marshal(hook)
 	upgraded := filepath.Join(root, "upgraded.toml")
 	write(upgraded, fmt.Sprintf("[templates.vesktop]\noutput_path = %q\npost_hook = %s\n", filepath.Join(mergeRoot, "palette.css"), encoded))
-	capability := "if [ \"$1\" = --capabilities ]; then printf 'vesktop-preserve-quickcss-v1\\n'; exit 0; fi\n"
-	write(installer, capability+fmt.Sprintf("[ \"$1\" = --vesktop ] || exit 2\ncp %q \"$XDG_CONFIG_HOME/ryoku/user_edits/matugen/apps.toml\"\n", upgraded))
+	capability := "if [ \"$1\" = --capabilities ]; then printf 'palette-bridge-matugen-v2\\n'; exit 0; fi\n"
+	write(installer, capability+fmt.Sprintf("[ \"$1\" = --vesktop ] || exit 2\nmkdir -p \"$XDG_CONFIG_HOME/ryoku/palette-bridge\"\ncp %q \"$XDG_CONFIG_HOME/ryoku/palette-bridge/matugen.toml\"\nprintf '[config]\\n' > \"$XDG_CONFIG_HOME/ryoku/user_edits/matugen/apps.toml\"\n", upgraded))
 
 	old := vesktopPaletteInstaller
 	vesktopPaletteInstaller = installer

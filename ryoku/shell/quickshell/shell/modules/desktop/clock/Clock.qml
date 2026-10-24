@@ -15,6 +15,16 @@ Item {
     // colour reaches the glyphs (gradient is applied by the slot over the whole).
     property string inkColorA: ""
     property real s: 1
+    readonly property bool needsSeconds: Config.clockSeconds
+        || Config.clockDesign === "analog" || Config.clockDesign === "rings"
+
+    function syncPrecision() {
+        Now.setSecondPrecision(clock, clock.needsSeconds);
+    }
+    onNeedsSecondsChanged: syncPrecision()
+    Component.onCompleted: syncPrecision()
+    Component.onDestruction: Now.setSecondPrecision(clock, false)
+
 
     readonly property var faceItem: faceLoader.item
     readonly property var dateItem: dateLoader.item

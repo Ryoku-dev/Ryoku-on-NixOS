@@ -49,14 +49,30 @@ bundle_file() {
   printf '%s\n' "$f"
 }
 
-# Emit "type<TAB>name<TAB>detect<TAB>tier<TAB>interactive<TAB>summary" from the
-# registry's inline components, so status renders without a per-bundle fetch.
+# Rows are joined with the ASCII unit separator, not tabs: a tab is IFS
+# whitespace, so `read` would collapse the empty fields an ungated item has and
+# shift every later field into the wrong variable.
+US=$'\x1f'
+# Emit "type name detect tier interactive managers reason summary" (US-joined)
+# from the registry's inline components, so status renders without a per-bundle
+# fetch. managers is the comma list of package managers a component is limited
+# to (empty: every host), reason why.
+COMPONENT_ROW='[.type, .name, (.detect // .name), (.tier // "core"), ((.interactive // false)|tostring), ((.packageManagers // []) | join(",")), (.packageManagersReason // ""), (.summary // "")] | map(gsub("[\u001f\n\r]"; " ")) | join("\u001f")'
 bundle_components() {
   local id=$1 cache reg
   cache=$(cache_dir) || die "could not resolve the extras cache (is ryostore installed?)"
   reg="$cache/bundles/registry.json"
   [[ -f $reg ]] || die "bundle catalogue is not cached"
-  jq -r --arg id "$id" '.bundles[] | select(.id == $id) | .components[]? | [.type, .name, (.detect // .name), (.tier // "core"), ((.interactive // false)|tostring), (.summary // "")] | @tsv' "$reg"
+  jq -r --arg id "$id" ".bundles[] | select(.id == \$id) | .components[]? | $COMPONENT_ROW" "$reg"
+}
+
+# The bundle-wide gate from its registry entry: "managers<US>reason".
+bundle_gate() {
+  local id=$1 cache reg
+  cache=$(cache_dir) || return 0
+  reg="$cache/bundles/registry.json"
+  [[ -f $reg ]] || return 0
+  jq -r --arg id "$id" '.bundles[] | select(.id == $id) | [((.packageManagers // []) | join(",")), (.packageManagersReason // "")] | map(gsub("[\u001f\n\r]"; " ")) | join("\u001f")' "$reg"
 }
 
 registry_ids() {
@@ -73,31 +89,81 @@ report_dir() {
 
 # --- detection (one implementation, used by status and the install path) ------
 
-# One-shot snapshot of installed package names: status classifies dozens of
-# components, and a `pacman -Qq` per component spawns pacman hundreds of times
-# (seconds of latency). load_pkgset reads the whole set once; pkg_installed then
-# checks membership. Empty until loaded, so the install/remove paths keep their
-# live per-package query (correct after a fresh install).
-declare -A PKGSET
+PKGMGR=$(ryoku-host pkgmgr 2>/dev/null || true)
+[[ -n $PKGMGR ]] || PKGMGR=pacman
+
+# Bundle packages carry their Arch names. Away from pacman, ryoku-host names them
+# for this edition through the catalogue's own table (bundles/packages/
+# <edition>.tsv), laid under Ryoku's edition table. The store passes the cached
+# table in; a direct run asks Ryostore for it. The package helpers forward it
+# across sudo.
+if [[ $PKGMGR != pacman && -z ${RYOKU_HOST_PKG_OVERLAY:-} ]]; then
+  overlay=$(ryostore internal package-table 2>/dev/null || true)
+  [[ -n $overlay && -f $overlay ]] && export RYOKU_HOST_PKG_OVERLAY=$overlay
+fi
+
+# Pacman can snapshot its full installed set cheaply. Other managers answer a
+# whole batch of catalogue names through `ryoku-host pkg status` (installed,
+# available or unavailable with the edition's reason).
+declare -A PKGSET PKGSTATE PKGREASON
 PKGSET_LOADED=0
 load_pkgset() {
   local n
+  [[ $PKGMGR != pacman ]] && return 0
   while IFS= read -r n; do [[ -n $n ]] && PKGSET[$n]=1; done < <(pacman -Qq 2>/dev/null)
   PKGSET_LOADED=1
 }
-pkg_installed() {
-  if (( PKGSET_LOADED )); then [[ -n ${PKGSET[$1]:-} ]]; return; fi
-  pacman -Qq "$1" >/dev/null 2>&1
+# load_pkgstate NAME...: one host query for a batch of package items.
+load_pkgstate() {
+  local name state reason
+  [[ $PKGMGR == pacman ]] && return 0
+  (($#)) || return 0
+  while IFS=$US read -r name state _ reason; do
+    [[ -n $name ]] || continue
+    PKGSTATE[$name]=$state
+    PKGREASON[$name]=$reason
+  done < <(ryoku-host pkg status "$@" 2>/dev/null | tr '\t' '\037')
 }
-pkg_official() { pacman -Si "$1" >/dev/null 2>&1; }
+pkg_installed() {
+  if [[ $PKGMGR != pacman ]]; then
+    ryoku-host pkg installed "$1" >/dev/null 2>&1
+  elif (( PKGSET_LOADED )); then
+    [[ -n ${PKGSET[$1]:-} ]]
+  else
+    pacman -Qq "$1" >/dev/null 2>&1
+  fi
+}
+pkg_official() {
+  if [[ $PKGMGR != pacman ]]; then
+    ryoku-host pkg available "$1" >/dev/null 2>&1
+  else
+    pacman -Si "$1" >/dev/null 2>&1
+  fi
+}
+pkg_why() {
+  if [[ -n ${PKGREASON[$1]:-} ]]; then
+    printf '%s\n' "${PKGREASON[$1]}"
+    return
+  fi
+  ryoku-host pkg why "$1" 2>/dev/null | head -n1
+}
 cmd_present() { command -v "$1" >/dev/null 2>&1; }
 
-# The installed package(s) satisfying an item name, one per line, empty when
-# nothing does. `pacman -Q` resolves provides (a `whisper.cpp` item finds an
-# installed `whisper.cpp-cuda`), but `pacman -R` only takes real installed
-# names, so removals must target the owner, never the item name, or the whole
-# transaction aborts on "target not found".
-pkg_owners() { pacman -Qq "$1" 2>/dev/null; }
+# host_allowed MANAGERS: an empty list runs everywhere, otherwise this host's
+# package manager must be named.
+host_allowed() {
+  [[ -z $1 || ",$1," == *",$PKGMGR,"* ]]
+}
+
+# Pacman resolves virtual providers to their concrete installed owners. Other
+# managers remove the catalogue name through the package translation table.
+pkg_owners() {
+  if [[ $PKGMGR != pacman ]]; then
+    pkg_installed "$1" && printf '%s\n' "$1"
+  else
+    pacman -Qq "$1" 2>/dev/null
+  fi
+}
 
 # Where an installed plugin's source lives (read by the runtime + Settings).
 # The catalogue ships the source; install copies it here.
@@ -106,16 +172,39 @@ plugin_installed() { [[ -f "$(plugin_dir "$1")/manifest.json" ]]; }
 nautilus_track() { printf '%s/ryoku/nautilus/%s\n' "${XDG_DATA_HOME:-$HOME/.local/share}" "$1"; }
 nautilus_installed() { [[ -f "$(nautilus_track "$1")/manifest.json" ]]; }
 
-# Current state of one item, ignoring any in-flight operation.
+# Current state of one item, ignoring any in-flight operation: present, absent,
+# or unavailable when this host cannot provide it.
 item_state() {
-  local type=$1 name=$2 detect=$3
+  local type=$1 name=$2 detect=$3 managers=${4:-}
+  host_allowed "$managers" || { echo unavailable; return; }
   case "$type" in
-    package) pkg_installed "$name" && echo present || echo absent ;;
+    package)
+      if [[ $PKGMGR != pacman && -n ${PKGSTATE[$name]:-} ]]; then
+        case "${PKGSTATE[$name]}" in
+          installed) echo present ;;
+          unavailable) echo unavailable ;;
+          *) echo absent ;;
+        esac
+      else
+        pkg_installed "$name" && echo present || echo absent
+      fi
+      ;;
     script) cmd_present "$detect" && echo present || echo absent ;;
     plugin) plugin_installed "$name" && echo present || echo absent ;;
     nautilus-pack) nautilus_installed "$name" && echo present || echo absent ;;
     *) echo absent ;;
   esac
+}
+
+# Why an unavailable item cannot be had here: the catalogue's gate sentence, or
+# the edition table's note for a package it does not ship.
+item_reason() {
+  local type=$1 name=$2 managers=${3:-} gate_reason=${4:-}
+  if ! host_allowed "$managers"; then
+    printf '%s\n' "${gate_reason:-Not available on this system.}"
+  elif [[ $type == package ]]; then
+    pkg_why "$name"
+  fi
 }
 
 # --- report file (the Hub watches one JSON per bundle while work runs) ---------
@@ -142,26 +231,34 @@ set_state() {
 
 # --- parsing ------------------------------------------------------------------
 
-# Emit "type<TAB>name<TAB>detect<TAB>summary" for the bundle's items, optionally
+# Emit the component rows (see COMPONENT_ROW) for the bundle's items, optionally
 # only those whose name is in the comma-separated $2 list.
 bundle_items() {
   local file=$1 only=${2:-}
   if [[ -n $only ]]; then
     jq -r --arg only "$only" \
-      '($only | split(",")) as $ns | .items[] | select(.name as $x | $ns | index($x)) | [.type, .name, (.detect // .name), (.tier // "core"), ((.interactive // false)|tostring), (.summary // "")] | @tsv' "$file"
+      "(\$only | split(\",\")) as \$ns | .items[] | select(.name as \$x | \$ns | index(\$x)) | $COMPONENT_ROW" "$file"
   else
-    jq -r '.items[] | [.type, .name, (.detect // .name), (.tier // "core"), ((.interactive // false)|tostring), (.summary // "")] | @tsv' "$file"
+    jq -r ".items[] | $COMPONENT_ROW" "$file"
   fi
+}
+
+# The package item names of a component row stream, for one batched host query.
+package_names() {
+  awk -F'\037' '$1 == "package" && $2 != "" {print $2}'
 }
 
 # --- status -------------------------------------------------------------------
 
 status_bundle_json() {
-  local id=$1 type name detect summary tier interactive out="[]"
-  while IFS=$'\t' read -r type name detect tier interactive summary; do
+  local id=$1 type name detect tier interactive managers gate_reason summary state reason out="[]"
+  while IFS=$US read -r type name detect tier interactive managers gate_reason summary; do
     [[ -n $name ]] || continue
-    out=$(jq --arg t "$type" --arg n "$name" --arg s "$(item_state "$type" "$name" "$detect")" \
-      --arg sum "$summary" '. + [{type: $t, name: $n, status: $s, summary: $sum}]' <<<"$out")
+    state=$(item_state "$type" "$name" "$detect" "$managers")
+    reason=""
+    [[ $state == unavailable ]] && reason=$(item_reason "$type" "$name" "$managers" "$gate_reason")
+    out=$(jq --arg t "$type" --arg n "$name" --arg s "$state" --arg r "$reason" --arg sum "$summary" \
+      '. + [{type: $t, name: $n, status: $s, summary: $sum} + (if $r == "" then {} else {reason: $r} end)]' <<<"$out")
   done < <(bundle_components "$id")
   jq -n --arg id "$id" --argjson items "$out" '{id: $id, items: $items}'
 }
@@ -170,14 +267,23 @@ cmd_status() {
   load_pkgset
   if [[ ${1:-} == bundle ]]; then
     [[ -n ${2:-} ]] || die "status bundle needs an id"
+    mapfile -t names < <(bundle_components "$2" | package_names)
+    load_pkgstate "${names[@]}"
     status_bundle_json "$2"
     return
   fi
   local id out="[]"
-  while read -r id; do
+  local -a ids=() names=()
+  mapfile -t ids < <(registry_ids)
+  for id in "${ids[@]}"; do
+    [[ -n $id ]] || continue
+    mapfile -t -O "${#names[@]}" names < <(bundle_components "$id" | package_names)
+  done
+  load_pkgstate "${names[@]}"
+  for id in "${ids[@]}"; do
     [[ -n $id ]] || continue
     out=$(jq --argjson b "$(status_bundle_json "$id")" '. + [$b]' <<<"$out")
-  done < <(registry_ids)
+  done
   jq -n --argjson bundles "$out" '{bundles: $bundles}'
 }
 
@@ -236,14 +342,18 @@ run_plugin_remove() {
 
 # Run a bundle's declared prerequisites before any package is routed, so a
 # package that only lives in an extra repo (Steam in multilib) classifies
-# and installs correctly.
+# and installs correctly. Away from pacman, multilib needs no step of its own:
+# Void turns its multilib and nonfree repositories on per package (the table
+# rows name them) and Fedora ships 32-bit packages in its main repositories.
 ensure_requires() {
   local file=$1 req
   while read -r req; do
     [[ -n $req ]] || continue
     case "$req" in
       multilib)
-        if [[ -n $DRYRUN ]]; then
+        if [[ $PKGMGR != pacman ]]; then
+          continue
+        elif [[ -n $DRYRUN ]]; then
           echo "DRYRUN: ensure the multilib repo is enabled"
         else
           echo "==> Ensuring the multilib repo is enabled"
@@ -251,6 +361,8 @@ ensure_requires() {
         fi
         ;;
       cachyos)
+        [[ $PKGMGR == pacman ]] \
+          || die "this bundle needs the CachyOS repository, which only Ryoku on Arch and CachyOS can use"
         if [[ -n $DRYRUN ]]; then
           echo "DRYRUN: ensure the CachyOS repository is enabled"
         else
@@ -276,20 +388,36 @@ ensure_requires() {
 }
 
 install_set() {
-  local id=$1 only=${2:-} file type name detect summary tier interactive
+  local id=$1 only=${2:-} file type name detect summary tier interactive managers gate_reason reason
+  local gate gate_managers gate_why
+  gate=$(bundle_gate "$id")
+  IFS=$US read -r gate_managers gate_why <<<"$gate"
+  host_allowed "$gate_managers" || die "${gate_why:-this bundle is not available on this system}"
   file=$(bundle_file "$id")
   ensure_requires "$file"
 
-  local -a repo=() aur=() scripts=() plugins=() nautilus_packs=()
+  local -a repo=() aur=() scripts=() plugins=() nautilus_packs=() names=()
   declare -A SCRIPT_DETECT=() SCRIPT_INT=()
+  mapfile -t names < <(bundle_items "$file" "$only" | package_names)
+  load_pkgstate "${names[@]}"
 
-  while IFS=$'\t' read -r type name detect tier interactive summary; do
+  while IFS=$US read -r type name detect tier interactive managers gate_reason summary; do
     [[ -n $name ]] || continue
     # optional items only install one at a time (item scope), never in "install all".
     if [[ -z $only && $tier == optional ]]; then continue; fi
+    if ! host_allowed "$managers"; then
+      set_state "$name" unavailable "$(item_reason "$type" "$name" "$managers" "$gate_reason")"
+      continue
+    fi
     case "$type" in
       package)
-        if pkg_installed "$name"; then
+        if [[ $PKGMGR != pacman ]]; then
+          case "${PKGSTATE[$name]:-}" in
+            installed) set_state "$name" present ;;
+            unavailable) set_state "$name" unavailable "$(pkg_why "$name")" ;;
+            *) repo+=("$name") ;;
+          esac
+        elif pkg_installed "$name"; then
           set_state "$name" present
         elif pkg_official "$name"; then
           repo+=("$name")
@@ -327,6 +455,9 @@ install_set() {
   done < <(bundle_items "$file" "$only")
 
   local n
+  for n in "${!STATE[@]}"; do
+    [[ ${STATE[$n]} == unavailable ]] && echo "==> Not on this system: $n (${REASON[$n]:-not available here})"
+  done
   for n in "${repo[@]}" "${aur[@]}" "${scripts[@]}" "${plugins[@]}" "${nautilus_packs[@]}"; do set_state "$n" installing; done
   flush_report "$id" running
 
@@ -337,7 +468,7 @@ install_set() {
       if [[ -n $DRYRUN ]] || pkg_installed "$n"; then
         set_state "$n" installed
       else
-        set_state "$n" failed "pacman did not install it"
+        set_state "$n" failed "the package manager did not install it"
       fi
     done
     flush_report "$id" running
@@ -402,12 +533,12 @@ install_set() {
 # --- remove -------------------------------------------------------------------
 
 remove_set() {
-  local id=$1 only=${2:-} file type name detect summary tier interactive
+  local id=$1 only=${2:-} file type name detect summary tier interactive managers gate_reason
   file=$(bundle_file "$id")
 
   local -a pkgs=() pkg_items=()
   local owner n
-  while IFS=$'\t' read -r type name detect tier interactive summary; do
+  while IFS=$US read -r type name detect tier interactive managers gate_reason summary; do
     [[ -n $name ]] || continue
     case "$type" in
       package)
@@ -460,10 +591,10 @@ remove_set() {
   if ((${#pkgs[@]})); then
     echo "==> Removing: ${pkgs[*]}"
     if ! run_pkg ryoku-pkg-remove "${pkgs[@]}"; then
-      # pacman aborts the whole batch when one target can't go (something else
-      # still requires it). Retry the stragglers one by one, twice, so a lone
-      # blocker costs itself, not the whole bundle; the second pass picks up a
-      # target that was only blocked by one removed in the first.
+      # The native manager may abort the whole batch when one target cannot go.
+      # Retry stragglers one by one, twice, so a lone blocker costs itself, not
+      # the whole bundle; the second pass picks up a target that was only
+      # blocked by one removed in the first.
       for _ in 1 2; do
         for n in "${pkgs[@]}"; do
           if pkg_installed "$n"; then
@@ -476,7 +607,7 @@ remove_set() {
       if [[ -n $DRYRUN ]] || ! pkg_installed "$n"; then
         set_state "$n" removed
       else
-        set_state "$n" failed "pacman kept it (still required by another package?)"
+        set_state "$n" failed "the package manager kept it (still required by another package?)"
       fi
     done
   fi

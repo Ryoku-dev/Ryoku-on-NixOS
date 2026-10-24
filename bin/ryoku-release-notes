@@ -67,15 +67,33 @@ fi
 repo="${GITHUB_REPOSITORY:-}"
 media_ref="${MEDIA_REF:-$to}"
 
+# commits a no-op merge brings in: the merge's tree is its first parent's, so
+# it only records that a pull request already landed some other way (usually
+# squashed, with the author kept), and that landing commit carries the notes.
+recorded_only() {
+  local m
+  while read -r m; do
+    [[ $(git rev-parse "$m^{tree}") == "$(git rev-parse "$m^1^{tree}")" ]] || continue
+    git rev-list "$m^1..$m^2"
+  done < <(git rev-list --merges "$@")
+}
+
 # commit bodies, NUL-separated so a multi-line body is read as one record.
 emit_bodies() {
   if ((use_stdin == 1)); then
     cat
-  elif [[ -n $from ]]; then
-    git log --no-merges --format='%B%x00' "$from..$to"
-  else
-    git log --no-merges --format='%B%x00' "$to"
+    return
   fi
+  local range=("$to") c
+  [[ -n $from ]] && range=("$from..$to")
+  local -A skip=()
+  local commits=()
+  while read -r c; do skip[$c]=1; done < <(recorded_only "${range[@]}")
+  while read -r c; do
+    [[ -n ${skip[$c]:-} ]] || commits+=("$c")
+  done < <(git rev-list --no-merges "${range[@]}")
+  ((${#commits[@]})) || return 0
+  printf '%s\n' "${commits[@]}" | git log --no-walk=unsorted --stdin --format='%B%x00'
 }
 
 # a repo-relative media path becomes a raw URL for the release ref; a full URL

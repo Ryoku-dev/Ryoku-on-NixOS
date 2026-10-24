@@ -3,5 +3,6 @@
 /out/
 /staging/
 # persistent package cache for the offline closure bake (offline-repo.sh);
-# reused across builds so a rebuild is a delta, not a full re-download.
-/offline-cache/
+# reused across builds so a rebuild is a delta, not a full re-download. One
+# per variant (build.sh: offline-cache-$VARIANT).
+/offline-cache*/

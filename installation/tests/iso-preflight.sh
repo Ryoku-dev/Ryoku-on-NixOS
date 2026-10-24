@@ -70,8 +70,10 @@ shellcheck_gate() {
 
 shell_files() {
   printf '%s\n' installation/backend/ryoku-install
-  find installation/backend/lib installation/iso system/hardware/drivers \
-    -name '*.sh' -type f | sort
+  # git, not find: a local build leaves gitignored trees (staging, the offline
+  # cache) under installation/iso full of vendored and AUR scripts.
+  git ls-files -co --exclude-standard -- installation/backend/lib installation/iso \
+    system/hardware/drivers | grep '\.sh$' | sort
   find tests -maxdepth 1 -name 'install-*.sh' -o -maxdepth 1 -name 'limine-*.sh' \
     -o -maxdepth 1 -name 'offline-repo-integrity.sh' | sort
 }
@@ -135,13 +137,20 @@ language_gate() {
     printf 'woke absent; skipping (the Inclusive Language workflow covers it)\n'
     return 0
   fi
-  woke --config .woke.yml --exit-1-on-failure \
-    installation docs tests system/hardware .github/workflows
+  # git's file list (already free of ignored paths) with --no-ignore: woke
+  # otherwise opens every .gitignore under the repo, whatever it is asked to
+  # lint, including those in a finished build's root-owned installation/iso/work/,
+  # and dies on the permission error before linting anything.
+  local -a files=()
+  mapfile -t files < <(git ls-files -co --exclude-standard -- \
+    installation docs tests system/hardware .github/workflows)
+  woke --config .woke.yml --exit-1-on-failure --no-ignore "${files[@]}"
 }
 
 gate "shell syntax" syntax_gate
 gate "shellcheck" shellcheck_gate
 gate "package lists" packages_gate
+gate "ISO variant staging" suite_gate iso-variant-stage cachyos-repo-placement
 gate "offline install path" suite_gate install-offline install-hooks offline-repo-integrity \
   install-noninteractive
 gate "boot menu" suite_gate limine-bootloader limine-windows

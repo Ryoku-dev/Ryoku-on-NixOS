@@ -3,6 +3,29 @@
 ## Unreleased
 
 ### Added
+- **Installers create every planned local account with private storage.** The
+  Arch, CachyOS and Void backends share account-plan validation, make each home
+  a mode-0700 Btrfs subvolume, apply requested qgroup limits, map administrator
+  and curated permissions only to groups present in the target, and either lock
+  root or set its separately collected password. The first account remains the
+  desktop owner (`lib/accounts.sh`, `lib/chroot.sh`,
+  `../../void/iso/backend/lib/configure.sh`).
+- **Direct backend calls enforce edition package availability.** Both ISO
+  backends read the shared installer manifest through one resolver, compute the
+  same browser and login-shell drops, and reject an unavailable browser, shell
+  or compositor before disk work with the package-table reason.
+- **Arch and Void install plans now have one first-boot parity check.**
+  `tests/install-edition-parity.sh` runs both niri backends with the same
+  answers and compares their neutral materialize, keyboard, wallpaper,
+  lockscreen, intro, account, XDG-directory, and timezone contract. The two
+  existing dry-run matrices use the same backend runner.
+- **Void installs now include the snapshot safety net.** Snapshot-enabled
+  installs create and mount `@snapshots`, configure snapper and Limine, and
+  enable the runit cleanup and boot-menu sync services. Declining snapshots
+  records the same durable opt-out marker as Arch.
+- **Void ISO installs start doctor-clean.** The target user's localized XDG
+  directories and recording folder are created during deployment, and the
+  shipped Ryoku agent skill is wired before first boot.
 - **Browser and login-shell choices are honored end to end.** `RYOKU_BROWSER`
   (`firefox|chromium|zen`, default Firefox) and `RYOKU_LOGIN_SHELL`
   (`fish|zsh|bash`, default Fish) select exactly one browser and shell stack.
@@ -13,6 +36,11 @@
   the provisioning ledger so doctor and update do not reinstall it. Unknown
   browser or shell keys fail before disk work begins
   (`ryoku-install`, `lib/{chroot,aur,deploy}.sh`).
+- **Void first login now starts the complete desktop.** The Void ISO reuses the
+  neutral deploy sequence to seed the keyboard store, provisioned-app ledger,
+  default-rice marker, wallpapers, brand assets, and user-owned configuration.
+  It also provisions the account's Turnstile services before first login, so
+  the session bus, PipeWire, wallpaper, and shell are ready on the first boot.
 - **Fresh accounts request the shipped default rice on first login.**
   `deploy.sh` writes the user-owned
   `~/.local/state/ryoku/default-rice-pending` marker with `default`; the first
@@ -40,6 +68,36 @@
   naming `RYOKU_ESP_MODE=dedicated` as the way around it (`lib/bootloader.sh`).
 
 ### Fixed
+- **Void installs carry the firmware Arch installs carry.** Arch's
+  `linux-firmware` pulls every vendor set; Void's depends only on the AMD and
+  network sets, so a Void box had no Intel GPU firmware (i915 and xe), no
+  nouveau GSP firmware (an NVIDIA card newer than Turing never initialises
+  without it: no DRM device, no greeter, a blinking cursor) and no Broadcom
+  Wi-Fi or Bluetooth firmware. The translation now names
+  `linux-firmware-intel`, `linux-firmware-nvidia` and `linux-firmware-broadcom`
+  beside `linux-firmware`, so the ISO closure and every install ship them
+  (`void/packages/translations.tsv`).
+- **Wi-Fi works on a Void install.** The target pins NetworkManager to iwd,
+  but NetworkManager can only D-Bus-activate iwd where an activation file
+  exists (systemd); Void's iwd ships none, so every Void install came up with
+  the radio `unavailable`, an empty scan and no way to join. The Void services
+  step now records `/var/lib/ryoku/wifi-iwd.enabled` when the pinned backend is
+  iwd, and the service manifest's `wifi-iwd` row links `/etc/sv/iwd` while that
+  marker exists (`void/iso/backend/lib/deploy.sh`). Proven on a virtual radio:
+  the same box went from "No Wi-Fi device found" to a WPA2 join once iwd was
+  supervised.
+- **Filtered Ryoku DNS now fails before the disk is touched.** The mirror
+  preflight recognizes private, loopback, and known sinkhole answers for
+  `ryoku.dev`, explains that the network is filtering DNS, and links the
+  recovery steps instead of surfacing an unexplained TLS failure.
+- **Void `auto` timezone now behaves like Arch.** Online installs geolocate the
+  timezone through the shared installer resolver; offline installs skip the
+  network wait and use UTC. Both editions validate the zone before linking
+  `/etc/localtime`.
+- **Offline Void installs no longer probe unreachable package mirrors.** The
+  target masks every packaged XBPS repository configuration while installing
+  from the ISO repository, then removes exactly those recorded masks before
+  writing the permanent Void and Ryoku repository configuration.
 - **The disk unlock prompt now uses the keyboard layout picked in the installer
   and starts with Num Lock on.** The `ryoku-console-keys` initramfs hook carries
   `/etc/vconsole.conf` into the image and enables Num Lock before Plymouth reads

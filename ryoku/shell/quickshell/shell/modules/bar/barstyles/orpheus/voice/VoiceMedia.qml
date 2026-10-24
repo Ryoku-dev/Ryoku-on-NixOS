@@ -91,10 +91,6 @@ Item {
                     radius: width / 2
                     color: K.Style.ink
 
-                    Behavior on height {
-                        enabled: !K.Style.still && root.visible
-                        NumberAnimation { duration: K.Style.ms(60); easing.type: Easing.Linear }
-                    }
                 }
             }
         }

@@ -17,6 +17,9 @@ Singleton {
     property string error: ""
     property string busyKey: ""
     property string installStage: ""
+    property string installProgressStage: ""
+    property real installProgressDone: 0
+    property real installProgressTotal: 0
     property string installError: ""
     property string installErrorKey: ""
     property string _catalogOutput: ""
@@ -39,6 +42,38 @@ Singleton {
         if (op === "disable")
             return "DISABLING";
         return "INSTALLING";
+    }
+
+    function resetInstallProgress() {
+        installProgressStage = "";
+        installProgressDone = 0;
+        installProgressTotal = 0;
+    }
+
+    function progressStageLabel(stage) {
+        if (stage === "download")
+            return "DOWNLOADING";
+        if (stage === "extract")
+            return "EXTRACTING";
+        if (stage === "verify")
+            return "VERIFYING";
+        if (stage === "apply")
+            return "APPLYING";
+        return root.operationStage(root._op);
+    }
+
+    function readInstallLine(line) {
+        var raw = String(line);
+        var match = raw.trim().match(/^RYOSTORE-PROGRESS (download|extract|verify|apply) ([0-9]+) ([0-9]+)$/);
+        if (match) {
+            installProgressStage = match[1];
+            installProgressDone = Number(match[2]);
+            installProgressTotal = Number(match[3]);
+            installStage = progressStageLabel(match[1]);
+            return;
+        }
+        if (raw !== "")
+            _installError += raw + "\n";
     }
 
     function operationFailure(op) {
@@ -250,10 +285,17 @@ Singleton {
 
     Process {
         id: installProc
-        stderr: StdioCollector { onStreamFinished: root._installError = text }
-        onRunningChanged: if (running) root.installStage = root.operationStage(root._op)
+        stderr: SplitParser { onRead: line => root.readInstallLine(line) }
+        onRunningChanged: {
+            if (!running)
+                return;
+            root.resetInstallProgress();
+            root._installError = "";
+            root.installStage = root.operationStage(root._op);
+        }
         onExited: code => {
             if (code !== 0) {
+                root.resetInstallProgress();
                 root.installStage = "FAILED";
                 root.installError = root._installError.trim()
                         || root.operationFailure(root._op);
@@ -262,6 +304,7 @@ Singleton {
                 root._queue = [];
                 return;
             }
+            root.resetInstallProgress();
             root.installStage = "VERIFYING";
             root._clearBusyAfterRefresh = true;
             root.refresh(true);

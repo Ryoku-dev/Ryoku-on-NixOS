@@ -51,7 +51,7 @@ Item {
                     anchors.leftMargin: Math.max(2, 2 * K.Style.scale)
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.max(0, (parent.width - Math.max(4, 4 * K.Style.scale))
-                        * Battery.frac)
+                        * Math.max(0, Math.min(1, Battery.pct / 100)))
                     height: Math.max(1, parent.height - Math.max(4, 4 * K.Style.scale))
                     radius: Math.min(2 * K.Style.scale, height / 2)
                     color: root.levelColor

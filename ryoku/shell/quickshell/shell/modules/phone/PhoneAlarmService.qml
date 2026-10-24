@@ -14,10 +14,9 @@ import shell.services
  * every alarm-clock alarm: `dumpsys alarm` prints each with an "Alarm clock:" block under
  * its owner's entry. Any app may use that API — Samsung Routines schedules its time
  * triggers with it — so the status bar's single "next alarm clock" can be an automation;
- * instead every one is listed with its package and ignored packages are dropped. This
- * polls over the ADB link the Phone sidebar already sets up — only while ADB is
- * installed and a device answers — and filters on the device, so a poll moves a few
- * lines instead of the whole dump.
+ * instead every one is listed with its package and ignored packages are dropped. The
+ * list refreshes at the configured low-rate cadence, on KDE Connect or ADB state changes,
+ * and once just after the known alarm time.
  *
  * Ringing is inferred from the same poll: when the mirrored time passes and the phone
  * moves on to its next alarm, that alarm rang (a dismissal ahead of time changes the
@@ -107,17 +106,19 @@ Singleton {
             }
         }
     }
-
     Timer {
         interval: root.pollMs
         repeat: true
         running: root.enabled
-        triggeredOnStart: true
         onTriggered: root.refresh()
     }
 
+
+
     onEnabledChanged: {
-        if (!root.enabled) {
+        if (root.enabled) {
+            root.refresh()
+        } else {
             pollProc.running = false
             root.reachable = false
             root.nextAt = null
@@ -154,6 +155,14 @@ Singleton {
 
     Connections {
         target: KdeConnectService
+        function onActiveDeviceIdChanged() {
+            if (root.enabled)
+                root.refresh();
+        }
+        function onAdbReachableChanged() {
+            if (root.enabled && KdeConnectService.adbReachable)
+                root.refresh();
+        }
         function onNotificationsChanged() {
             if (!(root.opts?.enabled ?? true))
                 return;

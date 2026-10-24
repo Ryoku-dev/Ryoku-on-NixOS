@@ -87,19 +87,7 @@ Item {
 
     // --- actions --------------------------------------------------------------
     function toggleAdapter() {
-        if (!root.hasAdapter)
-            return;
-        if (root.blocked) {
-            unblockProc.running = false;
-            unblockProc.running = true;
-            return;
-        }
-        root.adapter.enabled = !root.adapter.enabled;
-    }
-    Process {
-        id: unblockProc
-        command: ["rfkill", "unblock", "bluetooth"]
-        onExited: if (root.adapter) root.adapter.enabled = true
+        BluetoothPower.toggle();
     }
 
     function toggleScan() {

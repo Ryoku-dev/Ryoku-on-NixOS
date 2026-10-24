@@ -20,7 +20,7 @@ Item {
     readonly property color inkDim:  Theme.inkDimOn2(face.underL, face.inkColorA)
     readonly property color inkSoft: Theme.inkSoftOn2(face.underL, face.inkColorA)
 
-    readonly property var t: Clk.parts(Now.date, Config.clock24h)
+    readonly property var t: Clk.parts(Now.secondDate, Config.clock24h)
     property real s: 1
     readonly property real dia: Math.round(232 * s)
 
@@ -28,7 +28,7 @@ Item {
     implicitHeight: dia
 
     // repaint when time, palette, accent or size changes.
-    readonly property var repaintKey: [Now.date, Config.clockAccent, Scheme.accent, face.dia,
+    readonly property var repaintKey: [Now.secondDate, Config.clockAccent, Scheme.accent, face.dia,
         Config.clock24h, face.underL, Scheme.inkTones]
     onRepaintKeyChanged: canvas.requestPaint()
 

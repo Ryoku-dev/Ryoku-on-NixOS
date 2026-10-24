@@ -1,18 +1,19 @@
 # The `ryoku` command
 
 The user-facing control CLI (`ryoku/cli/`, one Go program). It is the front door
-to updates, rollback, status, and the shell; it orchestrates pacman, yay, and
-snapper rather than reimplementing them. This is the per-command reference: what
-each command does, where it is meant to run, and who runs it.
+to updates, rollback, status, and the shell; it orchestrates the host's package,
+service, and snapshot tools rather than reimplementing them. This reference
+explains what each command does, where it is meant to run, and who runs it.
 
 ## Two worlds
 
 Every command behaves with respect to one of two ways Ryoku can exist on a
 machine. Most confusion about the CLI comes from mixing them up.
 
-- **A packaged install** the normal case. The desktop is installed from the
-  `[ryoku]` pacman repo; `ryoku-desktop` ships the base config under
-  `/usr/share/ryoku/config`, and there is no git checkout and no build toolchain.
+- **A packaged install** the normal case. The desktop is installed from Ryoku's
+  signed repository with pacman, XBPS, or DNF; `ryoku-desktop` ships the base
+  config under `/usr/share/ryoku/config`, and there is no git checkout or build
+  toolchain.
 - **A dev checkout** a clone of this repo on a maintainer's machine. There is no
   `/usr/share/ryoku/config`; the desktop is laid down from the checkout by
   `ryoku/shell/deploy.sh` (via `ryoku deploy`). The deploy records the checkout
@@ -20,17 +21,18 @@ machine. Most confusion about the CLI comes from mixing them up.
   the deployed `ryoku` binary later finds the repo again.
 
 `ryoku update` auto-detects which world it is in (a recorded checkout means the
-git path, otherwise the pacman path), so the same command is correct on both. A
-few commands belong to only one world; that is called out per command below.
+git path, otherwise the host package-manager path), so the same command is
+correct on both. A few commands belong to only one world; that is called out per
+command below.
 
 ## At a glance
 
 |Command|What it does|Where|Who|
 |---|---|---|---|
-|`update`|Snapshot, then bring the system current and redeploy|both|you|
-|`status [--json]`|Version, how far behind, snapshot count|both|you, the Hub|
-|`rollback [id]`|Guide restoring a snapshot from the boot menu (no id: list them)|both|you|
-|`snapshots`|List snapper snapshots|both|you|
+|`update [--wait] [--force]`|Snapshot when supported, then bring the system current and redeploy; held while the channel is still building|both|you|
+|`status [--json]`|Version, how far behind, the channel's build or check state, snapshot count when supported|both|you, the Hub|
+|`rollback [id]`|List releases; on snapshot-capable hosts, guide a boot-menu restore|both|you|
+|`snapshots`|List snapshots when the host provides them|both|you|
 |`reload`|Restart the shell and reload Hyprland|both|you|
 |`materialize`|Lay the base configs into `~/.config`|packaged install|the updater/installer|
 |`reset [path]`|Drop a `user_edits` override, back to the Ryoku default|both|you|
@@ -45,32 +47,59 @@ These are user-facing and work on any install.
 
 ### `ryoku update`
 
-The full, safe update, wrapped in a snapper pre/post snapshot pair (best-effort:
-an unconfigured snapper never blocks the update, but a failed step aborts before
-anything else changes). What it actually runs depends on the world:
+On snapshot-capable Ryoku hosts, including Arch/CachyOS, Void and Fedora, the
+full safe update is wrapped in a best-effort snapper pre/post pair: an
+unconfigured snapper never blocks the update, but a failed step aborts before
+anything else changes. On Fedora the update writes its pid and start time to
+`/run/ryoku/update-snapshot`, so the dnf snapshot hook does not nest a second
+pair inside it. What the update runs next depends on the world:
 
 - **Dev checkout:** updates through the git channel. It fetches the channel
   branch (`main` for everyone), fast-forwards the checkout when it is sitting
   cleanly on that branch, and redeploys with `deploy.sh`. A feature branch or a
-  dirty tree is left to git only the redeploy runs.
-- **Packaged install:** the packages the `[ryoku]` repo serves, by name
-  (`pacman -Sy`, then `pacman -S --needed ryoku/<pkg>...`), then
-  `ryoku materialize`, then a shell reload. It is not a sysupgrade: the base
-  system and its kernel come from Arch or CachyOS, and `sudo pacman -Syu` is
-  what moves them. The run reports how many packages that lane is holding, and
-  `ryoku update --system` runs it too (the full `pacman -Syu`, `yay -Sua`, and
-  `flatpak update`) for a box that wants one command.
+  dirty tree is left to git; only the redeploy runs.
+- **Packaged install:** moves the packages the signed Ryoku repository serves,
+  by name. Pacman hosts leave Arch or CachyOS system updates to `sudo pacman
+  -Syu`. Void uses `xbps-install -Sfy`; `sudo xbps-install -Syu` remains the
+  separate system lane. Because XBPS has no snapshot hooks, use `ryoku update
+  --system` when that lane should be included in Ryoku's snapshot pair. Fedora
+  gives DNF the exact RPM versions in the selected repository, so the same
+  transaction handles upgrades and downgrades; `sudo dnf5 upgrade --refresh`
+  remains the separate Fedora lane. The run reports how many packages the
+  system lane is holding.
+
+Fedora packages are published per release. If the running release has no Ryoku
+repository, `ryoku update` leaves the installed Ryoku RPMs in place and says
+that packages stay at their current versions. `ryoku doctor` reports the same
+condition as a `Fedora release` warning instead of treating an unavailable
+repository as an empty install.
 
 On a terminal the run is a curated console: a header, one line per step with
 its time and anything it found, a live line for the step in flight, a progress
-bar, and a closing card. Everything the steps and their tools print (pacman,
-git, the builds, the doctor) goes to `~/.local/state/ryoku/update-log.txt`
-instead; the console surfaces only `error:`, `warning:` and `note:` lines, a
-`.pacnew`, and the doctor's findings. On failure the card shows the error, the
-last lines the work printed, and the rollback snapshot.
+bar, and a closing card. Everything the steps and their tools print (the native
+package manager, git, the builds, the doctor) goes to
+`~/.local/state/ryoku/update-log.txt` instead; the console surfaces only
+`error:`, `warning:` and `note:` lines, pending package config, and the doctor's
+findings. On failure the card shows the error and the last lines the work
+printed. When a pre-update snapshot exists, it also offers that snapshot for
+rollback. On a source box the **Deploying the desktop** step opens into its
+pieces: one line per compilation with its own bar, how long it usually takes on
+this box (`~/.local/state/ryoku/deploy-pieces.json`), and the compiler's current
+line; the first build on a box says why it is slow.
 
-- `ryoku update -v` (`--verbose`) streams the raw output instead, pacman's own
-  progress bars included.
+Before a packaged run snapshots or touches packages it reads the channel's
+`status.json`. A build still in progress refuses the run and names the Actions
+run; `--wait` polls until it finishes, `--force` proceeds anyway. A failed last
+build warns and takes the previous good build. On a source box the same flags
+apply to the Testing gate: the checkout fast-forwards only to the last commit
+that passed every required check, `--wait` polls a gate still running, and
+`--force` deploys the tip unchecked.
+
+- `ryoku update -h` (`--help`) prints the options; an unknown option is refused
+  before the run starts.
+
+- `ryoku update -v` (`--verbose`) streams the raw output instead, including the
+  native package manager's own progress.
 - `ryoku update --gui` is the Hub's path: it starts the run in the background
   under a pseudo terminal and returns. The password sudo needs and any question
   come back through the Hub's Updates page (`--auth` hands it the password on
@@ -89,27 +118,105 @@ gone.
 
 A read-only report. It always prints the active config base. On a checkout it
 shows the channel, the deployed commit (`installed`), and how many commits behind
-the channel you are; on a packaged install it shows the installed `ryoku-desktop`
-version, what the `[ryoku]` repo offers, and the count of pending package
-updates (via `checkupdates` from `pacman-contrib`), listed as `system:` because
-`ryoku update` does not take them. It ends with the snapshot count.
+the channel you are; on a packaged install it shows the installed
+`ryoku-desktop` version, what the signed repository offers, and the count of
+pending distribution packages. Those are listed as `system:` because plain
+`ryoku update` does not take them. It ends with the snapshot count. When the
+channel's publisher is building or its last build failed, a `build:` line says
+so with the Actions run; on a source box a `checked:` line says when the tip is
+still being checked, failed its checks, or is newer than the last checked commit.
+
+On Fedora, status uses the same publication check as update. An unpublished
+running release is named directly, rather than being reported as having no
+Ryoku packages installed.
 
 `--json` is the data seam the Hub and the update island read; it is not meant for
 humans.
 
+### `ryoku track <channel-or-version>`
+
+`stable` follows named releases as signed packages. `unstable` builds the box
+from the `unstable-dev` checkout under `~/ryoku-arch`: `bin/ryoku-track`
+installs the host toolchain, clones or updates the checkout, and runs
+`ryoku/shell/deploy.sh`; from then on `ryoku update` fast-forwards to the last
+commit the Testing gate passed and redeploys. A stable release tag pins its
+frozen release directory; an unstable build name such as
+`v0.94.1-beta.20.dev.12+g1234567` pins the matching frozen testing build, as
+packages. `ryoku track stable` returns a box to packages; `ryoku track unstable`
+returns a pinned box to the source lane. Pacman, XBPS, and DNF perform a package
+channel move as one transaction and restore the previous repository if the
+package move fails.
+
+`--source` with `stable` builds from the `main` branch instead of selecting the
+stable package repository; with `unstable` it changes nothing, since unstable
+is the source lane already.
+
+
 ### `ryoku rollback [id]`
 
-Guide restoring a snapper snapshot. With no id it lists the snapshots so you can
-pick one. Ryoku boots the `@` subvolume directly (`rootflags=subvol=@`), a layout
-`snapper rollback` cannot restore (it flips the btrfs default subvolume, which a
-pinned `subvol=` ignores), so the restore runs from the boot menu: reboot, boot
-the snapshot under the Limine Snapshots menu, and run `sudo
-limine-snapper-restore` there; it copies the booted snapshot (and its matching
-kernels on the ESP) back onto `@`.
+With no arguments, this lists published tagged releases and local snapshots
+where the host supports them. A box following unstable, or pinned to one of its
+builds, also lists the ten frozen builds from
+`channels/testing/index.json`. Void reads its ledgers below
+`https://repo.ryoku.dev/stable/void/`; Fedora release `N` reads them below
+`https://repo.ryoku.dev/stable/fedora/N/`.
+
+`ryoku rollback --to <version>` moves the Ryoku package set to a frozen signed
+release or unstable build without a reboot; `ryoku track <version>` is the
+equivalent pin. XBPS uses one forced transaction for the move. DNF installs the
+exact versions from the selected frozen RPM repository, including downgrades.
+The distribution base and kernel do not move. Use `ryoku track stable` after a
+release pin or `ryoku track unstable` after an unstable-build pin to follow new
+versions again.
+
+After a frozen package-version change, the boot guard watches the next boots on
+every packaged edition. Two boots without a healthy desktop move the Ryoku set
+back to the previous frozen version. Snapshot-capable Arch and Void installs
+can escalate a third failure to the complete
+`Ryoku Linux/Snapshots/<snapshot>/<kernel>` Limine path. Void runs the guard
+through the `ryoku-boot-guard` runit service. Fedora uses the systemd service
+and escalates a third failure to the pre-update snapshot's entry under **Ryoku
+snapshots**, for the next boot only; it never restores unattended.
+
+`ryoku rollback <id>` explains the whole-system restore path on a
+snapshot-capable host. Ryoku boots the `@` subvolume directly
+(`rootflags=subvol=@`), a layout `snapper rollback` cannot restore because it
+flips the btrfs default subvolume, which a pinned `subvol=` ignores. Reboot,
+choose **Ryoku Linux -> Snapshots -> <id>** in Limine, run `sudo
+limine-snapper-restore`, then reboot into the restored system. The restore hook
+resets Limine to the first kernel under **Ryoku Linux** and clears the remembered
+snapshot entry.
+
+On Fedora the snapshots are under **Ryoku snapshots** in GRUB. Hold Shift or
+press Esc while booting to show the menu, or send only the next boot to a
+snapshot with `sudo grub2-reboot 'ryoku-snapshots>ryoku-snapshot-<id>'`. A
+snapshot boots read-only and keeps its writes in RAM, including writes to
+`/home`. To keep it, run `sudo ryoku boot-menu restore` in that boot. The
+restore keeps the current root subvolume as `<root>.broken-<time>` for two
+weeks, and the next boot starts the restored root and brings Fedora's kernel
+entries in line with it. In a snapshot boot, `ryoku rollback` and `ryoku
+status` name that restore step. When the menu lists no snapshots, `ryoku
+rollback <id>` falls back to `snapper -c root undochange <id>..0` on the
+running system.
+
+On a host without Ryoku's snapshot stack, bare `rollback` still lists releases
+and explains that snapshots are unavailable. Supplying a snapshot id returns
+that explanation as an error without invoking snapper.
+
+### `ryoku boot-menu`
+
+Fedora only, as root. `sync` rewrites the **Ryoku snapshots** GRUB submenu and
+keeps one kernel and initramfs copy on `/boot` for each kernel version the
+snapshots need. `ryoku-snapshot-menu.path` runs it after every snapshot.
+`restore`, run in a snapshot boot, makes that snapshot the root again.
+`restored` runs once, on the first boot of the restored root
+(`ryoku-snapshot-restored.service`).
 
 ### `ryoku snapshots`
 
-List the snapper snapshots (`sudo snapper list`). Requires snapper.
+List the root snapper snapshots on supported pacman, XBPS and DNF hosts. On
+any other host it prints that snapshots are unavailable and exits with an
+error without invoking snapper.
 
 ### `ryoku reload`
 
@@ -126,6 +233,43 @@ at once; on a dev checkout it drops the override and leaves the re-lay to
 `ryoku deploy`.
 
 ## Production internals
+
+### `ryoku-host`
+
+`ryoku-host` is the internal operating-system seam used by scripts, the Hub,
+and the CLI. Package names passed to it use the Arch/Ryoku catalogue; the host
+backend translates them for XBPS or DNF when needed. A Fedora translation may
+name a capability rather than a concrete RPM. For example,
+`power-profiles-daemon` maps to `ppd-service`, so installed, version,
+availability, and install checks accept either tuned-ppd or
+power-profiles-daemon without replacing the active provider. The host-facing
+verbs include:
+
+- `capabilities` prints the detected package manager and init system plus
+  snapshot, AUR, and local-user-management support as one JSON object.
+- `pkg why <name>` explains a catalogue package deliberately unavailable on
+  Void or Fedora. A package that can be installed or an unknown name produces
+  no output and returns the false-condition exit code.
+- `pkg advice <name>...` prints the pacman, XBPS, or DNF install command for
+  those catalogue names.
+- `pkg available [--aur] <name>...` checks the native repositories. On pacman
+  hosts, `--aur` marks catalogue names as available through Ryoku's AUR tooling;
+  on XBPS and DNF it uses the translated repository check.
+- `pkg install [--upgrade] [--aur] [--overwrite GLOB]... <name>...` installs
+  packages. `--overwrite` is repeatable and passes through to pacman and AUR
+  helpers; XBPS and DNF accept and ignore it because neither has an equivalent.
+- `power <poweroff|reboot|suspend|hibernate>` runs the action through systemd
+  or elogind.
+- `time zones` prints the sorted IANA zone list. It uses `timedatectl` under
+  systemd and the installed zoneinfo database on other init systems.
+- `users list` and `users caps` return the local human accounts and the
+  permissions/storage facilities this host can manage. Mutating verbs are
+  `users add`, `delete`, `set-role`, `set-perms`, `set-password`, and
+  `set-limit`; call those through `pkexec`. Passwords are one line on standard
+  input, never a command argument. The helper rejects deleting the caller, a
+  signed-in user, or the last Administrator, and refuses to demote the last
+  Administrator. Btrfs homes are individual subvolumes with optional qgroup
+  limits; other filesystems report storage limits as unsupported.
 
 ### `ryoku materialize`
 
@@ -155,6 +299,29 @@ found: /usr/share/ryoku/config`) because that path only exists once the package
 is installed; use `ryoku deploy` there instead. To point it at a base tree
 yourself, set `RYOKU_CONFIG_BASE`.
 
+### `ryoku owner <path>...`
+
+Answers the question a coding agent (or you) has before touching a config file:
+who writes this, and where does my change belong so an update does not overwrite
+it. It classifies each path against the same materialize contract an update
+follows, so the verdict always matches what actually happens on the next update.
+A path can be absolute, `~/...`, or relative to `~/.config`.
+
+Each path prints its class (`overlay`, `forked`, `generated`, `store`, `seed`,
+`user-override`, `ryoku`, `user`, `package`, `unmanaged`), who writes it, and the
+file to edit instead, if any. `--json` prints the same as an array for a tool to
+read; `--map` prints a markdown ownership summary of the whole machine, which is
+what the Rashin vault carries so every wired agent knows the rules.
+
+```
+$ ryoku owner ~/.config/kitty/kitty.conf
+/home/you/.config/kitty/kitty.conf
+  class:   ryoku
+  writer:  the ryoku-desktop package, through materialize
+  advice:  Ryoku ships this and overwrites it on every update. Put your change in ~/.config/kitty/user.conf instead.
+  edit:    /home/you/.config/kitty/user.conf
+```
+
 ## Keyring
 
 ### `ryoku keyring`
@@ -174,10 +341,11 @@ persists across reboots. Three modes:
   prompts. Opt in for an encrypted store. The default keyring points at `login`.
 - `ask` the store stays locked until an app asks, and gnome-keyring prompts then.
 
-`ryoku keyring init` is the first-login default, run from the Hyprland autostart:
-idempotent, it records the inferred mode and seeds the never-ask keyring, is a
-no-op once you have chosen a mode, and never destroys a pre-existing encrypted
-keyring (it records the policy and points you at `set --reset` instead).
+`ryoku keyring init` is the first-login default, run from each compositor's
+autostart. It is idempotent: it records the inferred mode and seeds the
+never-ask keyring, is a no-op once you have chosen a mode, and never destroys a
+pre-existing encrypted keyring (it records the policy and points you at
+`set --reset` instead).
 
 `ryoku keyring status [--json]` reports the configured (or, when unset, inferred)
 mode, whether `/etc/pam.d/sddm` carries `pam_gnome_keyring`, whether autologin is
@@ -223,15 +391,14 @@ emits the findings as a machine-readable array (name, status, detail, remedy)
 for a GUI. `ryoku update` runs `ryoku doctor` itself, so healing is seamless and
 a finding never aborts the update.
 
-Current reconcilers (in `ryoku/cli/internal/doctor/`): swap kept out of snapshots,
-snapper config consistency, stale pacman lock, the ryoku package channel + keyring,
-desktop session components, the keyring unlock policy (how the GNOME keyring
-unlocks at sign-in; see `ryoku keyring`), Hyprland config integrity (revalidates and repairs the
-generated monitors.lua/gpu.lua drop-ins so a corrupt one cannot strand the desktop
-backlight (catches a missing interface, missing brightnessctl, or a hybrid-GPU
-firmware-only backlight), the pacman progress bar (seeds Ryoku's `ILoveCandy`
-default into `/etc/pacman.conf` once, so deleting the line sticks), pending
-`.pacnew` config, and orphaned packages.
+Current reconcilers live in `ryoku/cli/internal/doctor/`. Common checks cover
+desktop sessions, channel health, the keyring unlock policy, compositor config,
+backlights, pending package config, and orphaned packages. Host-specific checks
+stay on their host: pacman lock and progress settings on Arch/CachyOS, Turnstile
+and runit state on Void, and RPM repository metadata plus `.rpmnew` and
+`.rpmsave` files on Fedora. Fedora omits the snapper and Limine checks because
+that edition does not provide them.
+
 Reconcilers retire once every supported install has run them, so the set stays
 small rather than growing like an ordered migration list.
 
@@ -239,7 +406,7 @@ small rather than growing like an ordered migration list.
 single shareable text report and points you to it. Generate one any time with
 `ryoku doctor --report [file]`: it bundles the findings with system state (btrfs
 usage and device errors, `/proc/swaps`, failed units, recent journal errors,
-pacman state, the ryoku channel state, session env, and hardware: backlight
+native package and Ryoku channel state, session env, and hardware: backlight
 devices, GPU drivers, kernel cmdline, recent display-driver log) into one `.txt`
 the maintainers can read. It contains no passwords or keys.
 

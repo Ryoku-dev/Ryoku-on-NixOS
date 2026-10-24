@@ -4028,20 +4028,6 @@
       ]
     },
     {
-      "id": "ryoku.ryoku-shell.clip-ingest",
-      "group": "ryoku-internal",
-      "title": "Ingest clipboard bytes",
-      "command": "ryoku-shell __clip-ingest",
-      "description": "Reads a watched clipboard selection from standard input into the shell daemon.",
-      "tool": "ryoku-shell",
-      "level": "internal",
-      "compositors": [
-        "hyprland",
-        "niri",
-        "wayfire"
-      ]
-    },
-    {
       "id": "ryoku.ryoku-shell.barstyle",
       "group": "ryoku-internal",
       "title": "Set the active bar style",

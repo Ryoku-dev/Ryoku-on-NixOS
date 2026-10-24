@@ -82,12 +82,14 @@ func TestSystemdManifestSystemReconcileRestoresGlobalEnableWithoutStartingBootOr
 		"boot\tsystem\tboot\tboot.service\t-\tnone",
 		"conditional-on\tsystem\tconditional\tconditional-on.service\t-\tcondition:" + armed,
 		"conditional-off\tsystem\tconditional\tconditional-off.service\t-\tcondition:" + disarmed,
+		"required-global\tuser\tsession-global\trequired-global.service\t-\tnone",
 		"global\tuser\tsession\tglobal.service\t-\tpreserve:" + globalMarker,
 	}, "\n")+"\n", nil)
 	for _, path := range []string{
 		filepath.Join(fixture.systemUnits, "boot.service"),
 		filepath.Join(fixture.systemUnits, "conditional-on.service"),
 		filepath.Join(fixture.systemUnits, "conditional-off.service"),
+		filepath.Join(fixture.userUnits, "required-global.service"),
 		filepath.Join(fixture.userUnits, "global.service"),
 	} {
 		touchFixture(t, path)
@@ -115,6 +117,8 @@ func TestSystemdManifestSystemReconcileRestoresGlobalEnableWithoutStartingBootOr
 		"systemctl enable boot.service",
 		"systemctl enable conditional-on.service",
 		"systemctl disable conditional-off.service",
+		"systemctl --global is-enabled --quiet required-global.service",
+		"systemctl --global enable required-global.service",
 		"systemctl --global enable global.service",
 	} {
 		if !strings.Contains(got, want) {
@@ -126,6 +130,26 @@ func TestSystemdManifestSystemReconcileRestoresGlobalEnableWithoutStartingBootOr
 	}
 	if !fileExists(globalMarker) {
 		t.Fatal("global user activation marker was not written")
+	}
+}
+
+func TestSystemdManifestSystemCheckDoesNotRequireRoot(t *testing.T) {
+	fixture := newSystemdManifestFixture(t,
+		"shell\tuser\tsession-global\tshell.service\t-\tnone\n", nil)
+	fixture.app.cfg.UID = 1000
+	touchFixture(t, filepath.Join(fixture.userUnits, "shell.service"))
+	fixture.runner.answer = func(command Command) Result {
+		if strings.Contains(argv(command), "is-enabled") {
+			return Result{Code: 1}
+		}
+		return Result{}
+	}
+
+	if code := fixture.app.Service([]string{"reconcile", "--system", "--check"}); code != ExitFalse {
+		t.Fatalf("unprivileged system check exit = %d", code)
+	}
+	if got := manifestCommandLines(fixture.runner); strings.Contains(got, " enable ") {
+		t.Fatalf("check-only changed service state: %q", got)
 	}
 }
 
@@ -223,16 +247,18 @@ func TestRunitManifestReconcileWritesRosterAndStartsOnlyNewSessionServices(t *te
 	root := t.TempDir()
 	manifest := writeManifestFixture(t, strings.Join([]string{
 		"existing\tuser\tsession\t-\texisting\tpreserve",
-		"added\tuser\tsession\t-\tadded\tpreserve",
+		"added\tuser\tsession-global\t-\tadded\tnone",
+		"required\tuser\tsession-global\t-\trequired\tnone",
 		"disabled\tuser\tsession\t-\tdisabled\tpreserve",
 		"manual\tuser\ton-demand\t-\tmanual\tpreserve",
 	}, "\n")+"\n")
 	serviceRoot := filepath.Join(root, "service")
-	for _, name := range []string{"existing", "added", "disabled", "manual"} {
+	for _, name := range []string{"existing", "added", "required", "disabled", "manual"} {
 		touchFixture(t, filepath.Join(serviceRoot, name, "down"))
 		touchFixture(t, filepath.Join(serviceRoot, name, "supervise", "stat"))
 	}
 	touchFixture(t, filepath.Join(serviceRoot, "disabled", runitUserDisabledMarker))
+	touchFixture(t, filepath.Join(serviceRoot, "required", runitUserDisabledMarker))
 	touchFixture(t, filepath.Join(serviceRoot, ".ryoku-session-services"))
 	if err := os.WriteFile(filepath.Join(serviceRoot, ".ryoku-session-services"), []byte("existing\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -249,14 +275,17 @@ func TestRunitManifestReconcileWritesRosterAndStartsOnlyNewSessionServices(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(body), "existing\nadded\n"; got != want {
+	if got, want := string(body), "existing\nadded\nrequired\n"; got != want {
 		t.Fatalf("roster = %q, want %q", got, want)
 	}
-	if len(runner.commands) != 1 || argv(runner.commands[0]) != "sv up "+filepath.Join(serviceRoot, "added") {
-		t.Fatalf("runit commands = %#v", runner.commands)
+	if got, want := manifestCommandLines(runner),
+		"sv up "+filepath.Join(serviceRoot, "added")+"\nsv up "+filepath.Join(serviceRoot, "required"); got != want {
+		t.Fatalf("runit commands = %q, want %q", got, want)
 	}
-	if _, err := os.Stat(filepath.Join(serviceRoot, "added", "down")); !os.IsNotExist(err) {
-		t.Fatalf("new session service stayed parked: %v", err)
+	for _, name := range []string{"added", "required"} {
+		if _, err := os.Stat(filepath.Join(serviceRoot, name, "down")); !os.IsNotExist(err) {
+			t.Fatalf("required session service %s stayed parked: %v", name, err)
+		}
 	}
 	for _, name := range []string{"disabled", "manual"} {
 		if _, err := os.Stat(filepath.Join(serviceRoot, name, "down")); err != nil {

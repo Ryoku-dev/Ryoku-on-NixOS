@@ -22,8 +22,32 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"ryoku-i18n"
+	installerplan "ryoku-installerplan"
 	wm "ryoku-wm"
 )
+
+const (
+	variantVoid    = "void"
+	variantCachyOS = "cachyos"
+)
+
+var variantMarkerPath = "/usr/share/ryoku/variant"
+
+func sysVariant() string {
+	data, err := os.ReadFile(variantMarkerPath)
+	if err != nil {
+		return "plain"
+	}
+	variant := strings.TrimSpace(string(data))
+	if variant == "" {
+		return "plain"
+	}
+	return variant
+}
+
+func isVoidVariant(variant string) bool {
+	return variant == variantVoid
+}
 
 // run executes a command and returns its trimmed stdout, plus whether it worked.
 // A missing tool or non-zero exit just yields ok=false so callers fall back.
@@ -102,11 +126,7 @@ func sysLocales() []item {
 	}
 	if len(lines) == 0 {
 		if out, ok := run("locale", "-a"); ok {
-			for _, l := range strings.Split(out, "\n") {
-				if strings.Contains(strings.ToLower(l), "utf") {
-					lines = append(lines, strings.TrimSpace(l))
-				}
-			}
+			lines = utf8Locales(out)
 		}
 	}
 	var items []item
@@ -117,6 +137,25 @@ func sysLocales() []item {
 		items = append(items, item{c, c, ""})
 	}
 	return promote(items, []string{"en_US.UTF-8", "en_GB.UTF-8", "de_DE.UTF-8", "fr_FR.UTF-8", "es_ES.UTF-8"})
+}
+
+// utf8Locales keeps the UTF-8 entries of `locale -a`, which prints glibc's
+// normalized "de_DE.utf8" and "sr_RS.utf8@latin"; SUPPORTED and the promoted
+// defaults spell them "de_DE.UTF-8" and "sr_RS.UTF-8@latin".
+func utf8Locales(out string) []string {
+	var lines []string
+	for _, l := range strings.Split(out, "\n") {
+		name, modifier, _ := strings.Cut(strings.TrimSpace(l), "@")
+		base, ok := strings.CutSuffix(name, ".utf8")
+		if !ok {
+			continue
+		}
+		if modifier != "" {
+			modifier = "@" + modifier
+		}
+		lines = append(lines, base+".UTF-8"+modifier)
+	}
+	return lines
 }
 
 func localeTerritory(locale string) string {
@@ -792,7 +831,7 @@ func detectHardware() hwInfo {
 	if _, err := os.Stat("/sys/firmware/efi"); err == nil {
 		h.fw = "UEFI"
 	} else {
-		h.fw, h.bios = "BIOS", true // backend is UEFI-only; the TUI hard-blocks BIOS boot
+		h.fw, h.bios = "BIOS", true // Void accepts whole-disk BIOS installs; other variants block in the TUI
 	}
 	if isVM {
 		h.fw += i18n.T(" · virtual machine")
@@ -1015,15 +1054,21 @@ func keymapRelaunch(code string) bool {
 	return true
 }
 
-// applyExit runs the post-install action chosen on the done screen. reboot and
-// poweroff hand off to systemd; anything else just returns so the live session
-// ends and drops to a shell.
+// exitCommand builds the done screen's reboot or poweroff command. A var so a
+// test can see what would run instead of rebooting the machine it runs on.
+var exitCommand = exec.Command
+
+// applyExit runs the post-install action chosen on the done screen. Plain
+// reboot and poweroff exist on every live medium: systemd links them to
+// systemctl, and the Void ISO's runit, which has no systemctl, hands them to
+// runit-init. Anything else just returns so the live session ends and drops to
+// a shell.
 func applyExit(action string) {
-	switch action {
-	case "reboot":
-		_ = exec.Command("systemctl", "reboot").Run()
-	case "poweroff":
-		_ = exec.Command("systemctl", "poweroff").Run()
+	if action != "reboot" && action != "poweroff" {
+		return
+	}
+	if err := exitCommand(action).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "ryoku-tui: %s failed: %v\n", action, err)
 	}
 }
 
@@ -1064,12 +1109,11 @@ func switchWifiBackend(backend string) bool {
 	if err := os.WriteFile(wifiBackendConf, []byte(body), 0o644); err != nil {
 		return false
 	}
-	leaving := "wpa_supplicant.service"
+	leaving, keeping := "wpa_supplicant", "iwd"
 	if backend == "wpa_supplicant" {
-		leaving = "iwd.service"
+		leaving, keeping = "iwd", "wpa_supplicant"
 	}
-	_ = exec.Command("systemctl", "stop", leaving).Run()
-	if err := exec.Command("systemctl", "restart", "NetworkManager.service").Run(); err != nil {
+	if !restartWifiStack(leaving, keeping) {
 		return false
 	}
 	for range 20 {
@@ -1079,6 +1123,27 @@ func switchWifiBackend(backend string) bool {
 		time.Sleep(250 * time.Millisecond)
 	}
 	return true
+}
+
+// systemdRuntimeDir is where a booted systemd leaves its mark; its absence on
+// the live medium means runit (the Void ISO).
+var systemdRuntimeDir = "/run/systemd/system"
+
+// restartWifiStack stops the supplicant being left and restarts NetworkManager
+// so it picks up the new backend. On systemd NetworkManager D-Bus-activates
+// whichever supplicant it keeps. Under runit it cannot start iwd that way (Void's
+// iwd ships no activation file), so the supervised service is raised by hand;
+// wpa_supplicant is bus-activated on both.
+func restartWifiStack(leaving, keeping string) bool {
+	if info, err := os.Stat(systemdRuntimeDir); err == nil && info.IsDir() {
+		_ = exec.Command("systemctl", "stop", leaving+".service").Run()
+		return exec.Command("systemctl", "restart", "NetworkManager.service").Run() == nil
+	}
+	_ = exec.Command("sv", "down", leaving).Run()
+	if keeping == "iwd" {
+		_ = exec.Command("sv", "up", "iwd").Run()
+	}
+	return exec.Command("sv", "restart", "NetworkManager").Run() == nil
 }
 
 // wifiConnect joins a network with nmcli. If the live backend (iwd by default)
@@ -1104,7 +1169,14 @@ func nmWifiConnect(ssid, pass string) bool {
 // ───────────────────────── install handoff ─────────────────────────
 
 // installEnv builds the RYOKU_* environment the backend reads (install-contract.md).
+// Tests and preview paths use the best-effort wrapper; startInstall reports any
+// account-plan write error before the backend can touch the disk.
 func (m model) installEnv() []string {
+	env, _ := m.installEnvChecked()
+	return env
+}
+
+func (m model) installEnvChecked() ([]string, error) {
 	b := func(v bool) string {
 		if v {
 			return "1"
@@ -1139,10 +1211,20 @@ func (m model) installEnv() []string {
 		// package source (RYOKU_ONLINE / RYOKU_OFFLINE_REPO) is appended after the
 		// literal, since it depends on whether this ISO baked an offline repo.
 	}
-	if offlineRepo() {
-		// offline ISO: the whole closure is baked into a file:// repo and the
-		// backend pacstraps from it with no network (see lib/offline.sh).
-		env = append(env, "RYOKU_ONLINE=0", "RYOKU_OFFLINE_REPO="+offlineRepoPath)
+	if isVoidVariant(m.variant) {
+		firmware := "uefi"
+		if m.hwBIOS {
+			firmware = "bios"
+		}
+		// The Void backend normally derives this from the same sysfs path. Send
+		// the detected value so an inherited override cannot disagree with the
+		// hardware card and select the wrong bootloader path.
+		env = append(env, "RYOKU_FIRMWARE_MODE="+firmware)
+	}
+	if path, ok := offlineRepo(m.variant); ok {
+		// An offline ISO carries the complete package closure. The marker differs
+		// by package manager, but both backends receive the same environment.
+		env = append(env, "RYOKU_ONLINE=0", "RYOKU_OFFLINE_REPO="+path)
 	} else {
 		env = append(env, "RYOKU_ONLINE=1")
 	}
@@ -1154,25 +1236,32 @@ func (m model) installEnv() []string {
 	comp := m.picks["compositor"]
 	env = append(env, "RYOKU_COMPOSITOR="+comp, "RYOKU_COMPOSITOR_CONFIG_DIR="+wm.ConfigDir(comp),
 		"RYOKU_COMPOSITOR_GPU_PIN="+wm.GpuPinFile(comp))
-	// Product choices reach the backend as one drop list: every package removed
-	// in Apps & tools, the two browsers that lost, and the two unchosen shell
-	// stacks. The backend filters this list from every package source and records
-	// it in the provisioning ledger.
-	br := def(m.picks["browser"], "firefox")
-	brPkg := br
-	if br == "zen" {
-		brPkg = "zen-browser-bin"
+	// Product choices reach the backend as one drop list. It contains each
+	// unselected stack from the shared single-choice and component catalogues.
+	br := def(m.picks["browser"], installerplan.FreshDefault(installerplan.Browser))
+	sh := def(m.picks["login-shell"], installerplan.FreshDefault(installerplan.LoginShell))
+	fm := def(m.picks["file-manager"], installerplan.FreshDefault(installerplan.FileManager))
+	plan := installerChoicesForVariant(m.variant)
+	selected := m.componentSelections()
+	rashin := "0"
+	if selected["rashin"] {
+		rashin = "1"
 	}
-	sh := def(m.picks["login-shell"], "fish")
-	var drop []string
-	drop = append(drop, deselectedPkgs(m.selectedApps())...)
-	for _, pkg := range browserPackages() {
-		if pkg != brPkg {
-			drop = append(drop, pkg)
-		}
+	drop := plan.DropComponentPackages(selected)
+	drop = append(drop, installerplan.DropPackages(br, sh)...)
+	drop = append(drop, installerplan.DropPackagesFor(installerplan.FileManager, fm)...)
+	env = append(env,
+		"RYOKU_BROWSER="+br,
+		"RYOKU_LOGIN_SHELL="+sh,
+		"RYOKU_FILE_MANAGER="+fm,
+		"RYOKU_RASHIN="+rashin,
+	)
+	if m.variant == "plain" {
+		env = append(env, "RYOKU_CACHYOS_LAYER="+def(m.picks["gaming"], "0"))
 	}
-	drop = append(drop, loginShellDropPackages(sh)...)
-	env = append(env, "RYOKU_BROWSER="+br, "RYOKU_LOGIN_SHELL="+sh)
+	if hidden := plan.HiddenDesktopIDs(selected); len(hidden) > 0 {
+		env = append(env, "RYOKU_HIDE_APPS="+strings.Join(hidden, ","))
+	}
 	if len(drop) > 0 {
 		env = append(env, "RYOKU_DROP_PACKAGES="+strings.Join(drop, ","))
 	}
@@ -1205,6 +1294,13 @@ func (m model) installEnv() []string {
 	// RYOKU_WIPE_CONFIRMED; an alongside install that must free leftover ryoku/
 	// ryokuboot partitions needs RYOKU_RECLAIM_LEFTOVERS (the backend otherwise
 	// dies listing them). Never emit both -- each backend path demands only its own.
+	// A disk that was blank at Review needed no ack, but a failed attempt that
+	// reached the partition step leaves its own partitions on it; everything
+	// there is that run's debris, so the retry may wipe it. A run that failed
+	// in preflight never touched the disk and earns no token.
+	if m.wipeStage != 2 && m.retried && m.partitioned && m.picks["disk"] == "whole" && len(m.existing) == 0 {
+		env = append(env, "RYOKU_WIPE_CONFIRMED=1")
+	}
 	if m.wipeStage == 2 {
 		switch m.picks["disk"] {
 		case "whole":
@@ -1221,7 +1317,11 @@ func (m model) installEnv() []string {
 			}
 		}
 	}
-	return env
+	accountEnv, err := m.accountsEnv()
+	if err != nil {
+		return env, err
+	}
+	return append(env, accountEnv...), nil
 }
 
 func def(v, fallback string) string {
@@ -1312,7 +1412,13 @@ func sanitizeLine(s string) string {
 func (m *model) startInstall() tea.Cmd {
 	st := &installStream{ch: make(chan tea.Msg, 128), procDone: make(chan struct{})}
 	m.istream = st
-	env := append(os.Environ(), m.installEnv()...)
+	installEnv, err := m.installEnvChecked()
+	if err != nil {
+		close(st.procDone)
+		st.ch <- installDoneMsg{err}
+		return st.wait()
+	}
+	env := append(os.Environ(), installEnv...)
 	bin := os.Getenv("RYOKU_BACKEND")
 	if bin == "" {
 		bin = "ryoku-install"
@@ -1372,8 +1478,7 @@ func (m *model) startInstall() tea.Cmd {
 // proceed", which hid a real question behind a false answer: every gate that
 // asked about connectivity silently got "yes" on a machine with no network, so
 // whether an offline install worked depended on a short-circuit buried in here
-// rather than on the gates. The gates now ask offlineRepo() themselves (see
-// reviewBlockReason, the kNet step, and installEnv). WIRE target.
+// rather than on the variant-aware gates below. WIRE target.
 func netOnline() bool {
 	if out, ok := run("ip", "-4", "route"); ok && strings.Contains(out, "default") {
 		return true
@@ -1386,24 +1491,46 @@ func netOnline() bool {
 		"https://geo.mirror.pkgbuild.com/").Run() == nil
 }
 
-// offlineRepoPath is where an offline ISO bakes the full package closure
-// (installation/iso/build.sh + offline-repo.sh).
-const offlineRepoPath = "/usr/share/ryoku/offline/repo"
+func x8664V3Supported() bool {
+	out, err := exec.Command("/lib/ld-linux-x86-64.so.2", "--help").CombinedOutput()
+	return err == nil && strings.Contains(string(out), "x86-64-v3 (supported")
+}
 
-// offlineRepo reports whether this live ISO carries a USABLE baked offline
-// package repo. The db glob is the same test lib/offline.sh:ryoku_offline_active
-// uses, and it has to be: this decides whether installEnv sends RYOKU_ONLINE=0,
-// and a bare directory (a bake that died before repo-add, say) used to satisfy
-// the installer while failing the backend's check -- so the TUI promised an
-// offline install and the backend quietly took the online path into a pacstrap
-// that cannot reach a mirror. Same question, same answer, both sides.
-func offlineRepo() bool {
-	fi, err := os.Stat(offlineRepoPath)
-	if err != nil || !fi.IsDir() {
-		return false
+var (
+	probeNetworkOnline = netOnline
+	probeX8664V3       = x8664V3Supported
+)
+
+var (
+	archOfflineRepoPath = "/usr/share/ryoku/offline/repo"
+	voidOfflineRepoPath = "/run/initramfs/live/ryoku/repo"
+)
+
+// offlineRepo reports whether this live image carries a usable package
+// repository and returns the path handed to either backend.
+func offlineRepo(variant string) (string, bool) {
+	path := archOfflineRepoPath
+	if isVoidVariant(variant) {
+		path = voidOfflineRepoPath
 	}
-	db, _ := filepath.Glob(filepath.Join(offlineRepoPath, "offline.db*"))
-	return len(db) > 0
+	fi, err := os.Stat(path)
+	if err != nil || !fi.IsDir() {
+		return path, false
+	}
+	if isVoidVariant(variant) {
+		if fi, err := os.Stat(filepath.Join(path, "x86_64-repodata")); err != nil || fi.IsDir() {
+			return path, false
+		}
+		pkgs, _ := filepath.Glob(filepath.Join(path, "*.xbps"))
+		return path, len(pkgs) > 0
+	}
+	db, _ := filepath.Glob(filepath.Join(path, "offline.db*"))
+	return path, len(db) > 0
+}
+
+func (m model) hasOfflineRepo() bool {
+	_, ok := offlineRepo(m.variant)
+	return ok
 }
 
 // netInterface returns the active default-route interface name, for the

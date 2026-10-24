@@ -45,12 +45,19 @@ Singleton {
         return { level: sample.level * keep, spread: sample.spread * keep, color: colour,
             luminance: ColorUtils.relativeLuminance(colour) }
     }
-    // The same for a surface that shows its own image (Waffle's wallpaper, a lock background).
+    // The same for a surface that shows its own image. Read as the desktop scales it
+    // (Wallpapers.fillMode): bars are black, span reads this output's slice of the whole canvas.
     function readFrom(path: string, output: string, x: real, y: real, w: real, h: real): var {
         void root.revision
         const screen = root.screenNamed(output)
         if (!screen || !path) return null
-        return WallpaperLuma.sample(path, Math.round(screen.width), Math.round(screen.height), x, y, w, h)
+        const mode = Wallpapers.fillMode
+        if (mode === "span") {
+            const area = Wallpapers.spanArea
+            return WallpaperLuma.sample(path, Math.round(area.width), Math.round(area.height),
+                x + screen.x - area.x, y + screen.y - area.y, w, h, "fill")
+        }
+        return WallpaperLuma.sample(path, Math.round(screen.width), Math.round(screen.height), x, y, w, h, mode)
     }
 
     // Windows are open on the output's active workspace: compositor blur shows them, not the wallpaper.
@@ -65,14 +72,14 @@ Singleton {
         return wasLight ? luminance > (leave ?? 0.21) : luminance > (enter ?? 0.30)
     }
 
+    // Qt and compositors blend in sRGB, not linear light, so veils and frosts are solved in gamma levels.
     // Alpha of a veil of `surface` over the backdrop so `ink` keeps `contrast` on its brightest part.
     function veil(level: real, spread: real, spreadWeight: real, surface: color, ink: color, contrast: real, floor: real, cap: real): real {
         if (level < 0) return Math.max(floor, 0.42)
         const worst = Math.min(1, level + spread * spreadWeight)
-        const region = Math.pow(worst, 2.2)
-        const base = ColorUtils.relativeLuminance(surface)
-        const allowed = (ColorUtils.relativeLuminance(ink) + 0.05) / contrast - 0.05
-        const needed = region > allowed ? (region - allowed) / Math.max(0.001, region - base) : 0
+        const base = Math.pow(ColorUtils.relativeLuminance(surface), 1 / 2.2)
+        const allowed = Math.pow(Math.max(0, (ColorUtils.relativeLuminance(ink) + 0.05) / contrast - 0.05), 1 / 2.2)
+        const needed = worst > allowed ? (worst - allowed) / Math.max(0.001, worst - base) : 0
         return Math.max(floor, Math.min(cap, needed))
     }
 
@@ -80,9 +87,9 @@ Singleton {
     function frost(level: real, spread: real, spreadWeight: real, surface: color, ink: color, contrast: real, floor: real, cap: real): real {
         if (level < 0) return Math.max(floor, 0.42)
         const darkest = Math.max(0, level - spread * spreadWeight)
-        const region = Math.pow(darkest, 2.2)
-        const needed = (ColorUtils.relativeLuminance(ink) + 0.05) * contrast - 0.05
-        const alpha = region < needed ? (needed - region) / Math.max(0.001, ColorUtils.relativeLuminance(surface) - region) : 0
+        const needed = Math.pow(Math.max(0, (ColorUtils.relativeLuminance(ink) + 0.05) * contrast - 0.05), 1 / 2.2)
+        const surfaceLevel = Math.pow(ColorUtils.relativeLuminance(surface), 1 / 2.2)
+        const alpha = darkest < needed ? (needed - darkest) / Math.max(0.001, surfaceLevel - darkest) : 0
         return Math.max(floor, Math.min(cap, alpha))
     }
 

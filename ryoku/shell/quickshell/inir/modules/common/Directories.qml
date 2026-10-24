@@ -94,7 +94,6 @@ Singleton {
     property string notesPath: `${root.stateUserPath}/notes.txt`
     property string notificationsPath: `${root.stateUserPath}/notifications.json`
     property string calendarSyncCachePath: `${root.stateUserPath}/calendar-sync-cache.json`
-    property string cliphistDecode: FileUtils.trimFileProtocol(`/tmp/ryoku-inir/media/cliphist`)
     property string screenshotTemp: "/tmp/ryoku-inir/media/screenshot"
     // Ryoku-owned surfaces; the family routes through its services, not scripts.
     property string wallpaperSwitchScriptPath: ""

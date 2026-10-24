@@ -24,9 +24,10 @@ Item {
         ? Theme.joinArtists(player.trackArtists, player.trackArtist) : ""
     readonly property string albumText: player ? String(player.trackAlbum || "") : ""
     readonly property real trackLength: player
-        ? Math.max(0, Number(player.length) || 0) : 0
+        ? Math.max(0, Number(Music.duration) || 0) : 0
     readonly property real trackPosition: player
-        ? Math.max(0, Number(player.position) || 0) : 0
+        ? Math.max(0, Number(Music.position) || 0) : 0
+
     readonly property real progress: trackLength > 0
         ? Math.max(0, Math.min(1, trackPosition / trackLength)) : 0
     readonly property bool canSeek: player !== null && player.canSeek === true
@@ -71,22 +72,33 @@ Item {
         AudioBars.setActive(root, root.shown && root.hasTrack
             && S.Prefs.spectrum === true);
     }
+    function updateClockClaim() {
+        Music.holdClock(root, root.shown && root.hasTrack);
+    }
 
-    onShownChanged: updateSpectrumClaim()
-    onHasTrackChanged: updateSpectrumClaim()
+
+    onShownChanged: {
+        updateSpectrumClaim();
+        updateClockClaim();
+    }
+    onHasTrackChanged: {
+        updateSpectrumClaim();
+        updateClockClaim();
+    }
+
     Connections {
         target: S.Prefs
         function onSpectrumChanged() { root.updateSpectrumClaim(); }
     }
-    Component.onCompleted: updateSpectrumClaim()
-    Component.onDestruction: AudioBars.setActive(root, false)
-
-    Timer {
-        interval: 500
-        repeat: true
-        running: root.shown && root.playing
-        onTriggered: if (root.player) root.player.positionChanged()
+    Component.onCompleted: {
+        updateSpectrumClaim();
+        updateClockClaim();
     }
+    Component.onDestruction: {
+        AudioBars.setActive(root, false);
+        Music.holdClock(root, false);
+    }
+
 
     K.Sheet {
         id: sheet
@@ -158,8 +170,9 @@ Item {
                 interactive: root.canSeek
                 onSeek: fraction => {
                     if (root.player && root.canSeek)
-                        root.player.position = fraction * root.trackLength;
+                        Music.seekPosition(fraction * root.trackLength);
                 }
+
             }
 
             Item {
@@ -306,13 +319,6 @@ Item {
                         radius: 1
                         color: K.Style.alpha(K.Style.ink, 0.32)
 
-                        Behavior on height {
-                            enabled: root.shown && !K.Style.still
-                            NumberAnimation {
-                                duration: K.Style.quick
-                                easing.type: Easing.OutCubic
-                            }
-                        }
                     }
                 }
             }

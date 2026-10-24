@@ -6,6 +6,7 @@ import inir.services
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import shell.services as Ryoku
 
 Singleton {
     id: root
@@ -19,34 +20,23 @@ Singleton {
     property bool sidebarRightOpen: false
     property string sidebarRightTargetOutput: ""
     property bool mediaControlsOpen: false
-    property bool equalizerOpen: false
-    property string equalizerTargetOutput: ""
-    readonly property bool equalizerEnabled: (Config.options?.enabledPanels ?? []).includes("iiEqualizer")
+    property bool irisEqualizerOpen: false
+    property string irisEqualizerTargetOutput: ""
 
-    function openEqualizer(outputName: string): void {
-        if (!root.equalizerEnabled)
-            return
-        const requested = String(outputName ?? "")
-        equalizerTargetOutput = requested.length > 0
-            ? requested
-            : String(root.focusedScreen?.name ?? root.primaryScreen?.name ?? "")
-        equalizerOpen = true
+    function openIrisEqualizer(outputName): void {
+        irisEqualizerTargetOutput = root.resolveOutputName(outputName, [])
+        irisEqualizerOpen = true
     }
 
-    function closeEqualizer(): void {
-        equalizerOpen = false
+    function closeIrisEqualizer(): void {
+        irisEqualizerOpen = false
     }
 
-    function toggleEqualizer(outputName: string): void {
-        if (!root.equalizerEnabled) {
-            closeEqualizer()
-            return
-        }
-        if (equalizerOpen) {
-            closeEqualizer()
-            return
-        }
-        openEqualizer(outputName)
+    function toggleIrisEqualizer(outputName): void {
+        if (irisEqualizerOpen)
+            closeIrisEqualizer()
+        else
+            openIrisEqualizer(outputName)
     }
     property real irisLevelQuietUntil: 0
     function quietIrisLevels(): void { root.irisLevelQuietUntil = Date.now() + 700 }
@@ -64,6 +54,22 @@ Singleton {
             return
         root.osdMediaOpen = true
         root.osdMediaActionTriggered(normalized)
+    }
+
+    Connections {
+        target: Ryoku.OsdFeed
+        function onVolumeRequested(): void { root.osdVolumeOpen = true }
+        function onBrightnessRequested(): void { root.osdBrightnessOpen = true }
+        function onMicRequested(): void { root.osdMicOpen = true }
+        function onKeyboardRequested(): void { root.osdKeyboardLayoutOpen = true }
+        function onMediaRequested(action: string): void { root.showMediaAction(action) }
+        function onHideRequested(): void {
+            root.osdVolumeOpen = false
+            root.osdBrightnessOpen = false
+            root.osdMicOpen = false
+            root.osdMediaOpen = false
+            root.osdKeyboardLayoutOpen = false
+        }
     }
 
     property bool osdKeyboardLayoutOpen: false
@@ -126,7 +132,7 @@ Singleton {
         const args = ["env", "QML_IMPORT_PATH=" + qmlPath, "QML2_IMPORT_PATH=" + qmlPath]
         if (action && action.length > 0)
             args.push("RYOSHOT_ACTION=" + action)
-        args.push("flock", "-n", "-o", "/tmp/ryoshot.lock", "qs", "-c", "ryoshot")
+        args.push("ryoku-cmd-ryoshot")
         Quickshell.execDetached(args)
     }
 

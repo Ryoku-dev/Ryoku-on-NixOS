@@ -2,25 +2,40 @@ pragma Singleton
 import QtQuick
 import Quickshell
 
-// the shared wall clock for desktop widgets. one 1s tick drives every face
-// and the analog second hand, so they stay in lockstep and the desktop isn't
-// running two timers for the same time. minute-only designs ignore seconds.
+// Shared desktop wall clocks. Minute-only widgets bind `date`; faces that
+// actually draw seconds register through setSecondPrecision() and bind
+// `secondDate`, so a normal desktop has no one-second wakeup.
 Singleton {
     id: root
 
-    property var date: new Date()
+    property var secondConsumers: []
+    readonly property bool secondsEnabled: root.secondConsumers.length > 0
+    readonly property var date: minuteClock.date
+    readonly property var secondDate: root.secondsEnabled ? secondsClock.date : minuteClock.date
 
-    // YYYY-MM-DD of today. changes once per day, so faces that only mark the
-    // current day (month/heat/minimal) derive their "today" off this and don't
-    // re-evaluate their whole grid on every 1s tick. `date` stays for anything
-    // that shows the time.
+    // YYYY-MM-DD of today. Date-only faces derive their grids from this key
+    // instead of reevaluating them whenever another face requests seconds.
     readonly property string dayKey: Qt.formatDate(root.date, "yyyy-MM-dd")
 
-    Timer {
-        interval: 1000
-        running: true
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: root.date = new Date()
+    function setSecondPrecision(owner, wanted) {
+        const index = root.secondConsumers.indexOf(owner);
+        if (wanted && index < 0)
+            root.secondConsumers = root.secondConsumers.concat([owner]);
+        else if (!wanted && index >= 0) {
+            const next = root.secondConsumers.slice();
+            next.splice(index, 1);
+            root.secondConsumers = next;
+        }
+    }
+
+    SystemClock {
+        id: minuteClock
+        precision: SystemClock.Minutes
+    }
+
+    SystemClock {
+        id: secondsClock
+        precision: SystemClock.Seconds
+        enabled: root.secondsEnabled
     }
 }

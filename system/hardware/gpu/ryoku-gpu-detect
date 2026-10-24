@@ -137,6 +137,11 @@ symlink_path() {
   printf '%s/%s%s' "$DRI_DIR" "$SYMLINK_PREFIX" "$(slot_token "$1")"
 }
 
+gpu_has_render_node() {
+  # KMS-only devices can expose cardN and connectors but cannot render frames.
+  compgen -G "$1/device/drm/renderD[0-9]*" >/dev/null
+}
+
 classify() {
   # Sets _class (egpu|discrete|integrated) and _weight (sortable strength).
   # Args: driver vram vis_vram removable
@@ -179,6 +184,7 @@ gpu_records() {
     base="$(basename "$path")"
     [[ $base == *-* ]] && continue          # skip cardN-CONNECTOR subdevices
     [[ -e $path/device ]] || continue
+    gpu_has_render_node "$path" || continue
     slot="$(gpu_field "$path" PCI_SLOT_NAME)"
     [[ -n $slot ]] || continue
     driver="$(gpu_field "$path" DRIVER)"
@@ -305,6 +311,7 @@ is_desktop() {
   ! is_laptop
 }
 
+# shellcheck disable=SC2120 # ryoku-gpu passes the pin file; callers here use the default
 gpu_mode_choice() {
   # The graphics mode the user last chose, stamped into the pin file itself by
   # `ryoku-gpu mode` as `-- ryoku-gpu-mode: <m>`, so there is no second state

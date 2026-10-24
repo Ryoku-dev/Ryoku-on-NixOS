@@ -31,6 +31,17 @@ ShellRoot {
             throw new Error("RYOSTORE-COMPONENTS-PROBE-FAIL " + label);
     }
 
+    // InstallAction wraps the Btn a screen reader sees; press that one.
+    function pressInstall(action) {
+        for (const child of action.children) {
+            if (child.Accessible.role === Accessible.Button) {
+                child.Accessible.pressAction();
+                return;
+            }
+        }
+        root.require(false, "install action exposes an accessible button");
+    }
+
     function findObject(item, name) {
         if (!item)
             return null;
@@ -330,7 +341,9 @@ ShellRoot {
                 metadata: ({ items: [
                     ({ type: "package", name: "core-a", tier: "core", summary: "core a", installed: false }),
                     ({ type: "package", name: "core-b", tier: "core", summary: "core b", installed: true }),
-                    ({ type: "package", name: "opt-a", tier: "optional", summary: "optional a", installed: false })
+                    ({ type: "package", name: "opt-a", tier: "optional", summary: "optional a", installed: false }),
+                    ({ type: "package", name: "gone", tier: "core", summary: "gone", installed: false,
+                       available: false, unavailableReason: "Not in the Void repositories." })
                 ] })
             })
             reducedMotion: true
@@ -416,7 +429,7 @@ ShellRoot {
             root.require(detail.lightboxIndex === 1, "lightbox arrows advance the gallery");
             detail.closeLightbox();
             root.installedKey = "";
-            detailInstall.Accessible.pressAction();
+            root.pressInstall(detailInstall);
             root.require(root.installedKey === "lockscreens:broken",
                     "accessible detail install targets selected item");
             root.installedKey = "";
@@ -558,7 +571,7 @@ ShellRoot {
             stage.triggerInstall();
             root.require(root.installedKey === "rices:a", "install targets committed selection");
             root.installedKey = "";
-            stagePrimary.Accessible.pressAction();
+            root.pressInstall(stagePrimary);
             root.require(root.installedKey === "rices:a", "accessible install targets committed selection");
             stageDetails.Accessible.pressAction();
             root.require(root.detailsKey === "rices:a", "details targets committed selection");
@@ -636,12 +649,17 @@ ShellRoot {
             grid.restoreOffset(0);
             root.require(grid.contentY === 0, "restoreOffset sets the scroll position");
             root.require(bundleDetail.isBundle === true, "bundle detail flagged as bundle");
-            root.require(bundleDetail.components.length === 3, "bundle detail exposes components");
+            root.require(bundleDetail.components.length === 4, "bundle detail exposes components");
             const bundleList = root.findObject(bundleDetail, "ryostore-detail-components");
             root.require(bundleList && bundleList.visible, "bundle detail shows component list");
             root.require(bundleDetail.selectedNames.indexOf("core-a") !== -1
                     && bundleDetail.selectedNames.indexOf("core-b") !== -1, "core components default selected");
             root.require(bundleDetail.selectedNames.indexOf("opt-a") === -1, "optional components default unselected");
+            root.require(bundleDetail.selectedNames.indexOf("gone") === -1, "a part this system cannot have starts unselected");
+            bundleDetail.toggleSel("gone");
+            root.require(bundleDetail.selectedNames.indexOf("gone") === -1, "a part this system cannot have is never selected");
+            const selectedLabel = root.findObject(bundleDetail, "ryostore-detail-selected");
+            root.require(selectedLabel.text.indexOf("/ 3") !== -1, "the selection count leaves out parts this system cannot have");
             const bundleInstallSelected = root.findObject(bundleDetail, "ryostore-detail-install-selected");
             const bundleInstallAll = root.findObject(bundleDetail, "ryostore-detail-install-all");
             const bundlePlainInstall = root.findObject(bundleDetail, "ryostore-detail-install");
@@ -653,17 +671,18 @@ ShellRoot {
             root.require(bundleDetail.selectedNames.indexOf("opt-a") === -1, "toggling again deselects it");
             root.installedKey = "";
             root.lastInstallComponents = null;
-            bundleInstallSelected.Accessible.pressAction();
+            root.pressInstall(bundleInstallSelected);
             root.require(root.installedKey === "bundles:kit", "install selected targets the bundle");
             root.require(root.lastInstallComponents.indexOf("core-a") !== -1
                     && root.lastInstallComponents.indexOf("opt-a") === -1,
                     "install selected passes only the selected components");
             root.installedKey = "";
             root.lastInstallComponents = null;
-            bundleInstallAll.Accessible.pressAction();
+            root.pressInstall(bundleInstallAll);
             root.require(root.lastInstallComponents.length === 3
-                    && root.lastInstallComponents.indexOf("opt-a") !== -1,
-                    "install all passes every component");
+                    && root.lastInstallComponents.indexOf("opt-a") !== -1
+                    && root.lastInstallComponents.indexOf("gone") === -1,
+                    "install all passes every component this system can have");
             finishTimer.start();
         }
 

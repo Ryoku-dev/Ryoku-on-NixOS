@@ -12,11 +12,12 @@ type capability struct {
 }
 
 type hostCapabilities struct {
-	PackageManager PackageManager `json:"packageManager"`
-	Init           InitSystem     `json:"init"`
-	PackageTable   string         `json:"packageTable,omitempty"`
-	Snapshots      capability     `json:"snapshots"`
-	AUR            capability     `json:"aur"`
+	PackageManager PackageManager  `json:"packageManager"`
+	Init           InitSystem      `json:"init"`
+	PackageTable   string          `json:"packageTable,omitempty"`
+	Snapshots      capability      `json:"snapshots"`
+	AUR            capability      `json:"aur"`
+	Users          usersCapability `json:"users"`
 }
 
 func (a *App) Capabilities() int {
@@ -44,6 +45,7 @@ func (a *App) Capabilities() int {
 		Init:           init,
 		Snapshots:      capability{Supported: snapshots, Reason: snapshotReason},
 		AUR:            capability{Supported: aur, Reason: aurReason},
+		Users:          a.usersCapability(),
 	}
 	if manager == DNF {
 		value.PackageTable = a.fedoraTablePath()

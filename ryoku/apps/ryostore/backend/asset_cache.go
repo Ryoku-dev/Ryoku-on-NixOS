@@ -232,7 +232,13 @@ func downloadAsset(ctx context.Context, client *http.Client, url, dst string) er
 		return err
 	}
 	name := tmp.Name()
-	n, copyErr := io.Copy(tmp, io.LimitReader(resp.Body, maxAssetBytes+1))
+	total := resp.ContentLength
+	if total < 0 {
+		total = 0
+	}
+	body := readerWithProgress(ctx, io.LimitReader(resp.Body, maxAssetBytes+1), "download", 0, total)
+	n, copyErr := io.Copy(tmp, body)
+	reportProgressNow(ctx, "download", n, total)
 	closeErr := tmp.Close()
 	if copyErr != nil {
 		os.Remove(name)

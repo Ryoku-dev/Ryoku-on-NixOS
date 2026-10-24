@@ -51,6 +51,13 @@ func paletteBridgeConfigRoot() string {
 	return filepath.Join(paletteBridgeHome(), ".config")
 }
 
+func paletteBridgeDataRoot() string {
+	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
+		return d
+	}
+	return filepath.Join(paletteBridgeHome(), ".local", "share")
+}
+
 func paletteBridgeSource(source string, files ...string) (string, error) {
 	if source == "" {
 		source = "/usr/share/ryoku/palette-bridge"
@@ -112,10 +119,11 @@ func paletteBridgeManagedFiles() map[string]bool {
 
 func paletteBridgeStatusFor(source string) paletteBridgeStatus {
 	config := paletteBridgeConfigRoot()
+	data := paletteBridgeDataRoot()
 	managed := paletteBridgeManagedFiles()
 	spotify := filepath.Join(config, "spicetify", "Extensions", "ryoku-wallpaper-colors.js")
-	vesktop := filepath.Join(config, "ryoku", "user_edits", "matugen", "templates", "vesktop-colors.css")
-	zen := filepath.Join(config, "ryoku", "user_edits", "matugen", "templates", "zen.css")
+	vesktop := filepath.Join(data, "ryoku", "palette-bridge", "templates", "vesktop-colors.css")
+	zen := filepath.Join(data, "ryoku", "palette-bridge", "templates", "zen.css")
 	_, binErr := exec.LookPath("ryoku-palette-bridge")
 	_, sourceErr := paletteBridgeSource(source, "install.sh", "install-integrations.sh")
 	client := http.Client{Timeout: 350 * time.Millisecond}
@@ -125,10 +133,10 @@ func paletteBridgeStatusFor(source string) paletteBridgeStatus {
 		_ = resp.Body.Close()
 	}
 	return paletteBridgeStatus{
-		Contract: 1, Available: binErr == nil || sourceErr == nil, SourceReady: sourceErr == nil,
+		Contract: 2, Available: binErr == nil && sourceErr == nil, SourceReady: sourceErr == nil,
 		Installed: binErr == nil, Enabled: paletteBridgeUnitState("is-enabled"),
 		Active: paletteBridgeUnitState("is-active"), Healthy: healthy,
-		Endpoint: "http://127.0.0.1:47616", Version: "1",
+		Endpoint: "http://127.0.0.1:47616", Version: "2",
 		Integrations: []paletteBridgeIntegration{
 			{ID: "spotify", Name: "Spotify", Installed: fileExists(spotify), Managed: managed["spotify\t"+spotify]},
 			{ID: "vesktop", Name: "Vesktop", Installed: fileExists(vesktop), Managed: managed["vesktop\t"+vesktop]},

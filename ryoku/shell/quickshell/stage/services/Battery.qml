@@ -38,8 +38,12 @@ Singleton {
     property bool isPluggedIn: onAc || isCharging || isFullyCharged
         || chargeState == UPowerDeviceState.PendingCharge
 
-    property real percentage: device?.percentage ?? 1
-    readonly property int percent: Math.round(Math.max(0, Math.min(1, percentage)) * 100)
+    // UPower exposes a floating estimate that jitters below one displayed
+    // percent. Quantize at the shared service so battery faces do not restart
+    // animations or invalidate the desktop for an invisible fractional change.
+    readonly property real percentage: Math.round(Math.max(0, Math.min(1,
+        device?.percentage ?? 1)) * 100) / 100
+    readonly property int percent: Math.round(percentage * 100)
 
     property real energyRate: device?.changeRate ?? 0
     property real timeToEmpty: device?.timeToEmpty ?? 0

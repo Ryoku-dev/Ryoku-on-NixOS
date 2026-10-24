@@ -3,9 +3,37 @@
 ## Unreleased
 
 ### Added
+- **The login screen comes back when its greeter dies.** SDDM 0.21 reports a
+  Wayland greeter that died, compositor or greeter client, crash or exit, as a
+  finished login (`sddm-helper-start-wayland` quits with 0, the daemon reads
+  `HELPER_SUCCESS` and starts nothing), so a box whose greeter failed once sat
+  on an empty VT with a blinking cursor and nothing to log in to. Two pieces
+  close that: `ryoku-greeter` now supervises weston and starts it again when
+  it dies before the greeter connects (the card re-chosen each time, every
+  death logged with weston's last lines), and the new `ryoku-greeter-guard`
+  service restarts the display manager when it runs with no greeter and no
+  session for 20s, three times per boot at most. Both say what happened in
+  the system log under their tags; the guard's last word names the helper log
+  (`/var/lib/sddm/.local/share/sddm-helper-start-wayland/sddm.log`) that holds
+  the greeter client's own exit (`tests/sddm-greeter-supervise.sh`,
+  `tests/sddm-greeter-guard.sh`).
 - The built-in in-session clockwork lockscreen follows the global 12/24-hour preference, including AM/PM.
 
 ### Fixed
+- **The greeter guard waits on login1 instead of polling.** It checked the
+  greeter every five seconds for the life of the machine, a `sleep` launch
+  each time. It now blocks on one filtered `dbus-monitor` for login1's
+  SessionNew and SessionRemoved, checks every five seconds only while a
+  missing greeter's grace window or a restart's grace window is open, and
+  re-checks once a minute in case a signal was missed. Without `dbus-monitor`
+  it polls as before (`sddm/ryoku-greeter-guard`, `tests/sddm-greeter-guard.sh`).
+- **The greeter guard no longer forks for every process on the machine.** Each
+  5 s round read every `/proc/*/comm` through `tr`, twice, so a normal desktop
+  paid about 5,500 process launches a minute for a check that finds nothing to
+  do. The guard now reads them with shell builtins and touches its state
+  files only when SDDM really lost its greeter: zero launches per round on a
+  logged-in box, same rules, same restart cap (`sddm/ryoku-greeter-guard`,
+  `tests/sddm-greeter-guard.sh`).
 - **The lock screen's restart and shut down buttons work again on systemd.**
   Since the init seam they ran `loginctl reboot` and `loginctl poweroff`, verbs
   only elogind's loginctl has; systemd's answers "Unknown command verb" and the

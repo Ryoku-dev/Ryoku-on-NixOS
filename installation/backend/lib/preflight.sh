@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# preflight: refuse to start unless we're root, in UEFI mode with Secure Boot
-# off, and pointed at a big-enough WHOLE disk. under dry-run the checks just
-# narrate and never abort, so the flow can be exercised on a dev box with no
-# real target disk.
+# preflight: refuse to start unless we're root, on a supported firmware path
+# with Secure Boot off, and pointed at a big-enough whole disk. Arch defaults to
+# requiring UEFI; callers with a BIOS-capable bootloader may set
+# RYOKU_REQUIRE_UEFI=0. Under dry-run the checks only narrate.
 
 # min target disk: 32 GiB.
 RYOKU_MIN_DISK_BYTES=34359738368
@@ -23,7 +23,13 @@ ryoku_preflight() {
   # dry-run never touches the machine, so narrate and return; we'd just probe
   # hardware that might not be on the dev box.
   if [[ -n ${RYOKU_DRYRUN:-} ]]; then
-    log 'preflight: would require root, UEFI (/sys/firmware/efi) with Secure Boot off (override RYOKU_ALLOW_SECUREBOOT=1), and %s a whole disk >= 32 GiB' "$RYOKU_DISK"
+    if [[ ${RYOKU_REQUIRE_UEFI:-1} == 0 ]]; then
+      log 'preflight: would require root, UEFI or legacy BIOS (Secure Boot off on UEFI; override RYOKU_ALLOW_SECUREBOOT=1), and %s a whole disk >= 32 GiB' "$RYOKU_DISK"
+    elif [[ ${RYOKU_ALLOW_SECUREBOOT:-} == 1 ]]; then
+      log 'preflight: would require root, UEFI (/sys/firmware/efi) with Secure Boot allowed, and %s a whole disk >= 32 GiB' "$RYOKU_DISK"
+    else
+      log 'preflight: would require root, UEFI (/sys/firmware/efi) with Secure Boot off (override RYOKU_ALLOW_SECUREBOOT=1), and %s a whole disk >= 32 GiB' "$RYOKU_DISK"
+    fi
     log "preflight: would log the disk's logical sector size (blockdev --getss)"
     log 'preflight: would require the repo payload at %s and a working DNS resolver before any disk write' "$RYOKU_REPO"
     if [[ ${RYOKU_DISK_STRATEGY:-} == alongside ]]; then
@@ -37,11 +43,16 @@ ryoku_preflight() {
     return 0
   fi
 
-  # root: partitioning, mkfs, pacstrap, arch-chroot all need it.
+  # root: partitioning, mkfs, the package bootstrap, and chroot all need it.
   [[ $EUID -eq 0 ]] || die "must run as root"
 
-  # UEFI: boot chain is Limine + an ESP.
-  [[ -d /sys/firmware/efi ]] || die "not booted in UEFI mode (/sys/firmware/efi missing)"
+  # Arch's backend remains UEFI-only. A backend that installs Limine's BIOS
+  # stage explicitly opts out; alongside still needs UEFI for its shared ESP.
+  if [[ ${RYOKU_REQUIRE_UEFI:-1} != 0 ]]; then
+    [[ -d /sys/firmware/efi ]] || die "not booted in UEFI mode (/sys/firmware/efi missing)"
+  elif [[ ! -d /sys/firmware/efi && ${RYOKU_DISK_STRATEGY:-} == alongside ]]; then
+    die "alongside installation requires UEFI; legacy BIOS is supported only for whole-disk installs"
+  fi
 
   # Secure Boot: Limine ships unsigned, so a machine enforcing Secure Boot
   # refuses to run it. Fail HERE with firmware guidance instead of installing a
@@ -144,6 +155,21 @@ ryoku_bitlocker_warn() {
   fi
 }
 
+# ryoku_windows_faststartup_gate <disk>: refuse an alongside install onto a disk
+# whose Windows volume is hibernated or dirty. The carve path re-judges its one
+# partition at shrink time, but a plain alongside install never touches the NTFS
+# volume -- and that is exactly the case that bites: the partition table changes
+# under a hibernated volume, then Windows Startup Repair rewrites the table on
+# its next boot and takes the fresh Ryoku partitions with it. RYOKU_ALLOW_DIRTY_NTFS=1
+# is the documented override for a user who accepts that risk.
+ryoku_windows_faststartup_gate() {
+  local disk=$1 dirty
+  [[ ${RYOKU_ALLOW_DIRTY_NTFS:-} == 1 ]] && return 0
+  dirty=$(ryoku_dirty_ntfs_on "$disk")
+  [[ -n $dirty ]] || return 0
+  die 'Windows on %s is hibernated or was left by Fast Startup (%s). Installing beside a dirty NTFS volume lets Windows Startup Repair rewrite the partition table on its next boot, which can delete the partitions Ryoku is about to create. Boot Windows, turn off Fast Startup (Power Options > Choose what the power buttons do), shut down fully, then retry. RYOKU_ALLOW_DIRTY_NTFS=1 installs anyway, at your risk.' "$disk" "$(printf '%s' "$dirty" | tr '\n' ' ')"
+}
+
 # Alongside preflight resolves the boot mode and validates the free region.
 ryoku_preflight_alongside() {
   local disk=$RYOKU_DISK need_gib region_mib
@@ -152,6 +178,7 @@ ryoku_preflight_alongside() {
   region_mib=$(ryoku_free_regions "$disk" | sort -k3,3 -nr | awk 'NR==1{print $3+0}')
   (( region_mib >= need_gib * 1024 )) || die 'no unallocated region >= %sGiB on %s (largest is %sGiB). Shrink a partition first, then retry.' "${need_gib}" "$disk" "$(( region_mib / 1024 ))"
   ryoku_bitlocker_warn "$disk"
+  ryoku_windows_faststartup_gate "$disk"
   log 'preflight alongside: GPT ok, boot mode %s, existing ESP %s (%s), free region %sGiB >= %sGiB' "$RYOKU_RESOLVED_ESP_MODE" "$RYOKU_PF_ESP" "$RYOKU_PF_ESP_KIND" "$(( region_mib / 1024 ))" "${need_gib}"
 }
 
@@ -174,5 +201,6 @@ ryoku_preflight_resize() {
   need_gib=$(( 2 + $(ryoku_min_root_gib) ))
   { [[ $take =~ ^[0-9]+$ ]] && (( take >= need_gib * 1024 )); } || die 'RYOKU_RESIZE_TAKE_MIB='\''%s'\'' must free at least %s GiB (2 GiB boot + %s GiB root) for Ryoku.' "${take}" "${need_gib}" "$(ryoku_min_root_gib)"
   ryoku_bitlocker_warn "$disk"
+  ryoku_windows_faststartup_gate "$disk"
   log 'preflight carve: GPT ok, boot mode %s, will carve %s MiB out of %s (%s) with %s' "$RYOKU_RESOLVED_ESP_MODE" "${take}" "$part" "$fstype" "$tool"
 }

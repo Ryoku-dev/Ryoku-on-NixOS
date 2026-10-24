@@ -18,6 +18,6 @@ BarIndicator {
     if (root.recording)
       Recorder.stop()
     else
-      Spawn.run(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"])
+      Spawn.run(["ryoku-cmd-ryoshot"])
   }
 }

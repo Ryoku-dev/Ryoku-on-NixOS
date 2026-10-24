@@ -113,8 +113,8 @@ StyledFlickable {
             symbol: "visibility_off"
             title: Translation.tr("Automatically hide")
             trailingKind: "switch"
-            switchChecked: root.cfg("autohide", true)
-            onActivated: root.setCfg("autohide", !root.cfg("autohide", true))
+            switchChecked: root.cfg("autohide", false)
+            onActivated: root.setCfg("autohide", !root.cfg("autohide", false))
         }
 
         EditPanelRow {

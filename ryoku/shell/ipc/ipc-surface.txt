@@ -48,7 +48,6 @@ claude
 clear
 clipboard
 clip-copy
-clip-ingest
 clock
 close
 closest-to-fallback

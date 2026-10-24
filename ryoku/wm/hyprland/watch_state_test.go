@@ -7,16 +7,28 @@ import (
 	wm "ryoku-wm"
 )
 
-func TestMonitorOutputsUsesLiveModeForDisabledState(t *testing.T) {
+func TestMonitorOutputsDisabledState(t *testing.T) {
+	live := hyprMonitor{Name: "eDP-1", Width: 2560, Height: 1600, Disabled: true, Focused: true}
+	live.ActiveWorkspace.ID, live.ActiveWorkspace.Name = 1, "1"
+	phantom := hyprMonitor{Name: "HDMI-A-1", Width: 1024, Height: 768, Disabled: true, MirrorOf: "none"}
+	mirror := hyprMonitor{Name: "DP-2", Width: 1920, Height: 1080, Disabled: true, MirrorOf: "eDP-1"}
 	outputs := monitorOutputs([]hyprMonitor{
-		{Name: "eDP-1", Width: 2560, Height: 1600, Disabled: true},
+		live,
 		{Name: "DP-1", Width: 0, Height: 0, Disabled: false},
+		phantom,
+		mirror,
 	}, false)
 	if outputs[0].Disabled {
-		t.Fatal("live output inherited Hyprland's stale disabled flag")
+		t.Fatal("an active output Hyprland mis-flagged as disabled was reported off")
 	}
 	if !outputs[1].Disabled {
 		t.Fatal("output without a live mode was reported enabled")
+	}
+	if !outputs[2].Disabled {
+		t.Fatal("a disabled output that keeps its last mode was reported enabled")
+	}
+	if outputs[3].Disabled {
+		t.Fatal("a mirroring output was reported off")
 	}
 }
 

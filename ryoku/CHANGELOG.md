@@ -3,6 +3,25 @@
 ## Unreleased
 
 ### Fixed
+- **A settings edit is never missed mid-write.** The shell could read
+  `shell.json` the moment the writer created it, latch that empty state as
+  current, and then treat the finished write as unchanged, keeping the old
+  settings until the next edit. The finished write now always reloads
+  (`shell/ipc/settings.go`).
+- **The AI usage collectors run only for tools in use.** The five-minute
+  timer launched all three collectors even on a box with none of their tools.
+  One guard, `ryoku-ai-usage`, now runs each collector only when its CLI is on
+  PATH or its local data exists, and launches nothing otherwise. Void's runit
+  service calls the same guard every period instead of the collectors
+  directly (`rashin/usage/ryoku-ai-usage`, `rashin/systemd/`,
+  `void/init/user/ryoku-ai-usage/run`).
+- **Palette Bridge works with the current config and service layout.** Vesktop
+  and Zen now use a dedicated supplemental Matugen file instead of forking the
+  shipped app roster, setup renders the active carrier immediately without
+  calling materialize, package activation no longer tries to compile Go into
+  the user's home, and service management uses `ryoku-host` on every edition.
+  Existing bridge-owned Matugen forks migrate on the next setup or doctor run
+  (`palette-bridge/`, `cli/internal/doctor/reconcile_vesktop_palette.go`).
 - **Rashin's quick Ask checks the live machine before answering.** Its one-line
   launcher instruction now puts read-only tools ahead of brevity for
   current-state questions, and the overview reads AMD Radeon utilisation and
@@ -443,6 +462,12 @@
   compositor reclaim, and Ryotunes installation no longer fall through to
   pacman-only commands. Screen recording also falls back to an encoder the
   machine supports when H.264 is unavailable.
+- **Wayfire can send a window to the previous or next workspace.** The
+  `SUPER + SHIFT + Prior` / `Next` rows were reported as unsupported because
+  wayfire's grid has no native relative-move method; the provider now steps the
+  focused window along its own grid with the same row-major wrap the workspace
+  pills and `workspace.cycle` use, so the two chords work like they do on
+  Hyprland and niri (`wm/wayfire/act.go`).
 - **Ryostore finds script installers published under their bundle.** Bundles
   that ship their installer at `bundles/<id>/installers/<name>.sh` (Ryoku for
   Zed, The Influencer) failed to install with "the installer exited with an

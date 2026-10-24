@@ -15,6 +15,8 @@
 # wrappers, and tolerates offline / partial installs (the desktop set then
 # turns up on the first `ryoku update`).
 
+: "${RYOKU_TARGET_CHROOT:=arch-chroot}"
+
 ryoku_deploy() {
   local u=$RYOKU_USERNAME
   local h="/mnt/home/$u"
@@ -125,6 +127,19 @@ ryoku_repo_keyring() {
 # loudly instead of booting a half-configured box.
 ryoku_deploy_packages() {
   local -a pkgs=(ryoku-keyring ryoku-desktop "ryoku-desktop-$RYOKU_COMPOSITOR")
+  local package
+  # These apps are fresh-install defaults but remain independently removable.
+  for package in ryoku-rashin ryotunes ryomanager; do
+    ryoku_drop_pkg "$package" || pkgs+=("$package")
+  done
+  # The base set already carries Nautilus. Repeating the selected packages here
+  # is harmless under --needed and also brings in Dolphin or Thunar when chosen.
+  local -a file_packages=()
+  local file_key="file-manager:$RYOKU_FILE_MANAGER"
+  IFS=, read -ra file_packages <<<"${RYOKU_CHOICE_PACKAGES[$file_key]}"
+  for package in "${file_packages[@]}"; do
+    ryoku_drop_pkg "$package" || pkgs+=("$package")
+  done
   local aura="$RYOKU_REPO/system/hardware/input/ryoku-hw-asus-aura"
   if [[ -x $aura ]] && "$aura"; then
     if [[ -z ${RYOKU_DRYRUN:-} ]] && arch-chroot /mnt pacman -Qq tlp >/dev/null 2>&1; then
@@ -233,7 +248,7 @@ ryoku_deploy_version_skew() {
 ryoku_deploy_materialize() {
   local u=$1
   if [[ -n ${RYOKU_DRYRUN:-} ]]; then
-    log "DRYRUN: arch-chroot /mnt runuser -u $u -- env HOME=/home/$u ryoku materialize"
+    log "DRYRUN: $RYOKU_TARGET_CHROOT /mnt runuser -u $u -- env HOME=/home/$u ryoku materialize"
     return 0
   fi
   if [[ ! -x /mnt/usr/bin/ryoku ]]; then
@@ -241,8 +256,8 @@ ryoku_deploy_materialize() {
     return 0
   fi
   log 'materializing the Ryoku config into /home/%s/.config' "$u"
-  arch-chroot /mnt runuser -u "$u" -- env "HOME=/home/$u" "USER=$u" "LOGNAME=$u" \
-    ryoku materialize \
+  "$RYOKU_TARGET_CHROOT" /mnt runuser -u "$u" -- \
+    env "HOME=/home/$u" "USER=$u" "LOGNAME=$u" ryoku materialize \
     || log "materialize: warning, ryoku materialize failed (continuing)"
 }
 
@@ -324,12 +339,113 @@ ryoku_deploy_seed() {
   deploy_dir "$RYOKU_REPO/ryoku/assets/wallpapers" "$h/Pictures/Wallpapers"
   deploy_dir "$RYOKU_REPO/ryoku/assets/ryodecors" "$h/Pictures/ryodecors"
   deploy_file "$RYOKU_REPO/ryoku/apps/npm/npmrc" "$h/.npmrc"
-  run arch-chroot /mnt install -d -o "$u" -g "$u" \
+  run "$RYOKU_TARGET_CHROOT" /mnt install -d -o "$u" -g "$u" \
     "/home/$u/.local" "/home/$u/.local/state" "$state"
   write_file "$marker" <<'EOF'
 default
 EOF
-  run arch-chroot /mnt chown "$u:$u" "$state/default-rice-pending"
+  run "$RYOKU_TARGET_CHROOT" /mnt chown "$u:$u" "$state/default-rice-pending"
+  local rashin_marker="/mnt$state/rashin-setup-pending"
+  if [[ ${RYOKU_RASHIN:-1} == 1 ]]; then
+    write_file "$rashin_marker" <<'EOF'
+pending
+EOF
+    run "$RYOKU_TARGET_CHROOT" /mnt chown "$u:$u" "$state/rashin-setup-pending"
+  else
+    run rm -f "$rashin_marker"
+  fi
+  ryoku_seed_hidden_apps "$u"
+  ryoku_seed_launcher_overrides "$u"
+}
+
+# The neovim package's nvim.desktop and Ryoku's ryoku-nvim.desktop both say
+# Neovim, so launchers listed it twice. Same ledgered override the doctor's
+# duplicate-launcher reconciler writes, laid now so the first login is clean.
+ryoku_seed_launcher_overrides() {
+  local u=$1 apps=/mnt/usr/share/applications
+  local appdir="/home/$u/.local/share/applications" state="/home/$u/.local/state/ryoku"
+  if [[ -n ${RYOKU_DRYRUN:-} ]]; then
+    log 'DRYRUN: hide the neovim package launcher for %s (ryoku-nvim.desktop replaces it)' "$u"
+    return 0
+  fi
+  [[ -f $apps/nvim.desktop && -f $apps/ryoku-nvim.desktop ]] || return 0
+  [[ ! -e /mnt$appdir/nvim.desktop ]] || return 0
+  run "$RYOKU_TARGET_CHROOT" /mnt install -d -o "$u" -g "$u" \
+    "/home/$u/.local/share" "$appdir" "$state"
+  awk '/^\[/ { group = $0; print; if (group == "[Desktop Entry]") print "NoDisplay=true"; next }
+    group == "[Desktop Entry]" && /^NoDisplay=/ { next } { print }' \
+    "$apps/nvim.desktop" >"/mnt$appdir/nvim.desktop"
+  printf 'nvim.desktop\n' >>"/mnt$state/launcher-overrides"
+  run "$RYOKU_TARGET_CHROOT" /mnt chown "$u:$u" "$appdir/nvim.desktop" "$state/launcher-overrides"
+  log 'hid the duplicate Neovim launcher for %s' "$u"
+}
+
+ryoku_seed_hidden_apps() {
+  local u=$1 id path
+  local appdir="/mnt/home/$u/.local/share/applications"
+  [[ -n ${RYOKU_HIDE_APPS:-} ]] || return 0
+  run "$RYOKU_TARGET_CHROOT" /mnt install -d -o "$u" -g "$u" \
+    "/home/$u/.local/share" "/home/$u/.local/share/applications"
+  local -a ids=()
+  IFS=, read -ra ids <<<"$RYOKU_HIDE_APPS"
+  for id in "${ids[@]}"; do
+    path="$appdir/$id"
+    write_file "$path" <<'EOF'
+[Desktop Entry]
+Hidden=true
+EOF
+    run "$RYOKU_TARGET_CHROOT" /mnt chown "$u:$u" "/home/$u/.local/share/applications/$id"
+    log 'hidden app: %s for %s' "$id" "$u"
+  done
+}
+
+# Set the selected file manager in both places desktop applications read:
+# xdg-mime owns inode/directory, while the neutral desktop store owns the files
+# launcher role. Install-time only, like ryoku_default_browser.
+ryoku_default_file_manager() {
+  local u=$RYOKU_USERNAME choice=${RYOKU_FILE_MANAGER:-nautilus}
+  local desktop command store next d
+  case $choice in
+    nautilus)
+      command=nautilus
+      for d in org.gnome.Nautilus.desktop nautilus.desktop; do
+        [[ -f /mnt/usr/share/applications/$d ]] && { desktop=$d; break; }
+      done
+      ;;
+    dolphin) command=dolphin; desktop=org.kde.dolphin.desktop ;;
+    thunar) command=thunar; desktop=thunar.desktop ;;
+  esac
+  if [[ -n ${RYOKU_DRYRUN:-} ]]; then
+    log 'DRYRUN: set %s as the default file manager (inode/directory + desktop.apps.files) for %s if installed' "$choice" "$u"
+    return 0
+  fi
+  if [[ -z ${desktop:-} || ! -f /mnt/usr/share/applications/$desktop ]]; then
+    log 'default file manager: %s is not installed; leaving the role unchanged' "$choice"
+    return 0
+  fi
+  if "$RYOKU_TARGET_CHROOT" /mnt runuser -u "$u" -- \
+    env "HOME=/home/$u" "USER=$u" "LOGNAME=$u" \
+    xdg-mime default "$desktop" inode/directory 2>/dev/null; then
+    log 'default file manager: set %s (%s) for %s' "$choice" "$desktop" "$u"
+  else
+    log 'default file manager: warning, could not set %s for %s (continuing)' "$choice" "$u"
+  fi
+  store="/mnt/home/$u/.config/ryoku/desktop.json"
+  if command -v jq >/dev/null 2>&1; then
+    if [[ -s $store ]]; then
+      next=$(jq --arg files "$command" '. * {desktop:{apps:{files:$files}}}' "$store") || next=
+    else
+      mkdir -p "$(dirname "$store")"
+      next=$(jq -n --arg files "$command" '{desktop:{apps:{files:$files}}}') || next=
+    fi
+    if [[ -n $next ]]; then
+      printf '%s\n' "$next" >"$store"
+      chown "$u:$u" "$store" 2>/dev/null || true
+      log 'file-manager role: desktop.apps.files -> %s' "$command"
+    else
+      log 'file-manager role: skip (could not merge %s)' "$store"
+    fi
+  fi
 }
 
 # seed_provisioned: the installer's drop list is recorded in the doctor's
@@ -372,14 +488,14 @@ ryoku_deploy_qylock() {
   run chmod 755 /mnt/root/ryoku-sddm-setup /mnt/root/ryoku-install-qylock
   local env="RYOKU_QYLOCK_BUNDLE=/usr/share/ryoku/qylock RYOKU_QYLOCK_MODE=live SUDO_USER=$RYOKU_USERNAME RYOKU_DRYRUN=${RYOKU_DRYRUN:-}"
   # shellcheck disable=SC2086  # env assignments are intentionally word-split
-  run arch-chroot /mnt env $env /root/ryoku-sddm-setup
+  run "$RYOKU_TARGET_CHROOT" /mnt env $env /root/ryoku-sddm-setup
   # shellcheck disable=SC2086
-  run arch-chroot /mnt env $env /root/ryoku-install-qylock
+  run "$RYOKU_TARGET_CHROOT" /mnt env $env /root/ryoku-install-qylock
   run rm -f /mnt/root/ryoku-sddm-setup /mnt/root/ryoku-install-qylock
 }
 
 ryoku_deploy_chown() {
   local u=$1
   log 'fixing ownership of /home/%s' "$u"
-  run arch-chroot /mnt chown -R "$u:$u" "/home/$u"
+  run "$RYOKU_TARGET_CHROOT" /mnt chown -R "$u:$u" "/home/$u"
 }

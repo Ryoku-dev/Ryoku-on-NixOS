@@ -17,6 +17,13 @@ resolve_bin() {
   printf '%s\n' "$path"
 }
 
+has_usable_systemd_user_manager() {
+  [[ -S "${XDG_RUNTIME_DIR:-}/systemd/private" ]] &&
+    command -v systemctl >/dev/null 2>&1 &&
+    command -v timeout >/dev/null 2>&1 &&
+    timeout 3s systemctl --user show-environment >/dev/null 2>&1
+}
+
 niri_bin="$(resolve_bin niri)" || exit $?
 jq_bin="$(resolve_bin jq)" || exit $?
 cliphist_bin="$(resolve_bin cliphist)" || exit $?
@@ -83,7 +90,8 @@ restore_clipboard_file() {
   # Wayland cancellation path without racing a unit-name reuse.
   local unit="inir-clipboard-owner-${BASHPID:-$$}"
   local systemd_run_bin
-  if systemd_run_bin="$(command -v systemd-run 2>/dev/null)"; then
+  if has_usable_systemd_user_manager &&
+      systemd_run_bin="$(command -v systemd-run 2>/dev/null)"; then
     if "$systemd_run_bin" \
       --user \
       --quiet \

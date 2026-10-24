@@ -12,8 +12,9 @@ Singleton {
     property string revisionKey: ""
     property var failedStyles: ({})
     property string brokenStyle: ""
-    // Optional controller published by the installed Gokko frame-family scene.
+    // The Store-owned Gokko scene publishes its widget canvas here.
     property var gokkoWidgets: null
+    readonly property bool gokkoReady: gokkoWidgets !== null
 
     function parseRows(raw) {
         try {

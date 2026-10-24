@@ -1767,15 +1767,6 @@
       "level": "internal"
     },
     {
-      "id": "ryoku.cliphist-thumbs.sh.refresh",
-      "group": "ryoku-internal",
-      "title": "Refresh clipboard thumbnails",
-      "command": "cliphist-thumbs.sh",
-      "description": "Builds safe cached thumbnails for clipboard images and removes thumbnails for expired history entries.",
-      "tool": "cliphist-thumbs.sh",
-      "level": "internal"
-    },
-    {
       "id": "ryoku.ryoku-restart-audio.restart",
       "group": "ryoku-internal",
       "title": "Restart the audio stack",

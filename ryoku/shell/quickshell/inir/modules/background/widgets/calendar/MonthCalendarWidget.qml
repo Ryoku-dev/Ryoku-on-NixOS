@@ -57,10 +57,12 @@ AbstractBackgroundWidget {
     readonly property var weeks: root.getMonthMatrix(root.viewingDate)
     readonly property color accentFace: root.widgetSemanticContainer(root.widgetPrimaryRole)
     readonly property color accentInk: root.widgetSemanticOnContainer(root.widgetPrimaryRole)
-    // Instrument reads on the wallpaper: sampled ink instead of surface ink.
-    readonly property color ink: root.instrument ? root.widgetInk : root.widgetSurfaceInk
-    readonly property color inkMuted: root.instrument
-        ? root.widgetInkMuted : ColorUtils.applyAlpha(root.widgetSurfaceInk, 0.58)
+    // Card ink is measured against its plate; Instrument ink uses the sampled
+    // wallpaper region. Both keep the same contrast floor as the clock.
+    readonly property color ink: root.widgetSemanticForeground(
+        "surface", root.accentBackdrop, 4.5)
+    readonly property color inkMuted: ColorUtils.applyAlpha(
+        root.ink, root.instrument ? 0.66 : 0.58)
     readonly property color accentMark: root.instrument ? root.widgetAccentVisible : root.accentFace
     readonly property color accentMarkInk: root.instrument ? root.widgetAccentVisible : root.accentInk
 

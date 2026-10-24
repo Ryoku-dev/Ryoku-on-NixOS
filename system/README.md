@@ -15,9 +15,10 @@ How an installed Ryoku machine is put together, separate from the desktop in
   Hyprland, `display/` scales high-resolution screens, and `drivers/` installs the
   right packages per vendor. The GPU and monitor settings are written as Hyprland
   Lua drop-ins.
-- `policy/` System authorization rules (polkit). `52-ryoku-timedate.rules` lets the
-  active desktop user set the time zone without a password, so the world-map
-  picker in Settings applies instantly.
+- `policy/` System authorization rules (polkit).
+  `52-ryoku-timedate.rules` lets the active desktop user set the time zone
+  without a password, while `dev.ryoku.users.policy` gives the typed
+  `ryoku-host users` API retained administrator authentication.
 
 ## Networking and services
 

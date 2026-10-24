@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- **`ryoku-host users` manages local accounts on every edition.** The typed
+  JSON API lists human users, roles, curated permissions, sessions and Btrfs
+  home usage; privileged verbs add, remove and edit accounts without putting
+  passwords in argv. It rejects unsafe names, active or self deletion, and
+  deleting or demoting the last Administrator (`internal/host/users.go`).
 - **`ryoku-host pkg status` answers a whole batch.** It prints one line per
   package, `name<TAB>installed|available|unavailable<TAB>repo|aur<TAB>reason`,
   on pacman, dnf and xbps alike, with the edition table's sentence as the
@@ -72,6 +77,18 @@
   what the switch itself installed (`internal/host/phone.go`).
 
 ### Fixed
+- **Doctor seeds the decor art into the localized Pictures folder.** On a
+  desktop whose Pictures folder is `~/Imágenes`, `~/Bilder` and so on, the
+  decor reconciler recreated an English `~/Pictures/ryodecors` on every run, so
+  deleting the stray folder never stuck. It now follows `XDG_PICTURES_DIR`,
+  then `user-dirs.dirs`, and falls back to `~/Pictures` when neither names a
+  usable folder or Pictures is disabled (`internal/sys/paths.go`,
+  `internal/doctor/doctor.go`).
+- **Doctor removes Stage Editor keys retired by the widget settings update.**
+  Existing `stage-editor.json` files kept fourteen settings whose controls and
+  readers were removed, so Stage reported them after every shell restart.
+  Doctor now removes those paths while preserving every current widget setting
+  (`internal/doctor/doctor.go`).
 - **`ryoku update` never rolls the desktop back.** Offline, it could not read
   the Testing gate, stayed on a checkout a week behind the running desktop and
   deployed it anyway, which took the default bar away with every newer

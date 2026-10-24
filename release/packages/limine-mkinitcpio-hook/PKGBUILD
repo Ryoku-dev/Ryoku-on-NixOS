@@ -9,35 +9,36 @@
 # the mkinitcpio hook that regenerates the menu on kernel changes.
 _pkgname="limine-entry-tool"
 pkgname="limine-mkinitcpio-hook"
-_pkgver=1.37.1
+_pkgver=1.40.0
 pkgver="${_pkgver}"
 pkgrel=1
 pkgdesc="Install kernels for the Limine bootloader."
 arch=('x86_64')
 url="https://gitlab.com/Zesko/limine-entry-tool"
 # Gradle is vendored, not taken from the distro. Arch shipped 9.7.0 on
-# 2026-08-14 and it no longer resolves the gradle-public-api-legacy module the
-# graalvm buildtools plugin (1.1.3, pinned by upstream's build.gradle.kts) asks
-# for, so nativeCompile died in configuration and the publish gate blocked every
-# user update. 9.6.1 is the version the last green publish built with; pinning it
-# beside the GraalVM tarball makes the toolchain hermetic, so the next distro
-# gradle bump cannot break the boot stack again.
+# 2026-08-14 and it no longer resolved the gradle-public-api-legacy module the
+# graalvm buildtools plugin of the day (1.1.3) asked for, so nativeCompile died
+# in configuration and the publish gate blocked every user update. 9.6.1 is the
+# version that last built green; pinning it beside the GraalVM tarball keeps the
+# toolchain hermetic, so the next distro gradle bump cannot break the boot stack
+# again.
 #
 # The plugin itself is vendored too, in release/gradle-offline/repo (12 files,
-# 316K, shared with limine-snapper-sync which pins the same version): Gradle
-# resolved it from the plugin portal at build time, which is neither pinned nor
-# checksummed, and a portal hiccup failed the publish gate with "Plugin [id:
-# 'org.graalvm.buildtools.native'] was not found". offline.init.gradle puts that
-# local repo FIRST so the portal is no longer on the critical path. It is not yet
-# exclusive: the compile deps (jackson) and the plugin's reachability-metadata
-# zip are still fetched, so the upstream repos stay as a fallback. Vendor those
-# and this can drop to --offline.
-# Regenerate with release/gradle-offline/refresh.sh when upstream bumps it.
+# 380K, shared with limine-snapper-sync which pins the same version, 1.1.14 since
+# 1.40.0): Gradle resolved it from the plugin portal at build time, which is
+# neither pinned nor checksummed, and a portal hiccup failed the publish gate
+# with "Plugin [id: 'org.graalvm.buildtools.native'] was not found".
+# offline.init.gradle puts that local repo FIRST so the portal is no longer on
+# the critical path. It is not yet exclusive: the compile deps (jackson) and the
+# plugin's reachability-metadata zip are still fetched, so the upstream repos
+# stay as a fallback. Vendor those and this can drop to --offline.
+# Regenerate with release/gradle-offline/refresh.sh <version> when upstream
+# bumps it.
 _gradleoffline="$startdir/../../gradle-offline"
 _gradlever=9.6.1
 source=("${_pkgname}::git+${url}.git#tag=${pkgver}"
 	"https://services.gradle.org/distributions/gradle-${_gradlever}-bin.zip")
-source_x86_64=("https://github.com/graalvm/graalvm-ce-builds/releases/download/graal-25.1.3/graalvm-community-jdk-25i1-25.0.3_linux-x64_bin.tar.gz")
+source_x86_64=("https://github.com/graalvm/graalvm-ce-builds/releases/download/graal-25.2.4/graalvm-community-jdk-25i2-25.0.4_linux-x64_bin.tar.gz")
 license=("GPL3")
 provides=('limine-entry-tool')
 options=(!debug !strip)
@@ -57,9 +58,9 @@ optdepends=(
 makedepends=('git')
 backup=(etc/limine-entry-tool.conf)
 conflicts=('limine-entry-tool')
-sha256sums=('SKIP'
+sha256sums=('267e0496d863b01903d6b99dae8c222a0ec33c4108a8a5d6e9b38eaa4a4a2edf'
 	'9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14')
-sha256sums_x86_64=('e9cd1637be853e105f8b09125b4b19fbce385696465d782cbca8bb80e1df8f0d')
+sha256sums_x86_64=('3f4a89de8eaa96f2ed677f09957c7e872cd8467aad3537f8b5394c1b8c4b942e')
 
 prepare() {
 	[[ -d "${_graalvm_version}" ]] && rm -rf "${_graalvm_version}"

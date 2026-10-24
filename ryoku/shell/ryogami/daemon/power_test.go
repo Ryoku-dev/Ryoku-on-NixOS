@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -16,6 +18,27 @@ func writeSupply(t *testing.T, root, name string, fields map[string]string) {
 		if err := os.WriteFile(filepath.Join(dir, k), []byte(v+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestPowerEventOverflowReconcilesAndKeepsReading(t *testing.T) {
+	stop := errors.New("stop")
+	reads := 0
+	changes := 0
+	err := runPowerEventReader(func([]byte) (int, error) {
+		reads++
+		if reads == 1 {
+			return 0, syscall.ENOBUFS
+		}
+		return 0, stop
+	}, func() {
+		changes++
+	})
+	if err != stop {
+		t.Fatalf("watcher returned %v, want sentinel", err)
+	}
+	if reads != 2 || changes != 1 {
+		t.Fatalf("reads=%d changes=%d, want 2 reads and 1 reconcile", reads, changes)
 	}
 }
 

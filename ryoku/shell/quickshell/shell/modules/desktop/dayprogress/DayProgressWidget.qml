@@ -9,7 +9,7 @@ import "../Singletons"
 // iRiS desktop-widget family into Ryoku's paper-and-ink: the track is a
 // hairline of the widget's own ink, the fill is the accent, and both follow the
 // wallpaper luminance under the widget (or a pinned colour) like every face
-// here. Time-only, so it costs nothing but the shared one-second tick.
+// here. Time-only, so it advances on the shared minute clock.
 Item {
     id: face
 
@@ -27,7 +27,7 @@ Item {
 
     readonly property real fraction: {
         const d = Now.date;
-        return (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()) / 86400;
+        return (d.getHours() * 60 + d.getMinutes()) / 1440;
     }
     readonly property string timeText: TimeFormat.format(Now.date)
 

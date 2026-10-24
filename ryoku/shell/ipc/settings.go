@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	wm "ryoku-wm"
 )
 
@@ -967,6 +969,7 @@ type settingsStore struct {
 	raw      map[string]any
 	cur      *settings
 	mtime    time.Time
+	inode    uint64
 	onChange func([]byte)
 	caps     map[string]bool
 	deadKeys []string
@@ -977,10 +980,20 @@ type settingsStore struct {
 	nomarchyLifecycle func(bool) error
 }
 
+func settingsInode(fi os.FileInfo) uint64 {
+	if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return stat.Ino
+	}
+	return 0
+}
+
 func newSettingsStore(path string) *settingsStore {
 	s := &settingsStore{path: path}
 	raw, cur, mtime := loadSettingsFile(path)
 	s.raw, s.cur, s.mtime = raw, cur, mtime
+	if fi, err := os.Stat(path); err == nil {
+		s.inode = settingsInode(fi)
+	}
 	return s
 }
 
@@ -1286,6 +1299,7 @@ func (s *settingsStore) persistLocked(full map[string]any) error {
 	}
 	if fi, e := os.Stat(s.path); e == nil {
 		s.mtime = fi.ModTime()
+		s.inode = settingsInode(fi)
 	}
 	return nil
 }
@@ -1315,6 +1329,7 @@ func (s *settingsStore) reload() {
 	if badFile {
 		if fi, e := os.Stat(s.path); e == nil {
 			s.mtime = fi.ModTime()
+			s.inode = settingsInode(fi)
 		}
 		s.mu.Unlock()
 		return
@@ -1331,6 +1346,7 @@ func (s *settingsStore) reload() {
 	}
 	if fi, e := os.Stat(s.path); e == nil {
 		s.mtime = fi.ModTime()
+		s.inode = settingsInode(fi)
 	}
 	s.raw, s.cur = raw, cur
 	frame := s.frameLocked()
@@ -1343,30 +1359,190 @@ func (s *settingsStore) reload() {
 	}
 }
 
-// settingsPollInterval is how often the watcher checks the file's mtime. The file
-// changes rarely (only hand edits, since the daemon is otherwise the sole
-// writer), so a poll is simpler and more robust across editor rename-and-replace
-// than an inotify watch, at a negligible idle cost.
-const settingsPollInterval = 500 * time.Millisecond
+const settingsFallbackInterval = 5 * time.Minute
 
-// watch reloads the file whenever its mtime changes from what the store last
-// wrote or read, so an external hand-edit retunes the shell live. It runs until
-// the daemon quits.
-func (s *settingsStore) watch(quit <-chan struct{}) {
+func (s *settingsStore) settingsChanged() bool {
+	fi, err := os.Stat(s.path)
+	if err != nil {
+		return false
+	}
+	s.mu.Lock()
+	same := fi.ModTime().Equal(s.mtime) && settingsInode(fi) == s.inode
+	s.mu.Unlock()
+	return !same
+}
+
+func (s *settingsStore) watchFallback(quit <-chan struct{}) {
+	timer := time.NewTimer(settingsFallbackInterval)
+	defer timer.Stop()
 	for {
 		select {
 		case <-quit:
 			return
-		case <-time.After(settingsPollInterval):
+		case <-timer.C:
+			if s.settingsChanged() {
+				s.reload()
+			}
+			timer.Reset(settingsFallbackInterval)
 		}
-		fi, err := os.Stat(s.path)
-		if err != nil {
-			continue
+	}
+}
+
+func nearestExistingDir(path string) (string, error) {
+	path = filepath.Clean(path)
+	for {
+		info, err := os.Stat(path)
+		if err == nil {
+			if !info.IsDir() {
+				return "", fmt.Errorf("%s is not a directory", path)
+			}
+			return path, nil
 		}
-		s.mu.Lock()
-		same := fi.ModTime().Equal(s.mtime)
-		s.mu.Unlock()
-		if !same {
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return "", err
+		}
+		path = parent
+	}
+}
+
+// watch follows the parent because editors and the daemon both replace the
+// file atomically. If the config tree is absent, it follows the closest live
+// ancestor down until the real parent appears.
+func (s *settingsStore) watch(quit <-chan struct{}, ready chan struct{}) {
+	announce := func() {
+		if ready != nil {
+			close(ready)
+			ready = nil
+		}
+	}
+	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
+	if err != nil {
+		log.Printf("ryoku-shell: settings watch unavailable, using slow reconciliation: %v", err)
+		announce()
+		s.watchFallback(quit)
+		return
+	}
+	defer unix.Close(fd)
+
+	targetDir := filepath.Dir(s.path)
+	watchedDir := ""
+	watchFD := -1
+	mask := uint32(unix.IN_CLOSE_WRITE | unix.IN_CREATE | unix.IN_MOVED_TO |
+		unix.IN_DELETE_SELF | unix.IN_MOVE_SELF)
+	resetWatch := func() error {
+		for {
+			dir, err := nearestExistingDir(targetDir)
+			if err != nil {
+				return err
+			}
+			if watchFD >= 0 && watchedDir == dir {
+				return nil
+			}
+			next, err := unix.InotifyAddWatch(fd, dir, mask)
+			if err != nil {
+				return err
+			}
+			old := watchFD
+			watchFD, watchedDir = next, dir
+			if old >= 0 {
+				_, _ = unix.InotifyRmWatch(fd, uint32(old))
+			}
+			deepest, err := nearestExistingDir(targetDir)
+			if err != nil {
+				return err
+			}
+			if deepest == watchedDir {
+				return nil
+			}
+		}
+	}
+	if err := resetWatch(); err != nil {
+		log.Printf("ryoku-shell: settings watch unavailable, using slow reconciliation: %v", err)
+		announce()
+		s.watchFallback(quit)
+		return
+	}
+
+	stopFD, stopQuitWake, err := quitEventFD(quit)
+	if err != nil {
+		log.Printf("ryoku-shell: settings watch unavailable, using slow reconciliation: %v", err)
+		announce()
+		s.watchFallback(quit)
+		return
+	}
+	defer func() {
+		stopQuitWake()
+		unix.Close(stopFD)
+	}()
+	announce()
+
+	buf := make([]byte, 4096)
+	for {
+		pfds := []unix.PollFd{
+			{Fd: int32(fd), Events: unix.POLLIN | unix.POLLERR},
+			{Fd: int32(stopFD), Events: unix.POLLIN | unix.POLLERR},
+		}
+		if _, err := unix.Poll(pfds, -1); err != nil {
+			if err == unix.EINTR {
+				continue
+			}
+			log.Printf("ryoku-shell: settings watch failed, using slow reconciliation: %v", err)
+			s.watchFallback(quit)
+			return
+		}
+		if pfds[1].Revents != 0 {
+			return
+		}
+
+		reload, forceReload, rewatch := false, false, false
+		for {
+			n, err := unix.Read(fd, buf)
+			if err != nil {
+				break
+			}
+			for _, event := range decodeFileEvents(buf[:n]) {
+				if event.mask&unix.IN_Q_OVERFLOW != 0 {
+					reload, forceReload = true, true
+					continue
+				}
+				if event.watch != int32(watchFD) {
+					continue
+				}
+				if event.mask&(unix.IN_IGNORED|unix.IN_DELETE_SELF|unix.IN_MOVE_SELF) != 0 {
+					watchFD = -1
+					rewatch = true
+					continue
+				}
+				if watchedDir != targetDir {
+					rewatch = true
+					continue
+				}
+				if event.name != filepath.Base(s.path) {
+					continue
+				}
+				reload = true
+				if event.mask&(unix.IN_CLOSE_WRITE|unix.IN_MOVED_TO) != 0 {
+					// A reconciliation can race a newly-created file while it is
+					// still being written. The bad-file path records its final
+					// stat after the read, so the close must not be filtered out
+					// as unchanged.
+					forceReload = true
+				}
+			}
+		}
+		if rewatch {
+			if err := resetWatch(); err != nil {
+				log.Printf("ryoku-shell: settings watch failed, using slow reconciliation: %v", err)
+				s.watchFallback(quit)
+				return
+			}
+			reload = true
+		}
+		if reload && (forceReload || s.settingsChanged()) {
 			s.reload()
 		}
 	}
@@ -1442,7 +1618,7 @@ func (d *daemon) startSettings() {
 		return nil, store.reset(a.Path)
 	})
 
-	go store.watch(d.quit)
+	go store.watch(d.quit, nil)
 }
 
 // capsMap is every capability with an explicit boolean for the active provider,

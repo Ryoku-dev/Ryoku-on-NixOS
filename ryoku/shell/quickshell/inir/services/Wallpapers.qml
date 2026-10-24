@@ -27,6 +27,86 @@ Singleton {
     readonly property string effectiveWallpaperPath: FileUtils.trimFileProtocol(Ryoku.Session.wallpaper)
     readonly property string effectiveWallpaperUrl: root.stillUrlFor(root.effectiveWallpaperPath)
 
+    // Ryogami resolves display.fillMode from its own override and the shell's
+    // content_fit fallback. Mirror that resolution so sampling follows what
+    // the daemon tells the desktop to draw.
+    property string _ryogamiFillMode: ""
+    property string _shellContentFit: "Cover"
+    readonly property list<string> fillModes: ["fill", "fit", "stretch", "center", "tile", "span"]
+    readonly property string fillMode: {
+        if (root.fillModes.includes(root._ryogamiFillMode))
+            return root._ryogamiFillMode
+        switch (root._shellContentFit) {
+        case "Contain":
+        case "ScaleDown":
+            return "fit"
+        case "Fill":
+            return "stretch"
+        case "Center":
+            return "center"
+        case "Tile":
+            return "tile"
+        default:
+            return "fill"
+        }
+    }
+    readonly property rect spanArea: {
+        const screens = Quickshell.screens
+        if (screens.length === 0)
+            return Qt.rect(0, 0, 0, 0)
+        let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity
+        for (const screen of screens) {
+            left = Math.min(left, screen.x)
+            top = Math.min(top, screen.y)
+            right = Math.max(right, screen.x + screen.width)
+            bottom = Math.max(bottom, screen.y + screen.height)
+        }
+        return Qt.rect(left, top, right - left, bottom - top)
+    }
+
+    function _readRyogamiDisplayMode(): void {
+        try {
+            const data = JSON.parse(_ryogamiConfig.text() || "{}")
+            root._ryogamiFillMode = String(data?.display?.fillMode ?? "")
+        } catch (error) {
+            root._ryogamiFillMode = ""
+        }
+    }
+
+    function _readShellContentFit(): void {
+        try {
+            const data = JSON.parse(_shellConfig.text() || "{}")
+            root._shellContentFit = String(data?.wallpaper?.content_fit ?? "Cover")
+        } catch (error) {
+            root._shellContentFit = "Cover"
+        }
+    }
+
+    FileView {
+        id: _ryogamiConfig
+        path: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config"))
+            + "/ryoku/ryogami.json"
+        watchChanges: true
+        printErrors: false
+        onLoaded: root._readRyogamiDisplayMode()
+        onFileChanged: {
+            reload()
+            root._readRyogamiDisplayMode()
+        }
+    }
+
+    FileView {
+        id: _shellConfig
+        path: Config.shellConfigPath
+        watchChanges: true
+        printErrors: false
+        onLoaded: root._readShellContentFit()
+        onFileChanged: {
+            reload()
+            root._readShellContentFit()
+        }
+    }
+
     // Ryoku themes from the same file the desktop wears.
     function currentThemingWallpaperPath(monitorName = ""): string {
         return root.effectiveWallpaperPath
@@ -193,13 +273,13 @@ Singleton {
     property var _ffQueue: []
 
     function _processNextFF(): void {
-        if (root._ffProc.running || root._ffQueue.length === 0)
+        if (_ffProc.running || root._ffQueue.length === 0)
             return
         const job = root._ffQueue[0]
         root._ffQueue = root._ffQueue.slice(1)
-        root._ffProc.videoPath = job.video
-        root._ffProc.outputPath = job.out
-        root._ffProc.running = true
+        _ffProc.videoPath = job.video
+        _ffProc.outputPath = job.out
+        _ffProc.running = true
     }
 
     Process {
@@ -209,10 +289,10 @@ Singleton {
         command: ["ffmpeg", "-y", "-i", videoPath, "-vf",
             "scale='min(1920,iw)':-2", "-frames:v", "1", outputPath]
         onExited: exitCode => {
-            delete root._ffPending[root._ffProc.videoPath]
+            delete root._ffPending[_ffProc.videoPath]
             if (exitCode === 0) {
                 root.videoFirstFrames = Object.assign({}, root.videoFirstFrames,
-                    { [root._ffProc.videoPath]: root._ffProc.outputPath })
+                    { [_ffProc.videoPath]: _ffProc.outputPath })
             }
             root._processNextFF()
         }
@@ -367,12 +447,21 @@ Singleton {
         const clean = FileUtils.trimFileProtocol(String(path ?? ""))
         return clean.length > 0 && clean === root.effectiveWallpaperPath
     }
+    readonly property string autoWallpaperFolder: String(shuffleOptions.folder ?? "")
+    readonly property string shuffleFolder: {
+        const own = FileUtils.trimFileProtocol(root.autoWallpaperFolder)
+            .replace(/^~(?=\/|$)/, Directories.homePath)
+        if (own.length > 0)
+            return own
+        const current = FileUtils.trimFileProtocol(root.effectiveWallpaperPath)
+        return current.length > 0 ? FileUtils.parentDirectory(current) : root.effectiveDirectory
+    }
+
     // The shuffle reads its own listing: files only (a folder is never a wallpaper)
-    // and no search filter, so the picker keeps the folder it is showing even when
-    // the shuffle browses a folder of its own.
+    // and no search filter, so browsing the gallery cannot change Next wallpaper.
     FolderListModel {
         id: shuffleModel
-        folder: folderModelImpl.folder
+        folder: Qt.resolvedUrl(root.shuffleFolder)
         nameFilters: root.extensions.map(ext => `*.${ext}`)
         caseSensitive: false
         showDirs: false
@@ -380,18 +469,29 @@ Singleton {
         showOnlyReadable: true
     }
 
-    function randomFromCurrentFolder(darkMode = false, monitorName = "", target = ""): void {
+    function _pickShuffleFile(): string {
         if (shuffleModel.count === 0)
-            return
-        const filePath = shuffleModel.get(Math.floor(Math.random() * shuffleModel.count), "filePath")
-        if (filePath)
-            root.applySelectionTarget(String(filePath), target, monitorName)
+            return ""
+        const currentPath = root.effectiveWallpaperPath
+        let attempts = 0
+        let filePath
+        do {
+            filePath = shuffleModel.get(Math.floor(Math.random() * shuffleModel.count), "filePath")
+            attempts++
+        } while (filePath === currentPath && attempts < 5 && shuffleModel.count > 1)
+        return String(filePath ?? "")
     }
 
-    // The shuffle: a new wallpaper from the browsed folder every few minutes,
-    // through the same daemon path as the desktop menu's Next wallpaper. It
-    // rests while the screen is locked. Ryoku themes every wallpaper it
-    // applies, so there is no colour switch here; the daemon owns that.
+    function nextWallpaper(darkMode = false, monitorName = ""): string {
+        const filePath = root._pickShuffleFile()
+        if (!filePath)
+            return ""
+        root.applySelectionTarget(filePath, "", monitorName)
+        return filePath
+    }
+
+    // The shuffle rests while the screen is locked. Ryoku themes every
+    // wallpaper it applies, so the daemon owns the colour switch.
     readonly property var shuffleOptions: Config.options?.background?.autoWallpaper ?? ({})
     readonly property bool shuffleEnabled: Boolean(shuffleOptions.enable ?? false)
     readonly property int shuffleMinutes: Math.max(1, Math.min(240, Number(shuffleOptions.intervalMinutes ?? 30)))
@@ -400,7 +500,7 @@ Singleton {
         interval: root.shuffleMinutes * 60000
         repeat: true
         running: root.shuffleEnabled && !GlobalStates.screenLocked
-        onTriggered: root.randomFromCurrentFolder()
+        onTriggered: root.nextWallpaper()
     }
 
     function applySelectionTarget(path: string, target: string, monitorName: string): void {

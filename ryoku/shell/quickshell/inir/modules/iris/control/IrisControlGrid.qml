@@ -15,6 +15,7 @@ import inir.modules.mediaControls.components
 import inir.modules.iris.components
 import inir.modules.iris.pieces
 import inir.modules.iris.style
+import shell.services as Ryoku
 
 Item {
     id: root
@@ -376,12 +377,23 @@ Item {
             : String(ctl.model?.icon ?? IrisControlOptions.glyphOf(ctl.moduleId))
         readonly property string detail: ctl.moduleId === "devices" ? Audio.friendlyDeviceName(Audio.defaultSink)
             : ctl.moduleId === "record" ? (ctl.recording ? Translation.tr("Recording") : Translation.tr("With sound"))
+            : ctl.moduleId === "equalizer" ? ctl.eqDetail
             : String(ctl.model?.statusText ?? "")
+        readonly property bool eqShaped: {
+            if (!Ryoku.Equalizer.on) return false
+            for (const gain of Array.from(Ryoku.Equalizer.gains ?? []))
+                if (Math.abs(Number(gain) || 0) > 0.05) return true
+            return false
+        }
+        readonly property string eqDetail: !Ryoku.Equalizer.on ? Translation.tr("Off")
+            : !Ryoku.Equalizer.running ? Translation.tr("Starting")
+            : Ryoku.Equalizer.presetLabel(Ryoku.Equalizer.preset)
         readonly property bool lit: ctl.moduleId === "record" ? ctl.recording
             : ctl.moduleId === "devices" ? root.picker === "devices"
+            : ctl.moduleId === "equalizer" ? ctl.eqShaped
             : Boolean(ctl.model?.toggled ?? false)
         readonly property bool ready: ctl.moduleId === "record" || ctl.moduleId === "devices"
-            || Boolean(ctl.model?.available ?? true)
+            || ctl.moduleId === "equalizer" || Boolean(ctl.model?.available ?? true)
         readonly property color tint: IrisControlOptions.tintFor(ctl.moduleId)
         readonly property color ink: !ctl.ready ? IrisStyle.textTertiary
             : ctl.lit ? IrisStyle.onTintFor(ctl.tint) : IrisStyle.text
@@ -400,6 +412,11 @@ Item {
         function activate(): void {
             if (!ctl.ready || root.editing) return
             if (ctl.moduleId === "devices") { root.picker = root.picker === "devices" ? "" : "devices"; return }
+            if (ctl.moduleId === "equalizer") {
+                GlobalStates.openIrisEqualizer(root.targetScreen?.name ?? "")
+                GlobalStates.controlPanelOpen = false
+                return
+            }
             if (ctl.moduleId === "record") {
                 Quickshell.execDetached(ctl.recording
                     ? ["ryoku-shell", "record", "stop"]
@@ -698,6 +715,41 @@ Item {
                 anchors.centerIn: parent
                 width: single.upright ? Math.min(single.width, Math.round(56 * root.d)) : single.width
                 height: single.upright ? single.height : Math.min(single.height, Math.round(48 * root.d))
+            }
+            Item {
+                visible: single.moduleId === "volume" && !root.editing
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: Math.round(2 * root.d)
+                anchors.rightMargin: Math.round(2 * root.d)
+                width: Math.round(28 * root.d)
+                height: width
+
+                MaterialSymbol {
+                    anchors.centerIn: parent
+                    text: "equalizer"
+                    fill: Ryoku.Equalizer.on ? 1 : 0
+                    iconSize: Math.round(16 * root.d)
+                    color: eqTap.containsMouse || eqTap.pressed ? IrisStyle.accent : IrisStyle.textSecondary
+                    Behavior on color {
+                        ColorAnimation {
+                            duration: IrisStyle.duration(120)
+                            easing.type: IrisStyle.feedbackEasing
+                        }
+                    }
+                }
+                MouseArea {
+                    id: eqTap
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        GlobalStates.openIrisEqualizer(root.targetScreen?.name ?? "")
+                        GlobalStates.controlPanelOpen = false
+                    }
+                }
+                Accessible.role: Accessible.Button
+                Accessible.name: Translation.tr("Open equalizer")
             }
         }
     }

@@ -17,7 +17,7 @@ pragma ComponentBehavior: Bound
 Scope {
     id: dock
 
-    property bool pinned: Config.options?.dock.pinnedOnStartup ?? false
+    property bool pinned: Config.options?.dock.pinnedOnStartup ?? true
 
     readonly property string dockEffectivePosition: {
         const pos = Config.options?.dock.position ?? "bottom"
@@ -839,9 +839,8 @@ Scope {
                             currentScreen: dockRoot.screen
                             dockRevealed: dockRoot.reveal
                             dockWindowVisible: dockRoot.visible
-                            onTogglePinRequested: {
-                                dock.pinned = !dock.pinned
-                            }
+                            onTogglePinRequested:
+                                Config.options.dock.pinnedOnStartup = !dock.pinned
                         }
                     }
                 }

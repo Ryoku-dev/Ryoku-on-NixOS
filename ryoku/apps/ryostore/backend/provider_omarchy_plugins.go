@@ -138,6 +138,7 @@ func (p *omarchyPluginProvider) Install(ctx context.Context, id string) error {
 		return err
 	}
 	installed := readInstalledOmarchyPlugins(filepath.Join(p.configHome, "omarchy", "plugins"))
+	reportProgressNow(ctx, "apply", 0, 0)
 	if _, ok := installed[id]; ok {
 		return p.runChecked(ctx, "omarchy", "plugin", "update", id, "--yes")
 	}

@@ -88,41 +88,14 @@ Singleton {
     }
 
     // === Power control ===
-    // Writing the adapter's Powered property over D-Bus fails silently while the
-    // radio is rfkill soft-blocked (BlueZ reports PowerState "off-blocked"), so
-    // clear the killswitch first and only then power the adapter on.
     function setEnabled(on: bool): void {
-        if (!Bluetooth.defaultAdapter) return;
-        if (!on) {
-            Bluetooth.defaultAdapter.enabled = false;
+        if (!Bluetooth.defaultAdapter)
             return;
-        }
-        unblockProcess.running = true;
+        Quickshell.execDetached(["ryoku-bluetooth-power", on ? "on" : "off"]);
     }
 
     function toggle(): void {
         root.setEnabled(!root.enabled);
-    }
-
-    Process {
-        id: unblockProcess
-        command: ["rfkill", "unblock", "bluetooth"]
-        onExited: (exitCode, exitStatus) => {
-            rfkillState.running = true;
-            if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = true;
-            // The kernel may still be settling the rfkill state, so power on again
-            // shortly after in case the first write landed too early.
-            powerOnRetry.restart();
-        }
-    }
-
-    Timer {
-        id: powerOnRetry
-        interval: 400
-        onTriggered: {
-            if (Bluetooth.defaultAdapter && !Bluetooth.defaultAdapter.enabled)
-                Bluetooth.defaultAdapter.enabled = true;
-        }
     }
 
     // === Connection tracking ===

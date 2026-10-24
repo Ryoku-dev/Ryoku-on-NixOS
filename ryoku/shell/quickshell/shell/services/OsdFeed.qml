@@ -17,9 +17,28 @@ Singleton {
     property int brightnessSeq: 0
     property int previewSeq: 0
 
+    signal volumeRequested()
+    signal brightnessRequested()
+    signal micRequested()
+    signal keyboardRequested()
+    signal mediaRequested(string action)
+    signal hideRequested()
+
     IpcHandler {
         target: "osd"
         function preview(): void { root.previewSeq++; }
+        function volume(): void { root.volumeRequested(); }
+        function brightness(): void { root.brightnessRequested(); }
+        function mic(): void { root.micRequested(); }
+        function keyboard(): void { root.keyboardRequested(); }
+        function media(action: string): string {
+            const normalized = action.length === 0 ? "play" : action
+            if (!["play", "pause", "next", "previous"].includes(normalized))
+                return "Unknown action: play, pause, next or previous"
+            root.mediaRequested(normalized)
+            return normalized
+        }
+        function hide(): void { root.hideRequested(); }
     }
     readonly property string sockPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ryoku-shell.sock"
 

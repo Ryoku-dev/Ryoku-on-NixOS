@@ -121,6 +121,8 @@ type daemon struct {
 	ledsSig      chan struct{}        // coalescing wake for the OpenRGB worker
 	widgetSig    chan struct{}        // coalescing wake for the widget-occupancy gate
 	guardKick    chan struct{}        // coalescing wake for the qylock fallback-guard watcher
+	parkSig      chan struct{}        // coalescing wake for palette idle deadlines and saver changes
+	sunSig       chan struct{}        // wakes the sun-mode worker on knob/window changes
 	quit         chan struct{}
 	closed       bool
 	ln           net.Listener
@@ -175,6 +177,13 @@ func (d *daemon) currentSleepCycle() *sleepCycle {
 	d.sleepMu.RLock()
 	defer d.sleepMu.RUnlock()
 	return d.sleep
+}
+
+func (d *daemon) kickQylockGuardWatcher() {
+	select {
+	case d.guardKick <- struct{}{}:
+	default:
+	}
 }
 
 func validSuspendToken(token string) bool {
@@ -253,6 +262,7 @@ func (d *daemon) setSleepCycle(cycle *sleepCycle) {
 	d.sleepMu.Lock()
 	d.sleep = cycle
 	d.sleepMu.Unlock()
+	d.kickQylockGuardWatcher()
 }
 
 func runDaemon() error {
@@ -303,6 +313,8 @@ func runDaemon() error {
 		ledsSig:     make(chan struct{}, 1),
 		widgetSig:   make(chan struct{}, 1),
 		guardKick:   make(chan struct{}, 1),
+		parkSig:     make(chan struct{}, 1),
+		sunSig:      make(chan struct{}, 1),
 		quit:        make(chan struct{}),
 		gateWant:    map[string]bool{},
 		gateWake:    map[string]chan struct{}{},
@@ -437,6 +449,7 @@ func setupQmlImportPath() {
 // components.
 func (d *daemon) bootstrap() {
 	d.startSettings()
+	d.startPresence()
 	d.startKeypress()
 	d.startRecord()
 	d.startMouseMap()
@@ -923,13 +936,27 @@ const jemallocConf = "narenas:2,background_thread:true,dirty_decay_ms:5000,muzzy
 // qsEnv is the environment for a supervised quickshell process: the daemon's own
 // env (which carries the QML import path setupQmlImportPath exports) plus the
 // jemalloc tuning, unless the user already pinned MALLOC_CONF.
+//
+// It also turns off Qt's frame-callback timeout. The compositor sends a hidden
+// surface (the overview backdrop, anything under a fullscreen window, a locked
+// or powered-off screen) one frame callback about once a second. After 100 ms
+// without one Qt marks the window unexposed, and each late callback exposes it
+// again, which rebuilds its swapchain and redraws the same frame: a full-screen
+// render every second, forever, for nothing. Without the timeout a hidden
+// surface with nothing new to draw stays quiet, and one that does still paces
+// itself on the compositor's callbacks.
 func qsEnv() []string {
 	env := nomarchyEnv()
 	if os.Getenv("MALLOC_CONF") == "" {
 		env = append(env, "MALLOC_CONF="+jemallocConf)
 	}
+	if _, set := os.LookupEnv(frameCallbackTimeoutEnv); !set {
+		env = append(env, frameCallbackTimeoutEnv+"=0")
+	}
 	return env
 }
+
+const frameCallbackTimeoutEnv = "QT_WAYLAND_FRAME_CALLBACK_TIMEOUT"
 
 // surfaceLog is where a supervised surface's stderr goes, one file per component
 // so a crash on start is still readable after the respawn.
@@ -1222,12 +1249,6 @@ func (d *daemon) handle(conn net.Conn) {
 		d.serveCalls(conn, r, cmd)
 		return
 	}
-	// A clipboard capture helper streams new selection bytes after its header
-	// line, so they never reach a command line.
-	if strings.HasPrefix(cmd, "clip-ingest ") {
-		fmt.Fprintln(conn, d.clipIngest(cmd, r))
-		return
-	}
 	if strings.HasPrefix(cmd, "clip-copy ") {
 		fmt.Fprintln(conn, d.clipCopy(cmd))
 		return
@@ -1399,12 +1420,16 @@ func (d *daemon) dispatch(line string) string {
 			if args[1] != lockSessionID() {
 				return "err lock: requested login1 session is not owned by this daemon"
 			}
-			return lockSession()
+			reply := lockSession()
+			d.kickQylockGuardWatcher()
+			return reply
 		}
 		if len(args) != 0 {
 			return "err lock: expected no arguments, status, or session <id>"
 		}
-		return lockSession()
+		reply := lockSession()
+		d.kickQylockGuardWatcher()
+		return reply
 	case "unlock-prepare":
 		if len(args) != 2 || args[0] != "session" {
 			return "err unlock-prepare: expected session <id>"
@@ -1419,10 +1444,7 @@ func (d *daemon) dispatch(line string) string {
 		if err := cycle.prepareUnlock(); err != nil {
 			return "err unlock-prepare: " + err.Error()
 		}
-		select {
-		case d.guardKick <- struct{}{}:
-		default:
-		}
+		d.kickQylockGuardWatcher()
 		return "ok"
 	case "sleep-ready":
 		if len(args) != 0 {
@@ -1486,10 +1508,12 @@ func (d *daemon) dispatch(line string) string {
 		// One verb surface for Ryostage (docs/stage.md): set-effect records the
 		// three-way effect per wallpaper; set-layer applies a layer's arrangement
 		// flags (enabled/front/depth); add-layer / cut-layer / remove-layer manage
-		// the manual layers; refresh forces a re-cut; cancel kills a running engine
-		// child; clear drops the current wall's generated artifacts; status
-		// snapshots the topic; models proxies the engine catalogue. QML normally
-		// subscribes to the `stage` topic; these verbs carry intent the other way.
+		// the manual layers; refresh forces a re-cut; depth-refresh rebuilds only
+		// the 3D depth map; depth-sample reads one depth value for the widget
+		// depth-pick; cancel kills a running engine child; clear drops the
+		// current wall's generated artifacts; status snapshots the topic; models
+		// proxies the engine catalogue. QML normally subscribes to the `stage`
+		// topic; these verbs carry intent the other way.
 		if len(args) == 0 {
 			return "err stage: expected a verb"
 		}
@@ -1511,6 +1535,24 @@ func (d *daemon) dispatch(line string) string {
 			d.stageForce.Store(true)
 			d.scheduleStage()
 			return "ok"
+		case "depth-refresh":
+			d.stageDepthRefresh()
+			return "ok"
+		case "depth-sample":
+			// <wall> <nx> <ny> <width> <height> <fit>: one depth value for the
+			// widget depth-pick. The wall path may carry spaces, so it is the
+			// join of the fields between the verb and the fixed numeric tail.
+			if len(args) < 7 {
+				return "err stage depth-sample: expected <wall> <nx> <ny> <width> <height> <fit>"
+			}
+			val, err := d.stageDepthSampleCall(
+				strings.Join(args[1:len(args)-5], " "),
+				args[len(args)-5], args[len(args)-4], args[len(args)-3],
+				args[len(args)-2], args[len(args)-1])
+			if err != nil {
+				return "err stage depth-sample: " + err.Error()
+			}
+			return "ok " + val
 		case "cancel":
 			stageCancel()
 			return "ok"

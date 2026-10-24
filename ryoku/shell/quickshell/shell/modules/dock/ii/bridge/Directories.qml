@@ -4,7 +4,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtCore
 import Quickshell
-import Quickshell.Io
 import stage.modules.common as StageDirs
 
 /**
@@ -46,7 +45,6 @@ Singleton {
     readonly property string sportsCachePath: state + "/ryoku/sports.json"
     readonly property string coverArt: cache + "/ryoku/media/coverart"
     readonly property string screenshotTemp: `/tmp/quickshell-${root.username}/media/screenshot`
-    readonly property string cliphistDecode: `/tmp/quickshell-${root.username}/media/cliphist`
     readonly property string localSendDownloadPath: downloads + "/localsend"
 
     // Paths still read by the copied shared pages and notes services.
@@ -67,9 +65,4 @@ Singleton {
     readonly property string wallpaperSwitchScriptPath: StageDirs.Directories.wallpaperSwitchScriptPath
 
     readonly property string username: Quickshell.env("USER") || ""
-
-    Process {
-        command: ["mkdir", "-p", root.cliphistDecode]
-        running: true
-    }
 }

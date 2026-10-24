@@ -1,121 +1,114 @@
-# Kernels
+# Kernels and CachyOS gaming
 
-Ryoku ships and boots the stock Arch `linux` kernel. The Hub's Extras section can
-add the CachyOS kernel as an opt-in alternative. This page is what to weigh
-before flipping it, what it does and does not change, and how it is wired.
+Ryoku's Arch edition installs the stock Arch kernel by default. During setup,
+**Gaming with CachyOS** can add CachyOS's kernel, tuning, schedulers, and gaming
+stack. The same package set is available later from RyoStore as **CachyOS
+Gaming**. Both paths keep the Arch kernel installed, but they differ in which
+kernel boots first.
 
-## Should you switch? Pros and cons
+The CachyOS ISO is a separate edition. Its live system and installed system both
+use CachyOS packages, repositories, identity, and kernels.
 
-**Pros**
+## What Gaming with CachyOS installs
 
-- An optimized, patched build: Clang ThinLTO and AutoFDO, an x86-64-v3 target,
-  and the Cachy patchset.
-- The mainline EEVDF scheduler with `sched-ext` compiled in, so you can opt into
-  a latency or gaming scheduler (`scx_lavd` and friends) via `scx-scheds`.
-- A modest, workload-dependent throughput edge on CPU-bound work, plus steadier
-  behavior under load.
+The Arch installer's Gaming question defaults to No. Choosing Yes installs:
 
-**Cons**
+- `linux-cachyos` and `linux-cachyos-headers`
+- `cachyos-settings`, including `ananicy-cpp` and
+  `cachyos-ananicy-rules`
+- `scx-scheds`
+- `steam`
+- `cachyos-gaming-meta`, which brings Proton-CachyOS SLR, Wine-CachyOS,
+  `umu-launcher`, `winetricks`, and `protontricks`
 
-- Pulls in the CachyOS repository and signing key, so kernel updates now depend
-  on one more upstream being healthy.
-- Every DKMS module (NVIDIA, VirtualBox, and the like) rebuilds against the new
-  kernel. A failed rebuild means that module is missing on that kernel until it
-  is fixed.
-- Tracks mainline more aggressively than Arch's `linux`, so marginally more
-  churn.
-- The gain is real for gamers and heavy multitaskers; a light desktop will barely
-  notice it.
+This option needs an x86-64-v3 CPU and a working network connection. The TUI
+disables it and explains why when either requirement is missing. If a repository
+or package download fails after installation starts, Ryoku finishes the rest of
+the install without the gaming layer. You can add it later from RyoStore.
 
-Your stock Arch kernel stays installed and remains the safe fallback you can
-always boot.
+The RyoStore bundle has the same package set. Its catalogue id remains
+`cachyos-layer`, while the user-facing name is **CachyOS Gaming**.
 
-## Is it still Ryoku? Is it still an opinionated install?
+## Why the Arch userland stays Arch
 
-Yes to both.
+The helper adds both `[cachyos-v3]` and the generic `[cachyos]` repository.
+`linux-cachyos` is in the v3 repository, while `cachyos-settings`, its Ananicy
+rules, and the gaming packages are in the generic repository.
 
-A distribution is defined by its desktop, its tooling, its repository, and its
-defaults, not by which kernel it boots. Installing `linux-cachyos` is the same
-kind of choice as `linux-zen` or `linux-lts`: one swappable component. The system
-stays Ryoku, on the Arch base, with the `[ryoku]` desktop, the `ryoku` CLI, and
-the same opinionated defaults. `/etc/os-release` still reads exactly as before.
+Both CachyOS repositories are placed below Arch's repositories and `[ryoku]` in
+`pacman.conf`. Pacman takes a package from the first repository that provides
+its name, so Arch remains authoritative for `glibc`, Mesa, `nvidia-utils`, SDDM,
+zlib, and the rest of the Arch userland. CachyOS supplies only names the earlier
+repositories do not have.
 
-Opinionated does not mean fixed. The Ryoku *default* is opinionated: a fresh
-install boots the stock Arch kernel, and that choice is ours to make. The CachyOS
-kernel is an explicit opt-in, never the default. Opinionated by default,
-swappable by choice. Offering the toggle does not dilute the default install; it
-leaves it exactly as it was and hands a power user one clearly labelled lever.
+Older versions added only `[cachyos-v3]` above `[core]`. That layout could not
+find the generic-repository packages, and a later full upgrade could replace
+Arch packages with CachyOS builds. Running the current helper migrates that
+layout by removing the old block and adding both repositories at the bottom. It
+does not alter a CachyOS edition's native repository order.
 
-## Our approach vs a full CachyOS install
+The helper receives the CachyOS signing key from a keyserver when available and
+checks its full pinned fingerprint. If the keyservers fail, it downloads
+`cachyos-keyring` over TLS, verifies the package checksum from repository
+metadata, checks fingerprint
+`882DCFE48E2051D48E2562ABF3B607488DB35A47`, and imports that keyring.
 
-These are two different things, and the difference is the whole point.
+## Which kernel boots
 
-- **Ryoku plus the CachyOS kernel (this toggle).** We add only the
-  `[cachyos-v3]` repository and install `linux-cachyos`. Your userland stays Arch
-  plus `[ryoku]`. We do not add the CachyOS core and extra rebuilds, so a later
-  `pacman -Syu` cannot quietly replace your whole userland, and we do not add the
-  baseline `[cachyos]` repo that carries CachyOS's forked pacman. You keep
-  Ryoku's desktop, defaults, and identity, and you borrow the kernel.
-- **A full CachyOS install.** CachyOS's own ISO and installer give you their
-  entire optimized userland (`cachyos-core-v3`, `cachyos-extra-v3`), their pacman
-  fork, and their defaults and branding. That is a CachyOS system: a stock
-  CachyOS desktop, not Ryoku's shell, Hub, or opinionated setup. The toggle
-  exists so you can get the kernel's benefit without giving up the thing that
-  makes the machine Ryoku.
+The installation path makes `linux-cachyos` the default and keeps Arch
+`linux` as the fallback entry in Limine. On NVIDIA, it first makes sure the
+CachyOS kernel has a working module:
 
-In short: we take the one component worth borrowing and leave the rest of CachyOS
-alone.
+- An Arch `nvidia-open` install gets `linux-cachyos-nvidia-open`.
+- A DKMS install must build a module that `modinfo` can load for
+  `linux-cachyos`.
+- If neither path leaves a usable module, the packages stay installed but the
+  Arch kernel remains the default.
 
-## Rollback and consequences
+The RyoStore path is intentionally less intrusive. The stock Arch kernel remains
+the default after installation. Pick `linux-cachyos` in the Limine menu when you
+want to try it; Limine's `remember_last_entry` setting keeps using the entry you
+last chose.
 
-Rollback is built in and cheap:
+Every DKMS module, including NVIDIA and VirtualBox modules, must build against
+each installed kernel. Check the package transaction for build failures before
+rebooting.
 
-- The stock Arch kernel is never removed. If the CachyOS kernel misbehaves, pick
-  the stock entry at the Limine menu and you are back. There is nothing to undo.
-- Installing the kernel is a pacman transaction, so snapper and snap-pac take a
-  pre/post snapshot pair and limine-snapper-sync exposes them in the boot menu; a
-  whole bad transaction is recoverable from the boot screen.
-- To remove it outright: Extras, CachyOS Kernel, remove (or `ryoku-pkg-remove
-  linux-cachyos linux-cachyos-headers`). The `[cachyos-v3]` repo line is left in
-  place. It is inert with no CachyOS packages installed; delete it by hand if you
-  want a clean `pacman.conf`.
+## Should you use it?
 
-Things to keep in mind: a reboot is required to actually run the new kernel; DKMS
-modules rebuild on install, so watch for NVIDIA build errors; and `/boot` now
-carries a second kernel image and initramfs, so it uses more space.
+`linux-cachyos` is an x86-64-v3 kernel with the CachyOS patch set and sched-ext
+support. `scx-scheds` provides userspace schedulers, while CachyOS's tuning and
+Ananicy rules focus resources on the foreground workload. The difference is
+most useful for games and heavy multitasking. A light desktop may not feel
+different.
 
-## How it is wired
+The cost is another upstream repository, another kernel image and initramfs in
+`/boot`, and another kernel every DKMS module must support. The Arch kernel stays
+available as the known-good path.
 
-- **Vehicle.** A `ryostore` bundle (`cachyos-kernel`) with
-  `requires: ["cachyos"]` and the `linux-cachyos` and `linux-cachyos-headers`
-  package items. The Hub installs it through `ryostore-install` like any other
-  bundle.
-- **Repository setup.** `ryoku-pkg-cachyos` (in `system/extras/`) adds the repo
-  idempotently and additively: it recv/lsigns the CachyOS key
-  (`F3B607488DB35A47`), inserts `[cachyos-v3]` above `[core]`, and runs
-  `pacman -Sy`. It refuses on a CPU without x86-64-v3 and is a no-op when a
-  cachyos repo is already configured.
-- **Why v3 only.** `linux-cachyos` lives in `[cachyos-v3]`, which holds CachyOS's
-  own packages rather than rebuilds of Arch core and extra. Adding just that repo
-  means the kernel is the only thing sourced from CachyOS, so there is no
-  version-skew surface against Arch and no path for `-Syu` to convert the
-  userland. x86-64-v3 covers essentially every CPU since roughly 2015, and the
-  kernel's v3-versus-v4 difference is negligible, so we skip v4/znver4 detection
-  and the AVX-512-on-Intel-hybrid trap entirely.
-- **No forked pacman.** The baseline `[cachyos]` repo (which ships CachyOS's
-  patched pacman) is left out, matching CachyOS's own guidance for adding their
-  repos to an Arch install.
-- **Boot wiring.** On a Ryoku install, `limine-mkinitcpio-hook` regenerates the
-  boot entries when the kernel package lands, so the new kernel shows up in the
-  menu automatically and the stock kernel stays the default. On a box without
-  that hook, add a Limine entry by hand.
-- **Conflict-free, with a deploy note for maintainers.** The bundle is safe to
-  re-run and never edits `[core]`/`[extra]` or the stock kernel. One ordering
-  caveat: the `requires: ["cachyos"]` line needs an actuator that understands it.
-  The catalogue is served from `ryostore@main` to every client, while the
-  actuator ships in `ryoku-desktop`. Publish the registry entry only once a
-  `ryoku-desktop` release carrying the `cachyos` requires-case has shipped; an
-  older actuator would otherwise mis-route `linux-cachyos` to an AUR source build.
-  From that release on, the actuator aborts with a clear "run ryoku update"
-  message on any requirement it does not recognize, so the case fails loudly
-  instead of silently.
+## Rollback
+
+If the CachyOS kernel does not work:
+
+1. Choose the Arch kernel in Limine.
+2. Leave it selected. Limine remembers the last entry.
+3. Remove **CachyOS Gaming** from RyoStore if you no longer want the added
+   packages.
+
+Pacman transactions are covered by Ryoku's Snapper hooks when snapshots are
+enabled, so the pre-transaction snapshot is also available from Limine. Removing
+the bundle does not need to remove its repository stanzas. They remain below
+Arch and `[ryoku]`, so the Arch package set stays authoritative.
+
+## The full CachyOS edition
+
+Choose the CachyOS ISO when you want CachyOS as the base rather than an Arch
+system with an optional gaming layer. The live image boots `linux-cachyos`,
+trusts and uses the generic `[cachyos]` repository, and identifies itself as the
+CachyOS edition. The installed target uses CachyOS's repository order, branding,
+kernel pair, hooks, hardware tools, tuning, and desktop utilities underneath the
+same Ryoku desktop.
+
+Its Gaming question is smaller because the kernel and tuning already ship with
+the edition. Yes keeps `steam` and `cachyos-gaming-meta`; No leaves both out.
+The choice works offline from the ISO.

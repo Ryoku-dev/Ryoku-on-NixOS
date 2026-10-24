@@ -15,6 +15,8 @@
 #   RYOKU_ISO_WORK    mkarchiso work   (./work)
 #   RYOKU_ISO_STAGE   staging tree     (./staging)
 #   RYOKU_ISO_REPRO   1 = pin packages to the commit-dated Arch archive (off)
+#   RYOKU_ISO_WORKTREE 1 = bake the working tree (uncommitted and untracked,
+#                     non-ignored files) instead of HEAD, for a local test ISO
 set -euo pipefail
 
 PROFILE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # installation/iso
@@ -43,6 +45,7 @@ export SOURCE_DATE_EPOCH
 # into the live motd. lets the target's deploy step warn when a long-lived
 # ISO's baked payload has drifted from the live [ryoku] repo's package version.
 PAYLOAD_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)
+[[ ${RYOKU_ISO_WORKTREE:-0} != 1 ]] || PAYLOAD_COMMIT+="+worktree"
 PAYLOAD_DATE=$(git -C "$REPO_ROOT" log -1 --pretty=%cI 2>/dev/null || date -Iseconds)
 PAYLOAD_VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION" 2>/dev/null || echo unknown)
 PAYLOAD_NAME=$(tr -d '[:space:]' <"$REPO_ROOT/CODENAME" 2>/dev/null || echo unknown)
@@ -63,10 +66,20 @@ case $VARIANT in plain | cachyos) ;; *) die "RYOKU_VARIANT must be plain or cach
 
 # bake the repo from tracked files only (git archive at HEAD), so gitignored
 # dev cruft (editor / AI-tooling configs, build dirs, ISOs) never ships.
+# RYOKU_ISO_WORKTREE=1 archives a tree of the working copy instead, written
+# through a throwaway index so no commit is made and the real index is untouched.
 stage_repo() {
-  local src=$1 dst=$2
+  local src=$1 dst=$2 tree=HEAD idx
   mkdir -p "$dst"
-  git -C "$src" archive --format=tar HEAD | tar -C "$dst" -xf -
+  if [[ ${RYOKU_ISO_WORKTREE:-0} == 1 ]]; then
+    idx=$(mktemp)
+    GIT_INDEX_FILE=$idx git -C "$src" read-tree HEAD
+    GIT_INDEX_FILE=$idx git -C "$src" add -A
+    tree=$(GIT_INDEX_FILE=$idx git -C "$src" write-tree)
+    rm -f "$idx"
+    log "RYOKU_ISO_WORKTREE=1: baking the working tree ($tree) instead of HEAD"
+  fi
+  git -C "$src" archive --format=tar "$tree" | tar -C "$dst" -xf -
 }
 
 # populate a local [ryoku] repo the staged pacman.conf's file:// token points at,
@@ -125,6 +138,7 @@ stage_ryoku_repo() {
 [[ -f $TUI_DIR/go.mod ]]         || die "installer TUI not found at $TUI_DIR"
 [[ -f $BACKEND_DIR/ryoku-install ]] || die "backend not found at $BACKEND_DIR/ryoku-install"
 [[ -d $BACKEND_DIR/lib ]]        || die "backend lib not found at $BACKEND_DIR/lib"
+[[ -f $REPO_ROOT/installation/installerplan/choices.tsv ]] || die "installer choice manifest not found"
 
 # 1. fresh profile copy. profile components only, never build dirs.
 log "Staging profile -> $PROFILE_STAGE"
@@ -134,6 +148,12 @@ for item in profiledef.sh packages.x86_64 pacman.conf airootfs efiboot syslinux 
   cp -a "$PROFILE_DIR/$item" "$PROFILE_STAGE/"
 done
 AIROOTFS=$PROFILE_STAGE/airootfs
+
+# Keep the committed profile generic. Edition-specific package, boot, and
+# branding changes are made only in this throwaway copy.
+# shellcheck source=stage-variant.sh
+source "$PROFILE_DIR/stage-variant.sh"
+ryoku_stage_variant "$VARIANT" "$PROFILE_STAGE"
 
 # reproducible package set (opt-in). the default build pulls whatever the live
 # mirrors currently serve, so two builds weeks apart differ by upstream package
@@ -178,6 +198,9 @@ install -m0644 "$REPO_ROOT/ryoku/i18n/langs.json" "$AIROOTFS/usr/share/ryoku/i18
 # 4. bake the repo payload at /usr/share/ryoku (RYOKU_REPO).
 log "Baking repo payload -> /usr/share/ryoku"
 stage_repo "$REPO_ROOT" "$AIROOTFS/usr/share/ryoku"
+install -d "$AIROOTFS/usr/share/ryoku/installation/installerplan"
+install -m0644 "$REPO_ROOT/installation/installerplan/choices.tsv" \
+  "$AIROOTFS/usr/share/ryoku/installation/installerplan/choices.tsv"
 
 # provenance stamp. records the exact commit + version baked into this payload
 # so the target's deploy step can flag drift from the live [ryoku] repo. keep
@@ -213,12 +236,13 @@ log "Building ryoku-hub from $REPO_ROOT/ryoku/hub/backend"
 install -d "$AIROOTFS/usr/share/ryoku/ryoku/hub/backend"
 ( cd "$REPO_ROOT/ryoku/hub/backend" && CGO_ENABLED=0 go build -trimpath -ldflags '-s -w -buildid=' -o "$AIROOTFS/usr/share/ryoku/ryoku/hub/backend/ryoku-hub" . )
 
-# 4c. prebuild the Ryoku.Blobs QML plugin (the frame's blob renderer) into
-#     the payload, same model as ryoku-shell. target has no build toolchain;
-#     build deps live on the build host only.
-command -v cmake >/dev/null 2>&1 || die "cmake is required to build the Ryoku.Blobs plugin (pacman -S cmake ninja qt6-shadertools)"
-command -v ninja >/dev/null 2>&1 || die "ninja is required to build the Ryoku.Blobs plugin (pacman -S cmake ninja)"
-log "Building Ryoku.Blobs plugin from $REPO_ROOT/ryoku/shell/plugin"
+# 4c. prebuild the Ryoku.Blobs and Ryoku.Spatial3D QML plugins (the frame
+#     renderer and the Stage depth mesh) into the payload, same model as
+#     ryoku-shell. target has no build toolchain; build deps live on the build
+#     host only.
+command -v cmake >/dev/null 2>&1 || die "cmake is required to build the Ryoku QML plugins (pacman -S cmake ninja qt6-shadertools qt6-quick3d)"
+command -v ninja >/dev/null 2>&1 || die "ninja is required to build the Ryoku QML plugins (pacman -S cmake ninja)"
+log "Building Ryoku.Blobs and Ryoku.Spatial3D plugins from $REPO_ROOT/ryoku/shell/plugin"
 RYOKU_BLOBS_BUILD="$STAGE_DIR/blobs-build" \
   "$REPO_ROOT/ryoku/shell/plugin/build.sh" \
   "$AIROOTFS/usr/share/ryoku/ryoku/shell/plugin/dist"
@@ -256,6 +280,7 @@ if [[ $STAGE_ONLY -eq 1 ]]; then
   exit 0
 fi
 
+
 # 6. assemble. mkarchiso needs root + the archiso package.
 if ! command -v mkarchiso >/dev/null 2>&1; then
   cat >&2 <<EOF
@@ -271,6 +296,12 @@ or, equivalently, from inside the staged profile:
 
 EOF
   exit 1
+fi
+if [[ $VARIANT == cachyos ]]; then
+  # CachyOS's own buildiso requires host trust too. A local CachyOS build
+  # therefore populates the build host keyring before mkarchiso resolves it.
+  log "Populating CachyOS signing trust on the build host"
+  ryoku_trust_cachyos_build_host
 fi
 
 # mkarchiso reuses a populated work dir: with a completed build already there it

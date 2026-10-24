@@ -1,11 +1,12 @@
 # Ryoku.Blobs: the SDF metaball plugin behind the screen frame (see
-# docs/frame.md). A standard Qt6 QML module: qt_add_qml_module + AUTOMOC +
-# qmltyperegistrar register the QML_ELEMENT types, qt_add_shaders bakes the
-# metaball shaders into the module as :/shaders/*.qsb.
+# docs/frame.md). Ryoku.Spatial3D: the depth-displaced wallpaper mesh behind the
+# Stage scene (docs/stage.md). Both are standard Qt6 QML modules: qt_add_qml_module
+# + AUTOMOC + qmltyperegistrar register the QML_ELEMENT types, and qt_add_shaders
+# bakes the metaball shaders into the Blobs module as :/shaders/*.qsb.
 #
-# It produces a dynamically loadable module under <build>/qml/Ryoku/Blobs that
-# Quickshell picks up from QML2_IMPORT_PATH. build.sh wraps the configure/build
-# and copies that module onto a QML import path; it ships prebuilt (the target
+# They produce dynamically loadable modules under <build>/qml/Ryoku/{Blobs,Spatial3D}
+# that Quickshell picks up from QML2_IMPORT_PATH. build.sh wraps the configure/build
+# and copies both modules onto a QML import path; they ship prebuilt (the target
 # has no build toolchain).
 cmake_minimum_required(VERSION 3.28)
 
@@ -15,7 +16,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Quick ShaderTools Multimedia)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Concurrent Quick ShaderTools Multimedia Quick3D)
 find_package(Threads REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.5)
@@ -34,6 +35,9 @@ qt_add_qml_module(ryoku-blobs
         borderbeam.cpp borderbeam.hpp
         bordermaterial.cpp bordermaterial.hpp
         camerafeed.cpp camerafeed.hpp
+        cavafeed.cpp cavafeed.hpp
+        cavaspectrum.cpp cavaspectrum.hpp
+        wavecapture.cpp wavecapture.hpp
         systemmonitor.cpp systemmonitor.hpp
         systemgraph.cpp systemgraph.hpp
         thinkingorb.cpp thinkingorb.hpp
@@ -50,6 +54,24 @@ target_link_libraries(ryoku-blobs PRIVATE Qt6::Quick Qt6::Multimedia Threads::Th
 set_target_properties(ryoku-blobs ryoku-blobsplugin PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml/Ryoku/Blobs")
 set_target_properties(ryoku-blobsplugin PROPERTIES
+    INSTALL_RPATH "$ORIGIN"
+    BUILD_WITH_INSTALL_RPATH ON)
+
+qt_add_qml_module(ryoku-spatial3d
+    URI Ryoku.Spatial3D
+    VERSION 1.0
+    OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml/Ryoku/Spatial3D"
+    DEPENDENCIES
+        QtQuick3D
+    SOURCES
+        depthmeshgeometry.cpp depthmeshgeometry.hpp
+)
+
+target_link_libraries(ryoku-spatial3d PRIVATE Qt6::Concurrent Qt6::Quick Qt6::Quick3D)
+
+set_target_properties(ryoku-spatial3d ryoku-spatial3dplugin PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml/Ryoku/Spatial3D")
+set_target_properties(ryoku-spatial3dplugin PROPERTIES
     INSTALL_RPATH "$ORIGIN"
     BUILD_WITH_INSTALL_RPATH ON)
 

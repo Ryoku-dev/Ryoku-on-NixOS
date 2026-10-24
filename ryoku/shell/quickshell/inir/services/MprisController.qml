@@ -191,9 +191,16 @@ Singleton {
 		repeat: true
 		running: (root.activePlayer?.isPlaying ?? false) && !(root.activePlayer?.dbusName ?? "").includes("inir")
 		onTriggered: {
-			if (positionProbe.running || !root.activePlayer) return
-			positionProbe.player = root.activePlayer
-			positionProbe.running = true
+			const player = root.activePlayer
+			if (!player) return
+			const shown = Number(player.position ?? 0)
+			player.positionChanged()
+			const real = Number(player.position ?? 0)
+			const name = player.dbusName ?? ""
+			// A page that stops publishing (an ad, a lost media session) reports 0 and no length
+			// while it plays: that is not a position to correct toward.
+			if (!player.lengthSupported || (real === 0 && shown > 2)) { root._setPositionOffset(name, 0); return }
+			root._setPositionOffset(name, Math.abs(real - shown) > 1.5 ? real - shown : 0)
 		}
 	}
 	// Quickshell re-reads Position itself on these, so an offset from before would now be wrong.
@@ -203,26 +210,6 @@ Singleton {
 		function onPostTrackChanged(): void { root._setPositionOffset(root.activePlayer?.dbusName ?? "", 0) }
 		function onLengthChanged(): void { root._rememberLength(root.activePlayer) }
 		function onLengthSupportedChanged(): void { root._rememberLength(root.activePlayer) }
-	}
-	Process {
-		id: positionProbe
-		property var player: null
-		command: ["busctl", "--user", "get-property", positionProbe.player?.dbusName ?? "",
-			"/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player", "Position"]
-		stdout: StdioCollector {
-			onStreamFinished: {
-				const player = positionProbe.player
-				const match = /^x\s+(-?\d+)/.exec(text.trim())
-				if (!player || !match) return
-				const real = Number(match[1]) / 1000000
-				const shown = Number(player.position ?? 0)
-				const name = player.dbusName ?? ""
-				// A page that stops publishing (an ad, a lost media session) reports 0 and no length
-				// while it plays: that is not a position to correct toward.
-				if (!player.lengthSupported || (real === 0 && shown > 2)) { root._setPositionOffset(name, 0); return }
-				root._setPositionOffset(name, Math.abs(real - shown) > 1.5 ? real - shown : 0)
-			}
-		}
 	}
 
 	// Debounce timer for _rebuildPlayerList to coalesce rapid signal bursts

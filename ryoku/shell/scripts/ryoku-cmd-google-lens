@@ -29,7 +29,7 @@ else
   # slurp nonzero = Esc/cancel. bail quietly.
   geometry="$(slurp 2>/dev/null)" || exit 130
   [[ -n $geometry ]] || exit 0
-  grim -g "$geometry" "$tmp"
+  ryoku-cmd-grim -g "$geometry" "$tmp"
 fi
 
 notify-send -u low "$app" "Uploading region and opening Google Lens"

@@ -31,6 +31,7 @@ Singleton {
     property alias clockColor:    adapter.clockColor
     property alias clockColor2:   adapter.clockColor2
     property alias clockGradient: adapter.clockGradient
+    property alias widgetDepths: adapter.widgetDepths
     property alias dateShow:     adapter.dateShow
     property alias dateDesign:   adapter.dateDesign     // inline | badge | stacked
 
@@ -1072,6 +1073,24 @@ Singleton {
             ? local[key] : adapter[key];
     }
 
+    // Depth predates output forks, so an output without its own key keeps
+    // reading the old map until its first edit writes beside placement.
+    function widgetDepth(id, monitor) {
+        const key = id + "Depth";
+        const local = root._monitorMap(monitor);
+        const legacy = adapter.widgetDepths || {};
+        const value = local && Object.prototype.hasOwnProperty.call(local, key)
+            ? local[key] : legacy[id];
+        return typeof value === "number"
+            ? Math.max(0, Math.min(1, value)) : 0.5;
+    }
+    function setWidgetDepth(monitor, id, value) {
+        if (!monitor || !id)
+            return;
+        root.setFor(monitor, id + "Depth",
+            Math.max(0, Math.min(1, value)));
+    }
+
     // Find the widget owning a schema key from its <widget>Enabled property.
     // This keeps hosted rosters extensible: adding a new face to the adapter
     // automatically makes every one of that face's keys fork together.
@@ -1111,7 +1130,7 @@ Singleton {
             return false;
         const suffix = key.slice(prefix.length);
         return ["Enabled", "Anchor", "X", "Y", "Scale", "Locked",
-            "Size", "Width", "Height"].indexOf(suffix) >= 0;
+            "Size", "Width", "Height", "Depth"].indexOf(suffix) >= 0;
     }
 
     // Fork one widget from the values this output currently sees. Reassigning
@@ -1282,6 +1301,7 @@ Singleton {
             property string clockColor: ""
             property string clockColor2: ""
             property bool clockGradient: false
+            property var widgetDepths: ({})
             property bool dateShow: true
             property string dateDesign: "inline"
             property string widgetFont: ""

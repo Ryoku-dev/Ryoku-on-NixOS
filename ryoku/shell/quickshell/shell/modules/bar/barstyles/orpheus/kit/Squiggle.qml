@@ -11,6 +11,36 @@ Item {
     property real lineWidth: 1.5
     property bool interactive: false
     property real phase: 0
+    // The played wave is rebuilt point by point on every phase step. It drifts
+    // 10 px a second, so the bar's shared 30 Hz motion clock moves it a third of
+    // a pixel per step where an animation ran at the panel's refresh rate.
+    readonly property bool drifting: root.playing && root.visible && root.amplitude > 0
+        && !Style.still
+    property double _origin: 0
+    property bool _onClock: false
+
+    function _syncClock(): void {
+        if (root.drifting === root._onClock)
+            return;
+        MotionClock.users += root.drifting ? 1 : -1;
+        root._onClock = root.drifting;
+        if (root.drifting)
+            root._origin = Date.now() - root.phase / Math.max(1, root.wavelength) * 900;
+    }
+
+    onDriftingChanged: root._syncClock()
+    Component.onCompleted: root._syncClock()
+    Component.onDestruction: {
+        if (root._onClock)
+            MotionClock.users -= 1;
+    }
+
+    Connections {
+        target: root._onClock ? MotionClock : null
+        function onStep(now: double): void {
+            root.phase = (now - root._origin) % 900 / 900 * root.wavelength;
+        }
+    }
 
     signal seek(real frac)
 
@@ -93,14 +123,6 @@ Item {
             if (pressed)
                 send(mouse.x);
         }
-    }
-
-    NumberAnimation on phase {
-        from: 0
-        to: root.wavelength
-        duration: 900
-        loops: Animation.Infinite
-        running: root.playing && root.visible && root.amplitude > 0 && !Style.still
     }
 
     Behavior on scale {

@@ -2,7 +2,80 @@
 
 ## Unreleased
 
+### Fixed
+- **The Stash names an older install after the entry that launches it.** When
+  a second desktop entry only checked for the same app, the Stash list could
+  show that entry's name instead, depending on how the system sorts file
+  names (`scripts/stash-install.sh`).
+- **Cursor effects stay out of screenshots.** Ryoshot and every shipped
+  `grim` capture hide the pointer through the window-manager seam while they
+  freeze the frame, then restore it even when capture fails. This keeps a
+  software-rendered animated pointer out of the image without changing its
+  size or turning the effect off (`scripts/ryoku-cmd-{ryoshot,grim}`,
+  `quickshell/ryoshot/`).
+- **Stage upgrades keep every saved setting and file.** The corrective fold
+  retries malformed or unwritable settings without marking them complete,
+  preserves current and future keys, and leaves conflicting Parallax artifacts
+  at their original paths. Depth model cards now report the models' actual
+  licences: Apache-2.0 for Small and non-commercial CC-BY-NC-4.0 for Base and
+  Large (`ipc/stage.go`, `scripts/ryostage`,
+  `quickshell/shell/modules/stage/StageDepthOptions.qml`).
+- **Depth and matte stay registered with stretched wallpapers.** Fill now
+  stretches the texture, depth, matte, and depth picker alike; the 3D mesh
+  builds off the UI thread with shared indexed vertices and a hard detail cap,
+  and no longer allocates a full-screen MSAA render target
+  (`plugin/depthmeshgeometry.*`, `quickshell/shell/modules/stage/StageSpatialScene.qml`).
+- **CachyOS is reported as CachyOS.** `ryoku-base-os` now returns the
+  distribution from `/etc/os-release`, so Fastfetch says "a hand-built CachyOS
+  desktop" instead of treating every pacman host as Arch
+  (`scripts/ryoku-base-os`).
+- **Desktop widget depth is independent on each display.** Stage depth now
+  follows the output-keyed widget placement, while existing saved depth values
+  remain the fallback until that display is edited
+  (`quickshell/shell/modules/{desktop,stage}/`).
+
 ### Added
+- **The desktop stage is one feature now: Plain, Depth or Parallax, with a
+  3D depth mesh.** Depth renders the wallpaper as a depth-displaced mesh
+  that follows the pointer and needs no cut; Parallax keeps the drifting
+  cut stack and puts the mesh underneath when the wall has a depth map.
+  Desktop widgets can ride the depth at their own depth-map value,
+  projected through the stage camera with contact shadows onto the
+  cut-outs, and a picker samples the map to place them. The v1 settings
+  fold keeps the mouse/sensitivity/range tuning, and the flat backdrop
+  drift default returns to half
+  (`plugin/depthmeshgeometry.*`, `ipc/stage.go`,
+  `quickshell/shell/modules/stage/`, `quickshell/shell/modules/desktop/`).
+- **Shima has an equalizer.** A ten-band panel with presets, bypass and a live
+  spectrum opens from the Island's player page, the volume control, media cards
+  and an Equalizer bubble, or `iris equalizer toggle`. It drives Ryoku's own
+  equalizer, so nothing extra needs installing
+  (`quickshell/inir/modules/iris/equalizer/`).
+- **Shima's Dock keeps an order.** Apps sit in pinned order or opening order,
+  icons slide while you drag one, and an app bubble can be dropped onto the
+  Dock (`quickshell/inir/modules/iris/dock/IrisDockOrder.qml`).
+- **The launcher can hide apps.** `launcher.json` gains `hiddenApps`, a list of
+  desktop entry ids, and the Hero and Main launchers skip those entries. It
+  also carries the keys a store launcher reads for its own overlay, grid,
+  sections and favorites (`quickshell/shell/modules/launcher/shared/Singletons/LauncherConfig.qml`,
+  `quickshell/shell/modules/launcher/shared/providers/apps/Apps.qml`,
+  `quickshell/shell/modules/launcher/catalog.json`).
+- **Gokko can host its Dock and widgets from RyoStore.** The
+  existing primary frame-family loader keeps the Store scene resident
+  when the bar is hidden. Gokko widgets share the wallpaper surface,
+  while Ryoku yields its Dock, banners and notification sound. A missing
+  or failed Gokko Store view restores those native surfaces instead of
+  leaving the desktop empty
+  (`quickshell/shell/{services/{BarProducts,Config}.qml,shell.qml,modules/desktop/Desktop.qml}`).
+- **System readouts pause while nobody can see them.** A `presence` topic
+  tells the shell when the session is locked or the idle policy has turned the
+  displays off, and the shared system monitor stops sampling until the desktop
+  can be seen again. A fault reads as visible, so a readout can only keep
+  running (`ipc/presence.go`, `quickshell/shell/services/{Presence,Sysinfo}.qml`).
+- **Visualizer colours can be entered as hex values.** The desktop editor now
+  has a live-swatch field for a static colour and one for each gradient stop.
+  It accepts `rrggbb` or `#rrggbb`, marks invalid input without saving it, and
+  stores accepted colours as lowercase (`quickshell/shell/modules/{desktop,visualizer}/`).
 - **`deckFrostEnabled` turns the deck frost off.** A validated shell.json bool,
   default true, that the desktop haze and the bar's matching translucency both
   obey, so the strength survives switching it off and back on
@@ -78,6 +151,305 @@
   terminal once (`scripts/ryoku-session-intro`).
 
 ### Fixed
+- **A big copied image pastes whole.** Copies over 10 MiB were cut at 10 MiB,
+  so a large screenshot from ryoshot or a capture went onto the clipboard as a
+  broken PNG, and a large image picked from the history pasted broken too. The
+  selection now always carries the complete file; history skips what exceeds
+  its cap instead of storing a partial copy, and drops the truncated images an
+  older build stored (`ipc/clipboard.go`).
+- **Copies made in quick succession all reach the history.** The daemon now
+  watches the clipboard itself over the compositor's data-control protocol
+  (`ext-data-control-v1`, `wlr-data-control` as the fallback) and reads each
+  selection from the offer that announced it. The old `wl-paste --watch`
+  helper re-read whatever was current, so a copy replaced within a few
+  milliseconds was lost or recorded as the next one, and every copy was read
+  two or three times (`ipc/clipwatch.go`).
+- **The dock's clipboard tile and the iRiS palette show the real clipboard.**
+  Both read a separate cliphist database nothing fed any more, so they listed
+  months-old items and picking one copied stale content. They now list the
+  daemon's history (text previews, image thumbnails, stars as pins), copy,
+  delete and clear through it, and picking a dock entry closes its panel so the
+  next Ctrl+V reaches your app instead of the panel
+  (`quickshell/shell/modules/dock/ii/utilities/`,
+  `quickshell/inir/services/deferred/Cliphist.qml`,
+  `quickshell/inir/modules/iris/palette/IrisPalette.qml`).
+- **Ryoshot and quick captures report a copy that failed.** They used to show
+  "copied" and close without waiting for the result. They now wait for
+  `ryoku-shell clip-copy`; on failure they say why, and ryoshot stays open so
+  Ctrl+C or Ctrl+S can retry (`quickshell/ryoshot/shell.qml`,
+  `quickshell/shell/services/Capture.qml`).
+- **Ryogami survives an account rename.** The daemon resolves the picker from
+  the active user's XDG data home, stores home-owned catalogue and wallpaper
+  paths as `~/...`, and Doctor rewrites old-home paths in existing config,
+  output state, thumbnail indexes, trash manifests, service overrides and
+  compatibility symlinks (`ryogami/daemon/`, `../cli/internal/doctor/`).
+- **Python loads instead of falling back to Sumi.** Its Bluetooth service import
+  is qualified so it no longer shadows the notification namespace that builds
+  Python's popup host
+  (`quickshell/shell/modules/bar/barstyles/python/Main.qml`).
+- **qsbar stays solid with windows open.** It faded with every open window
+  until it vanished, because it reused the desktop's deck frost strength for
+  its own fill. qsbar now keeps its own opacity and the frost stays on the
+  desktop (`quickshell/shell/modules/bar/barstyles/qsbar/BarSlot.qml`).
+- **Shima's Dock takes pointer input again.** Its full-output layer mapped the
+  small Dock input mask through the Stage frame and collapsed it to the
+  screen's top-left corner, so the visible icons ignored clicks and drags.
+  The mask now follows the Dock's actual scene rectangle both on the desktop
+  and inside the Stage Editor card
+  (`quickshell/inir/modules/iris/dock/IrisDockSurface.qml`).
+- **`deploy.sh` seeds the decor art into the localized Pictures folder.** The
+  dev deploy copied the shipped decor art into a hardcoded `~/Pictures/ryodecors`;
+  it now uses `XDG_PICTURES_DIR` when the session exports a usable Pictures
+  folder (`deploy.sh`).
+- **Shima caught up with its upstream fixes.** Spotlight no longer reshuffles
+  while you type and keeps a query passed over IPC, wallpaper shuffle and fill
+  mode follow Ryogami, the music bubble and battery glyph match upstream, and
+  the Island collapses cleanly when a page asks it to.
+- **Shima works the same on Hyprland.** The active window title and the Dock's
+  window list now come from the compositor's own window list, so they no longer
+  go blank when a window has no foreign-toplevel handle.
+- **Shima shows one notification, not two.** The generic banner stays out of
+  the way while Shima draws its own, and Shima's banner duration setting is
+  honoured.
+- **Shima's frame, OSD and widgets look right.** The frame is dark instead of
+  grey, `osd volume|brightness|mic|keyboard|media` reach the Island, the
+  desktop clock and calendar pick legible ink, notification tiles are filled,
+  and fresh Shima setups get the Shima Dock.
+- **Orpheus cards close cleanly.** Clicking a bar module to close its card no
+  longer leaves that module's hover hint hanging from the bar
+  (`quickshell/shell/modules/bar/barstyles/orpheus/kit/Hint.qml`).
+- **Hyprland window geometry is polled only while a window floats.** The
+  provider re-read every window's geometry from Hyprland four times a second
+  for the whole session. Tiled geometry now refreshes on the events that move
+  windows, through the control socket, and the 250 ms poll runs only while a
+  floating window is on a visible workspace, since Hyprland reports no event
+  for dragging one (`wm/hyprland/watch.go`).
+- **Ryogami waits on events instead of polling.** Its settings file is
+  watched with inotify (rename-safe, with a short debounce) instead of a stat
+  every two seconds, the Steam workshop tree is watched per item directory and
+  rescanned once a download settles instead of signed every three seconds, the
+  process pause rule waits for its setting while disabled, and battery and
+  adapter changes come from kernel uevents instead of a 10 second sysfs read.
+  Each falls back to a slow poll only when its event source cannot be set up
+  (`ryogami/daemon/`).
+- **A Wi-Fi signal change no longer re-reads all of NetworkManager.** The
+  connected access point's strength moves every few seconds, and each change
+  re-read every access point, device, active connection and saved
+  connection's settings over D-Bus, about 100 round trips and 2,000 system
+  calls. A strength-only change now patches the last frame in place; anything
+  structural still takes the full read (`ipc/network.go`).
+- **The shell daemon waits on events instead of polling at idle.** shell.json
+  is watched with inotify (rename-safe, following a config tree that appears
+  later) instead of a stat every 500 ms. The memory guard samples every 1 to 15
+  seconds by headroom and growth instead of every second. Night light waits on
+  its state files and the backend's pidfd instead of scanning `/proc` twice
+  every 30 seconds while off, the qylock unlock guard holds a pidfd on the lock
+  client instead of rescanning the process table, power cues and the automatic
+  power profile rely on UPower and USB events with a watchdog only while a
+  source is lost, and Matugen's sun mode sleeps until the next sunrise or
+  sunset and re-checks on resume (`ipc/`).
+- **Sumi's edge reservations exist only while Sumi is active.** The frame's
+  four reservation windows reserve space for Sumi alone, yet every other style
+  kept all four mapped, each with its own render thread, GL context and
+  swapchain (`quickshell/shell/modules/bar/{Frame,FrameEdge}.qml`).
+- **Hidden shell surfaces no longer redraw every second.** The compositor
+  gives a covered surface one frame callback a second, and Qt's 100 ms callback
+  timeout turned each into an unexpose and re-expose that rebuilt the surface's
+  swapchain and drew the same picture again. The overview backdrop did this all
+  the time, and the bar, desktop and frame did it under a fullscreen window or a
+  locked screen. The daemon now starts every shell process with that timeout
+  off, so a hidden surface with nothing new to show stays still
+  (`ipc/daemon.go`).
+- **Orpheus's system readouts hold a steady width.** Each reading now keeps
+  the width of its widest usual value, right-aligned, so a number gaining a
+  digit no longer resizes its drop. Every resize sprang the whole liquid body
+  for about a second, and background traffic moved the network rate across a
+  digit every few seconds, which kept the idle bar recomputing its shapes about
+  250 times a second (`quickshell/shell/modules/bar/barstyles/orpheus/modules/Sysmon.qml`).
+- **A still wallpaper no longer loads the video stack.** The desktop backdrop
+  created its MediaPlayer for every wallpaper, and creating one loads FFmpeg
+  and probes the hardware decoders (CUDA, NVDEC, VA-API): about 60 MB of the
+  shell's memory on this NVIDIA laptop, measured 655 MB against 593 MB after.
+  The player, its audio output and the video surface now exist only while an
+  in-shell clip is set (`quickshell/shell/modules/wallpaper/Backdrop.qml`).
+- **Orpheus's spinning cover no longer redraws the bar at the panel's rate.**
+  The cover turned on an animation that ran the bar at 165 frames a second for
+  the whole song, and the media card's seek squiggle did the same. Both now
+  step on one 30 Hz clock that rides the analyser's own updates, which redraw
+  the bar anyway (`barstyles/orpheus/kit/MotionClock.qml`, `CoverArt.qml`,
+  `Squiggle.qml`).
+- **iNiR and iRiS visualizer widgets paint natively.** The bars and wave of
+  every iNiR spectrum (the iRiS desktop visualizer, media overlays) were a
+  JavaScript Canvas that cost the desktop two to three full-window frames per
+  analyser update. `CavaSpectrumPainter`, a C++ QPainter port of the same
+  drawing, repaints once per change; measured on a 165 Hz panel the desktop
+  layer went from about 93 to 65 frames a second while music played, with no
+  JavaScript drawing left (`plugin/cavaspectrum.cpp`,
+  `quickshell/inir/modules/common/widgets/CavaSpectrum.qml`).
+- **The ii dock's Pin button survives the editor and a shell reload.** It now
+  writes the shared `dock.autohide` setting instead of changing a session-only
+  reveal flag, so the dock and Stage Editor show the same pinned state
+  (`quickshell/shell/modules/dock/ii/Dock.qml`).
+- **A copy survives a shell restart.** The selection keeper dies with the
+  daemon, so an update, a deploy or a crash emptied the clipboard and the next
+  Ctrl+V pasted nothing, though the history still held the copy. Within the
+  same compositor session the restarted daemon now offers the newest entry
+  again when nothing owns the selection; a new login or compositor still starts
+  empty, and the history does not grow (`ipc/clipboard_restore.go`).
+- **The line visualizer rests flat after a shell reload.** Reloaded in
+  silence, the scope never ticked and drew its empty levels as a full-height
+  zig-zag until music played. Its resting trace is now the centre line from
+  the start, after a bar-count change and on a hard freeze
+  (`quickshell/shell/modules/visualizer/Motion.qml`).
+- **QS Bar's silent drift draws half the frames.** On Performance the idle
+  stream advanced 20 times a second; it now steps at 10, which the slow drift
+  does not show, and music keeps its 30 or 60 fps
+  (`barstyles/qsbar/modules/StreamShader.qml`).
+- **Python material clocks without seconds tick once a minute.** The analog
+  face woke every second and Lumen every second (25 times a second with
+  seconds shown); with the seconds hand off both now wake at the next minute,
+  and Lumen's seconds sweep runs at 10 ticks a second
+  (`barstyles/python/widgets/faces/clock/ClockFaceMaterialAnalog.qml`,
+  `ClockFaceMaterialLumen.qml`).
+- **The Python battery face's wave settles.** Its liquid wave ran for as long
+  as the battery was neither empty nor full, which is almost always. It now
+  stirs for one wave period when the charge or the charging state changes and
+  then holds still (`barstyles/python/widgets/faces/battery/BatteryFace.qml`).
+- **Python usage faces stop animating for noise.** The CPU, RAM and
+  temperature faces (and their circle variants) restarted an 800 ms ease on
+  every sample, so sub-percent jitter kept the bar or desktop drawing at the
+  display rate. Readings are rounded to the shown precision first, and the ease
+  only runs when the number on screen changes
+  (`barstyles/python/widgets/faces/usage/`).
+- **iRiS media faces read the playback position in-process.** The iNiR MPRIS
+  controller forked `busctl` every 3 s while anything played, twenty launches a
+  minute during music, to read a position Quickshell already fetches over
+  D-Bus. It asks the player to refresh `Position` instead and keeps the same
+  stale-publisher handling (`quickshell/inir/services/MprisController.qml`).
+- **Phone discovery stops retrying every 15 s without Avahi.** With no
+  avahi-daemon running, the wireless-ADB browse exited at once and was
+  relaunched every 15 s through bash and setpriv, twelve launches a minute for
+  good. The retry now doubles up to ten minutes and resets once a browse stays
+  up (`quickshell/shell/modules/phone/KdeConnectService.qml`).
+- **The shell daemon sleeps when nothing happens.** The qylock release check
+  ran `pgrep` plus `ryoku-host` (and its `systemctl`) every 5 s for the whole
+  session, 36 launches a minute; it now scans `/proc` in-process, asks the
+  systemd user manager over D-Bus (runit boxes keep the `ryoku-host`
+  transient check), and is woken by lock, unlock, sleep and resume with a 30 s
+  safety pass. The power profile, power sounds, night light, palette idle,
+  widget gate and matugen watchers stopped ticking every 0.5 to 10 s and wait
+  on UPower, power-profiles-daemon, netlink, inotify, pidfd and exact
+  deadlines instead, each with a slow reconciliation pass. The memory
+  backstop still samples once a second, reading only `VmRSS` and `VmSwap`
+  (`ipc/sleepwake.go`, `ipc/processscan.go`, `ipc/autoprofile.go`,
+  `ipc/powersounds.go`, `ipc/devicesounds.go`, `ipc/nightlight*.go`,
+  `ipc/idlewatch.go`, `ipc/widgetwatch.go`, `ipc/matugen.go`, `ipc/memwatch.go`).
+- **Phone support and closed features cost nothing at idle.** With a phone
+  paired, the shell ran an adb pipeline every 30 s, checked scrcpy with
+  `pgrep` every 10 s and kept the Android icon extractor resident. ADB state
+  now refreshes on KDE Connect and network events, scrcpy is watched only
+  while mirroring, the icon extractor starts on demand and exits after 15 s
+  idle, and the alarm sync keeps its configured cadence. The Ask bubble, the
+  Stage Editor host, the ii dock host, the keep-awake inhibitor and the
+  keyboard bounce window are built only while their feature is on
+  (`quickshell/shell/shell.qml`, `quickshell/shell/modules/phone/`).
+- **Docks rest when nothing changes.** The dock service canonicalised every
+  window on every compositor update, titles included; it now caches desktop
+  ids and skips title-only updates, and its icon warm-up runs only while icons
+  are unresolved. The Python dock unmaps its big window after the hide
+  animation and reveals from a thin edge strip, with its visuals off while
+  hidden; the ii dock runs magnification only while revealed and moving,
+  captures live previews at 1x and drops them on hide, loads weather, sports,
+  media and preview widgets only while the dock shows, and decodes every image
+  at its display size. The music popout's bars follow the shared feed without
+  their own timer or per-bar animations
+  (`quickshell/shell/services/Dock.qml`, `quickshell/shell/modules/dock/ii/`,
+  `quickshell/shell/modules/bar/barstyles/python/dock/Dock.qml`,
+  `quickshell/shell/modules/bar/MusicBars.qml`).
+- **The desktop stops redrawing every second.** The desktop is one full-screen
+  surface, and the shared clock ticked every second for faces that show only
+  minutes, so the whole wallpaper and every widget re-rendered once a second.
+  `Now` now runs a minute clock and starts a seconds clock only while a face
+  that shows seconds is loaded; the flip clock's colon pulses on the minute.
+  A static wallpaper paints directly with no resident transition capture, the
+  glass mirror exists only for a visible glass widget and decodes at a
+  quarter of the resolution, the overview backdrop blurs a quarter-resolution
+  copy of its one sharp image and frees it when the blur eases out, and the
+  shared battery percentage moves in whole percents
+  (`quickshell/shell/modules/desktop/`, `quickshell/shell/modules/wallpaper/`,
+  `quickshell/stage/services/Battery.qml`).
+- **Kairos draws its music art at the size it shows.** Cover and backdrop
+  decode at their largest display size instead of the file's, and the
+  backdrop's masked layer and blur exist only while the full panel is open.
+  Progress reads the shared music clock instead of poking MPRIS every 500 ms,
+  the low-battery ring pulses briefly every few seconds (still in reduced
+  motion), the date wheel formats its labels once per anchor, and quick
+  settings owns its device probes so page changes no longer start them twice
+  (`quickshell/shell/modules/bar/barstyles/kairos/`).
+- **Orpheus is bar-sized until it needs the screen.** Its window was a full
+  2560x1600 transparent surface at all times, so every frame of the drops
+  re-rendered and recomposited the whole screen, 172 times a second on a 165 Hz
+  panel while music played. At rest it is now as tall as the bar, its deepest
+  drop and its bubbles (84 logical px on the reference box); it grows to full
+  height before a card, settings, hover-open or a span morph needs the room,
+  starts that animation once the room is there, and shrinks after the close
+  melt. The drops integrate real time but ask for at most 60 frames a second,
+  coalesce the three waves into one group update per audio frame and stop
+  once settled. Workspace rows rebuild only when workspaces change (not on a
+  window title), the voice island drops its 250 ms expiry poll for exact
+  deadlines, battery fill moves in whole percents, and the spectrum bars follow
+  the feed without per-bar animations
+  (`quickshell/shell/modules/bar/barstyles/orpheus/`, `plugin/blob*`).
+- **Music no longer costs most of a CPU core.** Playing a song ran three cava
+  processes (the bar feed, the visualizer and an iNiR copy for iRiS widgets and
+  the ii dock) plus a Python capture for the line visualizer, and QML split
+  and parsed every text frame. The new C++ `CavaFeed` reads cava's binary
+  output straight into a fixed buffer and does the all-sound peak follower,
+  noise floor and stale flattening natively; `AudioBars`, `VoiceBars` and the
+  visualizer's `Spectrum` run on it with the same API and feel, and the iNiR
+  `CavaService` is now a view of `AudioBars`, so one analyser serves the bar,
+  the dock and the desktop. `WaveCapture` replaces `wavecap.py`: it runs
+  `pw-record` itself and decimates in C++. The visualizer stops ticking once
+  silence settles (the idle wave stays drawn, still), its window covers only
+  what it draws outside the editor, and audio-reactive desktop faces follow
+  the 30 fps feed instead of animating at the display's refresh rate
+  (`plugin/cavafeed.*`, `plugin/wavecapture.*`,
+  `quickshell/shell/services/{AudioBars,VoiceBars}.qml`,
+  `quickshell/shell/modules/visualizer/`,
+  `quickshell/inir/services/deferred/CavaService.qml`).
+- **System stats come from the native monitor and launch nothing.** `Sysinfo`
+  and `StatsFeed` were QML readers of `/proc` and sysfs that also forked
+  `nvidia-smi` every 5 s, `df` every 30 s and a discovery shell at start. They
+  are now thin views over one shared C++ `SystemMonitor` on a worker thread,
+  with the same properties and 1.5 s cadence while a widget is shown and no
+  work without one; NVML is still never asked while the dGPU sleeps. The
+  recorder trusts its status file (a 60 s watchdog at idle instead of a shell
+  every 5 s), screen time accrues on focus changes instead of sampling, the
+  media picker reacts to MPRIS signals instead of re-picking every second,
+  `Music` holds one shared position clock for every progress bar, and
+  `ryoku-rashin chat --follow` runs only while an Agent surface wants it
+  (`plugin/systemmonitor.*`, `quickshell/shell/services/{Sysinfo,StatsFeed,Recorder,ScreenTime,Media,Music,Needle}.qml`).
+- **Ryogami follows the compositor through one watcher.** The daemon ran two
+  `ryoku-wm-<provider> watch` processes, one for outputs and one for windows,
+  workspaces, focus and overview; it now runs one with the union of both and
+  hands each frame to the same consumers in order. Playback and workspace
+  reactions still wait for startup to finish, as before
+  (`ryogami/daemon/restore_watch.go`, `ryogami/daemon/pause_rules.go`).
+- **Stage stops announcing old settings after every update.** Two banner
+  switches now have explicit defaults, so the schema checker recognises them,
+  and Doctor removes fourteen widget settings retired by the latest editor
+  controls. The warning now names `stage-editor.json`, the file it actually
+  checks (`quickshell/stage/modules/common/Config.qml`,
+  `../cli/internal/doctor/doctor.go`).
+- **Palette Bridge follows the current Matugen pipeline without freezing its app roster.**
+  The shell renders the bridge's opt-in supplemental template file after its
+  shipped app templates, so Vesktop and Zen keep repainting while new Ryoku app
+  templates continue reaching existing users (`ipc/matugen.go`).
+- **Bluetooth stays off after reboot and login.** The shell's Bluetooth and
+  airplane-mode controls now use the shared power helper instead of changing
+  only BlueZ's temporary `Powered` property, so the saved radio choice also
+  survives the login-time A2DP service reset
+  (`quickshell/{shell,inir,stage}/`, `nomarchy/bin/omarchy-bluetooth-power`).
 - **The first thing you install from RyoStore shows up without a restart.** On
   a box that had never installed from the store, the shell started before the
   store's index folder existed, and a file watch cannot see files appear in a
@@ -198,6 +570,22 @@
   style is gone (`barstyles/python/`).
 
 ### Changed
+- **The wallpaper picker frees its memory a minute after closing.** "Keep
+  loaded after closing" in the picker's Performance tab now defaults to 1
+  minute (a new first choice after Always), and the daemon does the parking:
+  it waits until the picker reports itself hidden and idle, with no settings
+  write, rice capture, export, import or workshop discovery in flight, stops it
+  gracefully, and cold-starts the next open straight onto the requested view.
+  A press during the stop waits for it and starts exactly one picker. Always
+  keeps it resident as before (`ryogami/daemon/process.go`,
+  `ryogami/picker/qml/`, `ryogami/picker/src/core/settings.{cpp,h}`).
+- **Docks stay on screen unless auto-hide is turned on.** `dock.autohide`
+  defaulted to true, so the Stage Editor showed the dock while editing and
+  Done handed it back to auto-hide: on any workspace with windows it slid away
+  and read as lost. A missing setting now means visible in every design (Ryoku,
+  Python, Shima, ii), the daemon and the editor pages; a saved auto-hide choice
+  is kept as it is (`quickshell/shell/services/Config.qml`, `ipc/bar.go`,
+  `quickshell/shell/modules/dock/`).
 - **Fresh Ryogami profiles start with a new picker setup.** Slices open wider
   with the Ash flip and wobble, the picker uses 1.2x scale and faster
   filtering, overview blur starts at 45 px, new images are optimised with the

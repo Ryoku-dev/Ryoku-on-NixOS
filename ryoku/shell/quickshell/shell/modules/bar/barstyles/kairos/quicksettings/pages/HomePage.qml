@@ -112,8 +112,6 @@ Column {
         : page.wxCold ? Qt.rgba(0, 0.05, 0.12, 0.5)
         : Qt.rgba(0, 0, 0, 0.36)
 
-    Component.onCompleted: Devices.startProbes(page)
-    Component.onDestruction: Devices.stopProbes(page)
 
     Row {
         width: parent.width

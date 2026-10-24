@@ -1826,6 +1826,74 @@ func TestMigrateDockStore(t *testing.T) {
 	}
 }
 
+func TestMigrateStageDockStoreDropsRetiredEditorKeys(t *testing.T) {
+	stage := []byte(`{
+		"configVersion": 29,
+		"background": {
+			"widgets": {
+				"at_a_glance": {
+					"animateContent": true,
+					"enableSports": true,
+					"showLocation": true,
+					"showSeparators": true,
+					"showServiceLabel": false,
+					"sportsWindowHours": 12,
+					"enableTodo": true
+				},
+				"circular_media": {"progressShape": "round", "enable": true},
+				"clock_cookie": {"aiStylingModel": "gemini", "dateInClock": true, "enable": true},
+				"clock_dial": {"expressiveColors": true, "enable": true},
+				"compact_media": {"backgroundShape": "Rectangle", "enableInnerShadow": false, "enable": true},
+				"nothing_wheel_clock": {"expressiveColors": true, "enable": true},
+				"wearos_clock": {"useAlbumColors": true, "enable": true}
+			}
+		},
+		"dock": {"smartGrouping": true},
+		"sidebar": {"enableBanner": false}
+	}`)
+
+	out, pins, changed, err := migrateStageDockStore(stage)
+	if err != nil || !changed {
+		t.Fatalf("migrateStageDockStore: changed=%v err=%v", changed, err)
+	}
+	if len(pins) != 0 {
+		t.Fatalf("pins = %v, want none", pins)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("migrated JSON does not parse: %v", err)
+	}
+	for _, path := range retiredStageEditorPaths {
+		var node any = got
+		for i, key := range path {
+			object, ok := node.(map[string]any)
+			if !ok {
+				t.Fatalf("%v stopped at a non-object before %q", path, key)
+			}
+			node, ok = object[key]
+			if i == len(path)-1 {
+				if ok {
+					t.Errorf("retired key %v survived", path)
+				}
+				break
+			}
+			if !ok {
+				t.Fatalf("%v lost its parent %q", path, key)
+			}
+		}
+	}
+	widgets := got["background"].(map[string]any)["widgets"].(map[string]any)
+	if glance := widgets["at_a_glance"].(map[string]any); glance["enableTodo"] != true {
+		t.Errorf("unrelated at-a-glance setting was lost: %v", glance)
+	}
+	if got["sidebar"].(map[string]any)["enableBanner"] != false {
+		t.Errorf("unrelated sidebar setting was lost: %v", got["sidebar"])
+	}
+	if _, _, again, err := migrateStageDockStore(out); err != nil || again {
+		t.Errorf("re-migrating must be a no-op: changed=%v err=%v", again, err)
+	}
+}
+
 // limineDropFlat mirrors the installer's promote surgery: flat placeholder
 // entries go (with their indented options), default_entry moves off the tree
 // directory, globals and the /+ tree survive untouched.
@@ -2439,6 +2507,8 @@ func TestReconcileBrandLogo(t *testing.T) {
 func TestReconcileRyodecors(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_PICTURES_DIR", "")
 	repo := t.TempDir()
 	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
 		t.Skipf("git unavailable: %v %s", err, out)
@@ -2483,6 +2553,37 @@ func TestReconcileRyodecors(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(userFile); string(b) != "mine" {
 		t.Fatalf("a user's own decor file must survive the reconciler")
+	}
+}
+
+// A localized desktop keeps its pictures in ~/Imágenes: the decor art is seeded
+// there and no stray ~/Pictures appears beside it.
+func TestReconcileRyodecorsLocalizedPictures(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_PICTURES_DIR", filepath.Join(home, "Imágenes"))
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Skipf("git unavailable: %v %s", err, out)
+	}
+	src := filepath.Join(repo, "ryoku", "assets", "ryodecors")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "a.png"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RYOKU_REPO", repo)
+
+	if r := reconcileRyodecors(false); r.status != recFixed {
+		t.Fatalf("fix: status=%s detail=%q, want fixed", r.status.label(), r.detail)
+	}
+	if _, err := os.Stat(filepath.Join(home, "Imágenes", "ryodecors", "a.png")); err != nil {
+		t.Fatalf("decor art must land in the XDG Pictures folder: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "Pictures")); !os.IsNotExist(err) {
+		t.Fatalf("a localized desktop must not grow ~/Pictures (stat err=%v)", err)
 	}
 }
 

@@ -4,20 +4,21 @@ import Ryoku.Ui
 import Ryoku.Ui.Singletons
 import ".."
 import "../schema/GlobalPage.js" as GlobalSchema
+import "users" as Users
 
-// Global: the cross-cutting preferences that are not tied to one surface: the
-// interface language, regional formats used for dates and numbers, machine
-// location, fonts, app icons, the blur and dim behind open windows and, on a
-// tab of their own, desktop sounds. Rendered through the shared SchemaPage; the
-// ledger and action bar belong to the shell.
+// Global: the cross-cutting preferences that are not tied to one surface:
+// language and regional formats, people, fonts, app icons, window treatment
+// and desktop sounds. The full account and sound blocks sit on their own tabs;
+// schema rows keep using the shared settings sheet.
 Item {
     id: pg
     property var hub
 
     readonly property string pTitle: I18n.tr("Global")
     readonly property string pEyebrow: I18n.tr("GLOBAL")
-    readonly property string pBlurb: I18n.tr("Language, regional formats, location, fonts, icons, window blur and sounds.")
+    readonly property string pBlurb: I18n.tr("Language, regional formats, people, fonts, icons, window blur and sounds.")
     readonly property string soundsTab: "Sounds"
+    readonly property string usersTab: I18n.tr("Users")
     function focusKey(k) { sp.focusKey(k) }
     function resetDefaults() {
         if (!pg.hub)
@@ -124,9 +125,9 @@ Item {
         onEdited: (k, v) => { if (pg.hub) pg.hub.edit(k, v); }
         onPickRequested: (r) => { if (pg.hub) pg.hub.openPick(r); }
         onTimezonePickRequested: (r) => tzMap.open()
-        // The sounds are a list of cues with their own play, choose and remove
-        // buttons rather than schema rows, so they get a tab of their own.
-        tailTabs: [pg.soundsTab]
+        // Sounds and user accounts are full blocks rather than schema rows, so
+        // each gets a tab of its own.
+        tailTabs: [pg.soundsTab, pg.usersTab]
 
         IconThemeSettings {
             id: iconThemes
@@ -141,6 +142,11 @@ Item {
         SoundsSettings {
             width: parent.width
             visible: sp.tab === pg.soundsTab
+        }
+
+        Users.UsersTab {
+            width: parent.width
+            visible: sp.tab === pg.usersTab
         }
     }
 

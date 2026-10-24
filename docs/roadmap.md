@@ -21,7 +21,7 @@ that budget deliberately, cheapest wins first.
 I refuse to guess. The first deliverable is a baseline, and it is also the
 cheapest item in this file.
 
-**What we need to know, on a clean reference session, for both compositors:**
+**What we need to know, on a clean reference session, for every compositor:**
 
 - login to first painted surface
 - per-surface frame cost while idling, while animating, and while playing audio
@@ -37,11 +37,16 @@ table and a place the numbers live where reviewers can see them.
 **Done means:**
 
 - one committed script that prints the full baseline table on a clean session
-- baseline recorded on the reference hardware for Hyprland and niri
+- baseline recorded on the reference hardware for every compositor
 - the numbers are visible in the repo, not in someone's notes
 
 This phase has no hard part and no design decisions. It is also the prerequisite
 for every other phase, because nothing below can claim a win without it.
+
+**Where it is:** the script exists (`bin/ryoku-dev-perf-baseline`) and the first
+baseline, with the October 2026 before and after, lives in
+`docs/performance.md`. It was recorded on niri only; the Hyprland and Wayfire
+rows are still to take on the reference hardware.
 
 ## Phase 1: stop paying the parse tax
 

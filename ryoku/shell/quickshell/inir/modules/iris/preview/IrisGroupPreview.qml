@@ -299,7 +299,7 @@ ClippingRectangle {
             readonly property real naturalWidth: Math.round((dockRoot.vertical ? 620 : 760) * root.d)
             readonly property real naturalHeight: dockRoot.vertical ? Math.max(Math.round(300 * root.d), Math.round(dockRoot.length + 64 * root.d)) : Math.round(300 * root.d)
             readonly property bool enabledDock: root.opt("iris.dock.enable", true)
-            readonly property bool autoHide: root.opt("iris.dock.autoHide", true)
+            readonly property bool autoHide: root.opt("iris.dock.autoHide", false)
             readonly property bool reserve: !dockRoot.autoHide && root.opt("iris.dock.reserveSpace", true)
             readonly property bool revealOnEmpty: root.opt("iris.dock.revealOnEmpty", true)
             readonly property bool notch: root.opt("iris.dock.notch", true)
@@ -649,7 +649,7 @@ ClippingRectangle {
             readonly property real naturalWidth: Math.round(680 * root.d)
             readonly property real naturalHeight: Math.round(220 * root.d)
             readonly property var names: ({ island: "Island", workspaces: "Workspaces", window: "Window", time: "Time", tray: "Tray",
-                notifications: "Notifications", sound: "Sound", controls: "Controls", mic: "Mic", weather: "Weather", tools: "Tools", media: "Media" })
+                notifications: "Notifications", sound: "Sound", controls: "Controls", mic: "Mic", weather: "Weather", tools: "Tools", media: "Media", equalizer: "Equalizer" })
             function listOf(path: string, fallback: var): var { return Array.from(root.opt(path, fallback) ?? []).map(kind => String(kind)) }
             readonly property var zones: [
                 zonesRoot.listOf("iris.bar.fullStart", ["workspaces", "window"]),
@@ -2303,7 +2303,8 @@ ClippingRectangle {
                 color: IrisStyle.bodySurface
                 border.width: IrisStyle.rim.a > 0 ? 1 : 0
                 border.color: IrisStyle.rim
-                IrisGlassEdge { anchors.fill: parent; z: 10; visible: IrisStyle.edgeLit && shown; radius: parent.radius }
+                // ClippingRectangle children live in a content item without the card's radius.
+                IrisGlassEdge { anchors.fill: parent; z: 10; visible: IrisStyle.edgeLit && shown; radius: playerCard.radius }
                 Image {
                     id: artSource
                     anchors.fill: parent

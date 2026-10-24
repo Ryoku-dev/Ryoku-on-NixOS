@@ -6,12 +6,12 @@ scene. When Sumi is the active style,
 `ryoku/shell/quickshell/shell/modules/bar/Bar.qml` creates a `FrameRail` for each
 edge and reads the normalized `frameBars` object from `~/.config/ryoku/shell.json`.
 
-Sumi is no longer the shipped default. The default is **qsbar**, a separate
-full-color top bar that loads from a self-contained folder under
+Sumi is not the shipped default. The default is **orpheus**, a liquid top bar
+that loads from a self-contained folder under
 `shell/modules/bar/barstyles/`. `Frame.qml` draws Sumi's rails only while
 `barStyle` resolves to no folder scene (the id `"sumi"` or an empty value), and
 any other id mounts that folder style's `Scene.qml` instead. For style
-selection and qsbar, see `docs/barstyles.md`.
+selection and QS Bar, see `docs/barstyles.md`.
 
 A rail is a thin interactive strip, not a second panel process. The monitor
 overlay owns its input region and the corresponding exclusive-zone reserve, so
@@ -109,9 +109,9 @@ configuration writer.
 
 ## QS Bar layout (`qsbar.layout`)
 
-The **qsbar** top bar (the shipped default; style selection lives in
-`docs/barstyles.md`) keeps its widget order as data in `~/.config/ryoku/shell.json`
-under `qsbar.layout`, not in a cache file:
+The **qsbar** top bar (a built-in choice; style selection lives in
+`docs/barstyles.md`) keeps its widget order as data in
+`~/.config/ryoku/shell.json` under `qsbar.layout`, not in a cache file:
 
 ```json
 "qsbar": {

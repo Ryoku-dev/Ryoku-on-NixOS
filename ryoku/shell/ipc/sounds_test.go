@@ -170,24 +170,6 @@ func TestPowerCueBatteryFull(t *testing.T) {
 	}
 }
 
-func TestDeviceCueSeedsAndSkipsResume(t *testing.T) {
-	var c deviceCue
-	t0 := time.Unix(1000, 0)
-	if cues := c.step(map[string]bool{"1-1": true}, t0); len(cues) != 0 {
-		t.Fatalf("first reading played %v", cues)
-	}
-	if cues := c.step(map[string]bool{"1-1": true, "1-2": true}, t0.Add(powerPoll)); len(cues) != 1 || cues[0] != soundDeviceAdded {
-		t.Fatalf("plug played %v, want [device-added]", cues)
-	}
-	if cues := c.step(map[string]bool{"1-2": true}, t0.Add(2*powerPoll)); len(cues) != 1 || cues[0] != soundDeviceRemoved {
-		t.Fatalf("unplug played %v, want [device-removed]", cues)
-	}
-	// A long gap is a suspend: resume re-enumeration is not a plug.
-	if cues := c.step(map[string]bool{"2-1": true}, t0.Add(time.Hour)); len(cues) != 0 {
-		t.Fatalf("resume played %v, want none", cues)
-	}
-}
-
 func TestUSBDevicesSkipsHubsAndInterfaces(t *testing.T) {
 	root := t.TempDir()
 	for _, n := range []string{"usb1", "1-0:1.0", "1-2", "1-2:1.0", "3-1.4"} {

@@ -9,8 +9,16 @@ import (
 func withServiceManifestFake(t *testing.T, fn func(bool) int) {
 	t.Helper()
 	old := serviceManifestReconcile
+	oldSystemCheck := serviceManifestSystemCheck
+	oldSystemReconcile := serviceManifestSystemReconcile
 	serviceManifestReconcile = fn
-	t.Cleanup(func() { serviceManifestReconcile = old })
+	serviceManifestSystemCheck = func() int { return host.ExitOK }
+	serviceManifestSystemReconcile = func() error { return nil }
+	t.Cleanup(func() {
+		serviceManifestReconcile = old
+		serviceManifestSystemCheck = oldSystemCheck
+		serviceManifestSystemReconcile = oldSystemReconcile
+	})
 }
 
 func TestReconcileServiceManifestAlreadyConverged(t *testing.T) {
@@ -48,5 +56,20 @@ func TestReconcileServiceManifestRepairsDrift(t *testing.T) {
 	}
 	if len(calls) != 2 || !calls[0] || calls[1] {
 		t.Fatalf("calls = %v", calls)
+	}
+}
+
+func TestReconcileServiceManifestRepairsSystemWideDrift(t *testing.T) {
+	withServiceManifestFake(t, func(bool) int { return host.ExitOK })
+	serviceManifestSystemCheck = func() int { return host.ExitFalse }
+	called := false
+	serviceManifestSystemReconcile = func() error {
+		called = true
+		return nil
+	}
+
+	result := reconcileServiceManifest(false)
+	if result.status != recFixed || !called {
+		t.Fatalf("result = %#v, system reconcile called = %v", result, called)
 	}
 }

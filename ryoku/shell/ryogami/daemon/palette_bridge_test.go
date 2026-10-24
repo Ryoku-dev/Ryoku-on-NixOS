@@ -128,3 +128,37 @@ exit 9
 		t.Fatal("accepted malformed status")
 	}
 }
+
+func TestPaletteBridgeAvailabilityRequiresInstalledRuntime(t *testing.T) {
+	d := newSettingsDaemon(t)
+	root := t.TempDir()
+	source := filepath.Join(root, "recipes")
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if err := d.persistSetting("paletteBridgeSource", source); err != nil {
+		t.Fatal(err)
+	}
+	writeExec := func(path string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeExec(filepath.Join(bin, "ryoku-hub"))
+	if availability["paletteBridge"](d) {
+		t.Fatal("recipes and bridge binary missing but controls are available")
+	}
+	for _, name := range []string{"install.sh", "install-integrations.sh", "remove-integrations.sh"} {
+		writeExec(filepath.Join(source, name))
+	}
+	writeExec(filepath.Join(bin, "ryoku-palette-bridge"))
+	if !availability["paletteBridge"](d) {
+		t.Fatal("complete palette bridge installation is unavailable")
+	}
+}

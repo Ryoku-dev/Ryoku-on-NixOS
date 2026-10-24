@@ -2,123 +2,39 @@ pragma Singleton
 
 import QtQuick
 import Quickshell
-import Quickshell.Io
+import Ryoku.Blobs
 import "../utils/menupoll.js" as MenuPoll
 
-// Live computer stats for the quick-settings system monitor: CPU load from
-// /proc/stat deltas, memory from /proc/meminfo, and a best-effort CPU package
-// temperature scanned from hwmon. Polls on a 1.5s tick only while a visible
-// owner claims it (setActive, owner-refcounted like AudioBars), so an unseen
-// monitor costs nothing. A short CPU history feeds the card's sparkline.
 Singleton {
     id: root
 
     property var owners: []
     readonly property bool active: root.owners.length > 0
-    function setActive(owner, on) { root.owners = MenuPoll.setOwnership(root.owners, owner, on); }
-
-    // 0..1 loads, GiB memory, degrees C.
-    property real cpu: 0
-    property real mem: 0
-    property real memUsedGiB: 0
-    property real memTotalGiB: 0
-    property real tempC: 0
-    readonly property bool hasTemp: root.tempC > 0
-    // recent CPU fractions (oldest .. newest) for the sparkline.
-    property var cpuHistory: []
-
-    property real _prevTotal: 0
-    property real _prevIdle: 0
-
-    // /proc/stat line 1: "cpu user nice system idle iowait irq softirq ...".
-    // usage over the interval = 1 - idle_delta / total_delta.
-    function _readStat(text) {
-        var first = (text || "").split("\n")[0] || "";
-        var p = first.trim().split(/\s+/);
-        if (p[0] !== "cpu")
-            return;
-        var total = 0;
-        for (var i = 1; i < p.length; i++)
-            total += Number(p[i]) || 0;
-        var idle = (Number(p[4]) || 0) + (Number(p[5]) || 0); // idle + iowait
-        var dt = total - root._prevTotal;
-        var di = idle - root._prevIdle;
-        if (root._prevTotal > 0 && dt > 0) {
-            var u = Math.max(0, Math.min(1, 1 - di / dt));
-            root.cpu = u;
-            var h = root.cpuHistory.slice();
-            h.push(u);
-            while (h.length > 48)
-                h.shift();
-            root.cpuHistory = h;
-        }
-        root._prevTotal = total;
-        root._prevIdle = idle;
+    function setActive(owner, on) {
+        root.owners = MenuPoll.setOwnership(root.owners, owner, on);
     }
 
-    function _readMem(text) {
-        var tot = 0, avail = 0;
-        var lines = (text || "").split("\n");
-        for (var i = 0; i < lines.length; i++) {
-            var m = /^MemTotal:\s+(\d+)/.exec(lines[i]);
-            if (m) { tot = Number(m[1]); continue; }
-            m = /^MemAvailable:\s+(\d+)/.exec(lines[i]);
-            if (m) avail = Number(m[1]);
-        }
-        if (tot > 0) {
-            root.mem = Math.max(0, Math.min(1, (tot - avail) / tot));
-            root.memTotalGiB = tot / 1048576;
-            root.memUsedGiB = (tot - avail) / 1048576;
-        }
+    property bool _statsActive: false
+    function _setStatsActive(on) {
+        root._statsActive = on;
     }
 
-    // hwmon reports temp in millidegrees; degrees fall through unchanged.
-    function _readTemp(text) {
-        var v = parseInt((text || "").trim(), 10);
-        if (!isNaN(v) && v > 0)
-            root.tempC = v > 1000 ? v / 1000 : v;
+    readonly property alias monitor: monitor
+    property real cpu: monitor.cpuPercent / 100
+    property real mem: monitor.memoryPercent / 100
+    property real memUsedGiB: monitor.memoryUsedGiB
+    property real memTotalGiB: monitor.memoryTotalGiB
+    property real tempC: monitor.cpuTemp
+    readonly property bool hasTemp: monitor.cpuTempAvailable
+    property var cpuHistory: monitor.cpuHistory
+
+    SystemMonitor {
+        id: monitor
+        samplePeriodMs: 1500
+        historyLimit: 48
+        includeVirtualNetwork: true
+        // Every reading here feeds something on screen, so nothing samples
+        // while the session is locked or the displays are off.
+        active: (root.active || root._statsActive) && !Presence.dark
     }
-
-    FileView { id: statFile; path: "/proc/stat"; blockLoading: true; printErrors: false; onLoaded: root._readStat(statFile.text()) }
-    FileView { id: memFile; path: "/proc/meminfo"; blockLoading: true; printErrors: false; onLoaded: root._readMem(memFile.text()) }
-
-    // CPU package temperature without a shell: the hwmon index carrying the
-    // CPU sensor differs per machine, so every candidate name file is read
-    // once at load and the first known CPU sensor pins the temp path. The tick
-    // then reloads that one file; no fork ever.
-    property string tempPath: ""
-    readonly property var cpuSensorNames: ["k10temp", "zenpower", "coretemp"]
-
-    Instantiator {
-        model: 10
-        delegate: FileView {
-            required property int modelData
-            readonly property string index: "" + modelData
-            path: "/sys/class/hwmon/hwmon" + index + "/name"
-            blockLoading: true
-            printErrors: false
-            onLoaded: {
-                var name = text().trim();
-                if (root.tempPath === "" && root.cpuSensorNames.indexOf(name) >= 0)
-                    root.tempPath = "/sys/class/hwmon/hwmon" + index + "/temp1_input";
-            }
-        }
-    }
-
-    FileView { id: tempFile; path: root.tempPath; blockLoading: true; printErrors: false; onLoaded: root._readTemp(tempFile.text()) }
-
-    Timer {
-        interval: 1500
-        running: root.active
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: {
-            statFile.reload();
-            memFile.reload();
-            tempFile.reload();
-        }
-    }
-    // drop the stale delta baseline on close so the next open measures a fresh
-    // interval rather than one spanning the idle gap.
-    onActiveChanged: if (!root.active) root._prevTotal = 0;
 }

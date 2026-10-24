@@ -313,7 +313,7 @@ Item {
                 on: root.adapterEnabled
                 enabled: root.adapterAvailable
                 Accessible.name: I18n.tr("Bluetooth radio")
-                onToggleRequested: if (root.adapter) root.adapter.enabled = !root.adapter.enabled
+                onToggleRequested: BluetoothPower.toggle()
             }
         }
 

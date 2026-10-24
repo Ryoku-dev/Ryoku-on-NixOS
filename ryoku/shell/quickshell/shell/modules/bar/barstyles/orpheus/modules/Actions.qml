@@ -72,7 +72,7 @@ Item {
             root.scene.toggleClipboard();
             break;
         case "capture":
-            Spawn.run(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
+            Spawn.run(["ryoku-cmd-ryoshot"]);
             break;
         case "wallpaper":
             Quickshell.execDetached(["ryogami", "wallpaper", "ui"]);

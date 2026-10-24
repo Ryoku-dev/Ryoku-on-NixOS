@@ -81,6 +81,8 @@ ShellRoot {
 
     property var overlays: []
     property int frozenCount: 0
+    readonly property string captureReadyFile: Quickshell.env("RYOSHOT_CAPTURE_READY_FILE") || ""
+    property bool captureReadySent: false
 
     readonly property bool testRect: Quickshell.env("RYOSHOT_TESTRECT") === "1"
     readonly property string mode: Quickshell.env("RYOSHOT_MODE") === "monitor" ? "monitor" : "region"
@@ -621,7 +623,7 @@ ShellRoot {
         case "edit":
             root.exported = true;
             Quickshell.execDetached(["sh", "-c",
-                "sleep 0.4; exec flock -n -o /tmp/ryoshot.lock env RYOSHOT_OPEN=\"$1\" qs -c ryoshot",
+                "sleep 0.4; exec env RYOSHOT_OPEN=\"$1\" ryoku-cmd-ryoshot",
                 "sh", path]);
             root.quitSoon();
             break;
@@ -636,8 +638,7 @@ ShellRoot {
             break;
         default:
             root.shutter();
-            root.notifyShot(I18n.tr("Screenshot saved"), path);
-            root.copyImageAndQuit(path);
+            root.copyImageAndQuit(path, path, "savedAndCopied");
         }
     }
 
@@ -708,12 +709,7 @@ ShellRoot {
         if (root.exported) return;
         root.exported = true;
         var s = String(hex);
-        Quickshell.execDetached(["sh", "-c",
-            "f=$(mktemp); printf %s \"$1\" > \"$f\"; ryoku-shell clip-copy text/plain \"$f\"; rm -f \"$f\"", "sh", s]);
-        Quickshell.execDetached(["sh", "-c",
-            "sw=$(mktemp --suffix=.png); if magick -size 96x96 xc:\"$1\" \"$sw\" 2>/dev/null; then notify-send -a ryoku -i \"$sw\" \"$2\" \"$1\"; (sleep 5; rm -f \"$sw\") & else notify-send -a ryoku \"$2\" \"$1\"; fi",
-            "sh", s, I18n.tr("Colour copied")]);
-        root.quitSoon();
+        textClipPrep.start(s, "color", "", s);
     }
 
     // Captures use a UTC stamp plus "_screenshot.png" in the configured folder.
@@ -848,31 +844,139 @@ ShellRoot {
     // Export exactly once per session. The beautify compose can emit copy/save
     // more than once as overlays settle; without this guard each emission spawns
     // another clip-copy, and the racing wl-copy owners cancel out so the live
-    // selection ends up empty (or replaced). The first grab wins; the rest no-op.
+    // selection ends up empty (or replaced). A failed primary copy releases the
+    // guard so the user can retry without reopening the capture.
     property bool exported: false
 
-    // Hand the copy to the persistent ryoku-shell daemon: it owns the Wayland
-    // selection (so it survives ryoshot quitting) and ingests the entry into
-    // clipboard history directly. A wl-copy run from ryoshot itself would die
-    // with the app and never reach history.
-    function copyImageAndQuit(file) {
-        if (root.exported) return;
-        root.exported = true;
-        Quickshell.execDetached(["ryoku-shell", "clip-copy", "image/png", file]);
-        if (Config.copyOnSave) {
-            Quickshell.execDetached(["sh", "-c",
-                "mkdir -p \"$(dirname \"$2\")\"; [ \"$1\" = \"$2\" ] || cp -- \"$1\" \"$2\"", "sh", file, root.defaultPath]);
+    function notifyColorCopied(value) {
+        Quickshell.execDetached(["sh", "-c",
+            "sw=$(mktemp --suffix=.png); if magick -size 96x96 xc:\"$1\" \"$sw\" 2>/dev/null; then notify-send -a ryoku -i \"$sw\" \"$2\" \"$1\"; (sleep 5; rm -f \"$sw\") & else notify-send -a ryoku \"$2\" \"$1\"; fi",
+            "sh", value, I18n.tr("Colour copied")]);
+    }
+
+    function clipboardCopyFinished(ok, notice, savedPath, value, detail) {
+        if (!ok) {
+            var reason = String(detail || "").trim();
+            if (reason.length === 0) reason = I18n.tr("Clipboard command failed");
+            if (savedPath.length > 0) {
+                root.notifySend(I18n.tr("Screenshot saved, but not copied"),
+                    I18n.tr("Saved to %1. %2").arg(savedPath).arg(reason));
+                root.quitSoon();
+            } else {
+                root.notifySend(I18n.tr("Could not copy to clipboard"), reason);
+                root.exported = false;
+            }
+            return;
+        }
+
+        if (notice === "color")
+            root.notifyColorCopied(value);
+        else if (notice === "image")
+            root.notifySend(I18n.tr("Screenshot copied to clipboard"), "");
+        else if (notice === "saved")
+            root.notifyShot(I18n.tr("Screenshot saved"), savedPath);
+        else if (notice === "savedAndCopied") {
+            root.notifyShot(I18n.tr("Screenshot saved"), savedPath);
+            root.notifySend(I18n.tr("Screenshot copied to clipboard"), "");
         }
         root.quitSoon();
-        root.notifySend(I18n.tr("Screenshot copied to clipboard"), "");
     }
+
+    Process {
+        id: clipCopyProc
+        environment: Spawn.env
+        property string notice: ""
+        property string savedPath: ""
+        property string successValue: ""
+        property string tempFile: ""
+        stderr: StdioCollector { id: clipCopyErr; waitForEnd: true }
+
+        function start(mime, file, notice_, savedPath_, value_, tempFile_) {
+            notice = notice_;
+            savedPath = savedPath_;
+            successValue = value_;
+            tempFile = tempFile_;
+            command = ["ryoku-shell", "clip-copy", mime, file];
+            running = true;
+        }
+
+        onExited: (code) => {
+            var finishedNotice = notice;
+            var finishedSavedPath = savedPath;
+            var finishedValue = successValue;
+            var finishedTemp = tempFile;
+            var detail = clipCopyErr.text.trim();
+            notice = "";
+            savedPath = "";
+            successValue = "";
+            tempFile = "";
+            if (finishedTemp.length > 0)
+                Quickshell.execDetached(["rm", "-f", "--", finishedTemp]);
+            root.clipboardCopyFinished(code === 0, finishedNotice,
+                finishedSavedPath, finishedValue, detail);
+        }
+    }
+
+    Process {
+        id: textClipPrep
+        environment: Spawn.env
+        property string notice: ""
+        property string savedPath: ""
+        property string successValue: ""
+        property string tempFile: ""
+        stderr: StdioCollector { id: textClipPrepErr; waitForEnd: true }
+
+        function start(text, notice_, savedPath_, value_) {
+            notice = notice_;
+            savedPath = savedPath_;
+            successValue = value_;
+            tempFile = "/tmp/ryoshot-clip-" + Date.now() + "-"
+                + Math.floor(Math.random() * 1000000000) + ".txt";
+            command = ["sh", "-c", "umask 077; printf %s \"$2\" > \"$1\"",
+                "sh", tempFile, text];
+            running = true;
+        }
+
+        onExited: (code) => {
+            var finishedNotice = notice;
+            var finishedSavedPath = savedPath;
+            var finishedValue = successValue;
+            var finishedTemp = tempFile;
+            var detail = textClipPrepErr.text.trim();
+            notice = "";
+            savedPath = "";
+            successValue = "";
+            tempFile = "";
+            if (code === 0) {
+                clipCopyProc.start("text/plain", finishedTemp, finishedNotice,
+                    finishedSavedPath, finishedValue, finishedTemp);
+            } else {
+                Quickshell.execDetached(["rm", "-f", "--", finishedTemp]);
+                root.clipboardCopyFinished(false, finishedNotice,
+                    finishedSavedPath, finishedValue, detail);
+            }
+        }
+    }
+
+    // The persistent daemon owns the selection so it survives ryoshot quitting.
+    function copyImageAndQuit(file, savedPath, successNotice) {
+        if (root.exported) return;
+        root.exported = true;
+        var copiedTo = savedPath || "";
+        if (Config.copyOnSave && copiedTo.length === 0) {
+            copiedTo = root.defaultPath;
+            Quickshell.execDetached(["sh", "-c",
+                "mkdir -p \"$(dirname \"$2\")\"; [ \"$1\" = \"$2\" ] || cp -- \"$1\" \"$2\"", "sh", file, copiedTo]);
+        }
+        clipCopyProc.start("image/png", file, successNotice || "image", copiedTo, "", "");
+    }
+
     function copyTextAndQuit(text) {
         if (root.exported) return;
         root.exported = true;
-        Quickshell.execDetached(["sh", "-c",
-            "f=$(mktemp); printf %s \"$1\" > \"$f\"; ryoku-shell clip-copy text/plain \"$f\"; rm -f \"$f\"", "sh", text]);
-        root.quitSoon();
+        textClipPrep.start(text, "", "", "");
     }
+
     // Save straight to the Screenshots folder (no dialog), matching Super+S. A
     // beautify render arrives as a temp file and is copied in.
     function saveToScreenshots(src) {
@@ -882,15 +986,17 @@ ShellRoot {
         Quickshell.execDetached(["sh", "-c",
             "mkdir -p \"$(dirname \"$2\")\"; [ \"$1\" = \"$2\" ] || cp -- \"$1\" \"$2\"", "sh", src, dest]);
         if (Config.copyOnSave)
-            Quickshell.execDetached(["ryoku-shell", "clip-copy", "image/png", src]);
-        root.notifyShot(I18n.tr("Screenshot saved"), dest);
-        root.quitSoon();
+            clipCopyProc.start("image/png", src, "saved", dest, "", "");
+        else {
+            root.notifyShot(I18n.tr("Screenshot saved"), dest);
+            root.quitSoon();
+        }
     }
 
     function doCopy() {
         var auto = defaultPath;
         grabTo(auto, function (ok) {
-            if (ok) { root.shutter(); root.copyImageAndQuit(auto); }
+            if (ok) { root.shutter(); root.copyImageAndQuit(auto, "", "image"); }
             else Qt.quit();
         });
     }
@@ -899,11 +1005,15 @@ ShellRoot {
         var auto = root.defaultPath;
         grabTo(auto, function (ok) {
             if (!ok) { Qt.quit(); return; }
+            if (root.exported) return;
             root.shutter();
+            root.exported = true;
             if (Config.copyOnSave)
-                Quickshell.execDetached(["ryoku-shell", "clip-copy", "image/png", auto]);
-            root.notifyShot(I18n.tr("Screenshot saved"), auto);
-            root.quitSoon();
+                clipCopyProc.start("image/png", auto, "saved", auto, "", "");
+            else {
+                root.notifyShot(I18n.tr("Screenshot saved"), auto);
+                root.quitSoon();
+            }
         });
     }
 
@@ -912,8 +1022,7 @@ ShellRoot {
         grabTo(auto, function (ok) {
             if (!ok) { Qt.quit(); return; }
             root.shutter();
-            root.notifyShot(I18n.tr("Screenshot saved"), auto);
-            root.copyImageAndQuit(auto);
+            root.copyImageAndQuit(auto, auto, "savedAndCopied");
         });
     }
 
@@ -1104,7 +1213,7 @@ ShellRoot {
             action = pendingAction;
             outputFile = outputPath;
             command = ["sh", "-c",
-                "mkdir -p \"$(dirname \"$2\")\" && exec grim -g \"$1\" \"$2\"",
+                "mkdir -p \"$(dirname \"$2\")\" && exec ryoku-cmd-grim -g \"$1\" \"$2\"",
                 "sh", geometry, outputPath];
             running = true;
         }
@@ -1189,8 +1298,18 @@ ShellRoot {
         }
     }
 
+    Process {
+        id: captureReadyProc
+        command: ["touch", "--", root.captureReadyFile]
+    }
+
     function noteFrozen() {
         frozenCount += 1;
+        if (!captureReadySent && captureReadyFile.length > 0
+                && frozenCount >= Quickshell.screens.length) {
+            captureReadySent = true;
+            captureReadyProc.running = true;
+        }
         if (testRect && frozenCount >= Quickshell.screens.length) testDriver.start();
     }
 

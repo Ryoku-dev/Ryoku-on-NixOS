@@ -42,6 +42,8 @@ const nlDefaultTemp = 4000
 // A var so the hotplug tests shorten the wait instead of sitting through it.
 var nlRearmGrace = 4 * time.Second
 
+const nightlightFallbackReconcile = 30 * time.Second
+
 // errNightlightUnavailable is what the intents return when the active compositor
 // has no night-light capability, so the caller reports the absence by name.
 var errNightlightUnavailable = errors.New("night light is not available on this desktop")
@@ -75,6 +77,7 @@ type nightlightState struct {
 	schedStopMin    int
 	schedFile       string
 	schedLastDesire bool
+	schedKick       chan struct{}
 
 	// rearmMu guards the hotplug bookkeeping: outputsSeen says the wm watcher
 	// has reported a connector set at least once (the first set only primes, it
@@ -120,6 +123,7 @@ func (d *daemon) startNightlight() {
 		schedMarginMin: nlDefaultMarginMin,
 		schedStartMin:  nlDefaultClockStart,
 		schedStopMin:   nlDefaultClockStop,
+		schedKick:      make(chan struct{}, 1),
 	}
 	d.nightlight = n
 	n.loadSchedule()
@@ -290,50 +294,77 @@ func outputSetSig(outputs []wm.Output) string {
 	return strings.Join(names, ",")
 }
 
-// watch publishes the current state once, then blocks in poll(2) on an inotify
-// watch of the state directory: the marker create/remove and the temp write all
-// land there, so every script-driven change pokes the watcher. Two wake reasons,
-// two behaviours. On a state-dir event the first /proc scan can lie, because the
-// script writes the enabled marker before the provider has spawned the backend,
-// so the wake settles (see settle) before publishing. On the bounded poll
-// timeout, a raw pkill from outside the script touched no watched file, so the
-// expiry is a plain re-check: one scan. No timer, no subprocess.
+// watch publishes the current state once, then waits on the state directory
+// while the backend is off and on its pidfd plus the directory while it runs.
+// A backend started by hand cannot be discovered while off because it changes
+// neither source; Ryoku's script remains the supported owner of that process.
 func (n *nightlightState) watch() {
-	on, temp := n.running(), n.savedTemp()
+	on, pid := n.runningPID()
+	temp := n.savedTemp()
 	n.publish(on)
 
 	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
 	if err != nil {
-		// No inotify: fall back to the settle re-check alone.
 		n.loopNoWatch(on, temp)
 		return
 	}
 	defer unix.Close(fd)
-	if _, err := unix.InotifyAddWatch(fd, n.stateDir, unix.IN_CLOSE_WRITE|unix.IN_CREATE|unix.IN_DELETE|unix.IN_MOVED_TO); err != nil {
-		log.Printf("ryoku-shell: nightlight watch failed: %v", err)
+	if _, err := unix.InotifyAddWatch(fd, n.stateDir,
+		unix.IN_CLOSE_WRITE|unix.IN_CREATE|unix.IN_DELETE|unix.IN_MOVED_TO); err != nil {
+		log.Printf("ryoku-shell: nightlight watch failed, using slow reconciliation: %v", err)
+		n.loopNoWatch(on, temp)
+		return
 	}
 
 	buf := make([]byte, 4096)
+	tempName := filepath.Base(n.tempFile)
 	for {
+		pidfd := -1
+		if pid > 0 {
+			pidfd, _ = unix.PidfdOpen(pid, 0)
+		}
 		pfds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN | unix.POLLERR}}
-		// The bounded poll is the outside-kill re-check: a raw pkill touches no
-		// watched file, so every expiry rescans /proc.
-		nready, err := unix.Poll(pfds, 5000)
-		if err != nil && err != unix.EINTR {
+		timeout := -1
+		if pidfd >= 0 {
+			pfds = append(pfds, unix.PollFd{Fd: int32(pidfd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP})
+		} else if on || n.markerEnabled() {
+			timeout = int(nightlightFallbackReconcile / time.Millisecond)
+		}
+		nready, err := unix.Poll(pfds, timeout)
+		if pidfd >= 0 {
+			unix.Close(pidfd)
+		}
+		if err != nil {
+			if err == unix.EINTR {
+				continue
+			}
 			return
 		}
-		// Drain the inotify queue so the next poll does not fire immediately.
-		for {
-			if _, err := unix.Read(fd, buf); err != nil {
-				break
+		stateChanged := false
+		if pfds[0].Revents != 0 {
+			for {
+				count, err := unix.Read(fd, buf)
+				if err != nil {
+					break
+				}
+				for _, event := range decodeFileEvents(buf[:count]) {
+					if event.mask&unix.IN_Q_OVERFLOW != 0 ||
+						event.name == tempName || event.name == "ryoku-nightlight-enabled" {
+						stateChanged = true
+					}
+				}
 			}
 		}
+		pidExited := pidfd >= 0 && len(pfds) > 1 && pfds[1].Revents != 0
+		if !stateChanged && !pidExited && nready > 0 {
+			continue
+		}
+
 		var next bool
-		if nready > 0 {
-			// Woken by a state-dir write: do not trust the first scan, settle it.
-			next = n.settle()
+		if stateChanged || pidExited || (!on && n.markerEnabled()) {
+			next, pid = n.settle()
 		} else {
-			next = n.running()
+			next, pid = n.runningPID()
 		}
 		nextTemp := n.savedTemp()
 		if next != on || nextTemp != temp {
@@ -343,10 +374,9 @@ func (n *nightlightState) watch() {
 	}
 }
 
-// loopNoWatch is the degraded watcher when inotify is unavailable: a slow tick
-// only, still fork-free.
+// loopNoWatch is the degraded watcher when inotify is unavailable.
 func (n *nightlightState) loopNoWatch(on bool, temp int) {
-	tick := time.NewTicker(5 * time.Second)
+	tick := time.NewTicker(nightlightFallbackReconcile)
 	defer tick.Stop()
 	for range tick.C {
 		next, nextTemp := n.running(), n.savedTemp()
@@ -358,19 +388,16 @@ func (n *nightlightState) loopNoWatch(on bool, temp int) {
 }
 
 // settle resolves a state-dir wake, where the first /proc scan can lie: the
-// script writes the enabled marker before `ryoku wm act nightlight.on` has
-// spawned the backend, so a scan in that window sees no process and would
-// publish off. Read the marker (the script's declared intent) once, then rescan
-// /proc every 100 ms until running() agrees with it or 2 s elapse, and report
-// the settled state. A bounded sleep loop on the watcher's own goroutine: no
-// timer, no subprocess, no leak.
-func (n *nightlightState) settle() bool {
+// script writes the enabled marker before the backend exists. It waits for the
+// process truth to agree with that intent, while retaining the pid for the next
+// event-driven wait.
+func (n *nightlightState) settle() (bool, int) {
 	want := n.markerEnabled()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		got := n.running()
+		got, pid := n.runningPID()
 		if got == want || time.Now().After(deadline) {
-			return got
+			return got, pid
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -425,24 +452,27 @@ func (n *nightlightState) savedTemp() int {
 }
 
 // running scans /proc for the provider's night-light backend, named by caps.
-// This is the fork-free pgrep: read each pid's comm (one small file per process,
-// no exec) and compare the name. comm truncates at 15 characters; the backend
-// names fit, so an exact compare is right. False when no backend is named.
 func (n *nightlightState) running() bool {
+	running, _ := n.runningPID()
+	return running
+}
+
+func (n *nightlightState) runningPID() (bool, int) {
 	proc := n.backend()
 	if proc == "" {
-		return false
+		return false, 0
 	}
 	ents, err := os.ReadDir("/proc")
 	if err != nil {
-		return false
+		return false, 0
 	}
 	for _, e := range ents {
 		if procCommIs(e.Name(), proc) {
-			return true
+			pid, _ := strconv.Atoi(e.Name())
+			return true, pid
 		}
 	}
-	return false
+	return false, 0
 }
 
 // procCommIs reports whether the pid's comm equals name. It skips anything that

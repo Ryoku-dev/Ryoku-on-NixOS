@@ -45,7 +45,9 @@ type daemon struct {
 	upscaler  *Upscaler
 	playlists *playlistManager
 
-	workspaces *workspaceManager
+	workspaces       *workspaceManager
+	wmEffectsMu      sync.Mutex
+	wmEffectsStarted bool
 
 	// Paint generations are per output, so a delayed video READY on one monitor
 	// cannot cancel another monitor's independent wallpaper switch.
@@ -146,7 +148,7 @@ func runDaemon() error {
 		video:          newVideoPlayer(),
 	}
 	d.workspaces = newWorkspaceManager(d)
-	d.ui = newPickerProcess(d.pickerGpuEnv)
+	d.ui = newPickerProcess(d.pickerGpuEnv, d.pickerIdleGrace)
 	d.tasks = newTaskRegistry(d)
 	d.playlists = newPlaylistManager(cfg.cacheDir(), d)
 	d.sources = newSources(d)
@@ -191,8 +193,10 @@ func runDaemon() error {
 	// The wallpaper daemon is session-owned, but the picker is demand-owned.
 	// Do not preload a half-gigabyte Qt scene at login merely to save a cold
 	// open later. Clean up a picker left by an older daemon; wallpaper ui/settings
-	// cold-start one when the user actually asks for it.
+	// cold-start one when the user actually asks for it, and the supervisor
+	// releases it again once it has been hidden past its configured grace.
 	d.ui.clearLeftover()
+	go d.ui.idlePark()
 
 	// Publish the empty snapshot so a subscriber before the first set sees a
 	// defined frame, then restore the last wallpaper and rescan the catalog.
@@ -223,7 +227,8 @@ func runDaemon() error {
 	}()
 	go d.watchSettingsFile()
 	go d.startLibraryWatch()
-	go d.watchOutputs()
+	go d.watchWindowManager()
+	go d.workshop.watch()
 
 	for {
 		conn, err := ln.Accept()

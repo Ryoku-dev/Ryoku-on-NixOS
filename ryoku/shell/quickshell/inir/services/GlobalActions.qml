@@ -157,11 +157,7 @@ Singleton {
             icon: "bluetooth",
             category: "system",
             keywords: ["bt", "wireless", "devices"],
-            execute: () => {
-                const adapter = Bluetooth.defaultAdapter
-                if (adapter)
-                    adapter.enabled = !adapter.enabled
-            }
+            execute: () => BluetoothStatus.toggle()
         },
         {
             id: "toggle-nightlight",
@@ -398,7 +394,7 @@ Singleton {
             icon: "photo_camera",
             category: "tools",
             keywords: ["screenshot", "capture", "snip", "screen"],
-            execute: () => { Quickshell.execDetached(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]) }
+            execute: () => { Quickshell.execDetached(["ryoku-cmd-ryoshot"]) }
         },
         {
             id: "color-picker",

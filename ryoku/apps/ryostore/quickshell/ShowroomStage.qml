@@ -10,6 +10,9 @@ Item {
     property var previewItem: null
     property string busyKey: ""
     property string installStage: ""
+    property string installProgressStage: ""
+    property real installProgressDone: 0
+    property real installProgressTotal: 0
     property string installErrorKey: ""
     property string installError: ""
     property string positionText: ""
@@ -286,6 +289,18 @@ Item {
             offline: stage.offline
         }
 
+        InstallProgress {
+            objectName: "ryostore-stage-install-progress"
+            width: parent.width
+            stage: stage.installProgressStage
+            done: stage.installProgressDone
+            total: stage.installProgressTotal
+            category: String(stage.actionItem.category || "")
+            installed: StoreLogic.isInstalled(stage.actionItem)
+            active: stage.busyKey === stage.actionKey
+            reducedMotion: stage.reducedMotion
+        }
+
         Text {
             objectName: "ryostore-stage-foreign-wm"
             width: parent.width
@@ -327,6 +342,8 @@ Item {
                 busy: stage.busyKey === stage.actionKey
                 installed: StoreLogic.primaryAction(stage.actionItem) === "INSTALLED"
                 reducedMotion: stage.reducedMotion
+                progressDone: stage.installProgressDone
+                progressTotal: stage.installProgressTotal
                 armed: stage.hasActionItem
                         && !installed
                         && !StoreLogic.isDownloadPaused(stage.actionItem)

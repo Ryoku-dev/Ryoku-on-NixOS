@@ -60,6 +60,34 @@ Singleton {
     }
     readonly property string currentOutput: Wm.focusedOutput
 
+    readonly property var _activeWindowIdsByWorkspace: {
+        const ids = {};
+        const ranks = {};
+        if (Wm.caps.focusHistory === true) {
+            const windows = Wm.windows;
+            for (let i = 0; i < windows.length; i++) {
+                const window = windows[i];
+                const workspaceId = String(window.workspace ?? "");
+                const windowId = String(window.id ?? "");
+                const order = window.focusOrder;
+                if (workspaceId.length === 0 || windowId.length === 0
+                        || typeof order !== "number" || order < 0)
+                    continue;
+                if (ranks[workspaceId] === undefined || order < ranks[workspaceId]) {
+                    ranks[workspaceId] = order;
+                    ids[workspaceId] = windowId;
+                }
+            }
+        }
+        const focused = Wm.focusedWindow;
+        if (focused && (Wm.caps.focusHistory === true || focused.toplevel?.activated === true)) {
+            const workspaceId = String(focused.workspace ?? "");
+            if (workspaceId.length > 0)
+                ids[workspaceId] = String(focused.id ?? "");
+        }
+        return ids;
+    }
+
     // ---- workspaces ----
     // The frame's workspace shape: stable id, output, activity, occupancy.
     readonly property var allWorkspaces: {
@@ -75,6 +103,7 @@ Singleton {
                 idx: Number(w.name) || 0,
                 output: w.output || "",
                 is_active: w.active === true,
+                active_window_id: root._activeWindowIdsByWorkspace[String(w.id)] ?? "",
                 is_urgent: w.urgent === true,
                 is_occupied: w.occupied === true,
                 has_fullscreen: w.fullscreen === true,
@@ -161,32 +190,33 @@ Singleton {
     readonly property var windows: {
         const list = Wm.windows;
         const out = [];
-        const focusedId = Wm.focusedWindow ? Wm.focusedWindow.id : "";
+        const focusedId = Wm.focusedWindow ? String(Wm.focusedWindow.id) : "";
         for (let i = 0; i < list.length; i++) {
             const w = list[i];
-            if (!w.toplevel)
-                continue;
+            const handle = w.toplevel ?? null;
+            const id = String(w.id ?? "");
             const ws = Wm.workspaceById(w.workspace);
             out.push({
-                id: w.id,
+                id: id,
+                nativeWindowId: id,
                 app_id: w.appId || "",
                 title: w.title || "",
                 workspace_id: w.workspace || "",
                 output: w.output || "",
-                is_active: w.id === focusedId,
-                is_activated: w.toplevel.activated === true,
-                is_urgent: w.toplevel.urgent === true,
+                is_active: id === focusedId,
+                is_activated: id === focusedId || handle?.activated === true,
+                is_urgent: handle?.urgent === true,
                 is_floating: w.floating === true,
-                is_fullscreen: ws ? ws.fullscreen === true : false,
-                is_minimized: w.toplevel.minimized === true,
-                is_visible: w.toplevel.activated === true
+                is_fullscreen: ws ? ws.fullscreen === true : handle?.fullscreen === true,
+                is_minimized: handle?.minimized === true,
+                is_visible: id === focusedId || handle?.activated === true
                     || !(Wm.caps.focusHistory === true),
                 focusOrder: w.focusOrder,
                 x: w.x || 0,
                 y: w.y || 0,
                 width: w.width || 0,
                 height: w.height || 0,
-                toplevel: w.toplevel
+                toplevel: handle
             });
         }
         return out;
@@ -206,11 +236,10 @@ Singleton {
         return root.windows.filter(w => w.workspace_id === workspaceId);
     }
 
-    // The frame's toplevel shape: the foreign-toplevel handle's facts plus the
-    // seam's window id, with activate/close routed through the seam so a dock
-    // click focuses the window on whichever workspace it lives.
+    // Provider rows are the taskbar source; foreign-toplevel handles only add
+    // protocol flags when present. Actions always round-trip the provider id.
     readonly property var toplevels: {
-        const focusedId = Wm.focusedWindow ? Wm.focusedWindow.id : "";
+        const focusedId = Wm.focusedWindow ? String(Wm.focusedWindow.id) : "";
         const outputs = root.outputs;
         const rank = w => {
             const o = outputs[w.output]?.logical;
@@ -227,14 +256,14 @@ Singleton {
             const handle = w.toplevel;
             const id = w.id;
             return {
-                appId: handle.appId || w.app_id,
-                title: handle.title || w.title,
-                activated: id === focusedId,
-                minimized: handle.minimized === true,
-                urgent: handle.urgent === true,
-                fullscreen: handle.fullscreen === true,
-                maximized: handle.maximized === true,
-                screens: handle.screens,
+                appId: handle?.appId || w.app_id,
+                title: handle?.title || w.title,
+                activated: id === focusedId || handle?.activated === true,
+                minimized: handle?.minimized === true,
+                urgent: handle?.urgent === true,
+                fullscreen: handle?.fullscreen === true || w.is_fullscreen,
+                maximized: handle?.maximized === true,
+                screens: handle?.screens ?? [],
                 nativeWindowId: id,
                 nativeWorkspaceId: w.workspace_id,
                 _sourceKey: "wm:" + id,

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+if [[ ${1:-} != --wrapper-locked ]]; then
+  exec flock -n -o /tmp/ryoshot.lock "$0" --wrapper-locked "$@"
+fi
+shift
+
+if [[ -n ${RYOSHOT_OPEN:-} ]]; then
+  exec qs -c ryoshot
+fi
+
+runtime=${XDG_RUNTIME_DIR:-/tmp}
+ready_dir=$runtime/ryoku
+ready_file=$ready_dir/ryoshot-captured-$$
+mkdir -p "$ready_dir"
+rm -f "$ready_file"
+export RYOSHOT_CAPTURE_READY_FILE=$ready_file
+
+restore=
+restore_cursor() {
+  if [[ $restore == hidden || $restore == visible ]]; then
+    ryoku wm act cursor.visibility "$restore" >/dev/null 2>&1 || true
+  fi
+  restore=
+  rm -f "$ready_file"
+}
+trap restore_cursor EXIT
+
+if previous=$(ryoku wm act cursor.visibility hidden 2>/dev/null); then
+  case $previous in
+    hidden|visible) restore=$previous; sleep 0.08 ;;
+  esac
+fi
+
+qs -c ryoshot &
+child=$!
+if [[ -n $restore ]]; then
+  for ((tries = 0; tries < 140; tries++)); do
+    [[ -e $ready_file ]] && break
+    kill -0 "$child" 2>/dev/null || break
+    sleep 0.05
+  done
+  restore_cursor
+fi
+
+wait "$child"
+status=$?
+restore_cursor
+trap - EXIT
+exit "$status"

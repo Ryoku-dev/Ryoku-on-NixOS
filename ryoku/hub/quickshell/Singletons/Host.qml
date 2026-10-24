@@ -12,12 +12,15 @@ Singleton {
     property string init: ""
     property var snapshots: ({ "supported": false, "reason": "" })
     property var aur: ({ "supported": false, "reason": "" })
+    property var users: ({ "supported": false, "reason": "" })
 
     function capability(name) {
         if (name === "snapshots")
             return root.snapshots;
         if (name === "aur")
             return root.aur;
+        if (name === "users")
+            return root.users;
         return null;
     }
 
@@ -37,11 +40,12 @@ Singleton {
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
-                    var value = JSON.parse(text);
+                    const value = JSON.parse(text);
                     root.packageManager = String(value.packageManager || "");
                     root.init = String(value.init || "");
                     root.snapshots = value.snapshots || ({ "supported": false, "reason": "" });
                     root.aur = value.aur || ({ "supported": false, "reason": "" });
+                    root.users = value.users || ({ "supported": false, "reason": "" });
                     root.ready = root.packageManager !== "" && root.init !== "";
                 } catch (e) {
                     root.ready = false;

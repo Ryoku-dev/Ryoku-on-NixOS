@@ -52,6 +52,49 @@ Variants {
                 mask: Region {}
             }
 
+            // Autohide does not need the full-output visual surface to stay
+            // mapped. This edge-sized layer keeps the original reveal target
+            // alive after the animated dock window has been released.
+            PanelWindow {
+                id: dockRevealWindow
+                screen: dockScope.modelData
+                visible: universalDock.surfaceVisible && dockWindow.initialized
+                    && dockWindow.dockEnabled && dockWindow.effectiveAutohide
+                    && dockAppsModel.count > 0
+                    && !dockWindow.isFullscreenActive && !dockWindow.editMode
+                    && !universalDock.stageEditing
+                color: "transparent"
+                exclusionMode: ExclusionMode.Ignore
+                WlrLayershell.namespace: "qs-dock-reveal"
+                WlrLayershell.layer: dockWindow.dockOnTop ? WlrLayer.Top : WlrLayer.Bottom
+                WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+                anchors {
+                    top: dockWindow.dockPosition === "top"
+                    bottom: dockWindow.dockPosition === "bottom"
+                    left: dockWindow.dockPosition === "left"
+                    right: dockWindow.dockPosition === "right"
+                }
+                margins {
+                    top: dockWindow.dockPosition === "top" ? dockWindow.barOffset : 0
+                    bottom: dockWindow.dockPosition === "bottom" ? dockWindow.barOffset : 0
+                    left: dockWindow.dockPosition === "left" ? dockWindow.barOffset : 0
+                    right: dockWindow.dockPosition === "right" ? dockWindow.barOffset : 0
+                }
+
+                implicitWidth: dockWindow.isVertical ? dockWindow.autohideHitSize
+                    : Math.min(dockWindow.screenWidth, dockWindow.dockTotalLength)
+                implicitHeight: dockWindow.isVertical
+                    ? Math.min(dockWindow.screenHeight, dockWindow.dockTotalLength)
+                    : dockWindow.autohideHitSize
+
+                HoverHandler {
+                    id: edgeHover
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onHoveredChanged: dockWindow.checkHideTimer()
+                }
+            }
+
             PanelWindow {
                 id: dockWindow
                 property var modelData: dockScope.modelData
@@ -131,7 +174,7 @@ Variants {
                         enabled: Ryoku.Dock.cfg("enabled", false),
                         position: Ryoku.Dock.resolvedEdge(),
                         elementSize: Ryoku.Dock.cfg("size", 44),
-                        autohide: Ryoku.Dock.cfg("autohide", true),
+                        autohide: Ryoku.Dock.cfg("autohide", false),
                         magnify: Ryoku.Dock.cfg("magnify", true),
                         apps: apps
                     })
@@ -292,12 +335,13 @@ Variants {
 
                 property var runningInfoMap: ({})
                 property int runningInfoRevision: 0
+                property string runningWindowSignature: ""
 
                 readonly property var wmWindows: Wm.windows || []
                 readonly property var wmFocusedWindow: Wm.focusedWindow
 
-                onWmWindowsChanged: dockWindow._recomputeRunningInfo()
-                onWmFocusedWindowChanged: dockWindow._recomputeRunningInfo()
+                onWmWindowsChanged: dockWindow._syncRunningInfo(false)
+                onWmFocusedWindowChanged: dockWindow._syncRunningInfo(false)
 
                 function _windowGroups() {
                     let groups = {};
@@ -333,6 +377,26 @@ Variants {
                         group.count++;
                     }
                     return groups;
+                }
+
+                function _syncRunningInfo(force) {
+                    const focusedId = dockWindow.wmFocusedWindow
+                        ? String(dockWindow.wmFocusedWindow.id ?? "") : "";
+                    const relevant = [];
+                    for (const window of dockWindow.wmWindows) {
+                        if (!window)
+                            continue;
+                        relevant.push(String(window.id ?? "") + "\u0000"
+                            + String(window.appId ?? "") + "\u0000"
+                            + String(window.workspace ?? "") + "\u0000"
+                            + String(window.output ?? ""));
+                    }
+                    relevant.sort();
+                    const signature = focusedId + "\u0001" + relevant.join("\u0001");
+                    if (force !== true && signature === dockWindow.runningWindowSignature)
+                        return;
+                    dockWindow.runningWindowSignature = signature;
+                    dockWindow._recomputeRunningInfo();
                 }
 
                 function _recomputeRunningInfo() {
@@ -404,6 +468,24 @@ Variants {
                     let cid = Ryoku.Dock.canonicalId(raw);
                     return runningInfoMap[raw] || runningInfoMap[lower]
                         || runningInfoMap[cid] || runningInfoMap["app:" + lower] || null;
+                }
+
+                function menuWindows(info) {
+                    if (!info)
+                        return [];
+                    const stored = [].concat(info.here ?? [], info.elsewhere ?? []);
+                    const currentById = {};
+                    for (const window of (Wm.windows ?? []))
+                        currentById[String(window?.id ?? "")] = window;
+                    return stored.map(window => {
+                        const current = currentById[String(window.id ?? "")];
+                        if (!current)
+                            return window;
+                        return Object.assign({}, window, {
+                            title: current.title || "",
+                            appId: current.appId || window.appId
+                        });
+                    });
                 }
 
                 Connections {
@@ -505,7 +587,7 @@ Variants {
                 readonly property real dockOpacity: dockBackground ? ThemeBackend.elementOpacity : 0.0
                 property real floatingMargin: dockFloating ? s(8) : 0
                 Behavior on floatingMargin {
-                    enabled: dockWindow.initialized && !dockWindow.positionChanging
+                    enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                     NumberAnimation { duration: 280; easing.type: Easing.OutCubic }
                 }
 
@@ -515,7 +597,7 @@ Variants {
 
                 property real editMargin: (editMode && !dockFloating) ? s(20) : 0
                 Behavior on editMargin {
-                    enabled: dockWindow.initialized && !dockWindow.positionChanging
+                    enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                     NumberAnimation { duration: 320; easing.type: Easing.OutBack; easing.overshoot: 1.15 }
                 }
                 readonly property real effectiveMargin: floatingMargin + editMargin
@@ -539,9 +621,16 @@ Variants {
                     dockWindow.publishInset();
                 }
 
-                visible: universalDock.surfaceVisible && dockWindow.initialized && dockEnabled
+                readonly property bool surfaceEligible: universalDock.surfaceVisible
+                    && dockWindow.initialized && dockEnabled
                     && (!isFullscreenActive || universalDock.stageEditing)
                     && (dockAppsModel.count > 0 || editMode || universalDock.stageEditing)
+                property bool hideAnimationActive: false
+                readonly property bool visualContentActive: dockWindow.visible
+                    && (dockWindow.isRevealed || dockWindow.hideAnimationActive)
+                visible: surfaceEligible
+                    && (!effectiveAutohide || isRevealed || hideAnimationActive
+                        || dockContainer.revealProgress > 0.001)
 
                 property var rawBarSettings: {
                     let dummy = configRevision;
@@ -648,6 +737,21 @@ Variants {
                     if (edgeHover.hovered) return true;
                     if (hideTimer.running) return true;
                     return false;
+                }
+
+                Timer {
+                    id: surfaceReleaseTimer
+                    interval: 300
+                    onTriggered: dockWindow.hideAnimationActive = false
+                }
+                onIsRevealedChanged: {
+                    if (dockWindow.isRevealed) {
+                        surfaceReleaseTimer.stop();
+                        dockWindow.hideAnimationActive = false;
+                    } else if (dockWindow.visible) {
+                        dockWindow.hideAnimationActive = true;
+                        surfaceReleaseTimer.restart();
+                    }
                 }
 
                 ListModel {
@@ -955,7 +1059,7 @@ Variants {
                 }
 
                 Component.onCompleted: {
-                    dockWindow._recomputeRunningInfo();
+                    dockWindow._syncRunningInfo(true);
                     loadApps();
                     loadAllDesktopApps();
                     initTimer.start();
@@ -973,8 +1077,6 @@ Variants {
 
                 readonly property rect dockInputRect: frameLayer.maskRect(dockMaskArea.x, dockMaskArea.y,
                     dockMaskArea.width, dockMaskArea.height)
-                readonly property rect edgeInputRect: frameLayer.maskRect(edgeTrigger.x, edgeTrigger.y,
-                    edgeTrigger.width, edgeTrigger.height)
 
                 mask: Region {
                     Region {
@@ -987,12 +1089,6 @@ Variants {
                             ? Math.round(dockWindow.dockInputRect.width) : 0
                         height: (dockWindow.isRevealed || dockContainer.revealProgress > 0.01)
                             ? Math.round(dockWindow.dockInputRect.height) : 0
-                    }
-                    Region {
-                        x: Math.round(dockWindow.edgeInputRect.x)
-                        y: Math.round(dockWindow.edgeInputRect.y)
-                        width: edgeTrigger.visible ? Math.round(dockWindow.edgeInputRect.width) : 0
-                        height: edgeTrigger.visible ? Math.round(dockWindow.edgeInputRect.height) : 0
                     }
                     Region {
                         item: dockWindow.editMode ? appPicker : null
@@ -1027,42 +1123,6 @@ Variants {
                     screenWidth: dockWindow.screenWidth > 0 ? dockWindow.screenWidth : 1920
                     screenHeight: dockWindow.screenHeight > 0 ? dockWindow.screenHeight : 1080
 
-                Item {
-                    id: edgeTrigger
-                    visible: dockWindow.effectiveAutohide && !dockWindow.isFullscreenActive && !dockWindow.editMode
-                    x: {
-                        if (dockWindow.isVertical) {
-                            if (dockWindow.dockPosition === "right") {
-                                return dockWindow.effectiveWindowWidth - width - dockWindow.barOffset;
-                            }
-                            if (dockWindow.dockPosition === "left") {
-                                return dockWindow.barOffset;
-                            }
-                            return 0;
-                        }
-                        return Math.round((dockWindow.effectiveWindowWidth - width) / 2);
-                    }
-                    y: {
-                        if (!dockWindow.isVertical) {
-                            if (dockWindow.dockPosition === "bottom") {
-                                return dockWindow.effectiveWindowHeight - height - dockWindow.barOffset;
-                            }
-                            if (dockWindow.dockPosition === "top") {
-                                return dockWindow.barOffset;
-                            }
-                            return 0;
-                        }
-                        return Math.round((dockWindow.effectiveWindowHeight - height) / 2);
-                    }
-                    width: dockWindow.isVertical ? dockWindow.autohideHitSize : Math.min(dockWindow.effectiveWindowWidth, dockWindow.dockTotalLength)
-                    height: dockWindow.isVertical ? Math.min(dockWindow.effectiveWindowHeight, dockWindow.dockTotalLength) : dockWindow.autohideHitSize
-
-                    HoverHandler {
-                        id: edgeHover
-                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                        onHoveredChanged: dockWindow.checkHideTimer()
-                    }
-                }
 
                 Item {
                     id: dockMaskArea
@@ -1088,12 +1148,13 @@ Variants {
 
                 Item {
                     id: dockContainer
+                    visible: dockWindow.visualContentActive
 
                     readonly property bool isAttached: !dockWindow.dockFloating && !dockWindow.editMode && !(dockWindow.sameSideAsBar && !dockWindow.isBarSolid)
                     property real outerCornerProgress: isAttached ? 1.0 : 0.0
 
                     Behavior on outerCornerProgress {
-                        enabled: dockWindow.initialized && !dockWindow.positionChanging
+                        enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                         NumberAnimation {
                             duration: dockContainer.isAttached ? 240 : 320
                             easing.type: dockContainer.isAttached ? Easing.OutQuad : Easing.InQuad
@@ -1112,7 +1173,7 @@ Variants {
                     readonly property bool fanFillets: dockWindow.outerCornerRadius > 0.5 && (!dockWindow.sameSideAsBar || (dockWindow.isVertical ? width : height) >= dockWindow.outerCornerRadius)
 
                     Behavior on dynamicCornerRadius {
-                        enabled: dockWindow.initialized && !dockWindow.positionChanging
+                        enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                         NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
                     }
 
@@ -1221,11 +1282,11 @@ Variants {
                     property real baseHeight: Math.round(dockWindow.isVertical ? fullContentLength : fullThickness)
 
                     Behavior on baseWidth {
-                        enabled: dockWindow.initialized && !dockWindow.positionChanging
+                        enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                         NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
                     }
                     Behavior on baseHeight {
-                        enabled: dockWindow.initialized && !dockWindow.positionChanging
+                        enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                         NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
                     }
 
@@ -1284,11 +1345,11 @@ Variants {
                         y: (!dockWindow.sameSideAsBar && !dockWindow.isVertical) ? (dockWindow.isRevealed ? 0 : dockContainer.hideOffset) : 0
 
                         Behavior on x {
-                            enabled: dockWindow.initialized && !dockWindow.positionChanging && !dockWindow.sameSideAsBar
+                            enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging && !dockWindow.sameSideAsBar
                             NumberAnimation { duration: 280; easing.type: Easing.OutQuint }
                         }
                         Behavior on y {
-                            enabled: dockWindow.initialized && !dockWindow.positionChanging && !dockWindow.sameSideAsBar
+                            enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging && !dockWindow.sameSideAsBar
                             NumberAnimation { duration: 280; easing.type: Easing.OutQuint }
                         }
                     }
@@ -1463,11 +1524,11 @@ Variants {
                                 height: implicitHeight
 
                                 Behavior on columnSpacing {
-                                    enabled: dockWindow.initialized && !dockWindow.positionChanging
+                                    enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                                     NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
                                 }
                                 Behavior on rowSpacing {
-                                    enabled: dockWindow.initialized && !dockWindow.positionChanging
+                                    enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                                     NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
                                 }
 
@@ -1492,11 +1553,11 @@ Variants {
                                 }
 
                                 Behavior on x {
-                                    enabled: dockWindow.initialized && dockWindow.enableScrolling && dockContainer.revealProgress >= 0.99 && !dockWindow.positionChanging
+                                    enabled: dockWindow.visualContentActive && dockWindow.initialized && dockWindow.enableScrolling && dockContainer.revealProgress >= 0.99 && !dockWindow.positionChanging
                                     NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
                                 }
                                 Behavior on y {
-                                    enabled: dockWindow.initialized && dockWindow.enableScrolling && dockContainer.revealProgress >= 0.99 && !dockWindow.positionChanging
+                                    enabled: dockWindow.visualContentActive && dockWindow.initialized && dockWindow.enableScrolling && dockContainer.revealProgress >= 0.99 && !dockWindow.positionChanging
                                     NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
                                 }
 
@@ -1602,11 +1663,11 @@ Variants {
                                         property real currentOffsetY: btnMa.drag.active ? 0 : targetOffsetY
 
                                         Behavior on currentOffsetX {
-                                            enabled: dockWindow.initialized && !dockWindow.positionChanging
+                                            enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                                             NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
                                         }
                                         Behavior on currentOffsetY {
-                                            enabled: dockWindow.initialized && !dockWindow.positionChanging
+                                            enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                                             NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
                                         }
 
@@ -1629,7 +1690,10 @@ Variants {
                                             border.width: 2
                                             visible: dockButton.isDropTarget
                                             opacity: dockButton.isDropTarget ? 1.0 : 0.0
-                                            Behavior on opacity { NumberAnimation { duration: 150 } }
+                                            Behavior on opacity {
+                                                enabled: dockWindow.visualContentActive
+                                                NumberAnimation { duration: 150 }
+                                            }
                                         }
 
                                         Item {
@@ -1673,6 +1737,7 @@ Variants {
                                                 color: dockBtnGlass.active ? "transparent" : Qt.alpha(btnMa.pressed ? Qt.darker(dockButton.btnColor, 1.12) : (btnMa.containsMouse ? Qt.lighter(dockButton.btnColor, 1.12) : dockButton.btnColor), ThemeBackend.elementOpacity)
 
                                                 Behavior on color {
+                                                    enabled: dockWindow.visualContentActive
                                                     ColorAnimation { duration: 180 }
                                                 }
 
@@ -1683,13 +1748,17 @@ Variants {
                                                     tintColor: dockButton.btnColor
                                                     tintAmount: 0.3
                                                     press: btnMa.pressed ? 1 : Math.max(btnMa.containsMouse ? 0.3 : 0, 0.3 * Math.max(0, Math.min(1, (dockButton.baseHoverScale - 1.0) / Math.max(0.01, dockButton.hoverScaleDelta))))
-                                                    Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                                    Behavior on press {
+                                                        enabled: dockWindow.visualContentActive
+                                                        NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+                                                    }
                                                 }
 
                                                 transformOrigin: Item.Center
 
                                                 scale: dockButton.targetScale * dockButton.popScale
                                                 Behavior on scale {
+                                                    enabled: dockWindow.visualContentActive
                                                     NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
                                                 }
 
@@ -1703,6 +1772,9 @@ Variants {
                                                     id: appIcon
                                                     anchors.fill: parent
                                                     anchors.margins: dockWindow.s(Math.round(dockWindow.dockElementSize * 0.14))
+                                                    sourceSize: Qt.size(
+                                                        Math.ceil(width * (dockWindow.screen?.devicePixelRatio ?? 1)),
+                                                        Math.ceil(height * (dockWindow.screen?.devicePixelRatio ?? 1)))
                                                     fillMode: Image.PreserveAspectFit
                                                     asynchronous: true
                                                     smooth: true
@@ -1752,6 +1824,7 @@ Variants {
                                                 visible: dockWindow.showRunningIndicators && dockButton.isAppRunning && !dockWindow.editMode
                                                 opacity: (visible && dockContainer.revealProgress > 0.1) ? 1.0 : 0.0
                                                 Behavior on opacity {
+                                                    enabled: dockWindow.visualContentActive
                                                     NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
                                                 }
 
@@ -1792,8 +1865,14 @@ Variants {
                                                     radius: dockWindow.s(2)
                                                     color: ThemeBackend.mauve
 
-                                                    Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                                                    Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                    Behavior on width {
+                                                        enabled: dockWindow.visualContentActive
+                                                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                                                    }
+                                                    Behavior on height {
+                                                        enabled: dockWindow.visualContentActive
+                                                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                                                    }
                                                 }
 
                                                 Row {
@@ -1951,11 +2030,7 @@ Variants {
                                                         let globX = pt.x + (dockButton.width / 2);
                                                         let globY = pt.y + (dockButton.height / 2);
                                                         let info = dockWindow.getRunningInfoForApp(model.desktop_id);
-                                                        let winList = [];
-                                                        if (info) {
-                                                            if (info.here) winList = winList.concat(info.here);
-                                                            if (info.elsewhere) winList = winList.concat(info.elsewhere);
-                                                        }
+                                                        let winList = dockWindow.menuWindows(info);
                                                         DockAppMenuController.toggle(
                                                             dockWindow.screen,
                                                             globX,
@@ -1977,11 +2052,7 @@ Variants {
                                                             let globX = pt.x + (dockButton.width / 2);
                                                             let globY = pt.y + (dockButton.height / 2);
                                                             let info = dockWindow.getRunningInfoForApp(model.desktop_id);
-                                                            let winList = [];
-                                                            if (info) {
-                                                                if (info.here) winList = winList.concat(info.here);
-                                                                if (info.elsewhere) winList = winList.concat(info.elsewhere);
-                                                            }
+                                                            let winList = dockWindow.menuWindows(info);
                                                             DockAppMenuController.show(
                                                                 dockWindow.screen,
                                                                 globX,
@@ -2123,11 +2194,11 @@ Variants {
                                         property real currentOffsetY: targetOffsetY
 
                                         Behavior on currentOffsetX {
-                                            enabled: dockWindow.initialized && !dockWindow.positionChanging
+                                            enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                                             NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
                                         }
                                         Behavior on currentOffsetY {
-                                            enabled: dockWindow.initialized && !dockWindow.positionChanging
+                                            enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                                             NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
                                         }
 
@@ -2154,13 +2225,20 @@ Variants {
                                                     tintColor: runningDockButton.btnColor
                                                     tintAmount: 0.3
                                                     press: runningBtnMa.pressed ? 1 : Math.max(runningBtnMa.containsMouse ? 0.3 : 0, 0.3 * Math.max(0, Math.min(1, (runningDockButton.baseHoverScale - 1.0) / Math.max(0.01, runningDockButton.hoverScaleDelta))))
-                                                    Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                                    Behavior on press {
+                                                        enabled: dockWindow.visualContentActive
+                                                        NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+                                                    }
                                                 }
                                                 transformOrigin: Item.Center
                                                 scale: runningDockButton.targetScale * runningDockButton.popScale
 
-                                                Behavior on color { ColorAnimation { duration: 180 } }
+                                                Behavior on color {
+                                                    enabled: dockWindow.visualContentActive
+                                                    ColorAnimation { duration: 180 }
+                                                }
                                                 Behavior on scale {
+                                                    enabled: dockWindow.visualContentActive
                                                     NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
                                                 }
 
@@ -2168,6 +2246,9 @@ Variants {
                                                     id: runningAppIcon
                                                     anchors.fill: parent
                                                     anchors.margins: dockWindow.s(Math.round(dockWindow.dockElementSize * 0.14))
+                                                    sourceSize: Qt.size(
+                                                        Math.ceil(width * (dockWindow.screen?.devicePixelRatio ?? 1)),
+                                                        Math.ceil(height * (dockWindow.screen?.devicePixelRatio ?? 1)))
                                                     fillMode: Image.PreserveAspectFit
                                                     asynchronous: true
                                                     smooth: true
@@ -2318,11 +2399,7 @@ Variants {
                                                         let globX = pt.x + (runningDockButton.width / 2);
                                                         let globY = pt.y + (runningDockButton.height / 2);
                                                         let info = dockWindow.getRunningInfoForApp(model.desktop_id);
-                                                        let winList = [];
-                                                        if (info) {
-                                                            if (info.here) winList = winList.concat(info.here);
-                                                            if (info.elsewhere) winList = winList.concat(info.elsewhere);
-                                                        }
+                                                        let winList = dockWindow.menuWindows(info);
                                                         DockAppMenuController.toggle(
                                                             dockWindow.screen,
                                                             globX,
@@ -2343,11 +2420,7 @@ Variants {
                                                             let globX = pt.x + (runningDockButton.width / 2);
                                                             let globY = pt.y + (runningDockButton.height / 2);
                                                             let info = dockWindow.getRunningInfoForApp(model.desktop_id);
-                                                            let winList = [];
-                                                            if (info) {
-                                                                if (info.here) winList = winList.concat(info.here);
-                                                                if (info.elsewhere) winList = winList.concat(info.elsewhere);
-                                                            }
+                                                            let winList = dockWindow.menuWindows(info);
                                                             DockAppMenuController.show(
                                                                 dockWindow.screen,
                                                                 globX,
@@ -2393,11 +2466,11 @@ Variants {
                     z: 100
 
                     Behavior on opacity {
-                        enabled: dockWindow.initialized && !dockWindow.positionChanging
+                        enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                         NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
                     }
                     Behavior on scale {
-                        enabled: dockWindow.initialized && !dockWindow.positionChanging
+                        enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                         NumberAnimation { duration: 280; easing.type: Easing.OutBack; easing.overshoot: 1.1 }
                     }
 
@@ -2413,7 +2486,7 @@ Variants {
                     property real targetPickerHeight: dockWindow.s(70) + (targetItemCount * dockWindow.s(48))
                     property real animatedPickerHeight: targetPickerHeight
                     Behavior on animatedPickerHeight {
-                        enabled: dockWindow.initialized && !dockWindow.positionChanging
+                        enabled: dockWindow.visualContentActive && dockWindow.initialized && !dockWindow.positionChanging
                         NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
                     }
 
@@ -2596,7 +2669,10 @@ Variants {
                                         color: pickerRowGlass.active ? "transparent" : (isAdded ? ThemeBackend.mauve : ((pickerMa.containsMouse && !pickerLens.glassActive) ? Qt.alpha(ThemeBackend.surface1, 0.4) : Qt.alpha(ThemeBackend.surface0, 0.25)))
                                         border.width: 0
 
-                                        Behavior on color { ColorAnimation { duration: 150 } }
+                                        Behavior on color {
+                                            enabled: dockWindow.visualContentActive
+                                            ColorAnimation { duration: 150 }
+                                        }
 
                                         GlassFill {
                                             id: pickerRowGlass
@@ -2637,6 +2713,9 @@ Variants {
                                                     id: pIcon
                                                     anchors.fill: parent
                                                     anchors.margins: dockWindow.s(3)
+                                                    sourceSize: Qt.size(
+                                                        Math.ceil(width * (dockWindow.screen?.devicePixelRatio ?? 1)),
+                                                        Math.ceil(height * (dockWindow.screen?.devicePixelRatio ?? 1)))
                                                     fillMode: Image.PreserveAspectFit
                                                     asynchronous: true
                                                     smooth: true
@@ -2681,7 +2760,10 @@ Variants {
                                                     color: pickerDelegate.isAdded ? pickerDelegate.contentOnAdded : ThemeBackend.text
                                                     elide: Text.ElideRight
                                                     Layout.fillWidth: true
-                                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                                    Behavior on color {
+                                                        enabled: dockWindow.visualContentActive
+                                                        ColorAnimation { duration: 150 }
+                                                    }
                                                 }
 
                                                 Text {
@@ -2692,7 +2774,10 @@ Variants {
                                                     opacity: pickerDelegate.isAdded ? 0.9 : 0.85
                                                     elide: Text.ElideRight
                                                     Layout.fillWidth: true
-                                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                                    Behavior on color {
+                                                        enabled: dockWindow.visualContentActive
+                                                        ColorAnimation { duration: 150 }
+                                                    }
                                                 }
                                             }
                                         }

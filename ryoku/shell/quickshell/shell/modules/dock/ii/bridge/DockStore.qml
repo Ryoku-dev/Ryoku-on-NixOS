@@ -63,7 +63,7 @@ Singleton {
     // What the shared rows show while a key is unset, so this dock agrees.
     readonly property var sharedFallbacks: ({
         "magnify": true,
-        "autohide": true
+        "autohide": false
     })
 
     function frame(): var {

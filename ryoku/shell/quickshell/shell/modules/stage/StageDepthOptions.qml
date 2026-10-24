@@ -29,6 +29,27 @@ Column {
     readonly property int layerCount: opts.backend.layerCountFor(opts.wall)
     readonly property var qualityModel: opts.backend.modelForQuality(opts.cfg.quality, opts.cfg.models)
     readonly property bool qualityReady: opts.backend.qualityInstalled(opts.cfg.quality, opts.cfg.models)
+
+    function pickDepthModel(id, installed) {
+        if (id !== opts.cfg.depthModel)
+            opts.cfg.setDepthModel(id);
+        opts.backend.recheckDepth();
+        if (installed)
+            opts.backend.regenerateDepth();
+        else
+            opts.backend.installDepth(id);
+    }
+
+    function computedDepthDesc() {
+        const m = opts.backend.depthModelById(String(opts.cfg.depthModel));
+        if (opts.backend.depthInstalling)
+            return I18n.tr("Downloading %1…").arg(m ? m.label : I18n.tr("depth model"));
+        if (m)
+            return I18n.tr("%1 · %2 · %3").arg(m.label)
+                .arg(m.size || I18n.tr("size unknown"))
+                .arg(m.licence || I18n.tr("licence unknown"));
+        return I18n.tr("Download once to render the wallpaper backdrop as a depth mesh");
+    }
     readonly property string stateDir: Quickshell.env("XDG_STATE_HOME")
         || (Quickshell.env("HOME") + "/.local/state")
     readonly property string previewPath: opts.isVideo(opts.wall)
@@ -326,27 +347,132 @@ Column {
             SettingRow {
                 width: parent.width
                 label: I18n.tr("Mode")
-                desc: I18n.tr("Plain stays flat; Depth cuts layers; Parallax adds motion")
+                desc: I18n.tr("One mode per wallpaper: plain, the 3D depth scene, or the parallax cut stack")
                 block: true
-                Seg {
+                Column {
                     width: parent.width
-                    options: ["off", "depth", "parallax"]
-                    labels: ({
-                        off: I18n.tr("Plain"),
-                        depth: I18n.tr("Depth"),
-                        parallax: I18n.tr("Parallax")
-                    })
-                    current: opts.effect
-                    onChose: value => opts.backend.setEffect(value)
+                    spacing: Tokens.s2
+
+                    Seg {
+                        width: parent.width
+                        options: ["off", "depth", "parallax"]
+                        labels: ({
+                            off: I18n.tr("Plain"),
+                            depth: I18n.tr("Depth"),
+                            parallax: I18n.tr("Parallax")
+                        })
+                        current: opts.effect
+                        onChose: value => opts.backend.setEffect(value)
+                    }
+                    Text {
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        text: opts.effect === "depth"
+                            ? I18n.tr("3D depth mesh only — no cut is made or needed.")
+                            : opts.effect === "parallax"
+                                ? I18n.tr("Subject cut-out over an inpainted backdrop; the depth mesh is optional underneath.")
+                                : I18n.tr("Everything draws flat.")
+                        color: Tokens.inkMuted
+                        font.pixelSize: Tokens.fSmall
+                    }
+                }
+            }
+        }
+
+        SettingCard {
+            width: parent.width
+            title: I18n.tr("3D DEPTH")
+            kana: "深"
+            collapsible: false
+
+            SettingRow {
+                width: parent.width
+                label: I18n.tr("Depth model")
+                desc: opts.backend.depthChecking
+                    ? I18n.tr("Checking the depth runtime")
+                    : opts.computedDepthDesc()
+                block: true
+
+                Flow {
+                    width: parent.width
+                    spacing: Tokens.s2
+
+                    Repeater {
+                        model: opts.backend.depthModels.length > 0
+                            ? opts.backend.depthModels
+                            : [{
+                                id: "small",
+                                label: I18n.tr("V2 Small"),
+                                size: "99 MB",
+                                licence: "Apache-2.0",
+                                installed: false,
+                                selected: true
+                            }]
+                        delegate: Row {
+                            required property var modelData
+                            readonly property var m: opts.backend.depthModelById(modelData.id) || modelData
+                            readonly property string licence: m.licence || I18n.tr("licence unknown")
+                            Btn {
+                                text: (m.id === opts.cfg.depthModel && !m.installed)
+                                    ? m.label + " · " + I18n.tr("not on disk") + " · " + licence
+                                    : m.label + " · " + m.size + " · " + licence
+                                compact: true
+                                primary: m.id === opts.cfg.depthModel && m.installed
+                                armed: !opts.backend.depthInstalling && !opts.backend.depthRemoving
+                                onAct: {
+                                    if (opts.backend.depthInstalling || opts.backend.depthRemoving)
+                                        return;
+                                    if (m.id === opts.cfg.depthModel && m.installed)
+                                        return;
+                                    opts.pickDepthModel(m.id, m.installed);
+                                }
+                            }
+                        }
+                    }
+
+                    Btn {
+                        visible: {
+                            const m = opts.backend.depthModelById(String(opts.cfg.depthModel));
+                            return m && m.installed && opts.effect !== "off";
+                        }
+                        text: opts.backend.depthRemoving
+                            ? I18n.tr("Removing…") : I18n.tr("Remove")
+                        compact: true
+                        armed: !opts.backend.depthInstalling && !opts.backend.depthRemoving
+                        onAct: opts.backend.removeDepth(String(opts.cfg.depthModel))
+                    }
+                    Btn {
+                        visible: opts.backend.depthInstalled && opts.effect !== "off"
+                        text: I18n.tr("Rebuild map")
+                        compact: true
+                        armed: !opts.backend.busy && !opts.backend.depthInstalling
+                        onAct: opts.backend.regenerateDepth()
+                    }
                 }
             }
         }
 
         NoticePlate {
+            visible: (opts.backend.depthInstalling || opts.backend.depthRemoving)
+                && opts.backend.depthProgress !== ""
+            title: opts.backend.depthInstalling
+                ? I18n.tr("Preparing the depth model")
+                : I18n.tr("Removing the depth model")
+            detail: opts.backend.depthProgress
+        }
+
+        NoticePlate {
             visible: opts.backend.busy
-            title: I18n.tr("Cutting the wallpaper")
-            detail: opts.backend.stage !== ""
-                ? opts.backend.stage : I18n.tr("Building the scene layers")
+            title: opts.backend.stage === "depth"
+                ? I18n.tr("Building the 3D depth map")
+                : I18n.tr("Cutting the wallpaper")
+            detail: opts.backend.stage === "depth"
+                ? I18n.tr("Estimating depth behind the cut-out")
+                : opts.backend.stage === "inpaint"
+                    ? I18n.tr("Recolouring the backdrop")
+                    : opts.backend.stage !== ""
+                        ? opts.backend.stage
+                        : I18n.tr("Building the scene layers")
             actionText: I18n.tr("Stop")
             progress: opts.backend.percent / 100
             onAct: opts.backend.cancel()
@@ -368,6 +494,7 @@ Column {
             title: I18n.tr("CUT QUALITY")
             kana: "切"
             collapsible: false
+            visible: opts.effect === "parallax"
 
             SettingRow {
                 width: parent.width

@@ -104,12 +104,24 @@ func (a *App) ensureTurnstileUser() int {
 		}
 	}
 	ready := filepath.Join(service, "turnstile-ready", "conf")
-	changed, err := ensureCoreService(ready, "dbus")
-	if err != nil {
-		return a.failf("update %s: %v", ready, err)
+	coreServices := []string{"dbus"}
+	if entries, manifestErr := readServiceManifest(a.cfg.ServiceManifest); manifestErr == nil {
+		for _, entry := range entries {
+			if entry.Scope == "user" && entry.Activation == "session-core" && entry.RunitName != "-" {
+				coreServices = append(coreServices, entry.RunitName)
+			}
+		}
+	} else if !os.IsNotExist(manifestErr) {
+		return a.failf("read service manifest: %v", manifestErr)
 	}
-	if changed {
-		fmt.Fprintf(a.cfg.Stdout, "updated %s\n", ready)
+	for _, coreService := range coreServices {
+		changed, err := ensureCoreService(ready, coreService)
+		if err != nil {
+			return a.failf("update %s: %v", ready, err)
+		}
+		if changed {
+			fmt.Fprintf(a.cfg.Stdout, "updated %s\n", ready)
+		}
 	}
 	envdir := a.envDir()
 	if info, err := os.Stat(envdir); os.IsNotExist(err) {

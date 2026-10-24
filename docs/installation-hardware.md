@@ -11,6 +11,8 @@ The backend that implements the automatic half lives in
 
 ## Contents
 
+- [Requirements](#requirements)
+- [Graphics](#graphics)
 - [Intel VMD / RST hides the NVMe](#intel-vmd--rst-hides-the-nvme)
 - [Secure Boot vs unsigned Limine](#secure-boot-vs-unsigned-limine)
 - [NVIDIA black or garbled screen](#nvidia-black-or-garbled-screen)
@@ -26,6 +28,61 @@ The backend that implements the automatic half lives in
 - [NVRAM-readonly firmware](#nvram-readonly-firmware)
 - [Ventoy and other loop-mounted media](#ventoy-and-other-loop-mounted-media)
 - [Slow or flaky USB media](#slow-or-flaky-usb-media)
+
+## Requirements
+
+Ryoku is `x86_64` only; there is no 32-bit build. Arch and CachyOS sessions
+support Hyprland and niri, with Wayfire 0.11 as an experimental compositor. The
+experimental Void edition requires x86_64 glibc Void with runit and runs niri
+only. The experimental Fedora edition requires mutable Fedora 44 or 45 with
+systemd and supports Hyprland or niri on Workstation, KDE Plasma, Server, and
+spin installs. The Arch and CachyOS ISOs require UEFI; the Void ISO boots on
+legacy BIOS or UEFI, and a legacy BIOS install uses the whole disk (installing
+alongside another system needs UEFI). Every ISO refuses Secure Boot unless you
+have enrolled your own keys because Limine ships unsigned. Fedora keeps GRUB and
+refuses Atomic and other rpm-ostree systems.
+
+|  | Minimum | Recommended |
+|---|---|---|
+| CPU | 64-bit x86_64, dual-core | quad-core or better |
+| RAM | 4 GB | 8 GB, 16 GB with the dev toolchains |
+| GPU | any card with working KMS and OpenGL/Vulkan | recent integrated or discrete |
+| Storage | 32 GB (installer floor) | 64 GB+ SSD |
+| Firmware | Arch/CachyOS ISO: UEFI; Void ISO: BIOS or UEFI; Secure Boot off | UEFI with Secure Boot off |
+
+The desktop is light on its own: a resting session (the compositor, the shell,
+and its daemons) uses under 1 GB of RAM. What you run on top, the browser,
+editor, and toolchains, is the rest of the budget: 8 GB is a sensible floor for
+daily use, and 16 GB is comfortable once the language toolchains are in. The
+32 GB figure is the installer's hard floor. The base plus developer and desktop
+package closure is about 13 to 15 GB, and the root filesystem needs 20 GB
+before swap. That leaves room for Btrfs snapshots and, on Arch and CachyOS, AUR
+builds. Use an SSD; package builds and the shell itself both feel a slow disk.
+
+## Graphics
+
+The shell is an accelerated Qt surface (live blur, the blob frame, motion
+throughout), so it wants a real GPU with working DRM/KMS. Software rendering will
+start but will not feel good. Anything from roughly the last decade is fine, and
+the right driver is picked for the detected hardware at install time:
+
+- **AMD** the open Mesa stack and the RADV Vulkan driver (GCN and newer, on
+  amdgpu). No proprietary blob, nothing to install by hand.
+- **Intel** Broadwell (Gen8) and newer, on i915 or the newer Xe driver, with the
+  modern media driver and the ANV Vulkan driver.
+- **NVIDIA** the open kernel modules on Turing and newer (GTX 16-series, RTX
+  20-series and up), the proprietary modules on older Maxwell, Pascal, and Volta
+  cards. On the stock kernel Ryoku installs the prebuilt module, so there is no
+  DKMS build to fail on first boot.
+
+Fedora is the exception: the installer leaves NVIDIA on nouveau and does not
+add a proprietary driver repository.
+
+On a hybrid laptop with two GPUs, Ryoku ranks them and pins the strongest as the
+primary renderer on a desktop, while a laptop keeps the integrated GPU primary
+for battery; an external GPU always wins. Every GPU stays available, so a monitor
+on a second card still lights up, and dense HiDPI panels are scaled on first
+login.
 
 ## Intel VMD / RST hides the NVMe
 
@@ -114,6 +171,15 @@ automatic:
   Loader, menu, kernels and initramfs stay on it; the existing ESP is never
   mounted read-write or modified.
 
+Before either mode touches the disk, two gates protect the neighbouring OS. A
+hibernated or Fast-Startup-dirty Windows volume stops the install outright
+(override with `RYOKU_ALLOW_DIRTY_NTFS=1`): writing a partition table under a
+dirty NTFS volume is what invites Windows Startup Repair to rewrite that table
+on its next boot, taking the fresh Ryoku partitions with it. And in shared mode
+the existing ESP is checked with `fsck.fat -a` before Ryoku writes a single byte
+into it; a volume the repair cannot clear stops the install with the option to
+switch to `RYOKU_ESP_MODE=dedicated` instead.
+
 Both modes register the Ryoku NVRAM entry against the partition that holds its
 loader. Windows or another Linux remains in its existing firmware entry and is
 also added to the Limine menu by its ESP partition GUID when a chainloadable EFI
@@ -186,8 +252,9 @@ connect](#only-24-ghz-networks-appear-or-5-ghz-will-not-connect).
 
 ## ASUS Aura keyboard lighting
 
-**Symptom.** Appearance > Lighting shows only an OpenRGB motherboard or N-KEY
-controller, and wallpaper palette changes do not recolour the built-in keyboard.
+**Symptom.** The wallpaper picker's Settings > Lighting shows only an OpenRGB
+motherboard or N-KEY controller, and wallpaper palette changes do not recolour
+the built-in keyboard.
 
 **Cause.** OpenRGB can identify the laptop's USB controller without exposing the
 firmware-backed lighting interface consistently across keyboard generations.
@@ -195,9 +262,9 @@ firmware-backed lighting interface consistently across keyboard generations.
 
 **What the installer does.** The live environment detects the ASUS laptop family
 or its `asus-nb-wmi` keyboard device, then installs the signed `asusctl` package
-only on a match. Its udev rule starts `asusd`; Ryoku Settings prefers the native
-Aura keyboard while keeping OpenRGB for other RGB hardware. Offline installs
-carry the same package.
+only on a match. Its udev rule starts `asusd`; Ryoku's lighting control prefers
+the native Aura keyboard while keeping OpenRGB for other RGB hardware. Offline
+installs carry the same package.
 
 **What the user must do.** Usually nothing. An existing TLP installation
 conflicts with `asusctl`, so conversion leaves TLP in place and `ryoku doctor`
@@ -224,6 +291,12 @@ shipped from `[ryoku]` so `ryoku update` keeps it current.
 this, `ryoku update` installs both; the ERTM change needs a reboot, or
 `modprobe -r btusb && modprobe btusb` to take effect without one. A pad paired
 while ERTM was on should be removed and re-paired.
+
+On Fedora with Secure Boot enabled, DKMS signs xpadneo with
+`/var/lib/dkms/mok.key`. Enroll its public certificate with
+`sudo mokutil --import /var/lib/dkms/mok.pub`, set the one-time password, reboot,
+and choose Enroll MOK on the firmware screen. Until that enrollment is complete,
+the module is built and signed but the kernel will refuse to load it.
 
 ## Bluetooth headphones connect, then disconnect a few seconds later
 

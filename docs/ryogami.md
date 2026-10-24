@@ -51,3 +51,66 @@ restores its display fallback, then its active workspace assignment.
 
 Stage scenes remain keyed by wallpaper path. Assigning the same image to more
 than one workspace shares its Depth, Parallax, and layer scene.
+
+## Image optimisation
+
+New PNG, JPEG and GIF wallpapers are re-encoded to WebP when they land in the
+library (**Settings > Library > Images & recovery > Auto-optimise new images**,
+on by default). The original goes to Ryogami's trash for the configured number
+of days. When the file on screen gets replaced, Ryogami moves its own state to
+the WebP copy: display and workspace assignments, library entries, playlists
+and the recorded wallpaper that rice saves read.
+
+## Downloading wallpapers
+
+The Download browser (Ctrl + D) searches Wallhaven, Steam Workshop, Unsplash,
+Pexels, YouTube, Bing, MoeWalls, MotionBGs, Ryostore and GitHub repos. Every
+result card and the preview pane carry **Apply** and **Save**. Save downloads
+into the library. Apply downloads when needed and sets the result at once,
+stills and live wallpapers alike: a YouTube result applies its clip window and a
+Workshop item applies as a scene. Enter applies the focused card. A source's
+"Search only when I press Apply" setting is about filters only: changes wait for
+the drawer's Apply button or Enter instead of searching on every change.
+
+Workshop downloads go through the Steam client. Ryoku does not ship the
+Steamworks helper, because it would mean redistributing Valve's library.
+
+Ryogami looks for Wallpaper Engine in every library Steam lists in
+`libraryfolders.vdf`, so an install on a second drive or under Flatpak Steam
+shows its Workshop scenes, and scenes render with that install's `assets`
+folder. **Workshop directory** and **WE assets directory** in Settings > Sources
+override both. Scenes already on disk show up in the Workshop tab as soon as
+the first scan after a fresh install finishes.
+
+Searching never holds up the picker. The daemon answers slow requests
+(provider and Workshop searches, semantic queries, colour previews) on their own
+workers, a newer search from the same picker cancels the older one, a search
+gives up after 20 seconds, and download progress is sent at most eight times a
+second.
+
+## Lighting
+
+Settings > Lighting is the control for RGB hardware. OpenRGB covers USB
+keyboards, mice and headsets plus SMBus memory and motherboards, `asusd` covers
+ASUS laptop keyboards and `qmk_hid` covers QMK/VIA boards. Nothing is scanned or
+written until **Let Ryoku control lighting** is on, and a device is touched only
+after it is adopted. **Follow wallpaper & theme** adopts a device in a mode that
+can show a colour (its Static mode, else a per-LED mode) and paints the current
+Matugen accent. Every later palette change, from a new wallpaper or a fixed
+theme, repaints it. The picker talks to the daemon, the daemon runs
+`ryoku-hub lighting`, and that command is the only writer of
+`~/.config/ryoku/lighting.json`.
+
+Arch, CachyOS and Void ship OpenRGB 1.0 (SDK protocol 6); Fedora ships
+1.0~rc2 (protocol 5). The client speaks both and addresses devices by
+controller ID on protocol 6, so a write lands on the intended device after a
+hotplug. The OpenRGB server starts on demand through `ryoku-host transient`: a
+systemd user unit, or a runit service on Void.
+
+## Video codecs per edition
+
+Fedora's `ffmpeg-free` has no x264 or x265. Ryogami encodes live wallpaper
+clips and previews with OpenH264 there (the `openh264` package from Fedora's
+Cisco repository), refuses HEVC sources it cannot decode with a clear message,
+and disables the video optimiser with the reason shown beside it. Arch, CachyOS
+and Void keep x264 and x265.

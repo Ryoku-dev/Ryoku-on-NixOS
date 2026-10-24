@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -85,7 +87,18 @@ func init() {
 	}
 
 	registerAvailability("paletteBridge", func(d *daemon) bool {
-		_, err := exec.LookPath("ryoku-hub")
-		return err == nil
+		if _, err := exec.LookPath("ryoku-hub"); err != nil {
+			return false
+		}
+		if _, err := exec.LookPath("ryoku-palette-bridge"); err != nil {
+			return false
+		}
+		for _, name := range []string{"install.sh", "install-integrations.sh", "remove-integrations.sh"} {
+			info, err := os.Stat(filepath.Join(d.paletteBridgeSource(), name))
+			if err != nil || info.IsDir() {
+				return false
+			}
+		}
+		return true
 	})
 }

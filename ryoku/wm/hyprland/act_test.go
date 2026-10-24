@@ -184,6 +184,7 @@ func TestActRejectsMissingArgs(t *testing.T) {
 		{"workspace.focus"},
 		{"workspace.moveToOutput", "9"},
 		{"cursor.set", "Bibata"},
+		{"cursor.visibility"},
 		{"output.power"},
 		{"window.summon"},
 	} {
@@ -403,6 +404,53 @@ func TestActFocusFollowsMouseReportsConfiguredMode(t *testing.T) {
 	}
 	if got := strings.TrimSpace(buf.String()); got != "1" {
 		t.Errorf("default reported mode = %q, want 1", got)
+	}
+}
+
+func TestActCursorVisibilityReportsAndRestoresState(t *testing.T) {
+	var evals []string
+	optionJSON := `{"bool":true}`
+	restore := stubCtl(t, func(args ...string) ([]byte, error) {
+		if len(args) == 3 && args[0] == "getoption" && args[1] == "cursor:invisible" {
+			return []byte(optionJSON), nil
+		}
+		if len(args) == 2 && args[0] == "eval" {
+			evals = append(evals, args[1])
+		}
+		return nil, nil
+	})
+	defer restore()
+
+	var buf bytes.Buffer
+	prevOut := stdout
+	stdout = bufio.NewWriter(&buf)
+	err := runAct([]string{"cursor.visibility", "hidden"})
+	stdout.Flush()
+	stdout = prevOut
+	if err != nil {
+		t.Fatalf("hide cursor: %v", err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != "hidden" {
+		t.Errorf("reported previous visibility = %q, want hidden", got)
+	}
+	if len(evals) != 1 || !strings.Contains(evals[0], "invisible = true") {
+		t.Errorf("hide evals = %q, want one invisible = true eval", evals)
+	}
+
+	optionJSON = `{"int":0}`
+	buf.Reset()
+	stdout = bufio.NewWriter(&buf)
+	err = runAct([]string{"cursor.visibility", "visible"})
+	stdout.Flush()
+	stdout = prevOut
+	if err != nil {
+		t.Fatalf("show cursor: %v", err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != "visible" {
+		t.Errorf("reported previous visibility = %q, want visible", got)
+	}
+	if len(evals) != 2 || !strings.Contains(evals[1], "invisible = false") {
+		t.Errorf("show evals = %q, want invisible = false last", evals)
 	}
 }
 

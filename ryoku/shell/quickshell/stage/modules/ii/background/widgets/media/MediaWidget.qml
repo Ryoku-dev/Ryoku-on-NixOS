@@ -109,7 +109,9 @@ AbstractBackgroundWidget {
         return root.downloaded ? Qt.resolvedUrl(artFilePath) : "";
     }
 
-    property list<real> visualizerPoints: Config.options.background.widgets.media.visualizer.enable ? CavaService.visualizerPoints : []
+    property list<real> visualizerPoints: Config.options.background.widgets.media.visualizer.enable
+        ? CavaService.visualizerPoints.map(level => Math.max(0, Math.min(1, level)) * 1000)
+        : []
 
     // 'Switch button' visiblity on hover
     property bool hovering: false

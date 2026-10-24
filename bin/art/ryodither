@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Bake an image or gif into a Ryoku decor: 1-bit bone-on-transparent, dithered.
 
-The decor set (`Decor.qml`, `Placard.qml`, seeded to ~/Pictures/ryodecors) is
-public-domain art reduced to two colours -- Ryoku "bone" on a transparent
-ground -- with an ordered (Bayer 4x4) dither carrying the tone. This is the tool
-that bakes it, so a new poster or motion loop matches the set instead of landing
-in raw colour. A still bakes to a PNG; a gif bakes per-frame, keeping its timing,
-loop, and transparency.
+The decor set (`Decor.qml`, `Placard.qml`, seeded to `ryodecors/` under the
+configured Pictures folder) is public-domain art reduced to two colours --
+Ryoku "bone" on a transparent ground -- with an ordered (Bayer 4x4) dither
+carrying the tone. This is the tool that bakes it, so a new poster or motion
+loop matches the set instead of landing in raw colour. A still bakes to a PNG;
+a gif bakes per-frame, keeping its timing, loop, and transparency.
 
     ryodither statue.jpg              bake -> ryoku/assets/ryodecors/statue.png
     ryodither orbit.gif              bake a motion loop, frame by frame
@@ -15,9 +15,9 @@ loop, and transparency.
 
 By default it writes into the repo's ryoku/assets/ryodecors, so a baked decor
 ships everywhere at once: the installer seeds it, ryoku-desktop packages it to
-/usr/share/ryoku/ryodecors, and `ryoku doctor` lays it into every user's
-~/Pictures/ryodecors on update. Reference the file by bare name in a Decor or
-Placard `art:`.
+/usr/share/ryoku/ryodecors, and `ryoku doctor` lays it into `ryodecors/` under
+every user's configured Pictures folder on update. Reference the file by bare
+name in a Decor or Placard `art:`.
 
 Sources -- public domain / CC0 art worth baking:
   Wikimedia Commons         commons.wikimedia.org        sculpture, Muybridge plates

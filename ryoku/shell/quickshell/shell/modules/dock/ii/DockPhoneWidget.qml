@@ -190,7 +190,7 @@ Item {
         transformOrigin: root.magnificationTransformOrigin
         opacity: root.hasDevice ? 1.0 : 0.45
 
-        Image {
+        StyledImage {
             id: phoneIcon
             anchors.fill: parent
             anchors.leftMargin: root.generatedIcon ? 0 : root.buttonSize * 0.06

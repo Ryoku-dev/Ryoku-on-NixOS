@@ -109,22 +109,35 @@ void Settings::set(const QString &key, const QVariant &raw)
         : raw;
     if (m_user.value(key) == value && m_user.contains(key))
         return;
+    const bool wasBusy = busy();
     m_user.insert(key, value);
     m_pending.insert(key, value);
     Q_EMIT changed(key, value);
+    if (!wasBusy)
+        Q_EMIT busyChanged();
     if (!m_flush->isActive())
         m_flush->start();
 }
 
 void Settings::reset(const QString &key)
 {
+    const bool wasBusy = busy();
     const bool had = m_user.remove(key) > 0;
     // A queued write for this key is now stale.
     m_pending.remove(key);
     if (m_daemon) {
+        ++m_writesInFlight;
         m_daemon->call(QStringLiteral("settings.reset"),
-                       QJsonObject{{QStringLiteral("keys"), QJsonArray{key}}}, nullptr);
+                       QJsonObject{{QStringLiteral("keys"), QJsonArray{key}}},
+                       [this](const QJsonValue &, const QJsonObject &) {
+            const bool wasBusy = busy();
+            --m_writesInFlight;
+            if (wasBusy != busy())
+                Q_EMIT busyChanged();
+        });
     }
+    if (wasBusy != busy())
+        Q_EMIT busyChanged();
     if (had)
         Q_EMIT changed(key, value(key));
 }
@@ -136,14 +149,19 @@ void Settings::flush()
         return;
     const QVariantMap sent = m_pending;
     m_pending.clear();
+    ++m_writesInFlight;
     m_daemon->call(QStringLiteral("settings.set"),
                    QJsonObject{{QStringLiteral("values"), QJsonObject::fromVariantMap(sent)}},
                    [this, keys = sent.keys()](const QJsonValue &, const QJsonObject &error) {
-        if (error.isEmpty())
-            return;
-        qWarning("ryogami: settings not saved: %s",
-                 qPrintable(error.value(QStringLiteral("message")).toString()));
-        resync(keys);
+        const bool wasBusy = busy();
+        --m_writesInFlight;
+        if (!error.isEmpty()) {
+            qWarning("ryogami: settings not saved: %s",
+                     qPrintable(error.value(QStringLiteral("message")).toString()));
+            resync(keys);
+        }
+        if (wasBusy != busy())
+            Q_EMIT busyChanged();
     });
 }
 
@@ -236,6 +254,7 @@ void Settings::onEvent(const QString &name, const QVariantMap &data)
 
 void Settings::applyIncoming(const QVariantMap &values)
 {
+    const bool wasBusy = busy();
     for (auto it = values.constBegin(); it != values.constEnd(); ++it) {
         // The daemon's value is authoritative, our own echo included: adopt it and drop any queued write.
         const bool differs = !m_user.contains(it.key()) || m_user.value(it.key()) != it.value();
@@ -244,4 +263,6 @@ void Settings::applyIncoming(const QVariantMap &values)
         if (differs)
             Q_EMIT changed(it.key(), it.value());
     }
+    if (wasBusy != busy())
+        Q_EMIT busyChanged();
 }

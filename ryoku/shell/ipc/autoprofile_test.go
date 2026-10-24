@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/godbus/dbus/v5"
+)
 
 // TestAutoProfileStep walks one tracker through a full battery lifecycle: the
 // switch on unplug, no re-switch mid-episode, a manual override left alone, and
@@ -54,5 +58,28 @@ func TestAutoProfileGuards(t *testing.T) {
 	disabled := &autoProfile{}
 	if got := disabled.step(false, true, "balanced", saver); got != "" {
 		t.Errorf("feature off: got %q, want no-op", got)
+	}
+}
+
+func TestPowerStateSignal(t *testing.T) {
+	cases := []struct {
+		name string
+		sig  *dbus.Signal
+		want bool
+	}{
+		{"power profile property", &dbus.Signal{Name: propertiesInterface + ".PropertiesChanged", Path: dbus.ObjectPath(ppPath)}, true},
+		{"UPower root property", &dbus.Signal{Name: propertiesInterface + ".PropertiesChanged", Path: upowerPath}, true},
+		{"battery property", &dbus.Signal{Name: propertiesInterface + ".PropertiesChanged", Path: "/org/freedesktop/UPower/devices/battery_BAT0"}, true},
+		{"device added", &dbus.Signal{Name: "org.freedesktop.UPower.DeviceAdded", Path: upowerPath}, true},
+		{"unrelated path", &dbus.Signal{Name: propertiesInterface + ".PropertiesChanged", Path: "/org/example"}, false},
+		{"unrelated member", &dbus.Signal{Name: "org.freedesktop.UPower.Sleeping", Path: upowerPath}, false},
+		{"nil", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := powerStateSignal(tc.sig); got != tc.want {
+				t.Fatalf("powerStateSignal = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

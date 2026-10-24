@@ -78,6 +78,9 @@ func resolvePath(p string) string {
 	if p == "" {
 		return ""
 	}
+	if p == "~" {
+		return home()
+	}
 	if strings.HasPrefix(p, "~/") {
 		return filepath.Join(home(), p[2:])
 	}
@@ -188,7 +191,7 @@ func persistResourceTier(tier string) {
 
 func saveRaw(path string, b []byte) {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.WriteFile(tmp, portableJSON(b), 0o644); err != nil {
 		return
 	}
 	_ = os.Rename(tmp, path)

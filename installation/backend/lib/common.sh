@@ -105,6 +105,54 @@ append_file() {
   printf '%s\n' "$content" >>"$path"
 }
 
+# Resolve the install-time timezone once for every edition. Auto resolution runs
+# while the installer still owns the network; an offline install must not wait
+# for geolocation timeouts.
+ryoku_resolve_timezone() {
+  local timezone=$1 url
+  if [[ $timezone == auto ]]; then
+    if [[ ${RYOKU_ONLINE:-1} != 1 ]]; then
+      log "timezone: offline install, using UTC (auto needs network to geolocate)"
+      timezone=UTC
+    elif [[ -n ${RYOKU_DRYRUN:-} ]]; then
+      printf 'DRYRUN: curl -fsSL https://ipinfo.io/timezone\n'
+      timezone='<auto-timezone>'
+    else
+      for url in "https://ipinfo.io/timezone" "http://ip-api.com/line?fields=timezone"; do
+        timezone=$(curl -fsSL --max-time 10 "$url" 2>/dev/null | tr -d '[:space:]') || timezone=
+        if [[ -n $timezone && -e /mnt/usr/share/zoneinfo/$timezone ]]; then
+          break
+        fi
+        timezone=
+      done
+    fi
+  fi
+  if [[ -z ${RYOKU_DRYRUN:-} && ( -z $timezone || ! -e /mnt/usr/share/zoneinfo/$timezone ) ]]; then
+    log 'warn: timezone '\''%s'\'' is empty or unknown; falling back to UTC' "${timezone:-empty}"
+    timezone=UTC
+  fi
+  # shellcheck disable=SC2034  # read by each edition's timezone step
+  RYOKU_RESOLVED_TIMEZONE=$timezone
+}
+
+# ryoku_drop_pkg NAME: is NAME on the user's "remove from the install" list
+# (RYOKU_DROP_PACKAGES, a comma-separated set the browser/apps pickers feed)?
+# Empty set drops nothing, so a direct backend call keeps every package.
+ryoku_drop_pkg() {
+  [[ ",${RYOKU_DROP_PACKAGES:-}," == *,"$1,"* ]]
+}
+
+# ryoku_drop_from: read package names on stdin, print the ones the user kept.
+# One filter point for every package-set reader (pacstrap, the AUR steps), so
+# a drop never has to be honored twice in two styles.
+ryoku_drop_from() {
+  local p
+  while IFS= read -r p; do
+    [[ -n $p ]] || continue
+    ryoku_drop_pkg "$p" || printf '%s\n' "$p"
+  done
+}
+
 # deploy_dir: copy a source tree into a destination (dir-as-dir contents).
 # missing sources -> skipped with a note in real mode; under dry-run the
 # intended copy is always printed.

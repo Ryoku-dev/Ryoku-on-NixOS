@@ -101,8 +101,8 @@ Item {
                 onToggled: value => {
                     if (root.currentPage === "wifi")
                         Network.setWifiEnabled(value);
-                    else if (Bluetooth.defaultAdapter)
-                        Bluetooth.defaultAdapter.enabled = value;
+                    else
+                        BluetoothPower.setEnabled(value);
                 }
             }
         }

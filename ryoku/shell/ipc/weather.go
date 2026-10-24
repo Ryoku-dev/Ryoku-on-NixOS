@@ -538,9 +538,10 @@ type wxConfig struct {
 // wxState holds the weather poller: its topic, its live config, and a wake
 // channel that configure and retry use to force a fresh fetch.
 type wxState struct {
-	topic  *stateTopic
-	client *http.Client
-	sun    *sunState // the day window published to the sun-following features
+	topic      *stateTopic
+	client     *http.Client
+	sun        *sunState // the day window published to the sun-following features
+	sunChanged func()
 
 	mu  sync.Mutex
 	cfg wxConfig
@@ -562,12 +563,13 @@ func (t *stateTopic) hasSubscribers() bool {
 // initial loading frame, and starts the poll loop.
 func (d *daemon) startWeather() {
 	s := &wxState{
-		topic:  d.registerTopic("weather"),
-		client: &http.Client{Timeout: wxHTTPTimeout},
-		cfg:    wxConfig{unit: "auto", clock24: true},
-		sun:    d.sun,
-		wake:   make(chan struct{}, 1),
-		quit:   d.quit,
+		topic:      d.registerTopic("weather"),
+		client:     &http.Client{Timeout: wxHTTPTimeout},
+		cfg:        wxConfig{unit: "auto", clock24: true},
+		sun:        d.sun,
+		sunChanged: d.kickSunMode,
+		wake:       make(chan struct{}, 1),
+		quit:       d.quit,
 	}
 	s.publishFrame(wxFrame{Status: "loading", Hourly: []wxHour{}, Daily: []wxDay{}})
 
@@ -703,6 +705,9 @@ func (s *wxState) fetchOnce() bool {
 			s.publishFrame(buildFrame(data, air, *loc, unit, cfg.clock24))
 			if len(data.Daily.Sunrise) > 0 && len(data.Daily.Sunset) > 0 {
 				s.sun.observe(data.Daily.Sunrise[0], data.Daily.Sunset[0])
+				if s.sunChanged != nil {
+					s.sunChanged()
+				}
 			}
 			return true
 		}

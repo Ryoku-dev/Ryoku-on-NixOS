@@ -20,7 +20,7 @@ Item {
     property real s: 1
     readonly property color ink: face.inkColorA !== "" ? face.inkColorA : "#f6f7fa"
 
-    readonly property var t: Clk.parts(Now.date, Config.clock24h)
+    readonly property var t: Clk.parts(Now.secondDate, Config.clock24h)
     readonly property var dp: Clk.dateParts(Now.date, Svc.Config.formatLoc)
     readonly property bool showSecs: Config.clockSeconds
 

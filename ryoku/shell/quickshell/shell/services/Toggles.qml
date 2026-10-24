@@ -36,13 +36,9 @@ Singleton {
     readonly property bool nightOn: Nightlight.on
     function toggleNight() { Nightlight.toggle(); }
 
-    // ---- bluetooth (reactive off the BT service) -----------------------------
-    readonly property var btAdapter: Bluetooth.defaultAdapter
-    readonly property bool btOn: btAdapter ? btAdapter.enabled : false
-    function toggleBt() {
-        if (root.btAdapter)
-            root.btAdapter.enabled = !root.btAdapter.enabled;
-    }
+    // ---- bluetooth (reactive off BlueZ; writes persist through the helper) ----
+    readonly property bool btOn: BluetoothPower.enabled
+    function toggleBt() { BluetoothPower.toggle(); }
 
     // ---- dnd / keep-awake / game mode (reactive off Flags) -------------------
     readonly property bool dnd: Flags.dnd

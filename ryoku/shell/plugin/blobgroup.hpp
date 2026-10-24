@@ -4,6 +4,8 @@
 #include <qlist.h>
 #include <qobject.h>
 #include <qqmlengine.h>
+#include <qelapsedtimer.h>
+#include <qtimer.h>
 
 class BlobShape;
 class BlobInvertedRect;
@@ -63,6 +65,7 @@ public:
     void markDirty();
     void markShapeDirty(BlobShape* source);
     void ensurePhysicsUpdated();
+    void requestWaveUpdate();
 
 signals:
     void smoothingChanged();
@@ -74,6 +77,9 @@ signals:
     void waveColorChanged();
 
 private:
+    void flushWaveUpdates();
+    void markWaveDataDirty(BlobWave* const* waves, int count);
+
     qreal m_smoothing = 32.0;
     QColor m_color{ 0x44, 0x88, 0xff };
     qreal m_shadowStrength = 0.0;
@@ -85,4 +91,7 @@ private:
     BlobInvertedRect* m_invertedRect = nullptr;
     QList<BlobWave*> m_waves;
     bool m_physicsUpdated = false;
+    QTimer m_waveTimer;
+    QElapsedTimer m_waveClock;
+    bool m_updateWavePhysics = false;
 };

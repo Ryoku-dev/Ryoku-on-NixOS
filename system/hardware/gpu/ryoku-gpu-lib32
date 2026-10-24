@@ -88,9 +88,21 @@ gpu_drivers() {
   done
 }
 
-main() {
-  ensure_multilib
+# The 32-bit half of whichever NVIDIA userspace is installed. A pre-Turing card
+# runs a legacy branch whose utils (nvidia-580xx-utils) provide nvidia-utils by
+# name, yet pacman resolves lib32-nvidia-utils to the real Turing+ package, which
+# conflicts with that branch and fails the transaction under --noconfirm.
+# `pacman -Qq` answers a provided name with the package that provides it.
+nvidia_lib32() {
+  local owner
+  owner=$(pacman -Qq nvidia-utils 2>/dev/null) || owner=nvidia-utils
+  printf 'lib32-%s\n' "$owner"
+}
 
+main() {
+  if [[ $RYOKU_DRYRUN == 1 ]] || [[ "$(ryoku-host pkgmgr)" == pacman ]]; then
+    ensure_multilib
+  fi
   # Baseline 32-bit userspace: Mesa (GL for AMD/Intel/virtio/llvmpipe) and the
   # Vulkan loader every 32-bit Vulkan app links to.
   local -a pkgs=(lib32-mesa lib32-vulkan-icd-loader)
@@ -100,7 +112,7 @@ main() {
     case "$driver" in
       amdgpu | radeon) pkgs+=(lib32-vulkan-radeon);  seen_vendor=1 ;;
       i915 | xe)       pkgs+=(lib32-vulkan-intel);   seen_vendor=1 ;;
-      nvidia)          pkgs+=(lib32-nvidia-utils);   seen_vendor=1 ;;
+      nvidia)          pkgs+=("$(nvidia_lib32)");    seen_vendor=1 ;;
       nouveau)         pkgs+=(lib32-vulkan-nouveau); seen_vendor=1 ;;
     esac
   done < <(gpu_drivers)
@@ -115,12 +127,46 @@ main() {
     [[ " ${want[*]-} " == *" $p "* ]] || want+=("$p")
   done
 
+  # Away from pacman only part of Arch's lib32 set has a package: Void ships the
+  # vendor 32-bit Vulkan drivers in multilib (turned on by the install itself),
+  # Fedora its .i686 builds. Install what this edition provides and skip the
+  # rest instead of failing the whole transaction on one missing name.
+  local manager
+  manager=$(ryoku-host pkgmgr 2>/dev/null || echo pacman)
+  if [[ $manager != pacman ]]; then
+    local -a provided=()
+    local name state
+    while IFS=$'\t' read -r name state _; do
+      if [[ $state == available || $state == installed ]]; then
+        provided+=("$name")
+      else
+        echo "ryoku-gpu-lib32: $name has no package on this distribution; skipping it."
+      fi
+    done < <(ryoku-host pkg status "${want[@]}" 2>/dev/null)
+    if (( ${#provided[@]} == 0 )); then
+      echo "ryoku-gpu-lib32: no 32-bit GPU packages are available on this distribution; skipping."
+      return 0
+    fi
+    want=("${provided[@]}")
+  fi
+
   echo "ryoku-gpu-lib32: 32-bit GPU packages: ${want[*]}"
-  # -Syu --needed: installing new lib32 libs against a stale db is a partial
-  # upgrade that breaks on soname bumps; --needed skips what is already there.
-  local -a priv=()
+  # Keep the package database and lib32 libraries in one upgrade transaction.
+  # A catalogue package table from the bundle actuator rides along across sudo.
+  local -a priv=() overlay=()
   (( EUID == 0 )) || priv=(sudo)
-  run "${priv[@]-}" pacman -Syu --needed --noconfirm "${want[@]}"
+  [[ -n ${RYOKU_HOST_PKG_OVERLAY:-} ]] && overlay=(--overlay "$RYOKU_HOST_PKG_OVERLAY")
+  local rc
+  if run ${priv[@]+"${priv[@]}"} ryoku-host pkg ${overlay[@]+"${overlay[@]}"} install --upgrade "${want[@]}"; then
+    return 0
+  else
+    rc=$?
+  fi
+  if (( rc == 5 )); then
+    echo "ryoku-gpu-lib32: 32-bit GPU libraries are not available on this distribution; skipping." >&2
+    return 0
+  fi
+  return "$rc"
 }
 
 main

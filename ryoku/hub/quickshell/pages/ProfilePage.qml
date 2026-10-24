@@ -1026,7 +1026,7 @@ Item {
         id: grabTimer
         interval: 60
         onTriggered: {
-            const path = (Quickshell.env("HOME") || "") + "/Pictures/ryoku-profile-" + Qt.formatDate(new Date(), "yyyyMMdd") + ".png";
+            const path = Paths.picturesDir + "/ryoku-profile-" + Qt.formatDate(new Date(), "yyyyMMdd") + ".png";
             pg.grabToImage(function (res) { res.saveToFile(path); pg.grabbing = false; }, Qt.size(pg.width * 2, pg.height * 2));
         }
     }

@@ -1922,7 +1922,8 @@ AbstractWidget {
         void Lume.revision
         if (!root._regionSampling || root._lumaPath.length === 0)
             return null
-        return Lume.read(root._wallpaperOutput, root.x, root.y, root.width, root.height)
+        return Lume.read(root._wallpaperOutput, root.ryokuScreenX, root.ryokuScreenY,
+            root.width, root.height)
     }
     on_BackdropSampleChanged: root._applyBackdropSample()
 
@@ -2085,8 +2086,8 @@ AbstractWidget {
     readonly property var irisPalette: IrisStyle.widgetPalette(root.irisPaletteName, root.irisVibrance)
     // Ryoku host hooks (set only when a Ryoku desktop slot hosts this widget;
     // every one is inert at its default, so the vendored iRiS frame is unchanged).
-    //   ryokuHosted   drops the region sampling and hands the face its real
-    //                 on-screen position through ryokuHostX / ryokuHostY.
+    //   ryokuHosted   hands the face its real on-screen position through
+    //                 ryokuHostX / ryokuHostY for backdrop sampling.
     //   ryokuStyle    picks the additive Ryoku skin for THIS widget, per widget —
     //                 never the global iris.appearance.frontend.
     //   ink/accent/size/scale/option overrides carry Ryoku's colour modes, size
@@ -2383,12 +2384,13 @@ AbstractWidget {
         : root.positionColorAdaptationEnabled && root._hasBrightness ? root._regionBg
         : root.widgetIrisFamily ? root._inkDark : Appearance.colors.colLayer0
 
-    // Pick only among existing generated semantic tokens. Movement can therefore
-    // change polarity when required, but cannot manufacture a brown/gray/red hue.
+    // Prefer the configured semantic role, then use the family's light or dark
+    // ink when the generated role set cannot meet the contrast floor.
     function widgetSemanticForeground(role: string, backdrop = root.accentBackdrop,
             targetContrast = 3.0): color {
         const set = root.widgetSemanticSet(role);
-        const candidates = [set.color, set.onContainer, set.onColor, set.container, root.widgetInk];
+        const candidates = [set.color, set.onContainer, set.onColor, set.container,
+            root.widgetInk, root._inkLight, root._inkDark];
         let best = candidates[0];
         let bestRatio = ColorUtils.contrastRatio(best, backdrop);
         for (let i = 0; i < candidates.length; i++) {

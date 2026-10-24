@@ -2,18 +2,21 @@ package main
 
 import "testing"
 
-// esc must walk back out of the text steps (hostname, username). They set the
-// `typing` flag, which used to skip the global esc->back and left them as
-// one-way dead ends even though the footer advertised "esc back".
-func TestEscGoesBackFromInputSteps(t *testing.T) {
-	for _, key := range []string{"hostname", "username"} {
+// esc must walk back out of text entry, including the multi-field administrator
+// account screen. Text entry bypasses the global esc handler.
+func TestEscGoesBackFromTextSteps(t *testing.T) {
+	for _, key := range []string{"hostname", "administrator"} {
 		m := model{state: "wizard", flow: steps(), picks: map[string]string{}}
 		m.idx = flowIndex(m.flow, key)
 		if m.idx <= 0 {
 			t.Fatalf("step %q not reachable in flow", key)
 		}
 		m.loadStep()
-		m.input = "typed"
+		if key == "hostname" {
+			m.input = "typed"
+		} else {
+			m.accounts.adminName = "typed"
+		}
 		before := m.idx
 		nm, _ := m.onKey("esc")
 		got := nm.(model)

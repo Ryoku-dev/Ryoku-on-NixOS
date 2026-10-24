@@ -2,7 +2,32 @@
 
 ## Unreleased
 
+### Fixed
+- **The sidebar identifies a CachyOS install as RYOKU CACHYOS.** It reads the
+  reported distribution before falling back to the package manager, so
+  CachyOS no longer appears as RYOKU ARCH (`quickshell/Hub.qml`).
+
 ### Added
+- **General manages people on this computer.** The Users tab lists local
+  accounts, sign-in state, roles, permissions and home storage, and lets an
+  administrator add or remove people, reset passwords and set storage limits
+  through the host account seam (`quickshell/pages/users/`,
+  `quickshell/pages/GlobalPage.qml`, `quickshell/Singletons/Host.qml`).
+- **App Launcher hides apps and offers more controls for store launchers.**
+  A Hidden apps card lists every installed app with a switch, so the launcher
+  stops showing entries you never open without editing any `.desktop` file.
+  A store launcher can also ask for an Overlay opacity slider, a Grid card
+  (columns and tile width), a Sections card to order or hide its section
+  chips, and a Favorites picker that pins apps first. A launcher declares what
+  it honours in a `settings.json` beside its `Main.qml`
+  (`quickshell/pages/LauncherPage.qml`, `quickshell/AppSetPicker.qml`,
+  `quickshell/SectionsEditor.qml`, `quickshell/LauncherSettings.js`,
+  `quickshell/schema/LauncherPage.js`).
+- **Bar Studio marks the heavier bar styles.** QS Bar, Python, Nomarchy, Shima
+  and Sumi now say they may need more CPU, GPU and memory; Orpheus and Kairos,
+  the two styles kept light, carry no mark. The tier comes from the RyoStore
+  catalogue, so store styles stay unmarked
+  (`quickshell/pages/StoreDesignGallery.qml`).
 - **Overlays chooses shell surface designs.** The new Desktop > Overlays page
   wears installed RyoStore designs for pop-ups, notification cards and the
   Super+Escape panel, previews each surface, and keeps Bar Studio's style
@@ -153,6 +178,23 @@
   Hermes's model, and connecting an agent now says it routes that agent's models
   through Prowl (`quickshell/pages/RashinPage.qml`).
 ### Fixed
+- **Profile export, decor guidance and image pickers follow the localized
+  Pictures folder.** Exporting the profile card and browsing launcher art used
+  a hardcoded `~/Pictures`, while the Fastfetch emblem picker and decor guidance
+  still pointed there. A localized desktop could therefore grow a second
+  Pictures folder or miss Store-installed art. They now resolve it through
+  `Paths.picturesDir` (`XDG_PICTURES_DIR`), as does the shared `Ryodecors`
+  singleton that Decor and Placard render from
+  (`quickshell/pages/{ProfilePage,FastfetchPage,LauncherPage,HeroEditor}.qml`,
+  `ui/Singletons/Paths.qml`, `ui/Singletons/Ryodecors.qml`).
+- **Palette Bridge controls only enable for a complete installation.** Status
+  now follows the supplemental Matugen template locations and requires both the
+  packaged daemon and recipes, instead of showing setup actions that could only
+  fail (`backend/palettebridge.go`).
+- **Bluetooth stays off after reboot.** Connections now sends adapter power
+  changes through `ryoku-bluetooth-power`, so the Hub records the user's choice
+  instead of changing only BlueZ's temporary `Powered` property
+  (`quickshell/pages/ConnectionsPage.qml`).
 - **The blur and dim behind open windows switches off from General.** Its
   switch sat on the Desktop page as *Deck frost*, where nobody looking for it
   would find it. It now lives on General > Appearance as *Blur and dim behind

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+	"golang.org/x/sys/unix"
 	wm "ryoku-wm"
 )
 
@@ -1180,6 +1181,7 @@ func matugenRenderTemplates(shell map[string]string, k matugenKnobs, includeNoma
 	// silently undid it.
 	if k.ThemeRyokuApps && themeAppsEnabled() {
 		matugenRenderFiltered(filepath.Join(dir, "apps.toml"), carrierPath, enabled)
+		matugenRenderFiltered(filepath.Join(ryokuConfigDir(), "palette-bridge", "matugen.toml"), carrierPath, enabled)
 		// matugen wrote the shared snippet target; poke each vault's symlink so
 		// Obsidian's watcher, which never sees the out-of-vault target change,
 		// reloads the new palette without a restart.
@@ -1765,59 +1767,132 @@ func writeKittyFont(mono string, size int) {
 	_ = os.WriteFile(filepath.Join(dir, "current-font.conf"), []byte(body), 0o644)
 }
 
-// watchSunMode retints the desktop when the day/night edge crosses while the
-// mode knob is "sun": resolveMode only runs on a theme pass, and nothing else
-// wakes one at sunrise/sunset. The check compares the resolved value, so a
-// re-observed sun window that does not flip light/dark costs nothing. The
-// cadence matches the night light schedule's: sun times are whole minutes and
-// a few minutes of drift at the edge is invisible next to twilight.
+func (d *daemon) kickSunMode() {
+	select {
+	case d.sunSig <- struct{}{}:
+	default:
+	}
+}
+
+func currentSunWindow(now, sunrise, sunset time.Time) (time.Time, time.Time) {
+	for !sunset.After(now) {
+		sunrise = sunrise.AddDate(0, 0, 1)
+		sunset = sunset.AddDate(0, 0, 1)
+	}
+	return sunrise, sunset
+}
+
+// watchSunMode sleeps on the next actual day/night edge. Knob saves and fresh
+// weather data interrupt that deadline, so every other theme mode stays fully
+// event-driven.
 func (d *daemon) watchSunMode() {
 	last := ""
-	for range time.Tick(nlTickEvery) {
+	for {
 		if readMatugenKnobs().Mode != "sun" {
 			last = ""
+			select {
+			case <-d.quit:
+				return
+			case <-d.sunSig:
+			}
 			continue
 		}
 		sunrise, sunset, ok := daySun.window()
 		if !ok {
-			continue // no window yet: the smart fallback only flips on a real theme pass
-		}
-		got := "dark"
-		if isDaytime(time.Now(), sunrise, sunset) {
-			got = "light"
-		}
-		if last == "" {
-			last = got
+			select {
+			case <-d.quit:
+				return
+			case <-d.sunSig:
+			}
 			continue
 		}
-		if got != last {
-			last = got
+
+		now := time.Now()
+		sunrise, sunset = currentSunWindow(now, sunrise, sunset)
+		got := "dark"
+		next := sunrise
+		if isDaytime(now, sunrise, sunset) {
+			got = "light"
+			next = sunset
+		}
+		if last != "" && got != last {
 			d.scheduleTheme()
+		}
+		last = got
+
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-d.quit:
+			timer.Stop()
+			return
+		case <-d.sunSig:
+			timer.Stop()
+		case <-timer.C:
 		}
 	}
 }
 
-// watchMatugenKnobs retints the desktop whenever the knob store changes, so a Hub
-// appearance save (which writes matugen.json and renders nothing itself) takes
-// hold at once, exactly as a wallpaper change does. scheduleTheme coalesces, so
-// a burst of rapid saves themes once. A poll is simpler and more robust across
-// the Hub's rename-and-replace write than an inotify watch, at negligible idle
-// cost. Runs for the life of the daemon.
+// watchMatugenKnobs retints the desktop whenever the knob store changes. It
+// watches the parent directory because the Hub persists with rename-and-replace;
+// a slow timeout reconciles filesystems without inotify support.
 func (d *daemon) watchMatugenKnobs() {
 	path := matugenKnobsPath()
 	var last time.Time
-	if fi, err := os.Stat(path); err == nil {
-		last = fi.ModTime()
-	}
-	for range time.Tick(500 * time.Millisecond) {
+	check := func() {
 		fi, err := os.Stat(path)
 		if err != nil {
-			continue
+			return
 		}
 		if m := fi.ModTime(); !m.Equal(last) {
+			changed := !last.IsZero()
 			last = m
-			d.scheduleTheme()
+			if changed {
+				d.scheduleTheme()
+				d.kickSunMode()
+			}
 		}
+	}
+	check()
+
+	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
+	if err == nil {
+		if _, watchErr := unix.InotifyAddWatch(fd, filepath.Dir(path),
+			unix.IN_CLOSE_WRITE|unix.IN_CREATE|unix.IN_MOVED_TO); watchErr != nil {
+			unix.Close(fd)
+			fd = -1
+		}
+	}
+	if err != nil {
+		fd = -1
+	}
+	if fd >= 0 {
+		defer unix.Close(fd)
+	}
+	buf := make([]byte, 4096)
+	for {
+		if fd >= 0 {
+			pfds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN | unix.POLLERR}}
+			_, _ = unix.Poll(pfds, int((5*time.Minute)/time.Millisecond))
+			for pfds[0].Revents != 0 {
+				if _, err := unix.Read(fd, buf); err != nil {
+					break
+				}
+			}
+		} else {
+			timer := time.NewTimer(30 * time.Second)
+			select {
+			case <-d.quit:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+		select {
+		case <-d.quit:
+			return
+		default:
+		}
+		check()
 	}
 }
 

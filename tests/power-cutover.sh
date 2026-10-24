@@ -18,6 +18,150 @@ cleanup() {
 trap cleanup EXIT
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
+cat >"$tmp/ryoku-host" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${1:-} == init ]]; then
+  printf '%s\n' "${RYOKU_TEST_INIT:-systemd}"
+  exit 0
+fi
+if [[ ${1:-} == pkgmgr ]]; then
+  printf '%s\n' "${RYOKU_TEST_PKGMGR:-pacman}"
+  exit 0
+fi
+[[ ${RYOKU_TEST_INIT:-systemd} == runit ]]
+printf 'ryoku-host %s\n' "$*" >>"$RUNIT_LOG"
+state=${RUNIT_STATE:?}
+case "${1:-}:${2:-}" in
+  transient:start)
+    job=$3
+    : >"$state/transient-$job"
+    args="$*"
+    [[ $args != *elogind-inhibit* ]] || : >"$CUTOVER_STATE/runit-inhibitor"
+    if [[ $args == *generation-guard-hold* ]]; then
+      printf 'test\n' >"${*: -1}"
+    elif [[ $args == *launch-guard-hold* ]]; then
+      printf 'test\n' >"${*: -1}"
+    elif [[ $args == *'watch-session '* ]]; then
+      sid=${*: -1}
+      if [[ $sid == unbound ]]; then
+        sid=${*: -2:1}
+        printf '%s\n' "$sid" >"$XDG_RUNTIME_DIR/ryoku-session-observer.$sid.ready"
+      else
+        printf '%s\n' "$sid" >"$XDG_RUNTIME_DIR/ryoku-session-guard.$sid.ready"
+      fi
+    elif [[ $args == *ryoku-session-lock-* ]]; then
+      for arg in "$@"; do
+        [[ $arg == XDG_SESSION_ID=* ]] || continue
+        : >"$CUTOVER_STATE/proof-${arg#*=}"
+      done
+    fi
+    ;;
+  transient:is-active)
+    [[ -e $state/transient-$3 ]]
+    ;;
+  transient:stop)
+    rm -f "$state/transient-$3"
+    [[ $3 != ryoku-power-cutover-guard ]] ||
+      rm -f "$CUTOVER_STATE/runit-inhibitor"
+    ;;
+  svc:--user)
+    verb=${3:-}
+    shift 3
+    case "$verb" in
+      env)
+        mkdir -p "$TURNSTILE_ENV_DIR"
+        for entry in "$@"; do
+          printf '%s' "${entry#*=}" >"$TURNSTILE_ENV_DIR/${entry%%=*}"
+        done
+        printf 'dbus-update-activation-environment %s\n' "$*" >>"$RUNIT_LOG"
+        ;;
+      is-active)
+        unit=${1%%.*}
+        [[ -e $state/service-$unit ]]
+        ;;
+      start|restart)
+        sv "$verb" "$@" >/dev/null
+        for unit in "$@"; do
+          : >"$state/service-${unit%%.*}"
+          case "${unit%%.*}" in
+            ryoku-shell) : >"$CUTOVER_STATE/started" ;;
+            ryoku-idle) : >"$CUTOVER_STATE/idle-unit" ;;
+            ryoku-clamshell) : >"$CUTOVER_STATE/clamshell-unit" ;;
+          esac
+        done
+        ;;
+      stop)
+        sv "$verb" "$@" >/dev/null
+        for unit in "$@"; do rm -f "$state/service-${unit%%.*}"; done
+        ;;
+      reset-failed|daemon-reload) ;;
+      *) exit 2 ;;
+    esac
+    ;;
+  *) exit 2 ;;
+esac
+EOF
+chmod +x "$tmp/ryoku-host"
+export RYOKU_HOST_BIN="$tmp/ryoku-host"
+
+test_deferred_transaction_wait() {
+  local manager=$1
+  local busy=$tmp/transaction-$manager
+  rm -rf "$busy" "$tmp/deferred-$manager" "$tmp/deferred-marker"
+  case "$manager" in
+    pacman|xbps) : >"$busy" ;;
+    dnf)
+      mkdir -p "$busy"
+      printf 'dnf5\n' >"$busy/comm"
+      ;;
+  esac
+  RYOKU_TEST_PKGMGR="$manager" \
+    RYOKU_PACMAN_DB_LOCK="$busy" RYOKU_XBPS_DB_LOCK="$busy" \
+    RYOKU_PROC_ROOT="$tmp/transaction-proc-$manager" \
+    RYOKU_CUTOVER_MARKER="$tmp/deferred-marker" \
+    RYOKU_PACKAGE_WAIT_ATTEMPTS=100 RYOKU_PACKAGE_WAIT_DELAY=0.01 \
+    RYOKU_DEFERRED_PROOF="$tmp/deferred-$manager" \
+    RYOKU_DEFERRED_BUSY="$busy" \
+    bash -c '
+      set -euo pipefail
+      source "$1"
+      manager=$2
+      case "$manager" in
+        dnf)
+          mkdir -p "$RYOKU_PROC_ROOT/42"
+          cp "$RYOKU_DEFERRED_BUSY/comm" "$RYOKU_PROC_ROOT/42/comm"
+          released="$RYOKU_PROC_ROOT/42"
+          ;;
+        xbps)
+          exec 9<>"$RYOKU_DEFERRED_BUSY"
+          flock 9
+          ;;
+        *) released="$RYOKU_DEFERRED_BUSY" ;;
+      esac
+      root_cutover() {
+        if package_transaction_busy "$manager"; then
+          echo "cutover ran while $manager was busy" >&2
+          return 91
+        fi
+        : >"$RYOKU_DEFERRED_PROOF"
+      }
+      if [[ $manager == xbps ]]; then
+        (sleep 0.08; flock -u 9) &
+      else
+        (sleep 0.08; rm -rf "$released") &
+      fi
+      finish_deferred_cutover "$manager"
+      wait
+    ' _ "$helper" "$manager"
+  [[ -e $tmp/deferred-$manager ]] \
+    || fail "$manager deferred cutover did not run after its transaction released"
+}
+
+for manager in pacman dnf xbps; do
+  test_deferred_transaction_wait "$manager"
+done
+
 mkdir -p "$tmp/session-bin" "$tmp/provider-bin" "$tmp/runtime"/{1001,1002,1003,1004,1005,1006}
 python3 - \
   "$tmp/runtime/1001/bus" "$tmp/runtime/1002/bus" \
@@ -221,15 +365,116 @@ grep -q -- '--property=StartLimitIntervalSec=0' "$tmp/schedule-ok" \
   || fail "first-rollout migration did not disable transient-unit rate limiting"
 
 if (( EUID == 0 )); then
+  mkdir -p "$tmp/runit-package-bin" "$tmp/runit-package-state" \
+    "$tmp/runit-package-target"
+  cat >"$tmp/runit-package-bin/elogind-inhibit" <<'EOF'
+#!/usr/bin/env bash
+if [[ ${1:-} == --list && -e $CUTOVER_STATE/runit-inhibitor ]]; then
+  printf 'sleep ryoku-package-cutover block\n'
+fi
+EOF
+  cat >"$tmp/runit-package-bin/loginctl" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  list-sessions|reload) exit 0 ;;
+  *) exit 1 ;;
+esac
+EOF
+  for command in systemctl systemd-run systemd-inhibit systemd-escape; do
+    cat >"$tmp/runit-package-bin/$command" <<'EOF'
+#!/usr/bin/env bash
+printf 'forbidden %s %s\n' "$(basename "$0")" "$*" >>"$RUNIT_LOG"
+exit 97
+EOF
+  done
+  chmod +x "$tmp/runit-package-bin"/*
+  printf '#!/bin/sh\nexit 0\n' >"$tmp/runit-package-target/ryoku-idle"
+  cp "$tmp/runit-package-target/ryoku-idle" \
+    "$tmp/runit-package-target/ryoku-clamshell"
+  chmod +x "$tmp/runit-package-target"/*
+  : >"$tmp/runit-package.log"
+  RYOKU_TEST_INIT=runit RUNIT_LOG="$tmp/runit-package.log" \
+    RUNIT_STATE="$tmp/runit-package-state" \
+    CUTOVER_STATE="$tmp/runit-package-state" \
+    RYOKU_CUTOVER_RUNTIME_HELPER="$tmp/runit-package-helper" \
+    RYOKU_CUTOVER_RUNTIME_SESSIONS="$tmp/runit-package-sessions" \
+    RYOKU_CUTOVER_MARKER="$tmp/runit-package-marker" \
+    RYOKU_CUTOVER_TARGET_ROOT="$tmp/runit-package-target" \
+    RYOKU_CUTOVER_PROVIDER_ROOT="$tmp/provider-bin" \
+    PATH="$tmp/runit-package-bin:$PATH" "$helper" prepare-package
+  [[ -e $tmp/runit-package-state/runit-inhibitor ]] ||
+    fail "runit package preparation did not hold sleep across extraction"
+  RYOKU_TEST_INIT=runit RUNIT_LOG="$tmp/runit-package.log" \
+    RUNIT_STATE="$tmp/runit-package-state" \
+    CUTOVER_STATE="$tmp/runit-package-state" \
+    RYOKU_CUTOVER_RUNTIME_HELPER="$tmp/runit-package-helper" \
+    RYOKU_CUTOVER_RUNTIME_SESSIONS="$tmp/runit-package-sessions" \
+    RYOKU_CUTOVER_MARKER="$tmp/runit-package-marker" \
+    RYOKU_CUTOVER_TARGET_ROOT="$tmp/runit-package-target" \
+    RYOKU_CUTOVER_PROVIDER_ROOT="$tmp/provider-bin" \
+    PATH="$tmp/runit-package-bin:$PATH" "$helper" package
+  [[ ! -e $tmp/runit-package-helper ]] ||
+    fail "transaction cutover left its staged helper behind"
+  cat >"$tmp/failing-package-helper" <<'EOF'
+#!/usr/bin/env bash
+: >"$STALE_HELPER_RAN"
+exit 97
+EOF
+  chmod +x "$tmp/failing-package-helper"
+  cp "$tmp/failing-package-helper" "$tmp/runit-package-helper"
+  if RYOKU_TEST_INIT=runit \
+      STALE_HELPER_RAN="$tmp/stale-helper-ran" \
+      RYOKU_CUTOVER_RUNTIME_HELPER="$tmp/runit-package-helper" \
+      "$helper" package; then
+    fail "transaction accepted a failed staged helper"
+  fi
+  [[ -e $tmp/stale-helper-ran ]] ||
+    fail "transaction did not run its staged helper"
+  [[ ! -e $tmp/runit-package-helper ]] ||
+    fail "failed transaction cutover left its staged helper behind"
+  rm -f "$tmp/stale-helper-ran"
+  cp "$tmp/failing-package-helper" "$tmp/runit-package-helper"
+  RYOKU_TEST_INIT=runit RUNIT_LOG="$tmp/runit-package.log" \
+    RUNIT_STATE="$tmp/runit-package-state" \
+    CUTOVER_STATE="$tmp/runit-package-state" \
+    STALE_HELPER_RAN="$tmp/stale-helper-ran" \
+    RYOKU_CUTOVER_STAGED=1 \
+    RYOKU_CUTOVER_RUNTIME_HELPER="$tmp/runit-package-helper" \
+    RYOKU_CUTOVER_RUNTIME_SESSIONS="$tmp/runit-package-sessions" \
+    RYOKU_CUTOVER_MARKER="$tmp/runit-package-marker" \
+    RYOKU_CUTOVER_TARGET_ROOT="$tmp/runit-package-target" \
+    RYOKU_CUTOVER_PROVIDER_ROOT="$tmp/provider-bin" \
+    PATH="$tmp/runit-package-bin:$PATH" "$helper" package
+  [[ ! -e $tmp/stale-helper-ran ]] ||
+    fail "installed recovery executed a stale staged helper"
+  [[ ! -e $tmp/runit-package-helper ]] ||
+    fail "installed recovery did not remove the stale staged helper"
+  [[ ! -e $tmp/runit-package-state/runit-inhibitor ]] ||
+    fail "runit package cutover did not release its sleep guard"
+  if grep -q '^forbidden ' "$tmp/runit-package.log"; then
+    fail "runit package cutover invoked a systemd primitive"
+  fi
+fi
+
+if (( EUID == 0 )); then
   echo "power-cutover: user transaction skipped as root"
   exit 0
 fi
 
 mkdir -p "$tmp/bin" "$tmp/state" "$tmp/runtime-user"
+export RYOKU_SESSION_DISPLAY_TRIES=0
 cat >"$tmp/bin/fake" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 name="$(basename "$0")"
+if [[ ${RYOKU_TEST_INIT:-systemd} == runit ]]; then
+  case "$name" in
+    systemctl|systemd-run|systemd-inhibit|systemd-escape)
+      printf '%s %s\n' "$name" "$*" >>"$CUTOVER_LOG"
+      exit 97
+      ;;
+  esac
+fi
 if [[ $name == systemctl && ${1:-} == --user && ${2:-} == is-active ]]; then
   case "${4:-}" in
     ryoku-clamshell.service|ryoku-clamshell-cutover.service) [[ -e $CUTOVER_STATE/clamshell-unit ]] ;;
@@ -262,6 +507,15 @@ if [[ $name == systemctl && ${1:-} == --user && ${2:-} == stop ]]; then
       ;;
   esac
 fi
+if [[ $name == systemctl && ${1:-} == --user &&
+      ${2:-} == show-environment ]]; then
+  [[ ${MANAGER_ENVIRONMENT:-0} == 1 ]] || exit 1
+  printf '%s\n' \
+    'XDG_CURRENT_DESKTOP=testwm' \
+    'WAYLAND_DISPLAY=wayland-manager' \
+    'TESTWM_SOCKET=stale-session'
+  exit 0
+fi
 if [[ $name == systemctl && ${1:-} == show && ${2:-} == test.scope ]]; then
   printf '/test.scope\n'
   exit 0
@@ -276,6 +530,12 @@ if [[ $name == systemd-inhibit && ${1:-} == --list ]]; then
     printf '[{"what":"sleep","who":"ryoku-session-cutover","why":"test","mode":"block","uid":%s,"pid":1}]\n' "$(id -u)"
   else
     printf '[]\n'
+  fi
+  exit 0
+fi
+if [[ $name == elogind-inhibit && ${1:-} == --list ]]; then
+  if [[ -e $CUTOVER_STATE/runit-inhibitor ]]; then
+    printf 'sleep ryoku-session-cutover block\n'
   fi
   exit 0
 fi
@@ -321,6 +581,9 @@ if [[ $name == systemd-run ]]; then
     : >"${*: -1}"
   elif [[ $* == *ryoku-qylock-cutover-wait* ]]; then
     printf 'systemd-run qylock-wait\n' >>"$CUTOVER_LOG"
+    if [[ -n ${QYLOCK_WAITER_PATH_LOG:-} ]]; then
+      printf '%s\n' "${*: -2:1}" >"$QYLOCK_WAITER_PATH_LOG"
+    fi
   elif [[ $* == *ryoku-idle*" start" ]]; then
     printf 'systemd-run idle-daemon\n' >>"$CUTOVER_LOG"
     : >"$CUTOVER_STATE/idle-unit"
@@ -334,7 +597,9 @@ if [[ $name == systemd-run ]]; then
   fi
   exit 0
 fi
-if [[ ${REQUIRE_USER_GUARD:-0} == 1 && ! -e $CUTOVER_STATE/user-guard ]]; then
+if [[ ${REQUIRE_USER_GUARD:-0} == 1 &&
+      ! -e $CUTOVER_STATE/user-guard &&
+      ! -e $CUTOVER_STATE/runit-inhibitor ]]; then
   exit 88
 fi
 printf '%s %s\n' "$name" "$*" >>"$CUTOVER_LOG"
@@ -457,15 +722,36 @@ fi
 EOF
 chmod +x "$tmp/bin/fake" "$tmp/bin/pgrep" "$tmp/qylock-install" \
   "$tmp/qylock-lock" "$tmp/qylock-proof" "$tmp/bin/ryoku-wm-testwm"
-for name in ryoku ryoku-shell ryoku-idle ryoku-clamshell systemctl systemd-run systemd-inhibit loginctl dbus-monitor; do
+for name in ryoku ryoku-shell ryoku-idle ryoku-clamshell systemctl systemd-run systemd-inhibit elogind-inhibit loginctl dbus-monitor sv; do
   ln -s fake "$tmp/bin/$name"
 done
+ln -s "$tmp/ryoku-host" "$tmp/bin/ryoku-host"
 mkdir -p "$tmp/cgroup/test.scope"
 env -i XDG_SESSION_ID=9 XDG_SESSION_TYPE=wayland WAYLAND_DISPLAY=wayland-test \
   /usr/bin/sleep 300 &
 session_env_pid=$!
 printf '%s\n' "$session_env_pid" >"$tmp/cgroup/test.scope/cgroup.procs"
 export RYOKU_CGROUP_ROOT="$tmp/cgroup"
+
+# A deferred qylock handoff must not execute through the transaction's /run
+# copy: package cleanup unlinks that copy as soon as this scheduling call
+# returns. Replacing any prior transient also adopts units left by old builds.
+cp "$helper" "$tmp/staged-cutover-helper"
+cp "$helper" "$tmp/installed-cutover-helper"
+chmod +x "$tmp/staged-cutover-helper" "$tmp/installed-cutover-helper"
+: >"$tmp/calls"
+QYLOCK_WAITER_PATH_LOG="$tmp/qylock-waiter-path" \
+  CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
+  RYOKU_CUTOVER_RUNTIME_HELPER="$tmp/staged-cutover-helper" \
+  RYOKU_CUTOVER_INSTALLED_HELPER="$tmp/installed-cutover-helper" \
+  PATH="$tmp/bin:$PATH" \
+  bash -c 'source "$1"; schedule_qylock_cutover' _ "$tmp/staged-cutover-helper"
+[[ $(<"$tmp/qylock-waiter-path") == "$tmp/installed-cutover-helper" ]] ||
+  fail "deferred qylock cutover depended on the staged transaction helper"
+grep -qxF \
+  'systemctl --user stop ryoku-qylock-cutover-wait.service' "$tmp/calls" ||
+  fail "deferred qylock cutover did not replace the previous waiter"
+
 
 : >"$tmp/calls"
 WM_RELOAD_UNSUPPORTED=1 CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
@@ -660,13 +946,17 @@ mapfile -t handoff_calls <"$tmp/calls"
 rm -f "$tmp/state/user-guard" "$tmp/state/stopped"
 REQUIRE_USER_GUARD=1 CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
   XDG_RUNTIME_DIR="$tmp/runtime-user" XDG_SESSION_ID=9 \
+  XDG_STATE_HOME="$tmp/state-home" \
   RYOKU_CUTOVER_TARGET_ROOT="$tmp/bin" RYOKU_CUTOVER_INSTALLED_HELPER="$helper" \
   RYOKU_QYLOCK_INSTALLER="$tmp/qylock-install" \
-  PATH="$tmp/bin:$PATH" bash -c 'source "$1"; start_login_session 9' _ "$helper"
+  PATH="$tmp/bin:$PATH" bash -c 'source "$1"; start_login_session_logged 9' _ "$helper"
 [[ ! -e $tmp/state/user-guard ]] \
   || fail "successful login startup left its temporary sleep guard active"
 grep -qxF 'ryoku wm act config.reload' "$tmp/calls" \
   || fail "login startup enabled lid ownership without a successful config reload"
+grep -qxF \
+  'systemctl --user stop ryoku-qylock-cutover-wait.service' "$tmp/calls" \
+  || fail "login startup did not retire the obsolete qylock waiter"
 : >"$tmp/calls"
 : >"$tmp/state/user-guard"
 if SESSION_STATE=closing CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
@@ -736,6 +1026,40 @@ fi
 [[ ! -e $tmp/runtime-user/ryoku-session.9.environment ]] \
   || fail "an ambiguous attribution still wrote the session environment"
 
+# niri-session can leave WAYLAND_DISPLAY only in the user manager: niri itself
+# started before the variable existed and the login1 scope contains no clients.
+# A single graphical session makes the manager display attributable, but its
+# opaque compositor handle may be stale and must never be republished.
+printf 'XDG_CURRENT_DESKTOP=testwm\0TESTWM_SOCKET=stale-session\0' \
+  >"$tmp/proc/90001/environ"
+rm -f "$tmp/runtime-user/ryoku-session.9.environment"
+if ! ONLY_SESSION_NINE=1 EXTRA_SESSION=1 MANAGER_ENVIRONMENT=1 \
+    PATH="$tmp/bin:$PATH" CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
+    XDG_RUNTIME_DIR="$tmp/runtime-user" RYOKU_PROC_ROOT="$tmp/proc" \
+    RYOKU_CGROUP_ROOT="$tmp/empty-cgroup" RYOKU_CUTOVER_PROVIDER_ROOT="$tmp/bin" \
+    bash -c 'source "$1"; discover_session_environment 9' _ "$helper"; then
+  fail "the user-manager display did not recover a niri-session login"
+fi
+envmap=$(tr '\0' '\n' <"$tmp/runtime-user/ryoku-session.9.environment")
+grep -qx 'XDG_SESSION_ID=9' <<<"$envmap" \
+  || fail "the manager fallback named the wrong login1 session"
+grep -qx 'WAYLAND_DISPLAY=wayland-manager' <<<"$envmap" \
+  || fail "the manager fallback lost the compositor display"
+grep -qx 'RYOKU_WM=testwm' <<<"$envmap" \
+  || fail "the manager fallback lost the window-manager tag"
+if grep -q '^TESTWM_SOCKET=' <<<"$envmap"; then
+  fail "the manager fallback republished a stale compositor handle"
+fi
+rm -f "$tmp/runtime-user/ryoku-session.9.environment"
+if EXTRA_SESSION=1 MANAGER_ENVIRONMENT=1 PATH="$tmp/bin:$PATH" \
+    XDG_RUNTIME_DIR="$tmp/runtime-user" RYOKU_PROC_ROOT="$tmp/proc" \
+    RYOKU_CGROUP_ROOT="$tmp/empty-cgroup" RYOKU_CUTOVER_PROVIDER_ROOT="$tmp/bin" \
+    bash -c 'source "$1"; discover_session_environment 9' _ "$helper"; then
+  fail "the manager fallback crossed two open graphical sessions"
+fi
+[[ ! -e $tmp/runtime-user/ryoku-session.9.environment ]] \
+  || fail "an ambiguous manager fallback wrote the session environment"
+
 # Xwayland is lazy: it appears with the first X client, so a compositor child
 # snapshotted before that moment carries WAYLAND_DISPLAY but no DISPLAY while
 # the session's X server is already alive. The snapshot must borrow the
@@ -769,7 +1093,60 @@ grep -qx 'DISPLAY=:0' <<<"$envmap" \
 rm -rf "$tmp/proc/90009" "$tmp/proc/90010"
 printf '%s\n' "$session_env_pid" >"$tmp/cgroup/test.scope/cgroup.procs"
 
+test_late_session_display_bind() {
+  local envmap publisher_pid
+  mkdir -p "$tmp/proc/90019"
+  printf 'Name:\tkitty\nUid:\t%s\t%s\t%s\t%s\n' \
+    "$(id -u)" "$(id -u)" "$(id -u)" "$(id -u)" >"$tmp/proc/90019/status"
+  printf 'XDG_SESSION_ID=9\0WAYLAND_DISPLAY=wayland-late\0' \
+    >"$tmp/proc/90019/environ"
+  printf 'kitty\0--class=early\0\0' >"$tmp/proc/90019/cmdline"
+  printf '%s\n90019\n' "$session_env_pid" \
+    >"$tmp/cgroup/test.scope/cgroup.procs"
+  (
+    sleep 0.05
+    mkdir -p "$tmp/proc/90020"
+    printf 'Name:\txwayland-satellite\nUid:\t%s\t%s\t%s\t%s\n' \
+      "$(id -u)" "$(id -u)" "$(id -u)" "$(id -u)" >"$tmp/proc/90020/status"
+    printf 'XDG_CURRENT_DESKTOP=testwm\0WAYLAND_DISPLAY=wayland-late\0DISPLAY=:7\0' \
+      >"$tmp/proc/90020/environ"
+    printf 'xwayland-satellite\0:7\0\0' >"$tmp/proc/90020/cmdline"
+  ) &
+  publisher_pid=$!
+  : >"$tmp/calls"
+  rm -f "$tmp/runtime-user/ryoku-session.9.environment"
+  ONLY_SESSION_NINE=1 EXTRA_SESSION=1 RYOKU_SESSION_DISPLAY_TRIES=10 \
+    XDG_RUNTIME_DIR="$tmp/runtime-user" RYOKU_PROC_ROOT="$tmp/proc" \
+    CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
+    RYOKU_CUTOVER_PROVIDER_ROOT="$tmp/bin" \
+    PATH="$tmp/bin:$PATH" \
+    bash -c 'source "$1"; bind_session_environment 9' _ "$helper"
+  wait "$publisher_pid"
+  envmap="$(tr '\0' '\n' <"$tmp/runtime-user/ryoku-session.9.environment")"
+  grep -qx 'DISPLAY=:7' <<<"$envmap" \
+    || fail "the session bind did not wait for the late X server"
+  grep -q '^systemctl --user set-environment .*DISPLAY=:7' "$tmp/calls" \
+    || fail "the session bind did not publish the late X display"
+  if grep -q '^systemctl --user restart ryoku-shell.service' "$tmp/calls"; then
+    fail "the late X display restarted the shell"
+  fi
+  rm -rf "$tmp/proc/90019" "$tmp/proc/90020"
+  printf '%s\n' "$session_env_pid" >"$tmp/cgroup/test.scope/cgroup.procs"
+}
+
+test_late_session_display_bind
+
 mkdir -p "$tmp/watch-bin" "$tmp/watch-runtime"
+watch_runtime_root="$tmp/watch-user-runtime"
+mkdir -p "$watch_runtime_root/$(id -u)"
+python3 - "$watch_runtime_root/$(id -u)/bus" <<'PY'
+import socket
+import sys
+
+sock = socket.socket(socket.AF_UNIX)
+sock.bind(sys.argv[1])
+sock.close()
+PY
 cat >"$tmp/watch-bin/dbus-monitor" <<'EOF'
 #!/usr/bin/env bash
 printf 'signal sender=org.freedesktop.DBus; interface=org.freedesktop.DBus; member=NameAcquired\n'
@@ -892,18 +1269,24 @@ exec 8>&-
   || fail "session watcher deadlocked before acknowledging its subscription"
 rm -f "$tmp/watch-runtime/ryoku-session-guard.9.ready"
 
+# A removed desktop session releases systemd's generic graphical targets so the
+# display manager can start a different desktop without stale session state.
 printf '9\n' >"$tmp/watch-runtime/ryoku-session.id"
 SESSION_WATCH_LOG="$tmp/watch-calls" SESSION_ACTIVITY_LOG="$tmp/activity-calls" \
   XDG_RUNTIME_DIR="$tmp/watch-runtime" PATH="$tmp/watch-bin:$PATH" \
   bash -c 'source "$1"; watch_session 9' _ "$helper"
 cat >"$tmp/watch-want" <<'EOF'
 --user stop ryoku-session.target
+--user is-active --quiet graphical-session.target
+--user stop graphical-session.target
+--user is-active --quiet graphical-session-pre.target
+--user stop graphical-session-pre.target
 --user stop ryoku-session-lock-9-*.service ryoku-qylock-unlock-guard-9.service
 --user is-active --quiet ryoku-power-cutover-guard.service
 --user stop ryoku-power-cutover-guard.service
 EOF
 if ! diff -u "$tmp/watch-want" "$tmp/watch-calls"; then
-  fail "removed login1 session did not stop its target and failed cutover guard"
+  fail "removed login1 session did not stop its graphical targets and failed cutover guard"
 fi
 [[ ! -e $tmp/watch-runtime/ryoku-session.id ]] \
   || fail "removed login1 session left its lifecycle marker behind"
@@ -931,6 +1314,7 @@ printf '9\n' >"$tmp/watch-runtime/ryoku-session.id"
 ACTIVE_REBIND_SID=10 SESSION_WATCH_LOG="$tmp/watch-calls" \
   SESSION_ACTIVITY_LOG="$tmp/activity-calls" XDG_RUNTIME_DIR="$tmp/watch-runtime" \
   RYOKU_CUTOVER_PROVIDER_ROOT="$tmp/watch-provider" \
+  RYOKU_CUTOVER_RUNTIME_ROOT="$watch_runtime_root" \
   RYOKU_CUTOVER_INSTALLED_HELPER="$tmp/not-installed" \
   PATH="$tmp/watch-bin:$PATH" bash -c 'source "$1"; watch_session 9' _ "$helper"
 if ! grep -qF -- '--unit=ryoku-session-rebind@10.service' "$tmp/watch-calls"; then
@@ -994,6 +1378,64 @@ HOME="$tmp/empty-home" SHELL_RESTART_FAIL=1 NO_POWER_UNITS=1 \
   bash -c 'source "$1"; restart_shell_owner' _ "$helper"
 grep -qxF 'systemd-run shell-fallback' "$tmp/calls" \
   || fail "unitless legacy session did not receive the guarded shell fallback"
+
+# The runit path uses only the host seam, elogind and Turnstile. Keep the
+# systemd fakes on PATH so any accidental call is observable.
+mkdir -p "$tmp/runit-state" "$tmp/runit-env"
+: >"$tmp/runit-roster"
+: >"$tmp/calls"
+RYOKU_TEST_INIT=runit RUNIT_LOG="$tmp/calls" RUNIT_STATE="$tmp/runit-state" \
+  CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
+  XDG_RUNTIME_DIR="$tmp/runtime-user" TURNSTILE_ENV_DIR="$tmp/runit-env" \
+  PATH="$tmp/bin:$PATH" "$helper" generation-guard-start
+[[ -e $tmp/runtime-user/ryoku-qylock-generation-guard.ready ]] ||
+  fail "doctor's runit generation-guard-start did not publish readiness"
+grep -q '^ryoku-host transient start ryoku-qylock-generation-guard ' "$tmp/calls" ||
+  fail "runit generation guard was not supervised through ryoku-host"
+RYOKU_TEST_INIT=runit RUNIT_LOG="$tmp/calls" RUNIT_STATE="$tmp/runit-state" \
+  CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" \
+  XDG_RUNTIME_DIR="$tmp/runtime-user" TURNSTILE_ENV_DIR="$tmp/runit-env" \
+  PATH="$tmp/bin:$PATH" "$helper" generation-guard-stop
+
+: >"$tmp/calls"
+rm -f "$tmp/state"/{runit-inhibitor,stopped,started,proof-9}
+: >"$tmp/runit-state/service-ryoku-shell"
+: >"$tmp/runit-state/service-ryoku-idle"
+: >"$tmp/runit-state/service-ryoku-clamshell"
+printf 'XDG_SESSION_ID=9\0XDG_SESSION_TYPE=wayland\0WAYLAND_DISPLAY=wayland-test\0RYOKU_WM=testwm\0' \
+  >"$tmp/runtime-user/ryoku-session.9.environment"
+RYOKU_TEST_INIT=runit RUNIT_LOG="$tmp/calls" RUNIT_STATE="$tmp/runit-state" \
+  CUTOVER_LOG="$tmp/calls" CUTOVER_STATE="$tmp/state" REQUIRE_USER_GUARD=1 \
+  XDG_RUNTIME_DIR="$tmp/runtime-user" TURNSTILE_ENV_DIR="$tmp/runit-env" \
+  XDG_SESSION_ID=9 XDG_STATE_HOME="$tmp/state-home" \
+  RYOKU_RUNIT_SESSION_SERVICES="$tmp/runit-roster" \
+  RYOKU_CUTOVER_TARGET_ROOT="$tmp/bin" \
+  RYOKU_CUTOVER_PROVIDER_ROOT="$tmp/bin" \
+  RYOKU_CUTOVER_INSTALLED_HELPER="$helper" \
+  RYOKU_QYLOCK_INSTALLER="$tmp/qylock-install" \
+  PATH="$tmp/bin:$PATH" "$helper" user
+if grep -Eq '^(systemctl|systemd-run|systemd-inhibit|systemd-escape) ' "$tmp/calls"; then
+  fail "runit session cutover invoked a systemd primitive"
+fi
+guard_start=$(grep -n '^ryoku-host transient start ryoku-power-cutover-guard ' "$tmp/calls" |
+  cut -d: -f1)
+owner_stop=$(grep -n '^ryoku-clamshell stop$' "$tmp/calls" | cut -d: -f1)
+owner_ready=$(grep -n '^ryoku-host svc --user restart ryoku-clamshell.service$' "$tmp/calls" |
+  cut -d: -f1)
+guard_stop=$(grep -n '^ryoku-host transient stop ryoku-power-cutover-guard$' "$tmp/calls" |
+  cut -d: -f1)
+[[ -n $guard_start && -n $owner_stop && -n $owner_ready && -n $guard_stop &&
+   $guard_start -lt $owner_stop && $owner_stop -lt $owner_ready &&
+   $owner_ready -lt $guard_stop ]] ||
+  fail "runit sleep guard did not span the idle and lid owner swap"
+grep -q '^sv restart ryoku-clamshell.service$' "$tmp/calls" ||
+  fail "runit user-service restart did not reach sv through ryoku-host"
+[[ $(<"$tmp/runit-env/XDG_SESSION_ID") == 9 ]] ||
+  fail "runit session bind did not update the Turnstile envdir"
+grep -q '^dbus-update-activation-environment ' "$tmp/calls" ||
+  fail "runit session bind did not update the D-Bus activation environment"
+[[ ! -e $tmp/state/runit-inhibitor ]] ||
+  fail "successful runit cutover left its sleep guard active"
 
 # A killed guard must release its locks. Call the real hold verb, SIGKILL
 # the holder, and take both exclusive locks while the keep-alive coprocess is

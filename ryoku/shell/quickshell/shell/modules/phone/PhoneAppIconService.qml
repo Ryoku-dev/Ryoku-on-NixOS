@@ -10,15 +10,16 @@ import shell.services
  * Launcher icons for the Android apps listed in the phone panel.
  *
  * Android has no way to hand an icon to the desktop, so a helper resolves each
- * one out of the installed APK over adb. That costs a couple of seconds per
- * app, so it never starts on its own: only an explicit app-list refresh kicks
- * off a fetch. Results are cached on disk, which makes it a one-off — every
- * later shell start, reconnect or device switch just reads the cache back.
+ * one out of the installed APK over adb. It starts only when an icon lookup
+ * needs the disk cache or an explicit app-list refresh requests missing icons,
+ * then exits after the request queue has been idle. Extracted icons remain
+ * cached on disk across shell restarts and device reconnects.
  */
 Singleton {
     id: root
 
     readonly property bool enabled: PhoneState.runtimeReady
+        && KdeConnectService.available
         && (Config.phone?.scrcpy?.appMode?.showAppIcons ?? true)
     readonly property string deviceId: KdeConnectService.activeDeviceId || "default"
 
@@ -33,8 +34,12 @@ Singleton {
     property int batchSize: 0
     readonly property bool fetching: root.outstanding > 0
     readonly property int fetched: root.batchSize - root.outstanding
+    property var queuedMessages: []
+    property string cacheRequestedFor: ""
 
     function iconFor(packageName: string): string {
+        if (packageName && root.enabled && root.cacheRequestedFor !== root.deviceId)
+            root.loadCached();
         return root.icons[packageName] ?? "";
     }
 
@@ -63,7 +68,10 @@ Singleton {
     }
 
     function loadCached(): void {
-        root._send({
+        if (!root.enabled || root.cacheRequestedFor === root.deviceId)
+            return;
+        root.cacheRequestedFor = root.deviceId;
+        root._enqueue({
             "cmd": "cached",
             "deviceId": root.deviceId
         });
@@ -73,28 +81,49 @@ Singleton {
     function clearCache(): void {
         root.icons = ({});
         root._resetProgress();
-        root._send({
+        root.cacheRequestedFor = root.enabled ? root.deviceId : "";
+        root._enqueue({
             "cmd": "clear",
             "deviceId": root.deviceId
         });
     }
 
-    function _send(message: var): void {
-        if (!iconProc.running) return;
-        message.target_args = KdeConnectService.adbTargetArgs() || [];
-        iconProc.write(JSON.stringify(message) + "\n");
+    function _enqueue(message: var): void {
+        if (!root.enabled || !root.available)
+            return;
+        root.queuedMessages = root.queuedMessages.concat([message]);
+        iconIdle.stop();
+        if (!iconProc.running)
+            iconProc.running = true;
+        else if (iconProc.processId)
+            root._flush();
     }
 
-    /** Same as _send, but re-resolves the ADB target first — the phone's
-     *  wireless-debugging port can change between two polls of the prober,
-     *  and pulling icons against a stale one just returns nothing. Only used
-     *  for commands that actually reach the device; cache reads stay sync. */
+    function _flush(): void {
+        if (!iconProc.running || !iconProc.processId || root.queuedMessages.length === 0)
+            return;
+        const queued = root.queuedMessages;
+        root.queuedMessages = [];
+        for (let i = 0; i < queued.length; i++)
+            iconProc.write(JSON.stringify(queued[i]) + "\n");
+        root._armIdle();
+    }
+
+    function _armIdle(): void {
+        if (iconProc.running && root.outstanding === 0 && root.queuedMessages.length === 0)
+            iconIdle.restart();
+        else
+            iconIdle.stop();
+    }
+
     function _sendToDevice(message: var): void {
-        if (!iconProc.running) return;
+        if (!root.enabled || !root.available)
+            return;
         KdeConnectService.withAdbTarget(args => {
-            if (!iconProc.running) return;
+            if (!root.enabled || !root.available)
+                return;
             message.target_args = args || [];
-            iconProc.write(JSON.stringify(message) + "\n");
+            root._enqueue(message);
         });
     }
 
@@ -108,6 +137,7 @@ Singleton {
         root.pending.delete(packageName);
         root.outstanding = root.pending.size;
         if (root.outstanding === 0) root.batchSize = 0;
+        root._armIdle();
     }
 
     function _store(packageName: string, path: string): void {
@@ -119,19 +149,40 @@ Singleton {
     }
 
     onDeviceIdChanged: {
+        iconIdle.stop();
+        iconProc.running = false;
+        root.queuedMessages = [];
         root.icons = ({});
+        root.cacheRequestedFor = "";
         root._resetProgress();
-        root.loadCached();
+    }
+
+    onEnabledChanged: {
+        if (root.enabled)
+            return;
+        iconIdle.stop();
+        iconProc.running = false;
+        root.queuedMessages = [];
+        root._resetProgress();
+    }
+
+    Timer {
+        id: iconIdle
+        interval: 15000
+        repeat: false
+        onTriggered: iconProc.running = false
     }
 
     Process {
         id: iconProc
         stdinEnabled: true
         command: PhoneState.pdeath(["python3", Quickshell.shellPath("modules/phone/scripts/phone/android_icon_extractor.py")])
-        running: root.enabled && KdeConnectService.available
-
-        onRunningChanged: {
-            if (running) Qt.callLater(() => root.loadCached());
+        running: false
+        onStarted: root._flush()
+        onExited: {
+            root.queuedMessages = [];
+            if (root.outstanding > 0)
+                root._resetProgress();
         }
 
         stdout: SplitParser {
@@ -146,12 +197,15 @@ Singleton {
                         else root._store(msg.package, msg.path || "");
                     } else if (msg.event === "cached") {
                         root.icons = Object.assign({}, root.icons, msg.icons || {});
+                        root._armIdle();
                     } else if (msg.event === "cleared") {
                         root.icons = ({});
+                        root._armIdle();
                     } else if (msg.event === "unavailable") {
                         root.available = false;
                         root.unavailableReason = msg.reason || "";
                         console.warn("[PhoneAppIconService] icons disabled:", root.unavailableReason);
+                        root._armIdle();
                     }
                 } catch (e) {
                     console.warn("[PhoneAppIconService] JSON error:", e, "Data:", data);

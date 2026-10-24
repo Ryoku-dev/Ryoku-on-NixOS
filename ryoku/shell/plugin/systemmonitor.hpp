@@ -20,13 +20,18 @@ class SystemMonitor : public QObject {
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
-    Q_PROPERTY(int samplePeriodMs READ samplePeriodMs CONSTANT)
+    Q_PROPERTY(int samplePeriodMs READ samplePeriodMs WRITE setSamplePeriodMs NOTIFY samplePeriodMsChanged)
+    Q_PROPERTY(int historyLimit READ historyLimit WRITE setHistoryLimit NOTIFY historyLimitChanged)
+    Q_PROPERTY(bool includeVirtualNetwork READ includeVirtualNetwork WRITE setIncludeVirtualNetwork
+                   NOTIFY includeVirtualNetworkChanged)
     Q_PROPERTY(qreal cpuPercent READ cpuPercent NOTIFY samplesChanged)
     Q_PROPERTY(qreal memoryPercent READ memoryPercent NOTIFY samplesChanged)
     Q_PROPERTY(qreal gpuPercent READ gpuPercent NOTIFY samplesChanged)
     Q_PROPERTY(bool cpuAvailable READ cpuAvailable NOTIFY samplesChanged)
     Q_PROPERTY(bool memoryAvailable READ memoryAvailable NOTIFY samplesChanged)
     Q_PROPERTY(bool gpuAvailable READ gpuAvailable NOTIFY samplesChanged)
+    Q_PROPERTY(qreal gpuPowerWatts READ gpuPowerWatts NOTIFY samplesChanged)
+    Q_PROPERTY(qreal fanRpm READ fanRpm NOTIFY samplesChanged)
     Q_PROPERTY(QString cpuName READ cpuName NOTIFY samplesChanged)
     Q_PROPERTY(QString gpuName READ gpuName NOTIFY samplesChanged)
     Q_PROPERTY(QString userName READ userName NOTIFY samplesChanged)
@@ -37,6 +42,9 @@ class SystemMonitor : public QObject {
     Q_PROPERTY(qreal storageUsedGiB READ storageUsedGiB NOTIFY samplesChanged)
     Q_PROPERTY(qreal storageTotalGiB READ storageTotalGiB NOTIFY samplesChanged)
     Q_PROPERTY(int sampleCount READ sampleCount NOTIFY samplesChanged)
+    Q_PROPERTY(QVariantList cpuHistory READ cpuHistory NOTIFY samplesChanged)
+    Q_PROPERTY(QVariantList networkRxHistory READ networkRxHistory NOTIFY samplesChanged)
+    Q_PROPERTY(QVariantList networkTxHistory READ networkTxHistory NOTIFY samplesChanged)
     Q_PROPERTY(QVariantList coreLoads READ coreLoads NOTIFY samplesChanged)
     Q_PROPERTY(int coreCount READ coreCount NOTIFY samplesChanged)
     Q_PROPERTY(double cpuFrequencyGhz READ cpuFrequencyGhz NOTIFY samplesChanged)
@@ -68,16 +76,20 @@ class SystemMonitor : public QObject {
 public:
     explicit SystemMonitor(QObject* parent = nullptr);
     ~SystemMonitor() override;
-    // Four samples a second; loads and rates are measured over the last
-    // RateWindowSamples (one second). The graph shows WindowSeconds, and the
-    // history keeps one second more so the oldest sample always sits beyond
-    // the window's edge: a trace runs off the graph instead of ending on it.
+    // The default sidebar monitor samples four times a second. Lightweight
+    // facades may choose a slower period; graph capacity stays sized for the
+    // default monitor.
     static constexpr int SamplePeriodMs = 250;
     static constexpr int RateWindowSamples = 1000 / SamplePeriodMs;
     static constexpr int WindowSeconds = 60;
     static constexpr int HistoryCapacity = WindowSeconds * 1000 / SamplePeriodMs + RateWindowSamples;
 
-    static constexpr int samplePeriodMs() { return SamplePeriodMs; }
+    int samplePeriodMs() const { return m_samplePeriodMs.load(std::memory_order_relaxed); }
+    void setSamplePeriodMs(int periodMs);
+    int historyLimit() const { return m_historyLimit; }
+    void setHistoryLimit(int limit);
+    bool includeVirtualNetwork() const { return m_includeVirtualNetwork.load(std::memory_order_relaxed); }
+    void setIncludeVirtualNetwork(bool include);
 
     bool active() const { return m_active; }
     void setActive(bool active);
@@ -88,6 +100,8 @@ public:
     bool cpuAvailable() const { return m_cpuAvailable; }
     bool memoryAvailable() const { return m_memoryAvailable; }
     bool gpuAvailable() const { return m_gpuAvailable; }
+    qreal gpuPowerWatts() const { return m_gpuPowerWatts; }
+    qreal fanRpm() const { return m_fanRpm; }
     const QString& cpuName() const { return m_cpuName; }
     const QString& gpuName() const { return m_gpuName; }
     const QString& userName() const { return m_userName; }
@@ -98,6 +112,9 @@ public:
     qreal storageUsedGiB() const { return m_storageUsedGiB; }
     qreal storageTotalGiB() const { return m_storageTotalGiB; }
     int sampleCount() const { return m_historyCount; }
+    const QVariantList& cpuHistory() const { return m_cpuHistory; }
+    const QVariantList& networkRxHistory() const { return m_networkRxHistory; }
+    const QVariantList& networkTxHistory() const { return m_networkTxHistory; }
     const QVariantList& coreLoads() const { return m_coreLoads; }
     int coreCount() const { return m_coreCount; }
     double cpuFrequencyGhz() const { return m_cpuFrequencyGhz; }
@@ -128,6 +145,9 @@ public:
 
 signals:
     void activeChanged();
+    void samplePeriodMsChanged();
+    void historyLimitChanged();
+    void includeVirtualNetworkChanged();
     void samplesChanged();
 
 private:
@@ -158,6 +178,8 @@ private:
         double cpuPercent = 0.0;
         double memoryPercent = 0.0;
         double gpuPercent = 0.0;
+        double gpuPowerWatts = 0.0;
+        double fanRpm = 0.0;
         double memoryUsedGiB = 0.0;
         double memoryTotalGiB = 0.0;
         double storageUsedGiB = 0.0;
@@ -201,6 +223,10 @@ private:
     void applyIdentity(quint64 generation, IdentityResult result);
     void applySample(quint64 generation, const SampleResult& result);
     void clearValues();
+    void appendHistory(QVariantList& history, double value);
+    std::atomic_int m_samplePeriodMs{SamplePeriodMs};
+    int m_historyLimit = 0;
+    std::atomic_bool m_includeVirtualNetwork{false};
 
     bool m_active = false;
     std::atomic<quint64> m_generation{0};
@@ -215,6 +241,8 @@ private:
     bool m_cpuAvailable = false;
     bool m_memoryAvailable = false;
     bool m_gpuAvailable = false;
+    qreal m_gpuPowerWatts = 0.0;
+    qreal m_fanRpm = 0.0;
     QString m_cpuName;
     QString m_gpuName;
     QString m_userName;
@@ -225,6 +253,9 @@ private:
     qreal m_storageUsedGiB = 0.0;
     qreal m_storageTotalGiB = 0.0;
     QVariantList m_coreLoads;
+    QVariantList m_cpuHistory;
+    QVariantList m_networkRxHistory;
+    QVariantList m_networkTxHistory;
     int m_coreCount = 0;
     double m_cpuFrequencyGhz = 0.0;
     double m_loadAverage = 0.0;

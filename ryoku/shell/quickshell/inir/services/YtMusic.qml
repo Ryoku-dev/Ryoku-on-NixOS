@@ -13,10 +13,12 @@ Singleton {
     id: root
 
     property bool _resumeRestored: false
+    // Cache the last persisted frame because every write advances the config revision.
+    property string _resumeSignature: ""
 
     function _persistResume(): void {
         if (!root.currentVideoId) return
-        Config.setNestedValues({
+        const resume = {
             'sidebar.ytmusic.resume.videoId': root.currentVideoId,
             'sidebar.ytmusic.resume.title': root.currentTitle,
             'sidebar.ytmusic.resume.artist': root.currentArtist,
@@ -27,10 +29,15 @@ Singleton {
             'sidebar.ytmusic.resume.activePlaylist': root.activePlaylist,
             'sidebar.ytmusic.resume.currentIndex': root.currentIndex,
             'sidebar.ytmusic.resume.activePlaylistSource': root.activePlaylistSource
-        })
+        }
+        const signature = JSON.stringify(resume)
+        if (signature === root._resumeSignature) return
+        root._resumeSignature = signature
+        Config.setNestedValues(resume)
     }
 
     function _clearResume(): void {
+        root._resumeSignature = ""
         Config.setNestedValues({
             'sidebar.ytmusic.resume.videoId': "",
             'sidebar.ytmusic.resume.title': "",
@@ -523,7 +530,11 @@ Singleton {
     }
 
     function search(query, filter): void {
-        if (!query.trim() || !root.available) return
+        if (!query.trim()) return
+        if (!root.available && !InnerTube.available) {
+            if (!_checkAvailability.running) _checkAvailability.running = true
+            return
+        }
         root.error = ""
         const trimmed = query.trim()
         const f = filter || "songs"
@@ -598,8 +609,18 @@ Singleton {
         function onSearchResultsChanged() {
             if (!root._searchViaInnerTube) return
             root.searchResults = InnerTube.searchResults
-            root.searching = false
-            root._searchViaInnerTube = false
+            if (!InnerTube.searching) {
+                root.searching = false
+                root._searchViaInnerTube = false
+            }
+        }
+        function onSearchingChanged() {
+            if (!root._searchViaInnerTube) return
+            root.searching = InnerTube.searching
+            if (!InnerTube.searching) {
+                root.searchResults = InnerTube.searchResults
+                root._searchViaInnerTube = false
+            }
         }
         function onRadioTracksChanged() { root._onRadioTracks() }
     }
@@ -1642,7 +1663,7 @@ Singleton {
 
     Process {
         id: _detectBrowsersProc
-        command: ["/bin/bash", "-c", `
+        command: ["/bin/sh", "-c", `
             for path in ~/.mozilla/firefox ~/.config/google-chrome ~/.config/chromium ~/.config/BraveSoftware ~/.config/vivaldi ~/.config/opera ~/.config/microsoft-edge ~/.zen ~/.librewolf ~/.floorp ~/.waterfox; do
                 [ -d "$path" ] && echo "$path"
             done
@@ -1776,11 +1797,11 @@ print("")
         id: _checkAvailability
         // Playback owns yt-dlp + mpv + a supported JS runtime. socat is the IPC
         // fallback when MPRIS is absent. Setup/Doctor own installation/repair.
-        command: ["/bin/bash", "-c", "missing=''; \"$1\" --help 2>/dev/null | grep -q -- '--js-runtimes' || missing=\"$missing yt-dlp>=2025.11.12\"; command -v mpv >/dev/null || missing=\"$missing mpv\"; command -v socat >/dev/null || missing=\"$missing socat\"; command -v deno >/dev/null || missing=\"$missing deno\"; [ -z \"$missing\" ] && exit 0 || { echo \"$missing\"; exit 1; }", "_", root._ytDlpRunner]
+        command: ["/bin/sh", "-c", "missing=''; \"$1\" --help 2>/dev/null | grep -q -- '--js-runtimes' || missing=\"$missing yt-dlp>=2025.11.12\"; command -v mpv >/dev/null || missing=\"$missing mpv\"; command -v socat >/dev/null || missing=\"$missing socat\"; command -v deno >/dev/null || missing=\"$missing deno\"; [ -z \"$missing\" ] && exit 0 || { echo \"$missing\"; exit 1; }", "_", root._ytDlpRunner]
         stdout: SplitParser {
             onRead: line => {
                 if (line.trim()) {
-                    root.googleError = Translation.tr("YT Music runtime unavailable. Run inir doctor.")
+                    root.googleError = Translation.tr("YT Music runtime unavailable. Run ryoku doctor.")
                     root._log("[YtMusic] Missing dependencies:" + line.trim())
                 }
             }
@@ -1795,7 +1816,7 @@ print("")
                     Qt.callLater(() => root._playInternal(pendingItem))
                 } else {
                     root.loading = false
-                    root.error = Translation.tr("YT Music runtime unavailable. Run inir doctor.")
+                    root.error = Translation.tr("YT Music runtime unavailable. Run ryoku doctor.")
                 }
             }
         }

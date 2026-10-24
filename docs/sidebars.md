@@ -86,6 +86,19 @@ animations do not continue in the background.
 Controls remains a global shell surface. The same arrangement is used by every
 bar style and every supported compositor.
 
+### Store designs
+
+Sidebar designs from RyoStore change the panel content without taking over the
+surface. The shell keeps the window, focus, click-away area, Escape handling,
+open and close motion, and per-display state. A design receives the screen,
+scale, active state, and available room; it may choose a supported placement
+and implicit size, and may ask the host to close it.
+
+Pick the design in **Ryoku Hub > Settings > Overlays**. Design authors can use
+the stock blocks with `import shell.modules.sidebar as Kit`, including the
+complete Controls board, individual Controls sections, frame, and buttons.
+
+
 
 ## ryoshot
 
@@ -105,22 +118,43 @@ Recording**.
 
 Ask is a compact Rashin surface with four modes:
 
-- **Ask** streams a quick answer and offers Copy, Continue with the agent, and Pin bubble.
-- **Chat** opens the current Rashin conversation with model and permission controls.
+- **Ask** gives quick read-only answers. It shares `rashin-asks.jsonl` history
+  with the launcher's `\` ask, the console Ask sheet, and the `rashin` command,
+  but nothing enters the Agent conversation unless you hand it off.
+- **Agent** opens the persistent machine-aware conversation. The pinned bubble
+  is another view of this session.
 - **Tools** handles downloads, compression, package installation, recent work,
   and active jobs.
 - **Web** searches with the existing engines, bangs, and instant answers.
 
-A dotted monochrome orb in the field narrates what Rashin is doing (connecting,
-searching, thinking, writing) and a light beam travels the field while a request
-runs. Type `\` for Ask, `?` for Web, or `/` for Tools. Tab cycles modes. Up,
-Down, Left, and Right move through actions; Enter submits or activates the
-selected action; Ctrl+N starts a new chat in Chat mode.
+The header names the mode, and Ask carries a route pill under the field. Its
+route drawer lists **Agent model** first and then available Prowl routes. The
+Agent model drawer is separate. One saved model pick per harness applies in
+every Rashin surface and to new, loaded, or respawned sessions; the drawer says
+**Saved model unavailable** if that harness does not currently offer the pick.
+Ask history lists asks, while Agent history lists Agent sessions.
 
-Pin bubble creates a draggable 56-pixel chat orb on the desktop. It snaps to the
-nearest horizontal edge, expands to a compact chat on click, and closes when
-dragged onto the bottom dismiss target. Its enabled state and position persist
-in `shell.json` under `ask.bubble`.
+An answered ask offers **Continue with the agent**. This adds a **From Ask**
+card with the question and answer, switches to Agent, and lets the next message
+continue from it. While Ask is working, or when a read-only answer says the
+Agent is needed, **Move to the agent** runs the original question as an Agent
+turn. The Ask result explains what the Agent would do.
+
+Buttons press under the pointer, mode changes crossfade, transcript items enter
+in order, and the live marker and orb report work in progress. The field beam
+runs only with an active request. When an Agent turn finishes or waits for
+approval while the bar, bubble, and Rashin window are hidden, a desktop
+notification opens the bar back in Agent mode.
+
+Type `\` for Ask, `?` for Web, or `/` for Tools. Tab cycles modes. Up, Down,
+Left, and Right move through actions; Enter submits or activates the selected
+action; Ctrl+N starts a new Agent session. `Ctrl+Shift+H` and `Ctrl+Shift+M`
+toggle the current mode's history and model drawers.
+
+Pin bubble creates a draggable 56-pixel Agent orb on the desktop. It snaps to
+the nearest horizontal edge, stays clear of the bar, expands to a compact Agent
+view on click, and closes when dragged onto the bottom dismiss target. Its
+enabled state and position persist in `shell.json` under `ask.bubble`.
 
 ## Commands
 

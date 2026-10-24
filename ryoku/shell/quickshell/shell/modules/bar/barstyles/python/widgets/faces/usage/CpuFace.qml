@@ -40,7 +40,7 @@ Item {
         }
     }
 
-    property real rawCpu: isNaN(SysData.cpu) ? 0.0 : SysData.cpu / 100.0
+    property real rawCpu: isNaN(SysData.cpu) ? 0.0 : Math.round(SysData.cpu) / 100.0
     property real cpuUsage: rawCpu
     Behavior on cpuUsage { enabled: root.visible; NumberAnimation { duration: 800; easing.type: Easing.OutQuint } }
 

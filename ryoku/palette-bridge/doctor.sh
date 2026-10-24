@@ -44,9 +44,9 @@ else
   printf 'WARN jq is missing; palette validation skipped\n'
 fi
 
-if ryoku-host svc --user is-active ryoku-palette-bridge; then
+if ryoku-host svc --user is-active ryoku-palette-bridge.service; then
   ok "canonical service is active"
-elif ryoku-host svc --user is-active ryoku-spicetify-palette; then
+elif ryoku-host svc --user is-active ryoku-spicetify-palette.service; then
   printf 'WARN legacy service is active; rerun install.sh to migrate it\n'
 else
   fail "palette bridge service is inactive"

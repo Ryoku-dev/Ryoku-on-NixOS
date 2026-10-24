@@ -65,4 +65,24 @@ bin/ryoku-dev-verify-delivery --quiet \
 bin/ryoku-dev-verify-wm-isolation --quiet \
 	|| fail "compositor specifics leak outside ryoku/wm (see above); gate on a capability or route through wm.Client."
 
+# 6. review gate (rashin-reviewer, settings in .rashin-reviewer.yaml): no
+#    secrets or conflict markers, no JSON, YAML, TOML, Python, Lua or QML file
+#    the commit leaves unparseable, and ShellCheck (CI's flags) and gofmt clean
+#    on the added lines. A clone that sets `git config ryoku.reviewGate
+#    required` refuses to commit without the reviewer; elsewhere a missing
+#    reviewer skips this step, like ShellCheck in pre-push.
+reviewer=$(command -v rashin-reviewer || true)
+[[ -z $reviewer && -x $HOME/.local/bin/rashin-reviewer ]] && reviewer=$HOME/.local/bin/rashin-reviewer
+if [[ -n $reviewer ]]; then
+	rc=0
+	"$reviewer" hook run pre-commit || rc=$?
+	case $rc in
+		0) ;;
+		1) fail "rashin-reviewer found blocking issues (see above)." ;;
+		*) fail "rashin-reviewer could not run (exit $rc); fix or reinstall it." ;;
+	esac
+elif [[ $(git config --get ryoku.reviewGate || true) == required ]]; then
+	fail "this clone requires the review gate (git config ryoku.reviewGate required), but rashin-reviewer is not installed."
+fi
+
 exit 0

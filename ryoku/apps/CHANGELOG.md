@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- `ryostore/`: **Built-in bar styles carry a resource tier.** Orpheus and
+  Kairos are `light`; QS Bar, Python, Nomarchy, Shima and Sumi are `heavy`,
+  so the Hub can say which styles may cost more. A catalogue snapshot from an
+  older binary with different tiers is rebuilt like a renamed built-in
+  (`ryostore/backend/provider_bars.go`).
 - `ryostore/`: **Every product says whether this edition can have it.** A
   registry entry, or a single bundle item, may carry `packageManagers`
   (`pacman`, `dnf`, `xbps`) and a `packageManagersReason`; on any other
@@ -175,6 +180,20 @@
   v0.56.0-beta.19") via `ryoku version --pretty` (`config.jsonc`).
 
 ### Fixed
+- `fish/`, `bash/`, `zsh/`, `terminal-shell/`: **Multiplexer panes started
+  before the desktop can paste again.** A herdr, tmux or zellij server keeps the
+  environment of the login that started it, so one started over SSH or from a
+  TTY gave every pane no display: Ctrl+V and image paste in fish and in
+  terminal coding agents found no clipboard. A new pane with no live display now
+  borrows the running desktop's display and compositor handles from the user
+  manager (Turnstile's env dir on Void) and drops a dead inherited one
+  (`fish/conf.d/desktop-display.fish`, `terminal-shell/desktop-display.sh`).
+- **RyoStore installs decors and emblems into the localized Pictures folder.**
+  The flat-image providers built `~/Pictures` by hand, so on a desktop with a
+  localized Pictures folder an installed decor or emblem landed where the Hub
+  no longer reads it. They now follow `XDG_PICTURES_DIR` or `user-dirs.dirs`
+  when invoked outside the desktop session
+  (`ryostore/backend/provider_flat_image.go`).
 - `ryostore/`: **A Vesktop theme reaches the Flathub Vesktop.** Fedora and Void
   users get Vesktop from Flathub, whose sandbox sees only its own `~/.var/app`
   folder, so a theme linked into `~/.config/vesktop/themes` never showed up.

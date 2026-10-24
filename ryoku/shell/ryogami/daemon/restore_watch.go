@@ -12,7 +12,7 @@ import (
 
 // At login the wallpaper file (a late mount) or the outputs (a late monitor)
 // can lag the daemon; a one-shot restore then left the grey default for the
-// session. retryRestore covers the first, watchOutputs the second.
+// session. retryRestore covers the first, watchWindowManager the second.
 
 const (
 	restoreRetryWindow   = 30 * time.Second
@@ -59,44 +59,55 @@ func (d *daemon) restoreFallback() {
 	}
 }
 
-// watchOutputs restores the wallpaper onto outputs that appear after startup: a
-// monitor plugged in, or a panel that probes late at login. The seam's watch
-// carries the full output list on every change, so a frame whose set grew since
-// the last is the signal the old monitoradded event was. It also feeds the
-// shared output cache the video/upscale sizing reads. watch returns on a
-// compositor exit, so it reconnects with the same backoff.
-func (d *daemon) watchOutputs() {
-	for {
-		var previous map[string]bool
-		// Outputs only: the provider then skips the window and workspace reads
-		// it would otherwise do on every window event.
-		_ = wmClient.WatchKinds(context.Background(), []wm.FrameKind{wm.FrameOutputs}, func(f wm.Frame) {
-			if f.Kind != wm.FrameOutputs {
-				return
-			}
-			outputs.set(f.Outputs)
-			current := map[string]bool{}
-			for _, output := range f.Outputs {
-				current[output.Name] = true
-			}
-			if previous != nil && d.config().restoreEnabled() {
-				var added []string
-				for name := range current {
-					if !previous[name] {
-						added = append(added, name)
-					}
-				}
-				if len(added) > 0 {
-					d.restoreOutputTargets(added)
-					for _, name := range added {
-						if target, err := d.workspaces.current(name); err == nil {
-							_ = d.applyWorkspaceTarget(target, "init")
-						}
-					}
-				}
-			}
-			previous = current
-		})
-		time.Sleep(restoreRetryInterval)
+func ryogamiWatchKinds() []wm.FrameKind {
+	return []wm.FrameKind{
+		wm.FrameOutputs,
+		wm.FrameWindows,
+		wm.FrameWorkspaces,
+		wm.FrameFocus,
+		wm.FrameOverview,
 	}
+}
+
+// watchWindowManager owns Ryogami's single provider stream. Every frame is
+// fanned through the output restore/cache and playback/workspace consumers in
+// provider order; reconnecting keeps the same fixed backoff used by the former
+// window-state watcher.
+func (d *daemon) watchWindowManager() {
+	kinds := ryogamiWatchKinds()
+	for {
+		var previousOutputs map[string]bool
+		_ = wmClient.WatchKinds(context.Background(), kinds, func(f wm.Frame) {
+			if f.Kind == wm.FrameOutputs {
+				d.handleOutputFrame(f.Outputs, &previousOutputs)
+			}
+			d.handleWindowStateFrame(f)
+		})
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func (d *daemon) handleOutputFrame(frame []wm.Output, previous *map[string]bool) {
+	outputs.set(frame)
+	current := map[string]bool{}
+	for _, output := range frame {
+		current[output.Name] = true
+	}
+	if *previous != nil && d.config().restoreEnabled() {
+		var added []string
+		for name := range current {
+			if !(*previous)[name] {
+				added = append(added, name)
+			}
+		}
+		if len(added) > 0 {
+			d.restoreOutputTargets(added)
+			for _, name := range added {
+				if target, err := d.workspaces.current(name); err == nil {
+					_ = d.applyWorkspaceTarget(target, "init")
+				}
+			}
+		}
+	}
+	*previous = current
 }

@@ -175,9 +175,14 @@ Singleton {
 
     function getSafeIcon(item): string {
         if (!item) return "";
+        const icon = String(item.icon ?? "");
         // An XEmbed client without an icon of its own reaches us as the proxy's name, which no theme has.
-        if (item.icon && !/(^|[\/])xembedsniproxy(\?|$)/.test(String(item.icon))) return item.icon;
-        if (item.icon) return Quickshell.iconPath("application-x-executable", true);
+        if (icon.length > 0 && !/(^|[\/])xembedsniproxy(\?|$)/.test(icon)) {
+            if (icon.startsWith("/")) return "file://" + icon;
+            if (/^[a-z][a-z0-9+.-]*:/i.test(icon)) return icon;
+            return Quickshell.iconPath(icon, true);
+        }
+        if (icon.length > 0) return Quickshell.iconPath("application-x-executable", true);
         const app = getProblematicAppInfo(item);
         return app?.fixedIcon ? Quickshell.iconPath(app.fixedIcon, true) : "";
     }
@@ -279,7 +284,7 @@ Singleton {
         target: Config
         function onReadyChanged() {
             if (Config.ready) {
-                // Core behavior: start on Niri, but defer via timer to keep startup smooth.
+                // Defer proxy startup through the timer to keep shell startup smooth.
                 root.requestXembedProxyIfNeeded();
             }
         }
@@ -287,8 +292,9 @@ Singleton {
 
     Connections {
         target: CompositorService
-        function onIsNiriChanged() {
-            root.requestXembedProxyIfNeeded();
+        function onActionReadyChanged() {
+            if (CompositorService.actionReady)
+                root.requestXembedProxyIfNeeded();
         }
     }
 

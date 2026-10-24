@@ -1,18 +1,20 @@
-# CachyOS layer. Installed by pacstrap on every target, on top of base.packages,
-# so a Ryoku install IS a CachyOS install: the CachyOS-optimized kernel, the
-# system performance tuning, the auto-nice daemon, the sched-ext schedulers, and
-# the CachyOS Proton build. One package per line; '#' and blank lines are ignored.
+# CachyOS layer. Installed by pacstrap on every CachyOS target, on top of
+# base.packages, so Ryoku retains the CachyOS kernel, tools, tuning, and identity.
+# One package per line; '#' and blank lines are ignored. The base.packages names
+# this layer replaces are in cachyos.replaces.
 #
-# These live in the CachyOS repositories (added to the target's pacman.conf above
-# [core] by the installer, mirroring system/extras/ryoku-pkg-cachyos). The offline
-# ISO bakes them into the [offline] file:// repo so the whole set installs with no
-# network (installation/iso/build.sh, offline-repo.sh).
+# These live in the CachyOS repositories (written into the target's pacman.conf
+# by installation/backend/lib/cachyos.sh). The offline ISO bakes them into the
+# [offline] file:// repo so the whole set installs with no network
+# (installation/iso/build.sh, offline-repo.sh).
 
-# CachyOS-optimized kernel (sched-ext / BORE) + its headers for DKMS. The stock
-# `linux` kernel stays in base.packages as a fallback; the bootloader boots this
-# one by default (installation/backend/lib/bootloader.sh).
+# CachyOS-optimized kernel (sched-ext / BORE) + its headers for DKMS, and the
+# CachyOS LTS kernel as the fallback, the pair CachyOS installs. The bootloader
+# boots linux-cachyos by default (installation/backend/lib/bootloader.sh).
 linux-cachyos
 linux-cachyos-headers
+linux-cachyos-lts
+linux-cachyos-lts-headers
 
 # Trust + mirror packages so the installed system updates from CachyOS. Installed
 # here so `pacman-key --populate cachyos` can trust the repo offline (no keyserver
@@ -21,10 +23,41 @@ cachyos-keyring
 cachyos-mirrorlist
 cachyos-v3-mirrorlist
 cachyos-v4-mirrorlist
+# ranks both the Arch and the CachyOS mirrorlists (cachyos-rate-mirrors).
+cachyos-rate-mirrors
+
+# The AUR helper, from [cachyos] in place of the AUR's yay-bin (cachyos.replaces).
+yay
+
+# zlib-ng's drop-in builds, which CachyOS marks as replacing zlib and lib32-zlib.
+# A dependency resolves by name, so without these the install gets plain zlib and
+# the first -Syu asks the user to swap it; named here, they satisfy every zlib
+# dependency and that prompt never comes.
+zlib-ng-compat
+lib32-zlib-ng-compat
+
+# CachyOS's pacman hooks and its hardware detection tool (chwd), which the rest
+# of the CachyOS tooling expects to find on a CachyOS box.
+cachyos-hooks
+chwd
+
+# Vanilla CachyOS identity and desktop tools. cachyos-hello stays available from
+# the launcher, but its first-login autostart is suppressed by cachyos.sh.
+lsb-release
+shelly
+cachyos-hello
 
 # The CachyOS performance layer: sysctl, udev, modprobe, and systemd tuning that
-# makes the desktop (Hyprland) and games run the CachyOS way.
+# makes the desktop (Hyprland) and games run the CachyOS way. It also brings
+# zram swap (zram-generator), which is why this edition's installer defaults to
+# no swap partition, as CachyOS's does.
 cachyos-settings
+
+# CachyOS's own kernel manager and package installer apps, and the snapshot GUI
+# CachyOS installs alongside limine-snapper-sync.
+cachyos-kernel-manager
+cachyos-packageinstaller
+btrfs-assistant
 
 # Auto-nice daemon + CachyOS's ruleset: reprioritizes processes so the compositor
 # and foreground apps stay responsive under load.
@@ -35,13 +68,20 @@ cachyos-ananicy-rules
 # selects and starts one; this ships the scheduler binaries it runs.
 scx-scheds
 
-# CachyOS Proton: the CachyOS-tuned Proton build for Steam/Lutris, dropped into
-# the system compatibility-tools path so it works out of the box with the gaming
-# stack already in base.packages (gamescope, gamemode, mangohud).
-#
-# Name the SLR build, not the bare `proton-cachyos`: CachyOS split that into
-# proton-cachyos-slr and proton-cachyos-native, which both only *provide* the old
-# name. A virtual name with two providers cannot resolve under --noconfirm, so the
-# offline closure bake failed and took the whole CachyOS ISO with it. SLR is the
-# Steam Linux Runtime build, which is how Steam runs Proton.
-proton-cachyos-slr
+# The installer's Gaming question keeps or drops both packages through the
+# cachyos-gaming component. CachyOS's gaming meta pulls Proton-CachyOS SLR,
+# Wine-CachyOS, umu-launcher, winetricks, protontricks, and their runtimes.
+# SLR is the Steam Linux Runtime build that Steam can discover; the old virtual
+# proton-cachyos name has multiple providers and cannot resolve unattended.
+steam
+cachyos-gaming-meta
+
+# Deliberate differences from vanilla CachyOS:
+# cachyos-fish-config and cachyos-zsh-config: Ryoku owns shell configuration.
+# cachyos-wallpapers and CachyOS Plymouth themes: Ryoku owns system branding.
+# cachyos-snapper-support: Ryoku owns Snapper and limine-snapper-sync.
+# cachy-update: ryoku update owns system updates.
+# octopi: Shelly replaced it upstream.
+# paru: Ryoku already ships yay.
+# ufw: its default policy would block LocalSend and local services.
+# chwd --autoconfigure: Ryoku's driver scripts own GPU driver selection.

@@ -502,8 +502,8 @@ func TestBarStyleViewRebuildsCorruptSnapshot(t *testing.T) {
 	}
 }
 
-// The catalogue snapshot is only rebuilt on demand, so a built-in style renamed
-// by an update must invalidate it or the store keeps the old name.
+// The catalogue snapshot is only rebuilt on demand, so changed built-in text or
+// resource tiers must invalidate it instead of leaving stale cards in the Hub.
 func TestSnapshotStaleBuiltins(t *testing.T) {
 	encode := func(items []Item) []byte {
 		data, err := json.Marshal(Catalog{Items: items})
@@ -533,6 +533,15 @@ func TestSnapshotStaleBuiltins(t *testing.T) {
 	}
 	if !snapshotStaleBuiltins(encode(renamed)) {
 		t.Error("a snapshot naming a built-in differently must be rebuilt")
+	}
+	retiered := builtinBarStyles()
+	for i := range retiered {
+		if retiered[i].ID == "orpheus" {
+			retiered[i].Metadata["resourceTier"] = "heavy"
+		}
+	}
+	if !snapshotStaleBuiltins(encode(retiered)) {
+		t.Error("a snapshot with an old built-in resource tier must be rebuilt")
 	}
 	store := []Item{{ID: "nacre", Category: "barstyles", Name: "Nacre"}}
 	if snapshotStaleBuiltins(encode(append(current, store...))) {

@@ -95,6 +95,8 @@ if [[ $variant == plain ]]; then
 else
   latest="$iso_dir/latest-$variant.json"; latest_js="$iso_dir/latest-$variant.js"; js_global="RYOKU_ISO_RELEASE_${variant^^}"
 fi
+latest_name=$(basename "$latest")
+latest_js_name=$(basename "$latest_js")
 
 cat >"$manifest" <<JSON
 {
@@ -128,8 +130,8 @@ cat >"$manifest" <<JSON
     "sha256": $(json_string "$(public_url "$sha_name")"),
     "manifest": $(json_string "$(public_url "$manifest_name")"),
     "script_manifest": $(json_string "$(public_url "$script_name")"),
-    "latest": $(json_string "$(public_url "latest.json")"),
-    "latest_script": $(json_string "$(public_url "latest.js")"),
+    "latest": $(json_string "$(public_url "$latest_name")"),
+    "latest_script": $(json_string "$(public_url "$latest_js_name")"),
     "public_key": $(json_string "$(public_url "$public_key_name")")
   },
   "sha256": {

@@ -7,6 +7,12 @@
 
 set -euo pipefail
 
+manager=$(ryoku-host pkgmgr 2>/dev/null || true)
+if [[ -n $manager && $manager != pacman ]]; then
+  echo "ryoku-pkg-multilib: Arch's multilib repository is available only on pacman hosts (this host uses ${manager:-an unknown manager})" >&2
+  exit 5
+fi
+
 conf=/etc/pacman.conf
 
 # serialize the pacman.conf mutation below (same lock as ryoku-pkg-cachyos):

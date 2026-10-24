@@ -30,13 +30,21 @@ Singleton {
     // change and via a bounded warm-up poll after load.
     property int iconRev: 0
     property int _iconTries: 0
+    property var _unresolvedIcons: new Map()
+    readonly property int _unresolvedIconCount: root._unresolvedIcons.size
+    property var _canonicalIds: new Map()
+    property string _windowSignature: ""
 
     // A desktop-DB change -- an app installed, updated, or removed -- can add or fix
     // the icon a pin resolves to; re-resolve every dock icon when it fires so a pin
     // recovers its real icon live instead of waiting for a reload.
     Connections {
         target: DesktopEntries
-        function onApplicationsChanged() { root.iconRev++; }
+        function onApplicationsChanged() {
+            root._canonicalIds = new Map();
+            root.iconRev++;
+            root._syncClients(true);
+        }
     }
     // The icon index lands a moment after startup (a `ryoku-shell icons` run);
     // bump iconRev the instant it does so pins re-resolve off the fallback
@@ -45,19 +53,16 @@ Singleton {
         target: Icons
         function onRevChanged() { root.iconRev++; }
     }
-    // The icon-theme cache warms a little after the shell starts and nothing signals
-    // it, so an icon can be unresolvable at first paint and findable a moment later.
-    // Re-resolve a bounded handful of times over the first few seconds after load, so
-    // a pin that came up on the generic fallback heals itself without a reload.
+    // The icon-theme cache warms a little after the shell starts and nothing
+    // signals it. Poll only while a requested dock icon is unresolved.
     Timer {
         id: iconWarmup
         interval: 400
         repeat: true
-        running: true
+        running: root._unresolvedIconCount > 0 && root._iconTries < 12
         onTriggered: {
+            root._iconTries++;
             root.iconRev++;
-            if (++root._iconTries >= 12)
-                iconWarmup.stop();
         }
     }
 
@@ -77,8 +82,13 @@ Singleton {
         const id = root.plainId(value);
         if (id.length === 0)
             return "";
+        const key = id.toLowerCase();
+        if (root._canonicalIds.has(key))
+            return root._canonicalIds.get(key);
         const entry = root.entryFor(id);
-        return entry?.id ? root.plainId(entry.id) : id.toLowerCase();
+        const canonical = entry?.id ? root.plainId(entry.id) : key;
+        root._canonicalIds.set(key, canonical);
+        return canonical;
     }
     function sameApp(a, b) {
         const left = root.canonicalId(a);
@@ -101,33 +111,66 @@ Singleton {
         return root.canonicalId(cls);
     }
 
-    // Running windows as { className, address }, id-sorted for a stable order.
-    readonly property var clients: {
-        const result = [];
-        const wins = Wm.windows;
+    property var _clients: []
+    readonly property var clients: root._clients
+    property var _focusedClient: null
+    readonly property var focusedClient: root._focusedClient
+    readonly property bool anyFocused: root._focusedClient !== null
+    property string _activeClass: ""
+    readonly property string activeClass: root._activeClass
+
+    function _syncClients(force) {
+        const wins = Array.from(Wm.windows ?? []);
+        const focused = Wm.focusedWindow;
+        const focusedId = focused ? String(focused.id ?? "") : "";
+        const records = [];
         for (let i = 0; i < wins.length; ++i) {
-            const className = root.classOf(wins[i]);
-            if (className)
-                result.push({ className: className, address: wins[i].id });
+            const w = wins[i];
+            const id = String(w?.id ?? "");
+            const appId = String(w?.appId ?? "");
+            const specialId = appId === "org.quickshell"
+                ? String(root.quickshellApps[w?.title] ?? "") : "";
+            records.push({
+                id: id,
+                appId: appId,
+                specialId: specialId,
+                workspace: String(w?.workspace ?? "")
+            });
         }
-        result.sort((a, b) => a.address < b.address ? -1 : (a.address > b.address ? 1 : 0));
-        return result;
+        records.sort((a, b) => a.id < b.id ? -1 : (a.id > b.id ? 1 : 0));
+        const signature = focusedId + "\u0001" + records.map(record =>
+            record.id + "\u0000" + record.appId + "\u0000"
+                + record.specialId + "\u0000" + record.workspace).join("\u0001");
+        if (force !== true && signature === root._windowSignature)
+            return;
+
+        const result = [];
+        for (let i = 0; i < records.length; ++i) {
+            const record = records[i];
+            const className = root.canonicalId(record.specialId || record.appId);
+            if (className)
+                result.push({ className: className, address: record.id });
+        }
+        root._windowSignature = signature;
+        root._clients = result;
+        root._focusedClient = focused;
+        root._activeClass = focused
+            ? root.canonicalId((focused.appId === "org.quickshell"
+                ? root.quickshellApps[focused.title] : "") || focused.appId)
+            : "";
     }
 
-    // The focused window, or null on a bare desktop.
-    readonly property var focusedClient: Wm.focusedWindow
-
-    // True while some window holds focus; a bare desktop reads false, which the
-    // dock surface uses to show itself when there is nothing to get out of.
-    readonly property bool anyFocused: root.focusedClient !== null
-
-    readonly property string activeClass: root.classOf(root.focusedClient)
-
+    Connections {
+        target: Wm
+        function onWindowsChanged() { root._syncClients(false); }
+        function onFocusedWindowChanged() { root._syncClients(false); }
+    }
+    Component.onCompleted: root._syncClients(true)
     // Pinned first, then running-unpinned in id order.
     function resolve(pinned, activeClients) {
         const canonicalPins = root.normalizedPins(pinned);
         const source = activeClients === undefined ? root.clients : activeClients;
-        const canonicalClients = Array.from(source ?? []).map(client => ({
+        const canonicalClients = source === root.clients ? Array.from(source) : Array.from(source ?? []).map(client => ({
             className: root.canonicalId(client.className),
             address: client.address
         })).filter(client => client.className.length > 0);
@@ -185,7 +228,11 @@ Singleton {
 
     function cfg(key, fallback) {
         const d = Config.dock;
-        return (d && d[key] !== undefined && d[key] !== null) ? d[key] : fallback;
+        if (d && d[key] !== undefined && d[key] !== null)
+            return d[key];
+        if (key === "design" && Config.barStyle === "iris")
+            return "shima";
+        return fallback;
     }
     function designCfg(designName, key, fallback) {
         const d = root.cfg(designName, {});
@@ -273,7 +320,20 @@ Singleton {
         const id = root.canonicalId(className);
         const desktop = root.entryFor(id);
         const byEntry = (desktop && desktop.icon) ? Icons.path(desktop.icon, true) : "";
-        return byEntry !== "" ? byEntry : Icons.path(id.toLowerCase(), true);
+        const resolved = byEntry !== "" ? byEntry : Icons.path(id.toLowerCase(), true);
+        const unresolved = new Map(root._unresolvedIcons);
+        if (resolved === "" && id.length > 0) {
+            if (!unresolved.has(id)) {
+                if (unresolved.size === 0)
+                    root._iconTries = 0;
+                unresolved.set(id, true);
+                root._unresolvedIcons = unresolved;
+            }
+        } else if (unresolved.has(id)) {
+            unresolved.delete(id);
+            root._unresolvedIcons = unresolved;
+        }
+        return resolved;
     }
 
     // No clients -> launch; focused already -> cycle by address; else focus,

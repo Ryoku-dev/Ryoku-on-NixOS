@@ -85,7 +85,7 @@ Loader {
                     : actionRoot.isOverview ? (String(actionRoot.overviewCfg?.symbol ?? "").trim() || "apps")
                     : "drag_indicator"
                 toggledSymbolName: actionRoot.actionId === "pin" ? "bookmark" : ""
-                toggled: actionRoot.actionId === "pin" && (Config.options.dock.pinnedOnStartup ?? false)
+                toggled: actionRoot.actionId === "pin" && (Config.options.dock.pinnedOnStartup ?? true)
                 normalShape: actionRoot.isOverview ? MaterialShape.Shape.SoftBurst : MaterialShape.Shape.Pill
                 activeShape: actionRoot.isOverview ? MaterialShape.Shape.SoftBurst : MaterialShape.Shape.Cookie9Sided
                 symbolSize: Math.round(Appearance.sizes.dockButtonSize * 0.5)

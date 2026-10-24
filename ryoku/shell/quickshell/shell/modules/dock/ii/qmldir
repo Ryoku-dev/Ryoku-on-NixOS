@@ -21,7 +21,6 @@ CalendarPanel 1.0 utilities/CalendarPanel.qml
 CalendarTile 1.0 utilities/CalendarTile.qml
 ClipboardPanel 1.0 utilities/ClipboardPanel.qml
 ClipboardTile 1.0 utilities/ClipboardTile.qml
-singleton Cliphist 1.0 services/Cliphist.qml
 singleton ClockApp 1.0 clockapp/ClockApp.qml
 ClockAppContent 1.0 clockapp/ClockAppContent.qml
 ClockAppWindow 1.0 clockapp/ClockAppWindow.qml

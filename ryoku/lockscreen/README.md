@@ -26,6 +26,22 @@ niri serve, so the same lock runs on both.
 - `sddm/setup` The install-time SDDM wiring: enable the service, default to the
   graphical target, drop `pam_gnome_keyring` from the SDDM PAM stack, and make
   sure a Hyprland wayland session exists.
+- `sddm/ryoku-greeter` SDDM's `[Wayland] CompositorCommand`: weston in kiosk
+  mode on the card that can show the login screen, at each output's top mode.
+  weston runs supervised: SDDM 0.21 reads any death of the Wayland greeter as a
+  finished login and starts nothing afterwards, so a weston that dies before
+  the greeter connects is reported to the system log (`ryoku-greeter` tag) and
+  started again with the card chosen afresh, while a stop request from SDDM
+  ends it.
+- `sddm/ryoku-wayland-session` SDDM's `[Wayland] SessionCommand`: prepares the
+  GPU handoff and lays a missing Ryoku tree before the session compositor runs.
+- `sddm/ryoku-greeter-guard` and its unit: the login screen guard, a root
+  service on every edition (`greeter-guard` in `system/services/manifest.tsv`).
+  When the sddm daemon runs with no helper at all, no greeter and no session,
+  for 20s, it restarts the display manager, three times per boot at most, and
+  says so in the system log (`ryoku-greeter-guard` tag). This is the recovery
+  for a greeter client that dies after connecting, which nothing inside SDDM
+  can recover from.
 - `README.md`, `CHANGELOG.md` This file and the change log.
 
 ## Two pieces, one theme

@@ -87,21 +87,29 @@ select_drm_card() {
   done | sort -k1,1n -k2,2n -k3,3n | awk 'NR == 1 { print $4 }'
 }
 
-selected_card="$(select_drm_card)"
-weston_args=()
-if [ -n "$selected_card" ]; then
-  selected_path="$drm_root/$selected_card"
-  weston_args+=("--drm-device=$selected_card")
-  if ! card_has_render "$selected_path"; then
-    weston_args+=("--renderer=pixman")
-  elif card_has_connected "$selected_card" 1 &&
-    [ "$(cat "$selected_path/device/vendor" 2>/dev/null)" = "0x10de" ]; then
-    # NVIDIA's cursor plane accepts the login pointer but does not display it.
-    weston_args+=("--renderer=pixman")
+# Chosen fresh for every weston start: the usable card can change while the
+# greeter is coming up (a driver binding after the firmware framebuffer, a mux
+# settling), so a retry must not inherit the first attempt's pick.
+pick_weston_args() {
+  selected_card="$(select_drm_card)"
+  weston_args=()
+  if [ -n "$selected_card" ]; then
+    selected_path="$drm_root/$selected_card"
+    weston_args+=("--drm-device=$selected_card")
+    if ! card_has_render "$selected_path"; then
+      weston_args+=("--renderer=pixman")
+    elif card_has_connected "$selected_card" 1 &&
+      [ "$(cat "$selected_path/device/vendor" 2>/dev/null)" = "0x10de" ]; then
+      # NVIDIA's cursor plane accepts the login pointer but does not display it.
+      weston_args+=("--renderer=pixman")
+    fi
+  else
+    echo "ryoku-greeter: no connected DRM card found; using weston's default" >&2
   fi
-else
-  echo "ryoku-greeter: no connected DRM card found; using weston's default" >&2
-fi
+}
+selected_card=""
+selected_path=""
+weston_args=()
 
 # weston reads no X11 keyboard config, so without one the greeter comes up on
 # weston's built-in us map and a non-us password fails at the login field. Read
@@ -245,18 +253,64 @@ keyboard_ini() {
 # match modules/input.lua; enable-tap only affects touchpad devices.
 libinput_ini() { printf '[libinput]\nenable-tap=true\nnatural-scroll=false\n\n'; }
 
-# exec plain weston (preferred mode); the login screen must always start. Hand it
-# a [core]+[shell] config too so the pointer has a theme even when no modes parse.
+# weston runs as a supervised child, never exec'd. SDDM 0.21 cannot tell a
+# greeter that died from one that logged somebody in: sddm-helper-start-wayland
+# exits 0 whenever the greeter client finishes or the compositor dies, the daemon
+# reads that as HELPER_SUCCESS and starts nothing, and the box sits on an empty
+# VT with a blinking cursor. So a weston that dies on its own (no DRM device yet,
+# a card the driver has not finished bringing up, a seat that is not ready) is
+# logged with its last lines and started again, with the card re-chosen, while
+# SDDM is still waiting for the socket. A stop request from the helper (the
+# greeter finished, SDDM gave up on the socket) is forwarded and ends the loop.
+stopping=0
+child=""
+on_stop() {
+  stopping=1
+  [ -n "$child" ] && kill -TERM "$child" 2>/dev/null
+}
+trap on_stop TERM INT HUP
+
+# sleep that a stop request interrupts.
+pause() {
+  sleep "$1" &
+  child=$!
+  wait "$child" 2>/dev/null
+  child=""
+}
+
+last_err=""
+start_weston() {
+  local errlog status
+  errlog="$(mktemp --tmpdir ryoku-greeter.XXXXXX.log 2>/dev/null)" || errlog=/dev/null
+  # stderr stays live for SDDM's own log and is kept for the failure report.
+  weston "$@" 2> >(tee -a "$errlog" >&2) &
+  child=$!
+  wait "$child"
+  status=$?
+  while kill -0 "$child" 2>/dev/null; do
+    wait "$child"
+    status=$?
+  done
+  child=""
+  sleep 0.1
+  last_err="$(tail -n 4 "$errlog" 2>/dev/null)"
+  [ "$errlog" = /dev/null ] || rm -f "$errlog"
+  return "$status"
+}
+
+# plain weston (preferred mode); the login screen must always start. Hand it a
+# [core]+[shell] config too so the pointer has a theme even when no modes parse.
 weston_plain() {
   local pini
-  pini="$(mktemp --tmpdir ryoku-greeter.XXXXXX.ini 2>/dev/null)" &&
-    { printf '[core]\nidle-time=0\n\n'; shell_ini; libinput_ini; keyboard_ini; } >"$pini" &&
-    exec weston --shell=kiosk "${weston_args[@]}" --config="$pini" "$@"
-  exec weston --shell=kiosk "${weston_args[@]}" "$@"
+  if pini="$(mktemp --tmpdir ryoku-greeter.XXXXXX.ini 2>/dev/null)" &&
+    { printf '[core]\nidle-time=0\n\n'; shell_ini; libinput_ini; keyboard_ini; } >"$pini"; then
+    start_weston --shell=kiosk "${weston_args[@]}" --config="$pini" "$@"
+  else
+    start_weston --shell=kiosk "${weston_args[@]}" "$@"
+  fi
 }
 
 command -v weston >/dev/null 2>&1 || { echo "ryoku-greeter: weston not found" >&2; exit 127; }
-command -v modetest >/dev/null 2>&1 || weston_plain "$@"
 
 # Per connected connector, pick the largest resolution then its highest refresh.
 # Output: "<name> <w> <h> <refresh-string>" lines. Refresh is kept verbatim from
@@ -301,6 +355,7 @@ gen_ini() {
 
 # Inspect the generated config without starting the greeter.
 if [ "${RYOKU_GREETER_DRYRUN:-0}" = 1 ]; then
+  pick_weston_args
   modes="$(probe_modes)"
   greeter_primary="$(choose_primary "$greeter_primary")"
   gen_ini
@@ -316,26 +371,70 @@ fi
 # RYOKU_GREETER_DEADLINE (seconds).
 settle="${RYOKU_GREETER_SETTLE:-1}"
 deadline="${RYOKU_GREETER_DEADLINE:-6}"
-start=$SECONDS
-modes=""
-last=-1
+
+# One weston start: choose the card, settle the connector set, build the config.
+# Returns weston's exit status.
+compose_and_start() {
+  local start last n elapsed ini
+  pick_weston_args
+  if ! command -v modetest >/dev/null 2>&1; then
+    weston_plain "$@"
+    return
+  fi
+  start=$SECONDS
+  modes=""
+  last=-1
+  while :; do
+    modes="$(probe_modes)"
+    n=$(printf '%s' "$modes" | awk 'NF { c++ } END { print c + 0 }')
+    elapsed=$(( SECONDS - start ))
+    [ "$elapsed" -ge "$deadline" ] && break
+    [ "$n" -gt 0 ] && [ "$n" -eq "$last" ] && [ "$elapsed" -ge "$settle" ] && break
+    last="$n"
+    sleep 0.3
+  done
+  if [ -z "$modes" ]; then
+    weston_plain "$@"
+    return
+  fi
+  # Pin the login form to the resolved output now that the full connected set is in.
+  greeter_primary="$(choose_primary "$greeter_primary")"
+  if ! ini="$(mktemp --tmpdir ryoku-greeter.XXXXXX.ini 2>/dev/null)"; then
+    weston_plain "$@"
+    return
+  fi
+  gen_ini > "$ini"
+  if [ ! -s "$ini" ]; then
+    weston_plain "$@"
+    return
+  fi
+  start_weston --shell=kiosk "${weston_args[@]}" --config="$ini" "$@"
+}
+
+# Each failure is reported once to the system log (journal or socklog), where a
+# user at a text console can read why the login screen is missing.
+report_death() {
+  local attempt=$1 status=$2 detail
+  detail="weston exited with status $status (attempt $attempt, card ${selected_card:-none})"
+  [ -n "$last_err" ] && detail="$detail: $(printf '%s' "$last_err" | tr '\n' ' ')"
+  echo "ryoku-greeter: $detail" >&2
+  logger -t ryoku-greeter -p daemon.err -- "$detail" 2>/dev/null || true
+}
+
+# Retries stop after this many starts; SDDM's own socket wait (15s) usually ends
+# the helper first, and the guard restarts the display manager after that.
+retry_limit="${RYOKU_GREETER_RETRY_LIMIT:-10}"
+attempt=0
+delay=1
 while :; do
-  modes="$(probe_modes)"
-  n=$(printf '%s' "$modes" | awk 'NF { c++ } END { print c + 0 }')
-  elapsed=$(( SECONDS - start ))
-  [ "$elapsed" -ge "$deadline" ] && break
-  [ "$n" -gt 0 ] && [ "$n" -eq "$last" ] && [ "$elapsed" -ge "$settle" ] && break
-  last="$n"
-  sleep 0.3
+  attempt=$(( attempt + 1 ))
+  compose_and_start "$@"
+  status=$?
+  [ "$stopping" = 1 ] && exit "$status"
+  report_death "$attempt" "$status"
+  [ "$attempt" -ge "$retry_limit" ] && exit "$status"
+  pause "$delay"
+  [ "$stopping" = 1 ] && exit 0
+  delay=$(( delay * 2 ))
+  [ "$delay" -gt 5 ] && delay=5
 done
-
-[ -n "$modes" ] || weston_plain "$@"
-
-# Pin the login form to the resolved output now that the full connected set is in.
-greeter_primary="$(choose_primary "$greeter_primary")"
-
-ini="$(mktemp --tmpdir ryoku-greeter.XXXXXX.ini 2>/dev/null)" || weston_plain "$@"
-gen_ini > "$ini"
-[ -s "$ini" ] || weston_plain "$@"
-
-exec weston --shell=kiosk "${weston_args[@]}" --config="$ini" "$@"

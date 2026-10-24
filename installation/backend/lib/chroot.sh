@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # configure the freshly installed system: locale, console keymap, timezone,
-# hostname, primary user, sudo, initramfs HOOKS, and (if encrypting) crypttab.
+# hostname, accounts, sudo, initramfs HOOKS, and (if encrypting) crypttab.
 # files under /mnt are written directly; anything that must run in the target
-# goes through arch-chroot.
+# goes through arch-chroot, or $RYOKU_TARGET_CHROOT for the steps another
+# edition reuses.
+
+: "${RYOKU_TARGET_CHROOT:=arch-chroot}"
 
 ryoku_configure() {
   ryoku_cfg_locale
   ryoku_cfg_keymap
   ryoku_cfg_timezone
   ryoku_cfg_hostname
-  ryoku_cfg_user
+  ryoku_accounts_create
   ryoku_cfg_sudo
   ryoku_cfg_initramfs
   ryoku_cfg_crypttab
@@ -67,32 +70,9 @@ EOF
 }
 
 ryoku_cfg_timezone() {
-  local tz=$RYOKU_TIMEZONE
-  if [[ $tz == auto ]]; then
-    if [[ ${RYOKU_ONLINE:-1} != 1 ]]; then
-      # offline install: IP geolocation can't resolve, so skip the curl (which
-      # would only time out) and use UTC. saves ~20s on every offline install.
-      log "timezone: offline install, using UTC (auto needs network to geolocate)"
-      tz=UTC
-    elif [[ -n ${RYOKU_DRYRUN:-} ]]; then
-      printf 'DRYRUN: curl -fsSL https://ipinfo.io/timezone\n'
-      tz='<auto-timezone>'
-    else
-      # configure runs with the network up, so geolocation still resolves
-      # even when the installer's timezone screen ran before Wi-Fi joined.
-      # two providers for resilience; first known zone wins.
-      local url
-      for url in "https://ipinfo.io/timezone" "http://ip-api.com/line?fields=timezone"; do
-        tz=$(curl -fsSL --max-time 10 "$url" 2>/dev/null | tr -d '[:space:]') || tz=""
-        if [[ -n $tz && -e /mnt/usr/share/zoneinfo/$tz ]]; then break; fi
-        tz=""
-      done
-    fi
-  fi
-  if [[ -z ${RYOKU_DRYRUN:-} && ( -z $tz || ! -e /mnt/usr/share/zoneinfo/$tz ) ]]; then
-    log 'warn: timezone '\''%s'\'' is empty or unknown; falling back to UTC' "${tz:-empty}"
-    tz=UTC
-  fi
+  local tz
+  ryoku_resolve_timezone "$RYOKU_TIMEZONE"
+  tz=$RYOKU_RESOLVED_TIMEZONE
   log 'timezone: %s' "$tz"
   run ln -sf "/usr/share/zoneinfo/$tz" /mnt/etc/localtime
   run arch-chroot /mnt hwclock --systohc
@@ -108,26 +88,6 @@ EOF
   # editing it makes pacman drop a .pacnew on every filesystem upgrade. The
   # stock nss-myhostname (default in /etc/nsswitch.conf) already resolves
   # localhost and the machine hostname, so the hand-written table is redundant.
-}
-
-ryoku_cfg_user() {
-  local login_shell="/usr/bin/$RYOKU_LOGIN_SHELL"
-  if [[ -z ${RYOKU_DRYRUN:-} && ! -x /mnt$login_shell ]]; then
-    die "login shell %s is missing from the target; refusing to create %s with an unusable shell" "$login_shell" "$RYOKU_USERNAME"
-  fi
-  log 'user: %s (wheel,video,input; shell %s)' "$RYOKU_USERNAME" "$login_shell"
-  # video -> write panel backlight (with 90-ryoku-backlight.rules); input ->
-  # read game controllers / input devices without a per-login logind grant.
-  run arch-chroot /mnt useradd -m -G wheel,video,input -s "$login_shell" "$RYOKU_USERNAME"
-  # same password on the user + root, so sudo (wheel) and su both work
-  # with what the installer collected. hashes go in on stdin (chpasswd -e
-  # reads name:hash) and never hit the logs.
-  printf '%s:%s\n' "$RYOKU_USERNAME" "$RYOKU_PASSWORD_HASH" | run_secret \
-    "arch-chroot /mnt chpasswd -e (user:hash via stdin)" \
-    arch-chroot /mnt chpasswd -e
-  printf 'root:%s\n' "$RYOKU_PASSWORD_HASH" | run_secret \
-    "arch-chroot /mnt chpasswd -e (root:hash via stdin)" \
-    arch-chroot /mnt chpasswd -e
 }
 
 ryoku_cfg_sudo() {

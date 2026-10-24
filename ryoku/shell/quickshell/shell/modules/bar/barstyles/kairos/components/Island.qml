@@ -399,9 +399,11 @@ Item {
         }
     }
 
-    // A battery at 20% or lower rings the island in error red, pulsing gently,
-    // so the warning reads from across the room without touching the clock.
+    // A battery at 20% or lower rings the island in error red. A brief pulse
+    // every few seconds keeps the warning noticeable without repainting forever;
+    // reduced motion leaves the ring static.
     Rectangle {
+        id: lowBatteryRing
         anchors.fill: clockPill
         anchors.margins: -5
         radius: clockPill.radius + 5
@@ -409,13 +411,15 @@ Item {
         border.width: 2
         border.color: Theme.error
         visible: Battery.present && Battery.low
+        opacity: 1
         z: 1
 
         SequentialAnimation on opacity {
-            running: Battery.present && Battery.low
+            running: lowBatteryRing.visible && !Motion.reduce
             loops: Animation.Infinite
-            NumberAnimation { from: 1; to: 0.35; duration: 1100; easing.type: Easing.InOutSine }
-            NumberAnimation { from: 0.35; to: 1; duration: 1100; easing.type: Easing.InOutSine }
+            PauseAnimation { duration: 4200 }
+            NumberAnimation { from: 1; to: 0.35; duration: 500; easing.type: Easing.InOutSine }
+            NumberAnimation { from: 0.35; to: 1; duration: 500; easing.type: Easing.InOutSine }
         }
     }
 

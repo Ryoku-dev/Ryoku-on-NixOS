@@ -9,6 +9,11 @@ unset _ryoku_env
 
 [[ $- == *i* ]] || return
 
+_ryoku_desktop_env=${XDG_CONFIG_HOME:-$HOME/.config}/ryoku-terminal/desktop-display.sh
+[[ -r $_ryoku_desktop_env ]] || _ryoku_desktop_env=$(cd "$(dirname "${BASH_SOURCE[0]}")/../terminal-shell" 2>/dev/null && pwd)/desktop-display.sh
+[[ -r $_ryoku_desktop_env ]] && . "$_ryoku_desktop_env"
+unset _ryoku_desktop_env
+
 command -v ryoku-fastfetch >/dev/null 2>&1 && ryoku-fastfetch
 command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init bash --cmd cd)"
 command -v mise >/dev/null 2>&1 && eval "$(mise activate bash)"

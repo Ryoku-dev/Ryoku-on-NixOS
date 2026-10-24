@@ -76,13 +76,13 @@ Scope {
                 return IrisThemes.all.map(entry => `${entry.id}\t${entry.name}${entry.id === IrisThemes.activeId ? (IrisThemes.modified ? "  (active, changed)" : "  (active)") : ""}`).join("\n")
             case "apply": {
                 const found = IrisThemes.find(arg)
-                if (!found) return "Unknown theme: see `inir iris theme list`"
+                if (!found) return "Unknown theme: run `qs -c shell ipc call iris theme list`"
                 IrisThemes.apply(found)
                 return found.name
             }
             case "colours": {
                 const found = IrisThemes.find(arg)
-                if (!found) return "Unknown theme: see `inir iris theme list`"
+                if (!found) return "Unknown theme: run `qs -c shell ipc call iris theme list`"
                 IrisThemes.applyColours(found)
                 return found.name
             }
@@ -144,6 +144,19 @@ Scope {
             GlobalStates.irisDockMenuRequest = { appId: appId, mode: mode }
             return appId
         }
+        // Position counts Dock entries from one, including the separator.
+        function dockMove(appId: string, position: int): string {
+            const ids = IrisDockOrder.entries.map(entry => entry.appId)
+            const wanted = IrisDockOrder.key(appId)
+            const id = ids.find(entry => entry !== "SEPARATOR" && IrisDockOrder.key(entry) === wanted) ?? ""
+            if (id.length === 0)
+                return "Not in the Dock: " + ids.filter(entry => entry !== "SEPARATOR").join(", ")
+            const rest = ids.filter(entry => entry !== id)
+            rest.splice(Math.max(0, Math.min(rest.length, position - 1)), 0, id)
+            if (!IrisDockOrder.drop(id, rest))
+                return "Stays where it was: a pinned app with no window has no place among the open ones"
+            return rest.join(" ")
+        }
         function appBubble(appId: string, place: string): string {
             if (appId.length === 0) return "Unknown app"
             if (place === "dock" || place === "off") { IrisPieces.removeApp(appId); return "docked" }
@@ -175,6 +188,13 @@ Scope {
             else if (action === "toggle" || action === "") GlobalStates.controlPanelOpen = !GlobalStates.controlPanelOpen
             else return "Choose open, close or toggle"
             return GlobalStates.controlPanelOpen ? "open" : "closed"
+        }
+        function equalizer(action: string): string {
+            if (action === "open") GlobalStates.openIrisEqualizer("")
+            else if (action === "close") GlobalStates.closeIrisEqualizer()
+            else if (action === "toggle" || action === "") GlobalStates.toggleIrisEqualizer("")
+            else return "Choose open, close or toggle"
+            return GlobalStates.irisEqualizerOpen ? "open" : "closed"
         }
         function pin(side: string): void {
             if (side !== "left" && side !== "right") return
@@ -399,7 +419,7 @@ Scope {
             return tab.length > 0 ? tab : "arranging"
         }
         function utility(name: string): string {
-            if (!["tray", "tools", "sound", "mic", "none"].includes(name)) return "Unknown utility"
+            if (!["tray", "tools", "sound", "mic", "equalizer", "none"].includes(name)) return "Unknown utility"
             Config.setNestedValue("iris.bar.auxiliary", name)
             return String(Config.options.iris.bar.auxiliary)
         }
@@ -600,13 +620,20 @@ Scope {
                     ? (islandLoader.item?.suppressed ?? false) : false
 
                 readonly property bool islandAutoHide: IrisFrame.islandAutoHide && islandLoader.active
+                readonly property bool islandWorkspaceEmpty: {
+                    if (!(root.options?.revealOnEmpty ?? true)) return false
+                    const active = (WorkspaceService.allWorkspaces ?? []).find(ws =>
+                        ws.output === barWindow.screen?.name && ws.is_active)
+                    return active !== undefined
+                        && !(WorkspaceService.windows ?? []).some(w => w.workspace_id === active.id)
+                }
                 property bool islandEdgeIntent: false
                 readonly property bool islandWants: barWindow.expanded || barWindow.pinned || barWindow.editHere
                     || cardFrameLayer.framed || (islandLoader.item?.feedback ?? false)
                     || (islandLoader.item?.eventShown ?? false) || (islandLoader.item?.morphing ?? false)
                     || stage.cardPresent || (controlCentreLoader.item?.present ?? false)
                 readonly property bool islandRevealed: !barWindow.islandAutoHide
-                    || barWindow.islandEdgeIntent || barWindow.islandWants
+                    || barWindow.islandWorkspaceEmpty || barWindow.islandEdgeIntent || barWindow.islandWants
                 // Off the edge the chassis is gone, but its fuse still reaches back onto
                 // the screen and leaves a smudge where the Island used to melt in.
                 readonly property bool islandTucked: islandLoader.tuck > islandLoader.hidden - 1
@@ -929,6 +956,7 @@ Scope {
                 IrisField {
                     id: chassisField
                     anchors.fill: parent
+                    tint: IrisFrame.framed && IrisStyle.ryokuFrontend ? IrisStyle.darkSurfaceOpaque : IrisStyle.bodySurface
                     compositorAllowed: true
                     providesBackdrop: true
                     edgeWave: framePulse.amplitudes

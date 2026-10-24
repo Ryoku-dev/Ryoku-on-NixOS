@@ -32,12 +32,14 @@ meson
 gradle
 libusb
 
-# Qt: Blobs plays video, so qt6-multimedia joins the QML plugin's own modules.
+# Qt: Blobs plays video, so qt6-multimedia joins the QML plugin's own modules,
+# and Ryoku.Spatial3D builds the Stage depth mesh against Qt Quick 3D.
 # The Ryogami picker also compiles against the Vulkan headers to list GPUs.
 qt6-base
 qt6-declarative
 qt6-shadertools
 qt6-multimedia
+qt6-quick3d
 vulkan-headers
 
 # rashin-app: pkg-config discovers the GTK3 and WebKit2GTK 4.1 host libraries.
@@ -49,6 +51,10 @@ pkgconf
 # hyprglass, hyprgrass, imgborders, ryoku-keysounds) plus their makedepends:
 # keysounds links libcanberra. hyprland-preview-share-picker needs gtk4 +
 # gtk4-layer-shell. hyprgrass's wf-touch subproject includes glm headers.
+# ryoku-desktop-wayfire builds the depthdeck plugin against wayfire.pc, so the
+# wayfire package (which ships that .pc and its public headers) is a build host
+# dependency of the [ryoku] repo, not only of the installed desktop.
+wayfire
 hyprland
 hyprcursor
 libcanberra
@@ -75,12 +81,12 @@ xorg-xcursorgen
 xcur2png
 python
 
-# pnpm (which pulls nodejs) builds the ryotunes web UI: its PKGBUILD runs
-# `pnpm install --frozen-lockfile && pnpm build` to produce the SvelteKit bundle
-# the Tauri binary embeds, so without pnpm on the host the package cannot build
-# at all.
+# pnpm (which pulls nodejs) builds the ryotunes web UI. RyoManager uses npm's
+# locked install before its Vite build, and Arch packages npm separately from
+# nodejs. Both package managers therefore belong on the build host.
 pnpm
 nodejs
+npm
 
 # gnupg signs every built package and the repo db.
 gnupg

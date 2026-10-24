@@ -8,12 +8,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 type flatImageProvider struct {
@@ -121,13 +123,17 @@ func (p flatImageProvider) InstallVariant(ctx context.Context, id string, dither
 	if dither {
 		variant = "dither.png"
 	}
+	reportProgress(ctx, "download", 0, 0)
 	data, _, err := p.cache.Fetch(ctx, path.Join(entry.Path, "content", variant), true)
 	if err != nil {
 		return fmt.Errorf("%s/%s: fetch %s: %w", p.category.ID, id, variant, err)
 	}
+	reportProgressNow(ctx, "download", int64(len(data)), int64(len(data)))
+	reportProgressNow(ctx, "extract", 1, 1)
 	if err := os.MkdirAll(p.dirPath, 0o755); err != nil {
 		return err
 	}
+	reportProgressNow(ctx, "apply", 0, 1)
 	return atomicWrite(p.installedPath(id), data, 0o644)
 }
 
@@ -141,8 +147,44 @@ func (p flatImageProvider) Remove(_ context.Context, id string) error {
 	return nil
 }
 
-// picturesHome mirrors the Hub singletons that resolve these galleries under
-// ~/Pictures, so an installed image lands exactly where the surface reads it.
+// picturesHome mirrors the Hub singleton and CLI resolver, so a Store command
+// launched outside the desktop session still follows user-dirs.dirs.
 func picturesHome() string {
-	return filepath.Join(os.Getenv("HOME"), "Pictures")
+	home := os.Getenv("HOME")
+	if d := normalizedPicturesHome(os.Getenv("XDG_PICTURES_DIR"), home); d != "" {
+		return d
+	}
+	f, err := os.Open(filepath.Join(configHome(), "user-dirs.dirs"))
+	if err == nil {
+		defer f.Close()
+		const key = "XDG_PICTURES_DIR="
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if strings.HasPrefix(line, key) {
+				if d := normalizedPicturesHome(strings.TrimPrefix(line, key), home); d != "" {
+					return d
+				}
+			}
+		}
+	}
+	return filepath.Join(home, "Pictures")
+}
+
+func normalizedPicturesHome(value, home string) string {
+	v := strings.Trim(strings.TrimSpace(value), `"'`)
+	switch {
+	case v == "$HOME":
+		v = home
+	case strings.HasPrefix(v, "$HOME/"):
+		v = filepath.Join(home, strings.TrimPrefix(v, "$HOME/"))
+	}
+	if !filepath.IsAbs(v) {
+		return ""
+	}
+	v = filepath.Clean(v)
+	if v == filepath.Clean(home) {
+		return ""
+	}
+	return v
 }

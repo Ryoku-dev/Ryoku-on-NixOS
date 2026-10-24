@@ -17,6 +17,76 @@
   headless one exits at once.
 
 ### Fixed
+- `gpu/ryoku-gpu install-udev`: **packaged installs can find the rule they
+  already ship.** The command looked beside `/usr/bin/ryoku-gpu`, while every
+  edition installs the source rule in `/usr/lib/udev/rules.d`; it now uses that
+  vendor path when no checkout-adjacent source exists.
+- `bluetooth/ryoku-bluetooth-power`: **turning Bluetooth off now survives a
+  restart.** Every shell toggle records the choice and soft-blocks the radio,
+  letting systemd-rfkill restore it before BlueZ starts. The A2DP login reset
+  restores the recorded choice after restarting BlueZ, so `AutoEnable=true`
+  remains only the fresh-install default. Void has no systemd-rfkill boot
+  restore, so its translated login reset applies the same state immediately
+  after restarting bluetoothd. Covered by `tests/bluetooth-power-persist.sh`.
+- `power/ryoku-power-cutover`: **updates recover a niri-session environment
+  without reviving its previous compositor socket.** If no process retained
+  `WAYLAND_DISPLAY`, the bind failed even though the sole graphical session's
+  user manager still held it. The manager display is now accepted only for one
+  unambiguous Ryoku session, and its opaque handles are discarded before
+  services restart. The niri provider also replaces a dead inherited
+  `NIRI_SOCKET` with the live socket for that Wayland display. Covered by
+  `tests/power-cutover.sh` and `ryoku/wm/niri/session_environment_test.go`.
+- `drivers/nvidia.sh`: **pre-Turing NVIDIA cards get their driver at install.**
+  The target already carries `nvidia-utils` (hardware.packages lays it, and
+  CachyOS's hyprland, steam, and proton builds depend on it), and the 580xx and
+  470xx utils conflict with it without replacing it. Under `--noconfirm` pacman
+  answers that conflict "no", so the driver transaction failed and Maxwell,
+  Pascal, Volta, and Kepler cards stayed on nouveau. The legacy branches now
+  remove the Turing+ userspace with `-Rdd` first (the legacy utils provide both
+  names) and put it back if the install fails. Covered by
+  `tests/nvidia-driver-selection.sh`.
+- `gpu/ryoku-gpu-lib32`: **a pre-Turing NVIDIA card gets its own 32-bit
+  userspace.** It asked for `lib32-nvidia-utils` on every NVIDIA box, which
+  pacman resolves to the Turing+ package even when a legacy branch provides the
+  name, so the Gaming bundle's driver step conflicted with `nvidia-580xx-utils`
+  or `nvidia-470xx-utils` and failed. It now asks for the `lib32-` half of
+  whichever package owns `nvidia-utils`. Covered by `tests/gpu-lib32.sh`.
+- `gpu/ryoku-gpu-lib32`: **installs on every edition, and as root.** It
+  asks `ryoku-host pkg status` which of the wanted 32-bit driver packages the
+  edition provides and installs only those, turning on Void's multilib
+  repository first. Run as root it no longer dies with
+  `line 51: : command not found`, which an empty privilege prefix expanded to.
+- `power/ryoku-power-cutover`: **launcher apps inherit the late X display at
+  login.** The first fix preserved `DISPLAY` only when Xwayland was already in
+  the session scope as the environment bind ran. The bind now waits a bounded
+  interval for the compositor's X server before it starts the shell services,
+  so Zoom, Nuvio, Java and other X11 clients open from the launcher without a
+  second shell restart. Covered by `test_late_session_display_bind` in
+  `tests/power-cutover.sh`.
+- **`ryoku-wifi-backend` keeps iwd supervised on a runit host.** Switching the
+  backend on Void wrote the drop-in and restarted NetworkManager, which cannot
+  D-Bus-activate iwd there; the switch now maintains
+  `/var/lib/ryoku/wifi-iwd.enabled`, reconciles the service manifest (its
+  `wifi-iwd` row links or unlinks `/etc/sv/iwd`) and raises iwd when it is the
+  backend. On systemd nothing changes: NetworkManager activates iwd itself
+  (`system/hardware/network/ryoku-wifi-backend`, `tests/void-wifi-backend.sh`).
+- `power/ryoku-clamshell`: **Wayfire lid close now locks, suspends, or enters
+  docked clamshell mode instead of being swallowed by the lid inhibitor.**
+  Wayfire 0.11 receives switch devices internally but exposes no switch binding
+  or IPC event, so its provider declares a system lid-edge source. The neutral
+  clamshell owner watches ACPI state, falls back to UPower, and routes each
+  transition through the existing cancellable policy and panel handoff. Other
+  providers keep their native switch callbacks and never start the watcher.
+  Covered by `tests/clamshell-policy.sh`.
+- **The lockscreen cutover waiter can no longer restart forever.** It ran the
+  staged helper under /run, which the cutover retires once it finishes, so a
+  waiter left behind failed every two seconds until the next reboot. It now
+  runs the installed helper, a new waiter replaces an old one, and login
+  clears any stale waiter (`power/ryoku-power-cutover`).
+- `gpu/ryoku-gpu`: **display-only DRM cards are no longer treated as render
+  GPUs.** Ranking now requires a `device/drm/renderD*` node, so KMS-only
+  devices such as the Touch Bar's `appletbdrm` never enter `AQ_DRM_DEVICES`.
+  Covered by `tests/gpu-pin-policy.sh`.
 - `power/ryoku-power-cutover`: **the session bind no longer strips the live X
   display.** Xwayland starts lazily with the first X client, so the compositor
   child whose environment the bind snapshots often predates it: the file then
@@ -59,7 +129,8 @@
   because that session's own user manager takes the inhibitor down with it,
   and releasing early would open the suspend window the guard exists to
   close (`tests/power-cutover.sh` covers the leak, the release, and the
-  closing-session hold).
+  closing-session hold). Systemd liveness probes and shell-owner restart
+  failures now propagate explicitly through Bash 5.2 exit handling.
 - `power/ryoku-power-cutover`: **a uwsm-launched compositor is found.** uwsm
   deliberately keeps transient session variables out of the user manager, so
   its Hyprland runs as a session service carrying no `XDG_SESSION_ID` at all,

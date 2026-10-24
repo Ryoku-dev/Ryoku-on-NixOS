@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -112,11 +111,13 @@ func dedupReasons(in []string) []string {
 }
 
 var wmCache struct {
-	mu            sync.Mutex
-	windows       []wmWin
-	activeWs      map[string]bool
-	focusedOutput string
-	overviewOpen  bool
+	mu                 sync.Mutex
+	windows            []wmWin
+	activeWs           map[string]bool
+	workspaces         []wm.Workspace
+	workspacesObserved bool
+	focusedOutput      string
+	overviewOpen       bool
 }
 
 var pauseState struct {
@@ -342,46 +343,83 @@ func (w *wallSurface) setPaused(paused bool) {
 	w.publishLocked()
 }
 
-func (d *daemon) watchWindowState() {
-	kinds := []wm.FrameKind{wm.FrameWindows, wm.FrameWorkspaces, wm.FrameFocus, wm.FrameOverview}
-	for {
-		_ = wmClient.WatchKinds(context.Background(), kinds, func(f wm.Frame) {
-			wmCache.mu.Lock()
-			switch f.Kind {
-			case wm.FrameWindows:
-				wins := make([]wmWin, 0, len(f.Windows))
-				for _, w := range f.Windows {
-					wins = append(wins, wmWin{output: w.Output, workspace: w.Workspace, width: w.Width, height: w.Height})
-				}
-				wmCache.windows = wins
-			case wm.FrameWorkspaces:
-				aw := map[string]bool{}
-				for _, ws := range f.Workspaces {
-					if ws.Active {
-						aw[ws.ID] = true
-					}
-				}
-				wmCache.activeWs = aw
-			case wm.FrameFocus:
-				wmCache.focusedOutput = f.FocusedOutput
-			case wm.FrameOverview:
-				wmCache.overviewOpen = f.OverviewOpen
+func (d *daemon) handleWindowStateFrame(f wm.Frame) {
+	wmCache.mu.Lock()
+	switch f.Kind {
+	case wm.FrameWindows:
+		wins := make([]wmWin, 0, len(f.Windows))
+		for _, w := range f.Windows {
+			wins = append(wins, wmWin{output: w.Output, workspace: w.Workspace, width: w.Width, height: w.Height})
+		}
+		wmCache.windows = wins
+	case wm.FrameWorkspaces:
+		aw := map[string]bool{}
+		for _, ws := range f.Workspaces {
+			if ws.Active {
+				aw[ws.ID] = true
 			}
-			wmCache.mu.Unlock()
-			if f.Kind == wm.FrameWorkspaces {
-				d.workspaces.updateActive(f.Workspaces)
-			}
-			d.reevaluatePause()
-		})
-		time.Sleep(500 * time.Millisecond)
+		}
+		wmCache.activeWs = aw
+		wmCache.workspaces = append(wmCache.workspaces[:0], f.Workspaces...)
+		wmCache.workspacesObserved = true
+	case wm.FrameFocus:
+		wmCache.focusedOutput = f.FocusedOutput
+	case wm.FrameOverview:
+		wmCache.overviewOpen = f.OverviewOpen
+	default:
+		wmCache.mu.Unlock()
+		return
+	}
+	wmCache.mu.Unlock()
+
+	d.wmEffectsMu.Lock()
+	defer d.wmEffectsMu.Unlock()
+	if !d.wmEffectsStarted {
+		return
+	}
+	if f.Kind == wm.FrameWorkspaces {
+		d.workspaces.updateActive(f.Workspaces)
+	}
+	d.reevaluatePause()
+}
+
+func (d *daemon) startWindowStateEffects() {
+	d.wmEffectsMu.Lock()
+	defer d.wmEffectsMu.Unlock()
+
+	wmCache.mu.Lock()
+	workspaces := append([]wm.Workspace(nil), wmCache.workspaces...)
+	workspacesObserved := wmCache.workspacesObserved
+	wmCache.mu.Unlock()
+
+	d.wmEffectsStarted = true
+	if workspacesObserved {
+		d.workspaces.updateActive(workspaces)
+	}
+	d.reevaluatePause()
+}
+
+var processPollWake = make(chan struct{}, 1)
+
+func wakeProcessPoll() {
+	select {
+	case processPollWake <- struct{}{}:
+	default:
 	}
 }
 
 func (d *daemon) pollProcesses() {
 	for {
-		time.Sleep(2 * time.Second)
-		if d.settingBool("playback.processEnabled") {
+		if !d.settingBool("playback.processEnabled") {
+			<-processPollWake
+			continue
+		}
+		timer := time.NewTimer(2 * time.Second)
+		select {
+		case <-timer.C:
 			d.reevaluatePause()
+		case <-processPollWake:
+			timer.Stop()
 		}
 	}
 }
@@ -467,11 +505,11 @@ func strIn(list []string, s string) bool {
 
 func init() {
 	onStart(func(d *daemon) {
-		go d.watchWindowState()
 		go d.pollProcesses()
-		d.reevaluatePause()
+		d.startWindowStateEffects()
 	})
 	watchSetting("playback.", func(d *daemon, _ string, _ interface{}) { d.reevaluatePause() })
+	watchSetting("playback.processEnabled", func(_ *daemon, _ string, _ interface{}) { wakeProcessPoll() })
 	watchSetting("paper.idlePauseSeconds", func(d *daemon, _ string, _ interface{}) { d.reevaluatePause() })
 	afterApply(func(d *daemon, _ applyEvent) { d.reevaluatePause() })
 

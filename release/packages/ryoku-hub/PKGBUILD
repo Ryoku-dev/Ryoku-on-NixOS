@@ -16,15 +16,31 @@ url="https://ryoku.dev"
 license=('GPL-3.0-or-later')
 depends=()
 makedepends=('go')
+optdepends=('python: Redux dictation adapter (Python 3.11+)'
+            'git: build the Redux native runtime during installation'
+            'cmake: build the Redux native runtime during installation'
+            'gcc: compile the Redux native runtime during installation'
+            'make: build the Redux native runtime during installation')
 source=()
 
 _repo="$startdir/../../.."
 
 build() {
-  cd "$_repo/ryoku/hub/backend"
-  CGO_ENABLED=0 go build -trimpath -mod=vendor -o "$srcdir/ryoku-hub" .
+  RYOKU_SRC="$_repo" \
+  RYOKU_BUILD_DIR="$srcdir" \
+  RYOKU_PKGVER="$pkgver" \
+  RYOKU_RELEASE="${RYOKU_RELEASE:-$pkgver}" \
+  RYOKU_CHANNEL="${RYOKU_CHANNEL:-stable}" \
+  RYOKU_NAME="${RYOKU_NAME:-Ryoku}" \
+    "$startdir/payload.sh" build
 }
 
 package() {
-  install -Dm755 "$srcdir/ryoku-hub" "$pkgdir/usr/bin/ryoku-hub"
+  RYOKU_SRC="$_repo" \
+  RYOKU_BUILD_DIR="$srcdir" \
+  RYOKU_PKGVER="$pkgver" \
+  RYOKU_RELEASE="${RYOKU_RELEASE:-$pkgver}" \
+  RYOKU_CHANNEL="${RYOKU_CHANNEL:-stable}" \
+  RYOKU_NAME="${RYOKU_NAME:-Ryoku}" \
+    "$startdir/payload.sh" install "$pkgdir" systemd
 }

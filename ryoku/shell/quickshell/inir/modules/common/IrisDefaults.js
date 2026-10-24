@@ -44,11 +44,13 @@ function config() {
    "weight": "regular",
    "rim": false,
    "outline": "auto",
-   "brightWallpapers": false
+   "brightWallpapers": false,
+   "legibleAlways": false,
+   "vibrance": 85
   },
   "dock": {
    "enable": true,
-   "autoHide": true,
+   "autoHide": false,
    "reserveSpace": true,
    "blur": false,
    "material": "inherit",
@@ -59,7 +61,9 @@ function config() {
    "badges": true,
    "launcher": true,
    "revealOnEmpty": true,
-   "position": "auto"
+   "position": "auto",
+   "arrange": "pinned",
+   "reorder": true
   },
   "appearance": {
    "frontend": "ryoku",
@@ -85,7 +89,11 @@ function config() {
    "glass": {
     "mode": "off",
     "tint": 58,
-    "blur": 100
+    "blur": 100,
+    "edgeColour": "scene",
+    "edgeLight": 34,
+    "edgeLine": 10,
+    "edgeWidth": 1.5
    },
    "theme": {
     "surface": "black",
@@ -119,16 +127,22 @@ function config() {
     "moveTime": 100,
     "contentTiming": 100,
     "press": 100,
-    "pieceShape": "circle"
+    "pieceShape": "circle",
+    "linkShapes": false,
+    "weight": "regular"
    },
    "surfaces": {
     "island": {
-     "speed": 100
+     "speed": 100,
+     "morph": "",
+     "radius": 0
     },
     "controlCenter": {
      "radius": 0,
      "light": "inherit",
-     "speed": 100
+     "speed": 100,
+     "material": "",
+     "morph": ""
     },
     "cards": {
      "radius": 0,
@@ -138,31 +152,55 @@ function config() {
      "joinOrigin": true,
      "header": true,
      "devices": true,
-     "mixer": true
+     "mixer": true,
+     "design": "welded",
+     "gap": 0,
+     "grabber": "auto",
+     "material": "",
+     "morph": "",
+     "pad": 0
     },
     "panels": {
      "radius": 0,
      "light": "inherit",
-     "speed": 100
+     "speed": 100,
+     "material": "",
+     "morph": ""
     },
     "spotlight": {
      "radius": 0,
      "light": "inherit",
-     "speed": 100
+     "speed": 100,
+     "material": "",
+     "morph": ""
     },
     "settings": {
      "radius": 0,
      "light": "inherit",
-     "speed": 100
+     "speed": 100,
+     "material": "",
+     "morph": ""
     },
     "gallery": {
      "radius": 0,
      "light": "inherit",
-     "speed": 100
+     "speed": 100,
+     "material": "",
+     "morph": ""
     },
     "menus": {
      "radius": 0,
      "light": "inherit",
+     "speed": 100,
+     "density": "compact",
+     "material": "",
+     "morph": ""
+    },
+    "osd": {
+     "light": "inherit",
+     "material": "",
+     "morph": "",
+     "radius": 0,
      "speed": 100
     }
    },
@@ -214,7 +252,16 @@ function config() {
     "grain": 55,
     "grainSize": 1.6,
     "streaks": 15
-   }
+   },
+   "anime": {
+    "enabled": false,
+    "highlight": false,
+    "palette": "sakura",
+    "strength": 60
+   },
+   "customize": "shell",
+   "settingsLayout": "sidebar",
+   "themeColoursOnly": false
   },
   "bar": {
    "position": "top",
@@ -288,18 +335,25 @@ function config() {
    "screenList": [],
    "leftModules": [],
    "centerModules": [],
-   "rightModules": []
+   "rightModules": [],
+   "autoHide": false,
+   "piecesSide": "end",
+   "shape": "auto",
+   "strip": "clear",
+   "revealOnEmpty": true
   },
   "palette": {
    "opens": "floating",
    "width": 640,
    "maxResults": 8,
-   "showHints": true
+   "showHints": true,
+   "clipboardResults": 8
   },
   "tray": {
    "hidePassive": false,
    "labels": true,
-   "columns": 4
+   "columns": 4,
+   "face": "apps"
   },
   "wallpaper": {
    "thumbnailSize": 228,
@@ -307,7 +361,16 @@ function config() {
    "livePreview": true,
    "layout": "showcase",
    "motion": true,
-   "pinned": []
+   "pinned": [],
+   "liveQuality": "best",
+   "onlineSort": "top",
+   "sort": "newest",
+   "sources": [
+    "wallhaven",
+    "live"
+   ],
+   "suggestive": false,
+   "topRange": "1w"
   },
   "player": {
    "roundCover": true,
@@ -446,6 +509,15 @@ function config() {
      "place": "right",
      "fx": 0.5,
      "fy": 0.5
+    },
+    "anime": {
+     "enable": false
+    },
+    "equalizer": {
+     "enable": false,
+     "place": "right",
+     "fx": 0.5,
+     "fy": 0.5
     }
    },
    "edgeGap": 20,
@@ -461,7 +533,15 @@ function config() {
   "surround": {
    "enable": true,
    "thickness": 10,
-   "radius": 22
+   "radius": 22,
+   "musicAppearance": "etched",
+   "musicColour": "pearl",
+   "musicEdges": "sides",
+   "musicLight": 35,
+   "musicLightWidth": 5,
+   "musicSensitivity": 140,
+   "musicSpeed": 100,
+   "musicStrength": 160
   },
   "controlCenter": {
    "opens": "island",
@@ -473,14 +553,51 @@ function config() {
     "shortcuts",
     "levels",
     "notifications"
-   ]
+   ],
+   "accent": "system",
+   "columns": 4,
+   "labels": true,
+   "levels": [
+    "brightness",
+    "volume",
+    "microphone"
+   ],
+   "modules": [
+    "platter",
+    "media",
+    "darkMode",
+    "nightLight",
+    "levels",
+    "idle",
+    "snip",
+    "devices",
+    "record",
+    "notifications"
+   ],
+   "platter": [
+    "network",
+    "bluetooth",
+    "focus",
+    "gameMode"
+   ],
+   "sliders": "neutral"
   },
   "notifications": {
    "width": 380,
-   "duration": 4000
+   "duration": 4000,
+   "fullscreen": true
   },
   "osd": {
-   "width": 320
+   "width": 320,
+   "duration": 1500,
+   "figure": true,
+   "fullscreen": "show",
+   "keyboard": true,
+   "levels": "yours",
+   "media": "yours",
+   "offset": 18,
+   "position": "bottom",
+   "style": "capsule"
   },
   "modules": {
    "desktopWidgets": true,
@@ -491,6 +608,35 @@ function config() {
    "sessionScreen": true,
    "lock": true,
    "polkit": true
+  },
+  "anime": {
+   "audio": "sub",
+   "quality": "best",
+   "shows": 5,
+   "skipIntro": false,
+   "subtitlePosition": 100,
+   "subtitleScale": 100
+  },
+  "desktopMenu": {
+   "items": [
+    "widgets",
+    "customize",
+    "screenshot",
+    "terminal",
+    "settings",
+    "restart"
+   ],
+   "wallpaper": true
+  },
+  "pieces": {
+   "icons": []
+  },
+  "equalizer": {
+   "spectrum": {
+    "enabled": true,
+    "style": "capsules",
+    "opacity": 0.5
+   }
   }
  },
  "background": {
@@ -514,7 +660,6 @@ function config() {
   },
   "enableAnimation": true,
   "pauseAnimationOnBattery": true,
-  "videoPause": "covered",
   "effects": {
    "blurRadius": 22,
    "dim": 30,
@@ -2200,7 +2345,18 @@ function config() {
   "screenList": []
  },
  "osd": {
-  "mediaEnabled": true
+  "mediaEnabled": true,
+  "connections": {
+   "audio": true,
+   "bluetooth": true,
+   "displays": true,
+   "drives": true,
+   "enable": true,
+   "internet": true,
+   "network": true,
+   "power": true,
+   "usb": true
+  }
  },
  "updates": {
   "adviseUpdateThreshold": 75,
@@ -2209,6 +2365,9 @@ function config() {
  },
  "closeConfirm": {
   "enabled": false
+ },
+ "vpn": {
+  "details": false
  }
 }
 }

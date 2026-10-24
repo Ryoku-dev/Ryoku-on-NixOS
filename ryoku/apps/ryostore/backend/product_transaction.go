@@ -178,7 +178,33 @@ func installProductFrom(ctx context.Context, cache *Cache, category string, entr
 	}
 	defer os.RemoveAll(stage)
 
-	receiptFiles := make([]ReceiptFile, 0, len(manifest.Files))
+	installFileCount := 0
+	downloadTotal := int64(0)
+	for _, file := range manifest.Files {
+		if !file.Install {
+			continue
+		}
+		installFileCount++
+		downloadTotal += file.Size
+	}
+	if installFileCount == 0 {
+		return fmt.Errorf("%s/%s: manifest has no installable files", category, entry.ID)
+	}
+	if local == nil {
+		reportProgressNow(ctx, "download", 0, downloadTotal)
+	}
+
+	type stagedProductFile struct {
+		temporary string
+		target    string
+	}
+	payloadDir, err := os.MkdirTemp(stage, ".payload-*")
+	if err != nil {
+		return err
+	}
+	receiptFiles := make([]ReceiptFile, 0, installFileCount)
+	stagedFiles := make([]stagedProductFile, 0, installFileCount)
+	downloadDone := int64(0)
 	for index, file := range manifest.Files {
 		if !file.Install {
 			continue
@@ -188,25 +214,30 @@ func installProductFrom(ctx context.Context, cache *Cache, category string, entr
 			data, err = readLocalProductFile(local.root, file.Source, file.Size, file.SHA256)
 		} else {
 			rel := path.Join(entry.Path, file.Source)
-			data, err = fetchProductFile(ctx, cache, rel, file.Size, file.SHA256)
+			data, err = fetchProductFileProgress(ctx, cache, rel, file.Size, file.SHA256, downloadDone, downloadTotal)
 		}
 		if err != nil {
 			return fmt.Errorf("%s/%s: files[%d] %s: %w", category, entry.ID, index, file.Source, err)
 		}
-		target := filepath.Join(stage, filepath.FromSlash(file.Destination))
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
+		if local == nil {
+			downloadDone += int64(len(data))
+			reportProgress(ctx, "download", downloadDone, downloadTotal)
 		}
 		mode := os.FileMode(0o644)
 		if file.Mode == "0755" {
 			mode = 0o755
 		}
-		if err := os.WriteFile(target, data, mode); err != nil {
+		temporary := filepath.Join(payloadDir, fmt.Sprintf("%d", index))
+		if err := os.WriteFile(temporary, data, mode); err != nil {
 			return err
 		}
-		if err := os.Chmod(target, mode); err != nil {
+		if err := os.Chmod(temporary, mode); err != nil {
 			return err
 		}
+		stagedFiles = append(stagedFiles, stagedProductFile{
+			temporary: temporary,
+			target:    filepath.Join(stage, filepath.FromSlash(file.Destination)),
+		})
 		receiptFiles = append(receiptFiles, ReceiptFile{
 			Source:      file.Source,
 			Destination: file.Destination,
@@ -215,9 +246,23 @@ func installProductFrom(ctx context.Context, cache *Cache, category string, entr
 			Size:        file.Size,
 		})
 	}
-	if len(receiptFiles) == 0 {
-		return fmt.Errorf("%s/%s: manifest has no installable files", category, entry.ID)
+	if local == nil {
+		reportProgressNow(ctx, "download", downloadDone, downloadTotal)
 	}
+	reportProgress(ctx, "extract", 0, int64(installFileCount))
+	for index, file := range stagedFiles {
+		if err := os.MkdirAll(filepath.Dir(file.target), 0o755); err != nil {
+			return err
+		}
+		if err := os.Rename(file.temporary, file.target); err != nil {
+			return err
+		}
+		reportProgress(ctx, "extract", int64(index+1), int64(installFileCount))
+	}
+	if err := os.Remove(payloadDir); err != nil {
+		return err
+	}
+	reportProgressNow(ctx, "extract", int64(installFileCount), int64(installFileCount))
 
 	receipt := Receipt{
 		Category:    category,
@@ -225,6 +270,9 @@ func installProductFrom(ctx context.Context, cache *Cache, category string, entr
 		Version:     entry.Version,
 		Destination: expectedDestination,
 		Files:       receiptFiles,
+	}
+	if err := verifyProductStage(ctx, stage, receiptFiles); err != nil {
+		return err
 	}
 	operation := "install"
 	if hadReceipt {
@@ -274,6 +322,7 @@ func installProductFrom(ctx context.Context, cache *Cache, category string, entr
 		}
 		return cause
 	}
+	reportProgressNow(ctx, "apply", 0, 1)
 	if hadDestination {
 		if err := os.Rename(dst, backup); err != nil {
 			return rollback(err)
@@ -899,10 +948,14 @@ func productDestinationRoot(category string) string {
 }
 
 func fetchProductFile(ctx context.Context, cache *Cache, rel string, size int64, expectedHash string) ([]byte, error) {
+	return fetchProductFileProgress(ctx, cache, rel, size, expectedHash, 0, 0)
+}
+
+func fetchProductFileProgress(ctx context.Context, cache *Cache, rel string, size int64, expectedHash string, base, total int64) ([]byte, error) {
 	if cache == nil || !cache.hasDownload() || !validProductPath(rel) || size < 0 || size > maxProductFileSize || !productHashPattern.MatchString(expectedHash) {
 		return nil, fmt.Errorf("invalid product fetch %q", rel)
 	}
-	data, fetchErr := fetchProductFileLive(ctx, cache, rel, size)
+	data, fetchErr := fetchProductFileLiveProgress(ctx, cache, rel, size, base, total)
 	if fetchErr == nil {
 		if err := validateProductPayload(data, size, expectedHash); err != nil {
 			return nil, err
@@ -922,10 +975,15 @@ func fetchProductFile(ctx context.Context, cache *Cache, rel string, size int64,
 	if err := validateProductPayload(data, size, expectedHash); err != nil {
 		return nil, fmt.Errorf("%w; cached payload: %v", fetchErr, err)
 	}
+	reportProgress(ctx, "download", base+int64(len(data)), total)
 	return data, nil
 }
 
 func fetchProductFileLive(ctx context.Context, cache *Cache, rel string, limit int64) ([]byte, error) {
+	return fetchProductFileLiveProgress(ctx, cache, rel, limit, 0, 0)
+}
+
+func fetchProductFileLiveProgress(ctx context.Context, cache *Cache, rel string, limit, base, total int64) ([]byte, error) {
 	if root, ok := localBase(cache.base); ok {
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
@@ -934,6 +992,7 @@ func fetchProductFileLive(ctx context.Context, cache *Cache, rel string, limit i
 		if int64(len(data)) > limit {
 			return nil, fmt.Errorf("%s: exceeds %d bytes", rel, limit)
 		}
+		reportProgress(ctx, "download", base+int64(len(data)), total)
 		return data, nil
 	}
 	url := cache.base + "/" + rel
@@ -954,7 +1013,12 @@ func fetchProductFileLive(ctx context.Context, cache *Cache, rel string, limit i
 	if response.StatusCode != http.StatusOK {
 		return nil, &HTTPStatusError{URL: url, Status: response.StatusCode}
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	progressTotal := total
+	if progressTotal <= 0 && response.ContentLength >= 0 {
+		progressTotal = base + response.ContentLength
+	}
+	body := readerWithProgress(ctx, io.LimitReader(response.Body, limit+1), "download", base, progressTotal)
+	data, err := io.ReadAll(body)
 	if err != nil {
 		return nil, err
 	}
@@ -971,6 +1035,40 @@ func validateProductPayload(data []byte, size int64, expectedHash string) error 
 	if fmt.Sprintf("%x", sha256.Sum256(data)) != expectedHash {
 		return fmt.Errorf("payload hash mismatch")
 	}
+	return nil
+}
+
+func verifyProductStage(ctx context.Context, root string, files []ReceiptFile) error {
+	total := int64(len(files))
+	reportProgress(ctx, "verify", 0, total)
+	for index, file := range files {
+		target := filepath.Join(root, filepath.FromSlash(file.Destination))
+		info, err := os.Lstat(target)
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() != file.Size {
+			return fmt.Errorf("staged file %s does not match manifest", target)
+		}
+		handle, err := os.Open(target)
+		if err != nil {
+			return err
+		}
+		hash := sha256.New()
+		_, copyErr := io.Copy(hash, handle)
+		closeErr := handle.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if fmt.Sprintf("%x", hash.Sum(nil)) != file.SHA256 {
+			return fmt.Errorf("staged file %s failed verification", target)
+		}
+		reportProgress(ctx, "verify", int64(index+1), total)
+	}
+	reportProgressNow(ctx, "verify", total, total)
 	return nil
 }
 

@@ -39,6 +39,7 @@ backlight_path="${RYOKU_BACKLIGHT_PATH:-/sys/class/backlight}"
 dropin="${RYOKU_DROPIN:-/etc/limine-entry-tool.d/ryoku-backlight.conf}"
 param="acpi_backlight=native"
 drm_path="${RYOKU_DRM_PATH:-/sys/class/drm}"
+dmi_path="${RYOKU_DMI_PATH:-/sys/class/dmi/id}"
 
 # True when a DRM card reports the AMD/ATI PCI vendor (0x1002). acpi_backlight=native
 # only reveals an AMD backlight, so without an AMD GPU the quirk cannot help and
@@ -49,6 +50,39 @@ amd_gpu_present() {
     [[ -r $v && "$(cat "$v" 2>/dev/null)" == "0x1002" ]] && return 0
   done
   return 1
+}
+
+# The quirk is a bet that the panel is wired to the AMD iGPU but the kernel
+# hid its native backlight; acpi_backlight=native reveals it. On some boards
+# that bet is wrong: the NVIDIA WMI EC path is the one that actually drives
+# the panel, and native instead exposes amdgpu_bl* nodes that accept writes
+# yet leave the screen frozen. Those boards are listed here so the quirk never
+# fires -- and, because an earlier release shipped it to them, so a drop-in it
+# already added is removed. Matched on the DMI product/board name substring.
+DENY="FA507NV FA506NV FA507RE FA506RE"
+board_denied() {
+  local f name
+  for f in product_name board_name; do
+    [[ -r "$dmi_path/$f" ]] || continue
+    name="$(cat "$dmi_path/$f" 2>/dev/null)"
+    for d in $DENY; do
+      [[ $name == *"$d"* ]] && return 0
+    done
+  done
+  return 1
+}
+
+# Bake the cmdline into the boot entries after a drop-in change. offline/chroot-
+# safe: run only a generator that exists, else it applies on the next update.
+regen_cmdline() {
+  if command -v limine-mkinitcpio >/dev/null 2>&1; then
+    run limine-mkinitcpio
+    command -v limine-update >/dev/null 2>&1 && run limine-update
+  elif command -v limine-update >/dev/null 2>&1; then
+    run limine-update
+  else
+    echo "ryoku-hw-backlight-fix: no limine generator here; drop-in applies on the next kernel/limine update"
+  fi
 }
 
 run() {
@@ -73,6 +107,19 @@ write_root() {
 # Intel+NVIDIA laptops, so require a real AMD GPU before anything else (#54).
 if ! amd_gpu_present; then
   echo "ryoku-hw-backlight-fix: no AMD GPU; acpi_backlight=native is AMD-only, nothing to fix"
+  exit 0
+fi
+
+# gate 0b: some AMD+NVIDIA boards break with native anyway. Skip the quirk,
+# and undo one an earlier release already applied.
+if board_denied; then
+  if [[ -f $dropin ]] && grep -qF "$param" "$dropin"; then
+    echo "ryoku-hw-backlight-fix: this board drives the panel through the EC; native breaks it, removing $dropin (reboot required)"
+    run rm -f "$dropin"
+    regen_cmdline
+  else
+    echo "ryoku-hw-backlight-fix: this board drives the panel through the EC; acpi_backlight=native would break it, skipping"
+  fi
   exit 0
 fi
 

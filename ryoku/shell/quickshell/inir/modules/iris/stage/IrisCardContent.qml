@@ -17,6 +17,7 @@ import inir.modules.iris.pieces
 import inir.modules.iris.bar
 import inir.modules.iris.bar.island
 import inir.modules.iris.sidebar
+import shell.services as Ryoku
 
 Item {
     id: root
@@ -141,6 +142,66 @@ Item {
                     color: IrisStyle.onTint
                     Behavior on x { NumberAnimation { duration: IrisStyle.duration(140); easing.type: IrisStyle.feedbackEasing } }
                 }
+            }
+        }
+    }
+
+    component EqDoor: MouseArea {
+        id: door
+        property string detail: ""
+        property string outputName: ""
+        implicitHeight: Math.round(44 * root.d)
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        Accessible.role: Accessible.Button
+        Accessible.name: Translation.tr("Open equalizer")
+        onClicked: GlobalStates.openIrisEqualizer(door.outputName)
+
+        Rectangle {
+            anchors.fill: parent
+            radius: IrisStyle.radiusTile
+            color: door.containsMouse ? IrisStyle.fillHover : IrisStyle.fillQuiet
+            Behavior on color {
+                ColorAnimation {
+                    duration: IrisStyle.duration(120)
+                    easing.type: IrisStyle.feedbackEasing
+                }
+            }
+        }
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Math.round(12 * root.d)
+            anchors.rightMargin: Math.round(10 * root.d)
+            spacing: Math.round(10 * root.d)
+            MaterialSymbol {
+                Layout.alignment: Qt.AlignVCenter
+                text: "equalizer"
+                iconSize: Math.round(20 * root.d)
+                color: Ryoku.Equalizer.on ? IrisStyle.accent : IrisStyle.text
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                IrisText {
+                    Layout.fillWidth: true
+                    text: Translation.tr("Equalizer")
+                    elide: Text.ElideRight
+                    font.pixelSize: IrisStyle.typeLabel
+                    font.weight: IrisStyle.weight(Font.DemiBold)
+                }
+                IrisText {
+                    Layout.fillWidth: true
+                    text: door.detail
+                    color: IrisStyle.muted
+                    elide: Text.ElideRight
+                    font.pixelSize: IrisStyle.typeFootnote
+                }
+            }
+            MaterialSymbol {
+                Layout.alignment: Qt.AlignVCenter
+                text: "chevron_right"
+                iconSize: Math.round(18 * root.d)
+                color: IrisStyle.textSecondary
             }
         }
     }
@@ -367,7 +428,7 @@ Item {
                     selected: BluetoothStatus.enabled
                     enabled: BluetoothStatus.available
                     Accessible.name: Translation.tr("Bluetooth")
-                    onClicked: if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = !Bluetooth.defaultAdapter.enabled
+                    onClicked: BluetoothStatus.toggle()
                 }
             }
             IrisBluetoothList {
@@ -953,7 +1014,11 @@ Item {
             readonly property color tint: IrisStyle.artTintOf(tintQuantizer.colors)
             // The artwork is the card's material, edge to edge in its own contour; the player sits on it at the card's margin.
             readonly property real inset: Math.max(0, IrisStyle.cardPad - Math.round(14 * root.d))
-            implicitHeight: card.implicitHeight + player.inset * 2
+            readonly property string eqDetail: !Ryoku.Equalizer.on ? Translation.tr("Off")
+                : Ryoku.Equalizer.running
+                    ? Ryoku.Equalizer.presetLabel(Ryoku.Equalizer.preset)
+                    : Translation.tr("Starting")
+            implicitHeight: mediaColumn.implicitHeight + player.inset * 2
             Rectangle {
                 anchors.fill: parent
                 color: IrisStyle.surfaceHigh
@@ -976,15 +1041,26 @@ Item {
                     }
                 }
             }
-            IrisMediaCard {
-                id: card
+            ColumnLayout {
+                id: mediaColumn
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.margins: player.inset
-                showBackground: false
-                active: root.contentActive
-                tint: player.tint
+                spacing: Math.round(10 * root.d)
+                IrisMediaCard {
+                    id: card
+                    Layout.fillWidth: true
+                    showBackground: false
+                    active: root.contentActive
+                    tint: player.tint
+                }
+                EqDoor {
+                    Layout.fillWidth: true
+                    Layout.bottomMargin: Math.round(14 * root.d)
+                    detail: player.eqDetail
+                    outputName: root.screenName
+                }
             }
         }
     }

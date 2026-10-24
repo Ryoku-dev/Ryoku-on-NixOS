@@ -28,8 +28,8 @@ hl.on("hyprland.start", function()
     -- Per-device Bluetooth codec memory. WirePlumber restores a device's PROFILE
     -- across reconnects but not its A2DP codec, so a user who picked one has to
     -- pick it again every single time the buds come back. `watch` reconciles on
-    -- every card event and is a no-op for anyone who never chose a codec, so it
-    -- costs a subscription and nothing else.
+    -- every card event and owns a per-user lock, so compositor reloads cannot
+    -- create duplicate subscriptions.
     hl.exec_cmd("command -v ryoku-bt-audio >/dev/null 2>&1 && ryoku-bt-audio watch")
     -- Keyring default: no app ever prompts for a keyring password out of the box.
     -- `keyring init` records the mode once and seeds a blank passwordless default

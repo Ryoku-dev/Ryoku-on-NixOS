@@ -30,7 +30,7 @@ PanelWindow {
     readonly property bool horizontal: dock.edge === "top" || dock.edge === "bottom"
 
     // ── sizing ────────────────────────────────────────────────────────────────
-    readonly property bool autohide: Dock.cfg("autohide", true)
+    readonly property bool autohide: Dock.cfg("autohide", false)
     readonly property real edgeGap: 8
     readonly property real peek: 3
     readonly property real depth: band.baseSize

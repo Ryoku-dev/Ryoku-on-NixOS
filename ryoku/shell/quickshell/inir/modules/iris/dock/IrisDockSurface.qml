@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Wayland
 import inir.modules.common
 import shell.modules.stage.frame
+import stage as StageEditor
 
 Scope {
     id: root
@@ -25,10 +26,21 @@ Scope {
         WlrLayershell.namespace: "ryoku-dock-shima"
         WlrLayershell.layer: root.stageEditing ? WlrLayer.Overlay : WlrLayer.Top
         WlrLayershell.keyboardFocus: dock.menuOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-        readonly property point dockInputOrigin: dock.hitItem
-            ? dock.hitItem.mapToItem(frameLayer.rest, 0, 0) : Qt.point(0, 0)
-        readonly property rect dockInputRect: frameLayer.maskRect(surface.dockInputOrigin.x,
-            surface.dockInputOrigin.y, dock.hitItem?.width ?? 0, dock.hitItem?.height ?? 0)
+        // The dock body is visually reparented through the Stage layer. Mapping
+        // it to `rest` collapses to (0, 0), so build the compositor mask from
+        // its actual scene corners and keep it moving with the Stage card.
+        readonly property rect dockInputRect: {
+            const item = dock.hitItem
+            if (!item) return Qt.rect(0, 0, 0, 0)
+            void (item.x + item.y + item.width + item.height
+                + (item.parent?.x ?? 0) + (item.parent?.y ?? 0)
+                + frameLayer.x + frameLayer.y + frameLayer.width + frameLayer.height
+                + StageEditor.GlobalStates.editProgress + StageEditor.GlobalStates.editDrawerProgress)
+            const start = item.mapToItem(null, 0, 0)
+            const end = item.mapToItem(null, item.width, item.height)
+            return Qt.rect(Math.min(start.x, end.x), Math.min(start.y, end.y),
+                Math.abs(end.x - start.x), Math.abs(end.y - start.y))
+        }
         mask: dock.menuOpen ? null : dockRegion
 
         Region {

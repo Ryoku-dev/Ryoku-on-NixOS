@@ -222,18 +222,26 @@ Singleton {
 
     // Colour: a pinned #rrggbb, "" to follow the wallpaper. A gradient adds a
     // second stop; both stops must be valid hex for it to paint.
-    function setColor(hex) {
+    function normalizeHex(hex) {
         var t = ("" + hex).trim();
-        if (t.length > 0 && t[0] !== "#") t = "#" + t;
-        if (!/^#[0-9a-fA-F]{6}$/.test(t)) return;
+        if (t.length > 0 && t[0] !== "#")
+            t = "#" + t;
+        return /^#[0-9a-fA-F]{6}$/.test(t) ? t.toLowerCase() : "";
+    }
+    function setColor(hex) {
+        var t = root.normalizeHex(hex);
+        if (t === "")
+            return false;
         root.poke("color", t);
+        return true;
     }
     function clearColor() { root.poke("color", ""); }
     function setColor2(hex) {
-        var t = ("" + hex).trim();
-        if (t.length > 0 && t[0] !== "#") t = "#" + t;
-        if (!/^#[0-9a-fA-F]{6}$/.test(t)) return;
+        var t = root.normalizeHex(hex);
+        if (t === "")
+            return false;
         root.poke("color2", t);
+        return true;
     }
     function setGradient(on) { root.poke("gradient", on === true); }
     function toggleGradient() { root.setGradient(!root.gradient); }

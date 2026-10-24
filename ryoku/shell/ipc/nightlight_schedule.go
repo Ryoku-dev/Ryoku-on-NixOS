@@ -26,7 +26,9 @@ const (
 	nlSchedSun   = "sun"
 	nlSchedClock = "clock"
 
-	nlTickEvery = 5 * time.Minute
+	nlTickEvery        = 5 * time.Minute
+	nlSunDataReconcile = 5 * time.Minute
+	nlSlowReconcile    = 24 * time.Hour
 
 	// nlDefaultMarginMin eases the warm window in after sunset and off before
 	// sunrise, so it does not snap on right at the civil edge.
@@ -65,6 +67,13 @@ func (n *nightlightState) scheduleMode() string {
 	n.schedMu.Lock()
 	defer n.schedMu.Unlock()
 	return n.schedMode
+}
+
+func (n *nightlightState) kickSchedule() {
+	select {
+	case n.schedKick <- struct{}{}:
+	default:
+	}
 }
 
 // loadSchedule restores the persisted mode at daemon start. A missing or
@@ -119,6 +128,7 @@ func (n *nightlightState) setSchedule(mode string, marginMin, startMin, stopMin 
 	if mode != nlSchedOff && mode != nlSchedSun && mode != nlSchedClock {
 		return errNightlightSchedule
 	}
+	defer n.kickSchedule()
 	n.schedMu.Lock()
 	if mode != n.schedMode {
 		// A fresh schedule re-decides at the next tick, even against a
@@ -151,17 +161,88 @@ func (n *nightlightState) setSchedule(mode string, marginMin, startMin, stopMin 
 	return os.WriteFile(n.schedFile, b, 0o644)
 }
 
-// runSchedule ticks the schedule edge check for the life of the daemon. The
-// 5-minute cadence matches the finest resolution either window needs (sun
-// times are whole minutes, the clock picker steps by half hours); the weather
-// poll keeps the sun window fresh.
+// runSchedule sleeps to the next actual clock or sun boundary. Schedule edits
+// rouse it immediately; unknown sun data retains a slow reconciliation until
+// the weather worker has observed a window.
 func (n *nightlightState) runSchedule() {
-	n.tickSchedule()
-	tick := time.NewTicker(nlTickEvery)
-	defer tick.Stop()
-	for range tick.C {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
 		n.tickSchedule()
+		wait := n.nextScheduleWait(time.Now())
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(wait)
+		select {
+		case <-n.schedKick:
+		case <-timer.C:
+		}
 	}
+}
+
+func (n *nightlightState) nextScheduleWait(now time.Time) time.Duration {
+	n.schedMu.Lock()
+	mode, margin := n.schedMode, n.schedMarginMin
+	start, stop := n.schedStartMin, n.schedStopMin
+	n.schedMu.Unlock()
+	switch mode {
+	case nlSchedClock:
+		return nextClockScheduleEdge(now, start, stop)
+	case nlSchedSun:
+		sunrise, sunset, ok := daySun.window()
+		if !ok {
+			return nlSunDataReconcile
+		}
+		return nextSunScheduleEdge(now, sunrise, sunset, time.Duration(margin)*time.Minute)
+	default:
+		return nlSlowReconcile
+	}
+}
+
+func nextClockScheduleEdge(now time.Time, start, stop int) time.Duration {
+	if start == stop {
+		return nlSlowReconcile
+	}
+	return nextMinuteEdge(now, start, stop)
+}
+
+func nextMinuteEdge(now time.Time, minutes ...int) time.Duration {
+	best := nlSlowReconcile
+	for _, minute := range minutes {
+		for day := 0; day <= 1; day++ {
+			date := now.AddDate(0, 0, day)
+			at := time.Date(date.Year(), date.Month(), date.Day(),
+				minute/60, minute%60, 0, 0, now.Location())
+			if !at.After(now) {
+				continue
+			}
+			if wait := at.Sub(now); wait < best {
+				best = wait
+			}
+		}
+	}
+	return best
+}
+
+func nextSunScheduleEdge(now, sunrise, sunset time.Time, margin time.Duration) time.Duration {
+	best := nlSlowReconcile
+	for day := 0; day <= 1; day++ {
+		date := now.AddDate(0, 0, day)
+		rise := time.Date(date.Year(), date.Month(), date.Day(),
+			sunrise.Hour(), sunrise.Minute(), 0, 0, now.Location()).Add(-margin)
+		set := time.Date(date.Year(), date.Month(), date.Day(),
+			sunset.Hour(), sunset.Minute(), 0, 0, now.Location()).Add(margin)
+		for _, at := range []time.Time{rise, set} {
+			if at.After(now) && at.Sub(now) < best {
+				best = at.Sub(now)
+			}
+		}
+	}
+	return best
 }
 
 // tickSchedule applies the schedule when one is on and the desired state

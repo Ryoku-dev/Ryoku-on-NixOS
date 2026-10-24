@@ -6,11 +6,10 @@ import Ryoku.Ui.Singletons
 import shell.services
 
 /**
- * Local screen-time tracking. Every few seconds it reads the focused window's
- * app class and banks the elapsed time against today's bucket
- * (per app, per hour, and a running total). "Active" means a real app is
- * focused; nothing syncs and nothing leaves the box. History persists to
- * ~/.local/state/ryoku/screentime.json (last 30 days) so a shell restart
+ * Local screen-time tracking. Focus changes bank the elapsed interval against
+ * today's bucket (per app, per hour, and a running total). "Active" means a
+ * real app is focused; nothing syncs and nothing leaves the box. History persists
+ * to ~/.local/state/ryoku/screentime.json (last 30 days), so a shell restart
  * resumes the same day.
  */
 Singleton {
@@ -23,6 +22,8 @@ Singleton {
     property var days: ({})
     property string today: ""
     property bool dirty: false
+    property string focusedClass: ""
+    property real focusSinceMs: 0
 
     readonly property var todayEntry: root.days[root.today] || null
     readonly property int activeToday: root.todayEntry ? (root.todayEntry.total || 0) : 0
@@ -98,30 +99,61 @@ Singleton {
         return a;
     }
 
-    // Bank one sample against the focused app. Rebuilds the day map with fresh
-    // references so the derived bindings (total, top apps, week) re-evaluate.
-    function accrue(c) {
-        if (!root.isRealApp(c))
+    function addSeconds(c, seconds, at) {
+        if (!root.isRealApp(c) || seconds <= 0)
             return;
-        const key = root.dateKey(new Date());
+        const key = root.dateKey(at);
         const prev = root.days[key] || { total: 0, apps: ({}), hours: root.zeros24() };
-        const e = {
-            total: (prev.total || 0) + root.sampleSec,
+        const entry = {
+            total: (prev.total || 0) + seconds,
             apps: Object.assign({}, prev.apps),
             hours: (prev.hours && prev.hours.length === 24) ? prev.hours.slice() : root.zeros24(),
             appHours: Object.assign({}, prev.appHours)
         };
-        e.apps[c] = (e.apps[c] || 0) + root.sampleSec;
-        const hr = new Date().getHours();
-        e.hours[hr] = (e.hours[hr] || 0) + root.sampleSec;
-        const appHours = (e.appHours[c] && e.appHours[c].length === 24) ? e.appHours[c].slice() : root.zeros24();
-        appHours[hr] += root.sampleSec;
-        e.appHours[c] = appHours;
-        const d = Object.assign({}, root.days);
-        d[key] = e;
-        root.days = d;
-        root.today = key;
+        entry.apps[c] = (entry.apps[c] || 0) + seconds;
+        const hour = at.getHours();
+        entry.hours[hour] = (entry.hours[hour] || 0) + seconds;
+        const appHours = (entry.appHours[c] && entry.appHours[c].length === 24)
+            ? entry.appHours[c].slice() : root.zeros24();
+        appHours[hour] += seconds;
+        entry.appHours[c] = appHours;
+        const next = Object.assign({}, root.days);
+        next[key] = entry;
+        root.days = next;
+        root.today = root.dateKey(new Date());
         root.dirty = true;
+    }
+
+    function accrue(c) {
+        root.addSeconds(c, root.sampleSec, new Date());
+        persistDebounce.restart();
+    }
+
+    function bankFocused() {
+        const end = Date.now();
+        if (root.focusSinceMs <= 0 || !root.isRealApp(root.focusedClass)) {
+            root.focusSinceMs = end;
+            return;
+        }
+        let cursor = root.focusSinceMs;
+        while (cursor < end) {
+            const at = new Date(cursor);
+            const boundary = new Date(at.getFullYear(), at.getMonth(), at.getDate(),
+                                      at.getHours() + 1, 0, 0, 0).getTime();
+            const segmentEnd = Math.min(end, boundary);
+            const seconds = Math.floor((segmentEnd - cursor) / 1000);
+            root.addSeconds(root.focusedClass, seconds, at);
+            cursor = segmentEnd;
+        }
+        root.focusSinceMs = end;
+        if (root.dirty)
+            persistDebounce.restart();
+    }
+
+    function focusChanged() {
+        root.bankFocused();
+        root.focusedClass = Wm.focusedWindow ? Wm.focusedWindow.appId : "";
+        root.focusSinceMs = Date.now();
     }
 
     function prune() {
@@ -152,18 +184,20 @@ Singleton {
             d[key] = { total: 0, apps: ({}), hours: root.zeros24() };
             root.days = d;
         }
+        root.focusedClass = Wm.focusedWindow ? Wm.focusedWindow.appId : "";
+        root.focusSinceMs = Date.now();
+    }
+
+    Connections {
+        target: Wm
+        function onFocusedWindowChanged() {
+            root.focusChanged();
+        }
     }
 
     Timer {
-        interval: root.sampleSec * 1000
-        running: true
-        repeat: true
-        onTriggered: root.accrue(Wm.focusedWindow ? Wm.focusedWindow.appId : "")
-    }
-    Timer {
-        interval: 30000
-        running: true
-        repeat: true
+        id: persistDebounce
+        interval: 1500
         onTriggered: if (root.dirty) root.persist()
     }
 
@@ -181,5 +215,9 @@ Singleton {
         onLoadFailed: root.load("{}")
     }
 
-    Component.onDestruction: if (root.dirty) root.persist()
+    Component.onDestruction: {
+        root.bankFocused();
+        if (root.dirty)
+            root.persist();
+    }
 }

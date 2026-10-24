@@ -30,7 +30,7 @@ Singleton {
         { id: "customize", group: 0, label: Translation.tr("Customize Shima"), glyph: "palette", tint: "purple",
             run: screen => GlobalStates.openIrisCustomize("") },
         { id: "nextWallpaper", group: 0, label: Translation.tr("Next wallpaper"), glyph: "shuffle", tint: "pink",
-            run: screen => Wallpapers.randomFromCurrentFolder(Appearance.m3colors.darkmode, screen) },
+            run: screen => Wallpapers.nextWallpaper(Appearance.m3colors.darkmode, screen) },
         { id: "screenshot", group: 1, label: Translation.tr("Screenshot"), glyph: "screenshot_region", tint: "blue",
             run: screen => GlobalStates.launchRegionCapture("") },
         { id: "record", group: 1, label: Translation.tr("Record screen"), glyph: "screen_record", tint: "red",
@@ -65,7 +65,7 @@ Singleton {
                     GlobalActions.runLauncher(["wallpaperSelector", "toggle"])
                 },
                 secondary: { iconName: "shuffle", text: Translation.tr("Next wallpaper"),
-                    action: () => Wallpapers.randomFromCurrentFolder(Appearance.m3colors.darkmode, screenName) } })
+                    action: () => Wallpapers.nextWallpaper(Appearance.m3colors.darkmode, screenName) } })
         const groupOf = id => root.catalogue.find(item => item.id === id).group
         const ordered = root.chosen.map((id, index) => ({ id: id, index: index }))
             .sort((a, b) => groupOf(a.id) - groupOf(b.id) || a.index - b.index).map(item => item.id)

@@ -324,22 +324,28 @@ Item {
     Component {
         id: weatherPage
         Item {
-            DockWeatherWidget {
+            Loader {
                 anchors.centerIn: parent
-                isVertical: root.isVertical
-                dockContent: root.dockContent
-                delegateIndex: root.delegateIndex
+                active: root.live
+                sourceComponent: DockWeatherWidget {
+                    isVertical: root.isVertical
+                    dockContent: root.dockContent
+                    delegateIndex: root.delegateIndex
+                }
             }
         }
     }
     Component {
         id: sportsPage
         Item {
-            DockSportsWidget {
+            Loader {
                 anchors.centerIn: parent
-                isVertical: root.isVertical
-                dockContent: root.dockContent
-                delegateIndex: root.delegateIndex
+                active: root.live
+                sourceComponent: DockSportsWidget {
+                    isVertical: root.isVertical
+                    dockContent: root.dockContent
+                    delegateIndex: root.delegateIndex
+                }
             }
         }
     }

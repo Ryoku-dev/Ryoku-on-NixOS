@@ -12,10 +12,12 @@ Rectangle {
     property bool tabular: false      // mono for what a config file would hold
     property bool toolbar: false      // 36 in a toolbar, 30 in a sheet
     property bool secret: false       // masked, for a password
+    property bool clearOnEscape: true
     readonly property bool focused: input.activeFocus
     signal committed(string value)
     signal edited(string value)
     signal accepted()
+    signal escaped()
 
     implicitHeight: toolbar ? 36 : 30
     radius: Tokens.radius
@@ -45,7 +47,13 @@ Rectangle {
         onTextEdited: field.edited(text)
         onEditingFinished: field.committed(text)
         onAccepted: field.accepted()
-        Keys.onEscapePressed: { text = ""; field.edited("") }
+        Keys.onEscapePressed: {
+            if (field.clearOnEscape) {
+                text = "";
+                field.edited("");
+            }
+            field.escaped();
+        }
 
         Text {
             anchors.fill: parent

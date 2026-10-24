@@ -54,8 +54,6 @@ Scope {
     // controller hook; the desktop layer defaults on.
     property bool active: true
     property bool widgetsEnabled: true
-    // A Store frame-family can host its own widget canvas in this wallpaper
-    // surface; no second competing Bottom-layer window is created.
     property bool gokkoActive: false
     property string wallpaperUrl: ""
     property string wallpaperPath: ""
@@ -79,10 +77,16 @@ Scope {
         && root.videoUrl === "" && !root.wallpaperLive
     readonly property bool stageParallax: StageCfg.StageBackend.isParallaxFor(root.wallpaperPath)
         && root.videoUrl === "" && !root.wallpaperLive
+    readonly property bool stageSpatial: root.stageOn
+        && (root.wallpaperFit === "Cover" || root.wallpaperFit === "Fill")
+        && StageCfg.StageBackend.spatialFor(root.wallpaperPath)
     function widgetZ(id) {
         if (!root.stageOn)
             return 0;
-        return StageCfg.Config.isFront(id) ? 5 : 3;
+        return (StageCfg.Config.isFront(id) ? 5 : 3) + root.widgetDepth(id) * 0.01;
+    }
+    function widgetDepth(id) {
+        return Config.widgetDepth(id, root.monitorName);
     }
     readonly property var stageState: Services.ShellState.forScreen(root.screen)
     // The visualiser paints inside this surface (docs/stage.md) while the
@@ -759,8 +763,8 @@ Scope {
             videoPaused: root.videoPaused
         }
 
-        // Gokko's widgets render as wallpaper siblings rather than creating
-        // another Bottom-layer Wayland surface that could be occluded.
+        // Host Gokko widgets beside the wallpaper, below ordinary windows.
+        // A Store package cannot create a second competing Bottom surface.
         Loader {
             id: gokkoCanvas
             z: 3
@@ -772,15 +776,13 @@ Scope {
             sourceComponent: controller ? controller.desktopCanvasComponent : undefined
         }
 
-        // The Parallax backdrop: the inpainted background.png drifting just
-        // above the base wallpaper, covering its baked subject. Only Parallax
-        // shows it; it also owns the per-monitor cursor poll (docs/stage.md).
         StageBackdrop {
             z: 1
             screen: root.screen
             wallpaperPath: root.wallpaperPath
             wallpaperFit: root.wallpaperFit
-            visible: root.stageParallax
+            spatialEnabled: root.stageSpatial
+            visible: root.stageOn
         }
 
         // While the stage is on (or the Stage Editor frames this monitor), the
@@ -860,32 +862,31 @@ Scope {
             }
         }
 
-        // Mirror of the same image for glass widgets: Qt cannot sample another
-        // scene graph, so ShaderEffectSource captures the pixels beneath a
-        // frosted widget from this offscreen copy. WidgetGlass hides this
-        // source after taking its crop. Hidden while a video plays: the glass
-        // samples the still, and a live clip would freeze the capture.
+        // Glass only needs colour and broad wallpaper structure. Keep one
+        // quarter-linear decode while a visible glass consumer exists; the
+        // widget-local crop performs the blur at its final size.
         readonly property bool glassWanted: root.widgetsEnabled && root.videoUrl === ""
-            && ((root.widgetValue("calendar", "Enabled") === true && Config.calendarStyle === "glass")
-                || (root.widgetValue("music", "Enabled") === true && Config.musicStyle === "glass"))
+            && ((calendarLoader.active && calendarLoader.visible
+                    && calendarLoader.item !== null && Config.calendarStyle === "glass")
+                || (musicLoader.active && musicLoader.visible
+                    && musicLoader.item !== null && Config.musicStyle === "glass"))
         Image {
             id: glassBackdrop
             anchors.fill: parent
-            // An invisible Image still decodes while its source is set: hold the
-            // url back until a glass widget actually samples it, or this mirror
-            // costs a full-screen decode on every box that has a wallpaper.
             source: desktopContent.glassWanted ? root.wallpaperUrl : ""
             cache: false
             asynchronous: true
-            sourceSize.width: Math.ceil(width * backdrop.screenDpr)
-            sourceSize.height: Math.ceil(height * backdrop.screenDpr)
+            smooth: true
+            sourceSize.width: Math.max(1, Math.ceil(width * backdrop.screenDpr / 4))
+            sourceSize.height: Math.max(1, Math.ceil(height * backdrop.screenDpr / 4))
             visible: desktopContent.glassWanted
             fillMode: {
                 switch (root.wallpaperFit) {
                 case "Contain": return Image.PreserveAspectFit;
                 case "Fill": return Image.Stretch;
                 case "ScaleDown":
-                    return sourceSize.width <= width && sourceSize.height <= height
+                    return backdrop.committedImageWidth <= width
+                            && backdrop.committedImageHeight <= height
                         ? Image.Pad : Image.PreserveAspectFit;
                 default: return Image.PreserveAspectCrop;
                 }
@@ -987,6 +988,10 @@ Scope {
                 id: clockSlot
                 widget: "clock"
                 monitor: root.monitorName
+                depthV: root.widgetDepth("clock")
+                spatial: root.stageSpatial
+                mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                 z: root.widgetZ("clock")
                 visible: true
                 anchor: root.widgetValue("clock", "Anchor")
@@ -1023,6 +1028,10 @@ Scope {
                 id: calendarSlot
                 widget: "calendar"
                 monitor: root.monitorName
+                depthV: root.widgetDepth("calendar")
+                spatial: root.stageSpatial
+                mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                 z: root.widgetZ("calendar")
                 visible: true
                 anchor: root.widgetValue("calendar", "Anchor")
@@ -1066,6 +1075,10 @@ Scope {
                 id: musicSlot
                 widget: "music"
                 monitor: root.monitorName
+                depthV: root.widgetDepth("music")
+                spatial: root.stageSpatial
+                mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                 z: root.widgetZ("music")
                 visible: true
                 anchor: root.widgetValue("music", "Anchor")
@@ -1112,6 +1125,10 @@ Scope {
                 id: aioSlot
                 widget: "aio"
                 monitor: root.monitorName
+                depthV: root.widgetDepth("aio")
+                spatial: root.stageSpatial
+                mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                 z: root.widgetZ("aio")
                 visible: true
                 anchor: root.widgetValue("aio", "Anchor")
@@ -1149,6 +1166,10 @@ Scope {
                 id: statsSlot
                 widget: "stats"
                 monitor: root.monitorName
+                depthV: root.widgetDepth("stats")
+                spatial: root.stageSpatial
+                mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                 z: root.widgetZ("stats")
                 visible: true
                 anchor: root.widgetValue("stats", "Anchor")
@@ -1185,6 +1206,10 @@ Scope {
                 id: weatherSlot
                 widget: "weather"
                 monitor: root.monitorName
+                depthV: root.widgetDepth("weather")
+                spatial: root.stageSpatial
+                mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                 z: root.widgetZ("weather")
                 visible: true
                 anchor: root.widgetValue("weather", "Anchor")
@@ -1222,6 +1247,10 @@ Scope {
                 id: notesSlot
                 widget: "notes"
                 monitor: root.monitorName
+                depthV: root.widgetDepth("notes")
+                spatial: root.stageSpatial
+                mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                 z: root.widgetZ("notes")
                 visible: true
                 anchor: root.widgetValue("notes", "Anchor")
@@ -1265,6 +1294,10 @@ Scope {
                 id: dayprogressSlot
                 widget: "dayprogress"
                 monitor: root.monitorName
+                depthV: root.widgetDepth("dayprogress")
+                spatial: root.stageSpatial
+                mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                 z: root.widgetZ("dayprogress")
                 visible: true
                 anchor: root.widgetValue("dayprogress", "Anchor")
@@ -1300,6 +1333,10 @@ Scope {
                 id: shapeSlot
                 widget: "shape"
                 monitor: root.monitorName
+                depthV: root.widgetDepth("shape")
+                spatial: root.stageSpatial
+                mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                 z: root.widgetZ("shape")
                 visible: true
                 anchor: root.widgetValue("shape", "Anchor")
@@ -1344,6 +1381,10 @@ Scope {
                             id: irisSlot
                             widget: irisLoader.modelData.prefix
                             monitor: root.monitorName
+                            depthV: root.widgetDepth(irisLoader.modelData.prefix)
+                            spatial: root.stageSpatial
+                            mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                            mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                             z: root.widgetZ(irisLoader.modelData.prefix)
                             visible: true
                             anchor: root.widgetValue(irisLoader.modelData.prefix, "Anchor")
@@ -1405,6 +1446,10 @@ Scope {
                             id: iiSlot
                             widget: iiLoader.modelData.prefix
                             monitor: root.monitorName
+                            depthV: root.widgetDepth(iiLoader.modelData.prefix)
+                            spatial: root.stageSpatial
+                            mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                            mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                             z: root.widgetZ(iiLoader.modelData.prefix)
                             visible: true
                             anchor: root.widgetValue(iiLoader.modelData.prefix, "Anchor")
@@ -1456,6 +1501,10 @@ Scope {
                             id: pythonSlot
                             widget: pythonLoader.modelData.prefix
                             monitor: root.monitorName
+                            depthV: root.widgetDepth(pythonLoader.modelData.prefix)
+                            spatial: root.stageSpatial
+                            mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                            mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                             z: root.widgetZ(pythonLoader.modelData.prefix)
                             visible: true
                             anchor: root.widgetValue(pythonLoader.modelData.prefix, "Anchor")
@@ -1536,6 +1585,7 @@ Scope {
                     ? "?v=" + encodeURIComponent(entry.version) : ""
 
                 pluginId: slot.pid
+                monitor: root.monitorName
                 visible: root.reloadReady
                 locked: slot.dw.locked === true
                 composing: root.stageComposing
@@ -1547,6 +1597,11 @@ Scope {
                 freeY: slot.dw.y !== undefined ? slot.dw.y : 80
                 bg: slot.dw.bg ? slot.dw.bg : ((entry && entry.manifest && entry.manifest.defaults && entry.manifest.defaults.desktopWidget && entry.manifest.defaults.desktopWidget.bg) || "card")
                 radius: slot.dw.radius || 26
+                depthV: (slot.dw && slot.dw.depth !== undefined)
+                    ? Math.max(0, Math.min(1, slot.dw.depth)) : 0.5
+                spatial: root.stageSpatial
+                mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
+                mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
 
                 onMoved: (x, y) => {
                     const cmd = [root.placeTool, slot.pid, "desktopWidget",
@@ -1697,6 +1752,7 @@ Scope {
                 mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                 energy: VizCfg.Spectrum.energy
                 motionEnabled: root.stageParallax
+                spatial: root.stageSpatial
             }
         }
 
@@ -2000,6 +2056,14 @@ Scope {
         // merges free x/y (+ optional scale/locked) into plugins.json;
         // Registry's file-watch then retunes every surface.
         Process { id: persist }
+
+        StageDepthPick {
+            z: 80
+            wallPath: root.wallpaperPath
+            monitor: root.monitorName
+            placeTool: root.placeTool
+            cover: root.wallpaperFit !== "Fill"
+        }
         // separate Processes per menu action so a quick Hide-then-Lock or
         // resize-then-Lock doesn't trample an in-flight `persist` command.
         Process { id: hide }

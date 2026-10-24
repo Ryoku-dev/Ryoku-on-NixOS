@@ -34,6 +34,22 @@ func TestProcessMemoryCountsSwap(t *testing.T) {
 	}
 }
 
+func TestMemorySampleInterval(t *testing.T) {
+	if got := memorySampleInterval(64<<30, 1<<30, 1<<30, time.Second); got != memoryIdleInterval {
+		t.Fatalf("flat far-below sample waits %v, want %v", got, memoryIdleInterval)
+	}
+	const limit = uint64(4 << 30)
+	if got := memorySampleInterval(limit, 7<<29, 7<<29, time.Second); got != memoryNearInterval {
+		t.Fatalf("flat sample with little headroom waits %v, want %v", got, memoryNearInterval)
+	}
+	if got := memorySampleInterval(limit, 3<<30, (7<<29)+1, time.Second); got != memoryNearInterval {
+		t.Fatalf("near-ceiling sample waits %v, want %v", got, memoryNearInterval)
+	}
+	if got := memorySampleInterval(limit, 1<<30, 2<<30, time.Second); got != memoryNearInterval {
+		t.Fatalf("fast-growing sample waits %v, want %v", got, memoryNearInterval)
+	}
+}
+
 func TestWatchMemoryKillsOnlyPastTheCeiling(t *testing.T) {
 	samples := []uint64{100, 0, 200, 900}
 	readable := []bool{true, false, true, true}

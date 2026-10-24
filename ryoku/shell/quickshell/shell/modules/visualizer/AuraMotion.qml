@@ -8,10 +8,9 @@ import "Singletons"
 // that ride them, the beat pulse, the transient onset and the phase that turns
 // the current. AuraField paints from what this hands it and knows no audio.
 //
-// The aura twin of Motion, and like Motion it runs on one Timer rather than
-// vsync and halves its rate while only the opted-in idle wave is moving. Without
-// that ambient motion it stops once the release reaches rest. The same adaptive
-// tier applies: under load the field sheds no effects, it just updates less often.
+// The aura twin of Motion: one Timer rather than vsync, reduced while releasing
+// into the opted-in idle field and stopped once that field is still. The same
+// adaptive tier applies under load.
 Item {
     id: motion
 
@@ -58,18 +57,18 @@ Item {
     readonly property real energyRelease: 3.2 * motion.cfg.auraRelease
         / (1 + motion.smooth08 * 0.16)
 
-    readonly property bool sounding: Spectrum.energy > 0.04 || motion.activity > 0.02
-    // Idle wave is an explicit visual choice. Plain audio-idle stops spectrum
-    // analysis, while only the hard performance tiers stop ambient motion.
+    readonly property bool sourceSounding: Spectrum.energy > 0.04
+    readonly property bool sounding: motion.sourceSounding || motion.activity > 0.02
     readonly property bool frozen: Performance.visualizerFrozen
     readonly property bool hardFrozen: Performance.visualizerHardFrozen
     readonly property bool ambient: motion.cfg.idleWave && !motion.hardFrozen
-    readonly property bool animating: motion.sounding || motion.ambient
-        || motion.energy > 0.004
+    property bool idleSettled: false
+    readonly property bool animating: motion.sourceSounding || motion.activity > 0.02
+        || motion.energy > 0.004 || (motion.ambient && !motion.idleSettled)
 
     Timer {
         id: ticker
-        interval: Math.round(1000 / (motion.sounding ? motion.fps : Math.max(20, motion.fps / 2)))
+        interval: Math.round(1000 / (motion.sourceSounding ? motion.fps : Math.max(20, motion.fps / 2)))
         running: motion.active && Config.enabled && motion.animating
         repeat: true
         property real last: 0
@@ -110,16 +109,14 @@ Item {
 
     function tick(dt) {
         motion.dt = dt;
-        // activity rises fast on the first beat and releases slowly, so a gap
-        // between tracks does not flicker the field off.
-        var goal = Spectrum.energy > 0.04 ? 1 : 0;
+        var goal = motion.sourceSounding ? 1 : 0;
+        if (goal > 0)
+            motion.idleSettled = false;
         motion.activity += (goal - motion.activity)
             * (1 - Math.exp(-dt / (goal > motion.activity ? 0.05 : 1.1)));
 
-        // Once analysis freezes, do not keep replaying the last musical frame.
-        // The opted-in idle phase may continue from an empty source until the
-        // 30-second residency grace unloads the surface.
-        var source = motion.frozen ? [] : Spectrum.levels;
+        var source = motion.frozen && Spectrum.placementHolds === 0
+            ? [] : Spectrum.levels;
         var shaped = AuraMath.applyProfile(source,
                                            motion.cfg.auraProfile,
                                            motion.cfg.auraAccent);
@@ -161,11 +158,18 @@ Item {
             Math.min(1, bass * 0.72 + motion.energy * 0.42 + motion.onset * 0.88),
             dt, 18, 5.2);
 
-        // The phase integrates the field's turn: faster the louder it is, and it
-        // never runs backwards, so the current always flows the chosen way.
-        motion.phase = (motion.phase + dt * motion.cfg.auraMotionSpeed
-            * (0.055 + (motion.ambient ? motion.cfg.auraIdleMotion : 0) * 0.035
-               + motion.energy * 0.075 + motion.onset * 0.12)) % 1;
+        if (motion.sourceSounding || (motion.ambient && !motion.idleSettled))
+            motion.phase = (motion.phase + dt * motion.cfg.auraMotionSpeed
+                * (0.055 + (motion.ambient ? motion.cfg.auraIdleMotion : 0) * 0.035
+                   + motion.energy * 0.075 + motion.onset * 0.12)) % 1;
+
+        var maxBand = 0;
+        for (var b = 0; b < f.levels.length; b++)
+            maxBand = Math.max(maxBand, f.levels[b]);
+        if (!motion.sourceSounding && motion.activity < 0.003
+                && motion.energy < 0.002 && motion.pulse < 0.002
+                && motion.onset < 0.002 && maxBand < 0.002)
+            motion.idleSettled = true;
     }
 
     // A stopped Timer must leave a resting field behind, not the last frame of
@@ -188,6 +192,8 @@ Item {
         motion.peaks = [];
         motion.held = [];
     }
+
+    onAmbientChanged: motion.idleSettled = false
 
     // Turning the governor off must not leave a stale cap latched: re-enabling
     // adaptive quality starts clean at the full frame rate.

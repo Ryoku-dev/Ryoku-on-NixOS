@@ -8,6 +8,7 @@ import Quickshell.Io
 import Quickshell.Bluetooth
 import Quickshell.Networking
 import Quickshell.Services.Pipewire
+import shell.services
 import "../reusables"
 import "../"
 
@@ -501,10 +502,10 @@ PanelWindow {
                         } else if (osdWindow.kind === "airplane") {
                             if (osdWindow.isToggleActive) {
                                 Networking.wifiEnabled = true;
-                                if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = true;
+                                BluetoothPower.setEnabled(true);
                             } else {
                                 Networking.wifiEnabled = false;
-                                if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = false;
+                                BluetoothPower.setEnabled(false);
                             }
                         } else if (osdWindow.kind === "brightness") {
                             briCmdThrottle.stop();
@@ -671,10 +672,10 @@ PanelWindow {
                             } else if (osdWindow.kind === "airplane") {
                                 if (osdWindow.isToggleActive) {
                                     Networking.wifiEnabled = true;
-                                    if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = true;
+                                    BluetoothPower.setEnabled(true);
                                 } else {
                                     Networking.wifiEnabled = false;
-                                    if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = false;
+                                    BluetoothPower.setEnabled(false);
                                 }
                             } else if (osdWindow.kind === "brightness") {
                                 briCmdThrottle.stop();
@@ -725,10 +726,10 @@ PanelWindow {
                             if (osdWindow.kind === "airplane") {
                                 if (osdWindow.isToggleActive) {
                                     Networking.wifiEnabled = true;
-                                    if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = true;
+                                    BluetoothPower.setEnabled(true);
                                 } else {
                                     Networking.wifiEnabled = false;
-                                    if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = false;
+                                    BluetoothPower.setEnabled(false);
                                 }
                             }
                         }

@@ -9,8 +9,9 @@ import Quickshell.Io
 // history tool: `subscribe clipboard` streams a full {entries:[...]} frame,
 // newest first, on every change, and copy/delete/clear intents ride back over a
 // second connection. Each entry already carries its resolved view: a "text"
-// entry has a 200-character preview, an "image" entry a persisted thumbnail file
-// (thumb) with its pixel size, and a "binary" entry its mime and byte size.
+// entry has a 200-character preview, an "image" entry has a persisted thumbnail
+// file and size (thumb, thumbW/thumbH) plus its source pixel size (w/h), and a
+// "binary" entry has its mime and byte size.
 // Copy re-sets the Wayland selection; there is no synthetic paste. Contract 07
 // sec 2.2/3/4.2.
 Singleton {

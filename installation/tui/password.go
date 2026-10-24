@@ -38,9 +38,9 @@ const (
 	cryptRounds   = 5000 // the default; a hash at the default omits the rounds= field
 )
 
-// hashPassword produces the sha512-crypt hash the backend hands to `chpasswd -e`
-// for both the user and root. It fails only if the kernel cannot give us random
-// bytes for the salt, which is a broken machine, not a bad password.
+// hashPassword produces a sha512-crypt hash for one account. Each administrator,
+// root, or additional user password is salted independently. It fails only if
+// the kernel cannot give us random bytes for the salt.
 func hashPassword(pw string) (string, error) {
 	salt, err := cryptSalt()
 	if err != nil {

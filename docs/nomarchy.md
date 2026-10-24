@@ -62,7 +62,7 @@ pretending the action worked.
 | `omarchy-plugin-add`, `-update`, `-remove`, `-enable`, `-disable`, `-validate`, `-rescan`, `-list`, `-catalog` | Native Nomarchy plugin lifecycle and catalogue |
 | `omarchy-bar` | Nomarchy host bar configuration IPC |
 | `omarchy-menu`, `omarchy-menu-plugin`, `omarchy-menu-emoji`, `omarchy-menu-emoji-insert` | Nomarchy menu or plugin IPC |
-| `omarchy-menu-keybindings` | Ryoku keybinding cheatsheet |
+| `omarchy-menu-keybindings` | Ryoku Kit's Keys tab |
 | `omarchy-osd` | Nomarchy style-owned OSD IPC |
 | `omarchy-notification-send` | Freedesktop `notify-send` |
 | `omarchy-launch-browser`, `omarchy-launch-webapp` | `ryoku-app browser` or `xdg-open` |
@@ -72,7 +72,7 @@ pretending the action worked.
 | `omarchy-restart-shell`, `omarchy-refresh-shell` | `ryoku-shell reload` |
 | `omarchy-system-lock` | `ryoku-qylock-lock` |
 | `omarchy-system-logout`, `omarchy-system-wake` | `ryoku wm act session.exit` or `output.power on` |
-| `omarchy-system-reboot`, `omarchy-system-shutdown` | systemd reboot or poweroff |
+| `omarchy-system-reboot`, `omarchy-system-shutdown` | `ryoku-host power reboot` or `poweroff` (logind or elogind) |
 | `omarchy-system-sleep-lock` | qylock, then `ryoku-shell suspend` |
 | `omarchy-toggle-nightlight` | Ryoku shell night-light intent |
 | `omarchy-toggle-touchpad` | `ryoku wm act input.touchpad toggle` |
@@ -85,17 +85,17 @@ pretending the action worked.
 | `omarchy-audio-source-switch` | Nomarchy media IPC |
 | `omarchy-bluetooth-power`, `omarchy-bluetooth-device` | `rfkill` and `bluetoothctl` |
 | `omarchy-network-status` | NetworkManager active connection state |
-| `omarchy-powerprofiles-list`, `omarchy-powerprofiles-set` | `powerprofilesctl` |
+| `omarchy-powerprofiles-list`, `omarchy-powerprofiles-set` | `ryoku-shell` PowerProfiles IPC, with tuned-ppd or power-profiles-daemon |
 | `omarchy-file-select` | Ryoku's shipped Zenity file chooser |
 | `omarchy-glyph` | Pass-through glyph output |
 | `omarchy-default-browser`, `omarchy-default-terminal`, `omarchy-default-editor` | XDG or Ryoku default application state |
 | `omarchy-display-text-size` | Nomarchy shell override plus live config reload |
 | `omarchy-font-list`, `omarchy-font-current`, `omarchy-font-set` | fontconfig monospace selection |
-| `omarchy-cmd-present`, `omarchy-cmd-missing`, `omarchy-pkg-present`, `omarchy-pkg-missing` | PATH and pacman probes |
+| `omarchy-cmd-present`, `omarchy-cmd-missing`, `omarchy-pkg-present`, `omarchy-pkg-missing` | PATH probes, and package probes through pacman on Arch and CachyOS or `ryoku-host pkg installed` on Fedora and Void |
 | `omarchy-capture-screenshot`, `omarchy-capture-screenrecording` | Existing Ryoku capture actions |
 | `omarchy-weather-status`, `omarchy-weather-location` | wttr.in status and persisted weather location |
 | `omarchy-voxtype-config`, `omarchy-voxtype-status` | Ryoku voice control and status |
-| `omarchy-reminder` | User-systemd reminder timers and Nomarchy reminder panel |
+| `omarchy-reminder` | User-systemd reminder timers and Nomarchy reminder panel; Void has no user timers, so reminders need a systemd edition |
 | `omarchy-theme-color`, `omarchy-theme-set`, `omarchy-theme-set-templates`, `omarchy-theme-list`, `omarchy-theme-current`, `omarchy-theme-switcher` | Nomarchy theme bridge and shipped themes |
 | `omarchy-bar-text-color` | Ryoku wallpaper-tone contrast map |
 | `omarchy-battery-status`, `omarchy-system-stats` | UPower and procfs data for the power panel |
@@ -116,6 +116,10 @@ pretending the action worked.
 | `omarchy-agent-usage-update`, `omarchy-agent-usage-claude`, `omarchy-agent-usage-codex` | Display records adapted from Ryoku's cached AI usage collectors |
 | `omarchy-agent-account-*` | Account controls hidden; AI credentials remain managed in Rāshin |
 | `omarchy-agent`, `omarchy-agent-prompt` | Explicitly unavailable; Ryoku keeps its own agent surface |
+
+Super+K opens Kit: Keys, Commands, Phone, Dev tools, and Typing test share one
+search field. The compatibility helper lands on Keys rather than creating a
+second shortcut surface.
 
 ## Themes
 

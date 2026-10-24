@@ -128,4 +128,32 @@ hasnt "$conf" 'position = "2560x0"' "the saved TV stanza leaked onto an unrelate
 hasnt "$conf" 'output = "eDP-1", mode = "2560x1600@60"' \
   "a different panel on eDP-1 wrongly inherited the saved panel's mode"
 
+# --- a phantom turned off stays off (support report: an EDID-less HDMI-A-1 at
+# 1024x768 came back on every login). Hyprland 0.56 keeps a disabled output's
+# last mode, so its size no longer says it is off; the flag and the missing
+# workspace do. The Hub's list must show it off, and a login with no saved
+# layout must persist it off instead of writing it back enabled. -------------
+cat >"$tmp/phantom-off.json" <<'JSON'
+[
+  {"name":"DP-1","make":"Acme","model":"Desk","serial":"D1","width":1920,"height":1080,"refreshRate":60.0,"x":0,"y":0,"scale":1.0,"transform":0,"vrr":false,"disabled":false,"focused":true,"activeWorkspace":{"id":1,"name":"1"},"mirrorOf":"none","physicalWidth":530,"physicalHeight":300,"availableModes":["1920x1080@60.00Hz"],"colorManagementPreset":"srgb","sdrBrightness":1.0},
+  {"name":"HDMI-A-1","make":"","model":"","serial":"","width":1024,"height":768,"refreshRate":60.0,"x":1920,"y":0,"scale":1.0,"transform":0,"vrr":false,"disabled":true,"focused":false,"activeWorkspace":{"id":0,"name":""},"mirrorOf":"none","physicalWidth":0,"physicalHeight":0,"availableModes":["1024x768@60.00Hz"],"colorManagementPreset":"srgb","sdrBrightness":1.0}
+]
+JSON
+offval="$(RYOKU_MONITOR_JSON="$tmp/phantom-off.json" "$mon" list | jq -r '.[] | select(.name == "HDMI-A-1") | .disabled')"
+[[ $offval == "true" ]] || fail "a disabled output that keeps its mode listed as enabled ($offval)"
+RYOKU_MONITORS_APPLIED="$tmp/phantom-none.json" RYOKU_MONITOR_JSON="$tmp/phantom-off.json" "$mon" autoscale >/dev/null 2>&1
+has "$conf" 'hl.monitor({ output = "HDMI-A-1", disabled = true })' \
+  "a login persisted the disabled phantom as enabled"
+hasnt "$conf" 'output = "HDMI-A-1", mode' "a login gave the disabled phantom a mode"
+
+# --- the reverse: a plainly active output Hyprland mis-flags as disabled (an
+# old git build) still holds a workspace and must stay enabled. ----------------
+cat >"$tmp/misflagged.json" <<'JSON'
+[
+  {"name":"eDP-1","make":"Acme","model":"Panel","serial":"LP01","width":2560,"height":1600,"refreshRate":60.0,"x":0,"y":0,"scale":1.6,"transform":0,"vrr":false,"disabled":true,"focused":true,"activeWorkspace":{"id":1,"name":"1"},"mirrorOf":"none","physicalWidth":300,"physicalHeight":188,"availableModes":["2560x1600@60.00Hz"],"colorManagementPreset":"srgb","sdrBrightness":1.0}
+]
+JSON
+flagval="$(RYOKU_MONITOR_JSON="$tmp/misflagged.json" "$mon" list | jq -r '.[0].disabled')"
+[[ $flagval == "false" ]] || fail "an active output flagged disabled by Hyprland listed as off"
+
 echo "monitor-persist: all checks passed"

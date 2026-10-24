@@ -10,7 +10,7 @@ happens to the disk.
 
 ```
 RYOKU_DISK=/dev/nvme0n1 RYOKU_DISK_STRATEGY=whole \
-RYOKU_HOSTNAME=ryoku RYOKU_USERNAME=ryo \
+RYOKU_HOSTNAME=ryoku RYOKU_USERNAME=ryo RYOKU_ROOT_MODE=locked \
 RYOKU_PASSWORD_HASH="$(openssl passwd -6)" \
 RYOKU_KEYMAP=us RYOKU_LOCALE=en_US.UTF-8 RYOKU_TIMEZONE=Europe/Madrid \
 RYOKU_PROFILE=amd-nvidia RYOKU_BROWSER=firefox RYOKU_LOGIN_SHELL=fish \
@@ -20,7 +20,7 @@ RYOKU_PROFILE=amd-nvidia RYOKU_BROWSER=firefox RYOKU_LOGIN_SHELL=fish \
 It must run as root, on a UEFI machine with Secure Boot disabled, against a whole
 disk of at least 32 GiB, with a working network connection (the install is
 online-only). Set `RYOKU_ALLOW_SECUREBOOT=1` only if you have enrolled your own
-keys -- Limine ships unsigned and will not boot under enforced Secure Boot.
+keys; Limine ships unsigned and will not boot under enforced Secure Boot.
 
 ## Dry run
 
@@ -57,8 +57,8 @@ With defaults:
 | Variable                  | Default            | Meaning                                  |
 |---------------------------|--------------------|------------------------------------------|
 | `RYOKU_HOSTNAME`          | `ryoku`            | Hostname.                                |
-| `RYOKU_USERNAME`          | `ryoku`            | Primary user in wheel, video, and input. |
-| `RYOKU_BROWSER`           | `firefox`          | Browser key: `firefox`, `chromium`, or `zen`. The other browser packages are dropped; xdg HTTP, HTTPS, HTML and `desktop.apps.browser` point at the pick. |
+| `RYOKU_USERNAME`          | `ryoku`            | First account and desktop owner; always an administrator. |
+| `RYOKU_BROWSER`           | `firefox`          | Browser key: `firefox`, `chromium`, `zen`, or `none`. The other browser packages are dropped (all of them for `none`); xdg HTTP, HTTPS, HTML and `desktop.apps.browser` point at the pick. |
 | `RYOKU_LOGIN_SHELL`       | `fish`             | Login-shell key: `fish`, `zsh`, or `bash`. The account uses `/usr/bin/<key>` and the other two shell stacks are dropped. |
 | `RYOKU_KEYMAP`            | `us`               | Console keymap (`vconsole.conf`).        |
 | `RYOKU_LOCALE`            | `en_US.UTF-8`      | Locale (`locale.gen` + `locale.conf`).   |
@@ -72,6 +72,32 @@ With defaults:
 | `RYOKU_SUBVOL_BACKUPS`    | `0`                | Create `@backups` -> `/.backups`.        |
 | `RYOKU_REPO`              | `/usr/share/ryoku` | Repo payload on the live system.         |
 | `RYOKU_ONLINE`            | `1`                | Pacstrap from network mirrors.           |
+| `RYOKU_FULLNAME`          | empty              | Optional display name for the first account. |
+| `RYOKU_ROOT_MODE`         | `locked`           | `locked` uses administrator `sudo`; `password` requires a separate root hash. |
+| `RYOKU_ROOT_PASSWORD_HASH` | empty             | Separate SHA-512 crypt hash when `RYOKU_ROOT_MODE=password`. |
+| `RYOKU_EXTRA_USERS_FILE`  | empty              | Optional six-field TSV account plan described below. |
+| `RYOKU_HOME_LIMIT_BYTES`  | `0`                | Default byte limit for extra-user TSV rows with an empty limit field. |
+
+The first account remains `RYOKU_USERNAME` for desktop deployment. Extra
+accounts are read from `RYOKU_EXTRA_USERS_FILE`, one record per line:
+
+```
+name<TAB>fullName<TAB>role<TAB>perm,perm<TAB>sha512-crypt-hash<TAB>limitBytes
+```
+
+`role` is `admin` or `standard`. Permissions are `devices`, `audio`,
+`virtualization`, or `containers`; `admin` is accepted only for an admin role.
+Every account receives `devices` even when the TSV omits it: its `input` and
+`video` groups are required by mouse remapping and panel brightness. Only
+mapped groups that exist in the installed target are added, and standard
+accounts never join `wheel`. Names, roles, permissions, hashes, duplicate
+accounts, and non-negative limits are checked before the disk is changed and
+again before account creation.
+
+Every account gets a private Btrfs subvolume at `/home/<name>`, mode `0700`,
+populated from `/etc/skel`. A non-zero account limit enables Btrfs quotas for
+`/home` and applies that byte limit to the account subvolume. Root is locked by
+default; its password is never copied from the first account.
 
 The shell stacks are exact: Fish keeps `fish`; Zsh keeps `zsh`,
 `zsh-autosuggestions`, `zsh-history-substring-search`,

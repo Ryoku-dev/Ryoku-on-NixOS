@@ -121,16 +121,26 @@ samples. `main.cpp` is the plugin; the eleven shipped profiles are recordings
 of real switches (Cherry MX blue/brown/black/red, Topre, NK Cream, Holy Panda,
 Tealios, the "creamy" lubed linear, two Everglides) cut at build time from the
 MIT-licensed Mechvibes packs at a pinned commit, one per line of
-`profiles.txt`, by `ryoku/hyprland/scripts/ryoku-keysounds-import`, the same
-tool a user runs on any pack from mechvibes.com to get a profile of their own.
-`hyprpm.toml` is the recipe the builder runs (`make all`), and the README
-documents the settings, the profile format and where a user's own samples go
-(`~/.local/share/ryoku/keysounds/<name>/`). `release/packages/ryoku-keysounds`
-packages it with the profiles under `/usr/share/ryoku/keysounds/` and the
-source under `/usr/share/ryoku/hypr-plugins/keysounds/`, so a box with no
-checkout can rebuild it for a newer Hyprland. The manifest's `assets` key is a
-Ryoku extension: the builder lays that directory beside the `.so`
-(`~/.local/lib/hyprland/plugins/keysounds/`), where the plugin looks second.
+`ryoku/keysounds/profiles.txt`, by `ryoku/keysounds/ryoku-keysounds-import`,
+the same tool a user runs on any pack from mechvibes.com to get a profile of
+their own. `hyprpm.toml` is the recipe the builder runs (`make keysounds.so`),
+and the README documents the settings, the profile format and where a user's
+own samples go (`~/.local/share/ryoku/keysounds/<name>/`).
+
+The samples and the importer are their own package, `ryoku-keysounds-profiles`,
+installed under `/usr/share/ryoku/keysounds/`; the plugin package
+(`ryoku-keysounds`) ships only the `.so` and its rebuild source under
+`/usr/share/ryoku/hypr-plugins/keysounds/`, and depends on the profiles. niri
+has no plugin system, so it reuses the same samples through
+`ryoku/keysounds/main.rs`: a small standalone engine (evdev in, libcanberra
+out, no crates) that the niri provider writes its settings for, shipped as the
+package `ryoku-keysounds-niri`. Both read the one copy of the samples on disk.
+The Hyprland package arrives with the Hyprland desktop; niri installs its
+engine on demand from the Hub's Window Manager page.
+
+The plugin looks for a profile in the user's `~/.local/share/ryoku/keysounds/`,
+then beside its own `.so` (where a local build lays it), then the packaged
+`/usr/share/ryoku/keysounds/`. The user's guide is `ryoku/keysounds/usage.md`.
 
 ## Convergence: the doctor, deploy.sh, the packages
 

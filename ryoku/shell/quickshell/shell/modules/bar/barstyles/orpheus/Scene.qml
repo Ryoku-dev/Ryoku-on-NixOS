@@ -40,6 +40,16 @@ Item {
     property var hoverStates: ({})
     property var textModules: ({})
     property bool autoHidden: false
+    property var pendingSurfaceActions: []
+    property bool settingsSurfaceHeld: false
+    readonly property bool surfaceOpening: pendingSurfaceActions.length > 0
+    readonly property real restingSurfaceHeight: Math.ceil(Math.max(
+        K.Style.barH + K.Style.s2 + Math.ceil(K.Style.label * 1.5)
+            + K.Style.s3 + K.Style.s1,
+        K.Style.barH + Math.max(0, Number(prefs.depth) || 0)
+            + (prefs.form === "square" ? M.squareSmoothing : M.smoothing)
+            + K.Style.border))
+
 
     readonly property var leftDrop: ({ x: leftGeom.x, w: leftGeom.width })
     readonly property var voiceDrop: ({ x: voiceGeom.x, w: voiceGeom.width })
@@ -106,6 +116,56 @@ Item {
             "tray", "power", "system", "session", "recording", "vpn"]
             .indexOf(normalKey(key)) >= 0;
     }
+    function surfaceIsFull() {
+        const fullHeight = Math.max(1, scene.screen ? scene.screen.height : 1);
+        return frameLayer.framed || win.height >= fullHeight - 0.5;
+    }
+
+    function hasPendingSurfaceRequest(kind) {
+        for (let index = 0; index < scene.pendingSurfaceActions.length; ++index) {
+            if (scene.pendingSurfaceActions[index].kind === kind)
+                return true;
+        }
+        return false;
+    }
+
+    function requestFullSurface(kind, action) {
+        if (scene.surfaceIsFull()) {
+            action();
+            return;
+        }
+        const pending = [];
+        for (let index = 0; index < scene.pendingSurfaceActions.length; ++index) {
+            if (scene.pendingSurfaceActions[index].kind !== kind)
+                pending.push(scene.pendingSurfaceActions[index]);
+        }
+        pending.push({ kind: kind, action: action });
+        scene.pendingSurfaceActions = pending;
+        surfaceReadyTimer.restart();
+    }
+
+    function cancelFullSurfaceRequest(kind) {
+        const pending = [];
+        for (let index = 0; index < scene.pendingSurfaceActions.length; ++index) {
+            if (scene.pendingSurfaceActions[index].kind !== kind)
+                pending.push(scene.pendingSurfaceActions[index]);
+        }
+        scene.pendingSurfaceActions = pending;
+        if (pending.length === 0)
+            surfaceReadyTimer.stop();
+    }
+
+    function finishPendingSurfaceActions() {
+        if (!scene.surfaceIsFull()) {
+            surfaceReadyTimer.restart();
+            return;
+        }
+        const pending = scene.pendingSurfaceActions;
+        for (let index = 0; index < pending.length; ++index)
+            pending[index].action();
+        scene.pendingSurfaceActions = [];
+    }
+
 
     function defaultOwnerForKey(key) {
         const value = normalKey(key);
@@ -239,13 +299,16 @@ Item {
         const value = normalKey(key);
         if (!scene.validCardKey(value))
             return;
-        hoverOpenTimer.stop();
-        scene.hoverCandidate = "";
-        scene.hoverCandidateAnchor = null;
-        scene.settingsOpen = false;
-        scene.cardOwner = scene.defaultOwnerForKey(value);
-        scene.cardArgs = args && typeof args === "object" ? args : ({});
-        scene.cardKey = value;
+        const nextArgs = args && typeof args === "object" ? args : ({});
+        scene.requestFullSurface("card", function() {
+            hoverOpenTimer.stop();
+            scene.hoverCandidate = "";
+            scene.hoverCandidateAnchor = null;
+            scene.settingsOpen = false;
+            scene.cardOwner = scene.defaultOwnerForKey(value);
+            scene.cardArgs = nextArgs;
+            scene.cardKey = value;
+        });
     }
 
     function openCard(key, anchorItem, args) {
@@ -253,13 +316,17 @@ Item {
         if (!scene.validCardKey(value))
             return;
         scene.captureOrigin(anchorItem);
-        hoverOpenTimer.stop();
-        scene.hoverCandidate = "";
-        scene.hoverCandidateAnchor = null;
-        scene.settingsOpen = false;
-        scene.cardArgs = args && typeof args === "object" ? args : ({});
-        scene.cardKey = value;
+        const nextArgs = args && typeof args === "object" ? args : ({});
+        scene.requestFullSurface("card", function() {
+            hoverOpenTimer.stop();
+            scene.hoverCandidate = "";
+            scene.hoverCandidateAnchor = null;
+            scene.settingsOpen = false;
+            scene.cardArgs = nextArgs;
+            scene.cardKey = value;
+        });
     }
+
 
     function markHoverSwitch(key) {
         scene.hoverSwitchedKey = key;
@@ -271,8 +338,19 @@ Item {
         if (!scene.validCardKey(value) || value === "tray")
             return;
         scene.markHoverSwitch(value);
-        scene.openCard(value, anchorItem, ({}));
+        scene.captureOrigin(anchorItem);
+        scene.requestFullSurface("card", function() {
+            if (scene.hoverStates[value] !== true) {
+                scene.hoverSwitchedKey = "";
+                scene.hoverSwitchedAt = 0;
+                return;
+            }
+            scene.settingsOpen = false;
+            scene.cardArgs = ({});
+            scene.cardKey = value;
+        });
     }
+
 
     function toggleCard(key, anchorItem, args) {
         const value = normalKey(key);
@@ -297,6 +375,7 @@ Item {
     }
 
     function closeCard() {
+        scene.cancelFullSurfaceRequest("card");
         hoverOpenTimer.stop();
         hoverCloseTimer.stop();
         scene.hoverCandidate = "";
@@ -343,20 +422,31 @@ Item {
     }
 
     function openSettings(page) {
-        const next = !scene.settingsOpen;
-        if (next) {
-            let value = typeof page === "string" && page !== "" ? page : "bar";
-            if (value === "general") value = "bar";
-            if (value === "wave") value = "sound";
-            scene.settingsPage = value;
-            scene.closeCard();
+        const pendingOpen = scene.hasPendingSurfaceRequest("settings");
+        if (scene.settingsOpen || pendingOpen) {
+            scene.cancelFullSurfaceRequest("settings");
+            if (pendingOpen)
+                scene.settingsSurfaceHeld = false;
+            scene.settingsOpen = false;
+            return;
         }
-        scene.settingsOpen = next;
+        let value = typeof page === "string" && page !== "" ? page : "bar";
+        if (value === "general") value = "bar";
+        if (value === "wave") value = "sound";
+        scene.settingsPage = value;
+        scene.closeCard();
+        scene.settingsSurfaceHeld = true;
+        scene.requestFullSurface("settings", function() {
+            scene.settingsOpen = true;
+        });
     }
 
+
     function closeSettings() {
+        scene.cancelFullSurfaceRequest("settings");
         scene.settingsOpen = false;
     }
+
 
     function toggleLauncher() {
         const state = scene.screen ? ShellState.forScreen(scene.screen) : null;
@@ -418,6 +508,13 @@ Item {
         onTriggered: if (!scene.barHovered && !cards.hovered) scene.closeCard()
     }
 
+    Timer {
+        id: surfaceReadyTimer
+        interval: 16
+        repeat: false
+        onTriggered: scene.finishPendingSurfaceActions()
+    }
+
     C.Morph {
         id: morphAnimation
         target: win
@@ -455,16 +552,20 @@ Item {
         // The drops travel from where they are to the new span's live layout;
         // blending a snapshot keeps them moving while slot springs reshape it.
         function onSpanChanged() {
-            win.morphFrom = {
-                lx: leftGeom.x, lw: leftGeom.width,
-                vx: voiceGeom.x, vw: voiceGeom.width,
-                rx: rightGeom.x, rw: rightGeom.width,
-                wx: scene.waveX, ww: scene.waveW
-            };
-            win.morph = 0;
-            win.layoutSpan = scene.prefs.span;
-            morphAnimation.restart();
+            const nextSpan = scene.prefs.span;
+            scene.requestFullSurface("span", function() {
+                win.morphFrom = {
+                    lx: leftGeom.x, lw: leftGeom.width,
+                    vx: voiceGeom.x, vw: voiceGeom.width,
+                    rx: rightGeom.x, rw: rightGeom.width,
+                    wx: scene.waveX, ww: scene.waveW
+                };
+                win.morph = 0;
+                win.layoutSpan = nextSpan;
+                morphAnimation.restart();
+            });
         }
+
     }
 
     PanelWindow {
@@ -490,6 +591,11 @@ Item {
         readonly property bool islands: layoutSpan === "islands"
         readonly property bool fused: layoutSpan === "fused"
         readonly property bool full: layoutSpan === "full"
+        readonly property bool needsFullHeight: scene.surfaceOpening
+            || scene.cardKey !== "" || cards.retainedKey !== ""
+            || liquidBody.cardProgress > 0
+            || scene.settingsSurfaceHeld || morphAnimation.running
+
         readonly property real inset: 12 * K.Style.scale
         readonly property real clearance: 10 * K.Style.scale
         readonly property real pad: K.Style.barPad
@@ -686,7 +792,9 @@ Item {
                 interactive: false
                 screenName: win.screen?.name ?? ""
                 edge: "top"
-                restThickness: Math.max(1, win.screen?.height ?? 1)
+                restThickness: Math.max(1, Math.min(win.screen?.height ?? 1,
+                    win.needsFullHeight ? (win.screen?.height ?? 1)
+                        : scene.restingSurfaceHeight))
                 screenWidth: win.screen?.width ?? 1
                 screenHeight: win.screen?.height ?? 1
                 // An open card belongs to the real screen: it closes as the
@@ -944,5 +1052,6 @@ Item {
         origin: scene.settingsOrigin
         page: scene.settingsPage
         onCloseRequested: scene.closeSettings()
+        onClosed: scene.settingsSurfaceHeld = false
     }
 }

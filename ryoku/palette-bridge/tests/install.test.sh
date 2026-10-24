@@ -5,7 +5,7 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 test_root=$(mktemp -d /tmp/ryoku-palette-core-install.XXXXXX)
 trap 'rm -rf "$test_root"' EXIT
 fake_bin="$test_root/bin"
-systemctl_log="$test_root/systemctl.log"
+service_log="$test_root/service.log"
 mkdir -p "$fake_bin" "$test_root/home/.config/systemd/user"
 
 cat > "$fake_bin/go" <<'EOF'
@@ -25,27 +25,23 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$output"
 chmod +x "$output"
 EOF
 
-cat > "$fake_bin/systemctl" <<'EOF'
+cat > "$fake_bin/ryoku-host" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >> "$FAKE_SYSTEMCTL_LOG"
-if [[ $* == *list-unit-files* ]]; then
-  unit=${3:-}
-  case $unit in
-    ryoku-spicetify-palette.service|spiceflow.service)
-      printf '%s enabled\n' "$unit"
-      ;;
-  esac
+printf '%s\n' "$*" >> "$FAKE_SERVICE_LOG"
+if [[ $* == "svc --user is-enabled ryoku-spicetify-palette.service" ||
+      $* == "svc --user is-enabled spiceflow.service" ]]; then
+  exit 0
 fi
 EOF
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fake_bin/ryoku"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fake_bin/ryogami"
-chmod +x "$fake_bin/go" "$fake_bin/systemctl" "$fake_bin/ryoku" "$fake_bin/ryogami"
+chmod +x "$fake_bin/go" "$fake_bin/ryoku-host" "$fake_bin/ryoku" "$fake_bin/ryogami"
 
 (cd "$test_root"
 HOME="$test_root/home" \
 XDG_CONFIG_HOME="$test_root/home/.config" \
-FAKE_SYSTEMCTL_LOG="$systemctl_log" \
+FAKE_SERVICE_LOG="$service_log" \
 PATH="$fake_bin:$PATH" \
   "$project_root/install.sh"
 )
@@ -56,10 +52,10 @@ test -x "$test_root/home/.local/bin/ryoku-palette-bridge-remove-integrations"
 cmp "$project_root/doctor.sh" "$test_root/home/.local/bin/ryoku-palette-bridge-doctor"
 grep -Fxq "ExecStart=$test_root/home/.local/bin/ryoku-palette-bridge" \
   "$test_root/home/.config/systemd/user/ryoku-palette-bridge.service"
-grep -Fxq -- '--user daemon-reload' "$systemctl_log"
-grep -Fxq -- '--user disable --now ryoku-spicetify-palette.service' "$systemctl_log"
-grep -Fxq -- '--user disable --now spiceflow.service' "$systemctl_log"
-! grep -Fq -- '--user enable --now ryoku-palette-bridge.service' "$systemctl_log"
+grep -Fxq -- 'svc --user daemon-reload' "$service_log"
+grep -Fxq -- 'svc --user disable --now ryoku-spicetify-palette.service' "$service_log"
+grep -Fxq -- 'svc --user disable --now spiceflow.service' "$service_log"
+! grep -Fq -- 'svc --user enable --now ryoku-palette-bridge.service' "$service_log"
 
 cmp "$project_root/vesktop/quickcss.sh" \
   "$test_root/home/.local/share/ryoku/palette-bridge/vesktop/quickcss.sh"

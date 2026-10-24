@@ -21,6 +21,16 @@ realcfg_state="absent"; [[ -e $realcfg ]] && realcfg_state="$(cksum <"$realcfg")
 
 noaspm="$tmp/no-aspm"                  # a policy file that does not exist
 nops="$tmp/no-ps"; mkdir -p "$nops"    # a power-supply dir with no battery
+shell_stub="$tmp/ryoku-shell"
+cat >"$shell_stub" <<'EOF'
+#!/usr/bin/env bash
+if [[ ${1:-}:${2:-} == powerprofiles:state ]]; then
+  printf '%s\n' '{"active_profile":"balanced","profiles":["balanced","power-saver"]}'
+else
+  exit 1
+fi
+EOF
+chmod +x "$shell_stub"
 
 mk_batt() { # <ps-dir> [value]: <dir>/BAT0/charge_control_end_threshold
   mkdir -p "$1/BAT0"
@@ -39,7 +49,7 @@ rp() { # <ps> <aspm> <cfg> <laptop:1|0> [args...]
   RYOKU_POWER_SUPPLY_DIR="$ps" RYOKU_ASPM_POLICY_FILE="$aspm" \
     RYOKU_POWER_CONFIG="$cfg" RYOKU_ASSUME_LAPTOP="$lap" \
     RYOKU_CPU_DIR="$tmp/no-cpu" RYOKU_PLATFORM_PROFILE_FILE="$tmp/no-pp/platform_profile" \
-    "$helper" "$@"
+    RYOKU_SHELL_BIN="$shell_stub" "$helper" "$@"
 }
 
 # build a fake CPU sysfs tree: <cpu-dir> <ncpus>. Values mirror the real
@@ -69,7 +79,7 @@ rpc() { # <cpu-dir> <pp-file|absent> <cfg> [args...]
   local cpu="$1" pp="$2" cfg="$3"; shift 3
   RYOKU_CPU_DIR="$cpu" RYOKU_PLATFORM_PROFILE_FILE="$pp" RYOKU_POWER_CONFIG="$cfg" \
     RYOKU_POWER_SUPPLY_DIR="$nops" RYOKU_ASPM_POLICY_FILE="$noaspm" \
-    "$helper" "$@"
+    RYOKU_SHELL_BIN="$shell_stub" "$helper" "$@"
 }
 
 # --- charge-limit get: unset for an ENODATA-like read, the number once set ----
@@ -184,6 +194,8 @@ jq -e '.cpu.governor.options == ["performance","powersave"]' <<<"$capsJ" >/dev/n
   || fail "capabilities governor options wrong"
 jq -e '.cpu.epp.options == ["default","performance","balance_performance","balance_power","power"]' <<<"$capsJ" >/dev/null \
   || fail "capabilities epp options did not drop the raw-bias 'custom' preference"
+jq -e '.activeProfile == "balanced" and .profiles == ["balanced","power-saver"]' <<<"$capsJ" >/dev/null \
+  || fail "capabilities did not use ryoku-shell's active profile and ordered profile list"
 # maxFreqPct reports what someone actually asked for, never a ratio inferred from
 # the driver's resting state. This used to assert 76, being 4001000 of a 5263060
 # ceiling, which on amd-pstate-epp is only scaling_max_freq sitting at the nominal
@@ -298,7 +310,8 @@ stub="$tmp/stub"; mkdir -p "$stub"; marker="$tmp/pkexec-called"
 printf '#!/usr/bin/env bash\ntouch "%s"\nexit 0\n' "$marker" >"$stub/pkexec"; chmod +x "$stub/pkexec"
 PATH="$stub:$PATH" RYOKU_CPU_DIR="$cpuM" RYOKU_PLATFORM_PROFILE_FILE="$ppM" \
   RYOKU_POWER_CONFIG="$cfgM" RYOKU_POWER_SUPPLY_DIR="$nops" RYOKU_ASPM_POLICY_FILE="$noaspm" \
-  RYOKU_ASSUME_LAPTOP=1 "$helper" apply || fail "apply with no profiles block did not exit 0"
+  RYOKU_ASSUME_LAPTOP=1 RYOKU_SHELL_BIN="$shell_stub" "$helper" apply \
+  || fail "apply with no profiles block did not exit 0"
 [[ ! -e $marker ]] || fail "apply with no profiles block invoked pkexec"
 for c in "$cpuM"/cpu[0-9]*; do
   [[ "$(cat "$c/cpufreq/scaling_max_freq")" == 4001000 ]] || fail "apply with no profiles block wrote a CPU knob"
