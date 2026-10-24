@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Fixed
+- **Palette Bridge settings explain missing prerequisites.** The status action
+  remains available without the bridge package and reports missing installation
+  or recipes. Disabled setup actions name the packages and recipe setting to
+  repair instead of saying only “Not available on this setup”
+  (`shell/ryogami/daemon/palette_bridge.go`, `shell/ryogami/picker/`).
 - **A settings edit is never missed mid-write.** The shell could read
   `shell.json` the moment the writer created it, latch that empty state as
   current, and then treat the finished write as unchanged, keeping the old

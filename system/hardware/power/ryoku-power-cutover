@@ -212,18 +212,30 @@ escape_unit_component() {
   fi
 }
 
+# Every session key is cleared before the snapshot is replayed, so a handle
+# left by another compositor never outlives it. DISPLAY is the exception: a
+# snapshot taken before the X server came up has none, and clearing the
+# manager's working value then leaves X11 apps started by the desktop with no
+# display at all.
 bind_user_environment() {
-  local -a clear=()
+  local entry key session_display=0
+  local -a clear=() clear_assignments=()
+  for entry in "${assignments[@]}"; do
+    [[ ${entry%%=*} == DISPLAY ]] && session_display=1
+  done
+  for key in "${session_clear[@]}"; do
+    [[ $key == DISPLAY ]] && ((!session_display)) && continue
+    clear+=("$key")
+  done
   if [[ $init_system == systemd ]]; then
-    systemctl --user unset-environment "${session_clear[@]}" >/dev/null
+    systemctl --user unset-environment "${clear[@]}" >/dev/null
     systemctl --user set-environment "${assignments[@]}"
     return
   fi
-  local key
-  for key in "${session_clear[@]}"; do
-    clear+=("$key=")
+  for key in "${clear[@]}"; do
+    clear_assignments+=("$key=")
   done
-  runit_host svc --user env "${clear[@]}" "${assignments[@]}"
+  runit_host svc --user env "${clear_assignments[@]}" "${assignments[@]}"
 }
 
 stop_session_services() {

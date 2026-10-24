@@ -18,6 +18,12 @@
   (`installerplan/components.tsv`, `tui/main.go`, `backend/lib/deploy.sh`).
 
 ### Fixed
+- **The Void package check sees what a real install gets.** The Void container
+  image skips `/etc/skel` and other paths through noextract patterns, so the
+  clean-container install could not find the per-user services `ryoku-desktop`
+  seeds for new accounts and failed every Void publish since that seeding
+  landed. The check now drops the image's patterns before installing
+  (`tests/container-install-void.sh`).
 - **Reboot now works on the Void ISO.** The done screen's Reboot now and Power
   off ran `systemctl`, which the Void live medium does not have, so the
   installer dropped to a shell instead. They run plain `reboot` and `poweroff`

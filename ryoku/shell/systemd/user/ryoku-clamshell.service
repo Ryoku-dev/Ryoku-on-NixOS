@@ -1,5 +1,6 @@
 [Unit]
 Description=Ryoku clamshell policy daemon
+ConditionUser=!@system
 PartOf=ryoku-session.target
 After=ryoku-session.target
 ConditionEnvironment=WAYLAND_DISPLAY

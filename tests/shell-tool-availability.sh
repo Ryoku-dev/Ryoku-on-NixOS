@@ -73,6 +73,7 @@ declare -A need=(
   # it, 7c20f7dd; awww was retired with 25a57f57).
   [wallpaper-daemon]=ryogami
   [palette]=matugen
+  [palette-bridge]=ryoku-palette-bridge
   [clipboard-history]=ryoku-shell
   [color-picker]=hyprpicker
   [music-visualizer]=cava
@@ -120,6 +121,14 @@ declare -A need=(
 )
 
 missing=()
+if ! hard_depend "${need[palette-bridge]}"; then
+  echo "::error::Palette Bridge must be a desktop runtime dependency so Ryogami integrations can be set up on every install." >&2
+  exit 1
+fi
+if ! awk -F '\t' '$1 == "ryoku-palette-bridge" && $2 == "user" && $3 == "on-demand" { found = 1 } END { exit !found }' "$ROOT/system/services/manifest.tsv"; then
+  echo "::error::Palette Bridge must remain an on-demand user service after its runtime is installed." >&2
+  exit 1
+fi
 for feat in "${!need[@]}"; do
   pkg=${need[$feat]}
   ships "$pkg" || missing+=("$feat -> $pkg")

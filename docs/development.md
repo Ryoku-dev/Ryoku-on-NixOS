@@ -103,22 +103,25 @@ Two branches, two jobs. Work goes to one; a release moves the other.
   so `git fetch origin && git rebase origin/unstable-dev` before the next push.
   Batch small commits: each push starts a gate and package publish cycle.
 - **`main` is the stable channel users run, and nothing is pushed to it.** It
-  advances only when a release is cut, by fast-forwarding to a commit
-  `unstable-dev` already carries (`docs/updates.md`, "Publishing: releases and
-  channels"). There are no hotfix commits on `main`: a fix goes to
-  `unstable-dev` and ships with the next release. The `pre-push` hook enforces
-  this: a push that moves `main` is refused unless it is the release
-  fast-forward, named as such:
+  advances only when a release is cut, to a commit `unstable-dev` already
+  carries (`docs/updates.md`, "Publishing: releases and channels"). There are no
+  hotfix commits on `main`: a fix goes to `unstable-dev` and ships with the next
+  release. GitHub requires a pull request for every change to `main`, so a
+  release opens one from `unstable-dev`, merges it with a merge commit, and then
+  fast-forwards `unstable-dev` to that merge commit, which keeps `main` an
+  ancestor of `unstable-dev`:
 
-      git fetch origin unstable-dev
-      RYOKU_RELEASE_PUSH=1 git push origin unstable-dev:main
+      gh pr create --base main --head unstable-dev --title "[release] Ryoku <version>"
+      gh pr merge <number> --merge
+      git fetch origin && git push origin origin/main:refs/heads/unstable-dev
 
-  Even with the variable set, the hook refuses a `main` that would not be a
-  fast-forward, a target `origin/unstable-dev` does not carry, and any deletion.
-  The **Stable Release** workflow then tags `main`; it is the only thing that
-  commits there (a `VERSION` bump), and that commit is merged back into
-  `unstable-dev` before the next release fast-forward (`CONTRIBUTING.md`,
-  "Release notes").
+  The `pre-push` hook backs this up locally: a push that moves `main` is refused
+  unless it names itself with `RYOKU_RELEASE_PUSH=1`, and even then a `main`
+  that would not fast-forward, a target `origin/unstable-dev` does not carry,
+  and any deletion are refused. The **Stable Release** workflow then tags
+  `main`; it is the only thing that commits there (a `VERSION` bump), and that
+  commit is merged back into `unstable-dev` before the next release
+  (`CONTRIBUTING.md`, "Release notes").
 - **Any other branch is yours.** Push it freely, open a pull request against
   `unstable-dev`, and merge it there (never squash: it drops the release notes).
 

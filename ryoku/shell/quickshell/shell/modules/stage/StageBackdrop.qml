@@ -16,6 +16,7 @@ Item {
     readonly property var wallpaperGeometry: WallpaperLayout.geometryFor(root.screenName)
     property string wallpaperFit: "Cover"
     property bool spatialEnabled: true
+    property bool layered: false
 
     anchors.fill: parent
 
@@ -94,6 +95,7 @@ Item {
                         textureSize: Qt.size(root.width, root.height)
                         stretch: root.wallpaperFit === "Fill"
                         screenName: root.screenName
+                        layered: root.layered
                         pointerX: root.cursorNX
                         pointerY: root.cursorNY
                         motionAmount: root._cameraGain
