@@ -12,6 +12,7 @@ runner="$root/runner"
 checked="$root/checked.json"
 gh_log="$root/gh.log"
 output="$root/output"
+gh_state="$root/gh-state"
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -65,18 +66,65 @@ run_sync() {
   ) >"$output"
 }
 
+mkdir -p "$gh_state"
 cat >"$root/gh-stub" <<'GH'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%q ' "$@" >>"${GH_LOG:?}"
 printf '\n' >>"$GH_LOG"
-case " $* " in
-  *" --method POST "*" /pulls "*) printf '17\n' ;;
-  *" /pulls "*) printf '\n' ;;
+
+endpoint=${2:-}
+method=GET
+body=""
+head=""
+while (($#)); do
+  case "$1" in
+    --method)
+      method=$2
+      shift 2
+      ;;
+    -f)
+      field=$2
+      case "$field" in
+        body=*) body=${field#body=} ;;
+        head=*) head=${field#head=} ;;
+      esac
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+case "$endpoint" in
+  repos/*/pulls)
+    lane=${head##*/}
+    if [[ $method == POST ]]; then
+      if [[ $lane == unstable ]]; then number=17; else number=18; fi
+      printf '%s\n' "$number" >"$GH_STATE_DIR/$lane.number"
+      printf '%s' "$body" >"$GH_STATE_DIR/$lane.body"
+      printf '%s\n' "$number"
+    elif [[ -f $GH_STATE_DIR/$lane.number ]]; then
+      cat "$GH_STATE_DIR/$lane.number"
+    else
+      printf '\n'
+    fi
+    ;;
+  repos/*/pulls/*)
+    number=${endpoint##*/}
+    if [[ $number == 17 ]]; then lane=unstable; else lane=stable; fi
+    if [[ $method == PATCH ]]; then
+      printf '%s' "$body" >"$GH_STATE_DIR/$lane.body"
+    elif [[ -f $GH_STATE_DIR/$lane.body ]]; then
+      cat "$GH_STATE_DIR/$lane.body"
+    fi
+    ;;
 esac
 GH
 chmod +x "$root/gh-stub"
 export GH_LOG="$gh_log"
+export GH_STATE_DIR="$gh_state"
 
 mkdir -p "$upstream"
 git -C "$upstream" init -q -b unstable-dev
@@ -150,6 +198,8 @@ assert_file_at "$runner" "$clean_sync" tests/fork-only-helper.py 'fork-only test
 assert_absent_at "$runner" "$clean_sync" remove-me.txt
 assert_absent_at "$runner" "$clean_sync" gone/new.txt
 [[ $(<"$output") == *'Conflicts: none'* ]] || fail 'clean sync reported conflicts'
+[[ $(<"$gh_state/unstable.body") == *"<!-- ryoku-sync-head: $clean_sync -->"* ]] \
+  || fail 'pull request body did not record the bot branch head'
 
 # A real content conflict remains marked in the generated commit and is listed.
 git -C "$fork_seed" switch -q unstable-dev
@@ -236,7 +286,26 @@ run_sync stable --dry-run
   || fail 'stable no-match notice missing'
 git -C "$upstream" switch -q unstable-dev
 
-# Once a maintainer commits on the bot branch, the bot neither rewrites nor pushes it.
+# A bot branch without an open PR is reusable after its head was merged.
+current_base=$(git --git-dir="$fork_bare" rev-parse refs/heads/unstable-dev)
+sync_tree=$(git --git-dir="$fork_bare" show -s --format=%T "$conflict_sync")
+merged_base=$(printf 'merge sync fixture\n' \
+  | GIT_AUTHOR_NAME='Test Maintainer' GIT_AUTHOR_EMAIL=test@example.com \
+    GIT_COMMITTER_NAME='Test Maintainer' GIT_COMMITTER_EMAIL=test@example.com \
+    git --git-dir="$fork_bare" commit-tree "$sync_tree" -p "$current_base" -p "$conflict_sync")
+git --git-dir="$fork_bare" update-ref refs/heads/unstable-dev "$merged_base" "$current_base"
+rm "$gh_state/unstable.number" "$gh_state/unstable.body"
+printf 'later upstream\n' >"$upstream/later.txt"
+commit_all "$upstream" 'fix: later upstream change'
+later_target=$(git -C "$upstream" rev-parse HEAD)
+write_checked "$later_target"
+run_sync unstable
+merged_reuse=$(git --git-dir="$fork_bare" rev-parse refs/heads/sync/unstable)
+[[ $merged_reuse != "$conflict_sync" ]] || fail 'merged bot branch was not reused'
+[[ $(<"$gh_state/unstable.body") == *"<!-- ryoku-sync-head: $merged_reuse -->"* ]] \
+  || fail 'updated pull request marker does not match pushed head'
+
+# Once a maintainer commits on the marked branch, the bot leaves it alone.
 protector="$root/protector"
 git clone -q "$fork_bare" "$protector"
 git -C "$protector" switch -q --track origin/sync/unstable
@@ -244,10 +313,9 @@ printf 'maintainer\n' >"$protector/maintainer.txt"
 commit_all "$protector" 'fix(nix): resolve sync locally'
 git -C "$protector" push -q origin HEAD:sync/unstable
 protected_before=$(git --git-dir="$fork_bare" rev-parse refs/heads/sync/unstable)
-printf 'later upstream\n' >"$upstream/later.txt"
-commit_all "$upstream" 'fix: later upstream change'
-later_target=$(git -C "$upstream" rev-parse HEAD)
-write_checked "$later_target"
+printf 'latest upstream\n' >"$upstream/latest.txt"
+commit_all "$upstream" 'fix: latest upstream change'
+write_checked "$(git -C "$upstream" rev-parse HEAD)"
 run_sync unstable
 protected_after=$(git --git-dir="$fork_bare" rev-parse refs/heads/sync/unstable)
 assert_eq "$protected_before" "$protected_after" 'maintainer-owned sync branch was rewritten'

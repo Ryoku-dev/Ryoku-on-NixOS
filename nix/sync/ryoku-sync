@@ -193,25 +193,31 @@ find_stable_fork_state() {
   return 1
 }
 
-is_bot_sync_commit() {
-  local commit=$1 author subject recorded_lane recorded_commit
-  author=$(git show -s --format=%an "$commit")
-  subject=$(git show -s --format=%s "$commit")
-  recorded_lane=$(git show -s --format='%(trailers:key=Ryoku-Lane,valueonly)' "$commit")
-  recorded_commit=$(git show -s --format='%(trailers:key=Ryoku-Commit,valueonly)' "$commit")
-  [[ $author == 'github-actions[bot]' \
-    && $subject == "sync: Ryoku "*" ($lane)" \
-    && $recorded_lane == "$lane" \
-    && $recorded_commit =~ ^[0-9a-f]{40}$ ]]
+
+extract_sync_marker() {
+  local body=$1 line value marker=""
+  local prefix='<!-- ryoku-sync-head: ' suffix=' -->'
+  while IFS= read -r line; do
+    if [[ $line == "$prefix"*"$suffix" ]]; then
+      value=${line#"$prefix"}
+      value=${value%"$suffix"}
+      [[ $value =~ ^[0-9a-f]{40}$ ]] && marker=$value
+    fi
+  done <<<"$body"
+  printf '%s\n' "$marker"
 }
 
-sync_branch_is_bot_only() {
-  local base=$1 branch=$2 commit
-  while IFS= read -r commit; do
-    [[ -n $commit ]] || continue
-    is_bot_sync_commit "$commit" || return 1
-  done < <(git rev-list "$base..$branch")
-  return 0
+sync_branch_is_reusable() {
+  local branch_head body marker
+  branch_head=$(git rev-parse "$sync_ref")
+  open_pr_number=$(gh_find_pr)
+  if [[ -n $open_pr_number ]]; then
+    body=$(gh_get_pr_body "$open_pr_number")
+    marker=$(extract_sync_marker "$body")
+    [[ $marker == "$branch_head" ]]
+    return
+  fi
+  git merge-base --is-ancestor "$branch_head" "$fork_base_ref"
 }
 
 path_exists() {
@@ -338,6 +344,8 @@ build_pr_body() {
   fi
   pr_body+=$'\nChecks: '
   pr_body+="$check_text"
+  pr_body+=$'\n\n'
+  pr_body+="<!-- ryoku-sync-head: $sync_commit -->"
 }
 
 gh_find_pr() {
@@ -345,6 +353,11 @@ gh_find_pr() {
     -f state=open -f base="$base_branch" -f head="${repository%%/*}:sync/$lane" \
     --jq '.[0].number // empty'
 }
+gh_get_pr_body() {
+  local number=$1
+  "$gh_command" api "repos/$repository/pulls/$number" --method GET --jq '.body // \"\"'
+}
+
 
 gh_create_pr() {
   local title=$1 body=$2
@@ -412,12 +425,12 @@ if git merge-base --is-ancestor "$target" "$previous_recorded"; then
   exit 0
 fi
 
+open_pr_number=""
 if ((dry_run == 0)) && git show-ref --verify --quiet "$sync_ref" \
-  && ! sync_branch_is_bot_only "$fork_base_ref" "$sync_ref"; then
+  && ! sync_branch_is_reusable; then
   message="Ryoku $target is ready, but sync/$lane has a maintainer commit. The bot left the branch unchanged."
   printf '%s\n' "$message"
-  pr_number=$(gh_find_pr)
-  [[ -z $pr_number ]] || gh_comment_pr "$pr_number" "$message"
+  [[ -z $open_pr_number ]] || gh_comment_pr "$open_pr_number" "$message"
   emit_output created false
   emit_output conflicts 0
   exit 0
