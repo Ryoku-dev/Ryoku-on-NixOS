@@ -388,23 +388,34 @@ collect_notes() {
 }
 
 relabel_conflict_file() {
-  local index=$1 path=$2 entry mode blob stage rest
+  local index=$1 path=$2 entry mode blob stage line read_status
   local source="$tmp_dir/conflict-source" relabelled="$tmp_dir/conflict-relabelled"
 
   entry=$(GIT_INDEX_FILE=$index git ls-files --stage -- "$path")
-  read -r mode blob stage rest <<<"$entry"
+  read -r mode blob stage _ <<<"$entry"
   [[ $stage == 0 && -n $mode && -n $blob ]] \
     || die "could not read merged conflict file: $path"
   git cat-file blob "$blob" >"$source"
-  LC_ALL=C awk \
-    -v port="<<<<<<< port ($base_branch)" \
-    -v base="||||||| last sync (${merge_base:0:7})" \
-    -v upstream=">>>>>>> upstream Ryoku $version (${target:0:7})" '
-      /^<<<<<<< / { print port; next }
-      /^\|\|\|\|\|\|\| / { print base; next }
-      /^>>>>>>> / { print upstream; next }
-      { print }
-    ' "$source" >"$relabelled"
+  : >"$relabelled"
+  while true; do
+    if IFS= read -r line <&3; then
+      read_status=0
+    else
+      read_status=$?
+    fi
+    ((read_status == 0)) || [[ -n $line ]] || break
+    case "$line" in
+      '<<<<<<< '*) line="<<<<<<< port ($base_branch)" ;;
+      '||||||| '*) line="||||||| last sync (${merge_base:0:7})" ;;
+      '>>>>>>> '*) line=">>>>>>> upstream Ryoku $version (${target:0:7})" ;;
+    esac
+    if ((read_status == 0)); then
+      printf '%s\n' "$line" >>"$relabelled"
+    else
+      printf '%s' "$line" >>"$relabelled"
+      break
+    fi
+  done 3<"$source"
   blob=$(git hash-object -w "$relabelled")
   GIT_INDEX_FILE=$index git update-index --add --cacheinfo "$mode,$blob,$path"
 }

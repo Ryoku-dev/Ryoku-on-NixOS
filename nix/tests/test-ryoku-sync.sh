@@ -247,6 +247,7 @@ assert_eq "$clean_sync" "$(git --git-dir="$fork_bare" rev-parse refs/heads/sync/
 # A real content conflict remains marked in the generated commit and is listed.
 git -C "$fork_seed" switch -q unstable-dev
 printf 'fork conflict\n' >"$fork_seed/conflict.txt"
+chmod 755 "$fork_seed/conflict.txt"
 printf 'fork stale installer\n' >"$fork_seed/installation/stale.txt"
 printf 'fork recovery\n' >"$fork_seed/installation/recovery/keep.txt"
 printf 'fork component changelog\n' >"$fork_seed/component/CHANGELOG.md"
@@ -265,6 +266,8 @@ git -C "$runner" fetch -q origin
 conflict_sync=$(git -C "$runner" rev-parse origin/sync/unstable)
 assert_eq "$fork_conflict_base" "$(git -C "$runner" show -s --format=%P "$conflict_sync")" \
   'conflict sync must have one fork parent'
+read -r conflict_mode _ < <(git -C "$runner" ls-tree "$conflict_sync" -- conflict.txt)
+assert_eq 100755 "$conflict_mode" 'conflict marker rewrite changed the file mode'
 conflict_text=$(git -C "$runner" show "$conflict_sync:conflict.txt")
 [[ $conflict_text == *'<<<<<<< port (unstable-dev)'* \
   && $conflict_text == *"||||||| last sync (${base:0:7})"* \
