@@ -13,11 +13,13 @@ let
       [ "" "" ]
       (builtins.readFile ../../CODENAME);
 
-  # The sync records which Ryoku build this tree was taken from.
-  upstream =
-    if builtins.pathExists ../sync/upstream.json
-    then (builtins.fromJSON (builtins.readFile ../sync/upstream.json)).upstream or { }
-    else { };
+  # nix/sync/ryoku-sync writes the upstream Ryoku commit this tree is
+  # synced to, so the marker names the exact upstream build.
+  ryokuCommit =
+    builtins.replaceStrings
+      [ "\n" "\r" ]
+      [ "" "" ]
+      (builtins.readFile ../sync/ryoku-commit);
 
 in
 {
@@ -33,8 +35,8 @@ in
       NAME="${codename}"
       CHANNEL="nix"
       VERSION="${version}"
-      COMMIT="${upstream.commit or ""}"
-      DATE="${upstream.date or ""}"
+      COMMIT="${ryokuCommit}"
+      DATE=""
     '';
   };
 }
