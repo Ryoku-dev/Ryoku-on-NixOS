@@ -149,6 +149,21 @@
   the other plugin packages.
 
 ### Fixed
+- **The CachyOS ISO is advisory to the publish gate, like the other ISOs.** The
+  gate's advisory list named it `Build CachyOS ISO` while the workflow is
+  `Build ISO (CachyOS)`, so a failed CachyOS image held every publisher of the
+  same commit (`bin/ryoku-ci-gate`).
+- **The 1.0 release path builds on every edition.** The ISO build container
+  gets `qt6-quick3d` for the Ryoku.Spatial3D plugin, the Fedora SRPM step gets a
+  GitHub token for its Ryotunes lookup, the Void void-packages pin moves to the
+  tree with NetworkManager 1.58.1 so a clean runner no longer source-builds 1.56,
+  and woke skips the typing-test word lists and the vendored Python bar weather
+  script (`.github/workflows/build-iso-reusable.yml`,
+  `.github/workflows/publish-repo-fedora.yml`, `void/packages/repo/`, `.woke.yml`).
+- **Release day is written down as it now runs.** `main` takes a release through
+  a pull request with a merge commit, and the checklist adds publishing the
+  script installer to `shell.ryoku.dev` (`docs/updates.md`,
+  `docs/development.md`, `CONTRIBUTING.md`).
 - **The Arch build host has Qt Quick 3D for `ryoku-blobs`.** Ryoku.Spatial3D
   compiles against it, and `makepkg --nodeps` ignores the recipe's own
   makedepends, so the `[ryoku]` build stopped at that package
@@ -247,6 +262,20 @@
   ensures `ryogami` instead of `awww` when it puts the wallpaper daemon back.
 
 ### Changed
+- **Discord notifications follow what Ryoku ships now.** One script,
+  `bin/ryoku-discord`, builds every message CI posts, and each Discord channel
+  gets its own webhook (`docs/updates.md`, Discord). A stable release is
+  announced in `#updates` only after the Arch and CachyOS stable channel serves
+  it (`release-announcement.yml`, dispatched by `publish-repo.yml`), once per
+  tag, with which editions are live and a ping for the release role; it no
+  longer posts at tag time from `release-notes.yml`. `#updates` also gets an
+  about-daily unstable roundup from `Note:` trailers after the Testing gate
+  passes. `#repo` gets issues, new and merged pull requests and `unstable-dev`
+  commit batches without the release bot's bumps; `main` pushes are no longer
+  posted. Publish failures for every edition (including release dispatches),
+  failed Testing gates and Arch, CachyOS and Void ISO results go to a staff
+  CI channel. `tests/ryoku-discord.sh` checks the mention rules, Discord's
+  limits and the handling of untrusted issue text.
 - **`ryoku-desktop` no longer requires Rashin on any edition.** On Arch
   `ryoku-rashin` moves from `depends` to `optdepends`, and the Fedora and Void
   desktops drop their hard requirement, so removing `ryoku-rashin` removes

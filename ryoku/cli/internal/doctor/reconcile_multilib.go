@@ -9,6 +9,14 @@ import (
 	i18n "ryoku-i18n"
 )
 
+var runMultilibCommand = sys.Run
+
+const multilibSyncHint = "sudo pacman -Sy"
+
+func syncMultilibDatabases() error {
+	return runMultilibCommand("sudo", "pacman", "-Sy")
+}
+
 // reconcileMultilibRepo heals the update failure a box hits when 32-bit
 // packages are installed but [multilib] is switched off in /etc/pacman.conf:
 // pacman -Syu then aborts with "failed to prepare transaction (could not
@@ -53,9 +61,9 @@ func reconcileMultilibRepo(checkOnly bool) recResult {
 	if err := writeRootFile(conf, out, "0644"); err != nil {
 		return failRes(i18n.T("could not write %s: %v"), conf, err)
 	}
-	if err := sys.Run("sudo", "pacman", "-Sy", "multilib"); err != nil {
-		return warnRes(i18n.T("re-enabled [multilib], but syncing it failed: %v"), err).
-			withFix("sudo pacman -Sy multilib")
+	if err := syncMultilibDatabases(); err != nil {
+		return warnRes(i18n.T("re-enabled [multilib], but syncing package databases failed: %v"), err).
+			withFix(multilibSyncHint)
 	}
 	return fixedRes(i18n.Tf("re-enabled [multilib] in %s so the %d 32-bit package(s) can update", conf, len(lib32)))
 }

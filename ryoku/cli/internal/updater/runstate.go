@@ -183,7 +183,9 @@ func (p *publisher) begin(steps []runStep) (resumed bool) {
 	p.started = nowMs()
 	if prev, ok := readState(); ok && prev.PID == p.pid && prev.Phase == "running" {
 		resumed = true
-		p.started = prev.Started
+		if prev.Started > 0 {
+			p.started = prev.Started
+		}
 		p.log = prev.Log
 		p.snapshot = prev.Snapshot
 		for i := range p.steps {
