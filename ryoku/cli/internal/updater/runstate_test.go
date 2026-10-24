@@ -189,3 +189,28 @@ func TestStage2AdoptsTheRunStage1Published(t *testing.T) {
 	}
 	t.Cleanup(q.idle)
 }
+
+func TestStage2KeepsFreshStartWhenLegacyRunHasNone(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	writeState(runState{
+		Phase: "running",
+		PID:   os.Getpid(),
+		Steps: []runStep{{Key: "packages", State: stepRunning}},
+	})
+
+	before := nowMs()
+	p := &publisher{}
+	resumed := p.begin(pkgSteps)
+	st := readRunState(t)
+	p.idle()
+
+	if !resumed {
+		t.Fatal("begin did not resume the legacy stage1 run")
+	}
+	if st.Started < before || st.Started > nowMs() {
+		t.Fatalf("resumed legacy run started=%d, want a fresh current timestamp", st.Started)
+	}
+	if st.Started == 0 {
+		t.Fatal("resumed legacy run retained the missing start time and would measure console duration from 1970")
+	}
+}

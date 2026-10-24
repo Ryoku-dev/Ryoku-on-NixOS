@@ -109,10 +109,11 @@ packages, including Quickshell, come from Ryoku's signed repository.
 set in one DNF transaction, then runs the same stage-two cutover, materialize,
 and doctor flow. `ryoku update --system` also upgrades the Fedora base. On a
 Fedora release Ryoku has not published yet, update and doctor explain that the
-Ryoku packages remain at their current versions. Fedora boots through GRUB and
-has no Ryoku snapshot or snapshot boot-menu support, so updates skip snapper.
-`ryoku rollback` and the boot guard still move the Ryoku set back by package
-downgrade, leaving Fedora and its kernel current.
+Ryoku packages remain at their current versions. Fedora keeps GRUB and uses
+snapper on a btrfs root. Its **Ryoku snapshots** submenu can boot a read-only
+snapshot, and `sudo ryoku boot-menu restore` makes that snapshot the system
+again. Package rollback and the boot guard still use DNF downgrades for the
+Ryoku set without moving the Fedora base or kernel.
 
 ### NixOS
 
@@ -490,8 +491,8 @@ The package repositories and ISOs live in the `ryoku-iso` bucket below
 | `channels/testing/index.json` | unstable build ledger, newest first | after each unstable publish or ledger rebuild |
 
 The unstable directory name replaces `+` in the release name with `_`, so
-`v0.94.1-beta.20.dev.12+g1234567` is stored below
-`builds/v0.94.1-beta.20.dev.12_g1234567/`. The ISO files sit at the bucket
+`v1.0.0.dev.12+g1234567` is stored below
+`builds/v1.0.0.dev.12_g1234567/`. The ISO files sit at the bucket
 root with their `.sha256`, `.sig`, `.json`, and `.js` sidecars. The
 `latest*.json` files point to current images.
 
@@ -628,7 +629,13 @@ on one origin.
 6. Verify `release-notes.yml` published the tag's GitHub release. It is
    dispatched by Stable Release and does not prove that repositories or images
    finished, so the endpoint checks above remain required.
-7. NixOS: within 20 minutes of the tag, Ryoku-on-NixOS opens a
+7. Check `#updates` on the Discord. Once the Arch and CachyOS stable channel
+   serves the tag, `publish-repo.yml` dispatches `release-announcement.yml`,
+   which posts the release and pings the role in the `DISCORD_RELEASE_ROLE_ID`
+   repository variable. It posts each tag once (`refs/notify/announced/<tag>`);
+   if it never arrived, dispatch it on the tag by hand, with `force` to repeat
+   one that did.
+8. NixOS: within 20 minutes of the tag, Ryoku-on-NixOS opens a
    `sync: Ryoku <version> (stable)` pull request into its `main`. Stable NixOS
    users get the release once a NixOS maintainer merges it.
 
@@ -662,6 +669,21 @@ workflows title the tag and the GitHub release with it (a line's first release
 opens with its story), and a box shows it in `ryoku version --pretty` (which
 fastfetch's OS line uses), `ryoku status`, `ryoku rollback`, the update
 island (when the channel serves the next line) and the Hub's Updates page.
+
+### Discord
+
+CI talks to the Ryoku Discord through one script, `bin/ryoku-discord`, so every
+message shares one look, fits Discord's limits and pings no one unless it is a
+release. Each channel has its own webhook secret:
+
+| Secret | Channel | What arrives |
+|---|---|---|
+| `DISCORD_UPDATES_WEBHOOK_URL` | `#updates` | stable release announcements (pinging `DISCORD_RELEASE_ROLE_ID`), and the unstable roundup the Testing gate posts about once a day from `Note:` trailers |
+| `DISCORD_FEED_WEBHOOK_URL` | `#repo` | new issues, new and merged pull requests, and batches of five or more `unstable-dev` commits (the release bot's bumps do not count) |
+| `DISCORD_CI_WEBHOOK_URL` | `#ci-alerts` | failed publishes for every edition, failed Testing gates, and every ISO build result |
+
+A missing secret skips the message, which is why forks and the NixOS mirror stay
+quiet. `tests/ryoku-discord.sh` builds every kind of message offline.
 
 ## The contract
 

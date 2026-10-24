@@ -141,8 +141,8 @@ installs the host toolchain, clones or updates the checkout, and runs
 `ryoku/shell/deploy.sh`; from then on `ryoku update` fast-forwards to the last
 commit the Testing gate passed and redeploys. A stable release tag pins its
 frozen release directory; an unstable build name such as
-`v0.94.1-beta.20.dev.12+g1234567` pins the matching frozen testing build, as
-packages. `ryoku track stable` returns a box to packages; `ryoku track unstable`
+`v1.0.0.dev.12+g1234567` pins the matching frozen testing build as packages.
+`ryoku track stable` returns a box to packages; `ryoku track unstable`
 returns a pinned box to the source lane. Pacman, XBPS, and DNF perform a package
 channel move as one transaction and restore the previous repository if the
 package move fails.

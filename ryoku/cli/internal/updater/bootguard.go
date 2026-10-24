@@ -9,9 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"ryoku-cli/internal/host"
+	"ryoku-cli/internal/limineefi"
 	"ryoku-cli/internal/sys"
 	i18n "ryoku-i18n"
 )
@@ -41,12 +40,10 @@ var (
 	noticeFile            = "/var/lib/ryoku/boot/notice.json"
 	limineConf            = "/boot/limine.conf"
 	restoreMarker         = "/run/lock/limine-snapper-restore.lock"
-	limineLastBootedEntry = "/sys/firmware/efi/efivars/LimineLastBootedEntry-513ee0d0-6e43-cb05-b272-f146a2fcb88a"
+	limineLastBootedEntry = limineefi.LastBootedEntryPath
 )
 
 var effectiveUID = os.Geteuid
-
-const fsImmutableFlag = 0x10
 
 type pendingUpdate struct {
 	From string `json:"from"`
@@ -336,28 +333,7 @@ func setLimineDefault(raw []byte, entry string) error {
 }
 
 func clearLimineLastBootedEntry() error {
-	file, err := os.Open(limineLastBootedEntry)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	flags, ioctlErr := unix.IoctlGetInt(int(file.Fd()), unix.FS_IOC_GETFLAGS)
-	if ioctlErr == nil && flags&fsImmutableFlag != 0 {
-		ioctlErr = unix.IoctlSetPointerInt(int(file.Fd()), unix.FS_IOC_SETFLAGS, flags&^fsImmutableFlag)
-	}
-	closeErr := file.Close()
-	if ioctlErr != nil {
-		return fmt.Errorf(i18n.T("clear Limine remembered-entry attributes: %w"), ioctlErr)
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err := os.Remove(limineLastBootedEntry); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf(i18n.T("clear Limine remembered entry: %w"), err)
-	}
-	return nil
+	return limineefi.ClearLastBootedEntry(limineLastBootedEntry)
 }
 
 // snapshotEntryPath follows the generated menu hierarchy so nested snapshot

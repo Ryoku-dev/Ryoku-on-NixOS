@@ -160,11 +160,9 @@ for finer detail.
   optional demo gifs (`| release/media/...`). A stable `v*` tag becomes a full
   release; each unstable-dev bump refreshes one rolling `unstable` pre-release.
   The `commit-msg` and `pre-push` hooks now also hold subjects to 72 characters
-  with no trailing period and validate the trailer. A stable release is also
-  announced to Discord, reusing the existing `DISCORD_WEBHOOK_URL` secret: the
-  published GitHub changelog is posted verbatim in a branded embed (wordmark
-  banner, logo mark, brand footer). The rolling `unstable` pre-release is not
-  announced, to keep the channel quiet. See `CONTRIBUTING.md`.
+  with no trailing period and validate the trailer. A stable release is
+  announced to Discord once the stable channel serves it, and unstable gets a
+  roundup about once a day (`release/CHANGELOG.md`). See `CONTRIBUTING.md`.
 - **The wallpaper picker's hex layout gains geometric tile families and field
   curves.** The picker can now lay its cards as hexagons, triangles, diamonds or
   rhombi, and bend the column field into a plane, a bow, a ribbon or an S-sweep,
