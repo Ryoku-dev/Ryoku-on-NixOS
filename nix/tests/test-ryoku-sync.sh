@@ -275,8 +275,13 @@ commit_all "$upstream" 'fix: human change'
 run_sync unstable --dry-run
 [[ $(<"$output") == *"Target: $target_conflict"* ]] || fail 'human range did not keep passed target'
 
-# Stable uses the newest compatible unstable fork state, not a newer incompatible one.
+# Stable follows the release tagged on upstream main, and uses the newest
+# compatible unstable fork state, not a newer incompatible one. A tag that is
+# not on main (an old hotfix or test tag) never becomes the stable target, even
+# when it sorts above the real release.
+git -C "$upstream" branch -f main "$target_clean"
 git -C "$upstream" tag v1.1.0 "$target_clean"
+git -C "$upstream" tag v2026.05.11-decoy "$target_conflict"
 git -C "$fork_seed" switch -q unstable-dev
 printf '%s\n' "$target_clean" >"$fork_seed/nix/sync/ryoku-commit"
 printf 'stable-compatible adaptation\n' >"$fork_seed/adaptation.txt"
@@ -292,19 +297,22 @@ stable_sync=$(git -C "$runner" rev-parse origin/sync/stable)
 assert_eq "$fork_base" "$(git -C "$runner" show -s --format=%P "$stable_sync")" \
   'stable sync parent must be current main'
 assert_file_at "$runner" "$stable_sync" adaptation.txt 'stable-compatible adaptation'
+assert_file_at "$runner" "$stable_sync" nix/sync/ryoku-commit "$target_clean"
 [[ $stable_compatible != "$(git -C "$fork_seed" rev-parse unstable-dev)" ]] \
   || fail 'stable fixture did not include a newer fork state'
 
-# A newest release tag outside all recorded upstream histories is a clean no-op.
+# A release on main that no recorded fork state reaches is a clean no-op.
 git -C "$upstream" switch -q --orphan unrelated-release
 git -C "$upstream" rm -q -r --ignore-unmatch .
 printf '9.0.0\n' >"$upstream/VERSION"
 printf 'unrelated\n' >"$upstream/unrelated.txt"
 commit_all "$upstream" 'release: unrelated'
 git -C "$upstream" tag v9.0.0
+git -C "$upstream" branch -f main unrelated-release
 run_sync stable --dry-run
 [[ $(<"$output") == *'no fork state matches the stable release yet'* ]] \
   || fail 'stable no-match notice missing'
+git -C "$upstream" branch -f main "$target_clean"
 git -C "$upstream" switch -q unstable-dev
 
 # A bot branch without an open PR is reusable after its head was merged.

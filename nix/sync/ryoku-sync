@@ -87,6 +87,7 @@ else
 fi
 upstream_ref="refs/ryoku-sync/upstream/unstable-dev"
 upstream_tags="refs/ryoku-sync/tags"
+upstream_main_ref="refs/ryoku-sync/upstream/main"
 fork_base_ref="refs/remotes/$fork_remote/$base_branch"
 fork_unstable_ref="refs/remotes/$fork_remote/unstable-dev"
 sync_ref="refs/remotes/$fork_remote/sync/$lane"
@@ -120,8 +121,16 @@ fetch_upstream_branch() {
   git fetch --quiet --no-tags "$upstream" "+$source_ref:$upstream_ref"
 }
 
-fetch_upstream_tags() {
-  git fetch --quiet --no-tags "$upstream" "+refs/tags/v*:$upstream_tags/v*"
+# The stable lane needs upstream main and the tags on it.
+fetch_upstream_main_and_tags() {
+  local source_ref="refs/heads/main"
+  if ! git ls-remote --exit-code "$upstream" "$source_ref" >/dev/null 2>&1; then
+    source_ref="refs/remotes/origin/main"
+  fi
+  git ls-remote --exit-code "$upstream" "$source_ref" >/dev/null 2>&1 \
+    || die "upstream has no main branch or origin/main remote ref"
+  git fetch --quiet --no-tags "$upstream" \
+    "+$source_ref:$upstream_main_ref" "+refs/tags/v*:$upstream_tags/v*"
 }
 
 read_sync_commit() {
@@ -175,11 +184,15 @@ upstream_target_unstable() {
   printf '%s\n' "$tip"
 }
 
+# The release Stable Release last tagged on upstream main. Main only moves by a
+# maintainer's fast-forward plus that workflow, so this is the stable lane;
+# tags off main (old hotfix or test tags) never qualify.
 upstream_target_stable() {
-  local -a tag_refs
-  mapfile -t tag_refs < <(git for-each-ref --sort=-version:refname --format='%(refname)' "$upstream_tags/v*")
-  ((${#tag_refs[@]})) || die "upstream has no v* release tag"
-  git rev-parse "${tag_refs[0]}^{commit}"
+  local tag_ref
+  tag_ref=$(git for-each-ref --merged="$upstream_main_ref" --sort=-creatordate \
+    --count=1 --format='%(refname)' "$upstream_tags/v[0-9]*")
+  [[ -n $tag_ref ]] || die "upstream main has no v* release tag"
+  git rev-parse "$tag_ref^{commit}"
 }
 
 find_stable_fork_state() {
@@ -484,7 +497,7 @@ fetch_upstream_branch
 
 if [[ $lane == stable ]]; then
   fetch_fork_branch unstable-dev
-  fetch_upstream_tags
+  fetch_upstream_main_and_tags
   target=$(upstream_target_stable)
   if ! stable_state=$(find_stable_fork_state "$target"); then
     printf 'no fork state matches the stable release yet\n'
@@ -494,7 +507,11 @@ if [[ $lane == stable ]]; then
   fi
   read -r ours merge_base <<<"$stable_state"
   parent=$(git rev-parse "$fork_base_ref^{commit}")
-  previous_recorded=$(read_sync_commit "$parent")
+  # A main that predates the sync bot records nothing; its first stable sync
+  # is measured from the unstable state it is built on.
+  if ! previous_recorded=$(read_sync_commit "$parent" 2>/dev/null); then
+    previous_recorded=$merge_base
+  fi
 else
   target=$(upstream_target_unstable)
   ours=$(git rev-parse "$fork_base_ref^{commit}")
@@ -621,10 +638,12 @@ sync_commit=$(printf '%s' "$commit_message" \
     git commit-tree "$final_tree" -p "$parent")
 
 mapfile -d '' -t changed_paths < <(git diff-tree --no-commit-id --name-only -r -z "$parent" "$sync_commit")
+# Measured from the fork state that was merged, not the parent: on stable the
+# parent is the older main, and its differences are already-reviewed port work.
 removed_paths=()
 while IFS= read -r -d '' path; do
   is_upstream_wins "$path" || removed_paths+=("$path")
-done < <(git diff-tree --no-commit-id --name-only --diff-filter=D -r -z "$parent" "$sync_commit")
+done < <(git diff-tree --no-commit-id --name-only --diff-filter=D -r -z "$ours" "$sync_commit")
 collect_notes "$previous_recorded..$target"
 build_pr_body "$previous_recorded" "$target"
 
