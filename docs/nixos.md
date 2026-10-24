@@ -327,14 +327,16 @@ How the merge works:
 
 Merging a sync:
 
-1. A clean sync gets a `ryoku-sync/checks` status (installer, ISO and package
-   checks). When it is green, merge the pull request with any merge method.
-2. A conflicted sync has no checks yet. Check out `sync/<lane>`, fix the listed
-   files, commit, push, then merge once the files build. You can add your own
-   NixOS commits to the branch the same way.
-3. Once a maintainer has pushed to the branch, the bot leaves it alone. When a
-   newer upstream target arrives, it adds a "Newer Ryoku waiting" line to the
-   pull request instead. Merge, and the next run opens the next sync.
+- Start with the **What to do** line at the top of the pull request. It says
+  whether the sync is ready for checks or needs a maintainer's decision.
+- Conflicts appear under **Needs a decision**, one file at a time, with the
+  marked line ranges and recent changes from Ryoku and the port. The same
+  ranges have red marks in **Files changed**.
+- For a conflict, check out `sync/<lane>`, fix every marked range, commit and
+  push. The bot then leaves that branch alone.
+- Merge only when no markers remain and the Nix checks are green. Clean bot
+  syncs report `ryoku-sync/checks`; maintainer pushes report
+  **Sync PR: no conflict markers left** and **Sync PR: Nix checks**.
 
 Run it by hand from **Actions > Sync Ryoku > Run workflow** (choose a lane), or
 from a checkout:
