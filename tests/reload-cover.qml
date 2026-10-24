@@ -10,7 +10,6 @@ Item {
         width: 0
         height: 0
         configReady: false
-        registryReady: false
     }
     Wallpaper.WallpaperFrame {
         id: frame
@@ -23,11 +22,18 @@ Item {
         gate.width = 2560
         gate.height = 1600
         if (gate.ready)
-            throw new Error("desktop became ready before config/registry")
+            throw new Error("desktop became ready before config")
+        // No plugin registry is started in this test. Built-in widgets
+        // must still load when their config and geometry are ready.
         gate.configReady = true
-        gate.registryReady = true
         if (!gate.ready)
-            throw new Error("desktop did not become ready after all gates")
+            throw new Error("desktop remained blocked on plugin discovery")
+        gate.width = 0
+        if (gate.ready)
+            throw new Error("zero-sized output kept widgets active")
+        gate.width = 2560
+        if (!gate.ready)
+            throw new Error("widgets did not recover after output geometry returned")
         if (frame.ready)
             throw new Error("wallpaper frame was ready before data")
         if (!frame.apply(JSON.stringify({ default: { path: "/tmp/default.png", revision: 1, fit: "Cover", live: false, transition: null }, outputs: { "DP-1": { path: "/tmp/override.png", revision: 2, fit: "Contain", live: true, transition: null } } })))
