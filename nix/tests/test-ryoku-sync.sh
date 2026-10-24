@@ -9,7 +9,6 @@ upstream="$root/upstream"
 fork_seed="$root/fork-seed"
 fork_bare="$root/fork.git"
 runner="$root/runner"
-checked="$root/checked.json"
 gh_log="$root/gh.log"
 output="$root/output"
 gh_state="$root/gh-state"
@@ -44,13 +43,9 @@ commit_all() {
     git -C "$repo" commit -q -m "$subject"
 }
 
+# Records the newest upstream commit whose Testing gate run succeeded.
 write_checked() {
-  local commit=$1 state=${2:-passed}
-  if [[ $state == passed ]]; then
-    printf '{"state":"passed","commit":"%s"}\n' "$commit" >"$checked"
-  else
-    printf '{"state":"building","passed":{"commit":"%s"}}\n' "$commit" >"$checked"
-  fi
+  printf '%s\n' "$1" >"$gh_state/passed"
 }
 
 run_sync() {
@@ -59,8 +54,7 @@ run_sync() {
   : >"$output"
   (
     cd "$runner"
-    RYOKU_CHECKED_URL="file://$checked" \
-      RYOKU_SYNC_GH="$root/gh-stub" \
+    RYOKU_SYNC_GH="$root/gh-stub" \
       GITHUB_REPOSITORY=Ryoku-dev/Ryoku-on-NixOS \
       "$script" --lane "$lane" --upstream "$upstream" --fork-remote origin "$@"
   ) >"$output"
@@ -98,6 +92,9 @@ while (($#)); do
 done
 
 case "$endpoint" in
+  repos/*/actions/workflows/testing-gate.yml/runs*)
+    cat "$GH_STATE_DIR/passed"
+    ;;
   repos/*/pulls)
     lane=${head##*/}
     if [[ $method == POST ]]; then
@@ -268,7 +265,7 @@ commit_all "$upstream" 'release: bump unstable to 1.1.1' 'github-actions[bot]'
 printf 'bump two\n' >"$upstream/bump-two.txt"
 commit_all "$upstream" 'release: bump unstable to 1.1.2' 'github-actions[bot]'
 bot_tip=$(git -C "$upstream" rev-parse HEAD)
-write_checked "$target_conflict" building
+write_checked "$target_conflict"
 run_sync unstable --dry-run
 [[ $(<"$output") == *"Target: $bot_tip"* ]] || fail 'bot-only bump range did not resolve to tip'
 
