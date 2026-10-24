@@ -64,7 +64,7 @@ jobs:
       - name: Sync Ryoku
         id: sync
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: nix/sync/ryoku-sync --lane "${{ matrix.lane }}"
 
       - name: Save sync result
@@ -156,7 +156,7 @@ jobs:
       - name: Publish check status
         if: always() && steps.result.outputs.eligible == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ steps.result.outputs.head }}
           JOB_STATUS: ${{ job.status }}
         run: |
