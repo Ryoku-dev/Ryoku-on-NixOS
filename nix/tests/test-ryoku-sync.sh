@@ -219,6 +219,12 @@ assert_file_at "$runner" "$clean_sync" retired.txt 'retired upstream provider'
 [[ $(<"$gh_state/unstable.body") == *"<!-- ryoku-sync-head: $clean_sync -->"* ]] \
   || fail 'pull request body did not record the bot branch head'
 
+# Re-running with nothing new leaves the branch and its checks alone.
+run_sync unstable
+assert_eq "$clean_sync" "$(git --git-dir="$fork_bare" rev-parse refs/heads/sync/unstable)" \
+  'unchanged sync was force-pushed again'
+[[ $(<"$output") == *'already up to date'* ]] || fail 'idempotent run notice missing'
+
 # A real content conflict remains marked in the generated commit and is listed.
 git -C "$fork_seed" switch -q unstable-dev
 printf 'fork conflict\n' >"$fork_seed/conflict.txt"

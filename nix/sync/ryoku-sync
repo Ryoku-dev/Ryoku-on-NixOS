@@ -510,14 +510,29 @@ if git merge-base --is-ancestor "$target" "$previous_recorded"; then
 fi
 
 open_pr_number=""
-if ((dry_run == 0)) && git show-ref --verify --quiet "$sync_ref" \
-  && ! sync_branch_is_reusable; then
-  message="Newer Ryoku waiting: $target. sync/$lane has a maintainer commit, so the bot left it unchanged; merge this PR and the next sync follows."
-  printf '%s\n' "$message"
-  note_waiting_target "$open_pr_number" "$message"
-  emit_output created false
-  emit_output conflicts 0
-  exit 0
+if ((dry_run == 0)) && git show-ref --verify --quiet "$sync_ref"; then
+  branch_recorded=$(read_sync_commit "$sync_ref" 2>/dev/null || true)
+  if ! sync_branch_is_reusable; then
+    if [[ $branch_recorded == "$target" ]]; then
+      printf 'sync/%s already carries %s and has maintainer commits\n' "$lane" "$target"
+    else
+      message="Newer Ryoku waiting: $target. sync/$lane has a maintainer commit, so the bot left it unchanged; merge this PR and the next sync follows."
+      printf '%s\n' "$message"
+      note_waiting_target "$open_pr_number" "$message"
+    fi
+    emit_output created false
+    emit_output conflicts 0
+    exit 0
+  fi
+  # Rebuilding an unchanged sync would only force-push a new timestamp and
+  # rerun the checks every twenty minutes.
+  if [[ -n $open_pr_number && $branch_recorded == "$target" ]] \
+    && [[ $(git rev-parse "$sync_ref^") == "$parent" ]]; then
+    printf 'sync/%s is already up to date with %s\n' "$lane" "$target"
+    emit_output created false
+    emit_output conflicts 0
+    exit 0
+  fi
 fi
 
 merge_output="$tmp_dir/merge-output"
