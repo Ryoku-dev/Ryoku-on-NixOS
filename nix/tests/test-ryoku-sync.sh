@@ -200,6 +200,8 @@ assert_file_at "$runner" "$clean_sync" nix/sync/ryoku-commit "$target_clean"
 assert_file_at "$runner" "$clean_sync" nix/upstream.txt 'fork nix'
 assert_file_at "$runner" "$clean_sync" flake.nix 'fork flake'
 assert_file_at "$runner" "$clean_sync" .github/workflow.yml 'fork workflow'
+[[ $(<"$gh_state/unstable.body") == *'Upstream changed files the port owns'*'`flake.nix`'*'`nix/upstream.txt`'* ]] \
+  || fail 'upstream changes to port-owned files missing from pull request body'
 assert_file_at "$runner" "$clean_sync" VERSION '1.1.0'
 assert_file_at "$runner" "$clean_sync" elsewhere/new.txt 'new elsewhere'
 assert_file_at "$runner" "$clean_sync" tests/fork-only-helper.py 'fork-only test helper'
