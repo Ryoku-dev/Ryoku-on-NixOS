@@ -114,6 +114,25 @@ has no Ryoku snapshot or snapshot boot-menu support, so updates skip snapper.
 `ryoku rollback` and the boot guard still move the Ryoku set back by package
 downgrade, leaving Fedora and its kernel current.
 
+### NixOS
+
+Ryoku on NixOS lives in
+[Ryoku-dev/Ryoku-on-NixOS](https://github.com/Ryoku-dev/Ryoku-on-NixOS). It
+carries its own copy of this tree plus the NixOS module, installer and ISO, and
+installed systems follow one of its branches through their `/etc/nixos` flake:
+`unstable-dev` for unstable, `main` for stable. `ryoku update` there bumps that
+flake input, builds the new system generation and switches to it, rolling back
+the lock and the generation if any step fails.
+
+The port's **Sync Ryoku** workflow keeps it on the same two lanes as every
+other edition. Every 20 minutes it opens or updates one pull request per lane:
+the newest `unstable-dev` commit whose Testing gate passed, and the newest `v*`
+tag (which only exists after Stable Release). Nothing reaches NixOS users until
+a NixOS maintainer merges that pull request; after the merge, the port's cache
+workflow pushes the built system to the binary cache installed systems trust.
+How a sync merges and how to resolve a conflicted one is in the port's
+`docs/nixos.md`.
+
 ### Ryotunes by edition
 
 Ryotunes releases independently on
@@ -609,6 +628,9 @@ on one origin.
 6. Verify `release-notes.yml` published the tag's GitHub release. It is
    dispatched by Stable Release and does not prove that repositories or images
    finished, so the endpoint checks above remain required.
+7. NixOS: within 20 minutes of the tag, Ryoku-on-NixOS opens a
+   `sync: Ryoku <version> (stable)` pull request into its `main`. Stable NixOS
+   users get the release once a NixOS maintainer merges it.
 
 The scheduled Cloudflare Worker in `release/r2-retention/` runs every six hours.
 It keeps the newest ten stable releases and unstable builds per package edition
