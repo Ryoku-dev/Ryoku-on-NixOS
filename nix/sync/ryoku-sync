@@ -508,18 +508,44 @@ build_pr_body_variant() {
 
   if ((${#conflicts[@]})); then
     pr_body="**What to do:** ${#conflicts[@]} files need a decision (listed below). Fix them on this branch, push, merge once the Sync PR checks are green."
-    check_text="Blocked until the conflicts below are resolved."
+    check_text="Blocked until the files under Needs a decision are fixed."
   else
     pr_body='**What to do:** merge once the ryoku-sync/checks status is green.'
     check_text="Pending: the ryoku-sync/checks status runs against this commit."
   fi
   pr_body+=$(printf '\n\nSyncs Ryoku `%s...%s`.\n\nUpstream: https://github.com/%s/compare/%s...%s\n' \
     "$previous" "$target" "$upstream_repo" "$previous" "$target")
+  if ((${#conflicts[@]})); then
+    pr_body+=$'\n### Needs a decision: '
+    pr_body+="${#conflicts[@]} files"$'\n\n'
+    pr_body+='Check out the branch, fix the marked lines, push. The bot stops touching the branch once you push; the "Sync PR" checks then run on your commit.'
+    pr_body+=$'\n\n    git fetch origin && git switch sync/'
+    pr_body+="$lane"$'\n'
+    if ((excerpts_omitted)); then
+      pr_body+=$'\nConflict excerpts omitted to keep this report under the body limit.\n'
+    fi
+    for ((index = 0; index < file_limit; index += 1)); do
+      report=$(build_conflict_report "${conflicts[index]}" "$include_details")
+      pr_body+=$'\n'
+      pr_body+="$report"$'\n'
+    done
+    omitted=$((${#conflicts[@]} - file_limit))
+    if ((omitted > 0)); then
+      pr_body+=$'\nand '
+      pr_body+="$omitted more files"$'\n'
+    fi
+  fi
   if ((${#notes[@]})); then
-    pr_body+=$'\nNotes:\n'
+    pr_body+=$'\n### What changed upstream\n\n'
+    if ((${#notes[@]} > 15)); then
+      pr_body+="${#notes[@]} user-facing changes."$'\n\n<details>\n<summary>Show them</summary>\n\n'
+    fi
     for note in "${notes[@]}"; do
       pr_body+="- $note"$'\n'
     done
+    if ((${#notes[@]} > 15)); then
+      pr_body+=$'\n</details>\n'
+    fi
   fi
   if ((${#stale_copies[@]})); then
     pr_body+=$'\n### Stale copies refreshed from upstream\n\n'
@@ -552,26 +578,6 @@ build_pr_body_variant() {
     done
     if ((${#removed_paths[@]} > 20)); then
       pr_body+=$'\n</details>\n'
-    fi
-  fi
-  if ((${#conflicts[@]})); then
-    pr_body+=$'\n### Needs a decision: '
-    pr_body+="${#conflicts[@]} files"$'\n\n'
-    pr_body+='Check out the branch, fix the marked lines, push. The bot stops touching the branch once you push; the "Sync PR" checks then run on your commit.'
-    pr_body+=$'\n\n    git fetch origin && git switch sync/'
-    pr_body+="$lane"$'\n'
-    if ((excerpts_omitted)); then
-      pr_body+=$'\nConflict excerpts omitted to keep this report under the body limit.\n'
-    fi
-    for ((index = 0; index < file_limit; index += 1)); do
-      report=$(build_conflict_report "${conflicts[index]}" "$include_details")
-      pr_body+=$'\n'
-      pr_body+="$report"$'\n'
-    done
-    omitted=$((${#conflicts[@]} - file_limit))
-    if ((omitted > 0)); then
-      pr_body+=$'\nand '
-      pr_body+="$omitted more files"$'\n'
     fi
   fi
   pr_body+=$'\nChecks: '
