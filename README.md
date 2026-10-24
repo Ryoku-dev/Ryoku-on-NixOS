@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/readme/assets/brand/ryoku-logo.png" alt="Ryoku" width="250" />
-
 # Ryoku on NixOS
+
+<img src="docs/readme/assets/brand/ryoku-header.jpg" alt="Ryoku" width="850" />
 
 ### 力と美のために
 **The Ryoku you already know, made declarative for NixOS.**
