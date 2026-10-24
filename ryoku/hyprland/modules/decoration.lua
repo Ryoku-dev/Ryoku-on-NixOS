@@ -100,13 +100,6 @@ hl.layer_rule({
   match   = { namespace = "^launcher" },
   no_anim = true,
 })
--- Panels welded onto a bar style's seam slide out from under the bar in QML,
--- and the compositor's own layer animation would move them a second time.
-hl.layer_rule({
-  name    = "weld-noanim",
-  match   = { namespace = "^ryoku-weld" },
-  no_anim = true,
-})
 -- The toasts animate themselves (slide + fade per card), so the compositor's
 -- own layer animation runs on top of that and fights it: the column jumps on
 -- open and flickers away on a workspace switch, when the layer re-animates for

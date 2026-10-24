@@ -2,11 +2,9 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import "framebars/MenuState.js" as MenuState
-import "framebars/RailGeometry.js" as RailGeometry
 import Ryoku.FrameBars
 import shell.services
 import "popouts"
-import "../../components"
 
 // The single per-monitor frame menu manager. It repeats the configured menu
 // records and owns which record is active at each anchor for THIS monitor.
@@ -41,11 +39,6 @@ Item {
     // other rails, so frame menus fold to barEdge or its matching corner.
     property bool topBar: false
     property string barEdge: "top"   // the edge the folded bar sits on: top | bottom
-    // The bar style's seam (RailGeometry.seamSpec). Compact menus on the top edge
-    // then slide out from under the bar welded onto it, like the style's panels.
-    property var seam: null
-    readonly property bool weldMenus: !!root.seam && !root.chromeSide
-        && root.chromeAnchor.indexOf("top") === 0
     function mapAnchor(a) {
         if (!root.topBar || !a) return a;
         if (root.barEdge === "bottom") {
@@ -171,7 +164,7 @@ Item {
     readonly property bool chromeSwitchPending: !!(root.pendingChrome && root.pendingChrome.id)
     Timer {
         id: chromeSwitchTimer
-        interval: root.chromeSide ? Motion.sidebarExit : root.weldMenus ? Motion.morph : Motion.diagonal
+        interval: root.chromeSide ? Motion.sidebarExit : Motion.diagonal
         onTriggered: {
             const next = root.pendingChrome;
             root.pendingChrome = ({});
@@ -192,10 +185,10 @@ Item {
         NumberAnimation {
             duration: root.chromeSide
                 ? (root.chromeEntering ? Motion.sidebarEnter : Motion.sidebarExit)
-                : root.weldMenus ? Motion.morph : Motion.diagonal
-            easing.type: root.chromeSide || root.weldMenus ? Easing.BezierSpline : Motion.diagonalCurve
-            easing.bezierCurve: root.weldMenus ? Motion.effectsCurve
-                : root.chromeEntering ? Motion.sidebarEnterCurve : Motion.sidebarExitCurve
+                : Motion.diagonal
+            easing.type: root.chromeSide ? Easing.BezierSpline : Motion.diagonalCurve
+            easing.bezierCurve: root.chromeEntering
+                ? Motion.sidebarEnterCurve : Motion.sidebarExitCurve
         }
     }
     property real chromeOpacity: 0
@@ -285,8 +278,6 @@ Item {
             return { anchor: a, x: r.x - (r.x + r.w) * (1 - p), y: r.y, w: r.w, h: r.h };
         if (root.chromeSide && (a === "right" || a.indexOf("-right") >= 0))
             return { anchor: a, x: r.x + (root.width - r.x) * (1 - p), y: r.y, w: r.w, h: r.h };
-        if (root.weldMenus)
-            return { anchor: a, x: r.x, y: r.y - r.h * (1 - p), w: r.w, h: r.h };
         if (a === "left")         return { anchor: a, x: r.x,         y: r.y,     w: wp, h: r.h };
         if (a === "right")        return { anchor: a, x: rr - wp,     y: r.y,     w: wp, h: r.h };
         if (a === "top")          return { anchor: a, x: cx - wp / 2, y: r.y,     w: wp, h: hp };
@@ -406,8 +397,35 @@ Item {
         for (const anchor in mon) if (mon[anchor] && mon[anchor].id === id) return anchor;
         return "";
     }
+    // The screen edge (top/bottom/left/right) nearest a point, so a popout welds
+    // to the rail edge its trigger widget hugs.
+    function edgeNearest(x, y) {
+        const d = { top: y, bottom: root.height - y, left: x, right: root.width - x };
+        let best = "top";
+        for (const e in d) if (d[e] < d[best]) best = e;
+        return best;
+    }
+
+    // The rail edge a trigger widget sits ON. A rail is a thin strip along one
+    // screen edge (railClearances is its inside depth), so a widget within a
+    // rail's depth welds its popout to THAT rail -- even a left-rail widget at
+    // the very bottom, which edgeNearest would mis-assign to the bottom edge and
+    // melt with the wrong (dipping, centre-narrowing) geometry. Only edges that
+    // carry a live rail (clearance > 0) qualify; otherwise fall back to nearest.
+    // Corner ownership decides the order. A horizontal rail spans the full width
+    // and owns both shared corners (Bar.qml gives it leadInset 0); a vertical one
+    // is inset to fit BETWEEN them. So a point in a shared corner belongs to the
+    // horizontal rail, and top/bottom must be tested first -- testing left first
+    // stole every top/bottom widget sitting within a side rail's depth and opened
+    // its menu welded to the wrong edge.
     function edgeForTrigger(x, y) {
-        return RailGeometry.edgeForTrigger(x, y, root.width, root.height, root.railClearances);
+        const c = root.railClearances || ({});
+        const cl = c.left || 0, cr = c.right || 0, ct = c.top || 0, cb = c.bottom || 0;
+        if (ct > 0 && y <= ct) return "top";
+        if (cb > 0 && root.height - y <= cb) return "bottom";
+        if (cl > 0 && x <= cl) return "left";
+        if (cr > 0 && root.width - x <= cr) return "right";
+        return root.edgeNearest(x, y);
     }
 
     // Single-open invariant (contract 05 sec 4): before revealing a menu or
@@ -524,20 +542,6 @@ Item {
         const anchor = root.liveAnchorFor(id);
         if (anchor !== "") root.closeAt(anchor);
     }
-    // Another welded panel took the bar's seam: close every card but the
-    // prompts and the voice toast, which must never fold.
-    function foldBodies() {
-        const mon = root.menuState[root.monitorName];
-        if (!mon) return;
-        for (const anchor in mon) {
-            const rec = mon[anchor];
-            if (rec && rec.id !== "voice" && rec.id !== "keyring" && rec.id !== "polkit")
-                root.closeAt(anchor);
-        }
-    }
-    function hasRecord(id) {
-        return !!MenuState.recordFor(root.records, (id || "").split("#")[0]);
-    }
     function closeAll() {
         const mon = root.menuState[root.monitorName];
         if (!mon) return;
@@ -545,33 +549,6 @@ Item {
     }
 
     onActiveChanged: if (!root.active) root.closeAll()
-
-    // The welded menus' card, cut at the bar's edge so it reads as coming out
-    // from under the bar; its fillets only form in the last stretch.
-    Item {
-        id: seamClip
-
-        readonly property var panel: root.chromePanel
-        readonly property real fillet: root.seam ? root.seam.fillet : 0
-
-        visible: root.weldMenus && seamClip.panel.w > 0 && seamClip.panel.h > 0 && root.chromeReveal > 0.004
-        y: root.seam ? root.seam.depth - 1 : 0
-        width: root.width
-        height: Math.max(0, root.height - y)
-        clip: true
-
-        WeldShape {
-            x: seamClip.panel.x
-            y: seamClip.panel.y - seamClip.y
-            width: seamClip.panel.w
-            height: seamClip.panel.h
-            opacity: root.chromeReveal
-            fillet: Math.max(0, Math.min(seamClip.fillet,
-                seamClip.fillet - (root.chromeRest.y - seamClip.panel.y)))
-            radius: root.seam ? root.seam.radius : 0
-            role: root.seam ? root.seam.fill : "surface"
-        }
-    }
 
     Repeater {
         id: menuRepeater
@@ -600,7 +577,6 @@ Item {
             s: root.scale
             active: root.active
             manager: root
-            seam: root.seam
             record: modelData
             anchor: effectiveAnchor
             menuOpen: root.active && liveAnchor !== ""

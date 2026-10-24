@@ -80,20 +80,5 @@ function monitorScale(screen, scale, cap) {
     return (typeof cap === "number" && cap > 0) ? Math.min(cap, f) : f;
 }
 
-// A global rectangle from Item.mapToGlobal, in the output's own logical pixels,
-// or null when its centre is off that output. QtWayland pins every layer window
-// to its output's origin, so a global point is that origin plus the local one.
-function localRect(rect, screen) {
-    if (!rect || !screen || !(screen.width > 0) || !(screen.height > 0))
-        return null;
-    var x = rect.x - (screen.x || 0);
-    var y = rect.y - (screen.y || 0);
-    var cx = x + rect.width / 2;
-    var cy = y + rect.height / 2;
-    if (!(cx >= 0 && cx < screen.width && cy >= 0 && cy < screen.height))
-        return null;
-    return { x: x, y: y, width: rect.width, height: rect.height };
-}
-
 if (typeof module !== "undefined" && module.exports)
-    module.exports = { uniqueByName, sameOutputs, sliceForName, sliceForScreen, monitorScale, localRect };
+    module.exports = { uniqueByName, sameOutputs, sliceForName, sliceForScreen, monitorScale };

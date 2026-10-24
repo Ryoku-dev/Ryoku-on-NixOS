@@ -53,35 +53,6 @@
   that is not a VPN or WireGuard profile (`ipc/network.go`,
   `quickshell/shell/services/{Network,Tailscale}.qml`,
   `quickshell/shell/modules/bar/barstyles/orpheus/`).
-- **The overview welds onto a seam as a compact strip.** Where the shell draws
-  its own overview, a bar style with a seam gets it hanging from the bar like
-  the other panels: the desktops as a row of chips over one row of live
-  workspace previews sized to fit under the bar, wrapping only when they would
-  get too small. A style can hang it under its own mark with an `ownerRect`.
-  Styles without a seam and compositors with their own overview are unchanged
-  (`quickshell/shell/{modules/overview/,shell.qml,services/ShellState.qml}`).
-- **The launcher, the clipboard and the ask bar weld onto a seam too.** Under
-  a bar style that declares a seam, the `main` launcher, the clipboard history
-  and the ask bar hang flush from the bar like its panels and slide out from
-  under it, with no dim, frost or shadow; a style can hang each under its own
-  mark with an `ownerRect`. One welded panel is open per screen, the bar stays
-  clickable while one is, and the keyboard layout notice moves to the bottom.
-  Styles without a seam are unchanged
-  (`quickshell/shell/{components/WeldedCard.qml,shell.qml,services/ShellState.qml,modules/launcher/variants/main/,modules/clipboard/ClipboardSurface.qml,modules/ask/,modules/osd/KeyboardOsdWindow.qml}`).
-- **The shell's menus can weld onto a bar style's own edge.** A top bar style
-  that declares a `seam` on its Scene gets the rail cards, the theme and
-  weather menus and Controls drawn flush with its bar in the bar's colour, with
-  concave fillets and no outline, sliding out from under the bar like the
-  style's own panels. Styles without a seam keep the floating cards
-  (`quickshell/shell/{components/WeldShape.qml,modules/bar/framebars/RailGeometry.js,modules/bar/Frame.qml,modules/bar/FrameMenuManager.qml,modules/bar/FrameMenu.qml,modules/bar/FrameSurface.qml,modules/bar/popouts/,modules/sidebar/Sidebar.qml,services/SidebarState.qml}`).
-- **Bar styles can open Controls beside their own widget.** A request for
-  `sidebar-left` that carries `{ ownerRect: <global rect> }` places the card
-  under that widget on a top bar, above it on a bottom bar, and beside it on a
-  side rail, kept inside the screen; switching tabs keeps it beside that
-  widget. The shortcut, the CLI and every request without a rect keep the
-  top-left corner. Controls and the frame menus pick the trigger's edge with
-  one shared rule
-  (`quickshell/shell/{services/SidebarState.qml,modules/sidebar/Sidebar.qml,modules/bar/framebars/RailGeometry.js,modules/bar/FrameMenuManager.qml}`).
 - **Orpheus can show coding-agent limits and a paired phone.** Its Layout editor
   now offers an AI usage module backed by the same watched caches as QS Bar, and
   a phone module with connection, battery, and unread state that opens Kit's

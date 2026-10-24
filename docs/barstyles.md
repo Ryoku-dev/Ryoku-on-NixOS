@@ -729,81 +729,11 @@ not bar widgets, so they are the same in every style. They normally anchor to
 the Sumi rail edges and read against the
 frame band. The two sidebars (Super+Escape left, Super+S right) are not frame
 menus: they are independent screen-edge overlays (`docs/sidebars.md`), which is
-why they look and work the same under every style; Controls opens where the
-requesting style asks (see below). A folder style has no rails and hides the band, so `shell.qml` sets
+why they behave identically under every style. A folder style has no rails and hides the band, so `shell.qml` sets
 `topBar` on the per-monitor `FrameMenuManager`: side and bottom anchors fold up to
 the matching top edge or corner, the menus drop a small inset below the bar, and
 each menu paints its own card since the frame is not there to draw it. Nothing
 per-style is needed; a top-bar folder style like QS Bar gets this for free.
-
-### Opening shell surfaces under a widget
-
-A style opens a frame menu or Controls under its own widget by passing the
-widget's global rectangle and its own screen name:
-
-```qml
-const at = owner.mapToGlobal(0, 0);
-ShellState.requestSurfaceActive(id, modelData.name, {
-    ownerRect: { x: at.x, y: at.y, width: owner.width, height: owner.height }
-});
-```
-
-Frame menus such as `network`, `audio` or `weather`, and Controls
-(`sidebar-left`), then open on the edge the rectangle sits on, picked by one
-rule in `modules/bar/framebars/RailGeometry.js`. Without a rectangle a menu
-keeps its configured anchor and Controls opens top-left. A rectangle that lies
-off the named screen opens no menu, and Controls falls back to top-left. A
-request without a screen name goes to the focused output. `mapToGlobal` gives
-the right rectangle only from a window that starts at its screen's top-left
-corner, such as a full-screen or top-anchored bar; QtWayland reports every
-layer window at its screen's origin.
-
-### Welding shell surfaces to the bar
-
-A top bar style whose own panels grow out of its bottom edge can have the
-shell's surfaces do the same. It declares a `seam` on its Scene root, in
-logical pixels:
-
-```qml
-readonly property var seam: ({
-    edge: "top",     // only a top seam welds
-    depth: 52,       // where the bar's bottom edge runs
-    fillet: 17,      // radius of the two concave fillets into the bar
-    radius: 23,      // radius of the card's bottom corners
-    margin: 49,      // closest a card comes to a screen side
-    fill: "surface"  // the bar's Theme role: surface or another surface* role
-})
-```
-
-The rail cards (network, Bluetooth, sound, battery, system monitor, player),
-the theme and weather menus and Controls then hang flush from that edge in the
-bar's colour, with no outline, and slide out from under the bar the way the
-style's panels do. A press on a fillet is swallowed, not a click-away.
-Prompts, voice, capture and plugin popouts keep their own look. A `fill` that
-is not a `surface` role paints `surface`. While a fullscreen window covers the
-screen the cards float again, since the bar steps aside. A style without a
-seam, or with one the shell cannot read, keeps the floating cards.
-
-The app launcher (its `main` variant), the clipboard history and the ask bar
-weld the same way, without their dim, frost or shadow, and the clipboard
-narrows to a panel under the bar. Under a seam one panel is open per screen:
-opening any of them, Controls, a card or a plugin popout closes the others
-there, and the style's own panels with them if it listens on the surface bus.
-Prompts and the voice toast never close for it. A style hangs a panel under its
-own mark the same way it does a card:
-`ShellState.requestSurfaceActive("launcher", modelData.name, { ownerRect })`,
-or `"clipboard"` and `"ask"`; a keybind opens it centred on the bar. The bar
-itself stays clickable while a panel is open, so another mark switches to its
-panel. The keyboard layout notice moves to the bottom of the screen, above the
-volume OSD, so it does not cover a panel's search row.
-
-Where the shell draws the overview itself, on a compositor that reports window
-geometry and has no overview of its own, the overview welds too, as a compact
-strip under the bar: the desktops as a row of chips over one row of live
-workspace previews. The row shrinks to fit the screen and wraps only once a
-preview would get too small to read. It opens under a mark with `"overview"`
-and an `ownerRect` like the others. A compositor with its own overview, such
-as niri, keeps opening that one.
 
 ## Checklist to ship a style
 

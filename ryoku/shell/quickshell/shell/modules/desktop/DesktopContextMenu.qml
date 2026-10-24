@@ -58,14 +58,9 @@ Item {
         menu.close();
     }
     // Search opens this monitor's app launcher (the Super+Space surface).
-    // Under a bar style's seam it goes over the surface bus like the keybind,
-    // so the other welded panels close for it.
     function openSearch() {
         const st = menu.targetState();
-        const mon = menu.activeMonitor();
-        if (st && !st.launcherOpen && Services.SidebarState.seamFor(mon))
-            Services.ShellState.requestSurfaceActive("launcher", mon);
-        else if (st)
+        if (st)
             st.launcherOpen = true;
         menu.close();
     }

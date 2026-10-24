@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const { uniqueByName, sameOutputs, sliceForName, sliceForScreen, monitorScale, localRect } = require("./screens.js");
+const { uniqueByName, sameOutputs, sliceForName, sliceForScreen, monitorScale } = require("./screens.js");
 
 let failed = 0;
 function eq(actual, expected, message) {
@@ -93,21 +93,6 @@ eq(monitorScale({ name: "x", width: 0, height: 0 }, 2), 1,
     "a 0x0 placeholder output is not scaled to zero");
 ok(monitorScale(logical(1280), 1.25) > monitorScale(logical(1280), 1),
     "raising the display scale grows the factor, never shrinks it");
-
-const at = (x, y, width, height) => ({ name: "out", x, y, width, height });
-const button = (x, y) => ({ x, y, width: 20, height: 22 });
-eq(localRect(button(727, 15), at(0, 0, 1272, 688)), button(727, 15),
-    "an output at the origin keeps the rectangle as it is");
-eq(localRect(button(1960, 20), at(1920, 0, 2560, 1440)), button(40, 20),
-    "an output to the right takes its own origin off");
-eq(localRect(button(100, 1100), at(0, 1080, 1920, 1080)), button(100, 20),
-    "an output below takes its own origin off");
-eq(localRect(button(40, 20), at(1920, 0, 2560, 1440)), null,
-    "a rectangle from another output is not placed on this one");
-eq(localRect(button(1270, 900), at(0, 0, 1280, 1280)), null,
-    "a centre on the far edge is off the output");
-eq(localRect(button(10, 10), null), null, "no output places nothing");
-eq(localRect(null, at(0, 0, 1272, 688)), null, "no rectangle places nothing");
 
 if (failed > 0) { console.log("\n" + failed + " test(s) FAILED"); process.exit(1); }
 console.log("\nAll tests PASSED");

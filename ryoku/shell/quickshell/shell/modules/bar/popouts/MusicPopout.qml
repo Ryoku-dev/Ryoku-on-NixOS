@@ -23,7 +23,6 @@ Item {
 
     property real s: 1
     property bool open: false
-    property bool welded: false
 
     // Overridable so the card can be driven from a stub; defaults to the shared
     // media pick.
@@ -60,7 +59,7 @@ Item {
     readonly property color accentHi: Qt.lighter(root.artAccent, 1.25)
 
     // the framed card skin + click-swallow, shared with every frame-edge card.
-    PopoutCard { anchors.fill: parent; bare: root.welded }
+    PopoutCard { anchors.fill: parent }
 
     // "{h}:{mm}:{ss}" past an hour, else "{m}:{ss}".
     function fmtTime(sec) {

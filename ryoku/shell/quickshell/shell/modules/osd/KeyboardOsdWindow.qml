@@ -44,21 +44,15 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.namespace: "ryoku-keyboard-osd"
 
-    // Under a bar style's seam the welded panels hang where this would sit, over
-    // their search rows, so the shipped panel shows at the bottom instead, one
-    // volume OSD above that one's place.
-    readonly property bool belowPanels: !win.storeRuns && !!SidebarState.seamFor(modelData)
-
     // A single selected edge centres the other axis. No edge anchors centre
     // the whole surface, while the shipped panel keeps its top span.
-    anchors.top: win.storeRuns ? designLoader.placement === "top" : !win.belowPanels
-    anchors.bottom: win.storeRuns ? designLoader.placement === "bottom" : win.belowPanels
+    anchors.top: !win.storeRuns || designLoader.placement === "top"
+    anchors.bottom: win.storeRuns && designLoader.placement === "bottom"
     anchors.left: !win.storeRuns || designLoader.placement === "left"
     anchors.right: !win.storeRuns || designLoader.placement === "right"
-    margins.top: win.storeRuns ? (designLoader.placement === "top" ? 24 * win.us : 0)
-        : (win.belowPanels ? 0 : 24 * win.us)
-    margins.bottom: win.storeRuns ? (designLoader.placement === "bottom" ? 24 * win.us : 0)
-        : (win.belowPanels ? 120 * win.us : 0)
+    margins.top: win.storeRuns && designLoader.placement === "top"
+        ? 24 * win.us : (!win.storeRuns ? 24 * win.us : 0)
+    margins.bottom: win.storeRuns && designLoader.placement === "bottom" ? 24 * win.us : 0
     margins.left: win.storeRuns && designLoader.placement === "left" ? 24 * win.us : 0
     margins.right: win.storeRuns && designLoader.placement === "right" ? 24 * win.us : 0
 

@@ -584,8 +584,7 @@ type.*
   ten workspace ids, so each desktop keeps its own 01..10; the same grouping
   drives the desktop-relative `Super+N` binds (`scripts/ryoku-workspace`). The
   gesture legend sits along the bottom margin as marginalia, not as buttons.
-- **Controls** is a compact panel that opens top-left, or beside the bar widget
-  that asked for it. Vitals is a native mini system
+- **Controls** is a compact top-left panel. Vitals is a native mini system
   monitor with per-core load, temperatures, memory, GPU, network and disk.
   Connections summarizes Wi-Fi, Bluetooth, Ethernet and VPN. Levels keeps fine
   volume and brightness controls with inline per-application audio and
