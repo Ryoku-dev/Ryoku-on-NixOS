@@ -24,7 +24,7 @@ lane=""
 dry_run=0
 upstream="https://github.com/Ryoku-dev/ryoku.git"
 fork_remote="origin"
-checked_url="${RYOKU_CHECKED_URL:-https://repo.ryoku.dev/stable/channels/testing/checked.json}"
+upstream_repo="${RYOKU_UPSTREAM_REPO:-Ryoku-dev/ryoku}"
 gh_command="${RYOKU_SYNC_GH:-gh}"
 repository="${GITHUB_REPOSITORY:-Ryoku-dev/Ryoku-on-NixOS}"
 
@@ -34,7 +34,7 @@ Usage: nix/sync/ryoku-sync --lane unstable|stable [options]
 
 Options:
   --lane LANE          Sync unstable or stable
-  --dry-run            Compute and print the result without pushing or using GitHub
+  --dry-run            Compute and print the result without pushing or changing GitHub
   --upstream URL       Ryoku git URL or local repository path
   --fork-remote NAME   Remote for Ryoku-on-NixOS (default: origin)
   -h, --help           Show this help
@@ -143,16 +143,20 @@ read_sync_commit() {
   die "no recorded upstream commit at $commit"
 }
 
+# The newest upstream unstable-dev commit whose Testing gate passed. This is
+# the commit channels/testing/checked.json names, read from the gate's own runs
+# because repo.ryoku.dev refuses requests from GitHub's runners.
+gh_passed_commit() {
+  "$gh_command" api \
+    "repos/$upstream_repo/actions/workflows/testing-gate.yml/runs?branch=unstable-dev&status=success&per_page=1" \
+    --jq '.workflow_runs[0].head_sha // empty'
+}
+
 upstream_target_unstable() {
-  local checked passed tip sha author subject
-  checked=$(curl -fsSL "$checked_url") || die "could not read checked.json"
-  if [[ $(jq -r '.state // empty' <<<"$checked") == passed ]]; then
-    passed=$(jq -er '.commit' <<<"$checked") || die "checked.json has no passed commit"
-  else
-    passed=$(jq -er '.passed.commit' <<<"$checked") || die "checked.json has no previous passed commit"
-  fi
-  [[ $passed =~ ^[0-9a-f]{40}$ ]] || die "checked.json contains an invalid commit"
-  git cat-file -e "$passed^{commit}" 2>/dev/null || die "checked commit is not in upstream unstable-dev history"
+  local passed tip sha author subject
+  passed=$(gh_passed_commit) || die "could not read the upstream Testing gate runs"
+  [[ $passed =~ ^[0-9a-f]{40}$ ]] || die "no passed Testing gate run on upstream unstable-dev"
+  git cat-file -e "$passed^{commit}" 2>/dev/null || die "passed commit is not in upstream unstable-dev history"
 
   tip=$(git rev-parse "$upstream_ref^{commit}")
   if ! git merge-base --is-ancestor "$passed" "$tip"; then
