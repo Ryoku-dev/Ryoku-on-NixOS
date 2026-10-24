@@ -1,114 +1,29 @@
 <div align="center">
 
-<img src="docs/readme/assets/brand/ryoku-logo.png" alt="Ryoku" width="220" />
-
-<br />
-
 # Ryoku on NixOS
 
+<img src="docs/readme/assets/brand/ryoku-header.jpg" alt="Ryoku" width="850" />
+
 ### 力と美のために
-**For the sake of power and beauty.**
+**The Ryoku you already know, made declarative for NixOS.**
 
-Ryoku on NixOS is the maintained NixOS port of [**Ryoku**](https://github.com/Ryoku-dev/ryoku), a Hyprland + Quickshell desktop.
-The shared desktop stays close to upstream; NixOS-specific packaging, modules, installer behavior, system bridges and update integration live under `nix/`.
+Ryoku on NixOS is the official NixOS port of [**Ryoku**](https://github.com/Ryoku-dev/ryoku),
+a complete Wayland desktop with deep customisation, integrated applications and the best and most expansive ecosystem to ever be made on a shell.
 
-<br />
-
-[**Install**](#install) · [**Explore the desktop**](#the-desktop) · [**Documentation**](docs/README.md) · [**Maintainer notes**](docs/maintenance.md) · [**Upstream Ryoku**](https://github.com/Ryoku-dev/ryoku)
+[**Website**](https://aethctl.github.io/Ryoku-on-NixOS/) · [**Install on NixOS**](#install) · [**Installer ISO**](https://github.com/Ryoku-dev/Ryoku-on-NixOS/releases) · [**Discord**](https://discord.gg/xvr69NRsmt) · [**Documentation**](docs/README.md) · [**Upstream Ryoku**](https://github.com/Ryoku-dev/ryoku)
 
 <br />
 
-```bash
-nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install
-```
+**Beauty on the surface. Nix underneath.**
 
-<sub>Existing flake-based NixOS system required.</sub>
+The shell, Hub, launcher, RyoStore, theming and Ryoku applications are identical to its Arch counterpart while
+NixOS specific packaging, modules, system bridges, installer behavior and updates remain declarative.
 
-</div>
-
----
-
-## What this port owns
-
-Ryoku's desktop code and interaction model remain shared with upstream. This
-repository owns the NixOS boundary: packaging, module integration, installer and
-update behavior, service wiring, compatibility fixes and Nix-specific runtime
-bridges.
-
-That gives the same desktop two different system foundations:
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <b>Ryoku on Arch</b><br /><br />
-      Pacman and AUR integration<br />
-      Arch-native services and system tooling<br />
-      Arch update and recovery flow
-    </td>
-    <td width="50%" valign="top">
-      <b>Ryoku on NixOS</b><br /><br />
-      Nix packages and NixOS modules<br />
-      Declarative packaging and integration<br />
-      NixOS generations and rollback
-    </td>
-  </tr>
-</table>
-
-The shell, Hub, Ryostore, launcher, theming, lockscreen and bar styles are kept
-in sync with upstream wherever the host operating system does not require a
-different implementation.
-
----
-
-<div align="center">
-
-<img src="docs/readme/assets/art/power.png" alt="Power" width="70%" />
+> **v1 is currently in active beta.** The existing NixOS install script is the recommended route however,
+> the bootable ISO is available for testing from GitHub Releases but it **will erase the selected disk** during installation as is currently
+> doesnt support manual partitioning.
 
 </div>
-
-## Power
-
-Ryoku on NixOS is packaged as a normal Nix flake and integrates into the system
-you already own.
-
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <h3>Declarative</h3>
-      Packages, services and desktop integration are expressed through NixOS rather
-      than copied into mutable system locations.
-    </td>
-    <td width="33%" valign="top">
-      <h3>Reproducible</h3>
-      The public flake exposes the Ryoku module, packages, installer, development
-      environment and checks from one source of truth.
-    </td>
-    <td width="33%" valign="top">
-      <h3>Recoverable</h3>
-      Updates produce ordinary NixOS generations, so the normal NixOS rollback model
-      remains available.
-    </td>
-  </tr>
-</table>
-
-Ryoku does not repartition disks, replace your bootloader, change your kernel, or
-take ownership of hardware-specific graphics configuration.
-
----
-
-<div align="center">
-
-<img src="docs/readme/assets/art/beauty.png" alt="Beauty" width="70%" />
-
-</div>
-
-## Beauty
-
-The NixOS port does not reinterpret Ryoku. It preserves it.
-
-Wallpaper-driven colour, quiet typography, animated surfaces and the surrounding
-frame all belong to the same visual system. The desktop is designed to feel like
-one product rather than a collection of unrelated widgets or amalgamation of config files.
 
 ---
 
@@ -136,14 +51,14 @@ one product rather than a collection of unrelated widgets or amalgamation of con
     <td width="50%">
       <img src="docs/readme/assets/ui/profile.webp" alt="Ryoku profile page" width="100%" />
       <br />
-      <sub><b>Profile.</b> User-facing customizable configuration bundled in one sleek page.</sub>
+      <sub><b>Profile.</b> The most customizable configuration profile page in any shell</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
       <img src="docs/readme/assets/ui/hub-page.webp" alt="Ryoku Hub" width="100%" />
       <br />
-      <sub><b>Ryoku Hub.</b> System information, settings and Ryoku-specific control in one place.</sub>
+      <sub><b>Ryoku Hub.</b> System information, settings and Ryoku specific controls in one place.</sub>
     </td>
     <td width="50%">
       <img src="docs/readme/assets/ui/batgirl.webp" alt="Ryoku themed desktop" width="100%" />
@@ -153,32 +68,82 @@ one product rather than a collection of unrelated widgets or amalgamation of con
   </tr>
 </table>
 
----
+### Customise it your way
 
-## Showroom
-
-Ryoku is designed to change character without changing identity.
+Ryoku is designed to be incredibly customizable out of the box with the easy to use Ryostore and Settings page
 
 <table>
   <tr>
-    <td width="33%"><img src="docs/readme/assets/showroom/blue-hour.webp" alt="Blue Hour" width="100%" /></td>
-    <td width="33%"><img src="docs/readme/assets/showroom/chrome.webp" alt="Chrome" width="100%" /></td>
-    <td width="33%"><img src="docs/readme/assets/showroom/forest.webp" alt="Forest" width="100%" /></td>
+    <td width="50%"><img src="docs/readme/assets/showroom/torii-sunset.webp" alt="Ryoku desktop with a Japanese sunset landscape" width="100%" /></td>
+    <td width="50%"><img src="docs/readme/assets/showroom/monochrome-hands.webp" alt="Monochrome Ryoku desktop with widgets and ASCII artwork" width="100%" /></td>
   </tr>
   <tr>
-    <td align="center"><sub>BLUE HOUR</sub></td>
-    <td align="center"><sub>CHROME</sub></td>
-    <td align="center"><sub>FOREST</sub></td>
+    <td width="50%"><img src="docs/readme/assets/showroom/blue-clouds.webp" alt="Blue Ryoku desktop with a minimal launcher and media widget" width="100%" /></td>
+    <td width="50%"><img src="docs/readme/assets/showroom/monochrome-anime.webp" alt="Monochrome Ryoku desktop with large typography and system widgets" width="100%" /></td>
   </tr>
+</table>
+
+---
+
+<div align="center">
+
+<img src="docs/readme/assets/art/beauty.png" alt="Power" width="70%" />
+
+</div>
+
+## What this port owns
+
+Ryoku's base code and configs are the same as upstream, this
+repository is simply the NixOS adaptation. Packaging, module integration, installer and
+update behavior, service wiring, compatibility fixes and Nix specific runtime
+bridges.
+
+That gives the same desktop two different system foundations:
+
+<table>
   <tr>
-    <td width="33%"><img src="docs/readme/assets/showroom/red-august.webp" alt="Red August" width="100%" /></td>
-    <td width="33%"><img src="docs/readme/assets/showroom/rose.webp" alt="Rose" width="100%" /></td>
-    <td width="33%"><img src="docs/readme/assets/showroom/teal.webp" alt="Teal" width="100%" /></td>
+    <td width="50%" valign="top">
+      <b>Ryoku on Arch</b><br /><br />
+      Pacman and AUR integration<br />
+      Arch-native services and system tooling<br />
+      Arch update and recovery flow
+    </td>
+    <td width="50%" valign="top">
+      <b>Ryoku on NixOS</b><br /><br />
+      Nix packages and NixOS modules<br />
+      Declarative packaging and integration<br />
+      NixOS generations and rollback
+    </td>
   </tr>
+</table>
+
+---
+
+<div align="center">
+
+<img src="docs/readme/assets/art/power.png" alt="Power" width="70%" />
+
+</div>
+
+## Ryoku's power made declarative
+
+<table>
   <tr>
-    <td align="center"><sub>RED AUGUST</sub></td>
-    <td align="center"><sub>ROSE</sub></td>
-    <td align="center"><sub>TEAL</sub></td>
+    <td width="33%" valign="top">
+      <h3>Declarative</h3>
+      Packages, services and desktop integration are expressed through NixOS rather
+      than copied into mutable system locations.
+    </td>
+    <td width="33%" valign="top">
+      <h3>Reproducible</h3>
+      The flake input adds all of the Ryoku modules, packages, installer, development
+      environment (nix dev/ nix build) all from one single input.
+    </td>
+    <td width="33%" valign="top">
+      <h3>Recoverable</h3>
+      Updates produce a new NixOS generation and switches to it automatically so the normal NixOS rollback model
+      remains available.
+    </td>
   </tr>
 </table>
 
@@ -199,35 +164,31 @@ that share the same visual and interaction language.
   <tr>
     <td width="33%" valign="top">
       <b>Ryostore</b><br />
-      Themes, bar styles, Fastfetch presets, lockscreens, plugins and decor all available from one shared catalogue.
-    </td>
+      Themes, bar styles, Fastfetch presets, lockscreens, plugins and decor all easily installable to customize your desktop.
     <td width="33%" valign="top">
       <b>Ryotunes</b><br />
-      Native playback and music integration designed around the Ryoku desktop.
+      Native playback and music integration with YT Music, Spotify and SoundCloud all designed around the Ryoku desktop.
     </td>
     <td width="33%" valign="top">
       <b>RyoMotion</b><br />
-      Screen recording and editing integrated with Ryoku's capture workflow.
+      Screen recording and advanced video/ screenshot editing integrated with Ryoku's capture workflow.
     </td>
   </tr>
   <tr>
     <td width="33%" valign="top">
       <b>Ryogami</b><br />
-      Wallpaper and visual tooling that feeds the wider Ryoku theme system.
+      Wallpaper and visual tooling that feeds the wider Ryoku theme system with Wallpaper Engine and external repo support.
     </td>
     <td width="33%" valign="top">
       <b>Rashin</b><br />
-      Ryoku's assistant and terminal-facing intelligence layer.
+      Ryoku's assistant and terminal facing intelligence layer, compatable with Hermes, locally hosted AI and API models.
     </td>
     <td width="33%" valign="top">
       <b>Ryoku Hub</b><br />
-      System dossier, settings and desktop control from one integrated surface.
+      Customizable profile, in depth settings, Fastfetch customizer, WM options and desktop control from one integrated surface.
     </td>
   </tr>
 </table>
-
-Ryostore is shared across Arch and NixOS for desktop-level content. Package and
-app bundles are the main area that still needs Nix-native adaptation.
 
 ---
 
@@ -237,27 +198,55 @@ app bundles are the main area that still needs Nix-native adaptation.
 
 </div>
 
-## Install
+## Installing Ryoku on NixOS
 
-Ryoku on NixOS installs on top of an existing **flake-based NixOS system**.
+There are two installation paths.
 
-Run the installer as your normal user:
+### Existing NixOS system
+
+For an existing **flake-based NixOS system**, start the guided installer as your normal user
 
 ```bash
 nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install
 ```
 
+Choose your compositor, browser, shell and optional apps, then review the generated changes before installation begins.
+
 The installer:
 
 - adds Ryoku to your existing flake,
-- creates the installer-managed ryoku.nix,
-- updates the flake lock,
-- builds the new NixOS generation,
-- switches only after the build succeeds,
+- creates the `ryoku.nix` modules,
+- updates `flake.lock`,
+- builds a new generation,
+- switches to the new generation only after the build succeeds,
 - restores the previous configuration files if the integration fails.
 
 For custom flake paths, multi-host setups and manual integration, see the
 [**NixOS guide**](docs/nixos.md).
+
+### Fresh install / ISO
+
+The bootable Ryoku on NixOS installer ISO is currently in **pre-release testing** ahead of v1.
+It is intended to become the primary path for fresh installations.
+
+[**View installer ISO releases →**](https://github.com/Ryoku-dev/Ryoku-on-NixOS/releases)
+
+> **Testing warning:** installation **will erase the selected disk**. Back up anything important before using a pre-release ISO.
+
+## Requirements
+
+Ryoku is `x86_64` only and boots in UEFI mode. The session is Wayland on
+Hyprland or niri, with the GPU-composited Ryoku shell on top. The installer
+refuses a machine with Secure Boot on (Limine ships unsigned) unless you have
+enrolled your own keys, and there is no 32-bit build and no legacy BIOS path.
+
+|  | Minimum | Recommended |
+|---|---|---|
+| CPU | 64-bit x86_64, dual-core | quad-core or better |
+| RAM | 4 GB | 8 GB, 16 GB with the dev toolchains |
+| GPU | any card with working KMS and OpenGL/Vulkan | recent integrated or discrete |
+| Storage | 32 GB (installer floor) | 64 GB+ SSD |
+| Firmware | UEFI, Secure Boot off | UEFI, Secure Boot off |
 
 ---
 
@@ -271,11 +260,11 @@ For custom flake paths, multi-host setups and manual integration, see the
 | `docs/` | Shared desktop docs, NixOS docs and upstream Arch reference material |
 | `tests/` | Focused validation for the port and shared desktop behavior |
 
-The repository is intentionally split at the platform boundary. Shared desktop
-features stay shared. Nix-specific behavior lives under `nix/`.
+The repository is intentionally split between `/ryoku` and `/nix`. Shared desktop
+features are located in `/ryoku`. Nix specific files, modules and compatability layers live in `nix/`.
 
 The Nix layer packages the major Ryoku components independently rather than
-treating the desktop as one opaque wrapper. The root flake exposes the shell,
+treating the desktop as one wrapper. The root flake exposes the shell,
 Hub, CLI, Ryostore, Ryotunes, Ryogami, RyoMotion, helper packages, compositor
 integration and the combined bundle as separate outputs.
 
@@ -284,14 +273,14 @@ integration and the combined bundle as separate outputs.
 ## How the port is maintained
 
 This is a maintained platform port, not a one-time source translation. Upstream
-changes are reviewed at the operating-system boundary:
+changes are reviewed and are ported within 2 days of upstream release.
 
 1. Shared desktop and application changes stay in `ryoku/` whenever possible.
-2. Arch-specific package, service and filesystem assumptions are replaced with
+2. Arch specific packages, servicse and filesystem assumptions are replaced with
    Nix packages, NixOS modules or narrow runtime bridges.
-3. Bugs that also affect upstream Ryoku are fixed upstream when practical; fixes
-   that only exist because of NixOS semantics stay in this repository.
-4. User-visible runtime changes are tested on NixOS before they are released.
+3. Bugs that also affect upstream Ryoku are fixed upstream when practical, fixes
+   that only exist because of NixOS being NixOS stay in this repo.
+4. Visible runtime changes are tested on NixOS before they are released.
 
 The detailed ownership rules and sync workflow live in
 [**docs/maintenance.md**](docs/maintenance.md).
@@ -300,7 +289,7 @@ The detailed ownership rules and sync workflow live in
 
 ## Validation
 
-The public flake makes the core port buildable through one entry point:
+The public flake makes the core port buildable through one entry point
 
 ```bash
 nix flake check
@@ -314,6 +303,20 @@ integration guards.
 For compositor, display, audio, GPU or installer behavior, a green CI run is not
 treated as runtime proof. Pull requests should record the machine/runtime test
 that was actually performed.
+
+---
+
+## Community and contributing
+
+Ryoku on NixOS is actively maintained and contributions are welcome.
+
+- [**Join the Ryoku Discord**](https://discord.gg/xvr69NRsmt) for installation help, testing and development discussion.
+- [**Browse open issues**](https://github.com/aethctl/Ryoku-on-NixOS/issues) for current work.
+- [**Start with a good first issue**](https://github.com/aethctl/Ryoku-on-NixOS/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22) if you want a bounded first contribution.
+- Read [**CONTRIBUTING.md**](CONTRIBUTING.md) for the development workflow, testing expectations and upstream/NixOS ownership boundary.
+- Read the [**performance roadmap**](docs/roadmap.md) for measured shell-performance work that needs contributors.
+
+Testing is useful too. Hardware-facing changes cannot be proven by CI alone, so real reports from different GPUs, compositors and machines materially improve the port.
 
 ---
 
