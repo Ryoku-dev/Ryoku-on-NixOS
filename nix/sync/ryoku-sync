@@ -411,6 +411,13 @@ build_pr_body() {
       pr_body+=$'\n</details>\n'
     fi
   fi
+  if ((${#owned_upstream_changes[@]})); then
+    pr_body+=$'\n### Upstream changed files the port owns\n\n'
+    pr_body+="The sync keeps the port's copies. Port whatever applies, for example a new package input or build step:"$'\n'
+    for path in "${owned_upstream_changes[@]}"; do
+      pr_body+="- \`$path\`"$'\n'
+    done
+  fi
   if ((${#removed_paths[@]})); then
     pr_body+=$'\n### Removed because upstream removed them\n\n'
     pr_body+="Check that the port does not still need these:"$'\n'
@@ -644,6 +651,12 @@ removed_paths=()
 while IFS= read -r -d '' path; do
   is_upstream_wins "$path" || removed_paths+=("$path")
 done < <(git diff-tree --no-commit-id --name-only --diff-filter=D -r -z "$ours" "$sync_commit")
+# Upstream edits to port-owned paths never enter the tree, so name them: the
+# upstream flake packaging a new module is exactly what the port must copy.
+owned_upstream_changes=()
+while IFS= read -r -d '' path; do
+  is_fork_owned "$path" && owned_upstream_changes+=("$path")
+done < <(git diff-tree --no-commit-id --name-only -r -z "$merge_base" "$target" -- "${FORK_OWNED_PATHS[@]}")
 collect_notes "$previous_recorded..$target"
 build_pr_body "$previous_recorded" "$target"
 
@@ -653,6 +666,7 @@ printf 'Commit: %s\n' "$sync_commit"
 printf 'Changed files: %d\n' "${#changed_paths[@]}"
 printf 'Stale copies refreshed: %d\n' "${#stale_copies[@]}"
 printf 'Removed by upstream: %d\n' "${#removed_paths[@]}"
+printf 'Upstream changes to port-owned files: %d\n' "${#owned_upstream_changes[@]}"
 if ((${#conflicts[@]})); then
   printf 'Conflicts (%d):\n' "${#conflicts[@]}"
   printf '  %s\n' "${conflicts[@]}"
