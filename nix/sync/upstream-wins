@@ -12,5 +12,4 @@ tests/
 !tests/gpu-mux.sh
 !tests/gpu-pin-policy.sh
 CHANGELOG.md
-website/
 ryoku-shell-installer/

@@ -10,6 +10,7 @@ FORK_OWNED_PATHS=(
   .github
   README.md
   docs/nixos.md
+  website
 )
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
