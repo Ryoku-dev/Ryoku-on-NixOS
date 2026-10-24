@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script=$(cd "$(dirname "${BASH_SOURCE[0]}")/../sync" && pwd)/ryoku-sync
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/../sync" && pwd)
+script="$script_dir/ryoku-sync"
+markers_script="$script_dir/ryoku-sync-markers"
 root=$(mktemp -d "${TMPDIR:-/tmp}/test-ryoku-sync.XXXXXX")
 trap 'rm -rf "$root"' EXIT
 
@@ -12,6 +14,7 @@ runner="$root/runner"
 gh_log="$root/gh.log"
 output="$root/output"
 gh_state="$root/gh-state"
+conflict_body_out=${RYOKU_SYNC_TEST_PR_BODY_OUT:-}
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -70,11 +73,16 @@ printf '\n' >>"$GH_LOG"
 endpoint=${2:-}
 method=GET
 body=""
+input=""
 head=""
 while (($#)); do
   case "$1" in
     --method)
       method=$2
+      shift 2
+      ;;
+    --input)
+      input=$2
       shift 2
       ;;
     -f)
@@ -116,6 +124,10 @@ case "$endpoint" in
     elif [[ -f $GH_STATE_DIR/$lane.body ]]; then
       cat "$GH_STATE_DIR/$lane.body"
     fi
+    ;;
+  repos/*/check-runs)
+    [[ $method == POST && -n $input ]] || exit 2
+    cp "$input" "$GH_STATE_DIR/check-run.json"
     ;;
 esac
 GH
@@ -175,6 +187,7 @@ git --git-dir="$fork_bare" symbolic-ref HEAD refs/heads/main
 git clone -q "$fork_bare" "$runner"
 git -C "$runner" config user.name 'Test Maintainer'
 git -C "$runner" config user.email test@example.com
+git -C "$runner" config merge.conflictStyle diff3
 
 # A clean target exercises owned paths, VERSION, deletes and upstream additions.
 printf '1.1.0\n' >"$upstream/VERSION"
@@ -202,6 +215,8 @@ assert_file_at "$runner" "$clean_sync" flake.nix 'fork flake'
 assert_file_at "$runner" "$clean_sync" .github/workflow.yml 'fork workflow'
 [[ $(<"$gh_state/unstable.body") == *'Upstream changed files the port owns'*'`flake.nix`'*'`nix/upstream.txt`'* ]] \
   || fail 'upstream changes to port-owned files missing from pull request body'
+[[ $(<"$gh_state/unstable.body") == '**What to do:** merge once the ryoku-sync/checks status is green.'* ]] \
+  || fail 'clean pull request body has no maintainer action'
 assert_file_at "$runner" "$clean_sync" VERSION '1.1.0'
 assert_file_at "$runner" "$clean_sync" elsewhere/new.txt 'new elsewhere'
 assert_file_at "$runner" "$clean_sync" tests/fork-only-helper.py 'fork-only test helper'
@@ -217,6 +232,11 @@ assert_file_at "$runner" "$clean_sync" retired.txt 'retired upstream provider'
   || fail 'upstream removal missing from pull request body'
 [[ $(<"$gh_state/unstable.body") == *"<!-- ryoku-sync-head: $clean_sync -->"* ]] \
   || fail 'pull request body did not record the bot branch head'
+[[ ! -e $gh_state/check-run.json ]] || fail 'clean sync created a conflict check run'
+git -C "$runner" switch -q --detach "$clean_sync"
+clean_marker_output=$(cd "$runner" && "$markers_script" --base "$fork_base")
+assert_eq "" "$clean_marker_output" 'clean marker scan output'
+git -C "$runner" switch -q main
 
 # Re-running with nothing new leaves the branch and its checks alone.
 run_sync unstable
@@ -246,8 +266,11 @@ conflict_sync=$(git -C "$runner" rev-parse origin/sync/unstable)
 assert_eq "$fork_conflict_base" "$(git -C "$runner" show -s --format=%P "$conflict_sync")" \
   'conflict sync must have one fork parent'
 conflict_text=$(git -C "$runner" show "$conflict_sync:conflict.txt")
-[[ $conflict_text == *'<<<<<<<'* && $conflict_text == *'======='* && $conflict_text == *'>>>>>>>'* ]] \
-  || fail 'content conflict markers missing'
+[[ $conflict_text == *'<<<<<<< port (unstable-dev)'* \
+  && $conflict_text == *"||||||| last sync (${base:0:7})"* \
+  && $conflict_text == *'======='* \
+  && $conflict_text == *">>>>>>> upstream Ryoku 1.1.0 (${target_conflict:0:7})"* ]] \
+  || fail 'readable content conflict markers missing'
 [[ $(<"$output") == *'conflict.txt'* ]] || fail 'conflict path not listed'
 assert_file_at "$runner" "$conflict_sync" installation/stale.txt 'upstream stale installer'
 assert_file_at "$runner" "$conflict_sync" component/CHANGELOG.md 'upstream component changelog'
@@ -260,6 +283,53 @@ recovery_text=$(git -C "$runner" show "$conflict_sync:installation/recovery/keep
   || fail 'upstream-wins path remained conflicted'
 [[ $(<"$output") != *'component/CHANGELOG.md'* ]] \
   || fail 'basename upstream-wins path remained conflicted'
+conflict_body=$(<"$gh_state/unstable.body")
+[[ $conflict_body == '**What to do:** 2 files need a decision'* ]] \
+  || fail 'conflict pull request body has no maintainer action'
+[[ $conflict_body == *'### Needs a decision: 2 files'*'#### `conflict.txt`'* ]] \
+  || fail 'per-file conflict report missing'
+[[ $conflict_body =~ /blob/$conflict_sync/conflict.txt#L[0-9]+-L[0-9]+ ]] \
+  || fail 'conflict report has no blob line link'
+[[ $conflict_body == *'feat: conflict upstream file'* ]] \
+  || fail 'conflict report has no upstream commit subject'
+[[ -f $gh_state/check-run.json ]] || fail 'conflict sync created no check run'
+assert_eq 'Sync conflicts' "$(jq -r '.name' "$gh_state/check-run.json")" \
+  'conflict check name'
+assert_eq "$conflict_sync" "$(jq -r '.head_sha' "$gh_state/check-run.json")" \
+  'conflict check head'
+assert_eq 'action_required' "$(jq -r '.conclusion' "$gh_state/check-run.json")" \
+  'conflict check conclusion'
+jq -e '.output.annotations[]
+  | select(.path == "conflict.txt" and .annotation_level == "failure")' \
+  "$gh_state/check-run.json" >/dev/null \
+  || fail 'conflict check annotation missing'
+
+git -C "$runner" switch -q --detach "$conflict_sync"
+summary="$root/marker-summary"
+set +e
+marker_output=$(cd "$runner" && GITHUB_STEP_SUMMARY="$summary" \
+  "$markers_script" --base "$fork_conflict_base" --annotate)
+marker_status=$?
+set -e
+assert_eq 1 "$marker_status" 'conflict marker scan status'
+[[ $marker_output =~ conflict.txt:[0-9]+-[0-9]+ ]] \
+  || fail 'conflict marker scan range missing'
+[[ $marker_output == *'::error file=conflict.txt,'* ]] \
+  || fail 'conflict marker workflow annotation missing'
+[[ $(<"$summary") == *'| `conflict.txt` |'* ]] \
+  || fail 'conflict marker summary missing'
+git -C "$runner" switch -q main
+
+body_cap=1800
+RYOKU_SYNC_BODY_CAP=$body_cap run_sync unstable --dry-run
+capped_body=${output#*PR body:$'\n'}
+((${#capped_body} <= body_cap)) || fail 'pull request body exceeded configured cap'
+[[ $capped_body == *'Conflict excerpts omitted'* ]] \
+  || fail 'capped pull request body did not omit conflict excerpts'
+
+if [[ -n $conflict_body_out ]]; then
+  printf '%s\n' "$conflict_body" >"$conflict_body_out"
+fi
 
 # A checked target advances through release bump commits only.
 printf 'bump one\n' >"$upstream/bump-one.txt"
@@ -356,4 +426,4 @@ run_sync unstable
 [[ $(grep -c 'Newer Ryoku waiting: ' "$gh_state/unstable.body") == 1 ]] || fail 'waiting note repeated'
 [[ $(<"$gh_state/unstable.body") == *"<!-- ryoku-sync-head: "* ]] || fail 'waiting note dropped the head marker'
 
-printf 'ok: ryoku sync clean merge, conflict, lane targets and branch protection\n'
+printf 'ok: ryoku sync reporting, merge rules, lane targets and branch protection\n'
