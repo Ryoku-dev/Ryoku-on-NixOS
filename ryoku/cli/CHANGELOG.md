@@ -77,6 +77,23 @@
   what the switch itself installed (`internal/host/phone.go`).
 
 ### Fixed
+- **The first restart after updating from 0.75 boots straight in.** A 0.75
+  ISO install remembered the flat `Ryoku Linux` boot entry in Limine's
+  `LimineLastBootedEntry` EFI variable; once the update turns that entry into a
+  menu directory, Limine recalled the directory and waited at the menu instead
+  of booting. When the doctor moves the menu default (layout merge, UKI
+  promotion or the autoboot path), it now clears the remembered entry so the
+  next boot falls back to the kernel, and Limine remembers the kernel it boots
+  from then on. The bootguard and the doctor share one clear
+  (`internal/limineefi/remembered.go`, `internal/doctor/reconcile_limine.go`).
+- **An update resumed from an older release reports its real duration.** A
+  0.75 first stage writes no start time, so the second stage measured from 1970
+  and printed "Update complete in 498007h". It keeps its own start time when the
+  previous one is unset (`internal/updater/runstate.go`).
+- **The multilib repair syncs the package databases.** It ran
+  `pacman -Sy multilib`, which pacman reads as a package named multilib, so
+  every update showed "! multilib repository"; it now runs `pacman -Sy`
+  (`internal/doctor/reconcile_multilib.go`).
 - **Doctor seeds the decor art into the localized Pictures folder.** On a
   desktop whose Pictures folder is `~/Imágenes`, `~/Bilder` and so on, the
   decor reconciler recreated an English `~/Pictures/ryodecors` on every run, so

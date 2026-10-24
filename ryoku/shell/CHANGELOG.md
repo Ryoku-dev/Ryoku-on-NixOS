@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Fixed
+- **Folder icons follow the palette on every system.** The folder colour now
+  tracks the Material primary of the wallpaper or fixed theme and updates
+  straight after the shell writes its palette, even with app theming off;
+  systems with dconf but no GSettings schemas (minimal Wayland, NixOS) are
+  covered too. The rebuild runs beside the app theme fan-out instead of
+  delaying it (`ipc/matugen.go`, `scripts/ryoku-cmd-folders`,
+  `matugen/config.toml`).
 - **The Stash names an older install after the entry that launches it.** When
   a second desktop entry only checked for the same app, the Stash list could
   show that entry's name instead, depending on how the system sorts file

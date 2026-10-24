@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"ryoku-cli/internal/host"
+	"ryoku-cli/internal/limineefi"
 	"ryoku-cli/internal/sys"
 
 	i18n "ryoku-i18n"
@@ -55,7 +56,13 @@ var (
 	limineToolEFI      = "/boot/EFI/limine/limine_x64.efi"
 	limineDefaultsPath = "/etc/default/limine"
 
-	liminePkgInstalled = doctorPackageInstalled
+	liminePkgInstalled         = doctorPackageInstalled
+	limineWriteRootFile        = writeRootFile
+	limineWriteBootFile        = writeBootFile
+	limineUEFIBoot             = func() bool { _, err := os.Stat("/sys/firmware/efi"); return err == nil }
+	clearLimineLastBootedEntry = func() error {
+		return limineefi.ClearLastBootedEntryWithSudo(limineefi.LastBootedEntryPath, sys.Sudo)
+	}
 )
 
 var limineManagedBoot = func() bool {
@@ -265,6 +272,11 @@ func reconcileLimineLayout(checkOnly bool) recResult {
 // shadow is removed, and the tool EFI is deployed before the legacy one is
 // retired.
 func migrateLimineLayout(st limineLayoutState) recResult {
+	activeConf := st.espConf
+	if st.shadowExists {
+		activeConf = st.shadowConf
+	}
+
 	var done []string
 
 	if st.shadowExists || (limineHasBootTree(st.espConf) && (limineDefaultEntry(st.espConf) == "1" || limineDirtyRoot(st.espConf))) {
@@ -272,9 +284,12 @@ func migrateLimineLayout(st limineLayoutState) recResult {
 		if st.espConfExists {
 			_ = sys.Run("sudo", "cp", limineESPConf, limineESPConf+".ryoku-bak")
 		}
-		if err := writeBootFile(limineESPConf, merged); err != nil {
+		if err := limineWriteBootFile(limineESPConf, merged); err != nil {
 			return failRes(i18n.T("writing %s: %v"), limineESPConf, err).
 				withFix(i18n.T("re-run with sudo available; the old configs were left untouched"))
+		}
+		if err := clearRememberedLimineEntry(activeConf); err != nil {
+			return failRes(i18n.T("clearing Limine's remembered boot entry after migrating %s: %v"), limineESPConf, err)
 		}
 		done = append(done, i18n.Tf("merged boot menu into %s", limineESPConf))
 		if st.shadowExists {
@@ -867,8 +882,11 @@ func reconcileLimineUKITree(checkOnly bool) recResult {
 	// default_entry moves to the newest UKI inside it.
 	if promoted, changed := limineDropFlat(conf); changed {
 		// readFileSafe trimmed the file's trailing newline; put it back.
-		if err := writeRootFile(limineESPConf, strings.TrimRight(promoted, "\n")+"\n", "0644"); err != nil {
+		if err := limineWriteRootFile(limineESPConf, strings.TrimRight(promoted, "\n")+"\n", "0644"); err != nil {
 			return failRes(i18n.T("could not promote the boot menu in %s: %v"), limineESPConf, err)
+		}
+		if err := clearRememberedLimineEntry(conf); err != nil {
+			return failRes(i18n.T("clearing Limine's remembered boot entry after promoting %s: %v"), limineESPConf, err)
 		}
 		done = append(done, i18n.T("promoted the menu default onto the UKI tree"))
 	}
@@ -1280,6 +1298,13 @@ func limineRemembersLastEntry(conf string) bool {
 	return false
 }
 
+func clearRememberedLimineEntry(conf string) error {
+	if !limineRemembersLastEntry(conf) || !limineUEFIBoot() {
+		return nil
+	}
+	return clearLimineLastBootedEntry()
+}
+
 // reconcileLimineAutoboot makes the countdown autoboot the kernel instead of
 // looping. The installer and older reconcilers set a numeric default_entry
 // believing it lands on the kernel "inside" the boot-menu directory, but Limine
@@ -1305,6 +1330,7 @@ func reconcileLimineAutoboot(checkOnly bool) recResult {
 		return noteRes(i18n.T("no readable %s; the layout reconciler owns that"), limineESPConf)
 	}
 	fixed, changed := limineEnsureAutoboot(string(b))
+	defaultChanged := limineDefaultEntry(string(b)) != limineDefaultEntry(fixed)
 	if !changed {
 		return okRes(i18n.T("limine autoboots the kernel and remembers the last one"))
 	}
@@ -1316,8 +1342,13 @@ func reconcileLimineAutoboot(checkOnly bool) recResult {
 		return wouldRes(i18n.T("limine default_entry lands on the EFI fallback, not the kernel, so the boot countdown loops forever")).
 			withFix(i18n.T("ryoku doctor points default_entry at the kernel entry path and enables remember_last_entry"))
 	}
-	if err := writeRootFile(limineESPConf, fixed, "0644"); err != nil {
+	if err := limineWriteRootFile(limineESPConf, fixed, "0644"); err != nil {
 		return failRes(i18n.T("could not update %s: %v"), limineESPConf, err)
+	}
+	if defaultChanged {
+		if err := clearRememberedLimineEntry(string(b)); err != nil {
+			return failRes(i18n.T("clearing Limine's remembered boot entry after updating %s: %v"), limineESPConf, err)
+		}
 	}
 	return fixedRes(i18n.T("pointed default_entry at the kernel entry path and enabled remember_last_entry, so the countdown autoboots the last kernel used"))
 }
