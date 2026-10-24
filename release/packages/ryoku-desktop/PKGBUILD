@@ -27,6 +27,9 @@ depends=(
   # plugin or daemon (a partial upgrade now fails loudly instead of skewing).
   "ryoku-shell=$pkgver"
   "ryoku-hub=$pkgver"
+  # Ryogami's app integrations configure this runtime; installation alone does
+  # not enable its user service or change any application.
+  "ryoku-palette-bridge=$pkgver"
   "ryoku-blobs=$pkgver"
   "ryoku=$pkgver"
   'ryoku-keyring'

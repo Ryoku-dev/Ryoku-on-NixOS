@@ -603,6 +603,26 @@ if [[ ${REQUIRE_USER_GUARD:-0} == 1 &&
   exit 88
 fi
 printf '%s %s\n' "$name" "$*" >>"$CUTOVER_LOG"
+if [[ $name == systemctl && ${1:-} == --user &&
+      -n ${SYSTEMD_ENV_DIR:-} ]]; then
+  verb=${2:-}
+  shift 2
+  mkdir -p "$SYSTEMD_ENV_DIR"
+  case "$verb" in
+    unset-environment)
+      for key in "$@"; do
+        rm -f "$SYSTEMD_ENV_DIR/$key"
+      done
+      exit 0
+      ;;
+    set-environment)
+      for entry in "$@"; do
+        printf '%s' "${entry#*=}" >"$SYSTEMD_ENV_DIR/${entry%%=*}"
+      done
+      exit 0
+      ;;
+  esac
+fi
 case "$name:${1:-}" in
   ryoku:wm)
     if [[ $* == "wm act config.reload" && ${WM_RELOAD_UNSUPPORTED:-0} == 1 ]]; then
@@ -809,7 +829,7 @@ loginctl show-session 9 -p Desktop --value
 loginctl show-session 9 -p Scope --value
 loginctl show-session 9 -p Type --value
 ryoku wm handles
-systemctl --user unset-environment XDG_SESSION_ID XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SEAT XDG_VTNR WAYLAND_DISPLAY DISPLAY RYOKU_WM
+systemctl --user unset-environment XDG_SESSION_ID XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SEAT XDG_VTNR WAYLAND_DISPLAY RYOKU_WM
 systemctl --user set-environment XDG_SESSION_ID=9 XDG_SESSION_TYPE=wayland WAYLAND_DISPLAY=wayland-test RYOKU_WM=testwm TESTWM_SOCKET=session-nine
 systemctl --user stop ryoku-session.target
 systemctl --user stop ryoku-session-guard@*.service
@@ -1135,6 +1155,45 @@ test_late_session_display_bind() {
 }
 
 test_late_session_display_bind
+
+test_missing_session_display_preserved() {
+  local init=$1 env_dir="$tmp/$1-bind-env" display wayland vtnr
+  rm -rf "$env_dir"
+  mkdir -p "$env_dir" "$tmp/runit-state"
+  printf ':55' >"$env_dir/DISPLAY"
+  printf 'stale-wayland' >"$env_dir/WAYLAND_DISPLAY"
+  printf '7' >"$env_dir/XDG_VTNR"
+  printf 'XDG_SESSION_ID=9\0XDG_SESSION_TYPE=wayland\0' \
+    >"$tmp/runtime-user/ryoku-session.9.environment"
+  printf 'XDG_CURRENT_DESKTOP=testwm\0WAYLAND_DISPLAY=wayland-preserved\0' \
+    >>"$tmp/runtime-user/ryoku-session.9.environment"
+  printf 'RYOKU_WM=testwm\0' \
+    >>"$tmp/runtime-user/ryoku-session.9.environment"
+  : >"$tmp/calls"
+  RYOKU_TEST_INIT="$init" RUNIT_LOG="$tmp/calls" \
+    RUNIT_STATE="$tmp/runit-state" TURNSTILE_ENV_DIR="$env_dir" \
+    SYSTEMD_ENV_DIR="$env_dir" CUTOVER_LOG="$tmp/calls" \
+    CUTOVER_STATE="$tmp/state" XDG_RUNTIME_DIR="$tmp/runtime-user" \
+    PATH="$tmp/bin:$PATH" \
+    bash -c '
+      source "$1"
+      discover_session_environment() { return 0; }
+      bind_session_environment 9
+    ' _ "$helper"
+  display="$(cat "$env_dir/DISPLAY" 2>/dev/null || true)"
+  wayland="$(cat "$env_dir/WAYLAND_DISPLAY" 2>/dev/null || true)"
+  vtnr="$(cat "$env_dir/XDG_VTNR" 2>/dev/null || true)"
+  [[ $display == :55 ]] \
+    || fail "$init session bind cleared DISPLAY without a replacement"
+  [[ $wayland == wayland-preserved ]] \
+    || fail "$init session bind did not replace the published Wayland display"
+  [[ -z $vtnr ]] \
+    || fail "$init session bind kept a stale session key the new session does not set"
+}
+
+for init in systemd runit; do
+  test_missing_session_display_preserved "$init"
+done
 
 mkdir -p "$tmp/watch-bin" "$tmp/watch-runtime"
 watch_runtime_root="$tmp/watch-user-runtime"

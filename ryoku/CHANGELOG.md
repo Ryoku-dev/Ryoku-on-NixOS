@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Fixed
+- **Palette Bridge settings explain missing prerequisites.** The status action
+  remains available without the bridge package and reports missing installation
+  or recipes. Disabled setup actions name the packages and recipe setting to
+  repair instead of saying only “Not available on this setup”
+  (`shell/ryogami/daemon/palette_bridge.go`, `shell/ryogami/picker/`).
+- **Spotify details and Zen browser chrome follow the active palette.** Active
+  playback icons and dots, track highlights, artist links, Home navigation and
+  tooltips use bridge colours instead of fixed green/gray values. Artist and
+  playlist action areas use palette tints instead of artwork-derived washes. Zen's current
+  toolbar layers and expanded address field use live extension colours without
+  circular CSS variables (`palette-bridge/spicetify/`, `palette-bridge/templates/zen.css`).
 - **A settings edit is never missed mid-write.** The shell could read
   `shell.json` the moment the writer created it, latch that empty state as
   current, and then treat the finished write as unchanged, keeping the old

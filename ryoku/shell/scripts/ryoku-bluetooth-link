@@ -22,10 +22,12 @@ reason() {
   printf '%s\n' "$line"
 }
 
-btc() {
-  local timeout=$1
+pair_with_agent() {
+  local seconds=$1
   shift
-  yes | "$btctl" --agent KeyboardDisplay --timeout "$timeout" "$@" 2>&1
+  # bluetoothctl's own timeout waits out the full duration after success.
+  # Pairing still needs an outer bound when a device stops responding.
+  yes | timeout "$seconds" "$btctl" --agent KeyboardDisplay "$@" 2>&1
 }
 
 info() {
@@ -68,7 +70,7 @@ stop_discovery() {
 
 pair_device() {
   local out
-  out=$(btc 25 pair "$address")
+  out=$(pair_with_agent 25 pair "$address")
   if is_paired || grep -qiE 'Pairing successful|already[ -]?paired|Paired: yes|AlreadyExists' <<<"$out"; then
     return 0
   fi
@@ -78,7 +80,7 @@ pair_device() {
 
 trust_device() {
   local out
-  out=$(btc 10 trust "$address")
+  out=$("$btctl" trust "$address" 2>&1)
   if is_trusted || grep -qiE 'trust succeeded|Trusted: yes|already trusted' <<<"$out"; then
     return 0
   fi
@@ -88,12 +90,12 @@ trust_device() {
 
 connect_device() {
   local out
-  out=$(btc 20 connect "$address")
+  out=$(timeout 20 "$btctl" connect "$address" 2>&1)
   if is_connected || grep -qiE 'Connection successful|Connected: yes|already connected' <<<"$out"; then
     return 0
   fi
   pause 2
-  out=$(btc 20 connect "$address")
+  out=$(timeout 20 "$btctl" connect "$address" 2>&1)
   if is_connected || grep -qiE 'Connection successful|Connected: yes|already connected' <<<"$out"; then
     return 0
   fi

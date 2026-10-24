@@ -2590,7 +2590,7 @@
                 "name": "Files"
               },
               {
-                "cmd": "/usr/bin/kitty",
+                "cmd": "ryoku-app terminal",
                 "icon": "terminal",
                 "name": "Terminal"
               },

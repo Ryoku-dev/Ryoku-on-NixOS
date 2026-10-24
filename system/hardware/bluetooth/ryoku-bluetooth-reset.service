@@ -7,6 +7,7 @@
 # per-user service. Restarting with nothing connected yet (login, before the
 # user reaches for headphones) clears the race with no audible drop.
 Description=Reset the Bluetooth controller once the session audio stack is up (BlueZ A2DP-drop workaround)
+ConditionUser=!@system
 PartOf=ryoku-session.target
 After=ryoku-session.target wireplumber.service
 # Skip the whole thing on a box with no Bluetooth radio.

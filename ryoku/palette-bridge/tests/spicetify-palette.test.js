@@ -165,7 +165,7 @@ assert.equal(properties.get("--spice-main"), palette.background);
 assert.equal(properties.get("--spice-card"), palette.surfaceContainer);
 assert.equal(properties.get("--spice-text"), palette.onSurface);
 assert.equal(properties.get("--spice-button"), palette.primary);
-assert.ok(!elements.get("ryoku-wallpaper-token-bridge").textContent.includes(".Root__now-playing-bar"));
+assert.ok(!elements.get("ryoku-wallpaper-token-bridge").textContent.includes('.Root__now-playing-bar { background:'));
 
 paletteStream.onerror();
 assert.equal(paletteStream.closed, true);

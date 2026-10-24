@@ -1,5 +1,6 @@
 [Unit]
 Description=Ryoku AI usage collector schedule
+ConditionUser=!@system
 
 [Timer]
 OnBootSec=45sec

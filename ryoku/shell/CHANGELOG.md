@@ -3,6 +3,32 @@
 ## Unreleased
 
 ### Fixed
+- **The quick-launch defaults name Default Apps roles, not fixed programs.**
+  The Files, Terminal, Browser and Code slots carried over from the iNiR port
+  now run `ryoku-app files|terminal|browser|editor`, so anything that reads
+  them opens what the user picked in Default Apps. With no browser picked,
+  `ryoku-app` tries Firefox, Chromium, then Zen; 1.0 moved Firefox ahead of
+  Zen, so pick Zen in Default Apps to keep it (`quickshell/inir/modules/common/IrisDefaults.js`,
+  `../assets/rices/`).
+- **The 3D wallpaper no longer flips vertically behind a window.** The
+  desktop frost captures the workspace into a layer, and an inline `View3D`
+  inside it rendered upside down, so the depth wallpaper turned over while
+  the cut-out stayed upright. The mesh now renders offscreen whenever that
+  layer is up and keeps the inline path on a bare desktop
+  (`quickshell/shell/modules/stage/StageSpatialScene.qml`,
+  `quickshell/shell/modules/desktop/Desktop.qml`,
+  `quickshell/shell/modules/stage/StageBackdrop.qml`).
+- **Bluetooth connections stop showing as pending after they finish.** Link
+  commands now return when BlueZ reports the connection instead of waiting out
+  bluetoothctl's command timeout. Pairing keeps a separate safety bound for a
+  device that stops responding. Covered by `tests/bluetooth-link.sh`.
+- **Folder icons follow the palette on every system.** The folder colour now
+  tracks the Material primary of the wallpaper or fixed theme and updates
+  straight after the shell writes its palette, even with app theming off;
+  systems with dconf but no GSettings schemas (minimal Wayland, NixOS) are
+  covered too. The rebuild runs beside the app theme fan-out instead of
+  delaying it (`ipc/matugen.go`, `scripts/ryoku-cmd-folders`,
+  `matugen/config.toml`).
 - **The Stash names an older install after the entry that launches it.** When
   a second desktop entry only checked for the same app, the Stash list could
   show that entry's name instead, depending on how the system sorts file
