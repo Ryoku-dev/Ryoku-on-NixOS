@@ -68,6 +68,59 @@
       --essential-base: var(--spice-main) !important;
     }
   `;
+  const detailCss = `
+    .main-actionBarBackground-background,
+    .playlist-playlist-actionBarBackground-background {
+      background: linear-gradient(180deg,
+        color-mix(in srgb, var(--spice-pagelink-active) 12%, var(--spice-main)),
+        var(--spice-main)) !important;
+    }
+    .Root__now-playing-bar .main-genericButton-button[data-active="true"],
+    .Root__now-playing-bar .main-genericButton-button[aria-pressed="true"],
+    .Root__now-playing-bar .main-genericButton-buttonActive {
+      color: var(--spice-pagelink-active) !important;
+    }
+    .Root__now-playing-bar .main-genericButton-button[data-active="true"]::after,
+    .Root__now-playing-bar .main-genericButton-button[aria-pressed="true"]::after {
+      background-color: var(--spice-pagelink-active) !important;
+    }
+    .main-trackList-trackListRow:hover,
+    .main-trackList-trackListRow:focus-within {
+      background-color: color-mix(in srgb, var(--spice-pagelink-active) 10%, var(--spice-main)) !important;
+    }
+    .main-trackList-trackListRow[aria-selected="true"],
+    [role="row"][aria-selected="true"] .main-trackList-trackListRow {
+      background-color: color-mix(in srgb, var(--spice-pagelink-active) 18%, var(--spice-main)) !important;
+    }
+    .main-trackList-trackListRow {
+      color: var(--spice-subtext) !important;
+      --text-base: var(--spice-text) !important;
+      --text-subdued: var(--spice-subtext) !important;
+    }
+    .main-trackInfo-artists a,
+    .Root__main-view a[href^="/artist/"],
+    .main-trackList-trackListRow a[href^="/artist/"] {
+      color: var(--spice-pagelink-active) !important;
+    }
+    .Root__globalNav .main-globalNav-navLink {
+      background-color: var(--spice-main-elevated) !important;
+      color: var(--spice-subtext) !important;
+    }
+    .Root__globalNav .main-globalNav-navLinkActive {
+      color: var(--spice-pagelink-active) !important;
+    }
+    .Root__globalNav .main-globalNav-navLink:hover,
+    .Root__globalNav .main-globalNav-navLink:focus-visible {
+      background-color: var(--spice-highlight) !important;
+      color: var(--spice-text) !important;
+    }
+    .main-contextMenu-tippy,
+    #hover-or-focus-tooltip {
+      --generic-tooltip-background-color: var(--spice-card) !important;
+      background-color: var(--spice-card) !important;
+      color: var(--spice-text) !important;
+    }
+  `;
   const defaultPreferences = {
     neutralStyle: false, accentStrength: 100, surfaceTint: 5, neutralText: true, removeGradients: true,
     surfaceBrightness: 50, sidebarTint: 100, playerTint: 100, cardTint: 100,
@@ -162,6 +215,7 @@
     .main-home-homeHeader,
     .main-home-homeBackground,
     .main-actionBarBackground-background,
+    .playlist-playlist-actionBarBackground-background,
     .main-entityHeader-backgroundColor,
     .main-topBar-overlay {
       background: var(--spice-main) !important;
@@ -204,7 +258,7 @@
       const signature = JSON.stringify({ palette, preferences });
       if (signature === last) return;
       last = signature;
-      const css = paletteCss + (preferences.neutralStyle ? neutralCss + (preferences.removeGradients ? washCss : "") : "");
+      const css = paletteCss + detailCss + (preferences.neutralStyle ? neutralCss + (preferences.removeGradients ? washCss : "") : "");
       if (bridge.textContent !== css) bridge.textContent = css;
       const style = document.documentElement.style;
       for (const [name, color] of Object.entries(colors)) {

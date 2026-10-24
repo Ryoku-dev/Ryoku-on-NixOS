@@ -227,6 +227,9 @@ func reconcilers() []reconciler {
 	checks := []reconciler{
 		{i18n.T("interface language"), reconcileShellLanguage},
 	}
+	if sys.NixBackend() {
+		checks = append(checks, reconciler{i18n.T("NixOS generation integrity"), reconcileNixGeneration})
+	}
 	if fedora {
 		checks = append(checks,
 			reconciler{i18n.T("Fedora release"), reconcileFedoraRelease},
@@ -395,12 +398,60 @@ type finding struct {
 	res  recResult
 }
 
+func nixIrrelevantReconcilerNames() map[string]bool {
+	return map[string]bool{
+		i18n.T("limine boot menu layout"):    true,
+		i18n.T("limine boot entry"):          true,
+		i18n.T("alongside boot entry"):       true,
+		i18n.T("limine UKI boot tree"):       true,
+		i18n.T("limine kernel boot images"):  true,
+		i18n.T("boot menu dead entries"):     true,
+		i18n.T("boot partition headroom"):    true,
+		i18n.T("boot volume writability"):    true,
+		i18n.T("initramfs GPU trim"):         true,
+		i18n.T("initramfs console keys"):     true,
+		i18n.T("limine autoboot"):            true,
+		i18n.T("limine snapshot sync"):       true,
+		i18n.T("updatedb snapshot prune"):    true,
+		i18n.T("pacman database lock"):       true,
+		i18n.T("pacman progress bar"):        true,
+		i18n.T("multilib repository"):        true,
+		i18n.T("conflicting Ryoku files"):    true,
+		i18n.T("stale install crypt mapper"): true,
+		i18n.T("ryoku package channel"):      true,
+		i18n.T("ryoku package database"):     true,
+		i18n.T("boot guard"):                 true,
+		i18n.T("shipped app packages"):       true,
+		i18n.T("retired app packages"):       true,
+		i18n.T("release control manifest"):   true,
+		i18n.T("NVIDIA update guard hook"):   true,
+		pendingConfigCheckName():             true,
+		i18n.T("orphaned packages"):          true,
+	}
+}
+
+func platformReconcilers() []reconciler {
+	all := reconcilers()
+	if !sys.NixBackend() {
+		return all
+	}
+
+	hidden := nixIrrelevantReconcilerNames()
+	out := make([]reconciler, 0, len(all)-len(hidden))
+	for _, r := range all {
+		if !hidden[r.name] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func runReconcilers(checkOnly bool) []finding {
 	fetchFedoraReleaseStatus := doctorFedoraReleaseStatus
 	doctorFedoraReleaseStatus = sync.OnceValues(fetchFedoraReleaseStatus)
 	defer func() { doctorFedoraReleaseStatus = fetchFedoraReleaseStatus }()
 	var out []finding
-	for _, r := range reconcilers() {
+	for _, r := range platformReconcilers() {
 		out = append(out, finding{name: r.name, res: r.run(checkOnly)})
 	}
 	return out

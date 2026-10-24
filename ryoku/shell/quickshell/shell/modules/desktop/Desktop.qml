@@ -571,11 +571,10 @@ Scope {
         settingsProc.command = root._settingsQueue.shift();
         settingsProc.running = true;
     }
-    // Gate every widget's visibility on the layer being sized and Config +
-    // Registry loaded, so nothing flashes at its default before the real
-    // enabled flags arrive. An undefined here would short-circuit the visible
-    // bindings to undefined and leave them at their `true` default, rendering
-    // disabled widgets.
+    // Load native, Python, iRiS and ii desktop widgets when output geometry
+    // and their own configuration are ready. Plugin discovery is independent:
+    // Registry.plugins starts empty and fills when the scan finishes.
+    // Do not hide every unrelated widget if discovery fails or stalls.
     readonly property bool reloadReady: readiness.ready
 
     ReloadReadiness {
@@ -583,7 +582,6 @@ Scope {
         width: win.width
         height: win.height
         configReady: Config.ready
-        registryReady: Registry.ready
     }
 
     // Resolve the placement helper the way Registry resolves discover.sh: in a
@@ -782,6 +780,7 @@ Scope {
             wallpaperPath: root.wallpaperPath
             wallpaperFit: root.wallpaperFit
             spatialEnabled: root.stageSpatial
+            layered: root.deckFrostBlur > 0.01
             visible: root.stageOn
         }
 

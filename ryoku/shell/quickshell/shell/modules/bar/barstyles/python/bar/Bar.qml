@@ -10,10 +10,14 @@ import "../reusables"
 import "../"
 import "../../../../../services/lib/screens.js" as Screens
 import shell.modules.stage.frame
+import shell.services as Shell
 
 Variants {
-    // One band per screen that still shows a bar (Ryoku Settings > Displays).
-    model: Screens.uniqueByName(Quickshell.screens).filter(screen => Tokens.barEnabledFor(screen.name))
+    // Only draw Python on enabled outputs actually assigned to Python.
+    // A global Python pick must not overlap a per-display QS Bar.
+    model: Screens.uniqueByName(Quickshell.screens).filter(screen =>
+        Tokens.barEnabledFor(screen.name)
+        && Shell.Config.barStyleFor(screen.name) === "python")
     delegate: Component {
         PanelWindow {
             id: barWindow

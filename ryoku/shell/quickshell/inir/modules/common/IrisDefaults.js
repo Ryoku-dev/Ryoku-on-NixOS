@@ -1611,22 +1611,22 @@ function config() {
     {
      "icon": "folder",
      "name": "Files",
-     "cmd": "/usr/bin/nautilus"
+     "cmd": "ryoku-app files"
     },
     {
      "icon": "terminal",
      "name": "Terminal",
-     "cmd": "/usr/bin/kitty"
+     "cmd": "ryoku-app terminal"
     },
     {
      "icon": "web",
      "name": "Browser",
-     "cmd": "/usr/bin/firefox"
+     "cmd": "ryoku-app browser"
     },
     {
      "icon": "code",
      "name": "Code",
-     "cmd": "/usr/bin/code"
+     "cmd": "ryoku-app editor"
     }
    ]
   },

@@ -210,6 +210,9 @@ Item {
 
     // Python keeps its whole settings surface in the style itself: the guide
     // stage, opened through the style's resident `main` IPC target.
+    function openKarumaSettings() {
+        Quickshell.execDetached(["qs", "-c", "shell", "ipc", "call", "karuma", "openSettings"]);
+    }
     function openPythonSettings() {
         Quickshell.execDetached(["qs", "-c", "shell", "ipc", "call", "main",
             "handleCommand", "toggle", "guide", ""]);
@@ -586,6 +589,39 @@ Item {
                 }
             }
 
+            // Karuma has its own full-featured settings Hub, hosted by the
+            // primary Karuma scene. Expose it from the regular Bar Studio.
+            SettingCard {
+                id: karumaSect
+                width: col.colWidth
+                visible: page.activeStyle === "karuma"
+                title: I18n.tr("KARUMA")
+                kana: "力"
+
+                Item {
+                    width: parent.width
+                    height: karumaBody.height + Tokens.s3 + Tokens.s4
+                    Column {
+                        id: karumaBody
+                        anchors { left: parent.left; right: parent.right; top: parent.top }
+                        anchors.leftMargin: Tokens.s4; anchors.rightMargin: Tokens.s4; anchors.topMargin: Tokens.s3
+                        spacing: Tokens.s3
+                        Text {
+                            width: parent.width
+                            text: I18n.tr("Karuma has its own appearance, geometry, modules and interaction settings. Open its settings panel to configure the active bar.")
+                            color: Tokens.inkMuted
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fBody
+                            wrapMode: Text.WordWrap
+                        }
+                        Btn {
+                            text: I18n.tr("OPEN KARUMA SETTINGS")
+                            onAct: page.openKarumaSettings()
+                        }
+                    }
+                }
+            }
+
             // Python arranges itself live from its own guide: the settings
             // stage opens with the bar's gear, so this card only routes there.
             SettingCard {
@@ -662,7 +698,7 @@ Item {
             SettingCard {
                 id: folderNote
                 width: col.colWidth
-                visible: !page.sumiActive && ["qsbar", "orpheus", "iris", "python", "nomarchy"].indexOf(page.activeStyle) === -1
+                visible: !page.sumiActive && ["qsbar", "orpheus", "iris", "python", "nomarchy", "karuma"].indexOf(page.activeStyle) === -1
                 title: I18n.tr("LAYOUT")
 
                 Text {

@@ -17,6 +17,18 @@
   headless one exits at once.
 
 ### Fixed
+- `bluetooth/ryoku-bluetooth-tune`: **paired devices keep their bond after
+  disconnecting.** BlueZ now keeps the adapter pairable independently of the
+  session agent, so it stores link keys for later reconnects. The existing
+  install and upgrade hooks apply the setting on Arch, CachyOS, Fedora, and
+  Void. Covered by `tests/bluetooth-tune.sh`.
+- `power/ryoku-power-cutover`: **session rebinding cannot erase a live display.**
+  The systemd and Turnstile environment bind still clears every session key
+  so a handle left by another compositor never survives, but it clears
+  `DISPLAY` only when the selected session supplies one. A startup snapshot
+  taken before the X server came up now leaves the manager's working value
+  alone, so X11 apps started from the launcher keep a display (#494). Covered
+  for systemd and runit by `tests/power-cutover.sh`.
 - `gpu/ryoku-gpu install-udev`: **packaged installs can find the rule they
   already ship.** The command looked beside `/usr/bin/ryoku-gpu`, while every
   edition installs the source rule in `/usr/lib/udev/rules.d`; it now uses that
