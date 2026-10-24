@@ -15,7 +15,6 @@ on:
       - 'nix/modules/ryoku.nix'
       - 'nix/tests/installer-*'
       - 'nix/tests/test-installer-*'
-      - 'nix/tests/iso-*'
       - 'nix/tests/test-qylock-pam-materialization.py'
       - '.github/workflows/nix-iso.yml'
   pull_request:
@@ -29,7 +28,6 @@ on:
       - 'nix/modules/ryoku.nix'
       - 'nix/tests/installer-*'
       - 'nix/tests/test-installer-*'
-      - 'nix/tests/iso-*'
       - 'nix/tests/test-qylock-pam-materialization.py'
       - '.github/workflows/nix-iso.yml'
   workflow_dispatch:
@@ -70,36 +68,8 @@ jobs:
             .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
             .#checks.x86_64-linux.ryoku-iso-configs
 
-      - name: Prove ISO derivations evaluate
+      - name: Prove ISO derivation evaluates
         shell: bash
         run: |
           set -euo pipefail
-          nix build --dry-run --no-link .#ryoku-iso .#ryoku-iso-stable
-
-  boot:
-    # Pushes to unstable-dev and main run the same boot test in nix-iso-build.yml.
-    if: github.event_name != 'push'
-    name: Boot NixOS ISO in UEFI and BIOS VMs
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v23
-        with:
-          determinate: false
-          extra-conf: |
-            system-features = nixos-test benchmark big-parallel kvm
-
-      - name: Boot the ISO
-        run: nix build -L --no-link .#checks.x86_64-linux.ryoku-iso-boot
+          nix build --dry-run --no-link .#ryoku-iso
