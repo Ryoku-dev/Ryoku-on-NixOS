@@ -59,11 +59,26 @@ PanelWindow {
     onNotificationUrlChanged: win.failedNotificationUrl = ""
 
     screen: modelData
+    readonly property bool tansuOwnsNotifications: {
+        if (BarProducts.sceneUrl("tansu") === "")
+            return false
+
+        for (const screen of Quickshell.screens) {
+            if (screen && screen.name
+                    && Tokens.barEnabledFor(screen.name)
+                    && Config.barStyleFor(screen.name) === "tansu")
+                return true
+        }
+        return false
+    }
+
+
     visible: mapped
         && Config.barStyle !== "nacre"
         && !Config.styleOwnsBannersFor(
             modelData ? modelData.name : ""
         )
+        && !win.tansuOwnsNotifications
     color: "transparent"
     // Exclusive zone 0: reserve nothing, respect other layers' zones (contract
     // 12 sec 1). ExclusionMode.Ignore would request -1 instead.
