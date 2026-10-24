@@ -47,14 +47,16 @@ QtObject {
                 "id": found.id,
                 "name": found.name || fallback.name,
                 "desc": found.summary || found.description || fallback.desc,
-                "installed": found.installed === true,
+                // OS-shipped styles cannot become uninstalled because a
+                // mutable Store receipt is absent or stale.
+                "installed": true,
                 "active": found.active === true,
                 "version": found.version || "",
                 "installedVersion": found.installedVersion || "",
-                "updateAvailable": found.updateAvailable === true,
-                "downloadPaused": found.downloadPaused === true,
-                "unavailable": found.unavailable === true,
-                "unavailableReason": found.unavailableReason || "",
+                "updateAvailable": false,
+                "downloadPaused": false,
+                "unavailable": false,
+                "unavailableReason": "",
                 "metadata": found.metadata || ({})
             } : fallback);
         }
