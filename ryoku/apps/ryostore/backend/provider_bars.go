@@ -259,13 +259,9 @@ func snapshotStaleBuiltins(data []byte) bool {
 		if !ok || it.Category != "barstyles" {
 			continue
 		}
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
 		seen[it.ID] = true
-		if it.Name != want.Name || it.Summary != want.Summary || it.Description != want.Description {
-=======
 		if it.Name != want.Name || it.Summary != want.Summary || it.Description != want.Description ||
 			barStyleResourceTier(it) != barStyleResourceTier(want) {
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
 			return true
 		}
 	}

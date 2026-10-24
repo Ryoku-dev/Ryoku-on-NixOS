@@ -201,13 +201,8 @@ ShellRoot {
                 screen: perScreen.modelData
                 active: true
                 widgetsEnabled: Tokens.widgetsEnabledFor(perScreen.modelData.name)
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
-                    && Config.barStyleFor(perScreen.modelData.name) !== "gokko"
-                gokkoActive: Config.barStyleFor(perScreen.modelData.name) === "gokko"
-=======
                     && !root.gokkoRunning
                 gokkoActive: root.gokkoRunning
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
                 wallpaperUrl: wallpaper.wallpaperUrl
                 wallpaperPath: wallpaper.wallpaperPath
                 wallpaperFit: wallpaper.fit
@@ -328,11 +323,7 @@ ShellRoot {
             UniversalDockHost {
                 id: dockLoader
                 screen: perScreen.modelData
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
-                surfaceVisible: Config.barStyleFor(perScreen.modelData.name) !== "gokko"
-=======
                 surfaceVisible: !root.gokkoRunning
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
             }
 
             // The dock's right-click context menu: a full-screen overlay on the

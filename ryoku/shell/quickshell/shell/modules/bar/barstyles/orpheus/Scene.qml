@@ -591,16 +591,12 @@ Item {
         readonly property bool islands: layoutSpan === "islands"
         readonly property bool fused: layoutSpan === "fused"
         readonly property bool full: layoutSpan === "full"
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
-        readonly property real inset: 12 * K.Style.scale
-=======
         readonly property bool needsFullHeight: scene.surfaceOpening
             || scene.cardKey !== "" || cards.retainedKey !== ""
             || liquidBody.cardProgress > 0
             || scene.settingsSurfaceHeld || morphAnimation.running
 
-        readonly property real inset: 8 * K.Style.scale
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
+        readonly property real inset: 12 * K.Style.scale
         readonly property real clearance: 10 * K.Style.scale
         readonly property real pad: K.Style.barPad
         readonly property real leftW: leftLane.contentWidth

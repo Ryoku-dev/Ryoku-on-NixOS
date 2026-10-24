@@ -12,14 +12,9 @@ Singleton {
     property string revisionKey: ""
     property var failedStyles: ({})
     property string brokenStyle: ""
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
-    // Optional controller published by the installed Gokko frame-family scene.
-    property var gokkoWidgets: null
-=======
     // The Store-owned Gokko scene publishes its widget canvas here.
     property var gokkoWidgets: null
     readonly property bool gokkoReady: gokkoWidgets !== null
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
 
     function parseRows(raw) {
         try {
@@ -64,11 +59,7 @@ Singleton {
     // one host screen, so it must load even where the user hid the bar. Ricelin
     // is Store-owned but follows the same primary-host contract as Iris/Python.
     function isFrameFamily(id) {
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
         return id === "iris" || id === "python" || id === "nomarchy" || id === "ricelin" || id === "gokko";
-=======
-        return id === "iris" || id === "python" || id === "nomarchy" || id === "gokko";
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
     }
 
 

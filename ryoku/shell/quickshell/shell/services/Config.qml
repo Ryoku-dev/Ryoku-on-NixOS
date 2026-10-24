@@ -71,11 +71,8 @@ Singleton {
     // Style stores are loaded here, but each style persists through the daemon.
     property alias python: adapter.python
     property alias nomarchy: adapter.nomarchy
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
     property alias displays: adapter.displays
-=======
     readonly property var inir: adapter.inir
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
 
     // Folder styles may own notification and feedback surfaces.
     readonly property bool styleOwnsBanners: (barStyle === "python"
@@ -84,11 +81,7 @@ Singleton {
         && !(root.nomarchy && root.nomarchy.notifications === false))
         || (barStyle === "iris" && (root.inir?.iris?.modules?.notificationPopup ?? true))
         || barStyle === "tansu"
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
-        || barStyle === "gokko"
-=======
         || (barStyle === "gokko" && BarProducts.gokkoReady)
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
     // Only a style that plays its own notification sound silences the shell's
     // cue; Nomarchy and Tansu draw banners but play nothing themselves.
     readonly property bool styleOwnsNotificationSound: (barStyle === "python"
@@ -419,11 +412,8 @@ Singleton {
                 "notifications": true,
                 "osd": true
             })
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
             property var displays: ({})
-=======
             property var inir: ({})
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
             property var dock: ({
                 "enabled": false,
                 "design": "ryoku",

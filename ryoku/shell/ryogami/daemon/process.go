@@ -13,9 +13,6 @@ import (
 	"time"
 )
 
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
-// managedProcess supervises the picker while it is in use or inside its short keep-warm window.
-=======
 const (
 	pickerReleaseSetting = "performance.releaseAfterHideSeconds"
 	pickerReconcileWait  = 5 * time.Minute
@@ -23,7 +20,6 @@ const (
 )
 
 // managedProcess supervises the picker and serializes every stop and start.
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
 type managedProcess struct {
 	mu           sync.Mutex
 	cmd          *exec.Cmd

@@ -27,7 +27,6 @@ func Xdg(envVar, fallback string) string {
 // ConfigHome is $XDG_CONFIG_HOME (default ~/.config).
 func ConfigHome() string { return Xdg("XDG_CONFIG_HOME", ".config") }
 
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
 // DataDirs returns XDG data roots in lookup order, including active NixOS
 // profiles when the session does not provide XDG_DATA_DIRS.
 func DataDirs() []string {
@@ -58,7 +57,8 @@ func DataDirs() []string {
 		out = append(out, dir)
 	}
 	return out
-=======
+}
+
 // PicturesDir is the user's Pictures folder: $XDG_PICTURES_DIR when the session
 // exports it, else the XDG_PICTURES_DIR line of user-dirs.dirs (a terminal or a
 // service that did not inherit the login environment), else ~/Pictures. A
@@ -114,7 +114,6 @@ func userDirsPictures(path string) string {
 		}
 	}
 	return ""
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
 }
 
 // StateDir is the CLI's state root, $XDG_STATE_HOME/ryoku (default

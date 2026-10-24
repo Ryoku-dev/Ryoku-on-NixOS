@@ -1152,15 +1152,7 @@ Rectangle {
                         spacing: 1
                         anchors.verticalCenter: parent.verticalCenter
                         Text {
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
                             text: I18n.tr("RYOKU NIX"); color: Tokens.ink; font.family: Tokens.ui
-=======
-                            text: I18n.tr(SysInfo.sysDistro.toLowerCase().indexOf("cachyos") >= 0
-                                ? "RYOKU CACHYOS"
-                                : (SysInfo.sysPackageManager === "xbps"
-                                    ? "RYOKU VOID"
-                                    : (SysInfo.sysPackageManager === "dnf" ? "RYOKU FEDORA" : "RYOKU ARCH"))); color: Tokens.ink; font.family: Tokens.ui
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
                             font.pixelSize: 14; font.weight: Font.Medium; font.letterSpacing: 2.4
                         }
                         Text {

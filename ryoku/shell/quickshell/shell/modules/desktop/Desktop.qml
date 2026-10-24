@@ -54,11 +54,6 @@ Scope {
     // controller hook; the desktop layer defaults on.
     property bool active: true
     property bool widgetsEnabled: true
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
-    // A Store frame-family can host its own widget canvas in this wallpaper
-    // surface; no second competing Bottom-layer window is created.
-=======
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
     property bool gokkoActive: false
     property string wallpaperUrl: ""
     property string wallpaperPath: ""
@@ -768,13 +763,8 @@ Scope {
             videoPaused: root.videoPaused
         }
 
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
-        // Gokko's widgets render as wallpaper siblings rather than creating
-        // another Bottom-layer Wayland surface that could be occluded.
-=======
         // Host Gokko widgets beside the wallpaper, below ordinary windows.
         // A Store package cannot create a second competing Bottom surface.
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
         Loader {
             id: gokkoCanvas
             z: 3
@@ -786,12 +776,6 @@ Scope {
             sourceComponent: controller ? controller.desktopCanvasComponent : undefined
         }
 
-<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
-        // The Parallax backdrop: the inpainted background.png drifting just
-        // above the base wallpaper, covering its baked subject. Only Parallax
-        // shows it; it also owns the per-monitor cursor poll (docs/stage.md).
-=======
->>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
         StageBackdrop {
             z: 1
             screen: root.screen
