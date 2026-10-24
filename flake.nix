@@ -217,6 +217,10 @@
         ryoku-install-backend = ryokuInstallBackend;
         ryoku-iso = self.nixosConfigurations.ryoku-iso.config.system.build.isoImage;
         ryoku-iso-stable = self.nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage;
+        # The system a default install builds; nix-cache.yml pushes it to the
+        # binary cache so installs and updates download Ryoku instead of
+        # compiling it.
+        ryoku-default-system = (mkIsoConfigSystem { }).config.system.build.toplevel;
         ryoku-shell = ryoku.shell;
         ryoku-ui = ryoku.ui;
         ryoku-plugin-kit = ryoku.pluginKit;
