@@ -34,6 +34,8 @@ identity=$(disk_identity /dev/sdz)
 
 eval "$(extract_function revalidate_install_disk)"
 validate_install_disk() { install_disk=$1; }
+# Read by revalidate_install_disk, imported through eval.
+# shellcheck disable=SC2034
 install_disk=/dev/sdz
 CURRENT_ID='wwn=one|serial=one|size=1'
 disk_identity() { printf '%s\n' "$CURRENT_ID"; }

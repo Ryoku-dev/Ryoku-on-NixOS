@@ -14,6 +14,8 @@ ignore_files:
   # machine-generated translations: derived from source strings (e.g. Hyprland's
   # window new_status values), not hand-authored, so we do not lint them.
   - ryoku/i18n/catalog/**
+  # Typing vocabulary is data, not user-facing language.
+  - ryoku/shell/quickshell/keys/typing/assets/languages/**
   # vendored upstream modules we do not author.
   - "**/vendor/**"
 
