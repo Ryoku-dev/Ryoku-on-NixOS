@@ -96,7 +96,7 @@ jobs:
       - sync
     if: always() && needs.select.result == 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -137,12 +137,19 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@v23
         with:
           determinate: false
+          extra-conf: |
+            extra-substituters = https://ryotunes.cachix.org
+            extra-trusted-public-keys = ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs=
 
       - name: Run NixOS checks
         if: steps.result.outputs.eligible == 'true'
         run: |
           set -euo pipefail
           nix build --no-link \
+            .#checks.x86_64-linux.ryoku-cli \
+            .#checks.x86_64-linux.ryoku-hub \
+            .#checks.x86_64-linux.ryoku-desktop-data \
+            .#checks.x86_64-linux.ryoku-bundle \
             .#checks.x86_64-linux.ryoku-installer-options \
             .#checks.x86_64-linux.ryoku-installer-transaction \
             .#checks.x86_64-linux.ryoku-installer-disk-identity \
