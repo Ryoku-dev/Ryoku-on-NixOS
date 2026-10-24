@@ -78,27 +78,57 @@ func resolvePath(p string) string {
 	if p == "" {
 		return ""
 	}
+	if p == "~" {
+		return home()
+	}
 	if strings.HasPrefix(p, "~/") {
 		return filepath.Join(home(), p[2:])
 	}
 	return p
 }
 
+// picturesRoot resolves the Pictures folder through XDG so a localized desktop
+// (~/Imagens, ~/Bilder, ...) is honored; the session exports the variable at
+// login and the English default stays the fallback where it is unset.
+func picturesRoot() string {
+	if d := os.Getenv("XDG_PICTURES_DIR"); d != "" {
+		return d
+	}
+	return filepath.Join(home(), "Pictures")
+}
+
+// picturesSub picks the Pictures subfolder that actually holds a library: the
+// XDG root first, then the English default for users whose collection predates
+// localization (a generated ~/Imagens left empty while ~/Pictures kept the
+// files). With neither present it answers the XDG path so a fresh install
+// grows its library in the right folder.
+func picturesSub(sub string) string {
+	xdg := filepath.Join(picturesRoot(), sub)
+	if dirExists(xdg) {
+		return xdg
+	}
+	def := filepath.Join(home(), "Pictures", sub)
+	if def != xdg && dirExists(def) {
+		return def
+	}
+	return xdg
+}
+
 func (c config) wallpaperDir() string {
 	if p := resolvePath(c.Paths.Wallpaper); p != "" {
 		return p
 	}
-	return filepath.Join(home(), "Pictures", "Wallpapers")
+	return picturesSub("Wallpapers")
 }
 
 func (c config) videoDir() string {
 	if p := resolvePath(c.Paths.VideoWallpaper); p != "" {
 		return p
 	}
-	// Ryoku keeps clips in ~/Pictures/livewalls (the switcher and the old live
+	// Ryoku keeps clips in <Pictures>/livewalls (the switcher and the old live
 	// stack both scanned it); fall back to the shared wallpaper dir only when
 	// that folder is absent, mirroring upstream's shared-dir default.
-	if live := filepath.Join(home(), "Pictures", "livewalls"); dirExists(live) {
+	if live := picturesSub("livewalls"); dirExists(live) {
 		return live
 	}
 	return c.wallpaperDir()
@@ -141,28 +171,6 @@ func (c config) videoFrame() float64 {
 	return c.Matugen.VideoFrame
 }
 
-// persistVideoFrame patches only matugen.videoFrame so hand-edited keys survive.
-func persistVideoFrame(sec float64) {
-	raw := map[string]json.RawMessage{}
-	loadJSON(configPath(), &raw)
-	mat := map[string]interface{}{}
-	if m, ok := raw["matugen"]; ok {
-		_ = json.Unmarshal(m, &mat)
-	}
-	mat["videoFrame"] = sec
-	b, err := json.Marshal(mat)
-	if err != nil {
-		return
-	}
-	raw["matugen"] = b
-	_ = os.MkdirAll(ryokuConfigDir(), 0o755)
-	out, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		return
-	}
-	saveRaw(configPath(), out)
-}
-
 // persistResourceTier patches only the resource_tier key so hand-edited keys in
 // ryogami.json survive (the file is user-facing config, not daemon state).
 func persistResourceTier(tier string) {
@@ -183,7 +191,7 @@ func persistResourceTier(tier string) {
 
 func saveRaw(path string, b []byte) {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.WriteFile(tmp, portableJSON(b), 0o644); err != nil {
 		return
 	}
 	_ = os.Rename(tmp, path)
@@ -250,7 +258,7 @@ func wallPrefs() wallTune {
 	return p
 }
 
-// wallAudio is the wall-ui's global video-audio default for a clip: whether it
+// wallAudio is the global video-audio default for a clip: whether it
 // plays muted and at what volume (0-100). It is the fallback for any output a
 // wall.apply audio map does not name.
 type wallAudio struct {
@@ -258,8 +266,8 @@ type wallAudio struct {
 	volume int
 }
 
-// ryogamiWallConfigDir resolves the wall-ui config directory the way its
-// Config.qml does: RYOGAMI_WALL_CONFIG when set, else $XDG_CONFIG_HOME (or
+// ryogamiWallConfigDir is where the old picker kept its config, read once by
+// the migration: RYOGAMI_WALL_CONFIG when set, else $XDG_CONFIG_HOME (or
 // ~/.config) + /ryogami-wall.
 func ryogamiWallConfigDir() string {
 	if d := os.Getenv("RYOGAMI_WALL_CONFIG"); d != "" {
@@ -271,22 +279,13 @@ func ryogamiWallConfigDir() string {
 	return filepath.Join(home(), ".config", "ryogami-wall")
 }
 
-// wallAudioDefaults reads ~/.config/ryogami-wall/config.json for the picker's
-// global audio knobs, mirroring wall-ui's Config.qml: wallpaperMute is true
-// unless the key is exactly false, and wallpaperVolume defaults to 100, rounded
-// and clamped to 0-100. An absent file yields muted at full volume.
 func wallAudioDefaults() wallAudio {
 	a := wallAudio{mute: true, volume: 100}
-	var data struct {
-		Mute   *bool    `json:"wallpaperMute"`
-		Volume *float64 `json:"wallpaperVolume"`
+	if v, ok := settingValue("wallpaperMute").(bool); ok {
+		a.mute = v
 	}
-	loadJSON(filepath.Join(ryogamiWallConfigDir(), "config.json"), &data)
-	if data.Mute != nil {
-		a.mute = *data.Mute
-	}
-	if data.Volume != nil {
-		a.volume = clampVolume(int(math.Round(*data.Volume)))
+	if n, ok := toNumber(settingValue("wallpaperVolume")); ok {
+		a.volume = clampVolume(int(math.Round(n)))
 	}
 	return a
 }

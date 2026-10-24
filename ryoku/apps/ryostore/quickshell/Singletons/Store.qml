@@ -17,6 +17,9 @@ Singleton {
     property string error: ""
     property string busyKey: ""
     property string installStage: ""
+    property string installProgressStage: ""
+    property real installProgressDone: 0
+    property real installProgressTotal: 0
     property string installError: ""
     property string installErrorKey: ""
     property string _catalogOutput: ""
@@ -29,6 +32,59 @@ Singleton {
     property bool _forced: false
     property string _checkOutput: ""
     property string _op: "install"            // which flow installProc is running
+    property string _failedOp: ""
+
+    function operationStage(op) {
+        if (op === "remove")
+            return "REMOVING";
+        if (op === "enable")
+            return "ENABLING";
+        if (op === "disable")
+            return "DISABLING";
+        return "INSTALLING";
+    }
+
+    function resetInstallProgress() {
+        installProgressStage = "";
+        installProgressDone = 0;
+        installProgressTotal = 0;
+    }
+
+    function progressStageLabel(stage) {
+        if (stage === "download")
+            return "DOWNLOADING";
+        if (stage === "extract")
+            return "EXTRACTING";
+        if (stage === "verify")
+            return "VERIFYING";
+        if (stage === "apply")
+            return "APPLYING";
+        return root.operationStage(root._op);
+    }
+
+    function readInstallLine(line) {
+        var raw = String(line);
+        var match = raw.trim().match(/^RYOSTORE-PROGRESS (download|extract|verify|apply) ([0-9]+) ([0-9]+)$/);
+        if (match) {
+            installProgressStage = match[1];
+            installProgressDone = Number(match[2]);
+            installProgressTotal = Number(match[3]);
+            installStage = progressStageLabel(match[1]);
+            return;
+        }
+        if (raw !== "")
+            _installError += raw + "\n";
+    }
+
+    function operationFailure(op) {
+        if (op === "remove")
+            return I18n.tr("Removal failed");
+        if (op === "enable")
+            return I18n.tr("Enabling failed");
+        if (op === "disable")
+            return I18n.tr("Disabling failed");
+        return I18n.tr("Installation failed");
+    }
 
     function itemKey(item) {
         return item ? String(item.category || "") + ":" + String(item.id || "") : "";
@@ -83,6 +139,7 @@ Singleton {
         installStage = "FETCHING";
         installError = "";
         installErrorKey = "";
+        root._failedOp = "";
         _installError = "";
         var cmd = ["ryostore", "install", String(item.category), String(item.id)];
         // what you see is what you install: the catalogue leads with the colour
@@ -108,8 +165,24 @@ Singleton {
         installStage = "REMOVING";
         installError = "";
         installErrorKey = "";
+        root._failedOp = "";
         _installError = "";
         installProc.command = ["ryostore", "remove", String(item.category), String(item.id)];
+        installProc.running = true;
+    }
+
+    function setOmarchyEnabled(item, enabled) {
+        if (!item || String(item.category || "") !== "omarchy-plugins"
+                || item.installed !== true || busyKey !== "")
+            return;
+        busyKey = itemKey(item);
+        root._op = enabled ? "enable" : "disable";
+        installStage = enabled ? "ENABLING" : "DISABLING";
+        installError = "";
+        installErrorKey = "";
+        root._failedOp = "";
+        _installError = "";
+        installProc.command = ["omarchy", "plugin", enabled ? "enable" : "disable", String(item.id)];
         installProc.running = true;
     }
 
@@ -119,11 +192,18 @@ Singleton {
         installError = "";
         installErrorKey = "";
         installStage = "";
+        root._failedOp = "";
     }
 
     function retryInstall(item, dither, components) {
+        var failed = root._failedOp;
         clearInstallError(item);
-        install(item, dither, components);
+        if (failed === "enable" || failed === "disable")
+            setOmarchyEnabled(item, failed === "enable");
+        else if (failed === "remove")
+            remove(item);
+        else
+            install(item, dither, components);
     }
 
     // installAll queues every not-yet-installed item and installs them one at a
@@ -205,18 +285,26 @@ Singleton {
 
     Process {
         id: installProc
-        stderr: StdioCollector { onStreamFinished: root._installError = text }
-        onRunningChanged: if (running) root.installStage = root._op === "remove" ? "REMOVING" : "INSTALLING"
+        stderr: SplitParser { onRead: line => root.readInstallLine(line) }
+        onRunningChanged: {
+            if (!running)
+                return;
+            root.resetInstallProgress();
+            root._installError = "";
+            root.installStage = root.operationStage(root._op);
+        }
         onExited: code => {
             if (code !== 0) {
+                root.resetInstallProgress();
                 root.installStage = "FAILED";
                 root.installError = root._installError.trim()
-                        || (root._op === "remove" ? I18n.tr("Removal failed") : I18n.tr("Installation failed"));
-                root.installErrorKey = root.busyKey;
+                        || root.operationFailure(root._op);
+                root._failedOp = root._op;
                 root.busyKey = "";
                 root._queue = [];
                 return;
             }
+            root.resetInstallProgress();
             root.installStage = "VERIFYING";
             root._clearBusyAfterRefresh = true;
             root.refresh(true);

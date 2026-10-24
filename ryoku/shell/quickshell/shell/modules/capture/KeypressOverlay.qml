@@ -27,7 +27,7 @@ PanelWindow {
         ? Keypresses.sessionMonitor
         : (ShellState.screens.length > 0 ? ShellState.screens[0].name : "")
     readonly property bool onScreen: modelData && modelData.name === targetMonitor
-    readonly property bool pointerEnabled: !Recorder.anyActive
+    readonly property bool pointerEnabled: !Recorder.active
         && (drag.dragging || display.width > 0)
 
     readonly property real defCX: monX + screenW / 2
@@ -66,7 +66,7 @@ PanelWindow {
         width: display.implicitWidth
         height: display.implicitHeight
         theme: Keypresses.theme
-        preview: Keypresses.placementPreview && !Recorder.anyActive
+        preview: Keypresses.placementPreview && !Recorder.active
         motionEnabled: !Motion.reduce
     }
 
@@ -74,7 +74,7 @@ PanelWindow {
         anchors.fill: display
         anchors.margins: -10 * win.us
         visible: opacity > 0.01
-        opacity: (stackHover.hovered || drag.dragging) && !Recorder.anyActive ? 1 : 0
+        opacity: (stackHover.hovered || drag.dragging) && !Recorder.active ? 1 : 0
         color: "transparent"
         radius: (Tokens.radius + 6) * win.us
         border.width: Tokens.border * win.us
@@ -117,7 +117,7 @@ PanelWindow {
     HoverHandler {
         id: stackHover
         parent: dragSurface
-        enabled: !Recorder.anyActive
+        enabled: !Recorder.active
         cursorShape: Qt.SizeAllCursor
     }
 
@@ -125,7 +125,7 @@ PanelWindow {
         id: drag
         parent: dragSurface
         target: null
-        enabled: !Recorder.anyActive
+        enabled: !Recorder.active
         dragThreshold: 4
 
         property bool dragging: false
@@ -177,8 +177,8 @@ PanelWindow {
 
     Connections {
         target: Recorder
-        function onAnyActiveChanged() {
-            if (Recorder.anyActive)
+        function onActiveChanged() {
+            if (Recorder.active)
                 display.clear();
         }
     }

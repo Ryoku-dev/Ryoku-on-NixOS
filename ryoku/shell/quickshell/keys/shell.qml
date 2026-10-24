@@ -5,19 +5,34 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Ryoku.Ui.Singletons
 
-// Ryoku keybind cheatsheet -- a one-shot `qs -c keys` app bound to Super+K. It
-// maps a full-screen layer-shell overlay on every monitor (only the focused one
-// carries the card and keyboard), dim + blurred behind by the `ryoku-keys` layer
-// rule in decoration.lua. The legend comes from `ryoku-hub keybinds`, the same
-// catalog the Hub parses from binds.lua, so there is one source and no drift.
-// Read-only. Quit on close so the launch flock releases and it holds no memory
-// while idle.
+// Kit is a one-shot `qs -c keys` app bound to Super+K. It maps a full-screen
+// layer-shell overlay on every monitor; only the focused output carries the card
+// and keyboard. The legend comes from `ryoku-hub keybinds`, the same catalogue
+// the Hub reads, so shortcuts stay in sync. Quitting releases the launch flock
+// and leaves no idle process.
 ShellRoot {
     id: app
 
     property var categories: []
     property bool loaded: false
     property bool closing: false
+    property string requestedTab: Quickshell.env("RYOKU_KIT_TAB")
+    property string requestedRail: Quickshell.env("RYOKU_KIT_RAIL")
+    property int requestRevision: 0
+
+    function openKit(tab, rail) {
+        app.requestedTab = tab;
+        app.requestedRail = rail;
+        app.requestRevision++;
+    }
+
+    IpcHandler {
+        target: "kit"
+
+        function open(tab: string, rail: string): void {
+            app.openKit(tab, rail);
+        }
+    }
 
     Process {
         running: true
@@ -25,8 +40,16 @@ ShellRoot {
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
-                    var o = JSON.parse(this.text);
-                    app.categories = (o && o.categories) ? o.categories : [];
+                    const o = JSON.parse(this.text);
+                    // Kit answers "what can I press", so disabled rows with no
+                    // chord stay in the Hub where they can be rebound.
+                    const cats = (o && o.categories) ? o.categories : [];
+                    app.categories = cats.map(function (c) {
+                        return {
+                            name: c.name,
+                            binds: (c.binds || []).filter(function (b) { return !b.disabled; })
+                        };
+                    }).filter(function (c) { return c.binds.length > 0; });
                 } catch (e) {
                     app.categories = [];
                 }
@@ -74,7 +97,7 @@ ShellRoot {
                 running: true
                 from: 0
                 to: 1
-                duration: Tokens.durNormal
+                duration: Tokens.reduceMotion ? 0 : Tokens.durNormal
                 easing.type: Easing.OutCubic
             }
 
@@ -82,8 +105,10 @@ ShellRoot {
                 anchors.fill: parent
                 focus: true
                 opacity: app.closing ? 0 : 1
-                Behavior on opacity { NumberAnimation { duration: Tokens.durSmall; easing.type: Easing.OutCubic } }
-                Keys.onEscapePressed: app.dismiss()
+                Behavior on opacity {
+                    enabled: !Tokens.reduceMotion
+                    NumberAnimation { duration: Tokens.durSmall; easing.type: Easing.OutCubic }
+                }
 
                 // Dim the desktop so the frosted card reads on any wallpaper.
                 Rectangle {
@@ -97,12 +122,16 @@ ShellRoot {
                     onClicked: app.dismiss()
                 }
 
-                Cheatsheet {
+                Kit {
                     anchors.fill: parent
                     visible: win.onFocused
+                    interactive: win.onFocused
                     categories: app.categories
                     loaded: app.loaded
                     appear: win.appear
+                    requestedTab: app.requestedTab
+                    requestedRail: app.requestedRail
+                    requestRevision: app.requestRevision
                     onRequestClose: app.dismiss()
                 }
             }

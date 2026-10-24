@@ -78,6 +78,9 @@ Singleton {
     readonly property string font:   Config.widgetFont.length > 0 ? Config.widgetFont : "Space Grotesk"
     readonly property string fontJp: "Noto Sans CJK JP"
     readonly property string mono:   "JetBrainsMono Nerd Font"
+    // Material Symbols Rounded ligatures, for the icon glyph a menu row or quick
+    // tile leads with (the iRiS menu's structure in the paper-and-ink language).
+    readonly property string iconFont: "Material Symbols Rounded"
     // brand mark + name, user-overridable via ~/.config/ryoku/brand.json (Shell ->
     // Global). defaults to the 力 seal / "Ryoku". BrandMark renders `mark`, or
     // `markSource` (an image) when set. Ryoku's own apps never read these.

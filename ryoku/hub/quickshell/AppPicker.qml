@@ -1,6 +1,8 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls
 import Quickshell
+import Ryoku.Ui
 import Ryoku.Ui.Singletons
 
 // A filterable list of installed applications -- the same app-picker idea the

@@ -1,0 +1,564 @@
+pragma Singleton
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import Quickshell
+import Ryoku.Ui.Singletons
+
+import stage.modules.common
+import stage.modules.common.draw as StageDraw
+import ".."
+
+/**
+ * Live draw: the ink, which workspace each sheet of it belongs to, and the pen.
+ *
+ * Shared by every family that draws on the screen — the tablet's pen tray and the
+ * desktop's annotation overlay are two surfaces over this one store, so whatever opens
+ * live draw (a keybind, a quick toggle, the dock, the bar, the recording controls) only
+ * has to call `toggle()` and read `trayOpen`.
+ *
+ * A drawing here is not a document — it is a note stuck to a workspace. You draw on top
+ * of whatever is there, and it stays over that workspace until you rub it out or save
+ * it, the way a sticky note stays on the monitor it was stuck to. So the store is keyed
+ * by workspace, and the surface that draws it shows the sheet for the workspace in
+ * front and nothing else.
+ *
+ * Deliberately in memory only. A workspace annotation that outlived a reboot would be a
+ * surprise — you would come back to a machine with drawings on it and no memory of
+ * making them — and the ink that is meant to last has a button that puts it in Notes.
+ */
+Singleton {
+    id: root
+
+    /// The pen preferences. They were the tablet's first and kept their place in the
+    /// config, but they are the pen's, not the tablet's: both families read them.
+    readonly property var opts: Config.options?.tablet?.liveDraw ?? null
+
+    /// A stroke: { points: [{x, y, p}], color, width, usePressure }.
+    /// Sheets: { "<monitor>:<workspace>": [stroke, …] }.
+    ///
+    /// Held by a PersistentProperties, so a live reload of the shell — which rebuilds
+    /// every singleton, and on this machine happens whenever any QML file is saved —
+    /// does not rub out a drawing someone is in the middle of presenting. Still memory
+    /// only: a restart starts clean, as it should.
+    property alias sheets: keptSheets.sheets
+
+    PersistentProperties {
+        id: keptSheets
+        reloadableId: "liveDrawSheets"
+        property var sheets: ({})
+        // The pen and the tray too: a reload mid-annotation should leave the user
+        // where they were, not drop them out of drawing.
+        property bool drawing: false
+        property bool trayOpen: false
+        property real trayOffsetX: 0
+        property real trayOffsetY: 0
+        property bool trayCollapsed: false
+        property string trayDock: ""
+        property bool trayHidden: false
+        property string tool: "pen"
+        property string board: ""
+        property bool spotlight: false
+        property bool zoom: false
+        onLoaded: root.revision++
+    }
+    /// Bumped on every change, because a nested mutation of `sheets` is invisible to a
+    /// binding. Everything that draws watches this rather than the object.
+    property int revision: 0
+
+    /**
+     * Whether the pen is down.
+     *
+     * Off with the tray still up is the "keep it on this workspace" state: the ink shows,
+     * taps go through to the applications, and one tap on the pencil picks the pen back
+     * up. That round trip is the whole point — the first version had no way back, so a
+     * sheet you had stopped drawing on could never be drawn on again, and the toolbar sat
+     * there looking like it should still work.
+     */
+    property alias drawing: keptSheets.drawing
+
+    /**
+     * Whether the toolbar is on screen.
+     *
+     * Separate from `drawing`, because "put the pen down" and "put everything away" are
+     * different requests and were previously the same button. Closing the tray leaves the
+     * ink exactly where it is: losing work must never be a side effect of tidying up.
+     */
+    property alias trayOpen: keptSheets.trayOpen
+
+    /**
+     * Whether live draw exists at all in the running family. Off, every launcher hides
+     * and `toggle()` does nothing; the ink already on screen is rubbed out with it.
+     */
+    readonly property bool enabled: Config.ready && (PanelFamily.isTablet
+        ? (Config.options?.tablet?.liveDraw?.enable ?? true)
+        : (Config.options?.liveDraw?.enable ?? true))
+    // No handler on `enabled` turning false: it also turns false while a reload tears
+    // this store down, and a close() from the dying instance was written into the
+    // PersistentProperties the next one inherits — the tray and the ink vanished on
+    // random reloads. Switching live draw off closes it from the switch itself.
+
+    /// Leaving a family takes the pen with it, or the next family opens with a
+    /// full-screen input grab nobody asked for. Watched here rather than in the
+    /// families' scopes, whose destruction a reload also runs.
+    readonly property string family: PanelFamily.current
+    onFamilyChanged: root.close()
+
+    /// Enter live draw: tray up, pen down.
+    function open() {
+        if (!root.enabled)
+            return;
+        root.ensureTools();
+        root.refreshWorkspaceAnimation();
+        root.trayOpen = true;
+        root.drawing = true;
+    }
+
+    /// The whole feature on or off — what every launcher calls.
+    function toggle() {
+        if (root.trayOpen)
+            root.close();
+        else
+            root.open();
+    }
+
+    /**
+     * Where the user dragged the tray, as an offset from where it starts.
+     *
+     * Kept here rather than on the surface, which is unloaded whenever there is nothing
+     * to show: a tray moved out of the way of what is being recorded should still be out
+     * of the way the next time it opens.
+     */
+    property alias trayOffsetX: keptSheets.trayOffsetX
+    property alias trayOffsetY: keptSheets.trayOffsetY
+    /// The tray folded down to the pen and the way back out, so it covers as little of
+    /// a recording as possible.
+    property alias trayCollapsed: keptSheets.trayCollapsed
+
+    /// Leave live draw entirely. The ink stays on its workspace until it is rubbed out;
+    /// the board, the spotlight and the zoom go, since they cover the screen.
+    function close() {
+        root.drawing = false;
+        root.trayOpen = false;
+        root.trayHidden = false;
+        root.board = "";
+        root.spotlight = false;
+        root.zoom = false;
+    }
+
+    /**
+     * Drawing with no toolbar on screen.
+     *
+     * For a personal script — a key held to draw and released to stop, say — and for
+     * recordings where even the folded tray is too much. Everything else works: the
+     * keyboard shortcuts, the tools, `stop()`.
+     */
+    function quick() {
+        root.open();
+        if (root.trayOpen)
+            root.trayHidden = true;
+    }
+
+    /// Docked to a screen edge, the tray stands upright: "left", "right" or "".
+    property alias trayDock: keptSheets.trayDock
+    /// The toolbar hidden while live draw stays on (see `quick()`).
+    property alias trayHidden: keptSheets.trayHidden
+
+    // ── Modes that cover the screen ─────────────────────────────────────────
+    /**
+     * The board behind the ink: "" (none — draw over the screen), "light" or "dark".
+     *
+     * An opaque sheet over the whole monitor, with a pattern from the config (blank,
+     * grid, dots, ruled lines). It has its own ink, kept apart from the annotations of
+     * the workspaces: turning the board off brings the annotated screen back, turning it
+     * on again brings the board's drawing back.
+     */
+    property alias board: keptSheets.board
+    readonly property bool boardOn: root.board.length > 0
+    readonly property string boardPattern: Config.options?.liveDraw?.boardPattern ?? "grid"
+    readonly property color boardColor: root.board === "dark"
+        ? (Config.options?.liveDraw?.boardDark ?? "#1f2124")
+        : (Config.options?.liveDraw?.boardLight ?? "#f7f6f2")
+
+    /// Turns the board to a tone ("light", "dark", "" for off). Asking for the tone that
+    /// is already up turns it off, unless `exact` says to just make sure it is up.
+    function setBoard(tone, exact) {
+        const next = tone === "light" || tone === "dark" ? tone : "";
+        if (next.length > 0 && !root.trayOpen)
+            root.open();
+        root.board = exact !== true && root.board === next ? "" : next;
+        if (root.boardOn) {
+            root.drawing = true;
+            root.ensureTools();
+            // White chalk on white paper draws nothing anyone can see: an ink that
+            // disappears on this board gives way to the palette's most contrasting one.
+            const paper = Qt.color(root.boardColor);
+            const contrast = ink => Math.abs(root.luminance(Qt.color(ink)) - root.luminance(paper));
+            if (contrast(root.color) < 0.35) {
+                const best = root.palette.slice().sort((a, b) => contrast(b) - contrast(a))[0];
+                if (best)
+                    root.color = best;
+            }
+        }
+    }
+
+    function luminance(c) {
+        return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    }
+
+    /// The spotlight: everything dimmed but a circle around the pointer.
+    property alias spotlight: keptSheets.spotlight
+    /// The zoom: a still of the screen, magnified around the pointer.
+    property alias zoom: keptSheets.zoom
+    /// The still is a whole-screen capture. Where only wlr-screencopy exists, Quickshell
+    /// takes it by binding a second wl_output, which Qt files as one of its own screens
+    /// and later reads after it is gone (quickshell#1094), and the shell crashes. The
+    /// zoom is only offered where an in-process screen capture is safe at all, like
+    /// the launcher frost.
+    readonly property bool zoomAvailable: Wm.caps.persistentScreenCapture === true
+    onZoomAvailableChanged: {
+        if (!root.zoomAvailable)
+            root.zoom = false;
+    }
+
+    function setSpotlight(on) {
+        if (on && !root.enabled)
+            return;
+        root.zoom = false;
+        root.spotlight = on;
+    }
+
+    function setZoom(on) {
+        if (on && (!root.enabled || !root.zoomAvailable))
+            return;
+        root.spotlight = false;
+        root.zoom = on;
+    }
+
+    /**
+     * An action for the surface of the focused screen: only that surface holds the
+     * canvas that can grab, copy or export what is drawn on it. IPC, the dock and the
+     * keyboard all go through here.
+     *
+     *   save, copy, copyScreen, exportPng, exportSvg, screenshot, undo, redo, clear
+     */
+    signal command(string action, var argument)
+
+    // ── Sheets: per workspace or fixed to the screen ───────────────────────
+    /// "workspace": every workspace its own sheet. "screen": one sheet per monitor that
+    /// stays whatever workspace is in front. From the config, changed in the tray's
+    /// settings popup.
+    readonly property string sheetMode: Config.options?.liveDraw?.sheetMode ?? "workspace"
+    /// The system crosshair instead of the drawn ring. See DrawSurface.nativeCursor.
+    readonly property bool nativeCursor: Config.options?.liveDraw?.nativeCursor ?? false
+
+    function toggleDrawing() {
+        if (!root.trayOpen) {
+            root.open();
+            return;
+        }
+        root.drawing = !root.drawing;
+    }
+
+    // ── Tools ───────────────────────────────────────────────────────────────
+    // Live, not persisted: which colour you were last using is a property of the drawing
+    // you were doing. The defaults come from Config, which is where the durable
+    // preferences live.
+    property string color: ""
+    property real width: 0
+    property bool eraser: false
+    /// pen, highlighter, laser, line, arrow, rect, ellipse. See DrawSurface.tool.
+    property alias tool: keptSheets.tool
+    readonly property var tools: ["pen", "highlighter", "laser", "line", "arrow", "rect", "ellipse"]
+    readonly property var shapeTools: ["line", "arrow", "rect", "ellipse"]
+    /// The shape the shape button picks, the last one used.
+    property string lastShape: "arrow"
+
+    function setTool(name) {
+        if (root.tools.indexOf(name) < 0)
+            return false;
+        root.tool = name;
+        root.eraser = false;
+        if (root.shapeTools.indexOf(name) >= 0)
+            root.lastShape = name;
+        return true;
+    }
+
+    readonly property var palette: {
+        const configured = root.opts?.palette ?? [];
+        const list = [];
+        for (const entry of configured) {
+            const value = String(entry ?? "").trim();
+            if (value.length > 0)
+                list.push(value);
+        }
+        return list.length > 0 ? list : ["#ffffff"];
+    }
+
+    readonly property bool usePressure: root.opts?.pressure ?? true
+    readonly property real smoothing: Math.max(0, Math.min(0.95, (root.opts?.smoothing ?? 55) / 100))
+    /// 0..1. See Config `liveDraw.mouseSmoothing` and DrawSurface.mouseSmoothing.
+    readonly property real mouseSmoothing: Math.max(0, Math.min(1, (Config.options?.liveDraw?.mouseSmoothing ?? 60) / 100))
+
+    function ensureTools() {
+        if (root.color.length === 0)
+            root.color = root.palette[0];
+        if (root.width <= 0)
+            root.width = Math.max(1, root.opts?.width ?? 4);
+    }
+
+    // ── Which sheet ─────────────────────────────────────────────────────────
+    function workspaceFor(screenName, specialOnly) {
+        const name = String(screenName ?? "");
+        const workspaces = Wm.workspaces ?? [];
+        for (const workspace of workspaces) {
+            if (workspace.active === true && String(workspace.output ?? "") === name
+                    && (workspace.special === true) === specialOnly)
+                return workspace;
+        }
+        if (specialOnly)
+            return null;
+
+        const output = Wm.outputByName(name);
+        const activeKey = String(output?.activeWorkspace ?? "");
+        if (activeKey.length > 0) {
+            const active = Wm.workspaceById(activeKey) ?? Wm.workspaceByName(activeKey);
+            if (active && active.special !== true)
+                return active;
+        }
+        const focused = Wm.focusedWorkspace;
+        return focused && focused.special !== true
+                && (name.length === 0 || String(focused.output ?? "") === name) ? focused : null;
+    }
+
+    function activeWorkspaceFor(screenName) {
+        const workspace = root.workspaceFor(screenName, false);
+        return String(workspace?.id ?? workspace?.name ?? "-1");
+    }
+
+    function workspaceOrderFor(screenName, workspaceId) {
+        const name = String(screenName ?? "");
+        const key = String(workspaceId ?? "");
+        const workspaces = (Wm.workspaces ?? []).filter(workspace =>
+            workspace.special !== true && String(workspace.output ?? "") === name);
+        for (let i = 0; i < workspaces.length; i++) {
+            if (String(workspaces[i].id ?? workspaces[i].name ?? "") === key)
+                return i;
+        }
+        return -1;
+    }
+
+    /**
+     * The key for the workspace in front of a given monitor.
+     *
+     * The monitor is part of the key because workspace identities are not
+     * necessarily global across every provider. Ink drawn on one display must
+     * never reappear on another after a hotplug.
+     */
+    function keyFor(screenName) {
+        const name = String(screenName ?? "");
+        void root.board;
+        void root.sheetMode;
+        if (root.boardOn)
+            return `${name}:board`;
+        if (root.sheetMode === "screen")
+            return `${name}:screen`;
+        const special = root.specialFor(name);
+        if (special.length > 0)
+            return `${name}:${special}`;
+        return `${name}:${root.activeWorkspaceFor(name)}`;
+    }
+
+    /// The special workspace open on a monitor, or "".
+    function specialFor(screenName) {
+        const workspace = root.workspaceFor(screenName, true);
+        return String(workspace?.name ?? workspace?.id ?? "");
+    }
+
+    /// Whether any sheet on one monitor has ink. A screen with nothing drawn on any of its
+    /// workspaces needs no surface at all.
+    function screenHasInk(screenName) {
+        void root.revision;
+        const prefix = `${screenName}:`;
+        for (const key in root.sheets) {
+            if (key.startsWith(prefix) && (root.sheets[key] ?? []).length > 0)
+                return true;
+        }
+        return false;
+    }
+
+    function strokesFor(key) {
+        return root.sheets[key] ?? [];
+    }
+
+    function hasInk(key) {
+        return root.strokesFor(key).length > 0;
+    }
+
+    /// Every sheet with something on it, so the surface knows whether to exist at all.
+    readonly property int sheetCount: {
+        void root.revision;
+        let count = 0;
+        for (const key in root.sheets) {
+            if ((root.sheets[key] ?? []).length > 0)
+                count++;
+        }
+        return count;
+    }
+
+    readonly property bool focusedSheetHasInk: {
+        void root.revision;
+        let output = String(Wm.focusedOutput ?? "");
+        if (output.length === 0)
+            output = String(Quickshell.screens[0]?.name ?? "");
+        return output.length > 0 && root.hasInk(root.keyFor(output));
+    }
+
+    // ── Editing ─────────────────────────────────────────────────────────────
+    /**
+     * Undo and redo, per sheet, as snapshots of the sheet's stroke list.
+     *
+     * Snapshots rather than a log of operations because every edit already builds a new
+     * list out of the same stroke objects: keeping the previous list costs one array of
+     * references, and undoing a rubbed-out stroke or a cleared sheet is then the same
+     * operation as undoing a new one. Memory only and not kept across a reload — a
+     * history that outlived the shell would undo into drawings nobody remembers.
+     */
+    property var history: ({})
+    property var future: ({})
+    readonly property int historyLimit: 100
+
+    function _setSheet(key, strokes) {
+        const next = Object.assign({}, root.sheets);
+        if (strokes.length > 0)
+            next[key] = strokes;
+        else
+            delete next[key];
+        root.sheets = next;
+        root.revision++;
+    }
+
+    /// Records the sheet as it is now before an edit, and drops whatever was undone.
+    function _remember(key) {
+        const past = (root.history[key] ?? []).concat([root.sheets[key] ?? []]);
+        root.history[key] = past.length > root.historyLimit ? past.slice(past.length - root.historyLimit) : past;
+        root.future[key] = [];
+        root.historyRevision++;
+    }
+
+    property int historyRevision: 0
+
+    function canUndo(key) {
+        void root.historyRevision;
+        return (root.history[key] ?? []).length > 0;
+    }
+
+    function canRedo(key) {
+        void root.historyRevision;
+        return (root.future[key] ?? []).length > 0;
+    }
+
+    function addStroke(key, stroke) {
+        if (!stroke || !stroke.points || stroke.points.length === 0)
+            return;
+        root._remember(key);
+        root._setSheet(key, (root.sheets[key] ?? []).concat([stroke]));
+    }
+
+    function undo(key) {
+        const past = root.history[key] ?? [];
+        if (past.length === 0)
+            return false;
+        root.future[key] = (root.future[key] ?? []).concat([root.sheets[key] ?? []]);
+        root.history[key] = past.slice(0, past.length - 1);
+        root.historyRevision++;
+        root._setSheet(key, past[past.length - 1]);
+        return true;
+    }
+
+    function redo(key) {
+        const ahead = root.future[key] ?? [];
+        if (ahead.length === 0)
+            return false;
+        root.history[key] = (root.history[key] ?? []).concat([root.sheets[key] ?? []]);
+        root.future[key] = ahead.slice(0, ahead.length - 1);
+        root.historyRevision++;
+        root._setSheet(key, ahead[ahead.length - 1]);
+        return true;
+    }
+
+    /// Removes the strokes a rubbing gesture touched. Returns how many went.
+    function eraseAt(key, x, y, radius) {
+        const existing = root.sheets[key] ?? [];
+        if (existing.length === 0)
+            return 0;
+        const kept = existing.filter(stroke => !StageDraw.StrokeGeometry.strokeHitBy(stroke, x, y, radius));
+        if (kept.length === existing.length)
+            return 0;
+        root._remember(key);
+        root._setSheet(key, kept);
+        return existing.length - kept.length;
+    }
+
+    /// Rubs one sheet out. Undoable: the whole sheet comes back with one undo.
+    function clear(key) {
+        if ((root.sheets[key] ?? []).length === 0)
+            return;
+        root._remember(key);
+        root._setSheet(key, []);
+    }
+
+    /// Every sheet, and every history with them: nothing left to undo into.
+    function clearAll() {
+        root.sheets = ({});
+        root.history = ({});
+        root.future = ({});
+        root.historyRevision++;
+        root.revision++;
+    }
+
+    // ── The compositor's workspace animation ────────────────────────────────
+    /**
+     * How the compositor slides between workspaces, read through the
+     * window-manager seam.
+     *
+     * The ink travels alongside the windows, so its animation has to be *the same*
+     * animation — and the first version hard-coded a duration and a curve copied
+     * out of the user's config by hand. That is a guess with a shelf life: it was
+     * already wrong (the curve was written with four values where
+     * `Easing.BezierSpline` needs six, so QML fell back to linear and the ink kept
+     * sliding long after the windows had arrived), and it would have gone wrong
+     * again the first time anyone edited their `animations` block.
+     *
+     * The WorkspaceSlide consumer reads the compositor's own animation table
+     * wherever it can report one (caps.workspaceSlideStyle); elsewhere it keeps
+     * the built-in curve.
+     */
+    WorkspaceSlide {
+        id: slide
+    }
+
+    readonly property int workspaceSlideMs: slide.durationMs
+    readonly property var workspaceSlideCurve: slide.curve
+    /// False when the compositor animates workspaces instantly. Nothing to travel with.
+    readonly property bool workspaceSlideEnabled: slide.slides
+    /// Which way the windows go: "x", "y" or "none".
+    readonly property string workspaceSlideAxis: slide.axis
+    /// The slide distance, as a fraction of the screen. 1 for a plain slide.
+    readonly property real workspaceSlideDistance: slide.distance
+    /// Whether the sheets crossfade as they go.
+    readonly property bool workspaceSlideFade: slide.fade
+
+    /// Read on the first open rather than at startup: the launchers reference this store
+    /// from the bar, the dock and the toggles, and a compositor round trip on every shell
+    /// start for a feature most sessions never open is a call for nothing. The bridge
+    /// re-reads itself when the compositor reloads its config.
+    property bool workspaceAnimationRead: false
+
+    function refreshWorkspaceAnimation(force) {
+        if (root.workspaceAnimationRead && !force)
+            return;
+        root.workspaceAnimationRead = true;
+        slide.refresh();
+    }
+}

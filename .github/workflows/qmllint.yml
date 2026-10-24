@@ -1,10 +1,11 @@
 name: QML Lint
 
-# advisory only. the Ryoku surfaces import the Quickshell QML modules, which
-# aren't installable on a stock CI runner, so qmllint can't resolve them and
-# would flag environmental import errors as failures. this runs qmllint for
-# visibility but never blocks: read its output as a hint, then verify QML on
-# a running system via ryoku/shell/dev-run.sh. vendored qylock QML is exempt.
+# import warnings are advisory: the Ryoku surfaces import the Quickshell QML
+# modules, which aren't installable on a stock CI runner, so qmllint can't
+# resolve them and would flag environmental import errors as failures. read
+# those as hints, then verify QML on a running system via
+# ryoku/shell/dev-run.sh. a file that cannot PARSE is fatal: it never loads on
+# any box. vendored qylock QML is exempt.
 
 on:
   pull_request:
@@ -15,6 +16,7 @@ on:
   push:
     branches:
       - main
+      - unstable-dev
     paths:
       - '**/*.qml'
       - '**/qmldir'
@@ -35,7 +37,7 @@ permissions:
 
 jobs:
   qmllint:
-    name: qmllint (advisory)
+    name: qmllint (syntax fatal)
     runs-on: ubuntu-latest
 
     steps:
@@ -82,7 +84,6 @@ jobs:
               [[ -f $f ]] || continue
               case "$f" in
                 ryoku/lockscreen/qylock/*) ;;   # vendored upstream, exempt
-                ryoku/shell/ryogami/wall-ui/*) ;; # vendored skwd-wall fork, exempt
                 *.qml) printf '%s\0' "$f" >>"$files" ;;
               esac
             done
@@ -106,14 +107,33 @@ jobs:
           sort -zu "$files" > qmllint-files.txt
           echo "has_files=true" >>"$GITHUB_OUTPUT"
 
-      - name: Run qmllint (non-blocking)
+      - name: Run qmllint (advisory, syntax fatal)
         if: steps.files.outputs.has_files == 'true' && env.QMLLINT_BIN != ''
         shell: bash
+        timeout-minutes: 30
         run: |
           set -uo pipefail
+          out="$(mktemp)"
+          one="$(mktemp)"
           while IFS= read -r -d '' f; do
             echo "::group::qmllint $f"
-            "$QMLLINT_BIN" "$f" || true
+            # qmllint itself can spin forever on valid QML (the vendored
+            # Nomarchy network panel does), and one such file used to hold
+            # the whole job until the runner's six-hour limit. Actions runs
+            # this with -e, so the status is caught rather than failing.
+            rc=0
+            timeout 120 "$QMLLINT_BIN" "$f" >"$one" 2>&1 || rc=$?
+            tee -a "$out" <"$one"
+            if (( rc == 124 )); then echo "::warning file=$f::qmllint gave up after 120 s"; fi
             echo "::endgroup::"
           done < qmllint-files.txt
-          echo "qmllint is advisory; import-resolution warnings for Quickshell modules are expected."
+          # import-resolution noise stays advisory; a file that cannot parse
+          # at all never loads on any box, so it fails the job. a stray
+          # backtick inside a QML template string closes the string and
+          # produces exactly this class, and it shipped once, killing every
+          # `ryoku reload` on the deployed shell.
+          if grep -qE 'Expected token|Unexpected token|Syntax error' "$out"; then
+            echo "::error::qmllint found QML that cannot parse (see groups above)"
+            exit 1
+          fi
+          echo "qmllint is advisory for import warnings; syntax findings are fatal."

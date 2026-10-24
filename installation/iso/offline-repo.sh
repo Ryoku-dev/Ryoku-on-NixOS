@@ -7,8 +7,10 @@
 #   + dev.packages + the GPU-driver packages the per-vendor
 #   scripts install + the Ryoku desktop set (ryoku-keyring, ryoku-desktop).
 # Resolves the whole dependency closure against Arch core/extra/multilib and
-# [ryoku], into one repo with a repo-add db. TrustAll download
-# over TLS; the installed target re-verifies against real keyrings on first -Syu.
+# [ryoku] (the cachyos variant puts the generic [cachyos] repo above Arch's, as
+# a CachyOS install orders it), into one repo with a repo-add db. TrustAll
+# download over TLS; the installed target re-verifies against real keyrings on
+# first -Syu.
 #
 # usage: offline-repo.sh <REPO_ROOT> <DEST_REPO_DIR> [RYOKU_REPO_URL]
 # env:
@@ -47,6 +49,28 @@ read_section() {
 pkgdir="$REPO_ROOT/system/packages"
 hw="$pkgdir/hardware.packages"
 
+# Every file manager the TUI offers, from the manifest it reads them from:
+# deploy.sh installs the chosen one with the desktop set, and offline that
+# transaction sees only this repo.
+mapfile -t file_managers < <(awk -F'\t' '
+  $1 == "choice" && $2 == "file-manager" && $5 != "-" { gsub(",", "\n", $5); print $5 }
+' "$REPO_ROOT/installation/installerplan/choices.tsv")
+(( ${#file_managers[@]} )) || die "no file-manager choices in installation/installerplan/choices.tsv"
+
+# The base.packages and aur.packages names the CachyOS layer replaces (the stock
+# kernel, the AUR's yay-bin): a CachyOS install never carries them
+# (lib/cachyos.sh drops them), so neither does its closure.
+replaced=()
+[[ $VARIANT == cachyos ]] && mapfile -t replaced < <(read_list "$pkgdir/cachyos.replaces")
+without_replaced() {
+  awk 'NR == FNR { drop[$0] = 1; next } !drop[$0]' <(printf '%s\n' "${replaced[@]}") -
+}
+is_replaced() {
+  local r
+  for r in "${replaced[@]}"; do [[ $r == "$1" ]] && return 0; done
+  return 1
+}
+
 # the full closure's top-level names (deps are pulled in by pacman -S).
 mapfile -t PKGS < <(
   read_list "$pkgdir/base.packages"
@@ -72,11 +96,15 @@ mapfile -t PKGS < <(
     vulkan-icd-loader lib32-vulkan-icd-loader \
     broadcom-wl-dkms
   # The desktop set plus the hardware-only ASUS Aura provider: the target
-  # installer selects asusctl only on a matching laptop.
-  printf '%s\n' ryoku-keyring ryoku-desktop asusctl
+  # installer selects asusctl only on a matching laptop. All compositor
+  # variants bake because the TUI offers each one and an offline install has no
+  # network to fetch a missing variant. The fresh-install apps bake beside
+  # ryoku-rashin. The optional CachyOS layer remains network-only on plain.
+  printf '%s\n' ryoku-keyring ryoku-desktop ryoku-desktop-hyprland ryoku-desktop-niri ryoku-desktop-wayfire asusctl \
+    ryoku-rashin ryotunes ryomanager "${file_managers[@]}"
 )
 # dedupe, keep order.
-mapfile -t PKGS < <(printf '%s\n' "${PKGS[@]}" | awk '!seen[$0]++')
+mapfile -t PKGS < <(printf '%s\n' "${PKGS[@]}" | without_replaced | awk '!seen[$0]++')
 log "closure has ${#PKGS[@]} top-level packages (deps resolved by pacman)"
 
 # throwaway pacman config + db so the host's own pacman state is untouched.
@@ -92,6 +120,19 @@ Architecture = x86_64
 SigLevel = Never
 LocalFileSigLevel = Never
 ParallelDownloads = 10
+EOF
+
+# cachyos variant: the generic [cachyos] repo goes ABOVE Arch's, where a
+# CachyOS install lists it (lib/cachyos.sh), so the closure takes CachyOS's
+# build of everything it forks (pacman, mesa, the kernel layer). No CPU tier is
+# baked: generic x86-64 builds install on any CPU, as CachyOS's own offline
+# install does, and the installer writes the CPU's tier repos into the target,
+# whose builds carry a higher pkgrel, so the first -Syu moves onto them.
+if [[ $VARIANT == cachyos ]]; then
+  printf '\n[cachyos]\nServer = %s/x86_64/cachyos\n' "$CACHY_MIRROR" >>"$conf"
+fi
+
+cat >>"$conf" <<EOF
 
 [core]
 Server = $ARCH_MIRROR/core/os/x86_64
@@ -104,17 +145,6 @@ Server = $ARCH_MIRROR/multilib/os/x86_64
 Server = $RYOKU_REPO_URL
 EOF
 
-# cachyos variant: add the generic [cachyos] repo (x86_64) so the closure can
-# resolve linux-cachyos + the whole layer offline. the installed target wires the
-# arch-optimized [cachyos-v3] repos itself (lib/cachyos.sh) for future updates.
-if [[ $VARIANT == cachyos ]]; then
-  cat >>"$conf" <<EOF
-
-[cachyos]
-Server = $CACHY_MIRROR/x86_64/cachyos
-EOF
-fi
-
 # pacman -Sy/-Sw need root even with an isolated dbpath/cachedir. use sudo when
 # not already root (the ISO build runs mkarchiso under sudo too); --dbpath and
 # --cachedir keep the host's real pacman state untouched.
@@ -123,6 +153,36 @@ PAC=(pacman); (( EUID == 0 )) || PAC=(sudo pacman)
 mkdir -p "$CACHE" "$work/db"
 log "syncing repo databases (throwaway db)"
 "${PAC[@]}" -Sy --config "$conf" --dbpath "$work/db" --noconfirm >/dev/null
+
+# SERVED: every name the configured repos serve, mapped to the version pacman
+# resolves it to: the first repo in config order that has the name, as on the
+# target, whichever build is newer. RESOLVED keeps every "name version" pacman
+# resolved during this run, so a retry's db re-sync does not orphan what an
+# earlier sync already fetched. Re-read after every db sync.
+declare -A SERVED=() RESOLVED=()
+read_served() {
+  local _repo name ver
+  SERVED=()
+  while read -r _repo name ver _; do
+    [[ -n ${SERVED[$name]:-} ]] && continue
+    SERVED[$name]=$ver
+    RESOLVED["$name $ver"]=1
+    # A package file names its version without the epoch when the repo that
+    # publishes it does (ryotunes is 1:1.2.3-1 in a ryotunes-1.2.3-1 file), and
+    # stage_offline_repo matches by filename, so it dropped ryotunes unnoticed.
+    RESOLVED["$name ${ver#*:}"]=1
+  done < <("${PAC[@]}" -Sl --config "$conf" --dbpath "$work/db")
+}
+read_served
+
+# An aur.packages name a configured repo serves (CachyOS ships zen-browser-bin)
+# is that repo's package: fetch its build like any other, so the box updates it
+# from the repo, rather than building an AUR copy that shadows it. Only the
+# rest is built from the AUR.
+AUR_BUILD=()
+while IFS= read -r n; do
+  if [[ -n ${SERVED[$n]:-} ]]; then PKGS+=("$n"); else AUR_BUILD+=("$n"); fi
+done < <(read_list "$pkgdir/aur.packages" | without_replaced)
 
 # validate every name + resolve the whole closure BEFORE downloading a gigabyte.
 #
@@ -161,6 +221,39 @@ if [[ ${RYOKU_OFFLINE_MEASURE:-0} == 1 ]]; then
   exit 0
 fi
 
+# drop_stale_cache: delete each cached file that has the filename of a build a
+# repo serves but not that build's checksum. The AUR bake caches its builds as
+# NAME-VER-REL-ARCH, and a repo can serve the very same filename
+# (lib32-nvidia-580xx-utils is 580.178.04-1 in both the AUR and [cachyos]), so
+# once a repo serves a name an earlier bake built, `pacman -Sw --needed` keeps
+# the AUR file, fails its checksum against the db and aborts the transaction.
+# The first repo in config order wins a filename, as it wins the name.
+command -v bsdtar >/dev/null 2>&1 || die "bsdtar (libarchive) is required to check and verify cached packages"
+drop_stale_cache() {
+  local repo f sum
+  local -A expect=()
+  local -a check=() stale=()
+  while read -r f sum; do
+    [[ -z ${expect[$f]:-} ]] && expect[$f]=$sum
+  done < <(
+    sed -n 's/^\[\(.*\)\]$/\1/p' "$conf" | grep -vx options | while IFS= read -r repo; do
+      bsdtar -xOf "$work/db/sync/$repo.db" '*/desc' \
+        | awk '/^%FILENAME%$/ { getline; f = $0 } /^%SHA256SUM%$/ { getline; print f, $0 }'
+    done
+  )
+  for f in "$CACHE"/*.pkg.tar.zst "$CACHE"/*.pkg.tar.xz; do
+    [[ -e $f && -n ${expect[${f##*/}]:-} ]] && check+=("$f")
+  done
+  (( ${#check[@]} )) || return 0
+  while read -r sum f; do
+    [[ $sum == "${expect[${f##*/}]}" ]] || stale+=("$f")
+  done < <(sha256sum "${check[@]}")
+  (( ${#stale[@]} )) || return 0
+  log "dropping ${#stale[@]} cached package(s) that are not the repo's build: ${stale[*]##*/}"
+  rm -f "${stale[@]}"
+}
+drop_stale_cache
+
 # download the whole closure into the persistent cache (--needed skips what a
 # prior build already fetched, so a rebuild is a delta, not a re-download).
 log "downloading the closure into $CACHE (this is the long pole; cached for reuse)"
@@ -169,14 +262,20 @@ log "downloading the closure into $CACHE (this is the long pole; cached for reus
 # the nvidia kernel-module packages all provide NVIDIA-MODULE and conflict
 # pairwise, so a single resolve keeps only one. fetch each in its own pass so
 # every variant lands in the repo and the installer's nvidia.sh can pick per-GPU
-# offline. nvidia-open (prebuilt, stock linux) and nvidia-open-dkms (custom
-# kernels) are what every supported card installs (Turing+, the only GPUs the
-# open module and the current repos cover), so they are REQUIRED: a missing one
-# is the driverless NVIDIA desktop from issue #30 and must fail the build, not
-# slip through a warning. the rest are genuinely optional per kernel/variant.
-nv_required=(nvidia-open nvidia-open-dkms)
-nv_optional=(nvidia-open-lts)
-[[ $VARIANT == cachyos ]] && nv_optional+=(linux-cachyos-nvidia-open)
+# offline. nvidia.sh installs each installed kernel's prebuilt
+# <pkgbase>-nvidia-open (stock linux: nvidia-open), and nvidia-open-dkms when
+# any kernel lacks one. those are what every supported card installs (Turing+,
+# the only GPUs the open module and the current repos cover), so they are
+# REQUIRED: a missing one is the driverless NVIDIA desktop from issue #30 and
+# must fail the build, not slip through a warning. the cachyos variant installs
+# linux-cachyos and linux-cachyos-lts and no stock kernel (cachyos.replaces).
+if [[ $VARIANT == cachyos ]]; then
+  nv_required=(linux-cachyos-nvidia-open linux-cachyos-lts-nvidia-open nvidia-open-dkms)
+  nv_optional=()
+else
+  nv_required=(nvidia-open nvidia-open-dkms)
+  nv_optional=(nvidia-open-lts)
+fi
 for v in "${nv_required[@]}"; do
   "${PAC[@]}" -Sw --config "$conf" --dbpath "$work/db" --cachedir "$CACHE" --noconfirm --needed "$v" \
     || die "required NVIDIA driver '$v' could not be fetched; an NVIDIA target would install to a driverless desktop. check the [extra] mirror and that the package still exists."
@@ -187,22 +286,33 @@ for v in "${nv_optional[@]}"; do
 done
 
 # Pre-Turing NVIDIA (Maxwell/Pascal/Volta) and Kepler need the legacy driver
-# branches, and those are AUR-only, so the `pacman -Sw` passes above cannot reach
-# them: they have to be BUILT into the repo like the rest of the AUR set.
-# system/hardware/drivers/nvidia.sh installs them per-GPU and its messages already
-# told the user they were "bundled in the offline repo" -- they never were, so a
-# GTX 10xx (Pascal) installing offline landed on exactly the driverless desktop
-# that nv_required exists to prevent.
+# branches. system/hardware/drivers/nvidia.sh installs them per-GPU and its
+# messages already told the user they were "bundled in the offline repo" -- they
+# never were, so a GTX 10xx (Pascal) installing offline landed on exactly the
+# driverless desktop that nv_required exists to prevent.
 #
 # Baked, never installed by default: they provide NVIDIA-MODULE and so conflict
-# with nvidia-open, and lib/offline.sh only auto-installs aur.packages. Naming the
-# dkms package and the lib32 base is enough, because makepkg emits a base's whole
-# split set (the nvidia-580xx-utils base also yields nvidia-580xx-utils and
-# opencl-nvidia-580xx) and every built package lands in the cache.
-aur_bake_extra=(
+# with nvidia-open, and lib/offline.sh only auto-installs aur.packages.
+nv_legacy=(
   nvidia-580xx-dkms lib32-nvidia-580xx-utils
   nvidia-470xx-dkms lib32-nvidia-470xx-utils
 )
+# Arch serves neither branch, so the plain variant BUILDS them like the rest of
+# the AUR set; naming the dkms package and the lib32 base is enough, because
+# makepkg emits a base's whole split set (the nvidia-580xx-utils base also yields
+# nvidia-580xx-utils and opencl-nvidia-580xx). CachyOS serves both, patched for
+# its kernels, so there a configured repo's build is fetched instead, one pass
+# each like nv_required (they conflict with nvidia-utils), and required: a repo
+# fetch has none of an AUR build's excuses for missing.
+nv_legacy_fetch=()
+nv_legacy_build=()
+for v in "${nv_legacy[@]}"; do
+  if [[ -n ${SERVED[$v]:-} ]]; then nv_legacy_fetch+=("$v"); else nv_legacy_build+=("$v"); fi
+done
+for v in "${nv_legacy_fetch[@]}"; do
+  "${PAC[@]}" -Sw --config "$conf" --dbpath "$work/db" --cachedir "$CACHE" --noconfirm --needed "$v" \
+    || die "legacy NVIDIA driver '$v' could not be fetched from the repo that serves it; a pre-Turing NVIDIA target would install to nouveau. check the mirror."
+done
 
 # pkgfile_in DIR NAME: which file in DIR is package NAME? A package filename is
 # NAME-VER-REL-ARCH.pkg.tar.*, and VER and REL never contain '-', so stripping the
@@ -251,11 +361,10 @@ bake_aur_set() {
     return 0
   fi
 
-  local -a names=()
-  mapfile -t names < <(read_list "$aur_file")
-  # the bake-only extras (legacy NVIDIA) ride the same builder but are never
-  # auto-installed; see aur_bake_extra above.
-  names+=("${aur_bake_extra[@]}")
+  # the names no configured repo serves (AUR_BUILD, split off above), plus the
+  # legacy NVIDIA branches no repo serves, which ride the same builder but are
+  # never auto-installed; see nv_legacy above.
+  local -a names=("${AUR_BUILD[@]}" "${nv_legacy_build[@]}")
   (( ${#names[@]} )) || die "no AUR packages resolved to bake"
 
   # makepkg refuses to run as root: build as an unprivileged user with passwordless
@@ -360,13 +469,12 @@ bake_aur_set || log "AUR bake: stopped early; the repo check below will catch an
 # Integrity: every cached package must be a complete, readable archive before it
 # goes into the repo. `pacman -Sw --needed` skips a file that already exists by
 # name, and $CACHE is persistent, so a download truncated by one network hiccup
-# (most likely on a big package like the ryomotion Electron app) sits corrupt in
+# (most likely on a big package) sits corrupt in
 # the cache forever and ships in every ISO -- the "truncated <pkg>" error that
 # bricks the offline pacstrap. bsdtar -tf reads the whole archive, so a short
 # file fails here; delete it and re-fetch, bounded. A still-broken package fails
 # the build now (a cheap rebuild), never at install time (a bricked ISO).
 # Mirrors release/repo/build-repo.sh's bsdtar check.
-command -v bsdtar >/dev/null 2>&1 || die "bsdtar (libarchive) is required to verify package integrity"
 log "verifying cached package integrity"
 for _iattempt in 1 2 3; do
   corrupt=()
@@ -381,19 +489,40 @@ for _iattempt in 1 2 3; do
   log "cache integrity: re-downloading ${#corrupt[@]} truncated package(s): ${corrupt[*]##*/}"
   rm -f "${corrupt[@]}"
   "${PAC[@]}" -Sw --config "$conf" --dbpath "$work/db" --cachedir "$CACHE" --noconfirm --needed "${PKGS[@]}" || true
-  for _v in "${nv_required[@]}" "${nv_optional[@]}"; do
+  for _v in "${nv_required[@]}" "${nv_optional[@]}" "${nv_legacy_fetch[@]}"; do
     "${PAC[@]}" -Sw --config "$conf" --dbpath "$work/db" --cachedir "$CACHE" --noconfirm --needed "$_v" 2>/dev/null || true
   done
 done
 
-# assemble the [offline] repo: reflink every cached package into DEST (btrfs COW,
-# so no extra space), then build the db.
+# stage_offline_repo: reflink the cached packages the repo carries into DEST
+# (btrfs COW, so no extra space). The cache persists across builds and can hold
+# several builds of one name: an older version, or another repo's build after
+# the repo a name resolves from changed (CachyOS above Arch), which can even be
+# the newer one (Arch's dkms is ahead of CachyOS's). So a name a configured
+# repo serves ships only as a build pacman resolved it to (RESOLVED); a name no
+# repo serves is an AUR build and ships as cached, unless the CachyOS layer
+# replaces it (yay-bin). Where that still leaves more than one build of a name
+# (a retry's re-sync, an older AUR build), `repo-add -p` indexes the newest
+# whatever order it reads them in.
+stage_offline_repo() {
+  local f base name
+  local -a keep=()
+  for f in "$CACHE"/*.pkg.tar.zst "$CACHE"/*.pkg.tar.xz; do
+    [[ -e $f ]] || continue
+    base=${f##*/}; base=${base%.pkg.tar.*}; base=${base%-*} # NAME-VER-REL
+    name=${base%-*-*}
+    is_replaced "$name" && continue
+    [[ -z ${SERVED[$name]:-} || -n ${RESOLVED["$name ${base#"$name"-}"]:-} ]] && keep+=("$f")
+  done
+  (( ${#keep[@]} )) || die "no packages in $CACHE after download"
+  cp -a --reflink=auto "${keep[@]}" "$DEST"/
+}
+
+# assemble the [offline] repo, then build the db.
 log "assembling the [offline] repo at $DEST"
 rm -rf "$DEST"; mkdir -p "$DEST"
 shopt -s nullglob
-pkgs=("$CACHE"/*.pkg.tar.zst "$CACHE"/*.pkg.tar.xz)
-(( ${#pkgs[@]} )) || die "no packages in $CACHE after download"
-cp -a --reflink=auto "${pkgs[@]}" "$DEST"/
+stage_offline_repo
 
 # pkgfile_for / repo_has_pkg NAME: is package NAME baked into the repo? See
 # pkgfile_in, defined above the AUR bake because the bake needs the same lookup
@@ -407,10 +536,11 @@ repo_has_pkg() { pkgfile_for "$1" >/dev/null; }
 # shipped ISO ended up without its UI font.
 missing=()
 aur_expected=()
-mapfile -t aur_expected < <(read_list "$pkgdir/aur.packages")
-for req in nvidia-open nvidia-open-dkms nvidia-utils libva-nvidia-driver \
+mapfile -t aur_expected < <(read_list "$pkgdir/aur.packages" | without_replaced)
+for req in "${nv_required[@]}" "${nv_legacy_fetch[@]}" nvidia-utils libva-nvidia-driver \
            mesa vulkan-radeon vulkan-intel vulkan-icd-loader \
-           ryoku-keyring ryoku-desktop \
+           ryoku-keyring ryoku-desktop ryoku-desktop-hyprland ryoku-desktop-niri \
+           ryoku-desktop-wayfire ryoku-rashin ryotunes ryomanager "${file_managers[@]}" \
            "${aur_expected[@]}"; do
   repo_has_pkg "$req" || missing+=("$req")
 done
@@ -419,13 +549,13 @@ if (( ${#missing[@]} )); then
     || die "offline repo is missing required packages: ${missing[*]}. the install would leave a driverless or incomplete desktop."
   log "offline repo is missing ${missing[*]} (RYOKU_OFFLINE_ALLOW_INCOMPLETE=1)"
 fi
-# the legacy NVIDIA branches are reported, not required: see the two-verdict note
-# in bake_aur_set. Absent, those cards run on nouveau/mesa instead.
-for req in "${aur_bake_extra[@]}"; do
+# the AUR-built legacy NVIDIA branches are reported, not required: see the
+# two-verdict note in bake_aur_set. Absent, those cards run on nouveau/mesa instead.
+for req in "${nv_legacy_build[@]}"; do
   repo_has_pkg "$req" || log "note: legacy driver '$req' is not in the offline repo; pre-Turing/Kepler NVIDIA falls back to nouveau"
 done
 # repo-add builds offline.db(.tar.zst) + offline.files; lib/offline.sh globs it.
-repo-add --quiet "$DEST/$REPO_NAME.db.tar.zst" "$DEST"/*.pkg.tar.* >/dev/null
+repo-add --quiet --prevent-downgrade "$DEST/$REPO_NAME.db.tar.zst" "$DEST"/*.pkg.tar.* >/dev/null
 
 # verify the exact pacstrap transaction resolves and installs conflict-free from
 # ONLY the baked repo. the installer folds the whole desktop set into one offline
@@ -461,8 +591,13 @@ EOF
     read_list "$pkgdir/dev.packages"
     [[ $VARIANT == cachyos ]] && read_list "$pkgdir/cachyos.packages"
     read_section "$hw" vm
-    printf '%s\n' amd-ucode intel-ucode ryoku-keyring ryoku-desktop
-  } | awk '!seen[$0]++' )
+    # every variant is named so the compositor virtual is already satisfied:
+    # an unqualified ryoku-desktop with several providers in the repo makes
+    # pacman prompt for a choice, which a build script cannot answer.
+    printf '%s\n' amd-ucode intel-ucode ryoku-keyring ryoku-desktop \
+      ryoku-desktop-hyprland ryoku-desktop-niri ryoku-desktop-wayfire ryoku-rashin \
+      ryotunes ryomanager "${file_managers[@]}"
+  } | without_replaced | awk '!seen[$0]++' )
 
   local resolved
   if ! resolved=$("${PAC[@]}" -Sp --print-format '%n' --config "$vconf" --dbpath "$vdb" "${pset[@]}" 2>"$work/verify.err"); then
@@ -511,10 +646,13 @@ for _vattempt in 1 2 3; do
   (( _vattempt == 3 )) && die "offline verify: the baked closure is still incomplete after $_vattempt attempts; a mirror is likely mid-sync (a dependency's db entry is ahead of its package file). Re-run the bake once the mirrors settle."
   log "offline verify: closure incomplete (attempt $_vattempt); re-syncing the db and re-downloading before retrying"
   "${PAC[@]}" -Sy --config "$conf" --dbpath "$work/db" --noconfirm >/dev/null
+  read_served
   "${PAC[@]}" -Sw --config "$conf" --dbpath "$work/db" --cachedir "$CACHE" --noconfirm --needed "${PKGS[@]}"
-  rpkgs=("$CACHE"/*.pkg.tar.zst "$CACHE"/*.pkg.tar.xz)
-  (( ${#rpkgs[@]} )) && cp -a --reflink=auto "${rpkgs[@]}" "$DEST"/
-  repo-add --quiet "$DEST/$REPO_NAME.db.tar.zst" "$DEST"/*.pkg.tar.* >/dev/null
+  # restage from scratch, so the db is built from what this attempt stages
+  # rather than added on top of the last attempt's.
+  rm -rf "$DEST"; mkdir -p "$DEST"
+  stage_offline_repo
+  repo-add --quiet --prevent-downgrade "$DEST/$REPO_NAME.db.tar.zst" "$DEST"/*.pkg.tar.* >/dev/null
   sleep 20
 done
 

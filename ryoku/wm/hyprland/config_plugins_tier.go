@@ -28,7 +28,7 @@ type pluginDef struct {
 	Repo    string // upstream git URL; "" for a plugin authored in this repo
 	Plugin  string // the [table] in the repo's hyprpm.toml
 	Local   string // in-tree source dir for a Ryoku-authored plugin
-	Package string // the pacman package that ships the .so
+	Package string // the native package that ships the .so
 	Docs    string
 	Sounds  string
 	Loaded  string // the name the plugin reports in `hyprctl plugins list`
@@ -76,11 +76,27 @@ var bundledPlugins = []pluginDef{
 		Loaded:  "hyprfocus",
 	},
 	{
+		ID: "borders-plus-plus", Name: "Extra borders",
+		Desc: "One or two static borders outside the window's own, each with its colour and width.",
+		Repo: "https://github.com/hyprwm/hyprland-plugins", Plugin: "borders-plus-plus",
+		Package: "ryoku-hypr-plugins",
+		Docs:    "https://github.com/hyprwm/hyprland-plugins/tree/main/borders-plus-plus",
+		Loaded:  "borders-plus-plus",
+	},
+	{
+		ID: "hyprgrass", Name: "Touch gestures",
+		Desc: "Swipe, pinch, and long-press touchscreen gestures that drive windows and workspaces.",
+		Repo: "https://github.com/horriblename/hyprgrass", Plugin: "hyprgrass",
+		Package: "hyprgrass",
+		Docs:    "https://github.com/horriblename/hyprgrass/blob/master/docs/configuration.md",
+		Loaded:  "hyprgrass",
+	},
+	{
 		ID: "keysounds", Name: "Key sounds",
 		Desc:   "Plays a keyboard sound on every key press: real switch recordings, or your own samples.",
 		Plugin: "keysounds", Local: "ryoku/hyprland/plugins/keysounds",
 		Package: "ryoku-keysounds",
-		Docs:    "https://github.com/ryoku-dev/ryoku-arch/blob/unstable-dev/ryoku/hyprland/plugins/keysounds/README.md",
+		Docs:    "https://github.com/ryoku-dev/ryoku/blob/unstable-dev/ryoku/hyprland/plugins/keysounds/README.md",
 		Sounds:  "https://github.com/hainguyents13/mechvibes/tree/main/src/audio",
 		Loaded:  "keysounds",
 	},
@@ -679,24 +695,24 @@ func pluginEnabled(o Overrides, id string) bool {
 		return o.Plugins.Hyprfocus.Enabled
 	case "keysounds":
 		return o.Plugins.Keysounds.Enabled
+	case "borders-plus-plus":
+		return o.Plugins.BordersPlusPlus.Enabled
+	case "hyprgrass":
+		return o.Plugins.Hyprgrass.Enabled
 	}
 	return o.Plugins.Extra[id].Enabled
 }
 
-// packageVersion is what pacman holds for a package, "" when not installed.
+// packageVersion is what the host package database holds, "" when not installed.
 func packageVersion(pkg string) string {
 	if pkg == "" {
 		return ""
 	}
-	out, err := exec.Command("pacman", "-Q", pkg).Output()
+	out, err := exec.Command("ryoku-host", "pkg", "version", pkg).Output()
 	if err != nil {
 		return ""
 	}
-	f := strings.Fields(string(out))
-	if len(f) < 2 {
-		return ""
-	}
-	return f[1]
+	return strings.TrimSpace(string(out))
 }
 
 // pluginRosterNow builds the full roster against the live compositor. An enabled,
@@ -854,7 +870,46 @@ func describePlugin(d pluginDef, o Overrides, target hyprABI, loaded map[string]
 			info.Detail = "Installed. Turn it on and Save to load it."
 		}
 	}
+	if note := pluginNvidiaNote(d.ID, info.Loaded, nvidiaGPU()); note != "" {
+		info.Detail += " " + note
+	}
 	return info
+}
+
+// pluginNvidiaNote is the honest caveat for the plugins with a known cost on
+// NVIDIA: dynamic-cursors forces software cursor rendering, which reports say
+// stutters when the pointer crosses monitors (#257, #259), and hyprglass
+// re-renders its blur and refraction pass per window on every monitor, which
+// reports say turns visibly laggy on NVIDIA multi-monitor setups. Surfacing
+// them on the plugin's own card beats shipping the surprise silently.
+func pluginNvidiaNote(id string, loaded, nvidia bool) string {
+	if !nvidia {
+		return ""
+	}
+	switch id {
+	case "dynamic-cursors":
+		if loaded {
+			return "On NVIDIA this plugin renders the cursor in software, which can stutter when the pointer crosses monitors: turn it off if the desktop feels laggy."
+		}
+		return "On NVIDIA this plugin forces software cursor rendering and can stutter across monitors."
+	case "hyprglass":
+		if loaded {
+			return "On NVIDIA, especially with several monitors, the glass pass can lag: lower the blur strength or turn it off if windows feel heavy to move."
+		}
+		return "On NVIDIA, especially with several monitors, this plugin's blur and refraction can lag."
+	}
+	return ""
+}
+
+// nvidiaGPU reports an active NVIDIA driver by its device nodes, the same
+// signal ryoku-gpu-detect reads; no subprocess.
+func nvidiaGPU() bool {
+	for _, dev := range []string{"/dev/nvidia0", "/dev/nvidiactl"} {
+		if _, err := os.Stat(dev); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func settingsEqual(a, b []detectedSetting) bool {

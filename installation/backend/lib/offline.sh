@@ -71,7 +71,7 @@ EOF
 # ryoku_offline_pacstrap_extra: a no-op hook, kept so lib/pacstrap.sh's call site
 # needs no change. The desktop set used to be folded into the offline pacstrap
 # here, but that put the whole desktop (its umbrella pulls ~everything, including
-# the large ryomotion package) into the base transaction: one corrupt or
+# large packages) into the base transaction: one corrupt or
 # conflicting desktop package then aborted the entire pacstrap as "could not lay
 # the base system", bricking the install. The desktop now installs as a SEPARATE
 # chroot transaction from the same [offline] repo (lib/deploy.sh), so the base
@@ -179,7 +179,7 @@ ryoku_offline_aur() {
     return 0
   fi
   local -a want=() have=()
-  mapfile -t want < <(grep -vE '^[[:space:]]*(#|$)' "$aur_file")
+  mapfile -t want < <(ryoku_drop_from < <(grep -vE '^[[:space:]]*(#|$)' "$aur_file"))
   (( ${#want[@]} )) || return 0
   local p
   for p in "${want[@]}"; do

@@ -169,8 +169,8 @@ func (d *daemon) pickTransition() *pickedTransition {
 // transitionFor is the animation a wallpaper op reveals with. Two paths must
 // not animate and always return nil: init, which paints the saved wallpaper
 // onto a fresh backdrop at login, and live-reload, which relaunches the current
-// clip after a settings change. A user-driven switch follows the picker's
-// transition block (the skwd keys in ryogami-wall/config.json): off means a
+// clip after a settings change. A user-driven switch follows the transition
+// keys in the settings store: off means a
 // plain cut, "random" is a no-repeat pick over the 39-shader skwd catalog, a
 // catalog name pins that shader, and the "ryoku" sentinel (or an unknown value)
 // falls back to the shell's 22-preset reveal engine, which
@@ -179,7 +179,7 @@ func (d *daemon) transitionFor(mode string) *pickedTransition {
 	if mode == "init" || mode == "live-reload" {
 		return nil
 	}
-	prefs := readWallUITransition()
+	prefs := readTransitionPrefs()
 	if !prefs.Enabled {
 		return nil
 	}
@@ -357,37 +357,23 @@ var skwdShaders = []string{
 	"perlin", "polar-function", "randomsquares",
 }
 
-// wallUITransition is the picker's transition preference block from
-// ~/.config/ryogami-wall/config.json, the same keys skwd-wall writes
-// (transition.enabled / transition.shader / transition.durationMs).
-type wallUITransition struct {
+// transitionPrefs reads the transition keys from the settings store.
+type transitionPrefs struct {
 	Enabled    bool
 	Shader     string
 	DurationMs int
 }
 
-func readWallUITransition() wallUITransition {
-	out := wallUITransition{Enabled: true, Shader: "random", DurationMs: 600}
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		base = filepath.Join(home(), ".config")
+func readTransitionPrefs() transitionPrefs {
+	out := transitionPrefs{Enabled: true, Shader: "random", DurationMs: 900}
+	if v, ok := settingValue("transition.enabled").(bool); ok {
+		out.Enabled = v
 	}
-	var m struct {
-		Transition struct {
-			Enabled    *bool  `json:"enabled"`
-			Shader     string `json:"shader"`
-			DurationMs int    `json:"durationMs"`
-		} `json:"transition"`
+	if v, ok := settingValue("transition.shader").(string); ok && v != "" {
+		out.Shader = v
 	}
-	loadJSON(filepath.Join(base, "ryogami-wall", "config.json"), &m)
-	if m.Transition.Enabled != nil {
-		out.Enabled = *m.Transition.Enabled
-	}
-	if m.Transition.Shader != "" {
-		out.Shader = m.Transition.Shader
-	}
-	if m.Transition.DurationMs >= 50 && m.Transition.DurationMs <= 10000 {
-		out.DurationMs = m.Transition.DurationMs
+	if n, ok := toNumber(settingValue("transition.durationMs")); ok && n >= 50 && n <= 10000 {
+		out.DurationMs = int(n)
 	}
 	return out
 }

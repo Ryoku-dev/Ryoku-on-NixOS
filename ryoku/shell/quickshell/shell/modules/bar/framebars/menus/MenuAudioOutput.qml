@@ -17,16 +17,13 @@ Item {
 
     property real s: 1
     property bool open: false
-    // Detail-page mode (quick-settings host): the device list arrives expanded.
-    property bool pageMode: false
 
     implicitHeight: col.implicitHeight
 
     readonly property var sink: Audio.sink
     readonly property bool haveSink: !!(root.sink && root.sink.audio)
 
-    property bool devicesOpen: root.pageMode
-    onOpenChanged: if (root.open && root.pageMode) root.devicesOpen = true
+    property bool devicesOpen: false
 
     Column {
         id: col
@@ -53,7 +50,7 @@ Item {
             width: parent.width
             s: root.s
             current: root.sink
-            devices: Audio.outputs
+            devices: Audio.outputs.filter(Audio.alive)
             listOpen: root.devicesOpen
             fallbackIcon: "speaker"
             emptyLabel: I18n.tr("No output device")
@@ -68,7 +65,7 @@ Item {
             visible: root.open && Audio.streams.length > 0
         }
         Repeater {
-            model: root.open ? Audio.streams : []
+            model: root.open ? Audio.streams.filter(Audio.alive) : []
             delegate: AudioAppRow {
                 required property var modelData
                 s: root.s

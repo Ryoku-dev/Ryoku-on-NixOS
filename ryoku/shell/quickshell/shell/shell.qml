@@ -13,24 +13,30 @@ import Quickshell
 import shell.services
 import "modules/visualizer/Singletons" as VizCfg
 import "modules/stage/Singletons" as StageCfg
+import "modules/stage" as StageEditor
 import "components"
 import "modules/wallpaper"
 import "modules/wallpaper/Singletons" as WallCfg
 import "modules/desktop"
 import "modules/visualizer"
 import "modules/bar"
+import "modules/sidebar"
 import "modules/dock"
 import "modules/launcher"
 import "modules/overview"
 import "modules/clipboard"
+import shell.modules.phone as Phone
 import QtQuick
 import Quickshell.Io
 import Quickshell.Wayland
 import "modules/osd"
 import "modules/notifications"
 import "modules/capture"
+import "modules/ask"
 import "modules/confirm"
 import Ryoku.Ui.Singletons
+import stage.modules.common as StageIsland
+import stage as Stage
 
 /**
  * The single resident Ryoku shell instance.
@@ -53,6 +59,10 @@ import Ryoku.Ui.Singletons
  */
 ShellRoot {
     id: root
+    // Keep native surfaces until Gokko's root has completed, not merely while
+    // its outer Store Scene exists; a nested load error must still fall back.
+    readonly property bool gokkoRunning: Config.barStyle === "gokko"
+        && BarProducts.gokkoReady
     // One deferred-build wave for the cheap event-driven surfaces (the OSDs and
     // the notification column), armed 1.5 s into boot so a keypress or an
     // arriving toast never waits on a component build. Everything heavier is
@@ -66,8 +76,12 @@ ShellRoot {
     // Construct the shared services (ShellState's per-monitor state now, heavier
     // providers as surfaces migrate) at load rather than on the first keybind.
     ServiceLoader {
-        services: [ShellState, ScreenTime, Keypresses, KeyboardLayout]
+        services: [ShellState, ScreenTime, Keypresses, KeyboardLayout, BatteryAlerts]
     }
+
+    // The bridge stays resident even when phone support is off so Kit always
+    // has a current install state and can turn the feature on.
+    Phone.PhoneBridge { }
 
     readonly property string reloadStatePath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ryoku-reload-cover.json"
     readonly property string reloadCoverBin: Quickshell.env("RYOKU_SHELL_DIR")
@@ -104,6 +118,10 @@ ShellRoot {
         path: root.reloadStatePath
         blockLoading: true
         printErrors: false
+        // One read at load, never again: a shell that was already up when a
+        // reload armed the cover must not steal the next instance's finish by
+        // re-reading the token mid-teardown.
+        watchChanges: false
         onLoaded: {
             try {
                 const token = JSON.parse(text() || "{}").token;
@@ -183,6 +201,8 @@ ShellRoot {
                 screen: perScreen.modelData
                 active: true
                 widgetsEnabled: Tokens.widgetsEnabledFor(perScreen.modelData.name)
+                    && !root.gokkoRunning
+                gokkoActive: root.gokkoRunning
                 wallpaperUrl: wallpaper.wallpaperUrl
                 wallpaperPath: wallpaper.wallpaperPath
                 wallpaperFit: wallpaper.fit
@@ -191,6 +211,7 @@ ShellRoot {
                 wallpaperLive: wallpaper.live
                 videoMuted: wallpaper.videoMuted
                 videoVolume: wallpaper.videoVolume
+                videoPaused: wallpaper.videoPaused
             }
 
             // A blurred copy of the wallpaper for the compositor's overview
@@ -210,22 +231,28 @@ ShellRoot {
 
             // Stage now renders entirely inside the desktop surface (one stack:
             // backdrop, layers, widgets), so there is no separate Background
-            // surface here (docs/stage.md). Built on first enable or first
-            // placement; cava and its buffers never exist while the visualizer
-            // is off.
+            // surface here (docs/stage.md). A silent visualizer is unloaded on
+            // every output when the performance policy asks for it; live audio
+            // re-creates the surfaces immediately. Placement runs in the Stage
+            // Editor now: the desktop hosts the look while the mode frames this
+            // monitor, so this surface exists for the plain and overlay cases only.
             LazyLoader {
                 id: vizLoader
-                activeAsync: VizCfg.Config.enabled || (perScreen.st && perScreen.st.visualizerPlacing)
+                activeAsync: VizCfg.Config.enabled && Perf.visualizerResident
                 Visualizer {
                     id: perScreenViz
                     screen: perScreen.modelData
                     mode: !VizCfg.Config.enabled ? "off"
                         : (perScreen.st && perScreen.st.visualizerOverlay ? "overlay" : "desktop")
-                    placing: perScreen.st ? perScreen.st.visualizerPlacing : false
                     // The desktop hosts the visualizer behind the cut-outs while the
-                    // stage is on; this surface steps aside (cava keeps running).
-                    suppressed: desktop.hostsVisualizer
-                    onPlacingDone: if (perScreen.st) perScreen.st.visualizerPlacing = false
+                    // stage is on, and inside the lifted desktop while the Stage
+                    // Editor frames this monitor; this surface steps aside (cava
+                    // keeps running). A rebuilt monitor stack (DPMS off/on, a lid
+                    // close/open) starts with no wallpaper frame, so
+                    // hostsVisualizer briefly reads false even for a stage wallpaper:
+                    // stay suppressed until the frame lands, or the surface maps
+                    // full-screen and pulses for a few seconds on every resume.
+                    suppressed: desktop.hostsVisualizer || !wallpaper.reloadReady
                 }
             }
 
@@ -238,26 +265,75 @@ ShellRoot {
                 dockLaneCenter: dockLoader.item ? dockLoader.item.bandCenter : 0
             }
 
-            // The dock: a resident per-monitor surface on the edge opposite the
-            // bar. Style-agnostic, so it lives here rather than inside a bar style;
-            // it is not built until the user turns it on (Hub -> Bar Studio -> Dock).
             LazyLoader {
-                id: dockLoader
-                activeAsync: Dock.cfg("enabled", false)
-                DockSurface {
-                    id: perScreenDock
-                    screen: perScreen.modelData
-                    // Edit widgets steps the dock back so the whole desktop is the canvas.
-                    visible: Dock.cfg("enabled", false)
-                        && !(StageCfg.StageSession.widgets && StageCfg.StageSession.monitor === perScreen.modelData.name)
+                id: controlsLoader
+                property bool open: SidebarState.isOpen(perScreen.modelData)
+                property bool showNow: false
+                activeAsync: open || controlsHold.running
+                onItemChanged: if (item) Qt.callLater(() => controlsLoader.showNow = controlsLoader.open)
+                onOpenChanged: {
+                    showNow = open && item !== null;
+                    if (!open && active) controlsHold.restart();
                 }
+                Sidebar {
+                    screen: perScreen.modelData
+                    active: controlsLoader.showNow
+                }
+            }
+            Timer { id: controlsHold; interval: SidebarState.exitDuration + 48 }
+
+
+            LazyLoader {
+                id: askLoader
+                property bool open: perScreen.st ? perScreen.st.askOpen : false
+                property bool showNow: false
+                activeAsync: open || askHold.running
+                onItemChanged: if (item) Qt.callLater(() => askLoader.showNow = askLoader.open)
+                onOpenChanged: {
+                    showNow = open && item !== null;
+                    if (!open && active) askHold.restart();
+                }
+                AskBar {
+                    screen: perScreen.modelData
+                    active: askLoader.showNow
+                    mode: perScreen.st ? perScreen.st.askMode : "ask"
+                    tool: perScreen.st ? perScreen.st.askTool : ""
+                    onRequestClose: if (perScreen.st) perScreen.st.askOpen = false
+                    onModeChangeRequested: mode => ShellState.setAskMode(perScreen.modelData, mode)
+                }
+            }
+            Timer { id: askHold; interval: 15000 }
+
+            LazyLoader {
+                id: askBubbleLoader
+                activeAsync: Config.askBubble.enabled
+                    && Config.askBubble.screen === perScreen.modelData.name
+                AskBubble {
+                    screen: perScreen.modelData
+                    enabled: true
+                    suppressed: perScreen.st ? perScreen.st.askOpen : false
+                }
+            }
+
+            // One cheap host per monitor loads only the selected dock design.
+            // The surface itself remains independent of the active bar style.
+            // The dock stays through the Stage Editor session (like the bar):
+            // the dock catalogue edits it live inside the editor's card, and it
+            // publishes the edge it occupies (GlobalStates.dockInsets).
+            UniversalDockHost {
+                id: dockLoader
+                screen: perScreen.modelData
+                surfaceVisible: !root.gokkoRunning
             }
 
             // The dock's right-click context menu: a full-screen overlay on the
             // monitor that owns the open menu (the thin dock strip cannot host it).
+            // The Ryoku design and docks installed from RyoStore share it.
             LazyLoader {
                 id: dockMenuLoader
-                property bool open: Dock.menuOpen && Dock.menuScreen === perScreen.modelData.name
+                property bool open: !root.gokkoRunning
+                    && (Dock.design === "ryoku" || Dock.storeDesign)
+                    && Dock.menuOpen && Dock.menuScreen === perScreen.modelData.name
                 activeAsync: open || dockMenuHold.running
                 onOpenChanged: if (!open && active) dockMenuHold.restart()
                 DockMenuOverlay {
@@ -380,7 +456,7 @@ ShellRoot {
             }
             LazyLoader {
                 id: regionLoader
-                property bool open: Recorder.anyActive || Recorder.chooserOpen
+                property bool open: Recorder.anyActive
                 activeAsync: open || regionHold.running
                 onOpenChanged: if (!open && active) regionHold.restart()
                 RegionOverlay {
@@ -418,6 +494,33 @@ ShellRoot {
                 }
             }
             Timer { id: keypressHold; interval: 20000 }
+            // The floating recording island: the one recording HUD on every bar
+            // style, a standalone layer-shell surface rather than frame chrome. It
+            // shows on the output being recorded -- the screen holding the region
+            // box, else the focused output, else the first screen -- so a
+            // multi-monitor setup gets one island on the right screen.
+            LazyLoader {
+                id: recordIslandLoader
+                readonly property bool isTarget: {
+                    var s = perScreen.modelData;
+                    var m = /^(\d+)x(\d+)\+(\d+)\+(\d+)$/.exec(Recorder.regionGeom);
+                    if (m) {
+                        var ox = parseInt(m[3]);
+                        var oy = parseInt(m[4]);
+                        return ox >= s.x && ox < s.x + s.width && oy >= s.y && oy < s.y + s.height;
+                    }
+                    if (Wm.focusedOutput && Wm.focusedOutput.length > 0)
+                        return s.name === Wm.focusedOutput;
+                    return ShellState.screens.length > 0 && ShellState.screens[0].name === s.name;
+                }
+                property bool open: isTarget && (Recorder.anyActive || Recorder.countingDown)
+                activeAsync: open || recordIslandHold.running
+                onOpenChanged: if (!open && active) recordIslandHold.restart()
+                RecordIsland {
+                    modelData: perScreen.modelData
+                }
+            }
+            Timer { id: recordIslandHold; interval: 20000 }
             // Shown only on the monitor whose frame bar raised it; the positive
             // button runs the power action through the daemon, then clears.
             LazyLoader {
@@ -439,12 +542,39 @@ ShellRoot {
         }
     }
 
+    // Keep the edit chrome alive through its closing transition, then release
+    // its component graph until another edit session starts.
+    LazyLoader {
+        id: stageEditorLoader
+        activeAsync: StageCfg.StageSession.widgets
+            || Stage.GlobalStates.editMode
+            || Stage.GlobalStates.editProgress > 0
+        onItemChanged: {
+            if (!item || !StageCfg.StageSession.widgets)
+                return;
+            Stage.GlobalStates.openEditMode(StageCfg.StageSession.monitor);
+            item.showSection();
+        }
+        StageEditor.StageEditorHost {}
+    }
+
+    // The ii host publishes actions and mounts its auxiliary surfaces only for
+    // the selected, enabled design. Other docks do not instantiate the port.
+    LazyLoader {
+        active: !root.gokkoRunning
+            && Dock.design === "ii" && Dock.cfg("enabled", false)
+        LazyLoader {
+            activeAsync: true
+            IiDockHost {}
+        }
+    }
+
+
     // The single surface-toggle mapping. Every shell surface id resolves to one
     // transition here: a per-monitor ShellState flip, a global config toggle, or
-    // a request onto the frame menu bus. Both routes to a surface end in this one
-    // call -- a CustomShortcut press where the compositor bridges global
-    // shortcuts, and the surfaceRequested bus a `ryoku-shell <id>` spawn drives
-    // where that protocol is absent (niri) -- so a toggle is defined once.
+    // a request onto the shared surface bus. A CustomShortcut press and the
+    // `ryoku-shell <id>` fallback both end at the same transition, whether the
+    // surface is hosted by the frame or by a sidebar.
     function toggleSurface(id) {
         const st = ShellState.forActive();
         switch (id) {
@@ -470,11 +600,10 @@ ShellRoot {
                 st.visualizerOverlay = !st.visualizerOverlay;
             break;
         case "visualizer-place":
-            if (st)
-                root.placeVisualizer(!st.visualizerPlacing);
+            root.placeVisualizer(!StageCfg.StageSession.active);
             break;
         case "quicksettings":
-            ShellState.requestSurfaceActive("quick-settings", undefined);
+            ShellState.requestSurfaceActive("sidebar-left", undefined);
             break;
         case "wallpaper-menu":
             ShellState.requestSurfaceActive("wallpaper", undefined);
@@ -483,28 +612,25 @@ ShellRoot {
             if (st)
                 st.clipboardOpen = !st.clipboardOpen;
             break;
-        case "stash":
-            ShellState.requestSurfaceActive("stash", undefined);
-            break;
         case "screenshot":
-            ShellState.requestSurfaceActive("quick-settings#capture", undefined);
+            Quickshell.execDetached(["ryoku-cmd-ryoshot"]);
+            break;
+        case "ask":
+            ShellState.requestSurfaceActive("ask", undefined);
             break;
         case "compress":
-            ShellState.requestSurfaceActive("stash#compress", undefined);
+            ShellState.requestSurfaceActive("ask#tools/compress", undefined);
             break;
         case "install":
-            ShellState.requestSurfaceActive("stash#install", undefined);
+            ShellState.requestSurfaceActive("ask#tools/install", undefined);
             break;
         }
     }
 
-    // The style-independent half of the surface bus. With no global-shortcuts
-    // protocol a keybind reaches a surface only by spawning `ryoku-shell <id>`,
-    // which arrives here as a surfaceRequested. Frame-menu surfaces are opened by
-    // the per-monitor FrameMenuManager (Frame.qml), which maps in every bar
-    // style; the shell-wide flag surfaces have no such host, so this routes them
-    // through the same toggleSurface a shortcut press uses. Frame-menu ids never
-    // match here, so a surface still opens exactly once.
+    // With no global-shortcuts protocol a keybind reaches the shell by spawning
+    // `ryoku-shell <id>`. Shell-wide flag surfaces are handled here; frame menus
+    // and sidebars consume the same surfaceRequested bus in their per-monitor
+    // hosts, so each request still has exactly one owner.
     Connections {
         target: ShellState
         function onSurfaceRequested(id, mon, ctx) {
@@ -513,6 +639,7 @@ ShellRoot {
             case "launcher":
             case "overview":
             case "clipboard":
+            case "screenshot":
             case "visualizer":
             case "visualizer-overlay":
             case "visualizer-place":
@@ -558,14 +685,25 @@ ShellRoot {
         onPressed: root.toggleSurface("visualizer-place")
     }
 
-    // Aiming a hidden spectrum aims nothing, so placing it shows it first.
+    // Aiming a look happens in the Stage Editor now (docs/stage.md): the bind,
+    // the desktop menu row and the Hub hand-off all enter the edit session on
+    // the active monitor, where the look wears its placement grip like every
+    // other widget. A hidden spectrum aims nothing, so placing it shows it
+    // first. The editor's own Done/Escape leaves the session, so `off` only
+    // unwinds a session that is open.
     function placeVisualizer(on) {
         const st = ShellState.forActive();
         if (!st)
             return;
-        if (on && !VizCfg.Config.enabled)
+        const mon = (st.modelData && st.modelData.name) ? st.modelData.name : "";
+        if (!on) {
+            if (StageCfg.StageSession.active)
+                StageCfg.StageSession.leave();
+            return;
+        }
+        if (!VizCfg.Config.enabled)
             VizCfg.Config.setEnabled(true);
-        st.visualizerPlacing = on;
+        StageCfg.StageSession.enterWidgets(mon, "visualizer");
     }
 
     // --- Root machinery (ported from the reference pill root) --------------
@@ -623,21 +761,33 @@ ShellRoot {
         value: Flags.dnd
     }
 
-    // Compositor-level idle inhibitor, mapped only while Keep-Awake is on. It
+    // Hosted desktop widgets that show the wallpaper (a photo widget with no
+    // photo picked) read a still of it from the stage config: the daemon's
+    // active picture, or a clip's live poster frame.
+    Binding {
+        target: StageIsland.Config
+        property: "hostWallpaperStill"
+        value: Session.wallIsVideo ? Session.livePoster : Session.wallpaper
+    }
+
+    // Compositor-level idle inhibitor, created only while Keep-Awake is on. It
     // dies with the shell; the external caffeine bridge above keeps the durable
     // one. (pill 202-214)
-    PanelWindow {
-        id: inhibitWin
-        visible: Flags.keepAwake
-        implicitWidth: 1
-        implicitHeight: 1
-        color: "transparent"
-        exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.layer: WlrLayer.Background
-        WlrLayershell.namespace: "ryoku-frame-inhibit"
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-        anchors { top: true; left: true }
-        IdleInhibitor { window: inhibitWin; enabled: Flags.keepAwake }
+    LazyLoader {
+        active: Flags.keepAwake
+        PanelWindow {
+            id: inhibitWin
+            visible: true
+            implicitWidth: 1
+            implicitHeight: 1
+            color: "transparent"
+            exclusionMode: ExclusionMode.Ignore
+            WlrLayershell.layer: WlrLayer.Background
+            WlrLayershell.namespace: "ryoku-frame-inhibit"
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            anchors { top: true; left: true }
+            IdleInhibitor { window: inhibitWin; enabled: true }
+        }
     }
 
     // keyboard-return bounce. The frame overlay never unmaps, and dropping an
@@ -653,17 +803,19 @@ ShellRoot {
         interval: 90
         onTriggered: root.kbBounce = false
     }
-    PanelWindow {
-        id: kbBounceWin
-        visible: root.kbBounce
-        implicitWidth: 1
-        implicitHeight: 1
-        color: "transparent"
-        exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.namespace: "ryoku-frame-kbfocus"
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
-        anchors { top: true; left: true }
+    LazyLoader {
+        active: root.kbBounce
+        PanelWindow {
+            visible: true
+            implicitWidth: 1
+            implicitHeight: 1
+            color: "transparent"
+            exclusionMode: ExclusionMode.Ignore
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.namespace: "ryoku-frame-kbfocus"
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+            anchors { top: true; left: true }
+        }
     }
     Connections {
         target: ShellState
@@ -688,10 +840,13 @@ ShellRoot {
     Connections {
         target: Polkit
         function onActiveChanged() {
-            if (Polkit.active)
-                ShellState.requestSurface("polkit", "", undefined);
-            else
+            // The iRiS bar style draws this prompt in its own dialog.
+            if (Polkit.active) {
+                if (Config.barStyle !== "iris")
+                    ShellState.requestSurface("polkit", "", undefined);
+            } else {
                 ShellState.closeSurface("polkit", "");
+            }
         }
     }
 
@@ -742,15 +897,171 @@ ShellRoot {
     // user drop a ring where they want it, so the shell hands them the shape.
     IpcHandler {
         target: "visualizer"
-        function place(): void {
+        function place(): string {
             const st = ShellState.forActive();
-            if (st)
-                root.placeVisualizer(true);
+            if (!st)
+                return "No active display is available";
+            root.placeVisualizer(true);
+            return "ok";
         }
-        function done(): void {
+        function done(): string {
             const st = ShellState.forActive();
-            if (st)
-                root.placeVisualizer(false);
+            if (!st)
+                return "No active display is available";
+            root.placeVisualizer(false);
+            return "ok";
+        }
+        function setEnabled(value: bool): string { VizCfg.Config.setEnabled(value); return "ok"; }
+        function cycleStyle(direction: int): string {
+            if (direction !== -1 && direction !== 1)
+                return "Style direction must be -1 or 1";
+            VizCfg.Config.cycleStyle(direction);
+            return "ok";
+        }
+        function setFps(value: int): string {
+            if ([30, 45, 60].indexOf(value) < 0)
+                return "Frame rate must be 30, 45 or 60";
+            VizCfg.Config.setFps(value);
+            return "ok";
+        }
+        function setAdaptive(value: bool): string { VizCfg.Config.setAdaptive(value); return "ok"; }
+        function setGain(value: real): string {
+            if (!isFinite(value) || value < 0.5 || value > 2)
+                return "Gain must be between 0.5 and 2";
+            VizCfg.Config.setGain(value);
+            return "ok";
+        }
+        function setSmoothing(value: real): string {
+            if (!isFinite(value) || value < 0 || value > 1)
+                return "Smoothing must be between 0 and 1";
+            VizCfg.Config.setSmoothing(value);
+            return "ok";
+        }
+    }
+
+    // Ryoku Settings edits the Stage file through the shell's canonical typed
+    // service. The Hub never becomes a second writer for stage.json.
+    IpcHandler {
+        target: "stage-settings"
+        function setQuality(value: string): string {
+            if (["draft", "standard", "fine"].indexOf(value) < 0)
+                return "Quality must be draft, standard or fine";
+            StageCfg.Config.setQuality(value);
+            return "ok";
+        }
+        function setEdge(value: real): string {
+            if (!isFinite(value) || value < 0 || value > 1)
+                return "Edge softness must be between 0 and 1";
+            StageCfg.Config.setEdge(value);
+            return "ok";
+        }
+        function setShadow(value: real): string {
+            if (!isFinite(value) || value < 0 || value > 1)
+                return "Shadow must be between 0 and 1";
+            StageCfg.Config.setShadow(value);
+            return "ok";
+        }
+        function setShadowAngle(value: real): string {
+            if (!isFinite(value) || value < 0 || value > 360)
+                return "Shadow angle must be between 0 and 360";
+            StageCfg.Config.setShadowAngle(value);
+            return "ok";
+        }
+        function resetLook(): string { StageCfg.Config.resetLook(); return "ok"; }
+        function setAmount(value: string): string {
+            if (["subtle", "normal", "strong"].indexOf(value) < 0)
+                return "Amount must be subtle, normal or strong";
+            StageCfg.Config.setAmount(value);
+            return "ok";
+        }
+        function setIdle(value: string): string {
+            if (["none", "float", "breathe", "sway"].indexOf(value) < 0)
+                return "Idle motion must be none, float, breathe or sway";
+            StageCfg.Config.setIdle(value);
+            return "ok";
+        }
+        function setMusic(value: bool): string { StageCfg.Config.setMusic(value); return "ok"; }
+        function setMouse(value: bool): string { StageCfg.Config.setMouse(value); return "ok"; }
+        function setSpeed(value: real): string {
+            if (!isFinite(value) || value < 0.25 || value > 2)
+                return "Idle speed must be between 0.25 and 2";
+            StageCfg.Config.setSpeed(value);
+            return "ok";
+        }
+        function setMusicLevel(value: real): string {
+            if (!isFinite(value) || value < 0 || value > 1)
+                return "Music intensity must be between 0 and 1";
+            StageCfg.Config.setMusicLevel(value);
+            return "ok";
+        }
+        function setSensitivity(value: real): string {
+            if (!isFinite(value) || value < 0 || value > 2)
+                return "Pointer sensitivity must be between 0 and 2";
+            StageCfg.Config.setSensitivity(value);
+            return "ok";
+        }
+        function setRange(value: real): string {
+            if (!isFinite(value) || value < 0 || value > 2)
+                return "Pointer range must be between 0 and 2";
+            StageCfg.Config.setRange(value);
+            return "ok";
+        }
+        function setBackdrop(value: real): string {
+            if (!isFinite(value) || value < 0 || value > 1)
+                return "Backdrop drift must be between 0 and 1";
+            StageCfg.Config.setBackdrop(value);
+            return "ok";
+        }
+        function setVisualizerFront(value: bool): string { StageCfg.Config.setFront("visualizer", value); return "ok"; }
+    }
+
+    // Enter or leave the desktop-widget editor without the right-click menu, so
+    // a keybind or the daemon can open it. niri has no global-shortcut protocol,
+    // so every shell surface is driven this way; the editor is no exception.
+    IpcHandler {
+        id: desktopIpc
+        target: "desktop"
+        function editWidgets(mon: string): void {
+            desktopIpc.editSection("widgets", mon);
+        }
+        // Open the Stage Editor straight on one catalogue (widgets, wallpaper,
+        // style, visualizer, depth): the Hub's hand-offs and keybinds land on
+        // the editor they mean. Already open, it switches catalogue in place.
+        function editSection(section: string, mon: string): void {
+            var m = mon;
+            if (!m || m.length === 0) {
+                const st = ShellState.forActive();
+                m = (st && st.modelData) ? st.modelData.name : "";
+            }
+            // The editor targets one monitor by exact name; a cold focused-output
+            // cache (niri via a keybind before a window is focused) yields "",
+            // which matches no desktop, so fall back to the first output.
+            if (!m || m.length === 0)
+                m = ShellState.screens.length > 0 ? ShellState.screens[0].name : "";
+            if (StageCfg.StageSession.onMonitor(m))
+                StageCfg.StageSession.openSection(section);
+            else
+                StageCfg.StageSession.enterWidgets(m, section);
+        }
+        function editDone(): void { StageCfg.StageSession.leave(); }
+        // Open a widget's right-click menu on a monitor (empty = focused).
+        function menu(widget: string, mon: string): void {
+            var m = mon;
+            if (!m || m.length === 0) {
+                const st = ShellState.forActive();
+                m = (st && st.modelData) ? st.modelData.name : "";
+            }
+            ShellState.requestWidgetMenu(m, widget);
+        }
+        // Open a widget's inspector (Customize sheet) on a monitor (empty =
+        // focused), the off-surface twin of the right-click Customize row.
+        function customize(widget: string, mon: string): void {
+            var m = mon;
+            if (!m || m.length === 0) {
+                const st = ShellState.forActive();
+                m = (st && st.modelData) ? st.modelData.name : "";
+            }
+            ShellState.requestWidgetCustomize(m, widget);
         }
     }
 
@@ -770,12 +1081,16 @@ ShellRoot {
         }
         function toggle(): void { Keypresses.toggle(); }
     }
-    // Menu global shortcuts: open a bar surface on the focused monitor. Each
-    // dispatches to the one toggleSurface mapping so the compositor bind and the
-    // `ryoku-shell <id>` spawn open the identical surface.
+    IpcHandler {
+        target: "camera"
+        readonly property bool active: Camera.active
+        function toggle(): void { Camera.toggle(); }
+    }
+    // Surface global shortcuts dispatch through the mapping above so compositor
+    // global shortcuts and the `ryoku-shell <id>` fallback behave identically.
     CustomShortcut {
         name: "quicksettings"
-        description: I18n.tr("Open quick settings on the active monitor")
+        description: I18n.tr("Open the left sidebar on the active monitor")
         onPressed: root.toggleSurface("quicksettings")
     }
     CustomShortcut {
@@ -789,23 +1104,18 @@ ShellRoot {
         onPressed: root.toggleSurface("clipboard")
     }
     CustomShortcut {
-        name: "stash"
-        description: I18n.tr("Open the feature sidebar on the active monitor")
-        onPressed: root.toggleSurface("stash")
-    }
-    CustomShortcut {
-        name: "screenshot"
-        description: I18n.tr("Open the capture tab in quick settings on the active monitor")
-        onPressed: root.toggleSurface("screenshot")
+        name: "ask"
+        description: I18n.tr("Ask Rashin")
+        onPressed: root.toggleSurface("ask")
     }
     CustomShortcut {
         name: "compress"
-        description: I18n.tr("Open the feature sidebar's file picker to compress media")
+        description: I18n.tr("Open Tools to compress media")
         onPressed: root.toggleSurface("compress")
     }
     CustomShortcut {
         name: "install"
-        description: I18n.tr("Open the feature sidebar's file picker to install a package")
+        description: I18n.tr("Open Tools to install a package")
         onPressed: root.toggleSurface("install")
     }
 

@@ -1,10 +1,11 @@
 # Rashin in the terminal
 
-The terminal lane wires the Rashin brain into the place Ryoku users actually
-live: kitty running fish. One command, `rashin`, turns natural language into
-answers and ready-to-run commands that know *this* machine, because they are
-answered by the same daemon, the same vault, and the same Hermes connection as
-the launcher's `\` ask and the dashboard chat. One brain, three surfaces.
+The `rashin` command brings Rashin's read-only Ask lane to the place Ryoku
+users already work: kitty running fish, or any shell over a terminal. It uses
+the same daemon, vault, Ask route, saved harness model, and
+`rashin-asks.jsonl` history as the launcher's `\` ask, the Alt+Space Ask tab,
+and the console Ask sheet. It does not write into the persistent Agent
+conversation.
 
 ```
 $ rashin take me to the fastfetch config
@@ -15,7 +16,8 @@ $ rashin take me to the fastfetch config
 $ cd ~/.config/fastfetch && bat config.jsonc█   <- sitting at your prompt, Enter runs it
 ```
 
-Rashin never runs anything itself on this lane. It proposes; you press Enter.
+Rashin never runs a proposed command on this lane. It proposes; you press
+Enter.
 
 ## What it learned from the field
 
@@ -57,6 +59,15 @@ prints only the final buffer text on stdout, and `--plain` disables ANSI
 (automatic when stdout is not a TTY). `rashin status|enable|disable|setup`
 pass through to the matching `ryoku-rashin` verbs.
 
+### Resume an Agent session in its harness
+
+`ryoku-rashin terminal` is separate from the read-only `rashin` ask. It asks
+the running daemon to resume the current Agent session in the harness's own
+TUI. `--lane chat` does the same for the console Chat session. Hermes, omp,
+Claude Code, and Codex support resume; a harness without a resumable session
+returns a plain reason instead of opening a new one. The console and bar expose
+the Agent action as **Open in terminal**.
+
 Also bound in Fish, Bash, and Zsh: **Alt+R** transmutes the current command
 line. Type `find every heic in Photos and convert to jpg`, hit Alt+R, and the
 buffer is replaced by the proposed command. Nothing runs until Enter.
@@ -68,69 +79,75 @@ sequenceDiagram
     participant S as shell adapter
     participant C as rashin (CLI)
     participant D as daemon /api/term
-    participant M as model (fast lane)
-    participant H as hermes session
+    participant F as selected Ask route
+    participant A as private read-only harness session
     S->>C: term --buffer + cwd, last cmd, exit status
     C->>D: POST /api/term {q, ctx}
-    D->>M: term pattern + vault maps + habits + terminal ctx
-    M->>D: propose({commands}) tool call
-    D->>D: validate: PATH, paths, danger tier
+    alt Prowl route
+        D->>F: terminal pattern + vault maps + terminal ctx
+        F->>D: answer or TOOLS_REQUIRED
+    end
+    opt Agent model route or broader read-only work
+        D->>A: fresh session for this ask
+        A->>D: answer or needsAgent reason
+    end
+    D->>D: validate proposed commands
     D-->>C: @plan, @answer markers
     C-->>S: chosen command on stdout
     S->>S: replace line buffer (Enter to run)
-    Note over D,H: heavy asks escalate: TOOLS_REQUIRED -> hermes session,<br/>permissions answered right in the terminal
 ```
 
 1. The CLI collects terminal context: cwd, last command, and exit status from
    the active shell adapter. Nothing else leaves the process.
-2. `POST /api/term` runs the **fast lane** (the same direct chat-completions
-   loop as `/api/ask`, usually one or two seconds) with a terminal persona:
-   the vault's generated maps, the habits layer, the terminal context, the
-   read-only tools (`system_query`, `read_file`, `list_dir`, `search_code`,
-   `fetch_url`), and one action tool: **`propose`**.
-3. When the ask calls for terminal action, the model calls `propose` once with
-   structured commands (`oneliner` when they chain safely). The daemon
-   validates every command: the binary must be on PATH (else annotated with
-   how to get it), checkable source paths must exist (else annotated), and
-   each command gets a danger tier. The validated plan streams back as an
-   `@plan` marker, then the model's one-sentence context as `@answer`.
-4. Pure questions skip `propose` and come back as terse prose, same as the
-   launcher lane.
-5. Asks that need the full agent (editing file contents, images, browsing,
-   skills, long multi-step work) escalate to the **session lane**: the shared
-   pre-warmed Hermes session. On this lane the agent has no `propose` tool, so
-   its preamble makes the contract explicit: **answer questions directly (it
-   may read state to do so), but for anything that changes files or the system,
-   propose the command in a fenced block and never run it.** The daemon lifts
-   those commands into a plan (`planFromText`) and validates them the same way.
-   The turn keeps running in the daemon even if the CLI detaches; `rashin
-   --last`, `\resume`, and the dashboard all pick it up.
+2. With a Prowl route selected, `POST /api/term` starts with the same
+   chat-completions loop as `/api/ask`. Its terminal pattern includes the vault
+   maps, habits, terminal context, read-only tools (`system_query`,
+   `read_file`, `list_dir`, `search_code`, `fetch_url`), and one action tool:
+   **`propose`**.
+3. When the user asks for a terminal action, the model calls `propose` with
+   structured commands. The daemon validates each command, checks its binary
+   and source paths, assigns a danger tier, then streams an `@plan` followed by
+   the terse `@answer` context. Pure questions return prose without a plan.
+4. The **Agent model** Ask route skips Prowl. A Prowl answer that needs broader
+   read-only inspection, or a failed route, also falls through to a fresh
+   private harness session for this one ask. The selected harness model is
+   applied to that session.
+5. The private session is strictly read-only. It never asks for approval and
+   never joins the persistent Agent transcript. If the request requires it to
+   perform a mutation, the result carries `needsAgent` and a short explanation
+   of what the Agent would do. It can still propose commands for the user to
+   review and run.
 
-On an OAuth-only backend (openai-codex, native anthropic) the fast lane cannot
-be called, so **every** terminal ask takes the session lane: correct output,
-but seconds-to-tens-of-seconds latency where a direct-provider quick model
-(`rashin.json` `quick.*`) answers in one or two. That trade is the provider's,
-not the lane's.
+The Ask route picker offers Agent model first and available Prowl routes after
+it. This choice is separate from the saved harness model. A model picked in
+any Rashin surface applies to every new, loaded, or respawned session for that
+harness, including private terminal asks. If the pick is not currently
+offered, the surface reports **Saved model unavailable** and the session keeps
+its current model.
 
-Both lanes record into the shared transcript and the ask history
-(`$XDG_STATE_HOME/ryoku/rashin-asks.jsonl`), so the launcher's `\resume`, the
-terminal's `--resume`, and the dashboard's "continue in chat" all see the same
-conversation. That is the synchronization contract: **every surface reads and
-writes the same three stores** (transcript, ask history, vault).
+Every completed terminal ask is recorded in
+`$XDG_STATE_HOME/ryoku/rashin-asks.jsonl`. The launcher's `\resume`, the
+terminal's `--resume`, the bar history drawer, and the console Ask sheet can
+recall it without another model call. `rashin -c` supplies the previous
+terminal exchange as context to a new ask. Neither command changes the Agent
+conversation.
 
 ## The stdout protocol
 
-`/api/term` streams the ask-lane marker protocol with two additions:
+`/api/term` streams the Ask marker protocol:
 
 ```
 @id <request id>          first line; keys cancel for this request
-@working <label>          what the agent is doing right now
+@working <label>          what Rashin is doing right now
 @plan <json>              the validated command plan (below)
-@perm <json>              a session-lane permission request {id, title, options}
-@answer <json>            {"text": ...}
+@answer <json>            answer, route, actions, and optional needsAgent reason
 @error <message>
 @hint <json>              e.g. {"kind":"repeat","n":3} -> offer a recipe
 ```
+
+There is no permission marker or Ask permission route. Both the fast path and
+the private harness session are read-only. Work that needs mutation is
+reported as `needsAgent`, not held on an approval prompt.
 
 The plan payload:
 
@@ -159,14 +176,9 @@ Tiers, computed per command and per pipeline segment, highest wins:
 | `danger` | destructive or irreversible | `rm -rf` near `/` or `~`, `dd of=/dev/..`, `mkfs`, `curl \| sh` | type `yes` |
 
 The classifier is deny-first and pessimistic: an unknown binary classifies as
-`write`, never `read`. On the fish path the tier is informational (a colored
-badge); the user is the executor and the buffer is the confirmation step. The
-tier gates only `--run`.
-
-Permissions stop dead-ending outside the dashboard: when an escalated turn
-hits a Hermes `session/request_permission`, the terminal renders the options
-and answers over `POST /api/perm` on the same request. The dashboard sees the
-same request live; whoever answers first wins, the reply is sent exactly once.
+`write`, never `read`. On the fish path the tier is informational, because the
+user is the executor and the buffer is the confirmation step. The tier gates
+only `--run`.
 
 ## The learning loop
 
@@ -223,21 +235,21 @@ The lane is designed against the messy cases, not the demo:
 
 | Situation | Behavior |
 |---|---|
-| Daemon not running / rashin disabled | One line: how to enable (Settings -> Advanced -> Rashin, or `ryoku-rashin enable`), exit 1 |
-| Hermes never set up, no quick override | Fast lane resolves nothing: the error says to run the one-click setup |
-| Provider is OAuth-only (openai-codex) | Same as the launcher: asks ride the session lane, slower but identical output |
-| Provider endpoint down / bad key | Fast lane fails -> session lane; if that dies too, `@error` with the reason |
-| Ctrl+C mid-ask | CLI answers `@id` with `POST /api/term/cancel?id=`, the daemon stops that request only; concurrent terminals never cancel each other |
-| stdout piped / not a TTY | Plain text, no ANSI, no prompts, plan printed inline (script-safe) |
-| Model proposes a binary that is not installed | Note on the command: `magick: not installed`; the pattern tells the model to prefer what is |
-| Model proposes a missing source path | Note: `~/Dokumente does not exist`; destination paths are exempt (mkdir targets are *supposed* to be new) |
-| Model answers with fenced commands instead of `propose` | The daemon lifts fenced/`$ `-prefixed lines into a plan and validates them the same way |
-| Multiple proposed steps | Numbered plan; interactive pick (Enter = first, `a` = all joined with `&&`, number = that step, `q` = none) |
+| Daemon not running / Rashin disabled | One line says how to enable it in the Hub or with `ryoku-rashin enable`, then exits 1 |
+| No usable harness and no routable Prowl provider | The error says Ask needs Hermes or a Prowl provider |
+| Agent model selected | The ask goes directly to a fresh private read-only harness session |
+| Prowl route unavailable | Ask falls back to the private read-only harness session; if that also fails, `@error` names the reason |
+| Ctrl+C mid-ask | The CLI answers `@id` with `POST /api/term/cancel?id=`; the daemon stops only that request |
+| stdout piped / not a TTY | Plain text, no ANSI, no prompts, plan printed inline |
+| Model proposes a binary that is not installed | The command gets a note such as `magick: not installed` |
+| Model proposes a missing source path | The command gets a note; destination paths remain allowed to be new |
+| Model answers with fenced commands instead of `propose` | The daemon lifts fenced or `$ `-prefixed lines into a plan and validates them |
+| Multiple proposed steps | Numbered plan; interactive pick selects the first, all, one number, or none |
 | Empty ask / Alt+R on an empty buffer | Usage line, no model call |
-| Renamed or localized XDG dirs (`Bilder`, `Documenten`) | `habits.md` carries the real names from `user-dirs.dirs`; the model uses those |
-| Secrets in shell history | History mining drops lines matching credential patterns before counting; only argv0/subcommand counts ever leave the parse |
-| `wl-copy` missing (non-Wayland session) | `--copy` falls back to printing the line |
-| Two asks from two terminals at once | Independent requests, independent cancels; the transcript interleaves both, as one user would expect |
+| Renamed or localized XDG dirs | `habits.md` carries the real names from `user-dirs.dirs` |
+| Secrets in shell history | History mining drops credential-shaped lines before counting |
+| `wl-copy` missing | `--copy` falls back to printing the line |
+| Two asks from two terminals at once | Independent requests, histories, and cancels; neither enters the Agent transcript |
 
 ## What stays out, and why
 

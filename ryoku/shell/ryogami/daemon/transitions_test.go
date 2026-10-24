@@ -7,12 +7,9 @@ import (
 	"testing"
 )
 
-// writeTransitionConfig drops a ryogami-wall/config.json under XDG_CONFIG_HOME
-// with the given transition.shader, the value the picker writes when a single
-// transition is pinned.
 func writeTransitionConfig(t *testing.T, shader string) {
 	t.Helper()
-	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "ryogami-wall")
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "ryoku")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +20,7 @@ func writeTransitionConfig(t *testing.T, shader string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), b, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ryogami.json"), b, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

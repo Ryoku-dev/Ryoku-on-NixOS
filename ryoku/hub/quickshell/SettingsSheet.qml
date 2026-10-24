@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Window
 import Quickshell
 import Quickshell.Io
 import Ryoku.Ui
@@ -31,6 +32,14 @@ Item {
     property var draft: null         // the page's live values
     property var defaults: ({})      // factory values, for the struck default
     property string tab: ""
+    // the tab last shown, so a swap can slide in the direction of travel
+    property string prevTab: ""
+    function tabIndexIn(t) {
+        var g = [];
+        for (var i = 0; i < schema.length; i++)
+            if (g.indexOf(schema[i].tab) < 0) g.push(schema[i].tab);
+        return g.indexOf(t);
+    }
     property string query: ""
     // progressive disclosure: rows tagged `adv: true` are the deep knobs, hidden
     // until Advanced is on. search still reaches them (the query branch ignores
@@ -152,7 +161,7 @@ Item {
         if (r.ctl === "list") return "";
         if (r.ctl === "sw") return v ? "ON" : "OFF";
         if (r.ctl === "slid" && r.pct) return String(Math.round(v * 100));
-        if (r.ctl === "multi") return String((v || []).length);
+        if (r.ctl === "multi" || r.ctl === "ordered-multi") return String((v || []).length);
         if (r.ctl === "color") return String(v).toUpperCase();
         return String(v);
     }
@@ -163,7 +172,7 @@ Item {
         if (d === undefined) return "";
         if (r.ctl === "sw") return d ? "ON" : "OFF";
         if (r.ctl === "slid" && r.pct) return String(Math.round(d * 100));
-        if (r.ctl === "multi") return String((d || []).length);
+        if (r.ctl === "multi" || r.ctl === "ordered-multi") return String((d || []).length);
         return String(d);
     }
     function isChanged(r) {
@@ -171,7 +180,7 @@ Item {
         if (r.ctl === "reload-cover")
             return JSON.stringify(ReloadCoverModel.normalize(v)) !== JSON.stringify(ReloadCoverModel.normalize(d));
         if (d === undefined) return false;
-        if (r.ctl === "multi" || r.ctl === "list") return JSON.stringify(v || []) !== JSON.stringify(d || []);
+        if (r.ctl === "multi" || r.ctl === "ordered-multi" || r.ctl === "list") return JSON.stringify(v || []) !== JSON.stringify(d || []);
         return v !== d;
     }
     // A typed number is clamped into the row's own range and stored in the kind
@@ -202,6 +211,23 @@ Item {
         }
         var d = defaults[r.key];
         if (d !== undefined) sheet.edited(r.key, d);
+    }
+
+    // A row backed by a package rather than a store key: a capability whose
+    // engine is an optional install. The install runs in a terminal, where the
+    // privilege prompt belongs, and the engine starts now rather than next login.
+    // The row carries a package name and a binary, so this stays compositor-neutral.
+    function installPackage(r) {
+        if (!r.pkg || !/^[A-Za-z0-9@._+-]+$/.test(r.pkg)) return;
+        if (r.launch && !/^[A-Za-z0-9._+-]+$/.test(r.launch)) return;
+        var cmd = "sudo ryoku-host pkg install " + r.pkg;
+        // A second reader of the keyboard would play every press twice, so start
+        // one only when none is running; setsid detaches it from the terminal.
+        if (r.launch)
+            cmd += " && (command -v " + r.launch + " >/dev/null 2>&1"
+                + " && ! pgrep -x " + r.launch + " >/dev/null 2>&1"
+                + " && setsid " + r.launch + " >/dev/null 2>&1 &)";
+        Spawn.run(["kitty", "--hold", "-e", "sh", "-c", cmd]);
     }
 
     // A row's option list. Most rows write theirs in the schema; a row whose
@@ -266,18 +292,18 @@ Item {
     function listClear(r) { sheet.edited(r.key, []); }
 
     // inline vs band, and how wide, decided once from the control kind. A
-    // control that needs room (chips, a gallery, a segmented bar of 3+, a demo)
+    // control that needs room (chips, a segmented bar of 3+, a demo)
     // gets a band whose height is its own; a picker or field gets a fixed foot
     // band; everything else sits inline at the row's right.
     function ctlBlock(r) {
         var c = r.ctl, n = sheet.optsFor(r).length;
-        if (c === "chips" || c === "multi" || c === "gallery" || c === "layoutdemo" || c === "reload-cover" || c === "list") return true;
+        if (c === "chips" || c === "multi" || c === "ordered-multi" || c === "layoutdemo" || c === "reload-cover" || c === "list") return true;
         if (c === "seg" && n >= 3) return true;
         return false;
     }
     function ctlFoot(r) {
         var c = r.ctl;
-        if (c === "pick" || c === "text" || c === "color" || c === "location" || c === "image" || c === "action" || c === "app" || c === "timezone") return 32;
+        if (c === "pick" || c === "text" || c === "color" || c === "location" || c === "action" || c === "app" || c === "timezone" || c === "install") return 32;
         return 0;
     }
     function ctlWidth(r, w) {
@@ -378,17 +404,25 @@ Item {
                 readonly property var buckets: sheet.bucketGroups(sheet.groups, sheet.columns)
 
                 // A tab change swaps the whole card set, which otherwise snaps.
-                // A fade is the right motion for a content exchange: nothing
-                // travels, and opacity cannot move a card.
+                // The motion is a settle slide in the direction of travel (the
+                // same one the Hub uses between pages), never a fade: fading
+                // the swap put the words through a half-transparent phase,
+                // which read as a flash. The columns clip to the sheet, so the
+                // slide never paints over the rail.
                 Connections {
                     target: sheet
-                    function onTabChanged() { tabFade.restart() }
+                    function onTabChanged() {
+                        var dir = sheet.tabIndexIn(sheet.tab) >= sheet.tabIndexIn(sheet.prevTab) ? 1 : -1;
+                        tabSlide.from = dir * Tokens.s6;
+                        tabSlide.to = 0;
+                        tabSlide.restart();
+                        sheet.prevTab = sheet.tab;
+                    }
                 }
                 NumberAnimation {
-                    id: tabFade
-                    target: cardColumns; property: "opacity"
-                    from: 0; to: 1
-                    duration: Tokens.swap; easing.type: Tokens.ease
+                    id: tabSlide
+                    target: cardColumns; property: "x"
+                    duration: Tokens.move; easing.type: Tokens.ease
                 }
 
                 Repeater {
@@ -454,15 +488,15 @@ Item {
                                             case "seg": return segC;
                                             case "chips": return chipsC;
                                             case "multi": return multiC;
+                                            case "ordered-multi": return orderedMultiC;
                                             case "list": return listC;
                                             case "pick": return pickC;
-                                            case "gallery": return galleryC;
                                             case "reload-cover": return reloadCoverC;
-                                            case "image": return imageC;
                                             case "app": return appC;
                                             case "location": return locationC;
                                             case "color": return colorC;
                                             case "action": return actionC;
+                                            case "install": return installC;
                                             case "layoutdemo": return layoutDemoC;
                                             case "timezone": return timezoneC;
                                             default: return textC;
@@ -479,10 +513,42 @@ Item {
                                                 if (srow.r.key === "i18nGenerate")
                                                     Spawn.runApp(["kitty", "--class", "ryoku-i18n", "-e", "sh", "-c",
                                                         "ryoku-i18n llm " + I18n.lang + "; echo; read -n1 -rsp 'Done. Press any key to close…'; echo"]);
-                                                // hands the shell its placement mode: the look becomes draggable
-                                                // on the desktop, which no slider in here can be.
-                                                else if (srow.r.key === "vizPlace")
-                                                    Spawn.run(["qs", "-c", "shell", "ipc", "call", "visualizer", "place"]);
+                                            }
+                                        }
+                                    }
+                                    Component {
+                                        id: installC
+                                        // Probes once, and again when the Hub regains
+                                        // focus after the install; installed shows a mark.
+                                        Row {
+                                            id: inst
+                                            anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                                            spacing: Tokens.s3
+                                            property bool installed: false
+                                            readonly property bool windowActive: Window.active
+                                            onWindowActiveChanged: if (inst.windowActive && srow.r.pkg) probe.running = true
+                                            Component.onCompleted: if (srow.r.pkg) probe.running = true
+                                            Process {
+                                                id: probe
+                                                running: false
+                                                command: srow.r.pkg ? ["ryoku-host", "pkg", "installed", srow.r.pkg] : ["true"]
+                                                onExited: function(code) { inst.installed = (code === 0); }
+                                            }
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: inst.installed
+                                                text: I18n.tr("INSTALLED")
+                                                color: Tokens.inkFaint
+                                                font.family: Tokens.ui
+                                                font.pixelSize: Tokens.fMicro
+                                                font.weight: Font.Medium
+                                                font.letterSpacing: Tokens.trackMark
+                                            }
+                                            Btn {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: !inst.installed
+                                                text: I18n.tr(srow.r.actionLabel || "Install")
+                                                onAct: sheet.installPackage(srow.r)
                                             }
                                         }
                                     }
@@ -597,6 +663,7 @@ Item {
                                             anchors.right: parent.right
                                             anchors.verticalCenter: parent.verticalCenter
                                             options: sheet.optsFor(srow.r)
+                                            labels: srow.r.optLabels || ({})
                                             current: String(sheet.val(srow.r))
                                             onChose: (k) => sheet.edited(srow.r.key, k)
                                         }
@@ -625,6 +692,116 @@ Item {
                                                 var i = l.indexOf(k);
                                                 if (i >= 0) l.splice(i, 1); else l.push(k);
                                                 sheet.edited(srow.r.key, l);
+                                            }
+                                        }
+                                    }
+                                    Component {
+                                        id: orderedMultiC
+                                        Item {
+                                            id: ordered
+                                            anchors.fill: parent
+                                            readonly property var options: sheet.optsFor(srow.r)
+                                            readonly property var chosen: sheet.val(srow.r) || []
+                                            readonly property var entries: {
+                                                var out = [];
+                                                var seen = {};
+                                                for (var i = 0; i < ordered.chosen.length; i++) {
+                                                    var key = ordered.chosen[i];
+                                                    if (ordered.options.indexOf(key) < 0 || seen[key]) continue;
+                                                    seen[key] = true;
+                                                    out.push({ key: key, on: true, order: out.length });
+                                                }
+                                                var enabledCount = out.length;
+                                                for (var j = 0; j < ordered.options.length; j++) {
+                                                    var candidate = ordered.options[j];
+                                                    if (!seen[candidate])
+                                                        out.push({ key: candidate, on: false, order: -1 });
+                                                }
+                                                for (var n = 0; n < out.length; n++)
+                                                    out[n].enabledCount = enabledCount;
+                                                return out;
+                                            }
+                                            implicitHeight: orderedRows.implicitHeight
+
+                                            function toggle(key) {
+                                                var l = ordered.chosen.slice();
+                                                var i = l.indexOf(key);
+                                                if (i >= 0) l.splice(i, 1); else l.push(key);
+                                                sheet.edited(srow.r.key, l);
+                                            }
+                                            function move(key, delta) {
+                                                var l = ordered.chosen.slice();
+                                                var i = l.indexOf(key);
+                                                var j = i + delta;
+                                                if (i < 0 || j < 0 || j >= l.length) return;
+                                                var moved = l.splice(i, 1)[0];
+                                                l.splice(j, 0, moved);
+                                                sheet.edited(srow.r.key, l);
+                                            }
+
+                                            Column {
+                                                id: orderedRows
+                                                width: parent.width
+                                                spacing: 5
+                                                Repeater {
+                                                    model: ordered.entries
+                                                    Item {
+                                                        id: orderedEntry
+                                                        required property var modelData
+                                                        width: orderedRows.width
+                                                        height: 30
+                                                        Rectangle {
+                                                            anchors { left: parent.left; right: moveButtons.left; rightMargin: 6; top: parent.top; bottom: parent.bottom }
+                                                            radius: Tokens.radius
+                                                            color: orderedEntry.modelData.on ? Tokens.bone : (orderedTap.pressed ? Tokens.tint16 : orderedHover.hovered ? Tokens.tint10 : "transparent")
+                                                            border.width: Tokens.border
+                                                            border.color: orderedHover.hovered && !orderedEntry.modelData.on ? Tokens.lineStrong : Tokens.line
+                                                            Row {
+                                                                anchors { left: parent.left; leftMargin: 10; verticalCenter: parent.verticalCenter }
+                                                                spacing: 7
+                                                                Text {
+                                                                    text: orderedEntry.modelData.on ? (orderedEntry.modelData.order + 1) : "+"
+                                                                    color: orderedEntry.modelData.on ? Tokens.inkOnBone : Tokens.inkFaint
+                                                                    font.family: Tokens.mono; font.pixelSize: 9
+                                                                    anchors.verticalCenter: parent.verticalCenter
+                                                                }
+                                                                Text {
+                                                                    text: I18n.tr(orderedEntry.modelData.key)
+                                                                    color: orderedEntry.modelData.on ? Tokens.inkOnBone : Tokens.inkDim
+                                                                    font.family: Tokens.ui; font.pixelSize: 10; font.weight: Font.Medium
+                                                                    anchors.verticalCenter: parent.verticalCenter
+                                                                }
+                                                            }
+                                                            HoverHandler { id: orderedHover; cursorShape: Qt.PointingHandCursor }
+                                                            TapHandler { id: orderedTap; onTapped: ordered.toggle(orderedEntry.modelData.key) }
+                                                        }
+                                                        Row {
+                                                            id: moveButtons
+                                                            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                                                            spacing: 4
+                                                            visible: orderedEntry.modelData.on
+                                                            Repeater {
+                                                                model: [
+                                                                    { glyph: "↑", delta: -1, armed: orderedEntry.modelData.order > 0 },
+                                                                    { glyph: "↓", delta: 1, armed: orderedEntry.modelData.order >= 0 && orderedEntry.modelData.order < orderedEntry.modelData.enabledCount - 1 }
+                                                                ]
+                                                                Rectangle {
+                                                                    id: moveButton
+                                                                    required property var modelData
+                                                                    width: 28; height: 28; radius: Tokens.radius
+                                                                    enabled: modelData.armed
+                                                                    opacity: enabled ? 1 : 0.28
+                                                                    color: moveTap.pressed ? Tokens.tint16 : moveHover.hovered ? Tokens.tint10 : "transparent"
+                                                                    border.width: Tokens.border
+                                                                    border.color: moveHover.hovered ? Tokens.lineStrong : Tokens.line
+                                                                    Text { anchors.centerIn: parent; text: moveButton.modelData.glyph; color: Tokens.inkDim; font.family: Tokens.ui; font.pixelSize: 12 }
+                                                                    HoverHandler { id: moveHover; enabled: moveButton.enabled; cursorShape: Qt.PointingHandCursor }
+                                                                    TapHandler { id: moveTap; enabled: moveButton.enabled; onTapped: ordered.move(orderedEntry.modelData.key, moveButton.modelData.delta) }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -791,22 +968,6 @@ Item {
                                         }
                                     }
                                     Component {
-                                        id: galleryC
-                                        Gallery {
-                                            // `set: "viz"` draws from the visualiser
-                                            // look catalogue, which paints its own tiles;
-                                            // an unset row keeps the bar-skin gallery.
-                                            readonly property bool viz: srow.r.set === "viz"
-                                            anchors.fill: parent
-                                            painter: viz ? VizStyles : null
-                                            options: viz
-                                                ? VizStyles.styles.map((s) => ({ key: s.key, origin: s.kind, draw: s.key }))
-                                                : Silhouette.skins.filter((skin) => !srow.r.opts || srow.r.opts.indexOf(skin.key) >= 0)
-                                            current: String(sheet.val(srow.r))
-                                            onChose: (k) => sheet.edited(srow.r.key, k)
-                                        }
-                                    }
-                                    Component {
                                         id: reloadCoverC
                                         ReloadCoverControl {
                                             anchors.fill: parent
@@ -864,52 +1025,6 @@ Item {
                                             anchors.fill: parent
                                             value: String(sheet.val(srow.r))
                                             onChosen: (v) => sheet.edited(srow.r.key, v)
-                                        }
-                                    }
-                                    Component {
-                                        id: imageC
-                                        Row {
-                                            anchors.fill: parent
-                                            spacing: Tokens.s2
-                                            Rectangle {
-                                                id: imgThumb
-                                                width: 46; height: 28
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                radius: Tokens.radius
-                                                color: "transparent"
-                                                border.width: Tokens.border
-                                                border.color: Tokens.line
-                                                clip: true
-                                                readonly property string src: String(sheet.val(srow.r))
-                                                Image {
-                                                    anchors.fill: parent
-                                                    anchors.margins: 1
-                                                    visible: imgThumb.src !== ""
-                                                    source: imgThumb.src === "" ? "" : (imgThumb.src.indexOf("://") >= 0 ? imgThumb.src : "file://" + imgThumb.src)
-                                                    fillMode: Image.PreserveAspectCrop
-                                                    asynchronous: true
-                                                    sourceSize.width: 140
-                                                }
-                                                Text {
-                                                    anchors.centerIn: parent
-                                                    visible: imgThumb.src === ""
-                                                    text: "力"
-                                                    color: Tokens.inkFaint
-                                                    font.family: Tokens.jp
-                                                    font.pixelSize: 13
-                                                }
-                                            }
-                                            Btn {
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                text: I18n.tr("CHOOSE…")
-                                                onAct: sheet.imagePick(srow.r)
-                                            }
-                                            Btn {
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                visible: String(sheet.val(srow.r)) !== ""
-                                                text: I18n.tr("CLEAR")
-                                                onAct: sheet.edited(srow.r.key, "")
-                                            }
                                         }
                                     }
                                     Component {
@@ -1094,8 +1209,6 @@ Item {
     signal pickRequested(var row)
     function openPick(r) { pickRequested(r) }
 
-    signal imagePickRequested(var row)
-    function imagePick(r) { imagePickRequested(r) }
 
     signal appPickRequested(var row)
     function appPick(r) { appPickRequested(r) }

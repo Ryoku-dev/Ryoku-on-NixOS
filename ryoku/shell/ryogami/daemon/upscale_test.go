@@ -76,7 +76,10 @@ func TestUpscaleArgBuilders(t *testing.T) {
 		t.Fatalf("extract args:\n got %v\nwant %v", ex, wantEx)
 	}
 
-	as := buildAssembleArgs("d/out/%08d.png", "clip.mp4", "final.mp4", "30/1")
+	as, err := buildAssembleArgs(codecSet{"libx264": true}, "d/out/%08d.png", "clip.mp4", "final.mp4", "30/1", 1920)
+	if err != nil {
+		t.Fatal(err)
+	}
 	wantAs := []string{"-y", "-framerate", "30/1", "-i", "d/out/%08d.png", "-i", "clip.mp4", "-map", "0:v:0", "-map", "1:a:0?", "-c:a", "copy", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "final.mp4"}
 	if !reflect.DeepEqual(as, wantAs) {
 		t.Fatalf("assemble args:\n got %v\nwant %v", as, wantAs)

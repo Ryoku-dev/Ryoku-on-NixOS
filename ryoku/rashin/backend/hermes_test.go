@@ -57,30 +57,34 @@ func TestHermesModelStopsAtBlockEnd(t *testing.T) {
 	}
 }
 
-func TestSavedSessionModelFollowsHermesConfig(t *testing.T) {
+func TestHermesStatusUsesItsProviderScopedModelPick(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("RYOKU_STATE_PATH", t.TempDir())
+	t.Setenv("RYOKU_CONFIG_BASE", filepath.Join(t.TempDir(), "absent"))
+	t.Setenv("PATH", filepath.Join(t.TempDir(), "bin"))
 	writeHermesConfig(t, "model:\n  provider: openrouter\n  default: z-ai/glm-5.3\n")
-	saveSessionModel("openrouter:z-ai/glm-5.3")
-	if got := savedSessionModel(); got != "openrouter:z-ai/glm-5.3" {
-		t.Fatalf("pick under the same config = %q", got)
-	}
-	// The user ran `hermes setup` again and chose another provider: the old
-	// pick must not be re-applied on the new endpoint.
-	writeHermesConfig(t, "model:\n  provider: nvidia\n  default: meta/llama-3.3-70b-instruct\n")
-	if got := savedSessionModel(); got != "" {
-		t.Fatalf("pick survived a reconfigure: %q", got)
-	}
-}
-
-func TestSavedSessionModelWithoutFingerprintIsForgotten(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("RYOKU_STATE_PATH", t.TempDir())
-	writeHermesConfig(t, "model: openrouter/anthropic/claude-sonnet-4.5\n")
-	if err := os.WriteFile(modelStatePath(), []byte("openrouter:z-ai/glm-5.3\n"), 0o644); err != nil {
+	cfg := defaultConfig()
+	cfg.ChatAgent = "claude"
+	if err := SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if got := savedSessionModel(); got != "" {
-		t.Fatalf("a pick from before the fingerprint must not be trusted: %q", got)
+	if err := setModelPick("claude", "anthropic:claude-opus"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setModelPick("hermes", "openai-codex:gpt-6-luna"); err != nil {
+		t.Fatal(err)
+	}
+	got := HermesStatus()
+	if got.Provider != "openai-codex" || got.Model != "gpt-6-luna" {
+		t.Fatalf("status provider/model = %q / %q", got.Provider, got.Model)
+	}
+
+	if err := setModelPick("hermes", "unscoped-model"); err != nil {
+		t.Fatal(err)
+	}
+	got = HermesStatus()
+	if got.Provider != "openrouter" || got.Model != "z-ai/glm-5.3" {
+		t.Fatalf("unscoped pick changed config default to %q / %q", got.Provider, got.Model)
 	}
 }

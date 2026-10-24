@@ -1,53 +1,67 @@
+// Ryoku Nix
+// Zero-inspired default: minimal system identity with a small Ryoku NixOS mark.
+// ryoku:recolor keys=primary title=foreground output=onSurface
 {
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+
   "logo": {
     "type": "kitty-direct",
-    "source": "~/.config/fastfetch/fastfetch-emblem.png",
-    "width": 28,
-    "height": 14,
-    "padding": { "top": 5, "right": 5, "left": 3 }
-  },
-  "display": {
-    // Editorial dossier, mirroring the website/Hub Profile: grouped sections
-    // under mono eyebrow headers, one vermillion accent. Keys are fixed truecolor
-    // (not palette slots) so they stay legible under any theme.
-    "color": { "keys": "38;2;226;52;42" },
-    "key": { "width": 9 },
-    "separator": "  ",
-    "percent": {
-      "type": 9,
-      "color": { "green": "38;2;127;191;106", "yellow": "38;2;217;164;65", "red": "38;2;226;52;42" }
+    "source": "~/.config/fastfetch/ryoku-nixos.png",
+    "width": 20,
+    "height": 10,
+    "padding": {
+      "top": 1,
+      "right": 3,
+      "left": 1
     }
   },
+
+  "display": {
+    "color": {
+      "keys": "#e2342a",
+      "title": "#f3ede1",
+      "output": "#cec7c4"
+    },
+    "key": {
+      "width": 7
+    },
+    "separator": " "
+  },
+
   "modules": [
-    "break",
-    { "type": "title", "format": "\u001b[1;38;2;243;237;225m{user-name}\u001b[0m\u001b[38;2;143;135;112m @ \u001b[0m\u001b[1;38;2;243;237;225m{host-name}\u001b[0m" },
-    { "type": "custom", "format": "\u001b[38;2;226;52;42m\u25a0\u001b[0m \u001b[38;2;143;135;112mRYOKU \u00b7 \u529b \u00b7 a hand-built Arch desktop\u001b[0m" },
-    "break",
-
-    { "type": "custom", "format": "\u001b[38;2;226;52;42m\u2500\u2500\u001b[0m \u001b[1;38;2;243;237;225mVITALS\u001b[0m \u001b[38;2;58;46;36m\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u001b[0m" },
-    { "type": "cpu",    "key": "CPU" },
-    { "type": "gpu",    "key": "GPU", "detectionMethod": "pci" },
-    { "type": "memory", "key": "MEMORY" },
-    { "type": "disk",   "key": "DISK" },
-    "break",
-
-    { "type": "custom", "format": "\u001b[38;2;226;52;42m\u2500\u2500\u001b[0m \u001b[1;38;2;243;237;225mSYSTEM\u001b[0m \u001b[38;2;58;46;36m\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u001b[0m" },
-    { "type": "command", "key": "OS",     "text": "echo \"Ryoku $(ryoku version --pretty 2>/dev/null || echo dev)\"" },
-    { "type": "command", "key": "BRANCH", "text": "ryoku version --branch 2>/dev/null || echo main" },
-    { "type": "kernel",  "key": "KERNEL" },
-    { "type": "command", "key": "WM",     "text": "echo \"${XDG_CURRENT_DESKTOP:-Hyprland}\"" },
-    { "type": "command", "key": "SHELL",  "text": "basename \"${SHELL:-unknown}\"" },
-    { "type": "packages","key": "PKGS" },
-    "break",
-
-    { "type": "custom", "format": "\u001b[38;2;226;52;42m\u2500\u2500\u001b[0m \u001b[1;38;2;243;237;225mSESSION\u001b[0m \u001b[38;2;58;46;36m\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u001b[0m" },
-    { "type": "uptime",  "key": "UPTIME" },
-    { "type": "command", "key": "AGE", "text": "echo $(( ($(date +%s) - $(stat -c %W /)) / 86400 )) days" },
-    { "type": "terminal","key": "TERM" },
-    "break",
-
-    { "type": "colors", "symbol": "circle", "paddingLeft": 2 },
-    "break"
+    {
+      "type": "custom",
+      "format": "{#1;title}ryoku // nixos{#}"
+    },
+    {
+      "type": "os",
+      "key": "os"
+    },
+    {
+      "type": "kernel",
+      "key": "kernel"
+    },
+    {
+      "type": "wm",
+      "key": "desktop"
+    },
+    { "type": "command", "key": "shell", "text": "basename \"${SHELL:-unknown}\"" },
+    {
+      "type": "cpu",
+      "key": "cpu"
+    },
+    {
+      "type": "gpu",
+      "key": "gpu",
+      "detectionMethod": "pci"
+    },
+    {
+      "type": "memory",
+      "key": "memory"
+    },
+    {
+      "type": "uptime",
+      "key": "up"
+    }
   ]
 }

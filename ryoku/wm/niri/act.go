@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,6 +65,9 @@ func runAct(args []string) error {
 	}
 
 	switch act {
+	case wm.ActionCursorReassert:
+		return reassertCursor()
+
 	case wm.ActionWindowFocus:
 		id, err := argID(rest, 0, "window id")
 		if err != nil {
@@ -90,6 +95,9 @@ func runAct(args []string) error {
 			return err
 		}
 		return perform(action("ToggleWindowFloating", map[string]any{"id": id}))
+
+	case wm.ActionWindowPlace:
+		return placeWindow(rest)
 
 	case wm.ActionWindowMoveToWorkspace:
 		id, err := argID(rest, 0, "window id")
@@ -187,10 +195,13 @@ func runAct(args []string) error {
 		return perform(action("ToggleOverview", map[string]any{}))
 
 	case wm.ActionNightLightOn:
-		return nightlightStart("gammastep", "-m", "wayland", "-O", strconv.Itoa(nightlightTemp(rest)))
+		// -T must sit strictly above -t or wlsunset refuses the config; the
+		// fixed high keeps the run pinned at the user's temperature (see
+		// nightlightStart).
+		return nightlightStart("wlsunset", "-t", strconv.Itoa(nightlightTemp(rest)), "-T", "30000")
 
 	case wm.ActionNightLightOff:
-		nightlightStop("gammastep")
+		nightlightStop("wlsunset")
 		return nil
 
 	case wm.ActionInputTouchpad:
@@ -233,6 +244,214 @@ func perform(req any) error {
 	return err
 }
 
+type configLoadedWaiter interface {
+	wait() error
+	close() error
+}
+
+type ipcConfigLoadedWaiter struct {
+	conn net.Conn
+	scan *bufio.Scanner
+}
+
+var newConfigLoadedWaiter = openConfigLoadedWaiter
+
+func openConfigLoadedWaiter() (configLoadedWaiter, error) {
+	conn, _, err := open("EventStream")
+	if err != nil {
+		return nil, err
+	}
+
+	scan := bufio.NewScanner(conn)
+	scan.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	if !scan.Scan() {
+		err := scan.Err()
+		_ = conn.Close()
+		if err == nil {
+			err = fmt.Errorf("event stream closed before acknowledgement")
+		}
+		return nil, err
+	}
+	if _, err := unwrap("EventStream", scan.Bytes()); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	w := &ipcConfigLoadedWaiter{conn: conn, scan: scan}
+	// Every EventStream starts with a replay of the current ConfigLoaded state.
+	// Its failed bit describes the config that was active before this action, so
+	// drain the replay without treating that bit as this reload's result.
+	if err := w.next(false); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return w, nil
+}
+
+func (w *ipcConfigLoadedWaiter) next(requireSuccess bool) error {
+	if err := w.conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		return err
+	}
+	for w.scan.Scan() {
+		var event map[string]json.RawMessage
+		if json.Unmarshal(w.scan.Bytes(), &event) != nil {
+			continue
+		}
+		body, ok := event["ConfigLoaded"]
+		if !ok {
+			continue
+		}
+		var loaded struct {
+			Failed bool `json:"failed"`
+		}
+		if json.Unmarshal(body, &loaded) != nil {
+			return fmt.Errorf("niri ConfigLoaded event is malformed")
+		}
+		if requireSuccess && loaded.Failed {
+			return fmt.Errorf("niri rejected the reloaded config")
+		}
+		return nil
+	}
+	if err := w.scan.Err(); err != nil {
+		return err
+	}
+	return fmt.Errorf("niri event stream closed before ConfigLoaded")
+}
+
+func (w *ipcConfigLoadedWaiter) wait() error  { return w.next(true) }
+func (w *ipcConfigLoadedWaiter) close() error { return w.conn.Close() }
+
+// loadConfigAndWait subscribes before dispatching LoadConfigFile, then blocks
+// until niri publishes the matching ConfigLoaded event. The IPC action itself
+// only queues work on niri's config-watcher thread, so its direct reply is not a
+// synchronization barrier.
+func loadConfigAndWait(path string) error {
+	w, err := newConfigLoadedWaiter()
+	if err != nil {
+		return err
+	}
+	defer w.close()
+
+	if err := perform(action("LoadConfigFile", map[string]any{"path": path})); err != nil {
+		return err
+	}
+	return w.wait()
+}
+
+func writeTempConfig(prefix string, body []byte) (string, error) {
+	f, err := os.CreateTemp(niriConfigDir(), prefix)
+	if err != nil {
+		return "", err
+	}
+	name := f.Name()
+	ok := false
+	defer func() {
+		_ = f.Close()
+		if !ok {
+			_ = os.Remove(name)
+		}
+	}()
+	if err := f.Chmod(0o600); err != nil {
+		return "", err
+	}
+	if _, err := f.Write(body); err != nil {
+		return "", err
+	}
+	if err := f.Sync(); err != nil {
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	ok = true
+	return name, nil
+}
+
+// reassertCursor makes niri parse one private config with a deliberately
+// different cursor struct, waits for ConfigLoaded, then explicitly restores its
+// real config and waits again. Niri only reloads its cursor manager when the
+// parsed cursor block compares unequal, so rewriting the same Ryoku-Material
+// theme after recolouring its files otherwise leaves old cursor textures cached.
+func reassertCursor() error {
+	lockDir := os.Getenv("XDG_RUNTIME_DIR")
+	if lockDir == "" {
+		lockDir = os.TempDir()
+	}
+	lock, err := os.OpenFile(filepath.Join(lockDir, "ryoku-niri-cursor-reassert.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+
+	s := loadStore(storePath())
+	temp := s
+	if temp.Cursor.InactiveTimeout <= 0 {
+		temp.Cursor.InactiveTimeout = 24 * 60 * 60
+	} else {
+		temp.Cursor.InactiveTimeout++
+	}
+
+	dir := niriConfigDir()
+	realConfig := filepath.Join(dir, "config.kdl")
+	baseConfig, err := os.ReadFile(realConfig)
+	if err != nil {
+		return fmt.Errorf("cursor.reassert read config: %w", err)
+	}
+
+	tempSettings, err := writeTempConfig(".ryoku-cursor-reassert-settings-*.kdl", genSettings(temp))
+	if err != nil {
+		return fmt.Errorf("cursor.reassert temporary settings: %w", err)
+	}
+	tempSettingsBase := filepath.Base(tempSettings)
+
+	const settingsInclude = `include "settings.kdl"`
+	if !strings.Contains(string(baseConfig), settingsInclude) {
+		_ = os.Remove(tempSettings)
+		return fmt.Errorf("cursor.reassert: config.kdl has no settings.kdl include")
+	}
+	tempTopBody := strings.Replace(
+		string(baseConfig),
+		settingsInclude,
+		fmt.Sprintf(`include %q`, tempSettingsBase),
+		1,
+	)
+	tempTop, err := writeTempConfig(".ryoku-cursor-reassert-config-*.kdl", []byte(tempTopBody))
+	if err != nil {
+		_ = os.Remove(tempSettings)
+		return fmt.Errorf("cursor.reassert temporary config: %w", err)
+	}
+
+	restored := false
+	defer func() {
+		if restored {
+			_ = os.Remove(tempTop)
+			_ = os.Remove(tempSettings)
+		}
+	}()
+
+	tempErr := loadConfigAndWait(tempTop)
+	restoreErr := loadConfigAndWait(realConfig)
+	if restoreErr != nil {
+		// Leave the private files in place if niri could not switch back: its
+		// watcher may still target tempTop, and removing that path would make
+		// recovery harder than leaving two tiny diagnostic files behind.
+		return fmt.Errorf("cursor.reassert restore: %w", restoreErr)
+	}
+	restored = true
+	if tempErr != nil {
+		return fmt.Errorf("cursor.reassert temporary reload: %w", tempErr)
+	}
+	return nil
+}
+
 // outputRequest is niri's top-level Output request, not an Action: it turns one
 // named connector on or off. The action is a unit variant, so it serialises as
 // a bare string ("On" | "Off"), the shape act_test pins.
@@ -250,7 +469,6 @@ func touchpadAct(args []string) error {
 		mode = args[0]
 	}
 	off := touchpadDisabled()
-	wasOff := off
 	switch mode {
 	case "status":
 		if off {
@@ -291,7 +509,7 @@ func touchpadAct(args []string) error {
 	if err := writeOverlayKdl("settings.kdl", genSettings(loadStore(storePath()))); err != nil {
 		return err
 	}
-	if mode != "restore" && off != wasOff {
+	if mode != "restore" {
 		if off {
 			touchpadNotify("Touchpad", "Off")
 		} else {
@@ -599,6 +817,100 @@ func focusedWorkspaceID() (uint64, error) {
 	return 0, fmt.Errorf("act %s: no focused workspace", wm.ActionWindowSummon)
 }
 
+// Relative moves avoid niri's working-area origin for absolute positions.
+// The shared placement contract uses output-local client geometry instead.
+func placeWindow(args []string) error {
+	id, x, y, width, height, output, err := windowPlacementArgs(args)
+	if err != nil {
+		return err
+	}
+
+	raw, err := request("Outputs")
+	if err != nil {
+		return fmt.Errorf("act %s: read outputs: %w", wm.ActionWindowPlace, err)
+	}
+	var outputs map[string]niriOutput
+	if err := decode(raw, "Outputs", &outputs); err != nil {
+		return fmt.Errorf("act %s: decode outputs: %w", wm.ActionWindowPlace, err)
+	}
+	target, ok := outputs[output]
+	if !ok {
+		return fmt.Errorf("act %s: output %q does not exist", wm.ActionWindowPlace, output)
+	}
+	if target.Logical == nil {
+		return fmt.Errorf("act %s: output %q is disabled", wm.ActionWindowPlace, output)
+	}
+	if target.Logical.Scale <= 0 {
+		return fmt.Errorf("act %s: output %q reported invalid scale %g", wm.ActionWindowPlace, output, target.Logical.Scale)
+	}
+
+	steps := []struct {
+		label string
+		req   any
+	}{
+		{"make floating", action("MoveWindowToFloating", map[string]any{"id": id})},
+		{"move to output", action("MoveWindowToMonitor", map[string]any{"id": id, "output": output})},
+		{"set width", action("SetWindowWidth", map[string]any{"id": id, "change": map[string]any{"SetFixed": width}})},
+		{"set height", action("SetWindowHeight", map[string]any{"id": id, "change": map[string]any{"SetFixed": height}})},
+	}
+	for _, step := range steps {
+		if err := perform(step.req); err != nil {
+			return fmt.Errorf("act %s: %s window %d: %w", wm.ActionWindowPlace, step.label, id, err)
+		}
+	}
+	windows, err := readWindows()
+	if err != nil {
+		return fmt.Errorf("act %s: read placement geometry: %w", wm.ActionWindowPlace, err)
+	}
+	for _, window := range windows {
+		if window.ID != id {
+			continue
+		}
+		if !window.IsFloating || window.Layout.TilePosInWorkspaceView == nil {
+			return fmt.Errorf("act %s: window %d has no floating geometry", wm.ActionWindowPlace, id)
+		}
+		layout := window.Layout
+		dx := float64(x) - layout.TilePosInWorkspaceView[0] - layout.WindowOffsetInTile[0]
+		dy := float64(y) - layout.TilePosInWorkspaceView[1] - layout.WindowOffsetInTile[1]
+		if err := perform(action("MoveFloatingWindow", map[string]any{
+			"id": id,
+			"x":  map[string]any{"AdjustFixed": dx},
+			"y":  map[string]any{"AdjustFixed": dy},
+		})); err != nil {
+			return fmt.Errorf("act %s: position window %d: %w", wm.ActionWindowPlace, id, err)
+		}
+		return nil
+	}
+	return fmt.Errorf("act %s: window %d does not exist", wm.ActionWindowPlace, id)
+}
+
+func windowPlacementArgs(args []string) (id uint64, x, y, width, height int, output string, err error) {
+	id, err = argID(args, 0, "window id")
+	if err != nil {
+		return
+	}
+	names := []string{"x", "y", "width", "height"}
+	values := []*int{&x, &y, &width, &height}
+	for i := range names {
+		raw, argErr := arg(args, i+1, names[i])
+		if argErr != nil {
+			err = argErr
+			return
+		}
+		*values[i], err = strconv.Atoi(raw)
+		if err != nil {
+			err = fmt.Errorf("act %s: %s must be an integer, got %q", wm.ActionWindowPlace, names[i], raw)
+			return
+		}
+	}
+	if width <= 0 || height <= 0 {
+		err = fmt.Errorf("act %s: width and height must be positive, got %dx%d", wm.ActionWindowPlace, width, height)
+		return
+	}
+	output, err = arg(args, 5, "output name")
+	return
+}
+
 // arg names the missing value, so a bad keybind reports it instead of an index.
 func arg(args []string, i int, name string) (string, error) {
 	if i >= len(args) || strings.TrimSpace(args[i]) == "" {
@@ -648,10 +960,12 @@ func nightlightTemp(args []string) int {
 }
 
 // nightlightStart replaces any running backend with a fresh one warmed to the
-// temperature. gammastep -m wayland -O sets the temperature over
-// wlr-gamma-control and pauses until killed, so it is detached (its own session,
-// stdio to /dev/null, released) to outlive this short-lived invocation; niri
-// restores the gamma when it goes away.
+// temperature. wlsunset with no location computes a polar-night trajectory and
+// sits at its low temperature (-t) until killed, so the night light is exactly
+// as warm as the user set, day or night; the fixed high (-T) only satisfies
+// the validation that high must exceed low. The backend is detached (its own
+// session, stdio to /dev/null, released) to outlive this short-lived
+// invocation; niri restores the gamma when it goes away.
 func nightlightStart(argv ...string) error {
 	nightlightStop(argv[0])
 	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
@@ -671,39 +985,21 @@ func nightlightStart(argv ...string) error {
 // nightlightStop signals every process of this uid whose comm is name, which is
 // how nightlight.off stops the backend without a pkill fork. comm truncates at
 // 15 characters; the backend name fits, so an exact compare is right.
-
-func nightlightProcessMatches(pid, name string) bool {
-	b, err := os.ReadFile("/proc/" + pid + "/comm")
-	if err == nil && strings.TrimSpace(string(b)) == name {
-		return true
-	}
-
-	// NixOS commonly wraps executables. The kernel comm then names the hidden
-	// wrapped binary (for example .gammastep-wrap), while argv[0] still names
-	// the public command that Ryoku launched. Accept that public executable name
-	// as the process identity too.
-	raw, err := os.ReadFile("/proc/" + pid + "/cmdline")
-	if err != nil || len(raw) == 0 {
-		return false
-	}
-
-	argv0 := strings.SplitN(string(raw), "\x00", 2)[0]
-	return filepath.Base(argv0) == name
-}
-
 func nightlightStop(name string) {
 	ents, err := os.ReadDir("/proc")
 	if err != nil {
 		return
 	}
-
 	for _, e := range ents {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil {
 			continue
 		}
-
-		if nightlightProcessMatches(e.Name(), name) {
+		b, err := os.ReadFile("/proc/" + e.Name() + "/comm")
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(b)) == name {
 			_ = syscall.Kill(pid, syscall.SIGTERM)
 		}
 	}

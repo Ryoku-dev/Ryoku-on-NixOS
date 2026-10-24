@@ -43,10 +43,12 @@ func TestActEmitsLuaDialect(t *testing.T) {
 			[]string{"dispatch", `hl.dsp.workspace.toggle_special("sharebar")`}},
 		{"session exit", []string{"session.exit"},
 			[]string{"dispatch", `hl.dsp.exit()`}},
-		{"output power", []string{"output.power", "off", "eDP-2"},
-			[]string{"dispatch", `hl.dsp.dpms({ state = "off", monitor = "eDP-2" })`}},
+		{"output power on", []string{"output.power", "on"},
+			[]string{"dispatch", `hl.dsp.dpms({ action = "on" })`}},
+		{"output power off", []string{"output.power", "off", "eDP-2"},
+			[]string{"dispatch", `hl.dsp.dpms({ action = "off", monitor = "eDP-2" })`}},
 		{"output enable on", []string{"output.enable", "DP-1", "on"},
-			[]string{"eval", `hl.monitor({ output = "DP-1", mode = "preferred", position = "auto", scale = 1 })`}},
+			[]string{"eval", `hl.monitor({ output = "DP-1", disabled = false })`}},
 		{"output enable off", []string{"output.enable", "DP-1", "off"},
 			[]string{"eval", `hl.monitor({ output = "DP-1", disabled = true })`}},
 		{"submap enter", []string{"submap.enter", "resize"},
@@ -95,16 +97,94 @@ func TestActEmitsLuaDialect(t *testing.T) {
 	}
 }
 
+// An explicit on or off must be idempotent: repeating the same request emits the
+// same literal, never a toggle. The resume path can re-issue an enable while the
+// lock surface is still appearing, and a toggling dispatcher field would flip the
+// panel back off and flash the screen after wake (issues #264, #258, #277). The
+// dispatcher reads the field named `action`, so the request names its intent.
+// Adapted from @Sipper1236's PR #278.
+func TestActOutputPowerIsIdempotent(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"on", []string{"output.power", "on"}, `hl.dsp.dpms({ action = "on" })`},
+		{"off", []string{"output.power", "off"}, `hl.dsp.dpms({ action = "off" })`},
+		{"on with monitor", []string{"output.power", "on", "eDP-2"},
+			`hl.dsp.dpms({ action = "on", monitor = "eDP-2" })`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			restore := stubCtl(t, func(args ...string) ([]byte, error) {
+				got = args
+				return nil, nil
+			})
+			defer restore()
+			if err := runAct(tc.args); err != nil {
+				t.Fatalf("runAct(%v): %v", tc.args, err)
+			}
+			want := []string{"dispatch", tc.want}
+			if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+				t.Errorf("argv mismatch\n got: %q\nwant: %q", got, want)
+			}
+			got = nil
+			if err := runAct(tc.args); err != nil {
+				t.Fatalf("repeat runAct(%v): %v", tc.args, err)
+			}
+			if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+				t.Errorf("repeat argv mismatch\n got: %q\nwant: %q", got, want)
+			}
+		})
+	}
+}
+
+// Re-enabling a connector must not rewrite its layout. hl.monitor copies the
+// output's existing rule and reapplies only the fields it is handed, so an
+// enable that also named a mode, position or scale would snap the output back
+// to "preferred at auto" and throw away the arrangement the user set. The
+// enable-on payload therefore carries disabled alone -- the regression this
+// pins is a re-enable that clobbered the layout.
+func TestActOutputEnablePreservesLayout(t *testing.T) {
+	var evals []string
+	restore := stubCtl(t, func(args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "eval" {
+			evals = append(evals, args[1])
+		}
+		return nil, nil
+	})
+	defer restore()
+
+	if err := runAct([]string{"output.enable", "DP-1", "on"}); err != nil {
+		t.Fatalf("output.enable on: %v", err)
+	}
+	if len(evals) != 1 {
+		t.Fatalf("output.enable on evaluated %d calls, want 1: %q", len(evals), evals)
+	}
+	got := evals[0]
+	if !strings.Contains(got, `output = "DP-1"`) || !strings.Contains(got, "disabled = false") {
+		t.Errorf("enable-on payload = %q, want output DP-1 with disabled = false", got)
+	}
+	for _, field := range []string{"mode", "position", "scale"} {
+		if strings.Contains(got, field) {
+			t.Errorf("enable-on payload %q sets %q, which would reset the output's layout", got, field)
+		}
+	}
+}
+
 // A missing argument must name the value, so a bad keybind is diagnosable, and
 // must never reach the compositor with an empty selector (which Hyprland applies
 // to the focused window).
 func TestActRejectsMissingArgs(t *testing.T) {
 	for _, args := range [][]string{
 		{"window.focus"},
+		{"window.place", "0xabc", "0", "0", "700"},
 		{"window.moveToWorkspace", "0xabc"},
 		{"workspace.focus"},
 		{"workspace.moveToOutput", "9"},
 		{"cursor.set", "Bibata"},
+		{"cursor.visibility"},
 		{"output.power"},
 		{"window.summon"},
 	} {
@@ -262,6 +342,118 @@ func TestActTouchpadFlipsPadsAndTracksState(t *testing.T) {
 	}
 }
 
+// The freeze hands back the mode the user configured, read from the settings
+// store rather than the live option: a previous freeze whose restore was lost
+// leaves follow_mouse at 0 live, and reporting that back would "restore" the
+// stuck value. The store is the durable truth, and its default matches the
+// shipped input.lua.
+func TestActFocusFollowsMouseReportsConfiguredMode(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	ryoku := filepath.Join(cfg, "ryoku")
+	if err := os.MkdirAll(ryoku, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store := `{"desktop":{"input":{"followMouse":2}}}`
+	if err := os.WriteFile(filepath.Join(ryoku, "desktop.json"), []byte(store), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var evals []string
+	restore := stubCtl(t, func(args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "eval" {
+			evals = append(evals, args[1])
+		}
+		// A live getoption answering 0 (a lost restore) must not win: the
+		// store's 2 is what the caller gets back.
+		if len(args) == 3 && args[0] == "getoption" {
+			return []byte(`{"int":0}`), nil
+		}
+		return nil, nil
+	})
+	defer restore()
+
+	var buf bytes.Buffer
+	prevOut := stdout
+	stdout = bufio.NewWriter(&buf)
+	err := runAct([]string{"input.focusFollowsMouse", "0"})
+	stdout.Flush()
+	stdout = prevOut
+	if err != nil {
+		t.Fatalf("freeze: %v", err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != "2" {
+		t.Errorf("reported previous mode = %q, want the configured 2", got)
+	}
+	if len(evals) != 1 || !strings.Contains(evals[0], "follow_mouse = 0") {
+		t.Errorf("freeze evals = %q, want one follow_mouse = 0 eval", evals)
+	}
+
+	// No store at all: the shipped default (1) is reported, never empty, so
+	// the caller always has a mode to put back.
+	if err := os.Remove(filepath.Join(ryoku, "desktop.json")); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	stdout = bufio.NewWriter(&buf)
+	err = runAct([]string{"input.focusFollowsMouse", "0"})
+	stdout.Flush()
+	stdout = prevOut
+	if err != nil {
+		t.Fatalf("freeze without store: %v", err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != "1" {
+		t.Errorf("default reported mode = %q, want 1", got)
+	}
+}
+
+func TestActCursorVisibilityReportsAndRestoresState(t *testing.T) {
+	var evals []string
+	optionJSON := `{"bool":true}`
+	restore := stubCtl(t, func(args ...string) ([]byte, error) {
+		if len(args) == 3 && args[0] == "getoption" && args[1] == "cursor:invisible" {
+			return []byte(optionJSON), nil
+		}
+		if len(args) == 2 && args[0] == "eval" {
+			evals = append(evals, args[1])
+		}
+		return nil, nil
+	})
+	defer restore()
+
+	var buf bytes.Buffer
+	prevOut := stdout
+	stdout = bufio.NewWriter(&buf)
+	err := runAct([]string{"cursor.visibility", "hidden"})
+	stdout.Flush()
+	stdout = prevOut
+	if err != nil {
+		t.Fatalf("hide cursor: %v", err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != "hidden" {
+		t.Errorf("reported previous visibility = %q, want hidden", got)
+	}
+	if len(evals) != 1 || !strings.Contains(evals[0], "invisible = true") {
+		t.Errorf("hide evals = %q, want one invisible = true eval", evals)
+	}
+
+	optionJSON = `{"int":0}`
+	buf.Reset()
+	stdout = bufio.NewWriter(&buf)
+	err = runAct([]string{"cursor.visibility", "visible"})
+	stdout.Flush()
+	stdout = prevOut
+	if err != nil {
+		t.Fatalf("show cursor: %v", err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != "visible" {
+		t.Errorf("reported previous visibility = %q, want visible", got)
+	}
+	if len(evals) != 2 || !strings.Contains(evals[1], "invisible = false") {
+		t.Errorf("show evals = %q, want invisible = false last", evals)
+	}
+}
+
 // output.cycle steps the arrangement through ryoku-monitor, so the pin is that
 // it execs `ryoku-monitor toggle`.
 func TestActOutputCycleRunsMonitorToggle(t *testing.T) {
@@ -283,6 +475,62 @@ func TestActOutputCycleRunsMonitorToggle(t *testing.T) {
 	}
 	if strings.TrimSpace(string(got)) != "toggle" {
 		t.Errorf("ryoku-monitor args = %q, want toggle", got)
+	}
+}
+
+// Placement receives output-local logical pixels. Hyprland's dispatcher takes
+// global logical coordinates, so only the output origin is added; fractional
+// scale must not be applied a second time.
+func TestWindowPlaceConvertsOutputLocalCoordinates(t *testing.T) {
+	var dispatches []string
+	restore := stubCtl(t, func(args ...string) ([]byte, error) {
+		switch {
+		case len(args) == 3 && args[0] == "monitors":
+			return []byte(`[{"id":2,"name":"DP-2","x":1600,"y":50,"width":2560,"height":1440,"scale":1.5}]`), nil
+		case len(args) == 2 && args[0] == "clients":
+			return []byte(`[{"address":"0xabc","floating":false}]`), nil
+		case len(args) == 2 && args[0] == "dispatch":
+			dispatches = append(dispatches, args[1])
+			return nil, nil
+		default:
+			t.Fatalf("unexpected hyprctl args: %q", args)
+			return nil, nil
+		}
+	})
+	defer restore()
+
+	if err := runAct([]string{"window.place", "0xabc", "100", "180", "700", "520", "DP-2"}); err != nil {
+		t.Fatalf("window.place: %v", err)
+	}
+	if len(dispatches) != 4 {
+		t.Fatalf("dispatch count = %d, want float, output, size, position: %q", len(dispatches), dispatches)
+	}
+	last := dispatches[len(dispatches)-1]
+	if !strings.Contains(last, "x = 1700") || !strings.Contains(last, "y = 230") {
+		t.Errorf("position dispatcher = %q, want global logical 1700,230", last)
+	}
+	if strings.Contains(last, "1750") || strings.Contains(last, "320") {
+		t.Errorf("position dispatcher double-applied output scale: %q", last)
+	}
+}
+
+func TestWindowPlaceRejectsInvalidOutputScaleBeforeMutation(t *testing.T) {
+	dispatched := false
+	restore := stubCtl(t, func(args ...string) ([]byte, error) {
+		if len(args) == 3 && args[0] == "monitors" {
+			return []byte(`[{"id":2,"name":"DP-2","scale":0}]`), nil
+		}
+		dispatched = true
+		return nil, nil
+	})
+	defer restore()
+
+	err := runAct([]string{"window.place", "0xabc", "0", "0", "700", "520", "DP-2"})
+	if err == nil || !strings.Contains(err.Error(), "invalid scale") {
+		t.Fatalf("window.place invalid scale error = %v", err)
+	}
+	if dispatched {
+		t.Error("window.place mutated the compositor after invalid output geometry")
 	}
 }
 
@@ -323,27 +571,66 @@ func TestNightlightTempClamps(t *testing.T) {
 		}
 	}
 }
-func TestTouchpadNotificationsOnlyOnChange(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	previous := touchpadNotify
-	count := 0
-	touchpadNotify = func(string, string) { count++ }
-	defer func() { touchpadNotify = previous }()
+
+// A palette change recolors the cursor images but the running compositor keeps
+// the old theme cached; cursor.reassert must set the store's resolved theme
+// (DYNAMIC included) without a settings save.
+func TestCursorReassertUsesResolvedStoreTheme(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	store := filepath.Join(dir, "ryoku", "desktop.json")
+	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"desktop":{"cursor":{"theme":"DYNAMIC","size":18}}}`
+	if err := os.WriteFile(store, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	done := stubCtl(t, func(args ...string) ([]byte, error) {
+		got = args
+		return nil, nil
+	})
+	defer done()
+	if err := runAct([]string{"cursor.reassert"}); err != nil {
+		t.Fatalf("cursor.reassert: %v", err)
+	}
+	if len(got) < 3 || got[0] != "setcursor" || got[1] == "" || got[1] == "DYNAMIC" || got[2] != "18" {
+		t.Fatalf("setcursor args = %v, want a resolved theme at size 18", got)
+	}
+}
+
+// window.hide stashes a named window in the scratchpad without following it,
+// and hands the focused case to the same helper Super+H runs, which also undoes
+// the focus a silent move drags into the special workspace.
+func TestActWindowHide(t *testing.T) {
+	var dispatched []string
 	restore := stubCtl(t, func(args ...string) ([]byte, error) {
-		if len(args) == 2 && args[0] == "devices" {
-			return []byte(`{"mice":[{"name":"test-touchpad"}]}`), nil
+		if len(args) == 2 && args[0] == "dispatch" {
+			dispatched = append(dispatched, args[1])
 		}
 		return nil, nil
 	})
 	defer restore()
-	for _, mode := range []string{"on", "off", "off", "restore", "on", "on"} {
-		if err := runAct([]string{"input.touchpad", mode}); err != nil {
-			t.Fatal(err)
-		}
+	var helper [][]string
+	prev := runWorkspaceHelper
+	runWorkspaceHelper = func(args ...string) error { helper = append(helper, args); return nil }
+	defer func() { runWorkspaceHelper = prev }()
+
+	if err := runAct([]string{"window.hide", "0xbbb"}); err != nil {
+		t.Fatal(err)
 	}
-	if count != 2 {
-		t.Fatalf("got %d notifications for two state changes", count)
+	want := `hl.dsp.window.move({ workspace = "special:scratch", window = "address:0xbbb", follow = false })`
+	if len(dispatched) != 1 || dispatched[0] != want {
+		t.Errorf("dispatched %q, want %q", dispatched, want)
+	}
+	if err := runAct([]string{"window.hide", "focused"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(helper) != 1 || strings.Join(helper[0], " ") != "hide" {
+		t.Errorf("helper calls = %q, want one hide", helper)
+	}
+	if err := runAct([]string{"window.hide"}); err == nil {
+		t.Error("window.hide without a target must fail")
 	}
 }

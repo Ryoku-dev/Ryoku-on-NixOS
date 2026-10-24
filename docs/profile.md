@@ -86,9 +86,10 @@ an edit affordance (an overlay button) that opens the hero editor.
 ### Picking an image
 
 The hero editor shows a gallery: the baked ryodecor set (the same
-bone-on-transparent art the rest of the desktop uses, from `~/Pictures/ryodecors`)
-plus a **Your image** tile. Pick a gallery piece to use it as-is, or use Your
-image to browse for a file or drop one onto the tile.
+bone-on-transparent art the rest of the desktop uses, from the XDG Pictures
+folder's `ryodecors/` directory) plus a **Your image** tile. Pick a gallery
+piece to use it as-is, or use Your image to browse for a file or drop one onto
+the tile.
 
 ### Framing
 
@@ -194,14 +195,14 @@ matches the set exactly.
 
 Bake your own art into the gallery so it shows up beside the shipped set:
 
-```
-ryodither yourart.jpg --out ~/Pictures/ryodecors
+```sh
+ryodither yourart.jpg --out "$(xdg-user-dir PICTURES)/ryodecors"
 ```
 
-That writes a bone-on-transparent dithered PNG into your ryodecor gallery
-(`~/Pictures/ryodecors`), where the hero editor's gallery picks it up. Without
-`--out` it writes into the repo's `ryoku/assets/ryodecors` (the dev path that
-ships the decor to everyone at once).
+That writes a bone-on-transparent dithered PNG into the `ryodecors/` directory
+under your configured Pictures folder, where the hero editor's gallery picks it
+up. Without `--out` it writes into the repo's `ryoku/assets/ryodecors` (the dev
+path that ships the decor to everyone at once).
 
 - `--invert` inks the dark tones instead of the light, for dark-on-light sources
   (a dark subject on a pale ground). It is the CLI form of the editor's Invert.

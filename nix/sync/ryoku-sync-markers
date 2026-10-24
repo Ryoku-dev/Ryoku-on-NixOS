@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=nix/sync/lib-markers.sh
+source "$script_dir/lib-markers.sh"
+
+base=origin/unstable-dev
+annotate=0
+
+usage() {
+  cat <<'USAGE'
+Usage: nix/sync/ryoku-sync-markers [--base REF] [--annotate]
+
+Scans files changed from REF to HEAD for unresolved sync conflict markers.
+USAGE
+}
+
+while (($#)); do
+  case "$1" in
+    --base)
+      (($# >= 2)) || {
+        printf 'ryoku-sync-markers: --base needs a value\n' >&2
+        exit 2
+      }
+      base=$2
+      shift 2
+      ;;
+    --annotate)
+      annotate=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'ryoku-sync-markers: unknown argument: %s\n' "$1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+git rev-parse --verify "$base^{commit}" >/dev/null 2>&1 || {
+  printf 'ryoku-sync-markers: base is not a commit: %s\n' "$base" >&2
+  exit 2
+}
+git rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1 || {
+  printf 'ryoku-sync-markers: HEAD is not a commit\n' >&2
+  exit 2
+}
+
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/ryoku-sync-markers.XXXXXX")
+trap 'rm -rf "$tmp_dir"' EXIT
+summary=${GITHUB_STEP_SUMMARY:-}
+found=0
+summary_started=0
+
+workflow_escape_property() {
+  local value=$1
+  value=${value//'%'/'%25'}
+  value=${value//$'\r'/'%0D'}
+  value=${value//$'\n'/'%0A'}
+  value=${value//':'/'%3A'}
+  value=${value//','/'%2C'}
+  printf '%s' "$value"
+}
+
+mapfile -d '' -t changed_paths \
+  < <(git diff --name-only --diff-filter=ACMR -z "$base" HEAD)
+for path in "${changed_paths[@]}"; do
+  read -r added removed _ < <(git diff --numstat "$base" HEAD -- "$path") || continue
+  [[ $added != - && $removed != - ]] || continue
+
+  file="$tmp_dir/file"
+  git show "HEAD:$path" >"$file" 2>/dev/null || continue
+  while IFS=: read -r start end; do
+    [[ -n $start && -n $end ]] || continue
+    printf '%s:%s-%s\n' "$path" "$start" "$end"
+    found=1
+
+    if ((annotate)); then
+      escaped_path=$(workflow_escape_property "$path")
+      printf '::error file=%s,line=%s,endLine=%s,title=Unresolved sync conflict::Fix these lines, then push.\n' \
+        "$escaped_path" "$start" "$end"
+    fi
+
+    if [[ -n $summary ]]; then
+      if ((summary_started == 0)); then
+        printf '### Unresolved sync conflicts\n\n| File | Lines |\n|---|---:|\n' >>"$summary"
+        summary_started=1
+      fi
+      printf '| `%s` | %s-%s |\n' "$path" "$start" "$end" >>"$summary"
+    fi
+  done < <(ryoku_marker_hunks "$file")
+done
+
+((found == 0))

@@ -1,9 +1,17 @@
 package doctor
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"ryoku-cli/internal/host"
 )
 
 func TestRashinDaemonActions(t *testing.T) {
@@ -65,10 +73,9 @@ func TestRashinOptedOut(t *testing.T) {
 	}
 }
 
-// prowlAgentNeeded is the pure core of reconcileProwlAgent: only an enabled
-// rashin box that lacks the binary should be told to install it. Pinned so the
-// finding never fires on a box that never opted into rashin.
-func TestProwlAgentNeeded(t *testing.T) {
+// prowlNeeded is the pure core of reconcileProwl: only an enabled rashin box
+// that lacks the binary should be told to install it.
+func TestProwlNeeded(t *testing.T) {
 	cases := []struct {
 		name                   string
 		enabled, present, want bool
@@ -80,18 +87,45 @@ func TestProwlAgentNeeded(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := prowlAgentNeeded(c.enabled, c.present); got != c.want {
-				t.Fatalf("prowlAgentNeeded(enabled=%v, present=%v) = %v, want %v", c.enabled, c.present, got, c.want)
+			if got := prowlNeeded(c.enabled, c.present); got != c.want {
+				t.Fatalf("prowlNeeded(enabled=%v, present=%v) = %v, want %v", c.enabled, c.present, got, c.want)
 			}
 		})
+	}
+}
+
+func TestProwlGatewayNeeded(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		for _, active := range []bool{false, true} {
+			for _, installed := range []bool{false, true} {
+				for _, answering := range []bool{false, true} {
+					name := fmt.Sprintf("enabled=%v/active=%v/installed=%v/answering=%v",
+						enabled, active, installed, answering)
+					t.Run(name, func(t *testing.T) {
+						state := rashinUnitState{enabled: enabled, active: active}
+						want := enabled && active && installed && !answering
+						if got := prowlGatewayNeeded(state, installed, answering); got != want {
+							t.Fatalf("prowlGatewayNeeded(%+v, installed=%v, answering=%v) = %v, want %v",
+								state, installed, answering, got, want)
+						}
+					})
+				}
+			}
+		}
 	}
 }
 
 func TestRashinSkillLinksMissing(t *testing.T) {
 	h := t.TempDir()
 	t.Setenv("HOME", h)
-	t.Setenv("RYOKU_REPO", "") // no dev checkout via sys.ResolveRepo
+	t.Setenv("RYOKU_REPO", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(h, ".config"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(h, ".local", "state"))
+	t.Setenv("RYOKU_CHANNEL", "")
+	t.Setenv("RYOKU_WM", "hyprland")
+	oldPackaged := packagedSkillRoot
+	packagedSkillRoot = filepath.Join(t.TempDir(), "absent") // a packaged box ships the tree
+	t.Cleanup(func() { packagedSkillRoot = oldPackaged })
 
 	// No skill installed: nothing to wire, so never "missing".
 	skills := t.TempDir()
@@ -124,5 +158,128 @@ func TestRashinSkillLinksMissing(t *testing.T) {
 	}
 	if rashinSkillLinksMissing() {
 		t.Fatal("links present: should not report missing")
+	}
+}
+
+func TestRashinDaemonRunitRepairSettles(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "ryoku-rashin"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), ".config"))
+	t.Setenv("RYOKU_RASHIN_SKILLS", filepath.Join(t.TempDir(), "absent"))
+
+	t.Setenv("RYOKU_REPO", "")
+	t.Setenv("RYOKU_CHANNEL", "")
+	t.Setenv("RYOKU_WM", "niri")
+	oldInit, oldService, oldPackaged := rashinInit, rashinService, packagedSkillRoot
+	t.Cleanup(func() {
+		rashinInit, rashinService, packagedSkillRoot = oldInit, oldService, oldPackaged
+	})
+	rashinInit = func() (host.InitSystem, error) { return host.Runit, nil }
+	packagedSkillRoot = filepath.Join(t.TempDir(), "absent")
+
+	enabled, active := false, false
+	var calls [][]string
+	rashinService = func(args []string) int {
+		calls = append(calls, append([]string(nil), args...))
+		switch args[1] {
+		case "is-enabled":
+			if enabled {
+				return host.ExitOK
+			}
+			return host.ExitFalse
+		case "is-active":
+			if active {
+				return host.ExitOK
+			}
+			return host.ExitFalse
+		case "enable":
+			enabled, active = true, true
+		case "start":
+			active = true
+		}
+		return host.ExitOK
+	}
+
+	if r := reconcileRashinDaemon(false); r.status != recFixed {
+		t.Fatalf("repair = %s %q, want fixed", r.status.label(), r.detail)
+	}
+	if !enabled || !active {
+		t.Fatalf("runit service state = enabled %v active %v, want both true; calls=%v", enabled, active, calls)
+	}
+	if r := reconcileRashinDaemon(false); r.status != recOK {
+		t.Fatalf("second run = %s %q, want settled ok", r.status.label(), r.detail)
+	}
+}
+
+func TestAiUsageCollectorUsesRunitServiceAndSettles(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), ".config"))
+
+	oldInit, oldService := rashinInit, rashinService
+	t.Cleanup(func() { rashinInit, rashinService = oldInit, oldService })
+	rashinInit = func() (host.InitSystem, error) { return host.Runit, nil }
+
+	enabled := false
+	var enabledUnit string
+	rashinService = func(args []string) int {
+		switch args[1] {
+		case "is-enabled":
+			if enabled {
+				return host.ExitOK
+			}
+			return host.ExitFalse
+		case "enable":
+			enabled = true
+			enabledUnit = args[len(args)-1]
+			return host.ExitOK
+		default:
+			return host.ExitOK
+		}
+	}
+
+	if r := reconcileAiUsageTimer(false); r.status != recFixed {
+		t.Fatalf("repair = %s %q, want fixed", r.status.label(), r.detail)
+	}
+	if enabledUnit != aiUsageService {
+		t.Fatalf("enabled %q, want runit service %q", enabledUnit, aiUsageService)
+	}
+	if r := reconcileAiUsageTimer(false); r.status != recOK {
+		t.Fatalf("second run = %s %q, want settled ok", r.status.label(), r.detail)
+	}
+}
+
+// A gateway systemd already calls started but that listens a moment later
+// counts as restored, not failed; one that never answers still fails.
+func TestAwaitProwlGatewayWaitsForALateStart(t *testing.T) {
+	var probes atomic.Int32
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/ping" || probes.Add(1) < 3 {
+			http.Error(w, "starting", http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	defer gateway.Close()
+	addr, err := url.Parse(gateway.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RYOKU_PROWL_PORT", addr.Port())
+	old := prowlGatewaySettle
+	t.Cleanup(func() { prowlGatewaySettle = old })
+
+	prowlGatewaySettle = 5 * time.Second
+	if !awaitProwlGateway() {
+		t.Fatalf("a gateway answering on probe 3 was reported down after %d probes", probes.Load())
+	}
+
+	probes.Store(-1000)
+	prowlGatewaySettle = 300 * time.Millisecond
+	if awaitProwlGateway() {
+		t.Fatal("a gateway that never answers was reported up")
 	}
 }

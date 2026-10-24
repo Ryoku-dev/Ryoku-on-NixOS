@@ -8,22 +8,25 @@ import Ryoku.Ui
 import Ryoku.Ui.Singletons
 
 // Recording (DESIGN.md section 11, SYSTEM). The quality knobs behind the bar's
-// one-tap screen recorder, read by ryoku-cmd-screenrecord (env vars still
-// override at record time). Constant framerate is the default because
-// variable-framerate files often import or play back as ~30fps and look choppy.
+// one-tap screen recorder. The recorder daemon (ryoku-shell record) reads these
+// at capture time; environment variables still override any of them per run.
+// Constant framerate is the default because variable-framerate files often
+// import or play back as ~30fps and look choppy.
 //
 // Self-contained full-bleed page: it owns its whole content region, so it draws
 // its own head, the setting cells regrouped by meaning, the live UNDER THE HOOD
 // backend readout, and -- because the shell hides its global action bar -- its
-// own dirty status + Reset/Revert/Save bar. Nothing writes to disk until Save.
+// own dirty status + Reset/Revert/Save bar.
 //
-// This page is recording.json's ONLY writer, and cfg.writeAdapter() serialises
-// the whole adapter, so every key the file carries is declared below or it would
-// be dropped on the next save. The `fps` type trap is preserved deliberately:
-// the adapter property is `int` and the Step control emits an int, so the file
-// stays numeric ("fps": 60, not "60") for the consumer's `cfg_get '.fps' 60`.
-// These six defaults are mirrored in the shell consumer's cfg_get/cfg_bool
-// fallbacks (ryoku-cmd-screenrecord) and must not drift.
+// The daemon owns recording.json and is its sole writer: this page reads the
+// merged settings over the shell socket (`call record.settings`) on open and
+// writes the whole draft back through `ryoku-shell record settings` on Save, so
+// nothing lands on disk until Save and no two writers can race. Types matter --
+// fps/bitrate/audioBitrate/keyint ride the wire as ints and cursor as a bool, or
+// the daemon rejects the write; the coerce() helper keeps the draft wire-correct.
+// When the socket is unreachable the page says so rather than showing factory
+// defaults as if they were live. These defaults mirror the daemon's own
+// fallbacks (ryoku-cmd-record) and must not drift.
 Item {
     id: pg
 
@@ -36,10 +39,17 @@ Item {
         "fps": 60,
         "framerateMode": "cfr",
         "quality": "very_high",
+        "bitrateMode": "quality",
+        "bitrate": 20000,
         "codec": "h264",
         "encoder": "gpu",
         "cursor": true,
-        "pickEachTime": false,
+        "container": "mp4",
+        "audioCodec": "opus",
+        "audioBitrate": 0,
+        "colorRange": "limited",
+        "keyint": 2,
+        "maxResolution": "native",
         "directory": ""
     })
     readonly property var keyFactory: ({
@@ -60,6 +70,12 @@ Item {
     // differ. Both are plain maps, reassigned wholesale so the cells re-render.
     property var committed: null
     property var draft: null
+    // recorder daemon reachability, so the page never shows fabricated defaults
+    // as if they were the live settings: only a good read flips this to "ready".
+    property string recordStatus: "loading"   // loading | ready | unavailable
+    property string recordError: ""
+    property int pendingReadId: 0
+    property int pendingSaveId: 0
     property var keyCommitted: null
     property var keyDraft: null
     property bool keyActive: false
@@ -67,10 +83,15 @@ Item {
     property string keyBackendError: ""
     readonly property string shellSockPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ryoku-shell.sock"
     property real keyPreviewRevision: 0
-    property int keyCallSerial: 0
+    property int callSerial: 0
     property int pendingKeySaveId: 0
     property string keySettingsError: ""
     property bool reduceMotion: false
+
+    // JSON types the daemon validates against: these keys must ride the wire as
+    // ints and bools, not strings, or the write is rejected. The rest are strings.
+    readonly property var intKeys: ["fps", "bitrate", "audioBitrate", "keyint"]
+    readonly property var boolKeys: ["cursor"]
 
     readonly property int recordingDirtyCount: {
         if (!pg.draft || !pg.committed)
@@ -112,24 +133,45 @@ Item {
             r[k] = o[k];
         return r;
     }
-    function fromAdapter() {
-        return {
-            "fps": cfgA.fps,
-            "framerateMode": cfgA.framerateMode,
-            "quality": cfgA.quality,
-            "codec": cfgA.codec,
-            "encoder": cfgA.encoder,
-            "cursor": cfgA.cursor,
-            "pickEachTime": cfgA.pickEachTime
-        };
+    // Merge a daemon reply's settings map onto the factory keys, coercing the
+    // int/bool keys so the draft carries wire-correct types (an int key that
+    // arrived as a string would be rejected on the next write).
+    function coerce(k, v) {
+        if (pg.intKeys.indexOf(k) >= 0) {
+            var n = Math.round(Number(v));
+            return isNaN(n) ? pg.factory[k] : n;
+        }
+        if (pg.boolKeys.indexOf(k) >= 0)
+            return v === true || v === "true";
+        return String(v);
+    }
+    function mergeFactory(map) {
+        var r = {};
+        for (var k in pg.factory) {
+            var v = (map && map[k] !== undefined && map[k] !== null) ? map[k] : pg.factory[k];
+            r[k] = pg.coerce(k, v);
+        }
+        return r;
+    }
+    function buildSettings(d) {
+        var r = {};
+        for (var k in pg.factory)
+            r[k] = pg.coerce(k, d[k]);
+        return r;
     }
 
-    // adopt the on-disk state. First load seeds the draft too; a later external
-    // edit rebases committed but keeps an in-flight draft (DESIGN.md section 8),
-    // while a clean view simply follows the file.
-    function adopt() {
+    // ask the daemon for the merged settings; the reply seeds committed (and, on
+    // a clean view, the draft too), so the page follows the file's real state.
+    function requestRecording() {
+        pg.pendingReadId = pg.sendCall("record.settings", {});
+    }
+
+    // adopt the daemon's state. First load seeds the draft too; a later refresh
+    // rebases committed but keeps an in-flight draft (DESIGN.md section 8), while
+    // a clean view simply follows the daemon.
+    function adoptRecording(map) {
         var wasClean = pg.draft === null || pg.recordingDirtyCount === 0;
-        pg.committed = pg.fromAdapter();
+        pg.committed = pg.mergeFactory(map);
         if (wasClean)
             pg.draft = pg.clone(pg.committed);
     }
@@ -148,6 +190,24 @@ Item {
         var d = pg.clone(pg.draft);
         d[k] = v;
         pg.draft = d;
+    }
+    // a typed numeric entry commits a string; parse and clamp before it lands, so
+    // a bounded key only ever holds an in-range int.
+    function editNum(k, text, lo, hi) {
+        var n = parseInt(text, 10);
+        if (isNaN(n))
+            return;
+        pg.edit(k, Math.max(lo, Math.min(hi, n)));
+    }
+    // segmented controls whose stored key differs from the label the user reads:
+    // the store keeps cbr/2160p, the control shows Constant/4K.
+    function bitrateModeLabel(k) { return k === "cbr" ? "Constant" : "Quality"; }
+    function bitrateModeKey(label) { return label === "Constant" ? "cbr" : "quality"; }
+    function maxResLabel(k) {
+        return k === "1080p" ? "1080p" : k === "1440p" ? "1440p" : k === "2160p" ? "4K" : "Native";
+    }
+    function maxResKey(label) {
+        return label === "1080p" ? "1080p" : label === "1440p" ? "1440p" : label === "4K" ? "2160p" : "native";
     }
     function editKey(k, v) {
         if (!pg.keyDraft)
@@ -168,37 +228,24 @@ Item {
             pg.showKeyOverlay(true);
     }
     function reset() {
-        pg.draft = pg.clone(pg.factory);
+        if (pg.recordStatus === "ready")
+            pg.draft = pg.clone(pg.factory);
         pg.keyDraft = pg.clone(pg.keyFactory);
         if (pg.keyActive)
             pg.showKeyOverlay(true);
     }
+    // the daemon is the sole writer: save sends the whole draft in one call and
+    // commits only when the reply confirms it, so a rejected key never looks
+    // saved. Recording and key-press settings ride the same socket independently.
     function save() {
-        if (!pg.draft || !pg.committed)
-            return;
-        cfgA.fps = pg.draft.fps;
-        cfgA.framerateMode = pg.draft.framerateMode;
-        cfgA.quality = pg.draft.quality;
-        cfgA.codec = pg.draft.codec;
-        cfgA.encoder = pg.draft.encoder;
-        cfgA.cursor = pg.draft.cursor;
-        cfgA.pickEachTime = pg.draft.pickEachTime;
-        cfg.writeAdapter();
-        pg.committed = pg.clone(pg.draft);
+        if (pg.recordStatus === "ready" && pg.draft && pg.committed && pg.recordingDirtyCount > 0)
+            pg.pendingSaveId = pg.sendCall("record.settings", { settings: pg.buildSettings(pg.draft) });
         if (pg.keyDraft && pg.keyCommitted && pg.keyDirtyCount > 0) {
-            pg.pendingKeySaveId = pg.sendKeyCall("keypress.settings", {
+            pg.pendingKeySaveId = pg.sendCall("keypress.settings", {
                 theme: pg.keyDraft.theme,
                 mode: pg.keyDraft.mode
             });
         }
-    }
-
-    // span math for the section Flows: a cell's width comes from its control's
-    // column count (Spans.of), never from a placement decision (DESIGN.md 6, 9).
-    // Pack n cells across the section's width, gutters between.
-    function span(n, w) {
-        var cw = (w - (Spans.cols - 1) * Tokens.s2) / Spans.cols;
-        return n * cw + (n - 1) * Tokens.s2;
     }
 
     function adoptMotion(text) {
@@ -211,40 +258,8 @@ Item {
     }
 
     Component.onCompleted: {
-        pg.adopt();
         if (pg.keyCommitted === null)
             pg.adoptKey("");
-    }
-
-    // recording.json, this page's only writer. blockLoading makes the first read
-    // synchronous; watchChanges + onFileChanged re-render on an external edit;
-    // the seeding write materialises the file (populated with every default) when
-    // it is absent, so the recorder always has a file to read.
-    FileView {
-        id: cfg
-        path: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/ryoku/recording.json"
-        blockLoading: true
-        watchChanges: true
-        printErrors: false
-        onFileChanged: reload()
-        onLoaded: pg.adopt()
-
-        JsonAdapter {
-            id: cfgA
-            property int fps: 60
-            property string framerateMode: "cfr"
-            property string quality: "very_high"
-            property string codec: "h264"
-            property string encoder: "gpu"
-            property bool cursor: true
-            property bool pickEachTime: false
-            // where every recording lands. empty means the default, so a box with
-            // a custom XDG_VIDEOS_DIR keeps following it; the recorder script and
-            // the deck's list resolve this same key.
-            property string directory: ""
-        }
-
-        Component.onCompleted: if (!cfg.text()) cfg.writeAdapter()
     }
 
     FileView {
@@ -269,16 +284,16 @@ Item {
         onLoadFailed: pg.reduceMotion = false
     }
 
-    function sendKeyCall(method, args) {
+    function sendCall(method, args) {
         var payload = {};
         for (var k in args)
             payload[k] = args[k];
-        payload.id = ++pg.keyCallSerial;
-        keyCtl.queued += "call " + method + " " + JSON.stringify(payload) + "\n";
-        if (keyCtl.connected)
-            keyCtl.flushQueued();
+        payload.id = ++pg.callSerial;
+        ctl.queued += "call " + method + " " + JSON.stringify(payload) + "\n";
+        if (ctl.connected)
+            ctl.flushQueued();
         else
-            keyCtl.connected = true;
+            ctl.connected = true;
         return payload.id;
     }
 
@@ -291,23 +306,57 @@ Item {
         } catch (e) {}
     }
 
-    function applyKeyReply(line) {
+    // one reply parser for the shared control socket: match the echoed id to the
+    // in-flight read, recording save, or key-press save and route it. An id that
+    // matches nothing (a fire-and-forget call like reset-placement) is dropped.
+    function applyReply(line) {
         try {
             const reply = JSON.parse(line);
-            if (reply.id !== pg.pendingKeySaveId)
-                return;
-            pg.pendingKeySaveId = 0;
-            if (!reply.ok) {
-                pg.keySettingsError = reply.error || I18n.tr("Could not save key press settings.");
-                return;
+            var id = reply.id;
+            if (id === pg.pendingReadId) {
+                pg.pendingReadId = 0;
+                pg.applyRecordRead(reply);
+            } else if (id === pg.pendingSaveId) {
+                pg.pendingSaveId = 0;
+                pg.applyRecordSave(reply);
+            } else if (id === pg.pendingKeySaveId) {
+                pg.pendingKeySaveId = 0;
+                pg.applyKeySave(reply);
             }
-            const saved = reply.result || {};
-            pg.keyCommitted = {
-                "theme": saved.theme === "light" ? "light" : "dark",
-                "mode": saved.mode === "shortcuts" ? "shortcuts" : "all"
-            };
-            pg.keySettingsError = "";
         } catch (e) {}
+    }
+
+    function applyRecordRead(reply) {
+        if (!reply.ok) {
+            pg.recordStatus = "unavailable";
+            pg.recordError = reply.error || I18n.tr("Recording settings are unavailable.");
+            return;
+        }
+        pg.adoptRecording(reply.result || {});
+        pg.recordStatus = "ready";
+        pg.recordError = "";
+    }
+
+    function applyRecordSave(reply) {
+        if (!reply.ok) {
+            pg.recordError = reply.error || I18n.tr("Could not save recording settings.");
+            return;
+        }
+        pg.committed = pg.clone(pg.draft);
+        pg.recordError = "";
+    }
+
+    function applyKeySave(reply) {
+        if (!reply.ok) {
+            pg.keySettingsError = reply.error || I18n.tr("Could not save key press settings.");
+            return;
+        }
+        const saved = reply.result || {};
+        pg.keyCommitted = {
+            "theme": saved.theme === "light" ? "light" : "dark",
+            "mode": saved.mode === "shortcuts" ? "shortcuts" : "all"
+        };
+        pg.keySettingsError = "";
     }
 
     function showKeyOverlay(show) {
@@ -351,10 +400,10 @@ Item {
     }
 
     Socket {
-        id: keyCtl
+        id: ctl
         path: pg.shellSockPath
         property string queued: ""
-        parser: SplitParser { onRead: line => pg.applyKeyReply(line) }
+        parser: SplitParser { onRead: line => pg.applyReply(line) }
 
         function flushQueued() {
             if (queued.length === 0)
@@ -364,7 +413,33 @@ Item {
             queued = "";
         }
 
-        onConnectionStateChanged: if (connected) flushQueued()
+        Component.onCompleted: connected = true
+        onConnectionStateChanged: {
+            if (connected) {
+                pg.requestRecording();
+                flushQueued();
+            } else if (pg.recordStatus !== "ready") {
+                pg.recordStatus = "unavailable";
+            }
+        }
+    }
+
+    // while the daemon is out of reach, keep trying: reconnect when the socket is
+    // down, re-read when it is up but the page never got a good reply. Stops once
+    // a read succeeds (recordStatus "ready").
+    Timer {
+        id: ctlRetry
+        interval: 2000
+        repeat: true
+        running: pg.recordStatus !== "ready"
+        onTriggered: {
+            if (ctl.connected)
+                pg.requestRecording();
+            else {
+                pg.recordStatus = "unavailable";
+                ctl.connected = true;
+            }
+        }
     }
 
     // live readout: which backend + hardware encoder the recorder resolves for
@@ -372,6 +447,12 @@ Item {
     // a moment). Parse failures leave the readout on "Detecting...".
     property string infoBackend: ""
     property string infoEncoder: ""
+    property string infoVersion: ""
+    property bool recorderProbeDone: false
+    property bool recorderAvailable: false
+    property string recorderUnavailableReason: ""
+    property var supportedCodecs: ["h264", "hevc", "av1"]
+    property var supportedEncoders: ["gpu", "cpu"]
 
     // Whether apps can actually be offered a source to pick. Screen sharing can
     // be entirely dead with nothing on screen to show for it, so ask the portal
@@ -406,7 +487,7 @@ Item {
     }
     Process {
         id: info
-        command: ["ryoku-cmd-screenrecord", "--info"]
+        command: ["ryoku-cmd-record", "--info"]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
@@ -414,8 +495,45 @@ Item {
                     var j = JSON.parse(this.text);
                     pg.infoBackend = j.backend || "";
                     pg.infoEncoder = j.encoder || "";
+                    pg.infoVersion = j.version || "";
                 } catch (e) {}
             }
+        }
+    }
+    Process {
+        id: recorderProbe
+        command: ["sh", "-c", "command -v gpu-screen-recorder >/dev/null && exec gpu-screen-recorder --info"]
+        running: true
+        stdout: StdioCollector { id: recorderProbeOut }
+        stderr: StdioCollector {}
+        onExited: code => {
+            var codecs = [];
+            var encoders = [];
+            var lines = recorderProbeOut.text.split("\n").map(line => line.trim());
+            function add(list, value) {
+                if (list.indexOf(value) < 0)
+                    list.push(value);
+            }
+            for (var i = 0; i < lines.length; ++i) {
+                var value = lines[i];
+                if (value === "h264" || value === "h264_software")
+                    add(codecs, "h264");
+                else if (value === "hevc")
+                    add(codecs, "hevc");
+                else if (value === "av1")
+                    add(codecs, "av1");
+                if (value === "h264_software")
+                    add(encoders, "cpu");
+                else if (value === "h264" || value === "hevc" || value === "av1"
+                        || value === "vp8" || value === "vp9")
+                    add(encoders, "gpu");
+            }
+            pg.supportedCodecs = codecs.length > 0 ? codecs : ["h264", "hevc", "av1"];
+            pg.supportedEncoders = encoders.length > 0 ? encoders : ["gpu", "cpu"];
+            pg.recorderAvailable = code === 0 && codecs.length > 0 && encoders.length > 0;
+            pg.recorderUnavailableReason = pg.recorderAvailable ? ""
+                : I18n.tr("GPU Screen Recorder is missing or no supported video encoder was detected.");
+            pg.recorderProbeDone = true;
         }
     }
 
@@ -589,14 +707,53 @@ Item {
                         Btn {
                             text: I18n.tr("RESET POSITION")
                             armed: true
-                            onAct: pg.sendKeyCall("keypress.settings", { resetPlacement: true })
+                            onAct: pg.sendCall("keypress.settings", { resetPlacement: true })
                         }
                     }
                 }
             }
 
+            // A recorder that can't be reached shows this instead of the setting
+            // cards, so the page never presents factory defaults as the live
+            // values or lets a save vanish into a dead socket.
+            SettingCard {
+                visible: pg.recordStatus !== "ready"
+                width: col.colWidth
+                title: I18n.tr("RECORDING")
+                Text {
+                    width: parent.width
+                    leftPadding: Tokens.s4; rightPadding: Tokens.s4
+                    topPadding: Tokens.s3; bottomPadding: Tokens.s3
+                    wrapMode: Text.WordWrap
+                    text: pg.recordStatus === "loading"
+                        ? I18n.tr("Reading your recording settings\u2026")
+                        : (pg.recordError !== "" ? pg.recordError
+                           : I18n.tr("The shell isn't running, so recording settings can't be read or changed right now."))
+                    color: Tokens.inkMuted; font.family: Tokens.ui
+                    font.pixelSize: Tokens.fSmall
+                }
+            }
+
+            SettingCard {
+                visible: pg.recordStatus === "ready" && pg.recorderProbeDone && !pg.recorderAvailable
+                width: col.colWidth
+                title: I18n.tr("RECORDING UNAVAILABLE")
+                Text {
+                    width: parent.width
+                    leftPadding: Tokens.s4; rightPadding: Tokens.s4
+                    topPadding: Tokens.s3; bottomPadding: Tokens.s3
+                    wrapMode: Text.WordWrap
+                    text: pg.recorderUnavailableReason
+                    color: Tokens.inkMuted; font.family: Tokens.ui
+                    font.pixelSize: Tokens.fSmall
+                }
+            }
+
             // ── QUALITY ──────────────────────────────────────────────────────
             SettingCard {
+                visible: pg.recordStatus === "ready"
+                enabled: pg.recorderAvailable
+                opacity: enabled ? 1 : 0.45
                 width: col.colWidth
                 title: I18n.tr("QUALITY")
                 Text {
@@ -617,11 +774,13 @@ Item {
                     value: pg.draft ? String(pg.draft.fps) : ""
                     def: pg.committed ? String(pg.committed.fps) : ""
                     changed: pg.draft && pg.committed ? pg.draft.fps !== pg.committed.fps : false
+                    editableValue: true
+                    onValueCommitted: (t) => pg.editNum("fps", t, 1, 360)
                     controlWidth: 58
                     Step {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                         value: pg.draft ? (Number(pg.draft.fps) || 60) : 60
-                        from: 24; to: 120; stepBy: 1
+                        from: 1; to: 360; stepBy: 5
                         onModified: (v) => pg.edit("fps", v)
                     }
                 }
@@ -661,23 +820,114 @@ Item {
                 SettingRow {
                     anchors.left: parent.left; anchors.right: parent.right
                     divider: true
-                    block: true
-                    label: I18n.tr("Codec")
-                    desc: I18n.tr("H.264 plays anywhere; AV1 is crisper but needs a newer GPU.")
+                    label: I18n.tr("Rate control")
+                    desc: I18n.tr("Quality targets a look; Constant pins a fixed bitrate.")
                     source: "recording.json"
-                    def: pg.committed ? String(pg.committed.codec) : ""
-                    changed: pg.draft && pg.committed ? pg.draft.codec !== pg.committed.codec : false
+                    def: pg.committed ? pg.bitrateModeLabel(pg.committed.bitrateMode) : ""
+                    changed: pg.draft && pg.committed ? pg.draft.bitrateMode !== pg.committed.bitrateMode : false
+                    controlWidth: 168
+                    Seg {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        options: ["Quality", "Constant"]
+                        current: pg.draft ? pg.bitrateModeLabel(pg.draft.bitrateMode) : ""
+                        onChose: (label) => pg.edit("bitrateMode", pg.bitrateModeKey(label))
+                    }
+                }
+                SettingRow {
+                    visible: pg.draft ? pg.draft.bitrateMode === "cbr" : false
+                    anchors.left: parent.left; anchors.right: parent.right
+                    divider: true
+                    label: I18n.tr("Bitrate")
+                    desc: I18n.tr("The fixed data rate used in Constant mode.")
+                    unit: "kbps"
+                    source: "recording.json"
+                    value: pg.draft ? String(pg.draft.bitrate) : ""
+                    def: pg.committed ? String(pg.committed.bitrate) : ""
+                    changed: pg.draft && pg.committed ? pg.draft.bitrate !== pg.committed.bitrate : false
+                    editableValue: true
+                    onValueCommitted: (t) => pg.editNum("bitrate", t, 500, 200000)
+                    controlWidth: 58
+                    Step {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        value: pg.draft ? (Number(pg.draft.bitrate) || 20000) : 20000
+                        from: 500; to: 200000; stepBy: 1000
+                        onModified: (v) => pg.edit("bitrate", v)
+                    }
+                }
+                SettingRow {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    divider: true
+                    block: true
+                    label: I18n.tr("Maximum resolution")
+                    desc: I18n.tr("Scale the capture down to save space; Native keeps full size.")
+                    source: "recording.json"
+                    def: pg.committed ? pg.maxResLabel(pg.committed.maxResolution) : ""
+                    changed: pg.draft && pg.committed ? pg.draft.maxResolution !== pg.committed.maxResolution : false
                     Seg {
                         anchors.left: parent.left; anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        options: ["h264", "hevc", "av1"]
-                        current: pg.draft ? String(pg.draft.codec) : ""
-                        onChose: (k) => pg.edit("codec", k)
+                        options: ["Native", "1080p", "1440p", "4K"]
+                        current: pg.draft ? pg.maxResLabel(pg.draft.maxResolution) : ""
+                        onChose: (label) => pg.edit("maxResolution", pg.maxResKey(label))
                     }
                 }
             }
 
+            // ── FILE ─────────────────────────────────────────────────────────
             SettingCard {
+                visible: pg.recordStatus === "ready"
+                enabled: pg.recorderAvailable
+                opacity: enabled ? 1 : 0.45
+                width: col.colWidth
+                title: I18n.tr("FILE")
+                Text {
+                    width: parent.width
+                    leftPadding: Tokens.s4; rightPadding: Tokens.s4
+                    topPadding: Tokens.s3; bottomPadding: Tokens.s1
+                    text: I18n.tr("The wrapper format and where finished recordings land.")
+                    color: Tokens.inkMuted; font.family: Tokens.ui
+                    font.pixelSize: Tokens.fSmall; wrapMode: Text.WordWrap
+                }
+                SettingRow {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    divider: true
+                    label: I18n.tr("Container")
+                    desc: I18n.tr("MP4 with H.264 plays in browsers and Discord; MKV and WebM are pickier.")
+                    source: "recording.json"
+                    def: pg.committed ? String(pg.committed.container) : ""
+                    changed: pg.draft && pg.committed ? pg.draft.container !== pg.committed.container : false
+                    controlWidth: 168
+                    Seg {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        options: ["mp4", "mkv", "webm"]
+                        current: pg.draft ? String(pg.draft.container) : ""
+                        onChose: (k) => pg.edit("container", k)
+                    }
+                }
+                SettingRow {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    divider: true
+                    footH: 32
+                    label: I18n.tr("Save recordings to")
+                    desc: I18n.tr("Leave empty to follow your Videos folder.")
+                    source: "recording.json"
+                    changed: pg.draft && pg.committed ? pg.draft.directory !== pg.committed.directory : false
+                    Field {
+                        anchors.left: parent.left; anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        tabular: true
+                        placeholder: pg.defaultDir
+                        text: pg.draft ? String(pg.draft.directory) : ""
+                        onCommitted: (v) => pg.edit("directory", v.trim())
+                    }
+                }
+            }
+
+            // ── ENCODER ──────────────────────────────────────────────────────
+            SettingCard {
+                visible: pg.recordStatus === "ready"
+                enabled: pg.recorderAvailable
+                opacity: enabled ? 1 : 0.45
                 width: col.colWidth
                 title: I18n.tr("ENCODER")
                 Text {
@@ -691,6 +941,23 @@ Item {
                 SettingRow {
                     anchors.left: parent.left; anchors.right: parent.right
                     divider: true
+                    block: true
+                    label: I18n.tr("Codec")
+                    desc: I18n.tr("H.264 plays anywhere; HEVC and AV1 are smaller but need a newer GPU.")
+                    source: "recording.json"
+                    def: pg.committed ? String(pg.committed.codec) : ""
+                    changed: pg.draft && pg.committed ? pg.draft.codec !== pg.committed.codec : false
+                    Seg {
+                        anchors.left: parent.left; anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        options: pg.supportedCodecs
+                        current: pg.draft ? String(pg.draft.codec) : ""
+                        onChose: (k) => pg.edit("codec", k)
+                    }
+                }
+                SettingRow {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    divider: true
                     label: I18n.tr("Encoder")
                     desc: I18n.tr("GPU offloads the CPU; CPU if GPU fails.")
                     source: "recording.json"
@@ -699,7 +966,7 @@ Item {
                     controlWidth: 124
                     Seg {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        options: ["gpu", "cpu"]
+                        options: pg.supportedEncoders
                         current: pg.draft ? String(pg.draft.encoder) : ""
                         onChose: (k) => pg.edit("encoder", k)
                     }
@@ -721,32 +988,90 @@ Item {
                 SettingRow {
                     anchors.left: parent.left; anchors.right: parent.right
                     divider: true
-                    footH: 32
-                    label: I18n.tr("Save recordings to")
-                    desc: I18n.tr("Leave empty to follow your Videos folder.")
+                    label: I18n.tr("Color range")
+                    desc: I18n.tr("Limited matches most players; Full is richer but can look washed out.")
                     source: "recording.json"
-                    changed: pg.draft && pg.committed ? pg.draft.directory !== pg.committed.directory : false
-                    Field {
-                        anchors.left: parent.left; anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        tabular: true
-                        placeholder: pg.defaultDir
-                        text: pg.draft ? String(pg.draft.directory) : ""
-                        onCommitted: (v) => pg.edit("directory", v.trim())
+                    def: pg.committed ? String(pg.committed.colorRange) : ""
+                    changed: pg.draft && pg.committed ? pg.draft.colorRange !== pg.committed.colorRange : false
+                    controlWidth: 124
+                    Seg {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        options: ["limited", "full"]
+                        current: pg.draft ? String(pg.draft.colorRange) : ""
+                        onChose: (k) => pg.edit("colorRange", k)
                     }
                 }
                 SettingRow {
                     anchors.left: parent.left; anchors.right: parent.right
                     divider: true
-                    label: I18n.tr("Ask which screen each time")
-                    desc: I18n.tr("Portal recording reuses the last screen you chose; this asks again every time.")
+                    label: I18n.tr("Keyframe interval")
+                    desc: I18n.tr("Seconds between keyframes; lower seeks smoother but grows the file.")
+                    unit: "s"
                     source: "recording.json"
-                    changed: pg.draft && pg.committed ? pg.draft.pickEachTime !== pg.committed.pickEachTime : false
-                    controlWidth: 54
-                    Sw {
+                    value: pg.draft ? String(pg.draft.keyint) : ""
+                    def: pg.committed ? String(pg.committed.keyint) : ""
+                    changed: pg.draft && pg.committed ? pg.draft.keyint !== pg.committed.keyint : false
+                    editableValue: true
+                    onValueCommitted: (t) => pg.editNum("keyint", t, 1, 600)
+                    controlWidth: 58
+                    Step {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        on: pg.draft ? !!pg.draft.pickEachTime : false
-                        onToggled: (v) => pg.edit("pickEachTime", v)
+                        value: pg.draft ? (Number(pg.draft.keyint) || 2) : 2
+                        from: 1; to: 600; stepBy: 1
+                        onModified: (v) => pg.edit("keyint", v)
+                    }
+                }
+            }
+
+            // ── AUDIO ────────────────────────────────────────────────────────
+            SettingCard {
+                visible: pg.recordStatus === "ready"
+                enabled: pg.recorderAvailable
+                opacity: enabled ? 1 : 0.45
+                width: col.colWidth
+                title: I18n.tr("AUDIO")
+                Text {
+                    width: parent.width
+                    leftPadding: Tokens.s4; rightPadding: Tokens.s4
+                    topPadding: Tokens.s3; bottomPadding: Tokens.s1
+                    text: I18n.tr("The codec and bitrate for captured sound.")
+                    color: Tokens.inkMuted; font.family: Tokens.ui
+                    font.pixelSize: Tokens.fSmall; wrapMode: Text.WordWrap
+                }
+                SettingRow {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    divider: true
+                    label: I18n.tr("Audio codec")
+                    desc: I18n.tr("Opus sounds better at low bitrates; AAC plays in more editors.")
+                    source: "recording.json"
+                    def: pg.committed ? String(pg.committed.audioCodec) : ""
+                    changed: pg.draft && pg.committed ? pg.draft.audioCodec !== pg.committed.audioCodec : false
+                    controlWidth: 124
+                    Seg {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        options: ["opus", "aac"]
+                        current: pg.draft ? String(pg.draft.audioCodec) : ""
+                        onChose: (k) => pg.edit("audioCodec", k)
+                    }
+                }
+                SettingRow {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    divider: true
+                    label: I18n.tr("Audio bitrate")
+                    desc: I18n.tr("Leave at Auto to let the codec choose.")
+                    unit: pg.draft && pg.draft.audioBitrate !== 0 ? "kbps" : ""
+                    source: "recording.json"
+                    value: pg.draft ? (pg.draft.audioBitrate === 0 ? I18n.tr("Auto") : String(pg.draft.audioBitrate)) : ""
+                    def: pg.committed ? (pg.committed.audioBitrate === 0 ? I18n.tr("Auto") : String(pg.committed.audioBitrate)) : ""
+                    changed: pg.draft && pg.committed ? pg.draft.audioBitrate !== pg.committed.audioBitrate : false
+                    editableValue: true
+                    onValueCommitted: (t) => pg.editNum("audioBitrate", t, 0, 512)
+                    controlWidth: 58
+                    Step {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        value: pg.draft ? (Number(pg.draft.audioBitrate) || 0) : 0
+                        from: 0; to: 512; stepBy: 16
+                        onModified: (v) => pg.edit("audioBitrate", v)
                     }
                 }
             }
@@ -789,12 +1114,14 @@ Item {
                     wrapMode: Text.WordWrap
                     text: pg.infoBackend === ""
                         ? I18n.tr("Detecting\u2026")
-                        : (I18n.tr("Backend    ") + (pg.infoBackend === "wf" ? "wf-recorder" : pg.infoBackend === "portal" ? I18n.tr("gpu-screen-recorder (portal)") : I18n.tr("gpu-screen-recorder"))
+                        : (I18n.tr("Backend    ") + (pg.infoBackend === "gsr" ? I18n.tr("GPU Screen Recorder") : pg.infoBackend)
+                           + (pg.infoVersion !== "" ? "  " + pg.infoVersion : "")
                            + I18n.tr("\nEncoder    ") + pg.infoEncoder
-                           + I18n.tr("\nContainer  MP4  \u00b7  ") + (pg.draft ? pg.draft.fps : "")
-                           + "fps " + (pg.draft ? String(pg.draft.framerateMode).toUpperCase() : "")
-                           + "  \u00b7  " + (pg.draft ? pg.draft.codec : "")
-                           + "  \u00b7  " + (pg.draft ? pg.draft.quality : ""))
+                           + (pg.draft
+                              ? (I18n.tr("\nContainer  ") + String(pg.draft.container).toUpperCase()
+                                 + "  \u00b7  " + pg.draft.fps + "fps " + String(pg.draft.framerateMode).toUpperCase()
+                                 + "  \u00b7  " + pg.draft.codec + "  \u00b7  " + pg.draft.quality)
+                              : ""))
                     color: Tokens.inkMuted
                     font.family: Tokens.mono
                     font.pixelSize: 12

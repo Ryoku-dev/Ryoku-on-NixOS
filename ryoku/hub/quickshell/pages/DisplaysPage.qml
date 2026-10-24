@@ -39,6 +39,7 @@ Item {
     property int tick: 0
     property string committed: "[]"
     property var profiles: []
+    property var presets: []
     property bool listed: false
     property bool listFailed: false
 
@@ -50,11 +51,13 @@ Item {
     // and re-anchored by normalize(); "Set as main" re-bases the layout onto it.
     property string mainName: ""
 
-    // which catalogue overlay is open: "" | "mode" | "mirror" | "bar" | "custom".
+    // which catalogue overlay is open: "" | "mode" | "mirror" | "custom".
     property string pickKind: ""
     // "Custom…" chip in the mode picker opens a W×H@Hz form; the typed mode
     // stages into the draft like any other, and on Apply the provider forces a
     // non-advertised timing where it can and reports it where it cannot.
+    // A named preset (one monitor's mode + scale) rides the same picker, so a
+    // custom resolution is typed once and re-picked thereafter (#298).
     readonly property string customLabel: I18n.tr("Custom\u2026")
     // timed keep-changes safety after applying a custom mode: apply() stashes the
     // prior layout here and counts revertSecs down; not kept in time -> re-apply.
@@ -129,23 +132,25 @@ Item {
         pg.tick++;
     }
 
+    // Per-display bar selection patches shell.json immediately; monitor
+    // geometry still uses the separate draft/Apply transaction.
     function globalBarStyle() {
         const value = Settings.get("barStyle");
-        return typeof value === "string" && value.length > 0 ? value : "qsbar";
+        return typeof value === "string" && value.length ? value : "qsbar";
     }
     function displayBarStyleOverride(name) {
         void pg.tick;
-        if (typeof pg.barStyleLive[name] === "string")
-            return pg.barStyleLive[name];
+        if (typeof pg.barStyleLive[name] === "string") return pg.barStyleLive[name];
         const value = Settings.get("displays.bar_style." + name);
         return typeof value === "string" ? value : "";
     }
     function displayBarStyle(name) {
-        return pg.displayBarStyleOverride(name) || pg.globalBarStyle();
+        if (pg.globalBarStyle() === "iris") return "iris";
+        const override = pg.displayBarStyleOverride(name);
+        return override && override !== "iris" ? override : pg.globalBarStyle();
     }
     function setDisplayBarStyle(name, style) {
-        if (!name)
-            return;
+        if (!name || pg.globalBarStyle() === "iris" || style === "iris") return;
         const next = Object.assign({}, pg.barStyleLive);
         next[name] = style;
         pg.barStyleLive = next;
@@ -153,52 +158,34 @@ Item {
         pg.tick++;
     }
     function barStyleOptions() {
-        const out = [{
-            "key": "",
-            "label": I18n.tr("Follow global") + " \u00b7 " + BarStyles.nameFor(pg.globalBarStyle())
-        }];
-        for (let i = 0; i < BarStyles.items.length; ++i)
-            out.push({ "key": BarStyles.items[i].id, "label": BarStyles.items[i].name });
+        const out = [{key: "", label: I18n.tr("Follow global")
+            + " · " + BarStyles.nameFor(pg.globalBarStyle())}];
+        for (const item of BarStyles.items) {
+            // iRiS owns whole-desktop reservations, so its selection is global.
+            if (item.id !== "iris")
+                out.push({key: item.id, label: item.name});
+        }
         return out;
     }
-    // Per-display Chroma modules are overrides, not a second set of global
-    // switches. null means "follow chroma.widgets.<id>"; booleans pin the module
-    // on/off only for this output.
     function chromaWidgetOverride(name, id) {
         void pg.tick;
-        const liveKey = name + "\u0000" + id;
-        const live = pg.barWidgetLive[liveKey];
-
-        if (live === null || typeof live === "boolean")
-            return live;
-
-        const stored = Settings.get(
-            "displays.bar_widgets." + name + ".chroma." + id);
-
+        const key = name + "\u0000" + id;
+        const live = pg.barWidgetLive[key];
+        if (live === null || typeof live === "boolean") return live;
+        const stored = Settings.get("displays.bar_widgets." + name + ".chroma." + id);
         return typeof stored === "boolean" ? stored : null;
     }
-
     function chromaWidgetMode(name, id) {
         const value = pg.chromaWidgetOverride(name, id);
         return value === true ? "on" : value === false ? "off" : "follow";
     }
-
     function setChromaWidgetMode(name, id, mode) {
-        if (!name)
-            return;
-
-        const value = mode === "on"
-            ? true
-            : mode === "off" ? false : null;
-
+        if (!name) return;
+        const value = mode === "on" ? true : mode === "off" ? false : null;
         const next = Object.assign({}, pg.barWidgetLive);
         next[name + "\u0000" + id] = value;
         pg.barWidgetLive = next;
-
-        Settings.patch(
-            "displays.bar_widgets." + name + ".chroma." + id,
-            value);
-
+        Settings.patch("displays.bar_widgets." + name + ".chroma." + id, value);
         pg.tick++;
     }
 
@@ -209,6 +196,14 @@ Item {
     // the nightLight capability, so a compositor with no backend shows no group.
     property bool nightOn: false
     property int nightTemp: 4000
+    // "off" | "sun" | "clock": the daemon's schedule, carried on the same
+    // frame so the switch never reads stale after a toggle from elsewhere.
+    // The clock mode warms from startAt to stopAt (minutes from midnight,
+    // wrapping midnight) on the wall clock instead of the sun.
+    property string nightSchedule: "off"
+    property int nightMargin: 60
+    property int nightStartAt: 22 * 60
+    property int nightStopAt: 7 * 60
 
     function applyNightFrame(line) {
         try {
@@ -217,12 +212,20 @@ Item {
                 pg.nightOn = f.on === true;
                 if (typeof f.temperature === "number" && f.temperature > 0)
                     pg.nightTemp = f.temperature;
+                if (f.schedule === "off" || f.schedule === "sun" || f.schedule === "clock")
+                    pg.nightSchedule = f.schedule;
+                if (typeof f.marginMin === "number" && f.marginMin >= 0)
+                    pg.nightMargin = f.marginMin;
+                if (typeof f.startAt === "number" && f.startAt >= 0 && f.startAt < 1440)
+                    pg.nightStartAt = f.startAt;
+                if (typeof f.stopAt === "number" && f.stopAt >= 0 && f.stopAt < 1440)
+                    pg.nightStopAt = f.stopAt;
             }
         } catch (e) {}
     }
 
-    function sendNight(on, temp) {
-        nlCtl.queued += "call nightlight.set " + JSON.stringify({ on: on === true, temperature: temp }) + "\n";
+    function sendNight(obj) {
+        nlCtl.queued += "call nightlight.set " + JSON.stringify(obj) + "\n";
         if (nlCtl.connected)
             nlCtl.flushQueued();
         else
@@ -234,12 +237,75 @@ Item {
     // (nightlight.set with on:false just turns off), so the row is inert when off.
     function setNight(on) {
         pg.nightOn = on === true;
-        pg.sendNight(pg.nightOn, pg.nightTemp);
+        pg.sendNight({ on: pg.nightOn, temperature: pg.nightTemp });
     }
     function setNightTemp(temp) {
         pg.nightTemp = temp;
         if (pg.nightOn)
-            pg.sendNight(true, temp);
+            pg.sendNight({ on: true, temperature: temp });
+    }
+    // The schedule rides the same call with its own fields: turning it on
+    // applies the window immediately (the daemon ticks), and a manual toggle
+    // stays honoured until the next edge. Sun and clock are exclusive: each
+    // switch turns the other off, and a time edit re-sends the window with
+    // its own mode so the daemon always knows which schedule owns it.
+    function setNightSchedule(sun) {
+        pg.nightSchedule = sun ? "sun" : "off";
+        pg.sendNight({ schedule: pg.nightSchedule, marginMin: pg.nightMargin });
+    }
+    function setNightMargin(mins) {
+        pg.nightMargin = mins;
+        if (pg.nightSchedule === "sun")
+            pg.sendNight({ schedule: "sun", marginMin: mins });
+    }
+    function setNightClock(on) {
+        pg.nightSchedule = on ? "clock" : "off";
+        pg.sendNight({ schedule: pg.nightSchedule, startAt: pg.nightStartAt, stopAt: pg.nightStopAt });
+    }
+    // A clock minute of the day (0..1439) as the row's value, and as the
+    // example line under the AM/PM segments (the row shows "10:00" beside a
+    // PM switch, so the face and the meridiem read together).
+    function hourLabel(mins) {
+        var h = Math.floor(mins / 60) % 24, m = mins % 60;
+        var h12 = h % 12; if (h12 === 0) h12 = 12;
+        return h12 + ":" + (m < 10 ? "0" : "") + m;
+    }
+    function isPm(mins) { return Math.floor(mins / 60) % 24 >= 12; }
+    // The AM/PM switch jumps the meridiem, keeping the hour face and the
+    // minute: 10:00 PM becomes 10:00 AM, the way a dial works.
+    function flipMeridiem(mins) { return (mins + 720) % 1440; }
+    // The stepper edits the hour of the day (0..23); the row shows the
+    // 12-hour face, and the segments edit the meridiem, so a jump from
+    // 11 PM to 12 AM is one segment tap rather than eleven steps.
+    function hour24(mins) { return Math.floor(mins / 60) % 24; }
+    function minuteOf(mins) { return mins % 60; }
+    function setHour(mins, h) { return h * 60 + pg.minuteOf(mins); }
+    // Parse a typed time: "9", "9:30", "9:30 pm", "21:30". -1 when nonsense.
+    function parseClock(text) {
+        var m = String(text).trim().toLowerCase().match(/^(\d{1,2})(?::(\d{1,2}))?\s*([ap])m?$/);
+        if (!m)
+            return -1;
+        var h = parseInt(m[1], 10), mm = m[2] === undefined ? 0 : parseInt(m[2], 10);
+        if (mm > 59)
+            return -1;
+        if (m[3] !== undefined) {
+            if (h < 1 || h > 12)
+                return -1;
+            h = h % 12 + (m[3] === "p" ? 12 : 0);
+        } else if (h > 23) {
+            return -1;
+        }
+        return h * 60 + mm;
+    }
+    // A time edit always persists (the daemon stores the window under the
+    // live mode), so the rows work before the schedule is switched on.
+    function setNightStart(mins) {
+        pg.nightStartAt = mins;
+        pg.sendNight({ schedule: pg.nightSchedule, startAt: mins });
+    }
+    function setNightStop(mins) {
+        pg.nightStopAt = mins;
+        pg.sendNight({ schedule: pg.nightSchedule, stopAt: mins });
     }
 
     Socket {
@@ -327,9 +393,87 @@ Item {
 
     Process { id: applyProc }
     Process { id: profileProc } // save | load | rm
+    Process { id: presetProc } // preset-save | preset-rm
 
-    function reload() { listProc.running = true; profilesProc.running = true; }
+    Process {
+        id: presetsProc
+        command: ["ryoku-hub", "outputs", "presets"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try { pg.presets = JSON.parse(this.text); } catch (e) { pg.presets = []; }
+            }
+        }
+    }
+
+    function reload() { listProc.running = true; profilesProc.running = true; presetsProc.running = true; }
     function reloadProfiles() { profilesProc.running = true; }
+    function reloadPresets() { presetsProc.running = true; }
+
+    // A preset is one monitor's mode and scale; picking it stages both into
+    // the draft (the scale re-snaps to the mode's ladder like any mode
+    // change). Saving takes the draft's staged values for the selected
+    // monitor, so "Custom…" then "save as" is one gesture apart.
+    function presetOptions() {
+        var out = [];
+        for (var i = 0; i < pg.presets.length; i++)
+            out.push({
+                "key": "preset:" + pg.presets[i].name,
+                "label": pg.presets[i].name + "  \u00b7  "
+                    + pg.presets[i].mode.replace("@", "  \u00b7  ") + "  \u00b7  "
+                    + pg.presets[i].scale + "\u00d7"
+            });
+        return out;
+    }
+    // the picker highlights a preset only when both mode and scale match,
+    // since two presets can share a mode at different scales.
+    function currentPresetLabel() {
+        if (!pg.sel)
+            return "";
+        for (var i = 0; i < pg.presets.length; i++) {
+            var p = pg.presets[i];
+            if (p.mode === pg.sel.mode && Math.abs(p.scale - pg.sel.scale) < 0.0001)
+                return presetOptions()[i].label;
+        }
+        return "";
+    }
+    // the chip's text: a matching preset wins, then an advertised mode, then
+    // the raw staged mode (a custom one is not in the advertised list and
+    // must still read as what it is, not as blank).
+    function modeLabel(m) {
+        var pl = pg.currentPresetLabel();
+        if (pl !== "")
+            return pl;
+        var ml = pg.labelForKey(pg.modeOptions(m), m.mode);
+        return ml !== "" ? ml : m.mode;
+    }
+    function applyPreset(name) {
+        for (var i = 0; i < pg.presets.length; i++) {
+            var p = pg.presets[i];
+            if (p.name !== name)
+                continue;
+            pg.setMode(pg.selected, p.mode);
+            var l = pg.scaleLadder(pg.draft[pg.selected]);
+            pg.draft[pg.selected].scale = l[pg.nearestScaleIdx(l, p.scale)];
+            pg.tick++;
+            return;
+        }
+    }
+    function savePreset(name) {
+        if (name.trim() === "" || !pg.sel)
+            return;
+        presetProc.command = ["ryoku-hub", "outputs", "preset-save", name.trim(),
+            pg.sel.mode, "" + pg.sel.scale];
+        presetProc.running = true;
+        presetNameField.text = "";
+        presetRefresh.start();
+    }
+    function deletePreset(name) {
+        presetProc.command = ["ryoku-hub", "outputs", "preset-rm", name];
+        presetProc.running = true;
+        presetRefresh.start();
+    }
+    Timer { id: presetRefresh; interval: 300; onTriggered: pg.reloadPresets() }
 
     // ── model helpers ───────────────────────────────────────────────────────
     function parseMode(s) {
@@ -1102,17 +1246,19 @@ Item {
                         anchors.left: parent.left; anchors.right: parent.right
                         divider: true
                         label: I18n.tr("BAR STYLE")
-                        desc: I18n.tr("Choose a style for this display, or follow the global Bar Studio choice.")
+                        desc: pg.globalBarStyle() === "iris"
+                            ? I18n.tr("iRiS owns the entire desktop. Change the global style first.")
+                            : I18n.tr("Choose a bar for this display or follow Bar Studio.")
                         source: "shell.json"
+                        enabled: pg.globalBarStyle() !== "iris"
                         footH: 32
                         PickBar {
                             anchors.left: parent.left; anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            value: {
-                                void pg.tick;
-                                if (!pg.sel) return "";
-                                return pg.labelForKey(pg.barStyleOptions(), pg.displayBarStyleOverride(pg.sel.name));
-                            }
+                            value: { void pg.tick; return pg.sel
+                                ? pg.labelForKey(pg.barStyleOptions(),
+                                    pg.globalBarStyle() === "iris" ? "" : pg.displayBarStyleOverride(pg.sel.name))
+                                : ""; }
                             count: pg.barStyleOptions().length
                             onOpened: pg.openPick("bar")
                         }
@@ -1125,8 +1271,8 @@ Item {
                         PickBar {
                             anchors.left: parent.left; anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            value: { void pg.tick; return pg.sel ? pg.labelForKey(pg.modeOptions(pg.sel), pg.sel.mode) : ""; }
-                            count: { void pg.tick; return pg.sel ? pg.modeOptions(pg.sel).length : 0; }
+                            value: { void pg.tick; return pg.sel ? pg.modeLabel(pg.sel) : ""; }
+                            count: { void pg.tick; return pg.sel ? pg.presetOptions().length + pg.modeOptions(pg.sel).length : 0; }
                             onOpened: pg.openPick("mode")
                         }
                     }
@@ -1283,7 +1429,6 @@ Item {
                     width: ctlCol.width
                     visible: !!pg.sel && pg.displayBarStyle(pg.sel.name) === "chroma"
                     title: I18n.tr("CHROMA MODULES")
-
                     Repeater {
                         model: BarStyles.chromaWidgets
                         delegate: SettingRow {
@@ -1296,39 +1441,22 @@ Item {
                             label: I18n.tr(modelData.label)
                             desc: I18n.tr(modelData.desc)
                             source: "shell.json"
-
                             Seg {
                                 anchors.left: parent.left
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-
-                                options: [
-                                    I18n.tr("Follow global"),
-                                    I18n.tr("On"),
-                                    I18n.tr("Off")
-                                ]
-
+                                options: [I18n.tr("Follow global"), I18n.tr("On"), I18n.tr("Off")]
                                 current: {
                                     const mode = pg.sel
-                                        ? pg.chromaWidgetMode(
-                                            pg.sel.name, modelData.id)
-                                        : "follow";
-
-                                    return mode === "on"
-                                        ? I18n.tr("On")
-                                        : mode === "off"
-                                            ? I18n.tr("Off")
-                                            : I18n.tr("Follow global");
+                                        ? pg.chromaWidgetMode(pg.sel.name, modelData.id) : "follow";
+                                    return mode === "on" ? I18n.tr("On")
+                                        : mode === "off" ? I18n.tr("Off")
+                                        : I18n.tr("Follow global");
                                 }
-
                                 onChose: label => pg.setChromaWidgetMode(
-                                    pg.sel ? pg.sel.name : "",
-                                    modelData.id,
-                                    label === I18n.tr("On")
-                                        ? "on"
-                                        : label === I18n.tr("Off")
-                                            ? "off"
-                                            : "follow")
+                                    pg.sel ? pg.sel.name : "", modelData.id,
+                                    label === I18n.tr("On") ? "on"
+                                        : label === I18n.tr("Off") ? "off" : "follow")
                             }
                         }
                     }
@@ -1519,6 +1647,115 @@ Item {
                     Item { width: parent.width; height: Tokens.s3 }
                 }
 
+                // Resolution presets: one monitor's mode and scale under a
+                // name. Picking one stages it into the draft (Apply still
+                // commits), so a hand-typed custom resolution is typed once
+                // and re-picked from the Resolution list thereafter.
+                SettingCard {
+                    width: ctlCol.width
+                    title: I18n.tr("RESOLUTION PRESETS")
+
+                    Text {
+                        width: parent.width
+                        leftPadding: Tokens.s4; rightPadding: Tokens.s4
+                        topPadding: Tokens.s3; bottomPadding: Tokens.s1
+                        wrapMode: Text.WordWrap
+                        text: I18n.tr("Save the selected display's resolution and scale under a name, then pick it from the Resolution list.")
+                        color: Tokens.inkMuted; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
+                    }
+
+                    Item {
+                        width: parent.width
+                        height: 32 + Tokens.s2
+                        Btn {
+                            id: presetSaveBtn
+                            anchors.right: parent.right; anchors.rightMargin: Tokens.s4
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: I18n.tr("SAVE")
+                            onAct: pg.savePreset(presetNameField.text)
+                        }
+                        Field {
+                            id: presetNameField
+                            anchors.left: parent.left; anchors.leftMargin: Tokens.s4
+                            anchors.right: presetSaveBtn.left; anchors.rightMargin: Tokens.s2
+                            anchors.verticalCenter: parent.verticalCenter
+                            placeholder: I18n.tr("Preset name\u2026")
+                            onCommitted: (v) => pg.savePreset(v)
+                        }
+                    }
+
+                    Column {
+                        width: parent.width - Tokens.s4 * 2
+                        x: Tokens.s4
+                        spacing: Tokens.s2
+
+                        Repeater {
+                            model: pg.presets
+
+                            delegate: Item {
+                                id: pres
+                                required property var modelData
+                                required property int index
+                                width: parent.width
+                                height: Tokens.rowH
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    anchors.topMargin: 1; anchors.bottomMargin: 1
+                                    radius: Tokens.radius
+                                    color: preshov.hovered ? Tokens.tint5 : "transparent"
+                                    Behavior on color { ColorAnimation { duration: Tokens.snap } }
+                                }
+                                Rectangle {
+                                    anchors { left: parent.left; right: parent.right; top: parent.top }
+                                    anchors.leftMargin: Tokens.s4; anchors.rightMargin: Tokens.s4
+                                    height: 1
+                                    color: Tokens.lineSoft
+                                    visible: pres.index > 0
+                                }
+
+                                HoverHandler { id: preshov }
+
+                                Row {
+                                    anchors.left: parent.left; anchors.leftMargin: Tokens.s4
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: Tokens.s3
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: pres.modelData.name
+                                        color: Tokens.ink; font.family: Tokens.ui
+                                        font.pixelSize: Tokens.fSmall; font.weight: Font.Medium
+                                    }
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: pres.modelData.mode + "  \u00b7  " + pres.modelData.scale + "\u00d7"
+                                        color: Tokens.inkMuted; font.family: Tokens.mono
+                                        font.pixelSize: Tokens.fTiny
+                                    }
+                                }
+
+                                Row {
+                                    anchors.right: parent.right; anchors.rightMargin: Tokens.s3
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: Tokens.s2
+                                    Btn {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: I18n.tr("PICK")
+                                        onAct: pg.applyPreset(pres.modelData.name)
+                                    }
+                                    IconBtn {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        glyph: "\u2212"
+                                        onAct: pg.deletePreset(pres.modelData.name)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Item { width: parent.width; height: Tokens.s3 }
+                }
+
                 // Night light: a display-wide comfort setting, not per-monitor,
                 // so it sits in its own card. On/off and temperature ride the
                 // daemon `nightlight` topic; gated on the capability so a
@@ -1551,6 +1788,112 @@ Item {
                             from: 1000; to: 6500; stepBy: 100
                             value: pg.nightTemp
                             onModified: (v) => pg.setNightTemp(v)
+                        }
+                    }
+                    SettingRow {
+                        anchors.left: parent.left; anchors.right: parent.right
+                        divider: true
+                        label: I18n.tr("FOLLOW THE SUN")
+                        desc: I18n.tr("Warm the screen from sunset to sunrise, using your real sun times.")
+                        controlWidth: 54
+                        Sw {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            on: pg.nightSchedule === "sun"
+                            onToggled: (v) => pg.setNightSchedule(v)
+                        }
+                    }
+                    // The clock schedule: fixed bed and wake hours on the wall
+                    // clock. Exclusive with FOLLOW THE SUN (each switch turns
+                    // the other off), and its rows stay live even while off so
+                    // the window can be set before it is armed.
+                    SettingRow {
+                        anchors.left: parent.left; anchors.right: parent.right
+                        divider: true
+                        label: I18n.tr("AT THE CLOCK")
+                        desc: I18n.tr("Warm the screen between the hours you choose, every night.")
+                        controlWidth: 54
+                        Sw {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            on: pg.nightSchedule === "clock"
+                            onToggled: (v) => pg.setNightClock(v)
+                        }
+                    }
+                    SettingRow {
+                        anchors.left: parent.left; anchors.right: parent.right
+                        divider: true
+                        label: I18n.tr("START AT")
+                        value: pg.hourLabel(pg.nightStartAt)
+                        editableValue: true
+                        controlWidth: 174
+                        onValueCommitted: (text) => {
+                            var m = pg.parseClock(text);
+                            if (m >= 0) pg.setNightStart(m);
+                        }
+                        Row {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            spacing: Tokens.s2
+                            Seg {
+                                anchors.verticalCenter: parent.verticalCenter
+                                options: ["AM", "PM"]
+                                current: pg.isPm(pg.nightStartAt) ? "PM" : "AM"
+                                onChose: (k) => {
+                                    var pm = k === "PM";
+                                    if (pm !== pg.isPm(pg.nightStartAt))
+                                        pg.setNightStart(pg.flipMeridiem(pg.nightStartAt));
+                                }
+                            }
+                            Step {
+                                anchors.verticalCenter: parent.verticalCenter
+                                from: 0; to: 23
+                                value: pg.hour24(pg.nightStartAt)
+                                onModified: (h) => pg.setNightStart(pg.setHour(pg.nightStartAt, h))
+                            }
+                        }
+                    }
+                    SettingRow {
+                        anchors.left: parent.left; anchors.right: parent.right
+                        divider: true
+                        label: I18n.tr("OFF AT")
+                        value: pg.hourLabel(pg.nightStopAt)
+                        editableValue: true
+                        controlWidth: 174
+                        onValueCommitted: (text) => {
+                            var m = pg.parseClock(text);
+                            if (m >= 0) pg.setNightStop(m);
+                        }
+                        Row {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            spacing: Tokens.s2
+                            Seg {
+                                anchors.verticalCenter: parent.verticalCenter
+                                options: ["AM", "PM"]
+                                current: pg.isPm(pg.nightStopAt) ? "PM" : "AM"
+                                onChose: (k) => {
+                                    var pm = k === "PM";
+                                    if (pm !== pg.isPm(pg.nightStopAt))
+                                        pg.setNightStop(pg.flipMeridiem(pg.nightStopAt));
+                                }
+                            }
+                            Step {
+                                anchors.verticalCenter: parent.verticalCenter
+                                from: 0; to: 23
+                                value: pg.hour24(pg.nightStopAt)
+                                onModified: (h) => pg.setNightStop(pg.setHour(pg.nightStopAt, h))
+                            }
+                        }
+                    }
+                    SettingRow {
+                        anchors.left: parent.left; anchors.right: parent.right
+                        divider: true
+                        enabled: pg.nightSchedule === "sun"
+                        label: I18n.tr("EDGE MARGIN")
+                        value: pg.nightMargin + " min"
+                        controlWidth: 58
+                        Step {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            from: 0; to: 180; stepBy: 15
+                            value: pg.nightMargin
+                            onModified: (v) => pg.setNightMargin(v)
                         }
                     }
                 }
@@ -1620,11 +1963,15 @@ Item {
             id: picker
             anchors.centerIn: parent
             title: pg.pickKind === "mode" ? I18n.tr("Resolution")
-                : pg.pickKind === "bar" ? I18n.tr("Bar style")
-                : I18n.tr("Mirror of")
+                : pg.pickKind === "bar" ? I18n.tr("Bar style") : I18n.tr("Mirror of")
             options: {
-                if (pg.pickKind === "mode")
-                    return pg.sel ? pg.modeOptions(pg.sel).map(function (o) { return o.label; }).concat([pg.customLabel]) : [];
+                if (pg.pickKind === "mode") {
+                    if (!pg.sel)
+                        return [];
+                    return pg.presetOptions().map(function (o) { return o.label; })
+                        .concat(pg.modeOptions(pg.sel).map(function (o) { return o.label; }))
+                        .concat([pg.customLabel]);
+                }
                 if (pg.pickKind === "bar")
                     return pg.barStyleOptions().map(function (o) { return o.label; });
                 return pg.mirrorOptions().map(function (o) { return o.label; });
@@ -1632,8 +1979,12 @@ Item {
             current: {
                 if (!pg.sel)
                     return "";
-                if (pg.pickKind === "mode")
+                if (pg.pickKind === "mode") {
+                    var pl = pg.currentPresetLabel();
+                    if (pl !== "")
+                        return pl;
                     return pg.labelForKey(pg.modeOptions(pg.sel), pg.sel.mode);
+                }
                 if (pg.pickKind === "bar")
                     return pg.labelForKey(pg.barStyleOptions(), pg.displayBarStyleOverride(pg.sel.name));
                 return pg.labelForKey(pg.mirrorOptions(), pg.sel.mirror);
@@ -1641,6 +1992,12 @@ Item {
             onChose: (label) => {
                 if (pg.pickKind === "mode") {
                     if (label === pg.customLabel) { pg.pickKind = "custom"; return; }
+                    var pk = pg.keyForLabel(pg.presetOptions(), label);
+                    if (pk) {
+                        pg.applyPreset(pk.slice("preset:".length));
+                        pg.pickKind = "";
+                        return;
+                    }
                     var mk = pg.keyForLabel(pg.modeOptions(pg.sel), label);
                     if (mk)
                         pg.setMode(pg.selected, mk);

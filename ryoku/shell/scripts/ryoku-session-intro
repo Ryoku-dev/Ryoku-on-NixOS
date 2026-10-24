@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# The session intro: the default rice, welcome tour and first-boot keyboard
+# hint. Every provider's autostart calls this instead of carrying the logic
+# inline, so the behaviour stays identical everywhere:
+#
+#   welcome   once per tour version: a fresh or older-version box sees it, a
+#             box already on this version is left alone. The version is written
+#             only after qs actually ran the tour, so a first-boot launch
+#             failure retries next login, and the flock guards a double fire.
+#             Bump the version when the tour changes materially (beta 19 = 19).
+#   default   an installer marker names the packaged rice for a new account.
+#             The marker survives unavailable services or a failed apply, so
+#             another login can finish without affecting existing accounts.
+#   keys-hint shown exactly once ever: the marker is written before the async
+#             launch, so a reboot before the toast is dismissed cannot bring
+#             it back. It rides the overlay layer above the tour and stays
+#             until its X is clicked.
+#
+# qs surfaces launched here bypass ryoku-shell's daemon, which is what injects
+# the shared QML module path into the configs it supervises, so the env is
+# spelled out.
+set -uo pipefail
+
+state="${XDG_STATE_HOME:-$HOME/.local/state}/ryoku"
+qml_env=(QML_IMPORT_PATH="$HOME/.local/lib/qt6/qml" QML2_IMPORT_PATH="$HOME/.local/lib/qt6/qml")
+welcome_version=19
+
+log_intro() {
+	logger -t ryoku-session-intro -- "$*"
+}
+
+if command -v ryoku-host >/dev/null 2>&1; then
+	ryoku-host svc reconcile --user ||
+		log_intro "service activation reconcile failed; continuing session startup"
+fi
+
+consume_default_rice() {
+	local marker="$state/default-rice-pending" slug="" attempt ready=false
+	[[ -r $marker ]] || return 0
+	IFS= read -r slug <"$marker" || true
+	if [[ -z $slug ]]; then
+		log_intro "default rice marker is empty; keeping it for the next login"
+		return 1
+	fi
+
+	for ((attempt = 0; attempt < 60; attempt++)); do
+		if ryoku-shell ping >/dev/null 2>&1 &&
+			ryogami wallpaper repaint >/dev/null 2>&1; then
+			ready=true
+			break
+		fi
+		sleep 1
+	done
+	if [[ $ready != true ]]; then
+		log_intro "default rice '$slug' is waiting for the desktop services; keeping the marker"
+		return 1
+	fi
+	if ! ryoku-hub rice apply "$slug"; then
+		log_intro "could not apply default rice '$slug'; keeping the marker"
+		return 1
+	fi
+	if [[ -z $(jq -r '.assets.wallpaper // empty' \
+		"${XDG_CONFIG_HOME:-$HOME/.config}/ryoku/rices/$slug/rice.json" 2>/dev/null) ]] &&
+		! ryogami wallpaper random; then
+		log_intro "default rice '$slug' applied but no seeded wallpaper could be selected"
+	fi
+	if ! rm -f -- "$marker"; then
+		log_intro "default rice '$slug' applied but its marker could not be removed"
+		return 1
+	fi
+	return 0
+}
+
+consume_rashin_setup() {
+	local marker="$state/rashin-setup-pending"
+	[[ -e $marker ]] || return 0
+	if ! command -v ryoku-rashin >/dev/null 2>&1; then
+		log_intro "Rashin setup is pending but ryoku-rashin is not installed; keeping the marker"
+		return 1
+	fi
+	if ! command -v nmcli >/dev/null 2>&1 ||
+		[[ $(LC_ALL=C nmcli -t -f CONNECTIVITY general 2>/dev/null) != full ]]; then
+		log_intro "Rashin setup is waiting for an internet connection; keeping the marker"
+		return 1
+	fi
+	if ! flock -n "${XDG_RUNTIME_DIR:-/tmp}/ryoku-rashin-first-login.lock" \
+		kitty --detach --class ryoku-rashin-setup -e ryoku-rashin setup; then
+		log_intro "could not open Rashin Hermes setup; keeping the marker"
+		return 1
+	fi
+	if ! rm -f -- "$marker"; then
+		log_intro "Rashin Hermes setup opened but its marker could not be removed"
+		return 1
+	fi
+	log_intro "opened Rashin Hermes setup for the first login"
+}
+
+case "${1:-}" in
+welcome)
+	consume_default_rice || true
+	seen=0
+	if [[ -r $state/welcome-seen ]]; then
+		v=$(head -n1 "$state/welcome-seen")
+		[[ $v =~ ^[0-9]+$ ]] && seen=$v
+	fi
+	if (( seen < welcome_version )); then
+		flock -n "${XDG_RUNTIME_DIR:-/tmp}/ryoku-welcome.lock" \
+			env "${qml_env[@]}" qs -c welcome &&
+			mkdir -p "$state" && printf '%s' "$welcome_version" >"$state/welcome-seen"
+	fi
+	consume_rashin_setup || true
+	;;
+keys-hint)
+	[[ -e $state/keys-hint-seen ]] && exit 0
+	mkdir -p "$state" && printf 'seen' >"$state/keys-hint-seen"
+	flock -n "${XDG_RUNTIME_DIR:-/tmp}/ryoku-keys-hint.lock" \
+		env "${qml_env[@]}" qs -c keys-hint &
+	;;
+*)
+	echo "usage: ryoku-session-intro {welcome|keys-hint}" >&2
+	exit 2
+	;;
+esac

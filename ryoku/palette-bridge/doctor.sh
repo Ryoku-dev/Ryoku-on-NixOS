@@ -15,7 +15,7 @@ fail() {
   failed=1
 }
 
-for command_name in curl systemctl; do
+for command_name in curl ryoku-host; do
   if ! command -v "$command_name" >/dev/null; then
     fail "required command is missing: $command_name"
   fi
@@ -44,9 +44,9 @@ else
   printf 'WARN jq is missing; palette validation skipped\n'
 fi
 
-if systemctl --user is-active --quiet ryoku-palette-bridge.service; then
+if ryoku-host svc --user is-active ryoku-palette-bridge.service; then
   ok "canonical service is active"
-elif systemctl --user is-active --quiet ryoku-spicetify-palette.service; then
+elif ryoku-host svc --user is-active ryoku-spicetify-palette.service; then
   printf 'WARN legacy service is active; rerun install.sh to migrate it\n'
 else
   fail "palette bridge service is inactive"

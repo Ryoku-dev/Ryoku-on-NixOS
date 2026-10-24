@@ -23,7 +23,7 @@ const sampleFF = `{
   "modules": [
     "break",
     { "type": "title", "format": "{user-name}@{host-name}" },
-    { "type": "custom", "format": "\u001b[38;2;226;52;42m■\u001b[0m \u001b[38;2;143;135;112mRYOKU \u00b7 \u529b \u00b7 a hand-built Arch desktop\u001b[0m" },
+    { "type": "custom", "format": "\u001b[38;2;226;52;42m■\u001b[0m \u001b[38;2;143;135;112mRYOKU \u00b7 \u529b \u00b7 a hand-built {$RYOKU_BASE_OS} desktop\u001b[0m" },
     "break",
     { "type": "custom", "format": "\u001b[38;2;226;52;42m\u2500\u2500\u001b[0m \u001b[1;38;2;243;237;225mVITALS\u001b[0m \u001b[38;2;58;46;36m\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u001b[0m" },
     { "type": "cpu", "key": "CPU" },
@@ -37,6 +37,7 @@ func loadSample(t *testing.T) ffModel {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("RYOKU_BASE_OS", "Void")
 	if err := os.MkdirAll(filepath.Join(dir, "fastfetch"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func TestLoadFastfetchModel(t *testing.T) {
 	if m.Accent != "226;52;42" {
 		t.Errorf("accent = %q, want 226;52;42", m.Accent)
 	}
-	if r := rowByKind(m.Rows, "tagline"); r == nil || r.Text != "RYOKU \u00b7 \u529b \u00b7 a hand-built Arch desktop" {
+	if r := rowByKind(m.Rows, "tagline"); r == nil || r.Text != "RYOKU \u00b7 \u529b \u00b7 a hand-built Void desktop" {
 		t.Errorf("tagline text = %+v", r)
 	}
 	if r := rowByKind(m.Rows, "header"); r == nil || r.Text != "VITALS" {
@@ -112,7 +113,7 @@ func TestBuildRoundTripStable(t *testing.T) {
 	if len(m2.Rows) != len(m.Rows) {
 		t.Fatalf("row count changed: %d -> %d", len(m.Rows), len(m2.Rows))
 	}
-	if rowByKind(m2.Rows, "tagline").Text != "RYOKU \u00b7 \u529b \u00b7 a hand-built Arch desktop" {
+	if rowByKind(m2.Rows, "tagline").Text != "RYOKU \u00b7 \u529b \u00b7 a hand-built Void desktop" {
 		t.Errorf("tagline drifted on round-trip")
 	}
 	if rowByKind(m2.Rows, "header").Text != "VITALS" {
@@ -128,11 +129,30 @@ func TestBuildRoundTripStable(t *testing.T) {
 	}
 }
 
-func TestBuildTaglineFormatMatchesShipped(t *testing.T) {
-	got := ffTaglineFormat("226;52;42", "RYOKU \u00b7 \u529b \u00b7 a hand-built Arch desktop")
-	want := "\x1b[38;2;226;52;42m\u25a0\x1b[0m \x1b[38;2;143;135;112mRYOKU \u00b7 \u529b \u00b7 a hand-built Arch desktop\x1b[0m"
-	if got != want {
-		t.Errorf("tagline format:\n got %q\nwant %q", got, want)
+func TestUnchangedTaglinePreservesBaseOSToken(t *testing.T) {
+	m := loadSample(t)
+	b, err := buildFastfetch(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), ffBaseOSToken) {
+		t.Fatalf("unchanged tagline lost %q:\n%s", ffBaseOSToken, b)
+	}
+
+	tagline := rowByKind(m.Rows, "tagline")
+	if tagline == nil {
+		t.Fatal("tagline row missing")
+	}
+	tagline.TextEdited = true
+	b, err = buildFastfetch(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), ffBaseOSToken) {
+		t.Fatalf("edited tagline retained %q:\n%s", ffBaseOSToken, b)
+	}
+	if !strings.Contains(string(b), "a hand-built Void desktop") {
+		t.Fatalf("edited tagline did not save displayed text:\n%s", b)
 	}
 }
 
@@ -307,5 +327,275 @@ func TestDitherLogoBakesTwoColourThenIsIdempotent(t *testing.T) {
 	}
 	if restored != src {
 		t.Fatalf("dither off = %q, want the original %q", restored, src)
+	}
+}
+
+func TestWallpaperPaletteBuildsEffectiveConfigWithoutRewritingUserConfig(t *testing.T) {
+	model := loadSample(t)
+	configPath := fastfetchConfigPath()
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	palette := `{
+  "keys": "1;2;3",
+  "title": "4;5;6",
+  "muted": "7;8;9",
+  "section": "10;11;12",
+  "rule": "13;14;15",
+  "percent": { "green": "16;17;18", "yellow": "19;20;21", "red": "22;23;24" }
+}`
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(palette), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model.Palette = ffPaletteWallpaper
+	built, err := buildFastfetchEffective(model)
+	if err != nil {
+		t.Fatalf("buildFastfetchEffective: %v", err)
+	}
+	text := string(built)
+	for _, want := range []string{
+		"38;2;1;2;3", "38;2;4;5;6", "38;2;7;8;9", "38;2;10;11;12",
+		"38;2;13;14;15", "38;2;16;17;18", "38;2;19;20;21", "38;2;22;23;24",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("effective config missing %q:\n%s", want, text)
+		}
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("building the effective config rewrote config.jsonc")
+	}
+	fixed, err := buildFastfetch(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(fixed), "38;2;1;2;3") {
+		t.Fatal("generated wallpaper colours were serialized into the user config")
+	}
+}
+
+func TestWriteEffectiveFastfetchUsesPersistedPaletteMode(t *testing.T) {
+	loadSample(t)
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(`{
+  "keys":"31;32;33","title":"34;35;36","muted":"37;38;39",
+  "section":"40;41;42","rule":"43;44;45",
+  "percent":{"green":"46;47;48","yellow":"49;50;51","red":"52;53;54"}
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := setFastfetchPaletteMode(ffPaletteWallpaper); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "effective.json")
+	if err := writeEffectiveFastfetch(out); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "38;2;31;32;33") {
+		t.Fatalf("effective config did not use persisted wallpaper mode:\n%s", b)
+	}
+}
+
+// A rice's config colours its separators and title text through the named
+// display.color.title / display.color.separator slots, which fastfetch honours
+// directly. The wallpaper pass must recolour the ones present and leave a config
+// without them untouched.
+func TestApplyPaletteToDisplayRecoloursNamedSlots(t *testing.T) {
+	var palette ffPalette
+	palette.Keys = "1;2;3"
+	palette.Title = "4;5;6"
+	palette.Muted = "7;8;9"
+	palette.Percent.Green = "16;17;18"
+	palette.Percent.Yellow = "19;20;21"
+	palette.Percent.Red = "22;23;24"
+
+	in := json.RawMessage(`{"color":{"keys":"38;2;226;52;42","title":"#f3ede1","separator":"#8f8770"},"key":{"width":9}}`)
+	got := string(ffApplyPaletteToDisplay(in, palette))
+	for _, want := range []string{
+		`"keys":"38;2;1;2;3"`, `"title":"38;2;4;5;6"`, `"separator":"38;2;7;8;9"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("recoloured display missing %s:\n%s", want, got)
+		}
+	}
+
+	// A config with no named title/separator slots keeps only keys recoloured;
+	// the pass must not invent slots it does not have.
+	bare := json.RawMessage(`{"color":{"keys":"38;2;226;52;42"}}`)
+	gotBare := string(ffApplyPaletteToDisplay(bare, palette))
+	if strings.Contains(gotBare, `"title"`) || strings.Contains(gotBare, `"separator"`) {
+		t.Errorf("bare display gained slots it did not have:\n%s", gotBare)
+	}
+}
+
+func TestFastfetchPaletteRejectsOutOfRangeColours(t *testing.T) {
+	loadSample(t)
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(`{
+  "keys":"256;0;0","title":"1;2;3","muted":"1;2;3",
+  "section":"1;2;3","rule":"1;2;3",
+  "percent":{"green":"1;2;3","yellow":"1;2;3","red":"1;2;3"}
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadFastfetchPalette(); err == nil {
+		t.Fatal("out-of-range palette colour was accepted")
+	}
+}
+
+// The readout follows the wallpaper by default: with no state file pinning a
+// mode, a valid matugen palette makes the mode wallpaper. A box that has never
+// rendered a palette (first boot) falls back to the fixed brand palette.
+func TestFastfetchPaletteDefaultsToWallpaperWhenStateAbsent(t *testing.T) {
+	loadSample(t)
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(`{
+  "keys":"1;2;3","title":"4;5;6","muted":"7;8;9",
+  "section":"10;11;12","rule":"13;14;15",
+  "percent":{"green":"16;17;18","yellow":"19;20;21","red":"22;23;24"}
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFastfetchPaletteMode(); got != ffPaletteWallpaper {
+		t.Fatalf("default palette mode = %q, want %q", got, ffPaletteWallpaper)
+	}
+}
+
+func TestFastfetchPaletteFallsBackToFixedWithoutPalette(t *testing.T) {
+	loadSample(t)
+	if got := readFastfetchPaletteMode(); got != ffPaletteFixed {
+		t.Fatalf("palette mode with no palette file = %q, want %q", got, ffPaletteFixed)
+	}
+}
+
+// End to end: a fresh box (no state file, palette rendered) gets a wallpaper-tinted
+// effective config, so the terminal readout matches the theme without the user
+// ever choosing a mode.
+func TestWriteEffectiveFastfetchDefaultsToWallpaperWithoutStateFile(t *testing.T) {
+	loadSample(t)
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(`{
+  "keys":"31;32;33","title":"34;35;36","muted":"37;38;39",
+  "section":"40;41;42","rule":"43;44;45",
+  "percent":{"green":"46;47;48","yellow":"49;50;51","red":"52;53;54"}
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "effective.json")
+	if err := writeEffectiveFastfetch(out); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "38;2;31;32;33") {
+		t.Fatalf("default effective config did not follow the wallpaper palette:\n%s", b)
+	}
+	if strings.Contains(string(b), "38;2;226;52;42") {
+		t.Fatalf("default effective config still carries the fixed brand red:\n%s", b)
+	}
+}
+
+// In fixed mode the effective config is the user's own file byte-for-byte, so a
+// retint never rewrites their layout or comments.
+func TestWriteEffectiveFastfetchFixedCopiesConfigVerbatim(t *testing.T) {
+	loadSample(t)
+	out := filepath.Join(t.TempDir(), "effective.json")
+	if err := writeEffectiveFastfetch(out); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != sampleFF {
+		t.Fatalf("fixed mode rewrote the config instead of copying it verbatim:\n%s", b)
+	}
+}
+
+// A mode transition must rebuild the cache even though the config file itself
+// never changes. The bug this pins: a state file that is *removed* (returning to
+// the wallpaper default) has no mtime to compare, so an mtime-only freshness
+// check served a stale fixed-mode cache. The resolved-mode sidecar makes the
+// unset visible.
+func TestWriteEffectiveFastfetchRebuildsOnModeTransition(t *testing.T) {
+	loadSample(t)
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(`{
+  "keys":"31;32;33","title":"34;35;36","muted":"37;38;39",
+  "section":"40;41;42","rule":"43;44;45",
+  "percent":{"green":"46;47;48","yellow":"49;50;51","red":"52;53;54"}
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "effective.json")
+
+	// Pin a fixed palette: the cache copies the brand-red config verbatim.
+	if err := setFastfetchPaletteMode(ffPaletteFixed); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeEffectiveFastfetch(out); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "38;2;226;52;42") {
+		t.Fatalf("fixed cache lost the brand red:\n%s", b)
+	}
+
+	// Remove the pin (back to the wallpaper default) without touching the config.
+	// The cache must rebuild tinted, not serve the stale fixed copy.
+	if err := os.Remove(fastfetchPaletteStatePath()); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeEffectiveFastfetch(out); err != nil {
+		t.Fatal(err)
+	}
+	b, err = os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "38;2;31;32;33") {
+		t.Fatalf("cache did not rebuild after the mode was unset:\n%s", b)
+	}
+	if strings.Contains(string(b), "38;2;226;52;42") {
+		t.Fatalf("cache kept stale fixed-mode brand red after unset:\n%s", b)
+	}
+}
+
+// A rice lays its readout verbatim, so a tagline captured with a distribution
+// baked in told every Void box it was "a hand-built Arch desktop".
+func TestShippedRiceTaglinesNameTheRunningDistribution(t *testing.T) {
+	readouts, err := filepath.Glob(filepath.Join("..", "..", "assets", "rices", "*", "fastfetch.jsonc"))
+	if err != nil || len(readouts) == 0 {
+		t.Fatalf("no shipped rice readouts found: %v", err)
+	}
+	for _, readout := range readouts {
+		data, err := os.ReadFile(readout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", dir)
+		t.Setenv("RYOKU_BASE_OS", "Void")
+		if err := os.MkdirAll(filepath.Join(dir, "fastfetch"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "fastfetch", "config.jsonc"), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		m, err := loadFastfetch()
+		if err != nil {
+			t.Fatalf("%s: %v", readout, err)
+		}
+		if r := rowByKind(m.Rows, "tagline"); r == nil || !strings.Contains(r.Text, "a hand-built Void desktop") {
+			t.Errorf("%s tagline on Void = %+v", readout, r)
+		}
 	}
 }

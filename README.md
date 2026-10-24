@@ -10,7 +10,7 @@
 Ryoku on NixOS is the official NixOS port of [**Ryoku**](https://github.com/Ryoku-dev/ryoku),
 a complete Wayland desktop with deep customisation, integrated applications and the best and most expansive ecosystem to ever be made on a shell.
 
-[**Website**](https://aethctl.github.io/Ryoku-on-NixOS/) · [**Install on NixOS**](#install) · [**Installer ISO**](https://github.com/aethctl/Ryoku-on-NixOS/releases) · [**Discord**](https://discord.gg/xvr69NRsmt) · [**Documentation**](docs/README.md) · [**Upstream Ryoku**](https://github.com/Ryoku-dev/ryoku)
+[**Website**](https://aethctl.github.io/Ryoku-on-NixOS/) · [**Install on NixOS**](#install) · [**Installer ISO**](https://github.com/Ryoku-dev/Ryoku-on-NixOS/releases) · [**Discord**](https://discord.gg/xvr69NRsmt) · [**Documentation**](docs/README.md) · [**Upstream Ryoku**](https://github.com/Ryoku-dev/ryoku)
 
 <br />
 
@@ -207,7 +207,7 @@ There are two installation paths.
 For an existing **flake-based NixOS system**, start the guided installer as your normal user
 
 ```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#install
+nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install
 ```
 
 Choose your compositor, browser, shell and optional apps, then review the generated changes before installation begins.
@@ -229,7 +229,7 @@ For custom flake paths, multi-host setups and manual integration, see the
 The bootable Ryoku on NixOS installer ISO is currently in **pre-release testing** ahead of v1.
 It is intended to become the primary path for fresh installations.
 
-[**View installer ISO releases →**](https://github.com/aethctl/Ryoku-on-NixOS/releases)
+[**View installer ISO releases →**](https://github.com/Ryoku-dev/Ryoku-on-NixOS/releases)
 
 > **Testing warning:** installation **will erase the selected disk**. Back up anything important before using a pre-release ISO.
 

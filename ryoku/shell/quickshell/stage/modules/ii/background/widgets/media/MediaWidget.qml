@@ -1,0 +1,423 @@
+import Quickshell
+import Quickshell.Io
+import Quickshell.Services.Mpris
+import QtQuick
+import QtQuick.Effects
+import QtQuick.Layouts
+import stage
+import stage.services
+import Qt5Compat.GraphicalEffects
+import stage.modules.common
+import stage.modules.common.models
+import stage.modules.common.functions
+import stage.modules.common.widgets
+import stage.modules.common.widgets.widgetCanvas
+import stage.modules.ii.background.widgets
+AbstractBackgroundWidget {
+    id: root
+
+    signal requestReset
+
+    configEntryName: "media"
+
+    visibleWhenLocked: root.lockBehavior === "keep" || root.lockBehavior === "custom" || root.lockBehavior === "center" || root.lockBehavior === "lockOnly" || (Config.options.lock.centerWidget === "media")
+
+    property real lastStaticWidth: 240
+    property real lastStaticHeight: 240
+
+    implicitHeight: (typeof bgRoot !== 'undefined' && bgRoot.lockAnimationActive) ? lastStaticHeight : contentItem.implicitHeight
+    implicitWidth: (typeof bgRoot !== 'undefined' && bgRoot.lockAnimationActive) ? lastStaticWidth : contentItem.implicitWidth
+
+    onImplicitHeightChanged: {
+        if (typeof bgRoot === 'undefined' || !bgRoot.lockAnimationActive) {
+            lastStaticHeight = contentItem.implicitHeight;
+        }
+    }
+    onImplicitWidthChanged: {
+        if (typeof bgRoot === 'undefined' || !bgRoot.lockAnimationActive) {
+            lastStaticWidth = contentItem.implicitWidth;
+        }
+    }
+
+    readonly property bool useAlbumColors: Config.options.background.widgets.media.useAlbumColors
+    readonly property bool useDynamicColors: root.useAlbumColors && root.currentPlayer != null
+    readonly property bool showPreviousToggle: Config.options.background.widgets.media.showPreviousToggle
+    readonly property bool hideAllButtons: Config.options.background.widgets.media.hideAllButtons
+    readonly property bool showRestButtons: hideAllButtons ? hovering : true
+
+    readonly property var playerList: MprisController.players
+
+    // not using for now, but could be useful in the future
+    property var filteredPlayerList: playerList.filter(player => player != null && player.trackAlbum != "")
+
+    property MprisPlayer currentPlayer: MprisController.activePlayer
+    property string artUrl: MprisController.artUrl
+    property string artDownloadLocation: Directories.coverArt
+    property string artFileName: (artUrl && artUrl !== "") ? Qt.md5(artUrl) : ""
+    property string artFilePath: artFileName !== "" ? `${artDownloadLocation}/${artFileName}` : ""
+
+    property real widgetSize: 240
+    property real controlsSize: 55
+    property real buttonIconSize: 30
+    property bool showSwitchButton: false
+    // The glow is a static stack of the selected shape. Each larger, more
+    // transparent silhouette forms one band of the falloff; no effect texture
+    // is involved, so the background window cannot leak a rectangular buffer.
+    readonly property real glowPadding: Math.max(Appearance.rounding.large, root.widgetSize * 0.16)
+    readonly property real glowOpacity: Config.options.background.widgets.media.glow.enable
+        // The band alphas add where their silhouettes overlap. Capping the
+        // shared strength preserves a soft edge even at the highest setting.
+        ? Math.min(0.6, 0.035 * Config.options.background.widgets.media.glow.brightness) : 0
+
+    property color artDominantColor: ColorUtils.mix((colorQuantizer?.colors[0] ?? WidgetColorScheme.colors.colPrimary), WidgetColorScheme.colors.colPrimaryContainer, 0.8) || WidgetColorScheme.m3colors.m3secondaryContainer
+    property QtObject blendedColors: AdaptedMaterialScheme {
+        color: artDominantColor
+    }
+    property var dynamicColors: {
+        return {
+            colPrimary: root.useDynamicColors ? blendedColors.colPrimary : WidgetColorScheme.colors.colPrimary,
+            colPrimaryBackground: root.useDynamicColors ? blendedColors.colPrimaryContainer : WidgetColorScheme.colors.colPrimaryContainer,
+            colPrimaryBackgroundHover: root.useDynamicColors ? blendedColors.colPrimaryContainerHover : WidgetColorScheme.colors.colPrimaryContainerHover,
+            colPrimaryRipple: root.useDynamicColors ? blendedColors.colPrimaryContainerActive : WidgetColorScheme.colors.colPrimaryContainerActive,
+            colSecondary: root.useDynamicColors ? blendedColors.colSecondary : WidgetColorScheme.colors.colSecondary,
+            colSecondaryBackground: root.useDynamicColors ? blendedColors.colSecondaryContainer : WidgetColorScheme.colors.colSecondaryContainer,
+            colSecondaryBackgroundHover: root.useDynamicColors ? blendedColors.colSecondaryContainerHover : WidgetColorScheme.colors.colSecondaryContainerHover,
+            colSecondaryRipple: root.useDynamicColors ? blendedColors.colSecondaryContainerActive : WidgetColorScheme.colors.colSecondaryContainerActive,
+            colTertiary: root.useDynamicColors ? blendedColors.colTertiary : WidgetColorScheme.colors.colTertiary,
+            colTertiaryBackground: root.useDynamicColors ? blendedColors.colTertiaryContainer : WidgetColorScheme.colors.colTertiaryContainer,
+            colTertiaryBackgroundHover: root.useDynamicColors ? blendedColors.colTertiaryContainerHover : WidgetColorScheme.colors.colTertiaryContainerHover,
+            colTertiaryRipple: root.useDynamicColors ? blendedColors.colTertiaryContainerActive : WidgetColorScheme.colors.colTertiaryContainerActive
+        };
+    }
+
+    // The config page writes canonical MaterialShape keys ("Circle",
+    // "Cookie9Sided", ...). Older configs stored lowercase values
+    // ("circle"/"square"/"cookie") that never matched MaterialShape's
+    // shapeMap, so every option silently rendered as a Circle — normalize
+    // them here instead of shipping a one-shot migration.
+    readonly property string backgroundShape: {
+        const raw = Config.options.background.widgets.media.backgroundShape ?? "Cookie12Sided";
+        const legacy = { "circle": "Circle", "square": "Square", "cookie": "Cookie9Sided" };
+        return legacy[raw] ?? raw;
+    }
+
+    property bool downloaded: false
+    property string displayedArtFilePath: {
+        if (!root.artUrl || root.artUrl === "") return "";
+        if (root.artUrl.startsWith("file://")) return root.artUrl;
+        if (root.artUrl.startsWith("/")) return "file://" + root.artUrl;
+        return root.downloaded ? Qt.resolvedUrl(artFilePath) : "";
+    }
+
+    property list<real> visualizerPoints: Config.options.background.widgets.media.visualizer.enable
+        ? CavaService.visualizerPoints.map(level => Math.max(0, Math.min(1, level)) * 1000)
+        : []
+
+    // 'Switch button' visiblity on hover
+    property bool hovering: false
+    hoverEnabled: true
+    onEntered: {
+        hovering = true;
+    }
+    onExited: {
+        hovering = false;
+    }
+
+    allowMiddleClick: true
+    onClicked: event => {
+        if (event.button === Qt.MiddleButton) {
+            root.requestReset();
+        }
+    }
+
+    onArtFilePathChanged: updateArt()
+
+    function nextPlayer() {
+        root.currentPlayer = root.playerList[(root.playerList.indexOf(root.currentPlayer) + 1) % root.playerList.length];
+    }
+
+    function updateArt() {
+        if (!root.artUrl || root.artUrl === "") {
+            root.downloaded = false;
+            return;
+        }
+        if (root.artUrl.startsWith("file://") || root.artUrl.startsWith("/")) {
+            root.downloaded = true;
+            return;
+        }
+        coverArtDownloader.targetFile = root.artUrl;
+        coverArtDownloader.artFilePath = root.artFilePath;
+        coverArtDownloader.artTempPath = root.artFilePath + ".tmp";
+        root.downloaded = false;
+        coverArtDownloader.running = true;
+    }
+
+    Process { // Cover art downloader
+        id: coverArtDownloader
+        property string targetFile: root.artUrl
+        property string artFilePath: root.artFilePath
+        property string artTempPath: root.artFilePath + ".tmp"
+        command: ["bash", "-c", `[ -f ${artFilePath} ] || (curl -4 -sSL '${targetFile}' -o '${artTempPath}' && mv '${artTempPath}' '${artFilePath}')`]
+        onExited: (exitCode, exitStatus) => {
+            root.downloaded = true;
+        }
+    }
+
+
+
+    ColorQuantizer {
+        id: colorQuantizer
+        source: root.displayedArtFilePath
+        depth: 0 // 2^0 = 1 color
+        rescaleSize: 1 // Rescale to 1x1 pixel for faster processing
+    }
+
+    Item {
+        id: contentItem
+
+        implicitWidth: root.widgetSize
+        implicitHeight: root.widgetSize
+
+        // A direct MaterialShape halo is deliberately used instead of any
+        // blur effect. Both the old compatibility shadow and the native blur
+        // could leak their offscreen rectangular buffer on this window. These
+        // nested silhouettes are regular scene items, so their transparent
+        // pixels stay transparent and every outline still follows the selected
+        // Material shape.
+        Item {
+            id: artGlow
+            anchors.fill: parent
+            visible: root.glowOpacity > 0.01
+            opacity: root.glowOpacity
+
+            Repeater {
+                model: [
+                    { "spread": 1.0, "alpha": 0.055 },
+                    { "spread": 0.82, "alpha": 0.07 },
+                    { "spread": 0.64, "alpha": 0.09 },
+                    { "spread": 0.46, "alpha": 0.12 },
+                    { "spread": 0.28, "alpha": 0.16 },
+                    { "spread": 0.12, "alpha": 0.21 }
+                ]
+
+                delegate: MaterialShape {
+                    required property var modelData
+                    anchors.fill: parent
+                    anchors.margins: -root.glowPadding * modelData.spread
+                    shapeString: root.backgroundShape
+                    color: ColorUtils.transparentize(root.artDominantColor, 1 - modelData.alpha)
+                }
+            }
+
+            Behavior on opacity {
+                animation: Appearance.animation.elementResize.numberAnimation.createObject(this)
+            }
+        }
+
+        FadeLoader {
+            id: loopButtonLoader
+            anchors {
+                right: parent.right
+                bottom: parent.bottom
+            }
+            z: 3
+            shown: root.hovering
+            sourceComponent: ControlButton {
+                colBackground: root.dynamicColors.colPrimaryBackground
+                colBackgroundHover: root.dynamicColors.colPrimaryBackgroundHover
+                colRipple: root.dynamicColors.colPrimaryRipple
+                symbolColor: root.dynamicColors.colSecondary
+                symbolText: "360"
+                onClicked: {
+                    root.nextPlayer();
+                }
+            }
+        }
+
+        FadeLoader {
+            z: 2
+            anchors.centerIn: parent
+            shown: root.currentPlayer == null
+            sourceComponent: MaterialShapeWrappedMaterialSymbol {
+                fill: 1
+                padding: 20
+                text: root.currentPlayer == null ? "music_off" : !root.downloaded ? "hourglass_bottom" : ""
+                anchors.centerIn: parent
+                iconSize: root.widgetSize / 4
+                shape: MaterialShape.Shape.Cookie12Sided
+                color: blendedColors.colOnSecondaryContainer
+                colSymbol: WidgetColorScheme.colors.colPrimaryContainer
+            }
+        }
+
+        MaterialShape {
+            id: shadowSourceShape
+            anchors.fill: parent
+            shapeString: root.backgroundShape
+            visible: false
+        }
+
+        StyledDropShadow {
+            id: mediaShadow
+            target: shadowSourceShape
+            visible: Config.options.background.widgets.media.enableShadows ?? true
+        }
+
+        MaterialShape { // Art background
+            id: artBackground
+            anchors.fill: parent
+            color: WidgetColorScheme.tintBackground(WidgetColorScheme.colors.colPrimaryContainer)
+            shapeString: root.backgroundShape
+
+            layer.enabled: true
+            layer.effect: OpacityMask {
+                maskSource: MaterialShape {
+                    width: artBackground.width
+                    shapeString: root.backgroundShape
+                    height: artBackground.height
+                }
+            }
+
+            StyledImage { // Art image
+                id: mediaArt
+                property int size: parent.height
+                anchors.fill: parent
+
+                source: root.displayedArtFilePath
+                fillMode: Image.PreserveAspectCrop
+                cache: false
+                antialiasing: true
+
+                width: size
+                height: size
+                sourceSize.width: size
+                sourceSize.height: size
+            }
+
+            FadeLoader {
+                shown: Config.options.background.widgets.media.tintArtCover
+                anchors.fill: mediaArt
+                sourceComponent: Item {
+                    Desaturate {
+                        id: desaturatedIcon
+                        visible: false // There's already color overlay
+                        anchors.fill: parent
+                        source: mediaArt
+                        desaturation: 0.8
+                    }
+                    ColorOverlay {
+                        anchors.fill: desaturatedIcon
+                        source: desaturatedIcon
+                        color: ColorUtils.transparentize(WidgetColorScheme.colors.colOnPrimary, 0.9)
+                    }
+                }
+            }
+
+            RadialWaveVisualizer {
+                id: visualizer
+                z: 1
+                anchors.fill: parent
+                points: root.visualizerPoints
+                live: root.currentPlayer?.isPlaying ?? false
+                color: root.dynamicColors.colSecondaryBackground
+                waveOpacity: Config.options.background.widgets.media.visualizer.opacity
+                waveBlur: Config.options.background.widgets.media.visualizer.blur
+                smoothing: Config.options.background.widgets.media.visualizer.smoothing
+            }
+        }
+
+        FadeLoader {
+            shown: root.showRestButtons
+            anchors {
+                left: parent.left
+                bottom: parent.bottom
+            }
+            sourceComponent: ControlButton {
+                id: playButton
+                anchors {
+                    left: parent.left
+                    bottom: parent.bottom
+                }
+                buttonRadius: root.currentPlayer?.isPlaying ? Appearance.rounding.normal : controlsSize / 2
+                colBackground: root.dynamicColors.colSecondaryBackground
+                colBackgroundHover: root.dynamicColors.colSecondaryBackgroundHover
+                colRipple: root.dynamicColors.colSecondaryRipple
+                symbolText: root.currentPlayer?.isPlaying ? "pause" : "play_arrow"
+                symbolColor: useAlbumColors ? blendedColors.colTertiary : WidgetColorScheme.colors.colTertiary
+                onClicked: {
+                    root.currentPlayer.togglePlaying();
+                }
+            }
+        }
+
+        Loader {
+            active: root.showRestButtons
+            anchors {
+                top: parent.top
+                right: parent.right
+            }
+            sourceComponent: Rectangle {
+                anchors {
+                    top: parent.top
+                    right: parent.right
+                }
+                implicitWidth: root.showPreviousToggle ? controlsSize * 2 : controlsSize
+                implicitHeight: controlsSize
+                z: 2
+                radius: Appearance.rounding.full
+                color: dynamicColors.colTertiaryBackground
+
+                Behavior on implicitWidth {
+                    animation: Appearance.animation.elementResize.numberAnimation.createObject(this)
+                }
+
+                FadeLoader {
+                    shown: root.showPreviousToggle
+                    sourceComponent: ControlButton {
+                        anchors.left: parent.left
+                        colBackground: root.dynamicColors.colTertiaryBackground
+                        colBackgroundHover: root.dynamicColors.colTertiaryBackgroundHover
+                        colRipple: root.dynamicColors.colTertiaryRipple
+                        symbolColor: root.dynamicColors.colSecondary
+                        symbolText: "skip_previous"
+                        onClicked: {
+                            currentPlayer.previous();
+                        }
+                    }
+                }
+
+                ControlButton {
+                    anchors.right: parent.right
+
+                    colBackground: root.dynamicColors.colTertiaryBackground
+                    colBackgroundHover: root.dynamicColors.colTertiaryBackgroundHover
+                    colRipple: root.dynamicColors.colTertiaryRipple
+                    symbolColor: root.dynamicColors.colSecondary
+                    symbolText: "skip_next"
+                    onClicked: {
+                        currentPlayer.next();
+                    }
+                }
+            }
+        }
+    }
+
+    component ControlButton: RippleButton {
+        id: button
+        property string symbolText
+        property color symbolColor
+
+        z: 2
+        implicitWidth: controlsSize
+        implicitHeight: implicitWidth
+        buttonRadius: Appearance.rounding.full
+
+        MaterialSymbol {
+            anchors.centerIn: parent
+            iconSize: root.buttonIconSize
+            text: button.symbolText
+            fill: 1
+            color: button.symbolColor
+        }
+    }
+}

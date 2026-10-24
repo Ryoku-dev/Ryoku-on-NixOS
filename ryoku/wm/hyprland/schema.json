@@ -1,6 +1,48 @@
 [
   {
     "tab": "Layout",
+    "group": "SETTINGS WINDOW",
+    "key": "wm.hyprland.settingsWindow.mode",
+    "label": "Settings window size",
+    "desc": "Fill the work area or use a custom centred size",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": ["full", "custom"],
+    "optLabels": {"full": "Full page", "custom": "Custom"},
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SETTINGS WINDOW",
+    "key": "wm.hyprland.settingsWindow.width",
+    "label": "Settings width",
+    "desc": "Share of the monitor work area; never smaller than the Settings layout needs",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.25,
+    "hi": 1,
+    "unit": "%",
+    "pct": true,
+    "page": "windowmanager",
+    "when": {"wm.hyprland.settingsWindow.mode": ["custom"]}
+  },
+  {
+    "tab": "Layout",
+    "group": "SETTINGS WINDOW",
+    "key": "wm.hyprland.settingsWindow.height",
+    "label": "Settings height",
+    "desc": "Share of the monitor work area; never smaller than the Settings layout needs",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.25,
+    "hi": 1,
+    "unit": "%",
+    "pct": true,
+    "page": "windowmanager",
+    "when": {"wm.hyprland.settingsWindow.mode": ["custom"]}
+  },
+  {
+    "tab": "Layout",
     "group": "TILING",
     "key": "wm.hyprland.plugins.hyprscrolling.columnWidth",
     "label": "Column width",
@@ -1789,5 +1831,184 @@
     "caps": "layerRules",
     "unit": "alpha",
     "page": "layerrules"
+  },
+  {
+    "tab": "Extra borders",
+    "group": "EXTRA BORDERS",
+    "key": "wm.hyprland.plugins.borders-plus-plus.enabled",
+    "label": "Extra borders",
+    "desc": "Draw one or two static borders outside each window's own, applies on Save",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "caps": "plugins",
+    "page": "plugins"
+  },
+  {
+    "tab": "Extra borders",
+    "group": "EXTRA BORDERS",
+    "key": "wm.hyprland.plugins.borders-plus-plus.count",
+    "label": "Border rings",
+    "desc": "How many extra borders to draw",
+    "ctl": "step",
+    "src": "desktop.json",
+    "caps": "plugins",
+    "lo": 1,
+    "hi": 2,
+    "when": {
+      "wm.hyprland.plugins.borders-plus-plus.enabled": [
+        true
+      ]
+    },
+    "page": "plugins"
+  },
+  {
+    "tab": "Extra borders",
+    "group": "EXTRA BORDERS",
+    "key": "wm.hyprland.plugins.borders-plus-plus.color",
+    "label": "Border colour",
+    "desc": "The colour of the first extra ring",
+    "ctl": "color",
+    "src": "desktop.json",
+    "caps": "plugins",
+    "when": {
+      "wm.hyprland.plugins.borders-plus-plus.enabled": [
+        true
+      ]
+    },
+    "page": "plugins"
+  },
+  {
+    "tab": "Extra borders",
+    "group": "EXTRA BORDERS",
+    "key": "wm.hyprland.plugins.borders-plus-plus.size",
+    "label": "Border width",
+    "desc": "Pixels the first extra ring takes",
+    "ctl": "step",
+    "src": "desktop.json",
+    "caps": "plugins",
+    "lo": 1,
+    "hi": 20,
+    "unit": "px",
+    "when": {
+      "wm.hyprland.plugins.borders-plus-plus.enabled": [
+        true
+      ]
+    },
+    "page": "plugins"
+  },
+  {
+    "tab": "Extra borders",
+    "group": "EXTRA BORDERS",
+    "key": "wm.hyprland.plugins.borders-plus-plus.naturalRounding",
+    "label": "Match the window's rounding",
+    "desc": "The rings follow the window's own corner radius instead of squaring off",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "caps": "plugins",
+    "when": {
+      "wm.hyprland.plugins.borders-plus-plus.enabled": [
+        true
+      ]
+    },
+    "page": "plugins"
+  },
+  {
+    "tab": "Touch gestures",
+    "group": "TOUCH GESTURES",
+    "key": "wm.hyprland.plugins.hyprgrass.enabled",
+    "label": "Touchscreen gestures",
+    "desc": "Swipe, pinch, and long-press to drive windows and workspaces, applies on Save",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "caps": "plugins",
+    "page": "plugins"
+  },
+  {
+    "tab": "Touch gestures",
+    "group": "TOUCH GESTURES",
+    "key": "wm.hyprland.plugins.hyprgrass.sensitivity",
+    "label": "Gesture sensitivity",
+    "desc": "How far a finger must travel before a gesture counts; raise it on big tablets",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "caps": "plugins",
+    "lo": 0.2,
+    "hi": 10,
+    "when": {
+      "wm.hyprland.plugins.hyprgrass.enabled": [
+        true
+      ]
+    },
+    "page": "plugins"
+  },
+  {
+    "tab": "Touch gestures",
+    "group": "TOUCH GESTURES",
+    "key": "wm.hyprland.plugins.hyprgrass.longPressDelay",
+    "label": "Long-press delay",
+    "desc": "Milliseconds a press must hold to count as a long-press",
+    "ctl": "step",
+    "src": "desktop.json",
+    "caps": "plugins",
+    "lo": 100,
+    "hi": 1500,
+    "unit": "ms",
+    "when": {
+      "wm.hyprland.plugins.hyprgrass.enabled": [
+        true
+      ]
+    },
+    "page": "plugins"
+  },
+  {
+    "tab": "Touch gestures",
+    "group": "TOUCH GESTURES",
+    "key": "wm.hyprland.plugins.hyprgrass.edgeMargin",
+    "label": "Edge margin",
+    "desc": "Pixels from the screen edge that start an edge swipe",
+    "ctl": "step",
+    "src": "desktop.json",
+    "caps": "plugins",
+    "lo": 2,
+    "hi": 50,
+    "unit": "px",
+    "when": {
+      "wm.hyprland.plugins.hyprgrass.enabled": [
+        true
+      ]
+    },
+    "page": "plugins"
+  },
+  {
+    "tab": "Touch gestures",
+    "group": "TOUCH GESTURES",
+    "key": "wm.hyprland.plugins.hyprgrass.resizeOnBorderLongPress",
+    "label": "Long-press a border to resize",
+    "desc": "Holding a window's edge or gap with a second finger starts a resize",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "caps": "plugins",
+    "when": {
+      "wm.hyprland.plugins.hyprgrass.enabled": [
+        true
+      ]
+    },
+    "page": "plugins"
+  },
+  {
+    "tab": "Touch gestures",
+    "group": "TOUCH GESTURES",
+    "key": "wm.hyprland.plugins.hyprgrass.threeFingerTap",
+    "label": "Three-finger tap floats",
+    "desc": "A three-finger tap floats or tiles the window under it",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "caps": "plugins",
+    "when": {
+      "wm.hyprland.plugins.hyprgrass.enabled": [
+        true
+      ]
+    },
+    "page": "plugins"
   }
 ]

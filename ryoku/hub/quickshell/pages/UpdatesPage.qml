@@ -7,21 +7,22 @@ import Quickshell.Io
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
 import "../Singletons"
+import "." as UpdateParts
 
 // System > Updates (DESIGN.md section 8, SYSTEM). The Ryoku update channel as a
 // paper-and-ink instrument: how far the install sits behind origin, the commits
 // that would land (or the recent history it already runs), and a one-click
-// update that runs `ryoku update` in a terminal and mirrors its progress here.
+// update that runs right here: `ryoku update --gui` works in the background,
+// asks this page for its password and its questions, and publishes its steps,
+// its live output and its own watchdog to the run-state this page draws.
 //
 // This is a full-bleed page -- the shell hides its side panel and global action
 // bar and keeps the rail -- so it draws its own head, content and action bar.
-// The backend is carried verbatim from the old UpdatesPage/UpdateRow/
-// UpdateStatus: the Updates singleton (wired to `ryoku status --json`), the
-// run-state FileView `ryoku update` publishes, and the same execDetached calls.
-// Only the presentation changed: no ember, no boxed banners -- ink on black,
-// inversion for emphasis, the shared progress spec (a hairline track + a square
-// ink fill) for advancement and the 600ms heartbeat dot for the indeterminate
-// wait. Every colour, face, size, radius and duration reads from Tokens.
+// The run itself is drawn by UpdateRun (the timeline), UpdateAuth (the
+// password) and UpdateLog (the raw log behind DETAILS); this file owns the
+// run-state, the watchdog that never lets the page sit on a run that is gone,
+// and the actions. Ink on black, inversion for emphasis, every colour, face,
+// size, radius and duration from Tokens.
 Item {
     id: pg
 
@@ -101,61 +102,182 @@ Item {
     }
 
     // ── live run state (published by `ryoku update`) ────────────────────────
-    property string phase: "idle"   // idle | running | prompt | done | error
+    property string phase: "idle"   // idle | running | prompt | auth | done | error
     property real progress: 0
     property string label: ""
     property int ownerPid: 0
+    property double started: 0
+    property double beat: 0
     property var steps: []
+    property var pieces: []
+    property string piecesStep: ""
+    property int piecesTypical: 0
+    property bool firstBuild: false
     property var logLines: []
+    property string activity: ""
+    property var watch: ({})
     property string errorMsg: ""
     property string snapshot: ""
+    property string logPath: ""
+    property string promptId: ""
     property string promptTitle: ""
     property string promptDetail: ""
+    property string promptError: ""
     property var promptOptions: []
+    property bool runSnapshotsKnown: false
+    property bool runSnapshotsSupported: false
+    property string runSnapshotReason: ""
+    readonly property bool snapshotsSupported: pg.runSnapshotsKnown ? pg.runSnapshotsSupported : Updates.snapshotsSupported
+    readonly property string snapshotReason: pg.runSnapshotsKnown ? pg.runSnapshotReason : Updates.snapshotReason
     readonly property string statePath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ryoku-update.json"
     readonly property string answerPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ryoku-update-answer"
+    readonly property string defaultLogPath: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/ryoku/update-log.txt"
 
-    // the fill fraction for the shared progress track. `ryoku update` may report
-    // an explicit progress, but even when it only advances the stage list we can
-    // read completion off the stages, so the track never sits dead at 0 while
-    // work is plainly happening. done pins it full.
-    readonly property real stepFraction: {
-        if (pg.steps.length === 0)
-            return 0;
-        var d = 0;
-        for (var i = 0; i < pg.steps.length; i++) {
-            var s = pg.steps[i].state;
-            if (s === "ok" || s === "skipped")
-                d += 1;
-            else if (s === "running")
-                d += 0.5;
-        }
-        return d / pg.steps.length;
+    // ── the Hub's side of a run ─────────────────────────────────────────────
+    // starting: UPDATE NOW was pressed and the run has not published yet.
+    // keepWaiting: the user saw the stall notice and chose to wait it out.
+    property bool starting: false
+    property string actionError: ""
+    property bool authBusy: false
+    property bool keepWaiting: false
+    property bool stopArmed: false
+    property bool showLog: false
+    property double now: Date.now()
+    readonly property bool live: pg.phase === "running" || pg.phase === "prompt" || pg.phase === "auth"
+    // a live pid whose heartbeat stopped: the run is wedged, not working
+    readonly property bool unresponsive: pg.live && pg.beat > 0 && pg.now - pg.beat > 20000
+
+    // human renders a span of milliseconds the way the console does.
+    function human(ms) {
+        const s = Math.max(0, Math.floor(ms / 1000));
+        if (ms < 10000)
+            return (Math.max(0, ms) / 1000).toFixed(1) + "s";
+        if (s < 60)
+            return s + "s";
+        if (s < 3600)
+            return Math.floor(s / 60) + "m " + ("0" + (s % 60)).slice(-2) + "s";
+        return Math.floor(s / 3600) + "h " + ("0" + Math.floor((s % 3600) / 60)).slice(-2) + "m";
     }
-    readonly property real fillFraction: pg.phase === "done"
-        ? 1
-        : Math.max(0, Math.min(1, Math.max(pg.progress, pg.stepFraction)))
+
+    // ── Rashin "Fix with AI" offer ──────────────────────────────────────────
+    // `ryoku update` runs `ryoku doctor` near the end; when the health check
+    // finds trouble it rewrites its report. If that happened during this run and
+    // Rashin (the local agent OS) is switched on, offer to let Rashin's agent
+    // investigate and fix, instead of leaving the user to read a failed check.
+    property bool rashinOn: false
+    property double runStartedAt: 0
+    property bool reportFresh: false
+    readonly property string reportPath: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/ryoku/doctor-report.txt"
+    readonly property bool showFixWithAI: (pg.phase === "done" || pg.phase === "error") && pg.rashinOn && pg.reportFresh
+
+    // Rashin is on when its master switch reads enabled; an absent binary closes
+    // stdout with empty output, which parses as off. Mirrors RashinPage.
+    Process {
+        id: rashinProbe
+        command: ["sh", "-c", "ryoku-rashin status --json"]
+        stderr: StdioCollector {}
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    pg.rashinOn = JSON.parse(this.text).enabled === true;
+                } catch (e) {
+                    pg.rashinOn = false;
+                }
+            }
+        }
+    }
+
+    // Was the doctor report rewritten during this run? Compare its mtime to when
+    // the run started; with no run start known (page opened after the fact) the
+    // offer stays off rather than firing on a stale report.
+    Process {
+        id: reportProbe
+        stdout: StdioCollector {
+            onStreamFinished: pg.reportFresh = this.text.trim() === "fresh"
+        }
+    }
+    function checkReportFresh() {
+        if (pg.runStartedAt <= 0) {
+            pg.reportFresh = false;
+            return;
+        }
+        reportProbe.command = ["sh", "-c",
+            "m=$(stat -c %Y \"$1\" 2>/dev/null || echo 0); [ \"$m\" -ge \"$2\" ] && echo fresh || echo stale",
+            "sh", pg.reportPath, "" + Math.floor(pg.runStartedAt)];
+        reportProbe.running = true;
+    }
+
+    // hand the fixing to Rashin: with no TTY here `ryoku-rashin fix doctor` opens
+    // the agent in a terminal that investigates and repairs. detached, as always.
+    function fixWithAI() {
+        Spawn.run(["ryoku-rashin", "fix", "doctor"]);
+    }
+
+    // the fill fraction for the shared progress track: the run's own reading
+    // (it counts the running step by what its output says, "(3/12)"), pinned
+    // full once done.
+    readonly property real fillFraction: pg.phase === "done" ? 1 : Math.max(0, Math.min(1, pg.progress))
+
+    // ── the watchdog: never leave the page on a run that is not there ───────
+    // A "running" document is only believed while the pid it names is a live
+    // `ryoku update`. One with no pid has no owner at all (an old build wrote
+    // it outside an update) and is cleared on sight; one whose process is gone
+    // is recorded as stopped by the CLI. A live run that stops beating, or
+    // whose own watchdog sees no progress, gets a notice with a way out.
+    Timer {
+        interval: 1000
+        running: pg.live || pg.starting
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: pg.now = Date.now()
+    }
+    Timer {
+        interval: 2000
+        running: pg.live
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: pg.checkOwner()
+    }
 
     function checkOwner() {
-        if (pg.phase !== "running" || pg.ownerPid < 2 || ownerProbe.running)
+        if (!pg.live)
             return;
-        ownerProbe.command = ["sh", "-c", "kill -0 \"$1\" 2>/dev/null", "sh", "" + pg.ownerPid];
+        if (pg.ownerPid < 2) {
+            pg.dismiss();
+            return;
+        }
+        if (ownerProbe.running)
+            return;
+        ownerProbe.command = ["sh", "-c", "tr '\\0' ' ' < /proc/\"$1\"/cmdline 2>/dev/null", "sh", "" + pg.ownerPid];
         ownerProbe.running = true;
     }
 
     Process {
         id: ownerProbe
-        onExited: (code) => {
-            if (code !== 0 && pg.phase === "running")
-                pg.dismiss();
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const cmd = this.text;
+                if (!pg.live || (/ryoku/.test(cmd) && /\bupdate\b/.test(cmd)))
+                    return;
+                pg.settleOrphan();
+            }
         }
     }
 
-    Timer {
-        interval: 1200
-        running: pg.phase === "running" && pg.ownerPid > 1
-        repeat: true
-        onTriggered: pg.checkOwner()
+    // record a vanished run as stopped in the run-state itself, keeping the
+    // steps it reached, so every reader (and this page, next time it opens)
+    // agrees. Written here rather than by the CLI: the page must be able to
+    // leave a dead run whatever ryoku binary the box has.
+    property var lastDoc: ({})
+    function settleOrphan() {
+        const o = Object.assign({}, pg.lastDoc);
+        o.phase = "error";
+        o.error = I18n.tr("The update was no longer running.");
+        delete o.watch;
+        delete o.prompt;
+        o.steps = (o.steps || []).map(s => s.state === "running" ? Object.assign({}, s, { "state": "failed" }) : s);
+        Quickshell.execDetached(["sh", "-c", "printf '%s' \"$1\" > \"$2.tmp\" && mv \"$2.tmp\" \"$2\"", "sh", JSON.stringify(o), pg.statePath]);
+        pg.applyState(JSON.stringify(o));
     }
 
     FileView {
@@ -168,34 +290,93 @@ Item {
         onLoadFailed: pg.phase = "idle"
     }
 
+    // the heartbeat rewrites the file every two seconds; only hand a list on
+    // when it changed, or every delegate would rebuild (and every pulse
+    // restart) on each beat.
+    property string stepsKey: ""
+    property string piecesKey: ""
+    property string logKey: ""
+
     function applyState(t) {
-        var prev = pg.phase;
+        const prev = pg.phase;
+        let o;
         try {
-            var o = JSON.parse(t);
-            pg.phase = o.phase || "idle";
-            pg.progress = (typeof o.progress === "number") ? o.progress : 0;
-            pg.label = o.label || "";
-            pg.ownerPid = (typeof o.pid === "number") ? Math.floor(o.pid) : 0;
-            pg.steps = o.steps || [];
-            pg.logLines = o.log || [];
-            pg.errorMsg = o.error || "";
-            pg.snapshot = o.snapshot || "";
-            if (pg.phase === "prompt" && o.prompt) {
-                pg.promptTitle = o.prompt.title || "";
-                pg.promptDetail = o.prompt.detail || "";
-                pg.promptOptions = o.prompt.options || [];
-            }
+            o = JSON.parse(t);
         } catch (e) {
-            pg.phase = "idle";
-            pg.progress = 0;
-            pg.ownerPid = 0;
-            pg.steps = [];
-            pg.logLines = [];
-            pg.errorMsg = "";
+            o = { "phase": "idle" };
+        }
+        pg.lastDoc = o;
+        pg.phase = o.phase || "idle";
+        pg.progress = typeof o.progress === "number" ? o.progress : 0;
+        pg.label = o.label || "";
+        pg.ownerPid = typeof o.pid === "number" ? Math.floor(o.pid) : 0;
+        pg.started = o.started || 0;
+        pg.beat = o.beat || 0;
+        pg.activity = o.activity || "";
+        pg.watch = o.watch || ({});
+        pg.errorMsg = o.error || "";
+        pg.snapshot = o.snapshot || "";
+        pg.runSnapshotsKnown = o.snapshotsSupported === true || (o.snapshotReason || "") !== "";
+        if (pg.runSnapshotsKnown) {
+            pg.runSnapshotsSupported = o.snapshotsSupported;
+            pg.runSnapshotReason = o.snapshotReason || "";
+        }
+        pg.logPath = o.logPath || "";
+        const sk = JSON.stringify(o.steps || []);
+        if (sk !== pg.stepsKey) {
+            pg.stepsKey = sk;
+            pg.steps = o.steps || [];
+        }
+        const pieces = Array.isArray(o.pieces) ? o.pieces : [];
+        const pk = JSON.stringify(pieces);
+        if (pk !== pg.piecesKey) {
+            pg.piecesKey = pk;
+            pg.pieces = pieces;
+        }
+        pg.piecesStep = typeof o.piecesStep === "string" ? o.piecesStep : "";
+        pg.piecesTypical = typeof o.piecesTypical === "number" ? Math.max(0, Math.floor(o.piecesTypical)) : 0;
+        pg.firstBuild = o.firstBuild === true;
+        const lk = JSON.stringify(o.log || []);
+        if (lk !== pg.logKey) {
+            pg.logKey = lk;
+            pg.logLines = o.log || [];
+        }
+        const p = o.prompt || {};
+        if ((p.id || "") !== pg.promptId) {
+            pg.promptId = p.id || "";
+            pg.authBusy = false; // a fresh question: the last answer was judged
+        }
+        pg.promptTitle = p.title || "";
+        pg.promptDetail = p.detail || "";
+        pg.promptError = p.error || "";
+        const opts = p.options || [];
+        if (JSON.stringify(opts) !== JSON.stringify(pg.promptOptions))
+            pg.promptOptions = opts;
+        if (pg.phase !== "auth")
+            pg.authBusy = false;
+        if (pg.phase !== "idle")
+            pg.starting = false;
+        if (pg.watch.state === "working")
+            pg.keepWaiting = false;
+        if (!pg.live)
+            pg.stopArmed = false;
+        pg.now = Date.now();
+        // note when the run began, so a settled run can tell whether the doctor
+        // report is from this run or an old one.
+        if (pg.live && pg.runStartedAt <= 0)
+            pg.runStartedAt = pg.started > 0 ? pg.started / 1000 : Date.now() / 1000;
+        // settled: offer Rashin's fixer when the health check left a fresh report.
+        if ((pg.phase === "done" || pg.phase === "error") && prev !== pg.phase) {
+            rashinProbe.running = true;
+            pg.checkReportFresh();
         }
         // settled back to idle = finished. refresh so the list clears.
-        if (prev !== "idle" && pg.phase === "idle")
+        if (prev !== "idle" && pg.phase === "idle") {
+            pg.runStartedAt = 0;
+            pg.reportFresh = false;
+            pg.showLog = false;
             Updates.check();
+        }
         pg.checkOwner();
     }
 
@@ -211,32 +392,142 @@ Item {
     // (`ryoku rollback` prints the boot-menu restore steps and exits, so hold
     // the window for the user to read), then clear the error state.
     function rollback() {
-        if (pg.snapshot === "")
+        if (!pg.snapshotsSupported || pg.snapshot === "")
             return;
-        Spawn.runApp(["kitty", "-e", "sh", "-c", "ryoku rollback \"$1\"; printf '\\npress enter to close '; read -r _", "sh", pg.snapshot]);
+        Spawn.runApp(["kitty", "--class=dev.ryoku.update", "-e", "sh", "-c", "ryoku rollback \"$1\"; printf '\\npress enter to close '; read -r _", "sh", pg.snapshot]);
         pg.dismiss();
     }
 
-    // dismiss a finished/failed run: clear the run-state file so the page and
-    // island return to idle.
+    // dismiss a finished/failed run: clear the run-state file so the page
+    // returns to idle.
     function dismiss() {
         Quickshell.execDetached(["sh", "-c", "printf '%s' '{\"phase\":\"idle\"}' > \"$1\"", "sh", pg.statePath]);
         pg.phase = "idle";
+        pg.runStartedAt = 0;
+        pg.reportFresh = false;
+        pg.showLog = false;
+        pg.actionError = "";
         Updates.check();
     }
 
+    // The run happens here, not in a terminal: `ryoku update --gui` starts it
+    // in the background and returns, and the run reports through the
+    // run-state, asking this page for its password and its questions.
     function startUpdate() {
         if (pg.nixBackend && !Updates.canUpdate)
             return;
-        Spawn.runApp(["kitty", "-e", "sh", "-c", "exec ryoku update"]);
+        pg.starting = true;
+        pg.actionError = "";
+        pg.keepWaiting = false;
+        pg.showLog = false;
+        guiProc.running = true;
+        startWatch.restart();
+    }
+
+    Process {
+        id: guiProc
+        command: ["ryoku", "update", "--gui"]
+        environment: Spawn.env
+        stderr: StdioCollector { id: guiErr }
+        onExited: (code) => {
+            if (code !== 0) {
+                pg.starting = false;
+                pg.actionError = guiErr.text.trim().replace(/^ryoku: /, "") || I18n.tr("The update could not start.");
+            }
+        }
+    }
+    Timer {
+        id: startWatch
+        interval: 15000
+        onTriggered: {
+            if (pg.starting && pg.phase === "idle") {
+                pg.starting = false;
+                pg.actionError = I18n.tr("The update did not start. Run `ryoku update` in a terminal to see why.");
+            }
+        }
+    }
+
+    // the password goes to the waiting run on stdin, never on a command line
+    property string pendingSecret: ""
+    function submitPassword(pw) {
+        pg.authBusy = true;
+        pg.pendingSecret = pw;
+        authProc.running = true;
+    }
+    function cancelPassword() {
+        authCancelProc.running = true;
+    }
+    Process {
+        id: authProc
+        command: ["ryoku", "update", "--auth"]
+        stdinEnabled: true
+        onStarted: {
+            write(pg.pendingSecret + "\n");
+            pg.pendingSecret = "";
+        }
+        stderr: StdioCollector { id: authErr }
+        onExited: (code) => {
+            if (code !== 0) {
+                pg.authBusy = false;
+                pg.actionError = authErr.text.trim().replace(/^ryoku: /, "");
+            }
+        }
+    }
+    Process {
+        id: authCancelProc
+        command: ["ryoku", "update", "--auth", "--cancel"]
+    }
+
+    // stop the run: it gives back what it quiesced (the shell, the sleep
+    // guard) and records the stop; a package transaction finishes on its own
+    function stopUpdate() {
+        pg.stopArmed = false;
+        stopProc.running = true;
+    }
+    Process {
+        id: stopProc
+        command: ["ryoku", "update", "--cancel"]
+        environment: Spawn.env
+        stderr: StdioCollector { id: stopErr }
+        onExited: (code) => {
+            if (code !== 0)
+                pg.actionError = stopErr.text.trim().replace(/^ryoku: /, "");
+        }
+    }
+
+    // one calm row under a settled run: a short line plus the Rashin handoff. The
+    // caller sets its width and gates it on showFixWithAI, so it shares the done
+    // and error views without either laying it out when Rashin has nothing to fix.
+    component FixRow: Column {
+        id: fr
+        spacing: Tokens.s3
+
+        Rectangle { width: fr.width; height: 1; color: Tokens.lineSoft }
+
+        Row {
+            width: fr.width
+            spacing: Tokens.s3
+            Text {
+                width: fr.width - fixBtn.width - Tokens.s3
+                anchors.verticalCenter: parent.verticalCenter
+                text: I18n.tr("The health check found issues after this update.")
+                color: Tokens.inkMuted; font.family: Tokens.ui
+                font.pixelSize: Tokens.fSmall; wrapMode: Text.WordWrap
+            }
+            Btn {
+                id: fixBtn
+                anchors.verticalCenter: parent.verticalCenter
+                text: I18n.tr("FIX WITH AI")
+                primary: true
+                onAct: pg.fixWithAI()
+            }
+        }
     }
 
     // idle list: incoming commits when behind, else the recent history the
     // installed version contains, so the page is informative either way.
     readonly property var sectionModel: Updates.available ? Updates.updates : Updates.recent
-    readonly property string sectionLabel: pg.nixBackend
-        ? (Updates.available ? I18n.tr("AVAILABLE VERSION") : I18n.tr("CURRENT VERSION"))
-        : (Updates.available ? I18n.tr("INCOMING COMMITS") : I18n.tr("RECENT CHANGES"))
+    readonly property string sectionLabel: Updates.available ? I18n.tr("INCOMING COMMITS") : I18n.tr("RECENT CHANGES")
 
     // ── head: eyebrow, Fraunces title, blurb (matches every settings page) ──
     Column {
@@ -276,12 +567,19 @@ Item {
             color: Tokens.inkMuted; font.family: Tokens.ui
             font.pixelSize: Tokens.fBody; wrapMode: Text.WordWrap
         }
+        Text {
+            visible: pg.snapshotReason !== ""
+            width: Math.min(parent.width, 720)
+            text: pg.snapshotReason
+            color: Tokens.inkFaint; font.family: Tokens.ui
+            font.pixelSize: Tokens.fSmall; wrapMode: Text.WordWrap
+        }
     }
 
     // ── idle: live status + the commit list, in one scroll container ─────────
     Flickable {
         id: idle
-        visible: pg.phase === "idle"
+        visible: pg.phase === "idle" && !pg.starting
         anchors {
             left: parent.left; right: parent.right
             top: head.bottom; bottom: footer.top
@@ -382,6 +680,38 @@ Item {
                                 : I18n.tr("on %1  \u00b7  checked %2").arg(Updates.branch).arg(Updates.checkedAgo)
                             color: Tokens.inkMuted; font.family: Tokens.ui
                             font.pixelSize: Tokens.fSmall
+                        }
+
+                        MouseArea {
+                            visible: Updates.buildState === "building"
+                                || Updates.buildState === "failed"
+                                || Updates.checkState === "checking"
+                                || Updates.checkState === "failed"
+                            width: Math.max(0, status.width - statusCol.x)
+                            height: channelStatusText.implicitHeight
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                var run = Updates.buildState === "building" || Updates.buildState === "failed"
+                                    ? Updates.buildRun : Updates.checkRun;
+                                if (run !== "")
+                                    Qt.openUrlExternally(run);
+                            }
+
+                            Text {
+                                id: channelStatusText
+                                width: parent.width
+                                text: Updates.buildState === "building"
+                                    ? I18n.tr("A build for %1 is in progress (%2 min). Updates are held until it finishes.").arg(Updates.buildCommit).arg(Updates.buildMinutes)
+                                    : Updates.buildState === "failed"
+                                        ? I18n.tr("The last build for %1 failed. Updating takes the previous good build.").arg(Updates.buildCommit)
+                                        : Updates.checkState === "checking"
+                                            ? I18n.tr("%1 is still being checked. Update deploys the last checked commit.").arg(Updates.checkCommit)
+                                            : I18n.tr("%1 failed its checks. Update stays on the last checked commit.").arg(Updates.checkCommit)
+                                color: Tokens.inkMuted; font.family: Tokens.ui
+                                font.pixelSize: Tokens.fSmall
+                                wrapMode: Text.WordWrap
+                            }
                         }
                     }
                 }
@@ -561,7 +891,7 @@ Item {
                 }
             }
 
-            // ── system packages (pacman -Syu, check-only) ──
+            // ── system packages (distribution upgrade, check-only) ──
             Column {
                 width: idleCol.width
                 spacing: 0
@@ -593,11 +923,11 @@ Item {
                     }
                 }
 
-                // These come from Arch or CachyOS, not from Ryoku: `ryoku update`
-                // does not move them, so the section has to name what does.
+                // These come from the host distribution, not from Ryoku's own
+                // package channel. The CLI owns the package-manager choice.
                 Text {
                     width: idleCol.width
-                    text: I18n.tr("From your distribution, kernel included. Take them with:  sudo pacman -Syu")
+                    text: I18n.tr("From your distribution, kernel included. Take them with:  ryoku update --system")
                     color: Tokens.inkFaint
                     font.family: Tokens.ui; font.pixelSize: Tokens.fTiny
                     wrapMode: Text.WordWrap
@@ -676,230 +1006,59 @@ Item {
         }
     }
 
-    // ── running / done: the ordered stages, the shared progress track and the
-    // streamed log. running and done share one view (the check + "complete"
-    // headline is the only difference). ──
-    Item {
-        visible: pg.phase === "running" || pg.phase === "done"
+    // ── a run: starting, running, done or failed. The timeline stays up once
+    // the run settles, so a failure shows where it stopped and a success what
+    // it did; the raw log opens beneath it on DETAILS. ──
+    Flickable {
+        id: runView
+        visible: pg.starting || pg.phase === "running" || pg.phase === "done" || pg.phase === "error"
         anchors {
             left: parent.left; right: parent.right
             top: head.bottom; bottom: footer.top
             leftMargin: Tokens.s6; rightMargin: Tokens.s6
+            topMargin: Tokens.s5; bottomMargin: Tokens.s4
         }
+        contentWidth: width
+        contentHeight: runCol.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollRail { policy: ScrollBar.AsNeeded }
+        WheelScroll { }
 
         Column {
-            anchors.centerIn: parent
-            width: Math.min(parent.width, 560)
+            id: runCol
+            x: Math.max(0, (runView.width - width) / 2)
+            width: Math.min(runView.width - Tokens.s3, 680)
+            topPadding: Tokens.s4
             spacing: Tokens.s5
 
-            Row {
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: Tokens.s2
-
-                // heartbeat while running (the indeterminate beat), a check on
-                // done. 600ms each way (DESIGN.md section 5), a heartbeat not an
-                // alarm -- and the only perpetual animation on the sheet.
-                Rectangle {
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: pg.phase === "running"
-                    width: 8; height: 8; radius: 4
-                    color: Tokens.ink
-                    SequentialAnimation on opacity {
-                        running: pg.phase === "running"
-                        loops: Animation.Infinite
-                        NumberAnimation { to: 0.3; duration: 600 }
-                        NumberAnimation { to: 1.0; duration: 600 }
-                    }
-                }
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: pg.phase === "done"
-                    text: "\u2713"
-                    color: Tokens.ink; font.family: Tokens.ui
-                    font.pixelSize: Tokens.fRow; font.weight: Font.Bold
-                }
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: pg.phase === "done" ? I18n.tr("Update complete")
-                        : (pg.label !== "" ? I18n.tr(pg.label) + "\u2026" : I18n.tr("Applying updates\u2026"))
-                    color: Tokens.ink; font.family: Tokens.ui
-                    font.pixelSize: Tokens.fRow; font.weight: Font.DemiBold
-                }
+            UpdateParts.UpdateRun {
+                width: runCol.width
+                run: pg
             }
 
-            // the shared progress spec: a hairline track, a square ink fill, a
-            // percent read-out. reflects the run's real advancement.
-            Item {
-                width: parent.width
-                height: 12
-
-                Rectangle {
-                    anchors.left: parent.left; anchors.right: pct.left
-                    anchors.rightMargin: Tokens.s2
-                    anchors.verticalCenter: parent.verticalCenter
-                    height: 4
-                    color: Tokens.lineSoft
-                    antialiasing: false
-
-                    Rectangle {
-                        anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
-                        width: parent.width * pg.fillFraction
-                        color: Tokens.ink
-                        antialiasing: false
-                        Behavior on width { NumberAnimation { duration: Tokens.flap } }
-                    }
-                }
-                Text {
-                    id: pct
-                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                    text: Math.round(pg.fillFraction * 100) + "%"
-                    color: Tokens.ink; font.family: Tokens.ui; font.pixelSize: Tokens.fTiny
-                }
+            Text {
+                width: runCol.width
+                visible: pg.phase === "error" && pg.errorMsg !== "stopped by request"
+                text: pg.snapshotsSupported && pg.snapshot !== ""
+                    ? I18n.tr("The system was snapshotted before the update. Roll back to undo every change.")
+                    : I18n.tr("DETAILS shows everything the update printed.")
+                color: Tokens.inkFaint; font.family: Tokens.ui
+                font.pixelSize: Tokens.fSmall
+                lineHeight: 1.35
+                wrapMode: Text.WordWrap
             }
 
-            // per-stage detail: one square ink fill per stage, keyed to the
-            // state the CLI reports. the running stage pulses on the heartbeat.
-            Row {
-                id: stageRow
-                width: parent.width
-                spacing: Tokens.s2
-
-                Repeater {
-                    model: pg.steps
-
-                    delegate: Rectangle {
-                        required property var modelData
-                        width: (stageRow.width - (pg.steps.length - 1) * Tokens.s2) / Math.max(1, pg.steps.length)
-                        height: 5
-                        radius: 0
-                        antialiasing: false
-                        color: Tokens.ink
-                        opacity: {
-                            switch (modelData.state) {
-                            case "running": return 1.0;
-                            case "ok": return 0.9;
-                            case "failed": return 1.0;
-                            case "skipped": return 0.35;
-                            default: return 0.18;
-                            }
-                        }
-                        SequentialAnimation on opacity {
-                            running: modelData.state === "running"
-                            loops: Animation.Infinite
-                            NumberAnimation { to: 0.3; duration: 600 }
-                            NumberAnimation { to: 1.0; duration: 600 }
-                        }
-                    }
-                }
+            FixRow {
+                width: runCol.width
+                visible: pg.showFixWithAI
             }
 
-            // the update's own narrative, streamed from the run-state log ring.
-            Column {
-                width: parent.width
-                spacing: Tokens.s1
-                visible: pg.logLines.length > 0
-
-                Repeater {
-                    model: pg.logLines
-
-                    delegate: Text {
-                        required property var modelData
-                        required property int index
-                        width: stageRow.width
-                        text: modelData
-                        color: index === pg.logLines.length - 1 ? Tokens.inkMuted : Tokens.inkFaint
-                        font.family: Tokens.mono; font.pixelSize: Tokens.fMicro
-                        elide: Text.ElideRight
-                    }
-                }
-            }
-        }
-    }
-
-    // ── error: the update stopped; a bone FAILED tag (an error is inverted text
-    // and the word, DESIGN.md section 1) and a one-click rollback. ──
-    Item {
-        visible: pg.phase === "error"
-        anchors {
-            left: parent.left; right: parent.right
-            top: head.bottom; bottom: footer.top
-            leftMargin: Tokens.s6; rightMargin: Tokens.s6
-        }
-
-        Row {
-            anchors.centerIn: parent
-            width: Math.min(parent.width, 560)
-            spacing: Tokens.s4
-
-            Rectangle {
-                width: 2; height: errCol.implicitHeight
-                color: Tokens.ink; antialiasing: false
-            }
-
-            Column {
-                id: errCol
-                width: parent.width - 2 - Tokens.s4
-                spacing: Tokens.s3
-
-                Rectangle {
-                    width: failTag.width + Tokens.s2 * 2
-                    height: 18
-                    radius: Tokens.radius
-                    color: Tokens.bone
-                    Text {
-                        id: failTag
-                        anchors.centerIn: parent
-                        text: I18n.tr("FAILED")
-                        color: Tokens.inkOnBone; font.family: Tokens.ui
-                        font.pixelSize: Tokens.fTiny; font.weight: Font.Medium
-                        font.letterSpacing: Tokens.trackLabel
-                    }
-                }
-
-                Text {
-                    width: parent.width
-                    text: pg.label !== "" ? I18n.tr("Update failed while %1").arg(pg.label.toLowerCase()) : I18n.tr("Update failed")
-                    color: Tokens.ink; font.family: Tokens.ui
-                    font.pixelSize: Tokens.fValue; font.weight: Font.DemiBold
-                    wrapMode: Text.WordWrap
-                }
-
-                Text {
-                    width: parent.width
-                    visible: pg.errorMsg !== ""
-                    text: pg.errorMsg
-                    color: Tokens.inkMuted; font.family: Tokens.mono
-                    font.pixelSize: Tokens.fSmall
-                    lineHeight: 1.35
-                    wrapMode: Text.WordWrap
-                }
-
-                Text {
-                    width: parent.width
-                    text: pg.snapshot !== ""
-                        ? I18n.tr("The system was snapshotted before the update. Roll back to undo every change.")
-                        : I18n.tr("Check the terminal for details, then try again.")
-                    color: Tokens.inkFaint; font.family: Tokens.ui
-                    font.pixelSize: Tokens.fSmall
-                    lineHeight: 1.35
-                    wrapMode: Text.WordWrap
-                }
-
-                Item { width: 1; height: Tokens.s1 }
-
-                Row {
-                    spacing: Tokens.s3
-                    Btn {
-                        visible: pg.snapshot !== ""
-                        text: I18n.tr("ROLL BACK")
-                        primary: true
-                        onAct: pg.rollback()
-                    }
-                    Btn {
-                        text: I18n.tr("DISMISS")
-                        onAct: pg.dismiss()
-                    }
-                }
+            UpdateParts.UpdateLog {
+                width: runCol.width
+                height: Math.max(220, runView.height * 0.45)
+                visible: pg.showLog
+                path: pg.logPath !== "" ? pg.logPath : pg.defaultLogPath
             }
         }
     }
@@ -967,6 +1126,22 @@ Item {
         }
     }
 
+    // ── auth: the password the run needs for sudo, asked for right here ──
+    Item {
+        visible: pg.phase === "auth"
+        anchors {
+            left: parent.left; right: parent.right
+            top: head.bottom; bottom: footer.top
+            leftMargin: Tokens.s6; rightMargin: Tokens.s6
+        }
+
+        UpdateParts.UpdateAuth {
+            anchors.centerIn: parent
+            width: Math.min(parent.width, 560)
+            run: pg
+        }
+    }
+
     // ── action bar, pinned at the bottom (60 tall, one hairline) ─────────────
     Item {
         id: footer
@@ -982,31 +1157,89 @@ Item {
 
         Text {
             anchors.left: parent.left; anchors.leftMargin: Tokens.s6
+            anchors.right: actions.left; anchors.rightMargin: Tokens.s4
             anchors.verticalCenter: parent.verticalCenter
-            text: pg.phase === "running" ? I18n.tr("Update running")
-                : pg.phase === "error" ? I18n.tr("Update failed")
+            text: pg.actionError !== "" ? pg.actionError
+                : pg.live ? I18n.tr("Update running") + (pg.started > 0 ? "  \u00b7  " + pg.human(pg.now - pg.started) : "")
+                : pg.starting ? I18n.tr("Starting the update")
+                : pg.phase === "error" ? (pg.errorMsg === "stopped by request" ? I18n.tr("Update stopped") : I18n.tr("Update failed"))
                 : pg.phase === "done" ? I18n.tr("Update complete")
                 : (Updates.branch + (Updates.currentVersion !== "" ? ("  \u00b7  " + Updates.currentVersion) : ""))
-            color: Tokens.inkFaint; font.family: Tokens.mono; font.pixelSize: Tokens.fMicro
+            color: pg.actionError !== "" ? Tokens.ink : Tokens.inkFaint
+            font.family: pg.actionError !== "" ? Tokens.ui : Tokens.mono
+            font.pixelSize: pg.actionError !== "" ? Tokens.fSmall : Tokens.fMicro
+            elide: Text.ElideRight
+        }
+
+        // STOP asks twice: a stray click must not end a healthy run
+        Timer {
+            interval: 4000
+            running: pg.stopArmed
+            onTriggered: pg.stopArmed = false
         }
 
         Row {
+            id: actions
             anchors.right: parent.right; anchors.rightMargin: Tokens.s6
             anchors.verticalCenter: parent.verticalCenter
             spacing: Tokens.s3
-            visible: pg.phase === "idle"
 
             Btn {
                 anchors.verticalCenter: parent.verticalCenter
+                visible: pg.phase === "idle" && !pg.starting
                 text: I18n.tr("CHECK AGAIN")
                 onAct: Updates.check()
             }
+            Item {
+                visible: pg.phase === "idle" && !pg.starting && Updates.available
+                width: updateBtn.implicitWidth
+                height: updateBtn.implicitHeight
+
+                Btn {
+                    id: updateBtn
+                    anchors.fill: parent
+                    enabled: Updates.buildState !== "building"
+                    opacity: enabled ? 1 : 0.5
+                    text: I18n.tr("UPDATE NOW")
+                    primary: true
+                    onAct: pg.startUpdate()
+                }
+
+                MouseArea {
+                    id: updateDisabledHover
+                    anchors.fill: parent
+                    enabled: !updateBtn.enabled
+                    hoverEnabled: true
+                }
+
+                ToolTip.visible: updateDisabledHover.containsMouse
+                ToolTip.text: I18n.tr("Updates are held until the channel build finishes.")
+            }
             Btn {
                 anchors.verticalCenter: parent.verticalCenter
-                visible: Updates.available
-                text: I18n.tr("UPDATE NOW")
+                visible: pg.starting || pg.phase === "running" || pg.phase === "done" || pg.phase === "error"
+                text: pg.showLog ? I18n.tr("HIDE DETAILS") : I18n.tr("DETAILS")
+                onAct: pg.showLog = !pg.showLog
+            }
+            Btn {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: pg.live
+                text: pg.stopArmed ? I18n.tr("CONFIRM STOP") : I18n.tr("STOP")
+                primary: pg.stopArmed
+                onAct: pg.stopArmed ? pg.stopUpdate() : (pg.stopArmed = true)
+            }
+            Btn {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: pg.snapshotsSupported && pg.phase === "error" && pg.snapshot !== ""
+                text: I18n.tr("ROLL BACK")
+                onAct: pg.rollback()
+            }
+            Btn {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: pg.phase === "done" || pg.phase === "error"
+                text: pg.phase === "done" ? I18n.tr("DONE") : I18n.tr("DISMISS")
                 primary: true
-                onAct: pg.startUpdate()
+                onAct: pg.dismiss()
             }
         }
     }

@@ -30,9 +30,9 @@ import (
 )
 
 const (
-	workers   = 6                // parallel connections when ranged
-	minChunk  = 8 << 20          // don't parallelise downloads smaller than this
-	uaString  = "ryovm-fetch/1"  // a plain UA; some mirrors reject empty ones
+	workers   = 6               // parallel connections when ranged
+	minChunk  = 8 << 20         // don't parallelise downloads smaller than this
+	uaString  = "ryovm-fetch/1" // a plain UA; some mirrors reject empty ones
 	tickEvery = 250 * time.Millisecond
 )
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,7 +26,7 @@ const dialTimeout = 200 * time.Millisecond
 // the runtime dir. The fallback matters because the shell daemon restarts from
 // the user manager's environment, which can name a socket whose instance died.
 func socketPath() string {
-	if p := os.Getenv("NIRI_SOCKET"); p != "" && socketAlive(p) {
+	if p := os.Getenv("NIRI_SOCKET"); p != "" && aliveCheck(p) {
 		return p
 	}
 	if p := liveSocket(); p != "" {
@@ -37,26 +38,33 @@ func socketPath() string {
 // niri names its socket niri.<wayland-display>.<pid>.sock, so a stale file from
 // a crashed instance sits beside a live one. Newest that actually answers wins.
 func liveSocket() string {
-	rt := os.Getenv("XDG_RUNTIME_DIR")
-	if rt == "" {
+	return liveSocketFor(os.Getenv("XDG_RUNTIME_DIR"), "")
+}
+
+func liveSocketFor(runtimeDir, display string) string {
+	if runtimeDir == "" {
 		return ""
 	}
-	entries, err := os.ReadDir(rt)
+	entries, err := os.ReadDir(runtimeDir)
 	if err != nil {
 		return ""
+	}
+	prefix := "niri."
+	if display != "" {
+		prefix += display + "."
 	}
 	var candidates []string
 	for _, e := range entries {
 		name := e.Name()
-		if strings.HasPrefix(name, "niri.") && strings.HasSuffix(name, ".sock") {
-			candidates = append(candidates, filepath.Join(rt, name))
+		if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, ".sock") {
+			candidates = append(candidates, filepath.Join(runtimeDir, name))
 		}
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		return modTime(candidates[i]).After(modTime(candidates[j]))
 	})
 	for _, p := range candidates {
-		if socketAlive(p) {
+		if aliveCheck(p) {
 			return p
 		}
 	}
@@ -71,7 +79,7 @@ func modTime(path string) time.Time {
 	return fi.ModTime()
 }
 
-// aliveCheck is a var so tests can satisfy live() without a compositor.
+// aliveCheck keeps socket selection deterministic in tests.
 var aliveCheck = socketAlive
 
 func socketAlive(path string) bool {
@@ -168,4 +176,47 @@ func niriConfigDir() string {
 		return ""
 	}
 	return filepath.Join(home, ".config", "niri")
+}
+
+var sessionEnvironmentRoot = "/proc"
+
+func processEnvironmentValue(data []byte, key string) string {
+	prefix := key + "="
+	for _, field := range strings.Split(string(data), "\x00") {
+		if strings.HasPrefix(field, prefix) {
+			return strings.TrimPrefix(field, prefix)
+		}
+	}
+	return ""
+}
+
+// runEnvironment exports only this provider's live opaque session handle. A
+// service restarted from the user manager can carry the previous niri
+// instance's socket, so validate it and recover the socket that belongs to the
+// process's Wayland display rather than republishing stale state.
+func runEnvironment(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("environment: expected one process id")
+	}
+	pid, err := strconv.Atoi(args[0])
+	if err != nil || pid <= 0 {
+		return fmt.Errorf("environment: invalid process id %q", args[0])
+	}
+	data, err := os.ReadFile(filepath.Join(sessionEnvironmentRoot, strconv.Itoa(pid), "environ"))
+	if err != nil {
+		return fmt.Errorf("environment: read process %d: %w", pid, err)
+	}
+	handle := processEnvironmentValue(data, "NIRI_SOCKET")
+	display := processEnvironmentValue(data, "WAYLAND_DISPLAY")
+	if !aliveCheck(handle) {
+		runtimeDir := processEnvironmentValue(data, "XDG_RUNTIME_DIR")
+		if runtimeDir == "" {
+			runtimeDir = os.Getenv("XDG_RUNTIME_DIR")
+		}
+		handle = liveSocketFor(runtimeDir, display)
+	}
+	if handle != "" {
+		_, err = fmt.Fprintf(stdout, "NIRI_SOCKET=%s%c", handle, byte(0))
+	}
+	return err
 }

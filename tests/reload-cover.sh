@@ -4,22 +4,28 @@ set -euo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
 renderer="$root/ryoku/shell/quickshell/reload-cover/ReloadCover.qml"
+media="$root/ryoku/shell/quickshell/reload-cover/ReloadMedia.qml"
 shell="$root/ryoku/shell/quickshell/shell/shell.qml"
 cover_shell="$root/ryoku/shell/quickshell/reload-cover/shell.qml"
 
-grep -qF 'interval: 16500' "$cover_shell"
+# The hold deadline is mode-based: a reload gets the supervised-restart
+# budget, a boot waits on the whole session chain.
+grep -qF 'interval: root.mode === "boot" ? 45000 : 16500' "$cover_shell"
+grep -qF 'readonly property string mode: Quickshell.env("RYOKU_RELOAD_COVER_MODE")' "$cover_shell"
 
 grep -qF 'id: reloadHold' "$shell"
 grep -qF 'interval: 1500' "$shell"
 grep -qF 'reloadHold.restart()' "$shell"
+# One read at load: a stale shell must never steal the next instance's finish.
+grep -qF 'watchChanges: false' "$shell"
 
-grep -qF 'id: loadingSweep' "$renderer"
-grep -qF 'NumberAnimation on x' "$renderer"
-grep -qF 'running: logoGlow.visible && logo.opacity > 0' "$renderer"
-grep -qF 'duration: 1200' "$renderer"
-grep -qF 'ColorOverlay {' "$renderer"
-grep -qF 'text: "SHELL RELOADING"' "$renderer"
-grep -qF 'visible: cover.phase !== "failed" && logo.opacity > 0' "$renderer"
+grep -qF 'id: loadingSweep' "$media"
+grep -qF 'NumberAnimation on x' "$media"
+grep -qF 'running: defaultLogo.visible && root.active' "$media"
+grep -qF 'duration: 1200' "$media"
+grep -qF 'ColorOverlay {' "$media"
+grep -qF 'text: cover.mode === "boot" ? I18n.tr("LOADING DESKTOP") : I18n.tr("SHELL RELOADING")' "$renderer"
+grep -qF 'visible: cover.phase !== "failed" && media.showingDefault && cover.mediaOpacity > 0' "$renderer"
 grep -qF 'import QtQuick.Shapes' "$renderer"
 grep -qF 'fillRule: ShapePath.OddEvenFill' "$renderer"
 grep -qF 'PathSvg {' "$renderer"
@@ -67,6 +73,24 @@ wait || true
 test "$(awk 'NF { n++ } END { print n + 0 }' "$tmp/a" "$tmp/b")" = 1
 token=$(jq -r .token "$XDG_RUNTIME_DIR/ryoku-reload-cover.json")
 RYOKU_RELOAD_COVER_TEST=1 "$cover" finish "$token"
+
+# Boot mode is a first-class begin argument: the autostart chain raises the
+# cover with it and the cover holds to the longer boot deadline.
+token=$(RYOKU_RELOAD_COVER_TEST=1 "$cover" begin boot)
+test -n "$token"
+RYOKU_RELOAD_COVER_TEST=1 "$cover" finish "$token"
+# Any other mode is a usage error, not a silent reload.
+if RYOKU_RELOAD_COVER_TEST=1 "$cover" begin sideways >/dev/null 2>&1; then
+    echo "begin accepted an unknown mode" >&2
+    exit 1
+fi
+# Outside a compositor session begin must fail fast (a TTY doctor repair
+# burns no map-poll budget); the gate sits before any qs spawn.
+if env -u WAYLAND_DISPLAY -u RYOKU_RELOAD_COVER_TEST "$cover" begin >/dev/null 2>&1; then
+    echo "begin succeeded with no Wayland session" >&2
+    exit 1
+fi
+test ! -e "$XDG_RUNTIME_DIR/ryoku-reload-cover.json"
 
 echo "reload cover launcher: PASS"
 

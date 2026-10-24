@@ -1,0 +1,16 @@
+module stage.modules.common.functions
+singleton BitwiseFuzzy 1.0 BitwiseFuzzy.qml
+singleton ColorUtils 1.0 ColorUtils.qml
+singleton EditModeLogic 1.0 EditModeLogic.qml
+singleton FileUtils 1.0 FileUtils.qml
+UtilityFiles 1.0 UtilityFiles.js
+singleton Fuzzy 1.0 Fuzzy.qml
+singleton Levendist 1.0 Levendist.qml
+singleton ProcUtils 1.0 ProcUtils.qml
+singleton ScrollWheel 1.0 ScrollWheel.qml
+singleton StringUtils 1.0 StringUtils.qml
+singleton WallpaperFraming 1.0 WallpaperFraming.qml
+singleton WidgetAlign 1.0 WidgetAlign.qml
+singleton WidgetNudge 1.0 WidgetNudge.qml
+singleton WidgetPlacement 1.0 WidgetPlacement.qml
+singleton WorkspaceLockUtils 1.0 WorkspaceLockUtils.qml

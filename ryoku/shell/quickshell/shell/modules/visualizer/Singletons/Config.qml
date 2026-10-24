@@ -19,8 +19,13 @@ Singleton {
 
     // --- globals (shared by every instance) -----------------------------------
     property alias enabled:  adapter.enabled     // master on/off (also Super+M)
-    property alias fps:      adapter.fps          // 30 default, up to 60
+    property alias fps:      adapter.fps          // 60 default (30 / 45 / 60)
     property alias adaptive: adapter.adaptive     // auto-throttle under load
+
+    // The adaptive governor of the ACTIVE instance caps fps to 30/24 while it
+    // works; the settings popup reads this so it can say so, rather than the
+    // user reading the frame-rate control as stuck. 0 while the governor idles.
+    property int activeGovTier: 0
 
     // The looks the renderer knows, canonical here for cycleStyle.
     readonly property var knownStyles: act.knownStyles
@@ -28,8 +33,22 @@ Singleton {
     // --- the instances --------------------------------------------------------
     // The primary as a plain object (its flat keys), so it sits in `list` beside
     // the extras and the renderer treats them uniformly.
+    // The edge field's knobs ride flat `aura`-prefixed keys, canonical in
+    // auraKeys: primaryData folds them into the primary, applyPrimary copies
+    // them back on promotion, and VizItem holds the shipped defaults.
+    readonly property var auraKeys: [
+        "auraEdges", "auraDepth", "auraSpan", "auraTaper", "auraCornerRadius",
+        "auraJoin", "auraCornerBlend", "auraFlow", "auraMaterial", "auraShape",
+        "auraEffect", "auraEffectStrength", "auraColorMode", "auraColor2",
+        "auraColor3", "auraOpacity", "auraColorSpeed", "auraBodyOpacity",
+        "auraCrestStrength", "auraGlow", "auraGlowSpread", "auraAudioRange",
+        "auraThickness", "auraDetail", "auraBassDrive", "auraTrebleDrive",
+        "auraTransient", "auraBeatGlow", "auraCompression", "auraMotionSpeed",
+        "auraIdleMotion", "auraAttack", "auraRelease", "auraProfile",
+        "auraAccent", "auraSensitivity"
+    ]
     function primaryData() {
-        return {
+        var d = {
             "style": adapter.style, "shape": adapter.shape,
             "color": adapter.color, "color2": adapter.color2, "gradient": adapter.gradient,
             "bars": adapter.bars, "thickness": adapter.thickness, "bloom": adapter.bloom,
@@ -40,11 +59,31 @@ Singleton {
             "h": adapter.h, "grow": adapter.grow, "angle": adapter.angle,
             "tiltX": adapter.tiltX, "tiltY": adapter.tiltY
         };
+        for (var i = 0; i < root.auraKeys.length; i++)
+            d[root.auraKeys[i]] = adapter[root.auraKeys[i]];
+        return d;
     }
     function dataAt(index) {
         if (index <= 0)
             return root.primaryData();
         return (adapter.extras || [])[index - 1] || ({});
+    }
+    property var previews: ({})
+    function previewAt(index) {
+        return root.previews["" + index] || null;
+    }
+    function setPreview(index, nx, ny) {
+        const next = Object.assign({}, root.previews);
+        next["" + index] = { x: nx, y: ny };
+        root.previews = next;
+    }
+    function clearPreview(index) {
+        const key = "" + index;
+        if (root.previews[key] === undefined)
+            return;
+        const next = Object.assign({}, root.previews);
+        delete next[key];
+        root.previews = next;
     }
     readonly property var list: {
         var out = [root.primaryData()];
@@ -67,8 +106,12 @@ Singleton {
     // The active instance, normalised, for the editor and placer to read.
     VizItem { id: act; data: root.activeData }
 
+    // The active instance, normalised: the editors read their knobs off this
+    // rather than re-listing every alias.
+    readonly property VizItem instance: act
     readonly property string styleId:       act.styleId
     readonly property bool   isPolar:       act.isPolar
+    readonly property bool   isAura:        act.isAura
     readonly property bool   peaksApply:    act.peaksApply
     readonly property bool   mirrorApplies: act.mirrorApplies
     readonly property int    bars:          act.bars
@@ -129,11 +172,33 @@ Singleton {
         }
         settle.restart();
     }
+    // Toggling a screen edge on or off for the field; an empty field is not a
+    // valid look, so switching the last one off lights the rails again.
+    function toggleAuraEdge(name) {
+        var cur = (act.auraEdges || []).slice();
+        var i = cur.indexOf(name);
+        if (i >= 0)
+            cur.splice(i, 1);
+        else
+            cur.push(name);
+        root.poke("auraEdges", cur);
+    }
 
     function setStyle(k) {
         if (root.knownStyles.indexOf(k) < 0)
             return;
         root.poke("style", k);
+    }
+    // The aura look's vocabularies, canonical so the desktop editor and the Hub
+    // cycle the same set rather than each hand-listing it.
+    readonly property var auraMaterials: ["silk", "aurora", "contour", "liquid"]
+    function cycleAuraMaterial() {
+        var m = root.auraMaterials;
+        var i = m.indexOf(act.auraMaterial);
+        root.poke("auraMaterial", m[(i + 1) % m.length]);
+    }
+    function setAuraDepth(v) {
+        root.poke("auraDepth", Math.max(24, Math.min(600, Math.round(v))));
     }
     function cycleStyle(by) {
         var i = root.knownStyles.indexOf(root.styleId);
@@ -157,27 +222,48 @@ Singleton {
 
     // Colour: a pinned #rrggbb, "" to follow the wallpaper. A gradient adds a
     // second stop; both stops must be valid hex for it to paint.
-    function setColor(hex) {
+    function normalizeHex(hex) {
         var t = ("" + hex).trim();
-        if (t.length > 0 && t[0] !== "#") t = "#" + t;
-        if (!/^#[0-9a-fA-F]{6}$/.test(t)) return;
+        if (t.length > 0 && t[0] !== "#")
+            t = "#" + t;
+        return /^#[0-9a-fA-F]{6}$/.test(t) ? t.toLowerCase() : "";
+    }
+    function setColor(hex) {
+        var t = root.normalizeHex(hex);
+        if (t === "")
+            return false;
         root.poke("color", t);
+        return true;
     }
     function clearColor() { root.poke("color", ""); }
     function setColor2(hex) {
-        var t = ("" + hex).trim();
-        if (t.length > 0 && t[0] !== "#") t = "#" + t;
-        if (!/^#[0-9a-fA-F]{6}$/.test(t)) return;
+        var t = root.normalizeHex(hex);
+        if (t === "")
+            return false;
         root.poke("color2", t);
+        return true;
     }
     function setGradient(on) { root.poke("gradient", on === true); }
     function toggleGradient() { root.setGradient(!root.gradient); }
 
-    // persist on/off so the hub toggle and Super+M keybind agree, and it
-    // survives a restart. Global, so it always writes the flat key.
+    // Global, so it always writes the flat key. It shares the settle coalescer
+    // with instance edits so enabling a restored instance cannot race its data.
     function setEnabled(on) {
-        adapter.enabled = on;
-        file.writeAdapter();
+        if (adapter.enabled === (on === true))
+            return;
+        adapter.enabled = on === true;
+        settle.restart();
+    }
+
+    // fps and adaptive are global, not per-viz: write the flat keys directly, so
+    // tuning while an extra instance is active never buries them in its slot.
+    function setFps(v) {
+        adapter.fps = Math.max(1, Math.min(240, Math.round(v)));
+        settle.restart();
+    }
+    function setAdaptive(on) {
+        adapter.adaptive = on === true;
+        settle.restart();
     }
 
     // How much of the box's own turned footprint is allowed to hang past a
@@ -228,6 +314,30 @@ Singleton {
         root.poke("x", b.x);
         root.poke("y", b.y);
     }
+    function moveBoxAt(index, nx, ny, aspect) {
+        const i = Math.max(0, Math.min(root.count - 1, Math.round(index)));
+        const data = root.dataAt(i);
+        const w = Number(data.w);
+        const h = Number(data.h);
+        const angle = Number(data.angle);
+        const b = root.fitBox(nx, ny,
+            isFinite(w) ? w : 1,
+            isFinite(h) ? h : 0.42,
+            isFinite(angle) ? angle : 0,
+            aspect);
+        if (i === 0) {
+            adapter.x = b.x;
+            adapter.y = b.y;
+        } else {
+            const arr = (adapter.extras || []).slice();
+            const entry = Object.assign({}, arr[i - 1]);
+            entry.x = b.x;
+            entry.y = b.y;
+            arr[i - 1] = entry;
+            adapter.extras = arr;
+        }
+        settle.restart();
+    }
     function sizeBox(nw, nh, aspect) {
         root.setBox(root.x, root.y, nw, nh, aspect);
     }
@@ -258,7 +368,9 @@ Singleton {
     }
     // Mirroring what is on screen is a different thing per family.
     function flip() {
-        if (root.isPolar)
+        if (root.isAura)
+            root.poke("auraFlow", act.auraFlow === "clockwise" ? "counterclockwise" : "clockwise");
+        else if (root.isPolar)
             root.poke("spin", -root.spin);
         else if (root.grow === "up")
             root.poke("grow", "down");
@@ -273,23 +385,27 @@ Singleton {
     }
 
     // --- instance management --------------------------------------------------
+    function cloneData(o) {
+        return JSON.parse(JSON.stringify(o || {}));
+    }
     function setActive(i) {
         adapter.active = Math.max(0, Math.min(root.count - 1, i));
         settle.restart();
     }
     function addVisualizer() {
         if (root.count >= root.maxVisualizers)
-            return;
+            return -1;
         var arr = (adapter.extras || []).slice();
         // Seed from the active instance, nudged so the new one is not hidden
         // exactly under it, and given a fresh box so it is easy to grab.
-        var seed = Object.assign({}, root.activeData);
+        var seed = root.cloneData(root.activeData);
         seed.x = Math.max(-0.2, Math.min(0.8, (seed.x || 0) + 0.06));
         seed.y = Math.max(-0.2, Math.min(0.8, (seed.y || 0.58) - 0.12));
         arr.push(seed);
         adapter.extras = arr;
-        adapter.active = arr.length;   // the new extra is the last instance
-        file.writeAdapter();
+        adapter.active = arr.length;
+        settle.restart();
+        return adapter.active;
     }
     function applyPrimary(o) {
         adapter.style = o.style; adapter.shape = o.shape;
@@ -302,26 +418,73 @@ Singleton {
         adapter.spin = o.spin; adapter.x = o.x; adapter.y = o.y; adapter.w = o.w;
         adapter.h = o.h; adapter.grow = o.grow; adapter.angle = o.angle;
         adapter.tiltX = o.tiltX; adapter.tiltY = o.tiltY;
+        for (var i = 0; i < root.auraKeys.length; i++) {
+            var k = root.auraKeys[i];
+            if (o[k] !== undefined)
+                adapter[k] = o[k];
+        }
+    }
+    function replaceVisualizer(i, data) {
+        var idx = Math.max(0, Math.min(root.count - 1, i));
+        var copy = root.cloneData(data);
+        if (idx === 0) {
+            root.applyPrimary(copy);
+        } else {
+            var arr = (adapter.extras || []).slice();
+            arr[idx - 1] = copy;
+            adapter.extras = arr;
+        }
+        adapter.active = idx;
+        settle.restart();
+    }
+    function insertVisualizer(i, data) {
+        if (root.count >= root.maxVisualizers)
+            return -1;
+        var idx = Math.max(0, Math.min(root.count, i));
+        var copy = root.cloneData(data);
+        if (idx === 0) {
+            var arr0 = (adapter.extras || []).slice();
+            arr0.unshift(root.cloneData(root.primaryData()));
+            root.applyPrimary(copy);
+            adapter.extras = arr0;
+        } else {
+            var arr = (adapter.extras || []).slice();
+            arr.splice(idx - 1, 0, copy);
+            adapter.extras = arr;
+        }
+        adapter.active = idx;
+        settle.restart();
+        return idx;
+    }
+    function replaceAll(instances, selected, on) {
+        var rows = root.cloneData(instances);
+        if (!rows || rows.length === 0)
+            rows = [root.primaryData()];
+        root.applyPrimary(rows[0]);
+        adapter.extras = rows.slice(1, root.maxVisualizers);
+        adapter.active = Math.max(0, Math.min(rows.length - 1, selected || 0));
+        adapter.enabled = on === true;
+        settle.restart();
     }
     function removeVisualizer(i) {
-        var idx = i === undefined ? root.active : i;
-        if (idx <= 0) {
-            // Removing the primary promotes the first extra into the flat slot, so
-            // there is always a primary; refuse if it is the only visualiser.
+        var idx = Math.max(0, Math.min(root.count - 1, i === undefined ? root.active : i));
+        if (root.count === 1) {
+            root.setEnabled(false);
+            return true;
+        }
+        if (idx === 0) {
             var ex = (adapter.extras || []).slice();
-            if (ex.length === 0)
-                return;
             var promoted = ex.shift();
             root.applyPrimary(promoted);
             adapter.extras = ex;
         } else {
             var arr = (adapter.extras || []).slice();
-            if (idx - 1 < arr.length)
-                arr.splice(idx - 1, 1);
+            arr.splice(idx - 1, 1);
             adapter.extras = arr;
         }
-        adapter.active = Math.max(0, Math.min(root.count - 1, adapter.active));
-        file.writeAdapter();
+        adapter.active = Math.max(0, Math.min(idx, root.count - 1));
+        settle.restart();
+        return true;
     }
 
     Timer {
@@ -347,14 +510,14 @@ Singleton {
             property real bloom: 0.6
             property real reflection: 0.1
             property bool idleWave: true
-            property string style: "bars"
+            property string style: "wave"
             property string shape: "rounded"
             property string color: ""
             property string color2: ""
             property bool gradient: false
             property bool mirror: false
             property int segments: 10
-            property int fps: 30
+            property int fps: 60
             property bool adaptive: true
             property real smoothing: 0.5
             property real gain: 1.0
@@ -368,6 +531,45 @@ Singleton {
             property real angle: 0
             property real tiltX: 0
             property real tiltY: 0
+            // The edge field's knobs, flat and aura-prefixed like every other
+            // per-viz key. The values mirror VizItem's defaults, so a config
+            // that has never touched an aura key keeps them out of the file.
+            property var auraEdges: ["left", "right"]
+            property real auraDepth: 180
+            property real auraSpan: 1.0
+            property real auraTaper: 0.14
+            property real auraCornerRadius: 24
+            property string auraJoin: "auto"
+            property real auraCornerBlend: 0.55
+            property string auraFlow: "clockwise"
+            property string auraMaterial: "silk"
+            property string auraShape: "flow"
+            property string auraEffect: "clean"
+            property real auraEffectStrength: 0.38
+            property string auraColorMode: "flow"
+            property string auraColor2: ""
+            property string auraColor3: ""
+            property real auraOpacity: 1.0
+            property real auraColorSpeed: 0.35
+            property real auraBodyOpacity: 0.32
+            property real auraCrestStrength: 0.9
+            property real auraGlow: 0.52
+            property real auraGlowSpread: 0.48
+            property real auraAudioRange: 0.78
+            property real auraThickness: 0.22
+            property real auraDetail: 0.42
+            property real auraBassDrive: 0.88
+            property real auraTrebleDrive: 0.68
+            property real auraTransient: 0.9
+            property real auraBeatGlow: 0.64
+            property real auraCompression: 0.12
+            property real auraMotionSpeed: 1.0
+            property real auraIdleMotion: 0.14
+            property real auraAttack: 1.05
+            property real auraRelease: 0.82
+            property string auraProfile: "flat"
+            property real auraAccent: 0.7
+            property real auraSensitivity: 0.72
             // Additional visualisers beyond the primary, each a full per-viz
             // object, and which instance the desktop editor is tuning.
             property var extras: []

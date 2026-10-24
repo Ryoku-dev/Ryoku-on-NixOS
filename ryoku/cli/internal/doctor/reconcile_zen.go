@@ -120,7 +120,7 @@ func reconcileZenInto(roots []string, checkOnly bool) recResult {
 		merged, err := mergeZenPolicy(cur, want)
 		if err != nil {
 			return failRes(i18n.T("could not merge the Zen policy at %s: %v"), dst, err).
-				withFix("sudo ryoku doctor")
+				withFix(i18n.T("ryoku doctor"))
 		}
 		if bytes.Equal(bytes.TrimSpace(cur), bytes.TrimSpace(merged)) {
 			continue
@@ -131,7 +131,7 @@ func reconcileZenInto(roots []string, checkOnly bool) recResult {
 		}
 		if err := writeZenPolicy(dst, append(merged, '\n')); err != nil {
 			return failRes(i18n.T("could not write the Zen policy at %s: %v"), dst, err).
-				withFix("sudo ryoku doctor")
+				withFix(i18n.T("ryoku doctor"))
 		}
 		did = append(did, root)
 	}

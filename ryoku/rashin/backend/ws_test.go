@@ -1,12 +1,15 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
 func TestTranscriptRecordsConversationOnly(t *testing.T) {
-	h := newChatHub()
+	h := newChatHub(ryokuLane())
 	h.broadcast(wsOut{Type: "state", State: "busy"})
 	h.broadcast(wsOut{Type: "user_text", Text: "q"})
 	h.broadcast(wsOut{Type: "agent_text", Text: "a"})
@@ -23,12 +26,56 @@ func TestTranscriptRecordsConversationOnly(t *testing.T) {
 }
 
 func TestTranscriptCapKeepsTail(t *testing.T) {
-	h := newChatHub()
-	for i := 0; i < transcriptCap+10; i++ {
-		h.broadcast(wsOut{Type: "agent_text", Text: "x"})
+	h := newChatHub(ryokuLane())
+	for i := range transcriptCap + 10 {
+		h.broadcast(wsOut{Type: "tool", ID: fmt.Sprint("t", i), Status: "completed"})
 	}
 	if len(h.transcript) > transcriptCap {
 		t.Fatalf("transcript grew past cap: %d", len(h.transcript))
+	}
+	if last := h.transcript[len(h.transcript)-1]; last.ID != fmt.Sprint("t", transcriptCap+9) {
+		t.Fatalf("cap must keep the newest frames, last is %q", last.ID)
+	}
+}
+
+// A joiner replays the conversation, not every chunk: a run of chunks is one
+// frame and a tool call is one frame with its latest fields.
+func TestTranscriptCoalescesChunksAndToolUpdates(t *testing.T) {
+	h := newChatHub(ryokuLane())
+	h.broadcast(wsOut{Type: "agent_thought", Text: "check "})
+	h.broadcast(wsOut{Type: "agent_thought", Text: "logs"})
+	h.broadcast(wsOut{Type: "tool", ID: "t1", Title: "$ journalctl -b", Kind: "execute", Status: "pending", Input: "journalctl -b", Auto: true})
+	h.broadcast(wsOut{Type: "tool", ID: "t1", Status: "in_progress", Output: "line 1"})
+	h.broadcast(wsOut{Type: "tool", ID: "t1", Status: "completed", Output: "line 1\nline 2"})
+	h.broadcast(wsOut{Type: "agent_text", Text: "All "})
+	h.broadcast(wsOut{Type: "agent_text", Text: "clear."})
+
+	if len(h.transcript) != 3 {
+		t.Fatalf("transcript = %d frames, want thought, tool, text: %+v", len(h.transcript), h.transcript)
+	}
+	if h.transcript[0].Text != "check logs" || h.transcript[2].Text != "All clear." {
+		t.Fatalf("chunks not joined: %+v", h.transcript)
+	}
+	tool := h.transcript[1]
+	if tool.Status != "completed" || tool.Output != "line 1\nline 2" || tool.Input != "journalctl -b" || !tool.Auto || tool.Title != "$ journalctl -b" {
+		t.Fatalf("tool frame should carry its latest fields and keep the rest: %+v", tool)
+	}
+}
+
+func TestOpenApprovalsTrackedApartFromTranscript(t *testing.T) {
+	h := newChatHub(ryokuLane())
+	h.broadcast(wsOut{Type: "permission", RequestID: "1", ToolID: "t1", Title: "rm x"})
+	h.broadcast(wsOut{Type: "permission", RequestID: "2", ToolID: "t2", Title: "mv a b"})
+	h.broadcast(wsOut{Type: "permission_resolved", RequestID: "1", Outcome: "allowed"})
+	if len(h.transcript) != 0 {
+		t.Fatalf("approvals are not conversation: %+v", h.transcript)
+	}
+	if len(h.perms) != 1 || h.perms[0].RequestID != "2" {
+		t.Fatalf("open approvals = %+v, want only request 2", h.perms)
+	}
+	h.releasePerms()
+	if len(h.perms) != 0 {
+		t.Fatalf("a dead agent's approvals must be released: %+v", h.perms)
 	}
 }
 
@@ -92,5 +139,25 @@ func TestExtractActionsMissingPathsSkipped(t *testing.T) {
 	acts := extractActions("look at /definitely/not/here.conf")
 	if len(acts) != 0 {
 		t.Fatalf("nonexistent path must yield no action: %+v", acts)
+	}
+}
+
+func TestAskLaneRejectedFromChatSocket(t *testing.T) {
+	quickTestEnv(t)
+	old := laneHubs
+	laneHubs = map[string]*chatHub{
+		laneRyoku: newChatHub(ryokuLane()),
+		laneChat:  newChatHub(chatLane()),
+		laneAsk:   newChatHub(askLane()),
+	}
+	t.Cleanup(func() { laneHubs = old })
+	req := httptest.NewRequest(http.MethodGet, "/ws/chat?lane=ask", nil)
+	res := httptest.NewRecorder()
+	handleChatWS(res, req)
+	if res.Code != http.StatusBadRequest || strings.TrimSpace(res.Body.String()) != "unknown lane" {
+		t.Fatalf("status = %d body = %q", res.Code, res.Body.String())
+	}
+	if _, ok := publicLaneHub(""); !ok {
+		t.Fatal("an absent lane must still select Agent")
 	}
 }

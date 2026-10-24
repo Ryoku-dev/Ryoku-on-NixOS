@@ -35,12 +35,14 @@ var materializeNow = updater.Materialize
 // without a relogin. A var so a test needs no live compositor.
 var sessionLive = func() bool { return wm.Detect().Live }
 
-// startSession brings a live but bare session up: the same two commands the
-// compositor config's autostart runs at login. A var so a test never restarts
-// the desktop it runs on.
-var startSession = func() {
-	_ = sys.Run("systemctl", "--user", "start", "ryoku-session.target")
-	_ = sys.Run("systemctl", "--user", "restart", "ryoku-shell")
+// startSession brings a live but bare session up through the same guarded
+// lifecycle entry point compositor autostart uses. A var keeps tests from
+// restarting the desktop they run on.
+var startSession = func() error {
+	if sys.NixBackend() {
+		return sys.Run("systemctl", "--user", "restart", "ryoku-session.target")
+	}
+	return sys.Run("ryoku-power-cutover", "session-start")
 }
 
 // shippedProviders lists the providers whose tree the packaged base carries, i.e.
@@ -57,13 +59,21 @@ func shippedProviders() []string {
 	return out
 }
 
-// missingConfigTrees returns the shipped providers whose entry point is not laid
-// down in ~/.config, the live one separated so the urgent case reads first.
+// missingConfigTrees returns the shipped providers whose tree is not usable in
+// ~/.config -- either not laid down at all, or laid but still missing the
+// generated includes its entry point hard-requires (a fresh install whose
+// materialize ran before any store existed rendered none, and niri treats a
+// missing include as a hard parse error, so the first login dies). The live
+// one is separated so the urgent case reads first.
 func missingConfigTrees() (live, other []string) {
 	active := wm.Detect().Name
 	for _, name := range shippedProviders() {
 		entry := wm.ConfigEntry(name)
-		if entry == "" || sys.Exists(filepath.Join(sys.ConfigHome(), entry)) {
+		if entry == "" {
+			continue
+		}
+		laid := sys.Exists(filepath.Join(sys.ConfigHome(), entry))
+		if laid && !generatedIncludesMissing(name) {
 			continue
 		}
 		if name == active {
@@ -73,6 +83,26 @@ func missingConfigTrees() (live, other []string) {
 		}
 	}
 	return live, other
+}
+
+// generatedIncludesMissing reports whether a laid tree still lacks a file its
+// provider generates. The user_edits mirrors are forks, not generated state:
+// one of those standing is not a gap.
+func generatedIncludesMissing(name string) bool {
+	dir := wm.ConfigDir(name)
+	if dir == "" {
+		return false
+	}
+	for _, rel := range wm.GeneratedConfig(name) {
+		d, _, ok := strings.Cut(rel, "/")
+		if !ok || d != dir {
+			continue
+		}
+		if !sys.Exists(filepath.Join(sys.ConfigHome(), rel)) {
+			return true
+		}
+	}
+	return false
 }
 
 func reconcileConfigTree(checkOnly bool) recResult {
@@ -103,9 +133,13 @@ func reconcileConfigTree(checkOnly bool) recResult {
 	}
 	if len(live) > 0 && sessionLive() {
 		// The session came up before the tree existed, so the compositor already
-		// read its own defaults. Start what the tree's autostart would have, and
-		// name the relogin as the complete cure.
-		startSession()
+		// read its own defaults. The lifecycle helper holds sleep blocked until
+		// qylock, shell, lid, and logout ownership are all proven.
+		if err := startSession(); err != nil {
+			return failRes(i18n.T("laid down the %s config but could not safely start the desktop: %v"),
+				strings.Join(live, ", "), err).
+				withFix(i18n.T("run `ryoku doctor` again from the live desktop"))
+		}
 		return fixedRes(i18n.T("laid down the %s config and started the desktop; log out and back in if a surface is still missing"),
 			strings.Join(live, ", "))
 	}
@@ -113,18 +147,19 @@ func reconcileConfigTree(checkOnly bool) recResult {
 }
 
 // configGapDetail names the gap in the terms that matter: the live compositor's
-// tree is why the desktop is bare now, the other one is why switching back would
-// boot a default session.
+// tree is why the desktop is bare (or, with the generated includes missing,
+// why its session cannot start at all) now, and the other one is why
+// switching back would boot a default session.
 func configGapDetail(live, other []string) string {
 	switch {
 	case len(live) > 0 && len(other) > 0:
-		return i18n.Tf("the config for %s (running now) and %s (switch back) is not laid down",
+		return i18n.Tf("the config for %s (running now) and %s (switch back) is not laid down complete",
 			strings.Join(live, ", "), strings.Join(other, ", "))
 	case len(live) > 0:
-		return i18n.Tf("the config for %s (running now) is not laid down, so the session keeps the compositor's own defaults",
+		return i18n.Tf("the config for %s (running now) is not laid down complete, so the session keeps the compositor's own defaults or it cannot start",
 			strings.Join(live, ", "))
 	default:
-		return i18n.Tf("the config for %s is not laid down, so switching back would boot a default session",
+		return i18n.Tf("the config for %s is not laid down complete, so switching back would boot a default session",
 			strings.Join(other, ", "))
 	}
 }

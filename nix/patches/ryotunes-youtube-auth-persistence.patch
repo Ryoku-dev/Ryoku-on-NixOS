@@ -1,0 +1,155 @@
+diff --git a/crates/core/src/state.rs b/crates/core/src/state.rs
+index df1b753..2d46b9c 100644
+--- a/crates/core/src/state.rs
++++ b/crates/core/src/state.rs
+@@ -562,6 +562,20 @@ impl AppState {
+ 
+         let active_visitor_data = active.visitor_data.clone();
+ 
++        // `account_menu` is the authentication proof. On a first login, persist that proven cookie
++        // immediately as a pending session before optional identity discovery. If accounts_list or
++        // channel validation flakes afterward, the next attempt can resume from a real authenticated
++        // session instead of rolling all the way back to "signed out". Existing sessions still keep
++        // their previous cookie until the replacement login fully commits.
++        let authenticated_cookie = self.it.cookie().unwrap_or_else(|| cookie.clone());
++        if previous_cookie.is_none() {
++            self.db.set_pending_auth_selection(&authenticated_cookie).map_err(|error| {
++                self.restore_auth_transport(previous_cookie.clone(), previous_data_sync_id.clone());
++                error.to_string()
++            })?;
++            self.persist_visitor_data(active_visitor_data.as_deref());
++        }
++
+         // Discovery must go out with the login-bound visitorData account_menu just handed us, not
+         // the anonymous bootstrap id still sitting in the session: pairing that id with login
+         // cookies is what gets accounts_list rejected, and a rejected list reads below as "this
+@@ -591,21 +605,21 @@ impl AppState {
+                 let selected = SelectedIdentity::from_identity(identity, active, false);
+                 self.persist_selected_identity(selected, active_visitor_data.as_deref())
+                     .inspect_err(|_| {
+-                        self.restore_auth_transport(
++                        self.restore_previous_or_keep_pending_auth(
+                             previous_cookie.clone(),
+                             previous_data_sync_id.clone(),
++                            active_visitor_data.as_deref(),
+                         );
+-                        self.restore_session_cookie_setting(previous_cookie.as_deref());
+                     })?;
+                 return Ok(SignInOutcome::Complete);
+             }
+             self.activate_identity(identity, identities.len() > 1, client).await.inspect_err(
+                 |_| {
+-                    self.restore_auth_transport(
++                    self.restore_previous_or_keep_pending_auth(
+                         previous_cookie.clone(),
+                         previous_data_sync_id.clone(),
++                        active_visitor_data.as_deref(),
+                     );
+-                    self.restore_session_cookie_setting(previous_cookie.as_deref());
+                 },
+             )?;
+             return Ok(SignInOutcome::Complete);
+@@ -640,11 +654,11 @@ impl AppState {
+                 )
+                 .await
+                 .inspect_err(|_| {
+-                    self.restore_auth_transport(
++                    self.restore_previous_or_keep_pending_auth(
+                         previous_cookie.clone(),
+                         previous_data_sync_id.clone(),
++                        active_visitor_data.as_deref(),
+                     );
+-                    self.restore_session_cookie_setting(previous_cookie.as_deref());
+                 })?;
+                 return Ok(SignInOutcome::Complete);
+             }
+@@ -654,15 +668,21 @@ impl AppState {
+             // One channel stays seamless. Reuse the already-fetched active header instead of
+             // introducing another network request or a new delegated id into the historical
+             // single-account path.
+-            let selected = SelectedIdentity::from_account_info(active, false)
+-                .ok_or("That session didn't return an account identity")?;
++            let selected = SelectedIdentity::from_account_info(active, false).ok_or_else(|| {
++                self.restore_previous_or_keep_pending_auth(
++                    previous_cookie.clone(),
++                    previous_data_sync_id.clone(),
++                    active_visitor_data.as_deref(),
++                );
++                "That session didn't return an account identity".to_owned()
++            })?;
+             self.persist_selected_identity(selected, active_visitor_data.as_deref()).inspect_err(
+                 |_| {
+-                    self.restore_auth_transport(
++                    self.restore_previous_or_keep_pending_auth(
+                         previous_cookie.clone(),
+                         previous_data_sync_id.clone(),
++                        active_visitor_data.as_deref(),
+                     );
+-                    self.restore_session_cookie_setting(previous_cookie.as_deref());
+                 },
+             )?;
+             return Ok(SignInOutcome::Complete);
+@@ -675,8 +695,11 @@ impl AppState {
+             self.it.set_data_sync_id(None);
+             let session_cookie = self.it.cookie().unwrap_or_else(|| cookie.clone());
+             self.db.set_pending_auth_selection(&session_cookie).map_err(|error| {
+-                self.restore_auth_transport(previous_cookie.clone(), previous_data_sync_id.clone());
+-                self.restore_session_cookie_setting(previous_cookie.as_deref());
++                self.restore_previous_or_keep_pending_auth(
++                    previous_cookie.clone(),
++                    previous_data_sync_id.clone(),
++                    active_visitor_data.as_deref(),
++                );
+                 error.to_string()
+             })?;
+             self.persist_visitor_data(active_visitor_data.as_deref());
+@@ -686,12 +709,21 @@ impl AppState {
+ 
+         // No selectable token was exposed (the normal historical single-channel response). Keep
+         // the seamless path and persist the active header + response-context dataSyncId together.
+-        let selected = SelectedIdentity::from_account_info(active, false)
+-            .ok_or("That session didn't return an account identity")?;
++        let selected = SelectedIdentity::from_account_info(active, false).ok_or_else(|| {
++            self.restore_previous_or_keep_pending_auth(
++                previous_cookie.clone(),
++                previous_data_sync_id.clone(),
++                active_visitor_data.as_deref(),
++            );
++            "That session didn't return an account identity".to_owned()
++        })?;
+         self.persist_selected_identity(selected, active_visitor_data.as_deref()).inspect_err(
+             |_| {
+-                self.restore_auth_transport(previous_cookie.clone(), previous_data_sync_id.clone());
+-                self.restore_session_cookie_setting(previous_cookie.as_deref());
++                self.restore_previous_or_keep_pending_auth(
++                    previous_cookie.clone(),
++                    previous_data_sync_id.clone(),
++                    active_visitor_data.as_deref(),
++                );
+             },
+         )?;
+         Ok(SignInOutcome::Complete)
+@@ -805,6 +837,23 @@ impl AppState {
+         self.it.set_data_sync_id(data_sync_id);
+     }
+ 
++    fn restore_previous_or_keep_pending_auth(
++        &self,
++        previous_cookie: Option<String>,
++        previous_data_sync_id: Option<String>,
++        authenticated_visitor_data: Option<&str>,
++    ) {
++        if previous_cookie.is_some() {
++            self.restore_auth_transport(previous_cookie.clone(), previous_data_sync_id);
++            self.restore_session_cookie_setting(previous_cookie.as_deref());
++        } else {
++            // `account_menu` already proved this first login and its cookie was persisted as pending.
++            // A flaky identity endpoint must not turn that authenticated session back into logout.
++            self.it.set_data_sync_id(None);
++            self.persist_visitor_data(authenticated_visitor_data);
++        }
++    }
++
+     fn restore_session_cookie_setting(&self, cookie: Option<&str>) {
+         if let Some(cookie) = cookie {
+             self.db.set_setting("session_cookie", cookie);

@@ -25,7 +25,54 @@ let
     ];
   }).config;
 
+
+  fakeHomeManager = { lib, ... }: {
+    options.home-manager.users = lib.mkOption {
+      type = lib.types.attrsOf lib.types.raw;
+      default = { };
+    };
+  };
+
+  evaluateWithHomeManager = extra: (import (pkgs.path + "/nixos/lib/eval-config.nix") {
+    system = pkgs.stdenv.hostPlatform.system;
+    modules = [
+      module
+      fakeHomeManager
+      baseline
+      { programs.ryoku.enable = true; }
+      extra
+    ];
+  }).config;
+
+  ryokuOwnershipFailures = cfg:
+    lib.filter
+      (entry:
+        !entry.assertion
+        && lib.hasInfix "Home Manager must not manage Ryoku's mutable runtime state" entry.message)
+      cfg.assertions;
+
+  hmDesktopConflict = evaluateWithHomeManager {
+    home-manager.users.mo = {
+      home.file.".config/ryoku/desktop.json" = { text = "{}"; };
+    };
+  };
+
+  hmShellConflict = evaluateWithHomeManager {
+    home-manager.users.mo = {
+      xdg.configFile."ryoku/shell.json" = { text = "{}"; };
+    };
+  };
+
+  hmUserEditsAllowed = evaluateWithHomeManager {
+    home-manager.users.mo = {
+      xdg.configFile."ryoku/user_edits/hypr/modules/env.lua" = { text = "# override"; };
+    };
+  };
+
   defaults = evaluate { };
+  hypr = evaluate {
+    programs.ryoku.defaultCompositor = "hyprland";
+  };
   slim = evaluate {
     programs.ryoku = {
       defaultCompositor = "niri";
@@ -44,18 +91,21 @@ let
 
   defaultNames = names defaults;
   slimNames = names slim;
+  ryogamiPathNames = map lib.getName defaults.systemd.user.services.ryogami.path;
   plasmaCoexist = evaluate {
     services.desktopManager.plasma6.enable = true;
     services.displayManager.sddm.enable = true;
     services.displayManager.defaultSession = "plasma";
     programs.ryoku.defaultCompositor = "niri";
   };
-
-  plasmaSessionNames =
-    map lib.getName plasmaCoexist.services.displayManager.sessionPackages;
-
+  hyprSessionNames = map lib.getName hypr.services.displayManager.sessionPackages;
+  plasmaSessionNames = map lib.getName plasmaCoexist.services.displayManager.sessionPackages;
   slimManifest = manifest slim;
 in
+assert builtins.length (ryokuOwnershipFailures hmDesktopConflict) == 1;
+assert builtins.length (ryokuOwnershipFailures hmShellConflict) == 1;
+assert builtins.length (ryokuOwnershipFailures hmUserEditsAllowed) == 0;
+
 assert lib.hasSuffix ".drv" defaults.system.build.toplevel.drvPath;
 assert lib.hasSuffix ".drv" slim.system.build.toplevel.drvPath;
 assert defaults.services.displayManager.sddm.enable;
@@ -71,6 +121,8 @@ assert !defaults.services.flatpak.enable;
 assert builtins.elem "fastfetch" defaultNames;
 assert builtins.elem "gamescope" defaultNames;
 assert builtins.elem "quickemu" defaultNames;
+assert builtins.elem "skwd-paper" defaultNames;
+assert builtins.elem "skwd-paper" ryogamiPathNames;
 
 assert !slim.virtualisation.docker.enable;
 assert slim.services.flatpak.enable;
@@ -80,6 +132,8 @@ assert builtins.elem "firefox" slimNames;
 assert !builtins.elem "fastfetch" slimNames;
 assert !builtins.elem "gamescope" slimNames;
 assert !builtins.elem "quickemu" slimNames;
+assert hypr.services.displayManager.defaultSession == "ryoku-hyprland";
+assert builtins.elem "ryoku-hyprland-session" hyprSessionNames;
 assert slim.services.displayManager.defaultSession == "ryoku-niri";
 assert slim.environment.sessionVariables.RYOKU_DEFAULT_BROWSER == "firefox";
 assert slim.security.wrappers."gsr-kms-server".capabilities == "cap_sys_admin+ep";

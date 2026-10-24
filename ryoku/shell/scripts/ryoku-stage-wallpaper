@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# The Stage Editor's wallpaper seam. Ryoku owns one wallpaper path; picture
+# changes go through ryogami and compatibility flags from the reference helper
+# are ignored.
+set -uo pipefail
+
+image=""
+noswitch=0
+lockscreen=0
+screen=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mode|--type) shift 2 ;;
+        --image) image="${2:-}"; shift 2 ;;
+        --screen) screen="${2:-}"; shift 2 ;;
+        --noswitch) noswitch=1; shift ;;
+        --lockscreen) lockscreen=1; shift ;;
+        --lightmode|--refresh-frame|--request-seq)
+            # The light-mode pairing and the poster refresh have no Ryoku
+            # meaning (one wallpaper, live-painted); the request sequence is
+            # the island's own echo guard.
+            [[ $1 == "--request-seq" ]] && shift 2 || shift ;;
+        *) shift ;;
+    esac
+done
+
+# Lockscreen artwork is owned by the lockscreen editor in Ryoku Settings.
+if [[ $lockscreen -eq 1 ]]; then
+    exit 0
+fi
+
+if [[ $noswitch -eq 0 && -n $image ]] && command -v ryogami >/dev/null 2>&1; then
+    args=(ryogami wallpaper set "$image")
+    [[ -n $screen ]] && args+=(--screen "$screen")
+    exec "${args[@]}"
+fi
+exit 0

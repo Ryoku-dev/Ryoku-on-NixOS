@@ -16,7 +16,7 @@ Item {
     property real underL: Scheme.wallLstar
     // a pinned colour ("" = the reference bright ink) paints this face's ink.
     property string inkColorA: ""
-    readonly property real s: Config.clockScale
+    property real s: 1
     readonly property color ink: face.inkColorA !== "" ? face.inkColorA : "#f4f6f8"
 
     readonly property var t: Clk.parts(Now.date, Config.clock24h)

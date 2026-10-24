@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,27 +10,31 @@ import (
 )
 
 // Entry is one catalog row, serialized verbatim into wall.list responses. The
-// field names are the wire contract the wall-ui picker parses; they mirror the
+// field names are the wire contract the picker parses; they mirror the
 // Rust daemon's sqlite row exactly, though the Go store persists them as one
 // JSON index instead of a database.
 type Entry struct {
-	Key        string  `json:"key"`
-	Name       string  `json:"name"`
-	Type       string  `json:"type"`
-	Thumb      string  `json:"thumb"`
-	ThumbSm    string  `json:"thumb_sm"`
-	Favourite  int     `json:"favourite"`
-	Hue        int     `json:"hue"`
-	Sat        int     `json:"sat"`
-	Richness   int     `json:"richness"`
-	VideoFile  string  `json:"video_file"`
-	VideoPrev  string  `json:"video_prev"`
-	WeID       string  `json:"we_id"`
-	Filesize   int64   `json:"filesize"`
-	Width      int     `json:"width"`
-	Height     int     `json:"height"`
-	Mtime      int64   `json:"mtime"`
-	ApplyCount int     `json:"apply_count"`
+	Key        string `json:"key"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Path       string `json:"path"`
+	Thumb      string `json:"thumb"`
+	ThumbSm    string `json:"thumb_sm"`
+	Favourite  int    `json:"favourite"`
+	Hue        int    `json:"hue"`
+	Sat        int    `json:"sat"`
+	Richness   int    `json:"richness"`
+	VideoFile  string `json:"video_file"`
+	VideoPrev  string `json:"video_prev"`
+	WeID       string `json:"we_id"`
+	WeType     string `json:"we_type,omitempty"`
+	Tags       string `json:"tags,omitempty"`
+	Preview    string `json:"preview,omitempty"`
+	Filesize   int64  `json:"filesize"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+	Mtime      int64  `json:"mtime"`
+	ApplyCount int    `json:"apply_count"`
 }
 
 // store holds the wallpaper catalog and the small state kv the picker persists
@@ -54,12 +59,30 @@ func openStore(cacheDir string) *store {
 	return s
 }
 
+func portableJSON(b []byte) []byte {
+	h := filepath.Clean(home())
+	if h == "." || h == string(filepath.Separator) {
+		return b
+	}
+	prefix, _ := json.Marshal(h + string(filepath.Separator))
+	return bytes.ReplaceAll(b, prefix[:len(prefix)-1], []byte(`"~/`))
+}
+
+func resolvedJSON(b []byte) []byte {
+	h := filepath.Clean(home())
+	if h == "." || h == string(filepath.Separator) {
+		return b
+	}
+	prefix, _ := json.Marshal(h + string(filepath.Separator))
+	return bytes.ReplaceAll(b, []byte(`"~/`), prefix[:len(prefix)-1])
+}
+
 func loadJSON(path string, into interface{}) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
-	_ = json.Unmarshal(b, into)
+	_ = json.Unmarshal(resolvedJSON(b), into)
 }
 
 func saveJSON(path string, v interface{}) {
@@ -68,7 +91,7 @@ func saveJSON(path string, v interface{}) {
 		return
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.WriteFile(tmp, portableJSON(b), 0o644); err != nil {
 		return
 	}
 	_ = os.Rename(tmp, path)

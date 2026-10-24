@@ -293,7 +293,7 @@ func buildChecks(in capInputs, host, pass *GPU) (checks []Check, hardFail bool) 
 		if in.inLibvirtGroup {
 			add(Check{ID: "session", Level: "ok", Label: "libvirt access", Value: "active"})
 		} else {
-			add(Check{ID: "session", Level: "warn", Label: "libvirt access", Value: "log in again", Hint: "Your virtualization group membership is not active yet; log out and back in before launching the VM."})
+			add(Check{ID: "session", Level: "warn", Label: "libvirt access", Value: "log in again", Hint: "You were added to the libvirt group; log out and back in before launching the VM."})
 		}
 	}
 	return checks, hardFail
@@ -410,7 +410,6 @@ func detectCapability() (Capability, error) {
 		group = "libvirtd"
 	}
 	in.inLibvirtGroup = userInGroup(group)
-
 	return buildCapability(in), nil
 }
 

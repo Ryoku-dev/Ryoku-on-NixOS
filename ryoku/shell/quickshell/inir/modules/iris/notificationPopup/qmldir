@@ -1,0 +1,3 @@
+module inir.modules.iris.notificationPopup
+IrisBanners 1.0 IrisBanners.qml
+IrisNotificationPopup 1.0 IrisNotificationPopup.qml

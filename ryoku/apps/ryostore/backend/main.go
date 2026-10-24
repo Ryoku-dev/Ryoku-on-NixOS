@@ -105,8 +105,9 @@ func runCatalog(w io.Writer, provs []Provider, args []string) error {
 		// cache, so this never does worse than serving the snapshot. A snapshot
 		// built under another window manager is stale the same way: it answers
 		// which products run here, and after a compositor switch that answer is
-		// the old one.
-		if data, err := os.ReadFile(snapshot); err == nil && len(data) > 0 && !snapshotOffline(data) && !snapshotForeignWindowManager(data) {
+		// the old one. One whose built-in styles read differently predates this
+		// binary.
+		if data, err := os.ReadFile(snapshot); err == nil && len(data) > 0 && !snapshotOffline(data) && !snapshotForeignWindowManager(data) && !snapshotStaleBuiltins(data) {
 			_, err := w.Write(data)
 			return err
 		}
@@ -254,24 +255,31 @@ func runInstall(provs []Provider, args []string) error {
 	if !ok {
 		return fmt.Errorf("unknown category %q", category)
 	}
+	ctx := withProgress(context.Background(), newProgressReporter(os.Stderr))
+	finish := func(err error) error {
+		if err == nil {
+			reportProgressNow(ctx, "apply", 1, 1)
+		}
+		return err
+	}
 	if from != "" {
 		li, ok := p.(localInstaller)
 		if !ok {
 			return fmt.Errorf("category %q does not support --from", category)
 		}
-		return li.InstallFrom(context.Background(), id, from)
+		return finish(li.InstallFrom(ctx, id, from))
 	}
 	if len(only) > 0 {
 		if ci, ok := p.(componentInstaller); ok {
-			return ci.InstallComponents(context.Background(), id, only)
+			return finish(ci.InstallComponents(ctx, id, only))
 		}
 	}
 	if dither {
 		if vi, ok := p.(variantInstaller); ok {
-			return vi.InstallVariant(context.Background(), id, true)
+			return finish(vi.InstallVariant(ctx, id, true))
 		}
 	}
-	return p.Install(context.Background(), id)
+	return finish(p.Install(ctx, id))
 }
 
 // localInstaller is a provider that can install a product from a local
@@ -306,8 +314,9 @@ func runRemove(provs []Provider, args []string) error {
 }
 
 // runInternal namespaces commands the extras actuator and Settings call
-// directly: the browse cache directory, an on-demand script installer path, and
-// the guest install/remove primitives. These are not public UI commands.
+// directly: the browse cache directory, this edition's bundle package table, an
+// on-demand script installer path, and the guest install/remove primitives.
+// These are not public UI commands.
 func runInternal(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("internal needs a subcommand")
@@ -315,6 +324,12 @@ func runInternal(args []string) error {
 	switch args[0] {
 	case "cache":
 		fmt.Println(extrasCacheDir())
+		return nil
+	case "package-table":
+		// Empty on pacman hosts, whose package names are the catalogue's.
+		if path := ensureBundlePackageTable(context.Background(), newCache(), false); path != "" {
+			fmt.Println(path)
+		}
 		return nil
 	case "installer":
 		if len(args) < 2 {

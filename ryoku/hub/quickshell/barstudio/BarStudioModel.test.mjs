@@ -81,14 +81,18 @@ const packed = Model.addZoneItem(Model.addZoneItem(dockLeft, "left", "bottom", "
 eq(Model.railWidgets(packed, "left"), ["dock", "clock", "battery"], "railWidgets concatenates a rail's zones in order");
 
 // ── subtree preservation ─────────────────────────────────────────────────────
-// every mutation clones the whole config, so an edit can never drop the
-// menus/surfaces/dock subtrees. This is the source-side half of the invariant
-// the daemon also enforces (ryoku/shell/ipc/settings.go).
+// every mutation clones the whole current config, so an edit can never drop
+// the menus or surfaces subtrees. Nested dock state is retired; a legacy copy
+// survives normalization only until doctor moves its pins to the universal
+// top-level dock store.
 const shipped = FrameBars.defaultConfig(MenuCatalog);
-const subtrees = ["version", "style", "rails", "menus", "surfaces", "dock"];
+const subtrees = ["version", "style", "rails", "menus", "surfaces"];
 function preservesAll(config, label) {
     for (const key of subtrees) ok(config[key] !== undefined, `${label} preserves the ${key} subtree`);
 }
+ok(shipped.dock === undefined, "the current frameBars schema has no nested dock store");
+const legacyDock = FrameBars.normalize({ ...shipped, dock: { pinned: ["org.kde.dolphin", 42] } }, BarCatalog, MenuCatalog);
+eq(legacyDock.dock, { pinned: ["org.kde.dolphin"] }, "normalization keeps valid legacy pins for doctor migration");
 preservesAll(Model.setRail(shipped, "left", { size: 64 }), "a rail thickness edit");
 preservesAll(Model.setRail(shipped, "top", { reveal: false }), "a rail visibility edit");
 preservesAll(Model.addZoneItem(base, "left", "top", "vpn", BarCatalog), "a zone widget add");

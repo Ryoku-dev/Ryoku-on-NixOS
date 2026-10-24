@@ -132,6 +132,7 @@ qt6-5compat
 qt6-svg
 qt6-multimedia
 qt6-multimedia-ffmpeg
+qt6-quick3d
 gst-plugins-base
 gst-plugins-good
 gst-plugins-bad
@@ -155,13 +156,11 @@ slurp
 wl-clipboard
 wl-clip-persist
 
-# Applications
-chromium
-# firefox: the second browser, shipped so a Gecko engine is always on hand for a
-# site Chromium renders badly. It does not become the default: the `browser` role
-# in ryoku/hyprland/scripts/ryoku-app stays chromium, and Ryoku Settings ->
-# App Overrides is where a user repoints the launcher key.
+# Browsers: the installer keeps exactly one stack. Firefox is recommended;
+# Chromium is the other official-repository choice and Zen comes from the AUR set.
+# The losing browser packages are filtered before installation.
 firefox
+chromium
 kitty
 mpv
 mpv-mpris
@@ -229,7 +228,9 @@ game-devices-udev
 # comes up: "Patch brcm/BCM20702A1-....hcd not found".
 broadcom-bt-firmware
 
-# Shell + CLI
+# Shell + CLI. The installer keeps exactly one shell stack; Fish is recommended.
+# Bash itself remains on every system, while blesh is installed only for a Bash
+# login and the Zsh packages are installed only for a Zsh login.
 bash-completion
 blesh
 bat
@@ -240,6 +241,7 @@ fd
 fish
 fzf
 zsh
+ryoku-oh-my-zsh
 zsh-autosuggestions
 zsh-history-substring-search
 zsh-syntax-highlighting
@@ -257,7 +259,6 @@ zoxide
 # Ryoku shell (quickshell desktop), its runtime helpers, and the yazi file manager
 quickshell
 cava
-cliphist
 hyprpicker
 imagemagick
 # waifu2x-ncnn-vulkan: GPU AI upscaler behind ryoshot Beautify's HD export and
@@ -279,6 +280,13 @@ ffmpeg
 yt-dlp
 desktop-file-utils
 
+# Desktop and dock widgets: khal reads the local CalDAV and ICS calendars and
+# vdirsyncer keeps Google, Outlook and other CalDAV ones in sync; translate-shell
+# backs the translator widget.
+khal
+vdirsyncer
+translate-shell
+
 # Launcher (command palette, Super+Space): qalc backs the calculator (units,
 # currency, %, functions; a Python arithmetic fallback covers a qalc-less box),
 # and songrec powers Recognize Music.
@@ -292,14 +300,10 @@ tesseract
 tesseract-data-eng
 zbar
 
-# Screen recorder (pill Super+U utilities): gpu-screen-recorder, with a
-# wf-recorder fallback for multi-GPU machines, driven by ryoku-cmd-screenrecord.
+# Screen recorder (ryoku-cmd-record / ryoku-shell record): gpu-screen-recorder
+# captures and encodes on the GPU on both Hyprland and niri. Also a hard depend
+# of ryoku-desktop, so the ISO carries it either way.
 gpu-screen-recorder
-wf-recorder
-
-# Night light (pill Super+U utilities): warm color temperature toggle, driven by
-# ryoku-cmd-nightlight.
-hyprsunset
 
 # Voice dictation (pill Super+`, Voxtype from voxtype-bin): wtype types the
 # transcription into the focused app on Wayland.
@@ -325,3 +329,13 @@ otf-space-grotesk
 # the upstream prebuilt NF release, so it pacstraps on install and updates with
 # `ryoku update`; same reliable model as otf-space-grotesk.
 ttf-maple-mono-nf
+
+# ttf-rubik-vf + ttf-readex-pro: the numerals face (Rubik) and the title face
+# (Readex Pro) the iRiS frame hardcodes in QML (IrisStyle.fontNumbers /
+# fontTitle). They ship from [ryoku] (release/packages/ttf-rubik-vf,
+# release/packages/ttf-readex-pro) as prebuilt TTFs from pinned upstream
+# commits, so they pacstrap on install and reach existing boxes through the
+# `ryoku update` Base lane. Without them the frame silently falls back to Noto
+# Sans: different metrics, and tight card rows clip their unit glyphs.
+ttf-rubik-vf
+ttf-readex-pro

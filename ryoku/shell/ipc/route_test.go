@@ -17,15 +17,16 @@ func TestRoute(t *testing.T) {
 		{"menu theme", "shell", "shell", "openSurface"},
 		{"menu wallpaper", "shell", "shell", "openSurface"},
 		{"menu screenshot", "shell", "shell", "openSurface"},
-		{"menu stash", "shell", "shell", "openSurface"},
 		{"install", "shell", "shell", "openSurface"},
 		{"compress", "shell", "shell", "openSurface"},
+		{"ask", "shell", "shell", "openSurface"},
+		{"ask chat", "shell", "shell", "openSurface"},
+		{"ask tools", "shell", "shell", "openSurface"},
 		{"bar-toggle", "shell", "shell", "openSurface"},
 		{"visualizer-place", "shell", "shell", "openSurface"},
 		{"quicksettings", "shell", "shell", "openSurface"},
 		{"wallpaper-menu", "shell", "shell", "openSurface"},
 		{"clipboard", "shell", "shell", "openSurface"},
-		{"stash", "shell", "shell", "openSurface"},
 		{"screenshot", "shell", "shell", "openSurface"},
 	}
 	for _, c := range cases {
@@ -42,7 +43,7 @@ func TestRoute(t *testing.T) {
 		"toolkit", "utilities", "system", "workspaces", "sysinfo", "peek", "hide",
 		"voice", "lock", "wallpaper", "wallpaper-switcher", "reload", "status",
 		"ping", "quit", "bogus", "", "power", "menu system", "menu recording",
-		"menu clipboard",
+		"menu clipboard", "menu stash", "stash",
 	} {
 		if _, _, _, ok := route(cmd); ok {
 			t.Fatalf("route(%q) should not be a single IPC call", cmd)
@@ -116,11 +117,11 @@ func TestDispatchFrameSurface(t *testing.T) {
 // surface/voice verbs each emit their exact openSurface call on the shell target.
 func TestDispatchSurfaceRouting(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no voxtype on PATH: voice falls to the "off" note
-	calls := make(chan string, 3)
+	calls := make(chan string, 4)
 	stubShellIpc(t, calls)
 
 	d := &daemon{sup: map[string]bool{"shell": true}, activeMon: "DP-1"}
-	for _, command := range []string{"bar", "bar left", "bar sideways toggle", "menu", "menu bogus"} {
+	for _, command := range []string{"bar", "bar left", "bar sideways toggle", "menu", "menu bogus", "menu stash", "ask web", "ask chat extra"} {
 		if got := d.dispatch(command); got == "ok" {
 			t.Errorf("dispatch(%q) = ok, want rejection", command)
 		}
@@ -137,11 +138,11 @@ func TestDispatchSurfaceRouting(t *testing.T) {
 	if got := <-calls; got != "openSurface DP-1 screenshot" {
 		t.Fatalf("screenshot shell IPC = %q", got)
 	}
-	if got := d.dispatch("menu stash"); got != "ok" {
-		t.Fatalf("dispatch(menu stash) = %q, want ok", got)
+	if got := d.dispatch("menu quick-settings"); got != "ok" {
+		t.Fatalf("dispatch(menu quick-settings) = %q, want ok", got)
 	}
-	if got := <-calls; got != "openSurface DP-1 stash" {
-		t.Fatalf("stash shell IPC = %q", got)
+	if got := <-calls; got != "openSurface DP-1 sidebar-left" {
+		t.Fatalf("quick-settings alias shell IPC = %q", got)
 	}
 	if got := d.dispatch("voice"); got != "ok" {
 		t.Fatalf("dispatch(voice) = %q, want ok", got)
@@ -151,15 +152,16 @@ func TestDispatchSurfaceRouting(t *testing.T) {
 	}
 }
 
-// The file-picker tool verbs open the stash sidebar straight onto their picker,
-// so install-app.desktop and compress-video.desktop reach the right surface.
-func TestDispatchFilePickerTools(t *testing.T) {
-	calls := make(chan string, 2)
+// Ask and file-picker verbs land on the requested Ask mode or tool.
+func TestDispatchAskRoutes(t *testing.T) {
+	calls := make(chan string, 4)
 	stubShellIpc(t, calls)
 	d := &daemon{sup: map[string]bool{"shell": true}, activeMon: "DP-1"}
 	for verb, want := range map[string]string{
-		"install":  "openSurface DP-1 stash#install",
-		"compress": "openSurface DP-1 stash#compress",
+		"ask chat":  "openSurface DP-1 ask#chat",
+		"ask tools": "openSurface DP-1 ask#tools",
+		"install":   "openSurface DP-1 ask#tools/install",
+		"compress":  "openSurface DP-1 ask#tools/compress",
 	} {
 		if got := d.dispatch(verb); got != "ok" {
 			t.Fatalf("dispatch(%q) = %q, want ok", verb, got)
@@ -170,10 +172,9 @@ func TestDispatchFilePickerTools(t *testing.T) {
 	}
 }
 
-// Every one of the 13 shell surfaces is reachable as a bare kebab verb equal to
-// its CustomShortcut id, each emitting the exact openSurface id the shell routes
-// to that surface. A niri keybind spawns `ryoku-shell <verb>` for all of these,
-// so a missing or misspelled verb here is a dead keybind on niri.
+// Every shell surface is reachable as a bare kebab verb, each emitting the
+// exact openSurface id the shell routes to that surface. A niri keybind spawns
+// `ryoku-shell <verb>`, so a missing or misspelled verb here is a dead keybind.
 func TestDispatchSurfaceVerbs(t *testing.T) {
 	want := map[string]string{
 		"bar-toggle":         "openSurface DP-1 barToggle",
@@ -182,13 +183,13 @@ func TestDispatchSurfaceVerbs(t *testing.T) {
 		"visualizer":         "openSurface DP-1 visualizer",
 		"visualizer-overlay": "openSurface DP-1 visualizer-overlay",
 		"visualizer-place":   "openSurface DP-1 visualizer-place",
-		"quicksettings":      "openSurface DP-1 quick-settings",
+		"quicksettings":      "openSurface DP-1 sidebar-left",
 		"wallpaper-menu":     "openSurface DP-1 wallpaper",
 		"clipboard":          "openSurface DP-1 clipboard",
-		"stash":              "openSurface DP-1 stash",
-		"screenshot":         "openSurface DP-1 quick-settings#capture",
-		"compress":           "openSurface DP-1 stash#compress",
-		"install":            "openSurface DP-1 stash#install",
+		"screenshot":         "openSurface DP-1 screenshot",
+		"ask":                "openSurface DP-1 ask",
+		"compress":           "openSurface DP-1 ask#tools/compress",
+		"install":            "openSurface DP-1 ask#tools/install",
 	}
 	calls := make(chan string, 1)
 	stubShellIpc(t, calls)

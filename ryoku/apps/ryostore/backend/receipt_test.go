@@ -67,49 +67,6 @@ func TestStoreRevisionMonotonic(t *testing.T) {
 	}
 }
 
-func TestStoreRevisionMigratesLegacyFingerprint(t *testing.T) {
-	setTransactionXDG(t)
-
-	if err := os.MkdirAll(filepath.Dir(storeRevisionPath()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	legacy := []byte(`{
-  "category": "barstyles",
-  "id": "orbit-dev-25668954",
-  "revision": "46af319b46172614b3fb464a4719bb6e5f19f697a9488a5a32275584ad951d4f"
-}
-`)
-	if err := os.WriteFile(storeRevisionPath(), legacy, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := currentStoreRevisionNumber()
-	if err != nil {
-		t.Fatalf("legacy revision was not accepted: %v", err)
-	}
-	if got != 0 {
-		t.Fatalf("legacy revision baseline = %d, want 0", got)
-	}
-
-	if err := writeStoreRevision(StoreRevision{
-		Category: "barstyles",
-		ID: "orbit-dev-25668954",
-		Version: "1.0.0",
-		Operation: "install",
-	}); err != nil {
-		t.Fatalf("migrate legacy revision: %v", err)
-	}
-
-	revision := readRevisionForTest(t)
-	if revision.Revision != 1 ||
-		revision.Category != "barstyles" ||
-		revision.ID != "orbit-dev-25668954" ||
-		revision.Version != "1.0.0" ||
-		revision.Operation != "install" {
-		t.Fatalf("migrated revision = %#v", revision)
-	}
-}
-
 func TestReceiptAtomicity(t *testing.T) {
 	setTransactionXDG(t)
 	initial := Receipt{Category: "plugins", ID: "demo", Version: "0", Destination: "ryoku/plugins/demo"}

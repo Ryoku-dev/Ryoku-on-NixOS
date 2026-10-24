@@ -1,0 +1,3 @@
+module shell.modules.stage.frame
+singleton StageFrame 1.0 StageFrame.qml
+StageFramedLayer 1.0 StageFramedLayer.qml

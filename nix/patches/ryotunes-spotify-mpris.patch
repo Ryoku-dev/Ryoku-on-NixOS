@@ -1,0 +1,219 @@
+--- a/crates/core/src/state.rs
++++ b/crates/core/src/state.rs
+@@ -1548,6 +1548,28 @@
+         if self.lt.is_guest().await {
+             return; // guest playback is host-driven
+         }
++        if self.spotify_mpris_active().await {
++            match spotify_playerctl(&["play-pause"]).await {
++                Ok(_) => {
++                    if let Ok(status) = spotify_playerctl(&["status"]).await {
++                        let playing = status.trim() == "Playing";
++                        self.emit(
++                            "playback-state",
++                            if playing { "playing" } else { "paused" },
++                        );
++                        self.media_set_playing(playing);
++                    }
++                }
++                Err(error) => {
++                    tracing::warn!(%error, "Spotify MPRIS play/pause failed");
++                    self.emit_error(
++                        "spotify",
++                        &format!("Spotify playback control failed: {error}"),
++                    );
++                }
++            }
++            return;
++        }
+         if !self.player.has_loaded_media() {
+             let (idx, has_items) = {
+                 let q = self.queue.lock().await;
+@@ -1566,6 +1588,22 @@
+     /// This path uses the event-driven loaded-media mirror rather than synchronously querying mpv.
+     pub async fn resume(self: &std::sync::Arc<Self>) {
+         if self.lt.is_guest().await {
++            return;
++        }
++        if self.spotify_mpris_active().await {
++            match spotify_playerctl(&["play"]).await {
++                Ok(_) => {
++                    self.emit("playback-state", "playing");
++                    self.media_set_playing(true);
++                }
++                Err(error) => {
++                    tracing::warn!(%error, "Spotify MPRIS play failed");
++                    self.emit_error(
++                        "spotify",
++                        &format!("Spotify playback control failed: {error}"),
++                    );
++                }
++            }
+             return;
+         }
+         if !self.player.has_loaded_media() {
+@@ -1776,6 +1814,89 @@
+                 return false; // user moved on
+             }
+             let Some(item) = self.current_item().await else { return false };
++
++            // Prefer the official Spotify desktop client's MPRIS playback path.
++            // Spotify currently rejects librespot's audio-key request for some
++            // valid Premium sessions, while the official client can play the
++            // exact same track normally. Keep librespot below as a fallback.
++            if let Some(tid) = crate::spotify::spotify_track_id(&item.video_id) {
++                let uri = format!("spotify:track:{tid}");
++
++                match spotify_playerctl(&["open", &uri]).await {
++                    Ok(_) => {
++                        let _ = self.player.stop();
++                        self.drop_spotify_stream();
++
++                        if let Err(error) = spotify_playerctl(&["play"]).await {
++                            tracing::warn!(
++                                %error,
++                                "Spotify MPRIS play failed after OpenUri"
++                            );
++                        }
++
++                        let seek = self
++                            .pending_seek
++                            .lock()
++                            .unwrap()
++                            .take()
++                            .filter(|(vid, _)| *vid == item.video_id)
++                            .map(|(_, pos)| pos)
++                            .unwrap_or(0.0);
++
++                        if seek > 0.0 {
++                            let target = format!("{seek:.3}");
++
++                            if let Err(error) =
++                                spotify_playerctl(&["position", &target]).await
++                            {
++                                tracing::warn!(
++                                    %error,
++                                    position = seek,
++                                    "Spotify MPRIS resume seek failed"
++                                );
++                            }
++                        }
++
++                        {
++                            let mut q = self.queue.lock().await;
++                            q.current_client = Some("spotify-mpris".to_owned());
++                            q.playback_ping = None;
++                            q.cpn = innertube::generate_cpn();
++                            q.history_pinged = false;
++                            q.duration = 0.0;
++                        }
++
++                        self.set_spotify_base(0.0);
++                        self.note_position_sample(seek);
++                        self.seed_spotify_duration(&item).await;
++                        self.emit_now_playing(&item, "spotify-mpris");
++                        self.media_set_playing(true);
++                        self.emit_queue().await;
++                        self.persist_queue().await;
++
++                        self.lt_broadcast_current_track(
++                            (seek * 1000.0) as i64,
++                            true,
++                        )
++                        .await;
++
++                        let me = self.clone();
++                        tokio::spawn(async move {
++                            me.extend_queue_radio(gen).await;
++                        });
++
++                        return true;
++                    }
++                    Err(error) => {
++                        tracing::warn!(
++                            %error,
++                            video_id = %item.video_id,
++                            "Spotify MPRIS unavailable; falling back to librespot"
++                        );
++                    }
++                }
++            }
++
+             let resolved = self.resolve(&item.video_id, item.is_upload).await;
+             // A resolve takes seconds; a skip during it bumps the generation. Re-check before
+             // acting on the result: an abandoned failure would otherwise move `current` under the
+@@ -2588,6 +2709,11 @@
+         self.lastfm.set_duration(secs);
+     }
+ 
++    async fn spotify_mpris_active(&self) -> bool {
++        let q = self.queue.lock().await;
++        q.current_client.as_deref() == Some("spotify-mpris")
++    }
++
+     /// Drop the live Spotify stream, if any: releasing the transport controls and aborting the
+     /// event watcher. A no-op when nothing is streaming. Also clears the seek base.
+     fn drop_spotify_stream(&self) {
+@@ -3174,6 +3300,29 @@
+             return Ok(()); // guests can't scrub — the host controls the timeline
+         }
+         let position = position.max(0.0);
++
++        if self.spotify_mpris_active().await {
++            let target = format!("{position:.3}");
++            spotify_playerctl(&["position", &target]).await?;
++
++            self.note_position_sample(position);
++            self.emit(
++                "position",
++                serde_json::json!({ "position": position }),
++            );
++
++            if self.lt.is_host().await {
++                self.lt
++                    .broadcast_playback(Playback::at(
++                        PlaybackKind::Seek,
++                        (position * 1000.0) as i64,
++                    ))
++                    .await;
++            }
++
++            return Ok(());
++        }
++
+         // A Spotify track: mpv can't seek a FIFO, so tell librespot to seek, record the base, and
+         // reload mpv on the same FIFO so it reads the post-seek PCM from 0 (base + mpv time-pos =
+         // the true position). Anything else is a plain mpv seek.
+@@ -4078,6 +4227,32 @@
+     }
+ }
+ 
++/// Run one command against the official Spotify desktop client's MPRIS player.
++async fn spotify_playerctl(args: &[&str]) -> Result<String, String> {
++    let output = tokio::process::Command::new("playerctl")
++        .arg("-p")
++        .arg("spotify")
++        .args(args)
++        .output()
++        .await
++        .map_err(|e| format!("could not launch playerctl: {e}"))?;
++
++    if !output.status.success() {
++        let stderr = String::from_utf8_lossy(&output.stderr);
++        let message = stderr.trim();
++
++        return Err(if message.is_empty() {
++            format!("playerctl exited with {}", output.status)
++        } else {
++            message.to_owned()
++        });
++    }
++
++    Ok(String::from_utf8_lossy(&output.stdout)
++        .trim()
++        .to_owned())
++}
++
+ /// The per-file mpv options for a Spotify track. librespot writes raw S16LE / 44100 Hz / stereo
+ /// PCM into a FIFO that mpv can't probe, so the rawaudio demuxer must be told the exact format.
+ /// Must stay byte-for-byte in step with the format librespot's `pipe` backend emits.

@@ -1,6 +1,48 @@
 [
   {
     "tab": "Layout",
+    "group": "SETTINGS WINDOW",
+    "key": "wm.niri.settingsWindow.mode",
+    "label": "Settings window size",
+    "desc": "Fill the work area or use a custom centred size",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": ["full", "custom"],
+    "optLabels": {"full": "Full page", "custom": "Custom"},
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SETTINGS WINDOW",
+    "key": "wm.niri.settingsWindow.width",
+    "label": "Settings width",
+    "desc": "Share of the monitor work area; never smaller than the Settings layout needs",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.25,
+    "hi": 1,
+    "unit": "%",
+    "pct": true,
+    "page": "windowmanager",
+    "when": {"wm.niri.settingsWindow.mode": ["custom"]}
+  },
+  {
+    "tab": "Layout",
+    "group": "SETTINGS WINDOW",
+    "key": "wm.niri.settingsWindow.height",
+    "label": "Settings height",
+    "desc": "Share of the monitor work area; never smaller than the Settings layout needs",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.25,
+    "hi": 1,
+    "unit": "%",
+    "pct": true,
+    "page": "windowmanager",
+    "when": {"wm.niri.settingsWindow.mode": ["custom"]}
+  },
+  {
+    "tab": "Layout",
     "group": "WINDOW WIDTH",
     "key": "wm.niri.defaultColumnWidth",
     "label": "New window width",
@@ -159,11 +201,12 @@
     "page": "windowmanager"
   },
   {
-    "tab": "Layout",
-    "group": "FRAMES",
+    "tab": "Look",
+    "group": "TITLE BARS",
     "key": "wm.niri.preferNoCsd",
-    "label": "Server-side window frames",
-    "desc": "Ask apps to drop their title bars so niri draws frames",
+    "label": "Hide app title bars",
+    "desc": "Asks apps to remove their own decorations. GTK apps without server-side decoration support may keep them; reopen apps after changing this.",
+    "keywords": "titlebar titlebars csd client-side decorations",
     "ctl": "sw",
     "src": "desktop.json",
     "page": "windowmanager"
@@ -237,6 +280,91 @@
     "ctl": "text",
     "src": "desktop.json",
     "eg": "org.keepassxc.KeePassXC, org.gnome.World.Secrets",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "KEY SOUNDS",
+    "key": "",
+    "label": "Keyboard sounds",
+    "desc": "A sound on every key press, in every app, for niri. Installs a small engine that reads the keyboard directly and adds nothing to niri's own workload.",
+    "ctl": "install",
+    "pkg": "ryoku-keysounds-niri",
+    "launch": "ryoku-keysounds",
+    "actionLabel": "Install engine",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "KEY SOUNDS",
+    "key": "wm.niri.keysounds.enabled",
+    "label": "Play a sound on every key press",
+    "desc": "One engine covers every window with no per-app hook and nothing grabbing your input",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "KEY SOUNDS",
+    "key": "wm.niri.keysounds.profile",
+    "label": "Sound profile",
+    "desc": "Which switch you hear; import Mechvibes packs as profiles with ryoku-keysounds-import",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "cherry-mx-blue",
+      "cherry-mx-brown",
+      "cherry-mx-black",
+      "cherry-mx-red",
+      "topre",
+      "creamy",
+      "nk-cream",
+      "holy-panda",
+      "tealios",
+      "crystal-purple",
+      "oreo"
+    ],
+    "when": {
+      "wm.niri.keysounds.enabled": [
+        true
+      ]
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "KEY SOUNDS",
+    "key": "wm.niri.keysounds.volume",
+    "label": "Volume",
+    "desc": "How loud the samples play, relative to how they were made",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 1,
+    "unit": "%",
+    "pct": true,
+    "when": {
+      "wm.niri.keysounds.enabled": [
+        true
+      ]
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "KEY SOUNDS",
+    "key": "wm.niri.keysounds.release",
+    "label": "Key release sound",
+    "desc": "Also play a softer sample when a key comes back up",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "when": {
+      "wm.niri.keysounds.enabled": [
+        true
+      ]
+    },
     "page": "windowmanager"
   }
 ]

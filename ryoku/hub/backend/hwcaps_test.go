@@ -276,3 +276,15 @@ func TestGpuRecordsFromToolRejectsNonJSON(t *testing.T) {
 		t.Fatalf("error = %q, want it to flag the out-of-date detector", err)
 	}
 }
+
+func TestNixManagedCapabilityDoesNotRecommendArchPackageCommands(t *testing.T) {
+	in := baseInputs()
+	in.nixManaged = true
+	in.tooling.qemu = false
+	got := buildCapability(in)
+	for _, check := range got.Checks {
+		if strings.Contains(check.Hint, "pacman") || strings.Contains(check.Hint, "yay -S") {
+			t.Fatalf("Nix-managed capability leaked an Arch package command: %q", check.Hint)
+		}
+	}
+}

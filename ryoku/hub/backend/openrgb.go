@@ -1,8 +1,8 @@
 package main
 
 // openrgb.go: the OpenRGB SDK client. One concern: speaking OpenRGB's binary
-// protocol over its local TCP socket (127.0.0.1:6742, protocol 5), so the rest
-// of the lighting code works in Go structs instead of bytes.
+// protocol over its local TCP socket (127.0.0.1:6742), so the rest of the
+// lighting code works in Go structs instead of bytes.
 //
 // The SDK is used rather than the `openrgb` CLI because only the SDK can read a
 // device back: which modes it advertises, which knobs each mode actually has,
@@ -21,13 +21,14 @@ import (
 
 const (
 	orgbAddr     = "127.0.0.1:6742"
-	orgbProtocol = 5
+	orgbProtocol = 6
 	orgbClient   = "ryoku-hub"
 )
 
 // packet ids (NetworkProtocol.h). Only the ones Ryoku needs.
 const (
 	pktControllerCount   = 0
+	pktAck               = 10
 	pktControllerData    = 1
 	pktProtocolVersion   = 40
 	pktClientName        = 50
@@ -130,12 +131,14 @@ type orgbZone struct {
 }
 
 // orgbDevice = one controller: its identity, its zones, and every mode it
-// advertises. Index is the live SDK slot, valid only for this connection.
+// advertises. Index is its place in the current list; Address is the value the
+// negotiated protocol uses for requests on this connection.
 type orgbDevice struct {
 	Provider     string
 	ProviderPath string
 	Aliases      []string
 	Index        int
+	Address      uint32
 	Type         string
 	Name         string
 	Vendor       string
@@ -161,31 +164,33 @@ func (d orgbDevice) mode(name string) (int, orgbMode, bool) {
 
 // orgbConn = a live SDK connection.
 type orgbConn struct {
-	c   net.Conn
-	dur time.Duration
+	c       net.Conn
+	dur     time.Duration
+	version uint32
 	// set when the server announced a changed device list, which is how it says
 	// "detection has finished" after a cold start.
 	listChanged bool
 }
 
-// orgbDial connects and completes the handshake: agree the protocol version,
-// then name the client so the OpenRGB GUI shows who is talking.
+// orgbDial connects and completes the handshake: advertise the protocol Ryoku
+// speaks, then name the client so the OpenRGB GUI shows who is talking.
 func orgbDial(timeout time.Duration) (*orgbConn, error) {
 	c, err := net.DialTimeout("tcp", orgbAddr, timeout)
 	if err != nil {
 		return nil, err
 	}
 	o := &orgbConn{c: c, dur: timeout}
-	ver, err := o.negotiate()
+	serverVersion, err := o.negotiate()
 	if err != nil {
 		c.Close()
 		return nil, err
 	}
-	if ver < 3 {
+	o.version = min(serverVersion, uint32(orgbProtocol))
+	if o.version < 5 {
 		c.Close()
-		return nil, fmt.Errorf("openrgb protocol %d is too old for per-mode brightness", ver)
+		return nil, fmt.Errorf("openrgb protocol %d is too old; Ryoku requires protocol 5 or newer", o.version)
 	}
-	if err := o.send(0, pktClientName, append([]byte(orgbClient), 0)); err != nil {
+	if err := o.write(0, pktClientName, append([]byte(orgbClient), 0)); err != nil {
 		c.Close()
 		return nil, err
 	}
@@ -194,8 +199,8 @@ func orgbDial(timeout time.Duration) (*orgbConn, error) {
 
 func (o *orgbConn) Close() error { return o.c.Close() }
 
-// negotiate: ask the server for its protocol version. The reply is the lower of
-// the two, which is what both sides then speak.
+// negotiate advertises Ryoku's protocol. The server records the lower supported
+// version while its reply reports the server's own highest version.
 func (o *orgbConn) negotiate() (uint32, error) {
 	if err := o.send(0, pktProtocolVersion, u32(orgbProtocol)); err != nil {
 		return 0, err
@@ -212,10 +217,9 @@ func (o *orgbConn) negotiate() (uint32, error) {
 
 // reply waits for the answer to the request just sent, stepping over anything
 // the server pushes in the meantime. OpenRGB announces a changed device list
-// unasked, and a client that mistakes that push for its own answer breaks the
-// moment detection finishes mid-conversation.
+// unasked, and protocol 6 acknowledges earlier packets after their replies.
 func (o *orgbConn) reply(want uint32) ([]byte, error) {
-	for range 8 {
+	for {
 		_, id, body, err := o.recv()
 		if err != nil {
 			return nil, err
@@ -223,11 +227,45 @@ func (o *orgbConn) reply(want uint32) ([]byte, error) {
 		if id == want {
 			return body, nil
 		}
-		if id == pktDeviceListUpdated {
-			o.listChanged = true
-		}
+		o.observe(id)
 	}
-	return nil, fmt.Errorf("openrgb: no answer to request %d", want)
+}
+
+func (o *orgbConn) write(dev, id uint32, body []byte) error {
+	if err := o.send(dev, id, body); err != nil || o.version < 6 {
+		return err
+	}
+	return o.waitAck(dev, id)
+}
+
+func (o *orgbConn) waitAck(dev, want uint32) error {
+	for {
+		gotDev, id, body, err := o.recv()
+		if err != nil {
+			return err
+		}
+		if id != pktAck {
+			o.observe(id)
+			continue
+		}
+		if len(body) < 8 {
+			return errors.New("openrgb: bad acknowledgement")
+		}
+		acked, status := binary.LittleEndian.Uint32(body), binary.LittleEndian.Uint32(body[4:])
+		if gotDev != dev || acked != want {
+			continue
+		}
+		if status != 0 {
+			return fmt.Errorf("openrgb: packet %d failed with status %d", want, status)
+		}
+		return nil
+	}
+}
+
+func (o *orgbConn) observe(id uint32) {
+	if id == pktDeviceListUpdated {
+		o.listChanged = true
+	}
 }
 
 func (o *orgbConn) send(dev, id uint32, body []byte) error {
@@ -280,20 +318,30 @@ func (o *orgbConn) Devices() ([]orgbDevice, error) {
 		return nil, errors.New("openrgb: bad controller count reply")
 	}
 	n := int(binary.LittleEndian.Uint32(body))
+	if o.version >= 6 && len(body) != 4+4*n {
+		return nil, errors.New("openrgb: bad controller id list")
+	}
 	out := make([]orgbDevice, 0, n)
 	for i := range n {
-		if err := o.send(uint32(i), pktControllerData, u32(orgbProtocol)); err != nil {
+		address := uint32(i)
+		request := u32(o.version)
+		if o.version >= 6 {
+			address = binary.LittleEndian.Uint32(body[4+4*i:])
+			request = nil
+		}
+		if err := o.send(address, pktControllerData, request); err != nil {
 			return nil, err
 		}
-		body, err := o.reply(pktControllerData)
+		data, err := o.reply(pktControllerData)
 		if err != nil {
 			return nil, err
 		}
-		d, err := parseDevice(body)
+		d, err := parseDevice(data, o.version)
 		if err != nil {
 			return nil, fmt.Errorf("device %d: %w", i, err)
 		}
 		d.Index = i
+		d.Address = address
 		out = append(out, d)
 	}
 	return out, nil
@@ -301,30 +349,30 @@ func (o *orgbConn) Devices() ([]orgbDevice, error) {
 
 // SetMode switches the device to mode idx, carrying the knobs the caller
 // changed. Everything else is echoed back exactly as the device reported it.
-func (o *orgbConn) SetMode(dev int, idx int, m orgbMode) error {
-	return o.send(uint32(dev), pktUpdateMode, modePayload(idx, m))
+func (o *orgbConn) SetMode(dev orgbDevice, idx int, m orgbMode) error {
+	return o.write(dev.Address, pktUpdateMode, modePayload(o.version, idx, m))
 }
 
 // SaveMode writes the mode into the device's own memory, so the look survives
 // OpenRGB (and the machine) shutting down. Only ever called on explicit request:
 // on a device with onboard profiles this overwrites the stored one.
-func (o *orgbConn) SaveMode(dev int, idx int, m orgbMode) error {
-	return o.send(uint32(dev), pktSaveMode, modePayload(idx, m))
+func (o *orgbConn) SaveMode(dev orgbDevice, idx int, m orgbMode) error {
+	return o.write(dev.Address, pktSaveMode, modePayload(o.version, idx, m))
 }
 
 // SetLEDs paints every LED of the device.
-func (o *orgbConn) SetLEDs(dev int, colors []uint32) error {
+func (o *orgbConn) SetLEDs(dev orgbDevice, colors []uint32) error {
 	body := make([]byte, 0, 6+4*len(colors))
 	body = append(body, u32(uint32(6+4*len(colors)))...)
 	body = append(body, u16(uint16(len(colors)))...)
 	for _, c := range colors {
 		body = append(body, u32(c)...)
 	}
-	return o.send(uint32(dev), pktUpdateLEDs, body)
+	return o.write(dev.Address, pktUpdateLEDs, body)
 }
 
 // SetZoneLEDs paints one zone, for a device whose zones the user coloured apart.
-func (o *orgbConn) SetZoneLEDs(dev, zone int, colors []uint32) error {
+func (o *orgbConn) SetZoneLEDs(dev orgbDevice, zone int, colors []uint32) error {
 	body := make([]byte, 0, 10+4*len(colors))
 	body = append(body, u32(uint32(10+4*len(colors)))...)
 	body = append(body, u32(uint32(zone))...)
@@ -332,16 +380,18 @@ func (o *orgbConn) SetZoneLEDs(dev, zone int, colors []uint32) error {
 	for _, c := range colors {
 		body = append(body, u32(c)...)
 	}
-	return o.send(uint32(dev), pktUpdateZoneLEDs, body)
+	return o.write(dev.Address, pktUpdateZoneLEDs, body)
 }
 
-// modePayload serialises one mode exactly as RGBController::GetModeDescription
-// does for protocol 5, prefixed with its own length.
-func modePayload(idx int, m orgbMode) []byte {
+// modePayload serialises one mode in the negotiated controller-description
+// layout, prefixed with the packet's own length.
+func modePayload(protocol uint32, idx int, m orgbMode) []byte {
 	b := make([]byte, 0, 64)
 	b = append(b, u32(uint32(idx))...)
 	b = append(b, orgbString(m.Name)...)
-	b = append(b, u32(uint32(m.Value))...)
+	if protocol < 6 {
+		b = append(b, u32(uint32(m.Value))...)
+	}
 	for _, v := range []uint32{m.Flags, m.SpeedMin, m.SpeedMax, m.BriMin, m.BriMax,
 		m.ColorsMin, m.ColorsMax, m.Speed, m.Bri, m.Direction, m.ColorMode} {
 		b = append(b, u32(v)...)
@@ -353,8 +403,8 @@ func modePayload(idx int, m orgbMode) []byte {
 	return append(u32(uint32(len(b)+4)), b...)
 }
 
-// parseDevice reads one controller description (protocol 5).
-func parseDevice(b []byte) (orgbDevice, error) {
+// parseDevice reads one controller description in the negotiated wire layout.
+func parseDevice(b []byte, protocol uint32) (orgbDevice, error) {
 	r := &reader{b: b}
 	size := r.u32()
 	if int(size) != len(b) {
@@ -372,59 +422,85 @@ func parseDevice(b []byte) (orgbDevice, error) {
 	modes := int(r.u16())
 	d.ActiveMode = int(r.i32())
 	for range modes {
-		var m orgbMode
-		m.Name = r.str()
-		m.Value = r.i32()
-		m.Flags = r.u32()
-		m.SpeedMin, m.SpeedMax = r.u32(), r.u32()
-		m.BriMin, m.BriMax = r.u32(), r.u32()
-		m.ColorsMin, m.ColorsMax = r.u32(), r.u32()
-		m.Speed, m.Bri = r.u32(), r.u32()
-		m.Direction, m.ColorMode = r.u32(), r.u32()
-		for range int(r.u16()) {
-			m.Colors = append(m.Colors, r.u32())
-		}
-		d.Modes = append(d.Modes, m)
+		d.Modes = append(d.Modes, parseMode(r, protocol))
 	}
 
 	var start uint32
 	for range int(r.u16()) {
 		z := orgbZone{Name: r.str(), Type: r.i32()}
-		r.u32() // leds_min
-		r.u32() // leds_max
+		r.u32() // minimum LED count
+		r.u32() // maximum LED count
 		z.LEDs = r.u32()
-		if mlen := r.u16(); mlen > 0 {
-			z.H, z.W = r.u32(), r.u32()
-			z.Map = make([]uint32, 0, z.H*z.W)
-			for range int(z.H) * int(z.W) {
-				z.Map = append(z.Map, r.u32())
-			}
-		}
-		for range int(r.u16()) { // segments (protocol 4+)
+		z.H, z.W, z.Map = r.matrix(r.u16(), true)
+		for range int(r.u16()) {
 			r.str()
 			r.i32()
 			r.u32()
 			r.u32()
+			if protocol >= 6 {
+				r.matrix(r.u16(), false)
+				r.u32()
+			}
 		}
-		r.u32() // zone flags (protocol 5+)
+		r.u32() // zone flags
+		if protocol >= 6 {
+			r.i32() // active zone mode
+			for range int(r.u16()) {
+				parseMode(r, protocol)
+			}
+			r.str() // display name
+		}
 		z.Start = start
 		start += z.LEDs
 		d.Zones = append(d.Zones, z)
 	}
 
-	leds := int(r.u16())
-	d.LEDCount = leds
-	for range leds {
+	d.LEDCount = int(r.u16())
+	for range d.LEDCount {
 		r.str()
-		r.u32()
+		if protocol < 6 {
+			r.u32()
+		}
+	}
+	for range int(r.u16()) {
+		r.u32() // current LED colour
+	}
+	for range int(r.u16()) {
+		r.str() // alternate LED name
+	}
+	r.u32() // controller flags
+	if protocol >= 6 {
+		r.str()   // display name
+		r.str32() // device-specific configuration
 	}
 	if r.err != nil {
 		return orgbDevice{}, r.err
+	}
+	if r.i != len(b) {
+		return orgbDevice{}, fmt.Errorf("controller description has %d trailing bytes", len(b)-r.i)
 	}
 	if d.ActiveMode < 0 || d.ActiveMode >= len(d.Modes) {
 		d.ActiveMode = 0
 	}
 	return d, nil
+}
+
+func parseMode(r *reader, protocol uint32) orgbMode {
+	var m orgbMode
+	m.Name = r.str()
+	if protocol < 6 {
+		m.Value = r.i32()
+	}
+	m.Flags = r.u32()
+	m.SpeedMin, m.SpeedMax = r.u32(), r.u32()
+	m.BriMin, m.BriMax = r.u32(), r.u32()
+	m.ColorsMin, m.ColorsMax = r.u32(), r.u32()
+	m.Speed, m.Bri = r.u32(), r.u32()
+	m.Direction, m.ColorMode = r.u32(), r.u32()
+	for range int(r.u16()) {
+		m.Colors = append(m.Colors, r.u32())
+	}
+	return m
 }
 
 // reader = a little-endian cursor over a controller description. A short buffer
@@ -440,7 +516,7 @@ func (r *reader) take(n int) []byte {
 	if r.err != nil {
 		return make([]byte, n)
 	}
-	if r.i+n > len(r.b) {
+	if n < 0 || n > len(r.b)-r.i {
 		r.err = io.ErrUnexpectedEOF
 		return make([]byte, n)
 	}
@@ -449,12 +525,20 @@ func (r *reader) take(n int) []byte {
 	return out
 }
 
-func (r *reader) skip(n int)  { r.take(n) }
 func (r *reader) u16() uint16 { return binary.LittleEndian.Uint16(r.take(2)) }
 func (r *reader) u32() uint32 { return binary.LittleEndian.Uint32(r.take(4)) }
 func (r *reader) i32() int32  { return int32(r.u32()) }
-func (r *reader) str() string {
-	n := int(r.u16())
+func (r *reader) str() string { return r.string(int(r.u16())) }
+func (r *reader) str32() string {
+	n := r.u32()
+	if uint64(n) > uint64(len(r.b)) {
+		r.err = io.ErrUnexpectedEOF
+		return ""
+	}
+	return r.string(int(n))
+}
+
+func (r *reader) string(n int) string {
 	if n == 0 {
 		return ""
 	}
@@ -462,7 +546,36 @@ func (r *reader) str() string {
 	if r.err != nil {
 		return ""
 	}
-	return string(s[:n-1]) // trailing NUL
+	if s[n-1] != 0 {
+		r.err = errors.New("openrgb: unterminated string")
+		return ""
+	}
+	return string(s[:n-1])
+}
+
+func (r *reader) matrix(size uint16, keep bool) (height, width uint32, values []uint32) {
+	if size == 0 {
+		return 0, 0, nil
+	}
+	start := r.i
+	height, width = r.u32(), r.u32()
+	count := uint64(height) * uint64(width)
+	if count > uint64(len(r.b)-r.i)/4 {
+		r.err = io.ErrUnexpectedEOF
+		return 0, 0, nil
+	}
+	if keep {
+		values = make([]uint32, int(count))
+		for i := range values {
+			values[i] = r.u32()
+		}
+	} else {
+		r.i += int(count) * 4
+	}
+	if r.err == nil && r.i-start != int(size) {
+		r.err = fmt.Errorf("openrgb: matrix declares %d bytes, used %d", size, r.i-start)
+	}
+	return height, width, values
 }
 
 func u16(v uint16) []byte {

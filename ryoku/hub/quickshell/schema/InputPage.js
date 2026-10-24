@@ -123,7 +123,7 @@ var rows = [
         "label": "Apply system-wide",
         "desc": "Match the login screen, TTYs, and boot prompt too.",
         "ctl": "action",
-        "src": "vconsole.conf, via `localectl set-x11-keymap <kbLayout> \"\" <kbVariant> <kbOptions>`"
+        "src": "ryoku-host keymap apply"
     },
     {
         "tab": "",

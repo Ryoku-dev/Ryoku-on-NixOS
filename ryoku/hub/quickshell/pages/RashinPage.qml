@@ -8,10 +8,9 @@ import Ryoku.Ui
 import Ryoku.Ui.Singletons
 
 // Rashin (DESIGN.md section 11, ADVANCED). The optional, fully local agent OS
-// (羅針, the system needle). This page is the Hub's welcome to Rashin, wearing
-// the Rashin/Hermes dashboard's own identity rather than the Hub's: the warm
-// bone-on-black poster palette and Archivo Black + JetBrains Mono type of the
-// web dashboard at 127.0.0.1:3600 (mirrored from ryoku/rashin/backend/web). It
+// (羅針, the system needle). This page is the Hub's welcome to Rashin, in the
+// Hub's own paper and ink, the same language the web dashboard at
+// 127.0.0.1:3600 now speaks. It
 // leads with the samurai hero banner and the live model Hermes runs on, lays
 // out what Rashin does (the vault, memory, skills, agents, chat, code), shows
 // how to use it, and keeps the master switch, one-click Hermes setup and the
@@ -24,34 +23,6 @@ Item {
     property var hub
     readonly property bool fullBleed: true
 
-    // ── the Rashin/Hermes palette, mirrored from the dashboard's base.css
-    // (:root). Deliberately not the Hub's Tokens: this section wears the
-    // product's own warm poster identity so it reads as Rashin, not Settings.
-    QtObject {
-        id: hx
-        readonly property color paper: "#0e0d0b"
-        readonly property color paper2: "#14120f"
-        readonly property color ink: "#e8d8c9"
-        readonly property color inkDim: "#8f8378"
-        readonly property color red: "#c94e44"
-        readonly property color redDeep: "#9f4125"
-        readonly property color teal: "#3e6868"
-        readonly property color orange: "#f3701e"
-        readonly property color slate: "#4b607f"
-        readonly property color tan: "#cda47b"
-        readonly property color line: Qt.rgba(232 / 255, 216 / 255, 201 / 255, 0.18)
-        readonly property color lineSoft: Qt.rgba(232 / 255, 216 / 255, 201 / 255, 0.09)
-    }
-
-    // Archivo Black rides display, bundled beside the Hub (converted from the
-    // dashboard's woff2) so it ships with the config tree, no font package. The
-    // rest is JetBrains Mono, the dashboard's body face, hard-depended by the
-    // desktop package; kanji is Noto CJK.
-    FontLoader { id: archivo; source: Qt.resolvedUrl("../fonts/archivo-black.ttf") }
-    readonly property string fDisplay: archivo.name || "sans-serif"
-    readonly property string fMono: "JetBrainsMono Nerd Font"
-    readonly property string fJp: "Noto Sans CJK JP"
-
     // centered body column; the hero and every section share this measure.
     readonly property real bodyW: Math.min(pg.width - Tokens.s5 * 2, 1080)
 
@@ -59,16 +30,21 @@ Item {
     property bool installed: true
     property bool daemonEnabled: false
     property bool running: false
+    property bool serviceBusy: false
+    property string busyLabel: ""
+    property string serviceError: ""
     // the port the daemon reports, not a literal: a user who changed it in
     // ~/.config/ryoku/rashin.json still gets a link that resolves.
     property int port: 3600
+    property bool prowlInstalled: false
+    property bool prowlRunning: false
+    property int prowlPort: 8788
+    property string prowlUrl: ""
+    property string prowlError: ""
     property bool vaultExists: false
     property int vaultFiles: 0
     property bool hermesInstalled: false
     property bool hermesConfigured: false
-    property string hermesModel: ""
-    property string hermesProvider: ""
-    property string hermesVersion: ""
     property int agentsPresent: 0
     property int agentsWired: 0
     // manifest: the full agent surface (paths + agents + chat backends), from
@@ -89,32 +65,50 @@ Item {
     property bool setupOk: true
 
     Component.onCompleted: pg.refresh()
-    function refresh() { statusProc.running = true; manifestProc.running = true; }
+    function refresh() { packageProc.running = true; statusProc.running = true; manifestProc.running = true; }
+
+    Process {
+        id: packageProc
+        command: ["ryoku-hub", "rashin", "status"]
+        stderr: StdioCollector {}
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var o = JSON.parse(this.text);
+                    pg.installed = o.installed === true;
+                } catch (e) {}
+            }
+        }
+    }
 
     Process {
         id: statusProc
         // sh-wrapped so a missing ryoku-rashin still closes stdout and fires
-        // onStreamFinished; empty/unparseable output reads as "not installed".
+        // onStreamFinished; empty or unparseable output reads as stopped. Whether
+        // the package is there comes from packageProc.
         command: ["sh", "-c", "ryoku-rashin status --json"]
         stderr: StdioCollector {}
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
                     var o = JSON.parse(this.text);
-                    pg.installed = true;
                     pg.daemonEnabled = o.enabled === true;
                     pg.running = o.running === true;
                     if (typeof o.port === "number" && o.port > 0)
                         pg.port = o.port;
+                    var p = o.prowl || ({});
+                    pg.prowlInstalled = p.installed === true;
+                    pg.prowlRunning = p.running === true;
+                    if (typeof p.port === "number" && p.port > 0)
+                        pg.prowlPort = p.port;
+                    pg.prowlUrl = p.url || "";
+                    pg.prowlError = p.error || "";
                     var v = o.vault || ({});
                     pg.vaultExists = v.exists === true;
                     pg.vaultFiles = (typeof v.files === "number") ? v.files : 0;
                     var h = o.hermes || ({});
                     pg.hermesInstalled = h.installed === true;
                     pg.hermesConfigured = h.configured === true;
-                    pg.hermesModel = h.model || "";
-                    pg.hermesProvider = h.provider || "";
-                    pg.hermesVersion = h.version || "";
                     var ags = o.agents || [];
                     var present = 0, wired = 0;
                     for (var i = 0; i < ags.length; i++) {
@@ -130,19 +124,50 @@ Item {
                 } catch (e) {
                     // empty output (binary missing) or malformed JSON.
                 }
-                pg.installed = false;
                 pg.daemonEnabled = false;
                 pg.running = false;
+                pg.prowlInstalled = false;
+                pg.prowlRunning = false;
+                pg.prowlUrl = "";
+                pg.prowlError = "";
             }
         }
     }
 
-    Process { id: enableProc; onExited: pg.refresh() }
-    Process { id: disableProc; onExited: pg.refresh() }
+    // The switch owns the package as well as the agent: on installs
+    // ryoku-rashin when it is absent and starts the agent with the desktop,
+    // off stops it and removes the package where the host allows. The backend
+    // then re-authors the compositor config, so the Ask and Rashin window
+    // chords leave and return with the package. pkexec asks for the password
+    // through the polkit agent, the way every privileged Hub action does.
+    Process {
+        id: switchProc
+        stderr: StdioCollector { id: switchError }
+        onExited: code => {
+            pg.serviceBusy = false;
+            if (code !== 0)
+                pg.serviceError = switchError.text.trim().split("\n").pop()
+                    || I18n.tr("Rashin could not change its state.");
+            pg.refresh();
+        }
+    }
+    // The switch is the agent: on starts it with the desktop, installing the
+    // package first when it is absent; off stops it and removes the package.
+    // It moves at once; refresh() settles it on what actually happened once the
+    // verb returns.
     function setEnabled(on) {
-        var p = on ? enableProc : disableProc;
-        p.command = ["ryoku-rashin", on ? "enable" : "disable"];
-        p.running = true;
+        if (pg.serviceBusy)
+            return;
+        pg.busyLabel = on
+            ? (pg.installed ? I18n.tr("Starting\u2026") : I18n.tr("Installing ryoku-rashin\u2026"))
+            : I18n.tr("Stopping and removing ryoku-rashin\u2026");
+        pg.serviceBusy = true;
+        pg.serviceError = "";
+        pg.daemonEnabled = on;
+        if (on)
+            pg.installed = true;
+        switchProc.command = ["ryoku-hub", "rashin", on ? "on" : "off"];
+        switchProc.running = true;
     }
 
     FileView {
@@ -167,12 +192,12 @@ Item {
     function runSetup() {
         Spawn.runApp(["kitty", "--class", "ryoku-rashin-setup", "-e", "ryoku-rashin", "setup"]);
     }
-    // Open the dashboard the daemon actually serves. Two things used to send a
-    // user to a browser error they read as a 404: the port was hardcoded here
-    // while the daemon reads it from its own config, and the button opened the
-    // URL even with nothing listening. Take the port from `status --json` and
-    // start the daemon first when it is down; `ryoku-rashin serve` returns once
-    // the socket is up, so the browser never races it.
+    // Open the dashboard the daemon actually serves. If a systemd user unit is
+    // installed, it is the sole owner of the daemon. Spawning another `serve`
+    // process from the Hub can race the unit for the configured port and leaves
+    // that detached copy in the shell cgroup across restarts. Non-systemd
+    // sessions retain the detached fallback. The browser opens only after the
+    // daemon reports that it is actually listening.
     function openDashboard() {
         var url = "http://127.0.0.1:" + pg.port;
         if (pg.running) {
@@ -180,10 +205,13 @@ Item {
             return;
         }
         openProc.command = ["sh", "-c",
-            "ryoku-rashin serve --if-enabled >/dev/null 2>&1 & "
+            "if systemctl --user cat ryoku-rashin.service >/dev/null 2>&1; then "
+            + "systemctl --user start ryoku-rashin.service >/dev/null 2>&1; "
+            + "else ryoku-rashin serve --if-enabled >/dev/null 2>&1 & fi; "
             + "for i in 1 2 3 4 5 6 7 8 9 10; do "
-            + "ryoku-rashin status --json 2>/dev/null | grep -q '\"running\":true' && break; sleep 0.3; done; "
-            + "xdg-open " + url];
+            + "if ryoku-rashin status --json 2>/dev/null | grep -q '\"running\":true'; then "
+            + "xdg-open \"$1\"; exit 0; fi; sleep 0.3; done; exit 1",
+            "sh", url];
         openProc.running = true;
     }
     Process { id: openProc; onExited: pg.refresh() }
@@ -209,14 +237,14 @@ Item {
     }
     Process { id: wireProc; onExited: pg.refresh() }
     Process { id: chatProc; onExited: pg.refresh() }
-    // Wiring drops the pointer + the ryoku skill + prowl's skills into an
-    // agent (or every present one); useChatAgent picks who drives the chat.
+    // Wiring adds the Ryoku and Prowl skills to an agent (or every present
+    // one); useChatAgent picks who answers in the Alt+Space bar.
     function wireAgent(id) { wireProc.command = ["ryoku-rashin", "wire", id]; wireProc.running = true; }
     function wireAll() { wireProc.command = ["ryoku-rashin", "wire"]; wireProc.running = true; }
     function useChatAgent(id) { chatProc.command = ["ryoku-rashin", "agent", "use", id]; chatProc.running = true; }
     // Copy the paste snippet for an agent Rashin does not wire directly.
     function copySnippet() { Quickshell.execDetached(["sh", "-c", "ryoku-rashin paths --snippet | wl-copy"]); }
-    // whether an agent can drive the Super+S chat (its ACP adapter is present).
+    // Whether an agent can answer the Alt+Space bar's Agent mode.
     function agentCanChat(id) {
         for (var i = 0; i < pg.chatBackends.length; i++)
             if (pg.chatBackends[i].id === id)
@@ -230,7 +258,7 @@ Item {
     component Stamp: Rectangle {
         id: stamp
         property string label: ""
-        property color tint: hx.inkDim
+        property color tint: Tokens.inkDim
         implicitWidth: stampT.implicitWidth + 18
         implicitHeight: 22
         color: "transparent"
@@ -241,7 +269,7 @@ Item {
             anchors.centerIn: parent
             text: I18n.tr(stamp.label)
             color: stamp.tint
-            font.family: pg.fMono
+            font.family: Tokens.mono
             font.pixelSize: 9
             font.letterSpacing: 2
         }
@@ -260,11 +288,11 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Tokens.s2
             Text {
-                text: hd.kanji; color: hx.red; font.family: pg.fJp
+                text: hd.kanji; color: Tokens.alert; font.family: Tokens.jp
                 font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
             }
             Text {
-                text: hd.title; color: hx.ink; font.family: pg.fMono
+                text: hd.title; color: Tokens.ink; font.family: Tokens.mono
                 font.pixelSize: 11; font.letterSpacing: 3; font.weight: Font.Medium
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -272,12 +300,12 @@ Item {
         Rectangle {
             anchors.left: hdRow.right; anchors.leftMargin: Tokens.s3
             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-            height: 1; color: hx.line
+            height: 1; color: Tokens.line
         }
     }
 
-    // a function poster card: accent tab, index + kanji, name, one-liner, and an
-    // optional live stat brightening to the accent.
+    // a function card: an ink tab, index + kanji, name, one-liner, and an
+    // optional live stat.
     component FnCard: Rectangle {
         id: fc
         property string index: ""
@@ -285,13 +313,12 @@ Item {
         property string name: ""
         property string desc: ""
         property string stat: ""
-        property color accent: hx.teal
         height: 128
-        color: hx.paper2
+        color: Tokens.paperLift
         border.width: 1
-        border.color: hx.line
+        border.color: Tokens.line
 
-        Rectangle { x: 0; y: 0; width: 34; height: 3; color: fc.accent }
+        Rectangle { x: 0; y: 0; width: 34; height: 3; color: Tokens.ink }
 
         Column {
             anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16 }
@@ -299,27 +326,27 @@ Item {
             Row {
                 spacing: Tokens.s2
                 Text {
-                    text: fc.index; color: fc.accent; font.family: pg.fDisplay
+                    text: fc.index; color: Tokens.ink; font.family: Tokens.display
                     font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter
                 }
                 Text {
-                    text: fc.kanji; color: hx.inkDim; font.family: pg.fJp
+                    text: fc.kanji; color: Tokens.inkDim; font.family: Tokens.jp
                     font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter
                 }
             }
             Text {
-                text: fc.name; color: hx.ink; font.family: pg.fDisplay; font.pixelSize: 21
+                text: fc.name; color: Tokens.ink; font.family: Tokens.display; font.pixelSize: 21
             }
             Text {
                 width: parent.width
-                text: I18n.tr(fc.desc); color: hx.inkDim; font.family: pg.fMono; font.pixelSize: 12
+                text: I18n.tr(fc.desc); color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 12
                 wrapMode: Text.WordWrap; lineHeight: 1.25
             }
         }
         Text {
             visible: fc.stat !== ""
             anchors { right: parent.right; top: parent.top; margins: 16 }
-            text: fc.stat; color: fc.accent; font.family: pg.fMono; font.pixelSize: 11
+            text: fc.stat; color: Tokens.ink; font.family: Tokens.mono; font.pixelSize: 11
         }
     }
 
@@ -332,12 +359,12 @@ Item {
         spacing: Tokens.s3
         Text {
             width: Math.round(tr.width * 0.34)
-            text: tr.cmd; color: hx.red; font.family: pg.fMono; font.pixelSize: 13
+            text: tr.cmd; color: Tokens.ink; font.family: Tokens.mono; font.pixelSize: 13
             elide: Text.ElideRight
         }
         Text {
             width: tr.width - Math.round(tr.width * 0.34) - tr.spacing
-            text: tr.note; color: hx.inkDim; font.family: pg.fMono; font.pixelSize: 13
+            text: tr.note; color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 13
             wrapMode: Text.WordWrap
         }
     }
@@ -354,15 +381,15 @@ Item {
         opacity: bt.on ? 1 : 0.4
         Rectangle {
             anchors.fill: parent
-            color: bt.primary ? hx.ink : "transparent"
+            color: bt.primary ? Tokens.ink : "transparent"
             border.width: 1
-            border.color: bt.primary ? hx.ink : hx.line
+            border.color: bt.primary ? Tokens.ink : Tokens.line
         }
         Text {
             id: btT
             anchors.centerIn: parent
-            text: I18n.tr(bt.label); color: bt.primary ? hx.paper : hx.ink
-            font.family: pg.fMono; font.pixelSize: 11; font.letterSpacing: 2; font.weight: Font.Medium
+            text: I18n.tr(bt.label); color: bt.primary ? Tokens.paper : Tokens.ink
+            font.family: Tokens.mono; font.pixelSize: 11; font.letterSpacing: 2; font.weight: Font.Medium
         }
         MouseArea {
             anchors.fill: parent; enabled: bt.on
@@ -379,9 +406,9 @@ Item {
         property bool canChat: false
         width: parent ? parent.width : 0
         height: 56
-        color: hx.paper2
+        color: Tokens.paperLift
         border.width: 1
-        border.color: (ar.agent.present && ar.agent.wired) ? Qt.rgba(hx.ink.r, hx.ink.g, hx.ink.b, 0.3) : hx.line
+        border.color: (ar.agent.present && ar.agent.wired) ? Qt.rgba(Tokens.ink.r, Tokens.ink.g, Tokens.ink.b, 0.3) : Tokens.line
         opacity: ar.agent.present ? 1 : 0.5
 
         Column {
@@ -390,35 +417,35 @@ Item {
             Text {
                 width: parent.width
                 text: ar.agent.name || ar.agent.id || ""
-                color: hx.ink; font.family: pg.fDisplay; font.pixelSize: 16; elide: Text.ElideRight
+                color: Tokens.ink; font.family: Tokens.display; font.pixelSize: 16; elide: Text.ElideRight
             }
             Text {
                 width: parent.width
                 text: !ar.agent.present ? I18n.tr("not installed")
                     : (ar.agent.wired ? I18n.tr("wired to the vault") : I18n.tr("present \u00b7 not wired yet"))
-                color: hx.inkDim; font.family: pg.fMono; font.pixelSize: 11; elide: Text.ElideRight
+                color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 11; elide: Text.ElideRight
             }
         }
         Row {
             id: arActions
             anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
             spacing: Tokens.s2
-            Stamp { visible: ar.agent.skillWired === true; label: "SKILL"; tint: hx.teal; anchors.verticalCenter: parent.verticalCenter }
-            Stamp { visible: ar.canChat; label: "CHAT"; tint: hx.slate; anchors.verticalCenter: parent.verticalCenter }
+            Stamp { visible: ar.agent.skillWired === true; label: "SKILL"; tint: Tokens.ink; anchors.verticalCenter: parent.verticalCenter }
+            Stamp { visible: ar.canChat; label: "CHAT"; tint: Tokens.inkDim; anchors.verticalCenter: parent.verticalCenter }
             Rectangle {
                 visible: ar.agent.present === true
                 anchors.verticalCenter: parent.verticalCenter
                 width: wbT.implicitWidth + Tokens.s4 * 2
                 height: 30
-                color: ar.agent.wired ? "transparent" : hx.ink
+                color: ar.agent.wired ? "transparent" : Tokens.ink
                 border.width: 1
-                border.color: ar.agent.wired ? hx.line : hx.ink
+                border.color: ar.agent.wired ? Tokens.line : Tokens.ink
                 Text {
                     id: wbT
                     anchors.centerIn: parent
                     text: ar.agent.wired ? I18n.tr("RE-WIRE") : I18n.tr("WIRE")
-                    color: ar.agent.wired ? hx.ink : hx.paper
-                    font.family: pg.fMono; font.pixelSize: 10; font.letterSpacing: 2; font.weight: Font.Medium
+                    color: ar.agent.wired ? Tokens.ink : Tokens.paper
+                    font.family: Tokens.mono; font.pixelSize: 10; font.letterSpacing: 2; font.weight: Font.Medium
                 }
                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: pg.wireAgent(ar.agent.id) }
             }
@@ -439,26 +466,26 @@ Item {
         spacing: Tokens.s3
         Text {
             width: pr.labelW
-            text: pr.label; color: pr.ok ? hx.ink : hx.inkDim
-            font.family: pg.fMono; font.pixelSize: 12; elide: Text.ElideRight
+            text: pr.label; color: pr.ok ? Tokens.ink : Tokens.inkDim
+            font.family: Tokens.mono; font.pixelSize: 12; elide: Text.ElideRight
         }
         Text {
             width: pr.ownerW
             text: pr.owner
-            color: pr.owner === "yours" ? hx.teal : hx.inkDim
-            font.family: pg.fMono; font.pixelSize: 10; font.letterSpacing: 1
+            color: pr.owner === "yours" ? Tokens.ink : Tokens.inkDim
+            font.family: Tokens.mono; font.pixelSize: 10; font.letterSpacing: 1
             anchors.verticalCenter: parent.verticalCenter
         }
         Text {
             width: pr.width - pr.labelW - pr.ownerW - pr.spacing * 2
             text: pr.path === "" ? I18n.tr("not installed") : pr.path
-            color: pr.ok ? hx.tan : hx.inkDim
-            font.family: pg.fMono; font.pixelSize: 12; elide: Text.ElideLeft
+            color: pr.ok ? Tokens.ink : Tokens.inkDim
+            font.family: Tokens.mono; font.pixelSize: 12; elide: Text.ElideLeft
         }
     }
 
-    // ── the page: warm paper, one scrolling poster column ────────────────────
-    Rectangle { anchors.fill: parent; color: hx.paper }
+    // ── the page: paper and ink, one scrolling column ────────────────────
+    Rectangle { anchors.fill: parent; color: Tokens.paper }
 
     Flickable {
         id: flick
@@ -496,9 +523,9 @@ Item {
                 Rectangle {
                     anchors.fill: parent
                     visible: heroImg.status !== Image.Ready
-                    color: hx.paper2
+                    color: Tokens.paperLift
                 }
-                Rectangle { anchors.fill: parent; color: "transparent"; border.width: 1; border.color: hx.line }
+                Rectangle { anchors.fill: parent; color: "transparent"; border.width: 1; border.color: Tokens.line }
 
                 // bottom scrim so the cap stays legible over the art.
                 Rectangle {
@@ -506,7 +533,7 @@ Item {
                     height: parent.height * 0.7
                     gradient: Gradient {
                         GradientStop { position: 0.0; color: "transparent" }
-                        GradientStop { position: 1.0; color: Qt.rgba(hx.paper.r, hx.paper.g, hx.paper.b, 0.92) }
+                        GradientStop { position: 1.0; color: Qt.rgba(Tokens.paper.r, Tokens.paper.g, Tokens.paper.b, 0.92) }
                     }
                 }
 
@@ -515,17 +542,17 @@ Item {
                     anchors { left: parent.left; bottom: parent.bottom; leftMargin: Tokens.s5; bottomMargin: Tokens.s4 }
                     spacing: 3
                     Text {
-                        text: I18n.tr("RYOKU RASHIN"); color: hx.ink; font.family: pg.fDisplay
+                        text: I18n.tr("RYOKU RASHIN"); color: Tokens.ink; font.family: Tokens.display
                         font.pixelSize: Math.round(Math.min(pg.bodyW * 0.05, 40))
                     }
                     Row {
                         spacing: Tokens.s2
                         Text {
-                            text: "羅針"; color: hx.red; font.family: pg.fJp; font.pixelSize: 13
+                            text: "羅針"; color: Tokens.alert; font.family: Tokens.jp; font.pixelSize: 13
                             anchors.verticalCenter: parent.verticalCenter
                         }
                         Text {
-                            text: I18n.tr("THE SYSTEM NEEDLE"); color: hx.inkDim; font.family: pg.fMono
+                            text: I18n.tr("THE SYSTEM NEEDLE"); color: Tokens.inkDim; font.family: Tokens.mono
                             font.pixelSize: 10; font.letterSpacing: 3
                             anchors.verticalCenter: parent.verticalCenter
                         }
@@ -537,19 +564,19 @@ Item {
                     anchors { right: parent.right; top: parent.top; rightMargin: Tokens.s4; topMargin: Tokens.s4 }
                     label: !pg.installed ? I18n.tr("NOT INSTALLED")
                         : (pg.running ? I18n.tr("RUNNING") : (pg.daemonEnabled ? I18n.tr("STARTING") : I18n.tr("OFF")))
-                    tint: pg.running ? hx.teal : (pg.installed ? hx.inkDim : hx.redDeep)
+                    tint: pg.running ? Tokens.ink : (pg.installed ? Tokens.inkDim : Tokens.alert)
                 }
             }
 
             // ── tagline ──────────────────────────────────────────────────────
             Text {
                 width: parent.width
-                text: I18n.tr("The optional local agent OS. A resident Hermes agent keeps a living map of this machine - hardware, packages, every config beside the binary that owns it - so your coding agents read the terrain instead of rediscovering it. Nothing ever leaves the box.")
-                color: hx.ink; font.family: pg.fMono; font.pixelSize: 14
+                text: I18n.tr("The optional local agent OS. Your agent keeps a living map of this machine - hardware, packages, every config beside the binary that owns it - so your coding agents read the terrain instead of rediscovering it. Nothing ever leaves the box.")
+                color: Tokens.ink; font.family: Tokens.mono; font.pixelSize: 14
                 wrapMode: Text.WordWrap; lineHeight: 1.5
             }
 
-            // ── MASTER SWITCH + MODEL: what is running, and the control ───────
+            // ── MASTER SWITCH + PROWL: the two-process product state ─────────
             Row {
                 width: parent.width
                 spacing: Tokens.s4
@@ -560,73 +587,76 @@ Item {
                 Rectangle {
                     width: parent.colW
                     height: 96
-                    color: hx.paper2
+                    color: Tokens.paperLift
                     border.width: 1
-                    border.color: pg.daemonEnabled ? Qt.rgba(hx.ink.r, hx.ink.g, hx.ink.b, 0.35) : hx.line
-                    opacity: pg.installed ? 1 : 0.5
+                    border.color: pg.daemonEnabled ? Qt.rgba(Tokens.ink.r, Tokens.ink.g, Tokens.ink.b, 0.35) : Tokens.line
 
                     Column {
                         anchors { left: parent.left; right: sw.left; verticalCenter: parent.verticalCenter; leftMargin: 18; rightMargin: 14 }
                         spacing: 6
                         Row {
                             spacing: Tokens.s2
-                            Text { text: "羅針"; color: hx.ink; font.family: pg.fJp; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "羅針"; color: Tokens.ink; font.family: Tokens.jp; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
                             Text {
-                                text: I18n.tr("RASHIN SERVICE"); color: hx.ink; font.family: pg.fDisplay
+                                text: I18n.tr("RASHIN"); color: Tokens.ink; font.family: Tokens.display
                                 font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
                             }
                         }
                         Text {
                             width: parent.width
-                            text: pg.installed
-                                ? (pg.running ? I18n.tr("Running \u00b7 127.0.0.1:%1").arg(pg.port)
-                                   : (pg.daemonEnabled ? I18n.tr("Enabled \u00b7 starting\u2026") : I18n.tr("Off \u00b7 switch on to start it with the desktop")))
-                                : I18n.tr("Not installed \u00b7 install ryoku-rashin")
-                            color: hx.inkDim; font.family: pg.fMono; font.pixelSize: 11; elide: Text.ElideRight
+                            text: pg.serviceError !== "" ? pg.serviceError
+                                : pg.serviceBusy ? pg.busyLabel
+                                : !pg.installed ? I18n.tr("Not installed \u00b7 switch on to install it, with its Ask shortcut")
+                                : pg.running ? I18n.tr("Running \u00b7 127.0.0.1:%1 \u00b7 off removes it and its Ask shortcut").arg(pg.port)
+                                : pg.daemonEnabled ? I18n.tr("Enabled \u00b7 starting\u2026")
+                                : I18n.tr("Off \u00b7 switch on to start it with the desktop")
+                            color: pg.serviceError !== "" ? Tokens.alert : Tokens.inkDim
+                            font.family: Tokens.mono; font.pixelSize: 11; elide: Text.ElideRight
                         }
                     }
                     Sw {
                         id: sw
                         anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
-                        enabled: pg.installed
-                        on: pg.daemonEnabled
-                        onToggled: (c) => { pg.daemonEnabled = c; pg.setEnabled(c); }
+                        enabled: !pg.serviceBusy
+                        on: pg.installed && pg.daemonEnabled
+                        onToggled: (c) => pg.setEnabled(c)
                     }
                 }
 
-                // the model Hermes runs on -- the headline fact.
+                // Prowl is an external gateway and code index that Rashin hosts.
+                // It plugs into any harness.
                 Rectangle {
                     width: parent.colW
                     height: 96
-                    color: hx.paper2
+                    color: Tokens.paperLift
                     border.width: 1
-                    border.color: hx.line
-                    Rectangle { x: 0; y: 0; width: 34; height: 3; color: hx.red }
+                    border.color: pg.prowlRunning ? Qt.rgba(Tokens.ink.r, Tokens.ink.g, Tokens.ink.b, 0.35) : Tokens.line
+                    Rectangle { x: 0; y: 0; width: 34; height: 3; color: pg.prowlRunning ? Tokens.ink : Tokens.alert }
 
                     Column {
                         anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; leftMargin: 18; rightMargin: 18 }
-                        spacing: 4
+                        spacing: 6
                         Row {
                             spacing: Tokens.s2
-                            Text { text: "模型"; color: hx.red; font.family: pg.fJp; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "徘徊"; color: Tokens.alert; font.family: Tokens.jp; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
                             Text {
-                                text: I18n.tr("MODEL"); color: hx.inkDim; font.family: pg.fMono
-                                font.pixelSize: 10; font.letterSpacing: 3; anchors.verticalCenter: parent.verticalCenter
+                                text: I18n.tr("PROWL GATEWAY"); color: Tokens.ink; font.family: Tokens.display
+                                font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
                             }
                         }
                         Text {
                             width: parent.width
-                            text: pg.hermesConfigured ? (pg.hermesModel || I18n.tr("configured")) : "-"
-                            color: hx.ink; font.family: pg.fDisplay
-                            font.pixelSize: pg.hermesConfigured ? 30 : 26
-                            elide: Text.ElideRight
+                            text: !pg.prowlInstalled ? I18n.tr("Not installed")
+                                : (pg.prowlRunning ? I18n.tr("Running · %1").arg(pg.prowlUrl || ("127.0.0.1:" + pg.prowlPort))
+                                   : I18n.tr("Offline · starts with Rashin"))
+                            color: pg.prowlRunning ? Tokens.ink : Tokens.inkDim
+                            font.family: Tokens.mono; font.pixelSize: 11; elide: Text.ElideRight
                         }
                         Text {
                             width: parent.width
-                            text: pg.hermesConfigured
-                                ? (I18n.tr("via %1").arg(pg.hermesProvider || "hermes") + (pg.hermesVersion ? I18n.tr("  \u00b7  Hermes v%1").arg(pg.hermesVersion) : ""))
-                                : (pg.hermesInstalled ? I18n.tr("run setup to choose a model") : I18n.tr("set up Hermes to choose a model"))
-                            color: hx.inkDim; font.family: pg.fMono; font.pixelSize: 11; elide: Text.ElideRight
+                            text: pg.prowlError ? pg.prowlError
+                                : I18n.tr("Models and code intelligence")
+                            color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 10; elide: Text.ElideRight
                         }
                     }
                 }
@@ -647,29 +677,29 @@ Item {
                     readonly property real cellW: (width - columnSpacing * (columns - 1)) / columns
 
                     FnCard {
-                        width: fnGrid.cellW; index: "01"; kanji: "\u66f8\u5eab"; name: I18n.tr("VAULT"); accent: hx.teal
+                        width: fnGrid.cellW; index: "01"; kanji: "\u66f8\u5eab"; name: I18n.tr("VAULT")
                         desc: I18n.tr("The living map your agents read, beside each binary.")
                         stat: pg.vaultExists ? I18n.tr("%1 files").arg(pg.vaultFiles) : ""
                     }
                     FnCard {
-                        width: fnGrid.cellW; index: "02"; kanji: "\u8a18\u61b6"; name: I18n.tr("MEMORY"); accent: hx.orange
-                        desc: I18n.tr("What Hermes remembers, carried across every session.")
+                        width: fnGrid.cellW; index: "02"; kanji: "\u8a18\u61b6"; name: I18n.tr("MEMORY")
+                        desc: I18n.tr("What your agent remembers, carried across every session.")
                     }
                     FnCard {
-                        width: fnGrid.cellW; index: "03"; kanji: "\u6280"; name: I18n.tr("SKILLS"); accent: hx.slate
-                        desc: I18n.tr("Toolsets Hermes wields: search, files, the web.")
+                        width: fnGrid.cellW; index: "03"; kanji: "\u6280"; name: I18n.tr("SKILLS")
+                        desc: I18n.tr("Toolsets your agent wields: search, files, the web.")
                     }
                     FnCard {
-                        width: fnGrid.cellW; index: "04"; kanji: "\u4e94\u4eba\u8846"; name: I18n.tr("AGENTS"); accent: hx.tan
+                        width: fnGrid.cellW; index: "04"; kanji: "\u4e94\u4eba\u8846"; name: I18n.tr("AGENTS")
                         desc: I18n.tr("Your coding agents, wired to one shared map of the machine.")
                         stat: pg.agentsPresent > 0 ? pg.wiredSummary : ""
                     }
                     FnCard {
-                        width: fnGrid.cellW; index: "05"; kanji: "\u5bfe\u8a71"; name: I18n.tr("CHAT"); accent: hx.red
-                        desc: I18n.tr("Talk to Hermes in the dashboard or a terminal.")
+                        width: fnGrid.cellW; index: "05"; kanji: "\u5bfe\u8a71"; name: I18n.tr("CHAT")
+                        desc: I18n.tr("Talk to your agent in the dashboard or a terminal.")
                     }
                     FnCard {
-                        width: fnGrid.cellW; index: "06"; kanji: "\u7f85\u91dd"; name: I18n.tr("CODE"); accent: hx.teal
+                        width: fnGrid.cellW; index: "06"; kanji: "\u7f85\u91dd"; name: I18n.tr("CODE")
                         desc: I18n.tr("Code intelligence: cited answers over your repos.")
                     }
                 }
@@ -682,8 +712,8 @@ Item {
                 Head { kanji: "\u4e94\u4eba\u8846"; title: I18n.tr("YOUR AGENTS") }
                 Text {
                     width: parent.width
-                    text: I18n.tr("Wire any coding agent to the same living map of this machine. One click drops a pointer into its instructions, links the ryoku skill, and installs prowl's code-intelligence skill.")
-                    color: hx.inkDim; font.family: pg.fMono; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.4
+                    text: I18n.tr("Connect any coding agent to the same living map of this machine. One click adds the Ryoku and Prowl skills. It never changes the agent's own model; making Prowl auto the default is a separate switch.")
+                    color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.4
                 }
                 Column {
                     width: parent.width
@@ -709,7 +739,7 @@ Item {
                 Text {
                     width: parent.width
                     text: I18n.tr("On an agent Rashin doesn't wire for you? Point it at these yourself, or copy the ready-made instructions and paste them into its config.")
-                    color: hx.inkDim; font.family: pg.fMono; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.4
+                    color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.4
                 }
                 Column {
                     width: parent.width
@@ -731,15 +761,15 @@ Item {
                 PosterBtn { label: I18n.tr("COPY AGENT SNIPPET"); primary: true; on: pg.installed; onAct: pg.copySnippet() }
             }
 
-            // ── CHAT BACKEND: who answers Super+S (Hermes recommended) ────────
+            // ── CHAT AGENT: who answers in the Alt+Space bar (Hermes recommended) ──
             Column {
                 width: parent.width
                 spacing: Tokens.s3
                 Head { kanji: "\u5bfe\u8a71"; title: I18n.tr("CHAT BACKEND") }
                 Text {
                     width: parent.width
-                    text: I18n.tr("Which agent answers the Super+S chat. Hermes is recommended; others need their own ACP adapter installed.")
-                    color: hx.inkDim; font.family: pg.fMono; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.4
+                    text: I18n.tr("Which agent answers the Alt+Space bar's Agent mode. Hermes is recommended; others need their own ACP adapter installed.")
+                    color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.4
                 }
                 Flow {
                     width: parent.width
@@ -752,16 +782,16 @@ Item {
                             readonly property bool sel: cb.modelData.active === true
                             height: 34
                             width: cbT.implicitWidth + Tokens.s4 * 2
-                            color: cb.sel ? hx.ink : "transparent"
+                            color: cb.sel ? Tokens.ink : "transparent"
                             opacity: cb.modelData.available ? 1 : 0.45
                             border.width: 1
-                            border.color: cb.sel ? hx.ink : hx.line
+                            border.color: cb.sel ? Tokens.ink : Tokens.line
                             Text {
                                 id: cbT
                                 anchors.centerIn: parent
                                 text: (cb.modelData.name || cb.modelData.id) + (cb.modelData.recommended ? "  \u2605" : "")
-                                color: cb.sel ? hx.paper : (cb.modelData.available ? hx.ink : hx.inkDim)
-                                font.family: pg.fMono; font.pixelSize: 11; font.letterSpacing: 1
+                                color: cb.sel ? Tokens.paper : (cb.modelData.available ? Tokens.ink : Tokens.inkDim)
+                                font.family: Tokens.mono; font.pixelSize: 11; font.letterSpacing: 1
                             }
                             MouseArea {
                                 anchors.fill: parent
@@ -795,7 +825,7 @@ Item {
                 Text {
                     width: parent.width
                     text: I18n.tr("Set up Hermes once: it installs the agent if you don't have it, wires it to the vault, and points your other coding agents at the same map. An existing Hermes install is left untouched.")
-                    color: hx.inkDim; font.family: pg.fMono; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.4
+                    color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.4
                 }
 
                 Row {
@@ -821,8 +851,8 @@ Item {
                     width: parent.width
                     visible: pg.setupPhase !== ""
                     text: "\u2192 " + pg.setupPhase + (pg.setupDetail !== "" ? ": " + pg.setupDetail : "")
-                    color: pg.setupOk ? hx.inkDim : hx.ink
-                    font.family: pg.fMono; font.pixelSize: 11; wrapMode: Text.WordWrap
+                    color: pg.setupOk ? Tokens.inkDim : Tokens.ink
+                    font.family: Tokens.mono; font.pixelSize: 11; wrapMode: Text.WordWrap
                 }
             }
 
@@ -831,11 +861,11 @@ Item {
             Row {
                 width: parent.width
                 spacing: Tokens.s3
-                Rectangle { width: 8; height: 8; radius: 4; color: hx.red; anchors.verticalCenter: parent.verticalCenter }
+                Rectangle { width: 8; height: 8; radius: 4; color: Tokens.alert; anchors.verticalCenter: parent.verticalCenter }
                 Text {
                     width: parent.width - Tokens.s3 - 8
                     text: I18n.tr("Everything runs on this machine. The daemon binds 127.0.0.1 only - nothing you do here leaves the box.")
-                    color: hx.inkDim; font.family: pg.fMono; font.pixelSize: 11; wrapMode: Text.WordWrap
+                    color: Tokens.inkDim; font.family: Tokens.mono; font.pixelSize: 11; wrapMode: Text.WordWrap
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }

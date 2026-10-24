@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -u
+
+state_file="${RYOKU_BLUETOOTH_STATE_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/ryoku/bluetooth-power}"
+
+save_state() {
+  local state=$1 dir tmp
+  dir=${state_file%/*}
+  umask 077
+  mkdir -p "$dir" || return 1
+  tmp="$state_file.tmp.$$"
+  trap 'rm -f "$tmp"' RETURN
+  printf '%s\n' "$state" >"$tmp" || return 1
+  mv -f "$tmp" "$state_file"
+  trap - RETURN
+}
+
+saved_state() {
+  local state=on
+  if [[ -r $state_file ]]; then
+    IFS= read -r state <"$state_file" || state=on
+  fi
+  case $state in
+    on|off) printf '%s\n' "$state" ;;
+    *) printf 'on\n' ;;
+  esac
+}
+
+apply_state() {
+  local state=$1 changed=1
+  case $state in
+    off)
+      if command -v bluetoothctl >/dev/null 2>&1 && bluetoothctl power off >/dev/null 2>&1; then
+        changed=0
+      fi
+      if command -v rfkill >/dev/null 2>&1 && rfkill block bluetooth >/dev/null 2>&1; then
+        changed=0
+      fi
+      ;;
+    on)
+      if command -v rfkill >/dev/null 2>&1 && rfkill unblock bluetooth >/dev/null 2>&1; then
+        changed=0
+      fi
+      if command -v bluetoothctl >/dev/null 2>&1; then
+        if bluetoothctl power on >/dev/null 2>&1; then
+          changed=0
+        else
+          sleep 0.4
+          bluetoothctl power on >/dev/null 2>&1 && changed=0
+        fi
+      fi
+      ;;
+  esac
+  return "$changed"
+}
+
+set_state() {
+  local state=$1
+  save_state "$state" || return 1
+  apply_state "$state"
+}
+
+case ${1:-} in
+  on|off)
+    set_state "$1"
+    ;;
+  toggle)
+    if command -v bluetoothctl >/dev/null 2>&1 \
+        && bluetoothctl show 2>/dev/null | command grep -q '^[[:space:]]*Powered:[[:space:]]*yes'; then
+      set_state off
+    else
+      set_state on
+    fi
+    ;;
+  restore)
+    apply_state "$(saved_state)"
+    ;;
+  state)
+    saved_state
+    ;;
+  is-on)
+    command -v bluetoothctl >/dev/null 2>&1 \
+      && bluetoothctl show 2>/dev/null | command grep -q '^[[:space:]]*Powered:[[:space:]]*yes'
+    ;;
+  *)
+    echo 'Usage: ryoku-bluetooth-power <on|off|toggle|restore|state|is-on>' >&2
+    exit 2
+    ;;
+esac

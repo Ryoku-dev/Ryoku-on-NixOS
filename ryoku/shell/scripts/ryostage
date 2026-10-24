@@ -11,9 +11,12 @@
 #   rembg[cpu]            MIT            https://github.com/danielgatis/rembg
 #   onnxruntime (via it)  MIT            https://github.com/microsoft/onnxruntime
 #   u2netp                Apache-2.0*    https://github.com/xuebinqin/U-2-Net
-#   birefnet-general-lite MIT            https://github.com/ZhengPeng7/BiRefNet
-# * the upstream repo states no licence; the mirrored weights rembg fetches are
-#   published Apache-2.0.
+#   silueta               MIT            https://github.com/xuebinqin/U-2-Net/issues/295
+#   birefnet-*            MIT            https://github.com/ZhengPeng7/BiRefNet
+#   depth-anything-v2-small         Apache-2.0     https://github.com/DepthAnything/Depth-Anything-V2
+#   depth-anything-v2-base/large    CC-BY-NC-4.0   https://github.com/DepthAnything/Depth-Anything-V2
+# * the upstream U-2-Net repo states no licence; the mirrored weights rembg
+#   fetches are published Apache-2.0.
 set -euo pipefail
 
 # One venv and one model cache for both effects. A pre-split tree from the old
@@ -37,12 +40,47 @@ export U2NET_HOME="$models" # older rembg reads this name
 # The curated catalogue: id, quality tier, UI label, download size, licence,
 # upstream. `models --json` renders it for the Stage tab so no tier is hardcoded
 # in QML.
-curated=(u2netp birefnet-general-lite)
+curated=(u2netp silueta birefnet-general-lite birefnet-general birefnet-portrait)
 default_model="u2netp"
+
+# The Depth Anything V2 family as fixed ONNX exports, each pinned by digest so
+# the opt-in download is verifiable and a model swap is a deliberate change.
+# Every depth verb takes --model, defaulting to small.
+depth_meta() { # id -> filename, url, sha, label, size, licence, upstream
+    case "$1" in
+    base | depth-anything-v2-base)
+        printf 'base\thttps://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/v2.0.0/depth_anything_v2_vitb_dynamic.onnx\t%s\tDepth Anything V2 Base\t389 MB\tCC-BY-NC-4.0\thttps://github.com/DepthAnything/Depth-Anything-V2\n' \
+            'd823dddd4f363cbd0ef73cb9ade3a6ab56b60c7a425ebbbab3fa8c0cd936e33e'
+        ;;
+    large | depth-anything-v2-large)
+        printf 'large\thttps://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/v2.0.0/depth_anything_v2_vitl_dynamic.onnx\t%s\tDepth Anything V2 Large\t1.34 GB\tCC-BY-NC-4.0\thttps://github.com/DepthAnything/Depth-Anything-V2\n' \
+            '65432320391cf5e18ceb36d1c6eeb1a59281b5ed9ae4600d26bf25519043c8b0'
+        ;;
+    *)
+        printf 'small\thttps://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/v2.0.0/depth_anything_v2_vits_dynamic.onnx\t46c4e8eeda3a27f34701831b6a2ec7753d7b38779b215acb5633424703deed8f\tDepth Anything V2 Small\t99 MB\tApache-2.0\thttps://github.com/DepthAnything/Depth-Anything-V2\n'
+        ;;
+    esac
+}
+depth_ids() { printf 'small\nbase\nlarge\n'; }
+depth_norm() { # accept short ids or the full file stem
+    case "$1" in
+    depth-anything-v2-*) echo "${1#depth-anything-v2-}" ;;
+    *) echo "$1" ;;
+    esac
+}
+depth_path() { printf '%s/depth-anything-v2-%s.onnx' "$models" "$1"; }
+depth_label() { depth_meta "$1" | cut -f4; }
+depth_size() { depth_meta "$1" | cut -f5; }
+depth_licence() { depth_meta "$1" | cut -f6; }
+depth_upstream() { depth_meta "$1" | cut -f7; }
+
 model_meta() {
     case "$1" in
-    u2netp) printf 'draft\tDraft\t4.6 MB\tApache-2.0 (mirrored weights)\thttps://github.com/xuebinqin/U-2-Net\n' ;;
-    birefnet-general-lite) printf 'fine\tFine\t224 MB\tMIT\thttps://github.com/ZhengPeng7/BiRefNet\n' ;;
+    u2netp) printf 'draft\tU2Net Portable\t4.6 MB\tApache-2.0 (mirrored weights)\thttps://github.com/xuebinqin/U-2-Net\n' ;;
+    silueta) printf 'draft\tSilueta · Fast\t44.2 MB\tMIT\thttps://github.com/xuebinqin/U-2-Net/issues/295\n' ;;
+    birefnet-general-lite) printf 'fine\tBiRefNet General Lite\t224 MB\tMIT\thttps://github.com/ZhengPeng7/BiRefNet\n' ;;
+    birefnet-general) printf 'fine\tBiRefNet General · Best\t973 MB\tMIT\thttps://github.com/ZhengPeng7/BiRefNet\n' ;;
+    birefnet-portrait) printf 'fine\tBiRefNet Portrait · People\t973 MB\tMIT\thttps://github.com/ZhengPeng7/BiRefNet\n' ;;
     esac
 }
 
@@ -90,11 +128,44 @@ inpaint_python() {
 # rembg's cache layout varies by version, so find the onnx rather than assume a path.
 model_cached() { [[ -n "$(find "$models" -name "$1.onnx" -print -quit 2>/dev/null)" ]]; }
 
-cmd_check() {
-    if rembg_python && model_cached "$default_model"; then
-        printf 'available\n'
+# Depth inference imports onnxruntime, numpy and PIL, not rembg.
+depth_python() {
+    if [[ -x "$venv/bin/python" ]] && "$venv/bin/python" -c "import onnxruntime, numpy, PIL" 2>/dev/null; then
+        PY="$venv/bin/python"
         return 0
     fi
+    local p
+    for p in python3.13 python3.12 python3.11 python3; do
+        command -v "$p" >/dev/null 2>&1 || continue
+        if "$p" -c "import onnxruntime, numpy, PIL" 2>/dev/null; then
+            PY="$p"
+            return 0
+        fi
+    done
+    return 1
+}
+
+cmd_check() {
+    local model="${1:-}"
+    if ! rembg_python; then
+        printf 'runtime missing\n'
+        return 1
+    fi
+    if [[ -n $model ]]; then
+        if model_cached "$model"; then
+            printf 'available\n'
+            return 0
+        fi
+        printf 'model %s missing\n' "$model"
+        return 1
+    fi
+    local m
+    for m in "${curated[@]}"; do
+        if model_cached "$m"; then
+            printf 'available\n'
+            return 0
+        fi
+    done
     printf 'missing\n'
     return 1
 }
@@ -348,7 +419,7 @@ pick_python() {
 # A system Python 3.11-3.13 is the fast path; otherwise uv provisions one.
 ensure_venv() {
     [[ -x "$venv/bin/python" ]] && return 0
-    local py
+    local py advice host_advice
     if py="$(pick_python)"; then
         printf 'Creating engine environment (%s)...\n' "$py"
         "$py" -m venv "$venv"
@@ -359,13 +430,22 @@ ensure_venv() {
         uv python install 3.13 && uv venv --python 3.13 "$venv"
         [[ -x "$venv/bin/python" ]] && return 0
     fi
-    printf 'ryostage: needs Python 3.11-3.13 or uv (install it: sudo pacman -S uv)\n' >&2
+    advice='install uv'
+    if command -v ryoku-host >/dev/null 2>&1; then
+        if host_advice="$(ryoku-host pkg advice uv 2>/dev/null)" && [[ -n $host_advice ]]; then
+            advice=$host_advice
+        fi
+    fi
+    printf 'ryostage: needs Python 3.11-3.13 or uv (install it: %s)\n' "$advice" >&2
     return 1
 }
 
+# `python -m pip`, never bin/pip: a venv adopted by rename above keeps console
+# scripts whose shebangs name the old directory, so bin/pip no longer runs.
+venv_has_pip() { "$venv/bin/python" -m pip --version >/dev/null 2>&1; }
 venv_pip() {
-    if [[ -x "$venv/bin/pip" ]]; then
-        "$venv/bin/pip" install --quiet "$@"
+    if venv_has_pip; then
+        "$venv/bin/python" -m pip install --quiet "$@"
         return
     fi
     uv pip install --quiet --python "$venv/bin/python" "$@"
@@ -379,7 +459,7 @@ cmd_install() {
     ensure_venv || return 1
 
     printf 'Installing rembg (CPU)...\n'
-    [[ -x "$venv/bin/pip" ]] && venv_pip --upgrade pip
+    venv_has_pip && venv_pip --upgrade pip
     if ! venv_pip "rembg[cpu]"; then
         printf 'ryostage: could not install rembg (no onnxruntime wheel for this Python?)\n' >&2
         return 1
@@ -431,8 +511,223 @@ cmd_remove() {
     return 0
 }
 
+cmd_depth_check() {
+    local json=0 model="small"
+    while [[ ${1:-} == --json || ${1:-} == --model ]]; do
+        if [[ $1 == --json ]]; then json=1; shift; else model="$(depth_norm "${2:-small}")"; shift 2; fi
+    done
+    depth_is_curated "$model" || model="small"
+    local installed=false
+    if depth_python && [[ -f "$(depth_path "$model")" ]]; then installed=true; fi
+    if [[ $json == 0 ]]; then
+        if ! depth_python; then
+            printf 'runtime missing\n'
+            return 1
+        fi
+        if [[ $installed == true ]]; then
+            printf 'available\n'
+            return 0
+        fi
+        printf 'model missing\n'
+        return 1
+    fi
+    local rows="[" first=true id
+    while IFS= read -r id; do
+        local inst=false
+        [[ -f "$(depth_path "$id")" ]] && inst=true
+        $first || rows+=","
+        first=false
+        rows+="$(printf '{"id":"%s","label":"%s","size":"%s","installed":%s,"selected":%s,"licence":"%s","upstream":"%s"}' \
+            "$id" "$(depth_label "$id")" "$(depth_size "$id")" "$inst" \
+            "$([[ $id == "$model" ]] && echo true || echo false)" \
+            "$(depth_licence "$id")" "$(depth_upstream "$id")")"
+    done < <(depth_ids)
+    rows+="]"
+    printf '{"installed":%s,"model":"%s","models":%s}\n' "$installed" "$model" "$rows"
+    [[ $installed == true ]]
+}
+
+depth_is_curated() {
+    local m
+    for m in $(depth_ids); do
+        [[ "$1" == "$m" ]] && return 0
+    done
+    return 1
+}
+
+cmd_depth_install() {
+    local model="small"
+    while [[ ${1:-} == --model ]]; do model="$(depth_norm "${2:-small}")"; shift 2; done
+    depth_is_curated "$model" || model="small"
+    local depth_path
+    depth_path="$(depth_path "$model")"
+    mkdir -p "$state" "$models"
+
+    if ! depth_python; then
+        ensure_venv || return 1
+        printf 'Installing depth runtime...\n'
+        venv_has_pip && venv_pip --upgrade pip
+        if ! venv_pip onnxruntime numpy pillow; then
+            printf 'ryostage: could not install the depth runtime\n' >&2
+            return 1
+        fi
+    fi
+    depth_python || {
+        printf 'ryostage: depth runtime is still unavailable\n' >&2
+        return 1
+    }
+
+    if [[ -f "$depth_path" ]]; then
+        printf 'depth model already installed\n'
+        return 0
+    fi
+
+    local url sha label size
+    IFS=$'\t' read -r _ url sha label size < <(depth_meta "$model")
+
+    local tmp
+    tmp="$(mktemp "${depth_path}.XXXXXX")"
+    printf 'Downloading %s (%s)...\n' "$label" "$size"
+    if ! curl -fL --retry 3 --connect-timeout 15 -o "$tmp" "$url"; then
+        rm -f "$tmp"
+        printf 'ryostage: depth model download failed\n' >&2
+        return 1
+    fi
+    local got
+    got="$(sha256sum "$tmp" | cut -d' ' -f1)"
+    if [[ $got != "$sha" ]]; then
+        rm -f "$tmp"
+        printf 'ryostage: depth model checksum mismatch\n' >&2
+        return 1
+    fi
+    mv -f "$tmp" "$depth_path"
+    printf 'Installed depth model\n'
+}
+
+cmd_depth_remove() {
+    local model="small"
+    while [[ ${1:-} == --model ]]; do model="$(depth_norm "${2:-small}")"; shift 2; done
+    depth_is_curated "$model" || model="small"
+    local depth_path
+    depth_path="$(depth_path "$model")"
+    if [[ -f "$depth_path" ]]; then
+        rm -f "$depth_path"
+        printf 'removed depth model\n'
+    else
+        printf 'depth model was not installed\n'
+    fi
+}
+
+cmd_depth() {
+    local in="" out="" model="small"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+        --model)
+            [[ $# -ge 2 ]] || {
+                printf 'ryostage: --model needs an id\n' >&2
+                return 2
+            }
+            model="$(depth_norm "$2")"
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            printf 'ryostage: unknown option %s\n' "$1" >&2
+            return 2
+            ;;
+        *)
+            if [[ -z $in ]]; then
+                in="$1"
+            elif [[ -z $out ]]; then
+                out="$1"
+            else
+                printf 'ryostage: unexpected argument %s\n' "$1" >&2
+                return 2
+            fi
+            shift
+            ;;
+        esac
+    done
+    [[ -z $in && $# -gt 0 ]] && { in="$1"; shift; }
+    [[ -z $out && $# -gt 0 ]] && { out="$1"; shift; }
+    depth_is_curated "$model" || model="small"
+    if [[ -z $in || -z $out || $# -gt 0 ]]; then
+        printf 'usage: ryostage depth <in> <out.png> [--model <id>]\n' >&2
+        return 2
+    fi
+    [[ -f "$in" ]] || {
+        printf 'ryostage: input not found: %s\n' "$in" >&2
+        return 1
+    }
+    depth_python || {
+        printf 'ryostage: depth runtime not installed (run: ryostage depth-install)\n' >&2
+        return 1
+    }
+    local depth_path
+    depth_path="$(depth_path "$model")"
+    [[ -f "$depth_path" ]] || {
+        printf 'ryostage: depth model %s not installed (run: ryostage depth-install --model %s)\n' "$model" "$model" >&2
+        return 1
+    }
+
+    mkdir -p "$(dirname -- "$out")"
+    local tmp
+    tmp="$(mktemp "${out}.XXXXXX")"
+    if "$PY" - "$in" "$tmp" "$depth_path" <<'PY'
+import sys
+
+import numpy as np
+import onnxruntime as ort
+from PIL import Image
+
+src, dst, model = sys.argv[1], sys.argv[2], sys.argv[3]
+image = Image.open(src).convert("RGB")
+width, height = image.size
+scale = max(518.0 / width, 518.0 / height)
+model_w = max(518, int(round(width * scale / 14.0)) * 14)
+model_h = max(518, int(round(height * scale / 14.0)) * 14)
+if model_w * model_h > 4 * 1024 * 1024:
+    raise SystemExit("image is too large for depth inference")
+
+pixels = image.resize((model_w, model_h), Image.BICUBIC)
+array = np.asarray(pixels, dtype=np.float32) / 255.0
+mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+tensor = ((array - mean) / std).transpose(2, 0, 1)[None]
+
+options = ort.SessionOptions()
+options.intra_op_num_threads = 4
+session = ort.InferenceSession(model, sess_options=options, providers=["CPUExecutionProvider"])
+raw = session.run(None, {session.get_inputs()[0].name: tensor})[0]
+if raw.ndim == 3:
+    raw = raw[0]
+depth = Image.fromarray(raw.astype(np.float32)).resize((width, height), Image.BICUBIC)
+depth = np.asarray(depth, dtype=np.float32)
+
+low = float(depth.min())
+high = float(depth.max())
+if not np.isfinite(low) or not np.isfinite(high) or high - low < 1e-6:
+    raise SystemExit("depth output has no range")
+scaled = np.rint((depth - low) / (high - low) * 65535.0).astype(np.uint16)
+Image.fromarray(scaled).save(dst, "PNG")
+PY
+    then
+        if [[ -s "$tmp" ]]; then
+            mv -f "$tmp" "$out"
+            printf '%s\n' "$out"
+            return 0
+        fi
+    fi
+    rm -f "$tmp"
+    printf 'ryostage: depth failed\n' >&2
+    return 1
+}
+
 case "${1:-}" in
-check) cmd_check ;;
+check) cmd_check "${2:-}" ;;
 models)
     shift
     cmd_models "$@"
@@ -453,8 +748,24 @@ remove)
     shift
     cmd_remove "$@"
     ;;
+depth-check)
+    shift
+    cmd_depth_check "$@"
+    ;;
+depth-install)
+    shift
+    cmd_depth_install "$@"
+    ;;
+depth-remove)
+    shift
+    cmd_depth_remove "$@"
+    ;;
+depth)
+    shift
+    cmd_depth "$@"
+    ;;
 *)
-    printf 'usage: ryostage check | models [--json] | cut <in> <out.png> [--model <id>] [--matting] | inpaint <image> <mask> <out.png> | install [model...] | remove <model>\n' >&2
+    printf 'usage: ryostage check | models [--json] | cut <in> <out.png> [--model <id>] [--matting] | inpaint <image> <mask> <out.png> | install [model...] | remove <model> | depth-check [--json] [--model <id>] | depth-install [--model <id>] | depth-remove [--model <id>] | depth <in> <out.png> [--model <id>]\n' >&2
     exit 2
     ;;
 esac

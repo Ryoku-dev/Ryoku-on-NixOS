@@ -3,22 +3,71 @@
 # kitty-direct logo (image left, dossier right). fastfetch auto-enables "pipe
 # mode" when it thinks stdout isn't a real TTY, which SILENTLY disables image
 # logos and falls back to ASCII -- so in kitty we force `--pipe false` to keep
-# the image. Outside kitty: chafa if present, else fastfetch's default.
+# the image. Outside kitty: chafa if present, else no logo.
 #
-# Every branch execs fastfetch instead of bounding it with `timeout`: the
-# shell module walks the parent chain and skips known wrappers (`time`,
-# `sudo`, ...) but not `timeout`, so `timeout 8 fastfetch` reported the
-# shell as "timeout" in every greeting. A failed exec makes bash exit 127,
-# which no longer masks a missing fastfetch behind a false success.
+# A Ryostore preset may hand drawing to its own renderer (for image formats
+# fastfetch cannot show, such as icat PNGs) with a comment in its config:
+#   // ryoku:renderer <product-id>/<relative-executable>
+# The renderer must stay inside ~/.local/share/ryoku/fastfetch/<product-id>/
+# and be executable; anything else falls through to fastfetch.
+#
+# Every branch execs instead of bounding the run with `timeout`: the shell
+# module walks the parent chain and skips known wrappers (`time`, `sudo`, ...)
+# but not `timeout`, so `timeout 8 fastfetch` reported the shell as "timeout"
+# in every greeting. A failed exec makes bash exit 127, which no longer masks
+# a missing fastfetch behind a false success.
 set -uo pipefail
 
-config="${XDG_CONFIG_HOME:-$HOME/.config}/fastfetch/config.jsonc"
-if [ ! -f "$config" ]; then
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+config="$config_home/fastfetch/config.jsonc"
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+if [[ ! -v RYOKU_BASE_OS ]]; then
+  if command -v ryoku-base-os >/dev/null 2>&1; then
+    RYOKU_BASE_OS="$(ryoku-base-os)"
+  else
+    RYOKU_BASE_OS=Linux
+  fi
+  export RYOKU_BASE_OS
+fi
+
+if [[ -f "$config" ]]; then
+  renderer="$(
+    sed -n 's#^//[[:space:]]*ryoku:renderer[[:space:]][[:space:]]*##p' "$config" \
+      | head -n1
+  )"
+
+  case "$renderer" in
+    ""|/*|*..*|*[!A-Za-z0-9_./-]*)
+      ;;
+    *)
+      hook="$data_home/ryoku/fastfetch/$renderer"
+      if [[ -x "$hook" && -f "$hook" ]]; then
+        exec "$hook" "$@"
+      fi
+      ;;
+  esac
+fi
+
+effective="$config"
+# The palette default (follow the wallpaper unless the user pinned a fixed
+# palette) is owned by `ryoku-hub fastfetch effective`, which copies the user's
+# config verbatim in fixed mode and rebuilds it tinted with the live Material
+# palette in wallpaper mode. Always run it; fall back to the raw config if the
+# backend is missing or errors, so a broken theme path never eats the readout.
+# Fixed mode copies the user's config.jsonc verbatim, comments included, and
+# fastfetch parses a .json file as strict JSON, so the cache keeps .jsonc.
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/ryoku/fastfetch-effective.jsonc"
+if ryoku-hub fastfetch effective "$cache" 2>/dev/null; then
+  effective="$cache"
+fi
+
+if [[ ! -f "$config" ]]; then
   exec fastfetch "$@"
-elif [ -n "${KITTY_WINDOW_ID:-}" ] || [ "${TERM:-}" = "xterm-kitty" ]; then
-  exec fastfetch --config "$config" --pipe false "$@"
+elif [[ -n "${KITTY_WINDOW_ID:-}" || "${TERM:-}" == "xterm-kitty" ]]; then
+  exec fastfetch --config "$effective" --pipe false "$@"
 elif command -v chafa >/dev/null 2>&1; then
-  exec fastfetch --config "$config" --logo-type chafa "$@"
+  exec fastfetch --config "$effective" --logo-type chafa "$@"
 else
-  exec fastfetch --config "$config" --logo-type none "$@"
+  exec fastfetch --config "$effective" --logo-type none "$@"
 fi

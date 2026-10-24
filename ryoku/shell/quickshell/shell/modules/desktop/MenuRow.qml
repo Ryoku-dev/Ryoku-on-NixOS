@@ -3,25 +3,26 @@ import QtQuick
 import "Singletons"
 import Ryoku.Ui.Singletons
 
-// One action / value row in a desktop context menu: a label on the left, an
-// optional value or live state on the right, a full-width hover wash and a
-// press dip. The quiet tile idiom of the quick-settings sidebar rows. A row
-// that opens something closes the menu on trigger; a toggle sets
-// closeOnTrigger false to stay put while the state flips.
+// The row keeps its trailing state readable without letting translated labels
+// push through it when a Stage sheet is narrower than a desktop menu.
 Item {
     id: row
 
     property string label: ""
     property string value: ""
-    property bool on: false          // full ink when live, dim when idle
-    property bool accent: false      // a primary action: the whole row inverts
+    property string icon: ""
+    property bool on: false
+    property bool accent: false
     property bool closeOnTrigger: true
     signal triggered()
 
     width: parent ? parent.width : 0
-    implicitHeight: Theme.s6
+    implicitHeight: 34
+    implicitWidth: (glyph.visible ? 9 + glyph.width + 7 : 9)
+        + lbl.implicitWidth
+        + (val.text.length > 0 ? 13 + val.implicitWidth : 0)
+        + 9
 
-    // find the enclosing DesktopMenu so a triggered row can dismiss it.
     function closeMenu() {
         var p = row.parent;
         while (p) {
@@ -33,37 +34,81 @@ Item {
         }
     }
 
-    scale: ma.pressed ? 0.98 : 1
-    Behavior on scale { NumberAnimation { duration: Theme.quick; easing.type: Theme.ease } }
+    scale: ma.pressed ? 0.94 : 1
+    Behavior on scale {
+        NumberAnimation {
+            duration: 180
+            easing.type: Easing.OutBack
+            easing.overshoot: 2.2
+        }
+    }
 
     Rectangle {
         anchors.fill: parent
-        radius: Theme.menuTileRadius
-        color: row.accent ? Theme.bone
+        radius: 6
+        color: row.on || row.accent ? Theme.bone
             : ma.pressed ? Theme.tilePress
             : ma.containsMouse ? Theme.tileHover : "transparent"
-        Behavior on color { ColorAnimation { duration: Theme.quick } }
+        border.width: 1
+        border.color: row.on || row.accent ? Theme.bone
+            : ma.containsMouse ? Theme.lineStrong : Theme.line
+        Behavior on color { ColorAnimation { duration: 180 } }
+        Behavior on border.color { ColorAnimation { duration: 180 } }
     }
 
     Text {
-        anchors { left: parent.left; leftMargin: Theme.s3; verticalCenter: parent.verticalCenter }
+        id: glyph
+        visible: row.icon.length > 0
+        anchors {
+            left: parent.left
+            leftMargin: 9
+            verticalCenter: parent.verticalCenter
+        }
+        width: visible ? 20 : 0
+        horizontalAlignment: Text.AlignHCenter
+        text: row.icon
+        color: row.on || row.accent ? Theme.inkOnBone : (ma.containsMouse ? Theme.ink : Theme.inkDim)
+        font.family: Theme.iconFont
+        font.pixelSize: 16
+        Behavior on color { ColorAnimation { duration: 180 } }
+    }
+
+    Text {
+        id: lbl
+        anchors {
+            left: parent.left
+            leftMargin: glyph.visible ? 9 + glyph.width + 7 : 9
+            right: val.text.length > 0 ? val.left : parent.right
+            rightMargin: val.text.length > 0 ? 13 : 9
+            verticalCenter: parent.verticalCenter
+        }
         text: I18n.tr(row.label)
-        color: row.accent ? Theme.inkOnBone : (ma.containsMouse ? Theme.ink : Theme.inkSoft)
+        color: row.on || row.accent ? Theme.inkOnBone : (ma.containsMouse ? Theme.ink : Theme.inkSoft)
+        elide: Text.ElideRight
+        maximumLineCount: 1
         font.family: Theme.font
-        font.pixelSize: Theme.fBody
-        font.weight: Font.Medium
-        Behavior on color { ColorAnimation { duration: Theme.quick } }
+        font.pixelSize: 13
+        font.weight: Font.DemiBold
+        Behavior on color { ColorAnimation { duration: 180 } }
     }
 
     Text {
-        visible: row.value.length > 0
-        anchors { right: parent.right; rightMargin: Theme.s3; verticalCenter: parent.verticalCenter }
-        text: row.value
-        color: row.accent ? Theme.inkOnBone : (row.on ? Theme.ink : Theme.inkDim)
+        id: val
+        anchors {
+            right: parent.right
+            rightMargin: 9
+            verticalCenter: parent.verticalCenter
+        }
+        width: text.length > 0 ? Math.min(implicitWidth, Math.max(0, row.width * 0.38)) : 0
+        horizontalAlignment: Text.AlignRight
+        text: row.value.length > 0 ? row.value : row.on ? I18n.tr("On") : ""
+        color: row.on || row.accent ? Theme.inkOnBone : (ma.containsMouse ? Theme.ink : Theme.inkDim)
+        elide: Text.ElideRight
+        maximumLineCount: 1
         font.family: Theme.font
-        font.pixelSize: Theme.fSmall
+        font.pixelSize: 11
         font.weight: Font.Medium
-        Behavior on color { ColorAnimation { duration: Theme.quick } }
+        Behavior on color { ColorAnimation { duration: 180 } }
     }
 
     MouseArea {

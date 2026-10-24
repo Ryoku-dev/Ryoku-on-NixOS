@@ -67,7 +67,12 @@ Scope {
     }
 
     function scaleForScreen(screen) {
-        return Math.min(1.2, (screen ? screen.height / 1080 : 1))
+        // The physical panel height, not the logical rectangle: Quickshell's
+        // height is logical, so dividing it by 1080 alone shrinks the launcher
+        // as the display scale rises (the compositor scales it back up, apps
+        // included, and the card ends up tiny next to everything else).
+        return Screens.monitorScale(screen,
+                screen && screen.name ? Ui.Wm.outputScale(String(screen.name)) : 1, 1.2)
             * Math.max(0.8, Math.min(1.4, Config.fontScale))
             * Ui.Tokens.uiScaleFor(screen && screen.name ? String(screen.name) : "");
     }
@@ -106,10 +111,15 @@ Scope {
             budgetForScreen(screen).maxCardHeight);
     }
 
+    // The frost is a still of the desktop behind the card, so it needs a
+    // capture surface that lives as long as the launcher. Only ask where the
+    // compositor tolerates that shape; elsewhere the card opens over a solid
+    // drawer, which is the path a failed or timed-out capture already takes.
     function frostEligible() {
         return (LauncherConfig.bgBlur | 0) > 0
             && !Motion.reduce
-            && !Performance.blurDisabled;
+            && !Performance.blurDisabled
+            && Wm.caps.persistentScreenCapture === true;
     }
 
     function dispatchLifecycle(event) {
@@ -312,14 +322,35 @@ Scope {
         pointerFocusForced = false;
         if (root.savedFollowMouse !== "")
             root._restoreFollowMouse();
-        else
+        else {
             root.restorePending = true;
+            followMouseRecovery.restart();
+        }
     }
 
     function _restoreFollowMouse() {
         root.restorePending = false;
+        followMouseRecovery.stop();
         if (root.savedFollowMouse !== "")
             Wm.setFocusFollowsMouse(root.savedFollowMouse);
+    }
+
+    // A lost reply (daemon restart, dropped socket) must not leave hover
+    // focus switched off forever: ask the provider again. The action reports
+    // the configured mode before it writes, so a probe-freeze hands back the
+    // user's own value and the second call puts it back.
+    Timer {
+        id: followMouseRecovery
+        interval: 1500
+        onTriggered: {
+            if (!root.restorePending)
+                return;
+            root.restorePending = false;
+            Wm.setFocusFollowsMouse("0", function (configured) {
+                if (configured !== "")
+                    Wm.setFocusFollowsMouse(configured);
+            });
+        }
     }
 
     function stateDump() {

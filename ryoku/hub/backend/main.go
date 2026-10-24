@@ -85,6 +85,16 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ryoku-hub:", err)
 			os.Exit(1)
 		}
+	case "rashin":
+		if err := runRashin(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ryoku-hub:", err)
+			os.Exit(1)
+		}
+	case "phone":
+		if err := runPhone(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ryoku-hub:", err)
+			os.Exit(1)
+		}
 	case "rice":
 		if err := runRice(args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "ryoku-hub:", err)
@@ -92,6 +102,11 @@ func main() {
 		}
 	case "fastfetch":
 		if err := runFastfetch(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ryoku-hub:", err)
+			os.Exit(1)
+		}
+	case "starship":
+		if err := runStarship(args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "ryoku-hub:", err)
 			os.Exit(1)
 		}
@@ -166,8 +181,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  ryoku-hub keybinds")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub config get <key>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub config set <key> <value>")
-	fmt.Fprintln(os.Stderr, "  ryoku-hub shell get|set <fish|bash|zsh>")
-	fmt.Fprintln(os.Stderr, "  ryoku-hub desktop get|defaults|cursors|layouts")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub shell get|set|loaders <fish|bash|zsh>")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub desktop get|defaults|cursors|icons|layouts")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub desktop icon-theme [set <theme>|apply]")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub desktop variants <layout>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub desktop save|preview <json>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub desktop restore")
@@ -176,6 +192,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  ryoku-hub desktop plugins rebuild [--all|--stale] [--checkout <dir>] [<id>...]")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub desktop plugins add [--inspect] <git-url> [<plugin>...]")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub desktop plugins remove <id>")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub rashin status|on|off")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub phone status|on|off|plan-enable|plan-disable|devices|pair|unpair")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub wm list")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub wm preview <name>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub outputs [list]")
@@ -194,17 +212,19 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  ryoku-hub cpu set <scope> <id> <value>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub lighting state|scan|enable|disable|apply")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub lighting set <device> <json>")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub lighting follow <device>|--all on|off")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub lighting accent [#RRGGBB]")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub lighting save|release <device>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub voxtype get|ensure")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub voxtype set <json>")
-	fmt.Fprintln(os.Stderr, "  ryoku-hub voxtype download|rmmodel <key>")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub voxtype download|rmmodel <preset-key>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub palette-bridge status|install|service|integration|doctor [<source>]")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub share status")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub rice list|preflight|capture|apply|restore|save|fork|delete|import|publish|setwall|files|export")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub fastfetch get|preview <json>")
-	fmt.Fprintln(os.Stderr, "  ryoku-hub fastfetch save <json>")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub fastfetch save <json>|effective <path>|palette <fixed|wallpaper>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub fastfetch import-logo <path>")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub starship list|get|set <layout>|palette <fixed|wallpaper>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub reload-cover import <path>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub reload-cover prune [<managed-path>]")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub clipboard stats|prune")

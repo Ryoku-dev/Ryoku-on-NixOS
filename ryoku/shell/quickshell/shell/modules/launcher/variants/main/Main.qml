@@ -70,8 +70,10 @@ Scope {
             id: win
             required property var modelData
             // cap the monitor-derived scale so a tall display doesn't balloon the
-            // palette; 1.0 at 1080p, at most 1.2 on bigger screens, times fontScale.
-            readonly property real s: Math.min(1.2, (modelData ? modelData.height / 1080 : 1)) * Math.max(0.8, Math.min(1.4, Config.fontScale)) * Tokens.uiScaleFor(modelData ? modelData.name : "")
+            // palette; 1.0 at 1080p PHYSICAL, at most 1.2 on bigger screens,
+            // times fontScale. Physical: Quickshell's height is logical, and a
+            // logical-only term shrinks the palette as the display scale rises.
+            readonly property real s: Screens.monitorScale(modelData, Wm.outputScale(modelData ? modelData.name : ""), 1.2) * Math.max(0.8, Math.min(1.4, Config.fontScale)) * Tokens.uiScaleFor(modelData ? modelData.name : "")
             readonly property bool shown: root.openMon === modelData.name
 
             screen: modelData
@@ -108,12 +110,17 @@ Scope {
             // blurred backdrop: a still snapshot of the desktop presented through
             // a Qt blur so the palette floats over frost without driving the
             // compositor. captured once per open (live: false) so the full-screen
-            // window never samples itself. skipped on weak GPUs and at zero blur.
+            // window never samples itself. skipped on weak GPUs, at zero blur,
+            // and where the compositor cannot host a long-lived capturing
+            // surface: this view lives as long as the per-screen window, not as
+            // long as one open.
             Item {
                 id: frost
                 anchors.fill: parent
                 readonly property int radius: LauncherConfig.bgBlur | 0
-                readonly property bool wanted: !Performance.blurDisabled && radius > 0
+                readonly property bool wanted: !Performance.blurDisabled
+                    && radius > 0
+                    && Wm.caps.persistentScreenCapture === true
                 visible: opacity > 0.001 && frostCapture.hasContent
                 opacity: win.shown ? 1 : 0
                 Behavior on opacity { NumberAnimation { duration: Motion.open; easing.type: Easing.OutCubic } }

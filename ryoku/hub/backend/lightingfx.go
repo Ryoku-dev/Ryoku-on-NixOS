@@ -13,8 +13,6 @@ import (
 	"math"
 	"os"
 	"os/exec"
-	"strings"
-	"syscall"
 	"time"
 )
 
@@ -295,7 +293,7 @@ func runAnimate() error {
 				if m.has(modeHasBrightness) {
 					m.Bri = m.BriMax
 				}
-				if err := o.SetMode(p.dev.Index, idx, m); err != nil {
+				if err := o.SetMode(p.dev, idx, m); err != nil {
 					return err
 				}
 				seated[key] = set.Effect
@@ -312,7 +310,7 @@ func runAnimate() error {
 				speed = float64(set.Speed) / 100
 			}
 			frame := fxFrame(set.Effect, p.pos, time.Since(start).Seconds(), speed, bri, base)
-			if err := o.SetLEDs(p.dev.Index, frame); err != nil {
+			if err := o.SetLEDs(p.dev, frame); err != nil {
 				return err
 			}
 		}
@@ -353,22 +351,11 @@ func ensureAnimator(st lightingState) {
 	if err != nil {
 		self = "ryoku-hub"
 	}
-	if _, err := exec.LookPath("systemd-run"); err != nil {
-		cmd := exec.Command(self, "lighting", "animate")
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		_ = cmd.Start()
-		return
-	}
-	_ = exec.Command("systemd-run", "--user", "--collect",
-		"--unit="+fxUnit,
-		"--description=Ryoku lighting effects",
+	_ = exec.Command("ryoku-host", "transient", "start", fxUnit,
+		"--prop", "Description=Ryoku lighting effects", "--",
 		self, "lighting", "animate").Run()
 }
 
 func animatorRunning() bool {
-	out, err := exec.Command("systemctl", "--user", "is-active", fxUnit+".service").Output()
-	if err != nil && len(out) == 0 {
-		return false
-	}
-	return strings.TrimSpace(string(out)) == "active"
+	return exec.Command("ryoku-host", "transient", "is-active", fxUnit).Run() == nil
 }

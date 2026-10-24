@@ -37,7 +37,9 @@ KeyboardMap 1.0 KeyboardMap.qml
 DitherImage 1.0 DitherImage.qml
 HeroCrop 1.0 HeroCrop.qml
 PickFile 1.0 PickFile.qml
+FileDialogHost 1.0 FileDialogHost.qml
 AppPicker 1.0 AppPicker.qml
+AuraField 1.0 AuraField.qml
 SpectrumField 1.0 SpectrumField.qml
 Keycap 1.0 Keycap.qml
 KeyChord 1.0 KeyChord.qml
@@ -46,3 +48,4 @@ SpectrumMath 1.0 lib/spectrum.js
 PlaceMath 1.0 lib/place.js
 KeypressMath 1.0 lib/keypress.js
 BtName 1.0 lib/bluetooth.js
+AuraMath 1.0 lib/aura.js

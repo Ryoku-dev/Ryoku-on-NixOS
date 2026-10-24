@@ -4,8 +4,10 @@
 # placement edit), and the installer (seed/forget a plugin's settings block).
 # Registry's file watch sees it and retunes every surface, no reload.
 #
-#   ryoku-plugins-place <id> desktopWidget <x> <y> [scale] [locked] [opacity]
+#   ryoku-plugins-place <id> desktopWidget <x> <y> [scale] [locked] [opacity] [depth]
+#   ryoku-plugins-place <id> depth <0..1>      scene wall depth for the tile
 #   ryoku-plugins-place <id> framePopout <edge> <align> <hoverW> <hoverH>
+#   ryoku-plugins-place <id> sidebarCard <tab> <order> [label] [glyph]
 #   ryoku-plugins-place <id> host <hostName>
 #   ryoku-plugins-place <id> enabled <true|false>
 #   ryoku-plugins-place <id> settings <json>   merge a settings object
@@ -35,6 +37,11 @@ tmp="$(mktemp "$f.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
 
 id="${1:?id required}"; field="${2:?field required}"; shift 2
+jq 'with_entries(.value |=
+	if ((.sidebarCard.side // "") == "right")
+	then .sidebarCard.side = "left"
+	else .
+	end)' "$f" >"$tmp" && mv "$tmp" "$f"
 
 # manifest path for a plugin. dev override dirs first, then the data dir
 # (same order discover.sh uses). non-zero when none found.
@@ -50,11 +57,11 @@ manifest_for() {
 	return 1
 }
 
-# fill a plugin's entry with its shipped presets (default host, default
-# settings, and the tile geometry the product declares for itself) -- only the
-# missing keys, so user edits survive. idempotent; no manifest = nothing to seed.
+# fill a plugin's entry with its shipped presets (default host, settings, and
+# host placement) -- only the missing keys, so user edits survive. idempotent;
+# no manifest = nothing to seed.
 seed_entry() {
-	local pid="$1" man defs host geo
+	local pid="$1" man defs host geo sidebar
 	man="$(manifest_for "$pid")" || return 0
 	# defaults come from the schema (metadata.settings[].default). older flat
 	# metadata.defaultSettings still works.
@@ -63,37 +70,76 @@ seed_entry() {
 	# a product may ship the spot its tile opens at (a widget set composes a
 	# desktop layout this way); absent, the desktop's own default applies.
 	geo="$(jq -c 'if (.defaults.desktopWidget | type) == "object" then
-			(.defaults.desktopWidget | with_entries(select(.key == "x" or .key == "y" or .key == "scale" or .key == "locked") | with_entries(select(.value != null))))
+			(.defaults.desktopWidget | with_entries(select((.key == "x" or .key == "y" or .key == "scale" or .key == "locked") and .value != null)))
 		else {} end' "$man")"
-	jq --arg id "$pid" --argjson defs "$defs" --arg host "$host" --argjson geo "$geo" \
+	sidebar="$(jq -c '. as $root
+		| if (.defaults.sidebar | type) == "object" then
+			(($root.defaults.sidebar | {
+				side: "left",
+				tab: (.tab // "Plugins"),
+				order: (.order // 10)
+			}) + {
+				label: ($root.defaults.label // $root.name // ""),
+				glyph: ($root.defaults.glyph // "extension")
+			})
+		else {} end' "$man")"
+	jq --arg id "$pid" --argjson defs "$defs" --arg host "$host" --argjson geo "$geo" --argjson sidebar "$sidebar" \
 		'.[$id] = ((.[$id] // {}) + {
 			enabled: ((.[$id].enabled) // false),
 			host: ((.[$id].host) // $host),
 			settings: ($defs + ((.[$id].settings) // {}))
-		} + (if ($geo == {}) or ((.[$id] // {}) | has("desktopWidget")) then {} else {desktopWidget: $geo} end))' "$f" >"$tmp" && mv "$tmp" "$f"
+		}
+		+ (if ($geo == {}) or ((.[$id] // {}) | has("desktopWidget")) then {} else {desktopWidget: $geo} end)
+		+ (if ($sidebar == {}) or ((.[$id] // {}) | has("sidebarCard")) then {} else {sidebarCard: $sidebar} end))' "$f" >"$tmp" && mv "$tmp" "$f"
 }
 
 case "$field" in
 desktopWidget)
-	x="${1:?x}"; y="${2:?y}"; scale="${3:-}"; locked="${4:-}"; opacity="${5:-}"
-	# scale/locked/opacity optional: keep existing (or a sane default) when
+	x="${1:?x}"; y="${2:?y}"; scale="${3:-}"; locked="${4:-}"; opacity="${5:-}"; depth="${6:-}"
+	# scale/locked/opacity/depth optional: keep existing (or a sane default) when
 	# omitted, so a position-only write doesn't drop them.
 	jq --arg id "$id" --argjson x "$x" --argjson y "$y" \
-		--arg scale "$scale" --arg locked "$locked" --arg opacity "$opacity" \
+		--arg scale "$scale" --arg locked "$locked" --arg opacity "$opacity" --arg depth "$depth" \
 		'.[$id] = ((.[$id] // {}) + {
 			enabled: ((.[$id].enabled) // true),
 			host: ((.[$id].host) // "desktopWidget"),
 			desktopWidget: (((.[$id].desktopWidget) // {}) + { x: $x, y: $y }
 				+ (if $scale == "" then {} else { scale: ($scale | tonumber) } end)
 				+ (if $locked == "" then {} else { locked: ($locked == "true") } end)
-				+ (if $opacity == "" then {} else { opacity: ($opacity | tonumber) } end))
+				+ (if $opacity == "" then {} else { opacity: ($opacity | tonumber) } end)
+				+ (if $depth == "" then {} else { depth: ($depth | tonumber) } end))
 		})' "$f" >"$tmp" && mv "$tmp" "$f"
+	;;
+# the desktop tile's wall depth (docs/stage.md "Widgets on the depth"):
+# written alone so a pick never moves the tile.
+depth)
+	d="${1:?depth}"
+	jq --arg id "$id" --argjson d "$d" \
+		'.[$id] = ((.[$id] // {}) + { enabled: ((.[$id].enabled) // true),
+			host: ((.[$id].host) // "desktopWidget"),
+			desktopWidget: (((.[$id].desktopWidget) // {}) + { depth: $d }) })' \
+		"$f" >"$tmp" && mv "$tmp" "$f"
 	;;
 framePopout)
 	edge="${1:?edge}"; align="${2:-start}"; hoverW="${3:-320}"; hoverH="${4:-16}"
 	jq --arg id "$id" --arg e "$edge" --arg a "$align" --argjson hw "$hoverW" --argjson hh "$hoverH" \
 		'.[$id] = ((.[$id] // {}) + { enabled: ((.[$id].enabled) // true), host: ((.[$id].host) // "framePopout"), framePopout: (((.[$id].framePopout) // {}) + { edge: $e, align: $a, hoverW: $hw, hoverH: $hh }) })' \
 		"$f" >"$tmp" && mv "$tmp" "$f"
+	;;
+sidebarCard)
+	tab="${1:-Plugins}"; order="${2:-10}"; label="${3:-}"; glyph="${4:-}"
+	jq --arg id "$id" --arg side "left" --arg tab "$tab" --argjson order "$order" --arg label "$label" --arg glyph "$glyph" \
+		'.[$id] = ((.[$id] // {}) + {
+			enabled: ((.[$id].enabled) // true),
+			host: ((.[$id].host) // "sidebarCard"),
+			sidebarCard: (((.[$id].sidebarCard) // {}) + {
+				side: $side,
+				tab: $tab,
+				order: $order
+			}
+			+ (if $label == "" then {} else {label: $label} end)
+			+ (if $glyph == "" then {} else {glyph: $glyph} end))
+		})' "$f" >"$tmp" && mv "$tmp" "$f"
 	;;
 host)
 	host="${1:?host}"
@@ -132,7 +178,7 @@ forget)
 	jq --arg id "$id" 'del(.[$id])' "$f" >"$tmp" && mv "$tmp" "$f"
 	;;
 *)
-	echo "usage: ryoku-plugins-place <id> desktopWidget <x> <y> | framePopout <edge> <align> <hoverW> <hoverH> | host <name> | enabled <bool> | settings <json> | seed | restore <json|null> <file-existed> | forget" >&2
+	echo "usage: ryoku-plugins-place <id> desktopWidget <x> <y> | framePopout <edge> <align> <hoverW> <hoverH> | sidebarCard <tab> <order> [label] [glyph] | host <name> | enabled <bool> | settings <json> | seed | restore <json|null> <file-existed> | forget" >&2
 	exit 2
 	;;
 esac

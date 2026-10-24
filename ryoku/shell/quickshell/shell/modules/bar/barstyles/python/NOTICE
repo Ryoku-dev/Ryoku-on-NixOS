@@ -1,0 +1,35 @@
+Python (ryoku/shell/quickshell/shell/modules/bar/barstyles/python/)
+
+Python is a Ryoku bar style based on Serpantinum, created by ilyamiro and
+contributors (https://github.com/ilyamiro/serpantinum). It is a modified
+version: the QML surfaces are ported near-verbatim, while the data plane runs
+through Ryoku's window-manager seam, settings daemon, palette and services,
+and the launcher, clipboard, wallpaper, lock, screenshot and update surfaces
+are Ryoku's own and are not part of this port.
+
+This port tracks Serpantinum at commit cfdd810, past 2.2.12. Ryoku carries the
+upstream bar registry, orientation-aware faces, shader effects, liquid-glass
+material, settings guide, popups and widget-face library. It leaves out
+Serpantinum's launcher, clipboard, wallpaper, lock, capture, notification
+server, policy agent, idle service, updater, first-run flow, compositor
+trackers and desktop-widget host because Ryoku provides those facilities.
+
+Serpantinum is released under the GNU Affero General Public License, version 3
+or later (https://www.gnu.org/licenses/agpl-3.0.html); LICENSE beside this file
+is its text. The ported portions of this directory stay under that license.
+
+Ryoku itself is GPL-3.0-or-later, and the two licenses combine: AGPL-3.0
+section 13 grants permission to "link or combine any covered work with a work
+licensed under version 3 of the GNU General Public License into a single
+combined work, and to convey the resulting work", with the AGPL continuing to
+apply to the ported part and GPL-3.0 governing the rest. Python ships as part
+of Ryoku on that basis. The section's remote-network clause asks nothing of a
+desktop shell (no component here is served to remote users over a network),
+and the complete source of every part, including this directory as shipped, is
+the Ryoku repository (https://github.com/Ryoku-dev/ryoku), which is also where
+anyone may request it.
+
+The names "Serpantinum" and its logo belong to ilyamiro. Python is not
+Serpantinum and does not carry its identity; saying truthfully that Python is
+"based on Serpantinum by ilyamiro" is the attribution this port keeps, shown
+here, in the style's About page and in the Ryostore bar-style catalogue.

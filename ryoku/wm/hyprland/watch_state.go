@@ -71,6 +71,18 @@ func (s *watchState) refresh(dirty refreshMask) {
 	}
 }
 
+// Hyprland has no move/resize event. The watch loop samples the native control
+// socket and this path publishes only when geometry actually changed.
+func (s *watchState) refreshWindowGeometry() {
+	if !s.wants(wm.FrameWindows) || s.monitors == nil {
+		return
+	}
+	if windows := readWindowsDirect(s.monitors); windows != nil {
+		s.windows = windows
+		s.publish(wm.Frame{Kind: wm.FrameWindows, Windows: windows})
+	}
+}
+
 func (s *watchState) event(line string) refreshMask {
 	name, data, ok := strings.Cut(line, ">>")
 	if !ok {
@@ -90,7 +102,12 @@ func (s *watchState) event(line string) refreshMask {
 		return refreshWindows
 	case "openwindow", "closewindow", "movewindow", "movewindowv2", "fullscreen":
 		return refreshWindows | refreshWorkspaces
-	case "workspace", "workspacev2", "focusedmon", "focusedmonv2",
+	case "focusedmon", "focusedmonv2":
+		// consume already published the focused output directly from this
+		// event. Re-reading every monitor, workspace and window here made one
+		// pointer crossing fan out into three control-socket queries.
+		return 0
+	case "workspace", "workspacev2",
 		"createworkspace", "createworkspacev2", "destroyworkspace", "destroyworkspacev2",
 		"moveworkspace", "moveworkspacev2", "renameworkspace", "activespecial", "activespecialv2":
 		return refreshOutputs | refreshWorkspaces | refreshWindows

@@ -1,7 +1,7 @@
 # bin/art -- baking Ryoku decor art
 
-`Decor` and `Placard` render a shared art set from `~/Pictures/ryodecors`
-(seeded from `ryoku/assets/ryodecors`; resolved by
+`Decor` and `Placard` render a shared art set from `ryodecors/` under the
+configured Pictures folder (seeded from `ryoku/assets/ryodecors`; resolved by
 `ryoku/ui/Singletons/Ryodecors.qml`). Every file there is reduced to Ryoku
 **bone** (`#e8d8c9`) on a transparent ground, so it composites on any surface
 and reads as one set. These scripts do the reducing.
@@ -35,11 +35,12 @@ looks flat, dither it.
 
 Both bakers default their output into `ryoku/assets/ryodecors`, so a new decor
 ships everywhere at once: the installer seeds it, the `ryoku-desktop` package
-carries it to `/usr/share/ryoku/ryodecors`, and `ryoku doctor` lays it into every
-`~/Pictures/ryodecors`. Reference it by bare filename in a `Decor`/`Placard`
-`art:`. `--invert` inks dark-on-light sources (a scanned patent); `--out /tmp`
-bakes elsewhere to preview first. `ryodither --help` / `ryoduo --help` list the
-flags and public-domain source sites (Wikimedia, the Met, NASA, and friends).
+carries it to `/usr/share/ryoku/ryodecors`, and `ryoku doctor` lays it into
+`ryodecors/` under each user's configured Pictures folder. Reference it by bare
+filename in a `Decor`/`Placard` `art:`. `--invert` inks dark-on-light sources (a
+scanned patent); `--out /tmp` bakes elsewhere to preview first. `ryodither
+--help` / `ryoduo --help` list the flags and public-domain source sites
+(Wikimedia, the Met, NASA, and friends).
 
 ## How the current specimens were baked
 

@@ -70,7 +70,8 @@ func runOutputs(args []string) error {
 // layoutToSpecs maps the neutral layout onto the spec ryoku-monitor reads. An
 // empty mode becomes preferred, a zero scale becomes 1 and a bool VRR becomes
 // ryoku-monitor's 0/1, so an output the editor left on auto still applies rather
-// than sending a value ryoku-monitor would reject.
+// than sending a value ryoku-monitor would reject. Disabled outputs keep their
+// complete layout because the hotplug guard may need to enable one temporarily.
 func layoutToSpecs(layout []wm.OutputLayout) []monitorSpec {
 	specs := make([]monitorSpec, 0, len(layout))
 	for _, o := range layout {

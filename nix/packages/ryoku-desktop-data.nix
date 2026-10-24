@@ -1,13 +1,27 @@
 { pkgs, src }:
 
-pkgs.stdenvNoCC.mkDerivation {
+let
+  phonePython = pkgs.python3.withPackages (ps: [ ps.dbus-python ps.pygobject3 ps.pillow ]);
+in
+pkgs.stdenv.mkDerivation {
   pname = "ryoku-desktop-data";
   version = "unstable";
 
   inherit src;
 
-  nativeBuildInputs = [ pkgs.python3 ];
+  nativeBuildInputs = [
+    pkgs.cmake
+    pkgs.ninja
+    pkgs.perl
+    pkgs.pkg-config
+  ];
 
+  buildInputs = [
+    pkgs.gtk3
+    pkgs.webkitgtk_4_1
+  ];
+
+  dontConfigure = true;
   dontBuild = true;
 
   installPhase = ''
@@ -37,30 +51,29 @@ pkgs.stdenvNoCC.mkDerivation {
 
     mkdir -p "$cfg/niri"
     cp -a ryoku/niri/. "$cfg/niri/"
+
+    # ── Mango ─────────────────────────────────────────────────
+
+    mkdir -p "$cfg/mango"
+    cp -a ryoku/mango/. "$cfg/mango/"
+
+    # NixOS owns graphical-session lifecycle through its declarative user
+    # units. Route every compositor's upstream session handoff through the
+    # Nix-native bootstrap instead of package-manager cutover machinery.
+    substituteInPlace "$cfg/hypr/modules/autostart.lua" \
+      --replace-fail \
+        'ryoku-host session start xdg-desktop-portal-hyprland.service xdg-desktop-portal-gtk.service' \
+        'ryoku-nix-session-start'
+
     substituteInPlace "$cfg/niri/autostart.kdl" \
-      --replace-fail '$HOME/.local/lib/qt6/qml' \
-        '$HOME/.local/lib/qt6/qml:/run/current-system/sw/lib/qt-6/qml'
+      --replace-fail \
+        'ryoku-host session start xdg-desktop-portal-gnome.service xdg-desktop-portal-gtk.service' \
+        'ryoku-nix-session-start'
 
-    # NixOS owns graphical-session lifecycle. Replace the compositor-specific
-    # inline bootstrap with one helper that waits for a real active Wayland
-    # login before importing the environment and starting Ryoku services.
-    python3 - "$cfg/hypr/modules/autostart.lua" "$cfg/niri/autostart.kdl" <<'PY_SESSION'
-from pathlib import Path
-import sys
-
-for name in sys.argv[1:]:
-    path = Path(name)
-    text = path.read_text()
-    marker = "dbus-update-activation-environment --systemd --all; systemctl --user daemon-reload; systemctl --user reset-failed ryogami ryoku-shell 2>/dev/null; systemctl --user start ryoku-session.target; systemctl --user restart ryoku-shell; systemctl --user restart ryogami; systemctl --user try-restart "
-    start = text.find(marker)
-    if start < 0:
-        raise SystemExit(f"session bootstrap not found in {path}")
-    end = text.find('"', start)
-    if end < 0:
-        raise SystemExit(f"session bootstrap terminator not found in {path}")
-    text = text[:start] + "ryoku-nix-session-start" + text[end:]
-    path.write_text(text)
-PY_SESSION
+    substituteInPlace "$cfg/mango/autostart.conf" \
+      --replace-fail \
+        'ryoku-power-cutover session-start-logged' \
+        'ryoku-nix-session-start'
 
 
     # ── Shared translation catalog ─────────────────────────────
@@ -79,11 +92,96 @@ PY_SESSION
     mkdir -p "$cfg/quickshell"
     cp -a ryoku/shell/quickshell/. "$cfg/quickshell/"
 
+    # ── Karuma / Nix default bar ──────────────────────────────
+
+    mkdir -p "$cfg/quickshell/shell/modules/bar/barstyles/karuma"
+    cp -a nix/barstyles/karuma/. \
+      "$cfg/quickshell/shell/modules/bar/barstyles/karuma/"
+
+    karuma_products="$cfg/quickshell/shell/services/BarProducts.qml"
+    if ! grep -Fq '"karuma":' "$karuma_products"; then
+      substituteInPlace "$karuma_products" \
+        --replace-fail \
+          '        "qsbar": "barstyles/qsbar/Scene.qml",' \
+          '        "karuma": "barstyles/karuma/Scene.qml",
+        "qsbar": "barstyles/qsbar/Scene.qml",'
+    fi
+
+    karuma_config="$cfg/quickshell/shell/services/Config.qml"
+
+    if grep -Fq 'property string barStyle: "orpheus"' "$karuma_config"; then
+      substituteInPlace "$karuma_config" \
+        --replace-fail \
+          'property string barStyle: "orpheus"' \
+          'property string barStyle: "karuma"'
+    elif grep -Fq 'property string barStyle: "qsbar"' "$karuma_config"; then
+      substituteInPlace "$karuma_config" \
+        --replace-fail \
+          'property string barStyle: "qsbar"' \
+          'property string barStyle: "karuma"'
+    elif ! grep -Fq 'property string barStyle: "karuma"' "$karuma_config"; then
+      echo "Ryoku Nix Karuma guard: could not identify shared shell bar default" >&2
+      exit 1
+    fi
+
+    test -f "$cfg/quickshell/shell/modules/bar/barstyles/karuma/Scene.qml"
+    grep -Fq '"karuma": "barstyles/karuma/Scene.qml"' "$karuma_products"
+    grep -Fq 'property string barStyle: "karuma"' "$karuma_config"
+    phone_dir="$cfg/quickshell/shell/modules/phone"
+    # Not every phone file uses both forms, so a miss per file is expected; the
+    # grep below still fails the build when a bare python3 is left anywhere.
+    while IFS= read -r -d "" file; do
+      substituteInPlace "$file" \
+        --replace-quiet '"python3"' '"${phonePython}/bin/python3"' \
+        --replace-quiet "python3 -c" "${phonePython}/bin/python3 -c"
+    done < <(find "$phone_dir" -name '*.qml' -print0)
+    if grep -rlE --include='*.qml' '"python3"|(^|[^/])python3 -c' "$phone_dir"; then
+      echo "phone QML still calls a bare python3" >&2
+      exit 1
+    fi
+
+    # iNiR's shared app launcher is written for FHS distributions and uses
+    # absolute /usr/bin paths. NixOS intentionally has no /usr/bin/bash,
+    # systemd-run or gtk-launch. Patch only the packaged payload so Shima and
+    # Spotlight keep upstream's launch semantics with generation-owned tools.
+    shell_exec="$cfg/quickshell/inir/modules/common/functions/ShellExec.qml"
+    substituteInPlace "$shell_exec" \
+      --replace-fail '"/usr/bin/fish"' '"${pkgs.fish}/bin/fish"' \
+      --replace-fail '"/usr/bin/bash"' '"${pkgs.bash}/bin/bash"' \
+      --replace-fail '"/usr/bin/systemd-run"' '"${pkgs.systemd}/bin/systemd-run"' \
+      --replace-fail '"/usr/bin/gtk-launch"' '"${pkgs.gtk3}/bin/gtk-launch"' \
+      --replace-fail '["/usr/bin/test",' '["${pkgs.coreutils}/bin/test",' \
+      --replace-fail '[ -x /usr/bin/systemctl ]' '[ -x ${pkgs.systemd}/bin/systemctl ]' \
+      --replace-fail '[ -x /usr/bin/timeout ]' '[ -x ${pkgs.coreutils}/bin/timeout ]' \
+      --replace-fail '/usr/bin/timeout 3s /usr/bin/systemctl' '${pkgs.coreutils}/bin/timeout 3s ${pkgs.systemd}/bin/systemctl'
+
+    if grep -Eq '/usr/bin/(bash|fish|systemd-run|systemctl|timeout|gtk-launch|test)' "$shell_exec"; then
+      echo "Ryoku Nix launcher guard: FHS executable path survived ShellExec packaging" >&2
+      exit 1
+    fi
+
+    # Nomarchy is a shell-owned compatibility payload. Arch exposes it under
+    # /usr/share/ryoku; Nix keeps the same data layout inside desktop-data.
+    mkdir -p "$out/share/ryoku/nomarchy"
+    cp -a ryoku/shell/nomarchy/. "$out/share/ryoku/nomarchy/"
+    patchShebangs "$out/share/ryoku/nomarchy"
+
     # ── Ryoku Settings / Hub ───────────────────────────────────
 
     mkdir -p "$cfg/quickshell/hub"
     cp -a ryoku/hub/quickshell/. "$cfg/quickshell/hub/"
 
+    karuma_hub_styles="$cfg/quickshell/hub/Singletons/BarStyles.qml"
+
+    if ! grep -Fq '{ "id": "karuma"' "$karuma_hub_styles"; then
+      substituteInPlace "$karuma_hub_styles" \
+        --replace-fail \
+          '        { "id": "sumi", "name": "Sumi", "desc": "The framed Ryoku desktop.", "installed": true, "unavailable": false },' \
+          '        { "id": "karuma", "name": "Karuma", "desc": "The default Ryoku Nix bar.", "installed": true, "unavailable": false },
+        { "id": "sumi", "name": "Sumi", "desc": "The framed Ryoku desktop.", "installed": true, "unavailable": false },'
+    fi
+
+    grep -Fq '{ "id": "karuma", "name": "Karuma"' "$karuma_hub_styles"
     # NixOS identity is a packaging invariant, not an upstream default. Upstream
     # Hub releases may reintroduce the Arch label during syncs; rewrite it here
     # as a final packaging step and fail the build if the Nix label disappears.
@@ -101,28 +199,34 @@ PY_SESSION
       exit 1
     fi
 
-    # ── First-party Ryoku Quickshell apps ──────────────────────
+    # ── First-party Ryoku apps ─────────────────────────────────
+    #
+    # Keep the same app contract as upstream: Quickshell apps ship their
+    # config tree, while native apps with a CMakeLists.txt build into $out/bin.
+    # Desktop entries, icons and helper scripts are shared by both shapes.
 
     for appdir in ryoku/apps/*/; do
-      if [ -d "$appdir/quickshell" ]; then
-        appname="$(basename "$appdir")"
+      appname="$(basename "$appdir")"
+      has_ui=0
 
+      if [ -d "$appdir/quickshell" ]; then
+        has_ui=1
         mkdir -p "$cfg/quickshell/$appname"
         cp -a "$appdir/quickshell/." "$cfg/quickshell/$appname/"
+      fi
 
-        icon="$appdir/quickshell/logo.svg"
-
-        if [ ! -f "$icon" ]; then
-          icon="$appdir/logo.svg"
-        fi
-
-        if [ ! -f "$icon" ]; then
-          icon="ryoku/assets/brand/logo-mark.svg"
-        fi
-
-        install -Dm644 \
-          "$icon" \
-          "$out/share/icons/hicolor/scalable/apps/$appname.svg"
+      if [ -f "$appdir/CMakeLists.txt" ]; then
+        has_ui=1
+        appbuild="$TMPDIR/ryoku-app-$appname"
+        cmake \
+          -S "$appdir" \
+          -B "$appbuild" \
+          -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release
+        cmake --build "$appbuild"
+        install -Dm755 \
+          "$appbuild/$appname" \
+          "$out/bin/$appname"
       fi
 
       if [ -d "$appdir/bin" ]; then
@@ -142,12 +246,29 @@ PY_SESSION
           "$desktop" \
           "$out/share/applications/$(basename "$desktop")"
       done
+
+      if [ "$has_ui" -eq 1 ]; then
+        icon="$appdir/quickshell/logo.svg"
+        [ -f "$icon" ] || icon="$appdir/logo.svg"
+        [ -f "$icon" ] || icon="ryoku/assets/brand/logo-mark.svg"
+
+        install -Dm644 \
+          "$icon" \
+          "$out/share/icons/hicolor/scalable/apps/$appname.svg"
+      fi
     done
 
     # ── Matugen / palette pipeline ─────────────────────────────
 
     mkdir -p "$cfg/matugen"
     cp -a ryoku/shell/matugen/. "$cfg/matugen/"
+
+    vesktop_palette="$cfg/matugen/templates/vesktop-colors.css"
+    grep -Fq -- '--ryo-bridge-enabled: 1;' "$vesktop_palette"
+    if grep -Eq '@import|guilds__|sidebarList__|membersWrap' "$vesktop_palette"; then
+      echo "Ryoku Nix Vesktop guard: palette layer contains layout/theme CSS" >&2
+      exit 1
+    fi
 
     # ── Qt / GTK appearance ────────────────────────────────────
 
@@ -171,8 +292,8 @@ PY_SESSION
     cp ryoku/apps/fastfetch/config.jsonc \
       "$cfg/fastfetch/config.jsonc"
 
-    cp ryoku/assets/brand/fastfetch-emblem.png \
-      "$cfg/fastfetch/fastfetch-emblem.png"
+    cp ryoku/assets/brand/ryoku-nixos.png \
+      "$cfg/fastfetch/ryoku-nixos.png"
 
     mkdir -p "$cfg/kitty"
     cp -a ryoku/apps/kitty/. "$cfg/kitty/"
@@ -187,6 +308,18 @@ PY_SESSION
 
     mkdir -p "$cfg/yazi"
     cp ryoku/apps/yazi/yazi.toml "$cfg/yazi/yazi.toml"
+
+    # The Vencord settings are a seed: materialize lays them only where the
+    # client has not written its own yet. The theme's MIT license stays out of
+    # the user's themes folder.
+    for discord in vesktop equibop; do
+      install -Dm644 ryoku/apps/vesktop/themes/ryoku-discord.theme.css \
+        "$cfg/$discord/themes/ryoku-discord.theme.css"
+      install -Dm644 ryoku/apps/vesktop/settings/settings.json \
+        "$cfg/$discord/settings/settings.json"
+    done
+    install -Dm644 ryoku/apps/vesktop/themes/LICENSE \
+      "$out/share/licenses/ryoku-desktop/LICENSE.ryoku-discord"
 
     mkdir -p "$cfg/nvim"
     cp ryoku/apps/nvim/init.lua "$cfg/nvim/init.lua"
@@ -258,13 +391,15 @@ PY_SESSION
       "$out/bin/ryoku-fastfetch"
 
     for helper in \
-      ryoku/shell/bin/claude-usage \
-      ryoku/shell/bin/codex-usage \
-      ryoku/shell/bin/opencode-usage
+      ryoku/rashin/usage/claude-usage \
+      ryoku/rashin/usage/codex-usage \
+      ryoku/rashin/usage/opencode-usage
     do
       install -Dm755 \
         "$helper" \
         "$out/bin/$(basename "$helper")"
+      substituteInPlace "$out/bin/$(basename "$helper")" \
+        --replace-fail '#!/usr/bin/env python3' '#!${pkgs.python3}/bin/python3'
     done
 
     # ── Ryotunes ───────────────────────────────────────────────
@@ -284,6 +419,28 @@ PY_SESSION
     install -Dm755 \
       ryoku/lockscreen/install-qylock \
       "$out/share/ryoku/lockscreen/install-qylock"
+
+    patchShebangs "$out/share/ryoku/lockscreen/install-qylock"
+
+    # RYOKU NIXOS QYLOCK WRITABLE COPY
+    #
+    # install-qylock stages with `cp -a`. When its bundle comes from /nix/store,
+    # that faithfully preserves the store's read-only directory modes. The
+    # installer then creates themes_link inside the copied lockscreen and dies
+    # with EACCES. Make only the user-owned copies writable after each copy.
+    substituteInPlace "$out/share/ryoku/lockscreen/install-qylock" \
+      --replace-fail \
+        'user cp -a "$BUNDLE/quickshell-lockscreen" "$LOCK_DIR"' \
+        'user cp -a "$BUNDLE/quickshell-lockscreen" "$LOCK_DIR"
+user chmod -R u+w "$LOCK_DIR"' \
+      --replace-fail \
+        'user cp -a "$BUNDLE/themes/clockwork/orbital" "$STAGED_THEME_DIR/clockwork/orbital"' \
+        'user cp -a "$BUNDLE/themes/clockwork/orbital" "$STAGED_THEME_DIR/clockwork/orbital"
+user chmod -R u+w "$STAGED_THEME_DIR"' \
+      --replace-fail \
+        'user cp -a "$BUNDLE/themes/clockwork/orbital" "$QYLOCK_DIR/themes/clockwork/orbital"' \
+        'user cp -a "$BUNDLE/themes/clockwork/orbital" "$QYLOCK_DIR/themes/clockwork/orbital"
+user chmod -R u+w "$QYLOCK_DIR/themes/clockwork/orbital"'
 
     # ── Desktop integration ────────────────────────────────────
 
@@ -327,6 +484,128 @@ PY_SESSION
     cp -a \
       ryoku/assets/brand/. \
       "$out/share/ryoku/brand/"
+
+    # ── Packaged rices ─────────────────────────────────────────
+    #
+    # The Hub reads these through RYOKU_SYSTEM_RICES_DIR. Applying a rice
+    # copies them into user state, so commands stay bare names and the
+    # fastfetch tagline keeps the distro token.
+
+    mkdir -p "$out/share/ryoku/rices"
+
+    cp -a \
+      ryoku/assets/rices/. \
+      "$out/share/ryoku/rices/"
+
+    for rice in "$out/share/ryoku/rices"/*/; do
+      if [ -f "$rice/fastfetch.jsonc" ]; then
+        substituteInPlace "$rice/fastfetch.jsonc" \
+          --replace-quiet 'a hand-built Arch desktop' 'a hand-built {$RYOKU_BASE_OS} desktop'
+      fi
+      if [ -f "$rice/rice.json" ]; then
+        substituteInPlace "$rice/rice.json" \
+          --replace-quiet '"/usr/bin/kitty"' '"kitty"'
+      fi
+    done
+
+    if grep -lw 'Arch' "$out/share/ryoku/rices"/*/fastfetch.jsonc; then
+      echo "Ryoku Nix branding guard: a packaged fastfetch style still names Arch" >&2
+      exit 1
+    fi
+
+    # ── Nix runtime path normalization ─────────────────────────
+    #
+    # Upstream iNiR is developed on FHS distributions and many QML Process{}
+    # call sites use absolute /usr/bin paths. Ryoku's Nix user service already
+    # exposes this toolset deliberately, but an absolute Arch path bypasses the
+    # service PATH entirely. Normalize only commands guaranteed by runtimePackages
+    # (plus optional commands to bare names) in the packaged payload. Upstream
+    # source stays distro-neutral and future syncs cannot silently resurrect the
+    # same NixOS failure class.
+    #
+    # Replace whole paths only: a substring match also hits paths an earlier
+    # row already rewrote ('/bin/bash' inside '…-bash/bin/bash'). A JS escape
+    # such as \n right before a path still counts as a boundary.
+    rewrite_runtime_path() {
+      from="$1"
+      to="$2"
+      while IFS= read -r -d "" file; do
+        from="$from" to="$to" perl -pi -e \
+          's#(?:(?<![A-Za-z0-9._+-])|(?<=\\[nrt]))\Q$ENV{from}\E(?![A-Za-z0-9._+-])#$ENV{to}#g' \
+          "$file"
+      done < <(grep -IlZR -- "$from" "$cfg/quickshell" 2>/dev/null || true)
+    }
+
+    rewrite_runtime_path '/usr/bin/bash' '${pkgs.bash}/bin/bash'
+    rewrite_runtime_path '/bin/bash' '${pkgs.bash}/bin/bash'
+    rewrite_runtime_path '/bin/sh' '${pkgs.bash}/bin/sh'
+    rewrite_runtime_path '/usr/bin/pkexec' 'pkexec'
+    rewrite_runtime_path '/usr/bin/env' '${pkgs.coreutils}/bin/env'
+    rewrite_runtime_path '/usr/bin/mkdir' '${pkgs.coreutils}/bin/mkdir'
+    rewrite_runtime_path '/usr/bin/mv' '${pkgs.coreutils}/bin/mv'
+    rewrite_runtime_path '/usr/bin/rm' '${pkgs.coreutils}/bin/rm'
+    rewrite_runtime_path '/usr/bin/cp' '${pkgs.coreutils}/bin/cp'
+    rewrite_runtime_path '/usr/bin/stat' '${pkgs.coreutils}/bin/stat'
+    rewrite_runtime_path '/usr/bin/sleep' '${pkgs.coreutils}/bin/sleep'
+    rewrite_runtime_path '/usr/bin/base64' '${pkgs.coreutils}/bin/base64'
+    rewrite_runtime_path '/usr/bin/basename' '${pkgs.coreutils}/bin/basename'
+    rewrite_runtime_path '/usr/bin/cat' '${pkgs.coreutils}/bin/cat'
+    rewrite_runtime_path '/usr/bin/df' '${pkgs.coreutils}/bin/df'
+    rewrite_runtime_path '/usr/bin/id' '${pkgs.coreutils}/bin/id'
+    rewrite_runtime_path '/usr/bin/install' '${pkgs.coreutils}/bin/install'
+    rewrite_runtime_path '/usr/bin/date' '${pkgs.coreutils}/bin/date'
+    rewrite_runtime_path '/usr/bin/timeout' '${pkgs.coreutils}/bin/timeout'
+    rewrite_runtime_path '/usr/bin/test' '${pkgs.coreutils}/bin/test'
+    rewrite_runtime_path '/usr/bin/find' '${pkgs.findutils}/bin/find'
+    rewrite_runtime_path '/usr/bin/grep' '${pkgs.gnugrep}/bin/grep'
+    rewrite_runtime_path '/usr/bin/awk' '${pkgs.gawk}/bin/awk'
+    rewrite_runtime_path '/usr/bin/getent' '${pkgs.getent}/bin/getent'
+    rewrite_runtime_path '/usr/bin/curl' '${pkgs.curl}/bin/curl'
+    rewrite_runtime_path '/usr/bin/python3' '${pkgs.python3}/bin/python3'
+    rewrite_runtime_path '/usr/bin/notify-send' '${pkgs.libnotify}/bin/notify-send'
+    rewrite_runtime_path '/usr/bin/busctl' '${pkgs.systemd}/bin/busctl'
+    rewrite_runtime_path '/usr/bin/systemctl' '${pkgs.systemd}/bin/systemctl'
+    rewrite_runtime_path '/usr/bin/file' '${pkgs.file}/bin/file'
+    rewrite_runtime_path '/usr/bin/pgrep' '${pkgs.procps}/bin/pgrep'
+    rewrite_runtime_path '/usr/bin/pkill' '${pkgs.procps}/bin/pkill'
+    rewrite_runtime_path '/usr/bin/which' '${pkgs.which}/bin/which'
+    rewrite_runtime_path '/usr/bin/lscpu' '${pkgs.util-linux}/bin/lscpu'
+    rewrite_runtime_path '/usr/bin/wl-copy' '${pkgs.wl-clipboard}/bin/wl-copy'
+    rewrite_runtime_path '/usr/bin/pw-play' '${pkgs.pipewire}/bin/pw-play'
+    rewrite_runtime_path '/usr/bin/pactl' '${pkgs.pulseaudio}/bin/pactl'
+    rewrite_runtime_path '/usr/bin/grim' '${pkgs.grim}/bin/grim'
+    rewrite_runtime_path '/usr/bin/magick' '${pkgs.imagemagick}/bin/magick'
+    rewrite_runtime_path '/usr/bin/hyprpicker' '${pkgs.hyprpicker}/bin/hyprpicker'
+    rewrite_runtime_path '/usr/bin/xdg-settings' '${pkgs.xdg-utils}/bin/xdg-settings'
+
+    # Optional/user-selected applications must remain optional, but still use PATH.
+    rewrite_runtime_path '/usr/bin/flatpak' 'flatpak'
+    rewrite_runtime_path '/usr/bin/easyeffects' 'easyeffects'
+    rewrite_runtime_path '/usr/bin/dunstify' 'dunstify'
+    rewrite_runtime_path '/usr/bin/firefox' 'firefox'
+    rewrite_runtime_path '/usr/bin/code' 'code'
+    rewrite_runtime_path '/usr/bin/nautilus' '${pkgs.nautilus}/bin/nautilus'
+    rewrite_runtime_path '/usr/bin/kitty' '${pkgs.kitty}/bin/kitty'
+
+    rewrite_runtime_path '/usr/share/X11/xkb/rules/base.lst' '${pkgs.xkeyboard_config}/share/X11/xkb/rules/base.lst'
+    rewrite_runtime_path '/usr/share/zoneinfo' '${pkgs.tzdata}/share/zoneinfo'
+    rewrite_runtime_path '/usr/share/applications' '/run/current-system/sw/share/applications'
+    rewrite_runtime_path '/usr/share/icons' '/run/current-system/sw/share/icons'
+    rewrite_runtime_path '/usr/share/sounds' '/run/current-system/sw/share/sounds'
+
+    # A spliced path (…-bash/nix/store/…) never resolves. grep exits 2 on read
+    # errors, which must not pass as nothing found.
+    spliced_status=0
+    grep -IRnE '(^|[^\\])[A-Za-z0-9._+-]/nix/store/' "$cfg/quickshell" || spliced_status=$?
+    if [ "$spliced_status" -ne 1 ]; then
+      echo "Ryoku Nix runtime guard: store path spliced into another path (grep status $spliced_status)" >&2
+      exit 1
+    fi
+
+    if grep -IRnE '/usr/bin/(bash|pkexec|env|mkdir|mv|rm|cp|stat|sleep|base64|basename|cat|df|id|install|date|timeout|test|find|grep|awk|getent|curl|python3|notify-send|busctl|systemctl|file|pgrep|pkill|which|lscpu|wl-copy|pw-play|pactl|grim|magick|hyprpicker|xdg-settings)' "$cfg/quickshell"; then
+      echo "Ryoku Nix runtime guard: critical FHS command path survived packaging" >&2
+      exit 1
+    fi
 
     chmod -R u=rwX,go=rX "$out/share"
 

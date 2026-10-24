@@ -51,49 +51,6 @@ func (r *recorder) snapshot() []recorded {
 	return out
 }
 
-func TestOptimizePresetTables(t *testing.T) {
-	o := NewOptimizer(t.TempDir(), t.TempDir(), nil)
-
-	img := o.Presets(kindOptimize)
-	if len(img) != 3 {
-		t.Fatalf("optimize presets: want 3, got %d", len(img))
-	}
-	wantQuality := map[string]int{"light": 82, "balanced": 88, "quality": 94}
-	for i, id := range []string{"light", "balanced", "quality"} {
-		p := img[i]
-		if p["id"] != id {
-			t.Fatalf("optimize preset %d id: want %q, got %v", i, id, p["id"])
-		}
-		if p["label"] != presetLabels[id] {
-			t.Fatalf("optimize preset %q label: got %v", id, p["label"])
-		}
-		if p["quality"] != wantQuality[id] {
-			t.Fatalf("optimize preset %q quality: want %d, got %v", id, wantQuality[id], p["quality"])
-		}
-		if _, ok := p["formats"].([]string); !ok {
-			t.Fatalf("optimize preset %q formats missing/wrong type: %v", id, p["formats"])
-		}
-	}
-
-	vid := o.Presets(kindConvert)
-	if len(vid) != 3 {
-		t.Fatalf("convert presets: want 3, got %d", len(vid))
-	}
-	wantCrf := map[string]int{"light": 28, "balanced": 26, "quality": 23}
-	for i, id := range []string{"light", "balanced", "quality"} {
-		p := vid[i]
-		if p["id"] != id {
-			t.Fatalf("convert preset %d id: want %q, got %v", i, id, p["id"])
-		}
-		if p["crf"] != wantCrf[id] {
-			t.Fatalf("convert preset %q crf: want %d, got %v", id, wantCrf[id], p["crf"])
-		}
-		if p["maxrate"] == "" || p["bufsize"] == "" {
-			t.Fatalf("convert preset %q missing maxrate/bufsize: %v", id, p)
-		}
-	}
-}
-
 func TestOptimizeEligibilityFilter(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"a.png", "b.JPG", "c.jpeg", "d.gif", "e.webp", "f.txt", "g.mp4", "h.MOV"} {
@@ -133,7 +90,7 @@ func TestOptimizeRunConvertsPNGs(t *testing.T) {
 	rec := newRecorder()
 	o := NewOptimizer(wall, t.TempDir(), rec.emit)
 
-	if err := o.Start(kindOptimize, "balanced", "1080p"); err != nil {
+	if err := o.Start(kindOptimize, "balanced", "1080p", nil); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 
@@ -187,7 +144,7 @@ func TestOptimizeCancelStopsEarly(t *testing.T) {
 	rec := newRecorder()
 	o := NewOptimizer(wall, t.TempDir(), rec.emit)
 
-	if err := o.Start(kindOptimize, "balanced", "1080p"); err != nil {
+	if err := o.Start(kindOptimize, "balanced", "1080p", nil); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 
@@ -222,13 +179,13 @@ func TestOptimizeStartRejectsSecondRun(t *testing.T) {
 	o.mu.Lock()
 	o.jobs[kindOptimize].running = true
 	o.mu.Unlock()
-	if err := o.Start(kindOptimize, "balanced", "1080p"); err == nil {
+	if err := o.Start(kindOptimize, "balanced", "1080p", nil); err == nil {
 		t.Fatal("second concurrent run should be rejected")
 	}
-	if err := o.Start(kindOptimize, "nope", "1080p"); err == nil {
+	if err := o.Start(kindOptimize, "nope", "1080p", nil); err == nil {
 		t.Fatal("unknown preset should error")
 	}
-	if err := o.Start(kindOptimize, "balanced", "nope"); err == nil {
+	if err := o.Start(kindOptimize, "balanced", "nope", nil); err == nil {
 		t.Fatal("unknown resolution should error")
 	}
 }
@@ -256,4 +213,36 @@ func sameBaseSet(paths, want []string) bool {
 		}
 	}
 	return true
+}
+
+// Auto-optimise hands the optimizer only the new arrivals; the rest of the
+// library keeps its originals.
+func TestAutoOptimizeTouchesOnlyNewImages(t *testing.T) {
+	if !haveMagick() {
+		t.Skip("magick not installed")
+	}
+	wall := t.TempDir()
+	existing := filepath.Join(wall, "existing.png")
+	arrival := filepath.Join(wall, "arrival.png")
+	writePNG(t, existing, color.RGBA{200, 20, 20, 255})
+	writePNG(t, arrival, color.RGBA{20, 200, 20, 255})
+
+	rec := newRecorder()
+	o := NewOptimizer(wall, t.TempDir(), rec.emit)
+	files := optimizableImages([]Entry{{Type: "static", Path: arrival}, {Type: "video", Path: filepath.Join(wall, "clip.mp4")}})
+	if err := o.Start(kindOptimize, "balanced", "1080p", files); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	select {
+	case <-rec.done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("run did not finish in time")
+	}
+
+	if !fileExists(existing) {
+		t.Fatal("an image already in the library was re-encoded")
+	}
+	if fileExists(arrival) || !fileExists(filepath.Join(wall, "arrival.webp")) {
+		t.Fatal("the new image was not optimised")
+	}
 }

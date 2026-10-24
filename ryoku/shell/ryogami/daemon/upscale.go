@@ -380,7 +380,12 @@ func (u *Upscaler) enhanceVideo(ctx context.Context, f string, scale int) map[st
 
 	u.setProgress("assemble", total, total)
 	final := filepath.Join(work, "final.mp4")
-	if err := runCmd(ctx, upscaleAssembleTimeout, "ffmpeg", buildAssembleArgs(filepath.Join(outDir, "%08d.png"), f, final, fps)...); err != nil {
+	assemble, err := buildAssembleArgs(ffmpegCodecs().encoders,
+		filepath.Join(outDir, "%08d.png"), f, final, fps, w*scale)
+	if err != nil {
+		return upscaleVerdict("error", upscaleKindVideo, 0, 0, "", err.Error())
+	}
+	if err := runCmd(ctx, upscaleAssembleTimeout, "ffmpeg", assemble...); err != nil {
 		return upscaleVerdict("error", upscaleKindVideo, 0, 0, "", "assemble")
 	}
 
@@ -412,8 +417,22 @@ func buildExtractArgs(src, pattern string) []string {
 
 // buildAssembleArgs is ryowalls' reassemble: H.264 at the source rate, source
 // audio copied when present, faststart for scrubbing.
-func buildAssembleArgs(pattern, orig, out, fps string) []string {
-	return []string{"-y", "-framerate", fps, "-i", pattern, "-i", orig, "-map", "0:v:0", "-map", "1:a:0?", "-c:a", "copy", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out}
+func buildAssembleArgs(encoders codecSet, pattern, orig, out, fps string, width int) ([]string, error) {
+	encoder, err := pickCPUH264Encoder(encoders)
+	if err != nil {
+		return nil, err
+	}
+	rate := parseFrameRate(fps)
+	codec, err := h264CPUArgs(encoder, width, int(math.Ceil(rate)),
+		"-pix_fmt", "yuv420p")
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"-y", "-framerate", fps, "-i", pattern, "-i", orig,
+		"-map", "0:v:0", "-map", "1:a:0?", "-c:a", "copy"}
+	args = append(args, codec...)
+	args = append(args, "-movflags", "+faststart", out)
+	return args, nil
 }
 
 // waifu2xOrderList is ryowalls' w2x_order: the discrete GPU first, then the

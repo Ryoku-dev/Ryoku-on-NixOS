@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	wm "ryoku-wm"
 )
 
 // The caps list is documented as "kept in step with that package's depends".
@@ -44,5 +46,65 @@ func TestReclaimListMatchesVariantDepends(t *testing.T) {
 		if !have[p] {
 			t.Errorf("PKGBUILD depends on %s but the reclaim list omits it", p)
 		}
+	}
+}
+
+// A capability the manifest claims but wm.All() omits never reaches a QML
+// consumer: the caps frame carries one boolean per All() entry, so the shell
+// reads the gate as false and the affordance silently disappears.
+func TestManifestIsDeliverable(t *testing.T) {
+	all := map[wm.Capability]bool{}
+	for _, c := range wm.All() {
+		all[c] = true
+	}
+	for _, c := range capsManifest {
+		if !all[c] {
+			t.Errorf("manifest claims %q but wm.All() omits it, so it never rides the caps frame", c)
+		}
+	}
+}
+
+func TestDeniesWorkspaceFullscreenState(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if c.Has(wm.CapWorkspaceFullscreenState) {
+		t.Error("niri workspace frames have no fullscreen field; the shell must enrich them from foreign toplevels")
+	}
+}
+
+// A screen capture on niri goes through wlr-screencopy and a second wl_output
+// the Qt client later reads after it is gone, so the manifest must keep
+// denying this or the launcher frost and the LiveDraw zoom come back and take
+// the shell with them.
+func TestDeniesPersistentScreenCapture(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if c.Has(wm.CapPersistentScreenCapture) {
+		t.Error("niri must not claim persistent screen capture")
+	}
+}
+
+// The Stage Editor's canvas holds the keyboard exclusively only where this is
+// claimed, so Escape and the arrows reach it from the moment it opens. On
+// demand, niri hands the keyboard over only on a click and takes it back on
+// every click in the editor's toolbar.
+func TestClaimsKeyboardGrabSharesPointer(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if !c.Has(wm.CapKeyboardGrabSharesPointer) {
+		t.Error("niri routes the pointer by input region under a keyboard grab; the manifest must say so")
+	}
+}
+
+// The animation is a config block with no query IPC, so the overlay cannot
+// learn the resolved slide; claiming this would leave it waiting for a read
+// that never answers.
+func TestDeniesWorkspaceSlideStyle(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if c.Has(wm.CapWorkspaceSlideStyle) {
+		t.Error("niri cannot report its workspace animation; the manifest must not claim it")
+	}
+}
+
+func TestServesNoForeignShellAPIs(t *testing.T) {
+	if len(foreignAPIs) != 0 {
+		t.Fatalf("foreign APIs = %v, want none", foreignAPIs)
 	}
 }

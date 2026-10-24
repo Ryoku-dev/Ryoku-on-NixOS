@@ -21,17 +21,23 @@ The in-session shim diverges from upstream in two places:
    `material-you` and `nothing` gate login and power behind `!isQuickshell`,
    leaving their password field, reboot, and shutdown dead under the in-session
    lock. The shim now reports a real `hostName` (making `isQuickshell` false),
-   implements `sddm.suspend()`, and exposes SDDM's `keyboard` object (skins
-   assign `keyboard.numLock`).
+   implements `sddm.suspend()`, routes `reboot()` and `powerOff()` through
+   `ryoku-host power`, and exposes SDDM's `keyboard` object (skins assign
+   `keyboard.numLock`).
 
-2. **Parallel PAM conversations** — `shim/SddmShim.qml` runs two `PamContext`s,
-   backed by two services in `assets/pam/`: `ryoku-lock` (fingerprint, stock
-   `pam_fprintd.so timeout=-1`) and `ryoku-lock-pw` (password, prompt pending
-   from lock time); the first `Success` unlocks and aborts the other. A single
-   conversation cannot host both: the PAM stack is serialised by design (see
-   the LIMITATIONS section of `pam_fprintd(8)`), so the password prompt starves
-   the sensor — the stock 30s scan timeout falls through to `pam_unix`, the
-   conversation stays alive waiting for a typed key, the scan never re-arms, and
-   a password typed mid-sit is only flushed when the prompt finally arrives.
+2. **Parallel PAM conversations** — once the compositor-secure lock proof is
+   published for the foreground login1 session,
+   `shim/SddmShim.qml` runs two `PamContext`s backed by services in
+   `assets/pam/`: `ryoku-lock` (fingerprint, stock
+   `pam_fprintd.so timeout=-1`) and `ryoku-lock-pw` (password); the first
+   `Success` unlocks and aborts the other. A single conversation cannot host
+   both: the PAM stack is serialised by design (see the LIMITATIONS section of
+   `pam_fprintd(8)`), so the password prompt starves the sensor — the stock 30s
+   scan timeout falls through to `pam_unix`, the conversation stays alive
+   waiting for a typed key, the scan never re-arms, and a password typed
+   mid-scan is only flushed when the prompt finally arrives.
+   A password conversation that ends before PAM ever prompts is a stack that
+   cannot run, not a wrong password, so it re-arms on a doubling delay (1s to
+   30s) instead of restarting on the same tick.
 
 Everything else is upstream verbatim.

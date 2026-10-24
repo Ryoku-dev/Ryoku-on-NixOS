@@ -18,6 +18,16 @@
 set -u
 
 CONF="${RYOKU_WIFI_BACKEND_CONF:-/etc/NetworkManager/conf.d/wifi-backend.conf}"
+# Under runit the marker is what keeps iwd supervised: NetworkManager can only
+# D-Bus-activate iwd where an activation file exists (systemd), Void's iwd
+# ships none, so the service manifest's wifi-iwd row links /etc/sv/iwd while
+# this file exists and unlinks it when it is gone.
+IWD_STATE="${RYOKU_WIFI_IWD_STATE:-/var/lib/ryoku/wifi-iwd.enabled}"
+HOST="${RYOKU_WIFI_BACKEND_HOST:-ryoku-host}"
+
+# systemd iff its runtime directory exists, else runit; the path is a knob so a
+# hermetic test can run both lanes on one box.
+on_systemd() { [[ -d ${RYOKU_WIFI_BACKEND_SYSTEMD_DIR:-/run/systemd/system} ]]; }
 
 current() {
   if [[ -r $CONF ]] && grep -qiE '^[[:space:]]*wifi\.backend[[:space:]]*=[[:space:]]*wpa_supplicant' "$CONF"; then
@@ -27,6 +37,22 @@ current() {
     # installer pins, so treat anything that is not wpa_supplicant as iwd.
     echo iwd
   fi
+}
+
+# supervise_iwd keeps iwd's runit service in step with the backend. On systemd
+# nothing is recorded: NetworkManager activates iwd over D-Bus there.
+supervise_iwd() {
+  local backend=$1
+  on_systemd && return 0
+  if [[ $backend == iwd ]]; then
+    # /var/lib/ryoku is shared state whose mode tmpfiles owns (0755); mkdir -p
+    # never re-modes an existing directory, install -d would.
+    mkdir -p "$(dirname "$IWD_STATE")"
+    : >"$IWD_STATE"
+  else
+    rm -f "$IWD_STATE"
+  fi
+  "$HOST" svc reconcile --system
 }
 
 apply() {
@@ -39,14 +65,18 @@ apply() {
 [device]
 wifi.backend=$backend
 EOF
+  supervise_iwd "$backend"
   # Only one supplicant may own the radio at a time. Stop the one we are leaving;
-  # NetworkManager D-Bus-activates the one we keep when it restarts below.
+  # NetworkManager D-Bus-activates the one we keep when it restarts below, and
+  # under runit the reconcile above starts iwd (a fresh runsv needs a moment,
+  # so the explicit start is only a shortcut).
   if [[ $backend == wpa_supplicant ]]; then
-    systemctl stop iwd.service 2>/dev/null || true
+    "$HOST" svc --system stop iwd 2>/dev/null || true
   else
-    systemctl stop wpa_supplicant.service 2>/dev/null || true
+    "$HOST" svc --system stop wpa_supplicant 2>/dev/null || true
+    on_systemd || "$HOST" svc --system start iwd 2>/dev/null || true
   fi
-  systemctl restart NetworkManager.service
+  "$HOST" svc --system restart NetworkManager
 }
 
 case "${1:-get}" in

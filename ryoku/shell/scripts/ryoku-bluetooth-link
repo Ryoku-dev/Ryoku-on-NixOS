@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+set -u
+
+name=${0##*/}
+btctl=${RYOKU_BLUETOOTHCTL:-bluetoothctl}
+address=${1:-}
+
+if [[ ! $address =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]]; then
+  printf 'Usage: %s XX:XX:XX:XX:XX:XX\n' "$name" >&2
+  exit 2
+fi
+
+pause() {
+  [[ ${RYOKU_BLUETOOTH_NO_SLEEP:-0} == 1 ]] || sleep "$1"
+}
+
+reason() {
+  local out=$1 line
+  line=$(grep -iE 'Failed|not available|no default controller|not ready|error|refused|timed out|Authentication|Protocol|Blocked|rfkill' <<<"$out" | tail -1)
+  [[ -n $line ]] || line=$(grep -v '^[[:space:]]*$' <<<"$out" | tail -1)
+  printf '%s\n' "$line"
+}
+
+btc() {
+  local timeout=$1
+  shift
+  yes | "$btctl" --agent KeyboardDisplay --timeout "$timeout" "$@" 2>&1
+}
+
+info() {
+  "$btctl" info "$address" 2>&1
+}
+
+is_paired() {
+  grep -qiE '^[[:space:]]*Paired:[[:space:]]*yes' <<<"$(info)"
+}
+
+is_trusted() {
+  grep -qiE '^[[:space:]]*Trusted:[[:space:]]*yes' <<<"$(info)"
+}
+
+is_connected() {
+  grep -qiE '^[[:space:]]*Connected:[[:space:]]*yes' <<<"$(info)"
+}
+
+stop_discovery() {
+  "$btctl" scan off >/dev/null 2>&1 || true
+  local remaining=10 state
+  while ((remaining-- > 0)); do
+    state=$("$btctl" show 2>&1)
+    if grep -qiE 'No default controller available' <<<"$state"; then
+      printf '%s\n' 'No Bluetooth controller is available (is the adapter blocked by rfkill?)'
+      return 3
+    fi
+    if ! grep -qiE '^[[:space:]]*Discovering:[[:space:]]*yes' <<<"$state"; then
+      if grep -qiE '^[[:space:]]*Powered:[[:space:]]*no' <<<"$state"; then
+        "$btctl" power on >/dev/null 2>&1 || true
+      fi
+      return 0
+    fi
+    pause 0.1
+  done
+  # BlueZ keeps discovering while any other client still holds a scan, which
+  # this process cannot stop; pairing usually still works, so carry on.
+  return 0
+}
+
+pair_device() {
+  local out
+  out=$(btc 25 pair "$address")
+  if is_paired || grep -qiE 'Pairing successful|already[ -]?paired|Paired: yes|AlreadyExists' <<<"$out"; then
+    return 0
+  fi
+  reason "$out"
+  return 1
+}
+
+trust_device() {
+  local out
+  out=$(btc 10 trust "$address")
+  if is_trusted || grep -qiE 'trust succeeded|Trusted: yes|already trusted' <<<"$out"; then
+    return 0
+  fi
+  reason "$out"
+  return 1
+}
+
+connect_device() {
+  local out
+  out=$(btc 20 connect "$address")
+  if is_connected || grep -qiE 'Connection successful|Connected: yes|already connected' <<<"$out"; then
+    return 0
+  fi
+  pause 2
+  out=$(btc 20 connect "$address")
+  if is_connected || grep -qiE 'Connection successful|Connected: yes|already connected' <<<"$out"; then
+    return 0
+  fi
+  reason "$out"
+  return 1
+}
+
+stop_discovery || exit $?
+
+was_paired=0
+if is_paired; then
+  was_paired=1
+else
+  pair_device || exit 1
+fi
+trust_device || exit 1
+connect_device && exit 0
+
+# A stale bond can survive after the device forgets its key. Rebuild that bond
+# only after the normal attempt fails, and still stop discovery before pairing.
+if ((was_paired)); then
+  "$btctl" remove "$address" >/dev/null 2>&1 || exit 2
+  pause 1
+  "$btctl" --timeout 4 scan on >/dev/null 2>&1 || true
+  stop_discovery || exit $?
+  pair_device || exit 1
+  trust_device || exit 1
+  connect_device && exit 0
+fi
+
+exit 2

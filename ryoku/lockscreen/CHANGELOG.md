@@ -2,6 +2,95 @@
 
 ## Unreleased
 
+### Added
+- **The login screen comes back when its greeter dies.** SDDM 0.21 reports a
+  Wayland greeter that died, compositor or greeter client, crash or exit, as a
+  finished login (`sddm-helper-start-wayland` quits with 0, the daemon reads
+  `HELPER_SUCCESS` and starts nothing), so a box whose greeter failed once sat
+  on an empty VT with a blinking cursor and nothing to log in to. Two pieces
+  close that: `ryoku-greeter` now supervises weston and starts it again when
+  it dies before the greeter connects (the card re-chosen each time, every
+  death logged with weston's last lines), and the new `ryoku-greeter-guard`
+  service restarts the display manager when it runs with no greeter and no
+  session for 20s, three times per boot at most. Both say what happened in
+  the system log under their tags; the guard's last word names the helper log
+  (`/var/lib/sddm/.local/share/sddm-helper-start-wayland/sddm.log`) that holds
+  the greeter client's own exit (`tests/sddm-greeter-supervise.sh`,
+  `tests/sddm-greeter-guard.sh`).
+- The built-in in-session clockwork lockscreen follows the global 12/24-hour preference, including AM/PM.
+
+### Fixed
+- **The greeter guard waits on login1 instead of polling.** It checked the
+  greeter every five seconds for the life of the machine, a `sleep` launch
+  each time. It now blocks on one filtered `dbus-monitor` for login1's
+  SessionNew and SessionRemoved, checks every five seconds only while a
+  missing greeter's grace window or a restart's grace window is open, and
+  re-checks once a minute in case a signal was missed. Without `dbus-monitor`
+  it polls as before (`sddm/ryoku-greeter-guard`, `tests/sddm-greeter-guard.sh`).
+- **The greeter guard no longer forks for every process on the machine.** Each
+  5 s round read every `/proc/*/comm` through `tr`, twice, so a normal desktop
+  paid about 5,500 process launches a minute for a check that finds nothing to
+  do. The guard now reads them with shell builtins and touches its state
+  files only when SDDM really lost its greeter: zero launches per round on a
+  logged-in box, same rules, same restart cap (`sddm/ryoku-greeter-guard`,
+  `tests/sddm-greeter-guard.sh`).
+- **The lock screen's restart and shut down buttons work again on systemd.**
+  Since the init seam they ran `loginctl reboot` and `loginctl poweroff`, verbs
+  only elogind's loginctl has; systemd's answers "Unknown command verb" and the
+  buttons did nothing. They now go through `ryoku-host power`, which picks
+  `systemctl` or `loginctl` for the running init, as the shell's own power
+  menus already do (`tests/lock-power-actions.sh`).
+- **A lock whose PAM stack cannot run no longer loops.** When the password
+  conversation ended before PAM ever asked for a key (a module that will not
+  load, a service that denies outright), the in-session lock started it again
+  on the same tick and shook the field as a wrong password. One NixOS user's
+  journal showed over 70 PAM children in one second while the field shook with
+  nothing typed. Such a failure now re-arms after 1s, doubling to 30s, and
+  stays quiet; a wrong password still shakes and re-prompts at once, and a key
+  typed during the wait is tried immediately (`tests/lock-pam-backoff.sh`).
+- **The clockwork lockscreen's date turns over at midnight.** The day and date
+  labels read the date once when the lock opened, so a screen locked on
+  Thursday still said Thursday on Friday while the clock kept moving. They now
+  follow the theme's clock timer (`tests/lock-date-rollover.sh`).
+- **A login whose home has no Ryoku tree lays it before the compositor starts.**
+  `ryoku-wayland-session` runs `ryoku materialize` as the user when
+  `~/.config/ryoku` or the shell's `shell.qml` is missing, the condition
+  `ryoku-bootstrap` uses, so a user account created after install or a plain
+  package install no longer boots a bare compositor with nothing of Ryoku in
+  it. On Void this is the only place that can order the tree before niri reads
+  its config, since the runit bootstrap service only starts once the session
+  does. A home that has its tree pays nothing (`tests/wayland-session-settle.sh`).
+- **A failed Wayland desktop login returns to the sign-in screen instead of
+  leaving a black display.** The SDDM session wrapper now supervises the chosen
+  desktop, preserves its stdout in the session log, and reports compositor
+  failures with SDDM's session-error status so the greeter starts again. It also
+  warns when an NVIDIA update is waiting for a restart before launching the
+  desktop.
+- **A 2D-only VM no longer opens to an empty grey desktop.** The SDDM session
+  wrapper detects a KMS card with no render node and selects Mesa's llvmpipe GBM
+  path before starting the chosen compositor. Guests with virgl, vmwgfx, or
+  another working render node keep hardware acceleration.
+- **The login screen opens on the GPU that owns a connected display.** The
+  greeter now selects one DRM card for both Weston and its mode probe, preferring
+  a render-capable card with the connected laptop panel. This keeps a T2
+  MacBook's display-only Touch Bar card and an inactive apple-gmux GPU from
+  taking the login screen. KMS-only virtual cards still work through Pixman.
+- **A lock client cannot spill into the next login.** Its crash-recovery wrapper
+  now stops when the login1 session that started it has ended, so a reused
+  Wayland socket cannot let an old lock take over a new session.
+- **Unlock preparation and the lock's reboot and power off work under
+  elogind.** `ryoku-qylock-unlock-prepare` reads sleep inhibitors from login1
+  over D-Bus instead of `systemd-inhibit`, and the lock screen's reboot and
+  power off call `loginctl`, so both work on Void as on Arch.
+- **The login screen on a source install matches Arch.** Only the
+  `ryoku-desktop` package laid the `ryoku-greeter` launcher, so Void and other
+  source installs ran SDDM's greeter in plain weston: wrong refresh rate, no
+  output pinning, no Bibata pointer. Deploy now installs it, and `sddm/setup`
+  writes the same greeter config on runit as on systemd.
+- **`install-qylock` says what it is waiting for.** When a lock screen or a
+  qylock guard holds one of its locks, it names the lock file and how to find
+  the holder before waiting, instead of hanging silently.
+
 ### Changed
 - **The login pointer is visible again.** On a hybrid laptop whose panel is on
   the iGPU, the greeter still forced weston's Pixman renderer -- a workaround
@@ -34,12 +123,52 @@
   this root installer). Honors `RYOKU_DRYRUN`; `ryoku keyring` changes it later.
 
 ### Fixed
+- **The login keypad follows the user's numlock choice.** The greeter forced
+  weston's numlock on for every machine, and that LED state carried into the
+  session and its lock screen, so a laptop whose letter keys the keypad
+  overlays typed the wrong characters at the password field (issue #321). The
+  compositor provider now publishes the session's effective choice to
+  `/var/lib/ryoku/greeter-numlock` on every apply and the greeter reads it;
+  with no hand-off yet (a first login) the keypad stays a keypad.
+  (`sddm/ryoku-greeter`)
+- **Lock and unlock are serialized per login1 session and qylock generation.**
+  Lid, idle and manual requests share a session-scoped launch guard. A stable
+  launcher leases the selected client generation before entering replaceable
+  code, and updates stage the wrapper with its matching core theme before an
+  atomic service handoff. The secure marker carries a fresh token and counts
+  only while the matching session's qylock process carries that token; a
+  delayed callback from an old client cannot bless its replacement. The
+  long-lived wrapper survives a shell-daemon restart, retries three times
+  quickly, then uses a capped backoff so a recovering compositor regains its
+  unlock UI without a hot crash loop. Unlock passes the explicit session ID to
+  the stable preparation helper and login1. If the owning daemon is between
+  generations, that helper substitutes a durable login1 sleep block until the
+  replacement daemon publishes its own, so neither unlock nor an update opens
+  an unprotected suspend window. Inactive locks leave the global fingerprint
+  reader to the foreground session while keeping password authentication ready
+  (`install-qylock`, `ryoku-qylock-lock`,
+  `ryoku-qylock-unlock-prepare`, `qylock/quickshell-lockscreen/lock.sh`,
+  `qylock/quickshell-lockscreen/proof.sh`,
+  `qylock/quickshell-lockscreen/unlock.sh`).
+- **The launch guard cannot outlive the lock.** lock.sh holds the session-scoped
+  guard and the launcher's generation lease as open fds, and quickshell passed
+  both into its coprocess tree; a watcher that survived a killed client kept the
+  inherited flocks, and every later lock then exited 0 with no screen. The
+  client is exec'd with those fds closed, so the guard belongs to the wrapper
+  alone and dies with it (`quickshell-lockscreen/lock.sh`,
+  `tests/qylock-lock-fd.sh`).
+- **The lockscreen's suspend action cannot bypass the secure handshake.**
+  qylock's in-session SDDM shim used `systemctl suspend` directly; it now calls
+  `ryoku-shell suspend`, which keeps the session sleep block held unless the
+  compositor has confirmed a live qylock client covers every output
+  (`qylock/quickshell-lockscreen/shim/SddmShim.qml`).
 - **The in-session lock shows a usable mouse cursor with any theme.** The lock
   is spawned by the shell daemon, whose imported env can predate the login-time
   `hyprctl setcursor` (autostart.lua), and a downloaded theme carries no cursor
   workaround of its own, so the lock could come up with no visible pointer.
-  `lock.sh` now re-asserts `hyprctl setcursor` from the same theme/size the lock
-  client uses, best-effort, before launching (`qylock/quickshell-lockscreen/lock.sh`).
+  `lock.sh` now re-asserts the provider's compositor cursor action from the
+  same theme/size the lock client uses before launching
+  (`qylock/quickshell-lockscreen/lock.sh`).
 - **A downloaded lockscreen theme now shows its preview in the Hub.** The Hub
   looked for `preview.gif` only at the skin root, where shipped themes keep it,
   but a RyoStore download lands it under `assets/preview.gif` (its product
@@ -132,10 +261,10 @@
   `lock_shell.qml` touches `$XDG_RUNTIME_DIR/qylock.locked` the moment the
   compositor confirms every output is covered (`WlSessionLock.secure`) and
   removes it on unlock, giving `ryoku-shell lock` a real "locked" signal to
-  block on. Before, hypridle's `before_sleep_cmd` returned while Quickshell was
-  still loading QML, so logind's sleep inhibitor was released with the desktop
-  still in the framebuffer: opening the lid showed your windows for a beat
-  before the lock painted.
+  block on. Before, the lock was fire-and-forgotten and the sleep delay was
+  released with Quickshell still loading QML, so opening the lid showed your
+  windows for a beat before the lock painted; a lock that never confirms now
+  reports a failure rather than passing a desktop left uncovered.
 - **A missing lock theme can no longer lock you out.** `lock.sh` defaulted to
   `nier-automata`, a theme the shipped bundle does not contain, and never
   checked the resolved theme path: with `~/.config/qylock/theme` lost (or an

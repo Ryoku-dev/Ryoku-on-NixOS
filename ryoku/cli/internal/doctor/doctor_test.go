@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
 	"strings"
 	"testing"
@@ -471,6 +472,51 @@ func TestPlanSnapper(t *testing.T) {
 	}
 }
 
+func TestPlanSnapperVoidUsesHostSnapshotStack(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "xbps")
+	base := snapperState{
+		manager:             host.XBPS,
+		rootIsBtrfs:         true,
+		configExists:        true,
+		snapshotsExists:     true,
+		snapshotsIsSubvol:   true,
+		snapshotsMode:       0o750,
+		confdExists:         true,
+		confdContents:       "SNAPPER_CONFIGS=\"root\"\n",
+		snapperInstalled:    true,
+		limineInstalled:     true,
+		limineSyncInstalled: true,
+		limineSyncEnabled:   true,
+	}
+	if got, problems := planSnapper(base); got != snapperOK || len(problems) != 0 {
+		t.Fatalf("Void without snap-pac = %v %v, want healthy", got, problems)
+	}
+
+	missingSync := base
+	missingSync.limineSyncInstalled = false
+	got, problems := planSnapper(missingSync)
+	joined := strings.Join(problems, " ")
+	if got != snapperWarnInconsistent || !strings.Contains(joined, "limine-snapper-sync") {
+		t.Fatalf("missing sync = %v %q", got, joined)
+	}
+	for _, forbidden := range []string{"pacman", "AUR", "systemctl"} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("Void missing-package advice mentions %q: %q", forbidden, joined)
+		}
+	}
+
+	disabled := base
+	disabled.limineSyncEnabled = false
+	got, problems = planSnapper(disabled)
+	joined = strings.Join(problems, " ")
+	if got != snapperWarnInconsistent || !strings.Contains(joined, "ryoku-host svc --system enable --now limine-snapper-sync.service") {
+		t.Fatalf("disabled sync = %v %q, want host service advice", got, joined)
+	}
+	if strings.Contains(joined, "systemctl") {
+		t.Fatalf("Void service advice leaked systemctl: %q", joined)
+	}
+}
+
 // mergedConfdRoot decides how /etc/conf.d/snapper changes when doctor writes
 // the snapper root config. it must add "root" without dropping anything a
 // human (or another tool) already put in the file.
@@ -517,6 +563,7 @@ func TestReconcileDisplayModes(t *testing.T) {
 		"if [ \"$1\" = settle ] && [ \"$2\" = --check ]; then exit ${CHK:-0}; fi\n"+
 		"if [ \"$1\" = settle ]; then exit ${SET:-0}; fi\nexit 0\n")
 	t.Setenv("PATH", bin)
+	t.Setenv("RYOKU_WM", "")
 	t.Setenv("XDG_CURRENT_DESKTOP", "hyprland") // a live session for wm.Detect()
 
 	t.Setenv("CHK", "0") // every display at its best available mode
@@ -1285,19 +1332,19 @@ func TestMigrateShellConfig(t *testing.T) {
 	if left := rails["left"].(map[string]any); !left["enabled"].(bool) {
 		t.Error("legacy settings must seed the left reference rail")
 	}
+	menus := frameBars["menus"].(map[string]any)
+	if _, present := menus["quick-settings"]; present {
+		t.Error("frameBars defaults recreated the retired quick-settings menu")
+	}
 	surfaces := frameBars["surfaces"].(map[string]any)
-	stash := surfaces["stash"].(map[string]any)
-	if stash["anchor"] != "right" {
-		t.Errorf("stash anchor was not normalized: %v", stash["anchor"])
-	}
-	if stash["minWidth"].(float64) != 360 {
-		t.Errorf("stash width was not preserved: %v", stash["minWidth"])
-	}
-	if got := stash["panes"]; !reflect.DeepEqual(got, []any{"stash"}) {
-		t.Errorf("left sidebar panes were not preserved: %v", got)
+	if _, present := surfaces["stash"]; present {
+		t.Error("frameBars defaults recreated the retired stash surface")
 	}
 	if _, present := surfaces["system"]; present {
 		t.Error("retired system sidebar was recreated")
+	}
+	if _, present := cfg["sidebars"]; present {
+		t.Error("shell config migration seeded the retired global sidebars tree")
 	}
 	for _, key := range []string{"sidebarLeftPanes", "sidebarRightPanes", "sidebarWidth"} {
 		if _, ok := cfg[key]; ok {
@@ -1345,16 +1392,17 @@ func TestMigrateShellConfig(t *testing.T) {
 	if got := left["top"]; !reflect.DeepEqual(got, []any{"clock"}) {
 		t.Errorf("vertical ids were not normalized: %v", got)
 	}
-	menus := frameBars["menus"].(map[string]any)
-	if menus["quick-settings"].(map[string]any)["anchor"] != "left" {
-		t.Errorf("menu anchor was not normalized: %v", menus)
+	menus = frameBars["menus"].(map[string]any)
+	quickSettings := menus["quick-settings"].(map[string]any)
+	if quickSettings["anchor"] != "wrong" {
+		t.Errorf("retired quick-settings record changed before its reconciler ran: %v", quickSettings)
+	}
+	if got := quickSettings["modules"]; !reflect.DeepEqual(got, []any{"media", "future-module", "media"}) {
+		t.Errorf("retired quick-settings modules changed before their reconcilers ran: %v", got)
 	}
 	surfaces = frameBars["surfaces"].(map[string]any)
-	if surfaces["stash"].(map[string]any)["anchor"] != "right" {
-		t.Errorf("surface anchor was not normalized: %v", surfaces)
-	}
-	if got := menus["quick-settings"].(map[string]any)["modules"]; !reflect.DeepEqual(got, []any{"media", "future-module"}) {
-		t.Errorf("quick-settings module configuration was not preserved: %v", got)
+	if got := surfaces["stash"].(map[string]any)["anchor"]; got != "wrong" {
+		t.Errorf("retired stash record changed before its reconciler ran: %v", surfaces)
 	}
 
 	out, changes, err = migrateShellConfig(out)
@@ -1366,10 +1414,79 @@ func TestMigrateShellConfig(t *testing.T) {
 	}
 }
 
-// A store carrying the pre-parity menu shape (the retired `launcher` menu id and
-// a stale quick-settings widget list) converges: the launcher key is dropped and
-// the quick-settings stack resolves to its fixed widget, so the shell re-seeds
-// the reference menus from defaults on the next read.
+// This is the frameBars shape written by the shell and Bar Studio. Its schema
+// version is live state, while the nested dock store is retired.
+func TestMigrateShellConfigAcceptsLiveFrameBarsSchema(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "shell-live-framebars.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var currentConfig map[string]any
+	if err := json.Unmarshal(raw, &currentConfig); err != nil {
+		t.Fatal(err)
+	}
+	currentFrameBars := currentConfig["frameBars"]
+
+	if out, changes, err := migrateShellConfig(raw); err != nil || out != nil || changes != nil {
+		t.Fatalf("live frameBars must already be current: out=%s changes=%v err=%v", out, changes, err)
+	}
+
+	var staleConfig map[string]any
+	if err := json.Unmarshal(raw, &staleConfig); err != nil {
+		t.Fatal(err)
+	}
+	delete(staleConfig["frameBars"].(map[string]any), "version")
+	stale, err := json.Marshal(staleConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated, changes, err := migrateShellConfig(stale)
+	if err != nil || len(changes) == 0 {
+		t.Fatalf("an unversioned frameBars store must migrate: changes=%v err=%v", changes, err)
+	}
+	var migratedConfig map[string]any
+	if err := json.Unmarshal(migrated, &migratedConfig); err != nil {
+		t.Fatal(err)
+	}
+	if got := migratedConfig["frameBars"]; !reflect.DeepEqual(got, currentFrameBars) {
+		t.Fatalf("migration changed effective frameBars values:\n got: %#v\nwant: %#v", got, currentFrameBars)
+	}
+	if out, changes, err := migrateShellConfig(migrated); err != nil || out != nil || changes != nil {
+		t.Fatalf("migrated frameBars must be idempotent: out=%s changes=%v err=%v", out, changes, err)
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	path := filepath.Join(sys.ConfigHome(), "ryoku", "shell.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, stale, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if result := reconcileShellConfig(false); result.status != recFixed {
+		t.Fatalf("first reconcile status = %s, want fixed: %s", result.status.label(), result.detail)
+	}
+	fixed, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := reconcileShellConfig(false); result.status != recOK {
+		t.Fatalf("second reconcile status = %s, want ok: %s", result.status.label(), result.detail)
+	}
+	again, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != string(fixed) {
+		t.Fatal("second reconcile changed shell.json")
+	}
+}
+
+// Shell config normalization keeps the retired quick-settings record intact so
+// the capture and stage reconcilers can inspect it later in the same doctor run.
+// Other unknown menu ids still drop out against the live frame-bars catalog.
 func TestMigrateShellConfigConvergesMenus(t *testing.T) {
 	before := []byte(`{
         "frameBars": {
@@ -1395,10 +1512,10 @@ func TestMigrateShellConfigConvergesMenus(t *testing.T) {
 	}
 	qs, ok := menus["quick-settings"].(map[string]any)
 	if !ok {
-		t.Fatalf("quick-settings menu missing after convergence: %v", menus)
+		t.Fatalf("quick-settings menu was removed before its reconcilers ran: %v", menus)
 	}
-	if got := qs["widgets"]; !reflect.DeepEqual(got, []any{"quick-settings"}) {
-		t.Errorf("quick-settings widgets did not converge to the fixed stack: %v", got)
+	if got := qs["widgets"]; !reflect.DeepEqual(got, []any{"clock", "network", "audio-output"}) {
+		t.Errorf("quick-settings widgets changed before their reconcilers ran: %v", got)
 	}
 	if out2, changes2, err := migrateShellConfig(out); err != nil || out2 != nil || changes2 != nil {
 		t.Fatalf("menu convergence must be idempotent: out=%s changes=%v err=%v", out2, changes2, err)
@@ -1443,12 +1560,81 @@ func TestMigrateShellConfigDropsEveryRetiredKey(t *testing.T) {
 	}
 }
 
+func TestMigrateOrpheusGain(t *testing.T) {
+	cases := []struct {
+		name     string
+		in       string
+		changed  bool
+		wantGain float64
+	}{
+		{"lively", `{"keep":true,"orpheus":{"reaction":"lively","depth":24}}`, true, 1},
+		{"calm", `{"keep":true,"orpheus":{"reaction":"calm","depth":24}}`, true, 0.55},
+		{"still", `{"keep":true,"orpheus":{"reaction":"still","depth":24}}`, true, 0},
+		{"unknown value", `{"keep":true,"orpheus":{"reaction":42,"depth":24}}`, true, 1},
+		{"gain already present", `{"orpheus":{"reaction":"still","gain":1.7}}`, false, 0},
+		{"no orpheus key", `{"keep":true}`, false, 0},
+		{"non-object orpheus", `{"orpheus":"lively"}`, false, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out, changed, err := migrateOrpheusGain([]byte(c.in))
+			if err != nil {
+				t.Fatalf("migrateOrpheusGain: %v", err)
+			}
+			if changed != c.changed {
+				t.Fatalf("changed = %v, want %v", changed, c.changed)
+			}
+			if !changed {
+				if out != nil {
+					t.Fatalf("unchanged migration returned output: %s", out)
+				}
+				return
+			}
+			var got map[string]any
+			if err := json.Unmarshal(out, &got); err != nil {
+				t.Fatalf("output does not parse: %v", err)
+			}
+			if got["keep"] != true {
+				t.Errorf("unrelated top-level key changed: keep = %#v", got["keep"])
+			}
+			orpheus, ok := got["orpheus"].(map[string]any)
+			if !ok {
+				t.Fatalf("orpheus = %#v, want object", got["orpheus"])
+			}
+			if gain, ok := orpheus["gain"].(float64); !ok || gain != c.wantGain {
+				t.Errorf("gain = %#v, want %v", orpheus["gain"], c.wantGain)
+			}
+			if _, ok := orpheus["reaction"]; ok {
+				t.Error("reaction was not deleted")
+			}
+			if orpheus["depth"] != float64(24) {
+				t.Errorf("unrelated Orpheus key changed: depth = %#v", orpheus["depth"])
+			}
+		})
+	}
+
+	_, changes, err := migrateShellConfig([]byte(`{"orpheus":{"reaction":"calm"}}`))
+	if err != nil {
+		t.Fatalf("migrateShellConfig: %v", err)
+	}
+	found := false
+	for _, change := range changes {
+		if change == "orpheus.reaction became orpheus.gain" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("migration change is not reported: %v", changes)
+	}
+}
+
 // The pluggable bar-style selector must survive migration and default to the
-// shipped QS Bar: reconcileShellConfig no longer strips the live barStyle, and
-// reconcileSumiBar defaults an absent or retired Atoll-era style to "qsbar" (not
-// the old "sumi"), so an existing box lands on the current default bar on update
-// while an explicit sumi/store choice is kept.
-func TestBarStyleDefaultsToQsbar(t *testing.T) {
+// shipped Orpheus bar: reconcileShellConfig no longer strips the live barStyle,
+// and reconcileSumiBar defaults an absent or retired Atoll-era style to
+// "orpheus" (not the old "sumi"). This puts an existing box on the current
+// default bar after an update while explicit Sumi and store choices are kept.
+func TestBarStyleDefaultsToOrpheus(t *testing.T) {
 	barStyleOf := func(raw []byte) string {
 		var m map[string]any
 		if err := json.Unmarshal(raw, &m); err != nil {
@@ -1466,11 +1652,12 @@ func TestBarStyleDefaultsToQsbar(t *testing.T) {
 		t.Errorf("migrateShellConfig dropped the live barStyle: got %q, want qsbar", got)
 	}
 	cases := []struct{ name, in, want string }{
+		{"orpheus kept", `{"barStyle":"orpheus"}`, "orpheus"},
 		{"qsbar kept", `{"barStyle":"qsbar"}`, "qsbar"},
 		{"sumi kept", `{"barStyle":"sumi"}`, "sumi"},
-		{"absent defaults to qsbar", `{"fontScale":1.3}`, "qsbar"},
-		{"retired atoll to qsbar", `{"barStyle":"atoll"}`, "qsbar"},
-		{"retired washi to qsbar", `{"barStyle":"washi"}`, "qsbar"},
+		{"absent defaults to orpheus", `{"fontScale":1.3}`, "orpheus"},
+		{"retired atoll to orpheus", `{"barStyle":"atoll"}`, "orpheus"},
+		{"retired washi to orpheus", `{"barStyle":"washi"}`, "orpheus"},
 	}
 	for _, c := range cases {
 		got, changed, err := migrateSumiBar([]byte(c.in))
@@ -1487,11 +1674,8 @@ func TestBarStyleDefaultsToQsbar(t *testing.T) {
 	}
 }
 
-// migrateDockStore lifts the retired qsbar.dock* knobs into a top-level dock
-// object once the dock became its own shell surface. It must move exactly the
-// five persisted knobs under their new names, drop them from qsbar, never
-// clobber a dock object the shell already wrote, leave the shell-defaulted keys
-// absent, and be idempotent so a second doctor run reads clean.
+// The dock migration converges QS, Python, iRiS and frame-bar stores on the
+// universal shell object without changing pin order or overwriting current keys.
 func TestMigrateDockStore(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -1501,7 +1685,7 @@ func TestMigrateDockStore(t *testing.T) {
 		{"absent both", `{"barStyle":"qsbar","qsbar":{"barGapTop":3}}`, false},
 		{"qsbar keys only", `{"qsbar":{"dockEnabled":true,"dockMagnify":false,"dockPinned":["kitty.desktop"],"dockFrost":true,"dockShadow":false,"barGapTop":3}}`, true},
 		{"both present", `{"dock":{"enabled":false,"edge":"top"},"qsbar":{"dockEnabled":true,"dockPinned":["kitty.desktop"],"barGapTop":3}}`, true},
-		{"already migrated", `{"dock":{"enabled":true,"pinned":["kitty.desktop"]},"qsbar":{"barGapTop":3}}`, false},
+		{"already migrated", `{"dock":{"enabled":true,"pinned":["kitty"]},"qsbar":{"barGapTop":3}}`, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -1548,8 +1732,8 @@ func TestMigrateDockStore(t *testing.T) {
 	if dock["enabled"] != true || dock["magnify"] != false || dock["frost"] != true || dock["shadow"] != false {
 		t.Errorf("dock knobs did not move correctly: %v", dock)
 	}
-	if pins, ok := dock["pinned"].([]any); !ok || len(pins) != 1 || pins[0] != "kitty.desktop" {
-		t.Errorf("dockPinned did not move to dock.pinned: %v", dock["pinned"])
+	if pins, ok := dock["pinned"].([]any); !ok || len(pins) != 1 || pins[0] != "kitty" {
+		t.Errorf("dockPinned did not canonicalise into dock.pinned: %v", dock["pinned"])
 	}
 	// the keys the shell defaults stay absent, so its Config.qml default applies.
 	for _, absent := range []string{"edge", "autohide", "labels", "media"} {
@@ -1581,9 +1765,132 @@ func TestMigrateDockStore(t *testing.T) {
 		t.Errorf("qsbar dockEnabled was not deleted: %v", q)
 	}
 
+	t.Run("all retired stores preserve order", func(t *testing.T) {
+		shell := []byte(`{
+			"dock":{"pinned":["Firefox.desktop"]},
+			"python":{"bar":{"height":40},"dock":{"enabled":true,"position":"left","elementSize":52,"apps":[{"desktop_id":"Kitty.desktop"},{"id":"firefox.desktop"}],"floating":true}},
+			"frameBars":{"style":"sumi","dock":{"pinned":["Thunar.desktop"]}}
+		}`)
+		stage := []byte(`{"dock":{"pinnedApps":["Chromium.desktop","kitty.desktop"],"smartGrouping":true},"other":{"keep":1}}`)
+		shellOut, changed, err := migrateDockStore(shell)
+		if err != nil || !changed {
+			t.Fatalf("migrateDockStore: changed=%v err=%v", changed, err)
+		}
+		stageOut, stagePins, stageChanged, err := migrateStageDockStore(stage)
+		if err != nil || !stageChanged {
+			t.Fatalf("migrateStageDockStore: changed=%v err=%v", stageChanged, err)
+		}
+		shellOut, merged, err := mergeDockPins(shellOut, stagePins)
+		if err != nil || !merged {
+			t.Fatalf("mergeDockPins: changed=%v err=%v", merged, err)
+		}
+
+		var got map[string]any
+		if err := json.Unmarshal(shellOut, &got); err != nil {
+			t.Fatal(err)
+		}
+		gotDock := got["dock"].(map[string]any)
+		pins := gotDock["pinned"].([]any)
+		wantPins := []string{"firefox", "kitty", "thunar", "chromium"}
+		if len(pins) != len(wantPins) {
+			t.Fatalf("pins = %v, want %v", pins, wantPins)
+		}
+		for i, want := range wantPins {
+			if pins[i] != want {
+				t.Errorf("pins[%d] = %v, want %q", i, pins[i], want)
+			}
+		}
+		if gotDock["enabled"] != true || gotDock["design"] != "python" ||
+			gotDock["edge"] != "left" || gotDock["size"] != float64(52) {
+			t.Errorf("shared Python settings did not migrate: %v", gotDock)
+		}
+		if py := got["python"].(map[string]any); py["dock"] != nil || py["bar"] == nil {
+			t.Errorf("Python dock survived or unrelated settings were lost: %v", py)
+		}
+		if frame := got["frameBars"].(map[string]any); frame["dock"] != nil || frame["style"] != "sumi" {
+			t.Errorf("frameBars dock pins survived or style was lost: %v", frame)
+		}
+		var cleanedStage map[string]any
+		if err := json.Unmarshal(stageOut, &cleanedStage); err != nil {
+			t.Fatal(err)
+		}
+		stageDock := cleanedStage["dock"].(map[string]any)
+		if stageDock["pinnedApps"] != nil || stageDock["smartGrouping"] != true {
+			t.Errorf("Stage pins survived or unrelated dock settings were lost: %v", stageDock)
+		}
+	})
+
 	// garbage errors rather than silently rewriting.
 	if _, _, err := migrateDockStore([]byte("not json")); err == nil {
 		t.Fatal("garbage must error, not silently rewrite")
+	}
+}
+
+func TestMigrateStageDockStoreDropsRetiredEditorKeys(t *testing.T) {
+	stage := []byte(`{
+		"configVersion": 29,
+		"background": {
+			"widgets": {
+				"at_a_glance": {
+					"animateContent": true,
+					"enableSports": true,
+					"showLocation": true,
+					"showSeparators": true,
+					"showServiceLabel": false,
+					"sportsWindowHours": 12,
+					"enableTodo": true
+				},
+				"circular_media": {"progressShape": "round", "enable": true},
+				"clock_cookie": {"aiStylingModel": "gemini", "dateInClock": true, "enable": true},
+				"clock_dial": {"expressiveColors": true, "enable": true},
+				"compact_media": {"backgroundShape": "Rectangle", "enableInnerShadow": false, "enable": true},
+				"nothing_wheel_clock": {"expressiveColors": true, "enable": true},
+				"wearos_clock": {"useAlbumColors": true, "enable": true}
+			}
+		},
+		"dock": {"smartGrouping": true},
+		"sidebar": {"enableBanner": false}
+	}`)
+
+	out, pins, changed, err := migrateStageDockStore(stage)
+	if err != nil || !changed {
+		t.Fatalf("migrateStageDockStore: changed=%v err=%v", changed, err)
+	}
+	if len(pins) != 0 {
+		t.Fatalf("pins = %v, want none", pins)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("migrated JSON does not parse: %v", err)
+	}
+	for _, path := range retiredStageEditorPaths {
+		var node any = got
+		for i, key := range path {
+			object, ok := node.(map[string]any)
+			if !ok {
+				t.Fatalf("%v stopped at a non-object before %q", path, key)
+			}
+			node, ok = object[key]
+			if i == len(path)-1 {
+				if ok {
+					t.Errorf("retired key %v survived", path)
+				}
+				break
+			}
+			if !ok {
+				t.Fatalf("%v lost its parent %q", path, key)
+			}
+		}
+	}
+	widgets := got["background"].(map[string]any)["widgets"].(map[string]any)
+	if glance := widgets["at_a_glance"].(map[string]any); glance["enableTodo"] != true {
+		t.Errorf("unrelated at-a-glance setting was lost: %v", glance)
+	}
+	if got["sidebar"].(map[string]any)["enableBanner"] != false {
+		t.Errorf("unrelated sidebar setting was lost: %v", got["sidebar"])
+	}
+	if _, _, again, err := migrateStageDockStore(out); err != nil || again {
+		t.Errorf("re-migrating must be a no-op: changed=%v err=%v", again, err)
 	}
 }
 
@@ -1611,7 +1918,7 @@ func TestLimineDropFlat(t *testing.T) {
 	if strings.Contains(out, "kernel_path: boot():/vmlinuz-linux\n") {
 		t.Errorf("flat entry options survived:\n%s", out)
 	}
-	if !strings.Contains(out, "default_entry: 2") {
+	if !strings.Contains(out, "default_entry: Ryoku/linux (UKI)") {
 		t.Errorf("default_entry not promoted past the tree directory:\n%s", out)
 	}
 	if !strings.Contains(out, "/+Ryoku") || !strings.Contains(out, "//linux (UKI)") || !strings.Contains(out, "timeout: 3") {
@@ -1643,7 +1950,7 @@ func TestLimineDropFlatAdoptedLayout(t *testing.T) {
 	if !strings.Contains(out, "/Ryoku Linux") || !strings.Contains(out, "kernel_path: boot():/vmlinuz-linux") {
 		t.Errorf("adopted tree root must survive:\n%s", out)
 	}
-	if !strings.Contains(out, "default_entry: 2") {
+	if !strings.Contains(out, "default_entry: Ryoku Linux/linux") {
 		t.Errorf("default_entry not moved off the directory:\n%s", out)
 	}
 	if _, changed := limineDropFlat(out); changed {
@@ -1690,7 +1997,7 @@ func TestPortalConfigCandidatesOrder(t *testing.T) {
 	t.Setenv("XDG_CONFIG_DIRS", "")
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("XDG_DATA_DIRS", "")
-	got := portalConfigCandidates(home)
+	got := portalConfigCandidates(home, "hyprland")
 	idx := func(p string) int {
 		for i, c := range got {
 			if c == p {
@@ -1713,6 +2020,60 @@ func TestPortalConfigCandidatesOrder(t *testing.T) {
 	}
 }
 
+// The desktop token drives which <desktop>-portals.conf the portal loads: the
+// running session's first XDG_CURRENT_DESKTOP entry wins, the provider name is
+// the fallback, and the packaged candidate is named for that token (so a niri
+// box looks for niri-portals.conf, not hyprland's).
+func TestPortalDesktopToken(t *testing.T) {
+	// table-driven so the desktop names read as data, not as a branch on which
+	// compositor is running (the isolation gate's whole point).
+	cases := []struct {
+		env, provider, want string
+	}{
+		{"niri:wayland", "niri", "niri"},
+		{"GNOME", "gnome", "gnome"},
+		{"", "Niri", "niri"}, // empty session env falls back to the provider
+		{"", "", ""},         // neither: nothing desktop-specific to look for
+	}
+	for _, c := range cases {
+		if got := portalDesktopToken(c.env, c.provider); got != c.want {
+			t.Errorf("portalDesktopToken(%q, %q) = %q, want %q", c.env, c.provider, got, c.want)
+		}
+	}
+}
+
+// A niri session's packaged candidate is niri-portals.conf, and it outranks the
+// generic portals.conf in the same directory (portals.conf(5) order).
+func TestPortalConfigCandidatesNiri(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_CONFIG_DIRS", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("XDG_DATA_DIRS", "")
+	got := portalConfigCandidates(home, "niri")
+	idx := func(p string) int {
+		for i, c := range got {
+			if c == p {
+				return i
+			}
+		}
+		t.Fatalf("candidate %s missing from %v", p, got)
+		return -1
+	}
+	if idx(filepath.Join(home, ".config/xdg-desktop-portal/niri-portals.conf")) != 0 {
+		t.Error("the user niri-portals.conf must lead the order")
+	}
+	if idx("/usr/share/xdg-desktop-portal/niri-portals.conf") > idx("/usr/share/xdg-desktop-portal/portals.conf") {
+		t.Error("the packaged niri-portals.conf must outrank the generic one")
+	}
+	// an empty token yields only the generic candidate, never a bare -portals.conf.
+	for _, c := range portalConfigCandidates(home, "") {
+		if strings.HasSuffix(c, "/-portals.conf") {
+			t.Fatalf("empty token produced %s", c)
+		}
+	}
+}
+
 // End to end on a temp home: the winning user file routes to gnome, doctor in
 // fix mode moves it aside and the packaged-style file behind it wins again.
 func TestReconcilePortalRoutingHealsUserHijack(t *testing.T) {
@@ -1723,8 +2084,8 @@ func TestReconcilePortalRoutingHealsUserHijack(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local/share"))
 	data := filepath.Join(home, "data")
 	t.Setenv("XDG_DATA_DIRS", data)
-	// A fake provider reporting a portal backend, resolved via RYOKU_WM; PATH
-	// holds only it, so the fix's systemctl nudge never reaches a live session.
+	// A fake provider reports the required portal backend. PATH holds only it,
+	// so the best-effort service restart cannot reach a live session.
 	bin := filepath.Join(home, "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
@@ -1735,6 +2096,8 @@ func TestReconcilePortalRoutingHealsUserHijack(t *testing.T) {
 	}
 	t.Setenv("PATH", bin)
 	t.Setenv("RYOKU_WM", "hyprland")
+	// no session env: the token falls back to the provider name (hyprland).
+	t.Setenv("XDG_CURRENT_DESKTOP", "")
 	userDir := filepath.Join(home, ".config/xdg-desktop-portal")
 	if err := os.MkdirAll(userDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -1766,6 +2129,44 @@ func TestReconcilePortalRoutingHealsUserHijack(t *testing.T) {
 	}
 	if r := reconcilePortalRouting(true); r.status != recOK {
 		t.Errorf("healed box must be ok, got %q: %s", r.status.label(), r.detail)
+	}
+}
+
+// A niri box routes portals through the packaged niri-portals.conf (gnome
+// backend, FileChooser to gtk). Before the candidate list was desktop-aware the
+// doctor only ever looked for hyprland-portals.conf, so it could not see this
+// file and falsely warned that nothing routes to gnome. The session env names
+// the desktop, so the token is niri and the packaged file reads as healthy.
+func TestReconcilePortalRoutingNiriPackaged(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_CONFIG_DIRS", filepath.Join(home, "empty-etc-xdg"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local/share"))
+	data := filepath.Join(home, "data")
+	t.Setenv("XDG_DATA_DIRS", data)
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	caps := "#!/bin/sh\n[ \"$1\" = caps ] && echo '{\"name\":\"niri\",\"portalBackend\":\"gnome\",\"supports\":[],\"workspaceModel\":\"dynamic\"}'\n"
+	if err := os.WriteFile(filepath.Join(bin, "ryoku-wm-niri"), []byte(caps), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("RYOKU_WM", "niri")
+	t.Setenv("XDG_CURRENT_DESKTOP", "niri")
+	packaged := filepath.Join(data, "xdg-desktop-portal")
+	if err := os.MkdirAll(packaged, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// the shipped routing: gnome default, FileChooser pinned to gtk.
+	if err := os.WriteFile(filepath.Join(packaged, "niri-portals.conf"),
+		[]byte("[preferred]\ndefault=gnome;gtk\norg.freedesktop.impl.portal.FileChooser=gtk\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if r := reconcilePortalRouting(true); r.status != recOK {
+		t.Fatalf("packaged niri box = %q (%s), want ok", r.status.label(), r.detail)
 	}
 }
 
@@ -1879,6 +2280,7 @@ func TestMergeLimineConfHealsAdoptedRoot(t *testing.T) {
 func TestLimineEnsureAutoboot(t *testing.T) {
 	const conf = `timeout: 3
 default_entry: 2
+remember_last_entry: yes
 interface_branding: Ryoku Bootloader
 
 /Ryoku Linux
@@ -1896,6 +2298,9 @@ interface_branding: Ryoku Bootloader
 /Windows
     protocol: efi_chainload
 `
+	if !limineRemembersLastEntry(conf) {
+		t.Fatal("remember_last_entry: yes was not recognized")
+	}
 	if p := limineFirstKernelPath(conf); p != "Ryoku Linux/linux" {
 		t.Fatalf("first kernel path = %q, want Ryoku Linux/linux", p)
 	}
@@ -1911,6 +2316,9 @@ interface_branding: Ryoku Bootloader
 	}
 	if !strings.Contains(got, "remember_last_entry: yes") {
 		t.Errorf("remember_last_entry not enabled:\n%s", got)
+	}
+	if strings.Count(got, "remember_last_entry: yes") != 1 {
+		t.Errorf("existing remember_last_entry was not preserved exactly once:\n%s", got)
 	}
 	if again, changed2 := limineEnsureAutoboot(got); changed2 || again != got {
 		t.Error("limineEnsureAutoboot is not idempotent")
@@ -1932,9 +2340,9 @@ func TestReconcileStaleUpdateRun(t *testing.T) {
 
 	// hermetic: a dev box's real `ryoku update` (or a sandbox where process
 	// scans stall) must not steer the result.
-	prev := updateProcessLive
-	updateProcessLive = func() bool { return false }
-	t.Cleanup(func() { updateProcessLive = prev })
+	prev := runOwnerLive
+	runOwnerLive = func(int) bool { return false }
+	t.Cleanup(func() { runOwnerLive = prev })
 
 	// no run-state at all: nothing to do.
 	if res := reconcileStaleUpdateRun(true); res.status != recOK {
@@ -2099,6 +2507,8 @@ func TestReconcileBrandLogo(t *testing.T) {
 func TestReconcileRyodecors(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_PICTURES_DIR", "")
 	repo := t.TempDir()
 	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
 		t.Skipf("git unavailable: %v %s", err, out)
@@ -2143,6 +2553,37 @@ func TestReconcileRyodecors(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(userFile); string(b) != "mine" {
 		t.Fatalf("a user's own decor file must survive the reconciler")
+	}
+}
+
+// A localized desktop keeps its pictures in ~/Imágenes: the decor art is seeded
+// there and no stray ~/Pictures appears beside it.
+func TestReconcileRyodecorsLocalizedPictures(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_PICTURES_DIR", filepath.Join(home, "Imágenes"))
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Skipf("git unavailable: %v %s", err, out)
+	}
+	src := filepath.Join(repo, "ryoku", "assets", "ryodecors")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "a.png"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RYOKU_REPO", repo)
+
+	if r := reconcileRyodecors(false); r.status != recFixed {
+		t.Fatalf("fix: status=%s detail=%q, want fixed", r.status.label(), r.detail)
+	}
+	if _, err := os.Stat(filepath.Join(home, "Imágenes", "ryodecors", "a.png")); err != nil {
+		t.Fatalf("decor art must land in the XDG Pictures folder: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "Pictures")); !os.IsNotExist(err) {
+		t.Fatalf("a localized desktop must not grow ~/Pictures (stat err=%v)", err)
 	}
 }
 
@@ -2325,6 +2766,8 @@ func TestStrayRyokuFilesSelectsUnownedOnly(t *testing.T) {
 			return []string{"/usr/lib/systemd/system/ryoku-network-kill-guard.service"}, nil
 		case "/usr/share/ryoku/boot/*":
 			return []string{"/usr/share/ryoku/boot/default.conf"}, nil
+		case "/etc/systemd/logind.conf.d/10-ryoku-lid.conf":
+			return []string{"/etc/systemd/logind.conf.d/10-ryoku-lid.conf"}, nil
 		}
 		return nil, nil
 	}
@@ -2339,9 +2782,10 @@ func TestStrayRyokuFilesSelectsUnownedOnly(t *testing.T) {
 		"/usr/share/plymouth/themes/ryoku/bullet.png":              true,
 		"/usr/lib/systemd/system/ryoku-network-kill-guard.service": true,
 		"/usr/share/ryoku/boot/default.conf":                       true,
+		"/etc/systemd/logind.conf.d/10-ryoku-lid.conf":             true,
 	}
 	if len(got) != len(want) {
-		t.Fatalf("strayRyokuFiles = %v, want exactly the three unowned paths", got)
+		t.Fatalf("strayRyokuFiles = %v, want exactly the unowned paths", got)
 	}
 	for _, g := range got {
 		if !want[g] {
@@ -2427,6 +2871,7 @@ func TestStaleUserRyotunesSpotsTheWrapperOnly(t *testing.T) {
 // The portal frontend a session needs is the one its compositor declares
 // (wm.Caps.PortalBackend): a niri box must not be told to install Hyprland's.
 func TestPortalFrontendCheckFollowsTheDeclaredBackend(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
 	cases := []struct{ provider, backend, wantPkg string }{
 		{"niri", "gnome", "xdg-desktop-portal-gnome"},
 		{"hyprland", "hyprland", "xdg-desktop-portal-hyprland"},
@@ -2456,12 +2901,339 @@ func TestPortalFrontendCheckFollowsTheDeclaredBackend(t *testing.T) {
 		}
 	}
 
-	// With no provider answering, every frontend is accepted rather than one
-	// compositor's: the old behaviour pointed a niri box at Hyprland's portal.
+	// Without a provider answer, the check cannot name a portal package without
+	// risking a recommendation for a different session.
 	t.Setenv("RYOKU_WM", "none")
 	t.Setenv("PATH", t.TempDir())
 	fix, pkgs := portalFrontendCheck()
-	if fix != "" || len(pkgs) < 2 {
-		t.Fatalf("no provider: fix=%q pkgs=%v, want no hint and every frontend", fix, pkgs)
+	if fix != "" || len(pkgs) != 0 {
+		t.Fatalf("no provider: fix=%q pkgs=%v, want neither", fix, pkgs)
+	}
+}
+
+func TestSnapshotReconcilersAreNeutralWhenUnsupported(t *testing.T) {
+	old := doctorSnapshots
+	t.Cleanup(func() { doctorSnapshots = old })
+	doctorSnapshots = func() (bool, string) {
+		return false, "Snapshots are not available on this system."
+	}
+	for name, reconcile := range map[string]func(bool) recResult{
+		"swap":    reconcileSwapSubvolume,
+		"snapper": reconcileSnapper,
+		"access":  reconcileSnapperAccess,
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := reconcile(true)
+			if result.status != recNote || result.detail != "Snapshots are not available on this system." || result.remedy != "" {
+				t.Fatalf("result = %+v", result)
+			}
+		})
+	}
+}
+
+func TestPacmanReconcilersAreNeutralOnXBPS(t *testing.T) {
+	oldManager, oldHasPacman := doctorPackageManager, hasPacman
+	t.Cleanup(func() {
+		doctorPackageManager = oldManager
+		hasPacman = oldHasPacman
+	})
+	doctorPackageManager = func() (host.PackageManager, error) { return host.XBPS, nil }
+	hasPacman = func() bool { return false }
+	for name, reconcile := range map[string]func(bool) recResult{
+		"lock":      reconcilePacmanLock,
+		"ownership": reconcileConflictingRyokuFiles,
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := reconcile(true)
+			if result.status != recNote || result.remedy != "" || strings.Contains(result.detail, "sudo pacman") {
+				t.Fatalf("result = %+v", result)
+			}
+		})
+	}
+}
+
+func TestVoidPackageChannelUsesXBPSRepository(t *testing.T) {
+	oldManager, oldInstalled := doctorPackageManager, doctorPackageInstalled
+	t.Cleanup(func() {
+		doctorPackageManager = oldManager
+		doctorPackageInstalled = oldInstalled
+	})
+	doctorPackageManager = func() (host.PackageManager, error) { return host.XBPS, nil }
+	doctorPackageInstalled = func(string) bool { return true }
+	t.Setenv("RYOKU_HOST_PKGMGR", "xbps")
+	configDir := t.TempDir()
+	t.Setenv("RYOKU_XBPS_CONFIG_DIR", configDir)
+	if err := os.WriteFile(filepath.Join(configDir, "20-ryoku.conf"), []byte("repository="+sys.VoidChannelURL(sys.ChannelStable)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := reconcileRyokuChannel(true)
+	if result.status != recOK || strings.Contains(result.detail, "pacman") {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestVoidBootGuardUsesHostServiceSeam(t *testing.T) {
+	oldManager := doctorPackageManager
+	oldInstalled := doctorPackageInstalled
+	oldService := doctorService
+	oldCheckout := bootGuardCheckout
+	oldShipped := bootGuardShipped
+	oldWritable := bootGuardWritable
+	t.Cleanup(func() {
+		doctorPackageManager = oldManager
+		doctorPackageInstalled = oldInstalled
+		doctorService = oldService
+		bootGuardCheckout = oldCheckout
+		bootGuardShipped = oldShipped
+		bootGuardWritable = oldWritable
+	})
+	t.Setenv("RYOKU_HOST_PKGMGR", "xbps")
+	doctorPackageManager = func() (host.PackageManager, error) { return host.XBPS, nil }
+	doctorPackageInstalled = func(name string) bool { return name == "ryoku-desktop" }
+	bootGuardCheckout = func() bool { return false }
+	bootGuardShipped = func(manager host.PackageManager) bool { return manager == host.XBPS }
+	bootGuardWritable = func() bool { return true }
+	var serviceArgs []string
+	doctorService = func(args ...string) int {
+		serviceArgs = append([]string(nil), args...)
+		return host.ExitFalse
+	}
+
+	result := reconcileBootGuard(true)
+	if result.status != recWouldFix || !strings.Contains(result.remedy, "ryoku-host svc --system enable ryoku-boot-guard.service") {
+		t.Fatalf("result = %+v", result)
+	}
+	if strings.Contains(result.remedy, "systemctl") || strings.Contains(result.remedy, "pacman") {
+		t.Fatalf("Void remedy leaked an Arch command: %q", result.remedy)
+	}
+	wantArgs := []string{"--system", "is-enabled", "ryoku-boot-guard.service"}
+	if !reflect.DeepEqual(serviceArgs, wantArgs) {
+		t.Fatalf("service args = %q, want %q", serviceArgs, wantArgs)
+	}
+}
+
+func TestPendingXBPSConfigUpdates(t *testing.T) {
+	oldManager, oldFind := doctorPackageManager, doctorFindPendingConfig
+	t.Cleanup(func() {
+		doctorPackageManager = oldManager
+		doctorFindPendingConfig = oldFind
+	})
+	doctorPackageManager = func() (host.PackageManager, error) { return host.XBPS, nil }
+	doctorFindPendingConfig = func(pattern string) []string {
+		if pattern != "*.new-*" {
+			t.Fatalf("pattern = %q", pattern)
+		}
+		return []string{"/etc/example.conf.new-2.0_1"}
+	}
+	result := reconcilePacnew(true)
+	if result.status != recWarn || !strings.Contains(result.detail, "/etc/example.conf.new-2.0_1") {
+		t.Fatalf("result = %+v", result)
+	}
+	if strings.Contains(result.remedy, "pacdiff") || !strings.Contains(result.remedy, "sudo rm -f") {
+		t.Fatalf("remedy = %q", result.remedy)
+	}
+}
+
+func TestOrphanRemedyUsesXBPS(t *testing.T) {
+	oldManager, oldOrphans := doctorPackageManager, doctorOrphans
+	t.Cleanup(func() {
+		doctorPackageManager = oldManager
+		doctorOrphans = oldOrphans
+	})
+	doctorPackageManager = func() (host.PackageManager, error) { return host.XBPS, nil }
+	doctorOrphans = func() ([]string, error) { return []string{"unused-1.0_1"}, nil }
+	result := reconcileOrphans(true)
+	if result.status != recNote || !strings.Contains(result.remedy, "xbps-query -O") || strings.Contains(result.remedy, "pacman") {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestSessionComponentUsesPackageAndServiceSeams(t *testing.T) {
+	oldInstalled, oldService := doctorPackageInstalled, doctorService
+	t.Cleanup(func() {
+		doctorPackageInstalled = oldInstalled
+		doctorService = oldService
+	})
+	doctorPackageInstalled = func(name string) bool { return name == "installed" }
+	doctorService = func(args ...string) int {
+		if strings.Join(args, " ") == "--user is-active running" {
+			return host.ExitOK
+		}
+		return host.ExitFalse
+	}
+	if !sessionComponentPresent([]string{"installed"}) {
+		t.Fatal("installed package was not accepted")
+	}
+	if !sessionComponentPresent([]string{"missing"}, sessionService{"--user", "running"}) {
+		t.Fatal("running service was not accepted")
+	}
+	if sessionComponentPresent([]string{"missing"}, sessionService{"--user", "down"}) {
+		t.Fatal("missing package and down service were accepted")
+	}
+}
+
+func TestIconFontAcceptsFontconfigVisibleCopy(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	provider := filepath.Join(bin, "ryoku-wm-test")
+	if err := os.WriteFile(provider, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin)
+	t.Setenv("RYOKU_WM", "test")
+	oldVisible, oldInstall := doctorMaterialSymbolsVisible, doctorPackageInstall
+	t.Cleanup(func() {
+		doctorMaterialSymbolsVisible = oldVisible
+		doctorPackageInstall = oldInstall
+	})
+	doctorMaterialSymbolsVisible = func() bool { return true }
+	doctorPackageInstall = func(names ...string) int {
+		t.Fatal("visible font triggered an install")
+		return host.ExitFailure
+	}
+	result := reconcileIconFont(true)
+	if result.status != recOK {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestFailedServicesHaveRunitMeaning(t *testing.T) {
+	oldInit, oldFailures := doctorInitSystem, doctorFailedServices
+	t.Cleanup(func() {
+		doctorInitSystem = oldInit
+		doctorFailedServices = oldFailures
+	})
+	doctorInitSystem = func() (host.InitSystem, error) { return host.Runit, nil }
+	doctorFailedServices = func() ([]host.ServiceFailure, error) {
+		return []host.ServiceFailure{
+			{Scope: "--system", Name: "NetworkManager"},
+			{Scope: "--user", Name: "pipewire"},
+		}, nil
+	}
+	result := reconcileFailedUnits(true)
+	if result.status != recWarn || strings.Contains(result.remedy, "systemctl") {
+		t.Fatalf("result = %+v", result)
+	}
+	for _, text := range []string{"NetworkManager (system)", "pipewire (user)"} {
+		if !strings.Contains(result.detail, text) {
+			t.Fatalf("detail %q misses %q", result.detail, text)
+		}
+	}
+	if !strings.Contains(result.remedy, "sv status") || !strings.Contains(result.remedy, "service log") {
+		t.Fatalf("remedy = %q", result.remedy)
+	}
+
+	doctorFailedServices = func() ([]host.ServiceFailure, error) { return nil, nil }
+	result = reconcileFailedUnits(true)
+	if result.status != recOK || strings.Contains(result.detail, "could not be determined") {
+		t.Fatalf("healthy result = %+v", result)
+	}
+
+	doctorFailedServices = func() ([]host.ServiceFailure, error) {
+		return nil, errSystemServiceHealthUnavailable
+	}
+	result = reconcileFailedUnits(true)
+	if result.status != recNote || !strings.Contains(result.detail, "without passwordless sudo") ||
+		strings.Contains(result.detail, "permission denied") {
+		t.Fatalf("unprivileged system result = %+v", result)
+	}
+
+	doctorFailedServices = func() ([]host.ServiceFailure, error) {
+		return []host.ServiceFailure{{Scope: "--user", Name: "crashing"}}, errSystemServiceHealthUnavailable
+	}
+	result = reconcileFailedUnits(true)
+	if result.status != recWarn || !strings.Contains(result.detail, "crashing (user)") ||
+		!strings.Contains(result.detail, "without passwordless sudo") {
+		t.Fatalf("partial service result = %+v", result)
+	}
+}
+
+func TestUncommentedConfigDropsHeadingLikeComments(t *testing.T) {
+	got := uncommentedConfig("## Path: System/Snapper\n# explanation\nSNAPPER_CONFIGS=\"root\"\n")
+	if got != "SNAPPER_CONFIGS=\"root\"" {
+		t.Fatalf("config = %q", got)
+	}
+}
+
+func TestVoidReportUsesHostCommandsWithSnapshotsSupported(t *testing.T) {
+	oldManager, oldInit := doctorPackageManager, doctorInitSystem
+	oldVersion, oldService := reportPackageVersion, doctorService
+	oldOrphans, oldPending, oldSnapshots := doctorOrphans, doctorFindPendingConfig, doctorSnapshots
+	t.Cleanup(func() {
+		doctorPackageManager, doctorInitSystem = oldManager, oldInit
+		reportPackageVersion, doctorService = oldVersion, oldService
+		doctorOrphans, doctorFindPendingConfig, doctorSnapshots = oldOrphans, oldPending, oldSnapshots
+	})
+	doctorPackageManager = func() (host.PackageManager, error) { return host.XBPS, nil }
+	doctorInitSystem = func() (host.InitSystem, error) { return host.Runit, nil }
+	reportPackageVersion = func(string) (string, bool) { return "", false }
+	doctorService = func(args ...string) int { return host.ExitAbsent }
+	doctorOrphans = func() ([]string, error) { return nil, nil }
+	doctorFindPendingConfig = func(pattern string) []string {
+		if pattern != "*.new-*" {
+			t.Fatalf("pattern = %q", pattern)
+		}
+		return nil
+	}
+	doctorSnapshots = func() (bool, string) { return true, "" }
+	report := gatherReport(nil)
+	for _, forbidden := range []string{"$ pacman ", "$ systemctl "} {
+		if strings.Contains(report, forbidden) {
+			t.Fatalf("report contains %q", forbidden)
+		}
+	}
+	for _, want := range []string{"package manager: xbps", "service manager: runit", "pending config files: (none)"} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("report missing %q", want)
+		}
+	}
+}
+
+func TestVoidReportSaysUnreadableOnlyForSupervisedSystemServices(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read runit's system supervise state")
+	}
+
+	oldManager, oldInit := doctorPackageManager, doctorInitSystem
+	oldVersion, oldService := reportPackageVersion, doctorService
+	oldOrphans, oldPending, oldSnapshots := doctorOrphans, doctorFindPendingConfig, doctorSnapshots
+	t.Cleanup(func() {
+		doctorPackageManager, doctorInitSystem = oldManager, oldInit
+		reportPackageVersion, doctorService = oldVersion, oldService
+		doctorOrphans, doctorFindPendingConfig, doctorSnapshots = oldOrphans, oldPending, oldSnapshots
+	})
+	doctorPackageManager = func() (host.PackageManager, error) { return host.XBPS, nil }
+	doctorInitSystem = func() (host.InitSystem, error) { return host.Runit, nil }
+	reportPackageVersion = func(string) (string, bool) { return "", false }
+	doctorService = func(args ...string) int {
+		if len(args) == 3 && args[0] == "--system" && args[1] == "is-enabled" && args[2] == "sddm" {
+			return host.ExitOK
+		}
+		return host.ExitAbsent
+	}
+	doctorOrphans = func() ([]string, error) { return nil, nil }
+	doctorFindPendingConfig = func(string) []string { return nil }
+	doctorSnapshots = func() (bool, string) { return true, "" }
+
+	report := gatherReport(nil)
+	for _, want := range []string{
+		"system sddm: active=unreadable without root enabled=yes",
+		"system bluetooth: active=absent enabled=absent",
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("runit report missing %q", want)
+		}
+	}
+
+	doctorInitSystem = func() (host.InitSystem, error) { return host.Systemd, nil }
+	report = gatherReport(nil)
+	want := "system sddm: active=absent enabled=yes"
+	if !strings.Contains(report, want) {
+		t.Fatalf("systemd report missing %q", want)
 	}
 }

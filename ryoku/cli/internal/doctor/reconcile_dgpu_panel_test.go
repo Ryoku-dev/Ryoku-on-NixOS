@@ -1,8 +1,12 @@
 package doctor
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	i18n "ryoku-i18n"
 )
 
 // stubDgpu swaps the one seam the reconciler reads (the whole gathered state)
@@ -15,9 +19,9 @@ func stubDgpu(t *testing.T, s dgpuState) {
 	gatherDgpuState = func() dgpuState { return s }
 }
 
-// The reconciler fires on either shape that leaves a discrete GPU pinned awake:
-// the panel wired to it (MUX in Discrete), or the panel elsewhere but an open fd
-// holding it up (MUX already Hybrid). Every other shape must report ok.
+// The reconciler fires when the internal panel pins the discrete GPU awake, or
+// when the panel is elsewhere, no output is attached to the dGPU, and the card
+// still never sleeps. An attached dGPU output is expected load, not idle drain.
 func TestDgpuPanelReconcile(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -52,7 +56,7 @@ func TestDgpuPanelReconcile(t *testing.T) {
 		},
 		{
 			name:      "laptop with the panel on an awake, never-suspended dGPU fires",
-			state:     dgpuState{laptop: true, present: true, slot: "0000:01:00.0", panelOnDgpu: true, status: "active", suspended: 0, watts: 10.4},
+			state:     dgpuState{laptop: true, present: true, slot: "0000:01:00.0", panelOnDgpu: true, dgpuOutputs: []string{"eDP-1"}, status: "active", suspended: 0, watts: 10.4},
 			fires:     true,
 			remedyHas: "ryoku-gpu-mux set hybrid",
 		},
@@ -109,6 +113,62 @@ func TestDgpuPanelReconcile(t *testing.T) {
 	}
 }
 
+func TestDgpuExternalOutputExplainsNeverSuspendedCard(t *testing.T) {
+	got := planDgpuPanel(dgpuState{
+		laptop:      true,
+		present:     true,
+		slot:        "0000:01:00.0",
+		panelOnDgpu: false,
+		dgpuOutputs: []string{"HDMI-A-1"},
+		status:      "active",
+		suspended:   0,
+		watts:       4.7,
+		rtd3:        "Enabled (fine-grained)",
+		holders:     []string{"Hyprland", "Xwayland"},
+	})
+
+	if got.status != recOK {
+		t.Fatalf("expected an informational result, got %v (%s)", got.status, got.detail)
+	}
+	want := "the discrete GPU is driving HDMI-A-1 and drawing 4.7 W; it cannot runtime-suspend while that display is attached"
+	if got.detail != want {
+		t.Fatalf("detail = %q, want %q", got.detail, want)
+	}
+	if got.remedy != "" {
+		t.Errorf("an attached dGPU display needs no idle-drain remedy, got %q", got.remedy)
+	}
+	for _, process := range []string{"Hyprland", "Xwayland"} {
+		if strings.Contains(got.detail, process) {
+			t.Errorf("expected display must not blame %s: %q", process, got.detail)
+		}
+	}
+}
+
+func TestDgpuRtd3OffFixMatchesHost(t *testing.T) {
+	t.Run("Arch keeps mkinitcpio advice", func(t *testing.T) {
+		t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
+
+		want := "the NVIDIA driver reports runtime D3 power management off for this card, so it can never power down. Enable fine-grained control with `NVreg_DynamicPowerManagement=0x02` in a /etc/modprobe.d/nvidia.conf `options nvidia` line, rebuild the initramfs (`sudo mkinitcpio -P`), and reboot."
+		if got := dgpuRtd3OffFix(); got != want {
+			t.Errorf("Arch repair advice changed:\ngot:  %q\nwant: %q", got, want)
+		}
+	})
+
+	t.Run("Void uses XBPS and dracut advice", func(t *testing.T) {
+		t.Setenv("RYOKU_HOST_PKGMGR", "xbps")
+
+		got := dgpuRtd3OffFix()
+		for _, want := range []string{"XBPS", "xbps-reconfigure", "dracut"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("Void repair advice must mention %q: %q", want, got)
+			}
+		}
+		if strings.Contains(got, "mkinitcpio") {
+			t.Errorf("Void repair advice must not mention mkinitcpio: %q", got)
+		}
+	})
+}
+
 // A measured draw is quoted; an unreadable one is never turned into a made-up
 // wattage.
 func TestDgpuPanelWattageOnlyWhenMeasured(t *testing.T) {
@@ -122,6 +182,35 @@ func TestDgpuPanelWattageOnlyWhenMeasured(t *testing.T) {
 	}
 	if strings.Contains(unread.detail, " W") {
 		t.Errorf("an unreadable draw must not fabricate a wattage, got %q", unread.detail)
+	}
+}
+
+func TestDgpuPanelDetailUsesOneTranslatableSentence(t *testing.T) {
+	got := dgpuNeverSuspendedDetail(dgpuState{
+		watts: 13.3, rtd3: "Enabled (fine-grained)", holders: []string{"Hyprland", "Xwayland", "qs"},
+	})
+	want := "the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing 13.3 W, with the card open in Hyprland, Xwayland, qs"
+	if got != want {
+		t.Fatalf("detail = %q, want %q", got, want)
+	}
+}
+
+func TestDgpuPanelDetailTranslatesAsOneSentence(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("RYOKU_I18N_DIR", root)
+	key := "the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing %.1f W, with the card open in %s"
+	body := `{"` + key + `":"ayrık GPU paneli sürmüyor, %.1f W tüketiyor; işlemler: %s"}`
+	if err := os.WriteFile(filepath.Join(root, "tr.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	i18n.Use("tr")
+	t.Cleanup(func() { i18n.Use("en") })
+
+	got := dgpuNeverSuspendedDetail(dgpuState{watts: 13.3, holders: []string{"Xwayland", "qs"}})
+	if got != "ayrık GPU paneli sürmüyor, 13.3 W tüketiyor; işlemler: Xwayland, qs" {
+		t.Fatalf("detail = %q", got)
 	}
 }
 
@@ -181,11 +270,19 @@ func TestDgpuAllConnectorsOnDgpu(t *testing.T) {
 	if allConnectorsOnDgpu("card1", nil) {
 		t.Error("no connected connector must not read as panel-on-dGPU")
 	}
-	if !allConnectorsOnDgpu("card1", []string{"card1"}) {
+	if !allConnectorsOnDgpu("card1", []connectorInfo{{card: "card1", output: "eDP-1"}}) {
 		t.Error("the sole connected connector on the dGPU is panel-on-dGPU")
 	}
-	if allConnectorsOnDgpu("card1", []string{"card1", "card0"}) {
+	connected := []connectorInfo{
+		{card: "card1", output: "HDMI-A-1"},
+		{card: "card2", output: "eDP-1"},
+	}
+	if allConnectorsOnDgpu("card1", connected) {
 		t.Error("a connector on the iGPU means the panel is not solely on the dGPU")
+	}
+	outputs := outputsOnCard("card1", connected)
+	if len(outputs) != 1 || outputs[0] != "HDMI-A-1" {
+		t.Errorf("outputsOnCard(card1) = %v, want [HDMI-A-1]", outputs)
 	}
 }
 

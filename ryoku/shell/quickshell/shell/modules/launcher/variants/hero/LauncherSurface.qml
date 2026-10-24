@@ -11,6 +11,7 @@ import Ryoku.Ui.Singletons
 import "../../shared/Singletons"
 import "../../shared/lib/lifecycle.js" as Lifecycle
 import "." as HeroVariant
+import "../../../../services/lib/screens.js" as Screens
 
 PanelWindow {
     id: win
@@ -26,8 +27,8 @@ PanelWindow {
     signal becameActive(var surface, var launcher)
 
     property string surfaceMonitor: modelData ? String(modelData.name || "") : ""
-    readonly property real s: Math.min(
-        1.2, (modelData ? modelData.height / 1080 : 1))
+    readonly property real s: Screens.monitorScale(modelData,
+            Wm.outputScale(win.surfaceMonitor), 1.2)
         * Math.max(0.8, Math.min(1.4, Config.fontScale))
         * Tokens.uiScaleFor(surfaceMonitor)
     readonly property bool invocationSurface: Lifecycle.mapsMonitor(

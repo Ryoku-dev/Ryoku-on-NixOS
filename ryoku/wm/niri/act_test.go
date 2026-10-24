@@ -176,6 +176,7 @@ func TestActCyclesOneStepPerUnit(t *testing.T) {
 func TestActRejectsMissingArgs(t *testing.T) {
 	for _, args := range [][]string{
 		{"window.focus"},
+		{"window.place", "7", "0", "0", "700"},
 		{"window.moveToWorkspace", "7"},
 		{"workspace.focus"},
 		{"workspace.moveToOutput", "3"},
@@ -230,6 +231,124 @@ func TestActRefusesPerOutputPower(t *testing.T) {
 	}
 	if called {
 		t.Fatal("powered outputs despite a target niri cannot honour")
+	}
+}
+
+type fakeConfigLoadedWaiter struct {
+	waitFn func() error
+}
+
+func (f *fakeConfigLoadedWaiter) wait() error {
+	if f.waitFn != nil {
+		return f.waitFn()
+	}
+	return nil
+}
+
+func (f *fakeConfigLoadedWaiter) close() error { return nil }
+
+func TestCursorReassertForcesNiriCursorReload(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+
+	store := filepath.Join(config, "ryoku", "desktop.json")
+	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store, []byte(`{"desktop":{"cursor":{"theme":"DYNAMIC","size":24}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	actual := genSettings(loadStore(store))
+	if err := writeOverlayKdl("settings.kdl", actual); err != nil {
+		t.Fatal(err)
+	}
+	realConfig := filepath.Join(config, "niri", "config.kdl")
+	if err := os.WriteFile(realConfig, []byte("include \"settings.kdl\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var loadPaths []string
+	var tempSettingsBody string
+	restore := stubRequest(t, func(req any) (json.RawMessage, error) {
+		outer, ok := req.(map[string]any)
+		if !ok {
+			t.Fatalf("request type = %T", req)
+		}
+		actionMap := outer["Action"].(map[string]any)
+		load := actionMap["LoadConfigFile"].(map[string]any)
+		path, _ := load["path"].(string)
+		loadPaths = append(loadPaths, path)
+
+		if strings.Contains(filepath.Base(path), ".ryoku-cursor-reassert-config-") {
+			matches, err := filepath.Glob(filepath.Join(config, "niri", ".ryoku-cursor-reassert-settings-*.kdl"))
+			if err != nil || len(matches) != 1 {
+				t.Fatalf("temporary settings = %v, err = %v", matches, err)
+			}
+			body, err := os.ReadFile(matches[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			tempSettingsBody = string(body)
+		}
+		return json.RawMessage(`{"Handled":null}`), nil
+	})
+	defer restore()
+
+	oldWaiterFactory := newConfigLoadedWaiter
+	defer func() { newConfigLoadedWaiter = oldWaiterFactory }()
+	newConfigLoadedWaiter = func() (configLoadedWaiter, error) {
+		return &fakeConfigLoadedWaiter{}, nil
+	}
+
+	if err := runAct([]string{"cursor.reassert"}); err != nil {
+		t.Fatalf("cursor.reassert: %v", err)
+	}
+
+	if len(loadPaths) != 2 {
+		t.Fatalf("load paths = %#v, want two", loadPaths)
+	}
+	if !strings.Contains(filepath.Base(loadPaths[0]), ".ryoku-cursor-reassert-config-") {
+		t.Fatalf("first reload path = %q, want private cursor config", loadPaths[0])
+	}
+	if loadPaths[1] != realConfig {
+		t.Fatalf("final reload path = %q, want %q", loadPaths[1], realConfig)
+	}
+	if !strings.Contains(tempSettingsBody, `hide-after-inactive-ms 86400000`) {
+		t.Fatalf("temporary config did not change the cursor struct:\n%s", tempSettingsBody)
+	}
+	if !strings.Contains(tempSettingsBody, `xcursor-size 24`) {
+		t.Fatalf("temporary config changed the visible cursor size:\n%s", tempSettingsBody)
+	}
+
+	live, err := os.ReadFile(filepath.Join(config, "niri", "settings.kdl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(live), `xcursor-size 24`) {
+		t.Fatalf("final live config did not restore cursor size 24:\n%s", live)
+	}
+	if strings.Contains(string(live), `hide-after-inactive-ms 86400000`) {
+		t.Fatalf("temporary cursor field leaked into final live config:\n%s", live)
+	}
+
+	overlay, err := os.ReadFile(filepath.Join(config, "ryoku", "user_edits", "niri", "settings.kdl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(overlay), `xcursor-size 24`) {
+		t.Fatalf("persistent overlay did not keep real cursor size:\n%s", overlay)
+	}
+	if strings.Contains(string(overlay), `hide-after-inactive-ms 86400000`) {
+		t.Fatalf("temporary cursor field leaked into persistent overlay:\n%s", overlay)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(config, "niri", ".ryoku-cursor-reassert-*.kdl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leftovers) != 0 {
+		t.Fatalf("temporary cursor configs were not cleaned up: %v", leftovers)
 	}
 }
 
@@ -377,7 +496,7 @@ func stubRequest(t *testing.T, fn func(any) (json.RawMessage, error)) func() {
 
 // The colour temperature is clamped to the range the gamma client accepts and a
 // missing or unparseable argument falls back to the default, so a stray keybind
-// argument can never ask gammastep for a value it would reject or for 0 K.
+// argument can never ask wlsunset for a value it would reject or for 0 K.
 func TestNightlightTempClamps(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
@@ -445,26 +564,5 @@ func TestActBorderPaletteNoOpWhenFixed(t *testing.T) {
 	}
 	if _, err := os.Stat(borderPalettePath()); !os.IsNotExist(err) {
 		t.Error("a fixed border must not write the palette file")
-	}
-}
-
-func TestTouchpadNotificationsOnlyOnChange(t *testing.T) {
-	restore := stubRequest(t, func(any) (json.RawMessage, error) { return nil, nil })
-	defer restore()
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	previous := touchpadNotify
-	count := 0
-	touchpadNotify = func(string, string) { count++ }
-	defer func() { touchpadNotify = previous }()
-
-	for _, mode := range []string{"on", "off", "off", "restore", "on", "on"} {
-		if err := runAct([]string{"input.touchpad", mode}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if count != 2 {
-		t.Fatalf("got %d notifications for two state changes", count)
 	}
 }

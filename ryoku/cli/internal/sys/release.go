@@ -15,21 +15,29 @@ import (
 // Package channels. A packaged box takes its Ryoku set from one [ryoku] repo
 // directory, and which directory is the channel:
 //
-//	stable    x86_64/                  the pointer every installed box has; a
-//	                                   byte copy of the newest frozen release
-//	testing   channels/testing/x86_64/ rebuilt on every push to unstable-dev
-//	v<tag>    releases/<tag>/x86_64/   one frozen release, never rewritten
+//	stable      x86_64/                              moving stable head
+//	testing     channels/testing/x86_64/             moving unstable head
+//	v<tag>      releases/<tag>/x86_64/               frozen stable release
+//	v<...>.dev  channels/testing/builds/<dir>/x86_64 frozen unstable build
 //
 // All of them live under RepoBase, the one bucket mount the repo domain
 // serves (repo.ryoku.dev/stable/<key> is bucket object <key>; the "stable"
 // segment is the mount, not the channel). publish-repo.yml writes them. The
 // channel a box is on is nothing but the Server line of its [ryoku] stanza,
 // so there is no second state to drift from it.
-const RepoBase = "https://repo.ryoku.dev/stable"
+const (
+	RepoBase     = "https://repo.ryoku.dev/stable"
+	VoidRepoBase = RepoBase + "/void"
+)
 
 const (
 	ChannelStable  = "stable"
 	ChannelTesting = "testing"
+	// ChannelUnstable is the user-facing name of the testing channel. The
+	// command line and every message the CLI prints use it; ChannelTesting
+	// stays the internal key -- the repo path, the [ryoku] Server, and the
+	// channel-intent value on disk.
+	ChannelUnstable = "unstable"
 )
 
 // PacmanConf is where the [ryoku] stanza lives; a var so tests point it at a
@@ -40,18 +48,133 @@ var PacmanConf = "/etc/pacman.conf"
 // release a box runs; a var for tests.
 var ReleaseFile = "/etc/ryoku-release"
 
-// the shape stable-release.yml tags (bin/ryoku-release-bump): a core version
-// with an optional alpha/beta/rc counter. a testing build's name
-// (v0.56.0-beta.19.dev.363+g4d1cf63) is deliberately not one: nothing frozen
-// stands behind it, so it can be neither tracked nor gone back to.
+// releaseTagRe matches the stable-release.yml tag shape: a core version with
+// an optional alpha, beta, or rc counter.
 var releaseTagRe = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$`)
 
-// IsReleaseTag reports whether s names a frozen release (v0.55.7-beta.19,
-// v1.0.0), the shape stable-release.yml tags.
+// unstableBuildRe matches the immutable name assigned to one unstable-dev
+// publish. The bucket uses an underscore in place of '+' for its directory.
+var unstableBuildRe = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?\.dev\.[0-9]+\+g[0-9a-f]{7,40}$`)
+
+// IsReleaseTag reports whether s is a stable release tag (v0.55.7-beta.19 or
+// v1.0.0). Unstable build names are deliberately excluded.
 func IsReleaseTag(s string) bool { return releaseTagRe.MatchString(s) }
 
-// ChannelServer is the [ryoku] Server line for a channel or release tag, or ""
-// for a name that is neither.
+// IsUnstableBuild reports whether s names one frozen unstable-dev build.
+func IsUnstableBuild(s string) bool { return unstableBuildRe.MatchString(s) }
+
+// IsFrozenVersion reports whether s names any immutable package version.
+func IsFrozenVersion(s string) bool { return IsReleaseTag(s) || IsUnstableBuild(s) }
+
+// UnstableBuildDir maps a build name to its frozen bucket directory.
+func UnstableBuildDir(build string) string {
+	if !IsUnstableBuild(build) {
+		return ""
+	}
+	return strings.Replace(build, "+", "_", 1)
+}
+
+// UnstableBuildFromDir maps a frozen bucket directory back to its build name.
+func UnstableBuildFromDir(dir string) string {
+	i := strings.LastIndex(dir, "_g")
+	if i < 0 {
+		return ""
+	}
+	build := dir[:i] + "+g" + dir[i+2:]
+	if !IsUnstableBuild(build) {
+		return ""
+	}
+	return build
+}
+
+// releaseTagFieldsRe splits a frozen release tag into its comparable parts.
+var releaseTagFieldsRe = regexp.MustCompile(`^v([0-9]+)\.([0-9]+)\.([0-9]+)(?:-(alpha|beta|rc)\.([0-9]+))?$`)
+
+// releaseTagOrder is a parsed release tag. A final release carries no
+// prerelease, so preRank 3 ("released") ranks above any alpha/beta/rc of the
+// same core version.
+type releaseTagOrder struct {
+	major, minor, patch, preRank, preNum int
+	ok                                   bool
+}
+
+func parseReleaseTag(tag string) releaseTagOrder {
+	m := releaseTagFieldsRe.FindStringSubmatch(strings.TrimSpace(tag))
+	if m == nil {
+		return releaseTagOrder{}
+	}
+	o := releaseTagOrder{ok: true, preRank: 3}
+	o.major, _ = strconv.Atoi(m[1])
+	o.minor, _ = strconv.Atoi(m[2])
+	o.patch, _ = strconv.Atoi(m[3])
+	switch m[4] {
+	case "alpha":
+		o.preRank = 0
+	case "beta":
+		o.preRank = 1
+	case "rc":
+		o.preRank = 2
+	}
+	if m[5] != "" {
+		o.preNum, _ = strconv.Atoi(m[5])
+	}
+	return o
+}
+
+// CompareReleaseTags orders two frozen release tags (v0.63.1-beta.19), returning
+// -1, 0, 1 for a<b, a==b, a>b. Core version dominates; a tag with no prerelease
+// counter outranks one that has it (v1.0.0 > v1.0.0-rc.1); among prereleases
+// alpha<beta<rc, then the counter numerically. A tag that does not parse sorts
+// oldest, so an unknown never reads as ahead of a real release.
+func CompareReleaseTags(a, b string) int {
+	pa, pb := parseReleaseTag(a), parseReleaseTag(b)
+	switch {
+	case !pa.ok && !pb.ok:
+		return 0
+	case !pa.ok:
+		return -1
+	case !pb.ok:
+		return 1
+	}
+	for _, d := range []int{pa.major - pb.major, pa.minor - pb.minor, pa.patch - pb.patch, pa.preRank - pb.preRank, pa.preNum - pb.preNum} {
+		if d < 0 {
+			return -1
+		}
+		if d > 0 {
+			return 1
+		}
+	}
+	return 0
+}
+
+// CompareFrozenVersions orders two versions when both are stable releases or
+// both are unstable builds. The bool is false when their kinds differ or either
+// value is not frozen.
+func CompareFrozenVersions(a, b string) (int, bool) {
+	if IsReleaseTag(a) && IsReleaseTag(b) {
+		return CompareReleaseTags(a, b), true
+	}
+	if !IsUnstableBuild(a) || !IsUnstableBuild(b) {
+		return 0, false
+	}
+	aDev, bDev := strings.LastIndex(a, ".dev."), strings.LastIndex(b, ".dev.")
+	if order := CompareReleaseTags(a[:aDev], b[:bDev]); order != 0 {
+		return order, true
+	}
+	aBuild, _ := strconv.Atoi(strings.SplitN(a[aDev+5:], "+", 2)[0])
+	bBuild, _ := strconv.Atoi(strings.SplitN(b[bDev+5:], "+", 2)[0])
+	switch {
+	case aBuild < bBuild:
+		return -1, true
+	case aBuild > bBuild:
+		return 1, true
+	default:
+		return 0, true
+	}
+}
+
+// ChannelServer is the [ryoku] Server line for a channel or frozen version, or
+// "" for a name that is neither.
 func ChannelServer(channel string) string {
 	switch {
 	case channel == ChannelStable:
@@ -60,13 +183,55 @@ func ChannelServer(channel string) string {
 		return RepoBase + "/channels/testing/$arch"
 	case IsReleaseTag(channel):
 		return RepoBase + "/releases/" + channel + "/$arch"
+	case IsUnstableBuild(channel):
+		return RepoBase + "/channels/testing/builds/" + UnstableBuildDir(channel) + "/$arch"
+	}
+	return ""
+}
+
+// VoidChannelURL is the signed XBPS repository URL for a channel or frozen
+// version. Unlike pacman's Server line, XBPS repositories do not carry an
+// architecture placeholder.
+func VoidChannelURL(channel string) string {
+	switch {
+	case channel == ChannelStable:
+		return VoidRepoBase + "/x86_64"
+	case channel == ChannelTesting:
+		return VoidRepoBase + "/channels/testing/x86_64"
+	case IsReleaseTag(channel):
+		return VoidRepoBase + "/releases/" + channel + "/x86_64"
+	case IsUnstableBuild(channel):
+		return VoidRepoBase + "/channels/testing/builds/" + UnstableBuildDir(channel) + "/x86_64"
+	}
+	return ""
+}
+
+// ChannelOfVoidURL maps a published XBPS repository URL to its channel.
+func ChannelOfVoidURL(repository string) string {
+	value := strings.TrimSuffix(strings.TrimSpace(repository), "/")
+	value = strings.TrimSuffix(strings.TrimSuffix(value, "/"), "x86_64")
+	if !strings.HasPrefix(value, VoidRepoBase) {
+		return ""
+	}
+	rest := strings.Trim(strings.TrimPrefix(value, VoidRepoBase), "/")
+	switch {
+	case rest == "":
+		return ChannelStable
+	case rest == "channels/testing":
+		return ChannelTesting
+	case strings.HasPrefix(rest, "releases/"):
+		if tag := strings.TrimPrefix(rest, "releases/"); IsReleaseTag(tag) {
+			return tag
+		}
+	case strings.HasPrefix(rest, "channels/testing/builds/"):
+		return UnstableBuildFromDir(strings.TrimPrefix(rest, "channels/testing/builds/"))
 	}
 	return ""
 }
 
 // ChannelOfServer maps a Server line back to its channel name: stable,
-// testing, a release tag, or "" for a mirror Ryoku does not publish (a local
-// build-repo.sh out/ tree, a private mirror), which is left alone everywhere.
+// testing, a stable release tag, an unstable build, or "" for a mirror Ryoku
+// does not publish (a local build-repo.sh out/ tree or a private mirror).
 func ChannelOfServer(server string) string {
 	s := strings.TrimSpace(server)
 	s = strings.TrimSuffix(strings.TrimSuffix(s, "/"), "$arch")
@@ -85,6 +250,8 @@ func ChannelOfServer(server string) string {
 		if tag := strings.TrimPrefix(rest, "releases/"); IsReleaseTag(tag) {
 			return tag
 		}
+	case strings.HasPrefix(rest, "channels/testing/builds/"):
+		return UnstableBuildFromDir(strings.TrimPrefix(rest, "channels/testing/builds/"))
 	}
 	return ""
 }
@@ -93,6 +260,32 @@ func ChannelOfServer(server string) string {
 // $arch resolved), used to read release.json.
 func ChannelURL(channel string) string {
 	return strings.Replace(ChannelServer(channel), "$arch", "x86_64", 1)
+}
+
+// DisplayChannel is the user-facing name of a package channel: the testing
+// channel reads as "unstable", while its internal key stays "testing". Every
+// other name (stable or a frozen version) is shown as itself. Callers that print
+// a PackagedChannel or ReadChannelIntent value to the user route it through here.
+func DisplayChannel(channel string) string {
+	if channel == ChannelTesting {
+		return ChannelUnstable
+	}
+	return channel
+}
+
+// TrackName is the `ryoku track` argument a user runs to follow a channel or a
+// source branch, so a hint the CLI prints always names a command that still
+// works: the testing channel and the unstable-dev branch are both reached with
+// "unstable", the main branch with "stable". A package channel otherwise maps
+// through DisplayChannel.
+func TrackName(channel string) string {
+	switch channel {
+	case "unstable-dev":
+		return ChannelUnstable
+	case "main":
+		return ChannelStable
+	}
+	return DisplayChannel(channel)
 }
 
 // RyokuServer returns the Server line of the [ryoku] stanza in pacman.conf, or
@@ -124,14 +317,23 @@ func RyokuServer() string {
 // Ryoku does not publish.
 func PackagedChannel() string { return ChannelOfServer(RyokuServer()) }
 
-// SetPackagedChannel rewrites the [ryoku] Server line to channel (stable,
-// testing, or a release tag). It needs a stanza to rewrite; the doctor adds a
-// missing one. Written through sudo install, so the file is replaced whole.
+// SetPackagedChannel rewrites the [ryoku] Server line to a channel or frozen
+// version. It needs a stanza to rewrite; the doctor adds a missing one.
 func SetPackagedChannel(channel string) error {
 	server := ChannelServer(channel)
 	if server == "" {
-		return fmt.Errorf(i18n.T("unknown channel %q (stable, testing, or a release tag like v0.55.7-beta.19)"), channel)
+		return fmt.Errorf(i18n.T("unknown channel %q (stable, unstable, a release tag, or an unstable build)"), channel)
 	}
+	return SetRyokuServer(server)
+}
+
+// SetRyokuServer rewrites the [ryoku] Server line to the exact server string and
+// drops the cached sync db so the next refresh pulls a matched pair. Unlike
+// SetPackagedChannel it takes the raw line, so a caller can put a previously
+// recorded Server back byte-for-byte after a failed channel move (the
+// transactional pin in the updater). Written through WriteRootFile, so the file
+// is replaced whole.
+func SetRyokuServer(server string) error {
 	b, err := os.ReadFile(PacmanConf)
 	if err != nil {
 		return err
@@ -196,7 +398,7 @@ var PacmanSyncDir = "/var/lib/pacman/sync"
 // PacmanConf and never shells out to sudo in a unit test.
 func WriteRootFile(path, contents, mode string) error {
 	if writableDir(filepath.Dir(path)) {
-		return writeFileAtomic(path, contents, fileMode(mode))
+		return WriteFileAtomic(path, contents, fileMode(mode))
 	}
 	tmp, err := os.CreateTemp("", "ryoku-root-*")
 	if err != nil {
@@ -225,34 +427,6 @@ func writableDir(dir string) bool {
 	f.Close()
 	_ = os.Remove(name)
 	return true
-}
-
-// writeFileAtomic writes contents to path via a temp file in the same directory
-// and an atomic rename, so a reader never sees a half-written file.
-func writeFileAtomic(path, contents string, mode os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".ryoku-tmp-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	if _, err := tmp.WriteString(contents); err != nil {
-		tmp.Close()
-		_ = os.Remove(name)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	if err := os.Chmod(name, mode); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	if err := os.Rename(name, path); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	return nil
 }
 
 // fileMode parses an octal mode string ("0644") for the in-place writer,
@@ -305,4 +479,27 @@ func ReadRelease() Release {
 		}
 	}
 	return r
+}
+
+// ChannelIntentFile records the channel the user deliberately chose with `ryoku
+// track` or by picking the stable or unstable shell installer (root-owned). It
+// is the only signal that separates a pin the user asked for from one a failed
+// boot-guard revert or a hand-edit left behind, so nothing else writes it. A
+// var so tests point it at a fixture.
+var ChannelIntentFile = "/var/lib/ryoku/channel-intent"
+
+// ReadChannelIntent returns the channel Track recorded, or "" when none is on
+// disk (a box that never tracked; the caller defaults to stable).
+func ReadChannelIntent() string {
+	b, err := os.ReadFile(ChannelIntentFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// WriteChannelIntent records channel as the deliberate choice. Root-owned like
+// the boot-guard marker beside it, written through WriteRootFile.
+func WriteChannelIntent(channel string) error {
+	return WriteRootFile(ChannelIntentFile, strings.TrimSpace(channel)+"\n", "0644")
 }

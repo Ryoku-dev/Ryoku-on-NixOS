@@ -90,3 +90,20 @@ func TestStatusEncryptedCaveatNotes(t *testing.T) {
 		t.Fatal("an encrypted default keyring under unlock-on-login must carry the caveat note")
 	}
 }
+
+func TestPamPresentAtFollowsNixOSLoginStack(t *testing.T) {
+	dir := t.TempDir()
+	sddm := filepath.Join(dir, "sddm")
+	login := filepath.Join(dir, "login")
+
+	if err := os.WriteFile(sddm, []byte("auth substack login\nsession include login\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(login, []byte("auth optional /nix/store/example/lib/security/pam_gnome_keyring.so\nsession optional /nix/store/example/lib/security/pam_gnome_keyring.so auto_start\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !pamPresentAt(sddm) {
+		t.Fatal("SDDM must inherit gnome-keyring wiring from the included NixOS login stack")
+	}
+}

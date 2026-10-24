@@ -2,6 +2,670 @@
 
 ## Unreleased
 
+### Fixed
+- **A settings edit is never missed mid-write.** The shell could read
+  `shell.json` the moment the writer created it, latch that empty state as
+  current, and then treat the finished write as unchanged, keeping the old
+  settings until the next edit. The finished write now always reloads
+  (`shell/ipc/settings.go`).
+- **The AI usage collectors run only for tools in use.** The five-minute
+  timer launched all three collectors even on a box with none of their tools.
+  One guard, `ryoku-ai-usage`, now runs each collector only when its CLI is on
+  PATH or its local data exists, and launches nothing otherwise. Void's runit
+  service calls the same guard every period instead of the collectors
+  directly (`rashin/usage/ryoku-ai-usage`, `rashin/systemd/`,
+  `void/init/user/ryoku-ai-usage/run`).
+- **Palette Bridge works with the current config and service layout.** Vesktop
+  and Zen now use a dedicated supplemental Matugen file instead of forking the
+  shipped app roster, setup renders the active carrier immediately without
+  calling materialize, package activation no longer tries to compile Go into
+  the user's home, and service management uses `ryoku-host` on every edition.
+  Existing bridge-owned Matugen forks migrate on the next setup or doctor run
+  (`palette-bridge/`, `cli/internal/doctor/reconcile_vesktop_palette.go`).
+- **Rashin's quick Ask checks the live machine before answering.** Its one-line
+  launcher instruction now puts read-only tools ahead of brevity for
+  current-state questions, and the overview reads AMD Radeon utilisation and
+  VRAM from amdgpu sysfs instead of treating every non-NVIDIA GPU as absent
+  (`rashin/backend/ask.go`, `rashin/backend/vitals.go`).
+- **The palette bridge themes the Flathub Vesktop and Zen.** Fedora and Void
+  users get both from Flathub, which keeps each app's settings in its own
+  `~/.var/app` folder. Vesktop setup and removal use the Flathub settings,
+  QuickCSS and theme folder unless native Vesktop has run (the Vencord settings
+  Ryoku seeds on every box do not count), and Zen setup finds the profile under
+  the Flathub build's `.zen` or `config/zen`
+  (`palette-bridge/install-integrations.sh`,
+  `palette-bridge/remove-integrations.sh`, `palette-bridge/vesktop/quickcss.sh`).
+- **The palette bridge health check reads right on Void.** `doctor.sh` asks
+  `ryoku-host svc --user is-active` whether the bridge runs instead of
+  `systemctl --user`, which Void does not have (`palette-bridge/doctor.sh`).
+- **Vesktop keeps following wallpaper changes.** Palette updates preserve the
+  QuickCSS file inode so Vencord's file watcher continues receiving changes
+  after the first update (`palette-bridge/vesktop/quickcss.sh`).
+
+### Added
+- **Ryogami offers opt-in Spotify styling and palette bridge controls.**
+  Integrations > Palette bridge adds neutral Spotify styling, accent strength,
+  surface brightness, separate sidebar/player/card tint, independent button,
+  progress and link accents, neutral text and colour-wash controls in collapsible
+  groups. The original palette
+  mapping stays the default; preferences repaint the running client without
+  an app restart. The page also offers explicit per-app setup/removal, service
+  controls, status and palette health checks (`shell/ryogami/`, `palette-bridge/`).
+- **Ryoku Settings has a per-compositor window size.** Full page remains the
+  default on Hyprland and Wayfire; niri keeps its normal column unless Custom
+  is chosen. Custom centres a percentage-based size without shrinking below
+  the Settings layout's usable floor (`wm/{hyprland,niri,wayfire}/`,
+  `hyprland/modules/window_rules.lua`).
+- **Phone windows float on every compositor.** The scrcpy mirror and app
+  windows (`ryoku-phone-*`) open floating at a phone's proportions on Hyprland,
+  niri and Wayfire, and the Super+K bind is listed as Kit
+  (`wm/binds.go`, `wm/niri/config_rules.go`, `wm/wayfire/config_rules.go`,
+  `hyprland/modules/window_rules.lua`).
+- **A catalogue bind can need a program.** `wm.CatalogBind.Needs` names the
+  optional app a bind launches; while that program is not on PATH every
+  provider registers no chord for it (the Hyprland K() table carries `false`,
+  niri and Wayfire leave it out of the rendered config) and the legend row
+  names what is missing. The Ask bar and the Rashin window are the first two,
+  so removing Rashin takes Alt+Space and Super+Alt+Space with it instead of
+  leaving keys that open a surface that can only say it is gone.
+- **`FileDialogHost` (`Ryoku.Ui`): the one way a surface opens the system file
+  or folder dialog.** It takes a `FileDialog`'s `title`, `nameFilters` and
+  `currentFolder`, builds the dialog for the window it opens in and drops it
+  when that window is rebuilt, which is what Quickshell does to every hidden
+  layer-shell or popup window. A `FileDialog` declared directly in a surface
+  outlives its implementation and crashes on its next open.
+- **The desktop now has a Fedora host path.** Package and service actions use
+  DNF and systemd through `ryoku-host`, the Hub reflects Fedora's unavailable
+  snapshot and AUR capabilities, and updates and compositor package switches
+  avoid pacman-only commands. Update, status, and doctor name an unpublished
+  Fedora release instead of reporting an empty package set.
+- **The window-manager seam can vet plugins and read foreign configs.** Each
+  provider declares which foreign shell interfaces it serves, and
+  `ryoku wm compat <dir>` scans a plugin folder for the ones it needs and says
+  whether the running compositor can run it. Providers also answer
+  `import metadata|scan`, so the niri provider can read a niri config tree and
+  hand back a neutral mapping. `ryoku wm outputs <file>` applies a neutral output
+  layout through the same seam (`wm/compat.go`, `wm/niri/import_*.go`,
+  `cli/wm.go`).
+- **New accounts start with the Ryoku default rice.** The packaged look carries
+  the maintainer's current QS Bar, window styling, visualizer, input and brand
+  choices without machine-specific paths, keyboard layout, app pins or a fixed
+  wallpaper. On the first graphical login Ryoku waits for the desktop services,
+  applies the look, and chooses a random wallpaper from the seeded library
+  (`assets/rices/default/`, `shell/scripts/ryoku-session-intro`).
+- **Prowl plugs into Rashin without owning a harness.** The console's Prowl
+  section manages its external model gateway, code index, portable skills,
+  providers, routing sets, activity, projects, and harness connections. The
+  daemon proxies the management API with the machine token and accepts it only
+  from its own console (`rashin/web/src/lib/pages/prowl/`,
+  `rashin/backend/prowlgw.go`).
+- **A Prowl connection and a Prowl default are separate choices.** Connect
+  adds `auto` and Prowl's toolkit without changing the harness default; a new
+  Default to Prowl auto switch makes that explicit choice. Updates and
+  `ryoku-rashin wire` refresh credentials only for connected harnesses, without
+  adding one, changing a default, or restarting the Agent
+  (`rashin/backend/agents.go`, `rashin/backend/harnesses.go`,
+  `rashin/web/src/lib/pages/prowl/`).
+- **Rashin keeps one model pick per harness.** A choice made in any surface is
+  applied to Agent, Chat, new and loaded sessions, respawns, and private Ask
+  sessions. The saved pick stays visible when unavailable instead of silently
+  falling back, while Prowl's Active set remains one option beside the
+  harness's own models (`rashin/backend/modelpick.go`,
+  `rashin/backend/acp.go`, `rashin/web/src/lib/chat/`).
+- **Prowl ships off and starts with Rashin.** `ryoku-prowl.service` (port 8788)
+  has no install target: `ryoku-rashin.service` wants it and it is bound to
+  Rashin, so enabling Rashin brings both up and disabling Rashin stops both
+  (`rashin/systemd/`).
+- **The Stage Editor is the desktop's edit mode.** Its toolbar frames one
+  monitor at a time, names the edited display and cycles displays from its chip,
+  while the drawer keeps the active catalogue instead of repeating those tabs.
+  Widget frames appear on hover or selection with four resize handles, a size
+  badge, snapping guides, and Settings and Remove actions. Settings opens a
+  hidden drawer page with quick size, lock, depth, and remove controls above the
+  full widget inspector. Every committed edit joins one undo stack
+  (`shell/quickshell/shell/modules/stage/`,
+  `shell/quickshell/stage/modules/ii/editMode/`).
+- **The live desktop is the editor's document.** Its drawer lists Ryoku's real
+  built-ins, Shima and Python faces, and installed plugin sets. Multi-select,
+  group moves, keyboard nudging, alignment, ryogami's per-screen wallpaper and
+  framing, style presets, desktop icons, and per-output widget layouts all work
+  on the rounded live card. The desktop menu has Wallpaper and Search in its
+  quick row and one Edit desktop action; bar, dock, and lockscreen editing stay
+  in the Hub (`shell/quickshell/shell/modules/desktop/`,
+  `shell/quickshell/stage/modules/ii/editMode/`).
+- **The visualizer is edited instance by instance in the Stage Editor.** The
+  catalogue leads with a gallery of every look, then Look, Place, Colour,
+  Motion, Shape, and Field controls. Each `visualizer:<index>` has its own frame
+  and grip; selecting it retargets the catalogue. `Super+Alt+M` opens the
+  catalogue with an instance selected
+  (`shell/quickshell/shell/modules/visualizer/`,
+  `shell/quickshell/shell/modules/stage/StageVisualizerPage.qml`,
+  `shell/quickshell/shell/modules/stage/StageWidgetProvider.qml`).
+- **Depth has its complete scene workflow in the Stage Editor.** Scene, Layers,
+  Look, Motion, and Front tabs cover Plain, Depth, Parallax, cut progress and
+  recovery, model quality and removal, per-layer placement, look and motion
+  controls, and which widgets rise over the subject. Picture and PNG pickers,
+  confirmed cut-out clearing, and a live preview stay in the catalogue
+  (`shell/quickshell/shell/modules/stage/StageDepthPage.qml`,
+  `shell/quickshell/shell/modules/stage/StageDepthOptions.qml`,
+  `shell/quickshell/shell/modules/stage/StageDepthHero.qml`).
+- **Ask, Agent, and Chat have separate jobs and histories.** Ask serves the bar,
+  launcher, console Ask sheet, and `rashin` command through a Prowl route or a
+  fresh private read-only harness session, recording only
+  `rashin-asks.jsonl`. Agent is the persistent machine-aware session on the
+  bar, bubble, and console; Chat is the plain console harness session.
+  Continue with the agent adds a From Ask card for the next turn, while Move
+  to the agent runs the question immediately (`rashin/backend/askserve.go`,
+  `rashin/backend/handoff.go`, `rashin/web/src/pages/AskSheet.svelte`).
+- **The Agent can open in its harness terminal.** `ryoku-rashin terminal`
+  resumes the current session in Hermes, omp, Claude Code, or Codex when
+  supported. Agent backends now include Hermes, Codex through `codex-acp`,
+  Claude Code through either ACP adapter, omp, opencode, and Gemini CLI
+  (`rashin/backend/chatbackend.go`, `rashin/backend/chatterminal.go`,
+  `rashin/web/src/lib/pages/chat/ChatWorkspace.svelte`).
+- **A wiki for people new to Ryoku.** Plain-language guides (Linux basics, the
+  desktop, Hyprland in Lua, niri in KDL, Quickshell QML, the Go tools, Rashin)
+  ship with Rashin, are mirrored into the vault so the Needle cites them, and
+  render on the console's Wiki sheet (`rashin/wiki/`).
+- **The `ryoku` skill learns the window-manager seam and how to build.** `wm.md`
+  (`ryoku wm`, where each compositor's config is authored, where a user's
+  change goes) and `build.md` (a Quickshell plugin end to end, QML and Go the
+  Ryoku way) join the skill; its intro no longer assumes Hyprland, and the
+  package now ships every guide (`troubleshoot.md` had been left out).
+- **Rashin has its own seal.** A sibling of the 力 tile: the cross 十 that
+  ends 針 (needle), drawn as a compass needle with a vermillion north and the
+  pivot left as tile (`assets/brand/rashin-mark.svg`, with one-colour and
+  small cuts and a `Rashin 羅針` lockup). It is the app icon, the console's
+  favicon and brand seal, and the Ask bar's header mark, replacing the
+  borrowed Ryoku logo.
+- **niri raises the reload cover at login.** The session autostart chain
+  calls `ryoku-reload-cover begin boot` after the environment push and before
+  `session-start` restarts the shell services, so a fresh niri desktop is
+  covered from the greeter handoff until the loaded shell releases it,
+  matching Hyprland (`niri/autostart.kdl`).
+- **Rashin's companion window opens the full console.** `rashin-app` hosts the
+  daemon's Svelte console at `#/agent`, with separate Agent, Ask, and Chat
+  sheets. Agent carries sessions, tools, approvals, model controls, hand-off
+  cards, and Open in terminal; Ask carries streaming read-only answers, route
+  choice, history, cancel, and the Agent hand-off. Super+Alt+Space summons the
+  single window, and Open Rashin raises it from the bar
+  (`rashin/app/`, `rashin/web/`, `wm/binds.go`,
+  `wm/niri/config_binds.go`).
+- **The night light can run on the clock.** Hub > Displays > Night light
+  gained an AT THE CLOCK switch with START AT and OFF AT rows: a 12-hour
+  time you step by the hour, flip AM/PM, or type, wrapping midnight, so a
+  fixed bedtime no longer has to borrow the weather's sunset
+  (`shell/ipc/nightlight_schedule.go`, `hub/quickshell/pages/DisplaysPage.qml`).
+- **The Cursor motion plugin says what it costs on NVIDIA.** Realistic
+  cursor motion forces software cursor rendering, which reports say stutters
+  when the pointer crosses monitors; the plugin's own card now carries that
+  caveat whenever an NVIDIA driver is active, so the lag has a named suspect
+  before a user hunts for it (issues #257, #259).
+- **niri handles both laptop-lid edges natively.** The niri tree gained
+  `niri/lid.kdl`: `lid-close` and `lid-open` switch events feed the shared
+  clamshell owner, so an open can cancel a close still waiting on dock or power
+  state. Verified docked mode remains awake and every other close goes through
+  the fail-closed suspend transaction; niri retains its native panel topology
+  (`niri/lid.kdl`, `niri/config.kdl`).
+- **Focus follows the cursor by default on both desktops.** The neutral
+  store's input default moves to followMouse 1 ("Focus under pointer"), which
+  the Hyprland base module and the niri provider both ship, and niri caps the
+  scroll jump at 0% the way the iNiR reference config does, so a pointer
+  crossing onto a half-visible window never yanks the view. Boxes carrying the
+  retired detached default get healed once by ryoku doctor, and a deliberate
+  "Click to focus" pick afterwards sticks (`wm/hyprland`, `wm/niri`,
+  `hyprland/modules/input.lua`).
+- **One keybind catalogue for both compositors.** `wm/binds.go` names every
+  shipped shortcut once (id, label, hint, category, default chord), and each
+  provider's `binds` verb reports the full effective legend: what it bound,
+  what the user rebound, and what it cannot do with a reason. New shortcuts on
+  both desktops: Page Up/Down and Shift for workspace navigation and sending
+  windows, Super+Alt+arrows to focus a screen and Shift/Ctrl variants to send a
+  window or a whole workspace there, Alt+Tab for the last window, Super+T for
+  a tabbed column or group, Super+D to maximise, Super+C to centre, Super+[ ]
+  to merge a window into its neighbour, and the number pad for workspaces 1 to
+  10 with NumLock on or off. niri also gains reorder-workspace (Super+Ctrl+Page
+  Up/Down), first and last column, preset window heights and a shortcut
+  inhibit toggle; Hyprland reports those as not available instead of hiding
+  them (`wm/niri/config_binds.go`, `wm/hyprland/legend.go`).
+- **The niri border follows the wallpaper palette, like Hyprland's.** The
+  provider recolours the border from the live palette on every wallpaper or
+  scheme change through a shared `paletteBorder` capability, and a new
+  `Follow the wallpaper` switch on the Hub's Borders tab pins the fixed colours
+  instead on either compositor (`wm/niri/act.go`, `wm/hyprland/act.go`,
+  `shell/ipc/matugen.go`, `hub/quickshell/schema/WindowSettings.js`).
+- **The niri provider models what niri 26.04 can do.** Blur (global passes and
+  noise, per-window and per-app background effects), a border or focus ring
+  choice with gradients, the workspace background, tabbed columns, preset
+  window heights, the overview backdrop colour and workspace shadow, nine
+  per-animation springs and curves, layer rules, the `columnwidth`, `minsize`,
+  `maxsize`, `scrollfactor`, `tiledstate`, `babaisfloat`, `noshadow`, `blur`,
+  `xray` and `blockout` window-rule actions, and the warp-to-focus, scroll
+  cap, auto back-and-forth, mod key, power key and drag-edge input knobs, each
+  a store key with a Hub row. The emitter is one concern per file and the
+  unhonored reasons name what niri really lacks (`wm/niri/config_*.go`,
+  `wm/niri/schema_*.json`, `wm/niri/apply.go`).
+- **Seam actions for what used to be Hyprland-only scripts.** `nightlight.on`
+  and `nightlight.off` with a `nightLight` capability, `input.touchpad` with
+  `touchpadToggle`, `output.cycle` and `output.enable`, `window.summon` and
+  `decoration.gameMode`; providers also publish the window-rule actions they
+  honour (`wm/caps.go`, `wm/action.go`, `wm/hyprland/act.go`, `wm/niri/act.go`).
+- **The Wm singleton answers an output's scale.** `Wm.outputScale(name)`
+  reads the compositor's own scale factor for a monitor off the daemon's
+  output state, so a surface can convert its logical rectangle back to
+  physical pixels instead of guessing from the reported height
+  (`ui/Singletons/Wm.qml`).
+
+### Changed
+- **Rashin's pieces live under `rashin/`.** The AI usage collectors moved from
+  `shell/bin/` to `rashin/usage/`, the `ryoku-ai-usage` units from
+  `shell/systemd/user/` to `rashin/systemd/`, and the companion window from
+  `apps/rashin-app/` to `rashin/app/`. The dev deploy builds and installs them
+  from there, and the desktop's materialized config no longer carries the AI
+  usage units.
+- **Ask can use the Agent model or a Prowl route.** Its separate route picker
+  lists Agent model first, then Prowl's active set, capability axes, and named
+  sets when available. Changing it never changes the harness model
+  (`rashin/backend/quick.go`, `rashin/backend/backend_cmd.go`).
+
+### Removed
+- **Rashin no longer knows prowl-agent.** It runs only the `prowl` binary, and
+  the standalone `prowl api` server it used to spawn is replaced by the
+  gateway's own code routes.
+- **Desktop composition no longer has a second settings page in the Hub.**
+  Depth, visualizer, and widget editing live only in the Stage Editor. The
+  retired `desktop-scene`, `desktop-scene-visualizer`,
+  `desktop-scene-widgets`, `stage`, `visualizer`, and `widgets` links open the
+  matching editor catalogue, while the desktop menu's Settings row opens the
+  Hub normally (`hub/quickshell/pages/DesktopScenePage.qml`,
+  `hub/quickshell/schema/DesktopScenePage.js`, `shell/ipc/control.go`).
+
+### Fixed
+- **Zen palette setup finds absolute and installation-specific profiles.** The
+  bridge installer honours `IsRelative=0` and modern `Install` defaults when
+  Zen is closed, while explicit and running profiles keep precedence
+  (`palette-bridge/install-integrations.sh`).
+- **Wallpaper app colours recover when the palette cache is replaced.** The
+  palette bridge reattaches after its cache directory or an ancestor is moved,
+  deleted, or recreated, and reads the current palette as soon as it attaches.
+  A first palette written during startup is picked up without another change.
+- **Vesktop keeps custom QuickCSS and imports on wallpaper changes.** Palette
+  updates merge only the bridge-owned colour block. Updates repair the exact
+  legacy registration for enabled integrations; disabled and edited setups stay
+  unchanged (`palette-bridge/`, `cli/internal/doctor/reconcile_vesktop_palette.go`).
+- **The palette bridge waits for the first login instead of restart-looping at
+  boot.** It starts without a palette, reports it unavailable until one is
+  written, and watches for the cache directory to appear
+  (`palette-bridge/main.go`, `palette-bridge/main_test.go`).
+- **`ryoku-rashin ensure` starts Prowl's gateway before it exits.** The short
+  CLI path now waits for the start command, and enabling Rashin completes
+  `loginctl enable-linger` before a gateway start failure can be returned
+  (`rashin/backend/prowlgw.go`, `rashin/backend/server.go`).
+- **Niri keeps a connected display on after undocking.** Its provider watches
+  the output-changing workspace event and transiently enables the built-in
+  panel whenever every connected output is off. The generated KDL keeps the
+  user's panel-off preference, so reconnecting the configured external display
+  restores the chosen layout (`wm/niri/outputs.go`, `wm/niri/watch.go`).
+- **Model choices no longer reset to Prowl auto.** The saved choice is keyed
+  only by harness and is reapplied to every new, loaded, or respawned session;
+  an unavailable choice stays saved and is reported honestly
+  (`rashin/backend/modelpick.go`, `rashin/backend/acp.go`).
+- **Ask no longer leaks into the Agent conversation.** Fast and escalated asks
+  stay in Ask history, and Continue with the agent now carries the question and
+  answer into a From Ask card that the next Agent turn receives
+  (`rashin/backend/askserve.go`, `rashin/backend/handoff.go`,
+  `rashin/backend/ws.go`).
+- **Prowl maintenance no longer overrides harness defaults.** Update, deploy,
+  doctor, daemon start, and `ryoku-rashin wire` refresh stale credentials only
+  for already-connected harnesses and never activate Prowl auto or reset the
+  Agent (`rashin/backend/harnesses.go`, `cli/internal/updater/update.go`).
+- **Ask is read-only at both tool boundaries.** The classifier covers the
+  commands that previously slipped through, quick tools stay bounded to reads,
+  and denied work returns `needsAgent` with a reason instead of opening an Ask
+  approval (`rashin/backend/readonly.go`, `rashin/backend/quicktools.go`,
+  `rashin/backend/askserve.go`).
+- **Mutating daemon routes reject browser forgery.** Agent, harness, default,
+  terminal-resume, and fix routes require the dashboard origin and a non-simple
+  request where applicable, while command-line callers on loopback still work
+  (`rashin/backend/server.go`, `rashin/backend/fixsession.go`).
+- **Keyboard repair rebuilds Fedora and Void boot images.** The CLI still
+  prefers `mkinitcpio -P` where it is installed, then falls back to
+  `dracut --regenerate-all --force` so the boot prompt keymap converges on
+  hosts that use dracut.
+- **A failed update names the packages that conflict.** pacman reports the pair
+  on a `::` line and only the `error:` summary reached the terminal, so an
+  aborted transaction read as "conflicting dependencies" with nothing to act on.
+  That line is now a note like any other error
+  (`cli/internal/updater/console.go`).
+- **Wayfire window shadows no longer draw as a black frame.** Over a
+  wallpaper, the decor drew a window's shadow with blending switched off, so
+  the area around some apps (Zen, Discord, the Hub) turned solid black
+  (`wm/wayfire/decor/src/transformer.cpp`).
+- **The network kill switch's Restore button is visible while isolated.** The
+  active card turns light and the button kept light text on it; it now takes
+  the dark-on-light style the Hub's confirm buttons use
+  (`hub/quickshell/pages/ConnectionsPage.qml`).
+- **Wayfire's workspace pills, dock and tray agree with the screen again.**
+  Windows were placed by their shadow, so a window at the left gap counted on
+  the previous workspace and the dock lost it; workspace sets left behind by
+  an output reconnect repeated every pill. A tray click now brings an app's
+  window forward from another workspace instead of asking the app to, which
+  Wayfire refuses (`wm/wayfire/frames.go`, `shell/ipc/tray.go`).
+- **Super+D and Super+A on Wayfire match Hyprland.** Maximise fills the work
+  area inside the gaps and a second press restores the window, instead of
+  shrinking a window that opened maximised to a 100 px square; float centres
+  the window at 1000x660. The Hub opens inside the gaps with its border on
+  screen (`wm/wayfire/fit.go`, `wm/wayfire/pages.go`).
+- **Wayfire applies Hub saves and display changes straight away.** Wayfire
+  stops watching its config once the folder is replaced, so saves could land
+  on disk and wait for the next login; display layouts never reached the file
+  Wayfire reads at all. Every save now reloads the running compositor, a
+  display save rebuilds that file, and the window ring follows the wallpaper
+  colours live (`wm/wayfire/apply.go`, `wm/wayfire/outputs.go`).
+- **Wayfire windows get rounded corners, borders and shadows.** The corner
+  radius, softness, border and shadow settings on the Window Manager page now
+  work on Wayfire as they do on Hyprland and niri, drawn by Ryoku's own window
+  decor plugin, and a save applies them at once (`wm/wayfire/decor/`,
+  `wm/wayfire/apply.go`, `../release/packages/ryoku-desktop-wayfire/PKGBUILD`).
+- **Rashin opens on an NVIDIA display under compositors with explicit sync.**
+  WebKitGTK 2.54 switched the window to GL mid-frame, NVIDIA turned on explicit
+  sync for it, and the compositor dropped the app before its window appeared.
+  The app now falls back to implicit sync on that driver, and links it opens
+  keep explicit sync (`apps/rashin-app/main.cpp`).
+- **The previous-track and touchpad keys work on Wayfire.** Their bindings
+  named evdev keys that do not exist, so Wayfire dropped them at load; they now
+  use the kernel's names (`wm/wayfire/config_binds.go`).
+- **Wayfire's tiling shortcuts now act on the simple-tile layout.** Maximise
+  and float work for tiled and floating windows, directional moves swap tiled
+  neighbours, resize and preset keys change split weights, centre detaches
+  before placing, and config reload reopens the deployed path
+  (`wm/wayfire/act.go`, `wm/wayfire/config_binds.go`).
+- **Wayfire closes one window per shortcut and gives Ryoku apps their intended
+  geometry.** The compositor's duplicate close and workspace-switch defaults no
+  longer fire beside the shared catalogue. The Hub opens as a full page fitted
+  to the work area, clear of the shell's bar and frame, while Ryoku tools,
+  dialogs, file choosers, PiP and remote-console windows stay
+  out of the default tiling tree and use centred screen-fit rules
+  (`wayfire/wayfire.ini`, `wm/wayfire/config_rules.go`).
+- **Wayfire's Window Manager page now exposes its real compositor settings.**
+  Tiling defaults, workspace grid and wraparound, title bars, blur, wobble,
+  desktop zoom, Alt+Tab opacity, click-to-focus and XWayland controls write the
+  matching Wayfire 0.11 options instead of leaving the page empty
+  (`wm/wayfire/schema.json`, `wm/wayfire/apply.go`).
+- **Every Wayfire keybind from the catalogue that Wayfire can express is
+  wired.** The ten-workspace family on digits and the keypad, preset width
+  stepping, the scratchpad, recovering a grabbed keyboard, Print and the media
+  keys with the right repeat and always-on command modes now work; the chords
+  Wayfire 0.11 has no action for (tabs, merging, wheel workspace steps,
+  workspace reordering) say so in the switch review
+  (`wm/wayfire/config_binds.go`).
+- **Wayfire now keeps the complete shell window and display contract live.**
+  Fullscreen changes immediately update fullscreen-sensitive bars, docks,
+  notifications and OSDs; the scratchpad hides and restores windows without
+  leaking backing workspaces into the bar; dock focus brings hidden windows
+  back; and the width preset joins the existing window controls. Display state
+  includes connector identity and modes, mirroring and HDR, while screen-off,
+  wake and per-monitor power use Wayfire's output-power protocol.
+- **Wayfire now carries the complete session contract.** qylock can acquire the
+  compositor's secure session lock; Ryoku's idle timers can lock, suspend and
+  power displays without a competing Wayfire screensaver; launched apps inherit
+  the same cursor, Qt, GTK, QML and PATH environment as user services, including
+  panel-vendor-safe NVIDIA video hints; activation, GTK protocol hints and
+  shortcut inhibition are live; XWayland and the shared ten-workspace tiling
+  model are explicit. Screenshots and screen sharing use the wlroots portal
+  backend instead of the GNOME backend, which depends on Mutter's unavailable
+  screencast service (`wayfire/wayfire.ini`, `wayfire/wayfire-portals.conf`,
+  `lockscreen/sddm/ryoku-wayland-session`,
+  `../release/packages/ryoku-desktop-wayfire/`).
+- **Wayfire desktop settings now reach the compositor.** The provider applies
+  the ten-workspace tiled grid, inner and outer gaps, baseline window opacity,
+  complete keyboard, pointer and touchpad values, app roles, session
+  environment and Wayfire's window animation styles. Motion defaults to 250 ms
+  and global blur is opt-in instead of taxing every render pass. Unsupported
+  focus opacity, rounding, shadows, cursor hiding and maximize correction stay
+  visible as explicit switch losses (`wm/wayfire/apply.go`,
+  `wm/wayfire/config_store.go`, `wm/wayfire/config_rules.go`,
+  `wm/wayfire/schema_anim.json`).
+- **Wayfire no longer counts the shell's own panels as windows.** The
+  provider reported every layer-shell surface (bar, dock, backdrop) as an open
+  window, so the dock saw itself on the workspace and rebuilt several times a
+  second: a flickering dock and a pegged shell. Only real application windows
+  reach the window list now, and the event stream skips frames that did not
+  change (`wm/wayfire/frames.go`, `wm/wayfire/watch.go`).
+- **Wayfire's config is recomposed when it is stale.** Every composed
+  `wayfire.ini` carries a mark of the baseline it was built from, and
+  materialize renders it again when the mark is missing or names an older
+  baseline, so a raw baseline copy or an old compose no longer leaves Wayfire
+  without its keybinds. A checkout box composes from the checkout's baseline
+  (`wm/wayfire/apply.go`, `wm/detect.go`, `cli/internal/updater/materialize.go`,
+  `shell/deploy.sh`).
+- **Scrolling layouts switch workspaces without exposing hidden columns.** The
+  generated Hyprland animation override replaces workspace translation with a
+  fade while scrolling is active, keeping the Hub's workspace timing and curve
+  when one is set, and leaves other layouts on their preset's style
+  (`wm/hyprland/config_settings.go`).
+- **Workspace clicks use the workspace the widget selected.** The neutral
+  workspace action resolver now keeps an exact provider id before falling back
+  to a display name, so overlapping ids and names cannot redirect focus or
+  window moves to a different workspace (`ui/Singletons/Wm.qml`).
+- **Wayfire windows stay attached to their workspace everywhere in the
+  desktop.** Window and output frames now carry the same opaque workspace id as
+  the workspace frame, so active-workspace filters, fullscreen checks, widget
+  power saving, and deck frost see the windows on screen
+  (`wm/wayfire/frames.go`, `wm/state.go`, `ui/Singletons/Wm.qml`).
+- **Power profile controls work with Fedora's default provider.** The Hub,
+  Nomarchy, game mode, and `ryoku-power` send profile reads and writes through
+  the shell daemon's provider-neutral D-Bus client, so tuned-ppd works alongside
+  the existing power-profiles-daemon path.
+- **Fedora and Void desktop helpers stay on their native package managers.**
+  Package search, update counters, build hints, Ryovm, Rashin package history,
+  compositor reclaim, and Ryotunes installation no longer fall through to
+  pacman-only commands. Screen recording also falls back to an encoder the
+  machine supports when H.264 is unavailable.
+- **Wayfire can send a window to the previous or next workspace.** The
+  `SUPER + SHIFT + Prior` / `Next` rows were reported as unsupported because
+  wayfire's grid has no native relative-move method; the provider now steps the
+  focused window along its own grid with the same row-major wrap the workspace
+  pills and `workspace.cycle` use, so the two chords work like they do on
+  Hyprland and niri (`wm/wayfire/act.go`).
+- **Ryostore finds script installers published under their bundle.** Bundles
+  that ship their installer at `bundles/<id>/installers/<name>.sh` (Ryoku for
+  Zed, The Influencer) failed to install with "the installer exited with an
+  error" because the store only looked in the catalogue root; the owning
+  bundle's directory is checked first now, with the root kept as the legacy
+  fallback (`apps/ryostore/backend/extras_assets.go`).
+- **The Prowl pages fit their window.** Overview's traffic and live-route cards
+  span the page again instead of squeezing into half of it, where numbers ran
+  past the card edge and left a tall empty card. Activity stacks its platform
+  and model tables while they would be cut off, and the Toolkit and Rashin-lanes
+  cards switch to their compact layout before they overflow
+  (`rashin/web/src/lib/pages/prowl/`).
+- **Console card headings keep their kanji gloss beside the title.** Long
+  descriptions no longer let the gloss drift into the middle of the card
+  (`rashin/web/src/lib/ui/Card.svelte`).
+- **Project cards keep each number under its label.** Values no longer push
+  across the column divider, and harness details line up the same way
+  (`rashin/web/src/app.css`).
+- **Visualizers drag like every other widget in the Stage Editor.** The frame
+  owns the move, so the look follows the pointer one to one, snaps to the same
+  guides, moves in a group, nudges with the arrows, and writes
+  `visualizer.json` once on release instead of easing behind the pointer and
+  rewriting the store every frame. The size grip and turn dot still work
+  (`shell/quickshell/shell/modules/visualizer/`,
+  `shell/quickshell/shell/modules/stage/StageSelection.qml`).
+- **Every Desktop icons setting does something.** Show icons no longer writes
+  the opposite value. Start from, Fill direction, Spacing, Edge margin, and Keep
+  clear of panels re-lay the icons already on the desktop as one undo step,
+  sorting orders folder and stack contents too, and the Auto label style follows
+  the wallpaper's lightness again
+  (`shell/quickshell/stage/modules/ii/editMode/EditDesktopIconsPage.qml`,
+  `shell/quickshell/stage/modules/ii/background/shortcuts/`).
+- **Desktop folders are real folders.** Add apps to desktop highlights an app
+  wherever it is, including inside a folder or the Apps stack, says where it
+  is, and can add straight into a folder or a new one; an app is never placed
+  twice. Folders can be created from the desktop menu or the Desktop icons
+  page, renamed in place, filled from the same app picker, and dissolved, and
+  each app inside has Open, Take out, Move to folder, and Remove
+  (`shell/quickshell/stage/modules/ii/background/shortcuts/`,
+  `shell/quickshell/shell/modules/desktop/DesktopContextMenu.qml`).
+- **Every widget moves in the Stage Editor again.** A press anywhere inside a
+  widget's frame selects it and a drag moves it, whatever the widget's own
+  buttons are and whichever bar style is on, for built-ins, Shima and Python
+  faces, and store tiles alike; a selected group still moves together with one
+  undo step. Double-click or right-click opens the widget's settings. A locked
+  widget now shows a lock, says "Locked" when dragged, and has Lock and Unlock in
+  its action strip instead of silently refusing to move
+  (`shell/quickshell/shell/modules/stage/StageOutline.qml`,
+  `shell/quickshell/shell/modules/desktop/WidgetSlot.qml`,
+  `shell/quickshell/shell/modules/desktop/PluginDesktopSlot.qml`).
+- **The framing dock's turn and mirror buttons work every time.** After a wheel,
+  pinch, or touchpad zoom the steps were never written and the preview stopped
+  following the dock, so a turn or mirror saved but did not show, and the next
+  drag overwrote it. The settled steps are written now, the dock's buttons take
+  the click even when the pointer drifts, and a click between buttons no longer
+  reaches the picture's drag or double-click reset
+  (`shell/quickshell/stage/services/WallpaperLayout.qml`,
+  `shell/quickshell/stage/modules/ii/editMode/EditWallpaperFramingOverlay.qml`).
+- **Wallpaper framing stays where it was released and every layer follows it.**
+  Dragging after a zoom no longer bounces when the committed record reloads,
+  and mirror or rotation redraws the shown picture after a reveal transition.
+  Cut-outs and the Parallax backdrop now share the wallpaper's zoom, offset,
+  rotation, and mirror. Widgets, icons, and the visualizer dim and stop taking
+  input during framing (`shell/quickshell/stage/services/WallpaperLayout.qml`,
+  `shell/quickshell/shell/modules/wallpaper/Backdrop.qml`,
+  `shell/quickshell/shell/modules/wallpaper/WallpaperFramedPlane.qml`,
+  `shell/quickshell/shell/modules/stage/StageLayer.qml`,
+  `shell/quickshell/shell/modules/stage/StageBackdrop.qml`).
+- **Desktop icons appear and respond as soon as their store is ready.** A late
+  store load no longer leaves them hidden; adding and removing apps updates the
+  desktop at once, and adding an app unhides the layer. Right-click opens the
+  icon's own Open, Rename, Details, Copy, and Remove dialog, and files, folders,
+  and web or mail links can be dropped onto the desktop
+  (`shell/quickshell/stage/modules/ii/background/shortcuts/`).
+- **Stage Style changes the live palette everywhere.** Mode, wallpaper scheme,
+  source colour, and named themes now use the same `matugen.json` and
+  `shell.json` seams as the Hub, so the page shows the real current state and
+  every change can be undone. Saved looks include the wallpaper, theme, mode,
+  scheme type, and source colour
+  (`shell/quickshell/stage/modules/ii/editMode/EditStylePage.qml`,
+  `shell/quickshell/stage/modules/ii/editMode/EditStylePresets.qml`).
+- **Removing one visualizer no longer removes the rest.** Remove targets only
+  the selected instance, turns the visualizer off only after the last one is
+  gone, and undo restores the instance at its original index with all settings
+  (`shell/quickshell/shell/modules/visualizer/Singletons/Config.qml`,
+  `shell/quickshell/shell/modules/stage/StageWidgetProvider.qml`).
+- **Canvas resizing writes once instead of on every pointer move.** The frame
+  previews size locally, commits the per-display store on release, and creates
+  one undo entry, keeping resize smooth and store reloads out of the gesture
+  (`shell/quickshell/shell/modules/desktop/WidgetSlot.qml`,
+  `shell/quickshell/shell/modules/desktop/PluginDesktopSlot.qml`,
+  `shell/quickshell/shell/modules/stage/StageOutline.qml`).
+- **Setting rows reserve the full requested control width.** `controlWidth` is
+  no longer truncated to an integer, so buttons such as Choose keep their label
+  instead of eliding it (`ui/SettingRow.qml`).
+- **The keypad choice reaches the login greeter.** Both compositor providers
+  now publish the session's effective numlock state to
+  `/var/lib/ryoku/greeter-numlock` on every apply (the same hand-off shape as
+  greeter-primary), so the login screen and the lock screen agree with the
+  session instead of forcing the keypad on for everyone
+  (`wm/greeter.go`, `wm/hyprland/apply.go`, `wm/niri/apply.go`).
+
+- **The Glass plugin says what it costs on NVIDIA.** Liquid-glass blur and
+  refraction re-render per window on every monitor, and reports say it turns
+  visibly laggy on NVIDIA multi-monitor setups; the plugin's own card now
+  carries that caveat whenever an NVIDIA driver is active, joining the
+  Cursor motion plugin's note (`wm/hyprland/config_plugins_tier.go`).
+
+- **The night light warms the screen on niri.** Users reported it doing
+  nothing there. The niri backend is now wlsunset, the small day/night gamma
+  daemon in extra, which speaks the gamma protocol niri serves and holds the
+  screen at the chosen temperature; the shipped niri variant depends on it, so
+  every install has the backend and the old gammastep drops out as an orphan
+  on the next update (`wm/niri/act.go`, `wm/niri/caps.go`,
+  `../release/packages/ryoku-desktop-niri/PKGBUILD`).
+- **A category-folded Hermes skill reads as wired.** Hermes keeps skills under
+  category folders, so `~/.hermes/skills/ryoku` can be a real directory with
+  the skill link nested inside it. `ryoku-rashin status` only ever checked
+  for the link itself, so it reported `skillWired: false` (and setup re-ran
+  without fixing it) while the skill loaded fine (#297). Wire, status and
+  unwire now follow that layout: a real dir with no SKILL.md of its own is a
+  category, the link lives inside it, and unwire removes the link and leaves
+  the folder. A foreign skill dir (one carrying its own SKILL.md) is still
+  never clobbered (`rashin/backend/agents.go`).
+- **Clicking SAVE no longer eats the text you just typed.** A TapHandler
+  button never takes focus from a TextInput, so the field's editing-finished
+  (its commit into the draft) did not fire when the user typed and clicked
+  SAVE, REVERT or the list footer's + directly: the Session page's "At Login"
+  commands looked saved, the row count persisted, and the text vanished at
+  logout (#294). `Btn`/`IconBtn` gained a `stealFocus` opt-in that grabs
+  focus on press the way a real toolkit button does; the action bar and the
+  list footers use it. Row minus buttons stay passive (their commit's rebuild
+  would destroy the delegate mid-tap), so the Session page also folds the
+  one live edit into every list mutation.
+- **Fn+F10 locks the touchpad again on laptops that report the key twice.**
+  ASUS machines (and others) send the touchpad key from two input devices at
+  once, so one press toggled the pad off and straight back on and the key
+  looked dead. A second toggle within 0.7 s is now treated as the same press,
+  on Hyprland and niri. A pad left locked off is also named with a toast at
+  login, since the lock survives reboots by design.
+- **Agent and Chat no longer stall on harmless commands or leave tool calls
+  pending.** Tool updates carry their output as a list of blocks, which the
+  daemon could not parse, so rows froze at PENDING. Rows now carry the command,
+  final status, and output or diff. Read-only calls can run under the shared
+  approval mode; writes, installs, and secret reads still ask. Harnesses that
+  expose models as a config option also show and switch their complete list
+  (`rashin/backend/acp.go`, `acptools.go`, `readonly.go`, `ws.go`,
+  `config.go`).
+- **Rashin's Hermes setup passes only the installer flags that build supports.**
+  Setup hardcoded `--non-interactive --skip-browser --skip-computer-use`, but
+  the official installer exits 1 on any option it does not recognize, so the
+  day upstream dropped `--skip-computer-use` every "Set up Hermes agent" failed
+  with `unknown option: --skip-computer-use` (issue #279). Setup now downloads
+  the script and passes `--non-interactive` (the guard against the hidden tty
+  prompt) plus each optional flag only when the downloaded script names it, so
+  upstream growing or dropping an option can no longer break the one-click flow
+  (`rashin/backend/setup.go`).
+- **Suspend fails closed, wake recovery starts immediately, and fast user
+  switching no longer exposes or blocks a session.** The foreground shell owns
+  login1's delay inhibitor and long-lived hard block. Before that singleton
+  moves, it confirms a session-and-generation-scoped qylock on the outgoing
+  login; every other online same-user session is directly locked and observed
+  for foreground activation. Package updates with only inactive sessions
+  secure all of them without starting services against an SSH or stale display
+  environment. The daemon reconnects to replaced login1 owners or signal
+  streams without dropping valid protection. Resume starts output and lighting
+  recovery immediately, puts a deadline on each compositor-provider attempt,
+  and keeps retrying through the panel retrain window. Generated hypridle policy
+  is idle-only. Login, deployment, and package updates replace power owners as
+  one guarded transaction; doctor stages a complete qylock repair for the next
+  managed shell activation. A failed live cutover stays protected until retry
+  or reboot (`shell/ipc/sleepwake.go`,
+  `system/hardware/power/ryoku-idle`,
+  `system/hardware/power/ryoku-clamshell`, `hyprland/modules/misc.lua`).
+- **A crashed lock client can no longer lock out later locks.** The wrapper's
+  launch guard and generation lease were open fds that quickshell inherited
+  into its coprocess tree; a watcher surviving a killed client kept holding the
+  flock, and every later lock then exited silently without a screen. The
+  client tree starts with both guard fds closed, so a stuck lock self-heals on
+  the next request on either compositor (`qylock/quickshell-lockscreen/lock.sh`,
+  `tests/qylock-lock-fd.sh`).
+- **niri draws the window border the user sized.** niri 26.04 keeps its border
+  off unless the block carries an explicit `on`, so the sized border never drew
+  and the thickness slider did nothing; per-app overrides resolve the same way
+  (`wm/niri/config_layout.go`).
+- **A packaged niri box gets every helper the shell calls.** The neutral leaf
+  scripts ship with the shell, hypridle and hyprpicker are base dependencies,
+  idle management renders its own config from the Hub policy, and the dev
+  deploy lays only the live provider's scripts so a checkout no longer masks
+  what a package is missing (`release/packages/*/PKGBUILD`, `shell/deploy.sh`,
+  `system/hardware/power/ryoku-idle`).
+- Settings rejects null desktop save and preview requests before they can
+  replace saved preferences. Empty JSON stores containing `null` now recover
+  as an editable empty store instead of crashing the next edit.
+- Saved window animation overrides using `snap` no longer report a missing
+  bezier after switching presets. The base loader supplies the Minimal curve;
+  active presets and custom curves can still override it.
+
 ### Added
 - **`CardColumns`: a page body of blocks, laid into balanced columns.** It takes
   the children a page already declares, measures them at the column width, and
@@ -57,6 +721,13 @@
   hand-written group indices that were often wrong.
 
 ### Changed
+- **Fix with AI opens the selected Agent harness in a terminal.** The doctor,
+  Hub Updates page, console tips and findings, and `ryoku-rashin fix` launch a
+  supported harness in the vault with the problem as its first message. It
+  opens in place from a terminal or in the Default Apps terminal from a GUI,
+  under its own user unit so a daemon restart does not close it
+  (`rashin/backend/fixterm.go`, `fixcli.go`, `fixsession.go`,
+  `rashin/web/`).
 - **The Hub's chrome is one fixed layout, not a per-page guess.** The `FILES` and
   `UPDATES` chips are control-sized (`30` tall, `S4` padding) and take the page's
   own right inset, so they line up with the last card instead of floating inside
@@ -194,14 +865,6 @@
   size in `hyprland/modules/window_rules.lua` is now capped at the monitor
   (92% wide, 88% tall) through Hyprland's size expressions, so the same rule
   fits a laptop panel and a desktop monitor.
-- **Rashin chat follows a hermes reconfigure (#145).** Switching hermes to a
-  new provider in the terminal (say NVIDIA NIM) left the dashboard chat failing
-  with "HTTP 404" on every turn: the daemon re-applied the model it had
-  remembered from before the switch onto the new endpoint, and the resident
-  `hermes acp` process kept the provider and keys it loaded at spawn. The
-  remembered pick is now tied to the hermes config it was made under and
-  dropped when that changes, and a chat turn after `config.yaml` or `.env`
-  changed respawns the session first (`rashin/backend/`).
 - **Google Chrome loads pages and shares the keyring, like Chromium.** Ryoku
   pinned native Wayland and the GNOME keyring for Chromium (`chromium-flags.conf`)
   and for Electron apps (`ELECTRON_OZONE_PLATFORM_HINT`), but Google Chrome reads
@@ -250,9 +913,10 @@
 - **Device lighting is re-applied on resume from suspend.** Theme colours only
   reached the RGB devices on a palette change and at login, so after waking from
   suspend an OpenRGB motherboard/RAM/mouse (which reset on power loss) sat on its
-  firmware default and the keyboard could hold a stale colour. hypridle's
-  `after_sleep_cmd` now also runs `ryoku-hub lighting apply` (backgrounded, so it
-  never delays the screen coming back).
+  firmware default and the keyboard could hold a stale colour. The always-on
+  shell daemon re-applies it on the wake edge, beside restoring output power, so
+  the job no longer rides a hypridle `after_sleep_cmd` -- the generated idle
+  config carries no sleep hooks at all.
 - **Video decode no longer freezes on hybrid laptops.** The session forced the
   nvidia VA-API/GLX drivers whenever the nvidia driver merely existed, so on a
   hybrid where the Intel or AMD iGPU drives the panel, video froze. It now takes
@@ -509,12 +1173,15 @@
   (`ryoku-i18n ensure`).
 - `hyprland` + `system/hardware/power`: **clamshell mode -- close the lid without
   sleeping when docked.** A new `modules/lid.lua` binds the laptop lid switch
-  (`bindl switch:Lid Switch`) to `ryoku-clamshell lid`, which blanks the internal
-  panel on close when an external display is attached and restores the layout on
-  open; autostart launches the `ryoku-clamshell` daemon that keeps the machine
-  awake on lid close while on AC power with an external display (macOS-style: both
-  are required, else it suspends). The suspend policy and the logind drop-in live
-  in `system/hardware/power/`.
+  (`bindl switch:Lid Switch`) to `ryoku-clamshell lid`, which runs the shared
+  lid-close policy (secure the lock when the close will suspend, then blank the
+  internal panel when an external display is attached) and restores the layout
+  on open. Autostart launches the `ryoku-clamshell` daemon that keeps the machine
+  awake on lid close while on AC power with an external display (macOS-style:
+  both are required, else it suspends); live docked mode treats the close as an
+  output handoff and leaves the external session active. niri runs the same
+  policy from its native `lid-close` switch event. The suspend policy and the
+  logind drop-in live in `system/hardware/power/`.
 - `hyprland` + `shell`: **`Super+Alt+D` opens the right (System) sidebar**, the
   mirror of `Super+D` for the left (Features) sidebar. The bind runs
   `ryoku-shell system`, a new IPC verb that toggles the System control centre;
@@ -548,32 +1215,19 @@
   delos bar's power access, since power leaves the island, but the bind works
   in every bar style.
 - `rashin/backend` + `apps/fish` + `docs/rashin-terminal.md`: **Rashin in the
-  terminal**, a third surface on the one brain (launcher `\`, dashboard, and
-  now the command line). A new `rashin` command (the `ryoku-rashin` binary
-  under a second name; argv0 routes a bare argument to a terminal ask) turns
-  natural language into an answer plus a ready-to-run command plan and drops it
-  on the fish prompt: `rashin take me to the fastfetch config`, `rashin scan
-  Documents for pngs and move them into Pictures`. It answers on the daemon's
-  fast lane (`POST /api/term`), the same direct chat-completions loop as the
-  launcher, with a terminal persona, the terminal context (cwd, last command
-  and its exit status), the read-only tools, and one action tool, `propose`,
-  whose commands the daemon validates (binary on PATH, source paths exist) and
-  tiers (read/write/system/danger via a deny-first Go classifier in
-  `danger.go`). It never runs anything itself; the buffer is the confirmation
-  and the tiers gate `--run`. Heavy asks escalate to the pre-warmed hermes
-  session, and session-lane permission prompts are answered right in the
-  terminal (`POST /api/perm`, answered exactly once even if the dashboard
-  races). A `conf.d/rashin.fish` weave adds the interactive wrapper, an
-  **Alt+R** binding that transmutes the current command line, a `fish_postexec`
-  hook that reports proposed-vs-ran corrections, and the recipes loader. New
-  **habits layer** (`habits.md`) mines this user's XDG directory names, modern
-  tool substitutions (eza/zoxide/fd/rg/bat), and fish-history rhythms
-  (secret-filtered, opt-out) into both ask lanes, so a command knows the folder
-  is really `Pictures`. Repeated asks become saved **recipes** (`rr-<name>` fish
-  abbreviations). Every surface reads and writes one ask history, so `\resume`,
-  `rashin --resume`, and "continue in dashboard" see one conversation. New
-  verbs: `term`, `term --report`; the `rashin` command also passes through
-  `status`/`enable`/`disable`/`setup`/`index`.
+  terminal**, the command-line surface for the read-only Ask system. The
+  `rashin` command turns natural language into an answer plus an optional
+  ready-to-run command plan and places the selected command on the shell
+  prompt. Its Prowl fast path gets terminal context, vault maps, bounded
+  read-only tools, and the `propose` schema; its fallback is a fresh private
+  read-only harness session. Neither path runs a command, presents an Ask
+  approval, or writes to the Agent transcript. The daemon validates binaries
+  and paths and assigns read/write/system/danger tiers. Shell adapters add
+  Alt+R, correction reporting, and recipes; `habits.md` carries directory
+  names and shell rhythms. The bar, launcher, console Ask sheet, and terminal
+  share `rashin-asks.jsonl`, while `rashin -c` carries only the previous
+  terminal exchange into a new ask (`rashin/backend/termserve.go`,
+  `rashin/backend/termcli.go`, `apps/fish/conf.d/rashin.fish`).
 - `shell/quickshell/overview` + `hyprland`: a new full-screen workspace overview
   (Super+Tab), a launcher-style expo that replaces the pill's workspace switcher.
   The compositor blurs the desktop (an `overview` layer rule) and a filmstrip
@@ -592,101 +1246,53 @@
   current desktop from the active workspace and makes `Super+N` / `Super+Alt+N`
   desktop-relative (on desktop 2, `Super+3` focuses ws13, never ws3, and windows
   never jump desktops); the redundant Alt+Tab window switcher bind is removed.
-- `rashin/backend` + `shell/quickshell/launcher`: the quick ask got real
-  powers. The fast lane is now a bounded agent loop, not a one-shot: on a
-  direct-provider connection it can call a small set of read-only Go-native
-  tools (`system_query` for packages/updates/service/processes/disk/kernel/
-  gpu/network, `read_file`, `list_dir`, `search_code` via prowl-agent, and
-  `fetch_url`), up to four rounds, then answer, all still in a second or two.
-  Tools are deliberately a safe Go set, not hermes's Python toolset; anything
-  heavier (file or image generation, a real browser, a skill, system changes)
-  replies `TOOLS_REQUIRED` and escalates to the pre-warmed session lane. Tool
-  runs surface as cards in the dashboard and as the working label in the
-  launcher. Every turn now runs on a background context, so **CONTINUE IN
-  DASHBOARD** can open the live turn mid-flight and it keeps going after the
-  launcher closes (proven: a SIGKILL'd CLI still completed the turn into
-  hermes state.db and the ask history); **CANCEL** / Escape stops it via
-  `/api/ask/cancel`. `\resume` lists recent asks from a persisted JSONL
-  (`$XDG_STATE_HOME/ryoku/rashin-asks.jsonl`) and recalls a cached answer with
-  its chips, no model call. New verbs: `ask --recent`, `ask --cancel`.
-- `rashin/` + `hub/quickshell/RashinPage.qml` + `hyprland/modules/autostart`:
-  **Ryoku Rashin**, an optional agent OS (off by default). `rashin/backend`
-  (`ryoku-rashin`, one Go program) maintains a machine-generated markdown vault
-  at `~/.local/share/ryoku/rashin/` (system, desktop, and package maps, fenced
-  between `<!-- rashin:generated -->` markers so a reindex never clobbers user or
-  agent notes), serves a hand-authored dashboard embedded under
-  `rashin/backend/web/` on `127.0.0.1:3600` (localhost only), and bridges the
-  Hermes agent over ACP into a web chat. A one-click `setup` installs and
-  onboards Hermes, then wires reversible, marker-fenced vault pointers
-  (`<!-- ryoku-rashin -->`) into every detected agent's global instructions
-  (Claude Code, codex, opencode, omp, Hermes); an existing Hermes is never
-  clobbered, and `serve` re-checks the wiring on start with any drift reported by
-  `status`. The Hub gains a Rashin page in the Advanced group (enable toggle,
-  one-click Hermes setup watched live, open-dashboard button), and `autostart`
-  launches `ryoku-rashin serve --if-enabled`, which exits at once until enabled.
-  See `docs/rashin.md`.
-- `rashin/backend`: the dashboard grows from a glance into a **full local-agent
-  utility** (v0.2.0), seven panels. Chat v2: image attach/paste/drag-drop (sent
-  as ACP image blocks, downscaled client-side), clickable links, a `/` command
-  legend fed live from Hermes's slash commands, a model picker with recents
-  (switches over `session/set_model`), a session-history drawer that replays
-  stored transcripts (`session/list` + `session/load`), a context-usage meter,
-  token fade-in streaming, and a response-ready toast for backgrounded tabs.
-  New **Memory** panel: provider detection (builtin or honcho/mem0/supermemory/
-  hindsight and friends, plus Obsidian vault detection), a force-directed graph
-  of the vault's notes and references, a 26-week activity heatmap, and Hermes
-  session history read from `~/.hermes/state.db` (sqlite3, read-only). New
-  **Skills** panel: all Hermes skills by category with origin counts (bundled /
-  hub / agent-grown), live search, and the enabled toolbelt grouped into
-  families. New **About** panel: what Rashin is, live facts, quick start, and a
-  command crib pointing at `hermes -h`, `hermes gateway`, `hermes model`. The
-  Overview gains a **code intelligence card**: when the user has `prowl-agent`
-  installed and an indexed repo, the daemon surfaces doctor finding counts,
-  files/symbols, and top hotspots (read-only exec, cached, degrades to hidden;
-  prowl stays user-installed because upstream ships no license yet). New API:
-  `/api/hermes/skills`, `/api/hermes/memory`, `/api/prowl`, `/api/prowl/search`,
-  `/api/about`; the chat WebSocket learns models/commands/history/usage frames.
-  Hermes onboarding detection now reads the mapping-form `model:` block, and
-  session titles surface correctly.
-- `shell/quickshell/launcher` + `rashin/backend`: a quick-ask answer is now a
-  launch point, not a dead end. The answer text is selectable (mouse-copy any
-  fragment), and `/api/ask` returns an `actions` array of entities the daemon
-  detected in the answer and verified against the machine: real files, real
-  directories, `http(s)` URLs, backtick commands whose first word is on
-  `PATH`, and hex colors. The launcher renders each as a chip that does the
-  obvious thing (file opens in nvim, folder in the file manager, URL in the
-  browser, command and color copy with a live swatch), plus COPY for the whole
-  answer and CONTINUE IN DASHBOARD. Chips walk with the arrow keys and fire
-  with ENTER, typing re-asks, and copyables flash COPIED. Nonexistent paths
-  and non-runnable spans are dropped so a chip never lies.
-- `rashin/backend`: quick asks got fast. `/api/ask` now runs **two lanes**: a
-  fabric-style fast lane makes ONE direct streaming chat-completions call on
-  the same model connection hermes is configured with (openrouter, openai,
-  groq, ollama, or any local endpoint; key read from `~/.hermes/.env`), a
-  terse pattern prompt plus the vault maps as context, no Python spawn, no
-  agent loop, answers in a second or two; the model replies `TOOLS_REQUIRED`
-  when the ask genuinely needs tools, which escalates it to the session lane.
-  OAuth backends (openai-codex) go straight to the session lane, and the
-  daemon now **pre-warms the hermes session at boot**, cutting the first ask
-  on this machine from ~19s to ~8s. The lane's connection is overridable in
-  `rashin.json` (`quick.model` / `quick.baseUrl` / `quick.keyEnv`) for a
-  cheaper or local quick-answer model. The ask CLI is now a thin pipe over
-  `/api/ask`, both lanes land in the shared transcript, and consecutive
-  duplicate working markers are deduped.
-- `shell/quickshell/launcher` + `rashin/backend`: the launcher learns to ask
-  the agent. A `\` prefix routes to Rashin: type `\why is my mic quiet?`,
-  ENTER, and a pulsing strip names what hermes is doing (the running tool,
-  thinking, writing) until one deliberately terse answer renders inline,
-  image results (image_gen, screenshots) previewing as thumbnails. It rides
-  a new `ryoku-rashin ask` one-shot that joins the daemon's shared session
-  over the chat WebSocket with a quick-mode preamble only the model sees,
-  and streams `@working`/`@perm`/`@answer` markers to stdout. Because it is
-  the same session, the new CONTINUE IN DASHBOARD button opens the exact
-  conversation, already on screen: the chat hub now keeps a per-session
-  transcript (capped at 400 frames) and replays it to every joining client,
-  which also means refreshing the dashboard no longer blanks the chat. A
-  pending tool approval surfaces as APPROVE IN DASHBOARD. The `\` prefix
-  joins the launcher help sheet.
+- `rashin/backend` + `shell/quickshell/launcher`: **Quick Ask has bounded
+  read-only tools.** A selected Prowl route can inspect machine facts, files,
+  the Prowl code index, and URLs before answering. Broader read-only work opens
+  a fresh private harness session; work that needs mutation returns
+  `needsAgent` with a reason. Turns continue after the launcher closes, Cancel
+  stops only the active ask, and `\resume` recalls `rashin-asks.jsonl` without
+  another model call (`rashin/backend/quicktools.go`,
+  `rashin/backend/askserve.go`, `rashin/backend/askhistory.go`).
+- `rashin/` + `hub/quickshell/RashinPage.qml`: **Ryoku Rashin** is an optional
+  local agent OS, off by default. One daemon maintains the fenced machine
+  vault, serves the embedded Svelte console on loopback, runs Agent and Chat
+  harness sessions, and handles separate read-only asks. Setup can install
+  Hermes without clobbering an existing configuration; wiring adds reversible
+  vault and skill pointers to detected harnesses. The Hub controls the gate,
+  setup, and console, while the user service exits immediately until enabled
+  (`rashin/backend/`, `rashin/web/`, `rashin/systemd/`).
+- `rashin/web` + `rashin/backend`: the console grows from a glance into a
+  **full local-agent utility**. Agent and Chat use separate three-pane
+  workspaces with sessions, transcripts, tools, approvals, images, models, and
+  usage; Ask gets its own read-only sheet and history. Memory, Skills, System,
+  Vault, Wiki, Prowl, and About expose the daemon's local machine state. The
+  Prowl section hosts the external gateway, code index, portable skills, and
+  harness connections without replacing the user's harness model
+  (`rashin/web/`, `rashin/backend/server.go`,
+  `rashin/backend/prowlgw.go`).
+- `shell/quickshell/launcher` + `rashin/backend`: a quick Ask answer is a
+  launch point, not a dead end. The answer text is selectable and `/api/ask`
+  returns verified action chips for files, directories, URLs, runnable
+  backtick commands, and colours. Copy handles the whole answer; Continue with
+  the agent carries a completed question and answer into Agent, while Move to
+  the agent runs unfinished or `needsAgent` work there. Nonexistent paths and
+  non-runnable command spans are dropped
+  (`shell/quickshell/launcher/shared/AskPanel.qml`,
+  `rashin/backend/ask.go`, `rashin/backend/handoff.go`).
+- `rashin/backend`: **Ask has a fast route and a private harness route.** Prowl
+  routes use its authenticated chat-completions gateway and bounded read-only
+  tools. Agent model skips that path, and broader inspection opens a fresh
+  read-only harness session for the ask. Both record only
+  `rashin-asks.jsonl`; neither joins the Agent transcript or offers approvals
+  (`rashin/backend/quick.go`, `askserve.go`, `lane.go`).
+- `shell/quickshell/launcher` + `rashin/backend`: **The launcher learns the
+  read-only Ask flow.** A `\` prefix streams working and answer markers, shows
+  verified action chips, and can explicitly hand the result to Agent. Continue
+  with the agent adds a From Ask card for the next message; Move to the agent
+  runs the question immediately. No Ask tool call waits on an approval
+  (`shell/quickshell/launcher/shared/AskPanel.qml`,
+  `rashin/backend/handoff.go`).
 - `rashin/systemd` + `rashin/backend` + `hyprland/modules/autostart`: the
   daemon now runs as a **systemd user unit** (`ryoku-rashin.service`) instead
   of riding the Hyprland session. `ryoku-rashin enable` does

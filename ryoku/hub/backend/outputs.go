@@ -22,12 +22,21 @@ import (
 // through ApplyOutputs, so it works on every compositor and survives a switch
 // (the provider reports whatever the new compositor cannot honour).
 //
-//	ryoku-hub outputs                list the connected outputs (JSON)
-//	ryoku-hub outputs apply <json>   apply an output layout, print the report
-//	ryoku-hub outputs profiles       list saved profiles and whether each matches
+// Resolution presets are the narrower sibling: one monitor's mode and scale,
+// saved under a name, so a hand-typed custom resolution can be re-picked from
+// the Resolution list instead of retyped. They stage into the page's draft;
+// Apply stays the single path that touches the displays.
+//
+//	ryoku-hub outputs                 list the connected outputs (JSON)
+//	ryoku-hub outputs apply <json>    apply an output layout, print the report
+//	ryoku-hub outputs profiles        list saved profiles and whether each matches
 //	ryoku-hub outputs save <n> <json> save a profile and apply it
-//	ryoku-hub outputs load <n>       apply a saved profile
-//	ryoku-hub outputs rm <n>         delete a saved profile
+//	ryoku-hub outputs load <n>        apply a saved profile
+//	ryoku-hub outputs rm <n>          delete a saved profile
+//	ryoku-hub outputs presets         list saved resolution presets (JSON)
+//	ryoku-hub outputs preset-save <n> <WxH@Hz> <scale>
+//	                                  store one monitor's mode and scale
+//	ryoku-hub outputs preset-rm <n>   delete a preset
 
 // outputRow is one output as the display editor reads it: the seam's Output plus
 // the physical width, height and refresh parsed from the current mode, since the
@@ -82,6 +91,18 @@ func runOutputs(args []string) error {
 			return fmt.Errorf("outputs rm needs a name")
 		}
 		return rmProfile(args[1])
+	case args[0] == "presets":
+		return listPresets()
+	case args[0] == "preset-save":
+		if len(args) < 4 {
+			return fmt.Errorf("outputs preset-save needs a name, a mode and a scale")
+		}
+		return savePreset(args[1], args[2], args[3])
+	case args[0] == "preset-rm":
+		if len(args) < 2 {
+			return fmt.Errorf("outputs preset-rm needs a name")
+		}
+		return rmPreset(args[1])
 	}
 	return fmt.Errorf("outputs: unknown subcommand %q", args[0])
 }
@@ -94,6 +115,12 @@ func listOutputs() error {
 	rows := make([]outputRow, 0, len(snap.Outputs))
 	for _, o := range snap.Outputs {
 		w, h, refresh := parseModeDims(o.Mode)
+		// A provider that cannot read every editor detail still carries the
+		// live geometry over IPC; the mode string is the refinement, never the
+		// only source.
+		if o.Mode == "" {
+			w, h = o.Width, o.Height
+		}
 		rows = append(rows, outputRow{
 			Name:          o.Name,
 			Focused:       o.Focused,
@@ -355,4 +382,79 @@ func parseModeDims(s string) (w, h, refresh int) {
 		h, _ = strconv.Atoi(dims[x+1:])
 	}
 	return w, h, refresh
+}
+
+// --- resolution presets ----------------------------------------------------
+
+// outputPreset is one monitor's mode and scale under a name: not a layout, so
+// it never applies anything by itself. The page stages it into the draft and
+// Apply stays the only path to the displays.
+type outputPreset struct {
+	Name  string  `json:"name"`
+	Mode  string  `json:"mode"`
+	Scale float64 `json:"scale"`
+}
+
+func presetsDir() string { return filepath.Join(ryokuConfigDir(), "output-presets") }
+
+func savePreset(name, mode, scale string) error {
+	n, err := profileName(name)
+	if err != nil {
+		return err
+	}
+	w, h, refresh := parseModeDims(mode)
+	if w < 320 || h < 200 || refresh < 20 || w > 16384 || h > 16384 || refresh > 480 {
+		return fmt.Errorf("preset mode %q is out of range", mode)
+	}
+	s, err := strconv.ParseFloat(scale, 64)
+	if err != nil || s < 0.5 || s > 4 {
+		return fmt.Errorf("preset scale %q is not a number between 0.5 and 4", scale)
+	}
+	body, err := json.Marshal(outputPreset{Name: n, Mode: mode, Scale: s})
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(presetsDir(), 0o755); err != nil {
+		return err
+	}
+	return atomicWrite(filepath.Join(presetsDir(), n+".json"), body, 0o644)
+}
+
+func rmPreset(name string) error {
+	n, err := profileName(name)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(presetsDir(), n+".json")); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return printJSON(map[string]bool{"removed": true})
+}
+
+func listPresets() error {
+	ents, err := os.ReadDir(presetsDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return printJSON([]outputPreset{})
+		}
+		return err
+	}
+	out := make([]outputPreset, 0, len(ents))
+	for _, e := range ents {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(presetsDir(), e.Name()))
+		if err != nil {
+			continue
+		}
+		var p outputPreset
+		if err := json.Unmarshal(raw, &p); err != nil || p.Mode == "" {
+			continue
+		}
+		p.Name = strings.TrimSuffix(e.Name(), ".json")
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return printJSON(out)
 }

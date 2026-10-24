@@ -47,7 +47,7 @@ PanelWindow {
     readonly property color dim: Qt.rgba(0, 0, 0, 0.45)
 
     screen: modelData
-    visible: Recorder.anyActive && Recorder.regionGeom !== "" && onScreen
+    visible: Recorder.active && Recorder.regionGeom !== "" && onScreen
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: WlrLayer.Top

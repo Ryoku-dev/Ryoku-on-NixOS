@@ -3,6 +3,119 @@
 ## Unreleased
 
 ### Added
+- **Fedora gets a `ryoku-keyring` RPM.** It owns the release key file and the
+  revoked-key list, `ryoku-desktop` requires it, and a rotated key now reaches
+  Fedora machines through `ryoku update`. Contributed by itsKontra.
+- **RyoManager ships in every native Ryoku repository.** Arch, Fedora and Void
+  build it from a pinned commit of `Ryoku-dev/ryomanager`
+  (`packages/ryomanager/`, `../fedora/packages/rpm/ryomanager.spec`,
+  `../void/packages/srcpkgs/ryomanager/`).
+- **Key sounds have shared profiles and a niri engine package.**
+  `ryoku-keysounds-profiles` now owns the samples and importer, while the new
+  `ryoku-keysounds-niri` package ships niri's standalone engine.
+- **The Testing gate moves the source lane only after its checks pass.**
+  `.github/workflows/testing-gate.yml` records the current check and last
+  passing commit in `channels/testing/checked.json` on every `unstable-dev`
+  push.
+- **Every package publisher has one required-checks gate.**
+  `bin/ryoku-ci-gate` waits for every non-advisory GitHub check before Arch,
+  Void, or Fedora uploads a channel.
+- **Channel builds publish machine-readable state.** Each edition writes
+  `status.json` as `building`, `published`, or `failed`, with the commit,
+  release, timestamps, and Actions run.
+- **Test ISOs can build directly from `unstable-dev`.** The ISO workflows accept
+  `publish=false`, which keeps the signed image and its checks in the workflow
+  artifact without moving a public pointer or ledger.
+- **Fedora releases publish signed RPM repositories.** Every release listed in
+  `fedora/releases` gets its own stable and testing heads, frozen releases and
+  unstable builds, and package-only ledgers below `stable/fedora/<N>/`. CI
+  rebuilds SRPMs in that Fedora release, signs every binary RPM and
+  `repomd.xml`, install-tests both compositor packages, and publishes no SRPMs
+  or ISO. Retention keeps the latest ten stable and unstable targets for each
+  Fedora release.
+- **Fedora 44 and 45 ship the full compatible Ryoku package set.** Ryoku builds
+  Quickshell, GPU Screen Recorder, GlazePKG, Ryotunes, skwd-paper, the Hyprland
+  plugins, fonts, cursors, controller support, and the remaining desktop
+  dependencies as signed RPMs. The workflow publishes the supported release
+  list at `stable/fedora/releases`.
+- **Fedora upstream RPMs have one verified source pipeline.** Specs use checksum
+  manifests, locked Go or Cargo vendor archives, and verified fetch hooks.
+  Builds stay offline and may reuse an identical, signed, dependency-solvable
+  upstream RPM from the published repository; Ryoku-tree RPMs always rebuild.
+- **Void ships GlazePKG, dualsensectl, Ryoku's Oh My Zsh, and Ryotunes.** The
+  signed XBPS repository now carries all four.
+- **Edition parity is a delivery gate.** `bin/ryoku-edition-parity` requires
+  every Arch package to have a build or an explained translation row for Void
+  and Fedora.
+- **Every edition is checked to ship the same files.** `tests/payload-parity.sh`
+  stages each monorepo package the way Arch, Void, and Fedora build it and
+  compares paths, modes, and hashes; only declared init, boot, and
+  package-manager adapters may differ. The Hyprland package now uses a shared
+  `payload.sh` like every other monorepo package.
+- **Fedora RPM dependencies are a delivery gate.** `tests/fedora-packages.sh`
+  checks every spec's Requires against its Arch package's translated
+  dependencies, mirroring the Void check. It found and fixed missing runtime
+  libraries in dualsensectl, prowl, skwd-paper, and the Hyprland share picker.
+- **The R2 bucket keeps the last ten of everything.** A scheduled Cloudflare
+  Worker (`r2-retention/`) keeps ten stable releases and ten unstable builds
+  per edition and Fedora release, plus ten ISOs for each image-producing
+  edition and channel. It deletes older targets with their sidecars and drops
+  ledger entries for what it removed.
+- **Unstable repositories keep frozen build history.** Arch, Void, and each
+  supported Fedora release record immutable testing builds in ledgers for
+  rollback and pinning.
+- **Void ships `limine-snapper-sync`.** The signed XBPS package builds the
+  native tool offline and runs its snapshot watcher under runit.
+- **Ryoku packages now share one payload across pacman and XBPS.** Monorepo
+  PKGBUILDs install the shared payload with systemd wiring, while Void templates
+  install it with runit wiring. The new Void pipeline builds, signs, and indexes
+  those templates as an XBPS repository.
+- **`prowl` ships from [ryoku] and replaces `prowl-agent`.** Built from a pinned
+  neur0map/prowl commit with the potion-code-16M embedding model compiled in,
+  and stamped pacman-managed so `prowl update` defers to `ryoku update`.
+  `replaces` and `conflicts` move existing boxes over on `pacman -Syu`.
+  `ryoku-rashin` depends on it and ships `ryoku-prowl.service`.
+- **wayfire is the third window-manager provider.** Registered with its caps
+  manifest (state, watch, act, outputs, binds, session and environment verbs,
+  plus the schema rows), composing `wayfire.ini` from the shipped baseline on
+  `apply` (plugin list, autostart rows, binds, zoom modifier) and refusing a
+  compose without those defaults, so a checkout can never render a wayfire
+  with no plugins and no session chain. The installer offers and bakes the
+  variant, `[ryoku]` packages it, the login bootstrap starts the desktop like
+  the sibling providers do (shell, portals through the GNOME backend the
+  portal config routes to, welcome tour), and the session seed advertises
+  foreign-toplevel so the shell sees windows on wayfire like everywhere else.
+- **The desktop frosts while a window owns the workspace.** Wallpaper,
+  widgets and the bar body haze over while the window in focus stays clear
+  on its own layer: the scrim clears in a ring around the front window and
+  densifies on an exponential ramp toward the far corner, the frosted surface
+  under it blurs as glass (folded into the shared eye-candy policy, so Low
+  Power, Power Saver or Game Mode flatten it to plain translucency), the
+  strength steps up by 0.25 for every window behind the front, and a stack
+  past a solid haze lifts a floor so the rim around the focus keeps
+  darkening with each window instead of stopping, while the bar frosts as
+  translucency of its own silhouette. One knob: the `deckFrost` shell.json
+  key (0-1, default 0.45).
+- **`skwd-paper-bin` ships from [ryoku].** The skwd-paper renderer Ryogami
+  drives for Wallpaper Engine scenes, repackaged from the prebuilt Arch package
+  of a pinned upstream release (version and checksum in its PKGBUILD).
+  `ryogami` depends on it.
+- **`ryogami` builds and ships its picker.** The package now builds the
+  `Ryoku.Ryogami` QML module (C++ scene, shaders and QML) into
+  `/usr/lib/qt6/qml/Ryoku/Ryogami` beside the daemon, with its entry point at
+  `/usr/share/ryogami/shell.qml`. The picker ports GPL skwd-wall v2, so the
+  package is now GPL-3.0-or-later and ships its LICENSE and NOTICE. It no
+  longer needs `curl` or `inotify-tools`; `yt-dlp` and `steamcmd` are optional
+  extras for the YouTube source and Workshop downloads without the Steam client.
+  The build toolchain gains `vulkan-headers`, which the picker compiles against
+  to list GPUs.
+- **`ttf-rubik-vf` and `ttf-readex-pro` ship from [ryoku].** The iRiS frame
+  hardcodes Rubik for every numeral and Readex Pro for its titles; neither face
+  shipped, so boxes silently fell back to Noto Sans and the frame's tight card
+  rows clipped their unit glyphs. Both are prebuilt TTFs from pinned upstream
+  commits (no build to fail headless), pacstrapped from `base.packages`, and
+  reach existing boxes through the `ryoku update` Base lane. Same model as
+  `otf-space-grotesk`.
 - **`ryoku-desktop` ships the `ryoku-gpu-trim` initramfs hook.**
   `/usr/lib/initcpio/install/ryoku-gpu-trim`, from
   `system/boot/mkinitcpio/install/`. The HOOKS drop-in names it and mkinitcpio
@@ -22,6 +135,9 @@
   manifest (with a message, never an abort), and keeps every existing field, so
   a consumer that ignores `images` reads byte-identical entries
   (`bin/ryoku-release-ledger`).
+- **Void releases have their own ledger.** Package and ISO publishes rebuild
+  `void/releases/index.json`, while the Arch ledger accepts only plain and
+  CachyOS images.
 
 - **`ryoku-keysounds`: the key sounds compositor plugin.** Built from
   `ryoku/hyprland/plugins/keysounds` (depends on `hyprland`, `libcanberra`),
@@ -32,7 +148,95 @@
   no checkout can rebuild it for a newer Hyprland. `ryoku-desktop` pins it like
   the other plugin packages.
 
+### Fixed
+- **The Arch build host has Qt Quick 3D for `ryoku-blobs`.** Ryoku.Spatial3D
+  compiles against it, and `makepkg --nodeps` ignores the recipe's own
+  makedepends, so the `[ryoku]` build stopped at that package
+  (`repo/build-toolchain.packages`).
+- **Desktop services reach every account, not only the installer account.**
+  Systemd installs shell, wallpaper, idle, clamshell, Bluetooth and optional
+  Rashin units system-wide and enables their required user services globally.
+  Void packages seed the complete Turnstile service set in `/etc/skel` and
+  provision every installer account. Existing machines are repaired by
+  `ryoku doctor`; every new account also receives the `input` and `video`
+  access needed for remapping and brightness.
+- **Palette Bridge packages carry their runtime contract.** Arch, Fedora, and
+  Void now depend on the Ryoku host service seam and curl, and package checks
+  exercise the daemon and every integration path instead of shipping scripts
+  their package test never ran (`packages/ryoku-palette-bridge/`,
+  `../fedora/packages/rpm/ryoku-palette-bridge.spec`,
+  `../void/packages/srcpkgs/ryoku-palette-bridge/`).
+- **Void builds the latest Ryotunes release.** The Void template pinned
+  Ryotunes 1.1.6 while releases moved on to 1.2.1, so Void installs and ISOs
+  shipped an old Ryotunes that `ryoku update` called current. The repository
+  build now resolves Ryotunes' latest stable release and stamps its version
+  and checksum, as the Arch importer and the Fedora fetch hook already follow
+  it. The package also pulls in Qt's TLS plugin, the tray indicator library
+  and Qt's image formats, which Void ships separately, so cover art loads and
+  the tray icon appears (`../void/packages/repo/container-runner.sh`,
+  `../void/packages/repo/build-repo.sh`, `../void/packages/srcpkgs/ryotunes/`).
+- **The Void key-sound profiles build again.** Void's ffmpeg 6 read the
+  importer's stdin, which was the profile list the build loops over, so it ate
+  the next line and the build died on a half-read profile name, failing the
+  whole XBPS publish. `ryoku-keysounds-import` now runs ffmpeg with `-nostdin`
+  (`ryoku/keysounds/ryoku-keysounds-import`).
+- **Updates past the prowl switch no longer fail on prowl-agent.** prowl
+  conflicted with the prowl-agent it replaces, and `ryoku update` moves the
+  Ryoku set with an explicit `pacman -S`, which never applies a replacement, so
+  every update that pulled prowl in through ryoku-rashin stopped at "conflicting
+  dependencies" on a box that still had prowl-agent. The two share no files;
+  prowl now only replaces it, so the update installs prowl beside the old agent
+  and a `pacman -Syu` still swaps them (`release/packages/prowl`).
+- **[ryoku] serves the current Limine tools.** limine-mkinitcpio-hook 1.40.0
+  and limine-snapper-sync 1.32.1 replace 1.37.1 and 1.31.0, the versions
+  CachyOS ships, so a CachyOS box no longer sees an older copy in [ryoku] and
+  Arch boxes get the upstream fixes. Both build with GraalVM 25.0.4 and the
+  1.1.14 buildtools plugin, refreshed in `release/gradle-offline/repo`.
+- **Fedora Ryogami requires the real OpenH264.** `ffmpeg-free` can satisfy its
+  H.264 library with the `noopenh264` stub, which makes every H.264 encode and
+  decode fail; `ryogami` now requires `openh264` from Fedora's Cisco
+  repository (`fedora/packages/rpm/ryogami.spec`).
+- **Fedora and Void desktops ship `pactl`.** Arch's `libpulse` carries the
+  tool Ryogami's audio ducking calls, so the edition tables now map it to the
+  libraries plus `pulseaudio-utils` (`fedora|void/packages/translations.tsv`,
+  the `ryoku-desktop` and `skwd-paper-bin` recipes).
+- **Stable releases publish every native repository from the workflow-created
+  tag.** Stable Release explicitly dispatches the pacman, XBPS, and RPM
+  publishers because its token-created tag cannot trigger their tag workflows.
+  First stable builds adopt tested upstream bytes without adopting the
+  channel-specific testing desktop package. Every native publisher writes
+  `release.json` last as its completion marker; Fedora also uploads new RPMs
+  before switching metadata and pruning old bytes. Variant ISO manifests point
+  at their own `latest-cachyos` or `latest-void` metadata.
+- **Void packages record the published release name, channel, and source commit.**
+
+- **A wayfire session rebinds its provider at login.** login1 reports the
+  desktop as "Wayfire:wlroots", the colon failed the provider-name regex in
+  `ryoku-power-cutover`, and discovery returned before the session
+  environment was ever bound: the user manager kept an older session's
+  `RYOKU_WM`, the daemon attached that stale provider, and every window- and
+  workspace-driven feature went empty in a perfectly healthy session.
+- **`ryoku-desktop` no longer collides with another desktop's mimeapps map.**
+  The default-app map shipped to `/usr/share/applications/mimeapps.list`, and
+  on Omarchy that file belongs to `omarchy-settings`, so pacman aborted the
+  whole install with "exists in filesystem" (#295). It ships to the site layer
+  `/usr/local/share/applications/mimeapps.list` instead: still below the
+  user's own `~/.config/mimeapps.list` (their "Set as default" picks always
+  win), still above the distro's, and owned by no other package. The old copy
+  leaves with the upgrade; `deploy.sh` retires an unowned one on dev boxes.
+
 ### Removed
+- **`ryoku-desktop` no longer depends on cliphist.** Arch, Fedora and Void drop
+  it (`packages/ryoku-desktop/PKGBUILD`,
+  `../fedora/packages/rpm/ryoku-desktop.spec`,
+  `../void/packages/srcpkgs/ryoku-desktop/template`); the clipboard history
+  lives in `ryoku-shell`.
+- **Ryoku Motion (`ryomotion`) is gone from `[ryoku]`.** The screen-demo recorder
+  and editor is retired: `release/packages/ryomotion/` is deleted, and
+  `ryoku-desktop` drops both its `ryomotion` optdepend and the `wf-recorder`
+  fallback depend. Screen recording is GPU Screen Recorder now
+  (`ryoku-desktop`'s `gpu-screen-recorder` depend); `ryoku doctor` removes
+  `ryomotion` from boxes that still carry it.
 - **The `awww` package is gone from `[ryoku]`.** The wallpaper backend moved to
   Ryogami, which paints and animates its own transitions from the built-in
   engine, so nothing on the box drives `awww` any more: the shell talks to
@@ -43,21 +247,36 @@
   ensures `ryogami` instead of `awww` when it puts the wallpaper daemon back.
 
 ### Changed
-- **Ryotunes updates on its own release channel, not the `[ryoku]` repo.**
-- **Ryotunes also updates on its own GitHub release channel.**
-  Ryotunes is released independently as a prebuilt Arch package on
-  ryoku-dev/ryotunes' GitHub releases (`ryotunes-<ver>-1-x86_64.pkg.tar.zst` and a
-  `.sha256` beside it). `ryoku update` now tracks those directly
-  (`ryoku/cli/internal/ryotunesrelease`): it verifies the download by sha256 and
-  by its own pacman name/version/arch, installs it with `pacman -U`, and only
-  ever moves the version forward, so an external build is never downgraded.
-  `ryoku doctor` reports a pending release without installing it, and Ryotunes is
-  dropped from the explicit `[ryoku]` update set so the repo's base build cannot
-  overwrite a newer one. The `[ryoku]` repo still builds the `ryotunes` package
-  (the retained sha256-pinned source tarball) for the initial install only. The
-  old auto-bump path is retired with it: `.github/workflows/ryotunes-release.yml`
-  and `bin/ryoku-release-ryotunes` are gone, and the Ryotunes release dispatch
-  into this repo with them.
+- **`ryoku-desktop` no longer requires Rashin on any edition.** On Arch
+  `ryoku-rashin` moves from `depends` to `optdepends`, and the Fedora and Void
+  desktops drop their hard requirement, so removing `ryoku-rashin` removes
+  every AI piece without touching the desktop. The version pin moves into
+  `ryoku-rashin`, which now depends on the matching `ryoku-desktop` on all
+  three, so the two still never run from different releases. On Void the
+  `ryoku-rashin` runit service, which ships with the desktop, parks itself
+  when the package is absent instead of restarting every second
+  (`../fedora/packages/rpm/`, `../void/packages/srcpkgs/`,
+  `../void/init/user/ryoku-rashin/run`).
+- **`ryoku-rashin` carries every AI piece.** The AI usage collectors
+  (`claude-usage`, `codex-usage`, `opencode-usage`), their `ryoku-ai-usage`
+  timer and service, and the `rashin-app` companion window move from
+  `ryoku-desktop` to `ryoku-rashin` on Arch, Fedora and Void, so removing
+  Rashin removes all of them. `ryoku-rashin` gains the build and runtime
+  dependencies the window and collectors need.
+- **Translations run on demand.** The i18n workflow is dispatched by hand after
+  copy changes and has a 40-minute job cap, so a provider outage cannot hold CI
+  for hours.
+- **Publishers reuse only verified build inputs.** Arch, Void, and Fedora cache
+  ccache, Go build data, and their native package-manager downloads. Build
+  outputs, assembled repositories, and ABI-locked vendored packages are always
+  rebuilt for the run.
+- **Ryotunes follows the package lane for each edition.** Arch and CachyOS keep
+  the independently released prebuilt package from ryoku-dev/ryotunes. `ryoku
+  update` verifies its checksum and pacman metadata, installs only a newer
+  version, and the doctor reports a pending release without changing the
+  system. Void and Fedora install and update their native Ryotunes packages
+  through the signed XBPS and RPM repositories instead of running the pacman
+  release path.
 - **`ryoku-shell` ships `ryostage`, not the two old engines.** Depth and Parallax
   merged into one engine: the package installs `/usr/bin/ryostage` and no longer
   ships `ryoku-depth` or `ryoku-parallax-engine`. `deploy.sh` removes the two old
@@ -149,6 +368,14 @@
   timed out and the publish was silently skipped, which is how users sat on
   an old stable for days. The rclone remote is written by one script,
   `bin/ryoku-r2-config`, shared with the ISO workflow.
+
+### Fixed
+- **gpk tracks its upstream again.** The pinned GlazePKG release binary sat at
+  0.5.8 while upstream had moved to 0.6.10, so a box fully up to date against
+  the [ryoku] repo still ran a package manager two minor generations old, and
+  "up to date" read as a false claim to the person who owns the tool. The pin,
+  both architecture checksums and pkgrel move to the current release
+  (`release/packages/gpk/PKGBUILD`).
 
 ### Added
 - **Release lines have names.** `CODENAME` holds the current line's name
@@ -552,12 +779,21 @@
   let `ddcutil` drive external-monitor brightness with no group setup; and
   `ryoku/ui/i18n-sync.py` installs as `/usr/bin/ryoku-i18n` for the Hub's
   Language > Generate with AI button and the autostart key-file seed.
-- **`ryoku-desktop` ships the laptop clamshell policy.** The `ryoku-clamshell`
-  helper lands on `/usr/bin` via the `system/hardware/*/ryoku-*` glob, and the
-  logind drop-in `system/hardware/power/logind-ryoku-lid.conf` installs to
-  `/etc/systemd/logind.conf.d/10-ryoku-lid.conf`; the `.install` reloads
-  `systemd-logind` (session-safe) so the lid policy applies without a reboot.
-  Closing the lid on AC power with an external display no longer suspends.
+- **`ryoku-desktop` ships the complete lock, lid and session-lifecycle policy.**
+  `ryoku-clamshell`, `ryoku-idle`, their user units and the login1 fallback
+  drop-in land together. A session watcher selects the confirmed active
+  Hyprland/niri login, binds `ryoku-session.target` to activity and logout, and
+  has unlimited restart recovery across login1 or D-Bus outages. Paired libalpm
+  hooks preserve the old executor and acquire a verified durable sleep block
+  before package extraction or removal, then keep it while every real
+  graphical user reloads compositor power bindings and replaces qylock, shell,
+  idle, clamshell and Ryogami owners; greeter, lock and stale lingering
+  sessions are excluded. The first release runs this all-session cutover
+  synchronously from managed updater stage two, or schedules an unlimited-retry
+  transient after pacman's lock for a direct install. Every new shell must
+  report its sleep guard and service owners ready before protection is released.
+  Removal keeps sleep blocked for remaining live sessions and restores logind's
+  fallback. Closing a lid on AC with an external display remains awake.
 - **`ryoku-desktop` ships the decor art set to `/usr/share/ryoku/ryodecors`.** The
   `Decor` and `Placard` components render from `~/Pictures/ryodecors`; the package
   carries the shipped set so `ryoku doctor` can lay it there on update (the

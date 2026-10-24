@@ -39,9 +39,23 @@ Singleton {
     }
 
     property string configLang: "auto"     // raw value from shell.json (name or code)
+    // A stored value may be a code, a name, or a regional spelling the catalog has no file
+    // for ("es-ES", "zh-CN"). Fold it to a shipped code: exact, then hyphen-as-underscore
+    // (zh_CN is a real catalog), then the base language (es-ES -> es).
+    function _code(v) {
+        if (!v || v === "auto")
+            return "";
+        if (i18n.names[v])
+            return i18n.names[v];
+        var under = v.replace(/-/g, "_");
+        if (i18n.names[under])
+            return i18n.names[under];
+        var base = v.split(/[-_]/)[0];
+        return i18n.names[base] || "";
+    }
     readonly property string lang: {
-        var sel = i18n.names[i18n.configLang] || i18n.configLang;   // name -> code, else raw
-        if (sel && sel !== "auto")
+        var sel = i18n._code(i18n.configLang);
+        if (sel)
             return sel;
         var n = Qt.locale().name;           // es_ES, pt_BR, pt_PT, fr_FR, en_US, ...
         if (i18n.names[n])

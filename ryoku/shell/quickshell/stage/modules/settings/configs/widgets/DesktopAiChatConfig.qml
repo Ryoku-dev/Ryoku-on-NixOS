@@ -1,0 +1,99 @@
+import QtQuick
+import QtQuick.Layouts
+import stage.services
+import stage.modules.common
+import stage.modules.common.widgets
+import stage.modules.settings.configs.widgets
+
+ContentPage {
+    id: root
+    forceWidth: false
+
+    signal goBack
+
+    RowLayout {
+        spacing: 12
+
+        RippleButton {
+            implicitWidth: implicitHeight
+            implicitHeight: 40
+            topLeftRadius: Appearance.rounding.full
+            topRightRadius: Appearance.rounding.full
+            bottomLeftRadius: Appearance.rounding.full
+            bottomRightRadius: Appearance.rounding.full
+            colBackground: Appearance.colors.colSecondaryContainer
+            colBackgroundHover: Appearance.colors.colSecondaryContainerHover
+            colRipple: Appearance.colors.colSecondaryContainerActive
+
+            MaterialSymbol {
+                anchors.centerIn: parent
+                text: "arrow_back"
+                iconSize: Appearance.font.pixelSize.large
+                color: Appearance.colors.colOnSecondaryContainer
+            }
+
+            onClicked: root.goBack()
+        }
+
+        StyledText {
+            text: Translation.tr("AI Chat Widget Options")
+            font.pixelSize: Appearance.font.pixelSize.large
+            font.family: Appearance.font.family.title
+            color: Appearance.colors.colOnLayer0
+        }
+    }
+
+    ContentSection {
+        title: Translation.tr("AI Chat Widget Settings")
+        icon: "auto_awesome"
+
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: 250
+            visible: !Config.isWidgetActive("ai_chat")
+
+            PagePlaceholder {
+                anchors.fill: parent
+                icon: "auto_awesome"
+                shape: MaterialShape.Shape.Circle
+                title: Translation.tr("AI Chat Widget disabled")
+                description: Translation.tr("Enable the AI Chat Widget in Desktop Widgets settings to use this page.")
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 4
+            visible: Config.isWidgetActive("ai_chat")
+
+            ContentSubsectionLabel {
+                text: Translation.tr("Assistant Icon")
+            }
+
+            ConfigSwitch {
+                buttonIcon: "symbols"
+                text: Translation.tr("Use Material Symbol")
+                checked: Config.options.background.widgets.ai_chat.useMaterialSymbol ?? false
+                onCheckedChanged: Config.options.background.widgets.ai_chat.useMaterialSymbol = checked
+            }
+
+            ConfigTextField {
+                id: topIconField
+                text: Translation.tr("Icon identifier")
+                icon: "image"
+                tooltip: Translation.tr("Use a Material Symbol name, distro, or an SVG name from the icons folder.")
+                placeholderText: "spark"
+                Component.onCompleted: inputText = Config.options.background.widgets.ai_chat.topIcon ?? "spark"
+                textField.onTextChanged: {
+                    const value = textField.text.trim();
+                    if (value !== "" && textField.activeFocus)
+                        Config.options.background.widgets.ai_chat.topIcon = value;
+                }
+            }
+
+            DesktopWidgetVisualOptions {
+                Layout.fillWidth: true
+            }
+        }
+    }
+}

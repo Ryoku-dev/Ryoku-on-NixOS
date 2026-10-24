@@ -15,5 +15,7 @@ var plugins = [
     { "id": "imgborders", "tab": "Image borders" },
     { "id": "dynamic-cursors", "tab": "Cursor motion" },
     { "id": "hyprfocus", "tab": "Focus flash" },
-    { "id": "keysounds", "tab": "Key sounds" }
+    { "id": "keysounds", "tab": "Key sounds" },
+    { "id": "borders-plus-plus", "tab": "Extra borders" },
+    { "id": "hyprgrass", "tab": "Touch gestures" }
 ];

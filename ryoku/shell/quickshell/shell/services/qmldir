@@ -1,5 +1,6 @@
 module shell.services
 singleton ShellState ShellState.qml
+singleton SidebarState SidebarState.qml
 ServiceLoader ServiceLoader.qml
 singleton Theme Theme.qml
 singleton Scheme Scheme.qml
@@ -12,6 +13,7 @@ singleton AudioBars AudioBars.qml
 singleton Recorder Recorder.qml
 singleton Battery Battery.qml
 singleton Network Network.qml
+singleton Presence Presence.qml
 singleton Nightlight Nightlight.qml
 singleton Notifs Notifs.qml
 singleton Audio Audio.qml
@@ -21,9 +23,14 @@ singleton Dock Dock.qml
 singleton DockPreview DockPreview.qml
 singleton MusicPreview MusicPreview.qml
 singleton BarProducts BarProducts.qml
+singleton DockProducts DockProducts.qml
+singleton Designs Designs.qml
+StoreIndex StoreIndex.qml
 singleton Devices Devices.qml
 singleton Weather Weather.qml
 singleton Updates Updates.qml
+singleton AiUsage AiUsage.qml
+singleton Tailscale Tailscale.qml
 singleton Camera Camera.qml
 singleton Keypresses Keypresses.qml
 singleton Toggles Toggles.qml
@@ -44,8 +51,10 @@ singleton Stash Stash.qml
 singleton Sysinfo Sysinfo.qml
 singleton BluetoothDiscovery BluetoothDiscovery.qml
 singleton BtLink BtLink.qml
+singleton BluetoothPower BluetoothPower.qml
 singleton ScreenTime ScreenTime.qml
 singleton Needle Needle.qml
 singleton StatsFeed StatsFeed.qml
 singleton AppLaunch AppLaunch.qml
 singleton Icons Icons.qml
+singleton BatteryAlerts BatteryAlerts.qml

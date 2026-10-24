@@ -24,3 +24,19 @@ test('a per-output widget override falls back to the style default', () => {
     assert.equal(ctx.widgetEnabled(displays, 'DP-1', 'chroma', 'network', true), true);
     assert.equal(ctx.widgetEnabled(displays, 'HDMI-A-1', 'chroma', 'media', false), false);
 });
+
+test('global iris is exclusive and old per-output iris overrides are inert', () => {
+    const config = {bar_style: {'DP-1': 'chroma', 'DP-2': 'iris'}};
+    assert.equal(ctx.styleFor(config, 'DP-1', 'iris'), 'iris');
+    assert.equal(ctx.styleFor(config, 'DP-2', 'qsbar'), 'qsbar');
+});
+
+test('shared QS Bar is hosted when selected only on a secondary output', () => {
+    const screens = [{name: 'DP-1'}, {name: 'HDMI-A-1'}];
+    const config = {bar_style: {'HDMI-A-1': 'qsbar'}};
+    assert.equal(ctx.styleFor(config, 'DP-1', 'sumi'), 'sumi');
+    assert.equal(ctx.styleFor(config, 'HDMI-A-1', 'sumi'), 'qsbar');
+    assert.equal(ctx.hasStyle(config, screens, 'sumi', 'qsbar'), true);
+    assert.equal(ctx.hasStyle(config, screens, 'sumi', 'iris'), false);
+    assert.equal(ctx.hasStyle(config, screens, 'iris', 'qsbar'), false);
+});

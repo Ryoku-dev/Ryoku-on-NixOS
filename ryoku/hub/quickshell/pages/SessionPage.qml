@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
+import "../Singletons"
 
 // Session (DESIGN.md section 11, ADVANCED). The two thin login-time lists folded
 // into one page: what the session runs at login (desktop.autostart, layered over
@@ -11,50 +12,83 @@ import Ryoku.Ui.Singletons
 // session). Each "key" is an array of entries, so each cluster is a bespoke list
 // editor -- a SettingCard holding a column of Field rows and its add/clear footer
 // -- not a settings sheet. The shell owns the rail, the side panel and the
-// Save/Revert/Reset action bar; edits land only via Save (settings.lua regen +
-// reload), never live, and a session reads both only at login, so a change takes
-// effect at the next login. Every value is a Token.
+// Save/Revert/Reset action bar; edits land only via Save (provider config regen
+// plus reload), never live, and a session reads both only at login, so a change
+// takes effect at the next login. Every value is a Token.
 Item {
     id: pg
 
     property var hub
 
-    // gated so an empty state does not flash before `hypr get` returns.
+    // gated so an empty state does not flash before `desktop get` returns.
     readonly property bool ready: pg.hub ? pg.hub.wmLoaded === true : false
+    readonly property bool autostartSupported: Settings.modelsKey("desktop.autostart")
+    readonly property bool environmentSupported: Settings.modelsKey("desktop.env")
 
     // live arrays from the draft: autostart is [{command}], env is [{key,value}].
-    readonly property var cmdRows: pg.hub ? (pg.hub.hyprVal("desktop.autostart") || []) : []
-    readonly property var envRows: pg.hub ? (pg.hub.hyprVal("desktop.env") || []) : []
+    readonly property var cmdRows: pg.autostartSupported && pg.hub ? (pg.hub.hyprVal("desktop.autostart") || []) : []
+    readonly property var envRows: pg.environmentSupported && pg.hub ? (pg.hub.hyprVal("desktop.env") || []) : []
 
     // hyprEdit swaps the whole array, so a Repeater rebinds and rebuilds the
     // delegate owning a focused field. rows therefore commit on editing-finished
     // only, and every helper hands hyprEdit a fresh slice rather than mutating the
-    // live list.
+    // live list. A TapHandler button never steals that focus, so a +/-/clear tap
+    // used to act on the stale draft and eat the typed command (#294): the field
+    // still holds the edit when the tap fires. Focus is exclusive, so the page
+    // tracks the one live edit and every helper folds it into its slice first.
+    property var liveEdit: null
+    function foldLive(a, list) {
+        var e = pg.liveEdit;
+        if (!e || e.list !== list || e.i < 0 || e.i >= a.length)
+            return;
+        var row = a[e.i];
+        if ("command" in e && row.command !== e.command) {
+            row = Object.assign({}, row);
+            row.command = e.command;
+        }
+        if ("key" in e && row.key !== e.key) {
+            row = Object.assign({}, row);
+            row.key = e.key;
+        }
+        if ("value" in e && row.value !== e.value) {
+            row = Object.assign({}, row);
+            row.value = e.value;
+        }
+        a[e.i] = row;
+    }
     function patchCmd(i, val) {
         if (!pg.hub)
             return;
         var a = (pg.hub.hyprVal("desktop.autostart") || []).slice();
         a[i] = Object.assign({}, a[i]);
         a[i].command = val;
+        if (pg.liveEdit && pg.liveEdit.list === "cmd" && pg.liveEdit.i === i)
+            pg.liveEdit = null;
         pg.hub.hyprEdit("desktop.autostart", a);
     }
     function removeCmd(i) {
         if (!pg.hub)
             return;
         var a = (pg.hub.hyprVal("desktop.autostart") || []).slice();
+        pg.foldLive(a, "cmd");
         a.splice(i, 1);
+        pg.liveEdit = null;
         pg.hub.hyprEdit("desktop.autostart", a);
     }
     function addCmd() {
         if (!pg.hub)
             return;
         var a = (pg.hub.hyprVal("desktop.autostart") || []).slice();
+        pg.foldLive(a, "cmd");
         a.push({ "command": "" });
+        pg.liveEdit = null;
         pg.hub.hyprEdit("desktop.autostart", a);
     }
     function clearCmd() {
-        if (pg.hub)
+        if (pg.hub) {
+            pg.liveEdit = null;
             pg.hub.hyprEdit("desktop.autostart", []);
+        }
     }
 
     function patchEnv(i, key, val) {
@@ -63,25 +97,33 @@ Item {
         var a = (pg.hub.hyprVal("desktop.env") || []).slice();
         a[i] = Object.assign({}, a[i]);
         a[i][key] = val;
+        if (pg.liveEdit && pg.liveEdit.list === "env" && pg.liveEdit.i === i)
+            pg.liveEdit = null;
         pg.hub.hyprEdit("desktop.env", a);
     }
     function removeEnv(i) {
         if (!pg.hub)
             return;
         var a = (pg.hub.hyprVal("desktop.env") || []).slice();
+        pg.foldLive(a, "env");
         a.splice(i, 1);
+        pg.liveEdit = null;
         pg.hub.hyprEdit("desktop.env", a);
     }
     function addEnv() {
         if (!pg.hub)
             return;
         var a = (pg.hub.hyprVal("desktop.env") || []).slice();
+        pg.foldLive(a, "env");
         a.push({ "key": "", "value": "" });
+        pg.liveEdit = null;
         pg.hub.hyprEdit("desktop.env", a);
     }
     function clearEnv() {
-        if (pg.hub)
+        if (pg.hub) {
+            pg.liveEdit = null;
             pg.hub.hyprEdit("desktop.env", []);
+        }
     }
 
     // ── a cluster footer: entry count on the left, Clear all + add on the right,
@@ -118,11 +160,13 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 text: I18n.tr("CLEAR ALL")
                 armed: foot.entries > 0
+                stealFocus: true
                 onAct: foot.requestClear()
             }
             IconBtn {
                 anchors.verticalCenter: parent.verticalCenter
                 glyph: "+"
+                stealFocus: true
                 onAct: foot.requestAdd()
             }
         }
@@ -199,7 +243,10 @@ Item {
                 id: loginCard
                 width: col.colWidth
                 title: I18n.tr("AT LOGIN")
-                summary: pg.cmdRows.length === 1 ? I18n.tr("%1 ENTRY").arg(pg.cmdRows.length) : I18n.tr("%1 ENTRIES").arg(pg.cmdRows.length)
+                summary: pg.autostartSupported
+                    ? (pg.cmdRows.length === 1 ? I18n.tr("%1 ENTRY").arg(pg.cmdRows.length) : I18n.tr("%1 ENTRIES").arg(pg.cmdRows.length))
+                    : I18n.tr("NOT AVAILABLE")
+                opacity: pg.autostartSupported ? 1 : 0.62
 
                 Repeater {
                     model: pg.cmdRows
@@ -230,6 +277,9 @@ Item {
                             tabular: true
                             placeholder: I18n.tr("command to run (e.g. nm-applet)")
                             text: cmdRow.modelData.command
+                            onEdited: (v) => {
+                                pg.liveEdit = { list: "cmd", i: cmdRow.index, command: v };
+                            }
                             onCommitted: (v) => {
                                 if (v !== cmdRow.modelData.command)
                                     pg.patchCmd(cmdRow.index, v);
@@ -250,7 +300,7 @@ Item {
                 // empty state, gated on load so it does not flash before data lands.
                 Item {
                     anchors.left: parent.left; anchors.right: parent.right
-                    visible: pg.ready && pg.cmdRows.length === 0
+                    visible: pg.ready && pg.autostartSupported && pg.cmdRows.length === 0
                     height: visible ? loginEmpty.height + Tokens.s5 * 2 : 0
                     Empty {
                         id: loginEmpty
@@ -258,8 +308,19 @@ Item {
                         caption: I18n.tr("No autostart commands yet. Add one to get started.")
                     }
                 }
+                Item {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    visible: pg.ready && !pg.autostartSupported
+                    height: visible ? loginUnavailable.height + Tokens.s5 * 2 : 0
+                    Empty {
+                        id: loginUnavailable
+                        anchors.centerIn: parent
+                        caption: I18n.tr("The current session provider cannot add login commands.")
+                    }
+                }
 
                 ClusterFoot {
+                    visible: pg.autostartSupported
                     entries: pg.cmdRows.length
                     topRule: pg.cmdRows.length > 0 || (pg.ready && pg.cmdRows.length === 0)
                     onRequestAdd: pg.addCmd()
@@ -272,7 +333,10 @@ Item {
                 id: envCard
                 width: col.colWidth
                 title: I18n.tr("ENVIRONMENT")
-                summary: pg.envRows.length === 1 ? I18n.tr("%1 ENTRY").arg(pg.envRows.length) : I18n.tr("%1 ENTRIES").arg(pg.envRows.length)
+                summary: pg.environmentSupported
+                    ? (pg.envRows.length === 1 ? I18n.tr("%1 ENTRY").arg(pg.envRows.length) : I18n.tr("%1 ENTRIES").arg(pg.envRows.length))
+                    : I18n.tr("NOT AVAILABLE")
+                opacity: pg.environmentSupported ? 1 : 0.62
 
                 Repeater {
                     model: pg.envRows
@@ -305,6 +369,9 @@ Item {
                             tabular: true
                             placeholder: I18n.tr("NAME (e.g. MOZ_ENABLE_WAYLAND)")
                             text: envRow.modelData.key
+                            onEdited: (v) => {
+                                pg.liveEdit = { list: "env", i: envRow.index, key: v };
+                            }
                             onCommitted: (v) => {
                                 if (v !== envRow.modelData.key)
                                     pg.patchEnv(envRow.index, "key", v);
@@ -335,7 +402,7 @@ Item {
 
                 Item {
                     anchors.left: parent.left; anchors.right: parent.right
-                    visible: pg.ready && pg.envRows.length === 0
+                    visible: pg.ready && pg.environmentSupported && pg.envRows.length === 0
                     height: visible ? envEmpty.height + Tokens.s5 * 2 : 0
                     Empty {
                         id: envEmpty
@@ -343,8 +410,19 @@ Item {
                         caption: I18n.tr("No custom variables yet. Add one to get started.")
                     }
                 }
+                Item {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    visible: pg.ready && !pg.environmentSupported
+                    height: visible ? envUnavailable.height + Tokens.s5 * 2 : 0
+                    Empty {
+                        id: envUnavailable
+                        anchors.centerIn: parent
+                        caption: I18n.tr("The current session provider cannot set environment variables.")
+                    }
+                }
 
                 ClusterFoot {
+                    visible: pg.environmentSupported
                     entries: pg.envRows.length
                     topRule: pg.envRows.length > 0 || (pg.ready && pg.envRows.length === 0)
                     onRequestAdd: pg.addEnv()

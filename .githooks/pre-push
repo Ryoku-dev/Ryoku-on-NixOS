@@ -2,9 +2,9 @@
 
 # Ryoku Arch pre-push.
 # safety net for pushes to origin:
-#   1. block force-push to main (rewriting history that users pull from)
+#   1. main moves only as the release fast-forward from unstable-dev
+#      (RYOKU_RELEASE_PUSH=1 says this is that push); never rewritten, never deleted
 #   2. CI-equivalent ShellCheck over non-vendored shell files in the push
-# bypass with --no-verify; RYOKU_ALLOW_FORCE_MAIN=1 to override on purpose.
 
 set -euo pipefail
 
@@ -23,27 +23,49 @@ fail() {
 while read -r local_ref local_sha remote_ref remote_sha; do
   printf '%s %s %s %s\n' "$local_ref" "$local_sha" "$remote_ref" "$remote_sha" >>"$push_updates"
 
-  # skip deletions (local_sha all zeros).
-  [[ $local_sha == "$zero" ]] && continue
-
-  # 1. block force-pushes to main.
-  if [[ $remote_ref == "refs/heads/main" && $remote_sha != "$zero" ]]; then
-    if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
-      if [[ -z $RYOKU_ALLOW_FORCE_MAIN ]]; then
-        echo "pre-push hook: this push rewrites history on main." >&2
-        echo "  local  $local_sha" >&2
-        echo "  remote $remote_sha" >&2
-        echo "" >&2
-        echo "users who pulled the old main will have broken updates." >&2
-        echo "to proceed anyway, re-run with RYOKU_ALLOW_FORCE_MAIN=1." >&2
-        fail "force-push to main blocked."
-      fi
+  # 1. main is the stable channel users run. work never lands on it directly:
+  #    it advances only when a release is cut, by fast-forwarding to a commit
+  #    unstable-dev already carries (docs/updates.md, "Publishing"). a push to
+  #    main therefore has to say so (RYOKU_RELEASE_PUSH=1), move forward, and
+  #    land on origin/unstable-dev; nothing deletes or rewrites it.
+  if [[ $remote_ref == "refs/heads/main" ]]; then
+    if [[ $local_sha == "$zero" ]]; then
+      fail "deleting main is blocked."
+    fi
+    if [[ -z ${RYOKU_RELEASE_PUSH:-} ]]; then
+      echo "pre-push hook: this push moves main." >&2
+      echo "  main only syncs to unstable-dev when a release is ready; work goes to" >&2
+      echo "  unstable-dev (every push there publishes the testing channel)." >&2
+      echo "" >&2
+      echo "to cut the release fast-forward on purpose:" >&2
+      echo "  RYOKU_RELEASE_PUSH=1 git push origin unstable-dev:main" >&2
+      fail "push to main blocked."
+    fi
+    if [[ $remote_sha != "$zero" ]] && ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      echo "pre-push hook: this push rewrites history on main." >&2
+      echo "  local  $local_sha" >&2
+      echo "  remote $remote_sha" >&2
+      echo "" >&2
+      echo "users who pulled the old main would have broken updates; main is never rewritten." >&2
+      fail "force-push to main blocked."
+    fi
+    upstream_tip="$(git rev-parse --verify --quiet refs/remotes/origin/unstable-dev || true)"
+    if [[ -z $upstream_tip ]] || ! git merge-base --is-ancestor "$local_sha" "$upstream_tip" 2>/dev/null; then
+      echo "pre-push hook: main would move to a commit origin/unstable-dev does not carry." >&2
+      echo "  local  $local_sha" >&2
+      echo "  origin/unstable-dev ${upstream_tip:-missing (git fetch origin unstable-dev)}" >&2
+      echo "" >&2
+      echo "a release fast-forwards main onto unstable-dev; land the work there first." >&2
+      fail "main only advances onto unstable-dev."
     fi
   fi
-
 done
 
-# 2. ShellCheck shell scripts in the push (skip if shellcheck missing).
+# 2. ShellCheck shell scripts in the push (skip if shellcheck missing), with the
+#    flags the ShellCheck workflow and installation/tests/iso-preflight.sh use:
+#    a rolling box's info-level rules disagree with the runner's generation, so
+#    the hook must not refuse what CI accepts (a release push covers every
+#    script main is missing).
 if command -v shellcheck >/dev/null 2>&1; then
 	empty_tree=4b825dc642cb6eb9a060e54bf8d69288fbee4904
 	files=()
@@ -57,12 +79,13 @@ if command -v shellcheck >/dev/null 2>&1; then
 			[[ -f $f ]] || continue
 			case "$f" in
 				*.sh | *.bash) files+=("$f") ;;
-				*) [[ $(head -n1 "$f") == '#!'*bash* ]] && files+=("$f") ;;
+				*) first=; IFS= read -r first <"$f" 2>/dev/null || true; [[ $first == '#!'*bash* ]] && files+=("$f") ;;
 			esac
 		done < <(git diff -z --name-only --diff-filter=ACM "$base" "$local_sha" -- . ':(glob,exclude)**/vendor/**')
 	done <"$push_updates"
 	if ((${#files[@]} > 0)); then
-		printf '%s\0' "${files[@]}" | sort -zu | xargs -0 -r shellcheck -x || fail "ShellCheck failed on pushed shell files."
+		printf '%s\0' "${files[@]}" | sort -zu | xargs -0 -r shellcheck -x -s bash --severity=warning \
+			|| fail "ShellCheck failed on pushed shell files."
 	fi
 fi
 

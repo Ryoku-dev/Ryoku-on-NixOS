@@ -1,0 +1,3 @@
+module inir.modules.common.widgets.widgetCanvas
+AbstractWidget 1.0 AbstractWidget.qml
+WidgetCanvas 1.0 WidgetCanvas.qml

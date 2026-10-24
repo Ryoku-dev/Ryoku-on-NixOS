@@ -1,43 +1,226 @@
 # Bar styles
 
-Ryoku ships four bar styles, and a single key decides which one runs. The default
-is **QS Bar** (`qsbar`), a full-colour top bar. **Sumi** is the monochrome left
-rail, **Chroma** is a modular Matugen signal bar, and **Kairos** is a single
-island at the top centre that carries the clock:
-hovering opens it into a rolling date wheel, a track that plays adds a cover
-bubble beside it that peeks open on hover and opens the now-playing panel on a
-click (moving the pointer off it closes it again), and Super+Space grows the same
-island into its own app launcher
-(`docs/launcher.md`). Sumi is not a folder: the shell paints it from the built-in
-frame scene in `shell.qml`, so it has no scene file of its own. QS Bar and Kairos
-live under `ryoku/shell/quickshell/shell/modules/bar/barstyles/`, ship their own
-bar, and load once per monitor. Store-installed styles land under the same folder
-contract.
+Ryoku ships seven bar styles, and a single key decides which one runs. The
+shipped default is **Orpheus** (`orpheus`), the liquid top bar. **QS Bar**
+(`qsbar`) is the full-colour top bar. **Shima** (`iris`), **Python** (`python`),
+and **Nomarchy** (`nomarchy`) are the frame family: whole-desktop systems hosted
+once on the primary output. Shima is an island on any screen edge that morphs
+into whatever you clicked, with glass popups, bubbles, a dock, a live Studio and
+settings that can open over the desktop or as an application window. Its frame,
+surfaces and widget faces can also wear Afterglow or Light leak film textures
+without replacing Ryogami's wallpaper or Ryoku's palette. Python is a bar of
+pill widgets that open into one morphing stage (its own guide carries its
+settings), based on Serpantinum by ilyamiro. Nomarchy preserves Omarchy
+quattro's bar, panels, widgets and plugin host while routing desktop state and
+actions through Ryoku. **Sumi** is the monochrome left rail, and **Kairos** is a
+single island at the top centre that carries the clock: hovering opens it into a
+rolling date wheel, a track that plays adds a cover bubble beside it, and
+Super+Space grows the same island into its own app launcher
+(`docs/launcher.md`). **Orpheus** hangs liquid drops from the top edge, with a
+voice in the middle that shows the time, music, notifications, or a recording.
+Sumi is not a folder: the shell paints it from the built-in frame scene in
+`shell.qml`, so it has no scene file of its own.
+The other six live under
+`ryoku/shell/quickshell/shell/modules/bar/barstyles/`, ship their own scene, and
+load once per monitor. Shima is special: its scene is a thin host that mounts
+the vendored frame family in
+`ryoku/shell/quickshell/inir/`. It is based on iNiR by snowarch
+(https://github.com/snowarch/inir) and tracks its releases (the one it follows is
+in `inir/VERSION`). iNiR's NOTICE grants no rights to the names iNiR and iRiS,
+their logos or the Kira mascot, so Ryoku ships it as Shima with its own mark and
+no mascot, keeps that NOTICE and the credit in the About page, and leaves out
+upstream's IrisGate, which closes the surfaces under any host but iNiR. Internal
+names (`iris` ids, `Iris*` files, `inir.iris.*` keys) are unchanged so settings
+carry over. Nothing in it is tied to niri: it
+reads the desktop only through the window-manager seam and the daemon's
+settings topic, so it runs on every compositor Ryoku supports.
+Store-installed styles land under the same folder contract.
+
+## Resource cost
+
+Orpheus and Kairos are the optimized styles: their music paths, cards and idle
+timers were measured and trimmed. Bar Studio marks the other built-in styles as
+heavy, so the extra cost is visible before switching; store-installed styles are
+unrated.
+
+Idle readings from one 2560×1600 display at 165 Hz under niri, the shell
+rendering on an RTX 4060 in discrete mode, Performance profile. CPU is a
+percentage of one core for the shell process; see `docs/performance.md` for the
+method and the music numbers.
+
+| style | tier | `qs` CPU at idle | `qs` wakeups/s |
+|---|---|---:|---:|
+| Orpheus | light | 3.1% | 83 |
+| Kairos | light | 1.5% | 27 |
+| QS Bar | heavy | 10.7% | 245 |
+| Python | heavy | 1.6% | 28 |
+| Nomarchy | heavy | 1.5% | 24 |
+| Shima | heavy | 2.1% | 35 |
+| Sumi | heavy | 1.6% | 24 |
+
+At idle most heavy styles now sit beside the light ones; the mark is about what
+happens in use (popups, music, their own surfaces), which only Orpheus and
+Kairos have been measured and tuned for. QS Bar is heavy even at rest: its
+ambient stream draws on the GPU on the Performance profile. These are one
+machine's readings, not a promise for every machine.
 
 **QS Bar wears colour on purpose, and it is the one place the desktop does.** It
-is a Quickshell "Rise" bar ported onto Ryoku's data plane, and it keeps that
-project's full-colour skin: its `Theme.qml` reads the live wallpaper palette from
+is a port of HANCORE-linux's MIT-licensed
+[Quickshell Rise](https://github.com/HANCORE-linux/quickshell-dots) bar onto
+Ryoku's data plane, and it keeps that project's full-colour skin: its `Theme.qml`
+reads the live wallpaper palette from
 `~/.cache/ryoku/colors.json` into a seven-slot set (`color01..07`) over a warm,
 near-black `paper`, so the bar retints with the wallpaper like a terminal theme
 rather than clamping to bone-on-black. Sumi is the paper-and-ink bar for anyone
 who wants the rest of the desktop's restraint on the edge too; `docs/ui-ux.md` is
 where colour is and is not allowed, and the bar is the sanctioned exception.
 
-A bar style owns the bar and nothing else. The frame border, the menus, the
-service surfaces, and the tokens stay where they are; a style just decides what
-sits on the edge of the screen and how it reads its data. So building one is
-mostly a layout job over singletons that already exist.
+## Orpheus
+
+Orpheus hangs from the top edge as drops drawn by `Ryoku.Blobs`: a left drop, a
+right drop, and the voice in the middle. Every drop moves with the music. Its
+lower edge rises on the beat and settles on the chosen feel, traced in ink where
+sound lifts it, then lies flat and still in silence. The Sound page's Gain slider
+sets how much it reacts. The `islands` span keeps the three drops apart with the
+side drops tucked into the screen corners, `fused` joins them into one centred
+body, and `full` runs edge to edge; switching spans morphs the drops into place.
+The `liquid` form melts every drop into the top edge and swells the voice like a
+drop; the `square` form keeps crisp corners and hangs a row of level blocks
+under the voice instead. Anything that reaches a side edge melts into it the way
+every drop melts into the top. The body is the frame's paper; inside it the bar,
+its pages, and its settings use Ryoku's own controls (hairlines, a hair of
+rounding, a bone plate for whatever is on or chosen). All text and numbers
+follow the global font.
+
+The voice shows the time, date, and weather at rest. It turns into the current
+track while music plays, into the newest notification for a few seconds when one
+arrives, and into a timer while the screen is recorded. While it is busy the time
+moves into a small bubble beside it, and a recording over music puts the cover in
+a second bubble. Click the voice to open the page it shows (Today, the player,
+notifications, or the recording), scroll over it to step through those pages,
+middle-click to play or pause, and right-click to open Controls.
+
+Pages grow out of the bar and stay joined to the drop they came from; a page
+that reaches a side edge melts into it. Click anywhere outside one, over a
+window or the desktop, or press Escape to close it.
+Today is a month calendar with events, holidays, and the day's weather. Controls
+holds Wi-Fi, Bluetooth, quick toggles, volume and brightness with their own
+pages, power profiles, and hold-to-activate session actions. The other pages
+cover media, weather, notifications grouped by app, tray menus, power, system,
+and session. Right-click empty bar space to open Controls.
+
+Left-click the 力 logo to open settings, and right-click it to open the
+launcher. The settings pages are Bar, Layout, Modules, Sound, and About. A choice
+applies at once and is written through the shell daemon; the foot of the
+settings rail reads Saved, Saving, or Not saved, and hovering Not saved shows
+why. On Layout, drag a module between the left, centre, and right lanes, or into
+Not shown to remove it; click a hidden module to add it back, or right-click a
+placed one to remove it. The logo and the voice stay put. The modules are logo;
+workspaces as dots, numbers, kanji, Greek, dashes, or app icons; window title;
+voice; media; weather; system monitor; keyboard layout; recording and microphone
+activity; coding-agent limits; a paired phone; VPN (Tailscale, with its exit
+node picker, LAN access and run-as-exit-node switches, and NetworkManager VPN
+and WireGuard profiles, each with its own switch in the VPN card, which also
+shows the public IP); updates; tray; notifications; controls; battery; clock; shortcuts for the
+launcher, Ask, overview, clipboard, screenshot, wallpaper, and Ryoku Hub; and
+power. Auto-hide can be `off`, `smart`, or `always`; smart hides the bar while
+the current workspace has windows, and touching the top edge brings it back. AI
+usage, Phone and VPN are available in the Layout editor but stay out of the
+default layout.
+
+Its settings use the `orpheus` namespace in `shell.json`:
+
+| key | values | default | purpose |
+|---|---|---|---|
+| `span` | `islands`, `fused`, or `full` | `islands` | Keep the drops apart, join them, or run edge to edge. An old `fit` reads as `fused`. |
+| `form` | `liquid` or `square` | `liquid` | Melt the drops into the edge with a smooth wave, or keep crisp corners with a block wave and square workspace marks. |
+| `scale` | `0.85` to `1.3` | `1.0` | Scale the bar. |
+| `opacity` | `0.6` to `1.0` | `0.94` | Set the body's opacity at rest; an open page is always solid. |
+| `rim` | boolean | `true` | Draw a faint rim along the bar's edge. |
+| `autoHide` | `off`, `smart`, or `always` | `off` | Set when the bar hides. |
+| `hoverOpen` | boolean | `false` | Open a page after a short hover. |
+| `hoverSwitch` | boolean | `true` | Switch pages on hover while one is open. |
+| `layout` | `{left:[ids], center:[ids], right:[ids]}` | `{left:["logo","workspaces"], center:["voice"], right:["tray","controls","battery"]}` | Arrange modules in three lanes. A layout saved before the voice existed drops media, weather, and clock and puts the voice in the centre. |
+| `gain` | `0` to `3` | `1` | Set how much the edge reacts to sound; `0` keeps it still. An old `reaction` of lively, calm or still reads as 1, 0.55 or 0. |
+| `depth` | `8` to `40` | `22` | Set how far sound can pull the lower edge, in pixels. |
+| `mirror` | boolean | `true` | Mirror the spectrum around the centre. |
+| `feel` | `fluid` or `tight` | `fluid` | Set the wave spring and damping. |
+| `workspaceStyle` | `dots`, `numbers`, `kanji`, `greek`, `dashes`, or `icons` | `dots` | Choose the workspace marks. |
+| `workspaceShowEmpty` | boolean | `true` | Include empty workspaces. Where workspaces are numbered, gaps fill in and one free slot follows the last used. |
+| `showDate` | boolean | `true` | Show the date under the idle time. |
+| `seconds` | boolean | `false` | Show seconds in the idle time. |
+| `voiceWeather` | boolean | `true` | Show the weather beside the idle time. |
+| `clock12h` | global `TimeFormat` preference | global `TimeFormat` setting | Use the shared 12 or 24-hour format. |
+| `mediaWidth` | `120` to `320` | `220` | Set the track title's maximum width. |
+| `coverSpin` | boolean | `true` | Spin the artwork while media plays. |
+| `wavy` | boolean | `true` | Draw a wavy media progress line. |
+| `spectrum` | boolean | `true` | Show the spectrum on the media page. |
+| `windowWidth` | `120` to `420` | `240` | Set the window title width. |
+| `sysmonItems` | subset of `cpu`, `mem`, `temp`, `gpu`, `net` | `["cpu","mem","temp"]` | Choose system readings. |
+| `actions` | subset of `launcher`, `ask`, `overview`, `clipboard`, `capture`, `wallpaper`, `hub` | `["launcher","capture","clipboard"]` | Choose shortcut actions. |
+| `trayLimit` | `3` to `12` | `6` | Set the visible tray item limit. |
+| `statusItems` | subset of `wifi`, `bluetooth`, `volume`, `mic` | all four | Choose the icons in the Controls module. |
+
+The name is Orpheus, the musician of Greek myth whose lyre moved rivers and
+stones. Made by neur0map.
+
+## Nomarchy
+
+Nomarchy is the Ryoku name for the Omarchy quattro shell port pinned to upstream
+commit `d9b970dd`. Its source lives under `barstyles/nomarchy/`; the upstream
+MIT license and port notice sit at the root of that folder. The port retains
+Omarchy's visual bar, panels, widgets, menus, history UI, OSD, reminders, media
+integration, configuration and manifest-based plugin ABI.
+
+Ryoku remains authoritative for desktop-wide facilities. Nomarchy uses the
+neutral `Wm` singleton for outputs, workspaces, windows and keyboard layouts.
+Ryogami opens wallpapers, ryoshot and Recorder handle capture, the resident
+notification server owns D-Bus notifications, and Ryoku Hub owns updates. The
+stock Agents panel remains available for usage and marketplace extensions that
+write into it. Account add, rename, reauthentication, switching and automatic
+switching controls are hidden when the platform capability check reports them
+unavailable. Its launch action opens Ryoku Ask, and the duplicate
+starter-prompt section is not loaded. The Ryoku lock screen,
+clipboard, policy agent, idle inhibitor and night-light service replace the
+corresponding upstream plugins.
+
+The theme carousel remains part of Nomarchy and can be opened from Bar Studio.
+The same card opens Omarchy's plugin menu. Third-party plugins still live at
+`~/.config/omarchy/plugins/<id>/`, but every enable and load is gated by
+`ryoku wm compat <plugin-dir>`. Results are cached only while the plugin tree is
+unchanged; failures and malformed output block the plugin.
+
+The stable IPC target is `nomarchy`, for example:
+
+```sh
+omarchy-shell nomarchy listPlugins
+omarchy-shell nomarchy summon omarchy.image-picker '{"source":"themes"}'
+```
+
+The detailed plugin manifest and host contract are documented in
+`barstyles/nomarchy/plugins/README.md`.
+
+
+Most bar styles own the bar and nothing else: frame border, menus, service
+surfaces and tokens stay shared. Nomarchy is the deliberate exception because
+its upstream contract includes companion panels, menus, notifications and OSD;
+those exist only while the style is active and still hand desktop-wide work to
+Ryoku's resident services.
 
 ## How selection works
 
 The `barStyle` key in `~/.config/ryoku/shell.json` picks the active style by id.
-It is a top-level string, default `"qsbar"`:
+It is a top-level string, default `"orpheus"`:
 
 ```json
 {
   "barStyle": "sumi"
 }
 ```
+
+New installs write `"orpheus"`. `ryoku doctor` also moves a store with no
+`barStyle`, or one that names a retired style, to Orpheus. Explicit choices such
+as `"qsbar"` and `"sumi"` are kept.
 
 `Config.qml` surfaces it as `Config.barStyle`, and the file is watched, so a save
 retunes the running shell without a reload. The valid ids are resolved by the
@@ -48,8 +231,11 @@ file. Built-in folder styles ship inside the shell, one row each:
 // BarProducts.qml
 readonly property var builtins: ({
     "qsbar": "barstyles/qsbar/Scene.qml",
-    "chroma": "barstyles/chroma/Scene.qml",
-    "kairos": "barstyles/kairos/Scene.qml"
+    "kairos": "barstyles/kairos/Scene.qml",
+    "orpheus": "barstyles/orpheus/Scene.qml",
+    "iris": "barstyles/iris/Scene.qml",
+    "python": "barstyles/python/Scene.qml",
+    "nomarchy": "barstyles/nomarchy/Scene.qml"
 })
 ```
 
@@ -57,7 +243,8 @@ readonly property var builtins: ({
 
 - `""` for `"sumi"`, an empty id, or a style that has failed to load. An empty
   scene is the built-in frame scene (Sumi), which `shell.qml` paints itself.
-- the built-in's relative `Scene.qml` for a built-in id (`"qsbar"`, `"chroma"`, `"kairos"`).
+- the built-in's relative `Scene.qml` for a built-in id (`"qsbar"`, `"kairos"`,
+  `"orpheus"`, `"iris"`, `"python"`, `"nomarchy"`).
 - a `file://` path drawn from `~/.local/state/ryoku/store/barstyles.json` for a
   store-installed folder style. The store writes that index and a `revision.json`;
   `BarProducts` watches both and reloads live.
@@ -67,7 +254,8 @@ readonly property var builtins: ({
 ```qml
 import shell.services
 
-readonly property bool sumiActive: BarProducts.sceneUrl(Config.barStyle) === ""
+readonly property bool sumiActive: root.degraded
+    || BarProducts.sceneUrl(Config.barStyle) === ""
 ```
 
 `sumiActive` is the gate. While it is true, the built-in frame chrome and the four
@@ -79,26 +267,30 @@ mounts the active style's `Scene.qml`:
 ```qml
 Loader {
     id: barStyleLoader
-    active: !root.sumiActive
+    active: !root.sumiActive && (root.barEnabled || root.primaryHost)
     source: BarProducts.sceneUrl(Config.barStyle)
     onLoaded: if (item) item.modelData = root.modelData
-    onStatusChanged: if (status === Loader.Error) BarProducts.fail(Config.barStyle)
 }
 ```
 
 `Frame.qml` is itself instantiated once per screen by `shell.qml`'s `Variants`, so
-the contract is: your `Scene.qml` loads once per screen, takes the screen through
-a `modelData` property, and if it errors on load `BarProducts.fail` drops the shell
-back to Sumi. Everything else is yours.
+the contract is: your `Scene.qml` loads once per screen and takes the screen
+through a `modelData` property. Everything else is yours.
+
+A load error is handled by kind. A store style is failed at once
+(`BarProducts.fail`), so `sceneUrl` returns `""` and Sumi draws until the store
+index reloads. A built-in style cannot be legitimately broken, so Frame retries it
+ten times, 800 ms apart, to ride out an update's plugin swap; if it still fails,
+`BarProducts.markBroken` records it and every monitor degrades to the Sumi rail
+instead of an empty frame, until the user picks a style again.
 
 Ryoku Settings > Displays can suppress the active bar on any output. Sumi releases
 its rail reserve there, normal folder styles are not instantiated there, and QS
-Bar filters that output from its shared multi-monitor bar model. A missing
-per-display setting means enabled, so upgrades preserve the existing layout.
-The same display card can override the global style with `displays.bar_style`
-and can override Chroma's modules with `displays.bar_widgets.<output>.chroma`.
-An empty style value follows the global Bar Studio selection, and missing module
-values inherit Chroma's global switches.
+Bar filters that output from its shared multi-monitor bar model. The primary
+output still hosts QS Bar and any frame-family style (`BarProducts.isFrameFamily`,
+today Shima, Python and Nomarchy), because their popups, docks and panels serve
+the whole desktop. A missing per-display setting means enabled, so upgrades
+preserve the existing layout.
 
 **To add a built-in style, drop its folder under `barstyles/` and add one row to
 `BarProducts.builtins`.** A store style needs no shell edit: it installs into
@@ -223,46 +415,48 @@ Everything past this point is about what a widget binds to.
 
 ## Fetching data
 
-This is the real work. The shell already gathers every live fact through the
-singletons in `shell.services`; a widget reads them and draws. Import the module
-once (`import shell.services`) and each singleton is in scope by name. What
-follows is the exact surface each one exposes.
+This is the real work. The shell already gathers every live fact through its
+singletons; a widget reads them and draws. Import the singleton's module once
+and use that contract rather than probing a compositor directly.
 
-### Workspaces and Hyprland
+### Workspaces and windows
 
-Workspaces come from two places. The `Workspaces` singleton gives you one
-reliable number, `Workspaces.activeId`, the focused workspace id (seeded from
-`hyprctl` and kept correct against Ryoku's Hyprland fork, where reading
-`Hyprland.focusedWorkspace` too early yields bogus ids). The live list and the
-switch come from `Quickshell.Hyprland` directly:
+Window-manager state and actions live in `Wm` from `Ryoku.Ui.Singletons`. Every
+style must render and behave identically on every compositor. Never import
+`Quickshell.Hyprland`, `Quickshell.Services.Hyprland`, or a compositor-specific
+backend from a style.
 
 ```qml
-import Quickshell.Hyprland
-import shell.services
+import QtQuick
+import Ryoku.Ui.Singletons
 
-readonly property int activeId: Workspaces.activeId
+Item {
+    readonly property var workspaces: Wm.workspaces
+    readonly property var activeWorkspace: Wm.focusedWorkspace
+    readonly property string activeTitle: Wm.focusedWindow
+        ? Wm.focusedWindow.title : ""
 
-// live workspaces: each w has .id, .name, and .lastIpcObject
-readonly property var wss: Hyprland.workspaces ? Hyprland.workspaces.values : []
-
-// occupancy: scan toplevels for one sitting on this workspace
-function occupied(id) {
-    const tls = Hyprland.toplevels ? Hyprland.toplevels.values : [];
-    for (let i = 0; i < tls.length; i++) {
-        const o = tls[i] && tls[i].lastIpcObject || {};
-        if (o.workspace && o.workspace.id === id) return true;
+    function occupied(workspace) {
+        return workspace.occupied === true;
     }
-    return false;
-}
 
-// switch to one, and cycle with the wheel
-function focus(id) { Hyprland.dispatch('hl.dsp.focus({ workspace = "' + id + '" })'); }
-// onWheel: Hyprland.dispatch(up ? "workspace r-1" : "workspace r+1")
+    function activateWorkspace(workspace) {
+        Wm.focusWorkspace(workspace.id);
+    }
+
+    function cycle(delta) {
+        Wm.cycleWorkspace(delta);
+    }
+}
 ```
 
-The focused window is `Hyprland.activeToplevel`, and its title lives at
-`activeToplevel.lastIpcObject.title` (guard it; it is empty on a bare
-workspace). An active-window widget is nothing more than that string, elided.
+Each workspace has `id`, `name`, `active`, `urgent`, `occupied`, `windows`,
+`output`, `fullscreen`, `special`, `layout`, and `canActivate`. Use the opaque
+`id` for actions and the human `name` for labels. The live window list is
+`Wm.windows`; `Wm.focusedWindow` and `Wm.focusedWorkspace` carry focus. Window
+actions go through `Wm.focusWindow(id)` and `Wm.closeWindow(id)`, just as
+workspace actions go through `Wm.focusWorkspace(id)` and
+`Wm.cycleWorkspace(delta)`.
 
 ### Media
 
@@ -563,33 +757,25 @@ snapshots the keys and applies them live. A folder style usually ships its own
 settings surface instead, the way QS Bar carries **QS Bar Settings** (see below).
 A style with no settings omits all of this.
 
-## Chroma Settings
-
-Chroma keeps its configuration under the `chroma` object in `shell.json`.
-Bar Studio exposes its top/bottom edge, 60–140% size, module gap, corner radius,
-surface opacity, workspace label mode, clock format and seconds, plus independent
-visibility switches for every module. Geometry derives from one shared scale
-value, so reducing Chroma on a 1080p output preserves the composition instead of
-shrinking only selected widgets. Displays can select Chroma for one connector
-and tune that connector's module switches without changing another display.
-
 ## QS Bar Settings
 
 QS Bar carries its own settings panel, **QS Bar Settings** (`controlcenter/`), the
-plate the bar's 力 logo opens. It is a quick panel, not a second Hub: four routes
+plate the bar's 力 logo opens. It is a quick panel, not a second Hub: six routes
 over the same `Ryoku.Ui` form kit the rest of Ryoku Settings uses.
 
 | Route | Gloss | Holds |
 |---|---|---|
-| Bar | 帯 | position, form, surface, gaps, scale, accent, gap animation, auto-hide |
+| Bar | 帯 | position, form, surface, gaps, scale, accent, gap animation, auto-hide, picker style |
+| Identity | 印 | launcher mark and workspace count and marker style |
 | Layout | 配置 | the three lanes: move, hide, add and reset the bar's widgets |
 | Widgets | 部品 | every widget as a row: on/off, density, colour and its own settings |
 | Dock | 台 | the app dock: enabled, edge, autohide, magnify, labels, frost, pinned apps |
+| Community | 有志 | installed third-party bar widgets and adding from git or Ryostore |
 
 Open it from the bar logo, or from a terminal or a keybind with `ryoku-shell bar
-settings [route]`. The picker style and desktop widgets it used to carry now live
-in the Hub (Desktop and Widgets pages); session and mid-work toggles live in the
-Super+Escape quick settings.
+settings [route]`. Picker style lives on the Bar route; desktop widgets are
+edited in place from the wallpaper's right-click menu (Widgets). Session and
+mid-work toggles live in the Super+Escape quick settings.
 
 ## Kairos Settings
 
@@ -625,13 +811,68 @@ scale, resolution and Night Light). It is written and drawn inside the island
 it, by moving the pointer away, by Escape, or by tapping the tune icon again; it
 never replaces Ryoku Settings.
 
+## Python Settings
+
+Python tracks Serpantinum past 2.2.12 (commit `cfdd810`). Open its guide from the bar's gear pill or
+with `qs -c shell ipc call main handleCommand toggle guide`. The guide controls
+bar layout, module faces, theme, OSD, notifications, quick actions, media
+presentation and wellbeing views. It writes the `python` key in `shell.json`
+through the shell daemon and applies changes live. Bar Studio's
+**OPEN PYTHON SETTINGS** button routes to the same guide.
+
+The port uses Serpantinum's orientation-aware module registry. Top,
+bottom and side bars share module definitions while choosing the appropriate
+face. New settings include bar thickness, edge-aware centering, music channel
+balance and the expanded face choices. Existing `python.*` settings remain
+valid.
+
+What stays Ryoku's while Python is the bar: the app launcher (Super+Space), the
+clipboard history, the wallpaper picker (Super+W, Ryogami), the lock screen,
+screen capture, updates, notification server, idle service and desktop widget
+host. The bar's buttons hand over to those surfaces. Python still draws its
+ported notification banners and OSD while active; switching
+`python.general.notifications` or `python.general.osd` off returns those roles
+to Ryoku.
+
+The guide's Theme tab turns on glass (`python.theme.blurBackground`) as blur
+or liquid (`python.theme.blurStyle`). It covers the whole style: the bar and
+its module pills, every popup, notifications, the OSD, quick actions, the
+guide, the Python dock and the Python desktop faces, which sample Ryoku's
+current wallpaper and live poster as their backdrop; Python does not run
+Serpantinum's wallpaper engine or theme solver. The recording pill in the bar
+follows Ryoku's recorder, so it shows the elapsed time of any capture started
+from the capture card, ryoshot or `ryoku-shell record`. The port also adds Serpantinum's circular battery, CPU, RAM, disk
+and temperature faces and its simple lyrics face to Ryoku's desktop face
+picker. They run inside the shared `WidgetSlot`: placement, size, lock, backing
+and colour modes still belong to Ryoku's Stage Editor and widget menu. Each
+face's own options live in its Customize tab: the music face's lyric lines,
+lyric alignment and continuous ring, the circle faces' wave edge and line
+thickness, the image path, the GitHub account, and the visualizer's
+**Span the screen width**.
+
+The style's palette follows Ryoku's live wallpaper palette, with one exception:
+picking a preset in the guide's Theme tab stores that palette under
+`python.theme.colors` and Python paints itself with it (the ported Catppuccin
+slot names map onto the Material roles in `ThemeBackend`). The font picker
+writes Ryoku's single global `fontFamily`, so the whole desktop retunes, and
+the blue-light rows drive the daemon's night light. Serpantinum writes its
+icons into ordinary text, so Python follows the global font only when it is a
+Nerd Font; with any other global font it draws in JetBrainsMono Nerd Font,
+which `ryoku-desktop` ships on every edition.
+
+The Wellbeing tab reads Ryoku's own screen-time record
+(`~/.local/state/ryoku/screentime.json`, kept by the shell's `ScreenTime`
+service on every compositor), so it shows real per-app and per-hour usage
+without Serpantinum's focus daemon.
+
 ## Frame menus
 
-The wallpaper picker (Super+W), quick settings (Super+Escape), the feature sidebar
-(Super+S), and the capture card (a separate `screenshot` shortcut into
-`quick-settings#capture`) are shell surfaces, not bar widgets, so they are the same
-in every style. They normally anchor to the Sumi rail edges and read against the
-frame band. A folder style has no rails and hides the band, so `shell.qml` sets
+The wallpaper picker (Super+W) and the rail popout cards are frame surfaces,
+not bar widgets, so they are the same in every style. They normally anchor to
+the Sumi rail edges and read against the
+frame band. The two sidebars (Super+Escape left, Super+S right) are not frame
+menus: they are independent screen-edge overlays (`docs/sidebars.md`), which is
+why they behave identically under every style. A folder style has no rails and hides the band, so `shell.qml` sets
 `topBar` on the per-monitor `FrameMenuManager`: side and bottom anchors fold up to
 the matching top edge or corner, the menus drop a small inset below the bar, and
 each menu paints its own card since the frame is not there to draw it. Nothing

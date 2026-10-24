@@ -37,6 +37,7 @@ profile_file="${RYOKU_GAMEMODE_PROFILE_FILE:-$state_dir/game-mode.profile}"
 wifi_helper="${RYOKU_WIFI_POWERSAVE_BIN-$(command -v ryoku-wifi-powersave || true)}"
 tune_helper="${RYOKU_GAME_TUNE_BIN-$(command -v ryoku-game-tune || true)}"
 idle_helper="${RYOKU_IDLE_BIN-$(command -v ryoku-idle || true)}"
+shell_helper="${RYOKU_SHELL_BIN-$(command -v ryoku-shell || true)}"
 
 # The window manager is reached only through the seam, asked by capability and
 # never by name. The live decoration strip below is a runtime config override; a
@@ -90,31 +91,37 @@ deco_restore() {
   "$ryoku_bin" wm act decoration.gameMode off >/dev/null 2>&1 || true
 }
 
-# ── cpu ───────────────────────────────────────────────────────────────────────
-# power-profiles-daemon owns the governor, EPP and platform_profile as a set, so
-# asking it for `performance` is the whole CPU story and needs no root: the
-# session's own D-Bus call is already authorised. Doing it here rather than in
-# ryoku-game-tune keeps the privileged helper to knobs that genuinely need
-# privilege.
+# The active provider owns the governor, EPP and platform_profile as a set, so
+# asking it for `performance` is the whole CPU story and needs no root. Route
+# both reads and writes through ryoku-shell so game mode follows the same
+# provider-neutral D-Bus path as the desktop controls.
 #
 # The prior profile is written down before switching so `stop` can put back what
 # the user actually had, not a guess at "balanced".
+power_profile_state() {
+  [[ -n $shell_helper && -x $shell_helper ]] || return 1
+  "$shell_helper" powerprofiles state 2>/dev/null | jq -e .
+}
+
+power_profile_set() {
+  [[ -n $shell_helper && -x $shell_helper ]] || return 1
+  "$shell_helper" powerprofiles set "$1" >/dev/null 2>&1
+}
+
 profile_fast() {
-  command -v powerprofilesctl >/dev/null 2>&1 || return 0
-  local prior
-  prior="$(powerprofilesctl get 2>/dev/null)" || return 0
-  [[ -n $prior ]] || return 0
+  local state prior
+  state="$(power_profile_state)" || return 0
+  prior="$(jq -er '.active_profile | select(type == "string" and length > 0)' <<<"$state")" || return 0
   printf '%s\n' "$prior" >"$profile_file" 2>/dev/null || true
-  powerprofilesctl set performance >/dev/null 2>&1 || true
+  power_profile_set performance || true
 }
 
 profile_restore() {
-  command -v powerprofilesctl >/dev/null 2>&1 || return 0
   local prior
   prior="$(cat "$profile_file" 2>/dev/null)" || return 0
   rm -f "$profile_file" 2>/dev/null || true
   [[ -n $prior ]] || return 0
-  powerprofilesctl set "$prior" >/dev/null 2>&1 || true
+  power_profile_set "$prior" || true
 }
 
 # ── system knobs (root, via polkit) ───────────────────────────────────────────

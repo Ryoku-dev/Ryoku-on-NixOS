@@ -14,11 +14,22 @@ import (
 //
 // CapNativeOverview is absent because Hyprland ships no overview, so the shell
 // draws its own.
+//
+// CapKeyboardGrabSharesPointer is absent because a layer surface holding
+// exclusive keyboard focus also takes every pointer event, wherever the pointer
+// is, so no other surface can be clicked until the grab ends.
+var foreignAPIs = []wm.ForeignAPI{
+	wm.ForeignAPIHyprctl,
+	wm.ForeignAPIHyprlandIPC,
+	wm.ForeignAPIQuickshellHyprland,
+}
+
 var capsManifest = []wm.Capability{
 	wm.CapWorkspaces,
 	wm.CapSpecialWorkspace,
 	wm.CapWorkspaceMoveToOutput,
 	wm.CapWindowWorkspaceMap,
+	wm.CapWorkspaceFullscreenState,
 	wm.CapWindowGeometry,
 	wm.CapFocusHistory,
 	wm.CapWindowRules,
@@ -26,6 +37,7 @@ var capsManifest = []wm.Capability{
 	wm.CapSubmap,
 	wm.CapGlobalShortcuts,
 	wm.CapFocusGrab,
+	wm.CapWorkspaceSlideStyle,
 	wm.CapScreenShader,
 	wm.CapPlugins,
 	wm.CapLiveConfigEval,
@@ -43,6 +55,7 @@ var capsManifest = []wm.Capability{
 	wm.CapNightLight,
 	wm.CapTouchpadToggle,
 	wm.CapPaletteBorder,
+	wm.CapPersistentScreenCapture,
 }
 
 // windowRuleActions are the neutral window-rule action ids genWindowRule and
@@ -69,6 +82,7 @@ var compositorPackages = []string{
 	"hypr-dynamic-cursors",
 	"ryoku-hypr-plugins",
 	"hyprglass",
+	"hyprgrass",
 	"imgborders",
 	"ryoku-keysounds",
 	"hyprpolkitagent",
@@ -90,12 +104,13 @@ func runCaps() error {
 		Instance:       instanceHandle(),
 		Supports:       capsManifest,
 		WorkspaceModel: wm.WorkspaceModelFixed,
+		ForeignAPIs:    foreignAPIs,
 		// wm.hyprland.* keys stay in the store untouched while another
 		// compositor is active, so they are still there on the way back.
-		SettingDomains: []string{"desktop", "wm." + wm.ProviderHyprland},
-		ConfigFiles:    wm.ConfigFiles(wm.ProviderHyprland),
-		GeneratedFiles: wm.GeneratedConfig(wm.ProviderHyprland),
-		PortalBackend:  "hyprland",
+		SettingDomains:    []string{"desktop", "wm." + wm.ProviderHyprland},
+		ConfigFiles:       wm.ConfigFiles(wm.ProviderHyprland),
+		GeneratedFiles:    wm.GeneratedConfig(wm.ProviderHyprland),
+		PortalBackend:     "hyprland",
 		NightLightProcess: "hyprsunset",
 		Packages:          compositorPackages,
 		WindowRuleActions: windowRuleActions,

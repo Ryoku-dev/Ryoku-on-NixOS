@@ -285,6 +285,9 @@ Item {
     function reloadQuotes8() {
         var parsed = []
         try { parsed = parseQuotes8(quotesFile8.text()) } catch (e) {}
+        // No user list: rotate the bundled set instead of the lone inline quote.
+        if (parsed.length === 0)
+            try { parsed = parseQuotes8(bundledQuotes8.text()) } catch (e) {}
         if (parsed.length > 0) quotes8 = parsed
         if (canvas) {
             canvas.quoteSwarm = null
@@ -301,6 +304,13 @@ Item {
         path: root.quotesPath8
         watchChanges: true
         onFileChanged: quotesFile8.reload()
+        onLoaded: root.reloadQuotes8()
+    }
+
+    FileView {
+        id: bundledQuotes8
+        path: Qt.resolvedUrl("../quotes.txt")
+        printErrors: false
         onLoaded: root.reloadQuotes8()
     }
 
@@ -1027,11 +1037,16 @@ Item {
         else if (aiOc7 < aiQuotaReset7) aiOcHot = false
     }
 
-    // pacman transaction finished (streaming log tail - no helper script)
+    // Native pacman transaction finish signal. DNF has no equivalent append-only
+    // log, so Fedora holds this optional cosmetic watcher inert.
     Process {
         id: pacTail
         running: root.active && root.reactorMode7 && root.ownsGlobalHelpers7
-        command: ["bash", "-c", "tail -n 0 -F /var/log/pacman.log 2>/dev/null"]
+        command: ["bash", "-c",
+            "manager=$(ryoku-host pkgmgr 2>/dev/null); " +
+            "if [ \"$manager\" != pacman ]; then " +
+            "echo 'ParticleStream: native package log has no supported event stream; package-change animation disabled' >&2; exec sleep infinity; fi; " +
+            "exec tail -n 0 -F /var/log/pacman.log 2>/dev/null"]
         property int pkgN: 0
         onRunningChanged: if (!running) pkgN = 0
         stdout: SplitParser {

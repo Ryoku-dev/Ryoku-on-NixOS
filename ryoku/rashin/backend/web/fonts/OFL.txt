@@ -1,4 +1,10 @@
-Copyright 2017 The Archivo Black Project Authors (https://github.com/Omnibus-Type/ArchivoBlack)
+Fraunces: Copyright 2020 The Fraunces Project Authors (github.com/undercasetype/Fraunces)
+Space Grotesk: Copyright 2020 The Space Grotesk Project Authors (https://github.com/floriankarsten/space-grotesk)
+Space Mono: Copyright 2016 The Space Mono Project Authors (https://github.com/googlefonts/spacemono)
+Noto Sans CJK JP: Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'
+
+The files here are subsets of those fonts (Latin, and only the kanji the
+dashboard prints); Fraunces is also pinned to SOFT 0, WONK 0, weight 300-600.
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

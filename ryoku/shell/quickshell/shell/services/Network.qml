@@ -6,7 +6,7 @@ import "../utils/menupoll.js" as MenuPoll
 
 // QML view of the daemon `network` topic. NetworkManager lives in ryoku-shell
 // (network.go), so QML never shells out to nmcli nor speaks D-Bus itself.
-// `subscribe network` streams a full frame; Wi-Fi, WireGuard, and DNS changes use
+// `subscribe network` streams a full frame; Wi-Fi, WireGuard, VPN, and DNS changes use
 // `call network.*` intents on a second connection. The status derivations the
 // rail and collapsed row read (kind/level/wifiRadio), the active WireGuard
 // indicator, and DNS provider state are computed from that typed frame.
@@ -18,6 +18,9 @@ Singleton {
     property var wired: ({ present: false, connectivity: "Disconnected" })
     property var accessPoints: []
     property var wgTunnels: []
+    // Saved NetworkManager VPN profiles (OpenVPN, OpenConnect, ...), service
+    // order: { uuid, name, service, active, connecting, ip4 }.
+    property var vpnProfiles: []
     property var dns: ({ provider: "dhcp", servers: [] })
 
     // --- derived status the rail + collapsed row bind to (preserved interface) ---
@@ -37,6 +40,17 @@ Singleton {
     readonly property bool vpnActive: root.activeWg.length > 0
     readonly property string vpnName: root.activeWg.length > 0 ? (root.activeWg[0].name || "") : ""
 
+    // Every saved tunnel a VPN switch drives, VPN profiles then WireGuard, in
+    // one shape: { uuid, name, service, active, connecting, ip4 }.
+    readonly property var vpnTunnels: root.vpnProfiles.concat(root.wgTunnels.map(tunnel => ({
+        uuid: tunnel.uuid,
+        name: tunnel.name || "",
+        service: "wireguard",
+        active: tunnel.active === true,
+        connecting: false,
+        ip4: ""
+    })))
+
     // vpnPolling ownership is retained for the rail/menu lifecycle (RailVpn and
     // MenuNetwork claim it on reveal); the topic streams regardless of who
     // watches, so this now only tracks owners for that contract.
@@ -45,6 +59,70 @@ Singleton {
     function setVpnPolling(owner, enabled) {
         vpnPollOwners = MenuPoll.setOwnership(vpnPollOwners, owner, enabled);
         vpnPolling = vpnPollOwners.length > 0;
+    }
+
+    // Throughput is shared by every bar. A visible owner starts one /proc read
+    // for the whole shell; hiding the last owner drops the byte baseline and
+    // leaves no timer running.
+    property var trafficOwners: []
+    readonly property bool trafficActive: root.trafficOwners.length > 0
+    function setTrafficActive(owner, enabled) {
+        root.trafficOwners = MenuPoll.setOwnership(root.trafficOwners, owner, enabled);
+    }
+    property real downBps: 0
+    property real upBps: 0
+    property real _trafficRx: 0
+    property real _trafficTx: 0
+    property bool _haveTraffic: false
+
+    function _setTraffic(down, up) {
+        if (root.downBps !== down)
+            root.downBps = down;
+        if (root.upBps !== up)
+            root.upBps = up;
+    }
+
+    function _readTraffic(text) {
+        const lines = String(text || "").split("\n");
+        let rx = 0;
+        let tx = 0;
+        for (let i = 0; i < lines.length; i++) {
+            const colon = lines[i].indexOf(":");
+            if (colon < 0 || lines[i].slice(0, colon).trim() === "lo")
+                continue;
+            const fields = lines[i].slice(colon + 1).trim().split(/\s+/);
+            if (fields.length < 9)
+                continue;
+            rx += Number(fields[0]) || 0;
+            tx += Number(fields[8]) || 0;
+        }
+        if (root._haveTraffic)
+            root._setTraffic(Math.max(0, (rx - root._trafficRx) / 2),
+                             Math.max(0, (tx - root._trafficTx) / 2));
+        root._trafficRx = rx;
+        root._trafficTx = tx;
+        root._haveTraffic = true;
+    }
+
+    onTrafficActiveChanged: if (!root.trafficActive) {
+        root._haveTraffic = false;
+        root._setTraffic(0, 0);
+    }
+
+    FileView {
+        id: trafficFile
+        path: root.trafficActive ? "/proc/net/dev" : ""
+        blockLoading: true
+        printErrors: false
+        onLoaded: root._readTraffic(trafficFile.text())
+    }
+
+    Timer {
+        interval: 2000
+        running: root.trafficActive
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: trafficFile.reload()
     }
 
     // --- intents (QML -> daemon) ---
@@ -56,6 +134,13 @@ Singleton {
     function wgActivate(uuid) { root.call("network.wgActivate", { uuid: uuid }); }
     function wgDeactivate(uuid) { root.call("network.wgDeactivate", { uuid: uuid }); }
     function wgImport(path) { root.call("network.wgImport", { path: path }); }
+    function vpnActivate(uuid) { return root.call("network.vpnActivate", { uuid: uuid }); }
+    function vpnDeactivate(uuid) { return root.call("network.vpnDeactivate", { uuid: uuid }); }
+    function setVpnTunnel(tunnel, on) {
+        if (!tunnel || !tunnel.uuid)
+            return 0;
+        return on ? root.vpnActivate(tunnel.uuid) : root.vpnDeactivate(tunnel.uuid);
+    }
     function setDnsProvider(provider, servers) {
         return root.call("network.dnsSet", {
             provider: provider || "",
@@ -78,6 +163,7 @@ Singleton {
             if (f.wired) root.wired = f.wired;
             root.accessPoints = Array.isArray(f.accessPoints) ? f.accessPoints : [];
             root.wgTunnels = Array.isArray(f.wireguard) ? f.wireguard : [];
+            root.vpnProfiles = Array.isArray(f.vpn) ? f.vpn : [];
             if (f.dns) root.dns = f.dns;
         } catch (e) {
             // A malformed frame keeps the last good state.

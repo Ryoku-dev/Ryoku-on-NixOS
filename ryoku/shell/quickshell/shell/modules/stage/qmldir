@@ -1,7 +1,15 @@
 StageBackdrop StageBackdrop.qml
+StageSpatialScene StageSpatialScene.qml
 StageLayer StageLayer.qml
 StageOutline StageOutline.qml
-StageWidgetsEditor StageWidgetsEditor.qml
-StageAddPanel StageAddPanel.qml
+StageSelection StageSelection.qml
 StagePreviewCard StagePreviewCard.qml
 StageAngleDial StageAngleDial.qml
+StageEditorHost StageEditorHost.qml
+StageWidgetProvider StageWidgetProvider.qml
+StageVisualizerPage StageVisualizerPage.qml
+StageDepthPage StageDepthPage.qml
+StageDepthOptions StageDepthOptions.qml
+StageDepthHero StageDepthHero.qml
+StageWidgetPage StageWidgetPage.qml
+StageDepthPick StageDepthPick.qml

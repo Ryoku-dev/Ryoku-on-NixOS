@@ -1,0 +1,3 @@
+module stage.modules.common.media
+AndroidMediaArtwork 1.0 AndroidMediaArtwork.qml
+AndroidMediaBackdrop 1.0 AndroidMediaBackdrop.qml

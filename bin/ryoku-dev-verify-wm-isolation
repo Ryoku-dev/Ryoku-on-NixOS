@@ -46,11 +46,11 @@ report() {
 # 1. compositor sockets and handles: only the seam, its payload, and the test
 #    harnesses that exercise that payload speak them. ryoku/wm is the seam
 #    (detect.go resolves an instance handle into a provider name, the provider
-#    itself runs hyprctl); ryoku/hyprland is the Hyprland payload (Lua modules,
-#    leaf scripts, hypridle.conf) delivered by ryoku-desktop-hyprland; tests/ and
-#    the launcher's qa/ harness stub or drive a live compositor to exercise it,
-#    the way a human tester would. A niri package ships its own scripts under the
-#    same names.
+#    itself runs hyprctl); ryoku/hyprland is the Hyprland payload (Lua modules
+#    and the leaf scripts that speak its IPC) delivered by ryoku-desktop-hyprland;
+#    tests/ and the launcher's qa/ harness stub or drive a live compositor to
+#    exercise it, the way a human tester would. The compositor-neutral helpers
+#    live in ryoku/shell/scripts and reach a compositor only through `ryoku wm`.
 report 'hyprctl / HYPRLAND_INSTANCE_SIGNATURE / .socket2.sock (route through wm.Client)' \
 	'hyprctl|HYPRLAND_INSTANCE_SIGNATURE|\.socket2\.sock' \
 	':(exclude)ryoku/wm/*' ':(exclude)ryoku/hyprland/*' \

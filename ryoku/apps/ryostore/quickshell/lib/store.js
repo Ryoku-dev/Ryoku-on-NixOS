@@ -34,7 +34,8 @@ function downloadPauseReason(item) {
     return isDownloadPaused(item) ? String((item && item.downloadPauseReason) || "") : "";
 }
 
-// unavailable: a product the catalogue wrote for another window manager. It is
+// unavailable: a product this machine cannot run, because the catalogue wrote it
+// for another window manager or another edition (package manager). It is
 // refused for install and update by the backend (a client cannot bypass that),
 // stays listed, and keeps any installed copy removable; every surface here must
 // show it greyed with the reason instead of an action that cannot work.
@@ -42,11 +43,14 @@ function isUnavailable(item) {
     return Boolean(item && item.unavailable);
 }
 
-// The chip and the disabled action both name the window manager the product
-// wants, taken from the product itself rather than from a list of names here.
+// The chip and the disabled action name the cause: the window manager the
+// product wants, taken from the product itself rather than from a list of names
+// here, or this system when the edition is what rules it out.
 function unavailableLabel(item) {
     if (!isUnavailable(item))
         return "";
+    if (item.unavailableEdition)
+        return "NOT ON THIS SYSTEM";
     var want = String((item && item.requiredWindowManager) || "").toUpperCase();
     return want.length > 0 ? want + " ONLY" : "UNAVAILABLE";
 }
@@ -55,17 +59,22 @@ function unavailableReason(item) {
     return isUnavailable(item) ? String((item && item.unavailableReason) || "") : "";
 }
 
-// pluginKind classifies a plugin by its host surface: a plugin is a BAR plugin
-// when its manifest hosts include topbarGlyph, otherwise it is a DESKTOP plugin
-// (desktopWidget / framePopout). Pure over item.metadata.hosts.
+// pluginKind classifies a plugin by its host surface. Sidebar-only plugins stay
+// in the all-plugins view instead of falling through to the desktop tab.
 function pluginKind(item) {
     var hosts = (item && item.metadata && Array.isArray(item.metadata.hosts)) ? item.metadata.hosts : [];
-    return hosts.indexOf("topbarGlyph") !== -1 ? "bar" : "desktop";
+    if (hosts.indexOf("topbarGlyph") !== -1)
+        return "bar";
+    if (hosts.indexOf("desktopWidget") !== -1 || hosts.indexOf("framePopout") !== -1)
+        return "desktop";
+    return hosts.indexOf("sidebarCard") !== -1 ? "sidebar" : "desktop";
 }
 
 function searchText(item) {
     if (!item)
         return "";
+    if (item.searchIndex)
+        return String(item.searchIndex);
     return [
         item.id,
         item.category,
@@ -75,6 +84,10 @@ function searchText(item) {
         item.description,
         item.author,
         item.version,
+        item.kind,
+        item.license,
+        item.verificationStatus,
+        item.metadata && item.metadata.marketplaceCategory,
         (item.tags || []).join(" "),
         statusLabels(item).join(" ")
     ].filter(Boolean).join(" ").toLowerCase();
@@ -164,6 +177,23 @@ function itemKey(item) {
     return item ? String(item.category || "") + ":" + String(item.id || "") : "";
 }
 
+function sortOmarchyPlugins(items, mode) {
+    var sorted = (Array.isArray(items) ? items : []).slice();
+    sorted.sort(function(a, b) {
+        if (mode === "new" && String(a.listedAt || "") !== String(b.listedAt || ""))
+            return String(b.listedAt || "").localeCompare(String(a.listedAt || ""));
+        if (mode === "verified") {
+            var av = String(a.verificationStatus || "").toLowerCase() === "verified";
+            var bv = String(b.verificationStatus || "").toLowerCase() === "verified";
+            if (av !== bv)
+                return av ? -1 : 1;
+        }
+        var stars = Number(b.stars || 0) - Number(a.stars || 0);
+        return stars !== 0 ? stars : String(a.name || a.id || "").localeCompare(String(b.name || b.id || ""));
+    });
+    return sorted;
+}
+
 function collection(items, options) {
     var opts = options || {};
     var filtered = filter(items, {
@@ -173,6 +203,8 @@ function collection(items, options) {
         pluginKind: opts.pluginKind || "",
         query: opts.query || ""
     });
+    if (opts.categoryID === "omarchy-plugins")
+        filtered = sortOmarchyPlugins(filtered, opts.omarchySort || "popular");
     if (opts.view !== "library" && !opts.categoryID && !opts.query) {
         var seed = Number(opts.seed) || 0;
         var lead = featured(filtered, seed);
@@ -210,6 +242,8 @@ function primaryAction(item) {
         return "UNDER CONSTRUCTION";
     if (item && item.busy)
         return "INSTALLING";
+    if (item && item.updateAvailable)
+        return "UPDATE";
     if (item && Number(item.installedCount || 0) > 0 && Number(item.totalCount || 0) > Number(item.installedCount || 0))
         return "INSTALL " + String(Number(item.totalCount) - Number(item.installedCount)) + " ITEMS";
     return isInstalled(item) ? "INSTALLED" : "INSTALL";
@@ -231,4 +265,4 @@ function sortCategories(categories) {
 }
 
 if (typeof module !== "undefined" && module.exports)
-    module.exports = { statusLabels, isInstalled, isDownloadPaused, downloadPauseReason, isUnavailable, unavailableLabel, unavailableReason, pluginKind, searchText, matchesQuery, filter, groupSearch, featured, installed, itemKey, collection, selectionKey, categoryPlates, primaryAction, secondaryAction, sortCategories, shuffleSeeded };
+    module.exports = { statusLabels, isInstalled, isDownloadPaused, downloadPauseReason, isUnavailable, unavailableLabel, unavailableReason, pluginKind, searchText, matchesQuery, filter, groupSearch, featured, installed, itemKey, sortOmarchyPlugins, collection, selectionKey, categoryPlates, primaryAction, secondaryAction, sortCategories, shuffleSeeded };

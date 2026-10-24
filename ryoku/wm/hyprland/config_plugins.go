@@ -268,6 +268,38 @@ func pluginBlocks(o Overrides) []pluginBlock {
 		out = append(out, typedBlock("keysounds", "keysounds", opts, ""))
 	}
 
+	if bp := p.BordersPlusPlus; bp.Enabled {
+		// borders-plus-plus registers no enabled key: the store flag already
+		// gates whether the block is emitted and the .so loaded at all.
+		opts := []string{
+			fmt.Sprintf("add_borders = %d", bp.Count),
+			fmt.Sprintf("natural_rounding = %t", bp.NaturalRounding),
+			fmt.Sprintf("col = { border_1 = %s }", luaStr(luaRGB(bp.Color))),
+			fmt.Sprintf("border_size_1 = %d", bp.Size),
+		}
+		out = append(out, typedBlock("borders-plus-plus", "borders_plus_plus", opts, ""))
+	}
+
+	if gr := p.Hyprgrass; gr.Enabled {
+		// hyprgrass likewise registers no enabled key.
+		opts := []string{
+			fmt.Sprintf("sensitivity = %s", luaNum(gr.Sensitivity)),
+			fmt.Sprintf("long_press_delay = %d", gr.LongPressDelay),
+			fmt.Sprintf("edge_margin = %d", gr.EdgeMargin),
+			fmt.Sprintf("resize_on_border_long_press = %t", gr.ResizeOnBorder),
+		}
+		var extra string
+		if gr.ThreeFingerTap {
+			// A three-finger tap floats the window under it: the one pointer
+			// gesture a touchscreen needs and Hyprland core does not bind.
+			extra = "    hl.plugin.hyprgrass.bind({\n" +
+				"        pattern = {kind = \"tap\", fingers = 3},\n" +
+				"        action = hl.dsp.window.float({ action = \"toggle\" }),\n" +
+				"    })\n"
+		}
+		out = append(out, typedBlock("hyprgrass", "hyprgrass", opts, extra))
+	}
+
 	for _, id := range sortedExtraIDs(p.Extra) {
 		if ep := p.Extra[id]; ep.Enabled {
 			out = append(out, extraBlock(id, ep.Config))

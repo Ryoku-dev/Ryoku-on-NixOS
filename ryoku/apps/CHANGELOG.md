@@ -3,6 +3,152 @@
 ## Unreleased
 
 ### Added
+- `ryostore/`: **Built-in bar styles carry a resource tier.** Orpheus and
+  Kairos are `light`; QS Bar, Python, Nomarchy, Shima and Sumi are `heavy`,
+  so the Hub can say which styles may cost more. A catalogue snapshot from an
+  older binary with different tiers is rebuilt like a renamed built-in
+  (`ryostore/backend/provider_bars.go`).
+- `ryostore/`: **Every product says whether this edition can have it.** A
+  registry entry, or a single bundle item, may carry `packageManagers`
+  (`pacman`, `dnf`, `xbps`) and a `packageManagersReason`; on any other
+  edition the item comes back unavailable with `unavailableEdition` set, the
+  store tags it *Not on this system*, and install is refused on a fresh
+  registry read. A window-manager gate wins when both apply. Bundle parts the
+  running edition does not ship, by the catalogue's `bundles/packages/` table,
+  stay listed in the detail greyed out with the reason, cannot be selected,
+  and drop out of **Install all** and the part count. `ryostore internal
+  package-table` serves that table to the actuator
+  (`backend/host_package_manager.go`, `backend/provider_bundles.go`,
+  `quickshell/ProductDetail.qml`).
+- `ryostore/`: **Docks is a Store section.** Community docks install from the
+  ryostore `docks/` registry and publish `docks.json` with a content-addressed
+  view per dock. Install never selects one; removing the dock in use moves
+  `shell.json` `dock.design` back to `ryoku` in the same journaled transaction,
+  and the ids of the shipped designs are reserved. A dock's **Open in Settings**
+  opens the Stage Editor's Dock section in the running shell instead of the Hub.
+  Launchers and docks are one shell-QML provider now, with one generic index
+  and test suite, and the worn-product fallback reaches a setting inside a
+  section of its file such as `dock.design` (`backend/provider_shell_qml.go`,
+  `backend/product_selection.go`, `backend/routing.go`).
+- `ryostore/`: **App launchers is a Store section.** A launchers provider
+  installs community launchers from the ryostore `launchers/` registry through
+  the common transaction engine and publishes `launchers.json` with a
+  content-addressed view per launcher. Install never selects one; removing the
+  launcher in use resets `launcher.json` `variant` to the default in the same
+  journaled transaction, and the ids of the shipped launchers are reserved. The
+  view publishing and the worn-product fallback that bar styles already had are
+  now shared by plugins, bar styles and launchers instead of copied
+  (`backend/provider_shell_qml.go`, `backend/product_views.go`,
+  `backend/product_selection.go`).
+- `ryostore/`: **OSDs, notification cards and sidebars are Store sections.**
+  The shared shell-QML provider installs `osds`, `notifications`, and `sidebars`
+  and publishes their `Osd.qml`, `Card.qml`, and `Sidebar.qml` entry points in
+  content-addressed `osd-views`, `notification-views`, and `sidebar-views`.
+  Each category reserves its shipped `ryoku` design. Install never selects a
+  design; removing the worn one resets `shell.json` `designs.osd`,
+  `designs.notification`, or `designs.sidebar` to `ryoku` in the same journaled
+  transaction. **Open in Settings** and `ryostore settings <category>` open the
+  Hub's Overlays page (`backend/provider_shell_qml.go`,
+  `backend/product_selection.go`, `backend/product_views.go`,
+  `backend/routing.go`).
+- `vesktop/`: **Ryoku's Discord theme is the default in Vesktop and Equibop.**
+  Ron's Ryoku theme (ryoku-discord v3.0.0) ships as `ryoku-discord.theme.css`
+  beside Matugen's Midnight (`matugen.css`), and a profile with no Vencord
+  settings yet starts with it turned on. An existing profile switches once on
+  update: Midnight, the Palette Bridge's Midnight base or no theme at all
+  becomes the Ryoku theme, and a theme picked from elsewhere stays. An open
+  client takes the switch at its next start, and a later choice in its theme
+  settings is kept. The Flathub Vesktop that Fedora and Void use gets the same
+  switch once it has run, with a copy of the theme in its own folder that the
+  doctor keeps current. The Ryostore copy of the theme gives way to the
+  shipped one once no open client can still be showing it, and a Palette
+  Bridge setup no longer layers Midnight under it (`vesktop/`,
+  `../cli/internal/doctor/reconcile_discord_theme.go`,
+  `../cli/internal/updater/materialize.go`,
+  `../palette-bridge/install-integrations.sh`).
+- `ryostore/`: **Ryostore looks like the Hub and shows products properly.** The
+  store moves to the Hub's rail, page head and action bar, with Discover,
+  categories, search and Library in the rail. An opened product leads with its
+  media: screenshots are decoded at the size they are shown, never stretched
+  or cropped, GIFs and animated WebP play only while visible and focused, video
+  previews play muted, and the lightbox switches between Fit and 100% with
+  panning. Products with a newer version show UPDATE, and a preview that is
+  missing or fails falls back to the product's initials instead of an endless
+  placeholder (`ryostore/quickshell/ProductDetail.qml`,
+  `ryostore/quickshell/ProductMedia.qml`).
+- `ryostore/`: **Ryostore moves.** Cards lift and their covers ease in on
+  hover and press in on click, the rail's selection plate slides between
+  categories, results settle in with a short stagger when you change category,
+  search, provider or sort, the hero crossfades, an opened product settles in,
+  and Install shows its progress and a brief installed check. Everything rests
+  still and sharp, and follows the reduced-motion setting
+  (`ryostore/quickshell/ProductCard.qml`, `ryostore/quickshell/InstallAction.qml`).
+- `ryostore/`: **The Omarchy plugin market, inside Ryostore.** While Nomarchy is
+  the bar style, an Omarchy plugins category lists the plugins.omarchy.org
+  catalogue (cached, with Popular, New and Verified orders and search), shows
+  each plugin's preview, licence, repository and verification state with an
+  unsandboxed-code warning, and installs, updates, enables or removes through
+  the `omarchy` CLI. A plugin the running compositor cannot host is refused
+  with the reason (`ryostore/backend/provider_omarchy_plugins.go`).
+- `ryovm/`: **Ryoport reads as a fleet dashboard.** The Dashboard puts local
+  VMs and remotes in one resource list with a fleet summary strip, and the
+  selected resource gets CPU, memory, disk and network graphs beside its facts.
+  Activity is now scoped to that resource, explains what it records, and shows
+  observed machine state and remote health transitions with warning reasons
+  alongside connects, tunnels, snapshots and other actions. VM and remote
+  details are tabbed (Overview, Access, Networking, Snapshots or Workloads,
+  Settings, Activity), the empty Machines and Passthrough plates lead with
+  their setup action, and sampling runs only while a plate is on screen.
+  `ryovm-mon` reports disk, network and uptime, `ryossh` samples CPU and I/O,
+  and `ryovm lg stats` covers passthrough VMs
+  (`ryovm/quickshell/Dashboard.qml`, `ryovm/quickshell/Singletons/{Vm,Remotes}.qml`).
+- `ryovm/`: **Ryoport handles passwords, shows its alerts, and opens non-SSH
+  consoles.** The health probe now tells a dead box from a box that merely
+  wants a credential: a host that answers on the SSH port but needs a password
+  reads "authentication required" with a SAVE-password action beside every
+  empty graph, so the dashboard never shows a silent wall of flat lines. The
+  Alerts count on the dashboard and the new rail annunciator open the harbour
+  log: every alert with its reason, every fleet event newest-first, and a
+  one-tap jump to the machine behind it. A new experimental Consoles section
+  reaches switches and desktops straight from the harbour: serial console
+  cables through picocom, telnet logins through inetutils, RDP desktops
+  through FreeRDP, and VNC screens through TigerVNC - each a saved berth with
+  its own reachability probe. Passwords live only in the login keyring and are
+  fed to the client at launch (FreeRDP over a private fd, TigerVNC through the
+  child's environment), never in argv, a file, or the profile book; a missing
+  client shows the install command instead of a dead button
+  (`ryovm/remote/ryossh.go`, `ryovm/quickshell/{HarbourLog,ConsolesPage,AddConsole}.qml`,
+  `ryovm/quickshell/Singletons/Remotes.qml`).
+- `starship/`, `fastfetch/`: **Prompt layouts, and colours that follow the
+  wallpaper.** Starship ships five layouts (Pill, Minimal, Two line, Powerline,
+  Lean), picked in Ryoku Hub > Keybinds with rendered previews, and either keeps
+  its fixed palette or follows the wallpaper through matugen. Fastfetch follows
+  the wallpaper by default: matugen writes `fastfetch/ryoku-colors.json` and
+  `ryoku-fastfetch` merges it into a cached copy of your config, so the readout
+  matches the theme out of the box and Hub and store edits to `config.jsonc` are
+  never overwritten. Pin a fixed palette in Ryoku Hub > Fastfetch to keep the
+  brand colours; both choices survive updates
+  (`../hub/backend/starship.go`, `../hub/backend/fastfetch.go`).
+- `rashin-app/`: **The window opens on the Ryoku lane.** The first sheet is the
+  machine agent; Chat and the new Wiki sheet sit beside it.
+- `rashin-app/`: **The window carries Rashin's own icon.** `logo.svg` links to
+  the brand seal (`assets/brand/rashin-mark.svg`), which the package and the
+  dev deploy both install as `rashin-app` in the hicolor theme; it was
+  falling back to the Ryoku 力 mark.
+- `rashin-app/`: **Rashin, the AI companion window.** A GTK3 + WebKitGTK
+  host for the console `ryoku-rashin` serves: it waits on a paper boot page
+  until the daemon answers, loads the chat, opens outside links in the
+  browser, grants notifications, remembers its size, and stays single
+  instance. The console itself is `ryoku/rashin/web` (Svelte 5 + bits-ui +
+  the Libraries.dev effects): the shared agent chat as a workspace, the
+  fast-lane Ask, and every dashboard sheet. It opens from Super+Alt+Space or
+  the launcher and wears the desktop's live palette. Every fact is the
+  daemon's; the app only asks and paints (`apps/rashin-app/`).
+- **A Ryostore fastfetch preset can bring its own renderer.** A preset that
+  needs to draw something fastfetch cannot (icat PNGs, for one) names an
+  executable in its own product folder with a `// ryoku:renderer` comment and
+  `ryoku-fastfetch` hands off to it; anything invalid falls through to
+  fastfetch (`fastfetch/ryoku-fastfetch`).
 - `ryostore/`: **Kairos joins the built-in bar styles in the catalogue.** The
   bar-style provider now lists the shell's island-clock style beside Sumi and QS
   Bar, so Ryoku Settings' Bar Studio shows it as an installed, selectable card
@@ -34,6 +180,53 @@
   v0.56.0-beta.19") via `ryoku version --pretty` (`config.jsonc`).
 
 ### Fixed
+- `fish/`, `bash/`, `zsh/`, `terminal-shell/`: **Multiplexer panes started
+  before the desktop can paste again.** A herdr, tmux or zellij server keeps the
+  environment of the login that started it, so one started over SSH or from a
+  TTY gave every pane no display: Ctrl+V and image paste in fish and in
+  terminal coding agents found no clipboard. A new pane with no live display now
+  borrows the running desktop's display and compositor handles from the user
+  manager (Turnstile's env dir on Void) and drops a dead inherited one
+  (`fish/conf.d/desktop-display.fish`, `terminal-shell/desktop-display.sh`).
+- **RyoStore installs decors and emblems into the localized Pictures folder.**
+  The flat-image providers built `~/Pictures` by hand, so on a desktop with a
+  localized Pictures folder an installed decor or emblem landed where the Hub
+  no longer reads it. They now follow `XDG_PICTURES_DIR` or `user-dirs.dirs`
+  when invoked outside the desktop session
+  (`ryostore/backend/provider_flat_image.go`).
+- `ryostore/`: **A Vesktop theme reaches the Flathub Vesktop.** Fedora and Void
+  users get Vesktop from Flathub, whose sandbox sees only its own `~/.var/app`
+  folder, so a theme linked into `~/.config/vesktop/themes` never showed up.
+  When the Flathub build is installed or has run, the install also puts a copy
+  in its theme folder. An update or removal replaces or takes out only a copy
+  whose content is a version the Store installed, and a rollback restores the
+  previous one (`backend/vesktop_theme.go`, `backend/product_transaction.go`).
+- `ryostore/`: **An offline catalogue no longer claims it is ready.** Built-in
+  bars no longer mask a failed remote fetch with no cache, and the action bar
+  reports the offline state with a refresh hint.
+- `fastfetch/`: **The readout names the distribution it runs on.** The tagline
+  said "a hand-built Arch desktop" on every system. It now reads the base
+  distribution through `ryoku-base-os` (Arch and CachyOS still say Arch, Void
+  says Void), whether it runs through `ryoku-fastfetch`, as a plain
+  `fastfetch`, or in the Hub preview (`fastfetch/config.jsonc`,
+  `terminal-shell/env.sh`, `fish/config.fish`).
+- `ryovm/`: **Ryoport's OS logos stop going blank.** The catalogue prefetch and
+  the logos on screen could fetch the same OS at once into one temp file, and
+  both tinted it, so the cached SVG carried `fill` twice. That is not valid XML,
+  so the Android, Alpine and similar logos drew nothing for up to two weeks.
+  Each fetch now has its own temp file, the tint is added once, and a logo
+  already broken this way is fetched again (`bin/ryovm`).
+- `ryovm/`: **opening a remote in Ghostty no longer raises the terminal's own
+  config error window, and the float rule matches again.** The launches built
+  `--class <name>` (kitty's form) and Ghostty wants `--class=<name>`, so it read
+  the bare flag as valueless, then parsed the name as a second field: every
+  connect showed `cli1:class: value required` plus `cli2:ryoport-ssh: invalid
+  field`. The flag is now the `=` form, which kitty accepts too. The value moved
+  to `dev.ryoku.ryoport_ssh` because Ghostty validates `--class` as a GTK
+  application id, which needs a dot: with the old name Ghostty ignored the class
+  even in the right form, the window kept `com.mitchellh.ghostty`, and the
+  float-and-centre rule could never match it. `ryossh connect` gained the
+  missing Ghostty branch in its terminal switch (issue #280).
 - `fastfetch/`: **the greeting reports the real shell again.** The wrapper
   bounded fastfetch with `timeout 8`, but fastfetch's shell module walks the
   parent chain and skips known wrappers (`time`, `sudo`, ...) without knowing
@@ -65,6 +258,8 @@
   that lands while the picker is open shows up on user boxes too.
 
 ### Removed
+- `rashin-app/`: **The Rashin window moved out of the desktop apps.** It now
+  lives in `ryoku/rashin/app/` and ships with `ryoku-rashin`.
 - `ryotunes/`: **The Chromium app-window wrapper is gone; Ryotunes is now a real
   app.** YouTube Music ran as a Chromium `--app` window in its own profile
   because the Tauri/Electron clients of the time crashed on this compositor or

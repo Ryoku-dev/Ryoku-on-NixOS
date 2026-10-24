@@ -14,6 +14,7 @@ struct BlobRectData {
     float screenHalfX = 0, screenHalfY = 0;
     // 0 = this rect never pockets the inverted border (border sinks off)
     float sinkWeight = 1.0f;
+    float taper = 0;
     // Effective per-corner radii (tr, br, bl, tl), pre-computed on CPU
     float radius[4] = { 0, 0, 0, 0 };
     // Bitmask of indices in this rect's m_cachedRects that mutually exclude (or are excluded by) this rect.
@@ -44,6 +45,14 @@ public:
     float m_invertedOuter[4] = {};
     float m_invertedInner[4] = {};
     BlobRectData m_rects[16] = {};
+    float m_waveInfo[4][4] = {
+        { 0, 0, 0, -1 },
+        { 0, 0, 0, -1 },
+        { 0, 0, 0, -1 },
+        { 0, 0, 0, -1 },
+    };
+    float m_waveData[4][64] = {};
+    QColor m_waveColor{ 0, 0, 0, 0 };
 };
 
 class BlobMaterialShader : public QSGMaterialShader {

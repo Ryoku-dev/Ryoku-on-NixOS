@@ -74,15 +74,19 @@ func ScanDirs(wallDir, videoDir, cacheDir string, prior map[string]Entry, onItem
 	}
 	collectMedia(wallDir, videoThumbsDir, thumbsSmDir, "video", videoExts, "vid-", cacheDir, &items)
 
-	result := make(map[string]Entry, len(items))
-	for _, it := range items {
-		if _, dup := result[it.key]; dup {
-			continue
+	result := processItemsParallel(items, prior, onItem)
+	// Workshop rows join the scan; a local file with the same key wins.
+	if weScanHook != nil {
+		for k, e := range weScanHook(cacheDir, prior, onItem) {
+			if _, dup := result[k]; !dup {
+				result[k] = e
+			}
 		}
-		result[it.key] = processItem(it, prior, onItem)
 	}
 	return result, nil
 }
+
+var weScanHook func(cacheDir string, prior map[string]Entry, onItem func(Entry)) map[string]Entry
 
 // collectMedia walks root recursively, skipping dotfiles and the cache subtree,
 // and appends every file whose extension is in exts. name is the slash-joined
@@ -145,13 +149,25 @@ func collectMedia(root, thumbDir, thumbSmDir, wpType string, exts map[string]boo
 }
 
 // processItem resolves one scanned file against prior state: an unchanged mtime
-// returns the prior entry untouched; otherwise thumbs and colors are (re)built
-// while favourites and apply counts carry over.
+// reuses the prior entry at the file's current location; otherwise thumbs and
+// colors are (re)built while favourites and apply counts carry over.
 func processItem(it scanned, prior map[string]Entry, onItem func(Entry)) Entry {
 	if p, ok := prior[it.key]; ok && p.Mtime == it.mtime {
-		// A warm entry may predate preview clips: backfill without a rescan.
+		// Location follows the file, so a moved library or home keeps applying.
+		p.Path = it.src
+		// An animated still's VideoFile is its cached clip, not a location.
+		if it.videoFile != "" {
+			p.VideoFile = it.videoFile
+		}
+		// A warm entry may predate newer fields: backfill them without rebuilding thumbnails.
 		if it.wpType == "video" && (p.VideoPrev == "" || !fileExists(p.VideoPrev)) {
 			p.VideoPrev = ensureVideoPreview(it)
+		}
+		if p.Width == 0 && p.Height == 0 {
+			fillDims(&p, it)
+		}
+		if p.Tags == "" {
+			p.Tags = buildTags(it, p.Hue)
 		}
 		return p
 	}
@@ -160,6 +176,7 @@ func processItem(it scanned, prior map[string]Entry, onItem func(Entry)) Entry {
 		Key:       it.key,
 		Name:      it.name,
 		Type:      it.wpType,
+		Path:      it.src,
 		VideoFile: it.videoFile,
 		Mtime:     it.mtime,
 		Filesize:  it.filesize,
@@ -209,6 +226,8 @@ func processItem(it scanned, prior map[string]Entry, onItem func(Entry)) Entry {
 	e.Hue = int(hueBucket(hue, sat))
 	e.Sat = int(sat)
 	e.Richness = int(richness)
+	fillDims(&e, it)
+	e.Tags = buildTags(it, e.Hue)
 
 	if regen {
 		onItem(e)
@@ -224,11 +243,14 @@ func fileMtime(path string) int64 {
 	return fi.ModTime().Unix()
 }
 
-// tmpPath is the same "<stem>.tmp.<ext>" sibling the Rust tmp_path builds, so a
-// failed conversion never leaves a half-written thumbnail at the real path.
+// tmpPath is a unique ".tmp" sibling of the destination: a failed conversion
+// must never leave a half-written file at the real path, and two overlapping
+// generators of the same output (a forced rescan while another still runs)
+// must never interleave into each other's writer and publish a corrupt file.
 func tmpPath(dest string) string {
 	ext := filepath.Ext(dest)
-	return strings.TrimSuffix(dest, ext) + ".tmp" + ext
+	return fmt.Sprintf("%s.tmp.%d-%d%s", strings.TrimSuffix(dest, ext),
+		os.Getpid(), time.Now().UnixNano(), ext)
 }
 
 func genFullThumb(it scanned) error {
@@ -455,6 +477,15 @@ func isAnimatedImage(src string) bool {
 	return n > 1
 }
 
+func animatedH264Args(encoders codecSet) ([]string, error) {
+	encoder, err := pickCPUH264Encoder(encoders)
+	if err != nil {
+		return nil, err
+	}
+	return h264CPUArgs(encoder, 1920, 24,
+		"-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p")
+}
+
 // ensureAnimatedMp4 transcodes an animated image to a cached mp4 the player
 // can play frame-by-frame. "" on failure (the entry stays static). Regenerated
 // when missing or older than the source.
@@ -471,26 +502,30 @@ func ensureAnimatedMp4(it scanned) string {
 	tmp := tmpPath(animPath)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	codecArgs, err := animatedH264Args(ffmpegCodecs().encoders)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ryogami: animated transcode unavailable for %s: %v\n", it.name, err)
+		return ""
+	}
 	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(it.src), "."))
-	var cmd *exec.Cmd
+	var args []string
 	if ext == "gif" {
 		// GIF needs a palette for clean h264 colors; the standard ffmpeg
 		// recipe splits, generates a palette from one stream, applies it to
 		// the other.
-		cmd = exec.CommandContext(ctx, "ffmpeg", "-y", "-v", "error",
+		args = []string{"-y", "-v", "error",
 			"-i", it.src,
 			"-filter_complex",
 			"fps=24,scale='min(1920,iw)':-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5",
-			"-map", "[b]",
-			"-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-			"-pix_fmt", "yuv420p", "-an", tmp)
+			"-map", "[b]"}
 	} else {
-		cmd = exec.CommandContext(ctx, "ffmpeg", "-y", "-v", "error",
+		args = []string{"-y", "-v", "error",
 			"-i", it.src,
-			"-vf", "fps=24,scale='min(1920,iw)':-2",
-			"-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-			"-pix_fmt", "yuv420p", "-an", tmp)
+			"-vf", "fps=24,scale='min(1920,iw)':-2"}
 	}
+	args = append(args, codecArgs...)
+	args = append(args, "-an", tmp)
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		os.Remove(tmp)
 		fmt.Fprintf(os.Stderr, "ryogami: animated transcode failed for %s: %v: %s\n",
@@ -521,22 +556,9 @@ func ensureVideoPreview(it scanned) string {
 	tmp := tmpPath(prev)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	var cmd *exec.Cmd
-	if dev := vaapiRenderNode(); dev != "" {
-		cmd = exec.CommandContext(ctx, "ffmpeg", "-y", "-v", "error",
-			"-hwaccel", "vaapi", "-hwaccel_device", dev, "-hwaccel_output_format", "vaapi",
-			"-i", it.src,
-			"-vf", "fps=24,scale_vaapi=w=640:h=-2:format=nv12",
-			"-c:v", "h264_vaapi", "-qp", "27", "-bf", "0", "-an", tmp)
-	} else {
-		cmd = exec.CommandContext(ctx, "nice", "-n", "19", "ffmpeg", "-y", "-v", "error", "-i", it.src,
-			"-vf", "scale=640:-2", "-r", "24",
-			"-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-bf", "0",
-			"-threads", "4", "-pix_fmt", "yuv420p", "-an", tmp)
-	}
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if err := transcodeH264(ctx, transcodeSpec{src: it.src, dst: tmp, fps: 24, maxWidth: 640, qp: 27, crf: 27}); err != nil {
 		os.Remove(tmp)
-		fmt.Fprintf(os.Stderr, "ryogami: preview failed for %s: %v: %s\n", it.name, err, strings.TrimSpace(string(out)))
+		fmt.Fprintf(os.Stderr, "ryogami: preview failed for %s: %v\n", it.name, err)
 		return ""
 	}
 	if os.Rename(tmp, prev) != nil {

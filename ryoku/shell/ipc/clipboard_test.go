@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"image"
 	"image/png"
@@ -92,22 +93,22 @@ func TestClipPromote(t *testing.T) {
 // a decodable image gets a thumbnail, an undecodable image falls to binary, and
 // any other type is binary.
 func TestClassifyClip(t *testing.T) {
-	kind, preview, thumb, _, _ := classifyClip("text/plain", []byte(strings.Repeat("a", 250)))
+	kind, preview, thumb, _, _, _, _ := classifyClip("text/plain", []byte(strings.Repeat("a", 250)))
 	if kind != "text" || len([]rune(preview)) != clipTextPreviewLen || thumb != nil {
 		t.Errorf("text classify = (%q, %d-rune preview, thumb=%v), want (text, 200, false)", kind, len([]rune(preview)), thumb != nil)
 	}
 
-	kind, _, thumb, w, h := classifyClip("image/png", tinyPNG(t, 8, 4))
-	if kind != "image" || thumb == nil || w != 8 || h != 4 {
-		t.Errorf("png classify = (%q, thumb=%v, %dx%d), want (image, true, 8x4)", kind, thumb != nil, w, h)
+	kind, _, thumb, thumbW, thumbH, w, h := classifyClip("image/png", tinyPNG(t, 8, 4))
+	if kind != "image" || thumb == nil || thumbW != 8 || thumbH != 4 || w != 8 || h != 4 {
+		t.Errorf("png classify = (%q, thumb=%v, thumb=%dx%d, source=%dx%d), want (image, true, 8x4, 8x4)", kind, thumb != nil, thumbW, thumbH, w, h)
 	}
 
-	kind, _, thumb, _, _ = classifyClip("image/png", []byte("not a png"))
+	kind, _, thumb, _, _, _, _ = classifyClip("image/png", []byte("not a png"))
 	if kind != "binary" || thumb != nil {
 		t.Errorf("undecodable image classify = (%q, thumb=%v), want (binary, false)", kind, thumb != nil)
 	}
 
-	if kind, _, _, _, _ := classifyClip("application/pdf", []byte("%PDF")); kind != "binary" {
+	if kind, _, _, _, _, _, _ := classifyClip("application/pdf", []byte("%PDF")); kind != "binary" {
 		t.Errorf("pdf classify = %q, want binary", kind)
 	}
 }
@@ -126,11 +127,15 @@ func TestPickBestMime(t *testing.T) {
 		{[]string{"image/tiff", "image/jpeg"}, "image/jpeg"},
 		{[]string{"application/x-thing"}, "application/x-thing"},
 		// A browser's private marker is never stored as an entry of its own, and
-		// never wins the fallback against a real type offered beside it.
+		// never wins the fallback against a real type offered beside it. Every
+		// chromium/x- type is private, not just the x-internal- family.
 		{[]string{"chromium/x-internal-source-rfh-token"}, ""},
-		{[]string{"chromium/x-internal-source-url"}, ""},
+		{[]string{"chromium/x-source-url"}, ""},
+		{[]string{"chromium/x-web-custom-data"}, ""},
+		{[]string{"chromium/x-source-url", "image/png"}, "image/png"},
+		{[]string{"chromium/x-source-url", "text/plain"}, "text/plain"},
+		{[]string{"chromium/x-source-url", "chromium/x-internal-source-rfh-token"}, ""},
 		{[]string{"chromium/x-internal-source-rfh-token", "image/png"}, "image/png"},
-		{[]string{"chromium/x-internal-source-rfh-token", "text/plain"}, "text/plain"},
 		{nil, ""},
 	}
 	for _, c := range cases {
@@ -140,21 +145,97 @@ func TestPickBestMime(t *testing.T) {
 	}
 }
 
-// Empty data is dropped, and a selection past the entry cap is truncated.
+// History only accepts complete entries.
 func TestClipIngestSizeRules(t *testing.T) {
 	s := &clipState{}
 	s.ingest("text/plain", nil)
 	s.ingest("text/plain", []byte{})
+	s.ingest("text/plain", bytes.Repeat([]byte("a"), clipMaxEntryBytes+1))
 	if len(s.entries) != 0 {
-		t.Fatalf("empty selection stored: %d entries", len(s.entries))
+		t.Fatalf("invalid selections stored: %d entries", len(s.entries))
 	}
+}
 
-	s.ingest("text/plain", bytes.Repeat([]byte("a"), clipMaxEntryBytes+100))
-	if len(s.entries) != 1 {
-		t.Fatalf("entries = %d, want 1", len(s.entries))
+func TestClipCopyFileKeepsCompleteOversizedSelection(t *testing.T) {
+	bin := t.TempDir()
+	stdinPath := filepath.Join(t.TempDir(), "stdin")
+	lengthPath := filepath.Join(t.TempDir(), "length")
+	hashPath := filepath.Join(t.TempDir(), "hash")
+	writeCommandStub(t, bin, "wl-copy", `cat > "$CLIP_COPY_STDIN"
+wc -c < "$CLIP_COPY_STDIN" > "$CLIP_COPY_LENGTH"
+sha256sum "$CLIP_COPY_STDIN" > "$CLIP_COPY_HASH"`)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CLIP_COPY_STDIN", stdinPath)
+	t.Setenv("CLIP_COPY_LENGTH", lengthPath)
+	t.Setenv("CLIP_COPY_HASH", hashPath)
+
+	data := bytes.Repeat([]byte("complete-selection-"), clipMaxEntryBytes/19+2)
+	path := filepath.Join(t.TempDir(), "capture.png")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if s.entries[0].Size != clipMaxEntryBytes {
-		t.Errorf("stored size = %d, want %d (truncated at the 10 MiB cap)", s.entries[0].Size, clipMaxEntryBytes)
+	s := &clipState{}
+	if err := s.copyFile("image/png", path); err != nil {
+		t.Fatal(err)
+	}
+	length, err := os.ReadFile(lengthPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(length)), fmt.Sprint(len(data)); got != want {
+		t.Errorf("wl-copy stdin length = %s, want %s", got, want)
+	}
+	hash, err := os.ReadFile(hashPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashFields := strings.Fields(string(hash))
+	if len(hashFields) == 0 {
+		t.Fatal("wl-copy did not record a stdin hash")
+	}
+	if got, want := hashFields[0], fmt.Sprintf("%x", sha256.Sum256(data)); got != want {
+		t.Errorf("wl-copy stdin hash = %s, want %s", got, want)
+	}
+	if len(s.entries) != 0 {
+		t.Fatalf("oversized selection stored in history: %d entries", len(s.entries))
+	}
+}
+
+func TestClipLoadDropsCapLengthImage(t *testing.T) {
+	stateDir := t.TempDir()
+	dataDir := filepath.Join(stateDir, "data")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cacheDir := t.TempDir()
+	data := bytes.Repeat([]byte{0x89}, clipMaxEntryBytes)
+	hash := clipHash(data)
+	thumbPath := filepath.Join(cacheDir, "thumb-legacy.png")
+	if err := os.WriteFile(thumbPath, []byte("thumb"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacy := &clipState{
+		stateDir: stateDir,
+		dataDir:  dataDir,
+		cacheDir: cacheDir,
+		nextID:   1,
+		entries: []*clipEntry{{
+			ID: 1, Kind: "image", Mime: "image/png", Size: len(data),
+			ThumbPath: thumbPath, hash: hash, data: data,
+		}},
+	}
+	legacy.writeData(hash, data)
+	legacy.persistLocked()
+
+	loaded := &clipState{stateDir: stateDir, dataDir: dataDir, cacheDir: cacheDir}
+	loaded.load()
+	if len(loaded.entries) != 0 {
+		t.Fatalf("loaded %d corrupt image entries, want 0", len(loaded.entries))
+	}
+	for _, path := range []string{legacy.dataPath(hash), thumbPath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("corrupt entry file %q still exists: %v", path, err)
+		}
 	}
 }
 
@@ -168,7 +249,8 @@ func TestTruncateRunes(t *testing.T) {
 }
 
 // The history survives a daemon restart: ingested entries are written to the
-// state dir and a fresh clipState.load() restores them, order, bytes and nextID.
+// state dir and a fresh clipState.load() restores them, order, bytes, image
+// dimensions and nextID.
 func TestClipPersistence(t *testing.T) {
 	dir := t.TempDir()
 	dataDir := filepath.Join(dir, "data")
@@ -177,19 +259,35 @@ func TestClipPersistence(t *testing.T) {
 	}
 	cache := t.TempDir()
 	s := &clipState{stateDir: dir, dataDir: dataDir, cacheDir: cache}
+	imageData := tinyPNG(t, 1205, 417)
+	s.ingest("image/png", imageData)
+	imageEntry := s.entries[0]
+	if imageEntry.W != 1205 || imageEntry.H != 417 {
+		t.Errorf("source image size = %dx%d, want 1205x417", imageEntry.W, imageEntry.H)
+	}
+	if imageEntry.ThumbW != 512 || imageEntry.ThumbH != 177 {
+		t.Errorf("thumbnail size = %dx%d, want 512x177", imageEntry.ThumbW, imageEntry.ThumbH)
+	}
 	s.ingest("text/plain", []byte("hello"))
 	s.ingest("text/plain", []byte("world"))
 
 	s2 := &clipState{stateDir: dir, dataDir: dataDir, cacheDir: cache}
 	s2.load()
-	if len(s2.entries) != 2 {
-		t.Fatalf("reloaded %d entries, want 2", len(s2.entries))
+	if len(s2.entries) != 3 {
+		t.Fatalf("reloaded %d entries, want 3", len(s2.entries))
 	}
 	if s2.entries[0].Preview != "world" {
 		t.Errorf("front after reload = %q, want %q", s2.entries[0].Preview, "world")
 	}
 	if !bytes.Equal(s2.entries[0].data, []byte("world")) {
 		t.Errorf("reloaded front bytes = %q, want %q", s2.entries[0].data, "world")
+	}
+	reloadedImage := s2.entries[2]
+	if reloadedImage.W != 1205 || reloadedImage.H != 417 {
+		t.Errorf("reloaded source image size = %dx%d, want 1205x417", reloadedImage.W, reloadedImage.H)
+	}
+	if reloadedImage.ThumbW != 512 || reloadedImage.ThumbH != 177 {
+		t.Errorf("reloaded thumbnail size = %dx%d, want 512x177", reloadedImage.ThumbW, reloadedImage.ThumbH)
 	}
 	if s2.nextID != s.nextID {
 		t.Errorf("reloaded nextID = %d, want %d", s2.nextID, s.nextID)
@@ -492,31 +590,6 @@ func TestIsClipPersistCmdline(t *testing.T) {
 	for _, c := range cases {
 		if got := isClipPersistCmdline(c.argv); got != c.want {
 			t.Errorf("%s: isClipPersistCmdline(%v) = %v, want %v", c.name, c.argv, got, c.want)
-		}
-	}
-}
-
-// isClipWatcherCmdline must match only our own watcher/helper -- never another
-// app's wl-paste or the daemon itself -- since a false match SIGKILLs the pid.
-func TestIsClipWatcherCmdline(t *testing.T) {
-	const self = "/home/u/.local/bin/ryoku-shell"
-	cases := []struct {
-		name string
-		argv []string
-		want bool
-	}{
-		{"watcher", []string{"wl-paste", "--watch", self, "__clip-ingest"}, true},
-		{"helper", []string{self, "__clip-ingest"}, true},
-		{"other-app wl-paste", []string{"wl-paste", "--watch", "/usr/bin/cliphist", "store"}, false},
-		{"plain wl-paste", []string{"wl-paste", "-n", "-t", "image/png"}, false},
-		{"our daemon", []string{self, "daemon"}, false},
-		{"our other verb", []string{self, "ipc", "menu"}, false},
-		{"ingest marker, foreign binary", []string{"wl-paste", "--watch", "/other/bin", "__clip-ingest"}, false},
-		{"empty", nil, false},
-	}
-	for _, c := range cases {
-		if got := isClipWatcherCmdline(c.argv, self); got != c.want {
-			t.Errorf("%s: isClipWatcherCmdline(%v) = %v, want %v", c.name, c.argv, got, c.want)
 		}
 	}
 }

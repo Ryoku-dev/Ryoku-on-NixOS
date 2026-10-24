@@ -66,3 +66,58 @@ func TestFoldOverviewSkippedWhenNotWanted(t *testing.T) {
 		t.Error("the session still tracks overview state even when the frame is skipped")
 	}
 }
+
+func TestWindowEventCarriesProcessID(t *testing.T) {
+	s := &session{}
+	frames := foldEvents(t, s, allKinds, map[string]any{
+		"WindowOpenedOrChanged": map[string]any{
+			"window": map[string]any{
+				"id":    7,
+				"pid":   4242,
+				"title": "Terminal",
+			},
+		},
+	})
+	if len(frames) == 0 || len(frames[0].Windows) != 1 || frames[0].Windows[0].Pid != 4242 {
+		t.Fatalf("window frames = %+v, want pid 4242", frames)
+	}
+}
+
+// Floating geometry is the persistence source after a native move/resize. niri
+// reports it output-local, while wm.Window is globally logical, so the output
+// origin is added and a layout delta must publish a fresh window frame.
+func TestFloatingLayoutChangePublishesGlobalGeometry(t *testing.T) {
+	pos := [2]float64{10, 20}
+	s := &session{
+		outputs:    []wm.Output{{Name: "DP-2", X: 1600, Y: -40}},
+		workspaces: []niriWorkspace{{ID: 3, Output: "DP-2"}},
+		windows: []niriWindow{{
+			ID:          7,
+			WorkspaceID: 3,
+			IsFloating:  true,
+			Layout: niriWindowLayout{
+				TileSize:               [2]float64{400, 300},
+				WindowSize:             [2]int{392, 292},
+				TilePosInWorkspaceView: &pos,
+			},
+		}},
+	}
+
+	frames := foldEvents(t, s, allKinds, map[string]any{
+		"WindowLayoutsChanged": map[string]any{
+			"changes": []any{[]any{7, map[string]any{
+				"tile_size":                  []float64{701.6, 521.6},
+				"window_size":                []int{694, 514},
+				"tile_pos_in_workspace_view": []float64{100.4, 180.6},
+				"window_offset_in_tile":      []float64{4, 4},
+			}}},
+		},
+	})
+	if len(frames) != 1 || frames[0].Kind != wm.FrameWindows || len(frames[0].Windows) != 1 {
+		t.Fatalf("layout delta frames = %+v, want one window frame", frames)
+	}
+	got := frames[0].Windows[0]
+	if got.X != 1704 || got.Y != 145 || got.Width != 694 || got.Height != 514 {
+		t.Errorf("floating client geometry = (%d,%d %dx%d), want (1704,145 694x514)", got.X, got.Y, got.Width, got.Height)
+	}
+}

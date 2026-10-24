@@ -1,12 +1,14 @@
 package doctor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
 
 	i18n "ryoku-i18n"
@@ -46,12 +48,47 @@ term_foreground_bright: EAE2D5
 term_background_bright: 141210
 `
 
-const (
-	limineESPConf   = "/boot/limine.conf"
-	limineShadow    = "/boot/limine/limine.conf"
-	limineLegacyEFI = "/boot/EFI/limine/limine.efi"
-	limineToolEFI   = "/boot/EFI/limine/limine_x64.efi"
+var (
+	limineESPConf      = "/boot/limine.conf"
+	limineShadow       = "/boot/limine/limine.conf"
+	limineLegacyEFI    = "/boot/EFI/limine/limine.efi"
+	limineToolEFI      = "/boot/EFI/limine/limine_x64.efi"
+	limineDefaultsPath = "/etc/default/limine"
+
+	liminePkgInstalled = doctorPackageInstalled
 )
+
+var limineManagedBoot = func() bool {
+	if dnfHost() {
+		return false
+	}
+	if hasPacman() {
+		return sys.Has("limine-entry-tool") || sys.Has("limine-mkinitcpio")
+	}
+	manager, err := doctorPackageManager()
+	return err == nil && manager == host.XBPS && doctorPackageInstalled("limine")
+}
+
+func unmanagedBootResult() recResult {
+	if dnfHost() {
+		return okRes(i18n.T("Fedora uses GRUB; this boot-menu check does not apply"))
+	}
+	return okRes(i18n.T("Ryoku's Limine tooling does not manage this boot"))
+}
+
+func limineEFIPath() string {
+	if xbpsHost() {
+		return "/boot/EFI/ryoku/BOOTX64.EFI"
+	}
+	return limineToolEFI
+}
+
+func limineEFILoader() string {
+	if xbpsHost() {
+		return `\EFI\ryoku\BOOTX64.EFI`
+	}
+	return `\EFI\limine\limine_x64.efi`
+}
 
 type limineLayoutOutcome int
 
@@ -65,16 +102,20 @@ const (
 // limineLayoutState: the slice of /boot reconcileLimineLayout looks at,
 // lifted to a value so planLimineLayout stays unit-testable.
 type limineLayoutState struct {
-	limineInstalled bool
-	espConfExists   bool
-	espConf         string // "" when absent or unreadable
-	espConfReadable bool
-	shadowExists    bool
-	shadowConf      string
-	shadowReadable  bool
-	legacyEFIExists bool
-	toolEFIExists   bool
-	installerTool   bool // limine-install on PATH
+	limineInstalled       bool
+	espConfExists         bool
+	espConf               string // "" when absent or unreadable
+	espConfReadable       bool
+	shadowExists          bool
+	shadowConf            string
+	shadowReadable        bool
+	legacyEFIExists       bool
+	legacyEFIInaccessible bool
+	toolEFIExists         bool
+	toolEFIInaccessible   bool
+	permissionDenied      bool
+	otherInspectionError  bool
+	installerTool         bool // limine-install on PATH
 }
 
 // planLimineLayout picks the branch from observed state. pure, no IO.
@@ -82,12 +123,12 @@ func planLimineLayout(s limineLayoutState) (limineLayoutOutcome, []string) {
 	if !s.limineInstalled {
 		return limineLayoutSkip, nil
 	}
+	if (s.espConfExists && !s.espConfReadable) || (s.shadowExists && !s.shadowReadable) || s.legacyEFIInaccessible || s.toolEFIInaccessible {
+		return limineLayoutUnreadable, nil
+	}
 	if !s.espConfExists && !s.shadowExists {
 		// not a limine-booted box (or the ESP isn't at /boot); nothing to own.
 		return limineLayoutSkip, nil
-	}
-	if (s.espConfExists && !s.espConfReadable) || (s.shadowExists && !s.shadowReadable) {
-		return limineLayoutUnreadable, nil
 	}
 	var actions []string
 	if s.shadowExists {
@@ -109,22 +150,73 @@ func planLimineLayout(s limineLayoutState) (limineLayoutOutcome, []string) {
 	return limineLayoutMigrate, actions
 }
 
+// probePresence checks whether path exists, distinguishing genuine absence (ENOENT)
+// from access or I/O errors.
+func probePresence(p string) (bool, error) {
+	_, err := os.Stat(p)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
+
+var liminePathProbe = probePresence
+
+// probeFile reads a config path, distinguishing genuine absence (ENOENT) from
+// all other filesystem failures (permission errors, I/O errors, etc.). Only
+// genuine ENOENT reports absence; any other failure marks the file as existing
+// but unreadable so callers avoid false missing-file conclusions.
+func probeFile(path string) (content string, exists, readable bool) {
+	content, exists, readable, _ = probeFileError(path)
+	return content, exists, readable
+}
+
+func probeFileError(path string) (content string, exists, readable bool, err error) {
+	b, err := os.ReadFile(path)
+	if err == nil {
+		return string(b), true, true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, false, nil
+	}
+	return "", true, false, err
+}
+
+func (s *limineLayoutState) recordInspectionError(err error) {
+	if err == nil {
+		return
+	}
+	if errors.Is(err, os.ErrPermission) {
+		s.permissionDenied = true
+		return
+	}
+	s.otherInspectionError = true
+}
+
 func gatherLimineLayoutState() limineLayoutState {
 	s := limineLayoutState{
-		limineInstalled: sys.PkgInstalled("limine"),
-		legacyEFIExists: sys.Exists(limineLegacyEFI),
-		toolEFIExists:   sys.Exists(limineToolEFI),
+		limineInstalled: liminePkgInstalled("limine"),
 		installerTool:   sys.Has("limine-install"),
 	}
-	if b, err := os.ReadFile(limineESPConf); err == nil {
-		s.espConfExists, s.espConfReadable, s.espConf = true, true, string(b)
-	} else if sys.Exists(limineESPConf) {
-		s.espConfExists = true
+	var err error
+	s.espConf, s.espConfExists, s.espConfReadable, err = probeFileError(limineESPConf)
+	s.recordInspectionError(err)
+	s.shadowConf, s.shadowExists, s.shadowReadable, err = probeFileError(limineShadow)
+	s.recordInspectionError(err)
+	if exists, probeErr := liminePathProbe(limineLegacyEFI); probeErr != nil {
+		s.legacyEFIInaccessible = true
+		s.recordInspectionError(probeErr)
+	} else {
+		s.legacyEFIExists = exists
 	}
-	if b, err := os.ReadFile(limineShadow); err == nil {
-		s.shadowExists, s.shadowReadable, s.shadowConf = true, true, string(b)
-	} else if sys.Exists(limineShadow) {
-		s.shadowExists = true
+	if exists, probeErr := liminePathProbe(limineEFIPath()); probeErr != nil {
+		s.toolEFIInaccessible = true
+		s.recordInspectionError(probeErr)
+	} else {
+		s.toolEFIExists = exists
 	}
 	return s
 }
@@ -134,14 +226,28 @@ func reconcileLimineLayout(checkOnly bool) recResult {
 		return okRes("bootloader layout is managed declaratively on NixOS")
 	}
 
+	if !limineManagedBoot() {
+		return unmanagedBootResult()
+	}
 	st := gatherLimineLayoutState()
 	outcome, actions := planLimineLayout(st)
 	switch outcome {
 	case limineLayoutSkip:
 		return okRes(i18n.T("not a limine-managed boot on this box"))
 	case limineLayoutUnreadable:
-		return warnRes(i18n.T("cannot read the limine config under /boot to verify the boot menu layout")).
-			withFix("sudo ryoku doctor")
+		var detail string
+		confUnreadable := (st.espConfExists && !st.espConfReadable) || (st.shadowExists && !st.shadowReadable)
+		efiInaccessible := st.legacyEFIInaccessible || st.toolEFIInaccessible
+		switch {
+		case confUnreadable && efiInaccessible:
+			detail = i18n.T("cannot read limine config or inspect bootloader binaries under /boot to verify the boot menu layout")
+		case efiInaccessible:
+			detail = i18n.T("cannot inspect limine bootloader binaries under /boot to verify the boot menu layout")
+		default:
+			detail = i18n.T("cannot read the limine config under /boot to verify the boot menu layout")
+		}
+		return inspectionRes(st.permissionDenied && !st.otherInspectionError, detail).
+			withFix("sudo ryoku doctor --check")
 	case limineLayoutOK:
 		return okRes(i18n.T("boot menu lives in /boot/limine.conf; nothing shadows it"))
 	}
@@ -206,7 +312,7 @@ func migrateLimineLayout(st limineLayoutState) recResult {
 			if !hasRyokuBootEntry(efibootmgrOutput()) {
 				if err := registerRyokuBootEntry(); err != nil {
 					return warnRes(i18n.T("boot menu migrated (%s), but could not register a boot entry for %s (%v); left the current entry in place so the machine still boots"), strings.Join(done, "; "), limineToolEFI, err).
-						withFix(i18n.T("install limine-mkinitcpio-hook, then sudo ryoku doctor"))
+						withFix(i18n.T("install limine-mkinitcpio-hook, then ryoku doctor"))
 				}
 			}
 		}
@@ -522,9 +628,12 @@ func efibootmgrOutput() string {
 func hasRyokuBootEntry(efibootmgr string) bool {
 	for _, line := range strings.Split(efibootmgr, "\n") {
 		if len(line) < 9 || !strings.HasPrefix(line, "Boot") || !isHex4(line[4:8]) || line[8] != '*' {
-			continue // only active boot entries
+			continue
 		}
-		if strings.Contains(line, `\limine_x64.efi`) || limineBootLabel(line) == "Limine" {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, `\limine_x64.efi`) ||
+			strings.Contains(lower, `\efi\ryoku\bootx64.efi`) ||
+			limineBootLabel(line) == "Limine" {
 			return true
 		}
 	}
@@ -579,15 +688,14 @@ func espDiskPart() (disk, part string, ok bool) {
 	return parseEspDiskPart(src, string(pk), partition)
 }
 
-// registerRyokuBootEntry writes the UEFI boot entry the installer writes: a
-// "Ryoku" entry loading EFI/limine/limine_x64.efi on the ESP's disk/partition.
+// registerRyokuBootEntry writes the UEFI boot entry the installer writes.
 func registerRyokuBootEntry() error {
 	disk, part, ok := espDiskPart()
 	if !ok {
 		return fmt.Errorf(i18n.T("could not determine the ESP disk and partition"))
 	}
 	return sys.Run("sudo", "efibootmgr", "--create", "--disk", disk, "--part", part,
-		"--label", "Ryoku", "--loader", `\EFI\limine\limine_x64.efi`, "--unicode")
+		"--label", "Ryoku", "--loader", limineEFILoader(), "--unicode")
 }
 
 // ---- reconciler: limine UEFI boot entry --------------------------------------
@@ -604,8 +712,17 @@ func reconcileLimineBootEntry(checkOnly bool) recResult {
 	if sys.NixBackend() {
 		return okRes("firmware boot-entry management is outside Ryoku Doctor on NixOS")
 	}
-
-	if !sys.PkgInstalled("limine") || !sys.Exists(limineToolEFI) {
+	if !limineManagedBoot() {
+		return unmanagedBootResult()
+	}
+	if !liminePkgInstalled("limine") {
+		return okRes(i18n.T("not a limine-managed boot on this box"))
+	}
+	if exists, err := liminePathProbe(limineEFIPath()); err != nil {
+		return inspectionRes(errors.Is(err, os.ErrPermission),
+			i18n.T("cannot inspect %s to verify the UEFI boot entry"), limineEFIPath()).
+			withFix("sudo ryoku doctor --check")
+	} else if !exists {
 		return okRes(i18n.T("not a limine-managed boot on this box"))
 	}
 	if !sys.Has("efibootmgr") {
@@ -621,7 +738,7 @@ func reconcileLimineBootEntry(checkOnly bool) recResult {
 	if len(staleLimineBootNums(out)) > 0 {
 		return okRes(i18n.T("legacy limine boot entry present; the layout migration owns it"))
 	}
-	fix := `sudo efibootmgr --create --disk <ESP disk> --part <ESP part> --label Ryoku --loader '\EFI\limine\limine_x64.efi' --unicode`
+	fix := fmt.Sprintf(`sudo efibootmgr --create --disk <ESP disk> --part <ESP part> --label Ryoku --loader '%s' --unicode`, limineEFILoader())
 	if checkOnly {
 		return wouldRes(i18n.T("no UEFI boot entry loads the Ryoku bootloader; the boot option is missing from firmware")).
 			withFix(fix)
@@ -681,31 +798,54 @@ func reconcileLimineUKITree(checkOnly bool) recResult {
 		return okRes("Limine UKI management is not applicable on NixOS")
 	}
 
-	if !sys.PkgInstalled("limine") {
+	if xbpsHost() {
+		return okRes(i18n.T("Void boots a kernel plus a dracut initramfs image; the UKI boot-tree check does not apply"))
+	}
+	if !limineManagedBoot() {
+		return unmanagedBootResult()
+	}
+	if !liminePkgInstalled("limine") {
 		return okRes(i18n.T("not a limine-managed boot on this box"))
 	}
-	defaults := readFileSafe("/etc/default/limine")
+	defaults, defaultsExist, defaultsReadable := probeFile(limineDefaultsPath)
+	if !defaultsExist {
+		return okRes(i18n.T("limine box without the UKI design (no ENABLE_UKI); nothing to converge"))
+	}
+	if !defaultsReadable {
+		return warnRes(i18n.T("cannot read %s to verify the UKI boot tree configuration"), limineDefaultsPath).
+			withFix("sudo ryoku doctor --check")
+	}
 	if !strings.Contains(defaults, "ENABLE_UKI=yes") {
 		return okRes(i18n.T("limine box without the UKI design (no ENABLE_UKI); nothing to converge"))
 	}
-	conf := readFileSafe(limineESPConf)
-	if conf == "" {
-		return okRes(i18n.T("no readable %s; the layout reconciler owns that"), limineESPConf)
+	b, err := os.ReadFile(limineESPConf)
+	if err != nil {
+		return noteRes(i18n.T("no readable %s; the layout reconciler owns that"), limineESPConf)
 	}
-	hookMissing := !sys.PkgInstalled("limine-mkinitcpio-hook")
+	conf := string(b)
+	// limine-mkinitcpio-hook, limine-dracut-support and the plain
+	// limine-entry-tool CachyOS ships are three builds of one tool that
+	// conflict with each other, and pacman -Q resolves the shared name to
+	// whichever the box carries. A box booting through another build already
+	// has the tool; installing the hook over it can only fail, on every run.
+	toolMissing := !liminePkgInstalled("limine-entry-tool")
 	_, hasFlat := limineDropFlat(conf)
-	if !hookMissing && limineHasUKITree(conf) && !hasFlat {
-		return okRes(i18n.T("limine-mkinitcpio-hook owns the boot menu (UKI tree with kernel sub-entries)"))
+	if !toolMissing && limineHasUKITree(conf) && !hasFlat {
+		return okRes(i18n.T("limine-entry-tool owns the boot menu (UKI tree with kernel sub-entries)"))
 	}
 	if checkOnly {
+		fix := i18n.T("ryoku doctor rebuilds the menu with limine-update and promotes it to the UKI tree")
+		if toolMissing {
+			fix = i18n.T("ryoku doctor installs limine-mkinitcpio-hook and promotes the menu to the /+Ryoku UKI tree")
+		}
 		return wouldRes(i18n.T("the boot menu is still the flat install placeholder, so limine-snapper-sync cannot add the Snapshots submenu (rollbacks never appear at boot)")).
-			withFix(i18n.T("ryoku doctor installs limine-mkinitcpio-hook and promotes the menu to the /+Ryoku UKI tree"))
+			withFix(fix)
 	}
 	var done []string
-	if hookMissing {
+	if toolMissing {
 		if err := sys.Run("ryoku-pkg-aur-add", "limine-mkinitcpio-hook"); err != nil {
 			return failRes(i18n.T("could not install limine-mkinitcpio-hook: %v"), err).
-				withFix(i18n.T("ryoku-pkg-aur-add limine-mkinitcpio-hook, then sudo ryoku doctor"))
+				withFix(i18n.T("ryoku-pkg-aur-add limine-mkinitcpio-hook, then ryoku doctor"))
 		}
 		done = append(done, i18n.T("installed limine-mkinitcpio-hook"))
 	}
@@ -714,7 +854,7 @@ func reconcileLimineUKITree(checkOnly bool) recResult {
 	if !limineHasUKITree(readFileSafe(limineESPConf)) && sys.Has("limine-update") {
 		if err := sys.Sudo("limine-update"); err != nil {
 			return failRes(i18n.T("limine-update could not build the UKI boot tree: %v"), err).
-				withFix(i18n.T("sudo limine-update, then sudo ryoku doctor"))
+				withFix(i18n.T("sudo limine-update, then ryoku doctor"))
 		}
 		done = append(done, i18n.T("rebuilt the boot menu with limine-update"))
 	}
@@ -757,12 +897,10 @@ func limineHasUKITree(conf string) bool {
 }
 
 // limineDropFlat promotes the menu past the install placeholder, mirroring the
-// installer's finalize. with a standalone "/+" tree the flat "/Ryoku Linux..."
+// installer's finalize. With a standalone "/+" tree the flat "/Ryoku Linux..."
 // entries (entry line plus indented options) are clutter and go; in the
-// adopted layout the placeholder IS the tree root, so entries stay untouched.
-// either way default_entry: 1 points at a directory that can't autoboot and
-// moves to 2 (the first UKI inside). pure, so it is unit-testable;
-// changed=false when there is nothing to do.
+// adopted layout the placeholder is the tree root, so entries stay untouched.
+// A nested kernel is addressed by path; a flat menu keeps entry 1.
 func limineDropFlat(conf string) (string, bool) {
 	dropFlat := false
 	for _, l := range strings.Split(conf, "\n") {
@@ -782,14 +920,26 @@ func limineDropFlat(conf string) (string, bool) {
 			continue
 		}
 		skip = false
-		if l == "default_entry: 1" {
-			out = append(out, "default_entry: 2")
-			changed = true
-			continue
-		}
 		out = append(out, l)
 	}
-	return strings.Join(out, "\n"), changed
+	promoted := strings.Join(out, "\n")
+	// Entry 1 is the directory the placeholder left behind and cannot autoboot;
+	// point it at the kernel inside by path. Any other value is the autoboot
+	// reconciler's business.
+	if strings.TrimSpace(limineDefaultEntry(promoted)) == "1" {
+		if path := limineDefaultKernelPath(promoted); path != "" {
+			lines := strings.Split(promoted, "\n")
+			for i, line := range lines {
+				if strings.HasPrefix(strings.TrimSpace(line), "default_entry:") {
+					lines[i] = "default_entry: " + path
+					break
+				}
+			}
+			promoted = strings.Join(lines, "\n")
+			changed = true
+		}
+	}
+	return promoted, changed
 }
 
 func reconcileLimineOSName(checkOnly bool) recResult {
@@ -797,18 +947,56 @@ func reconcileLimineOSName(checkOnly bool) recResult {
 		return okRes("Limine snapshot naming is not applicable on NixOS")
 	}
 
-	const path = "/etc/default/limine"
-	cur := readFileSafe(path)
-	if cur == "" {
-		return okRes(i18n.T("no /etc/default/limine (limine snapshot sync not in use)"))
+	if !limineManagedBoot() {
+		return unmanagedBootResult()
+	}
+	path := limineDefaultsPath
+	if !doctorPackageInstalled("limine-snapper-sync") {
+		return okRes(i18n.T("limine snapshot sync is not installed"))
+	}
+	cur, exists, readable := probeFile(path)
+	if exists && !readable {
+		return warnRes(i18n.T("cannot read %s to verify snapshot sync OS name"), path).
+			withFix("sudo ryoku doctor --check")
+	}
+	espConf, espExists, espReadable := probeFile(limineESPConf)
+	if espExists && !espReadable {
+		return noteRes(i18n.T("no readable %s; the layout reconciler owns that"), limineESPConf)
+	}
+	want := limineEntryName(espConf)
+	if want == "" {
+		return okRes(i18n.T("no Ryoku boot entry found to match TARGET_OS_NAME against"))
+	}
+	if !exists {
+		if !xbpsHost() {
+			return okRes(i18n.T("no /etc/default/limine (limine snapshot sync not in use)"))
+		}
+		if checkOnly {
+			return wouldRes(i18n.T("%s is missing, so limine-snapper-sync cannot attach snapshots under %q"), path, want).
+				withFix(i18n.T("ryoku doctor creates the limine snapshot-sync defaults"))
+		}
+		sourceRaw, sourceErr := os.ReadFile("/usr/share/ryoku/boot/default.conf")
+		if sourceErr != nil {
+			return failRes(i18n.T("could not read the shipped limine snapshot-sync defaults: %v"), sourceErr).
+				withFix(doctorInstallAdvice("ryoku-desktop"))
+		}
+		defaults := limineSnapshotDefaults(string(sourceRaw), want)
+		if defaults == "" {
+			return failRes(i18n.T("the shipped limine snapshot-sync defaults are incomplete")).
+				withFix(doctorInstallAdvice("ryoku-desktop"))
+		}
+		if err := writeRootFile(path, defaults, "0644"); err != nil {
+			return failRes(i18n.T("could not create %s: %v"), path, err)
+		}
+		_ = runSystemService("reset-failed", "snapper-cleanup.service")
+		return fixedRes(i18n.T("created %s with TARGET_OS_NAME %q so snapshots sync"), path, want)
 	}
 	got, ok := limineOSNameValue(cur)
 	if !ok {
-		return okRes(i18n.T("limine config sets no TARGET_OS_NAME"))
-	}
-	want := limineEntryName(readFileSafe("/boot/limine.conf"))
-	if want == "" {
-		return okRes(i18n.T("no Ryoku boot entry found to match TARGET_OS_NAME against"))
+		if !xbpsHost() {
+			return okRes(i18n.T("limine config sets no TARGET_OS_NAME"))
+		}
+		got = ""
 	}
 	if got == want {
 		return okRes(i18n.T("limine snapshot entries sync under %q"), want)
@@ -820,9 +1008,7 @@ func reconcileLimineOSName(checkOnly bool) recResult {
 	if err := writeRootFile(path, setLimineOSName(cur, want), "0644"); err != nil {
 		return failRes(i18n.T("could not update %s: %v"), path, err)
 	}
-	// the unit is likely still sitting failed from earlier runs; clear it so the
-	// failed-services check reads clean this same pass. best-effort.
-	_ = exec.Command("sudo", "-n", "systemctl", "reset-failed", "snapper-cleanup.service").Run()
+	_ = runSystemService("reset-failed", "snapper-cleanup.service")
 	return fixedRes(i18n.T("set TARGET_OS_NAME to %q to match the boot entry so snapshots sync"), want)
 }
 
@@ -869,6 +1055,32 @@ func limineOSNameValue(conf string) (string, bool) {
 	return "", false
 }
 
+var limineSnapshotKeys = map[string]bool{
+	"TARGET_OS_NAME":         true,
+	"ESP_PATH":               true,
+	"MAX_SNAPSHOT_ENTRIES":   true,
+	"SNAPSHOT_FORMAT_CHOICE": true,
+}
+
+func limineSnapshotDefaults(source, name string) string {
+	var lines []string
+	for _, line := range strings.Split(source, "\n") {
+		trimmed := strings.TrimSpace(line)
+		key, _, ok := strings.Cut(trimmed, "=")
+		if !ok || !limineSnapshotKeys[key] {
+			continue
+		}
+		if key == "TARGET_OS_NAME" {
+			line = fmt.Sprintf("TARGET_OS_NAME=%q", name)
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) != len(limineSnapshotKeys) {
+		return ""
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
 // setLimineOSName rewrites the TARGET_OS_NAME assignment to name, every other
 // line preserved verbatim.
 func setLimineOSName(conf, name string) string {
@@ -880,9 +1092,13 @@ func setLimineOSName(conf, name string) string {
 		}
 		if strings.IndexByte(t, '=') >= 0 {
 			lines[i] = fmt.Sprintf("TARGET_OS_NAME=%q", name)
+			return strings.Join(lines, "\n")
 		}
 	}
-	return strings.Join(lines, "\n")
+	if conf != "" && !strings.HasSuffix(conf, "\n") {
+		conf += "\n"
+	}
+	return conf + fmt.Sprintf("TARGET_OS_NAME=%q\n", name)
 }
 
 // ---- reconciler: limine autoboot (the countdown must boot, not loop) ----------
@@ -1055,6 +1271,15 @@ func limineIsNumeric(s string) bool {
 	return true
 }
 
+func limineRemembersLastEntry(conf string) bool {
+	for _, line := range strings.Split(conf, "\n") {
+		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "remember_last_entry:"); ok {
+			return strings.EqualFold(strings.TrimSpace(value), "yes")
+		}
+	}
+	return false
+}
+
 // reconcileLimineAutoboot makes the countdown autoboot the kernel instead of
 // looping. The installer and older reconcilers set a numeric default_entry
 // believing it lands on the kernel "inside" the boot-menu directory, but Limine
@@ -1069,18 +1294,25 @@ func reconcileLimineAutoboot(checkOnly bool) recResult {
 		return okRes("Limine autoboot configuration is not applicable on NixOS")
 	}
 
-	if !sys.PkgInstalled("limine") {
+	if !limineManagedBoot() {
+		return unmanagedBootResult()
+	}
+	if !doctorPackageInstalled("limine") {
 		return okRes(i18n.T("not a limine-managed boot on this box"))
 	}
 	b, err := os.ReadFile(limineESPConf)
 	if err != nil {
-		return okRes(i18n.T("no readable %s; the layout reconciler owns that"), limineESPConf)
+		return noteRes(i18n.T("no readable %s; the layout reconciler owns that"), limineESPConf)
 	}
 	fixed, changed := limineEnsureAutoboot(string(b))
 	if !changed {
 		return okRes(i18n.T("limine autoboots the kernel and remembers the last one"))
 	}
 	if checkOnly {
+		if limineIsNumeric(strings.TrimSpace(limineDefaultEntry(string(b)))) && limineRemembersLastEntry(string(b)) {
+			return wouldRes(i18n.T("limine has a legacy numeric default_entry; remember_last_entry takes precedence when a saved entry exists, and the fallback will be migrated to the kernel entry path")).
+				withFix(i18n.T("ryoku doctor migrates default_entry to the kernel entry path and preserves remember_last_entry"))
+		}
 		return wouldRes(i18n.T("limine default_entry lands on the EFI fallback, not the kernel, so the boot countdown loops forever")).
 			withFix(i18n.T("ryoku doctor points default_entry at the kernel entry path and enables remember_last_entry"))
 	}

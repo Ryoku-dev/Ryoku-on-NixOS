@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/godbus/dbus/v5"
+	"golang.org/x/sys/unix"
 	wm "ryoku-wm"
 )
 
@@ -201,13 +203,17 @@ func smartMode(luma float64) string {
 }
 
 // resolveMode turns the mode knob into a concrete light/dark for matugen: an
-// explicit light/dark passes through; "smart" (or anything else) follows the
-// wallpaper's luminance. For a clip that is the whole run, not the sampled
-// frame: one bright second in a dark wallpaper used to turn the desktop white.
+// explicit light/dark passes through; "sun" follows the real day/night window
+// the weather poll publishes (sun.go), independent of what the wallpaper
+// depicts; "smart" (or anything else) follows the wallpaper's luminance. For a
+// clip that is the whole run, not the sampled frame: one bright second in a
+// dark wallpaper used to turn the desktop white.
 func resolveMode(mode, img string) string {
 	switch mode {
 	case "light", "dark":
 		return mode
+	case "sun":
+		return sunMode(img)
 	}
 	var luma float64
 	var ok bool
@@ -221,6 +227,23 @@ func resolveMode(mode, img string) string {
 		return "dark"
 	}
 	return smartMode(luma)
+}
+
+// sunMode resolves the "sun" mode: light between sunrise and sunset, dark
+// outside. The times come from the weather poll (the same location-correct
+// data the weather widget shows), so a "daytime" video that samples dark no
+// longer forces a dark theme at noon. Until the first frame lands there is no
+// window to follow, and the wallpaper's own luminance is the honest fallback:
+// the box behaves like "smart" for the minutes it has no sun data.
+func sunMode(img string) string {
+	sunrise, sunset, ok := daySun.window()
+	if !ok {
+		return resolveMode("smart", img)
+	}
+	if isDaytime(time.Now(), sunrise, sunset) {
+		return "light"
+	}
+	return "dark"
 }
 
 // videoLuma: a clip's mean luma over its first minute, sampled a frame a second
@@ -558,7 +581,15 @@ func (d *daemon) matugenApply(img string) error {
 	// matugen's post_hook (which runs only after every template has rendered). It
 	// reads the colors.json just written; a no-op unless the Material cursor is
 	// selected, and its own lock makes the post_hook's later run idempotent.
-	go func() { _ = runCommand("ryoku-cursor-material-recolor") }()
+	go func() {
+		if runCommand("ryoku-cursor-material-recolor") != nil {
+			return
+		}
+		// Recolored cursor images stay cached in the running compositor's
+		// memory; re-asserting the theme is what makes a palette change reach
+		// the pointer without a re-pick or a relogin.
+		_ = d.wmc.Act(wm.ActionCursorReassert)
+	}()
 
 	// And the tonal ramps behind those roles, from the same run.
 	if tones != nil {
@@ -568,12 +599,15 @@ func (d *daemon) matugenApply(img string) error {
 	}
 
 	// Fan the same palette into the app suite through matugen's templating pass,
-	// gated by the per-app roster and the app-suite toggle.
-	matugenRenderTemplates(matugenShellPalette(pal), readMatugenKnobs())
+	// gated by the per-app roster and the app-suite toggle. Nomarchy's generated
+	// theme is published only after the template pass completes.
+	if matugenRenderTemplates(matugenShellPalette(pal), readMatugenKnobs(), true) {
+		refreshNomarchyWallpaperTheme()
+	}
 
 	// Toolkit nudges so running apps re-read the regenerated configs. Hyprland is
 	// reloaded by the caller (paintWorker).
-	matugenReload(mode)
+	matugenReload(mode, d.kdePaletteEmitter())
 	return nil
 }
 
@@ -662,8 +696,8 @@ func (d *daemon) matugenApplyStatic(name string) error {
 		return fmt.Errorf("matugen colors.json (static): %w", err)
 	}
 	k := readMatugenKnobs()
-	matugenRenderTemplates(matugenShellPalette(shell), k)
-	matugenReload(staticPaletteMode(shell))
+	matugenRenderTemplates(matugenShellPalette(shell), k, false)
+	matugenReload(staticPaletteMode(shell), d.kdePaletteEmitter())
 	// A catalog theme has no ramps, so the last wallpaper's are now wrong. The
 	// file's absence is the gate: Ink re-lights the theme's own roles instead.
 	_ = os.Remove(matugenTonesPath())
@@ -1109,23 +1143,28 @@ func filterMatugenConfig(toml string, enabled func(group string) bool) string {
 }
 
 // matugenRenderTemplates fans the palette into the deployed templates. The core
-// surface (config.toml: kitty, the Hyprland border, btop, Qt) always themes,
+// surface (config.toml: kitty, the window frame, btop, Qt) always themes,
 // per-app roster gated. The GTK / GUI-app suite (apps.toml) themes only when the
 // app-suite toggle is on; off blanks the GTK stylesheets so those apps fall back
-// to stock.
-func matugenRenderTemplates(shell map[string]string, k matugenKnobs) {
+// to stock. includeNomarchy is false for fixed Ryoku schemes: Nomarchy's
+// Wallpaper theme follows wallpaper generation, not Ryoku's independent scheme
+// picker.
+func matugenRenderTemplates(shell map[string]string, k matugenKnobs, includeNomarchy bool) bool {
 	dir := matugenTemplateDir()
 	matugenEnsureDirs()
 	carrierPath := filepath.Join(matugenCacheHome(), "ryoku", "matugen-carrier.json")
 	if err := writeJSONFile(carrierPath, matugenCarrier(shell)); err != nil {
 		fmt.Fprintf(os.Stderr, "matugen carrier: %v\n", err)
-		return
+		return false
 	}
 	// A roster key the user explicitly turned off stays off; a group ABSENT from
 	// their roster is one that shipped after they last saved it, and defaults on.
 	// Absent-means-off would have kept every app added from here on dark for
 	// everyone who had ever opened the appearance page.
 	enabled := func(group string) bool {
+		if group == "nomarchy" {
+			return includeNomarchy
+		}
 		if group == "steam" && !steamThemeReady() {
 			return false
 		}
@@ -1134,7 +1173,7 @@ func matugenRenderTemplates(shell map[string]string, k matugenKnobs) {
 		}
 		return true
 	}
-	matugenRenderFiltered(filepath.Join(dir, "config.toml"), carrierPath, enabled)
+	coreRendered := matugenRenderFiltered(filepath.Join(dir, "config.toml"), carrierPath, enabled)
 	// Two switches gate the app suite and both have to agree: the appearance
 	// page's per-group roster (themeRyokuApps) and the master "Theme apps" in
 	// theme.json. The Hub blanks the stylesheets when the master goes off, so
@@ -1142,6 +1181,7 @@ func matugenRenderTemplates(shell map[string]string, k matugenKnobs) {
 	// silently undid it.
 	if k.ThemeRyokuApps && themeAppsEnabled() {
 		matugenRenderFiltered(filepath.Join(dir, "apps.toml"), carrierPath, enabled)
+		matugenRenderFiltered(filepath.Join(ryokuConfigDir(), "palette-bridge", "matugen.toml"), carrierPath, enabled)
 		// matugen wrote the shared snippet target; poke each vault's symlink so
 		// Obsidian's watcher, which never sees the out-of-vault target change,
 		// reloads the new palette without a restart.
@@ -1151,6 +1191,7 @@ func matugenRenderTemplates(shell map[string]string, k matugenKnobs) {
 	} else {
 		blankGtk(matugenConfigHome())
 	}
+	return coreRendered
 }
 
 // nudgeObsidian re-links the palette snippet inside every registered Obsidian
@@ -1203,26 +1244,60 @@ func nudgeObsidian() {
 // matugenRenderFiltered renders one matugen config with only its roster-enabled
 // template blocks. The filtered config is staged in the cache so the shipped
 // template map stays the single source of the destinations and post_hooks.
-func matugenRenderFiltered(config, carrier string, enabled func(group string) bool) {
+func matugenRenderFiltered(config, carrier string, enabled func(group string) bool) bool {
 	b, err := os.ReadFile(config)
 	if err != nil {
-		return
+		return false
 	}
 	active := filepath.Join(matugenCacheHome(), "ryoku", "active-"+filepath.Base(config))
 	if err := os.WriteFile(active, []byte(filterMatugenConfig(string(b), enabled)), 0o644); err != nil {
-		return
+		return false
 	}
-	matugenRender(active, carrier)
+	return matugenRender(active, carrier)
 }
 
 // matugenRender runs one templating pass over a config, logging matugen's own
 // output on failure. A missing config is skipped, not an error.
-func matugenRender(config, carrier string) {
+func matugenRender(config, carrier string) bool {
 	if _, err := os.Stat(config); err != nil {
-		return
+		return false
 	}
 	if out, err := exec.Command("matugen", "-c", config, "json", carrier).CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "matugen render %s: %v: %s\n", filepath.Base(config), err, strings.TrimSpace(string(out)))
+		return false
+	}
+	return true
+}
+
+func refreshNomarchyWallpaperTheme() {
+	choice := ""
+	for _, path := range []string{
+		filepath.Join(matugenConfigHome(), "omarchy", "current-theme"),
+		filepath.Join(matugenStateHome(), "omarchy", "current", "theme.name"),
+	} {
+		if data, err := os.ReadFile(path); err == nil {
+			choice = strings.TrimSpace(string(data))
+			if choice != "" {
+				break
+			}
+		}
+	}
+	if choice != "" && choice != "ryoku" {
+		return
+	}
+
+	root := os.Getenv("OMARCHY_PATH")
+	if root == "" {
+		root = filepath.Join(matugenDataHome(), "ryoku", "nomarchy")
+	}
+	helper := filepath.Join(root, "bin", "omarchy-theme-set")
+	if info, err := os.Stat(helper); err != nil || info.IsDir() {
+		return
+	}
+	cmd := exec.Command(helper, "ryoku")
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "nomarchy wallpaper theme: %v\n", err)
 	}
 }
 
@@ -1252,7 +1327,7 @@ var (
 // restarts. The writes below are still worth making: every app launched after
 // this point is correct, and they are what an X11 or xsettings-backed session
 // needs to follow along.
-func matugenReload(mode string) {
+func matugenReload(mode string, emitter kdePaletteSignalEmitter) {
 	scheme := "prefer-dark"
 	if mode == "light" {
 		scheme = "prefer-light"
@@ -1260,7 +1335,7 @@ func matugenReload(mode string) {
 	_ = runCommand("gsettings", "set", "org.gnome.desktop.interface", "color-scheme", scheme)
 
 	applyGnomeAccent()
-	applyKdeColors()
+	applyKdeColors(emitter)
 
 	// gtkTheme "system" (name == "") means the user owns gtk-theme, so Ryoku
 	// leaves it entirely alone. Otherwise land the variant for this mode.
@@ -1381,6 +1456,19 @@ func kdeOwnedGroup(name string) bool {
 		name == "WM"
 }
 
+type kdePaletteSignalEmitter interface {
+	Emit(path dbus.ObjectPath, name string, values ...interface{}) error
+}
+
+// The tray owns the daemon's long-lived session-bus connection. Reusing it
+// avoids opening a new connection for every wallpaper repaint.
+func (d *daemon) kdePaletteEmitter() kdePaletteSignalEmitter {
+	if d == nil || d.tray == nil {
+		return nil
+	}
+	return d.tray.conn
+}
+
 // applyKdeColors merges the rendered colour groups into kdeglobals. KDE apps
 // (Dolphin, Ark, Gwenview, Kate) resolve their palette through KColorScheme
 // rather than the qt6ct one, so without this they paint at Qt's defaults: on a
@@ -1388,8 +1476,9 @@ func kdeOwnedGroup(name string) bool {
 //
 // Merged rather than written over, because kdeglobals is shared with the KDE
 // apps themselves. A file that does not exist yet is fine and yields a
-// colours-only one.
-func applyKdeColors() {
+// colours-only one. Once the atomic rename succeeds, notifyChange makes running
+// apps re-read the palette.
+func applyKdeColors(emitter kdePaletteSignalEmitter) {
 	rendered, err := os.ReadFile(matugenKdeColorsPath())
 	if err != nil {
 		return
@@ -1405,7 +1494,14 @@ func applyKdeColors() {
 			continue
 		}
 		if group.name == "General" {
-			group.rows = setIniRow(group.rows, "ColorScheme", "Ryoku")
+			rows := group.rows[:0]
+			for _, row := range group.rows {
+				if row[0] == "ColorScheme" && row[1] == "Ryoku" {
+					continue
+				}
+				rows = append(rows, row)
+			}
+			group.rows = rows
 		}
 		out = append(out, renderIniGroup(group))
 	}
@@ -1420,6 +1516,15 @@ func applyKdeColors() {
 	// Rename so a KDE app reading concurrently never sees half a palette.
 	if err := os.Rename(tmp, kdeglobalsPath()); err != nil {
 		_ = os.Remove(tmp)
+		return
+	}
+	if emitter != nil {
+		_ = emitter.Emit(
+			dbus.ObjectPath("/KGlobalSettings"),
+			"org.kde.KGlobalSettings.notifyChange",
+			int32(0),
+			int32(0),
+		)
 	}
 }
 
@@ -1574,17 +1679,19 @@ func matugenThemeSig(frame []byte) string {
 	return doc.Theme.Theme
 }
 
-// fontSig fingerprints the frame's system-font key, so a change to it re-applies
-// the font to the toolkits the same way a theme change retunes them.
+// fontSig fingerprints the frame's UI and terminal font keys, so a change to
+// either one re-applies the fonts to the toolkits the same way a theme change
+// retunes them.
 func fontSig(frame []byte) string {
 	var doc struct {
-		FontFamily string  `json:"fontFamily"`
-		FontSize   float64 `json:"fontSize"`
+		FontFamily         string  `json:"fontFamily"`
+		TerminalFontFamily string  `json:"terminalFontFamily"`
+		FontSize           float64 `json:"fontSize"`
 	}
 	if json.Unmarshal(frame, &doc) != nil {
 		return ""
 	}
-	return doc.FontFamily + "\x1f" + strconv.FormatFloat(doc.FontSize, 'f', -1, 64)
+	return doc.FontFamily + "\x1f" + doc.TerminalFontFamily + "\x1f" + strconv.FormatFloat(doc.FontSize, 'f', -1, 64)
 }
 
 // applyFont pushes the chosen fonts to the toolkits without a logout: gsettings
@@ -1602,20 +1709,20 @@ func applyFont(frame []byte) {
 	_ = runCommand("pkill", "-USR1", "-x", "kitty")
 }
 
-// fontChoice resolves the system font (family), the monospace face that follows
-// it, and the base size, each with a shipped fallback. One key drives both: an
-// empty family keeps the proportional UI default and a monospace terminal one.
+// fontChoice resolves the UI and terminal families independently, with the
+// shipped proportional and monospace faces as their respective fallbacks.
 func fontChoice(frame []byte) (family, mono string, size int) {
 	var doc struct {
-		FontFamily string  `json:"fontFamily"`
-		FontSize   float64 `json:"fontSize"`
+		FontFamily         string  `json:"fontFamily"`
+		TerminalFontFamily string  `json:"terminalFontFamily"`
+		FontSize           float64 `json:"fontSize"`
 	}
 	_ = json.Unmarshal(frame, &doc)
 	if family = strings.TrimSpace(doc.FontFamily); family == "" {
 		family = "Space Grotesk"
-		mono = "SpaceMono Nerd Font"
-	} else {
-		mono = family
+	}
+	if mono = strings.TrimSpace(doc.TerminalFontFamily); mono == "" {
+		mono = "JetBrainsMono Nerd Font"
 	}
 	if size = int(doc.FontSize); size <= 0 {
 		size = 11
@@ -1660,27 +1767,132 @@ func writeKittyFont(mono string, size int) {
 	_ = os.WriteFile(filepath.Join(dir, "current-font.conf"), []byte(body), 0o644)
 }
 
-// watchMatugenKnobs retints the desktop whenever the knob store changes, so a Hub
-// appearance save (which writes matugen.json and renders nothing itself) takes
-// hold at once, exactly as a wallpaper change does. scheduleTheme coalesces, so
-// a burst of rapid saves themes once. A poll is simpler and more robust across
-// the Hub's rename-and-replace write than an inotify watch, at negligible idle
-// cost. Runs for the life of the daemon.
+func (d *daemon) kickSunMode() {
+	select {
+	case d.sunSig <- struct{}{}:
+	default:
+	}
+}
+
+func currentSunWindow(now, sunrise, sunset time.Time) (time.Time, time.Time) {
+	for !sunset.After(now) {
+		sunrise = sunrise.AddDate(0, 0, 1)
+		sunset = sunset.AddDate(0, 0, 1)
+	}
+	return sunrise, sunset
+}
+
+// watchSunMode sleeps on the next actual day/night edge. Knob saves and fresh
+// weather data interrupt that deadline, so every other theme mode stays fully
+// event-driven.
+func (d *daemon) watchSunMode() {
+	last := ""
+	for {
+		if readMatugenKnobs().Mode != "sun" {
+			last = ""
+			select {
+			case <-d.quit:
+				return
+			case <-d.sunSig:
+			}
+			continue
+		}
+		sunrise, sunset, ok := daySun.window()
+		if !ok {
+			select {
+			case <-d.quit:
+				return
+			case <-d.sunSig:
+			}
+			continue
+		}
+
+		now := time.Now()
+		sunrise, sunset = currentSunWindow(now, sunrise, sunset)
+		got := "dark"
+		next := sunrise
+		if isDaytime(now, sunrise, sunset) {
+			got = "light"
+			next = sunset
+		}
+		if last != "" && got != last {
+			d.scheduleTheme()
+		}
+		last = got
+
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-d.quit:
+			timer.Stop()
+			return
+		case <-d.sunSig:
+			timer.Stop()
+		case <-timer.C:
+		}
+	}
+}
+
+// watchMatugenKnobs retints the desktop whenever the knob store changes. It
+// watches the parent directory because the Hub persists with rename-and-replace;
+// a slow timeout reconciles filesystems without inotify support.
 func (d *daemon) watchMatugenKnobs() {
 	path := matugenKnobsPath()
 	var last time.Time
-	if fi, err := os.Stat(path); err == nil {
-		last = fi.ModTime()
-	}
-	for range time.Tick(500 * time.Millisecond) {
+	check := func() {
 		fi, err := os.Stat(path)
 		if err != nil {
-			continue
+			return
 		}
 		if m := fi.ModTime(); !m.Equal(last) {
+			changed := !last.IsZero()
 			last = m
-			d.scheduleTheme()
+			if changed {
+				d.scheduleTheme()
+				d.kickSunMode()
+			}
 		}
+	}
+	check()
+
+	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
+	if err == nil {
+		if _, watchErr := unix.InotifyAddWatch(fd, filepath.Dir(path),
+			unix.IN_CLOSE_WRITE|unix.IN_CREATE|unix.IN_MOVED_TO); watchErr != nil {
+			unix.Close(fd)
+			fd = -1
+		}
+	}
+	if err != nil {
+		fd = -1
+	}
+	if fd >= 0 {
+		defer unix.Close(fd)
+	}
+	buf := make([]byte, 4096)
+	for {
+		if fd >= 0 {
+			pfds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN | unix.POLLERR}}
+			_, _ = unix.Poll(pfds, int((5*time.Minute)/time.Millisecond))
+			for pfds[0].Revents != 0 {
+				if _, err := unix.Read(fd, buf); err != nil {
+					break
+				}
+			}
+		} else {
+			timer := time.NewTimer(30 * time.Second)
+			select {
+			case <-d.quit:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+		select {
+		case <-d.quit:
+			return
+		default:
+		}
+		check()
 	}
 }
 
@@ -1705,6 +1917,13 @@ func matugenDataHome() string {
 		return d
 	}
 	return filepath.Join(os.Getenv("HOME"), ".local", "share")
+}
+
+func matugenStateHome() string {
+	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
+		return d
+	}
+	return filepath.Join(os.Getenv("HOME"), ".local", "state")
 }
 
 func matugenTemplateDir() string { return filepath.Join(matugenConfigHome(), "matugen") }

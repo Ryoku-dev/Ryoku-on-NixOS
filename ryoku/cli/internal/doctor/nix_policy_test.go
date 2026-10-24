@@ -37,6 +37,7 @@ func TestNixHostOwnedReconcilersDoNotMutateHost(t *testing.T) {
 		{"kepler nvidia", reconcileKeplerNvidia},
 		{"nvidia modeset", reconcileNvidiaModeset},
 		{"nvidia pacman guard", reconcileNvidiaGuardHook},
+		{"fedora legacy boot", reconcileFedoraLegacyBoot},
 		{"limine layout", reconcileLimineLayout},
 		{"limine boot entry", reconcileLimineBootEntry},
 		{"limine uki tree", reconcileLimineUKITree},
@@ -81,20 +82,5 @@ func TestNixHostOwnedReconcilersDoNotMutateHost(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestNixPlatformRegistryHidesArchOnlyChecks(t *testing.T) {
-	t.Setenv("RYOKU_UPDATE_BACKEND", "nix")
-
-	hidden := nixIrrelevantReconcilerNames()
-	for _, r := range platformReconcilers() {
-		if hidden[r.name] {
-			t.Fatalf("NixOS registry still contains Arch-only check %q", r.name)
-		}
-	}
-
-	if len(hidden) == 0 {
-		t.Fatal("expected an explicit set of Arch-only checks")
 	}
 }

@@ -32,7 +32,7 @@ Item {
     property bool block: false      // control band whose height is the control's own (chips, gallery)
     property int footH: 0           // control band of a fixed height (a picker, a field)
     property bool divider: false    // hairline above the row (every row but the first)
-    property int controlWidth: 0    // width reserved for an inline control
+    property real controlWidth: 0   // width reserved for an inline control (an int would truncate it and elide the label)
     property bool spotlight: false  // flashed after a search jump
 
     signal resetRequested()

@@ -86,6 +86,14 @@ Column {
         if (d.connected) d.disconnect();
         else page.link(d);
     }
+    // Drop the pairing on the adapter. A device that has gone stale on the other
+    // end only pairs again once this side forgets it too, which is the whole
+    // reason to reach for it; BlueZ disconnects first, so a connected one works.
+    function forget(d) {
+        if (!d || page.busy) return;
+        page.pairError = "";
+        d.forget();
+    }
 
     Process {
         id: pairProc
@@ -125,7 +133,7 @@ Column {
             anchors { right: parent.right; verticalCenter: parent.verticalCenter }
             visible: page.adapter !== null
             value: page.adapter ? page.adapter.enabled : false
-            onToggled: (v) => { if (page.adapter) page.adapter.enabled = v; }
+            onToggled: v => BluetoothPower.setEnabled(v)
         }
     }
 
@@ -216,7 +224,7 @@ Column {
                     Column {
                         anchors {
                             left: devDisc.right; leftMargin: 10
-                            right: devAction.left; rightMargin: 10
+                            right: devActions.left; rightMargin: 10
                             verticalCenter: parent.verticalCenter
                         }
                         spacing: 1
@@ -238,13 +246,25 @@ Column {
                             elide: Text.ElideRight
                         }
                     }
-                    K.QsAction {
-                        id: devAction
+                    Row {
+                        id: devActions
                         anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
-                        enabled: !page.busy
-                        text: devRow.dev && devRow.dev.connected ? I18n.tr("Disconnect")
-                            : (devRow.connecting ? I18n.tr("Connecting\u2026") : I18n.tr("Connect"))
-                        onClicked: page.activate(devRow.dev)
+                        spacing: 8
+                        K.QsAction {
+                            // Only a device the adapter has actually saved can be forgotten; one
+                            // merely seen nearby has no pairing to drop.
+                            visible: !!devRow.dev && (devRow.dev.paired || devRow.dev.bonded)
+                            enabled: !page.busy
+                            destructive: true
+                            text: I18n.tr("Forget")
+                            onClicked: page.forget(devRow.dev)
+                        }
+                        K.QsAction {
+                            enabled: !page.busy
+                            text: devRow.dev && devRow.dev.connected ? I18n.tr("Disconnect")
+                                : (devRow.connecting ? I18n.tr("Connecting\u2026") : I18n.tr("Connect"))
+                            onClicked: page.activate(devRow.dev)
+                        }
                     }
                 }
             }

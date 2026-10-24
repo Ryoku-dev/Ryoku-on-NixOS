@@ -55,13 +55,33 @@ printf '  modes:\n\tindex name refresh (Hz) hdisp hss hse htot vdisp vss vse vto
 printf '\t  #0 2560x1600 165.00 2560 2608 2640 2720 1600 1603 1609 1732 0 flags: ; type: preferred\n'
 STUB
 chmod +x "$gtmp/bin/weston" "$gtmp/bin/modetest"
-gdry() { PATH="$gtmp/bin:$PATH" RYOKU_GREETER_DRYRUN=1 RYOKU_GREETER_CONF="$gtmp/none.conf" env "$@" "$greeter" 2>/dev/null; }
+# The wrapper picks its card from sysfs; give it one render-capable card that
+# owns both panels so the run does not depend on the host's GPUs.
+drm=$gtmp/drm
+mkdir -p "$drm/card0/device/drm/renderD128" "$drm/card0-HDMI-A-1" "$drm/card0-eDP-1"
+printf 'connected\n' >"$drm/card0-HDMI-A-1/status"
+printf 'connected\n' >"$drm/card0-eDP-1/status"
+gdry() {
+  PATH="$gtmp/bin:$PATH" RYOKU_GREETER_DRYRUN=1 RYOKU_GREETER_CONF="$gtmp/none.conf" \
+    RYOKU_GREETER_DRM_ROOT="$drm" RYOKU_GREETER_NUMLOCK_FILE="$gtmp/no-numlock" \
+    RYOKU_GREETER_PRIMARY_FILE="$gtmp/no-primary" env "$@" "$greeter" 2>/dev/null
+}
 
-# The keypad must type digits at the login field: SDDM's own Numlock knob is
-# inert under the Wayland greeter, so weston's [keyboard] is the only channel.
+# With no hand-off yet (a first login, or a PIN that must reach the field as
+# digits) the keypad stays a keypad: SDDM's own Numlock knob is inert under
+# the Wayland greeter, so weston's [keyboard] is the only channel.
 gini=$(gdry)
 grep -Fq '[keyboard]' <<<"$gini" || fail "greeter config has no [keyboard] section"
-grep -Fq 'numlock-on=true' <<<"$gini" || fail "greeter config does not enable NumLock (keypad types navigation keys at login)"
+grep -Fq 'numlock-on=true' <<<"$gini" || fail "greeter config does not enable NumLock by default (keypad types navigation keys at a first login)"
+# Once a session published its choice, the greeter follows it: forcing the
+# LED on garbles the login for a compact laptop and carries into the lock
+# screen (issue #321).
+printf 'off\n' >"$gtmp/numlock"
+gini=$(gdry RYOKU_GREETER_NUMLOCK_FILE="$gtmp/numlock")
+grep -Fq 'numlock-on=false' <<<"$gini" || fail "greeter ignored the session's numlock choice"
+printf 'on\n' >"$gtmp/numlock"
+gini=$(gdry RYOKU_GREETER_NUMLOCK_FILE="$gtmp/numlock")
+grep -Fq 'numlock-on=true' <<<"$gini" || fail "greeter dropped an on choice"
 # With no hand-off, the internal panel keeps the pin.
 grep -Fq 'name=HDMI-A-1' <<<"$gini" || fail "greeter config dropped the external panel"
 # pinned <ini> <name>: the [output] block for <name> carries an app-ids line.

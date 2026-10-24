@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+#
+# ryoku-greeter-guard: bring the login screen back when SDDM has lost it.
+#
+# SDDM 0.21 cannot tell a Wayland greeter that died from one that logged
+# somebody in. sddm-helper-start-wayland exits 0 whenever the greeter client
+# finishes or the compositor dies, the daemon reads that as HELPER_SUCCESS and
+# starts nothing, and the machine sits on an empty VT with a blinking cursor:
+# no greeter, no session, no way to log in short of a text console. The greeter
+# wrapper (ryoku-greeter) restarts a compositor that dies before the greeter
+# connects; a greeter client that dies after connecting is beyond its reach, so
+# this guard watches the daemon from outside.
+#
+# The rule: while the sddm daemon runs with no sddm-helper at all, neither a
+# greeter helper (--greeter) nor a session helper, for longer than the grace
+# period, restart the display manager. Every SDDM session, greeter or user, runs
+# under an sddm-helper, so "no helper" means nobody is logged in and nothing is
+# being shown; a restart cannot cost a user their session. Restarts are capped
+# per boot so a greeter that cannot run leaves a readable trail in the system
+# log instead of a loop.
+#
+# Runs as root under systemd (ryoku-greeter-guard.service) and runit
+# (void/init/system/ryoku-greeter-guard). `--once` evaluates one round and
+# exits: 0 nothing to do, 3 a restart was issued; the loop is the service.
+set -u
+
+interval=${RYOKU_GREETER_GUARD_INTERVAL:-5}
+grace=${RYOKU_GREETER_GUARD_GRACE:-20}
+fallback=${RYOKU_GREETER_GUARD_FALLBACK:-60}
+limit=${RYOKU_GREETER_GUARD_LIMIT:-3}
+state=${RYOKU_GREETER_GUARD_STATE:-/run/ryoku/greeter-guard}
+proc=${RYOKU_GREETER_GUARD_PROC:-/proc}
+host=${RYOKU_GREETER_GUARD_HOST:-ryoku-host}
+dbus_monitor=${RYOKU_GREETER_GUARD_DBUS_MONITOR:-dbus-monitor}
+
+log() { logger -t ryoku-greeter-guard -p "daemon.$1" -- "$2" 2>/dev/null || echo "ryoku-greeter-guard: $2" >&2; }
+
+# Match the kernel's comm value itself; a process may vanish between the glob
+# and the builtin read, so each failed read is silent and clears the name.
+daemon_running() {
+  local dir name
+  for dir in "$proc"/[0-9]*; do
+    name=
+    IFS= read -r name 2>/dev/null <"$dir/comm" || true
+    [ "$name" = sddm ] && return 0
+  done
+  return 1
+}
+
+# Every greeter or user session SDDM starts runs under an sddm-helper.
+helper_running() {
+  local dir name
+  for dir in "$proc"/[0-9]*; do
+    name=
+    IFS= read -r name 2>/dev/null <"$dir/comm" || true
+    [ "$name" = sddm-helper ] && return 0
+  done
+  return 1
+}
+
+check_once() {
+  local now since=0 count=0
+  if ! daemon_running || helper_running; then
+    if [ -e "$state/missing-since" ] || [ -L "$state/missing-since" ]; then
+      rm -f "$state/missing-since"
+    fi
+    return 0
+  fi
+  printf -v now '%(%s)T' -1
+  if [ ! -f "$state/missing-since" ]; then
+    printf '%s\n' "$now" >"$state/missing-since"
+    return 0
+  fi
+  read -r since 2>/dev/null <"$state/missing-since" || true
+  [ $(( now - since )) -ge "$grace" ] || return 0
+  if [ -r "$state/restarts" ]; then
+    read -r count 2>/dev/null <"$state/restarts" || true
+  fi
+  if [ "$count" -ge "$limit" ]; then
+    if [ ! -f "$state/gave-up" ]; then
+      : >"$state/gave-up"
+      log err "SDDM still shows no login screen after $limit restarts this boot; leaving it. Read the ryoku-greeter lines in the system log and /var/lib/sddm/.local/share/sddm-helper-start-wayland/sddm.log for why the greeter dies, or log in on a text console and run ryoku doctor."
+    fi
+    return 0
+  fi
+  count=$(( count + 1 ))
+  printf '%s\n' "$count" >"$state/restarts"
+  rm -f "$state/missing-since"
+  printf '%s\n' "$now" >"$state/restarted-at"
+  log err "SDDM has shown no login screen and runs no session for ${grace}s; restarting the display manager ($count of $limit this boot)"
+  "$host" svc --system restart sddm
+  return 3
+}
+next_wait() {
+  local now restarted
+  if [ -f "$state/missing-since" ] && [ ! -f "$state/gave-up" ]; then
+    printf '%s\n' "$interval"
+    return
+  fi
+  if read -r restarted 2>/dev/null <"$state/restarted-at"; then
+    case "$restarted" in
+      ''|*[!0-9]*) ;;
+      *)
+        printf -v now '%(%s)T' -1
+        if (( now - restarted < grace )); then
+          printf '%s\n' "$interval"
+          return
+        fi
+        ;;
+    esac
+  fi
+  printf '%s\n' "$fallback"
+}
+
+poll_loop() {
+  while :; do
+    check_once || true
+    sleep "$interval"
+  done
+}
+
+event_loop() {
+  local line wait_for monitor_pid="" monitor_fd="" warned=0
+  local match_new="type='signal',sender='org.freedesktop.login1',interface='org.freedesktop.login1.Manager',member='SessionNew'"
+  local match_removed="type='signal',sender='org.freedesktop.login1',interface='org.freedesktop.login1.Manager',member='SessionRemoved'"
+
+  cleanup_monitor() {
+    if [ -n "$monitor_pid" ]; then
+      kill "$monitor_pid" 2>/dev/null || true
+      wait "$monitor_pid" 2>/dev/null || true
+      monitor_pid=
+    fi
+    if [[ $monitor_fd =~ ^[0-9]+$ ]]; then
+      exec {monitor_fd}<&-
+      monitor_fd=
+    fi
+  }
+  trap cleanup_monitor EXIT
+  trap 'exit 0' TERM INT HUP
+
+  while :; do
+    coproc LOGIN1_SESSION_EVENTS {
+      exec "$dbus_monitor" --system "$match_new" "$match_removed" 2>/dev/null
+    }
+    monitor_pid=$LOGIN1_SESSION_EVENTS_PID
+    exec {monitor_fd}<&"${LOGIN1_SESSION_EVENTS[0]}"
+
+    while kill -0 "$monitor_pid" 2>/dev/null; do
+      wait_for=$(next_wait)
+      if IFS= read -r -t "$wait_for" line <&"$monitor_fd"; then
+        case "$line" in
+          *'interface=org.freedesktop.login1.Manager; member=SessionNew'*|\
+          *'interface=org.freedesktop.login1.Manager; member=SessionRemoved'*)
+            check_once || true
+            ;;
+        esac
+      else
+        check_once || true
+        kill -0 "$monitor_pid" 2>/dev/null || break
+      fi
+    done
+
+    cleanup_monitor
+    if (( warned == 0 )); then
+      log warning "login1 session monitor stopped; using timed checks until it recovers"
+      warned=1
+    fi
+    sleep "$(next_wait)"
+  done
+}
+
+
+mkdir -p "$state"
+
+case "${1:-}" in
+  --once)
+    check_once
+    ;;
+  '')
+    check_once || true
+    if command -v "$dbus_monitor" >/dev/null 2>&1; then
+      event_loop
+    else
+      log warning "dbus-monitor is unavailable; checking the login screen every ${interval}s"
+      poll_loop
+    fi
+    ;;
+  *)
+    echo "usage: ryoku-greeter-guard [--once]" >&2
+    exit 2
+    ;;
+esac

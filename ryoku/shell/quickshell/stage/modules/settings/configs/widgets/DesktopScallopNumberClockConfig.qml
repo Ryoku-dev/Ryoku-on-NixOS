@@ -1,0 +1,121 @@
+import QtQuick
+import QtQuick.Layouts
+import stage.services
+import stage.modules.common
+import stage.modules.common.widgets
+ContentPage {
+    id: root
+    forceWidth: false
+
+    signal goBack
+
+    RowLayout {
+        spacing: 12
+
+        RippleButton {
+            implicitWidth: implicitHeight
+            implicitHeight: 40
+            topLeftRadius:    Appearance.rounding.full
+            topRightRadius:   Appearance.rounding.full
+            bottomLeftRadius: Appearance.rounding.full
+            bottomRightRadius:Appearance.rounding.full
+            colBackground:      Appearance.colors.colSecondaryContainer
+            colBackgroundHover: Appearance.colors.colSecondaryContainerHover
+            colRipple:          Appearance.colors.colSecondaryContainerActive
+            MaterialSymbol {
+                anchors.centerIn: parent
+                text: "arrow_back"
+                iconSize: Appearance.font.pixelSize.large
+                color: Appearance.colors.colOnSecondaryContainer
+            }
+            onClicked: root.goBack()
+        }
+
+        StyledText {
+            text: Translation.tr("Scallop Number Clock Options")
+            font.pixelSize: Appearance.font.pixelSize.large
+            font.family:    Appearance.font.family.title
+            color: Appearance.colors.colOnLayer0
+        }
+    }
+
+    ContentSection {
+        title: Translation.tr("Clock Settings")
+        icon: "schedule"
+
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: 250
+            visible: !Config.isWidgetActive("scallop_number_clock")
+
+            PagePlaceholder {
+                anchors.fill: parent
+                icon:    "schedule"
+                shape:   MaterialShape.Shape.Circle
+                title:       Translation.tr("Scallop Number Clock disabled")
+                description: Translation.tr("Enable the Scallop Number Clock in Desktop Widgets settings to use this page.")
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 4
+            visible: Config.isWidgetActive("scallop_number_clock")
+
+            // ── Size ─────────────────────────────────────────────────────────
+            ContentSubsectionLabel { text: Translation.tr("Size") }
+
+            ConfigSlider {
+                buttonIcon: "aspect_ratio"
+                text:  Translation.tr("Widget Size")
+                value: Config.options.background.widgets.scallop_number_clock.widgetSize ?? 100
+                from: 50; to: 200; stepSize: 10
+                onValueChanged: Config.options.background.widgets.scallop_number_clock.widgetSize = value
+            }
+
+            // ── Display Toggles ───────────────────────────────────────────────
+            ContentSubsectionLabel { text: Translation.tr("Display Elements") }
+
+            ConfigSwitch {
+                buttonIcon: "schedule"
+                text:    Translation.tr("Hour Bubble")
+                checked: Config.options.background.widgets.scallop_number_clock.showHourHand ?? true
+                onCheckedChanged: Config.options.background.widgets.scallop_number_clock.showHourHand = checked
+            }
+            ConfigSwitch {
+                buttonIcon: "timer"
+                text:    Translation.tr("Minute Bubble")
+                checked: Config.options.background.widgets.scallop_number_clock.showMinuteBubble ?? true
+                onCheckedChanged: Config.options.background.widgets.scallop_number_clock.showMinuteBubble = checked
+            }
+            ConfigSwitch {
+                buttonIcon: "tag"
+                text:    Translation.tr("Background Numbers")
+                checked: Config.options.background.widgets.scallop_number_clock.showDots ?? true
+                onCheckedChanged: Config.options.background.widgets.scallop_number_clock.showDots = checked
+            }
+
+            // ── Style ─────────────────────────────────────────────────────────
+            ContentSubsectionLabel { text: Translation.tr("Style & Appearance") }
+
+            ConfigSwitch {
+                buttonIcon: "format_bold"
+                text:    Translation.tr("Bold Font")
+                checked: Config.options.background.widgets.scallop_number_clock.boldFont ?? true
+                onCheckedChanged: Config.options.background.widgets.scallop_number_clock.boldFont = checked
+            }
+            ConfigSwitch {
+                buttonIcon: "contrast"
+                text:    Translation.tr("Black Background")
+                checked: Config.options.background.widgets.scallop_number_clock.useBlackBg ?? true
+                onCheckedChanged: Config.options.background.widgets.scallop_number_clock.useBlackBg = checked
+            }
+            ConfigSwitch {
+                buttonIcon: "wb_twilight"
+                text:    Translation.tr("Glass Reflection")
+                checked: Config.options.background.widgets.scallop_number_clock.enableGlassReflection ?? false
+                onCheckedChanged: Config.options.background.widgets.scallop_number_clock.enableGlassReflection = checked
+            }
+        }
+    }
+}

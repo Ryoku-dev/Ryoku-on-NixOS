@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Shapes
+import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
 import Quickshell.Bluetooth
@@ -13,8 +14,8 @@ import Ryoku.Ui.Singletons
 // head, a bone-pill tab strip (Wi-Fi / Bluetooth / Hotspot), and a Loader that
 // swaps between three live subtabs. Every backend is a system tool -- the
 // Quickshell Networking/Bluetooth services plus nmcli/bluetoothctl -- so the
-// page applies immediately and writes no Ryoku config. The subtab bodies are
-// ported verbatim from the old WifiTab/BluetoothTab/HotspotTab: identical
+// page applies immediately; Bluetooth power also records the user's choice.
+// The subtab bodies are
 // process wiring, identical logic; only the presentation is recast to
 // monochrome. State is by word and inversion, never colour; signal strength is
 // drawn in ink bars. The Loader destroys the outgoing tab on every switch, so
@@ -26,14 +27,32 @@ Item {
     property var hub
     readonly property bool fullBleed: true
 
-    // which subtab is showing. transient, not persisted; resets to Wi-Fi on
-    // every mount (matches the old page's `property string sub: "wifi"`).
     property string sub: "wifi"
+    function acceptRequestedSub() {
+        if (!pg.hub)
+            return;
+        var requested = String(pg.hub.connectionSub || "");
+        if (requested === "")
+            return;
+        pg.sub = requested;
+        Qt.callLater(function() {
+            if (pg.hub && pg.hub.connectionSub === requested)
+                pg.hub.connectionSub = "";
+        });
+    }
+    onHubChanged: Qt.callLater(function() { pg.acceptRequestedSub(); })
+    Component.onCompleted: Qt.callLater(function() { pg.acceptRequestedSub(); })
+    Connections {
+        target: pg.hub || null
+        ignoreUnknownSignals: true
+        function onConnectionSubChanged() { Qt.callLater(pg.acceptRequestedSub); }
+    }
 
     readonly property var tabs: [
         { "key": "wifi", "label": I18n.tr("Wi-Fi") },
         { "key": "bluetooth", "label": I18n.tr("Bluetooth") },
-        { "key": "hotspot", "label": I18n.tr("Hotspot") }
+        { "key": "hotspot", "label": I18n.tr("Hotspot") },
+        { "key": "phone", "label": I18n.tr("Phone") }
     ]
     readonly property int tabW: 120
     function tabIndex(k) {
@@ -66,7 +85,7 @@ Item {
 
     Process {
         id: killStatus
-        command: ["pkexec", "/usr/bin/ryoku-network-kill", "status"]
+        command: ["ryoku-host", "network", "kill", "status"]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
@@ -92,7 +111,7 @@ Item {
     Process {
         id: killSetProc
         property string target: ""
-        command: ["pkexec", "/usr/bin/ryoku-network-kill", target]
+        command: ["ryoku-host", "network", "kill", target]
         stderr: StdioCollector {}
         onExited: function(exitCode) {
             pg.killBusy = false;
@@ -243,21 +262,24 @@ Item {
         id: mp
         property string text: ""
         property bool armed: true
+        property bool onBone: false
         signal act()
         implicitHeight: 22
         implicitWidth: mpLab.implicitWidth + 18
         radius: Tokens.radius
         opacity: armed ? 1 : 0.3
-        color: mph.hovered && armed ? Tokens.tint10 : "transparent"
+        color: onBone
+            ? (mph.hovered && armed ? Tokens.inkOnBoneDim : Tokens.inkOnBone)
+            : (mph.hovered && armed ? Tokens.tint10 : "transparent")
         border.width: Tokens.border
-        border.color: mph.hovered && armed ? Tokens.lineStrong : Tokens.line
+        border.color: onBone ? Tokens.inkOnBone : (mph.hovered && armed ? Tokens.lineStrong : Tokens.line)
         Behavior on color { ColorAnimation { duration: Tokens.snap } }
         Behavior on border.color { ColorAnimation { duration: Tokens.snap } }
         Text {
             id: mpLab
             anchors.centerIn: parent
             text: mp.text
-            color: Tokens.ink
+            color: mp.onBone ? Tokens.bone : Tokens.ink
             font.family: Tokens.ui
             font.pixelSize: Tokens.fMicro
             font.weight: Font.Medium
@@ -471,10 +493,10 @@ Item {
         property bool connectFailed: false
         property bool scanning: false
 
-        // NetworkManager's Wi-Fi backend, read live from `ryoku-wifi-backend get`.
+        // NetworkManager's Wi-Fi backend, read and applied through the host seam.
         // iwd is the default; wpa_supplicant is the escape hatch for WPA3 / phone
-        // hotspots iwd stumbles on. backendBusy gates the segment while pkexec
-        // rewrites the NM drop-in and restarts the service.
+        // hotspots iwd stumbles on. backendBusy gates the segment while the host
+        // seam rewrites the NM drop-in and restarts the service.
         property string wifiBackend: "iwd"
         property bool backendBusy: false
 
@@ -483,6 +505,7 @@ Item {
         property string pwDraft: ""
         property string pendingPw: ""
         property string attemptSsid: ""
+        property string attemptBand: ""
         property bool attemptWasKnown: false
 
         readonly property real colMax: 720
@@ -508,13 +531,13 @@ Item {
             autoProc.running = true;
         }
 
-        // flip the NM backend. no-op if unchanged or already switching; the
-        // shipped polkit rule lets wheel run this via pkexec with no prompt.
+        // Flip the NM backend. The host seam validates the choice, escalates once,
+        // and delegates to the packaged helper.
         function setBackend(choice) {
             if (wifi.backendBusy || choice === wifi.wifiBackend)
                 return;
             wifi.backendBusy = true;
-            backendSetProc.command = ["pkexec", "ryoku-wifi-backend", choice];
+            backendSetProc.command = ["ryoku-host", "network", "wifi-backend", "set", choice];
             backendSetProc.running = true;
         }
 
@@ -561,18 +584,20 @@ Item {
             return I18n.tr("2.4 GHz");
         }
 
-        // the BSSID of the band the user picked for this SSID, or "" when none
-        // is picked (keep NM's own strongest-BSS choice).
-        function pickedBssid(ssid) {
+        // NetworkManager's band value for the band the user picked for this
+        // SSID: "a" (5 GHz), "bg" (2.4 GHz), or "" (none picked, or 6 GHz,
+        // which NM's band property cannot express). The join pins the profile
+        // to the band, never to one AP's BSSID: a BSSID pin stops the client
+        // roaming between the access points of the same network, which on a
+        // multi-AP 5 GHz network reads as a connect/disconnect loop.
+        function pickedBand(ssid) {
             var band = wifi.selectedBands[ssid];
             if (!band)
                 return "";
-            var entries = wifi.bandMap[ssid];
-            if (!entries)
-                return "";
-            for (var i = 0; i < entries.length; i++)
-                if (entries[i].band === band)
-                    return entries[i].bssid;
+            if (band === "5")
+                return "a";
+            if (band === "2.4")
+                return "bg";
             return "";
         }
 
@@ -603,9 +628,8 @@ Item {
             var secKnown = wifi.securityMap[ssid] !== undefined;
             if (wifi.knownProfiles[ssid] === true || (secKnown && !wifi.isSecured(ssid))) {
                 wifi.expandedSsid = "";
-                var bssid = wifi.pickedBssid(ssid);
-                if (bssid.length) {
-                    wifi.connectBand(ssid, bssid);
+                if (wifi.pickedBand(ssid).length) {
+                    wifi.connectBand(ssid);
                     return;
                 }
                 if (typeof net.connect === "function")
@@ -626,28 +650,26 @@ Item {
             wifi.connecting = true;
             wifi.connectFailed = false;
             wifi.attemptSsid = ssid;
+            wifi.attemptBand = wifi.pickedBand(ssid);
             wifi.attemptWasKnown = wifi.knownProfiles[ssid] === true;
             wifi.pendingPw = pw;
-            // a picked band joins its exact BSSID; an empty pick keeps the SSID
-            // so NM chooses the strongest AP (today's behaviour).
-            var bssid = wifi.pickedBssid(ssid);
-            connProc.command = ["nmcli", "--ask", "dev", "wifi", "connect", bssid.length ? bssid : ssid];
+            connProc.command = ["nmcli", "--ask", "dev", "wifi", "connect", ssid];
             connProc.running = true;
         }
 
-        // known/open join pinned to a band's BSSID. nmcli's connect target
-        // accepts a BSSID, so this reaches the exact AP instead of NM's
-        // strongest pick; it shares connProc's success and cleanup wiring and
-        // needs no password.
-        function connectBand(ssid, bssid) {
+        // known/open join pinned to a band. The profile is locked to the band
+        // after the join (nmcli's connect target takes no settings), never to
+        // one AP's BSSID, so the client still roams across the band.
+        function connectBand(ssid) {
             if (connProc.running)
                 return;
             wifi.connecting = true;
             wifi.connectFailed = false;
             wifi.attemptSsid = ssid;
+            wifi.attemptBand = wifi.pickedBand(ssid);
             wifi.attemptWasKnown = wifi.knownProfiles[ssid] === true;
             wifi.pendingPw = "";
-            connProc.command = ["nmcli", "dev", "wifi", "connect", bssid];
+            connProc.command = ["nmcli", "dev", "wifi", "connect", ssid];
             connProc.running = true;
         }
 
@@ -689,7 +711,7 @@ Item {
 
         Process {
             id: secProc
-            command: ["nmcli", "-t", "-f", "SSID,SECURITY,FREQ,BSSID", "dev", "wifi", "list"]
+            command: ["nmcli", "-t", "-f", "SSID,SECURITY,FREQ", "dev", "wifi", "list"]
             stdout: StdioCollector {
                 onStreamFinished: {
                     var secs = {};
@@ -699,7 +721,7 @@ Item {
                         if (!lines[i].length)
                             continue;
                         var f = wifi.terseFields(lines[i]);
-                        if (f.length < 4 || !f[0].length)
+                        if (f.length < 3 || !f[0].length)
                             continue;
                         secs[f[0]] = f[1];
                         var mhz = parseInt(f[2], 10);
@@ -713,10 +735,8 @@ Item {
                                 seen = true;
                                 break;
                             }
-                        // nmcli lists strongest first, so the first BSSID kept
-                        // for a band is that band's strongest AP.
                         if (!seen)
-                            entries.push({ band: band, bssid: f[3], freq: mhz });
+                            entries.push({ band: band, freq: mhz });
                         bands[f[0]] = entries;
                     }
                     for (var s in bands)
@@ -763,6 +783,12 @@ Item {
                     wifi.expandedSsid = "";
                     wifi.pwDraft = "";
                     wifi.connectFailed = false;
+                    if (wifi.attemptBand.length && wifi.attemptSsid.length) {
+                        bandProc.command = ["nmcli", "connection", "modify", wifi.attemptSsid,
+                            "802-11-wireless.band", wifi.attemptBand];
+                        bandProc.running = true;
+                        return;
+                    }
                     wifi.refresh();
                 } else {
                     wifi.connectFailed = true;
@@ -775,11 +801,22 @@ Item {
         }
 
         // a failed `nmcli dev wifi connect` leaves a profile named after the
-        // SSID (nmcli names it after the SSID even when the join used a BSSID),
-        // so the cleanup keys on attemptSsid, not the BSSID. without deleting it
-        // the next click reads the network as known and silently fails forever.
+        // SSID (nmcli names it after the SSID), so the cleanup keys on
+        // attemptSsid. without deleting it the next click reads the network as
+        // known and silently fails forever.
         Process {
             id: cleanupProc
+            onExited: wifi.refresh()
+        }
+
+        // lock the just-joined profile to the picked band. nmcli's `dev wifi
+        // connect` takes no settings, so the band rides on the profile after
+        // the join; the profile name equals the SSID (nmcli names it after the
+        // SSID), the same keying the autoconnect toggle uses.
+        Process {
+            id: bandProc
+            stdout: StdioCollector {}
+            stderr: StdioCollector {}
             onExited: wifi.refresh()
         }
 
@@ -803,10 +840,10 @@ Item {
             onTriggered: if (wifi.active) secProc.running = true
         }
 
-        // read the current NM Wi-Fi backend (read-only, unprivileged).
+        // Read the current NM Wi-Fi backend through the host seam.
         Process {
             id: backendGetProc
-            command: ["ryoku-wifi-backend", "get"]
+            command: ["ryoku-host", "network", "wifi-backend", "get"]
             stdout: StdioCollector {
                 onStreamFinished: {
                     var v = this.text.trim();
@@ -816,8 +853,8 @@ Item {
             }
         }
 
-        // apply the switch via pkexec; the polkit rule grants wheel passwordless.
-        // NetworkManager restarts, so on exit re-read state and, once it settles,
+        // Apply through the host seam. NetworkManager restarts, so on exit
+        // re-read state and, once it settles,
         // refresh + rescan so the list repopulates on the new backend.
         Process {
             id: backendSetProc
@@ -1090,8 +1127,8 @@ Item {
                             // band selector. a dual or tri-band SSID resolves to
                             // one BSSID per band, and NM's SSID join takes the
                             // strongest, which is the 2.4 GHz AP at any range.
-                            // picking a band pins the join to that band's BSSID;
-                            // single-band rows collapse this to nothing.
+                            // picking a band locks the saved profile to that
+                            // band, never to one AP, so the client still roams.
                             Item {
                                 id: bandRow
                                 readonly property var entries: wifi.bandMap[netItem.ssid] || []
@@ -1342,9 +1379,9 @@ Item {
 
     // ── Bluetooth subtab ─────────────────────────────────────────────────────
 
-    // adapter toggle, scan with 25s auto-stop, live device list. known devices
-    // use Quickshell's connect/disconnect; unpaired ones run bluetoothctl
-    // pair-trust-connect with a pairing pulse and a transient failure chip.
+    // Adapter toggle, scan with 25s auto-stop, and a live device list. Every
+    // disconnected row uses the shared pair-trust-connect helper so known and
+    // newly discovered devices follow the same BlueZ-safe sequence.
     component BtBody: Item {
         id: bt
 
@@ -1404,8 +1441,9 @@ Item {
             return Math.round(b);
         }
 
-        // row click: disconnect if connected, connect if paired, else run the
-        // bluetoothctl pair-trust-connect flow.
+        // A disconnected device always goes through the same helper. It skips
+        // pairing for an existing bond, but still stops discovery and repairs a
+        // stale bond when BlueZ can no longer bring it up.
         function activateDevice(d) {
             if (!d)
                 return;
@@ -1414,37 +1452,26 @@ Item {
                     d.disconnect();
                 return;
             }
-            if (d.paired) {
-                if (typeof d.connect === "function")
-                    d.connect();
-                return;
-            }
             bt.pairDevice(d);
         }
 
         function pairDevice(d) {
             if (!d || !d.address || pairProc.running)
                 return;
+            scanTimer.stop();
+            if (bt.adapter && bt.adapter.discovering)
+                bt.adapter.discovering = false;
             bt.pairingAddress = d.address;
             bt.failedAddress = "";
-            pairProc.command = ["sh", "-c",
-                'timeout 30 bluetoothctl pair "$1" && bluetoothctl trust "$1" && timeout 30 bluetoothctl connect "$1"',
-                "sh", d.address];
+            pairProc.command = ["ryoku-bluetooth-link", d.address];
             pairProc.running = true;
         }
 
-        // one entry point for the adapter toggle. a blocked radio is unblocked
-        // first (/dev/rfkill is seat-writable via systemd uaccess, no root), and
-        // powered on when the unblock lands; everything else is a plain flip.
+        // Keep the fresh-install default on, but persist every explicit choice.
         function setAdapterEnabled(v) {
             if (!bt.adapter)
                 return;
-            if (v && (bt.blocked || unblockProc.running)) {
-                if (!unblockProc.running)
-                    unblockProc.running = true;
-                return;
-            }
-            bt.adapter.enabled = v;
+            Quickshell.execDetached(["ryoku-bluetooth-power", v ? "on" : "off"]);
         }
 
         function startService() {
@@ -1490,18 +1517,12 @@ Item {
             }
         }
 
-        // rfkill unblock, then power the adapter once the radio is free.
-        Process {
-            id: unblockProc
-            command: ["rfkill", "unblock", "bluetooth"]
-            onExited: if (bt.adapter) bt.adapter.enabled = true
-        }
 
         // revive a stopped bluetoothd. pkexec raises the polkit prompt;
         // enable --now so it also survives the next boot.
         Process {
             id: svcProc
-            command: ["pkexec", "systemctl", "enable", "--now", "bluetooth.service"]
+            command: ["pkexec", "ryoku-host", "svc", "--system", "enable", "--now", "bluetooth"]
             stdout: StdioCollector {}
             stderr: StdioCollector {}
             onExited: function(exitCode) {
@@ -2144,7 +2165,7 @@ Item {
             }
             Text {
                 width: Math.min(parent.width, 720)
-                text: I18n.tr("Wi-Fi, Bluetooth and this machine's hotspot, applied live.")
+                text: I18n.tr("Wi-Fi, Bluetooth, hotspot and phone connections, applied live.")
                 color: Tokens.inkMuted; font.family: Tokens.ui
                 font.pixelSize: Tokens.fBody; wrapMode: Text.WordWrap
             }
@@ -2198,6 +2219,7 @@ Item {
                 anchors { right: parent.right; rightMargin: Tokens.s3; verticalCenter: parent.verticalCenter }
                 text: pg.killBusy ? I18n.tr("WORKING") : (pg.killState === "off" ? I18n.tr("ISOLATE") : I18n.tr("RESTORE"))
                 armed: !pg.killBusy && pg.killState !== "checking"
+                onBone: pg.killActive
                 onAct: pg.toggleKillSwitch()
             }
         }
@@ -2242,8 +2264,42 @@ Item {
                 top: tabStrip.bottom; bottom: parent.bottom
                 topMargin: Tokens.s5
             }
+            opacity: pg.sub === "phone" ? 0 : 1
+            x: pg.sub === "phone" ? -Tokens.s3 : 0
+            visible: opacity > 0.01
+            Behavior on opacity {
+                enabled: !Tokens.reduceMotion
+                NumberAnimation { duration: Tokens.durSmall; easing.type: Easing.OutCubic }
+            }
+            Behavior on x {
+                enabled: !Tokens.reduceMotion
+                NumberAnimation { duration: Tokens.durSmall; easing.type: Easing.OutCubic }
+            }
             sourceComponent: pg.sub === "wifi" ? wifiComp
-                : (pg.sub === "bluetooth" ? btComp : hsComp)
+                : pg.sub === "bluetooth" ? btComp : hsComp
+        }
+
+        Loader {
+            anchors {
+                left: parent.left
+                right: parent.right
+                top: tabStrip.bottom
+                bottom: parent.bottom
+                topMargin: Tokens.s5
+            }
+            active: pg.sub === "phone"
+            source: Qt.resolvedUrl("PhoneConnectionTab.qml")
+            opacity: pg.sub === "phone" ? 1 : 0
+            x: pg.sub === "phone" ? 0 : Tokens.s3
+            visible: opacity > 0.01
+            Behavior on opacity {
+                enabled: !Tokens.reduceMotion
+                NumberAnimation { duration: Tokens.durSmall; easing.type: Easing.OutCubic }
+            }
+            Behavior on x {
+                enabled: !Tokens.reduceMotion
+                NumberAnimation { duration: Tokens.durSmall; easing.type: Easing.OutCubic }
+            }
         }
 
     }

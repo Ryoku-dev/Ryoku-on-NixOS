@@ -5,8 +5,8 @@ package main
 // whatever else moves behind the socket) must be read and written THROUGH the
 // daemon, never by a second writer beside it: the daemon banks the user's
 // profile pick, restores it across reboots, and re-applies the Ryoku CPU
-// definition after power-profiles-daemon settles, and a raw
-// `powerprofilesctl set` from the Hub would skip all of that.
+// definition after the active provider settles. A second direct D-Bus writer
+// from the Hub would skip all of that.
 
 import (
 	"bufio"

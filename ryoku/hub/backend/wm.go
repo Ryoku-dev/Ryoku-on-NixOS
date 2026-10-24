@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	wm "ryoku-wm"
 )
@@ -13,7 +14,7 @@ import (
 // ryoku-hub wm is the neutral compositor-switch backend for the Hub. It answers
 // two questions and mutates nothing: which providers exist and their state
 // (list), and what a switch to one would cost (preview). The switch itself is
-// `ryoku wm use <name>`, a reversible pacman transaction the Hub launches, so
+// `ryoku wm use <name>`, a reversible package transaction the Hub launches, so
 // there is never a second package path with different rollback semantics.
 //
 //	wm list             every provider: name, package, installed, active, caps
@@ -39,9 +40,15 @@ func runWm(args []string) error {
 
 func wmPackage(name string) string { return "ryoku-desktop-" + name }
 
+func wmSelectable(packageAvailable, deployed bool) bool {
+	return packageAvailable || deployed
+}
+
 // wmDeployed reports whether a provider works without its package: its binary
-// answers caps and its config tree exists. Both must hold, since a provider
-// with no config tree would bring up a bare compositor.
+// answers caps, its config tree exists, and its greeter session is real (the
+// compositor is installed and a session entry exists). All three, because a
+// checkout deploys the first two and the switch would then promise a session
+// the greeter cannot boot.
 func wmDeployed(name string) bool {
 	if _, err := wm.OpenNamed(name).Caps(); err != nil {
 		return false
@@ -50,8 +57,10 @@ func wmDeployed(name string) bool {
 	if dir == "" {
 		return false
 	}
-	_, err := os.Stat(filepath.Join(configHome(), dir))
-	return err == nil
+	if _, err := os.Stat(filepath.Join(configHome(), dir)); err != nil {
+		return false
+	}
+	return wm.SessionReady(name)
 }
 
 // wmProvider is one row of `wm list`. Package and configDir travel with the row
@@ -62,25 +71,39 @@ type wmProvider struct {
 	Package   string `json:"package"`
 	ConfigDir string `json:"configDir"`
 	Installed bool   `json:"installed"`
-	// Deployed is true for a provider usable without its package, which is what
-	// a checkout leaves behind. A row that is deployed is switchable, so the
-	// Hub must not label it as missing.
+	// Available means the host repositories can install the variant package.
+	Available bool `json:"available"`
+	// Selectable also admits a complete checkout deployment. The Hub can switch
+	// to one without installing anything even when its package is not published
+	// for this host.
+	Selectable bool   `json:"selectable"`
+	Reason     string `json:"reason"`
+	// Deployed reports a provider usable without its package, which is what a
+	// checkout leaves behind.
 	Deployed bool     `json:"deployed"`
 	Active   bool     `json:"active"`
 	Caps     *wm.Caps `json:"caps,omitempty"`
 }
 
 func wmList() error {
-	active := wm.Detect().Name
+	detection := wm.Detect()
 	out := []wmProvider{}
 	for _, name := range wm.Providers() {
+		pkg := wmPackage(name)
+		available := pkgAvailable(pkg)
+		deployed := wmDeployed(name)
 		p := wmProvider{
-			Name:      name,
-			Package:   wmPackage(name),
-			ConfigDir: wm.ConfigDir(name),
-			Installed: pkgInstalled(wmPackage(name)),
-			Deployed:  wmDeployed(name),
-			Active:    name == active,
+			Name:       name,
+			Package:    pkg,
+			ConfigDir:  wm.ConfigDir(name),
+			Installed:  pkgInstalled(pkg),
+			Available:  available,
+			Selectable: wmSelectable(available, deployed),
+			Deployed:   deployed,
+			Active:     detection.Live && name == detection.Name,
+		}
+		if !p.Selectable {
+			p.Reason = pkgUnavailableReason(pkg)
 		}
 		// The manifest is present only when the provider binary is, so a box
 		// that has never installed a compositor still lists it as a target.
@@ -102,11 +125,11 @@ type wmPreviewReport struct {
 	Package   string `json:"package"`
 	ConfigDir string `json:"configDir"`
 	Installed bool   `json:"installed"`
-	Available bool   `json:"available"`
-	// Deployed means the target works without its package: its provider answers
-	// and its config tree is in place, which is what a checkout deploy leaves.
-	// Such a box switches by picking the session at the greeter, so the sheet
-	// must offer that instead of reporting a package it will never use.
+	// Available is package availability; Selectable additionally accepts a
+	// complete checkout deployment that needs no install.
+	Available  bool `json:"available"`
+	Selectable bool `json:"selectable"`
+	// Deployed reports that the provider works without its package.
 	Deployed     bool           `json:"deployed"`
 	KeybindCount int            `json:"keybindCount"`
 	Exact        bool           `json:"exact"`
@@ -126,14 +149,17 @@ func wmPreview(name string) error {
 		return fmt.Errorf("unknown compositor %q", name)
 	}
 	store := desktopStorePath()
+	available := pkgAvailable(wmPackage(name))
+	deployed := wmDeployed(name)
 	out := wmPreviewReport{
 		Target:       name,
 		Active:       wm.Detect().Name,
 		Package:      wmPackage(name),
 		ConfigDir:    wm.ConfigDir(name),
 		Installed:    pkgInstalled(wmPackage(name)),
-		Available:    pkgAvailable(wmPackage(name)),
-		Deployed:     wmDeployed(name),
+		Available:    available,
+		Selectable:   wmSelectable(available, deployed),
+		Deployed:     deployed,
 		KeybindCount: storeKeybindCount(store),
 		Unhonored:    []wm.Unhonored{},
 	}
@@ -148,9 +174,9 @@ func wmPreview(name string) error {
 		}
 	}
 	// What leaving the active compositor reclaims. Computed for the outgoing
-	// compositor, not the target, and best-effort: a box without pacman (or with
-	// no active compositor) simply carries no reclaim block and the sheet reads
-	// that as nothing to remove.
+	// compositor, not the target, and best-effort: a box without its package
+	// manager (or with no active compositor) simply carries no reclaim block and
+	// the sheet reads that as nothing to remove.
 	if out.Active != "" && out.Active != name {
 		if rs, err := wm.Reclaim(out.Active, name); err == nil {
 			out.Reclaim = &rs
@@ -168,10 +194,20 @@ func wmKnown(name string) bool {
 	return false
 }
 
-// pkgAvailable reports whether a package can be installed from a synced repo
-// (pacman -Si succeeds), so a target on a channel that does not carry it yet is
-// shown as unavailable instead of a switch that would fail at the transaction.
-func pkgAvailable(pkg string) bool { return exec.Command("pacman", "-Si", pkg).Run() == nil }
+// pkgAvailable reports whether the host's configured repositories provide a
+// package, so an unavailable target is shown honestly instead of offering a
+// switch whose transaction would fail.
+func pkgAvailable(pkg string) bool {
+	return exec.Command("ryoku-host", "pkg", "available", pkg).Run() == nil
+}
+
+func pkgUnavailableReason(pkg string) string {
+	out, err := exec.Command("ryoku-host", "pkg", "why", pkg).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
 
 // storeKeybindCount is the neutral keybind carry-over: the count `ryoku wm use`
 // prints, so the sheet says the same number. Zero when the store or field is

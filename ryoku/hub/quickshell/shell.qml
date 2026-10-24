@@ -63,8 +63,7 @@ ShellRoot {
         }
     }
 
-    // drive navigation from the CLI (`qs -c hub ipc call nav open <key>`):
-    // the QA loop and scripts jump straight to a section without a relaunch.
+    // Drive navigation from the CLI (`qs -c hub ipc call nav open <key>`).
     IpcHandler {
         target: "nav"
         function open(section: string): void { hubItem.navigate(section); }

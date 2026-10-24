@@ -14,8 +14,8 @@ let
   node = pkgs.nodejs_22;
 
   electron =
-    if pkgs ? electron_41
-    then pkgs.electron_41
+    if pkgs ? electron_43
+    then pkgs.electron_43
     else pkgs.electron;
 
   npmExact = pkgs.stdenvNoCC.mkDerivation {

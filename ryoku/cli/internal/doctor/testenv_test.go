@@ -12,7 +12,7 @@ import (
 // the Nix policy explicitly opt in with t.Setenv.
 func TestMain(m *testing.M) {
 	old, had := os.LookupEnv("RYOKU_UPDATE_BACKEND")
-	_ = os.Setenv("RYOKU_UPDATE_BACKEND", "arch")
+	_ = os.Setenv("RYOKU_UPDATE_BACKEND", "pacman")
 
 	code := m.Run()
 

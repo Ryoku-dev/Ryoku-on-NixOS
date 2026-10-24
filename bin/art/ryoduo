@@ -15,10 +15,11 @@ when a smooth bake looks flat.
 
 The tone becomes the alpha over a single bone colour, so a still is bone on a
 transparent ground and composites on any surface. Like ryodither it writes into
-the repo's ryoku/assets/ryodecors by default, so the installer, the ryoku-desktop
-package and `ryoku doctor` carry it to every ~/Pictures/ryodecors; reference the
-file by bare name in a Decor or Placard `art:`. See ryodither for the dithered
-treatment and the public-domain source list.
+the repo's ryoku/assets/ryodecors by default, so the installer, the
+ryoku-desktop package and `ryoku doctor` carry it to `ryodecors/` under every
+user's configured Pictures folder; reference the file by bare name in a Decor
+or Placard `art:`. See ryodither for the dithered treatment and the
+public-domain source list.
 
 Requires Pillow (`pip install pillow`).
 """

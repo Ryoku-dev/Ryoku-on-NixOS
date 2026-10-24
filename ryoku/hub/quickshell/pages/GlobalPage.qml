@@ -4,36 +4,48 @@ import Ryoku.Ui
 import Ryoku.Ui.Singletons
 import ".."
 import "../schema/GlobalPage.js" as GlobalSchema
+import "users" as Users
 
-// Global: the cross-cutting preferences that are not tied to one surface -- the
-// interface language, the regional formats used for dates and numbers, the
-// machine location, and the system font. Rendered through the shared SchemaPage;
-// the ledger and action bar belong to the shell.
+// Global: the cross-cutting preferences that are not tied to one surface:
+// language and regional formats, people, fonts, app icons, window treatment
+// and desktop sounds. The full account and sound blocks sit on their own tabs;
+// schema rows keep using the shared settings sheet.
 Item {
     id: pg
     property var hub
 
     readonly property string pTitle: I18n.tr("Global")
     readonly property string pEyebrow: I18n.tr("GLOBAL")
-    readonly property string pBlurb: I18n.tr("Language, regional formats, location and the system font.")
+    readonly property string pBlurb: I18n.tr("Language, regional formats, people, fonts, icons, window blur and sounds.")
+    readonly property string soundsTab: "Sounds"
+    readonly property string usersTab: I18n.tr("Users")
     function focusKey(k) { sp.focusKey(k) }
+    function resetDefaults() {
+        if (!pg.hub)
+            return;
+        for (var i = 0; i < pg.schema.length; i++) {
+            var key = pg.schema[i].key;
+            if (key && pg.hub.defs[key] !== undefined)
+                pg.hub.edit(key, JSON.parse(JSON.stringify(pg.hub.defs[key])));
+        }
+    }
 
-    // Installed font families, read live so the System font drawer offers exactly
-    // what this machine can render. Injected into the fontFamily row's options,
-    // so the shared "pick" control shows the searchable font list.
+    // Installed font families, read live so both font drawers offer exactly what
+    // this machine can render. Injected into the font rows' options so the shared
+    // "pick" control shows the searchable font list.
     property var fontList: []
-    // the live system time zone, read via timedatectl and injected into the
-    // timezone row (like fontList above); refreshed after an apply.
+    // the live system time zone, injected into the timezone row and refreshed
+    // after an apply.
     property string currentTimezone: ""
     readonly property var schema: {
         var out = [];
         for (var i = 0; i < GlobalSchema.rows.length; i++) {
             var r = GlobalSchema.rows[i];
-            if (r.key === "fontFamily" || r.key === "timezone") {
+            if (r.key === "fontFamily" || r.key === "terminalFontFamily" || r.key === "timezone") {
                 var c = {};
                 for (var k in r)
                     c[k] = r[k];
-                if (r.key === "fontFamily") c.opts = pg.fontList;
+                if (r.key === "fontFamily" || r.key === "terminalFontFamily") c.opts = pg.fontList;
                 else c.tzCurrent = pg.currentTimezone;
                 out.push(c);
             } else {
@@ -58,7 +70,7 @@ Item {
     function readTz() { tzRead.running = false; tzRead.running = true; }
     function applyTimezone(z) {
         if (!z) return;
-        tzApply.command = ["timedatectl", "set-timezone", z];
+        tzApply.command = ["ryoku-host", "time", "set-zone", z];
         tzApply.running = false;
         tzApply.running = true;
         tzMap.close();
@@ -75,15 +87,23 @@ Item {
     }
     Process {
         id: tzRead
-        command: ["timedatectl", "show", "-p", "Timezone", "--value"]
+        command: ["ryoku-host", "time", "zone"]
         stdout: StdioCollector { onStreamFinished: pg.currentTimezone = ("" + text).trim() }
     }
     Process {
         id: shellRestart
-        command: ["systemctl", "--user", "restart", "ryoku-shell.service"]
+        command: ["ryoku-host", "svc", "restart", "ryoku-shell"]
+        onExited: function(code) {
+            if (code === 4) {
+                shellReload.running = false;
+                shellReload.running = true;
+            }
+        }
     }
-    // set-timezone talks to systemd-timedated over D-Bus; the shipped polkit
-    // rule authorises it for the active user, so no password prompt.
+    Process {
+        id: shellReload
+        command: ["ryoku-shell", "reload"]
+    }
     Process {
         id: tzApply
         stdout: StdioCollector { onStreamFinished: pg.applyDone() }
@@ -105,6 +125,56 @@ Item {
         onEdited: (k, v) => { if (pg.hub) pg.hub.edit(k, v); }
         onPickRequested: (r) => { if (pg.hub) pg.hub.openPick(r); }
         onTimezonePickRequested: (r) => tzMap.open()
+        // Sounds and user accounts are full blocks rather than schema rows, so
+        // each gets a tab of its own.
+        tailTabs: [pg.soundsTab, pg.usersTab]
+
+        IconThemeSettings {
+            id: iconThemes
+            width: sp.cardWidth
+            visible: sp.tab === "Region & fonts"
+            onPickRequested: {
+                iconPickerLayer.visible = true;
+                iconPicker.open();
+            }
+        }
+
+        SoundsSettings {
+            width: parent.width
+            visible: sp.tab === pg.soundsTab
+        }
+
+        Users.UsersTab {
+            width: parent.width
+            visible: sp.tab === pg.usersTab
+        }
+    }
+
+    Item {
+        id: iconPickerLayer
+        anchors.fill: parent
+        visible: false
+        z: 800
+
+        Rectangle {
+            anchors.fill: parent
+            color: "black"
+            opacity: 0.55
+            TapHandler { onTapped: iconPickerLayer.visible = false }
+        }
+        Picker {
+            id: iconPicker
+            anchors.centerIn: parent
+            title: I18n.tr("ICON THEME")
+            options: iconThemes.options
+            labels: iconThemes.labels
+            current: iconThemes.current
+            onChose: (theme) => {
+                iconThemes.apply(theme);
+                iconPickerLayer.visible = false;
+            }
+            onDismissed: iconPickerLayer.visible = false
+        }
     }
 
     TimezoneMap {

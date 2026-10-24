@@ -63,6 +63,9 @@ Singleton {
     function hold(owner, on) {
         root.owners = MenuPoll.setOwnership(root.owners, owner, on);
     }
+    function holdClock(owner, on) {
+        root.hold(owner, on);
+    }
 
     // ── the playback clock ───────────────────────────────────────────────────
     // `anchor` is the last position MPRIS reported and `anchorMs` when it
@@ -73,6 +76,8 @@ Singleton {
     readonly property var player: Media.player
     readonly property bool playing: Media.playing
     readonly property real length: root.player && root.player.length > 0 ? root.player.length : 0
+    readonly property real position: root.elapsed
+    readonly property real duration: root.length
 
     function reanchor(pos) {
         root.anchor = Math.max(0, pos);
@@ -92,6 +97,9 @@ Singleton {
         const target = Math.max(0, Math.min(seconds, root.length > 0 ? root.length : seconds));
         root.player.position = target;
         root.reanchor(target);
+    }
+    function seekPosition(seconds) {
+        root.seek(seconds);
     }
 
     onPlayingChanged: root.reanchor(root.estimate())

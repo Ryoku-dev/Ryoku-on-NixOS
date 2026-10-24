@@ -35,7 +35,7 @@ Item {
         if (wsWidget.dynamicModel) {
             var live = []
             var lw = Wm.workspaces
-            for (var k = 0; k < lw.length; k++) if (!lw[k].special) live.push(Wm.workspaceKey(lw[k]))
+            for (var k = 0; k < lw.length; k++) if (!lw[k].special) live.push(lw[k].name)
             return live
         }
         if (root.workspaceMode === "active") {
@@ -56,7 +56,7 @@ Item {
     //    runner pacman travels from the old cell to the new one, chomping as it
     //    goes; the destination pellet is eaten (fades/shrinks) as it arrives. ──
     readonly property string focusedWorkspaceKey: Wm.focusedWorkspace
-        && !Wm.focusedWorkspace.special ? Wm.workspaceKey(Wm.focusedWorkspace) : ""
+        && !Wm.focusedWorkspace.special ? Wm.focusedWorkspace.name : ""
 
     property string pacmanLastFocusedWorkspaceKey: ""
     property string pacmanTargetWorkspaceKey: ""
@@ -194,20 +194,16 @@ Item {
                 id: wsCell
                 required property var modelData
                 readonly property string wsKey: String(modelData)
-                readonly property string wsLabel: {
-                    const ws = Wm.workspaceByKey(wsKey);
-                    return ws ? ws.name : wsKey;
-                }
 
                 // hover feedback works in every style (the old code scaled the
                 // default-only `dot`, invisible in numbers/magic)
                 Behavior on scale { NumberAnimation { duration: 120 } }
 
                 readonly property bool isFocused: Wm.focusedWorkspace !== null
-                                               && Wm.workspaceKey(Wm.focusedWorkspace) === wsKey
+                                               && Wm.focusedWorkspace.name === wsKey
 
                 readonly property bool isOccupied: {
-                    var w = Wm.workspaceByKey(wsKey)
+                    var w = Wm.workspaceByName(wsKey)
                     return !!w && w.occupied && !isFocused
                 }
 
@@ -275,7 +271,7 @@ Item {
                     Behavior on color { ColorAnimation { duration: 200 } }
                     Text {
                         anchors.centerIn: parent
-                        text: wsLabel
+                        text: wsKey
                         // focused = the only BRIGHT digit (lightened seal + bold + bigger);
                         // others dimmed so the active workspace is unmistakable
                         color: isFocused  ? wsWidget.contentColor
@@ -312,9 +308,9 @@ Item {
                 Text {
                     visible: root.workspaceStyle === "kanji"
                     anchors.centerIn: parent
-                    text: (Number(wsLabel) >= 1 && Number(wsLabel) <= 10)
-                        ? ["一","二","三","四","五","六","七","八","九","十"][Number(wsLabel) - 1]
-                        : wsLabel
+                    text: (Number(wsKey) >= 1 && Number(wsKey) <= 10)
+                        ? ["一","二","三","四","五","六","七","八","九","十"][Number(wsKey) - 1]
+                        : wsKey
                     color: isFocused  ? wsWidget.contentColor
                          : isOccupied ? Qt.rgba(wsWidget.contentColor.r, wsWidget.contentColor.g, wsWidget.contentColor.b, 0.7)
                                       : Qt.rgba(wsWidget.contentColor.r, wsWidget.contentColor.g, wsWidget.contentColor.b, 0.3)
@@ -332,7 +328,7 @@ Item {
                     id: frameLabel
                     visible: root.workspaceStyle === "rings"
                     anchors.centerIn: parent
-                    text: wsLabel
+                    text: wsKey
                     color: wsWidget.contentColor
                     opacity: wsMa.containsMouse ? 1.0
                         : isFocused ? 1.0
@@ -436,7 +432,7 @@ Item {
         readonly property int targetIndex: {
             var focused = Wm.focusedWorkspace
             if (!focused || focused.special) return -1
-            return wsWidget.workspaceList.indexOf(Wm.workspaceKey(focused))
+            return wsWidget.workspaceList.indexOf(focused.name)
         }
         readonly property real targetLeft: targetIndex >= 0
             ? wsRow.x + targetIndex * (20 + wsRow.spacing) + 1 : 0

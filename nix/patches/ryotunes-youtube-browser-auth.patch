@@ -1,0 +1,200 @@
+diff --git a/crates/ryotunesd/src/browser_auth.rs b/crates/ryotunesd/src/browser_auth.rs
+index 3814f49..c07e081 100644
+--- a/crates/ryotunesd/src/browser_auth.rs
++++ b/crates/ryotunesd/src/browser_auth.rs
+@@ -22,0 +23 @@ use rusqlite::{Connection, OpenFlags};
++use ryotunes_core::host::LoginResult;
+@@ -49 +50 @@ pub struct Store {
+-pub fn open_in_default_browser() -> bool {
++fn open_url_in_default_browser(url: &str, service: &str) -> bool {
+@@ -52 +53 @@ pub fn open_in_default_browser() -> bool {
+-        .arg(SIGN_IN_URL)
++        .arg(url)
+@@ -66 +67 @@ pub fn open_in_default_browser() -> bool {
+-            tracing::warn!(error = %error, "could not launch the default browser for SoundCloud sign-in");
++            tracing::warn!(error = %error, service, "could not launch the default browser for sign-in");
+@@ -71,0 +73,8 @@ pub fn open_in_default_browser() -> bool {
++pub fn open_in_default_browser() -> bool {
++    open_url_in_default_browser(SIGN_IN_URL, "soundcloud")
++}
++
++pub fn open_youtube_in_default_browser() -> bool {
++    open_url_in_default_browser("https://music.youtube.com/", "youtube")
++}
++
+@@ -82 +91 @@ fn import_from(stores: &[Store]) -> Option<SoundcloudAuth> {
+-        if !changed_since_last_look(&store.path) {
++        if !changed_since_last_look(&store.path, "soundcloud") {
+@@ -101,3 +110,4 @@ fn import_from(stores: &[Store]) -> Option<SoundcloudAuth> {
+-fn changed_since_last_look(path: &Path) -> bool {
+-    static SEEN: std::sync::LazyLock<parking_lot::Mutex<BTreeMap<PathBuf, (i64, i64)>>> =
+-        std::sync::LazyLock::new(|| parking_lot::Mutex::new(BTreeMap::new()));
++fn changed_since_last_look(path: &Path, scope: &'static str) -> bool {
++    static SEEN: std::sync::LazyLock<
++        parking_lot::Mutex<BTreeMap<(PathBuf, &'static str), (i64, i64)>>,
++    > = std::sync::LazyLock::new(|| parking_lot::Mutex::new(BTreeMap::new()));
+@@ -116 +126,2 @@ fn changed_since_last_look(path: &Path) -> bool {
+-    if seen.get(path) == Some(&current) {
++    let key = (path.to_path_buf(), scope);
++    if seen.get(&key) == Some(&current) {
+@@ -119 +130 @@ fn changed_since_last_look(path: &Path) -> bool {
+-    seen.insert(path.to_path_buf(), current);
++    seen.insert(key, current);
+@@ -143,0 +155,66 @@ pub fn harvest(cookies: Vec<(String, String, String)>) -> Option<SoundcloudAuth>
++
++/// Import a YouTube Music web session from the user's real browser.
++///
++/// Only youtube.com cookies are returned. The core still validates the resulting cookie against
++/// YouTube before persisting it, so stale browser sessions fail closed rather than becoming a
++/// half-authenticated Ryotunes account.
++pub fn import_youtube_any() -> Option<LoginResult> {
++    for store in discover() {
++        if !changed_since_last_look(&store.path, "youtube") {
++            continue;
++        }
++        let cookies = match store.kind {
++            Kind::Gecko => read_gecko_domain(&store.path, "youtube.com"),
++            Kind::Chromium => read_chromium_domain(&store.path, "youtube.com"),
++        };
++        let Some(cookies) = cookies else { continue };
++        let pairs = youtube_cookie_pairs(cookies);
++        let header =
++            pairs.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; ");
++        if innertube::cookie_sapisid(&header).is_some() {
++            tracing::info!(store = %store.path.display(), "imported a YouTube Music session from the browser");
++            return Some(LoginResult { cookies: pairs, authuser: 0 });
++        }
++    }
++    None
++}
++
++const YOUTUBE_AUTH_COOKIES: &[&str] = &[
++    "APISID",
++    "HSID",
++    "LOGIN_INFO",
++    "SAPISID",
++    "SID",
++    "SIDCC",
++    "SSID",
++    "__Secure-1PAPISID",
++    "__Secure-1PSID",
++    "__Secure-1PSIDCC",
++    "__Secure-1PSIDTS",
++    "__Secure-3PAPISID",
++    "__Secure-3PSID",
++    "__Secure-3PSIDCC",
++    "__Secure-3PSIDTS",
++];
++
++fn youtube_cookie_pairs(cookies: Vec<(String, String, String)>) -> Vec<(String, String)> {
++    let mut cookies: Vec<(String, String, String)> = cookies
++        .into_iter()
++        .filter(|(name, _, _)| YOUTUBE_AUTH_COOKIES.contains(&name.as_str()))
++        .map(|(name, value, domain)| {
++            let domain = domain.strip_prefix('.').map(str::to_owned).unwrap_or(domain);
++            (name, value, domain)
++        })
++        .collect();
++    // Browser precedence: a more-specific music.youtube.com cookie wins over a broad
++    // .youtube.com cookie with the same name.
++    cookies.sort_by_key(|(_, _, domain)| domain.len());
++    let mut jar = BTreeMap::new();
++    for (name, value, domain) in cookies {
++        if domain == "youtube.com" || domain.ends_with(".youtube.com") {
++            jar.insert(name, value);
++        }
++    }
++    jar.into_iter().collect()
++}
++
+@@ -321,0 +399,43 @@ fn read_chromium(path: &Path) -> Option<Vec<(String, String, String)>> {
++
++fn read_gecko_domain(path: &Path, domain: &str) -> Option<Vec<(String, String, String)>> {
++    let (_dir, connection) = copy_and_open(path)?;
++    let pattern = format!("%{domain}");
++    let mut statement = connection
++        .prepare("SELECT name, value, host FROM moz_cookies WHERE host LIKE ?1")
++        .ok()?;
++    let rows = statement
++        .query_map(rusqlite::params![pattern], |row| {
++            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
++        })
++        .ok()?;
++    Some(rows.flatten().collect())
++}
++
++fn read_chromium_domain(path: &Path, domain: &str) -> Option<Vec<(String, String, String)>> {
++    let (_dir, connection) = copy_and_open(path)?;
++    let pattern = format!("%{domain}");
++    let mut statement = connection
++        .prepare(
++            "SELECT name, host_key, encrypted_value, value FROM cookies WHERE host_key LIKE ?1",
++        )
++        .ok()?;
++    let rows = statement
++        .query_map(rusqlite::params![pattern], |row| {
++            Ok((
++                row.get::<_, String>(0)?,
++                row.get::<_, String>(1)?,
++                row.get::<_, Vec<u8>>(2)?,
++                row.get::<_, Vec<u8>>(3)?,
++            ))
++        })
++        .ok()?;
++    let mut out = Vec::new();
++    for row in rows.flatten() {
++        let (name, host, encrypted, plain) = row;
++        if let Some(value) = chromium_value(&encrypted, &plain, &host) {
++            out.push((name, value, host));
++        }
++    }
++    Some(out)
++}
++
+@@ -404,0 +525,20 @@ mod tests {
++
++    #[test]
++    fn youtube_harvest_keeps_only_youtube_and_requires_sapisid() {
++        let pairs = youtube_cookie_pairs(vec![
++            ("SAPISID".into(), "secret".into(), ".youtube.com".into()),
++            ("SID".into(), "sid".into(), ".youtube.com".into()),
++            ("PREF".into(), "broad".into(), ".youtube.com".into()),
++            ("PREF".into(), "specific".into(), "music.youtube.com".into()),
++            ("SAPISID".into(), "google".into(), ".google.com".into()),
++            ("ST-huge".into(), "x".repeat(4096), ".youtube.com".into()),
++        ]);
++        let header =
++            pairs.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; ");
++        assert_eq!(innertube::cookie_sapisid(&header), Some("secret"));
++        assert!(!header.contains("PREF="));
++        assert!(!header.contains("ST-huge"));
++        assert!(!header.contains("google"));
++        assert!(header.len() < 2048);
++    }
++
+diff --git a/crates/ryotunesd/src/login.rs b/crates/ryotunesd/src/login.rs
+index 21bf1b3..46672b6 100644
+--- a/crates/ryotunesd/src/login.rs
++++ b/crates/ryotunesd/src/login.rs
+@@ -44,0 +45,19 @@ impl LoginFlow for GtkLogin {
++        // Google rejects embedded user-agents for account sign-in. Always hand authentication to
++        // the user's real browser first, then import only the small YouTube auth-cookie set. The
++        // core still validates the session before it is persisted.
++        if crate::browser_auth::open_youtube_in_default_browser() {
++            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(300);
++            while tokio::time::Instant::now() < deadline {
++                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
++                if let Ok(Some(result)) =
++                    tokio::task::spawn_blocking(crate::browser_auth::import_youtube_any).await
++                {
++                    return Ok(result);
++                }
++            }
++            return Err(LoginError::Failed(
++                "No YouTube Music sign-in was detected in your browser.".into(),
++            ));
++        }
++
++        // Last-resort compatibility path for systems without xdg-open/browser profile access.
+@@ -48 +66,0 @@ impl LoginFlow for GtkLogin {
+-        // The sender is dropped when the window is torn down without resolving → cancelled.

@@ -24,26 +24,78 @@ const wpDropInDir = "wireplumber/wireplumber.conf.d"
 
 var ryokuDropIn = regexp.MustCompile(`^[0-9]+-ryoku-[^/]*\.conf$`)
 
+type iniProjection struct {
+	section string
+	key     string
+}
+
+var iconThemeProjections = map[string]iniProjection{
+	"gtk-3.0/settings.ini": {"Settings", "gtk-icon-theme-name"},
+	"gtk-4.0/settings.ini": {"Settings", "gtk-icon-theme-name"},
+	"qt6ct/qt6ct.conf":     {"Appearance", "icon_theme"},
+}
+
+// stripINIProjection removes the one line Ryoku derives from icon-theme state.
+// Comparing the remaining bytes keeps that projection from looking like a
+// whole-file user fork while preserving every unrelated edit.
+func stripINIProjection(body []byte, projection iniProjection) []byte {
+	lines := bytes.SplitAfter(body, []byte{'\n'})
+	out := make([]byte, 0, len(body))
+	section := ""
+	removed := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(string(line))
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			section = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "["), "]"))
+		}
+		if !removed && section == projection.section &&
+			!strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, ";") {
+			if key, _, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(key) == projection.key {
+				removed = true
+				continue
+			}
+		}
+		out = append(out, line...)
+	}
+	return out
+}
+
+// A picked icon theme is durable state under ~/.config/ryoku, while its GTK
+// and Qt projections are managed files refreshed during materialize. Reapply
+// after the base and user overlay land, then hash projected files without the
+// derived key so a later Hub choice never looks like a hand-edited fork.
+var reapplyIconTheme = func(configHome string) error {
+	if !sys.Exists(filepath.Join(configHome, "ryoku", "icon-theme")) {
+		return nil
+	}
+	return exec.Command("ryoku-hub", "desktop", "icon-theme", "apply").Run()
+}
+
 // generatedSeed: base files seeded once on a fresh install, then never
 // clobbered or pruned by an update. The machine owns them after first boot.
 // Two kinds qualify: per-machine files the runtime regenerates (monitors.lua,
-// gpu.lua; kitty/current-theme.conf, which matugen rewrites from the wallpaper)
-// and user-owned config the package only seeds a starting point for
-// (keyboard.lua; hypr/user.lua, seeded with a header so a hand-edit sticks;
-// fastfetch/config.jsonc, which has no include mechanism, so direct edits
-// are the only way to customize the readout).
-// Slash-separated paths, relative to the config base. Most are also in
-// sys.LiveOwnedConfig so the overlay never re-lays a frozen copy over a file
-// edited in place; ghostty/config is the exception -- it is a seed the user may
-// instead fork through the overlay, so it stays overlay-able (not live-owned).
+// gpu.lua; Matugen's app palette siblings) and user-owned config the package
+// only seeds a starting point for (keyboard.lua; hypr/user.lua;
+// fastfetch/config.jsonc; the Starship layout selected in the Hub; the Vencord
+// settings of Vesktop and Equibop, which enable the shipped Ryoku Discord theme
+// until the client writes its own). Slash-separated paths, relative to the
+// config base. Most are also in sys.LiveOwnedConfig so the overlay never re-lays
+// a frozen copy over a file edited in place; ghostty/config is the exception --
+// it is a seed the user may instead fork through the overlay, so it stays
+// overlay-able (not live-owned).
 var generatedSeed = generatedSeedSet()
 
 func generatedSeedSet() map[string]bool {
 	seed := map[string]bool{
-		"fastfetch/config.jsonc":   true,
-		"kitty/current-theme.conf": true,
-		"ghostty/config":           true,
-		"ghostty/ryoku-colors":     true,
+		"fastfetch/config.jsonc":         true,
+		"fastfetch/ryoku-colors.json":    true,
+		"starship.toml":                  true,
+		"starship/ryoku-colors.toml":     true,
+		"kitty/current-theme.conf":       true,
+		"ghostty/config":                 true,
+		"ghostty/ryoku-colors":           true,
+		"vesktop/settings/settings.json": true,
+		"equibop/settings/settings.json": true,
 	}
 	// Every provider's per-machine files are seeded and kept regardless of which
 	// compositor is running, so an update under one never prunes another's. The
@@ -87,6 +139,82 @@ func keepsSwitchedAwayTree(rel string, shipped map[string]bool) bool {
 		return false
 	}
 	return !shipped[dir]
+}
+
+// applyProvider renders one provider's generated config from the neutral
+// store; a var so tests stub the provider binary away.
+var applyProvider = func(name, store string) error {
+	_, err := wm.OpenNamed(name).Apply(store)
+	return err
+}
+
+// providerInstalled reports whether a laid-down tree still has its provider
+// binary. Switched-away trees stay in place after their variant is removed, but
+// without the binary there is nothing to render. A var so tests stub the lookup.
+var providerInstalled = func(name string) bool {
+	return wm.OpenNamed(name).Available()
+}
+
+// applyGenerated completes every laid-down provider tree. Packages ship the
+// static half, while each provider owns files rendered from the neutral store.
+// A missing generated file can make the target reject its config at login, and
+// a whole-file render composed from an older shipped baseline can keep an
+// otherwise complete tree on obsolete defaults. Materialize is shared by login
+// bootstrap, switching and updates, so it repairs both states here.
+//
+// Render marks are provider-declared through the seam. They also distinguish a
+// managed user_edits mirror from a whole-file fork: a fork is never replaced
+// merely because the shipped baseline changed. Provider failures remain best
+// effort, so an unavailable binary leaves its tree untouched instead of failing
+// the complete materialize.
+//
+// A missing neutral store is not a reason to skip the first render. The
+// installer only seeds desktop.json for a non-default keyboard, and providers
+// render defaults from an unreadable store path. An unmarked user_edits copy
+// still has an owner, so without a store it is left alone rather than replaced
+// with provider defaults.
+func applyGenerated(configHome string) {
+	store := filepath.Join(configHome, "ryoku", "desktop.json")
+	hasStore := sys.Exists(store)
+	base := sys.BaseConfigDir()
+	for _, name := range wm.Providers() {
+		dir := wm.ConfigDir(name)
+		if dir == "" || !sys.Exists(filepath.Join(configHome, dir)) {
+			continue // tree not laid down: nothing to complete
+		}
+		if !providerInstalled(name) {
+			continue // switched-away tree has no renderer
+		}
+		missing := false
+		authored := false
+		for _, rel := range wm.GeneratedConfig(name) {
+			if d, _, ok := strings.Cut(rel, "/"); !ok || d != dir {
+				// A provider render in user_edits is its managed mirror. Anything
+				// else is a fork whose bytes materialize must not replace.
+				path := filepath.Join(configHome, rel)
+				if sys.Exists(path) {
+					body, err := os.ReadFile(path)
+					if err != nil || !wm.GeneratedConfigIsRender(name, body) {
+						authored = true
+					}
+				}
+				continue
+			}
+			if !sys.Exists(filepath.Join(configHome, rel)) {
+				missing = true
+			}
+		}
+		stale := wm.GeneratedConfigStale(name, base, configHome)
+		if !missing && !stale {
+			continue
+		}
+		if authored && (!hasStore || stale) {
+			continue
+		}
+		if err := applyProvider(name, store); err != nil {
+			fmt.Printf(i18n.T("note: could not render %s's generated config (%v); run `ryoku doctor` inside a %s session\n"), name, err, name)
+		}
+	}
 }
 
 // Materialize lays the Ryoku-owned base configs into the user's ~/.config,
@@ -139,6 +267,7 @@ func Materialize() error {
 	// nor what this one ships was edited by hand; it becomes a fork under the
 	// overlay instead of being thrown away.
 	laidHashes := readManifestHashes(state)
+	iconThemeState := sys.Exists(filepath.Join(dest, "ryoku", "icon-theme"))
 	overlaid := map[string]bool{}
 	if rels, err := sys.UserEditFiles(); err == nil {
 		for _, rel := range rels {
@@ -171,7 +300,16 @@ func Materialize() error {
 		if forkable(rel) && !overlaid[rel] {
 			if laid, ok := laidHashes[rel]; ok {
 				if live, err := os.ReadFile(dst); err == nil {
-					if h := hashBytes(live); h != laid && h != hashes[rel] {
+					h := hashBytes(live)
+					untouched := h == laid || h == hashes[rel]
+					if !untouched && iconThemeState {
+						if projection, ok := iconThemeProjections[rel]; ok {
+							strippedLive := hashBytes(stripINIProjection(live, projection))
+							strippedShipped := hashBytes(stripINIProjection(shipped, projection))
+							untouched = strippedLive == laid || strippedLive == strippedShipped
+						}
+					}
+					if !untouched {
 						if err := sys.CopyFile(dst, filepath.Join(sys.UserEditsDir(), rel)); err != nil {
 							return fmt.Errorf(i18n.T("keep your edit of %s: %w"), rel, err)
 						}
@@ -229,8 +367,8 @@ func Materialize() error {
 	// retiredKeep: a path Ryoku used to lay into ~/.config and deliberately
 	// stopped shipping. The manifest prune would delete the user's copy, which
 	// for mimeapps.list means throwing away every default app they picked, the
-	// exact damage that moving Ryoku's map to the vendor layer
-	// (/usr/share/applications/mimeapps.list) exists to stop. `ryoku doctor`
+	// exact damage that moving Ryoku's map to the site layer
+	// (/usr/local/share/applications/mimeapps.list) exists to stop. `ryoku doctor`
 	// strips the stale Ryoku lines out of it instead.
 	retiredKeep := map[string]bool{"mimeapps.list": true}
 
@@ -260,8 +398,12 @@ func Materialize() error {
 	if err := overlayUserEdits(dest); err != nil {
 		return err
 	}
+	_ = reapplyIconTheme(dest)
 	for _, rel := range managed {
 		if live, err := os.ReadFile(filepath.Join(dest, rel)); err == nil {
+			if projection, ok := iconThemeProjections[rel]; ok && iconThemeState {
+				live = stripINIProjection(live, projection)
+			}
 			hashes[rel] = hashBytes(live)
 		}
 	}
@@ -270,7 +412,7 @@ func Materialize() error {
 	}
 	wirePlumberAfter, _ := os.ReadFile(filepath.Join(dest, wirePlumberPolicyRel))
 	if wpConfigPruned || !bytes.Equal(wirePlumberBefore, wirePlumberAfter) {
-		_ = exec.Command("systemctl", "--user", "try-restart", "wireplumber.service").Run()
+		_ = service("--user", "try-restart", "wireplumber.service")
 	}
 	fmt.Printf(i18n.T("materialized %d files -> %s\n"), len(managed), dest)
 	if len(kept) > 0 {
@@ -279,6 +421,7 @@ func Materialize() error {
 			fmt.Printf("  %s\n", rel)
 		}
 	}
+	applyGenerated(dest)
 	return nil
 }
 

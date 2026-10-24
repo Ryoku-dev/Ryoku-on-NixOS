@@ -84,7 +84,12 @@ func skillFrontmatter(path string) (name, desc, version string) {
 	if err != nil {
 		return "", "", ""
 	}
-	s := string(b)
+	return parseFrontmatter(string(b))
+}
+
+// parseFrontmatter pulls name/description/version from SKILL.md text. Shared
+// by the hermes report and the cross-harness scan.
+func parseFrontmatter(s string) (name, desc, version string) {
 	if !strings.HasPrefix(s, "---") {
 		return "", "", ""
 	}
@@ -265,9 +270,10 @@ type MemoryReport struct {
 		JournalDays   int      `json:"journalDays"`
 		Preview       []string `json:"preview,omitempty"`
 	} `json:"learned"`
-	Graph    GraphModel     `json:"graph"`
-	Heatmap  []HeatmapDay   `json:"heatmap"`
-	Sessions []SessionEntry `json:"sessions"`
+	Graph        GraphModel     `json:"graph"`
+	Heatmap      []HeatmapDay   `json:"heatmap"`
+	Sessions     []SessionEntry `json:"sessions"`
+	SessionsNote string         `json:"sessionsNote,omitempty"`
 }
 
 // memoryEntries splits a hermes memory file into its curated entries. The
@@ -508,24 +514,28 @@ func buildHeatmap(sessions []SessionEntry) []HeatmapDay {
 	return out
 }
 
-// hermesSessions reads session metadata from ~/.hermes/state.db via the
-// sqlite3 CLI (base install on Arch), read-only so the live daemon's WAL
-// handle is never disturbed. Missing sqlite3 or db degrades to empty.
+// hermesSessions reads session metadata from ~/.hermes/state.db without
+// disturbing the live daemon's WAL handle.
 func hermesSessions(limit int) []SessionEntry {
+	entries, _ := hermesSessionReport(limit)
+	return entries
+}
+
+func hermesSessionReport(limit int) ([]SessionEntry, string) {
 	db := filepath.Join(home(), ".hermes", "state.db")
 	if !fileExists(db) {
-		return nil
+		return nil, ""
 	}
 	bin, err := exec.LookPath("sqlite3")
 	if err != nil {
-		return nil
+		return nil, "session metadata unavailable: sqlite3 is not installed"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	q := "SELECT id, COALESCE(title,'') AS title, COALESCE(model,'') AS model, message_count, started_at, source FROM sessions WHERE archived IS NOT 1 ORDER BY started_at DESC LIMIT " + itoa(limit)
 	out, err := exec.CommandContext(ctx, bin, "-readonly", "-json", "file:"+db+"?mode=ro", q).Output()
 	if err != nil || len(out) == 0 {
-		return nil
+		return nil, ""
 	}
 	var rows []struct {
 		ID       string  `json:"id"`
@@ -536,7 +546,7 @@ func hermesSessions(limit int) []SessionEntry {
 		Source   string  `json:"source"`
 	}
 	if json.Unmarshal(out, &rows) != nil {
-		return nil
+		return nil, ""
 	}
 	entries := make([]SessionEntry, 0, len(rows))
 	for _, r := range rows {
@@ -546,7 +556,7 @@ func hermesSessions(limit int) []SessionEntry {
 			Source:    r.Source,
 		})
 	}
-	return entries
+	return entries, ""
 }
 
 func MemoryReportNow() MemoryReport {
@@ -589,7 +599,7 @@ func MemoryReportNow() MemoryReport {
 		}
 	}
 
-	rep.Sessions = hermesSessions(50)
+	rep.Sessions, rep.SessionsNote = hermesSessionReport(50)
 	rep.Graph = buildMemoryGraph()
 	rep.Heatmap = buildHeatmap(rep.Sessions)
 	return rep

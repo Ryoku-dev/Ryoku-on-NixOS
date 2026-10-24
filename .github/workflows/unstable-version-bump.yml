@@ -34,6 +34,14 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Workflow/release maintenance sometimes needs to refresh automation
+          # without inventing a new product version. An explicit marker keeps that
+          # push visible to Actions while leaving VERSION untouched.
+          if git log -1 --format=%B | grep -Fq '[no version bump]'; then
+            echo "Commit requested no version bump; leaving VERSION unchanged." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           # a push that hand-edits VERSION is a deliberate bump (a new beta, minor,
           # major, or base) so leave it exactly as set. pushes made with the default
           # GITHUB_TOKEN do not retrigger workflows, so the bot's own bump can't loop.

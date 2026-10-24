@@ -11,10 +11,14 @@ type Action string
 const (
 	// Window ids are whatever the state frames used; a caller round-trips one
 	// and never parses it.
-	ActionWindowFocus           Action = "window.focus"
-	ActionWindowClose           Action = "window.close"
-	ActionWindowFullscreen      Action = "window.fullscreen"
-	ActionWindowFloat           Action = "window.float"
+	ActionWindowFocus      Action = "window.focus"
+	ActionWindowClose      Action = "window.close"
+	ActionWindowFullscreen Action = "window.fullscreen"
+	ActionWindowFloat      Action = "window.float"
+	// ActionWindowPlace makes a window floating and sets its output-relative
+	// logical rectangle. Args are id, x, y, width, height, output; the id is the
+	// opaque handle published in Window.ID.
+	ActionWindowPlace           Action = "window.place"
 	ActionWindowMoveToWorkspace Action = "window.moveToWorkspace"
 
 	// ActionWindowSummon raises an already-open window to the current
@@ -23,6 +27,26 @@ const (
 	// opened; a title is the only handle when every window of an app shares one
 	// app id, so the app-focus key cannot tell them apart.
 	ActionWindowSummon Action = "window.summon"
+	// ActionWindowHide moves the focused or named window into the provider's
+	// scratch workspace. Providers with native bindings may never call it.
+	ActionWindowHide Action = "window.hide"
+
+	// The nine directional acts a keybind means for the window under focus
+	// or the screen it points at: the direction is the whole argument, no
+	// window id. Hyprland and niri bind these rows in their own config
+	// languages; wayfire has no such bindings, so its rows run these acts
+	// through the command plugin.
+	ActionWindowFocusDirection    Action = "window.focusDirection" // <left|right|up|down>
+	ActionWindowFocusEdge         Action = "window.focusEdge"      // <left|right>
+	ActionWindowMoveBy            Action = "window.moveBy"         // <left|right|up|down>
+	ActionWindowResizeBy          Action = "window.resizeBy"       // <narrower|wider|shorter|taller>
+	ActionWindowPresetHeight      Action = "window.presetHeight"   // [first]
+	ActionWindowPresetWidth       Action = "window.presetWidth"
+	ActionWindowCenter            Action = "window.center"
+	ActionWindowMaximize          Action = "window.maximize"
+	ActionOutputFocusDirection    Action = "output.focusDirection"    // <left|right|up|down>
+	ActionWindowMoveToOutputBy    Action = "window.moveToOutputBy"    // <left|right|up|down>
+	ActionWorkspaceMoveToOutputBy Action = "workspace.moveToOutputBy" // <left|right|up|down>
 
 	// ActionAppFocus is for callers that only know what they launched.
 	ActionAppFocus Action = "app.focus"
@@ -51,6 +75,19 @@ const (
 	ActionConfigAutoreload Action = "config.autoreload"
 
 	ActionCursorSet Action = "cursor.set"
+
+	// ActionCursorReassert re-applies the store's resolved cursor theme to the
+	// live compositor with no settings save: recolored cursor images (the
+	// Material theme tracking a new palette) stay cached in the compositor's
+	// memory until the theme is set again, which is why a palette change looked
+	// like it never reached the pointer. No capability gate: a provider that
+	// cannot re-assert answers with an error its caller ignores.
+	ActionCursorReassert Action = "cursor.reassert"
+
+	// ActionCursorVisibility is a transient capture guard. "hidden" removes
+	// the pointer from the composed frame and "visible" restores it; the action
+	// prints the previous state so callers can restore exactly what they found.
+	ActionCursorVisibility Action = "cursor.visibility"
 
 	// Transient live overrides, not persisted settings: the launcher suppresses
 	// focus-follows-mouse while it is open and restores it on close.
@@ -100,13 +137,15 @@ const (
 // foreign-toplevel and need nothing.
 func (a Action) Capability() Capability {
 	switch a {
-	case ActionWindowFloat:
+	case ActionWindowFloat, ActionWindowPlace, ActionWindowMoveBy, ActionWindowResizeBy,
+		ActionWindowPresetHeight, ActionWindowPresetWidth, ActionWindowCenter, ActionWindowMaximize,
+		ActionWindowMoveToOutputBy:
 		return CapWindowFloat
 	case ActionWindowMoveToWorkspace, ActionWindowSummon, ActionWorkspaceFocus, ActionWorkspaceCycle:
 		return CapWorkspaces
 	case ActionWorkspaceMoveToOutput:
 		return CapWorkspaceMoveToOutput
-	case ActionWorkspaceToggleSpecial:
+	case ActionWindowHide, ActionWorkspaceToggleSpecial:
 		return CapSpecialWorkspace
 	case ActionSessionExit:
 		return CapSessionExit
@@ -124,7 +163,7 @@ func (a Action) Capability() Capability {
 		return CapCursorSet
 	case ActionBorderColors:
 		return CapPaletteBorder
-	case ActionFocusFollowsMouse, ActionGameMode:
+	case ActionFocusFollowsMouse, ActionGameMode, ActionCursorVisibility:
 		return CapLiveConfigEval
 	case ActionScreenShader:
 		return CapScreenShader

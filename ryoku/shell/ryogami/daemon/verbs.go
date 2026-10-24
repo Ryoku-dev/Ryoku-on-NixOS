@@ -28,6 +28,7 @@ func (d *daemon) wallpaperVerb(line string) string {
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "wallpaper"))
 	rest, screen := extractScreen(rest)
+	rest, workspace := extractFlag(rest, "--workspace")
 	mode := ""
 	if f := strings.Fields(rest); len(f) > 0 {
 		mode = f[0]
@@ -37,10 +38,21 @@ func (d *daemon) wallpaperVerb(line string) string {
 		outputs = []string{screen}
 	}
 	switch mode {
-	case "set":
-		path := strings.TrimSpace(strings.TrimPrefix(rest, "set"))
-		if path == "" {
+	case "set", "assign":
+		path := strings.TrimSpace(strings.TrimPrefix(rest, mode))
+		if path == "" && mode == "set" {
 			return "err wallpaper: set requires a path"
+		}
+		if workspace || mode == "assign" {
+			params := map[string]interface{}{"output": screen}
+			if path != "" {
+				params["path"] = path
+				params["type"] = typeOf(path)
+			}
+			if _, err := d.assignWorkspace(params); err != nil {
+				return "err wallpaper: " + err.Error()
+			}
+			return "ok"
 		}
 		if err := d.applyWallpaper(typeOf(path), path, "set", outputs, nil, nil); err != nil {
 			return "err wallpaper: " + err.Error()
@@ -48,7 +60,11 @@ func (d *daemon) wallpaperVerb(line string) string {
 		return "ok"
 	case "random":
 		if pick := d.pickRandom(nil, false); pick != "" {
-			if err := d.applyWallpaper(typeOf(pick), pick, "set", outputs, nil, nil); err != nil {
+			if workspace {
+				if _, err := d.assignWorkspace(map[string]interface{}{"output": screen, "path": pick, "type": typeOf(pick)}); err != nil {
+					return "err wallpaper: " + err.Error()
+				}
+			} else if err := d.applyWallpaper(typeOf(pick), pick, "set", outputs, nil, nil); err != nil {
 				return "err wallpaper: " + err.Error()
 			}
 			return "ok"
@@ -56,12 +72,21 @@ func (d *daemon) wallpaperVerb(line string) string {
 		return "err wallpaper: no wallpapers available"
 	case "next":
 		if pick := d.pickNext(); pick != "" {
-			if err := d.applyWallpaper(typeOf(pick), pick, "set", outputs, nil, nil); err != nil {
+			if workspace {
+				if _, err := d.assignWorkspace(map[string]interface{}{"output": screen, "path": pick, "type": typeOf(pick)}); err != nil {
+					return "err wallpaper: " + err.Error()
+				}
+			} else if err := d.applyWallpaper(typeOf(pick), pick, "set", outputs, nil, nil); err != nil {
 				return "err wallpaper: " + err.Error()
 			}
 			return "ok"
 		}
 		return "err wallpaper: no wallpapers available"
+	case "unassign":
+		if _, err := d.unassignWorkspace(map[string]interface{}{"output": screen}); err != nil {
+			return "err wallpaper: " + err.Error()
+		}
+		return "ok"
 	case "repaint":
 		d.surface.republish()
 		return "ok"
@@ -69,11 +94,21 @@ func (d *daemon) wallpaperVerb(line string) string {
 		d.restoreOutputs()
 		return "ok"
 	case "ui":
-		// Resident picker: flip its surface over the event hub; a dead or
-		// not-yet-started instance cold-launches already visible instead.
+		// A warm picker only flips its surface. A cold one launches visible and
+		// reconciles externally-added Workshop items once, instead of polling
+		// Steam's tree for the entire login session.
 		if d.ui.ensure() {
 			d.broadcast("ryogami.wall.toggle", map[string]interface{}{})
+		} else {
+			go d.refreshWorkshopOnPickerStart()
 		}
+		return "ok"
+	case "settings":
+		tab := ""
+		if f := strings.Fields(rest); len(f) > 1 {
+			tab = f[1]
+		}
+		d.openSettings(tab)
 		return "ok"
 	case "resource":
 		f := strings.Fields(rest)
@@ -143,6 +178,24 @@ func extractScreen(rest string) (string, string) {
 	return out, screen
 }
 
+func extractFlag(rest, flag string) (string, bool) {
+	for start := 0; start <= len(rest)-len(flag); {
+		i := strings.Index(rest[start:], flag)
+		if i < 0 {
+			break
+		}
+		i += start
+		leftOK := i == 0 || rest[i-1] == ' ' || rest[i-1] == '\t'
+		end := i + len(flag)
+		rightOK := end == len(rest) || rest[end] == ' ' || rest[end] == '\t'
+		if leftOK && rightOK {
+			return strings.TrimSpace(rest[:i] + rest[end:]), true
+		}
+		start = i + len(flag)
+	}
+	return rest, false
+}
+
 func typeOf(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".mp4", ".webm", ".mkv", ".avi", ".mov", ".gif":
@@ -204,15 +257,6 @@ func (d *daemon) candidatePaths(types []string, favouritesOnly bool) []string {
 
 func (d *daemon) randomPick(types []string, favouritesOnly bool) {
 	if pick := d.pickRandom(types, favouritesOnly); pick != "" {
-		_ = d.applyWallpaper(typeOf(pick), pick, "set", nil, nil, nil)
+		_ = d.applyWallpaperReason("random", typeOf(pick), pick, "set", nil, nil, nil)
 	}
-}
-
-// dayNightTick applies a clip the daynight rotation picked. The pool is video,
-// so it routes through the same video apply path the picker uses.
-func (d *daemon) dayNightTick(path string) {
-	if path == "" {
-		return
-	}
-	_ = d.applyWallpaper(typeOf(path), path, "set", nil, nil, nil)
 }

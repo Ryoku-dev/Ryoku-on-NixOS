@@ -1,0 +1,2 @@
+module inir.modules.iris.background
+singleton IrisDesktopActions 1.0 IrisDesktopActions.qml

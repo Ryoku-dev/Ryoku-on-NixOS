@@ -1,136 +1,288 @@
-#!/bin/bash
+#!/usr/bin/env python3
+# ryoku-cmd-discord-compress: shrink a screen recording into a Discord-friendly
+# size budget. Ported from iNiR (scripts/videos/compress-discord.py): a two-pass
+# x264 encode that keeps the native resolution when it fits the budget and scales
+# down only when the bitrate demands it, splitting the budget between video and
+# audio. Best effort -- it re-encodes only when the clip is over the target
+# (unless --force) and retries with a tighter budget, writing <name>.discord.mp4
+# beside the original and leaving the original untouched. ryoku-cmd-record runs it
+# after a Quick capture when the record card's "Compact for Discord" toggle is on.
+from __future__ import annotations
 
-# ryoku-cmd-discord-compress: shrink the Quick screen recording the shell just
-# wrote to a Discord-friendly size (default 10MB) with a two-pass x264 encode
-# that keeps the native resolution and the audio track. Best effort: it
-# re-encodes only when the raw clip is over the limit, retries with a smaller
-# budget if a pass overshoots, and replaces the original in place only once the
-# result is valid and under the limit (otherwise the original is left untouched).
-# Studio recordings never reach this path; the record chooser's Discord toggle
-# drives it for Quick captures only.
-#
-#   ryoku-cmd-discord-compress [FILE]   (no arg = the path the recorder wrote)
-#
-# The bitrate split (video budget from target-size and duration, audio scaled
-# down when the budget is tight) mirrors iNiR's compress-discord approach.
+import argparse
+import json
+import math
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 
-set -uo pipefail
 
-target_mb="${RYOKU_DISCORD_TARGET_MB:-10}"
-audio_kbps="${RYOKU_DISCORD_AUDIO_KBPS:-128}"
-preset="${RYOKU_DISCORD_PRESET:-veryfast}"
-# budget = limit * safety, to leave room for container overhead and muxing.
-safety="${RYOKU_DISCORD_SAFETY:-0.92}"
-state="${RYOKU_STATE_PATH:-$HOME/.local/state/ryoku}"
+PRESETS = ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow")
 
-notify() {
-  command -v notify-send >/dev/null 2>&1 && notify-send -a ryoku-cli "$@" >/dev/null 2>&1 || true
-}
 
-# 1024-base size label (matches the "saved 45.2 MB" style elsewhere).
-human() {
-  awk -v b="$1" 'BEGIN{
-    split("B KB MB GB", u, " "); i=1; x=b;
-    while (x>=1024 && i<4) { x/=1024; i++ }
-    if (i==1) printf "%d %s", x, u[i]; else printf "%.1f %s", x, u[i];
-  }'
-}
+@dataclass(frozen=True)
+class MediaInfo:
+    duration: float
+    size_bytes: int
+    width: int
+    height: int
+    has_audio: bool
 
-input="${1:-}"
-[[ -n $input ]] || input="$(cat "$state/last-recording" 2>/dev/null || true)"
-[[ -n $input ]] || { echo "discord-compress: no recording path" >&2; exit 0; }
 
-command -v ffmpeg >/dev/null 2>&1 || { notify -u critical "Discord compress failed" "ffmpeg is not installed"; exit 1; }
-command -v ffprobe >/dev/null 2>&1 || { notify -u critical "Discord compress failed" "ffprobe is not installed"; exit 1; }
+@dataclass(frozen=True)
+class EncodePlan:
+    budget_bytes: int
+    video_kbps: int
+    audio_kbps: int
+    width: int
+    height: int
 
-# wait for the recorder to finish writing: gpu-screen-recorder / wf-recorder both
-# finalise the mp4 on SIGINT, so hold until neither is running, then until the
-# file size stops growing. time-boxed so a stuck capture can't hang the helper.
-gsr='(^|/)gpu-screen-recorder( |$)'
-wf='(^|/)wf-recorder( |$)'
-for _ in $(seq 1 60); do
-  if pgrep -f "$gsr" >/dev/null 2>&1 || pgrep -f "$wf" >/dev/null 2>&1; then
-    sleep 0.5
-  else
-    break
-  fi
-done
-[[ -f $input ]] || { echo "discord-compress: file not found: $input" >&2; exit 0; }
-prev=-1
-for _ in $(seq 1 40); do
-  cur="$(stat -c %s "$input" 2>/dev/null || echo 0)"
-  [[ $cur -gt 0 && $cur -eq $prev ]] && break
-  prev="$cur"
-  sleep 0.3
-done
 
-dur="$(ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 "$input" 2>/dev/null || echo 0)"
-awk -v d="$dur" 'BEGIN{ exit !(d+0 > 0.05) }' || { echo "discord-compress: no duration for $input" >&2; exit 0; }
+def fail(message: str) -> None:
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
 
-in_size="$(stat -c %s "$input" 2>/dev/null || echo 0)"
-limit=$((target_mb * 1000 * 1000))
 
-# already small enough: keep the native clip, no re-encode, no quality loss.
-if [[ $in_size -gt 0 && $in_size -le $limit ]]; then
-  notify "Recording ready for Discord" "$(basename "$input") is $(human "$in_size"), already under ${target_mb}MB"
-  exit 0
-fi
+def require_binary(name: str) -> str:
+    path = shutil.which(name)
+    if not path:
+        fail(f"{name} is required but was not found in PATH")
+    return path
 
-has_audio=0
-if ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$input" 2>/dev/null | grep -q .; then
-  has_audio=1
-fi
 
-tmp="$(mktemp "${TMPDIR:-/tmp}/ryoku-discord.XXXXXX")"
-passlog="$(mktemp -u "${TMPDIR:-/tmp}/ryoku-discord-pass.XXXXXX")"
-cleanup() { rm -f "$tmp" "$passlog"* 2>/dev/null || true; }
-trap cleanup EXIT
+def run_json(command: list[str]) -> dict:
+    proc = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+    if proc.returncode != 0:
+        detail = "\n".join(proc.stderr.splitlines()[-8:])
+        fail(detail or f"{command[0]} failed")
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        fail("ffprobe returned invalid JSON")
 
-budget="$(awk -v l="$limit" -v s="$safety" 'BEGIN{ printf "%d", l*s }')"
-ok=0
-out_size=0
-for _ in 1 2 3; do
-  # video/audio bitrate split for this budget. audio holds at the requested rate
-  # while there is room, then floors and finally scales with the total so video
-  # always keeps the lion's share on a tight (long) clip.
-  read -r vkbps akbps < <(awk -v budget="$budget" -v dur="$dur" -v areq="$audio_kbps" -v ha="$has_audio" 'BEGIN{
-    total = budget*8/dur; if (total < 50000) total = 50000;
-    a = 0;
-    if (ha && areq > 0) {
-      a = areq*1000;
-      if (total >= 140000) { if (a < 32000) a = 32000 }
-      else if (total >= 70000) { if (a < 20000) a = 20000 }
-      else { a = total*0.16 }
-      if (a > total*0.45) a = total*0.45;
-    }
-    v = total - a; if (v < 50000) v = 50000;
-    printf "%d %d", int(v/1000), int(a/1000);
-  }')
-  [[ ${vkbps:-0} -ge 1 ]] || vkbps=50
-  vargs=(-c:v libx264 -preset "$preset" -b:v "${vkbps}k" -maxrate "${vkbps}k" -bufsize "$((vkbps * 2))k" -pix_fmt yuv420p)
 
-  ffmpeg -hide_banner -nostdin -y -i "$input" "${vargs[@]}" -an -pass 1 -passlogfile "$passlog" -f null /dev/null >/dev/null 2>&1 || true
-  if [[ $has_audio -eq 1 && ${akbps:-0} -gt 0 ]]; then
-    ffmpeg -hide_banner -nostdin -y -i "$input" "${vargs[@]}" -pass 2 -passlogfile "$passlog" \
-      -c:a aac -b:a "${akbps}k" -ac 2 -movflags +faststart -f mp4 "$tmp" >/dev/null 2>&1 || true
-  else
-    ffmpeg -hide_banner -nostdin -y -i "$input" "${vargs[@]}" -pass 2 -passlogfile "$passlog" \
-      -an -movflags +faststart -f mp4 "$tmp" >/dev/null 2>&1 || true
-  fi
+def probe_media(ffprobe: str, input_path: Path) -> MediaInfo:
+    payload = run_json([
+        ffprobe,
+        "-v", "error",
+        "-show_entries", "format=duration:stream=codec_type,width,height",
+        "-of", "json",
+        str(input_path),
+    ])
+    duration = float(payload.get("format", {}).get("duration") or 0)
+    width = 0
+    height = 0
+    has_audio = False
+    for stream in payload.get("streams", []):
+        codec_type = stream.get("codec_type")
+        if codec_type == "video" and width <= 0:
+            width = int(stream.get("width") or 0)
+            height = int(stream.get("height") or 0)
+        elif codec_type == "audio":
+            has_audio = True
+    if duration <= 0:
+        fail("Could not detect video duration")
+    if width <= 0 or height <= 0:
+        fail("Could not detect video dimensions")
+    return MediaInfo(duration, input_path.stat().st_size, width, height, has_audio)
 
-  out_size="$(stat -c %s "$tmp" 2>/dev/null || echo 0)"
-  if [[ $out_size -gt 0 && $out_size -le $limit ]]; then
-    ok=1
-    break
-  fi
-  budget="$(awk -v b="$budget" 'BEGIN{ printf "%d", b*0.85 }')"
-done
 
-if [[ $ok -eq 1 ]] && ffprobe -v error "$tmp" >/dev/null 2>&1; then
-  mv -f "$tmp" "$input"
-  trap - EXIT
-  rm -f "$passlog"* 2>/dev/null || true
-  notify "Recording compressed for Discord" "$(basename "$input"): $(human "$in_size") -> $(human "$out_size"), under ${target_mb}MB"
-else
-  notify -u normal "Discord compress" "Couldn't get $(basename "$input") under ${target_mb}MB; kept the original"
-fi
+def even(value: float) -> int:
+    return max(2, int(value) // 2 * 2)
+
+
+def scaled_size(info: MediaInfo, video_kbps: int, requested_max_dimension: int) -> tuple[int, int]:
+    max_dimension = max(240, requested_max_dimension)
+    if video_kbps < 180:
+        max_dimension = min(max_dimension, 540)
+    elif video_kbps < 300:
+        max_dimension = min(max_dimension, 720)
+    elif video_kbps < 600:
+        max_dimension = min(max_dimension, 960)
+    elif video_kbps < 1100:
+        max_dimension = min(max_dimension, 1280)
+
+    source_long_edge = max(info.width, info.height)
+    if source_long_edge <= max_dimension:
+        return even(info.width), even(info.height)
+
+    ratio = max_dimension / source_long_edge
+    return even(info.width * ratio), even(info.height * ratio)
+
+
+def build_plan(info: MediaInfo, budget_bytes: int, audio_kbps: int, max_dimension: int) -> EncodePlan:
+    total_bps = max(1000, budget_bytes * 8 / info.duration)
+    audio_bps = 0
+    if info.has_audio and audio_kbps > 0:
+        requested_audio_bps = audio_kbps * 1000
+        audio_bps = min(requested_audio_bps, total_bps * 0.25)
+        if total_bps >= 140_000:
+            audio_bps = max(32_000, audio_bps)
+        elif total_bps >= 70_000:
+            audio_bps = max(20_000, audio_bps)
+        else:
+            audio_bps = max(0, total_bps * 0.16)
+        audio_bps = min(audio_bps, total_bps * 0.45)
+
+    video_bps = max(1000, total_bps - audio_bps)
+    video_kbps = max(1, math.floor(video_bps / 1000))
+    final_audio_kbps = max(0, math.floor(audio_bps / 1000))
+    width, height = scaled_size(info, video_kbps, max_dimension)
+    return EncodePlan(budget_bytes, video_kbps, final_audio_kbps, width, height)
+
+
+def ffmpeg_error(stderr: str, fallback: str) -> RuntimeError:
+    detail = "\n".join((stderr or "").splitlines()[-12:])
+    return RuntimeError(detail or fallback)
+
+
+def run_ffmpeg(command: list[str], quiet: bool) -> None:
+    proc = subprocess.run(
+        command,
+        stdout=subprocess.DEVNULL if quiet else None,
+        stderr=subprocess.PIPE if quiet else None,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise ffmpeg_error(proc.stderr or "", f"{command[0]} failed with exit code {proc.returncode}")
+
+
+def video_args(plan: EncodePlan, preset: str, info: MediaInfo) -> list[str]:
+    args = [
+        "-map", "0:v:0",
+        "-sn",
+        "-c:v", "libx264",
+        "-preset", preset,
+        "-b:v", f"{plan.video_kbps}k",
+        "-maxrate", f"{plan.video_kbps}k",
+        "-bufsize", f"{max(plan.video_kbps * 2, 2)}k",
+        "-pix_fmt", "yuv420p",
+    ]
+    if plan.width != even(info.width) or plan.height != even(info.height):
+        args += ["-vf", f"scale={plan.width}:{plan.height}:flags=lanczos"]
+    return args
+
+
+def encode_attempt(ffmpeg: str, input_path: Path, output_path: Path, temp_output: Path, info: MediaInfo, plan: EncodePlan, preset: str, passlog: Path, quiet: bool) -> None:
+    common = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-i", str(input_path)]
+    first_pass = common + video_args(plan, preset, info) + [
+        "-pass", "1",
+        "-passlogfile", str(passlog),
+        "-an",
+        "-f", "null",
+        os.devnull,
+    ]
+    second_pass = common + video_args(plan, preset, info) + [
+        "-pass", "2",
+        "-passlogfile", str(passlog),
+    ]
+    if info.has_audio and plan.audio_kbps > 0:
+        second_pass += ["-map", "0:a:0?", "-c:a", "aac", "-b:a", f"{plan.audio_kbps}k", "-ac", "2"]
+    else:
+        second_pass += ["-an"]
+    second_pass += ["-map_metadata", "0", "-movflags", "+faststart", str(temp_output)]
+
+    temp_output.unlink(missing_ok=True)
+    run_ffmpeg(first_pass, quiet)
+    run_ffmpeg(second_pass, quiet)
+    if not temp_output.exists() or temp_output.stat().st_size <= 0:
+        raise RuntimeError("ffmpeg did not create an output file")
+    os.replace(temp_output, output_path)
+
+
+def default_output_path(input_path: Path) -> Path:
+    return input_path.with_name(f"{input_path.stem}.discord.mp4")
+
+
+def compress(args: argparse.Namespace) -> dict:
+    try:
+        os.nice(max(0, args.nice))
+    except OSError:
+        pass
+
+    ffmpeg = require_binary("ffmpeg")
+    ffprobe = require_binary("ffprobe")
+    input_path = Path(args.input).expanduser().resolve()
+    output_path = Path(args.output).expanduser().resolve() if args.output else default_output_path(input_path)
+    if not input_path.is_file():
+        fail(f"Input file does not exist: {input_path}")
+    if input_path == output_path:
+        fail("Output path must be different from input path")
+
+    target_bytes = max(1, int(args.target_mb * 1_000_000))
+    budget_mb = max(0.1, args.target_mb - max(0.0, args.safety_margin_mb))
+    budget_bytes = min(target_bytes, max(1, int(budget_mb * 1_000_000)))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    info = probe_media(ffprobe, input_path)
+    if not args.force and info.size_bytes <= target_bytes:
+        return {
+            "status": "skipped",
+            "reason": "already_under_target",
+            "input": str(input_path),
+            "output": str(input_path),
+            "sizeBytes": info.size_bytes,
+            "targetBytes": target_bytes,
+        }
+
+    temp_output = output_path.with_name(f".{output_path.stem}.tmp-{os.getpid()}{output_path.suffix or '.mp4'}")
+    last_error = None
+    with tempfile.TemporaryDirectory(prefix="ryoku-discord-compress-") as temp_dir:
+        for attempt in range(max(0, args.retries) + 1):
+            attempt_budget = max(1, int(budget_bytes * (0.88 ** attempt)))
+            plan = build_plan(info, attempt_budget, args.audio_kbps, args.max_dimension)
+            passlog = Path(temp_dir) / f"pass-{attempt}"
+            try:
+                encode_attempt(ffmpeg, input_path, output_path, temp_output, info, plan, args.preset, passlog, args.quiet)
+                size_bytes = output_path.stat().st_size
+                if size_bytes <= target_bytes:
+                    return {
+                        "status": "compressed",
+                        "input": str(input_path),
+                        "output": str(output_path),
+                        "sizeBytes": size_bytes,
+                        "targetBytes": target_bytes,
+                        "videoKbps": plan.video_kbps,
+                        "audioKbps": plan.audio_kbps,
+                        "width": plan.width,
+                        "height": plan.height,
+                        "attempt": attempt + 1,
+                    }
+                last_error = RuntimeError(f"output exceeded target ({size_bytes} > {target_bytes})")
+                output_path.unlink(missing_ok=True)
+            except RuntimeError as error:
+                last_error = error
+                temp_output.unlink(missing_ok=True)
+            finally:
+                for file in Path(temp_dir).glob(f"{passlog.name}*"):
+                    file.unlink(missing_ok=True)
+
+    fail(str(last_error or "compression failed"))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Compress a video into a Discord-friendly size budget.")
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--output")
+    parser.add_argument("--target-mb", type=float, default=10.0)
+    parser.add_argument("--safety-margin-mb", type=float, default=0.5)
+    parser.add_argument("--audio-kbps", type=int, default=96)
+    parser.add_argument("--preset", choices=PRESETS, default="slow")
+    parser.add_argument("--max-dimension", type=int, default=1280)
+    parser.add_argument("--retries", type=int, default=3)
+    parser.add_argument("--nice", type=int, default=5)
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+    result = compress(args)
+    print(json.dumps(result, separators=(",", ":")) if args.json else result["output"])
+
+
+if __name__ == "__main__":
+    main()

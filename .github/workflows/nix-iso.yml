@@ -1,0 +1,75 @@
+name: NixOS ISO
+
+on:
+  push:
+    branches:
+      - main
+      - unstable-dev
+    paths:
+      - flake.nix
+      - flake.lock
+      - 'nix/apps/ryoku-install*'
+      - 'nix/installer/**'
+      - 'nix/iso/**'
+      - 'nix/iso-configs/**'
+      - 'nix/modules/ryoku.nix'
+      - 'nix/tests/installer-*'
+      - 'nix/tests/test-installer-*'
+      - 'nix/tests/test-qylock-pam-materialization.py'
+      - '.github/workflows/nix-iso.yml'
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - 'nix/apps/ryoku-install*'
+      - 'nix/installer/**'
+      - 'nix/iso/**'
+      - 'nix/iso-configs/**'
+      - 'nix/modules/ryoku.nix'
+      - 'nix/tests/installer-*'
+      - 'nix/tests/test-installer-*'
+      - 'nix/tests/test-qylock-pam-materialization.py'
+      - '.github/workflows/nix-iso.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-iso-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate NixOS installer and ISO
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+
+      - name: Run installer and ISO checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix build --no-link \
+            .#checks.x86_64-linux.ryoku-installer-options \
+            .#checks.x86_64-linux.ryoku-installer-transaction \
+            .#checks.x86_64-linux.ryoku-installer-disk-identity \
+            .#checks.x86_64-linux.ryoku-installer-iso \
+            .#checks.x86_64-linux.ryoku-installer-wrapper \
+            .#checks.x86_64-linux.ryoku-session-bootstrap \
+            .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
+            .#checks.x86_64-linux.ryoku-iso-configs
+
+      - name: Prove ISO derivation evaluates
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix build --dry-run --no-link .#ryoku-iso

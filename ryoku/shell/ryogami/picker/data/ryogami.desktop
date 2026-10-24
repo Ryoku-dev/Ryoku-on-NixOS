@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Ryogami Wallpapers
+GenericName=Wallpaper Picker
+Comment=Browse, download and apply image, video or Wallpaper Engine wallpapers in style.
+Exec=ryogami wallpaper ui
+Terminal=false
+Categories=Utility;Settings;
+Keywords=wallpaper;background;theme;color;

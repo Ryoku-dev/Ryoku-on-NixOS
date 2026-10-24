@@ -67,6 +67,9 @@ func runAct(args []string) error {
 		}
 		return dispatch(`hl.dsp.window.float({ action = "toggle", window = ` + luaStr("address:"+id) + ` })`)
 
+	case wm.ActionWindowPlace:
+		return placeWindow(rest)
+
 	case wm.ActionWindowMoveToWorkspace:
 		id, err := arg(rest, 0, "window id")
 		if err != nil {
@@ -134,6 +137,19 @@ func runAct(args []string) error {
 		}
 		return dispatch(`hl.dsp.workspace.toggle_special(` + luaStr(name) + `)`)
 
+	case wm.ActionWindowHide:
+		id, err := arg(rest, 0, "window id or focused")
+		if err != nil {
+			return err
+		}
+		if id == "focused" {
+			// The workspace helper owns the focused case: a silent move still
+			// pulls focus into the scratchpad, so it closes the special
+			// workspace again and refocuses where the window came from.
+			return runWorkspaceHelper("hide")
+		}
+		return dispatch(`hl.dsp.window.move({ workspace = "special:` + scratchName + `", window = ` + luaStr("address:"+id) + `, follow = false })`)
+
 	case wm.ActionSessionExit:
 		return dispatch(`hl.dsp.exit()`)
 
@@ -145,7 +161,7 @@ func runAct(args []string) error {
 		if state != "on" && state != "off" {
 			return fmt.Errorf("act %s: state must be on or off, got %q", action, state)
 		}
-		expr := `hl.dsp.dpms({ state = ` + luaStr(state)
+		expr := `hl.dsp.dpms({ action = ` + luaStr(state)
 		if len(rest) > 1 && rest[1] != "" {
 			expr += `, monitor = ` + luaStr(rest[1])
 		}
@@ -200,6 +216,29 @@ func runAct(args []string) error {
 		}
 		_, err = ctl("setcursor", theme, size)
 		return err
+
+	case wm.ActionCursorReassert:
+		o := loadStore(desktopStorePath())
+		_, err := ctl("setcursor", o.Cursor.Theme, strconv.Itoa(o.Cursor.Size))
+		return err
+
+	case wm.ActionCursorVisibility:
+		state, err := arg(rest, 0, "hidden|visible")
+		if err != nil {
+			return err
+		}
+		if state != "hidden" && state != "visible" {
+			return fmt.Errorf("act %s: state must be hidden or visible, got %q", action, state)
+		}
+		previous, err := cursorVisibility()
+		if err != nil {
+			return err
+		}
+		invisible := state == "hidden"
+		if _, err := fmt.Fprintln(stdout, previous); err != nil {
+			return err
+		}
+		return evalLua(fmt.Sprintf(`hl.config({ cursor = { invisible = %t } })`, invisible))
 
 	case wm.ActionScreenShader:
 		// A shader NAME, not a path: callers must not know the config layout.
@@ -296,10 +335,13 @@ func runAct(args []string) error {
 		}
 		// keyword is rejected by the Lua parser, so a connector is toggled
 		// through eval against the hl.monitor API, the same call the display
-		// tooling uses; on restores the preferred mode at auto position.
+		// tooling uses. Only `disabled` is sent: hl.monitor copies the output's
+		// existing rule and reapplies just the fields it is given, so naming a
+		// mode, position or scale here would reset the layout the user set and
+		// turn a re-enable into a "preferred mode at auto position" rewrite.
 		switch state {
 		case "on":
-			return evalLua(`hl.monitor({ output = ` + luaStr(conn) + `, mode = "preferred", position = "auto", scale = 1 })`)
+			return evalLua(`hl.monitor({ output = ` + luaStr(conn) + `, disabled = false })`)
 		case "off":
 			return evalLua(`hl.monitor({ output = ` + luaStr(conn) + `, disabled = true })`)
 		}
@@ -435,7 +477,6 @@ func touchpad(args []string) error {
 // touchpadSet flips every pad and records the intent, matching the ported
 // script: a machine with no touchpad says so instead of claiming a state.
 func touchpadSet(enable bool) error {
-	changed := enable == touchpadOff()
 	found, err := setPads(enable)
 	if err != nil {
 		return err
@@ -446,16 +487,12 @@ func touchpadSet(enable bool) error {
 	}
 	if enable {
 		_ = os.Remove(touchpadStatePath())
-		if changed {
-			touchpadNotify("Touchpad", "On")
-		}
+		touchpadNotify("Touchpad", "On")
 		return nil
 	}
 	_ = os.MkdirAll(filepath.Dir(touchpadStatePath()), 0o755)
 	_ = os.WriteFile(touchpadStatePath(), nil, 0o644)
-	if changed {
-		touchpadNotify("Touchpad", "Off")
-	}
+	touchpadNotify("Touchpad", "Off")
 	return nil
 }
 
@@ -563,20 +600,129 @@ func shaderPath(name string) string {
 	return filepath.Join(home, ".config", "hypr", "shaders", name+".glsl")
 }
 
-// followMouseMode reads the live mode, empty when it cannot be read. getoption
-// is a top-level query and works under the Lua parser.
+// followMouseMode reports the mode the user configured, which is what the
+// launcher hands back when it closes. It reads the settings store rather than
+// the live option: a prior freeze that never restored (a crash mid-launch)
+// leaves follow_mouse at 0 live, and reading that back would "restore" the
+// stuck value instead of the user's setting. The store is the durable truth
+// and its default matches the shipped input.lua.
 func followMouseMode() string {
-	out, err := ctl("getoption", "input:follow_mouse", "-j")
+	return strconv.Itoa(loadStore(desktopStorePath()).Input.FollowMouse)
+}
+
+func cursorVisibility() (string, error) {
+	out, err := ctl("getoption", "cursor:invisible", "-j")
 	if err != nil {
-		return ""
+		return "", err
 	}
-	var o struct {
-		Int int `json:"int"`
+	var option struct {
+		Bool bool `json:"bool"`
+		Int  int  `json:"int"`
 	}
-	if json.Unmarshal(out, &o) != nil {
-		return ""
+	if err := json.Unmarshal(out, &option); err != nil {
+		return "", fmt.Errorf("read cursor visibility: %w", err)
 	}
-	return strconv.Itoa(o.Int)
+	if option.Bool || option.Int != 0 {
+		return "hidden", nil
+	}
+	return "visible", nil
+}
+
+// placeWindow applies the neutral output-local rectangle without ever falling
+// back to the focused window. Hyprland's move coordinates are global logical
+// coordinates, so the target output's logical origin is the only conversion.
+// Client geometry and monitor origins share that coordinate space; applying the
+// output scale again would double-scale a fractional output.
+func placeWindow(args []string) error {
+	id, x, y, width, height, output, err := windowPlacementArgs(args)
+	if err != nil {
+		return err
+	}
+
+	monitors, err := readMonitors()
+	if err != nil {
+		return fmt.Errorf("act %s: read outputs: %w", wm.ActionWindowPlace, err)
+	}
+	var target *hyprMonitor
+	for i := range monitors {
+		if monitors[i].Name == output {
+			target = &monitors[i]
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("act %s: output %q does not exist", wm.ActionWindowPlace, output)
+	}
+	if target.Scale <= 0 {
+		return fmt.Errorf("act %s: output %q reported invalid scale %g", wm.ActionWindowPlace, output, target.Scale)
+	}
+
+	raw, err := ctl("clients", "-j")
+	if err != nil {
+		return fmt.Errorf("act %s: read windows: %w", wm.ActionWindowPlace, err)
+	}
+	var clients []struct {
+		Address  string `json:"address"`
+		Floating bool   `json:"floating"`
+	}
+	if err := json.Unmarshal(raw, &clients); err != nil {
+		return fmt.Errorf("act %s: decode windows: %w", wm.ActionWindowPlace, err)
+	}
+	floating, found := false, false
+	for _, client := range clients {
+		if client.Address == id {
+			floating, found = client.Floating, true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("act %s: window id %q does not exist", wm.ActionWindowPlace, id)
+	}
+
+	sel := luaStr("address:" + id)
+	if !floating {
+		if err := dispatch(`hl.dsp.window.float({ action = "toggle", window = ` + sel + ` })`); err != nil {
+			return fmt.Errorf("act %s: make window %q floating: %w", wm.ActionWindowPlace, id, err)
+		}
+	}
+	if err := dispatch(`hl.dsp.window.move({ monitor = ` + luaStr(output) + `, window = ` + sel + ` })`); err != nil {
+		return fmt.Errorf("act %s: move window %q to output %q: %w", wm.ActionWindowPlace, id, output, err)
+	}
+	if err := dispatch(`hl.dsp.window.resize({ x = ` + strconv.Itoa(width) + `, y = ` + strconv.Itoa(height) + `, exact = true, window = ` + sel + ` })`); err != nil {
+		return fmt.Errorf("act %s: resize window %q: %w", wm.ActionWindowPlace, id, err)
+	}
+	globalX, globalY := target.X+x, target.Y+y
+	if err := dispatch(`hl.dsp.window.move({ x = ` + strconv.Itoa(globalX) + `, y = ` + strconv.Itoa(globalY) + `, window = ` + sel + ` })`); err != nil {
+		return fmt.Errorf("act %s: position window %q: %w", wm.ActionWindowPlace, id, err)
+	}
+	return nil
+}
+
+func windowPlacementArgs(args []string) (id string, x, y, width, height int, output string, err error) {
+	id, err = arg(args, 0, "window id")
+	if err != nil {
+		return
+	}
+	names := []string{"x", "y", "width", "height"}
+	values := []*int{&x, &y, &width, &height}
+	for i := range names {
+		raw, argErr := arg(args, i+1, names[i])
+		if argErr != nil {
+			err = argErr
+			return
+		}
+		*values[i], err = strconv.Atoi(raw)
+		if err != nil {
+			err = fmt.Errorf("act %s: %s must be an integer, got %q", wm.ActionWindowPlace, names[i], raw)
+			return
+		}
+	}
+	if width <= 0 || height <= 0 {
+		err = fmt.Errorf("act %s: width and height must be positive, got %dx%d", wm.ActionWindowPlace, width, height)
+		return
+	}
+	output, err = arg(args, 5, "output name")
+	return
 }
 
 // arg names the missing value, so a bad keybind reports it instead of an index.
@@ -629,40 +775,32 @@ func nightlightStart(argv ...string) error {
 // nightlightStop signals every process of this uid whose comm is name, which is
 // how nightlight.off stops the backend without a pkill fork. comm truncates at
 // 15 characters; the backend name fits, so an exact compare is right.
-
-func nightlightProcessMatches(pid, name string) bool {
-	b, err := os.ReadFile("/proc/" + pid + "/comm")
-	if err == nil && strings.TrimSpace(string(b)) == name {
-		return true
-	}
-
-	// NixOS commonly wraps executables. The kernel comm then names the hidden
-	// wrapped binary (for example .gammastep-wrap), while argv[0] still names
-	// the public command that Ryoku launched. Accept that public executable name
-	// as the process identity too.
-	raw, err := os.ReadFile("/proc/" + pid + "/cmdline")
-	if err != nil || len(raw) == 0 {
-		return false
-	}
-
-	argv0 := strings.SplitN(string(raw), "\x00", 2)[0]
-	return filepath.Base(argv0) == name
-}
-
 func nightlightStop(name string) {
 	ents, err := os.ReadDir("/proc")
 	if err != nil {
 		return
 	}
-
 	for _, e := range ents {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil {
 			continue
 		}
-
-		if nightlightProcessMatches(e.Name(), name) {
+		b, err := os.ReadFile("/proc/" + e.Name() + "/comm")
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(b)) == name {
 			_ = syscall.Kill(pid, syscall.SIGTERM)
 		}
 	}
+}
+
+// scratchName is the special workspace the shipped scratchpad binds use; the
+// workspace helper names it the same way.
+const scratchName = "scratch"
+
+// runWorkspaceHelper runs the shipped workspace helper the scratchpad binds
+// call, so window.hide on the focused window behaves exactly like Super+H.
+var runWorkspaceHelper = func(args ...string) error {
+	return exec.Command(filepath.Join(hyprConfigDir(), "scripts", "ryoku-workspace"), args...).Run()
 }

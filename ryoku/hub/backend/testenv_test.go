@@ -9,7 +9,7 @@ import (
 // Nix-specific policy explicitly set RYOKU_UPDATE_BACKEND themselves.
 func TestMain(m *testing.M) {
 	old, had := os.LookupEnv("RYOKU_UPDATE_BACKEND")
-	_ = os.Unsetenv("RYOKU_UPDATE_BACKEND")
+	_ = os.Setenv("RYOKU_UPDATE_BACKEND", "pacman")
 
 	code := m.Run()
 

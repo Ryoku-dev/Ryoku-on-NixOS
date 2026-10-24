@@ -63,3 +63,72 @@ func TestPaletteBridgeCommandReturnsOutput(t *testing.T) {
 		t.Fatalf("error = %v", got)
 	}
 }
+
+func TestPaletteBridgeVesktopStatusUsesPaletteTemplate(t *testing.T) {
+	config := t.TempDir()
+	data := t.TempDir()
+	state := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("XDG_DATA_HOME", data)
+	t.Setenv("XDG_STATE_HOME", state)
+	original := paletteBridgeRun
+	t.Cleanup(func() { paletteBridgeRun = original })
+	paletteBridgeRun = func(string, ...string) ([]byte, error) { return nil, nil }
+	source := makePaletteBridgeSource(t, "install.sh", "install-integrations.sh")
+	template := filepath.Join(data, "ryoku", "palette-bridge", "templates", "vesktop-colors.css")
+	midnight := filepath.Join(config, "vesktop", "themes", "midnight-ryoku.theme.css")
+	ledger := filepath.Join(state, "ryoku", "palette-bridge", "owned-files.tsv")
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(installed, managed bool) {
+		t.Helper()
+		for _, integration := range paletteBridgeStatusFor(source).Integrations {
+			if integration.ID == "vesktop" {
+				if integration.Installed != installed || integration.Managed != managed {
+					t.Fatalf("Vesktop status = %+v, want installed=%v managed=%v", integration, installed, managed)
+				}
+				return
+			}
+		}
+		t.Fatal("missing Vesktop integration")
+	}
+	write(midnight, "/* old base theme */")
+	write(ledger, "vesktop\t"+midnight+"\n")
+	check(false, false)
+	if err := os.Remove(midnight); err != nil {
+		t.Fatal(err)
+	}
+	write(template, "/* live palette */")
+	check(true, false)
+	write(ledger, "vesktop\t"+template+"\n")
+	check(true, true)
+	if err := os.Remove(template); err != nil {
+		t.Fatal(err)
+	}
+	check(false, true)
+}
+
+func TestPaletteBridgeAvailabilityRequiresBinaryAndRecipes(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	source := makePaletteBridgeSource(t, "install.sh", "install-integrations.sh")
+	original := paletteBridgeRun
+	t.Cleanup(func() { paletteBridgeRun = original })
+	paletteBridgeRun = func(string, ...string) ([]byte, error) { return nil, errors.New("inactive") }
+	if status := paletteBridgeStatusFor(source); status.Available || status.Installed {
+		t.Fatalf("missing binary reported available: %+v", status)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "ryoku-palette-bridge"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if status := paletteBridgeStatusFor(source); !status.Available || !status.Installed || status.Contract != 2 {
+		t.Fatalf("complete installation unavailable: %+v", status)
+	}
+}

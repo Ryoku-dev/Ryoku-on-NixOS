@@ -11,7 +11,6 @@
 
 import Quickshell
 import QtQuick
-import shell.services
 import "../../../../services/lib/screens.js" as Screens
 import "."
 import "core"
@@ -32,7 +31,6 @@ Item {
     // the bar system is never hosted twice.
     readonly property bool isPrimary: {
         var list = Screens.uniqueByName(Quickshell.screens)
-            .filter(screen => Config.barStyleFor(screen.name) === "qsbar")
         return list.length > 0 && !!sceneRoot.modelData
             && list[0].name === sceneRoot.modelData.name
     }

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"ryoku-cli/internal/sys"
 	i18n "ryoku-i18n"
 )
 
@@ -227,6 +228,13 @@ func fileExists(p string) bool {
 // stack already matches, applies in place on the test path (RYOKU_PAM_FILE set
 // and writable), and otherwise re-runs the privileged half under pkexec.
 func applyPAMHalf(mode string) error {
+	// NixOS owns /etc/pam.d declaratively. The Ryoku module already enables
+	// gnome-keyring in the login stack, so a user-side mode change must never
+	// try to pkexec-edit an immutable generated PAM file.
+	if sys.NixBackend() && os.Getenv("RYOKU_PAM_FILE") == "" {
+		return nil
+	}
+
 	path := pamFilePath()
 	want := mode == ModeUnlockOnLogin
 	if raw, err := os.ReadFile(path); err == nil {

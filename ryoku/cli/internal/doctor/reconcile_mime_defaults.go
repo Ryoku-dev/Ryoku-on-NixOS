@@ -2,10 +2,10 @@ package doctor
 
 // Unfreeze the default-app map. Ryoku used to materialize its own map into
 // ~/.config/mimeapps.list, the file every "Set as default" writes, so each update
-// overwrote the user's picks. The map ships to
-// /usr/share/applications/mimeapps.list now, below the user's file in the XDG
-// chain; this drops the entries left frozen in their file that are only copies of
-// Ryoku's values, and keeps whatever they chose.
+// overwrote the user's picks. The map ships to the site layer
+// (/usr/local/share/applications/mimeapps.list) now, below the user's file in
+// the XDG chain; this drops the entries left frozen in their file that are only
+// copies of Ryoku's values, and keeps whatever they chose.
 
 import (
 	"errors"
@@ -29,7 +29,11 @@ func vendorMimeLists() []string {
 	var out []string
 	dataHome := sys.Xdg("XDG_DATA_HOME", ".local/share")
 	out = append(out, filepath.Join(dataHome, "applications", "mimeapps.list"))
-	for _, d := range sys.DataDirs() {
+	dirs := os.Getenv("XDG_DATA_DIRS")
+	if dirs == "" {
+		dirs = "/usr/local/share:/usr/share"
+	}
+	for _, d := range strings.Split(dirs, ":") {
 		if d == "" {
 			continue
 		}

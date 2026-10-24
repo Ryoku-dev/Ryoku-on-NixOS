@@ -27,7 +27,9 @@ PanelWindow {
         id: notifServer
         keepOnReload: true       // survive quickshell hot-reloads
         bodySupported: true
-        imageSupported: true
+        // This legacy QS Bar store keeps text only; the resident server owns
+        // opt-in image notifications.
+        imageSupported: false
         actionsSupported: true
 
         onNotification: function(notification) {

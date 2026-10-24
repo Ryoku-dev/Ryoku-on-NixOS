@@ -15,7 +15,7 @@ func TestLayoutToSpecs(t *testing.T) {
 		{Name: "eDP-1", Enabled: true, Mode: "2560x1600@165", Scale: 1.5, X: 0, Y: 0, Transform: 1, VRR: true, Mirror: "DP-1", ColorMode: "hdr", SdrBrightness: 1.5},
 		{Name: "DP-1", Enabled: true},                // auto everything
 		{Name: "HDMI-A-1", Enabled: false, Scale: 2}, // disabled
-		{Name: ""},                                   // nameless: dropped
+		{Name: ""}, // nameless: dropped
 	})
 	if len(specs) != 3 {
 		t.Fatalf("got %d specs, want 3 (the nameless one is dropped)", len(specs))
@@ -30,5 +30,28 @@ func TestLayoutToSpecs(t *testing.T) {
 	}
 	if got := specs[2]; !got.Disabled {
 		t.Errorf("a disabled output must set disabled, got %+v", got)
+	}
+}
+
+// A disabled panel still carries its chosen layout. If the enabled external
+// monitor is unplugged, ryoku-monitor can then bring the panel back without
+// replacing the user's mode, position or scale with generic defaults.
+func TestLayoutToSpecsKeepsDisabledPanelLayout(t *testing.T) {
+	specs := layoutToSpecs([]wm.OutputLayout{{
+		Name:      "eDP-1",
+		Enabled:   false,
+		Mode:      "2560x1600@165",
+		Scale:     1.6,
+		X:         320,
+		Y:         40,
+		Transform: 1,
+	}})
+	if len(specs) != 1 {
+		t.Fatalf("got %d specs, want 1", len(specs))
+	}
+	got := specs[0]
+	if !got.Disabled || got.Mode != "2560x1600@165" || got.Scale != 1.6 ||
+		got.Position != "320x40" || got.Transform != 1 {
+		t.Fatalf("disabled panel lost fallback layout: %+v", got)
 	}
 }

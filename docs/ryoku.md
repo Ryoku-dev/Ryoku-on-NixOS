@@ -1,9 +1,12 @@
 # What Ryoku is
 
-Ryoku (力, "power") is a hand-built Arch Linux distribution: a complete,
-opinionated Hyprland desktop plus the installer and system definition that
-reproduce it on any machine. The whole thing lives in this one repository and is
-built from it; the live machine is only ever a deployment target.
+Ryoku (力, "power") is a hand-built Linux distribution: a complete, opinionated
+Wayland desktop plus the installer and system definition that reproduce it on
+any machine. It ships Arch and CachyOS editions with Hyprland or niri, an
+`x86_64` glibc Void edition with niri, runit, Turnstile, and elogind, and
+mutable Fedora 44 and 45 editions with systemd and either compositor. Fedora
+supports Workstation, KDE Plasma, Server, and spins. The whole thing lives in
+this repository; a live machine is only a deployment target.
 
 ## Philosophy
 
@@ -66,29 +69,31 @@ locked behind a text editor.
 ## How the parts fit
 
 - **The shell** (`ryoku/shell/`) is the desktop UI. `quickshell/` is the QML
-  front end (the `qsbar` top bar by default, with the built-in `sumi`
-  monochrome rail as its alternative, plus the `launcher` and
-  `ryoshot` screenshot tool). `ipc/ryoku-shell` is a single Go daemon that is the
-  control plane: it supervises the UI components, owns the wallpaper, clipboard,
+  front end (the `orpheus` liquid top bar by default, with `qsbar` and the
+  built-in `sumi` monochrome rail among its alternatives, plus the `launcher`
+  and `ryoshot` screenshot tool). `ipc/ryoku-shell` is a single Go daemon that is
+  the control plane: it supervises the UI components, owns the wallpaper, clipboard,
   and lock, and answers one socket. Keybinds and the UI talk to it; it decides.
 - **The control CLI** (`ryoku/cli/`, the `ryoku` command) is the system front
-  door: `ryoku update` (snapshot, then pacman and the AUR, then materialize, then
-  reload), plus `rollback`, `snapshots`, `status`, and `materialize`. It
-  orchestrates pacman, yay, and snapper.
-- **Hyprland** (`ryoku/hyprland/`) is the compositor, configured in Lua, one
-  concern per module. Its autostart brings up the shell and the hardware helpers.
+  door: `ryoku update`, `status`, `materialize`, and the snapshot and rollback
+  commands where the host supports them. It uses pacman on Arch and CachyOS,
+  XBPS on Void, DNF on Fedora, and the host's init seam for service work.
+- **The compositor** is Hyprland (`ryoku/hyprland/`, configured in Lua) or
+  niri (`ryoku/niri/`, KDL). Each is a provider under `ryoku/wm/`, configured
+  in its own language, one concern per file. Its autostart brings up the shell
+  and the hardware helpers.
 - **Theming** is wallpaper-driven: `matugen` regenerates the palette from the
-  current wallpaper, and the terminal and Hyprland colors follow it. With *Theme
+  current wallpaper, and the terminal and compositor colors follow it. With *Theme
   apps* on (the default), `matugen` fans that same palette into GTK / GUI apps
   (Files, editors, other libadwaita/GTK apps) too; off, they stay stock. Brand-
   fixed elements (the 力 logo, a few accents) stay constant.
 - **The system** (`system/`) defines the boot chain, the hardware policy
   (GPU/driver/display/power helper scripts), and the package sets.
-- **The installer** (`installation/`) is a Go TUI plus a shell backend that
-  partitions, pacstraps the base, adds the `[ryoku]` package repo and installs
-  `ryoku-desktop`, and sets up the boot chain. The desktop comes from signed
-  packages and the ISO prebuilds the installer, so an install needs no build
-  toolchain.
+- **The installers** share one desktop contract. `installation/` and
+  `void/iso/` build the ISO paths and carry their packages offline.
+  `ryoku-shell-installer/` converts an existing supported system, which is
+  the only Fedora path. Fedora keeps GRUB, with a Ryoku snapshots submenu.
+  Atomic and other rpm-ostree editions are refused.
 - **Rashin** (`ryoku/rashin/`, optional and off by default) is the agent OS: a
   machine-generated knowledge vault, a local daemon with a web dashboard, and a
   one-click Hermes setup, so any coding agent starts with an exact map of the
@@ -100,3 +105,18 @@ Read `docs/structure.md` for where things live, `docs/conventions.md` for how to
 write them, `docs/ui-ux.md` for the desktop's design and motion, and
 `docs/development.md` for the deploy/test/commit loop. The cardinal rules in
 `AGENTS.md` override anything that contradicts them.
+
+## Clock format
+
+Open Ryoku Settings with Super+comma, then Global > Language & Region.
+The **24-hour time** switch applies to Ryoku's clocks, weather times,
+notification timestamps and the built-in lockscreen. Off shows 12-hour time
+with AM/PM; on shows 24-hour time. The default is 12-hour time.
+The clock controls in bar settings and the clock's right-click shortcut change
+this same preference. Third-party apps and downloaded lockscreen themes keep
+their own formatting.
+
+The shell daemon persists this existing setting as
+`general.clock_format_24_h` in `shell.json`; `Ryoku.Ui.Singletons.TimeFormat`
+watches it across processes. Legacy per-surface `clock12h` / `clock24h` values
+no longer override the global preference.

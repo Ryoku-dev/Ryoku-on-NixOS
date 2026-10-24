@@ -21,7 +21,7 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 drm="$tmp/drm"
 mk_card() { # <cardN> <driver> <slot-suffix>
   local d="$drm/$1/device"
-  mkdir -p "$d"
+  mkdir -p "$d/drm/renderD$((128 + $3))"
   printf 'DRIVER=%s\nPCI_SLOT_NAME=0000:0%s:00.0\n' "$2" "$3" >"$d/uevent"
 }
 mk_card card0 amdgpu 1
@@ -29,6 +29,8 @@ printf '2000000000\n' >"$drm/card0/device/mem_info_vram_total"
 printf '2000000000\n' >"$drm/card0/device/mem_info_vis_vram_total"
 mk_card card1 nvidia 2
 mkdir -p "$drm/card0-eDP-1" && printf 'connected\n' >"$drm/card0-eDP-1/status"
+mkdir -p "$drm/card2/device"
+printf 'DRIVER=appletbdrm\nPCI_SLOT_NAME=0000:03:00.0\n' >"$drm/card2/device/uevent"
 
 # fake /dev/dri with the boot-stable symlinks, so value assembly is
 # deterministic and never reads the host's real /dev/dri.
@@ -40,8 +42,8 @@ ln -s card1 "$dri/ryoku-gpu-0000-02-00-0"
 # stub MUX: always capable, always hybrid -> mode performance must print the
 # discrete-MUX hint; `set` is never called by these paths.
 bin="$tmp/bin"; mkdir -p "$bin"
-cat >"$bin/ryoku-gpu-mux" <<'EOF'
-#!/usr/bin/env bash
+printf '#!%s\n' "$(command -v bash)" >"$bin/ryoku-gpu-mux"
+cat >>"$bin/ryoku-gpu-mux" <<'EOF'
 case "${1:-}" in
   capable) exit 0 ;;
   get) printf 'hybrid\n'; exit 0 ;;
@@ -56,6 +58,11 @@ niri="$tmp/gpu.kdl"
 run() { RYOKU_GPU_DRM_ROOT="$drm" RYOKU_GPU_DRI_DIR="$dri" RYOKU_GPU_CONF="$conf" \
         RYOKU_GPU_NIRI_CONF="$niri" RYOKU_ASSUME_LAPTOP="${LAPTOP:-1}" "$gpu" "$@"; }
 verdict() { run check-pin; }
+
+# --- 0. KMS-only display devices never enter the GPU inventory
+detect_json="$(run detect --json)"
+[[ $detect_json != *appletbdrm* && $detect_json != *card2* ]] \
+  || fail "KMS-only appletbdrm was ranked as a render GPU: $detect_json"
 
 # --- 1. laptop default: persist pins the dGPU, check-pin goes missing-pin -> ok
 rm -f "$conf"
@@ -108,7 +115,8 @@ grep -q 'ryoku-gpu-forced' "$conf" || fail "force wrote no marker"
 [[ "$(verdict)" == "forced" ]] || fail "forced pin must report forced, got $(verdict)"
 
 # --- 8. single-GPU box: nothing to pin, nothing to repair
-drm1="$tmp/drm1"; dri1="$tmp/dri1"; mkdir -p "$drm1/card0/device" "$drm1/card0-eDP-1" "$dri1"
+drm1="$tmp/drm1"; dri1="$tmp/dri1"
+mkdir -p "$drm1/card0/device/drm/renderD128" "$drm1/card0-eDP-1" "$dri1"
 printf 'DRIVER=amdgpu\nPCI_SLOT_NAME=0000:01:00.0\n' >"$drm1/card0/device/uevent"
 printf '2000000000\n' >"$drm1/card0/device/mem_info_vram_total"
 printf '2000000000\n' >"$drm1/card0/device/mem_info_vis_vram_total"
@@ -118,7 +126,8 @@ printf 'connected\n' >"$drm1/card0-eDP-1/status"
   || fail "single-GPU box must be ok"
 
 # --- 9. an eGPU on a laptop with no stored choice pins (missing-pin -> ok)
-drme="$tmp/drme"; mkdir -p "$drme/card0/device" "$drme/card9/device" "$drme/card0-eDP-1"
+drme="$tmp/drme"
+mkdir -p "$drme/card0/device/drm/renderD128" "$drme/card9/device/drm/renderD137" "$drme/card0-eDP-1"
 printf 'DRIVER=amdgpu\nPCI_SLOT_NAME=0000:01:00.0\n' >"$drme/card0/device/uevent"
 printf '2000000000\n' >"$drme/card0/device/mem_info_vram_total"
 printf '2000000000\n' >"$drme/card0/device/mem_info_vis_vram_total"
@@ -132,5 +141,23 @@ egpu() { RYOKU_GPU_DRM_ROOT="$drme" RYOKU_GPU_DRI_DIR="$dri" RYOKU_GPU_CONF="$tm
 [[ "$(egpu check-pin)" == "missing-pin" ]] || fail "unpinned eGPU laptop must report missing-pin"
 egpu persist >/dev/null
 [[ "$(egpu check-pin)" == "ok" ]] || fail "eGPU pin on a laptop must be ok, got $(egpu check-pin)"
+
+# --- 10. order --effective sees a pin the policy order refuses to speak about:
+# a RYOKU_GPU_FORCE pin kept under a stored hybrid choice is the drifted state
+# behind #270, and doctor's render-pin-vs-panel guard must still see it.
+run mode hybrid >/dev/null
+RYOKU_GPU_FORCE=1 run persist >/dev/null   # forced pin, hybrid stamp kept
+grep -Eq '^hl\.env\("AQ_DRM_DEVICES"' "$conf" || fail "force wrote no pin under hybrid"
+if run order >/dev/null 2>&1; then
+  fail "plain order must keep refusing under a stored hybrid choice"
+fi
+v="$(run order --effective)" \
+  && [[ "$v" == *"ryoku-gpu-0000-02-00-0:"*"ryoku-gpu-0000-01-00-0" ]] \
+  || fail "order --effective must print the pin file's value, got ${v:-<none>}"
+run disable >/dev/null
+if run order --effective >/dev/null 2>&1; then
+  fail "order --effective must exit 1 on an unpinned machine"
+fi
+
 
 echo "gpu-pin-policy: all cases passed"

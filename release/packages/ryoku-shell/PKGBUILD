@@ -15,42 +15,28 @@ url="https://ryoku.dev"
 license=('GPL-3.0-or-later')
 # uv provisions the ryostage engine's Python 3.13 venv (ryostage install); the
 # system python rolls ahead of onnxruntime's wheels, so the engine can't use it.
-depends=('quickshell' 'ffmpeg' 'wayland' 'jq' 'uv')
+depends=('quickshell' 'ffmpeg' 'wayland' 'jq' 'python' 'uv' 'socat' 'gum' 'qrencode' 'upower' 'brightnessctl' 'ddcutil' 'wtype' 'wl-clipboard' 'zenity' 'power-profiles-daemon' 'networkmanager' 'curl' 'libnotify' 'inotify-tools')
 makedepends=('go' 'wayland' 'wayland-protocols' 'ffmpeg')
 source=()
 
 _repo="$startdir/../../.."
 
 build() {
-  cd "$_repo/ryoku/shell/ipc"
-  # -mod=vendor keeps the build hermetic. godbus is vendored, so the signed-repo
-  # CI builds offline regardless of whatever GOFLAGS makepkg picked up.
-  CGO_ENABLED=0 go build -trimpath -mod=vendor -o "$srcdir/ryoku-shell" .
-  # ryoku-livewall: the C video-wallpaper daemon the shell drives. It software-
-  # decodes a downscaled clip into wl_shm on a wlr background surface (no GL, so
-  # ~40 MB RSS on any GPU vs mpv/mpvpaper's 300-700 MB). build.sh generates the
-  # wayland protocol glue and compiles it.
-  "$_repo/ryoku/shell/livewall/build.sh" "$srcdir/ryoku-livewall"
+  RYOKU_SRC="$_repo" \
+  RYOKU_BUILD_DIR="$srcdir" \
+  RYOKU_PKGVER="$pkgver" \
+  RYOKU_RELEASE="${RYOKU_RELEASE:-$pkgver}" \
+  RYOKU_CHANNEL="${RYOKU_CHANNEL:-stable}" \
+  RYOKU_NAME="${RYOKU_NAME:-Ryoku}" \
+    "$startdir/payload.sh" build
 }
 
 package() {
-  install -Dm755 "$srcdir/ryoku-shell" "$pkgdir/usr/bin/ryoku-shell"
-  install -Dm755 "$srcdir/ryoku-livewall" "$pkgdir/usr/bin/ryoku-livewall"
-  # Shell leaf scripts are called by bare name from the launcher, Hub, bar and
-  # daemon. Ship the whole ryoku-* family so adding a compositor-neutral helper
-  # cannot silently create a launcher action that is absent from PATH.
-  local s
-  for s in "$_repo"/ryoku/shell/scripts/ryoku-*; do
-    [[ -f $s ]] || continue
-    install -Dm755 "$s" "$pkgdir/usr/bin/${s##*/}"
-  done
-  install -Dm755 "$_repo/ryoku/shell/scripts/ryostage" \
-    "$pkgdir/usr/bin/ryostage"
-  # the Stash sidebar's helpers: shell scripts, so they ship with the shell and
-  # resolve on PATH with no compositor config tree.
-  for s in "$_repo"/ryoku/shell/scripts/stash-*.sh; do
-    install -Dm755 "$s" "$pkgdir/usr/bin/${s##*/}"
-  done
-  install -d "$pkgdir/usr/share/ryoku/reload-cover"
-  cp -a "$_repo/ryoku/shell/quickshell/reload-cover/." "$pkgdir/usr/share/ryoku/reload-cover/"
+  RYOKU_SRC="$_repo" \
+  RYOKU_BUILD_DIR="$srcdir" \
+  RYOKU_PKGVER="$pkgver" \
+  RYOKU_RELEASE="${RYOKU_RELEASE:-$pkgver}" \
+  RYOKU_CHANNEL="${RYOKU_CHANNEL:-stable}" \
+  RYOKU_NAME="${RYOKU_NAME:-Ryoku}" \
+    "$startdir/payload.sh" install "$pkgdir" systemd
 }

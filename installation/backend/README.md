@@ -10,17 +10,17 @@ happens to the disk.
 
 ```
 RYOKU_DISK=/dev/nvme0n1 RYOKU_DISK_STRATEGY=whole \
-RYOKU_HOSTNAME=ryoku RYOKU_USERNAME=ryo \
+RYOKU_HOSTNAME=ryoku RYOKU_USERNAME=ryo RYOKU_ROOT_MODE=locked \
 RYOKU_PASSWORD_HASH="$(openssl passwd -6)" \
 RYOKU_KEYMAP=us RYOKU_LOCALE=en_US.UTF-8 RYOKU_TIMEZONE=Europe/Madrid \
-RYOKU_PROFILE=amd-nvidia \
+RYOKU_PROFILE=amd-nvidia RYOKU_BROWSER=firefox RYOKU_LOGIN_SHELL=fish \
 ./ryoku-install
 ```
 
 It must run as root, on a UEFI machine with Secure Boot disabled, against a whole
 disk of at least 32 GiB, with a working network connection (the install is
 online-only). Set `RYOKU_ALLOW_SECUREBOOT=1` only if you have enrolled your own
-keys -- Limine ships unsigned and will not boot under enforced Secure Boot.
+keys; Limine ships unsigned and will not boot under enforced Secure Boot.
 
 ## Dry run
 
@@ -50,25 +50,60 @@ Required:
 | `RYOKU_DISK_STRATEGY` | `whole` (wipe the disk) or `alongside` (dual-boot; keeps existing partitions and chooses shared or dedicated ESP boot automatically). No default: an empty value aborts rather than risk a silent wipe. |
 | `RYOKU_COMPOSITOR`        | Window manager to install, e.g. `hyprland`. Selects the `ryoku-desktop-<name>` variant package. |
 | `RYOKU_COMPOSITOR_CONFIG_DIR` | The `~/.config` subdir that compositor owns (the TUI derives it from `wm.ConfigDir`, e.g. `hypr`); seeds the keymap and GPU pin. Empty means an unknown compositor and the install aborts. |
+| `RYOKU_COMPOSITOR_GPU_PIN` | The render-pin file inside that dir the TUI derives from `wm.GpuPinFile` (`gpu.lua` on Hyprland). Empty means the compositor picks its own render device (niri) and the GPU-mode step skips. |
 
 With defaults:
 
 | Variable                  | Default            | Meaning                                  |
 |---------------------------|--------------------|------------------------------------------|
 | `RYOKU_HOSTNAME`          | `ryoku`            | Hostname.                                |
-| `RYOKU_USERNAME`          | `ryoku`            | Primary user (wheel, login shell fish).  |
+| `RYOKU_USERNAME`          | `ryoku`            | First account and desktop owner; always an administrator. |
+| `RYOKU_BROWSER`           | `firefox`          | Browser key: `firefox`, `chromium`, `zen`, or `none`. The other browser packages are dropped (all of them for `none`); xdg HTTP, HTTPS, HTML and `desktop.apps.browser` point at the pick. |
+| `RYOKU_LOGIN_SHELL`       | `fish`             | Login-shell key: `fish`, `zsh`, or `bash`. The account uses `/usr/bin/<key>` and the other two shell stacks are dropped. |
 | `RYOKU_KEYMAP`            | `us`               | Console keymap (`vconsole.conf`).        |
 | `RYOKU_LOCALE`            | `en_US.UTF-8`      | Locale (`locale.gen` + `locale.conf`).   |
 | `RYOKU_TIMEZONE`          | `UTC`              | `Region/City`, or `auto` (ipinfo.io).    |
 | `RYOKU_PROFILE`           | `vm`               | `amd-nvidia` \| `amd` \| `intel` \| `vm`. |
 | `RYOKU_ESP_GIB`           | `1`                | Whole-disk ESP size in GiB (alongside boot is a fixed 2 GiB). |
-| `RYOKU_ESP_MODE`          | `auto`              | Alongside boot target: `auto`, `shared`, or `dedicated`. Auto uses dedicated when the existing ESP has less than 8 MiB free. |
+| `RYOKU_ESP_MODE`          | `auto`             | Alongside boot target: `auto`, `shared`, or `dedicated`. Auto uses dedicated when the existing ESP has less than 8 MiB free. |
 | `RYOKU_SWAP_GIB`          | `0`                | Swapfile size in GiB (0 disables it).    |
 | `RYOKU_SUBVOL_SNAPSHOTS`  | `1`                | Create `@snapshots` -> `/.snapshots`.    |
 | `RYOKU_SUBVOL_HOME`       | `1`                | Create `@home` -> `/home`.               |
 | `RYOKU_SUBVOL_BACKUPS`    | `0`                | Create `@backups` -> `/.backups`.        |
 | `RYOKU_REPO`              | `/usr/share/ryoku` | Repo payload on the live system.         |
 | `RYOKU_ONLINE`            | `1`                | Pacstrap from network mirrors.           |
+| `RYOKU_FULLNAME`          | empty              | Optional display name for the first account. |
+| `RYOKU_ROOT_MODE`         | `locked`           | `locked` uses administrator `sudo`; `password` requires a separate root hash. |
+| `RYOKU_ROOT_PASSWORD_HASH` | empty             | Separate SHA-512 crypt hash when `RYOKU_ROOT_MODE=password`. |
+| `RYOKU_EXTRA_USERS_FILE`  | empty              | Optional six-field TSV account plan described below. |
+| `RYOKU_HOME_LIMIT_BYTES`  | `0`                | Default byte limit for extra-user TSV rows with an empty limit field. |
+
+The first account remains `RYOKU_USERNAME` for desktop deployment. Extra
+accounts are read from `RYOKU_EXTRA_USERS_FILE`, one record per line:
+
+```
+name<TAB>fullName<TAB>role<TAB>perm,perm<TAB>sha512-crypt-hash<TAB>limitBytes
+```
+
+`role` is `admin` or `standard`. Permissions are `devices`, `audio`,
+`virtualization`, or `containers`; `admin` is accepted only for an admin role.
+Every account receives `devices` even when the TSV omits it: its `input` and
+`video` groups are required by mouse remapping and panel brightness. Only
+mapped groups that exist in the installed target are added, and standard
+accounts never join `wheel`. Names, roles, permissions, hashes, duplicate
+accounts, and non-negative limits are checked before the disk is changed and
+again before account creation.
+
+Every account gets a private Btrfs subvolume at `/home/<name>`, mode `0700`,
+populated from `/etc/skel`. A non-zero account limit enables Btrfs quotas for
+`/home` and applies that byte limit to the account subvolume. Root is locked by
+default; its password is never copied from the first account.
+
+The shell stacks are exact: Fish keeps `fish`; Zsh keeps `zsh`,
+`zsh-autosuggestions`, `zsh-history-substring-search`,
+`zsh-syntax-highlighting`, and `ryoku-oh-my-zsh`; Bash keeps `blesh`. Bash
+itself and the shared terminal tools (`starship`, `fastfetch`, `zoxide`, `fzf`,
+`eza`, `bat`, and `mise`) remain installed with every choice.
 
 Encryption (set together):
 
@@ -81,13 +116,15 @@ Other (all optional, env-only):
 
 | Variable                  | Meaning                                                              |
 |---------------------------|----------------------------------------------------------------------|
-| `RYOKU_GPU_MODE`          | Hybrid-GPU render mode, **consumed** after driver install: `offload` (iGPU-first default), `sync` (pin the dGPU as primary), `vfio` (pin the iGPU alone, freeing the dGPU for a VM). Applied with `ryoku-gpu mode` to the user's `~/.config/hypr/gpu.lua`. Empty leaves Hyprland's own selection. |
+| `RYOKU_DROP_PACKAGES`     | Comma-separated package names removed by installer choices. The backend adds both losing browsers and both losing shell stacks, filters the full set from pacstrap and AUR sources, then records it in the doctor's provisioning ledger. |
+| `RYOKU_GPU_MODE`          | Hybrid-GPU render mode, **consumed** after driver install: `offload` (iGPU-first default), `sync` (pin the dGPU as primary), `vfio` (pin the iGPU alone, freeing the dGPU for a VM). Applied with `ryoku-gpu mode` to the user's render pin, the file named by `RYOKU_COMPOSITOR_GPU_PIN` (empty, as on niri, skips the step: that compositor picks its own device). |
 | `RYOKU_REGION_START` / `RYOKU_REGION_END` | For `alongside`: the exact start/end SECTORS of the free region the TUI's probe chose. The backend places the boot + root partitions there and re-validates the range is still free before writing. Omitted -> the backend picks the largest free region itself. |
 | `RYOKU_RECLAIM_LEFTOVERS` | `1` lets `alongside` DELETE *unmounted* partitions labeled exactly `ryoku`/`ryokuboot` (leftovers of a prior failed run). Without it, finding such partitions aborts the install (they may be a working Ryoku install). The TUI sets it after the typed `ERASE` ack. |
 | `RYOKU_WIPE_CONFIRMED`    | `1` lets `whole` wipe a non-empty disk (the TUI's typed `ERASE` ack). |
 | `RYOKU_REBOOT`            | Non-empty reboots after a successful install.                        |
 | `RYOKU_SKIP_AUR`          | Skip the optional AUR set (unattended / CI install).                 |
 | `RYOKU_ALLOW_SECUREBOOT`  | `1` to install despite firmware Secure Boot being on (Limine is unsigned). |
+| `RYOKU_ALLOW_DIRTY_NTFS`  | `1` to install alongside a hibernated / Fast-Startup Windows volume anyway (the gate otherwise refuses: Windows Startup Repair can rewrite the table on its next boot). |
 | `RYOKU_DRYRUN`            | Print destructive commands instead of running them (see Dry run).    |
 
 ## Disk strategies

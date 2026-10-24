@@ -84,6 +84,7 @@ pkgs.writeShellApplication {
     # ───────────────────────────────────────────────────────────
     kitty
     nautilus
+    gtk3
 
     git
   ];

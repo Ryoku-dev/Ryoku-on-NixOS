@@ -3,16 +3,12 @@ import QtQuick
 import "Singletons"
 import Ryoku.Ui.Singletons
 
-// A slider row for the desktop context menu, in the quiet-tile idiom of
-// MenuRow: a label on the left, a live value on the right, a hairline track
-// with an ink fill and a bone-edged handle between them. Drag scrubs live
-// (moved) so a value bound through Config re-renders the widget in place;
-// release commits once (released) -- the same setLive-then-set split the
-// corner resize handle uses, so a drag never thrashes the config file.
+// Stage sheets can be narrower than desktop menus, so the label and readout
+// surrender width before the Folio-style track is allowed to collapse.
 Item {
     id: sld
 
-    property string label: ""       // pre-translated by the caller
+    property string label: ""
     property real from: 0
     property real to: 1
     property real value: 0
@@ -20,76 +16,101 @@ Item {
     property int decimals: 2
     property string valueText: sld.value.toFixed(sld.decimals)
 
-    signal moved(real v)            // live, on every drag step
-    signal released(real v)         // once, to persist
+    signal moved(real v)
+    signal released(real v)
 
     width: parent ? parent.width : 0
-    implicitHeight: Theme.s6
+    implicitHeight: 34
+    implicitWidth: 9 + lbl.implicitWidth + 13 + 160 + 13 + val.implicitWidth + 9
 
     readonly property real frac: sld.to > sld.from
         ? Math.max(0, Math.min(1, (sld.value - sld.from) / (sld.to - sld.from))) : 0
 
     Text {
         id: lbl
-        anchors { left: parent.left; leftMargin: Theme.s3; verticalCenter: parent.verticalCenter }
-        width: Theme.s5 * 2
-        elide: Text.ElideRight
+        anchors {
+            left: parent.left
+            leftMargin: 9
+            verticalCenter: parent.verticalCenter
+        }
+        width: Math.min(implicitWidth, Math.max(0,
+            sld.width - 18 - 26 - 56 - val.width))
         text: I18n.tr(sld.label)
         color: Theme.inkSoft
+        elide: Text.ElideRight
+        maximumLineCount: 1
         font.family: Theme.font
-        font.pixelSize: Theme.fBody
-        font.weight: Font.Medium
+        font.pixelSize: 13
+        font.weight: Font.DemiBold
     }
+
     Text {
         id: val
-        anchors { right: parent.right; rightMargin: Theme.s3; verticalCenter: parent.verticalCenter }
-        width: Theme.s6
+        anchors {
+            right: parent.right
+            rightMargin: 9
+            verticalCenter: parent.verticalCenter
+        }
+        width: Math.min(implicitWidth, Math.max(0, sld.width * 0.22))
         horizontalAlignment: Text.AlignRight
         text: sld.valueText
         color: Theme.inkDim
+        elide: Text.ElideRight
+        maximumLineCount: 1
         font.family: Theme.mono
-        font.pixelSize: Theme.fMicro
+        font.pixelSize: 9
         font.weight: Font.Medium
     }
+
     Item {
         id: track
-        anchors { left: lbl.right; leftMargin: Theme.s3; right: val.left; rightMargin: Theme.s3; verticalCenter: parent.verticalCenter }
-        height: Theme.s5
+        x: lbl.x + lbl.width + 13
+        width: Math.max(0, val.x - 13 - x)
+        height: 26
+        anchors.verticalCenter: parent.verticalCenter
 
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             width: parent.width
-            height: Theme.s1
-            radius: Theme.menuTileRadius
-            color: Theme.tile
+            height: 2
+            radius: 1
+            color: Theme.line
             Rectangle {
                 width: Math.round(parent.width * sld.frac)
                 height: parent.height
-                radius: Theme.menuTileRadius
+                radius: 1
                 color: Theme.ink
             }
         }
+
         Rectangle {
-            width: Theme.s4
-            height: Theme.s4
-            radius: width / 2
+            width: 12
+            height: 12
+            radius: 6
             anchors.verticalCenter: parent.verticalCenter
-            x: Math.round((track.width - width) * sld.frac)
+            x: Math.max(0, Math.round((track.width - width) * sld.frac))
             color: Theme.surface
             border.width: 1
             border.color: Theme.ink
-            scale: drag.pressed ? 1.15 : 1
-            Behavior on scale { NumberAnimation { duration: Theme.quick; easing.type: Theme.ease } }
+            scale: drag.pressed ? 1.25 : drag.containsMouse ? 1.15 : 1
+            Behavior on scale {
+                NumberAnimation {
+                    duration: 180
+                    easing.type: Easing.OutBack
+                    easing.overshoot: 2.4
+                }
+            }
         }
+
         MouseArea {
             id: drag
             anchors.fill: parent
-            anchors.margins: -Theme.s2
+            anchors.margins: -7
             preventStealing: true
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             function at(mx) {
-                const fr = Math.max(0, Math.min(1, mx / track.width));
+                const fr = Math.max(0, Math.min(1, mx / Math.max(1, track.width)));
                 const v = sld.from + fr * (sld.to - sld.from);
                 return Math.max(sld.from, Math.min(sld.to, Math.round(v / sld.step) * sld.step));
             }

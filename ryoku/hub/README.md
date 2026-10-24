@@ -23,9 +23,9 @@ changing a page's look.
   - `ryoku-hub keybinds` parses the live Hyprland binds
     (`~/.config/hypr/modules/binds.lua`) into categorised, display-ready JSON.
   - `ryoku-hub desktop get|defaults|save|preview|restore` reads and writes the
-    system-settings override document and generates the Lua the live config loads
-    (see "The override model" below). `cursors` and `layouts` enumerate installed
-    cursor themes and X11 keyboard layouts for the pickers.
+    neutral desktop-settings document. `cursors`, `icons` and `layouts`
+    enumerate installed choices for their pickers; `icon-theme set <theme>`
+    validates and applies one icon theme to every GTK, Qt and shell consumer.
   - `ryoku-hub config get|set <key> [value]` persists hub UI state as TOML at
     `~/.config/ryoku/hub.toml` (last open section, update-check cadence).
   - `ryoku-hub reload-cover import <path>` copies a supported local image,
@@ -60,6 +60,11 @@ changing a page's look.
 
 ## Sections
 
+- **General** holds language and regional formats, location, fonts, sounds, the
+  installed icon-theme picker, and local user accounts. Its Users tab reads the
+  host account capability, keeps standard accounts read-only, and sends
+  administrator changes through `pkexec ryoku-host users`; passwords travel on
+  stdin, never in process arguments.
 - **Displays** detect every connected monitor and arrange them on a drag canvas
   (edges snap), with per-monitor resolution, refresh, scale, Ryoku interface
   scale, bar and desktop-widget visibility, rotation, adaptive sync, mirroring,

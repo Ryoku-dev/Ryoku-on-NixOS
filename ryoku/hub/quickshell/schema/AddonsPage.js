@@ -19,15 +19,34 @@ var rows = [
         "group": "Placement",
         "key": "<pluginId>.host",
         "label": "Show as",
-        "desc": "Where it appears: popout, wallpaper tile or bar glyph",
+        "desc": "Where it appears: popout, wallpaper tile, bar glyph or sidebar card",
         "ctl": "seg",
         "src": "plugins.json (via `ryoku-plugins-place <id> host <hostName>`)",
         "opts": [
             "framePopout",
             "desktopWidget",
             "topbarGlyph",
+            "sidebarCard",
             "<any"
         ]
+    },
+    {
+        "tab": "detail",
+        "group": "Placement",
+        "key": "<pluginId>.sidebarCard.tab",
+        "label": "Tab",
+        "desc": "Names the Controls tab that holds the sidebar card",
+        "ctl": "field",
+        "src": "plugins.json (via `ryoku-plugins-place <id> sidebarCard <tab> <order> [label] [glyph]`)"
+    },
+    {
+        "tab": "detail",
+        "group": "Placement",
+        "key": "<pluginId>.sidebarCard.order",
+        "label": "Order",
+        "desc": "Places the card within its Controls tab",
+        "ctl": "step",
+        "src": "plugins.json (via `ryoku-plugins-place <id> sidebarCard <tab> <order> [label] [glyph]`)"
     },
     {
         "tab": "detail",
@@ -44,18 +63,18 @@ var rows = [
         "group": "Management",
         "key": "",
         "label": "Update / Remove",
-        "desc": "Refreshes or removes it; placement stays as set",
+        "desc": "Update preserves placement; Remove deletes the add-on and its settings",
         "ctl": "action",
-        "src": "ryostore internal install-guest|remove-guest plugins <id>"
+        "src": "completion-observed ryostore internal install-guest|remove-guest plugins <id>"
     },
     {
         "tab": "Bundles",
         "group": "Management",
         "key": "",
         "label": "Remove component / bundle",
-        "desc": "Shows every component state, with a terminal",
+        "desc": "Shows authoritative component state; terminal removal skips items that need manual uninstall",
         "ctl": "action",
-        "src": "ryostore-install remove item|bundle"
+        "src": "ryostore-install remove item|bundle; ryostore-install status bundle <id>"
     },
     {
         "tab": "",

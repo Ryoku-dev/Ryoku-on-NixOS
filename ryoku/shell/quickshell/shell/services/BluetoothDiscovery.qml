@@ -14,4 +14,10 @@ Singleton {
         if (adapter)
             adapter.discovering = owners.length > 0 && adapter.enabled;
     }
+
+    function stopAll(adapter) {
+        owners = [];
+        if (adapter)
+            adapter.discovering = false;
+    }
 }

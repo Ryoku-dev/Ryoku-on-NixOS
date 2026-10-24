@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -96,20 +99,20 @@ func TestRenderRebindsExpandsFamily(t *testing.T) {
 	}
 }
 
-// The shipped input.lua detaches keyboard focus from the pointer, and the
+// The shipped input.lua puts keyboard focus under the cursor, and the
 // diff-based config must not re-emit that default, or settings.lua would override
 // the shipped module with the same value for no reason.
 func TestDefaultFollowMouseMatchesShippedInput(t *testing.T) {
-	const detachedFocus = 2
-	if got := defaultOverrides().Input.FollowMouse; got != detachedFocus {
-		t.Fatalf("default input.follow_mouse = %d, want %d", got, detachedFocus)
+	const cursorFocus = 1
+	if got := defaultOverrides().Input.FollowMouse; got != cursorFocus {
+		t.Fatalf("default input.follow_mouse = %d, want %d", got, cursorFocus)
 	}
 	inputConfig, err := os.ReadFile(filepath.Join("..", "..", "hyprland", "modules", "input.lua"))
 	if err != nil {
 		t.Fatalf("read shipped input config: %v", err)
 	}
-	if !regexp.MustCompile(`(?m)^[[:space:]]*follow_mouse[[:space:]]*=[[:space:]]*2,[[:space:]]*$`).Match(inputConfig) {
-		t.Fatal("shipped input.lua must detach keyboard focus from pointer focus")
+	if !regexp.MustCompile(`(?m)^[[:space:]]*follow_mouse[[:space:]]*=[[:space:]]*1,[[:space:]]*$`).Match(inputConfig) {
+		t.Fatal("shipped input.lua must put keyboard focus under the cursor")
 	}
 	if config := genConfig(defaultOverrides(), false); strings.Contains(config, "follow_mouse =") {
 		t.Fatalf("default settings.lua overrides input.lua:\n%s", config)
@@ -217,4 +220,74 @@ func TestBorderFollowsPaletteGatesConfigAndAct(t *testing.T) {
 			t.Fatal("a fixed border must not push colours live")
 		}
 	})
+}
+
+func TestMasterNewStatusIsAlwaysRendered(t *testing.T) {
+	o := defaultOverrides()
+	out := genLua(o, false)
+	if !strings.Contains(out, `new_status = "slave"`) {
+		t.Fatalf("default new-window role must be explicit so rebuilds preserve Hub intent:\n%s", out)
+	}
+
+	o.Master.NewStatus = "master"
+	out = genLua(o, false)
+	if !strings.Contains(out, `new_status = "master"`) {
+		t.Fatalf("custom new-window role was not rendered:\n%s", out)
+	}
+}
+
+func TestApplyWritesSettingsWindowModule(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("RYOKU_GREETER_NUMLOCK_FILE", filepath.Join(t.TempDir(), "greeter-numlock"))
+	store := filepath.Join(home, "ryoku", "desktop.json")
+	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store, []byte(`{"wm":{"hyprland":{"settingsWindow":{"mode":"custom","width":0.5,"height":0.5}}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	old := stdout
+	stdout = bufio.NewWriter(&output)
+	t.Cleanup(func() { stdout = old })
+	if err := runApply([]string{store}); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Flush()
+
+	var report wm.ApplyReport
+	if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Written) != 3 {
+		t.Fatalf("written = %v, want settings.lua, settings_window.lua and rebinds.lua", report.Written)
+	}
+	body, err := os.ReadFile(filepath.Join(home, "hypr", "settings_window.lua"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `return { mode = "custom", width = 0.5, height = 0.5 }`
+	if !strings.Contains(string(body), want) {
+		t.Fatalf("settings window module missing %q:\n%s", want, body)
+	}
+	if !bytes.Equal(body, []byte(genSettingsWindowLua(loadStore(store).SettingsWindow))) {
+		t.Fatal("live module does not match the generator")
+	}
+}
+
+func TestSettingsWindowSchemaAndDefaults(t *testing.T) {
+	if got := defaultOverrides().SettingsWindow; got != (SettingsWindow{Mode: "full", Width: 0.5, Height: 0.5}) {
+		t.Fatalf("default settings window = %+v", got)
+	}
+	for _, key := range []string{
+		`"wm.hyprland.settingsWindow.mode"`,
+		`"wm.hyprland.settingsWindow.width"`,
+		`"wm.hyprland.settingsWindow.height"`,
+	} {
+		if !bytes.Contains(schemaRows, []byte(key)) {
+			t.Errorf("schema missing %s", key)
+		}
+	}
 }

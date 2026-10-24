@@ -78,6 +78,7 @@ eq(
 
 eq(Store.primaryAction({ installed: false }), "INSTALL", "available action");
 eq(Store.primaryAction({ installed: true }), "INSTALLED", "installed action");
+eq(Store.primaryAction({ installed: true, updateAvailable: true }), "UPDATE", "installed update action");
 eq(Store.primaryAction({ installed: false, busy: true }), "INSTALLING", "busy action");
 eq(Store.secondaryAction({ installed: true, hasSettings: true }), "OPEN IN SETTINGS", "management handoff when the product has a settings page");
 eq(Store.secondaryAction({ installed: true }), "", "installed product without a settings page has no handoff");
@@ -117,6 +118,13 @@ eq(Store.unavailableReason({ unavailableReason: "stale" }), "", "reason is empty
 eq(Store.primaryAction(foreign), "WM-A ONLY", "the disabled action names the window manager too");
 eq(Store.statusLabels(foreign), ["WM-A ONLY"], "unavailable uninstalled item drops the contradictory AVAILABLE label");
 eq(Store.statusLabels(foreignInstalled), ["WM-A ONLY", "ACTIVE"], "unavailable installed item keeps its state so remove stays reachable");
+
+// An item ruled out by this edition (its package manager) must not claim a window
+// manager is the problem, even when it names the one that is running.
+const otherEdition = { installed: false, unavailable: true, unavailableEdition: true, requiredWindowManager: "wm-a", unavailableReason: "Needs the AUR." };
+eq(Store.unavailableLabel(otherEdition), "NOT ON THIS SYSTEM", "the chip names the edition gate, not the window manager");
+eq(Store.primaryAction(otherEdition), "NOT ON THIS SYSTEM", "the disabled action names the edition gate too");
+eq(Store.unavailableReason(otherEdition), "Needs the AUR.", "the edition reason is surfaced");
 
 // Discover rotates on a daily seed: stable within a day, varies across days, and
 // never drops or invents an item. No seed keeps the legacy deterministic order.
@@ -182,5 +190,27 @@ eq(
     ["vpn", "clockbar", "widget", "popout", "bare"],
     "plugins ALL collection keeps every plugin in source order"
 );
+
+const omarchyPlugins = [
+    { id: "clock", category: "omarchy-plugins", name: "Clock", stars: 4, listedAt: "2026-10-01T00:00:00Z", verificationStatus: "verified", kind: "Bar widget", license: "MIT", metadata: { marketplaceCategory: "Widgets" } },
+    { id: "notes", category: "omarchy-plugins", name: "Notes", stars: 20, listedAt: "2026-09-01T00:00:00Z", verificationStatus: "unverified", kind: "Panel", license: "GPL-3.0", metadata: { marketplaceCategory: "Productivity" } },
+    { id: "weather", category: "omarchy-plugins", name: "Weather", stars: 8, listedAt: "2026-10-06T00:00:00Z", verificationStatus: "verified", kind: "Bar widget", license: "MIT", metadata: { marketplaceCategory: "Widgets" } }
+];
+eq(
+    Store.collection(omarchyPlugins, { view: "discover", categoryID: "omarchy-plugins", omarchySort: "popular" }).map(item => item.id),
+    ["notes", "weather", "clock"],
+    "Omarchy Popular sorts by stars"
+);
+eq(
+    Store.collection(omarchyPlugins, { view: "discover", categoryID: "omarchy-plugins", omarchySort: "new" }).map(item => item.id),
+    ["weather", "clock", "notes"],
+    "Omarchy New sorts by listing date"
+);
+eq(
+    Store.collection(omarchyPlugins, { view: "discover", categoryID: "omarchy-plugins", omarchySort: "verified" }).map(item => item.id),
+    ["weather", "clock", "notes"],
+    "Omarchy Verified places verified entries first and uses popularity within the tier"
+);
+eq(Store.filter(omarchyPlugins, { query: "widgets bar mit" }).map(item => item.id), ["clock", "weather"], "Omarchy metadata participates in search");
 
 console.log("RYOSTORE-STORE-HELPERS-PASS");

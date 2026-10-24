@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="theme-color" content="#000000" />
-  <meta name="description" content="Step-by-step guide to adding Ryoku to an existing NixOS system." />
+  <meta name="description" content="Step-by-step beginner installation guide for Ryoku on NixOS." />
   <title>Install Ryoku on NixOS — Step by Step</title>
   <link rel="stylesheet" href="styles-v2-4.css" />
 </head>
@@ -15,15 +15,15 @@
   <header class="site-header scrolled">
     <a class="brand" href="index.html" aria-label="Ryoku on NixOS home">
       <span class="brand-mark">力</span>
-      <span class="brand-text">RYOKU · NIXOS</span>
+      <span class="brand-text">RYOKU // NIXOS</span>
     </a>
     <button class="nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false"><span></span><span></span></button>
     <nav class="nav" aria-label="Primary navigation">
       <a href="index.html#showcase">Showcase</a>
       <a class="active" href="install.html">Install guide</a>
       <a href="patch-notes.html">Patch notes</a>
-      <a href="https://ryoku.dev/">Explore Ryoku ↗</a>
-      <a class="nav-github" href="https://github.com/aethctl/Ryoku-on-NixOS" target="_blank" rel="noreferrer">GitHub ↗</a>
+      <a href="index.html#faq">FAQ</a>
+      <a class="nav-github" href="https://github.com/Ryoku-dev/Ryoku-on-NixOS" target="_blank" rel="noreferrer">GitHub ↗</a>
     </nav>
   </header>
 
@@ -32,7 +32,7 @@
       <div class="subpage-hero-copy reveal visible">
         <div class="subpage-kicker">入 // BEGINNER INSTALLATION</div>
         <h1>INSTALL<em>RYOKU.</em></h1>
-        <p>Add Ryoku to an existing NixOS system. New to flakes? Follow the steps below. Starting from a USB instead? <a href="index.html#install">See the test ISO option</a>.</p>
+        <p>A fresh-NixOS walkthrough written for people who have never used flakes before. Follow it in order; every command tells you exactly where it belongs.</p>
       </div>
       <dl class="subpage-meta reveal visible">
         <div><dt>Difficulty</dt><dd>Beginner</dd></div>
@@ -166,15 +166,14 @@
           <div class="eyebrow">04 // PREVIEW RYOKU</div>
           <h2>See what the installer will do first.</h2>
           <p>Run this as your normal user. Do <strong>not</strong> put <code>sudo</code> in front of it; the installer asks for elevated access only when it actually needs it.</p>
-          <pre><code>nix run github:aethctl/Ryoku-on-NixOS/main#install -- --dry-run</code><button class="copy" data-copy="nix run github:aethctl/Ryoku-on-NixOS/main#install -- --dry-run">COPY</button></pre>
-          <p>The same guided screens open in preview mode. After review, the backend prints the proposed configuration without installing Ryoku.</p>
+          <pre><code>nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install -- --dry-run</code><button class="copy" data-copy="nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install -- --dry-run">COPY</button></pre>
+          <p>The dry run does not install Ryoku. It gives you a chance to inspect the planned integration first.</p>
         </section>
 
         <section id="install" class="docs-section">
           <div class="eyebrow">05 // INSTALL</div>
-          <h2>Open the guided installer.</h2>
-          <pre><code>nix run github:aethctl/Ryoku-on-NixOS/main#install</code><button class="copy" data-copy="nix run github:aethctl/Ryoku-on-NixOS/main#install">COPY</button></pre>
-          <p>The guided installer lets you choose Hyprland or Niri, Chromium or Firefox, Fish or Zsh, and optional apps. Use arrow keys to move, Enter to continue, Space to toggle apps and Esc to go back.</p>
+          <h2>Install Ryoku.</h2>
+          <pre><code>nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install</code><button class="copy" data-copy="nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install">COPY</button></pre>
           <p>The installer integrates Ryoku into your existing flake, builds a new NixOS generation, and switches only after that build succeeds.</p>
           <div class="docs-callout"><strong>Ryoku does not reinstall NixOS.</strong> It does not repartition your drives, replace your bootloader, or take ownership of your hardware-specific GPU configuration.</div>
         </section>
@@ -193,7 +192,7 @@
           <div class="docs-callout"><strong>Useful support information:</strong> copy the final error from your terminal, say which step of this guide you were on, and include whether your system rebuilt successfully with <code>/etc/nixos#nixos</code> before Ryoku.</div>
           <div class="status-actions">
             <a class="button primary" href="https://discord.gg/8KjBmUEyKA" target="_blank" rel="noreferrer">Discord support ↗</a>
-            <a class="button" href="https://github.com/aethctl/Ryoku-on-NixOS/issues" target="_blank" rel="noreferrer">GitHub issues ↗</a>
+            <a class="button" href="https://github.com/Ryoku-dev/Ryoku-on-NixOS/issues" target="_blank" rel="noreferrer">GitHub issues ↗</a>
           </div>
         </section>
       </div>
@@ -201,7 +200,7 @@
   </main>
 
   <footer class="footer">
-    <div><span>力</span><strong>RYOKU · NIXOS</strong></div>
+    <div><span>力</span><strong>RYOKU // NIXOS</strong></div>
     <nav><a href="index.html">Home</a><a href="patch-notes.html">Patch notes</a><a href="https://ryoku.dev" target="_blank" rel="noreferrer">Ryoku ↗</a></nav>
     <small>力と美のために · For the sake of power and beauty.</small>
   </footer>

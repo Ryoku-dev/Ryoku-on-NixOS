@@ -1,11 +1,15 @@
 package updater
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mustGit runs git in dir with an isolated identity and config, failing the test
@@ -49,6 +53,102 @@ func commitPush(t *testing.T, work, name, body, msg, branch string) {
 	mustGit(t, work, "add", "-A")
 	mustGit(t, work, "commit", "-m", msg)
 	mustGit(t, work, "push", "origin", branch)
+}
+
+func TestResolveChannelTarget(t *testing.T) {
+	root := t.TempDir()
+	origin := filepath.Join(root, "origin.git")
+	builder := filepath.Join(root, "builder")
+	work := filepath.Join(root, "work")
+
+	mustGit(t, "", "init", "--bare", "-b", "unstable-dev", origin)
+	mustGit(t, "", "clone", origin, builder)
+	commitPush(t, builder, "a", "checked\n", "checked change", "unstable-dev")
+	a := strings.TrimSpace(mustGit(t, builder, "rev-parse", "HEAD"))
+
+	// The box stays on A while the remote advances through the release bot's
+	// version bump and then a human change.
+	mustGit(t, "", "clone", origin, work)
+	writeFile(t, filepath.Join(builder, "VERSION"), "1.2.3\n")
+	mustGit(t, builder, "add", "-A")
+	mustGit(t, builder, "commit", "--author=github-actions[bot] <actions@github.com>",
+		"-m", "release: bump unstable to 1.2.3")
+	mustGit(t, builder, "push", "origin", "unstable-dev")
+	b := strings.TrimSpace(mustGit(t, builder, "rev-parse", "HEAD"))
+	commitPush(t, builder, "c", "unchecked\n", "human change", "unstable-dev")
+	c := strings.TrimSpace(mustGit(t, builder, "rev-parse", "HEAD"))
+	mustGit(t, work, "fetch", "origin", "unstable-dev")
+
+	passedA := checkedRef{Commit: a, Run: "https://example.test/passed", At: time.Now().Add(-time.Minute).Format(time.RFC3339)}
+	cases := []struct {
+		name         string
+		tip          string
+		pointer      checkedPointer
+		pointerOK    bool
+		force        bool
+		want         string
+		noteContains string
+	}{
+		{
+			name:      "release bump inherits passed gate",
+			tip:       b,
+			pointer:   checkedPointer{Commit: a, State: "passed", Passed: passedA},
+			pointerOK: true,
+			want:      b,
+		},
+		{
+			name: "checking stays on passed commit",
+			tip:  c,
+			pointer: checkedPointer{
+				Commit: c, State: "checking", Run: "https://example.test/checking",
+				At: time.Now().Add(-2 * time.Minute).Format(time.RFC3339), Passed: passedA,
+			},
+			pointerOK:    true,
+			want:         a,
+			noteContains: "still running",
+		},
+		{
+			name: "failed stays on passed commit",
+			tip:  c,
+			pointer: checkedPointer{
+				Commit: c, State: "failed", Run: "https://example.test/failed", Passed: passedA,
+			},
+			pointerOK:    true,
+			want:         a,
+			noteContains: "failed its checks",
+		},
+		{
+			name:      "force takes unchecked tip",
+			tip:       c,
+			pointer:   checkedPointer{Commit: c, State: "failed", Passed: passedA},
+			pointerOK: true,
+			force:     true,
+			want:      c,
+		},
+		{
+			name:         "unreachable pointer stays on head",
+			tip:          c,
+			want:         a,
+			noteContains: "cannot read the testing gate",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mustGit(t, work, "update-ref", "refs/remotes/origin/unstable-dev", tc.tip)
+			target, note := resolveChannelTarget(work, "unstable-dev", tc.pointer, tc.pointerOK, tc.force)
+			got := strings.TrimSpace(mustGit(t, work, "rev-parse", target))
+			if got != tc.want {
+				t.Errorf("target %q resolves to %s, want %s", target, got, tc.want)
+			}
+			if tc.noteContains != "" && !strings.Contains(note, tc.noteContains) {
+				t.Errorf("note = %q, want it to contain %q", note, tc.noteContains)
+			}
+			if tc.noteContains == "" && note != "" {
+				t.Errorf("note = %q, want empty", note)
+			}
+		})
+	}
 }
 
 func TestChannelStatus(t *testing.T) {
@@ -344,6 +444,106 @@ func TestChannelUpdateReconcilesDivergence(t *testing.T) {
 	}
 }
 
+// gatedDeployFixture is a source box on unstable-dev whose checkout sits on the
+// seed commit while origin has moved on to a commit the gate checked and, past
+// it, one still being checked. Its deploy stub leaves a marker, so a test can
+// tell whether the update laid the checkout down. gate builds the testing gate's
+// answer once those commits exist.
+func gatedDeployFixture(t *testing.T, gate func(checked, unchecked string) http.HandlerFunc) (work, state, marker, seed, checked, unchecked string) {
+	t.Helper()
+	root := t.TempDir()
+	origin := filepath.Join(root, "origin.git")
+	work = filepath.Join(root, "work")
+	marker = filepath.Join(root, "deploy-ran")
+
+	mustGit(t, "", "init", "--bare", "-b", "unstable-dev", origin)
+	mustGit(t, "", "clone", origin, work)
+	writeFile(t, filepath.Join(work, "ryoku", "shell", "deploy.sh"), "#!/bin/sh\ntouch '"+marker+"'\n")
+	if err := os.Chmod(filepath.Join(work, "ryoku", "shell", "deploy.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, work, "add", "-A")
+	mustGit(t, work, "commit", "-m", "seed with deploy stub")
+	mustGit(t, work, "push", "origin", "unstable-dev")
+	seed = strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD"))
+
+	other := filepath.Join(root, "other")
+	mustGit(t, "", "clone", origin, other)
+	commitPush(t, other, "checked", "c\n", "checked work", "unstable-dev")
+	checked = strings.TrimSpace(mustGit(t, other, "rev-parse", "HEAD"))
+	commitPush(t, other, "unchecked", "u\n", "work still being checked", "unstable-dev")
+	unchecked = strings.TrimSpace(mustGit(t, other, "rev-parse", "HEAD"))
+
+	server := httptest.NewServer(gate(checked, unchecked))
+	t.Cleanup(server.Close)
+	state = t.TempDir()
+	t.Setenv("RYOKU_REPO", work)
+	t.Setenv("RYOKU_CHANNEL", "unstable-dev")
+	t.Setenv("RYOKU_RELEASE_BASE", server.URL)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // isolate TrackedChannel from the host's environment.d
+	t.Setenv("XDG_RUNTIME_DIR", root)
+	t.Setenv("XDG_STATE_HOME", state)
+	force, wait := updateForce, updateWait
+	updateForce, updateWait = false, false
+	t.Cleanup(func() { updateForce, updateWait = force, wait })
+	return work, state, marker, seed, checked, unchecked
+}
+
+// Regression: offline, the update could not read the gate, stayed on a checkout
+// a week behind the running desktop and deployed it anyway, removing the
+// default bar. Without the gate there is nothing new to lay down.
+func TestChannelUpdateKeepsTheDesktopWhenTheGateIsUnreadable(t *testing.T) {
+	work, state, marker, seed, _, unchecked := gatedDeployFixture(t, func(_, _ string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "unreachable", http.StatusServiceUnavailable)
+		}
+	})
+	writeFile(t, filepath.Join(state, "ryoku", "deployed"), unchecked+"\n")
+
+	if err := channelUpdate(); err != nil {
+		t.Fatalf("channelUpdate: %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the checkout was deployed although the gate could not be read")
+	}
+	if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != seed {
+		t.Errorf("checkout moved to %s without the gate, want it left on %s", head, seed)
+	}
+}
+
+// The checkout advances to the last checked commit either way, but it is laid
+// down only when that is not older than the commit the desktop already runs.
+func TestChannelUpdateNeverDeploysOlderThanTheRunningDesktop(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		running    func(seed, unchecked string) string
+		wantDeploy bool
+	}{
+		{"running a newer commit", func(seed, unchecked string) string { return unchecked }, false},
+		{"running an older commit", func(seed, unchecked string) string { return seed }, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			work, state, marker, seed, checked, unchecked := gatedDeployFixture(t, func(checked, unchecked string) http.HandlerFunc {
+				pointer := fmt.Sprintf(`{"commit":%q,"state":"checking","run":"r","at":%q,"passed":{"commit":%q}}`,
+					unchecked, time.Now().UTC().Format(time.RFC3339), checked)
+				return func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, pointer) }
+			})
+			writeFile(t, filepath.Join(state, "ryoku", "deployed"), tc.running(seed, unchecked)+"\n")
+
+			if err := channelUpdate(); err != nil {
+				t.Fatalf("channelUpdate: %v", err)
+			}
+			if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != checked {
+				t.Errorf("checkout on %s, want the last checked commit %s", head, checked)
+			}
+			_, err := os.Stat(marker)
+			if deployed := err == nil; deployed != tc.wantDeploy {
+				t.Errorf("deployed = %v, want %v", deployed, tc.wantDeploy)
+			}
+		})
+	}
+}
+
 func TestRyokuChannelDefaultAndOverride(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
@@ -359,7 +559,7 @@ func TestRyokuChannelDefaultAndOverride(t *testing.T) {
 	if got := ryokuChannel(); got != "unstable-dev" {
 		t.Errorf("override channel = %q, want unstable-dev", got)
 	}
-	// `ryoku track main` persisted the switch, but the session still carries the
+	// `ryoku track` persisted the switch, but the session still carries the
 	// env it captured at login: the persisted channel must win, or status and the
 	// Hub report the old channel until a reboot.
 	if err := os.MkdirAll(filepath.Join(cfg, "environment.d"), 0o755); err != nil {
@@ -412,7 +612,7 @@ func TestSyncChannelFastForwardsNonMainBranch(t *testing.T) {
 	commitPush(t, other, "f2", "y\n", "release commit two", "main")
 	mustGit(t, work, "fetch", "origin", "main")
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 
@@ -447,7 +647,7 @@ func TestSyncChannelPreservesDivergedBranch(t *testing.T) {
 	commitPush(t, other, "f1", "x\n", "upstream commit", "main")
 	mustGit(t, work, "fetch", "origin", "main")
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != wip {
@@ -474,7 +674,7 @@ func TestSyncChannelResetsDivergedChannelBranch(t *testing.T) {
 	commitPush(t, other, "f1", "x\n", "upstream commit", "main")
 	mustGit(t, work, "fetch", "origin", "main")
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	// The channel branch mirrors upstream: it is reset onto origin/main, dropping
@@ -502,7 +702,7 @@ func TestSyncChannelLeavesDirtyTree(t *testing.T) {
 	mustGit(t, work, "fetch", "origin", "main")
 	writeFile(t, filepath.Join(work, "README"), "dirty edit\n")
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != before {
@@ -520,7 +720,7 @@ func TestSyncChannelNoOpWhenCurrent(t *testing.T) {
 	mustGit(t, work, "fetch", "origin", "main")
 	before := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD"))
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != before {
@@ -560,7 +760,7 @@ func TestUpdateClearsBehindOnDevBranch(t *testing.T) {
 
 	// The channel sync `ryoku update` runs, then deploy.sh records HEAD as the
 	// deployed commit.
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD"))
@@ -595,7 +795,7 @@ func TestSyncChannelFastForwardsPastUntrackedFiles(t *testing.T) {
 
 	writeFile(t, filepath.Join(work, "scratch", "build.out"), "junk\n")
 
-	if err := syncChannel(work, "main"); err != nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err != nil {
 		t.Fatalf("syncChannel: %v", err)
 	}
 	if head := strings.TrimSpace(mustGit(t, work, "rev-parse", "HEAD")); head != want {
@@ -620,7 +820,7 @@ func TestSyncChannelErrorsOnUntrackedCollision(t *testing.T) {
 
 	writeFile(t, filepath.Join(work, "app", "new.qml"), "mine\n")
 
-	if err := syncChannel(work, "main"); err == nil {
+	if err := syncChannel(work, "main", "refs/remotes/origin/main"); err == nil {
 		t.Fatal("syncChannel: err=nil, want an error when an untracked file collides")
 	}
 }

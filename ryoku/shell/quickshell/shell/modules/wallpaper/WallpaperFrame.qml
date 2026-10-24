@@ -15,6 +15,8 @@ QtObject {
     // daemon fills them for a video frame; a still leaves the defaults.
     property bool mute: true
     property int volume: 100
+    // The daemon's pause rules freeze the clip in place rather than dropping back to the still.
+    property bool paused: false
 
     function apply(line: string): bool {
         try {
@@ -33,6 +35,7 @@ QtObject {
             live = entry.live === true;
             mute = entry.mute !== false;
             volume = (typeof entry.volume === "number") ? entry.volume : 100;
+            paused = entry.paused === true;
             return true;
         } catch (error) {
             return false;

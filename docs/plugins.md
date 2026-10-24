@@ -83,9 +83,10 @@ review runs that same validator on every plugin PR (its CI will, too).
 Start to finish, a plugin is one command to scaffold, an edit loop, one command
 to check, one to install, and one to publish:
 
-1. **Scaffold.** `ryoku plugin new <id> [--bar|--desktop|--popout]` writes R1's
-   folder from a working template (default `--bar`, which also adds
-   `entryPoints.panel` and `content/Panel.qml`): the manifest, `service/Main.qml`,
+1. **Scaffold.** `ryoku plugin new <id> [--bar|--desktop|--popout|--sidebar]`
+   writes R1's folder from a working
+   template (default `--bar`, which also adds `entryPoints.panel` and
+   `content/Panel.qml`): the manifest, `service/Main.qml`,
    `content/Widget.qml`, `README.md`, `LICENSE`, an `AGENTS.md` carrying these
    rules, and a first git commit as the author.
 2. **Edit.** Fill in the service, the view, the panel, the manifest and the
@@ -106,7 +107,7 @@ to check, one to install, and one to publish:
 
 | You (the contributor) write... | Ryoku (the shell) handles for you... |
 |---|---|
-| The **logic**: fetch data, hold state, run commands (`service/Main.qml`). | **Where the widget lives** (frame popout, desktop widget) and letting the user choose and move it. |
+| The **logic**: fetch data, hold state, run commands (`service/Main.qml`). | **Where the widget lives** (frame popout, desktop widget, bar glyph, or sidebar card) and letting the user choose and place it. |
 | **One view** of your widget (`content/Widget.qml`) - the labels, buttons, grid, etc. | The **card / popout surface** behind your view: background, rounded corners, shadow, hairline. |
 | A small **manifest** describing your plugin and its defaults. | **Dragging, resizing, the right-click menu, hover-to-open** - all the interaction. |
 | A **settings schema** in your manifest (`metadata.settings`). | **Sizing**: the popout grows to fit your content; the desktop tile scales as the user resizes it. |
@@ -136,10 +137,10 @@ bolted-on instead of native.
 
 ---
 
-## The three hosts a user can choose
+## The four hosts a user can choose
 
 When a user enables your plugin they pick **one** of these in Ryoku Settings →
-Plugins. Your *same* `content/Widget.qml` is used for all three - Ryoku just
+Plugins. Your *same* `content/Widget.qml` is used for all four - Ryoku just
 renders it differently.
 
 ### 1. Desktop widget - a tile on the wallpaper
@@ -169,9 +170,9 @@ Dropped in the **middle** of that screen instead, the popout becomes a centred
 surface: it floats in the middle of the display, all four corners rounded, with
 no hover edge. A centred popout opens only when it is asked for, by
 `ryoku-shell plugin <id>` or a click, which makes it the placement
-for a modal view. It shares the middle of the screen with quick settings
-(`Super+Escape`) and the stash (`Super+S`), but the shell only ever shows one
-surface at a time, so they take turns rather than overlap.
+for a modal view. It shares the modal layer with Ryoku's global shell surfaces,
+but the shell only ever shows one modal surface at a time, so they take turns
+rather than overlap.
 
 - Ryoku handles the **hover trigger, the open/close animation, and the fuse into
   the frame**.
@@ -243,8 +244,78 @@ with the community warning, its author, its switch and settings, and
 EXPORT / SHARE TO RYOSTORE / REMOVE. `ryoku plugin list|remove|validate`
 manage it from a terminal; see "Share it" below for export and share.
 
-> Island and window hosts are planned but not built yet. Declare only
-> `framePopout`, `desktopWidget`, or `topbarGlyph` in your manifest today.
+### 4. Sidebar card - lives in a global sidebar
+
+A `sidebarCard` plugin lives in Extensions inside Controls. It uses the same
+entry points as every other plugin: `service/Main.qml` for logic and
+`content/Widget.qml` for the view. There is no `content/Sidebar.qml`. Ryoku owns
+the surface frame, navigation, width, placement, and motion.
+
+The root must be an `Item` with `pragma ComponentBehavior: Bound`. These are the
+core host-set members:
+
+```qml
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import Ryoku.PluginKit
+import Ryoku.PluginKit.Singletons
+
+Item {
+    property real s: 1
+    property bool open: false
+    property real reveal: 0
+    property bool tabActive: false
+    property var pluginApi
+
+    signal requestClose()
+
+    implicitHeight: 240 * s
+    // Ryoku sets the built-in width property.
+}
+```
+
+| Contract member | Meaning |
+| --- | --- |
+| `s` | Per-display UI scale multiplier. |
+| `open` | Whether the owning sidebar is requested open. |
+| `reveal` | Current reveal progress from `0` to `1`. |
+| `tabActive` | Whether this plugin's section is selected. |
+| `width` | Host-managed width. Report `implicitHeight`; do not assign the width. |
+| `pluginApi` | `mainInstance`, `pluginSettings`, `pluginDir`, `stateDir`, and `saveSetting(key, value)`. |
+| `requestClose()` | Signal an action can emit to close the owning surface. |
+
+Two additional properties are optional. If declared, the host binds them:
+
+| Optional member | Meaning |
+| --- | --- |
+| `compact: bool` | The Extensions view supplies `false`; provide the full widget. |
+| `viewportHeight: real` | Height available below the shared chrome. Use it to cap an internal scroll region. |
+
+The host drives `open`, `reveal`, `tabActive`, and optional `active` from the
+real panel state. Stop timers and other live work when inactive. Sidebar plugin
+instances unload with the owning panel; persistent external work belongs in
+the backend rather than a hidden QML view.
+
+Sidebar placement is stored under the plugin's `sidebarCard` placement object:
+
+- `side` is accepted for existing manifests, normalized to `"left"`, and otherwise ignored;
+- `order` is the numeric order in the Extensions view;
+- `label` is the displayed label; and
+- `glyph` is a Material Symbols Rounded ligature, default `"extension"`.
+
+Manifest suggestions use `"defaults": { "host": "sidebarCard", "sidebar": {
+"side": "left", "order": 10 } }`. The manifest declares `sidebarCard` in
+`hosts` and keeps `entryPoints.content` at `content/Widget.qml`.
+
+The plugin draws content, never its own window chrome, outer surface, position,
+or motion. R1-R11 are otherwise unchanged; public imports remain `QtQuick*`,
+`Quickshell*`, `Ryoku.PluginKit`, `Ryoku.PluginKit.Singletons`, and files inside
+the plugin folder.
+
+> Island and window hosts are planned but not built yet. `sidebarCard` is
+> available: declare only `framePopout`, `desktopWidget`, `topbarGlyph`, or
+> `sidebarCard` in a manifest today.
 
 ---
 
@@ -307,8 +378,9 @@ AUTHORISE button, and not one click on the bar that changes the network.
 
 ## Writing `content/Widget.qml`
 
-This is your view. Ryoku sets a few properties on its root **for you to read** -
-**never assign them**:
+For bar glyphs, desktop widgets, and frame popouts, Ryoku sets these properties
+on the root **for you to read** - **never assign them**. Sidebar cards use the
+separate card contract in section 4 above.
 
 | Property Ryoku sets | What it means | What you do with it |
 |---|---|---|
@@ -321,8 +393,9 @@ This is your view. Ryoku sets a few properties on its root **for you to read** -
 ### Sizing - the one thing you MUST get right
 
 **Declare your content's natural size; never hardcode geometry.** Ryoku reads
-your root's `implicitWidth` / `implicitHeight` to size the card or grow the
-popout. If you don't report a size, your widget collapses to nothing.
+your root's `implicitWidth` / `implicitHeight` to size desktop and popout
+surfaces. A sidebar card gets its width from Ryoku and reports `implicitHeight`.
+If you don't report a size, your widget collapses to nothing.
 
 ```qml
 import QtQuick
@@ -444,17 +517,17 @@ value for it, and `undefined` must not become your poll interval.
 ```
 
 - `hosts` - declare **only the hosts you actually support and have tested**
-  (today: `framePopout`, `desktopWidget`, `topbarGlyph`). Don't list hosts that
-  don't work.
+  (today: `framePopout`, `desktopWidget`, `topbarGlyph`, `sidebarCard`). Don't
+  list hosts that don't work.
 - `defaults` - *suggestions*. The user's choices in Settings always win. For
   `framePopout`, `align` is `start`, `center` or `end`, and `edge: "center"`
   asks for the centred (modal) surface, which opens only on request. A bar
   widget's defaults are just `{ "host": "topbarGlyph", "icon": "...", "label":
   "..." }`, plus an optional `"bar": { "section": "left|center|right" }` for
-  the lane it first lands in (the end of the right lane when absent; the
-  Layout route moves it from there, and that choice is kept). `icon` is a
-  Material Symbols Rounded ligature name (`vpn_lock`, `extension`, ...), the
-  mark menus and pickers show for the plugin.
+  the lane it first lands in. A sidebar card uses `{ "host": "sidebarCard",
+  "sidebar": { "side": "left", "tab": "Plugins", "order": 10 } }`; the host
+  normalizes any other `side` value to `"left"`. `icon` and sidebar `glyph`
+  values are Material Symbols Rounded ligature names (`vpn_lock`, `extension`, ...).
 - `official` - leave `false`. Only first-party Ryoku plugins set `true`; every
   other plugin lists under QS Bar Settings > Community and carries the store's
   community warning.
@@ -515,7 +588,8 @@ unsandboxed with your permissions. R1..R11 are what keep it honest.
   it), or install it from Ryostore itself. Never hand-copy into
   `~/.local/share/ryoku/plugins/`: a folder without a receipt is not loaded.
 - **Enable & place**: Ryoku Settings → Plugins. The user toggles it on, picks a
-  host, and (for a frame popout) the edge. Placement saves to
+  host, and sets the host placement: edge for a frame popout, or order in
+  Controls > Extensions for a sidebar card. Placement saves to
   `~/.config/ryoku/plugins.json`; the shell watches that file and retunes live -
   no restart.
 - **Desktop widgets** are then moved/resized/hidden directly on the wallpaper

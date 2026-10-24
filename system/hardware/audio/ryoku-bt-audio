@@ -32,6 +32,7 @@ set -u
 
 PACTL="${RYOKU_BT_PACTL:-pactl}"
 CONFIG="${RYOKU_BT_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ryoku/bluetooth.json}"
+WATCH_LOCK="${RYOKU_BT_WATCH_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/ryoku-bt-audio-${UID}.watch.lock}"
 
 log() { printf 'ryoku-bt-audio: %s\n' "$*" >&2; }
 
@@ -183,15 +184,21 @@ apply)
   apply_all
   ;;
 watch)
+  # Compositor reloads and switches can both revisit autostart. Keep one event
+  # stream per user; the lock remains held by this shell for the subscription.
+  exec 9>>"$WATCH_LOCK"
+  flock -n 9 2>/dev/null || exit 0
   # A device that reconnects appears as a new card, so any card event is the cue
   # to reconcile. `pactl subscribe` is line-buffered and long-lived; the sleep
   # coalesces the burst of events one connection produces into a single pass.
+  # Stay subscribed even with an empty store: `set` may remember the first codec
+  # later in this login and the next reconnect must still restore it.
   apply_all
-  "$PACTL" subscribe 2>/dev/null | while read -r line; do
+  while read -r line; do
     case "$line" in
       *"on card"*) sleep 1; apply_all ;;
     esac
-  done
+  done < <("$PACTL" subscribe 9>&- 2>/dev/null)
   ;;
 *)
   echo "usage: ryoku-bt-audio cards | list [<addr>] | set <addr> <codec> | forget <addr> | apply | watch" >&2

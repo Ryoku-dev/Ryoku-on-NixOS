@@ -4,7 +4,9 @@
   hyprglassSrc,
   bibataMaterialSrc,
   imgbordersSrc,
+  ryomanagerSrc,
   ryotunesSrc,
+  skwdPaper,
   version,
 }:
 
@@ -29,6 +31,37 @@ let
     provider = "niri";
   };
 
+  wmMango = import ./ryoku-wm-provider.nix {
+    inherit pkgs src;
+    provider = "mango";
+  };
+
+  # Niri 26.04 retains layer-shell surfaces when a physical output is
+  # removed, so repeated DPMS/hotplug cycles accumulate their buffers.
+  # Upstream PR #4485 fixes #1457 by cleaning each output's layer map before
+  # removing the output from the layout. Keep the patch vendored and pinned so
+  # Ryoku builds remain reproducible while the upstream fix is still open.
+  ryokuNiri = pkgs.niri.overrideAttrs (old: {
+    patches = (old.patches or [ ]) ++ [
+      ../patches/niri-output-layer-cleanup.patch
+    ];
+  });
+
+  # Ryoku 0.82.2 targets Mango 0.17.4. The package in Ryoku's
+  # deliberately pinned nixpkgs universe is still 0.16.1, so keep
+  # the dependency ABI from that universe while updating the source.
+  ryokuMango = pkgs.mango.overrideAttrs (_old: {
+    pname = "ryoku-mango";
+    version = "0.17.4";
+
+    src = pkgs.fetchFromGitHub {
+      owner = "mangowm";
+      repo = "mango";
+      tag = "0.17.4";
+      sha256 = "1n9mbbf9g2h3lk3h8v084s2drvzq5zc0im5fr6ck5ycpgg0xhf38";
+    };
+  });
+
   xwaylandSatellite = import ./xwayland-satellite.nix {
     inherit pkgs;
   };
@@ -39,6 +72,7 @@ let
       src
       version
       desktopData
+      paletteBridge
       ;
   };
 
@@ -47,7 +81,7 @@ let
   };
 
   hub = import ./ryoku-hub.nix {
-    inherit pkgs src;
+    inherit pkgs src paletteBridge desktopData;
   };
 
   paletteBridge = import ./ryoku-palette-bridge.nix {
@@ -92,6 +126,7 @@ let
       src
       livewall
       waifu2x
+      qmlRoot
       paletteBridge
       ;
   };
@@ -103,6 +138,10 @@ let
   ryotunes = import ./ryoku-ryotunes.nix {
     inherit pkgs ryotunesUnwrapped;
     ryokuQml = qml;
+  };
+
+  ryomanager = import ./ryomanager.nix {
+    inherit pkgs ryomanagerSrc;
   };
 
   keysounds = import ./ryoku-keysounds.nix {
@@ -150,6 +189,7 @@ let
   blobs = import ./ryoku-blobs.nix {
     inherit pkgs src qmlRoot;
   };
+
 
   mkPureQmlModule =
     {
@@ -246,6 +286,10 @@ let
     cp -a \
       ${blobs}/${qmlRoot}/Ryoku/Blobs \
       "$out/${qmlRoot}/Ryoku/Blobs"
+
+    cp -a \
+      ${blobs}/${qmlRoot}/Ryoku/Spatial3D \
+      "$out/${qmlRoot}/Ryoku/Spatial3D"
   '';
 
   bundle = pkgs.symlinkJoin {
@@ -271,12 +315,15 @@ let
       ryovmHelpers
       livewall
       ryogami
+      skwdPaper
       ryotunes
+      ryomanager
       qmkHid
       waifu2x
       desktopData
       wmHyprland
       wmNiri
+      wmMango
       helpers
       nixosSystemBridge
       qml
@@ -284,6 +331,9 @@ let
   };
 in
 {
+  niri = ryokuNiri;
+  mango = ryokuMango;
+
   inherit
     shell
     cli
@@ -297,7 +347,9 @@ in
     ryovmHelpers
     livewall
     ryogami
+    skwdPaper
     ryotunes
+    ryomanager
     ryotunesUnwrapped
     keysounds
     qmkHid
@@ -305,6 +357,7 @@ in
     desktopData
     wmHyprland
     wmNiri
+    wmMango
     helpers
     nixosSystemBridge
     hyprglass

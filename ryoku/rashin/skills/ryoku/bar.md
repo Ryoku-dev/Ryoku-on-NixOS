@@ -1,13 +1,28 @@
 # The QS Bar and the dock
 
-The default Ryoku bar is **QS Bar** (`qsbar`), a full-colour top bar. It is data,
-not code: its layout lives in `~/.config/ryoku/shell.json` under `qsbar.layout`,
-and every built-in widget and every installed plugin is an entry in the same
-list. Drive it with `ryoku-shell bar ...`; the shell daemon is the only writer of
-`shell.json`, so never hand-edit the layout.
+The default Ryoku bar is **Orpheus** (`orpheus`): drops on the top edge with a
+voice in the middle for the time, music, notifications, and recordings. The
+Sound page's gain slider sets how much the bar reacts to music. Its Bar settings
+page picks a liquid or square form; the square one keeps crisp corners and shows
+sound as blocks. Left-click its 力 logo to open its settings, where the Layout
+page arranges its modules by drag and drop; right-click the logo for the
+launcher. Optional modules include coding-agent limits from the shared usage
+caches, a paired phone shortcut into Kit, and a VPN mark whose card switches
+Tailscale and NetworkManager VPN/WireGuard profiles; none is in the default
+layout.
+Its keys live under `orpheus` in `shell.json` and are listed in
+`docs/barstyles.md`. Pick another style with `ryoku-shell barstyle <id>`, for
+example `ryoku-shell barstyle qsbar`.
 
-(The other style, Sumi, is the monochrome frame rail; it has its own frame-bar
-model and is not covered here. `barStyle` in `shell.json` picks the style.)
+**QS Bar** (`qsbar`) remains a built-in choice. Its layout is data, not code: it
+lives in `~/.config/ryoku/shell.json` under `qsbar.layout`, and every built-in
+widget and every installed plugin is an entry in the same list. Drive it with
+`ryoku-shell bar ...`; the shell daemon is the only writer of `shell.json`, so
+never hand-edit the layout.
+
+The other shipped choices use their own models and are not covered here. Sumi
+is the monochrome frame rail, Kairos is a growing clock island, and Shima,
+Python, and Nomarchy are complete frame families.
 
 ## The layout model
 

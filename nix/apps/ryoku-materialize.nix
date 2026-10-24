@@ -6,8 +6,12 @@ pkgs.writeShellApplication {
   runtimeInputs = with pkgs; [
     coreutils
     findutils
+    gnugrep
     jq
     systemd
+    # `ryoku materialize` reapplies the Hub's icon theme through these.
+    glib
+    ryoku.hub
   ];
 
   text = ''
@@ -78,6 +82,7 @@ pkgs.writeShellApplication {
       done
 
       printf '%s\n' "$backup" > "$state/initial-backup-path"
+      [ -e "$state/seeded-wallpapers" ] || : > "$state/seeded-wallpapers"
       touch "$state/initial-backup-complete"
     fi
 
@@ -88,6 +93,7 @@ pkgs.writeShellApplication {
     export RYOKU_CONFIG_BASE="$base"
 
     ${ryoku.cli}/bin/ryoku materialize
+    ${ryoku.cli}/bin/ryoku migrate-shell-config
 
     niri_gpu="$config_home/niri/gpu.kdl"
 
@@ -140,8 +146,10 @@ debug {
 EOF
       fi
 
+      # The first-login seed is the read-only store copy (0444); on the
+      # session's tty a plain mv would prompt and hang the login.
       chmod --reference="$niri_gpu" "$tmp"
-      mv "$tmp" "$niri_gpu"
+      mv -f -- "$tmp" "$niri_gpu"
     fi
 
     # config.kdl is niri's immutable Ryoku entrypoint and autostart.kdl is
@@ -169,6 +177,9 @@ EOF
       "$config_home/ryoku/desktop.json" >/dev/null
 
     ${ryoku.wmNiri}/bin/ryoku-wm-niri apply \
+      "$config_home/ryoku/desktop.json" >/dev/null
+
+    ${ryoku.wmMango}/bin/ryoku-wm-mango apply \
       "$config_home/ryoku/desktop.json" >/dev/null
 
     # Keep persisted Quick Settings state in step with Ryostage.
@@ -247,6 +258,13 @@ EOF
       niri/user.kdl \
       niri/settings.kdl \
       niri/rebinds.kdl \
+      mango/monitors.conf \
+      mango/gpu.conf \
+      mango/keyboard.conf \
+      mango/monitors_user.conf \
+      mango/user.conf \
+      mango/settings.conf \
+      mango/rebinds.conf \
       fastfetch/config.jsonc \
       kitty/current-theme.conf
     do
@@ -273,13 +291,20 @@ EOF
     for module in Ui PluginKit FrameBars Blobs Wm; do
       module_path="$user_qml/$module"
 
-      # Legacy copies retain read-only Nix store modes. Never chmod symlinks.
+      # Older NixOS generations copied these modules out of the Nix store with
+      # their immutable 0555 directory modes intact. The first deployment
+      # therefore worked, but a later materialization could not rm -rf the old
+      # tree before replacing it. Make only legacy real directories writable;
+      # current generations use symlinks and must never chmod the store target.
       if [ -d "$module_path" ] && [ ! -L "$module_path" ]; then
         find "$module_path" -type d -exec chmod u+w {} +
       fi
 
       rm -rf -- "''${module_path:?}"
-      ln -s "$qml/Ryoku/$module" "$module_path"
+
+      ln -s \
+        "$qml/Ryoku/$module" \
+        "$module_path"
     done
 
     # Hyprland's bundled plugins are immutable generation-owned packages.
@@ -355,11 +380,29 @@ EOF
       "$HOME/Pictures/ryodecors" \
       "$data_home/ryoku/assets/brand"
 
-    if [ -d "${ryoku.desktopData}/share/ryoku/wallpapers" ]; then
-      cp -n \
-        "${ryoku.desktopData}/share/ryoku/wallpapers/"* \
-        "$HOME/Pictures/Wallpapers/" \
-        2>/dev/null || true
+    # Seed once, as upstream's installer does: copying on every login brings
+    # deleted wallpapers back for Ryogami's auto-optimise to trash again.
+    shipped_walls="${ryoku.desktopData}/share/ryoku/wallpapers"
+    seeded="$state/seeded-wallpapers"
+
+    if [ -d "$shipped_walls" ]; then
+      # Accounts from before this list already have every shipped wallpaper.
+      if [ ! -e "$seeded" ] && [ -e "$state/initial-backup-complete" ]; then
+        find "$shipped_walls" -mindepth 1 -maxdepth 1 -printf '%f\n' > "$seeded"
+      fi
+      touch "$seeded"
+
+      for wall in "$shipped_walls"/*; do
+        [ -e "$wall" ] || continue
+        name="''${wall##*/}"
+        if grep -qxF -- "$name" "$seeded"; then
+          continue
+        fi
+        if cp -n "$wall" "$HOME/Pictures/Wallpapers/" 2>/dev/null ||
+          [ -e "$HOME/Pictures/Wallpapers/$name" ]; then
+          printf '%s\n' "$name" >> "$seeded"
+        fi
+      done
     fi
 
     if [ -d "${ryoku.desktopData}/share/ryoku/ryodecors" ]; then
@@ -405,6 +448,6 @@ EOF
         "$(cat "$state/initial-backup-path")"
     fi
 
-    printf '\nLog out and start Hyprland to enter Ryoku.\n'
+    printf '\nLog out and start a Ryoku session (Hyprland, niri, or MangoWM).\n'
   '';
 }

@@ -2,23 +2,26 @@
 // wired to a real Ryoku helper (ryoku-shell, ryoku-cmd-*). Data only,
 // so the set is validated in a node test and the provider stays a thin mapper.
 // `exec` is an argv array run with execDetached. Categories group the action-mode
-// tabs (System / Appearance / Tools / Media / Settings).
+// tabs (System / Appearance / Tools / Media / Settings). An optional `caps` names
+// a window-manager capability the action needs; the provider hides the entry on a
+// compositor that lacks it (a tool that is not even installed there).
 
 var CATALOG = [
     { id: "lock-screen",      name: "Lock Screen",        category: "System",     icon: "lock",        exec: ["ryoku-shell", "lock"] },
-    { id: "open-clipboard",   name: "Clipboard History",  category: "System",     icon: "clipboard",   exec: ["ryoku-shell", "menu", "quick-settings#clipboard"] },
-    { id: "open-sysinfo",     name: "System Info",        category: "System",     icon: "info",        exec: ["ryoku-shell", "menu", "quick-settings"] },
-    { id: "open-toolkit",     name: "Control Deck",       category: "System",     icon: "grid",        exec: ["ryoku-shell", "menu", "quick-settings"] },
+    { id: "open-clipboard",   name: "Clipboard History",  category: "System",     icon: "clipboard",   exec: ["ryoku-shell", "clipboard"] },
+    { id: "open-sysinfo",     name: "System Info",        category: "System",     icon: "info",        exec: ["ryoku-shell", "quicksettings"] },
+    { id: "open-toolkit",     name: "Control Deck",       category: "System",     icon: "grid",        exec: ["ryoku-shell", "quicksettings"] },
     { id: "toggle-caffeine",  name: "Keep Awake",         category: "System",     icon: "coffee",      exec: ["ryoku-cmd-caffeine"] },
-    { id: "toggle-game-mode", name: "Game Mode",          category: "System",     icon: "gamepad",     exec: ["ryoku-cmd-game-mode"] },
+    { id: "toggle-game-mode", name: "Game Mode",          category: "System",     icon: "gamepad",     exec: ["ryoku-cmd-game-mode"], caps: "liveConfigEval" },
     { id: "mirror-displays",  name: "Mirror Displays",    category: "System",     icon: "monitor",     exec: ["ryoku-monitor", "toggle"], caps: "outputMirror" },
 
     { id: "next-wallpaper",   name: "Next Wallpaper",     category: "Appearance", icon: "image",       exec: ["ryogami", "wallpaper", "next"] },
     { id: "pick-wallpaper",   name: "Wallpaper Picker",   category: "Appearance", icon: "image-multi", exec: ["ryogami", "wallpaper", "ui"] },
+    { id: "wallpaper-settings", name: "Wallpaper Settings", category: "Appearance", icon: "settings",  exec: ["ryogami", "wallpaper", "settings"] },
     { id: "toggle-nightlight",name: "Night Light",        category: "Appearance", icon: "moon",        exec: ["ryoku-cmd-nightlight"], caps: "nightLight" },
 
-    { id: "screenshot",       name: "Screenshot",         category: "Tools",      icon: "camera",      exec: ["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"] },
-    { id: "screen-record",    name: "Screen Record",      category: "Tools",      icon: "video",       exec: ["ryoku-cmd-screenrecord"] },
+    { id: "screenshot",       name: "Screenshot",         category: "Tools",      icon: "camera",      exec: ["ryoku-cmd-ryoshot"] },
+    { id: "screen-record",    name: "Screen Record",      category: "Tools",      icon: "video",       exec: ["ryoku-shell", "record"] },
     { id: "color-picker",     name: "Color Picker",       category: "Tools",      icon: "eyedropper",  exec: ["ryoku-cmd-color-picker"] },
     { id: "ocr",              name: "OCR Text Grab",      category: "Tools",      icon: "text-scan",   exec: ["ryoku-cmd-ocr"] },
     { id: "qr-scan",          name: "Scan QR Code",       category: "Tools",      icon: "qr",          exec: ["ryoku-cmd-qr-scan"] },

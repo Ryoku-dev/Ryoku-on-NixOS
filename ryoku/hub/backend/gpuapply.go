@@ -9,6 +9,8 @@ package main
 // without touching anything, which is what the Hub shows before the user OKs.
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,14 +19,30 @@ import (
 	"strings"
 )
 
+type gpuPassthroughAvailability struct {
+	Available bool   `json:"available"`
+	Package   string `json:"package,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
 func nixGpuPassthroughConfigured() bool {
 	b, err := os.ReadFile("/etc/ryoku/gpu-passthrough-ready")
 	return err == nil && strings.TrimSpace(string(b)) == "1"
 }
 
+type gpuHostCapabilities struct {
+	AUR struct {
+		Supported bool   `json:"supported"`
+		Reason    string `json:"reason"`
+	} `json:"aur"`
+}
+
 func runGpuApply(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("gpu apply needs enable|disable [--dry-run]")
+	}
+	if args[0] == "availability" {
+		return printJSON(passthroughAvailability())
 	}
 	action := args[0]
 	if action != "enable" && action != "disable" {
@@ -40,6 +58,15 @@ func runGpuApply(args []string) error {
 	for _, a := range args[1:] {
 		if a == "--dry-run" {
 			dryRun = true
+		}
+	}
+	if action == "enable" {
+		availability := passthroughAvailability()
+		if !availability.Available {
+			if availability.Reason != "" {
+				return errors.New(availability.Reason)
+			}
+			return fmt.Errorf("%s is not available on this system", availability.Package)
 		}
 	}
 	// hook = an internal entrypoint libvirt calls. same subcommand tree, but it
@@ -76,34 +103,27 @@ func escalateSelf(args ...string) error {
 	return cmd.Run()
 }
 
-// installPassthroughAUR builds Looking Glass + the kvmfr module from the AUR as
-// the invoking user (makepkg refuses root). best-effort: a build failure leaves
-// a clear message and the rest of enable still runs, so caps honestly reports
-// what is still missing. needs a terminal for the helper's prompts.
+// installPassthroughAUR installs Looking Glass + the kvmfr module as the
+// invoking user. The host capability check keeps this path on Arch, where
+// makepkg must run as the user and the helper inherits this terminal.
 func installPassthroughAUR() {
 	missing := missingPkgs(extraPassthroughPkgs, pkgInstalled)
 	if len(missing) == 0 {
 		return
 	}
-	fmt.Println("Installing Looking Glass + the kvmfr module from the AUR (builds a kernel module; this can take a few minutes)...")
+	fmt.Println("Installing Looking Glass + the kvmfr module (this can take a few minutes)...")
 	if err := aurInstall(missing); err != nil {
-		fmt.Printf("Could not build %s from the AUR: %v\n", strings.Join(missing, " "), err)
-		fmt.Println("Passthrough will stay off until they are installed; try: yay -S " + strings.Join(missing, " "))
+		if gpuHostUnavailable(err) {
+			fmt.Println("Looking Glass and the kvmfr module are not available on this host; passthrough will stay off.")
+			return
+		}
+		fmt.Printf("Could not install %s: %v\n", strings.Join(missing, " "), err)
+		fmt.Println("Passthrough will stay off until they are available; try: ryoku-host pkg install --aur " + strings.Join(missing, " "))
 	}
 }
 
-// aurInstall hands packages to the Ryoku AUR wrapper, falling back to a raw
-// helper. inherits this terminal so makepkg/sudo can prompt.
 func aurInstall(pkgs []string) error {
-	if _, err := exec.LookPath("ryoku-pkg-aur-add"); err == nil {
-		return ttyRun("ryoku-pkg-aur-add", pkgs...)
-	}
-	for _, h := range []string{"yay", "paru"} {
-		if _, err := exec.LookPath(h); err == nil {
-			return ttyRun(h, append([]string{"-S", "--needed"}, pkgs...)...)
-		}
-	}
-	return fmt.Errorf("no AUR helper found (expected ryoku-pkg-aur-add, yay, or paru)")
+	return ttyRun("ryoku-host", append([]string{"pkg", "install", "--aur"}, pkgs...)...)
 }
 
 func ttyRun(name string, args ...string) error {
@@ -208,11 +228,45 @@ polkit.addRule(function(action, subject) {
 // uses it (a passthrough VM is launched outside Ryoku, e.g. via libvirt).
 const kvmfrStaticMB = 128
 
-// the passthrough stack. core packages are official, install as one
-// transaction; the Looking Glass pieces live in [ryoku] (or the AUR on plain
-// Arch) and install best-effort, so their absence never blocks the core set.
+// The passthrough stack uses Arch package names as the stable interface.
+// ryoku-host translates them for the host package manager.
 var corePassthroughPkgs = []string{"qemu-desktop", "libvirt", "edk2-ovmf", "swtpm", "dnsmasq"}
 var extraPassthroughPkgs = []string{"looking-glass", "looking-glass-module-dkms"}
+
+func passthroughAvailability() gpuPassthroughAvailability {
+	if unavailable, found := firstUnavailablePackage(corePassthroughPkgs, false); found {
+		return unavailable
+	}
+	var caps gpuHostCapabilities
+	out, err := exec.Command("ryoku-host", "capabilities").Output()
+	if err != nil || json.Unmarshal(out, &caps) != nil {
+		return gpuPassthroughAvailability{}
+	}
+	if unavailable, found := firstUnavailablePackage(extraPassthroughPkgs, caps.AUR.Supported); found {
+		return unavailable
+	}
+	return gpuPassthroughAvailability{Available: true}
+}
+
+func firstUnavailablePackage(packages []string, aur bool) (gpuPassthroughAvailability, bool) {
+	for _, pkg := range packages {
+		cmd := exec.Command("ryoku-host", "pkg", "available", pkg)
+		if aur {
+			cmd = exec.Command("ryoku-host", "pkg", "available", "--aur", pkg)
+		}
+		if cmd.Run() == nil {
+			continue
+		}
+		out, err := exec.Command("ryoku-host", "pkg", "why", pkg).Output()
+		reason := ""
+		if err == nil {
+			reason, _, _ = strings.Cut(strings.TrimSpace(string(out)), "\n")
+			reason = strings.TrimSpace(reason)
+		}
+		return gpuPassthroughAvailability{Package: pkg, Reason: reason}, true
+	}
+	return gpuPassthroughAvailability{}, false
+}
 
 func applyPlan(action, user, exe string, dryRun bool) error {
 	files := managedFiles(user, exe)
@@ -223,20 +277,23 @@ func applyPlan(action, user, exe string, dryRun bool) error {
 		say("install packages: " + strings.Join(corePassthroughPkgs, " "))
 		if !dryRun {
 			snapshot("ryoku gpu passthrough enable")
-			if err := pacmanInstall(corePassthroughPkgs); err != nil {
+			if err := packageInstall(corePassthroughPkgs); err != nil {
+				if gpuHostUnavailable(err) {
+					return fmt.Errorf("the passthrough stack is not available on this host")
+				}
 				return fmt.Errorf("installing the passthrough stack failed: %w (update the system with `ryoku update`, then retry)", err)
 			}
 		}
-		// Looking Glass + the kvmfr module are AUR-only; runGpuApply builds them
-		// as the user before this privileged step, so here we only report state.
+		// Install optional packages as the user before this privileged step, so
+		// here we only report state.
 		for _, p := range extraPassthroughPkgs {
 			switch {
 			case pkgInstalled(p):
 				say(p + ": installed")
 			case dryRun:
-				say("build from the AUR (yay): " + p)
+				say("install optional package: " + p)
 			default:
-				say(p + ": not installed -- AUR build skipped or failed; passthrough stays off until it is")
+				say(p + ": not installed -- optional package install skipped or failed; passthrough stays off until it is")
 			}
 		}
 		kvmfrOK := dryRun || kvmfrModuleAvailable()
@@ -257,7 +314,7 @@ func applyPlan(action, user, exe string, dryRun bool) error {
 		if !dryRun {
 			run("gpasswd", "-a", user, "libvirt")
 			run("gpasswd", "-a", user, "kvm")
-			run("systemctl", "enable", "--now", "libvirtd.socket")
+			run("ryoku-host", "svc", "--system", "enable", "--now", "libvirtd.socket")
 			run("udevadm", "control", "--reload-rules")
 			run("virsh", "net-autostart", "default")
 		}
@@ -311,24 +368,28 @@ func etcRoot() string {
 	return "/"
 }
 
-func pacmanInstall(pkgs []string) error {
-	cmd := exec.Command("pacman", append([]string{"-S", "--needed", "--noconfirm"}, pkgs...)...)
+func packageInstall(pkgs []string) error {
+	cmd := exec.Command("ryoku-host", append([]string{"pkg", "install"}, pkgs...)...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
 }
 
-// pkgInstalled: is this package locally installed? stays quiet (output discarded).
-func pkgInstalled(p string) bool { return exec.Command("pacman", "-Q", p).Run() == nil }
+// pkgInstalled stays quiet because callers only need the package state.
+func pkgInstalled(p string) bool {
+	return exec.Command("ryoku-host", "pkg", "installed", p).Run() == nil
+}
+
+func gpuHostUnavailable(err error) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+	code := exitErr.ExitCode()
+	return code == 4 || code == 5
+}
 
 func snapshot(desc string) {
-	if _, err := exec.LookPath("snapper"); err != nil {
-		return
-	}
-	// -c number tags the snapshot for snapper's number cleanup so it counts
-	// against NUMBER_LIMIT and prunes like update snapshots; without it these piled
-	// up unbounded. Enforce the cap right after creating.
-	run("snapper", "-c", "root", "create", "-c", "number", "--description", desc)
-	run("snapper", "-c", "root", "cleanup", "number")
+	run("ryoku-host", "snapshots", "create", desc)
 }
 
 func run(name string, args ...string) {

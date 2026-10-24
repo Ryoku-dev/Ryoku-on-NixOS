@@ -13,6 +13,7 @@ import Ryoku.Ui.Singletons
 import shell.services
 import "panels"
 import "controlcenter"
+import "." as QsBar
 import "../../../../services/lib/screens.js" as Screens
 
 Item {
@@ -23,7 +24,7 @@ Item {
     width: 0
     height: 0
 
-    QsTheme {
+    QsBar.Theme {
         id: theme
     }
 

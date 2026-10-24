@@ -1,0 +1,233 @@
+import QtQuick
+import QtQuick.Layouts
+import Qt5Compat.GraphicalEffects
+import stage
+import stage.services
+import stage.modules.common
+import stage.modules.common.functions
+import stage.modules.common.widgets
+import stage.modules.ii.background.widgets
+AbstractBackgroundWidget {
+    id: root
+
+    configEntryName: "weather_forecast"
+
+    implicitWidth: 492
+    implicitHeight: 240
+
+    readonly property var options: Config.options.background.widgets.weather_forecast
+    readonly property string colorScheme: (options.expressiveColors ?? true)
+        ? "expressive_primary" : "default"
+    readonly property var currentData: Weather.data
+    readonly property var forecastList: Weather.forecastData
+    readonly property string cityLocation: currentData?.city ? currentData.city : ""
+
+    readonly property color cardBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
+    readonly property color textColorOnBg: WidgetColorScheme.getTextColorOnBg(colorScheme)
+    readonly property color leftPanelBgColor: WidgetColorScheme.getInnerShapeColor(colorScheme)
+    readonly property color pillBgColor: WidgetColorScheme.getPillBgColor(colorScheme)
+    readonly property color heroTextColor: WidgetColorScheme.getTextColorOnBg(colorScheme)
+
+    StyledDropShadow {
+        id: shadowEffect
+        target: mainContainer
+        visible: Config.options.background.widgets.enableShadows ?? true
+    }
+
+    Rectangle {
+        id: mainContainer
+        anchors.fill: parent
+        radius: Appearance.rounding.windowRounding
+        color: WidgetColorScheme.tintBackground(root.cardBgColor)
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 14
+            spacing: 12
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: 12
+
+                Rectangle {
+                    id: leftHeroCard
+                    Layout.fillHeight: true
+                    Layout.fillWidth: !(root.options.showForecast ?? true)
+                    Layout.preferredWidth: 210
+                    radius: Appearance.rounding.windowRounding
+                    color: WidgetColorScheme.tintBackground(root.leftPanelBgColor)
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 12
+                        spacing: 4
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 8
+
+                            Item {
+                                Layout.preferredWidth: 64
+                                Layout.preferredHeight: 64
+
+                                Image {
+                                    anchors.centerIn: parent
+                                    source: WeatherIcons.getWeatherIcon(root.currentData?.wCode ?? 113, false)
+                                    sourceSize: Qt.size(58, 58)
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Column {
+                                Layout.alignment: Qt.AlignRight | Qt.AlignTop
+                                spacing: 2
+
+                                StyledText {
+                                    text: {
+                                        const firstFc = root.forecastList && root.forecastList.length > 0 ? root.forecastList[0] : null;
+                                        if (!firstFc) return "";
+                                        const h = Weather.useUSCS ? firstFc.maxF : firstFc.maxC;
+                                        return "H. " + h + "°";
+                                    }
+                                    color: root.heroTextColor
+                                    font.pixelSize: Appearance.font.pixelSize.smaller
+                                    font.weight: Font.DemiBold
+                                }
+
+                                StyledText {
+                                    text: {
+                                        const firstFc = root.forecastList && root.forecastList.length > 0 ? root.forecastList[0] : null;
+                                        if (!firstFc) return "";
+                                        const l = Weather.useUSCS ? firstFc.minF : firstFc.minC;
+                                        return "L. " + l + "°";
+                                    }
+                                    color: root.heroTextColor
+                                    font.pixelSize: Appearance.font.pixelSize.smaller
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                        }
+
+                        Item { Layout.fillHeight: true }
+
+                        StyledText {
+                            text: root.currentData?.wDesc || ""
+                            color: root.heroTextColor
+                            font.pixelSize: Appearance.font.pixelSize.small
+                            font.weight: Font.Medium
+                            opacity: 0.95
+                        }
+
+                        StyledText {
+                            text: root.currentData?.temp || ""
+                            color: root.heroTextColor
+                            font.pixelSize: Appearance.font.pixelSize.huge * 1.5
+                            font.weight: Font.Bold
+                        }
+                    }
+                }
+
+                Repeater {
+                    model: (root.options.showForecast ?? true) ? 3 : 0
+
+                    delegate: Rectangle {
+                        id: dayPill
+                        required property int index
+
+                        Layout.fillHeight: true
+                        Layout.fillWidth: true
+                        radius: Appearance.rounding.full
+                        color: WidgetColorScheme.tintBackground(root.pillBgColor)
+
+                        readonly property var dayFc: root.forecastList && root.forecastList.length > index ? root.forecastList[index] : null
+
+                        readonly property string dayLabel: {
+                            if (!dayFc || !dayFc.date) return "";
+                            const dateObj = new Date(dayFc.date);
+                            return dateObj.toLocaleDateString(Qt.locale(), "ddd");
+                        }
+
+                        readonly property string dayTempStr: {
+                            if (!dayFc) return "";
+                            const t = Weather.useUSCS ? dayFc.maxF : dayFc.maxC;
+                            return t + "°";
+                        }
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.topMargin: 16
+                            anchors.bottomMargin: 16
+                            spacing: 8
+
+                            StyledText {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: dayPill.dayLabel
+                                color: root.heroTextColor
+                                font.pixelSize: Appearance.font.pixelSize.normal
+                                font.weight: Font.Bold
+                            }
+
+                            Item { Layout.fillHeight: true }
+
+                            Image {
+                                Layout.alignment: Qt.AlignHCenter
+                                source: WeatherIcons.getWeatherIcon(dayPill.dayFc?.code ?? 113, false)
+                                sourceSize: Qt.size(44, 44)
+                            }
+
+                            Item { Layout.fillHeight: true }
+
+                            StyledText {
+                                Layout.alignment: Qt.AlignHCenter
+                                text: dayPill.dayTempStr
+                                color: root.heroTextColor
+                                font.pixelSize: Appearance.font.pixelSize.large
+                                font.weight: Font.Bold
+                            }
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 24
+                spacing: 8
+
+                StyledText {
+                    visible: root.options.showLocation ?? true
+                    text: root.cityLocation
+                    color: root.textColorOnBg
+                    font.pixelSize: Appearance.font.pixelSize.small
+                    font.weight: Font.Medium
+                    Layout.fillWidth: true
+                }
+
+                RippleButton {
+                    visible: root.options.showRefresh ?? true
+                    implicitWidth: 24
+                    implicitHeight: 24
+                    topLeftRadius: Appearance.rounding.full
+                    topRightRadius: Appearance.rounding.full
+                    bottomLeftRadius: Appearance.rounding.full
+                    bottomRightRadius: Appearance.rounding.full
+                    colBackground: "transparent"
+                    colBackgroundHover: Qt.rgba(1, 1, 1, 0.1)
+                    colRipple: Qt.rgba(1, 1, 1, 0.2)
+
+                    MaterialSymbol {
+                        anchors.centerIn: parent
+                        text: "refresh"
+                        iconSize: 16
+                        color: root.textColorOnBg
+                    }
+
+                    onClicked: Weather.getData(true)
+                }
+            }
+        }
+    }
+}

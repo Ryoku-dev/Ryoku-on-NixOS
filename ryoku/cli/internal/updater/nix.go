@@ -82,6 +82,16 @@ func nixUpdate() error {
 	progress.at("resolve")
 	progress.logf("Checking the Ryoku Nix update channel")
 
+	// A Hub-driven update runs inside a detached PTY. Prime sudo through the
+	// Hub's secret prompt before the Nix helper starts, otherwise a password
+	// prompt from nixos-rebuild is invisible and the Updates page appears hung.
+	if updateUI() == "hub" {
+		if err := authorizeGUI(); err != nil {
+			progress.fail(err)
+			return err
+		}
+	}
+
 	progress.at("generation")
 	progress.logf("Updating the Ryoku Nix source")
 

@@ -7,7 +7,7 @@ import shell.services
 // One-click update glyph next to the clock. The daemon runs the background check
 // and streams it on the "updates" topic (via the Updates service), so this only
 // renders it: hovering shows the incoming commits and pending packages, clicking
-// runs the update in a terminal, right-click forces a re-check.
+// starts the update and opens Ryoku Settings on it, right-click forces a re-check.
 Item {
     id: rootMod
     required property var root
@@ -65,7 +65,12 @@ Item {
         function onUpdateRefreshTickChanged() { Updates.check() }
     }
 
-    Process { id: runProc; command: ["bash", "-c", "kitty ryoku update"] }
+    // The update runs in the background and reports to Ryoku Settings, which
+    // opens on its Updates page to show the run and ask for the password.
+    function startUpdate() {
+        Quickshell.execDetached(["ryoku", "update", "--gui"])
+        Quickshell.execDetached(["ryoku-shell", "hub", "open", "updates"])
+    }
 
     IconText {
         anchors.centerIn: parent
@@ -89,8 +94,7 @@ Item {
                 Updates.check()
                 return
             }
-            runProc.running = false
-            runProc.running = true
+            rootMod.startUpdate()
         }
     }
 }

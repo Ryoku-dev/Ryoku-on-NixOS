@@ -126,7 +126,7 @@ PanelWindow {
             anchors.fill: parent
             mode: bubble.dragMode
             us: win.us
-            opacity: (bubbleHov.hovered && !Recorder.anyActive) ? 1 : 0
+            opacity: (bubbleHov.hovered && !Recorder.active) ? 1 : 0
             visible: opacity > 0.01
             Behavior on opacity { NumberAnimation { duration: 140 } }
         }
@@ -157,7 +157,7 @@ PanelWindow {
                 const cy = drag.centroid.pressPosition.y;
                 const w = bubble.width;
                 const h = bubble.height;
-                if (Recorder.anyActive)
+                if (Recorder.active)
                     bubble.dragMode = "move"; // no shape edits mid-recording
                 else if (cx > w - 30 * win.us && cy > h - 30 * win.us)
                     bubble.dragMode = "resize";

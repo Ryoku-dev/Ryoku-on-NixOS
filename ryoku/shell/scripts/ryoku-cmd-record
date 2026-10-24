@@ -1,0 +1,701 @@
+#!/bin/bash
+
+# ryoku-cmd-record: Ryoku's screen recorder, driving GPU Screen Recorder (GSR).
+# GSR captures through KMS/DRM with a cap_sys_admin gsr-kms-server helper, so
+# monitor and region capture on Wayland need no password prompt, and it dispatches
+# encoding to the strongest GPU per monitor, mixes audio, and falls back to CPU
+# encoding itself -- this script only maps Ryoku's flags and settings onto it.
+# Compositor-neutral: the focused output is asked through the window-manager seam,
+# never a compositor name. Control runs over GSR's IPC socket (gsr-cli), not
+# signals, because a SIGINT can truncate a container before its moov atom is
+# written.
+#
+#   ryoku-cmd-record start [--fullscreen|--region [--geometry WxH+X+Y]|--monitor NAME]
+#                          [--with-desktop-audio] [--with-microphone-audio] [--discord]
+#   ryoku-cmd-record stop            -> finalizes via gsr-cli, prints the saved path
+#   ryoku-cmd-record status          -> "recording" | "idle"
+#   ryoku-cmd-record pause|resume    -> gsr-cli set-paused true|false
+#   ryoku-cmd-record info            -> JSON backend/encoder readout for the Hub
+#   ryoku-cmd-record                 (bare) -> toggle: start fullscreen, else stop
+
+set -euo pipefail
+
+notify() {
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send -a ryoku-cli "$@" >/dev/null 2>&1 || true
+  fi
+}
+
+require_command() {
+  local command_name="$1" label="$2"
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    notify -u critical "Screen recording failed" "$label is not installed"
+    echo "ryoku-cmd-record: missing command: $command_name" >&2
+    exit 1
+  fi
+}
+
+is_truthy() {
+  case "$1" in true | yes | 1) return 0 ;; *) return 1 ;; esac
+}
+
+# The video_codecs section of `gpu-screen-recorder --info`: hardware encoders by
+# name, plus h264_software when libx264 is there for CPU encoding.
+video_codecs() {
+  sed -n '/^section=video_codecs$/,/^section=/{/^section=/!p;}' <<<"$1"
+}
+
+codec_is_listed() {
+  local codecs="$1" wanted="$2" line
+  while IFS= read -r line; do
+    [[ $line == "$wanted" ]] && return 0
+  done <<<"$codecs"
+  return 1
+}
+
+# Settle on a codec this machine can encode before GSR starts: the requested one,
+# then another hardware codec (mp4 and mkv hold H.264, HEVC and AV1; VP8 and VP9
+# need webm), then H.264 on the CPU. GSR's own fallback never leaves H.264, which
+# is exactly what stock Fedora cannot encode in hardware.
+choose_available_codec() {
+  local -n selected_codec="$1" selected_container="$2" selected_encoder="$3"
+  local info codecs requested="$selected_codec" candidate
+  info="$(gpu-screen-recorder --info 2>/dev/null)" || info=""
+  # GSR could not probe the GPU at all; its own run reports why.
+  [[ $info == *section=video_codecs* ]] || return 0
+  codecs="$(video_codecs "$info")"
+
+  if [[ $selected_encoder == cpu ]]; then
+    if codec_is_listed "$codecs" h264_software; then
+      # GSR encodes only H.264 on the CPU.
+      selected_codec=h264
+      if [[ $selected_container == webm ]]; then selected_container=mp4; fi
+      return 0
+    fi
+    selected_encoder=gpu
+    notify "Recorder encoder fallback" "CPU encoding is not available on this system, so the GPU encodes."
+  fi
+
+  codec_is_listed "$codecs" "$requested" && return 0
+
+  for candidate in h264 hevc av1 vp9 vp8; do
+    if [[ $candidate == "$requested" ]] || ! codec_is_listed "$codecs" "$candidate"; then
+      continue
+    fi
+    selected_codec="$candidate"
+    case "$candidate" in
+    vp8 | vp9) selected_container=webm ;;
+    *) if [[ $selected_container == webm ]]; then selected_container=mp4; fi ;;
+    esac
+    notify "Recorder codec fallback" "Using $candidate because this GPU cannot encode $requested."
+    return 0
+  done
+
+  if codec_is_listed "$codecs" h264_software; then
+    selected_codec=h264
+    selected_encoder=cpu
+    if [[ $selected_container == webm ]]; then selected_container=mp4; fi
+    notify "Recording with the CPU" "This GPU has no video encoder GPU Screen Recorder can use, so the CPU encodes. Installing the GPU's VA-API driver makes recording lighter."
+    return 0
+  fi
+
+  notify -u critical "Screen recording failed" "No video encoder is available. Install your GPU's video driver with encoding support (VA-API for AMD and Intel)."
+  echo "ryoku-cmd-record: no hardware video encoder and no libx264 for CPU encoding" >&2
+  return 1
+}
+
+# ── GSR's per-recording IPC socket (one Ryoku capture at a time). gsr-cli talks
+# to the running recorder through it for status, pause/resume, and a clean stop.
+GSR_SOCKET="${XDG_RUNTIME_DIR:-/tmp}/ryoku-gsr.sock"
+
+# ── Hub-owned recording settings (~/.config/ryoku/recording.json), written only
+# by the daemon (ryoku-shell record settings). This script reads them; env vars
+# still override, then this file, then the built-in default. Capture mode and
+# audio are per-recording flags, never config.
+recording_config_file() {
+  printf '%s/ryoku/recording.json' "${XDG_CONFIG_HOME:-$HOME/.config}"
+}
+
+cfg_get() {
+  local key="$1" def="$2" val="" f
+  f="$(recording_config_file)"
+  if [[ -r $f ]] && command -v jq >/dev/null 2>&1; then
+    val="$(jq -r "$key // empty" "$f" 2>/dev/null || true)"
+  fi
+  printf '%s' "${val:-$def}"
+}
+
+# ── output directory: identical resolution to Ryoku.Ui.Singletons.Paths and the
+# doctor's reconcile_recordings.go -- the env override, then the Hub's `directory`
+# setting, then ${XDG_VIDEOS_DIR:-$HOME/Videos}/Recordings. Every writer and the
+# recordings list must agree, or a saved clip lands where nothing looks for it.
+recordings_dir() {
+  local configured
+  if [[ -n ${RYOKU_SHELL_RECORDINGS_DIR:-} ]]; then
+    printf '%s\n' "$RYOKU_SHELL_RECORDINGS_DIR"
+    return
+  fi
+  configured="$(cfg_get '.directory' '')"
+  if [[ -n $configured ]]; then
+    printf '%s\n' "${configured/#\~/$HOME}"
+    return
+  fi
+  printf '%s/Recordings\n' "${XDG_VIDEOS_DIR:-$HOME/Videos}"
+}
+
+# the file extension follows the chosen container so the clip's name matches its
+# muxer; every mode writes into recordings_dir with a timestamped, unique name.
+next_recording_path() {
+  local dir="$1" ext="$2" name_format name path suffix=1
+  name_format="${RYOKU_RECORD_NAME_FORMAT:-recording_%Y-%m-%d_%H.%M.%S}"
+  name="$(date +"$name_format")"
+  name="${name//\//-}"
+  name="${name//$'\n'/-}"
+  path="$dir/$name.$ext"
+  while [[ -e $path ]]; do
+    path="$dir/$name-$suffix.$ext"
+    ((suffix++))
+  done
+  printf '%s\n' "$path"
+}
+
+# ── state files the shell's Recorder service reconciles against.
+STATE_DIR="${RYOKU_STATE_PATH:-$HOME/.local/state/ryoku}"
+PID_FILE="$STATE_DIR/recorder.pid"
+STOP_FILE="$STATE_DIR/recorder.stop"
+STATUS_FILE="$STATE_DIR/recorder-status.json"
+LAST_FILE="$STATE_DIR/last-recording"
+# GSR's stderr for the latest capture: where its own reason for a failure lands.
+LOG_FILE="$STATE_DIR/recorder.log"
+mkdir -p "$STATE_DIR" 2>/dev/null || true
+
+# gsr-cli answers on the IPC socket only for the instance this script launched, so
+# it is the exact, Ryoku-scoped liveness check -- a foreign gpu-screen-recorder is
+# invisible to it.
+recorder_running() {
+  gsr-cli -ipc "$GSR_SOCKET" status >/dev/null 2>&1
+}
+
+# ── focused output through the seam (compositor-neutral). Empty when it cannot be
+# resolved; GSR then records the whole screen (-w screen), the honest result on a
+# compositor whose outputs we cannot read.
+focused_output() {
+  command -v ryoku-hub >/dev/null 2>&1 || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  ryoku-hub outputs 2>/dev/null \
+    | jq -r 'first(.[] | select(.focused)) // .[0] // {} | .name // empty' 2>/dev/null
+}
+
+validate_monitor_name() {
+  local name="$1"
+  if [[ -z $name || ! $name =~ ^[A-Za-z0-9._-]+$ ]]; then
+    notify -u critical "Screen recording failed" "Invalid monitor: $name"
+    echo "ryoku-cmd-record: invalid monitor: $name" >&2
+    exit 1
+  fi
+}
+
+# ── audio intent. GSR names its own sources and mixes them; we pass the intent as
+# a single -a argument and never build a device graph. The pactl checks below only
+# record an honest activeAudioMode/audioFallback for the status file the shell
+# reads -- they never construct anything.
+AUDIO_ARGS=()
+ACTIVE_AUDIO_MODE=none
+AUDIO_FALLBACK=false
+
+default_sink_present() {
+  command -v pactl >/dev/null 2>&1 || return 1
+  local sink
+  sink="$(pactl get-default-sink 2>/dev/null || true)"
+  [[ -n $sink && $sink != null ]]
+}
+
+default_source_present() {
+  command -v pactl >/dev/null 2>&1 || return 1
+  local src
+  src="$(pactl get-default-source 2>/dev/null || true)"
+  [[ -n $src && $src != null ]]
+}
+
+prepare_audio() {
+  AUDIO_ARGS=()
+  ACTIVE_AUDIO_MODE=none
+  AUDIO_FALLBACK=false
+  local sink=false mic=false
+  default_sink_present && sink=true
+  default_source_present && mic=true
+  case "$AUDIO_MODE" in
+  none) return 0 ;;
+  system)
+    if $sink; then
+      AUDIO_ARGS=(-a default_output)
+      ACTIVE_AUDIO_MODE=system
+    else
+      AUDIO_FALLBACK=true
+      notify "Recorder audio" "No desktop audio device. Recording without audio."
+    fi
+    ;;
+  microphone)
+    if $mic; then
+      AUDIO_ARGS=(-a default_input)
+      ACTIVE_AUDIO_MODE=microphone
+    else
+      AUDIO_FALLBACK=true
+      notify "Recorder audio" "No microphone available. Recording without audio."
+    fi
+    ;;
+  both)
+    if $sink && $mic; then
+      AUDIO_ARGS=(-a "default_output|default_input")
+      ACTIVE_AUDIO_MODE=both
+    elif $sink; then
+      AUDIO_ARGS=(-a default_output)
+      ACTIVE_AUDIO_MODE=system
+      AUDIO_FALLBACK=true
+      notify "Recorder audio" "Microphone unavailable. Recording desktop audio only."
+    elif $mic; then
+      AUDIO_ARGS=(-a default_input)
+      ACTIVE_AUDIO_MODE=microphone
+      AUDIO_FALLBACK=true
+      notify "Recorder audio" "Desktop audio unavailable. Recording microphone only."
+    else
+      AUDIO_FALLBACK=true
+      notify "Recorder audio" "No audio devices available. Recording without audio."
+    fi
+    ;;
+  esac
+}
+
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+# The status file exists exactly while a capture runs (cleanup_session removes
+# it on every exit), so the shell watches it to learn of a capture the moment it
+# starts, from any entry point, and reads the launch time from it to keep the
+# clock honest across a reload or a start it did not make itself.
+write_status() {
+  local pid="$1"
+  printf '{"recorderPid":%s,"startedAt":%s,"requestedAudioMode":"%s","activeAudioMode":"%s","audioFallback":%s}\n' \
+    "$pid" "$EPOCHSECONDS" "$(json_escape "$AUDIO_MODE")" "$(json_escape "$ACTIVE_AUDIO_MODE")" "$AUDIO_FALLBACK" \
+    >"$STATUS_FILE" 2>/dev/null || true
+}
+
+# absolute path to the post-save hook (a sibling script), empty when missing so
+# we never call a phantom helper.
+saved_hook() {
+  local here hook
+  here="$(dirname "$(readlink -f "$0")")"
+  hook="$here/ryoku-cmd-recording-saved"
+  [[ -x $hook ]] && { printf '%s' "$hook"; return; }
+  command -v ryoku-cmd-recording-saved >/dev/null 2>&1 && printf '%s' ryoku-cmd-recording-saved
+}
+
+spawn_saved_hook() {
+  local path="$1" hook
+  hook="$(saved_hook)"
+  [[ -n $hook && -n $path && -s $path ]] || return 0
+  setsid "$hook" "$path" regular >/dev/null 2>&1 &
+}
+
+cleanup_session() {
+  rm -f "$PID_FILE" "$STOP_FILE" "$STATUS_FILE" "$GSR_SOCKET" 2>/dev/null || true
+}
+
+# An NVIDIA driver update replaces the userspace libraries at once, but the old
+# kernel module stays loaded until a restart; until then no new program can use
+# the GPU, so GSR lands on software rendering and refuses to record.
+NVIDIA_MODULE_VERSION="${RYOKU_RECORD_NVIDIA_MODULE_VERSION:-/sys/module/nvidia/version}"
+read -r -a NVIDIA_LIB_DIRS <<<"${RYOKU_RECORD_NVIDIA_LIB_DIRS:-/usr/lib64 /usr/lib /usr/lib/x86_64-linux-gnu}"
+
+nvidia_restart_pending() {
+  local loaded dir version
+  loaded="$(cat "$NVIDIA_MODULE_VERSION" 2>/dev/null || true)"
+  [[ -n $loaded ]] || return 1
+  for dir in "${NVIDIA_LIB_DIRS[@]}"; do
+    [[ -e $dir/libEGL_nvidia.so.0 ]] || continue
+    version="$(readlink -f "$dir/libEGL_nvidia.so.0")"
+    version="${version##*.so.}"
+    [[ $version =~ ^[0-9]+(\.[0-9]+)+$ && $version != "$loaded" ]] && return 0
+    return 1
+  done
+  return 1
+}
+
+# Why a capture ended without a file, worded so the user can act on it; anything
+# unrecognised is GSR's own first error line.
+failure_reason() {
+  local error
+  if nvidia_restart_pending; then
+    printf 'The NVIDIA driver was updated. Restart the computer to record again.'
+    return
+  fi
+  error="$(sed -n '/^gsr error: /{s///p;q;}' "$LOG_FILE" 2>/dev/null || true)"
+  case "$error" in
+  "") printf 'The recorder exited before writing a file.' ;;
+  *llvmpipe*) printf 'This session has no working GPU driver (it renders in software), and GPU Screen Recorder needs one.' ;;
+  *) printf '%s' "${error:0:240}" ;;
+  esac
+}
+
+report_failure() {
+  local reason
+  reason="$(failure_reason)"
+  notify -u critical "Screen recording failed" "$reason"
+  printf 'ryoku-cmd-record: %s\n' "$reason" >&2
+  if command -v logger >/dev/null 2>&1; then
+    logger -t ryoku-cmd-record -p user.err -- "$reason (gpu-screen-recorder log: $LOG_FILE)" || true
+  fi
+}
+
+# ── run gpu-screen-recorder in the background, publish its pid + status for the
+# shell, and wait on it. GSR dispatches to the strongest GPU and mixes audio; the
+# codec and encoder were settled beforehand, and -fallback-cpu-encoding stays as
+# its own backstop.
+run_capture() {
+  rm -f "$STOP_FILE"
+  "$@" 2>"$LOG_FILE" &
+  local pid=$!
+  printf '%s\n' "$pid" >"$PID_FILE"
+  write_status "$pid"
+
+  # `wait` under errexit must not take the script down on GSR's own exit code.
+  local status=0
+  wait "$pid" || status=$?
+  # No file means nothing was recorded, whenever GSR stopped: say why.
+  if [[ ! -s $OUTPUT_PATH ]]; then
+    report_failure
+    return 1
+  fi
+  if [[ -f $STOP_FILE ]]; then status=0; fi
+  case "$status" in 130 | 143) status=0 ;; esac
+  return "$status"
+}
+
+# ── Discord-ready copy (ported from iNiR's record.sh stage). With --discord, once
+# the capture finishes shrink the clip into a Discord-friendly size budget: a
+# <name>.discord.mp4 beside the original (the original is kept), only when the clip
+# is over target unless forced. The sibling ryoku-cmd-discord-compress does the
+# two-pass x264 encode.
+DISCORD_TARGET_MB="${RYOKU_RECORD_DISCORD_TARGET_MB:-10}"
+DISCORD_SAFETY_MARGIN_MB="${RYOKU_RECORD_DISCORD_SAFETY_MB:-0.5}"
+DISCORD_AUDIO_KBPS="${RYOKU_RECORD_DISCORD_AUDIO_KBPS:-96}"
+DISCORD_PRESET="${RYOKU_RECORD_DISCORD_PRESET:-slow}"
+DISCORD_MAX_DIMENSION="${RYOKU_RECORD_DISCORD_MAX_DIMENSION:-1280}"
+DISCORD_ONLY_IF_NEEDED="${RYOKU_RECORD_DISCORD_ONLY_IF_NEEDED:-true}"
+
+discord_compressor() {
+  local here hook
+  here="$(dirname "$(readlink -f "$0")")"
+  hook="$here/ryoku-cmd-discord-compress"
+  [[ -x $hook ]] && { printf '%s' "$hook"; return; }
+  command -v ryoku-cmd-discord-compress >/dev/null 2>&1 && printf '%s' ryoku-cmd-discord-compress
+}
+
+maybe_compress_recording() {
+  local input_file="$1" compressor python_cmd
+  [[ -s $input_file ]] || return 0
+  compressor="$(discord_compressor)"
+  python_cmd="$(command -v python3 || true)"
+  if [[ -z $compressor || -z $python_cmd ]] || ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+    notify "Discord compression skipped" "Missing python3, ffmpeg, or ffprobe"
+    return 0
+  fi
+
+  local input_dir input_base input_stem output_file
+  input_dir="$(dirname "$input_file")"
+  input_base="$(basename "$input_file")"
+  input_stem="${input_base%.*}"
+  output_file="$input_dir/${input_stem}.discord.mp4"
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/ryoku"
+  local lock_file="$cache_dir/discord-compress.lock"
+  mkdir -p "$cache_dir"
+
+  (
+    if command -v flock >/dev/null 2>&1; then
+      exec 9>"$lock_file"
+      if ! flock -n 9; then
+        notify "Discord compression queued" "Another recording is already compressing"
+        flock 9
+      fi
+    fi
+    notify "Compressing recording" "Creating Discord-ready copy under ${DISCORD_TARGET_MB} MB"
+    local -a compress_cmd=(
+      "$python_cmd" "$compressor"
+      --input "$input_file"
+      --output "$output_file"
+      --target-mb "$DISCORD_TARGET_MB"
+      --safety-margin-mb "$DISCORD_SAFETY_MARGIN_MB"
+      --audio-kbps "$DISCORD_AUDIO_KBPS"
+      --preset "$DISCORD_PRESET"
+      --max-dimension "$DISCORD_MAX_DIMENSION"
+      --quiet --json
+    )
+    is_truthy "$DISCORD_ONLY_IF_NEEDED" || compress_cmd+=(--force)
+
+    local result="" status="" result_output="$output_file"
+    if result="$("${compress_cmd[@]}" 2>&1)"; then
+      if command -v jq >/dev/null 2>&1; then
+        status="$(printf '%s' "$result" | jq -r '.status // empty' 2>/dev/null || true)"
+        result_output="$(printf '%s' "$result" | jq -r '.output // empty' 2>/dev/null || printf '%s' "$output_file")"
+      fi
+      if [[ $status == skipped ]]; then
+        notify "Recording already Discord-ready" "$(basename "$input_file") is under ${DISCORD_TARGET_MB} MB"
+      elif [[ -s $result_output ]]; then
+        notify "Discord-ready recording" "$(basename "$result_output")"
+      else
+        notify "Discord compression finished" "$(basename "$input_file")"
+      fi
+    else
+      notify "Discord compression failed" "The original recording was kept."
+    fi
+  )
+}
+
+start_recording() {
+  if recorder_running; then
+    notify "Screen recording" "A recording is already running"
+    return 0
+  fi
+  require_command gpu-screen-recorder "GPU Screen Recorder"
+  require_command gsr-cli gsr-cli
+
+  rm -f "$PID_FILE" "$STOP_FILE" "$STATUS_FILE" "$GSR_SOCKET"
+
+  # ── capture target. -w is a monitor name (fullscreen/monitor), the whole screen
+  # (fallback), or a region in layout (logical) coordinates, the space slurp and
+  # the shell's selectors report; GSR maps it onto the output's physical pixels.
+  local -a target=()
+  case "$MODE" in
+  region)
+    local geom="$REGION_GEOM"
+    if [[ -z $geom ]]; then
+      require_command slurp slurp
+      geom="$(slurp -f '%wx%h+%x+%y' 2>/dev/null || true)"
+      [[ -n $geom ]] || exit 0
+    fi
+    if [[ ! $geom =~ ^[0-9]+x[0-9]+\+[0-9]+\+[0-9]+$ ]]; then
+      notify -u critical "Screen recording failed" "Invalid region: $geom"
+      echo "ryoku-cmd-record: invalid region: $geom" >&2
+      exit 1
+    fi
+    # -w takes the box itself; GSR 6 deprecated the separate -region option.
+    target=(-w "$geom")
+    ;;
+  monitor)
+    validate_monitor_name "$MONITOR_NAME"
+    target=(-w "$MONITOR_NAME")
+    ;;
+  *)
+    local out
+    out="$(focused_output || true)"
+    if [[ -n $out ]]; then target=(-w "$out"); else target=(-w screen); fi
+    ;;
+  esac
+
+  # ── encode settings (env override wins, then recording.json, then the default).
+  local fps fmode quality bmode bitrate codec encoder cursor container
+  local audio_codec audio_bitrate color_range keyint max_res
+  fps="${RYOKU_RECORD_FPS:-$(cfg_get '.fps' 60)}"
+  fmode="${RYOKU_RECORD_FRAMERATE_MODE:-$(cfg_get '.framerateMode' cfr)}"
+  quality="${RYOKU_RECORD_QUALITY:-$(cfg_get '.quality' very_high)}"
+  bmode="${RYOKU_RECORD_BITRATE_MODE:-$(cfg_get '.bitrateMode' quality)}"
+  bitrate="${RYOKU_RECORD_BITRATE:-$(cfg_get '.bitrate' 20000)}"
+  codec="${RYOKU_RECORD_CODEC:-$(cfg_get '.codec' h264)}"
+  encoder="${RYOKU_RECORD_ENCODER:-$(cfg_get '.encoder' gpu)}"
+  cursor="${RYOKU_RECORD_CURSOR:-$(cfg_get '.cursor' true)}"
+  container="${RYOKU_RECORD_CONTAINER:-$(cfg_get '.container' mp4)}"
+  audio_codec="${RYOKU_RECORD_AUDIO_CODEC:-$(cfg_get '.audioCodec' opus)}"
+  audio_bitrate="${RYOKU_RECORD_AUDIO_BITRATE:-$(cfg_get '.audioBitrate' 0)}"
+  color_range="${RYOKU_RECORD_COLOR_RANGE:-$(cfg_get '.colorRange' limited)}"
+  keyint="${RYOKU_RECORD_KEYINT:-$(cfg_get '.keyint' 2)}"
+  max_res="${RYOKU_RECORD_MAX_RESOLUTION:-$(cfg_get '.maxResolution' native)}"
+
+  local cursor_flag=no
+  is_truthy "$cursor" && cursor_flag=yes
+
+  # quality preset (qp) or constant bitrate; GSR reads the -q value differently
+  # per mode -- a preset name under qp, kbps under cbr.
+  local -a quality_args
+  if [[ $bmode == cbr ]]; then
+    quality_args=(-bm cbr -q "$bitrate")
+  else
+    quality_args=(-bm qp -q "$quality")
+  fi
+
+  # a resolution cap downscales the capture; native leaves it untouched.
+  local -a res_args=()
+  case "$max_res" in
+  1080p) res_args=(-s 1920x1080) ;;
+  1440p) res_args=(-s 2560x1440) ;;
+  2160p) res_args=(-s 3840x2160) ;;
+  esac
+
+  choose_available_codec codec container encoder || exit 1
+
+  prepare_audio
+
+  local dir path
+  dir="$(recordings_dir)"
+  mkdir -p "$dir"
+  path="$(next_recording_path "$dir" "$container")"
+  OUTPUT_PATH="$path"
+  printf '%s\n' "$path" >"$LAST_FILE" 2>/dev/null || true
+
+  local -a cmd=(
+    gpu-screen-recorder
+    "${target[@]}"
+    -f "$fps"
+    -k "$codec"
+    -fm "$fmode"
+    -cursor "$cursor_flag"
+    -c "$container"
+    -ac "$audio_codec"
+    -ab "$audio_bitrate"
+    -cr "$color_range"
+    -keyint "$keyint"
+    -encoder "$encoder"
+    -fallback-cpu-encoding yes
+    "${quality_args[@]}"
+    "${res_args[@]}"
+    "${AUDIO_ARGS[@]}"
+    -v no
+    -ipc "$GSR_SOCKET"
+    -o "$path"
+  )
+
+  trap cleanup_session EXIT
+  run_capture "${cmd[@]}" || true
+  spawn_saved_hook "$OUTPUT_PATH"
+  ((DISCORD)) && maybe_compress_recording "$OUTPUT_PATH"
+}
+
+stop_recording() {
+  local pid=""
+  pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+
+  # gsr-cli stop finalizes the container (writes the moov atom) and prints the
+  # saved path; a SIGINT can truncate a region capture, so prefer the socket while
+  # it answers and only fall back to a signal when the socket is dead.
+  if gsr-cli -ipc "$GSR_SOCKET" status >/dev/null 2>&1; then
+    : >"$STOP_FILE"
+    gsr-cli -ipc "$GSR_SOCKET" stop || true
+  elif [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+    : >"$STOP_FILE"
+    kill -INT "$pid" 2>/dev/null || true
+  else
+    notify "Screen recording" "No active recording found"
+    return 0
+  fi
+
+  # give the recorder a grace period to flush and exit, then force it down so stop
+  # always clears the capture.
+  local _
+  for _ in $(seq 30); do recorder_running || break; sleep 0.1; done
+  if recorder_running && [[ $pid =~ ^[0-9]+$ ]]; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+}
+
+# ── pause/resume toggle the live capture through the IPC socket; gsr-cli's own
+# reply is relayed back to the shell by the daemon.
+set_paused() {
+  require_command gsr-cli gsr-cli
+  gsr-cli -ipc "$GSR_SOCKET" set-paused "$1"
+}
+
+# reads the backend identity for the Hub. version comes from gpu-screen-recorder
+# --version; the encoder label is the GPU vendor plus the first hardware video
+# codec GSR reports through --info. Any parse miss degrades to "GPU".
+info_recording() {
+  local version="" encoder="GPU"
+  if command -v gpu-screen-recorder >/dev/null 2>&1; then
+    version="$(gpu-screen-recorder --version 2>/dev/null | head -n1 | tr -d '\n' || true)"
+    local info vendor codec_line
+    info="$(gpu-screen-recorder --info 2>/dev/null || true)"
+    if [[ -n $info ]]; then
+      vendor="$(printf '%s\n' "$info" | sed -n 's/^vendor|\(.*\)$/\1/p' | head -n1 || true)"
+      codec_line="$(printf '%s\n' "$info" | grep -Em1 '^(h264|hevc|av1)' || true)"
+      if [[ -n $vendor || -n $codec_line ]]; then
+        encoder="${vendor:-GPU}${codec_line:+/$codec_line}"
+      fi
+    fi
+  fi
+  local fps quality codec fmode
+  fps="${RYOKU_RECORD_FPS:-$(cfg_get '.fps' 60)}"
+  quality="${RYOKU_RECORD_QUALITY:-$(cfg_get '.quality' very_high)}"
+  codec="${RYOKU_RECORD_CODEC:-$(cfg_get '.codec' h264)}"
+  fmode="${RYOKU_RECORD_FRAMERATE_MODE:-$(cfg_get '.framerateMode' cfr)}"
+  printf '{"backend":"gsr","version":"%s","encoder":"%s","fps":"%s","quality":"%s","codec":"%s","framerateMode":"%s"}\n' \
+    "$(json_escape "$version")" \
+    "$(json_escape "$encoder")" \
+    "$(json_escape "$fps")" \
+    "$(json_escape "$quality")" \
+    "$(json_escape "$codec")" \
+    "$(json_escape "$fmode")"
+}
+
+# ── argument parse.
+ACTION=auto
+MODE=fullscreen
+AUDIO_MODE=none
+REGION_GEOM=""
+MONITOR_NAME=""
+OUTPUT_PATH=""
+_desktop_audio=0
+_mic_audio=0
+DISCORD=0
+
+while (($# > 0)); do
+  case "$1" in
+  start) ACTION=start ;;
+  stop | --stop) ACTION=stop ;;
+  status | --status) ACTION=status ;;
+  info | --info) ACTION=info ;;
+  pause) ACTION=pause ;;
+  resume) ACTION=resume ;;
+  --fullscreen) MODE=fullscreen; ACTION=start ;;
+  --region | -r) MODE=region; ACTION=start ;;
+  --monitor)
+    shift
+    MONITOR_NAME="${1:-}"
+    MODE=monitor
+    ACTION=start
+    ;;
+  --geometry)
+    shift
+    REGION_GEOM="${1:-}"
+    ;;
+  --with-desktop-audio) _desktop_audio=1; ACTION=start ;;
+  --with-microphone-audio) _mic_audio=1; ACTION=start ;;
+  --discord) DISCORD=1; ACTION=start ;;
+  --help | -h | help)
+    sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+  *)
+    echo "ryoku-cmd-record: unknown argument: $1" >&2
+    exit 2
+    ;;
+  esac
+  shift
+done
+
+if ((_desktop_audio && _mic_audio)); then
+  AUDIO_MODE=both
+elif ((_desktop_audio)); then
+  AUDIO_MODE=system
+elif ((_mic_audio)); then
+  AUDIO_MODE=microphone
+fi
+
+if [[ $ACTION == auto ]]; then
+  if recorder_running; then ACTION=stop; else ACTION=start; fi
+fi
+
+case "$ACTION" in
+start) start_recording ;;
+stop) stop_recording ;;
+status) recorder_running && echo recording || echo idle ;;
+info) info_recording ;;
+pause) set_paused true ;;
+resume) set_paused false ;;
+esac

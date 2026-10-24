@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}"
+data_root="${XDG_DATA_HOME:-$HOME/.local/share}"
 state_root="${XDG_STATE_HOME:-$HOME/.local/state}/ryoku/palette-bridge"
 ownership_file="$state_root/owned-files.tsv"
-overlay_apps="$config_root/ryoku/user_edits/matugen/apps.toml"
+bridge_apps="$config_root/ryoku/palette-bridge/matugen.toml"
+legacy_apps="$config_root/ryoku/user_edits/matugen/apps.toml"
+live_apps="$config_root/matugen/apps.toml"
 want=
 
 usage() { printf 'Usage: %s --spotify | --vesktop | --zen\n' "${0##*/}"; }
@@ -24,16 +28,49 @@ remove_owned_file() {
 
 remove_matugen_section() {
   local section="$1" temporary
-  [[ -f "$overlay_apps" ]] || return 0
+  [[ -f "$bridge_apps" ]] || return 0
   temporary=$(mktemp)
   awk -v target="[$section]" '
     $0 == target { skip=1; next }
     /^\[/ && skip { skip=0 }
     !skip { print }
-  ' "$overlay_apps" > "$temporary"
-  install -m 0644 "$temporary" "$overlay_apps"
+  ' "$bridge_apps" > "$temporary"
+  install -m 0644 "$temporary" "$bridge_apps"
   rm -f "$temporary"
 }
+
+remove_legacy_matugen_section() {
+  local section="$1" temporary base
+  [[ -f "$legacy_apps" ]] || return 0
+  grep -Fqx "[$section]" "$legacy_apps" || return 0
+  temporary=$(mktemp)
+  awk -v target="[$section]" '
+    $0 == target { skip=1; next }
+    /^\[/ && skip { skip=0 }
+    !skip { print }
+  ' "$legacy_apps" > "$temporary"
+  base=/usr/share/ryoku/config/matugen/apps.toml
+  if [[ -f "$script_root/../shell/matugen/apps.toml" ]]; then
+    base="$script_root/../shell/matugen/apps.toml"
+  fi
+  if [[ -f "$base" ]] &&
+      [[ "$(awk 'NF { print }' "$temporary")" == "$(awk 'NF { print }' "$base")" ]]; then
+    rm -f "$legacy_apps"
+    install -Dm0644 "$base" "$live_apps"
+  else
+    install -m 0644 "$temporary" "$legacy_apps"
+    install -Dm0644 "$temporary" "$live_apps"
+  fi
+  rm -f "$temporary"
+}
+
+
+helper="$script_root/vesktop/quickcss.sh"
+if [[ ! -f "$helper" ]]; then
+  helper="$script_root/../share/ryoku/palette-bridge/vesktop/quickcss.sh"
+fi
+# shellcheck source=ryoku/palette-bridge/vesktop/quickcss.sh
+source "$helper"
 
 case "$want" in
   spotify)
@@ -43,8 +80,11 @@ case "$want" in
     fi
     ;;
   vesktop)
+    vesktop_root=$(vesktop_config_root "$config_root") || vesktop_root="$config_root/vesktop"
+    vesktop_write_palette "$vesktop_root/settings/quickCss.css"
     remove_matugen_section templates.vesktop
-    settings="$config_root/vesktop/settings/settings.json"
+    remove_legacy_matugen_section templates.vesktop
+    settings="$vesktop_root/settings/settings.json"
     if [[ -f "$settings" ]] && command -v jq >/dev/null; then
       temporary=$(mktemp)
       jq '.enabledThemes = ((.enabledThemes // []) | map(select(. != "midnight-ryoku.theme.css")))' "$settings" > "$temporary"
@@ -54,6 +94,7 @@ case "$want" in
     ;;
   zen)
     remove_matugen_section templates.zen
+    remove_legacy_matugen_section templates.zen
     ;;
 esac
 
@@ -62,9 +103,17 @@ if [[ -f "$ownership_file" ]]; then
     [[ "$integration" == "$want" ]] || continue
     case "$want:$path" in
       spotify:"$config_root"/spicetify/Extensions/ryoku-wallpaper-colors.js|\
+      vesktop:"$data_root"/ryoku/palette-bridge/templates/vesktop-colors.css|\
       vesktop:"$config_root"/ryoku/user_edits/matugen/templates/vesktop-colors.css|\
       vesktop:"$config_root"/vesktop/themes/midnight-ryoku.theme.css|\
+      vesktop:"$(vesktop_flatpak_root)"/themes/midnight-ryoku.theme.css|\
+      vesktop:"$state_root"/vesktop/quickcss.sh|\
+      vesktop:"$state_root"/vesktop/palette.css|\
+      zen:"$data_root"/ryoku/palette-bridge/templates/zen.css|\
       zen:"$config_root"/ryoku/user_edits/matugen/templates/zen.css)
+        remove_owned_file "$path"
+        ;;
+      zen:*/chrome/ryoku-colors.css)
         remove_owned_file "$path"
         ;;
       zen:*/chrome/userChrome.css)
@@ -87,8 +136,4 @@ if [[ -f "$ownership_file" ]]; then
   rm -f "$temporary"
 fi
 
-if [[ "$want" == vesktop || "$want" == zen ]]; then
-  command -v ryoku >/dev/null && ryoku materialize
-  command -v ryogami >/dev/null && ryogami wallpaper repaint
-fi
 printf 'Removed the %s integration files owned by Ryoku Palette Bridge.\n' "$want"

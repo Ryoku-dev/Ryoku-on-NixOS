@@ -1,6 +1,7 @@
 pragma Singleton
 pragma ComponentBehavior: Bound
 
+import QtQuick
 import Quickshell
 import Ryoku.Ui.Singletons
 import "lib/screens.js" as Screens
@@ -20,9 +21,45 @@ Singleton {
     // triggers on first launch -- would otherwise fan two of every per-monitor
     // surface: two bars, two OSDs, two state slices ("the desktop tweaks out").
     // Every consumer (shell.qml, the bar's VariantRoot, the launchers) reads this
-    // one list so they agree on one surface set per output. Reactive to
-    // Quickshell.screens, so a genuine hotplug still flows through.
-    readonly property var screens: Screens.uniqueByName(Quickshell.screens)
+    // one list so they agree on one surface set per output.
+    //
+    // The list only changes when the SET of outputs changes. QtWayland inserts a
+    // nameless 0x0 placeholder while no output exists, so an unplug/replug can
+    // signal screens several times with the same real outputs underneath; each
+    // signal would hand every per-screen Variants a fresh array and rebuild all
+    // of it. Those rebuilds are what crashed the shell on monitor power-off
+    // (#312, upstream quickshell#796), so the placeholder churn is filtered out
+    // here and only a genuine output change is published.
+    // A plain property, not a binding: a binding re-evaluates on every screens
+    // signal and hands every consumer a fresh array regardless of what changed
+    // -- the churn being filtered. Only the settle timer below writes it.
+    property var screens: []
+
+    Component.onCompleted: root.screens = Screens.uniqueByName(Quickshell.screens)
+
+    Connections {
+        target: Quickshell
+        function onScreensChanged() { settleScreens.restart(); }
+    }
+
+    // Rebuild per-monitor surfaces once the screen list settles, not on every
+    // signal of a hotplug storm. QtWayland re-signals screens several times
+    // while outputs are coming and going (a nameless placeholder is added,
+    // then removed), and each signal used to rebuild every Variants inside
+    // the teardown window -- the rebuild that crashed the shell when monitors
+    // were powered off (#312, upstream quickshell#796). Settling also makes a
+    // quick off/on cancel out: the list is unchanged by the time the timer
+    // fires, so nothing rebuilds at all.
+    Timer {
+        id: settleScreens
+        interval: 350
+        onTriggered: {
+            const next = Screens.uniqueByName(Quickshell.screens);
+            if (Screens.sameOutputs(root.screens, next))
+                return;
+            root.screens = next;
+        }
+    }
 
     // State for a specific screen, or null before its per-monitor instance is
     // built (a binding can evaluate ahead of screen hotplug). Matched on output
@@ -75,14 +112,104 @@ Singleton {
     signal surfaceRequested(string id, string mon, var context)
     signal surfaceClosed(string id, string mon)
     signal keyringPromptChanged(int promptId)
-    function requestSurface(id, mon, context) { root.surfaceRequested(id, mon, context); }
-    function closeSurface(id, mon) { root.surfaceClosed(id, mon); }
+
+    function sliceForMonitor(mon) {
+        if (mon && typeof mon === "object")
+            return root.forScreen(mon);
+        if (typeof mon === "string" && mon !== "") {
+            const named = Screens.sliceForName(states.instances, mon);
+            if (named)
+                return named;
+        }
+        return root.forActive();
+    }
+
+    function setAskMode(screen, mode) {
+        if (mode !== "ask" && mode !== "chat" && mode !== "tools" && mode !== "web")
+            return;
+        const slice = root.sliceForMonitor(screen);
+        if (!slice)
+            return;
+        slice.askMode = mode;
+        slice.askTool = "";
+    }
+
+    function closeTransientSurfaces(mon) {
+        const slice = root.sliceForMonitor(mon);
+        if (!slice)
+            return;
+        slice.askOpen = false;
+    }
+
+    function routeOwnedSurface(id, mon) {
+        const split = id.indexOf("#");
+        const base = split >= 0 ? id.substring(0, split) : id;
+        const route = split >= 0 ? id.substring(split + 1) : "";
+        const slice = root.sliceForMonitor(mon);
+        if (!slice)
+            return false;
+
+        if (base !== "ask")
+            return false;
+
+        if (route === "" && slice.askOpen) {
+            slice.askOpen = false;
+            return true;
+        }
+
+        slice.askMode = route === "chat" ? "chat"
+            : route === "web" ? "web"
+            : route.indexOf("tools") === 0 ? "tools" : "ask";
+        slice.askTool = route === "tools/compress" ? "compress"
+            : route === "tools/install" ? "install" : "";
+        slice.askOpen = true;
+        root.surfaceClosed("sidebar-left", slice.modelData.name);
+        return true;
+    }
+
+    function requestSurface(id, mon, context) {
+        const value = id || "";
+        const base = value.split("#")[0];
+        if (base === "sidebar-left")
+            root.closeTransientSurfaces(mon);
+        else
+            root.routeOwnedSurface(value, mon);
+        root.surfaceRequested(value, mon || "", context);
+    }
+
+    function closeSurface(id, mon) {
+        const base = (id || "").split("#")[0];
+        const slice = root.sliceForMonitor(mon);
+        if (slice && (base === "" || base === "ask"))
+            slice.askOpen = false;
+        root.surfaceClosed(id, mon);
+    }
+
+    // Open a desktop widget's right-click menu from off-surface (a keybind, the
+    // daemon, or a verification harness). niri routes context menus differently
+    // from Hyprland, so the shell exposes the menu as an addressable surface
+    // rather than relying on a pointer event landing on the tile.
+    signal widgetMenuRequested(string mon, string widget)
+    function requestWidgetMenu(mon, widget) { root.widgetMenuRequested(mon, widget); }
+
+    // Open a desktop widget's inspector (the Customize sheet) from off-surface,
+    // the same addressable routing as the right-click menu above.
+    signal widgetCustomizeRequested(string mon, string widget)
+    function requestWidgetCustomize(mon, widget) { root.widgetCustomizeRequested(mon, widget); }
 
     // Open a surface on the focused monitor: the menu global-shortcut handlers
     // call this so a keybind lands on the active screen, matching the old
     // `ryoku-shell menu <id>` which routed to the daemon's activeMonitor.
-    function requestSurfaceActive(id, context) {
-        root.surfaceRequested(id, Wm.focusedOutput, context);
+    //
+    // context travels to the surface untouched, the way requestSurface already
+    // carries the keyring's prompt id. A caller that has a trigger on screen
+    // passes { ownerRect: <global rect> } so the surface opens welded to it
+    // instead of taking its config anchor: that is what lets a bar style open a
+    // shell-owned menu under its own widget rather than in a screen corner.
+    function requestSurfaceActive(id, screenName, context) {
+        const monitor = typeof screenName === "string" && screenName !== ""
+            ? screenName : Wm.focusedOutput;
+        root.requestSurface(id, monitor, context);
     }
 
     // Keyboard-return bounce bridge. A dismissed keyboard surface (the per-monitor
@@ -107,6 +234,9 @@ Singleton {
             property bool launcherOpen: false           // launcher
             property bool overviewOpen: false           // overview (Super+Tab expo)
             property bool clipboardOpen: false          // clipboard overlay (Super+V)
+            property bool askOpen: false
+            property string askMode: "ask"
+            property string askTool: ""
 
             // The frame bar's master reveal for this monitor. Resting policy is
             // revealed: each edge then follows its Config reveal flag, and the
@@ -116,11 +246,6 @@ Singleton {
             // The visualiser's layer on this monitor. Whether it runs at all is the
             // persisted Config.enabled, so a restart and the Hub switch agree with it.
             property bool visualizerOverlay: false
-
-            // Placement takes the pointer over the look's own box. Leaving it hands
-            // the layer back, so the spectrum drops behind windows again unless the
-            // overlay is what the user chose.
-            property bool visualizerPlacing: false
 
             // A place for the on-screen-display and notification surfaces to
             // signal activity when they migrate (Phase 5).

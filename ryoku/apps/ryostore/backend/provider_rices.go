@@ -230,25 +230,53 @@ func (p riceProvider) Install(ctx context.Context, id string) error {
 		return err
 	}
 	defer os.RemoveAll(stage)
+	downloadDone := int64(0)
+	placedFiles := make([]string, 0, len(assets)+1)
+	placed := 0
+	reportProgress(ctx, "download", 0, 0)
 	for _, asset := range assets {
-		if err := p.download(ctx, p.assetURL(asset.remote), filepath.Join(stage, asset.local)); err != nil {
+		target := filepath.Join(stage, asset.local)
+		n, downloadErr := p.download(ctx, p.assetURL(asset.remote), target, downloadDone)
+		downloadDone += n
+		if downloadErr != nil {
 			if !asset.required {
 				continue
 			}
-			return fmt.Errorf("download %s: %w", asset.name, err)
+			return fmt.Errorf("download %s: %w", asset.name, downloadErr)
 		}
+		placed++
+		placedFiles = append(placedFiles, target)
 	}
 	for _, name := range riceBundledAssets(manifestRaw) {
 		remote := path.Join("rices", id, name)
 		// Bundled decor/brand art is optional: a fetch failure degrades to the
 		// apply-time default rather than failing the whole install.
-		if err := p.download(ctx, p.assetURL(remote), filepath.Join(stage, name)); err != nil {
+		target := filepath.Join(stage, name)
+		n, downloadErr := p.download(ctx, p.assetURL(remote), target, downloadDone)
+		downloadDone += n
+		if downloadErr != nil {
 			continue
 		}
+		placed++
+		placedFiles = append(placedFiles, target)
 	}
-	if err := atomicWrite(filepath.Join(stage, "rice.json"), manifestRaw, 0o644); err != nil {
+	reportProgressNow(ctx, "download", downloadDone, 0)
+	manifestPath := filepath.Join(stage, "rice.json")
+	if err := atomicWrite(manifestPath, manifestRaw, 0o644); err != nil {
 		return err
 	}
+	placed++
+	placedFiles = append(placedFiles, manifestPath)
+	reportProgressNow(ctx, "extract", int64(placed), int64(placed))
+	reportProgress(ctx, "verify", 0, int64(placed))
+	for index, file := range placedFiles {
+		if !isRegularFile(file) {
+			return fmt.Errorf("staged rice file %s failed verification", file)
+		}
+		reportProgress(ctx, "verify", int64(index+1), int64(placed))
+	}
+	reportProgressNow(ctx, "verify", int64(placed), int64(placed))
+	reportProgressNow(ctx, "apply", 0, 1)
 	return replaceTree(stage, dst, nil)
 }
 
@@ -327,51 +355,52 @@ func (p riceProvider) fetchSmall(ctx context.Context, url string) ([]byte, error
 	return body, nil
 }
 
-func (p riceProvider) download(ctx context.Context, url, dst string) error {
+func (p riceProvider) download(ctx context.Context, url, dst string, base int64) (int64, error) {
 	if src, ok := localBase(url); ok {
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
+			return 0, err
 		}
 		in, err := os.Open(src)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		defer in.Close()
 		out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		if _, err := io.Copy(out, in); err != nil {
-			out.Close()
-			return err
+		n, copyErr := io.Copy(out, readerWithProgress(ctx, in, "download", base, 0))
+		closeErr := out.Close()
+		if copyErr != nil {
+			return n, copyErr
 		}
-		return out.Close()
+		return n, closeErr
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	resp, err := p.downloadClient.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: %s", url, resp.Status)
+		return 0, fmt.Errorf("%s: %s", url, resp.Status)
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+		return 0, err
 	}
 	file, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	_, copyErr := io.Copy(file, resp.Body)
+	n, copyErr := io.Copy(file, readerWithProgress(ctx, resp.Body, "download", base, 0))
 	closeErr := file.Close()
 	if copyErr != nil {
-		return copyErr
+		return n, copyErr
 	}
-	return closeErr
+	return n, closeErr
 }
 
 func isRegularFile(path string) bool {

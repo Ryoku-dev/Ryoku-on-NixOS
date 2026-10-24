@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,14 +17,20 @@ import (
 
 // Two properties must survive any rewrite here:
 //
-// A focus change emits straight from the event line with no compositor query,
-// because the shell daemon resolves a surface target on every keypress from it.
+// A focus change emits straight from the event line without waiting for a
+// compositor query, because the shell daemon resolves a surface target on every
+// keypress from it.
 //
-// Other changes are debounced into a refresh of only the affected sections,
-// so a burst costs one query pass instead of a storm.
+// Other changes are debounced into a refresh of only the affected sections, so
+// a burst costs one query pass instead of a storm.
 
 // Half a 60 Hz frame: folds a burst, never a visible stale beat.
 const resyncDebounce = 8 * time.Millisecond
+
+// Hyprland publishes no native move/resize event. A visible floating window can
+// therefore move without another event, so sample only while one is present.
+// Unchanged frames are suppressed by watchState.publish.
+const geometryPoll = 250 * time.Millisecond
 
 const reconnectBackoff = 500 * time.Millisecond
 
@@ -69,6 +77,10 @@ func streamWatch(wants func(wm.FrameKind) bool) error {
 }
 
 func consume(conn net.Conn, emit func(wm.Frame), wants func(wm.FrameKind) bool) {
+	consumeWithGeometryPoll(conn, emit, wants, geometryPoll)
+}
+
+func consumeWithGeometryPoll(conn net.Conn, emit func(wm.Frame), wants func(wm.FrameKind) bool, poll time.Duration) {
 	state := newWatchState(emit, wants)
 	state.refresh(refreshAll)
 	emit(wm.Frame{Kind: wm.FrameReady})
@@ -77,6 +89,40 @@ func consume(conn net.Conn, emit func(wm.Frame), wants func(wm.FrameKind) bool) 
 		<-pending.C
 	}
 	defer pending.Stop()
+
+	var geometryTicker *time.Ticker
+	var geometryTick <-chan time.Time
+	geometryPolling := false
+	setGeometryPolling := func(enabled bool) {
+		if enabled == geometryPolling {
+			return
+		}
+		geometryPolling = enabled
+		if enabled {
+			if geometryTicker == nil {
+				geometryTicker = time.NewTicker(poll)
+			} else {
+				geometryTicker.Reset(poll)
+			}
+			geometryTick = geometryTicker.C
+			return
+		}
+		geometryTicker.Stop()
+		select {
+		case <-geometryTicker.C:
+		default:
+		}
+		geometryTick = nil
+	}
+	defer func() {
+		if geometryTicker != nil {
+			geometryTicker.Stop()
+		}
+	}()
+	updateGeometryPolling := func() {
+		setGeometryPolling(wants(wm.FrameWindows) && visibleFloatingWindow(state))
+	}
+	updateGeometryPolling()
 
 	done := make(chan struct{})
 	defer close(done)
@@ -95,22 +141,28 @@ func consume(conn net.Conn, emit func(wm.Frame), wants func(wm.FrameKind) bool) 
 
 	armed := false
 	var dirty refreshMask
+	geometryDirty := false
 	for {
 		select {
 		case line, ok := <-lines:
 			if !ok {
 				return
 			}
-			if mon, isFocus := parseFocusedMon(line); isFocus && wants(wm.FrameFocus) {
-				emit(wm.Frame{Kind: wm.FrameFocus, FocusedOutput: mon})
+			if mon, isFocus := parseFocusedMon(line); isFocus {
+				state.publish(wm.Frame{Kind: wm.FrameFocus, FocusedOutput: mon})
 			}
-			if name, removed := parseMonitorRemoved(line); removed && wants(wm.FrameFocus) {
+			if name, removed := parseMonitorRemoved(line); removed {
 				// A removed output must not linger until the debounce: the next
 				// keybind would target a dead monitor.
-				emit(wm.Frame{Kind: wm.FrameFocus, FocusedOutput: focusedFallback(name)})
+				state.publish(wm.Frame{Kind: wm.FrameFocus, FocusedOutput: focusedFallback(name)})
 			}
-			dirty |= state.event(line)
-			if dirty == 0 {
+			eventDirty := state.event(line)
+			if refreshGeometryOnEvent(line) {
+				geometryDirty = true
+				eventDirty &^= refreshWindows
+			}
+			dirty |= eventDirty
+			if dirty == 0 && !geometryDirty {
 				continue
 			}
 			if !armed {
@@ -120,21 +172,64 @@ func consume(conn net.Conn, emit func(wm.Frame), wants func(wm.FrameKind) bool) 
 		case <-pending.C:
 			armed = false
 			state.refresh(dirty)
+			if geometryDirty && dirty&refreshWindows == 0 {
+				state.refreshWindowGeometry()
+			}
 			dirty = 0
+			geometryDirty = false
+			updateGeometryPolling()
+		case <-geometryTick:
+			state.refreshWindowGeometry()
+			updateGeometryPolling()
 		}
 	}
 }
 
+func refreshGeometryOnEvent(line string) bool {
+	name, _, ok := strings.Cut(line, ">>")
+	if !ok {
+		return false
+	}
+	switch name {
+	case "activewindow", "activewindowv2", "togglegroup", "moveintogroup", "moveoutofgroup", "pin":
+		return true
+	}
+	return false
+}
+
+func visibleFloatingWindow(state *watchState) bool {
+	for _, window := range state.windows {
+		if !window.Floating {
+			continue
+		}
+		for _, monitor := range state.monitors {
+			if monitorDisabled(monitor) {
+				continue
+			}
+			if window.Workspace == workspaceKey(monitor.ActiveWorkspace.ID, monitor.ActiveWorkspace.Name) {
+				return true
+			}
+			if (monitor.SpecialWorkspace.ID != 0 || monitor.SpecialWorkspace.Name != "") &&
+				window.Workspace == workspaceKey(monitor.SpecialWorkspace.ID, monitor.SpecialWorkspace.Name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type hyprMonitor struct {
-	ID                    int      `json:"id"`
-	Name                  string   `json:"name"`
-	Width                 int      `json:"width"`
-	Height                int      `json:"height"`
-	Scale                 float64  `json:"scale"`
-	Focused               bool     `json:"focused"`
-	Make                  string   `json:"make"`
-	Model                 string   `json:"model"`
-	PhysicalWidth         int      `json:"physicalWidth"`
+	ID            int     `json:"id"`
+	Name          string  `json:"name"`
+	Width         int     `json:"width"`
+	Height        int     `json:"height"`
+	Scale         float64 `json:"scale"`
+	Focused       bool    `json:"focused"`
+	Make          string  `json:"make"`
+	Model         string  `json:"model"`
+	PhysicalWidth int     `json:"physicalWidth"`
+	// Read through monitorDisabled, never on its own: hyprland-git reported it
+	// true for a live DPMS-awake output.
 	Disabled              bool     `json:"disabled"`
 	X                     int      `json:"x"`
 	Y                     int      `json:"y"`
@@ -149,6 +244,25 @@ type hyprMonitor struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	} `json:"activeWorkspace"`
+	SpecialWorkspace struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	} `json:"specialWorkspace"`
+}
+
+// monitorDisabled says whether an output is off. Hyprland's own flag is not
+// enough: hyprland-git reported it true on a plainly active output, focused and
+// holding a workspace. Neither is the size: 0.56 keeps a disabled output's last
+// mode, so a phantom turned off in Displays read as on and the next Apply turned
+// it back on. An output is off when it has no mode, or when Hyprland flags it and
+// it holds no workspace and mirrors nothing (a mirror has no workspace of its
+// own). The same rule lives in ryoku-monitor's monitors_json.
+func monitorDisabled(m hyprMonitor) bool {
+	if m.Width <= 0 || m.Height <= 0 {
+		return true
+	}
+	mirroring := m.MirrorOf != "" && m.MirrorOf != "none"
+	return m.Disabled && m.ActiveWorkspace.ID == 0 && m.ActiveWorkspace.Name == "" && !mirroring
 }
 
 // Read once per resync and threaded through, so workspaces and windows do not
@@ -165,8 +279,9 @@ func readMonitors() ([]hyprMonitor, error) {
 	return mons, nil
 }
 
-// full adds the editor detail (position, rotation, VRR, physical modes) the
-// display page needs and the lean watch frame omits.
+// Position always rides the frame because Wm.windows uses global logical
+// geometry and consumers need an output origin to recover output-local placement.
+// full adds rotation, VRR and physical modes for the display editor.
 func monitorOutputs(mons []hyprMonitor, full bool) []wm.Output {
 	outputs := make([]wm.Output, 0, len(mons))
 	for _, m := range mons {
@@ -180,13 +295,12 @@ func monitorOutputs(mons []hyprMonitor, full bool) []wm.Output {
 			Make:            m.Make,
 			Model:           m.Model,
 			PhysicalWidth:   m.PhysicalWidth,
-			Disabled:        m.Disabled,
+			Disabled:        monitorDisabled(m),
+			X:               m.X,
+			Y:               m.Y,
 		}
 		if full {
-			o.X = m.X
-			o.Y = m.Y
 			o.Transform = m.Transform
-			o.VRR = m.VRR
 			modes := make([]string, 0, len(m.AvailableModes))
 			for _, am := range m.AvailableModes {
 				modes = append(modes, hyprModeString(am))
@@ -300,26 +414,64 @@ func readWorkspaces(mons []hyprMonitor) []wm.Workspace {
 	return list
 }
 
+type hyprClient struct {
+	Address   string `json:"address"`
+	Class     string `json:"class"`
+	Title     string `json:"title"`
+	Pid       int    `json:"pid"`
+	Monitor   int    `json:"monitor"`
+	Floating  bool   `json:"floating"`
+	At        []int  `json:"at"`
+	Size      []int  `json:"size"`
+	Workspace struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	} `json:"workspace"`
+	FocusHistoryID int `json:"focusHistoryID"`
+}
+
 func readWindows(mons []hyprMonitor) []wm.Window {
 	out, err := ctl("clients", "-j")
 	if err != nil {
 		return nil
 	}
-	var raw []struct {
-		Address   string `json:"address"`
-		Class     string `json:"class"`
-		Title     string `json:"title"`
-		Monitor   int    `json:"monitor"`
-		Floating  bool   `json:"floating"`
-		At        []int  `json:"at"`
-		Size      []int  `json:"size"`
-		Workspace struct {
-			ID   int    `json:"id"`
-			Name string `json:"name"`
-		} `json:"workspace"`
-		FocusHistoryID int `json:"focusHistoryID"`
+	return decodeWindows(out, mons)
+}
+
+// readWindowsDirect is the geometry poll path. Hyprland's command socket speaks
+// the same JSON query as hyprctl -j clients, without allocating a subprocess.
+func readWindowsDirect(mons []hyprMonitor) []wm.Window {
+	out, err := controlQuery("j/clients")
+	if err != nil {
+		return nil
 	}
-	if json.Unmarshal(out, &raw) != nil {
+	return decodeWindows(out, mons)
+}
+
+func controlQuery(query string) ([]byte, error) {
+	sig := os.Getenv("HYPRLAND_INSTANCE_SIGNATURE")
+	if sig == "" {
+		return nil, fmt.Errorf("no live Hyprland session")
+	}
+	path := filepath.Join(runDir(), sig, ".socket.sock")
+	conn, err := net.DialTimeout("unix", path, 200*time.Millisecond)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(500 * time.Millisecond))
+	if _, err := io.WriteString(conn, query); err != nil {
+		return nil, err
+	}
+	if unix, ok := conn.(*net.UnixConn); ok {
+		_ = unix.CloseWrite()
+	}
+	return io.ReadAll(conn)
+}
+
+func decodeWindows(raw []byte, mons []hyprMonitor) []wm.Window {
+	var clients []hyprClient
+	if json.Unmarshal(raw, &clients) != nil {
 		return nil
 	}
 	// The client list reports a monitor index while everything else uses names.
@@ -327,12 +479,13 @@ func readWindows(mons []hyprMonitor) []wm.Window {
 	for _, m := range mons {
 		names[m.ID] = m.Name
 	}
-	list := make([]wm.Window, 0, len(raw))
-	for _, c := range raw {
+	list := make([]wm.Window, 0, len(clients))
+	for _, c := range clients {
 		w := wm.Window{
 			ID:         c.Address,
 			AppID:      c.Class,
 			Title:      c.Title,
+			Pid:        c.Pid,
 			Workspace:  workspaceKey(c.Workspace.ID, c.Workspace.Name),
 			Output:     names[c.Monitor],
 			FocusOrder: c.FocusHistoryID,
@@ -444,11 +597,11 @@ func focusedFallback(gone string) string {
 	return ""
 }
 
-// focusedmonv2 is rejected on purpose: matching v1 exactly means a future
-// Hyprland that drops it fails in the tests instead of going silently stale.
+// Both event versions carry the monitor name first; v2 only changes the
+// workspace field from a name to an ID.
 func parseFocusedMon(line string) (string, bool) {
 	ev, data, ok := strings.Cut(line, ">>")
-	if !ok || ev != "focusedmon" {
+	if !ok || (ev != "focusedmon" && ev != "focusedmonv2") {
 		return "", false
 	}
 	mon, _, _ := strings.Cut(data, ",")

@@ -1,6 +1,8 @@
 #include "blobshape.hpp"
 #include "blobgroup.hpp"
 #include "blobinvertedrect.hpp"
+#include "blobrect.hpp"
+#include "blobwave.hpp"
 
 #include <qsggeometry.h>
 #include <qsgnode.h>
@@ -143,6 +145,7 @@ void BlobShape::updatePolish() {
 
     const QPointF scenePos = mapToScene(QPointF(0, 0));
     const float pad = static_cast<float>(m_group->smoothing());
+    auto* selfWave = qobject_cast<BlobWave*>(this);
 
     if (isInvertedRect()) {
         m_cachedPaddedX = static_cast<float>(scenePos.x());
@@ -153,7 +156,8 @@ void BlobShape::updatePolish() {
     } else {
         const float hw = static_cast<float>(width()) * 0.5f;
         const float hh = static_cast<float>(height()) * 0.5f;
-        const float totalPad = pad + deformPadding(m_deformMatrix, hw, hh);
+        const float wavePad = selfWave ? static_cast<float>(selfWave->amplitude()) : 0.0f;
+        const float totalPad = pad + deformPadding(m_deformMatrix, hw, hh) + wavePad;
 
         m_cachedPaddedX = static_cast<float>(scenePos.x()) - totalPad;
         m_cachedPaddedY = static_cast<float>(scenePos.y()) - totalPad;
@@ -168,10 +172,18 @@ void BlobShape::updatePolish() {
     m_cachedMyIndex = -2;
     const QRectF myPadded(static_cast<double>(m_cachedPaddedX), static_cast<double>(m_cachedPaddedY),
         static_cast<double>(m_cachedPaddedW), static_cast<double>(m_cachedPaddedH));
+    for (auto& info : m_cachedWaveInfo) {
+        std::fill_n(info, 4, 0.0f);
+        info[3] = -1.0f;
+    }
+    for (auto& data : m_cachedWaveData)
+        std::fill_n(data, 64, 0.0f);
+    std::fill_n(m_cachedWaves, 4, nullptr);
 
     // parallel array of shape ptrs so we can do pairwise exclusion lookups
     QVector<BlobShape*> rectShapes;
     rectShapes.reserve(m_group->shapes().size());
+    int waveSlot = 0;
 
     for (BlobShape* other : m_group->shapes()) {
         if (other->isInvertedRect())
@@ -185,6 +197,7 @@ void BlobShape::updatePolish() {
             continue;
 
         const QPointF otherScene = other->mapToScene(QPointF(0, 0));
+        auto* otherWave = qobject_cast<BlobWave*>(other);
 
         bool include = false;
         if (isInvertedRect()) {
@@ -192,7 +205,8 @@ void BlobShape::updatePolish() {
         } else {
             const float otherHW = static_cast<float>(other->width()) * 0.5f;
             const float otherHH = static_cast<float>(other->height()) * 0.5f;
-            const float otherPad = pad + deformPadding(other->m_deformMatrix, otherHW, otherHH);
+            const float wavePad = otherWave ? static_cast<float>(otherWave->amplitude()) : 0.0f;
+            const float otherPad = pad + deformPadding(other->m_deformMatrix, otherHW, otherHH) + wavePad;
             const QRectF otherPadded(otherScene.x() - static_cast<double>(otherPad),
                 otherScene.y() - static_cast<double>(otherPad), other->width() + 2.0 * static_cast<double>(otherPad),
                 other->height() + 2.0 * static_cast<double>(otherPad));
@@ -232,10 +246,30 @@ void BlobShape::updatePolish() {
             // precompute screen-space AABB half-extents
             r.screenHalfX = std::abs(a) * r.hw + std::abs(c) * r.hh;
             r.screenHalfY = std::abs(b) * r.hw + std::abs(d) * r.hh;
+            if (otherWave)
+                r.screenHalfY += static_cast<float>(otherWave->amplitude());
             r.sinkWeight = other->m_sinks ? 1.0f : 0.0f;
+
+            const auto requestedTaper = static_cast<float>(static_cast<const BlobRect*>(other)->taper());
+            const float bottomRadius = std::max(std::max(r.radius[1], r.radius[2]), 0.0f);
+            const float taperLimit = std::max(r.hw - bottomRadius, 0.0f);
+            const float maxTaper = taperLimit > 0.0f ? std::nextafter(taperLimit, 0.0f) : 0.0f;
+            r.taper = std::clamp(requestedTaper, -maxTaper, maxTaper);
 
             m_cachedRects.append(r);
             rectShapes.append(other);
+
+            if (otherWave && m_group->waves().contains(otherWave) && m_cachedRects.size() <= 16 && waveSlot < 4) {
+                const int count = otherWave->count();
+                auto& info = m_cachedWaveInfo[waveSlot];
+                info[0] = static_cast<float>(otherScene.x()) + otherWave->spanStart();
+                info[1] = static_cast<float>(otherScene.x()) + otherWave->spanEnd();
+                info[2] = static_cast<float>(otherWave->stepped() ? -count : count);
+                info[3] = static_cast<float>(m_cachedRects.size() - 1);
+                std::copy_n(otherWave->waveHeights().begin(), count, m_cachedWaveData[waveSlot]);
+                m_cachedWaves[waveSlot] = otherWave;
+                ++waveSlot;
+            }
         }
     }
 
@@ -351,6 +385,31 @@ void BlobShape::updatePolish() {
     }
 }
 
+bool BlobShape::refreshWaveData(BlobWave* const* waves, int count) {
+    // Geometry and union caches are static while a wave settles. Refresh only
+    // the height arrays uploaded by the material.
+    bool changed = false;
+    for (int slot = 0; slot < 4; ++slot) {
+        auto* cachedWave = m_cachedWaves[slot];
+        if (!cachedWave)
+            continue;
+        bool matches = false;
+        for (int i = 0; i < count; ++i) {
+            if (waves[i] == cachedWave) {
+                matches = true;
+                break;
+            }
+        }
+        if (!matches)
+            continue;
+        const int waveCount = cachedWave->count();
+        std::copy_n(cachedWave->waveHeights().begin(), waveCount, m_cachedWaveData[slot]);
+        std::fill(m_cachedWaveData[slot] + waveCount, m_cachedWaveData[slot] + 64, 0.0f);
+        changed = true;
+    }
+    return changed;
+}
+
 QSGNode* BlobShape::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     if (!m_group) {
         delete oldNode;
@@ -358,6 +417,7 @@ QSGNode* BlobShape::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     }
 
     auto* node = static_cast<QSGGeometryNode*>(oldNode);
+    const bool created = !node;
     if (!node) {
         node = new QSGGeometryNode;
 
@@ -380,12 +440,13 @@ QSGNode* BlobShape::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     const float x1 = x0 + static_cast<float>(m_localPaddedRect.width());
     const float y1 = y0 + static_cast<float>(m_localPaddedRect.height());
 
-    v[0].set(x0, y0, 0.0f, 0.0f);
-    v[1].set(x1, y0, 1.0f, 0.0f);
-    v[2].set(x0, y1, 0.0f, 1.0f);
-    v[3].set(x1, y1, 1.0f, 1.0f);
-
-    node->markDirty(QSGNode::DirtyGeometry);
+    if (created || v[0].x != x0 || v[0].y != y0 || v[1].x != x1 || v[2].y != y1) {
+        v[0].set(x0, y0, 0.0f, 0.0f);
+        v[1].set(x1, y0, 1.0f, 0.0f);
+        v[2].set(x0, y1, 0.0f, 1.0f);
+        v[3].set(x1, y1, 1.0f, 1.0f);
+        node->markDirty(QSGNode::DirtyGeometry);
+    }
 
     auto* material = static_cast<BlobMaterial*>(node->material());
     material->m_paddedX = m_cachedPaddedX;
@@ -401,8 +462,11 @@ QSGNode* BlobShape::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     material->m_shadowSize = static_cast<float>(m_group->shadowSize());
     material->m_borderColor = m_group->borderColor();
     material->m_borderWidth = static_cast<float>(m_group->borderWidth());
+    material->m_waveColor = m_group->waveColor();
     memcpy(material->m_invertedOuter, m_cachedInvertedOuter, sizeof(m_cachedInvertedOuter));
     memcpy(material->m_invertedInner, m_cachedInvertedInner, sizeof(m_cachedInvertedInner));
+    memcpy(material->m_waveInfo, m_cachedWaveInfo, sizeof(m_cachedWaveInfo));
+    memcpy(material->m_waveData, m_cachedWaveData, sizeof(m_cachedWaveData));
 
     const int count = static_cast<int>(qMin(m_cachedRects.size(), qsizetype(16)));
     material->m_rectCount = count;

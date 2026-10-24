@@ -31,6 +31,10 @@ on:
         description: the v* tag for stable; a commit or branch for unstable
         required: false
         default: ''
+      from:
+        description: previous unstable commit for an incremental manual publish
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -52,26 +56,50 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve mode and ref
+      - name: Resolve mode and range
         id: cfg
         shell: bash
         run: |
           set -euo pipefail
 
+          from=""
           if [[ "${{ github.event_name }}" == "push" ]]; then
             case "${{ github.ref }}" in
-              refs/tags/*) mode="stable"; ref="${{ github.ref_name }}" ;;
-              *) mode="unstable"; ref="$(git rev-parse HEAD)" ;;
+              refs/tags/*)
+                mode="stable"
+                ref="${{ github.ref_name }}"
+                ;;
+              *)
+                mode="unstable"
+                ref="$(git rev-parse HEAD)"
+                from="${{ github.event.before }}"
+                ;;
             esac
           else
             mode="${{ inputs.mode }}"
             ref="${{ inputs.ref }}"
+            from="${{ inputs.from }}"
           fi
           [[ -n $ref ]] || ref="$(git rev-parse HEAD)"
+
+          if [[ $mode == "unstable" ]]; then
+            if [[ -z $from || $from =~ ^0+$ ]]; then
+              if git rev-parse -q --verify 'refs/tags/unstable^{commit}' >/dev/null 2>&1; then
+                from="$(git rev-parse 'refs/tags/unstable^{commit}')"
+              else
+                from="$(git rev-parse "${ref}^" 2>/dev/null || true)"
+              fi
+            fi
+            if [[ -n $from ]] && ! git merge-base --is-ancestor "$from" "$ref" 2>/dev/null; then
+              echo "::warning::Unstable notes baseline $from is not an ancestor of $ref; using the previous commit instead."
+              from="$(git rev-parse "${ref}^" 2>/dev/null || true)"
+            fi
+          fi
 
           {
             echo "mode=$mode"
             echo "ref=$ref"
+            echo "from=$from"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build and publish the release
@@ -79,6 +107,7 @@ jobs:
         env:
           MODE: ${{ steps.cfg.outputs.mode }}
           REF: ${{ steps.cfg.outputs.ref }}
+          FROM: ${{ steps.cfg.outputs.from }}
         run: |
           set -euo pipefail
 
@@ -167,11 +196,12 @@ jobs:
               esac
             fi
           else
-            # rolling unstable pre-release: everything since the last stable tag,
-            # on a single "unstable" tag that moves to this commit each bump.
+            # The rolling unstable release carries only this update's notes.
+            # Recreating it still emits one release event for Discord, but old
+            # patch notes are no longer replayed on every unstable push.
             to="$REF"
-            from="$(git describe --tags --abbrev=0 --match 'v*' "$to" 2>/dev/null || true)"
-            version="$(tr -d '[:space:]' <VERSION)"
+            from="$FROM"
+            version="$(git show "$to:VERSION" 2>/dev/null | tr -d '[:space:]')"
             title="Ryoku ${version} (unstable)"
 
             MEDIA_REF="$to" ./bin/ryoku-release-notes "$from" "$to" --title "$title" >"$body"

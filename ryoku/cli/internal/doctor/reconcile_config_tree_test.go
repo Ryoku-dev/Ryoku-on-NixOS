@@ -1,11 +1,13 @@
 package doctor
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"ryoku-cli/internal/sys"
 	"ryoku-cli/internal/updater"
 
 	wm "ryoku-wm"
@@ -19,6 +21,38 @@ func swapMaterialize(t *testing.T, fn func() error) {
 	t.Cleanup(func() { materializeNow = prev })
 }
 
+// materializeComplete is the layout a healthy box performs: the real
+// materialize, then each laid tree's generated config authored from its
+// provider. The provider binaries are a packaged-box dependency, so a unit
+// test must not need them on PATH; writing the files here is the same bytes
+// a login's apply leaves behind.
+func materializeComplete() func() error {
+	return func() error {
+		if err := updater.Materialize(); err != nil {
+			return err
+		}
+		for _, name := range wm.Providers() {
+			dir := wm.ConfigDir(name)
+			if dir == "" || !sys.Exists(filepath.Join(sys.ConfigHome(), dir)) {
+				continue
+			}
+			for _, rel := range wm.GeneratedConfig(name) {
+				d, _, ok := strings.Cut(rel, "/")
+				if !ok || d != dir {
+					continue
+				}
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(sys.ConfigHome(), rel)), 0o755); err != nil {
+					return err
+				}
+				if err := os.WriteFile(filepath.Join(sys.ConfigHome(), rel), []byte("// rendered\n"), 0o644); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+}
+
 // swapSessionLive declares the session live without a live compositor.
 func swapSessionLive(t *testing.T, live bool) {
 	t.Helper()
@@ -28,7 +62,7 @@ func swapSessionLive(t *testing.T, live bool) {
 }
 
 // swapStartSession keeps a test from restarting the desktop it runs on.
-func swapStartSession(t *testing.T, fn func()) {
+func swapStartSession(t *testing.T, fn func() error) {
 	t.Helper()
 	prev := startSession
 	startSession = fn
@@ -98,8 +132,8 @@ func TestReconcileConfigTreeBareLiveSessionIsFixed(t *testing.T) {
 	home, _ := configTreeFixture(t, wm.ProviderNiri, wm.ProviderHyprland)
 	t.Setenv("RYOKU_WM", wm.ProviderNiri)
 	restarts := 0
-	swapMaterialize(t, updater.Materialize)
-	swapStartSession(t, func() { restarts++ })
+	swapMaterialize(t, materializeComplete())
+	swapStartSession(t, func() error { restarts++; return nil })
 	swapSessionLive(t, true)
 
 	r := reconcileConfigTree(true)
@@ -124,6 +158,22 @@ func TestReconcileConfigTreeBareLiveSessionIsFixed(t *testing.T) {
 	}
 }
 
+func TestReconcileConfigTreeReportsGuardedSessionStartFailure(t *testing.T) {
+	_, _ = configTreeFixture(t, wm.ProviderNiri)
+	t.Setenv("RYOKU_WM", wm.ProviderNiri)
+	swapMaterialize(t, materializeComplete())
+	swapStartSession(t, func() error { return errors.New("sleep guard unavailable") })
+	swapSessionLive(t, true)
+
+	r := reconcileConfigTree(false)
+	if r.status != recFailed {
+		t.Fatalf("status=%s detail=%q, want failed", r.status.label(), r.detail)
+	}
+	if !strings.Contains(r.detail, "sleep guard unavailable") {
+		t.Fatalf("failure detail did not preserve startup error: %q", r.detail)
+	}
+}
+
 // Only the switched-away tree is missing: heal it, and leave the live session
 // alone (its shell is running).
 func TestReconcileConfigTreeHealsTheSwitchedAwayTreeOnly(t *testing.T) {
@@ -135,8 +185,10 @@ func TestReconcileConfigTreeHealsTheSwitchedAwayTreeOnly(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".config", "hypr", "hyprland.lua"), []byte("-- live tree\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.RemoveAll(filepath.Join(base, "niri")); err != nil { // niri's variant is still installed
-		t.Fatal(err)
+	for _, leaf := range []string{"settings.lua", "settings_window.lua", "rebinds.lua"} {
+		if err := os.WriteFile(filepath.Join(home, ".config", "hypr", leaf), []byte("-- generated\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.MkdirAll(filepath.Join(base, "niri"), 0o755); err != nil {
 		t.Fatal(err)
@@ -145,8 +197,8 @@ func TestReconcileConfigTreeHealsTheSwitchedAwayTreeOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	restarts := 0
-	swapMaterialize(t, updater.Materialize)
-	swapStartSession(t, func() { restarts++ })
+	swapMaterialize(t, materializeComplete())
+	swapStartSession(t, func() error { restarts++; return nil })
 	swapSessionLive(t, true)
 
 	r := reconcileConfigTree(true)
@@ -169,8 +221,8 @@ func TestReconcileConfigTreeHealsTheSwitchedAwayTreeOnly(t *testing.T) {
 func TestReconcileConfigTreeIgnoresAnUninstalledDesktop(t *testing.T) {
 	configTreeFixture(t, wm.ProviderNiri) // hyprland's variant is not installed
 	t.Setenv("RYOKU_WM", wm.ProviderNiri)
-	swapMaterialize(t, updater.Materialize)
-	swapStartSession(t, func() {})
+	swapMaterialize(t, materializeComplete())
+	swapStartSession(t, func() error { return nil })
 
 	r := reconcileConfigTree(false)
 	if r.status != recFixed {
@@ -190,8 +242,8 @@ func TestReconcileConfigTreeEntryPointMissingAfterMaterializeFails(t *testing.T)
 	if err := os.Remove(filepath.Join(base, "niri", "config.kdl")); err != nil {
 		t.Fatal(err)
 	}
-	swapMaterialize(t, updater.Materialize)
-	swapStartSession(t, func() { t.Fatal("a session that is still bare must not be reported as started") })
+	swapMaterialize(t, materializeComplete())
+	swapStartSession(t, func() error { t.Fatal("a session that is still bare must not be reported as started"); return nil })
 
 	r := reconcileConfigTree(false)
 	if r.status != recFailed {
@@ -199,5 +251,51 @@ func TestReconcileConfigTreeEntryPointMissingAfterMaterializeFails(t *testing.T)
 	}
 	if !strings.Contains(r.detail, "niri") {
 		t.Fatalf("failure should name the compositor, got %q", r.detail)
+	}
+}
+
+// A laid tree that never got its generated includes is the fresh-install #331:
+// config.kdl is there, its hard-included settings.kdl/rebinds.kdl are not, so
+// niri refuses its own config at first login. The check must name it as a gap
+// and the fix must render the includes.
+func TestReconcileConfigTreeHealsALaidTreeMissingGeneratedIncludes(t *testing.T) {
+	home, _ := configTreeFixture(t, wm.ProviderNiri)
+	t.Setenv("RYOKU_WM", wm.ProviderNiri)
+	swapSessionLive(t, false)
+	if err := os.MkdirAll(filepath.Join(home, ".config", "niri"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config", "niri", "config.kdl"), []byte("include \"settings.kdl\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	materialized := 0
+	swapMaterialize(t, func() error {
+		materialized++
+		for _, leaf := range []string{"settings.kdl", "rebinds.kdl"} {
+			if err := os.WriteFile(filepath.Join(home, ".config", "niri", leaf), []byte("// rendered\n"), 0o644); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	if r := reconcileConfigTree(true); r.status != recWouldFix {
+		t.Fatalf("check: status=%s detail=%q, want would-fix for the missing includes", r.status.label(), r.detail)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "niri", "settings.kdl")); !os.IsNotExist(err) {
+		t.Fatal("check-only must not render the includes")
+	}
+
+	if r := reconcileConfigTree(false); r.status != recFixed {
+		t.Fatalf("fix: status=%s detail=%q, want fixed", r.status.label(), r.detail)
+	}
+	if materialized != 1 {
+		t.Fatalf("the fix must run materialize once, got %d", materialized)
+	}
+	if !laidDown(home, "niri/settings.kdl") || !laidDown(home, "niri/rebinds.kdl") {
+		t.Fatal("the generated includes must be laid by the fix")
+	}
+	if r := reconcileConfigTree(true); r.status != recOK {
+		t.Fatalf("after the heal, status=%s detail=%q, want ok", r.status.label(), r.detail)
 	}
 }

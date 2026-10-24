@@ -368,6 +368,68 @@ rollback_activation() {
     "$sudo_bin" "$switcher" switch
 }
 
+
+report_activation_failure() {
+    status="$1"
+
+    printf 'ryoku-nix-update: NixOS activation failed with exit status %s.\n' "$status" >&2
+
+    failed_units="$(
+        systemctl --failed --no-legend --plain --no-pager 2>/dev/null |
+            sed -n '
+                s/^[[:space:]]*●[[:space:]]*//
+                s/[[:space:]].*$//
+                /./p
+            ' || true
+    )"
+
+    if [ -z "$failed_units" ]; then
+        printf 'ryoku-nix-update: no failed system units were reported; inspect nixos-rebuild-switch-to-configuration.service.\n' >&2
+        return 0
+    fi
+
+    printf 'ryoku-nix-update: failed units after activation:\n' >&2
+    journalctl_bin="$(command -v journalctl 2>/dev/null || true)"
+
+    while IFS= read -r unit; do
+        [ -n "$unit" ] || continue
+        printf '  - %s\n' "$unit" >&2
+
+        log=""
+        if [ -n "$journalctl_bin" ]; then
+            log="$(
+                "$sudo_bin" "$journalctl_bin" -b -u "$unit" -n 40 --no-pager 2>/dev/null ||
+                    "$journalctl_bin" -b -u "$unit" -n 40 --no-pager 2>/dev/null ||
+                    true
+            )"
+        fi
+
+        if [ -n "$log" ]; then
+            printf '%s\n' "$log" >&2
+        fi
+
+        if printf '%s\n' "$log" | grep -Fq 'would be clobbered by backing up'; then
+            printf '%s\n' \
+                'ryoku-nix-update: Home Manager refused to overwrite an existing backup.' \
+                'Ryoku runtime state under ~/.config/ryoku must not be managed directly by Home Manager; remove that declaration and keep declarative overrides under ~/.config/ryoku/user_edits/.' \
+                >&2
+        fi
+    done <<< "$failed_units"
+}
+
+switch_generation() {
+    host="$1"
+
+    if "$sudo_bin" "$nixos_rebuild_bin" switch \
+        --flake "${flake_root}#${host}"; then
+        return 0
+    else
+        status=$?
+        report_activation_failure "$status"
+        return "$status"
+    fi
+}
+
 resolve_host() {
     if [ -n "${RYOKU_NIX_HOST:-}" ]; then
         printf '%s\n' "$RYOKU_NIX_HOST"
@@ -532,7 +594,12 @@ update_nix() {
 
         if [ "$activation_started" = true ]; then
             printf 'Restoring the previous NixOS runtime generation.\n' >&2
-            if ! rollback_activation "$previous_system"; then
+            if rollback_activation "$previous_system"; then
+                printf 'Restoring the previous Ryoku desktop runtime.\n' >&2
+                if ! refresh_runtime "$shell_expected"; then
+                    printf 'ryoku-nix-update: warning: the previous system generation was restored but the Ryoku user runtime did not fully recover; log out and back in before retrying.\n' >&2
+                fi
+            else
                 printf 'ryoku-nix-update: warning: the failed activation could not be switched back automatically; select the previous NixOS generation if the live system is inconsistent.\n' >&2
             fi
         fi
@@ -570,8 +637,7 @@ update_nix() {
     fi
 
     activation_started=true
-    "$sudo_bin" "$nixos_rebuild_bin" switch \
-        --flake "${flake_root}#${host}"
+    switch_generation "$host"
     activation_started=false
 
     restore_lock=false
@@ -596,6 +662,11 @@ refresh_runtime() {
         fi
         printf 'ryoku-nix-update: user systemd is unavailable; runtime refresh deferred until the next graphical session.\n' >&2
         return 0
+    fi
+
+    if ! systemctl --user restart ryoku-materialize.service >/dev/null 2>&1; then
+        printf 'ryoku-nix-update: failed to materialize the active Ryoku generation.\n' >&2
+        return 1
     fi
 
     if [ "$shell_expected" = true ]; then
@@ -644,7 +715,7 @@ track_nix() {
         die "no flake.nix found at $flake_root"
 
     host="$(resolve_host)"
-    source="github:aethctl/Ryoku-on-NixOS/$branch"
+    source="github:Ryoku-dev/Ryoku-on-NixOS/$branch"
 
     nix_bin="$(command -v nix)"
     nixos_rebuild_bin="$(command -v nixos-rebuild)"
@@ -722,8 +793,7 @@ track_nix() {
         shell_expected=true
     fi
 
-    if ! "$sudo_bin" "$nixos_rebuild_bin" switch \
-        --flake "${flake_root}#${host}"; then
+    if ! switch_generation "$host"; then
         restore_track_files
         if [ -n "$previous_system" ]; then
             printf 'Restoring the previous NixOS runtime generation.\n' >&2

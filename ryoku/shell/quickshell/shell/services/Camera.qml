@@ -4,7 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Webcam-overlay state shared by the Super+S capture card, record island, and
+// Webcam-overlay state shared by the bar's capture popout, record island, and
 // CameraOverlay. The overlay is a shaped, draggable self-view bubble on a layer
 // surface, so it stays across workspace switches and gsr captures it into
 // recordings. Shape, size, flip and position persist to ~/.config/ryoku/camera.json;

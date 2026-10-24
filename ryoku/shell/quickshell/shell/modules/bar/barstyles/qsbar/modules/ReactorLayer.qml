@@ -95,7 +95,7 @@ Item {
     // performance loads it back and animates.
     // Drift modes 1-6 render on the GPU: StreamShader draws the same motion with a
     // fragment shader instead of a CPU Canvas. It paces itself the way the Canvas
-    // does: 60 fps under audio, 20 fps for the silent drift, and the silent drift
+    // does: 60 fps under audio, 10 fps for the silent drift, and the silent drift
     // only on Performance (Perf.ambientMotion), so a silent bar sits still on
     // Balanced and Saver. The stateful modes -- 7 (reactor) and 8 (quotes) --
     // keep cross-frame state and stay on the Canvas-based ParticleStream below.

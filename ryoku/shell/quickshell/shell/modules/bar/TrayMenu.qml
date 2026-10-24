@@ -282,9 +282,11 @@ Item {
                                         : (row.toggled ? "check_box" : I18n.tr("check_box_outline_blank"))
                                     fill: row.toggled ? 1 : 0
                                     font.pixelSize: Theme.iconSm * root.scale
+                                    // a checked item reads as full ink, not an accent
+                                    // tint: emphasis is inversion/ink, never colour.
                                     color: !row.rowEnabled
                                         ? Qt.rgba(Theme.onSurfaceVariant.r, Theme.onSurfaceVariant.g, Theme.onSurfaceVariant.b, 0.38)
-                                        : (row.toggled ? Theme.primary : Theme.onSurfaceVariant)
+                                        : (row.toggled ? Theme.onSurface : Theme.onSurfaceVariant)
                                 }
 
                                 // item icon (freedesktop icon name)

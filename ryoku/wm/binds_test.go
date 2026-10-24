@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// The catalogue is the one source both the cheatsheet and the Hub read, so a
-// duplicated id would list a bind twice or record a rebind against the wrong
-// entry. Every id must be unique.
+// The catalogue is the one source both Kit and the Hub read, so a duplicated id
+// would list a bind twice or record a rebind against the wrong entry. Every id
+// must be unique.
 func TestShippedBindsIDsUnique(t *testing.T) {
 	seen := map[string]bool{}
 	for _, b := range ShippedBinds() {
@@ -194,6 +194,7 @@ func TestDisplayKeys(t *testing.T) {
 		{"XF86AudioRaiseVolume", []string{"Vol +"}},
 		{"XF86AudioLowerVolume", []string{"Vol -"}},
 		{"XF86AudioMute", []string{"Mute"}},
+		{"XF86AudioMicMute", []string{"Mic mute"}},
 		{"XF86AudioPlay", []string{"Play"}},
 		{"XF86AudioNext", []string{"Next"}},
 		{"XF86AudioPrev", []string{"Prev"}},
@@ -281,4 +282,31 @@ func find(t *testing.T, id string) CatalogBind {
 	}
 	t.Fatalf("bind %q not in catalogue", id)
 	return CatalogBind{}
+}
+
+// A bind that launches an optional app loses its chord when the app is gone,
+// and the legend names the program; every other bind is untouched by the lookup.
+func TestMissingNamesTheAbsentProgram(t *testing.T) {
+	absent := func(string) bool { return false }
+	present := func(string) bool { return true }
+	var needy, plain int
+	for _, b := range ShippedBinds() {
+		if b.Needs == "" {
+			plain++
+			if got := b.Missing(absent); got != "" {
+				t.Errorf("%s needs nothing but reads missing: %q", b.ID, got)
+			}
+			continue
+		}
+		needy++
+		if got := b.Missing(present); got != "" {
+			t.Errorf("%s has its program but reads missing: %q", b.ID, got)
+		}
+		if got := b.Missing(absent); got != b.Needs+" is not installed." {
+			t.Errorf("%s missing reason = %q", b.ID, got)
+		}
+	}
+	if needy == 0 || plain == 0 {
+		t.Fatalf("catalogue has %d needy and %d plain binds; the test needs both", needy, plain)
+	}
 }

@@ -36,8 +36,8 @@ Item {
     // couldn't answer.
     readonly property bool emptyInstalled: !pg.loading && !pg.loadFailed && pg.skins.length === 0
 
-    // The packaged launcher is stable across qylock generation cutovers and
-    // forwards the named preview skin to the materialized lock client.
+    // The stable launcher enters the generation lease before selecting the
+    // replaceable lock client, then forwards the named preview skin.
     readonly property string lockLauncher: "ryoku-qylock-lock"
     // the rail's search box drives this; skins filter live against it.
     readonly property string query: (pg.hub && pg.hub.query) ? ("" + pg.hub.query) : ""
@@ -121,42 +121,30 @@ Item {
     property string fdelConfirmFor: ""        // per-finger delete armed
     property string fdelTarget: ""            // finger being deleted right now
 
-    // grosshack line in /etc/pam.d/{sudo,sddm,polkit-1}; pkexec applies/removes it.
-    property bool fpamModuleOk: false         // pam_fprintd_grosshack.so present
-    property bool fsudoOn: false              // grosshack line in /etc/pam.d/sudo
-    property bool fsddmOn: false              // grosshack line in /etc/pam.d/sddm
+    // The host seam owns PAM layout and the distro-specific module location.
+    property bool fpamModuleOk: false
+    property string fpamReason: ""
+    property bool fsudoOn: false
+    property bool fsddmOn: false
     property bool fpamLoading: true
-    property bool fsudoPending: false         // an apply/remove is in flight
+    property bool fsudoPending: false
     property bool fsddmPending: false
-    property bool fpolkitOn: false            // grosshack line in /etc/pam.d/polkit-1
+    property bool fpolkitOn: false
     property bool fpolkitPending: false
-    readonly property string fpamLine: "auth        sufficient    pam_fprintd_grosshack.so"
 
     function fpamReload() {
         pg.fpamLoading = true;
         pamStatusProc.running = true;
     }
-    function fpamToggle(target, on) {         // target: "sudo" | "sddm"
+    function fpamToggle(target, on) {
         if (pg.fpending !== "" || pg.fsudoPending || pg.fsddmPending || pg.fpolkitPending)
             return;
         pg.ferr = "";
-        var f = "/etc/pam.d/" + target;
-        var script;
-        if (on) {
-            script = "f=" + f + "; "
-                + "cp \"$f\" \"$f.ryoku-fp-bak\" 2>/dev/null; "
-                + "grep -q pam_fprintd_grosshack \"$f\" && exit 0; "
-                + "sed -i \"1i " + pg.fpamLine + "\" \"$f\"";
-        } else {
-            script = "f=" + f + "; "
-                + "cp \"$f\" \"$f.ryoku-fp-bak\" 2>/dev/null; "
-                + "sed -i '/pam_fprintd_grosshack/d' \"$f\"";
-        }
         if (target === "sudo") pg.fsudoPending = true;
         else if (target === "sddm") pg.fsddmPending = true;
         else pg.fpolkitPending = true;
         pamApplyProc.target = target;
-        pamApplyProc.command = ["pkexec", "bash", "-c", script];
+        pamApplyProc.command = ["ryoku-host", "auth", "fingerprint", "set", target, on ? "on" : "off"];
         pamApplyProc.running = true;
     }
 
@@ -323,7 +311,7 @@ Item {
             return;
         pg.skError = I18n.tr("Finish security-key setup in the terminal window, then return here.");
         pg.skEnrollPolls = 0;
-        Spawn.runApp(["sh", "-c", "exec \"${TERMINAL:-kitty}\" --class ryoku-passkey -e sh -c 'ryoku security-key enroll; printf \"\\n── press enter to close ──\\n\"; read _'"]);
+        Quickshell.execDetached(["sh", "-c", "exec \"${TERMINAL:-kitty}\" --class=dev.ryoku.passkey -e sh -c 'ryoku security-key enroll; printf \"\\n── press enter to close ──\\n\"; read _'"]);
         skEnrollRefresh.restart();
     }
     function skremove(id) {
@@ -540,7 +528,7 @@ Item {
     }
 
     function browseStore() {
-        Spawn.runApp(["ryostore", "open", "lockscreens"]);
+        Quickshell.execDetached(["ryostore", "open", "lockscreens"]);
     }
     function reload() {
         pg.loading = pg.skins.length === 0;
@@ -926,24 +914,24 @@ Item {
         onTriggered: { pg.frmConfirm = false; pg.fdelConfirmFor = ""; }
     }
 
-    // ── grosshack elsewhere: status of /etc/pam.d/{sudo,sddm} ────────────────
+    // ── fingerprint authentication integration through the host seam ─────────
     Process {
         id: pamStatusProc
-        command: ["bash", "-c",
-            "printf 'module='; [ -f /usr/lib/security/pam_fprintd_grosshack.so ] && echo 1 || echo 0; "
-            + "for f in sudo sddm polkit-1; do printf '%s=' \"$f\"; "
-            + "grep -qs pam_fprintd_grosshack \"/etc/pam.d/$f\" && echo 1 || echo 0; done"]
+        command: ["ryoku-host", "auth", "fingerprint", "status"]
         stdout: StdioCollector { id: pamStatusOut }
-        onExited: () => {
-            var o = {};
-            (pamStatusOut.text || "").split("\n").forEach(function (line) {
-                var kv = line.split("=");
-                if (kv.length === 2) o[kv[0]] = kv[1].trim();
-            });
-            pg.fpamModuleOk = o["module"] === "1";
-            pg.fsudoOn = o["sudo"] === "1";
-            pg.fsddmOn = o["sddm"] === "1";
-            pg.fpolkitOn = o["polkit-1"] === "1";
+        onExited: (code) => {
+            try {
+                var o = code === 0 ? JSON.parse(pamStatusOut.text || "{}") : {};
+                var targets = o.targets || {};
+                pg.fpamModuleOk = o.supported === true;
+                pg.fpamReason = String(o.reason || "");
+                pg.fsudoOn = targets["sudo"] === true;
+                pg.fsddmOn = targets["sddm"] === true;
+                pg.fpolkitOn = targets["polkit-1"] === true;
+            } catch (e) {
+                pg.fpamModuleOk = false;
+                pg.fpamReason = I18n.tr("Fingerprint authentication status could not be read.");
+            }
             pg.fpamLoading = false;
         }
     }
@@ -1310,15 +1298,28 @@ Item {
                         }
                     }
 
-                    // grosshack for sudo / sddm; root half runs via pkexec.
+                    // Privileged PAM changes go through ryoku-host.
                     Column {
-                        visible: pg.fpamModuleOk && !pg.fpamLoading
+                        visible: !pg.fpamLoading
                         width: parent.width
                         spacing: Tokens.s2
 
                         Rectangle { width: parent.width; height: Tokens.border; color: Tokens.lineSoft }
 
+                        Text {
+                            visible: !pg.fpamModuleOk
+                            width: parent.width
+                            text: pg.fpamReason !== ""
+                                ? I18n.tr(pg.fpamReason)
+                                : I18n.tr("Fingerprint authentication integration is unavailable.")
+                            color: Tokens.inkDim
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fSmall
+                            wrapMode: Text.WordWrap
+                        }
+
                         Item {
+                            visible: pg.fpamModuleOk
                             width: parent.width
                             height: Math.max(sudoCol.height, sudoSw.implicitHeight)
                             Column {
@@ -1344,6 +1345,7 @@ Item {
                         }
 
                         Item {
+                            visible: pg.fpamModuleOk
                             width: parent.width
                             height: Math.max(sddmCol.height, sddmSw.implicitHeight)
                             Column {
@@ -1369,6 +1371,7 @@ Item {
                         }
 
                         Item {
+                            visible: pg.fpamModuleOk
                             width: parent.width
                             height: Math.max(polkitCol.height, polkitSw.implicitHeight)
                             Column {

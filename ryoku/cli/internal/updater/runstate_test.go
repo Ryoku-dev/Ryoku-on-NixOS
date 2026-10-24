@@ -28,6 +28,7 @@ func TestProgressStepsAdvance(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	p := &publisher{}
 	p.begin(pkgSteps)
+	t.Cleanup(p.idle)
 
 	st := readRunState(t)
 	if st.PID != os.Getpid() {
@@ -58,12 +59,28 @@ func TestProgressStepsAdvance(t *testing.T) {
 		t.Errorf("at(packages): progress %v, want strictly between 0 and 1", st.Progress)
 	}
 }
+func TestProgressPublishesVoidSnapshotSupport(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("RYOKU_HOST_PKGMGR", "xbps")
+	p := &publisher{}
+	p.begin(pkgSteps)
+	t.Cleanup(p.idle)
+
+	st := readRunState(t)
+	if !st.SnapshotsSupported {
+		t.Fatal("XBPS run-state reports snapshots unsupported")
+	}
+	if st.SnapshotReason != "" {
+		t.Fatalf("XBPS run-state snapshot reason = %q, want empty", st.SnapshotReason)
+	}
+}
 
 // A logged line lands in the rolling ring, capped, and republishes.
 func TestProgressLogRing(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	p := &publisher{}
 	p.begin(pkgSteps)
+	t.Cleanup(p.idle)
 	for i := range runLogCap + 5 {
 		p.logf("line %d", i)
 	}
@@ -116,4 +133,59 @@ func TestProgressFinishThenIdle(t *testing.T) {
 	if st := readRunState(t); st.Phase != "idle" {
 		t.Fatalf("idle: phase %q, want idle", st.Phase)
 	}
+}
+
+// Narration outside a run (`ryoku track`, the channel helpers under test) must
+// never write the run-state: a "running" document with no live owner is what
+// pinned the Hub on a phantom update it could not leave.
+func TestNarrationOutsideARunLeavesRunStateAlone(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	p := &publisher{}
+	p.logf("Removed %s: the target channel does not serve it", "ryoku-desktop-hyprland")
+	p.detailf("Fetching origin/main")
+	p.observe("(1/3) upgrading ryoku")
+	if _, err := os.Stat(runStatePath()); !os.IsNotExist(err) {
+		t.Fatalf("narration outside a run wrote %s (err=%v)", runStatePath(), err)
+	}
+}
+
+// The exec handoff keeps the pid, so stage2's begin picks up the run stage1
+// published: its start time, its narrative, and the steps already behind it,
+// with the step stage1 was on when it handed over counted as done.
+func TestStage2AdoptsTheRunStage1Published(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	stage1 := runState{
+		Phase: "running", PID: os.Getpid(), Started: 1000, Log: []string{"Updating 3 Ryoku package(s)"},
+		Steps: []runStep{
+			{Key: "snapshot", State: stepDone, Began: 1000, Took: 800},
+			{Key: "packages", State: stepRunning, Began: 2000},
+		},
+	}
+	writeState(stage1)
+	p := &publisher{}
+	resumed := p.begin(pkgSteps)
+	st := readRunState(t)
+	p.idle()
+	if !resumed {
+		t.Fatal("begin did not resume the run stage1 published under the same pid")
+	}
+	if st.Started != 1000 || len(st.Log) != 1 {
+		t.Errorf("resumed run lost stage1's start or narrative: started=%d log=%q", st.Started, st.Log)
+	}
+	if st.Steps[0].State != stepDone || st.Steps[0].Took != 800 {
+		t.Errorf("snapshot step = %+v, want done with stage1's timing", st.Steps[0])
+	}
+	if st.Steps[1].State != stepDone {
+		t.Errorf("packages step = %q, want done: stage1 only hands over after it succeeds", st.Steps[1].State)
+	}
+
+	// another process's run is never adopted
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	stage1.PID = os.Getpid() + 1
+	writeState(stage1)
+	q := &publisher{}
+	if q.begin(pkgSteps) {
+		t.Error("begin resumed a run published by a different pid")
+	}
+	t.Cleanup(q.idle)
 }

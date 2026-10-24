@@ -26,6 +26,7 @@ Item {
     required property var screen
     // The active compositor can host a surface inside its overview backdrop.
     property bool available: false
+    // The compositor's native overview is open, so the backdrop is on screen.
     property bool overviewOpen: false
     // The live wallpaper source the desktop paints (file url + revision), reused
     // so a wallpaper change carries straight into the backdrop with no second
@@ -33,7 +34,44 @@ Item {
     property string wallpaperUrl: ""
 
     readonly property bool shown: root.available && OverviewBackdropConfig.enabled
-    readonly property bool blurWanted: root.overviewOpen && OverviewBackdropConfig.blurEnabled
+    readonly property bool active: root.shown && root.source.length > 0
+    readonly property bool blurWanted: root.active && root.overviewOpen
+        && OverviewBackdropConfig.blurEnabled
+    property bool blurHeld: false
+
+    onBlurWantedChanged: {
+        if (root.blurWanted) {
+            blurRelease.stop();
+            root.blurHeld = true;
+            captureTimer.restart();
+        } else {
+            blurRelease.restart();
+        }
+    }
+
+    Component.onCompleted: {
+        root.blurHeld = root.blurWanted;
+        if (root.blurHeld)
+            captureTimer.restart();
+    }
+
+    Timer {
+        id: blurRelease
+        interval: Motion.reduce ? 0 : Motion.wallpaperFade
+        onTriggered: {
+            if (!root.blurWanted)
+                root.blurHeld = false;
+        }
+    }
+
+    Timer {
+        id: captureTimer
+        interval: 0
+        onTriggered: {
+            if (root.blurHeld && img.status === Image.Ready)
+                blurSource.scheduleUpdate();
+        }
+    }
 
     // Follow the live wallpaper, or paint a per-card backdrop image the user
     // pinned when they turned following off and set one.
@@ -46,9 +84,9 @@ Item {
 
     PanelWindow {
         id: win
-        // Unmapped unless the surface is both possible and wanted, so the
-        // Background layer never carries an idle full-screen wallpaper.
-        visible: root.shown && root.source.length > 0
+        // niri also exposes this backdrop between workspaces and needs it
+        // mapped before the overview opening animation begins.
+        visible: root.active
         screen: root.screen
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
@@ -63,13 +101,13 @@ Item {
             bottom: true
         }
 
-        // Clip the blurred, oversized media back to the exact screen bounds: a
-        // MultiEffect gaussian fades at the item edge (no pixels beyond it), so
-        // the source is grown by blurMax on every side and this parent trims it.
         Item {
             anchors.fill: parent
             clip: true
 
+            // The sharp wallpaper is the workspace-switch backdrop. It is the
+            // only file decode; the overview blur samples it into a reduced
+            // transient texture rather than decoding the file again.
             Image {
                 id: img
                 anchors.fill: parent
@@ -78,25 +116,44 @@ Item {
                 fillMode: Image.PreserveAspectCrop
                 cache: false
                 asynchronous: true
-                // A blurred full-screen copy carries no pixel-level detail, so a
-                // screen-sized decode is plenty.
-                sourceSize.width: win.screen ? win.screen.width : 0
-                sourceSize.height: win.screen ? win.screen.height : 0
-                // Hidden whenever the blur is drawing; shown as the sharp
-                // backdrop when the user turned blur off (or before it decodes).
-                visible: !blurFx.visible
+                smooth: true
+                sourceSize.width: Math.max(1, Math.ceil(win.width
+                    * (win.screen ? win.screen.devicePixelRatio : 1)))
+                sourceSize.height: Math.max(1, Math.ceil(win.height
+                    * (win.screen ? win.screen.devicePixelRatio : 1)))
+                onStatusChanged: {
+                    if (status === Image.Ready && root.blurHeld)
+                        captureTimer.restart();
+                }
+            }
+
+            ShaderEffectSource {
+                id: blurSource
+                anchors.fill: img
+                sourceItem: root.blurHeld ? img : null
+                textureSize: Qt.size(
+                    Math.max(1, Math.ceil(img.width
+                        * (win.screen ? win.screen.devicePixelRatio : 1) / 4)),
+                    Math.max(1, Math.ceil(img.height
+                        * (win.screen ? win.screen.devicePixelRatio : 1) / 4)))
+                live: false
+                recursive: false
+                hideSource: false
+                smooth: true
+                visible: false
             }
 
             MultiEffect {
                 id: blurFx
                 anchors.fill: img
-                source: img
-                blurEnabled: true
-                blur: root.blurWanted ? Math.min(1, OverviewBackdropConfig.blur / 100) : 0.0
-                blurMax: 64
-                visible: img.status === Image.Ready
-                    && OverviewBackdropConfig.blurEnabled
-                    && (root.blurWanted || blur > 0.001)
+                source: blurSource
+                blurEnabled: root.blurHeld
+                blur: root.blurWanted
+                    ? Math.min(1, OverviewBackdropConfig.blur / 100) : 0
+                // The source texture is quarter-linear; 16 samples enlarge to
+                // the previous 64 px visible radius.
+                blurMax: 16
+                visible: img.status === Image.Ready && root.blurHeld
 
                 Behavior on blur {
                     enabled: !Motion.reduce
@@ -107,9 +164,6 @@ Item {
                 }
             }
 
-            // Dimming rides above the blur so the picker's percentage means the
-            // same thing sharp or blurred: 0 leaves the wallpaper alone, 100 is
-            // black.
             Rectangle {
                 anchors.fill: parent
                 color: "black"

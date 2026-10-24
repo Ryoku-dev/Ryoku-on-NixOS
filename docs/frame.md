@@ -24,6 +24,20 @@ The `FrameBars` singleton is the only runtime normalizer. It preserves valid
 frame-bar choices, rejects incompatible widget placements, and supplies the
 safe default profile when data is missing or malformed.
 
+`BlobRect` is a rounded rectangle. Its QML shape controls are `radius`,
+`topLeftRadius`, `topRightRadius`, `bottomLeftRadius`, `bottomRightRadius`,
+`deformScale`, and `taper`. Positive taper narrows the bottom edge; negative
+taper narrows the top.
+
+`BlobWave` adds an audio-driven bottom edge. A `BlobGroup` takes up to four
+`BlobWave`s. Its QML properties are `levels`, `points` (2 to 64), `amplitude`,
+`gain`, `mirror`, `edgeInset`, `waveStiffness`, `waveDamping`, `stepped`,
+`blockPitch`, and `moving`. With `stepped` set, a wide band becomes a row of
+square blocks spaced `blockPitch` apart, filling with up to `points` blocks, and
+kept `edgeInset` clear of the ends. A group's `waveColor` traces the lifted edge
+in ink; it is transparent by default. The edge is flat and stops repainting when
+the levels are silent.
+
 ## Surface ownership
 
 `FrameMenuManager.qml` owns active menu and surface state for a single monitor.
@@ -38,11 +52,11 @@ the request's anchor and identity. This gives the manager one place to enforce:
 
 `FrameMenu.qml` draws catalogue-backed menus. `FrameSurface.qml` is the single
 Ryoku-owned surface host: it rides the shared `Popout` and mounts a body by
-`kind`, so credential prompts, voice, capture, small rail cards, and the Super+S
-stash all share one component. The stash surface (`kind: "stash"`) renders
-`panel/Panel.qml`, a framed floating card whose left activity rail switches
-between Usage and Tools pages. The menu manager, rather than a widget or IPC
-client, owns their lifecycle.
+`kind`, so credential prompts, voice, capture, and small rail cards all share
+one component. The menu manager, rather than a widget or IPC client, owns
+their lifecycle. The two sidebars (Super+Escape, Super+S) are not frame
+surfaces; they are screen-edge overlays of their own subsystem, see
+`docs/sidebars.md`.
 
 ## Input and focus
 

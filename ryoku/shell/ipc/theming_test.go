@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestIsVideo(t *testing.T) {
@@ -153,5 +155,47 @@ func TestReadLivePreview(t *testing.T) {
 	}
 	if _, ok := readLivePreview(path); ok {
 		t.Fatal("a malformed marker must not be treated as a live preview")
+	}
+}
+
+// TestLivePosterPointer: the stable poster name follows the current clip's
+// still, survives the cache prune, and a prune never deletes the frame it
+// points at (a dangling pointer is the storm this replaced).
+func TestLivePosterPointer(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	dir := filepath.Join(state, "ryoku-live-frames")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(dir, "now.png")
+	if err := os.WriteFile(current, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	publishLivePoster(current)
+	got, err := os.Readlink(livePosterPath())
+	if err != nil || got != current {
+		t.Fatalf("poster pointer = %q (%v), want %q", got, err, current)
+	}
+
+	// Fill the cache past the keep bound with older stills, then prune.
+	for i := 0; i <= liveFrameKeep; i++ {
+		old := filepath.Join(dir, fmt.Sprintf("old-%02d.png", i))
+		if err := os.WriteFile(old, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(old, time.Now().Add(-time.Duration(i+1)*time.Hour), time.Now().Add(-time.Duration(i+1)*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(current, time.Now().Add(-48*time.Hour), time.Now().Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	pruneLiveFrames(dir)
+	if _, err := os.Stat(current); err != nil {
+		t.Errorf("the pruned still the poster points at was deleted: %v", err)
+	}
+	if _, err := os.Stat(livePosterPath()); err != nil {
+		t.Errorf("the poster pointer no longer resolves: %v", err)
 	}
 }

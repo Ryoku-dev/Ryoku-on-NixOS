@@ -2,6 +2,8 @@
   description = "Nix packaging for the Ryoku desktop";
 
   inputs = {
+    ryokuUpstream.url = "github:Ryoku-dev/ryoku/unstable-dev";
+
     # Compatibility input for existing consumers which follow their host
     # nixpkgs. Ryoku-owned packages deliberately do not build from this input.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -21,6 +23,10 @@
       url = "github:NousResearch/hermes-agent";
     };
 
+    skwdWall = {
+      url = "github:liixini/skwd-wall/nix";
+    };
+
     hyprglassSrc = {
       url = "github:hyprnux/hyprglass/v0.7.0";
       flake = false;
@@ -36,15 +42,21 @@
       flake = false;
     };
 
-    # Native Ryotunes 1.1.6, pinned to its release commit.
+    # RyoManager task manager, pinned to the approved Ryoku UI build.
+    ryomanagerSrc = {
+      url = "github:Ryoku-dev/ryomanager/459c6714e31276f73025369e722cf4ab48eccbc3";
+      flake = false;
+    };
+
+    # Native Ryotunes 1.2.0, pinned to its release commit.
     # Keep this pinned to the exact upstream release commit.
     ryotunesSrc = {
-      url = "github:Ryoku-dev/ryotunes/8fad27becd373ca7943b2e8943a8f14398b67ddb";
+      url = "github:Ryoku-dev/ryotunes/ade86b744651b908f3946b6769853e5084a59ce1";
       flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, ryokuPackagesNixpkgs, glazepkg, hermesAgent, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ryotunesSrc, ... }:
+  outputs = { self, ryokuUpstream, nixpkgs, ryokuPackagesNixpkgs, glazepkg, hermesAgent, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ryomanagerSrc, ryotunesSrc, ... }:
     let
       version =
         builtins.replaceStrings
@@ -72,13 +84,17 @@
         ];
       };
 
+      skwdPaper = skwdWall.packages.${system}.skwd-paper;
+
       ryoku = import ./nix/packages {
         inherit
           pkgs
           hyprglassSrc
           bibataMaterialSrc
           imgbordersSrc
+          ryomanagerSrc
           ryotunesSrc
+          skwdPaper
           version
           ;
 
@@ -93,6 +109,7 @@
       ryokuMaterialize = import ./nix/apps/ryoku-materialize.nix {
         inherit pkgs ryoku;
       };
+
       ryokuInstallBackend = import ./nix/apps/ryoku-install-backend.nix {
         inherit pkgs;
       };
@@ -101,19 +118,109 @@
         inherit pkgs;
         backend = ryokuInstallBackend;
       };
+
+      # Temporary composition test for the cross-repository migration.
+      # The active NixOS module continues using the existing package set.
+      ryokuUpstreamNixosBundle = pkgs.symlinkJoin {
+        name = "ryoku-upstream-nixos-bundle";
+
+        # The NixOS bridge must take precedence over upstream
+        # helpers with the same executable names.
+        paths = [
+          ryoku.nixosSystemBridge
+          ryoku.nixUpdate
+          ryokuUpstream.packages.${system}.ryoku-desktop
+        ];
+      };
+
+      ryokuNixosModule =
+        import ./nix/modules/ryoku.nix {
+          inherit self hermesAgent ryokuUpstream;
+          ryokuNixpkgs = pkgs;
+        };
+
+      ryokuRepo = "github:Ryoku-dev/Ryoku-on-NixOS";
+
+      # Bootable Ryoku-on-NixOS live/install image. The live environment tracks
+      # the flake's nixos-unstable input; Ryoku-owned packages remain pinned to
+      # Ryoku's separate package universe. Both are locked by flake.lock.
+      # `channel` is the branch installed systems follow afterwards.
+      mkRyokuIso = channel: nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = {
+          inherit self ryokuInstall ryokuRepo;
+          ryokuIsoChannel = channel;
+          ryokuIsoNixpkgsRev = nixpkgs.rev or "";
+          ryokuIsoRyokuRev = self.rev or "";
+        };
+        modules = [ ./nix/iso ];
+      };
+
+      mkIsoConfigSystem = {
+        gpuVendors ? [ ],
+        firmware ? "uefi",
+        nvidiaBranch ? "stable",
+        nvidiaOpen ? true,
+        kernel ? "default",
+      }:
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = {
+            inputs = { };
+            install = {
+              hostname = "ryoku-ci";
+              username = "ryoku";
+              passwordHash = "*";
+              inherit firmware gpuVendors nvidiaBranch nvidiaOpen;
+              installDisk = "/dev/vda";
+              timeZone = "UTC";
+              locale = "en_US.UTF-8";
+              keyboardLayout = "us";
+              inherit kernel;
+              compositor = "hyprland";
+              browser = "chromium";
+              shell = "fish";
+              optionalApps = [ "prompt" ];
+              binaryCache = true;
+              ryokuSource = "${ryokuRepo}/unstable-dev";
+              nixpkgsSource = "github:NixOS/nixpkgs/nixos-unstable";
+            };
+          };
+          modules = [
+            ryokuNixosModule
+            ./nix/iso-configs/ryoku.nix
+            ./nix/iso-configs/configuration.nix
+          ];
+        };
     in
     {
       lib.version = version;
 
-      nixosModules.default =
-        import ./nix/modules/ryoku.nix {
-          inherit self hermesAgent;
-          ryokuNixpkgs = pkgs;
+      nixosModules.default = ryokuNixosModule;
+
+      # Installs follow unstable-dev; ryoku-iso-stable is for images built from main.
+      nixosConfigurations.ryoku-iso = mkRyokuIso "unstable-dev";
+      nixosConfigurations.ryoku-iso-stable = mkRyokuIso "main";
+
+      # Evaluation-only configuration: never activated by the installer.
+      nixosConfigurations.ryoku-iso-upstream-validation =
+        (mkIsoConfigSystem { }).extendModules {
+          modules = [
+            { programs.ryoku.upstreamPackages.enable = true; }
+          ];
         };
 
       packages.${system} = {
+        ryoku-upstream-desktop = ryokuUpstream.packages.${system}.ryoku-desktop;
+        ryoku-upstream-nixos-bundle = ryokuUpstreamNixosBundle;
         ryoku-install = ryokuInstall;
         ryoku-install-backend = ryokuInstallBackend;
+        ryoku-iso = self.nixosConfigurations.ryoku-iso.config.system.build.isoImage;
+        ryoku-iso-stable = self.nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage;
+        # The system a default install builds; nix-cache.yml pushes it to the
+        # binary cache so installs and updates download Ryoku instead of
+        # compiling it.
+        ryoku-default-system = (mkIsoConfigSystem { }).config.system.build.toplevel;
         ryoku-shell = ryoku.shell;
         ryoku-ui = ryoku.ui;
         ryoku-plugin-kit = ryoku.pluginKit;
@@ -133,7 +240,9 @@
         ryoku-ryovm-helpers = ryoku.ryovmHelpers;
         ryoku-livewall = ryoku.livewall;
         ryoku-ryogami = ryoku.ryogami;
+        ryoku-skwd-paper = ryoku.skwdPaper;
         ryoku-ryotunes = ryoku.ryotunes;
+        ryomanager = ryoku.ryomanager;
         ryotunes-unwrapped = ryoku.ryotunesUnwrapped;
         ryoku-keysounds = ryoku.keysounds;
         ryoku-qmk-hid = ryoku.qmkHid;
@@ -143,11 +252,16 @@
         ryoku-desktop-data = ryoku.desktopData;
         ryoku-wm-hyprland = ryoku.wmHyprland;
         ryoku-wm-niri = ryoku.wmNiri;
+        ryoku-wm-mango = ryoku.wmMango;
+        ryoku-niri = ryoku.niri;
+        ryoku-mango = ryoku.mango;
         ryoku-xwayland-satellite = ryoku.xwaylandSatellite;
 
         # Ryoku owns its compositor ABI. These come from Ryoku's
         # locked nixpkgs rather than the host's package set.
-        ryoku-hyprland = pkgs.hyprland;
+        ryoku-hyprland = pkgs.hyprland.override {
+          makeWrapper = pkgs.makeBinaryWrapper;
+        };
         ryoku-xdg-desktop-portal-hyprland = pkgs.xdg-desktop-portal-hyprland;
         ryoku-matugen = pkgs.matugen;
 
@@ -206,12 +320,99 @@
             touch "$out"
           '';
 
-        ryoku-installer-cache-option = pkgs.runCommand "ryoku-installer-cache-option-check"
-          { nativeBuildInputs = [ pkgs.gnugrep ]; }
+        ryoku-installer-disk-identity = pkgs.runCommand "ryoku-installer-disk-identity-check"
+          {
+            nativeBuildInputs = with pkgs; [
+              bash
+              coreutils
+              gawk
+              gnugrep
+              gnused
+              python3
+            ];
+          }
           ''
-            backend=${ryokuInstallBackend}/bin/ryoku-install-backend
-            "$backend" --help | grep -Fq -- '--no-cache'
-            grep -Fq 'binaryCache.enable = $([ "$use_cache" -eq 1 ] && printf true || printf false);' ${./nix/apps/ryoku-install-backend.nix}
+            RYOKU_INSTALL_BACKEND_SOURCE=${./nix/apps/ryoku-install-backend.sh} \
+              bash ${./nix/tests/test-installer-disk-identity.sh}
+            touch "$out"
+          '';
+
+        ryoku-installer-iso = pkgs.runCommand "ryoku-installer-iso-check"
+          { nativeBuildInputs = [ pkgs.python3 pkgs.gnugrep ]; }
+          ''
+            RYOKU_INSTALL_TEST_BACKEND=${ryokuInstallBackend}/bin/ryoku-install-backend \
+            RYOKU_INSTALL_BACKEND_SOURCE=${./nix/apps/ryoku-install-backend.sh} \
+              python3 ${./nix/tests/test-installer-iso.py}
+
+            backend=${./nix/apps/ryoku-install-backend.sh}
+            grep -Fq -- '--confirm-disk' "$backend"
+            grep -Fq 'nixos-install' "$backend"
+            grep -Fq 'Type the exact disk path' "$backend"
+            grep -Fq 'refusing to erase the disk backing the live installer' "$backend"
+            grep -Fq 'iso_work/ryoku-source' "$backend"
+            grep -Fq 'path:./ryoku-source' "$backend"
+            grep -Fq 'detect_gpu_vendors' "$backend"
+            grep -Fq 'nixos-generate-config --root "$target_root" --show-hardware-config' "$backend"
+            grep -Fq 'chown -R root:root "$target_root/etc/nixos"' "$backend"
+            grep -Fq 'cp -a "$iso_config_templates/."' "$backend"
+            grep -Fq 'user-password.hash' "$backend"
+            grep -Fq 'install -m 0600 -o root -g root' "$backend"
+            grep -Fq 'local install_host="ryoku"' "$backend"
+            grep -Fq -- '--flake "path:$target_root/etc/nixos#$install_host"' "$backend"
+            grep -Fq -- '--override-input nixpkgs "$target_nixpkgs_ref"' "$backend"
+            grep -Fq -- '--override-input ryoku "$target_source_ref"' "$backend"
+            grep -Fq 'choose_install_parallelism' "$backend"
+            grep -Fq -- '--max-jobs "$install_jobs"' "$backend"
+            grep -Fq -- '--cores "$install_cores"' "$backend"
+            grep -Fq -- '--no-cache' "$backend"
+            grep -Fq 'binaryCache = ''${binary_cache_nix};' "$backend"
+            touch "$out"
+          '';
+
+        ryoku-iso-configs =
+          let
+            generic = mkIsoConfigSystem { };
+            nvidia = mkIsoConfigSystem { gpuVendors = [ "nvidia" ]; };
+            nvidiaLegacy580 = mkIsoConfigSystem {
+              gpuVendors = [ "nvidia" ];
+              nvidiaBranch = "legacy_580";
+              nvidiaOpen = false;
+            };
+            nvidiaLegacy470 = mkIsoConfigSystem {
+              gpuVendors = [ "nvidia" ];
+              nvidiaBranch = "legacy_470";
+              nvidiaOpen = false;
+            };
+            amd = mkIsoConfigSystem { gpuVendors = [ "amd" ]; };
+            intel = mkIsoConfigSystem { gpuVendors = [ "intel" ]; };
+            hybrid = mkIsoConfigSystem { gpuVendors = [ "nvidia" "intel" ]; };
+            bios = mkIsoConfigSystem { firmware = "bios"; };
+            latestKernel = mkIsoConfigSystem { kernel = "latest"; };
+            zenKernel = mkIsoConfigSystem { kernel = "zen"; };
+          in
+          assert generic.config.networking.hostName == "ryoku-ci";
+          assert generic.config.programs.ryoku.enable;
+          assert generic.config.programs.ryoku.binaryCache.enable;
+          assert generic.config.nix.package == nixpkgs.legacyPackages.${system}.nixVersions.latest;
+          assert nvidia.config.services.xserver.videoDrivers == [ "nvidia" ];
+          assert nvidia.config.hardware.nvidia.modesetting.enable;
+          assert nvidia.config.hardware.nvidia.branch == "stable";
+          assert nvidia.config.hardware.nvidia.open;
+          assert nvidiaLegacy580.config.hardware.nvidia.branch == "legacy_580";
+          assert !nvidiaLegacy580.config.hardware.nvidia.open;
+          assert nvidiaLegacy470.config.hardware.nvidia.branch == "legacy_470";
+          assert !nvidiaLegacy470.config.hardware.nvidia.open;
+          assert builtins.elem "amdgpu" amd.config.boot.initrd.kernelModules;
+          assert builtins.elem "i915" intel.config.boot.initrd.kernelModules;
+          assert builtins.length intel.config.hardware.graphics.extraPackages >= 2;
+          assert hybrid.config.services.xserver.videoDrivers == [ "nvidia" ];
+          assert builtins.elem "i915" hybrid.config.boot.initrd.kernelModules;
+          assert bios.config.boot.loader.grub.enable;
+          assert bios.config.boot.loader.grub.devices == [ "/dev/vda" ];
+          assert !bios.config.boot.loader.systemd-boot.enable;
+          assert latestKernel.config.boot.kernelPackages.kernel.version == nixpkgs.legacyPackages.${system}.linuxPackages_latest.kernel.version;
+          assert zenKernel.config.boot.kernelPackages.kernel.version == nixpkgs.legacyPackages.${system}.linuxPackages_zen.kernel.version;
+          pkgs.runCommand "ryoku-iso-configs-check" { } ''
             touch "$out"
           '';
 
@@ -220,43 +421,38 @@
           installer = ryokuInstall;
         };
 
-        ryoku-materializer-unit-cleanup = pkgs.runCommand
-          "ryoku-materializer-unit-cleanup-check"
-          { nativeBuildInputs = [ pkgs.gnugrep ]; }
-          ''
-            materializer=${./nix/apps/ryoku-materialize.nix}
-            grep -Fq 'ryogami.service' "$materializer"
-            grep -Fq 'ryoku-session.target.wants/ryogami.service' "$materializer"
-            touch "$out"
-          '';
+        ryoku-phone = import ./nix/tests/phone.nix {
+          inherit pkgs;
+          module = self.nixosModules.default;
+        };
 
-
-        ryoku-session-bootstrap = pkgs.runCommand "ryoku-session-bootstrap-check"
-          { nativeBuildInputs = [ pkgs.gnugrep ]; }
-          ''
-            hypr=${ryoku.desktopData}/share/ryoku/config/hypr/modules/autostart.lua
-            niri=${ryoku.desktopData}/share/ryoku/config/niri/autostart.kdl
-
-            grep -Fq 'ryoku-nix-session-start' "$hypr"
-            grep -Fq 'ryoku-nix-session-start' "$niri"
-            ! grep -Fq 'dbus-update-activation-environment --systemd --all; systemctl --user daemon-reload' "$hypr"
-            ! grep -Fq 'dbus-update-activation-environment --systemd --all; systemctl --user daemon-reload' "$niri"
-
-            niri_module=${./nix/modules/ryoku.nix}
-            niri_wrapper="$TMPDIR/niri-session-wrapper-source"
-            sed -n '/cat > "$out\/bin\/ryoku-niri-session"/,/chmod 0755/p' "$niri_module" > "$niri_wrapper"
-            grep -Fq "''${materializer}/bin/ryoku-materialize" "$niri_wrapper"
-            grep -Fq 'exec ''${ryokuNiri}/bin/niri-session' "$niri_wrapper"
-            if grep -Fq '[ ! -f "$config_home/niri/config.kdl" ]' "$niri_wrapper"; then
-              echo 'Niri session wrapper still conditionally skips generation materialization' >&2
-              exit 1
-            fi
-
-            touch "$out"
-          '';
+        ryoku-display-manager = import ./nix/tests/display-manager.nix {
+          inherit pkgs;
+          module = self.nixosModules.default;
+        };
 
         # Core runtime
         ryoku-shell = ryoku.shell;
+
+        # Python is a bar style, not a second eagerly preloaded shell. Keep its
+        # panel stack demand-loaded and consume Ryoku's live settings stream
+        # instead of spawning a parallel inotify loop at idle.
+        ryoku-python-idle-contract = pkgs.runCommand
+          "ryoku-python-idle-contract-check"
+          { nativeBuildInputs = [ pkgs.gnugrep ]; }
+          ''
+            main=${./ryoku/shell/quickshell/shell/modules/bar/barstyles/python/Main.qml}
+
+            grep -Fq 'let cachedItem = ensureWidgetItem(newWidget, t);' "$main"
+            grep -Fq 'function syncLiveSettings()' "$main"
+            grep -Fq 'onSettingsLoaded() { masterWindow.syncLiveSettings(); }' "$main"
+
+            ! grep -Fq 'preloadStaggerTimer' "$main"
+            ! grep -Fq 'settingsWatcher' "$main"
+            ! grep -Fq 'inotifywait' "$main"
+
+            touch "$out"
+          '';
         ryoku-cli = ryoku.cli;
         ryoku-hub = ryoku.hub;
         ryoku-palette-bridge = ryoku.paletteBridge;
@@ -266,7 +462,9 @@
         ryoku-ryovm-helpers = ryoku.ryovmHelpers;
         ryoku-livewall = ryoku.livewall;
         ryoku-ryogami = ryoku.ryogami;
+        ryoku-skwd-paper = ryoku.skwdPaper;
         ryoku-ryotunes = ryoku.ryotunes;
+        ryomanager = ryoku.ryomanager;
         ryoku-keysounds = ryoku.keysounds;
         ryoku-qmk-hid = ryoku.qmkHid;
         ryoku-waifu2x = ryoku.waifu2x;
@@ -296,6 +494,9 @@
         ryoku-desktop-data = ryoku.desktopData;
         ryoku-wm-hyprland = ryoku.wmHyprland;
         ryoku-wm-niri = ryoku.wmNiri;
+        ryoku-wm-mango = ryoku.wmMango;
+        ryoku-niri = ryoku.niri;
+        ryoku-mango = ryoku.mango;
         ryoku-xwayland-satellite = ryoku.xwaylandSatellite;
         ryoku-helpers = ryoku.helpers;
         ryoku-nixos-system-bridge = ryoku.nixosSystemBridge;
@@ -320,7 +521,20 @@
             ];
           }
           ''
-            bash ${self}/tests/gpu-mux.sh
+            work="$TMPDIR/ryoku-gpu-mux"
+
+            mkdir -p "$work/tests" "$work/system/hardware"
+
+            cp ${self}/tests/gpu-mux.sh "$work/tests/"
+            cp -R ${self}/system/hardware/gpu "$work/system/hardware/"
+
+            mkdir -p "$work/system/hardware/power"
+            cp ${self}/system/hardware/power/ryoku-hw-laptop               "$work/system/hardware/power/"
+
+            chmod -R u+w "$work"
+            patchShebangs "$work"
+
+            bash "$work/tests/gpu-mux.sh"
             touch "$out"
           '';
 
@@ -339,7 +553,20 @@
             ];
           }
           ''
-            bash ${self}/tests/gpu-pin-policy.sh
+            work="$TMPDIR/ryoku-gpu-pin"
+
+            mkdir -p "$work/tests" "$work/system/hardware"
+
+            cp ${self}/tests/gpu-pin-policy.sh "$work/tests/"
+            cp -R ${self}/system/hardware/gpu "$work/system/hardware/"
+
+            mkdir -p "$work/system/hardware/power"
+            cp ${self}/system/hardware/power/ryoku-hw-laptop               "$work/system/hardware/power/"
+
+            chmod -R u+w "$work"
+            patchShebangs "$work"
+
+            bash "$work/tests/gpu-pin-policy.sh"
             touch "$out"
           '';
 
@@ -429,6 +656,116 @@
         # Installer
         ryoku-install = ryokuInstall;
         ryoku-install-backend = ryokuInstallBackend;
+
+        ryoku-barstyle-source-integrity = pkgs.runCommand
+          "ryoku-barstyle-source-integrity-check"
+          {
+            nativeBuildInputs = [ pkgs.python3 ];
+          }
+          ''
+            RYOKU_QSBAR_VARIANT=${./ryoku/shell/quickshell/shell/modules/bar/barstyles/qsbar/VariantRoot.qml} \
+            RYOKU_BAR_PRODUCTS=${./ryoku/shell/quickshell/shell/services/BarProducts.qml} \
+            RYOKU_PYTHON_BARSTYLE=${./ryoku/shell/quickshell/shell/modules/bar/barstyles/python} \
+              python3 ${./nix/tests/test-barstyle-source-integrity.py}
+
+            touch "$out"
+          '';
+
+        ryoku-session-bootstrap = pkgs.runCommand
+          "ryoku-session-bootstrap-check"
+          {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          }
+          ''
+            for autostart in ${ryoku.desktopData}/share/ryoku/config/hypr/modules/autostart.lua \
+                             ${ryoku.desktopData}/share/ryoku/config/niri/autostart.kdl \
+                             ${ryoku.desktopData}/share/ryoku/config/mango/autostart.conf
+            do
+              grep -Fq 'ryoku-nix-session-start' "$autostart"
+            done
+
+            session_module=${./nix/modules/ryoku.nix}
+            grep -Fq 'dbus-update-activation-environment --systemd --all' "$session_module"
+            grep -Fq "''${materializer}/bin/ryoku-materialize || true" "$session_module"
+            grep -Fq 'systemctl --user restart ryoku-session.target' "$session_module"
+
+            niri_module=${./nix/modules/ryoku.nix}
+            niri_wrapper="$TMPDIR/niri-session-wrapper-source"
+            sed -n '/cat > "$out\/bin\/ryoku-niri-session"/,/chmod 0755/p' "$niri_module" > "$niri_wrapper"
+            grep -Fq "''${materializer}/bin/ryoku-materialize" "$niri_wrapper"
+            grep -Fq 'exec ''${ryokuNiri}/bin/niri-session' "$niri_wrapper"
+            if grep -Fq '[ ! -f "$config_home/niri/config.kdl" ]' "$niri_wrapper"; then
+              echo 'Niri session wrapper still conditionally skips generation materialization' >&2
+              exit 1
+            fi
+
+            touch "$out"
+          '';
+
+        ryoku-notification-ownership = pkgs.runCommand
+          "ryoku-notification-ownership-check"
+          {
+            nativeBuildInputs = [ pkgs.python3 ];
+          }
+          ''
+            RYOKU_NIX_MODULE=${./nix/modules/ryoku.nix} \
+            RYOKU_SHELL_QML=${./ryoku/shell/quickshell/shell/shell.qml} \
+            RYOKU_NOTIFS_QML=${./ryoku/shell/quickshell/shell/services/Notifs.qml} \
+            RYOKU_SCHEME_QML=${./ryoku/shell/quickshell/shell/services/Scheme.qml} \
+            RYOKU_NOTIFICATION_CARD_QML=${./ryoku/shell/quickshell/shell/modules/notifications/NotificationCard.qml} \
+            RYOKU_IRIS_THEME_QML=${./ryoku/shell/quickshell/inir/services/MaterialThemeLoader.qml} \
+              python3 ${./nix/tests/test-notification-ownership.py}
+
+            touch "$out"
+          '';
+
+        ryoku-bt-audio-watch-singleton = pkgs.runCommand
+          "ryoku-bt-audio-watch-singleton-check"
+          {
+            nativeBuildInputs = with pkgs; [
+              bash
+              coreutils
+              gawk
+              python3
+              util-linux
+            ];
+          }
+          ''
+            RYOKU_BT_AUDIO_TEST_HELPER=${./system/hardware/audio/ryoku-bt-audio} \
+              python3 ${./nix/tests/test-bt-audio-watch-singleton.py}
+
+            touch "$out"
+          '';
+
+        ryoku-qylock-staging-cleanup = pkgs.runCommand
+          "ryoku-qylock-staging-cleanup-check"
+          {
+            nativeBuildInputs = with pkgs; [
+              bash
+              coreutils
+              findutils
+              gnugrep
+              procps
+              python3
+              util-linux
+            ];
+          }
+          ''
+            RYOKU_QYLOCK_TEST_INSTALLER=${./ryoku/lockscreen/install-qylock} \
+              python3 ${./nix/tests/test-qylock-staging-cleanup.py}
+
+            touch "$out"
+          '';
+
+        ryoku-qylock-pam-materialization = pkgs.runCommand
+          "ryoku-qylock-pam-materialization-check"
+          { nativeBuildInputs = [ pkgs.python3 ]; }
+          ''
+            RYOKU_QYLOCK_NIX_MODULE=${./nix/modules/ryoku.nix} \
+              python3 ${./nix/tests/test-qylock-pam-materialization.py}
+
+            touch "$out"
+          '';
 
         ryoku-install-parser = pkgs.runCommand
           "ryoku-install-parser-check"

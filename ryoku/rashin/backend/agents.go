@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,17 +22,21 @@ const (
 const PointerBlock = pointerBegin + "\n" +
 	"## Ryoku Rashin system vault\n" +
 	"\n" +
-	"This machine runs the Ryoku desktop. A maintained map of the\n" +
-	"system lives at `~/.local/share/ryoku/rashin/`. Before exploring the machine or\n" +
-	"guessing paths, read `AGENTS.md` there: it says where every config lives, which\n" +
-	"binary owns it, and how to reload it. Write durable notes to `memory/` and\n" +
-	"dated notes to `journal/YYYY-MM-DD.md`. For code questions prefer `prowl`\n" +
-	"(cited code intelligence, reindexed each run): `prowl search \"<question>\"`,\n" +
-	"`find`, `def`, `references`, `outline`, `impact` -- one call instead of grepping.\n" +
-	"The `ryoku` agent skill (safety rules, a bar and dock guide, and the command\n" +
-	"catalogue) is wired into this agent's skills directory; read it before\n" +
-	"customising the desktop. Answer a desktop \"how do I\" question GUI-first: name\n" +
-	"the Ryoku Hub page, shell picker, or QS Bar Settings before naming any command.\n" +
+	"This machine runs a Ryoku Linux desktop. Its edition and compositor are named\n" +
+	"in `desktop.md` and by `ryoku wm status`; detect them, never assume. A maintained\n" +
+	"map of the system lives at `~/.local/share/ryoku/rashin/`. Before exploring the\n" +
+	"machine or guessing paths, read `AGENTS.md` there: it says where every config\n" +
+	"lives, which binary owns it, and how to reload it. Write durable notes to\n" +
+	"`memory/` and dated notes to `journal/YYYY-MM-DD.md`. Prowl is an optional\n" +
+	"external plug-in for its model gateway, code index, and skills; it never overrides\n" +
+	"the user's model pick. When available, prefer its cited code intelligence:\n" +
+	"`prowl search \"<question>\"`, `find`, `def`, `references`, `outline`, `impact`.\n" +
+	"The `ryoku` agent skill (safety rules, the GUI map, the bar and dock, the window-manager\n" +
+	"seam, building the Ryoku way, and the command catalogue) is wired into this\n" +
+	"agent's skills directory; read it before customising the desktop, and cite the\n" +
+	"vault's `wiki/` pages to someone new. Answer a desktop \"how do I\" question\n" +
+	"GUI-first: name the Ryoku Hub page, shell picker, or QS Bar Settings before\n" +
+	"naming any command.\n" +
 	pointerEnd
 
 // Agent is a detected coding CLI and its vault-pointer wiring state.
@@ -131,7 +136,9 @@ func Wire(id string) error {
 		return err
 	}
 	// Wiring an agent also drops the ryoku skill into its skills dir.
-	return wireAgentSkill(d)
+	err := wireAgentSkill(d)
+	invalidateHarnessCache()
+	return err
 }
 
 // Unwire removes the pointer block from an agent's file, keeping the file.
@@ -143,6 +150,7 @@ func Unwire(id string) error {
 	file := d.file()
 	// The skill symlink is independent of the pointer block; drop it too.
 	unwireAgentSkill(d)
+	invalidateHarnessCache()
 	doc := readFileOrEmpty(file)
 	if doc == "" {
 		return nil
@@ -164,6 +172,10 @@ func WireAll() int {
 	// Also link the always-created homes (~/.agents, ~/.hermes) and every
 	// hermes profile; the per-agent links were made by Wire above.
 	_, _ = WireSkill()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	_ = migrateQuickProviderKeys(ctx)
+	_ = refreshConnectedHarnesses(ctx)
 	wireProwlSkills()
 	return n
 }
@@ -262,15 +274,14 @@ func tildeAbbrev(p string) string {
 // catalogue the same way it finds a hub- or agent-grown skill. Every link
 // points at one source dir, resolved in a single order.
 
-// skillRoots is the resolution order for the shipped skill's parent dir: an
-// explicit override, the packaged tree, then the dev checkout the last deploy
-// recorded. Each root holds a `ryoku` subdir.
+// skillRoots resolves the shipped skill's parent directory. An explicit
+// override is exclusive so tests, development runs, and alternate packages
+// cannot silently fall through to a host-installed copy.
 func skillRoots() []string {
-	var roots []string
 	if v := os.Getenv("RYOKU_RASHIN_SKILLS"); v != "" {
-		roots = append(roots, v)
+		return []string{v}
 	}
-	roots = append(roots, "/usr/share/ryoku/skills")
+	roots := []string{"/usr/share/ryoku/skills"}
 	if repo := recordedCheckout(); repo != "" {
 		roots = append(roots, filepath.Join(repo, "ryoku", "rashin", "skills"))
 	}
@@ -395,16 +406,25 @@ func agentSkillWired(d agentDef) bool {
 	return link != "" && isOurSkillLink(link)
 }
 
-// symlinkForce points link at target with `ln -sfn` semantics: an existing
-// symlink is replaced, a correct one is left alone, and a real file or dir is
-// never clobbered. It reports whether a link now points at target.
+// symlinkForce points link at target when the existing path is absent or ours.
+// A correct link is left alone, while a foreign link, file, or skill directory
+// is never clobbered. Hermes keeps skills in category folders
+// (skills/<category>/<name>), so a real directory without a SKILL.md of its
+// own is treated as a category and the link is laid inside it as <dir>/ryoku.
+// It reports whether a link now points at target.
 func symlinkForce(link, target string) (bool, error) {
 	if fi, err := os.Lstat(link); err == nil {
 		if fi.Mode()&os.ModeSymlink == 0 {
-			return false, nil // a real file or dir sits here; keep the user's data
+			if fi.IsDir() && !fileExists(filepath.Join(link, "SKILL.md")) {
+				return symlinkForce(filepath.Join(link, "ryoku"), target)
+			}
+			return false, nil // a real file or foreign skill dir; keep the user's data
 		}
 		if dest, _ := os.Readlink(link); filepath.Clean(dest) == filepath.Clean(target) {
 			return true, nil
+		}
+		if !isOurSkillLink(link) {
+			return false, nil
 		}
 		if err := os.Remove(link); err != nil {
 			return false, err
@@ -424,8 +444,16 @@ func symlinkForce(link, target string) (bool, error) {
 // still remove it. A foreign `ryoku` skill without that marker is never ours.
 func isOurSkillLink(link string) bool {
 	fi, err := os.Lstat(link)
-	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+	if err != nil {
 		return false
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		// A category folder (a real dir with no SKILL.md of its own) holds the
+		// skill as <dir>/ryoku; that nested link is what hermes loads.
+		if !fi.IsDir() || fileExists(filepath.Join(link, "SKILL.md")) {
+			return false
+		}
+		return isOurSkillLink(filepath.Join(link, "ryoku"))
 	}
 	dest, err := os.Readlink(link)
 	if err != nil {
@@ -460,61 +488,127 @@ func skillDirIsOurs(dir string) bool {
 
 // removeSkillLinkIfOurs deletes link only when it is one of our skill symlinks.
 func removeSkillLinkIfOurs(link string) {
+	if fi, err := os.Lstat(link); err == nil && fi.IsDir() && fi.Mode()&os.ModeSymlink == 0 &&
+		!fileExists(filepath.Join(link, "SKILL.md")) {
+		link = filepath.Join(link, "ryoku") // the category layout keeps the link inside
+	}
 	if isOurSkillLink(link) {
 		_ = os.Remove(link)
 	}
 }
 
 // ---- prowl skills -----------------------------------------------------------
-//
-// `ryoku-rashin wire` also installs prowl's own agent skills for the
-// clients rashin detects, so an agent gets Prowl's code-intelligence skill in
-// the same pass it gets the ryoku skill. Non-interactive and best effort: a
-// no-op when prowl is absent, when no known client is present, or when the
-// installed prowl predates the `--yes` apply.
 
-// prowlSkillClients are the prowl client ids rashin detects present, among
-// the ones prowl knows: the claude and omp coding agents, plus hermes.
 func prowlSkillClients() []string {
-	var cs []string
-	for _, a := range DetectAgents() {
-		if a.Present && (a.ID == "claude" || a.ID == "omp") {
-			cs = append(cs, a.ID)
+	var clients []string
+	for _, agent := range DetectAgents() {
+		if agent.Present {
+			clients = append(clients, agent.ID)
 		}
 	}
 	if _, ok := FindHermes(); ok {
-		cs = append(cs, "hermes")
+		clients = append(clients, "hermes")
 	}
-	return cs
+	return clients
 }
 
-// wireProwlSkills runs `prowl skills --yes --clients <detected>` for the
-// detected clients. Best effort; skipped when prowl is absent, no client
-// is present, or the installed prowl has no non-interactive apply.
-func wireProwlSkills() {
-	bin, ok := findProwl()
-	if !ok {
-		return
-	}
-	clients := prowlSkillClients()
+func installProwlSkills(ctx context.Context, clients []string) error {
 	if len(clients) == 0 {
-		return
+		return nil
 	}
-	if !prowlSkillsSupportsYes(bin) {
-		return
-	}
+	return prowlGatewayJSON(ctx, http.MethodPost, "/api/setup/skills",
+		map[string]any{"clients": clients}, nil)
+}
+
+func wireProwlSkills() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "skills", "--yes", "--clients", strings.Join(clients, ","))
-	_ = cmd.Run()
+	_ = migrateQuickProviderKeys(ctx)
+	_ = installProwlSkills(ctx, prowlSkillClients())
 }
 
-// prowlSkillsSupportsYes reports whether the installed prowl supports the
-// non-interactive `--yes` apply, detected from `prowl skills --help`
-// mentioning it (older builds preview only).
-func prowlSkillsSupportsYes(bin string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	out, _ := exec.CommandContext(ctx, bin, "skills", "--help").CombinedOutput()
-	return strings.Contains(string(out), "--yes")
+func connectHarness(ctx context.Context, id string, activate bool) (bool, string, error) {
+	if id == "gemini" {
+		return false, "", errors.New(geminiRoutingReason)
+	}
+	if err := wireRashinHarness(id); err != nil {
+		return false, "", err
+	}
+	skills := ""
+	if setup, err := gatewayRouting(ctx); err == nil {
+		for _, row := range setup.Harnesses {
+			if row.ID == id {
+				skills = row.Skills
+				break
+			}
+		}
+	}
+	pending, reason, err := routeProwlHarness(ctx, id, activate)
+	if err != nil {
+		return false, "", err
+	}
+	if err := updateConfig(func(cfg *Config) error {
+		cfg.AddProwlHarness(id)
+		return nil
+	}); err != nil {
+		return false, "", err
+	}
+	if skills != "unsupported" {
+		if err := installProwlSkills(ctx, []string{id}); err != nil {
+			return false, "", err
+		}
+	}
+	return pending, reason, nil
+}
+
+func disconnectHarness(ctx context.Context, id string) error {
+	if err := prowlGatewayJSON(ctx, http.MethodDelete, "/api/setup/harnesses/"+id, nil, nil); err != nil {
+		return err
+	}
+	if err := updateConfig(func(cfg *Config) error {
+		cfg.RemoveProwlHarness(id)
+		return nil
+	}); err != nil {
+		return err
+	}
+	return unwireRashinHarness(id)
+}
+
+func wireRashinHarness(id string) error {
+	if id == "hermes" {
+		err := WireHermesMemory()
+		invalidateHarnessCache()
+		return err
+	}
+	if _, ok := lookupAgent(id); ok {
+		return Wire(id)
+	}
+	for _, harness := range harnessDefs() {
+		if harness.id == id {
+			return nil
+		}
+	}
+	return os.ErrInvalid
+}
+
+func unwireRashinHarness(id string) error {
+	if id == "hermes" {
+		file := hermesMemory()
+		removeSkillLinkIfOurs(filepath.Join(home(), ".hermes", "skills", "ryoku"))
+		invalidateHarnessCache()
+		doc := readFileOrEmpty(file)
+		if doc == "" {
+			return nil
+		}
+		return atomicWrite(file, []byte(removeBlock(doc)), 0o644)
+	}
+	if _, ok := lookupAgent(id); ok {
+		return Unwire(id)
+	}
+	for _, harness := range harnessDefs() {
+		if harness.id == id {
+			return nil
+		}
+	}
+	return os.ErrInvalid
 }

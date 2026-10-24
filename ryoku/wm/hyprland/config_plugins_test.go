@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+func TestPackageVersionUsesHostPackageSeam(t *testing.T) {
+	bin := t.TempDir()
+	host := filepath.Join(bin, "ryoku-host")
+	if err := os.WriteFile(host, []byte("#!/bin/sh\n[ \"$1 $2 $3\" = 'pkg version hyprglass' ] || exit 2\nprintf '0:1.2.3-4.fc44\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if got := packageVersion("hyprglass"); got != "0:1.2.3-4.fc44" {
+		t.Fatalf("packageVersion = %q", got)
+	}
+}
+
 // The ABI string a plugin is built against must round-trip exactly as Hyprland
 // composes it, and a mismatch must name the library that moved.
 func TestABIParseAndDiff(t *testing.T) {
@@ -204,6 +216,8 @@ func TestPluginEnabledCoversBundled(t *testing.T) {
 	o.Plugins.Hyprglass.Enabled = true
 	o.Plugins.Hyprfocus.Enabled = true
 	o.Plugins.Keysounds.Enabled = true
+	o.Plugins.BordersPlusPlus.Enabled = true
+	o.Plugins.Hyprgrass.Enabled = true
 	for _, d := range bundledPlugins {
 		if !pluginEnabled(o, d.ID) {
 			t.Fatalf("%s enabled in the store but not seen by pluginEnabled", d.ID)
@@ -220,6 +234,35 @@ func TestRepoSlug(t *testing.T) {
 	for in, want := range cases {
 		if got := repoSlug(in); got != want {
 			t.Fatalf("repoSlug(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The NVIDIA caveats ride on the plugin cards: the cursor plugin and the
+// glass plugin each carry a known cost on NVIDIA, and both must be surfaced
+// whether or not the plugin is currently loaded. Any other plugin, and any
+// non-NVIDIA machine, carries no note.
+func TestPluginNvidiaNote(t *testing.T) {
+	if got := pluginNvidiaNote("hyprbars", true, false); got != "" {
+		t.Fatalf("note on non-NVIDIA: %q", got)
+	}
+	if got := pluginNvidiaNote("hyprbars", true, true); got != "" {
+		t.Fatalf("note on an unremarkable plugin: %q", got)
+	}
+	for _, c := range []struct {
+		id   string
+		want string
+	}{
+		{"dynamic-cursors", "software"},
+		{"hyprglass", "blur"},
+	} {
+		loaded := pluginNvidiaNote(c.id, true, true)
+		unloaded := pluginNvidiaNote(c.id, false, true)
+		if !strings.Contains(loaded, c.want) {
+			t.Errorf("%s loaded note = %q, want it to mention %q", c.id, loaded, c.want)
+		}
+		if unloaded == "" || unloaded == loaded {
+			t.Errorf("%s unloaded note = %q, want a distinct warning", c.id, unloaded)
 		}
 	}
 }

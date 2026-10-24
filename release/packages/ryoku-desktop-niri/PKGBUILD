@@ -32,37 +32,45 @@ depends=(
   # screencast/screenshot portal: ryoku-wm-niri caps reports portalBackend "gnome",
   # and doctor's portal reconciler routes xdg-desktop-portal to this backend.
   'xdg-desktop-portal-gnome'
+  # night-light backend: wlsunset warms the screen over wlr-gamma-control,
+  # niri's route, so it is niri's variant to ship and reclaim
+  # (ryoku-cmd-nightlight, pill Super+U, quick tile, Hub Displays).
+  'wlsunset'
 )
 provides=('ryoku-desktop-compositor')
 # deliberately not exclusive: both variants may be installed, so a switch is a
 # config change with no download and a switch back is instant.
 source=()
+# Key sounds are an optional install, never a default one: the Hub's Window
+# Manager > Behaviour offers them and `ryoku-host pkg install` brings them in on
+# demand. niri has no plugin system, so its engine is the standalone daemon
+# (ryoku-keysounds-niri); the samples and the importer (ryoku-keysounds-profiles)
+# are shared with the Hyprland plugin, and libcanberra is what both play through.
+optdepends=(
+  'ryoku-keysounds-niri: play a keyboard sound on every key press'
+  'ryoku-keysounds-profiles: key-sound sample profiles and the Mechvibes importer'
+  'libcanberra: sound playback for the key-sounds engine'
+)
 
 _repo="$startdir/../../.."
 
-package() {
-  local cfg="$pkgdir/usr/share/ryoku/config"
-
-  # niri config tree: config.kdl (the only file niri reads) plus the five seeds it
-  # includes by name (keyboard, gpu, monitors, monitors_user, user). A missing
-  # include is a hard niri config error, so the whole tree ships as one unit. The
-  # generated settings.kdl/rebinds.kdl are written by `ryoku-wm-niri apply`, not
-  # packaged (see caps.GeneratedFiles). No scripts/, portals.conf or share picker:
-  # niri's leaf keybinds are compositor actions or `spawn ryoku-shell`, the portal
-  # backend is data on caps, and doctor writes the routing.
-  install -d "$cfg/niri"
-  cp -a "$_repo/ryoku/niri/." "$cfg/niri/"
-
-  # cp -a kept source modes; the tree is all data, so world-readable is right.
-  chmod -R u=rwX,go=rX "$pkgdir/usr/share/ryoku"
-
-  # ryoku-wm-niri: the niri half of the window-manager seam. Built from the
-  # ryoku/wm module (its root is one dir up from the niri package).
-  ( cd "$_repo/ryoku/wm/niri" && go build -o ryoku-wm-niri . )
-  install -Dm755 "$_repo/ryoku/wm/niri/ryoku-wm-niri" \
-    "$pkgdir/usr/bin/ryoku-wm-niri"
-  # order the config bootstrap ahead of niri.service, so the session's first login
-  # reads a laid-down ~/.config/niri instead of the compositor's own defaults.
-  install -Dm644 "$_repo/ryoku/shell/systemd/user/niri.service.d/ryoku-bootstrap.conf" \
-    "$pkgdir/usr/lib/systemd/user/niri.service.d/ryoku-bootstrap.conf"
+build() {
+  RYOKU_SRC="$_repo" \
+    RYOKU_PKGVER="$pkgver" \
+    RYOKU_RELEASE="${RYOKU_RELEASE:-}" \
+    RYOKU_CHANNEL="${RYOKU_CHANNEL:-}" \
+    RYOKU_NAME="${RYOKU_NAME:-}" \
+    RYOKU_BUILD_DIR="$srcdir" \
+    "$startdir/payload.sh" build
 }
+
+package() {
+  RYOKU_SRC="$_repo" \
+    RYOKU_PKGVER="$pkgver" \
+    RYOKU_RELEASE="${RYOKU_RELEASE:-}" \
+    RYOKU_CHANNEL="${RYOKU_CHANNEL:-}" \
+    RYOKU_NAME="${RYOKU_NAME:-}" \
+    RYOKU_BUILD_DIR="$srcdir" \
+    "$startdir/payload.sh" install "$pkgdir" systemd
+}
+

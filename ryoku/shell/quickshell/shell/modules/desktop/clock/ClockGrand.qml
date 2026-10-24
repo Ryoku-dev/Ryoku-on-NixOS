@@ -15,12 +15,13 @@ Item {
     property real underL: Scheme.wallLstar
     // a pinned colour ("" = follow wallpaper) paints this face's own ink.
     property string inkColorA: ""
+    property real s: 1
     readonly property color ink: Theme.inkOn2(face.underL, face.inkColorA)
     readonly property color inkDim: Theme.inkDimOn2(face.underL, face.inkColorA)
     readonly property color accent: Clk.pickAccent(Config.clockAccent, Theme.accentOn2(face.underL, face.inkColorA), Theme.brand, face.ink)
 
-    readonly property var t: Clk.parts(Now.date, Config.clock24h)
-    readonly property real px: Math.round(168 * Config.clockScale)
+    readonly property var t: Clk.parts(Now.secondDate, Config.clock24h)
+    readonly property real px: Math.round(168 * face.s)
     readonly property bool side: Config.clockSeconds || !Config.clock24h
 
     implicitWidth: row.implicitWidth
@@ -28,7 +29,7 @@ Item {
 
     Row {
         id: row
-        spacing: face.side ? Math.round(18 * Config.clockScale) : 0
+        spacing: face.side ? Math.round(18 * face.s) : 0
 
         Row {
             id: hm
@@ -62,7 +63,7 @@ Item {
             visible: face.side
             Column {
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Math.round(6 * Config.clockScale)
+                spacing: Math.round(6 * face.s)
                 Text {
                     id: secs
                     visible: Config.clockSeconds

@@ -1,8 +1,9 @@
 # Maintainer: Ryoku <releases@ryoku.dev>
 #
 # ryoku-hypr-plugins: the official hyprland-plugins the Ryoku Hub exposes,
-# hyprbars (window title bars) and hyprfocus (focus animation), built together
-# from one hyprwm/hyprland-plugins checkout. Both install under
+# hyprbars (window title bars), hyprfocus (focus animation) and
+# borders-plus-plus (extra window borders), built together
+# from one hyprwm/hyprland-plugins checkout. All install under
 # /usr/lib/hyprland/plugins/, loaded by the Hub's generated settings.lua (Look
 # tab title bars, Animations tab focus flash) via hl.plugin.load; a missing or
 # ABI-mismatched plugin is guarded there and degrades to off. The .abi receipt
@@ -24,7 +25,7 @@
 pkgname=ryoku-hypr-plugins
 pkgver=${RYOKU_PKGVER:-0.1.0}
 pkgrel=1
-pkgdesc="Hyprland plugins for Ryoku: hyprbars (title bars) and hyprfocus (focus animation)"
+pkgdesc="Hyprland plugins for Ryoku: hyprbars (title bars), hyprfocus (focus animation), borders-plus-plus (extra borders)"
 arch=('x86_64')
 url="https://github.com/hyprwm/hyprland-plugins"
 license=('BSD-3-Clause')
@@ -66,6 +67,7 @@ build() {
   cd "$srcdir/hyprland-plugins"
   make -C hyprbars all
   make -C hyprfocus all
+  make -C borders-plus-plus all
 }
 
 package() {
@@ -73,8 +75,10 @@ package() {
     "$pkgdir/usr/lib/hyprland/plugins/hyprbars.so"
   install -Dm755 "$srcdir/hyprland-plugins/hyprfocus/hyprfocus.so" \
     "$pkgdir/usr/lib/hyprland/plugins/hyprfocus.so"
+  install -Dm755 "$srcdir/hyprland-plugins/borders-plus-plus/borders-plus-plus.so" \
+    "$pkgdir/usr/lib/hyprland/plugins/borders-plus-plus.so"
   local abi; abi="$(_abi)"
-  for so in hyprbars hyprfocus; do
+  for so in hyprbars hyprfocus borders-plus-plus; do
     printf '%s\n' "$abi" | install -Dm644 /dev/stdin "$pkgdir/usr/lib/hyprland/plugins/$so.abi"
   done
 }

@@ -1,0 +1,7 @@
+module stage.modules.ii.easyEffects.components
+EasyEffectsBadge 1.0 EasyEffectsBadge.qml
+EasyEffectsButton 1.0 EasyEffectsButton.qml
+EasyEffectsPill 1.0 EasyEffectsPill.qml
+singleton EasyEffectsStyle 1.0 EasyEffectsStyle.qml
+ResponseCurve 1.0 ResponseCurve.qml
+TopographyField 1.0 TopographyField.qml

@@ -11,7 +11,7 @@
 # The backend is the compositor's, reached through the window-manager seam:
 # `ryoku wm act nightlight.on <K>` starts it and `nightlight.off` kills it, and
 # the compositor puts the gamma back when it goes away. Which client that is
-# (hyprsunset on Hyprland, gammastep on niri) is the provider's business; this
+# (hyprsunset on Hyprland, wlsunset on niri) is the provider's business; this
 # script only reads its process name from `ryoku wm caps` to tell on from off.
 # temp is persisted, so status prints it and the next enable reuses it.
 set -u
@@ -38,22 +38,9 @@ backend() {
 }
 
 is_on() {
-  local proc pid argv0
+  local proc
   proc="$(backend)"
-  [[ -n $proc ]] || return 1
-
-  # Native/FHS package: the kernel process name is the public executable.
-  pgrep -x "$proc" >/dev/null 2>&1 && return 0
-
-  # NixOS package wrappers keep the public command in argv[0] while /proc/comm
-  # names the hidden wrapped binary. Recognise that identity without relying on
-  # a regex over the complete command line.
-  for pid in /proc/[0-9]*; do
-    IFS= read -r -d '' argv0 <"$pid/cmdline" 2>/dev/null || continue
-    [[ ${argv0##*/} == "$proc" ]] && return 0
-  done
-
-  return 1
+  [[ -n $proc ]] && pgrep -x "$proc" >/dev/null 2>&1
 }
 
 start() {

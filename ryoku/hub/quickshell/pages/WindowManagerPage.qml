@@ -10,13 +10,14 @@ import "../Singletons"
 // neutral window rows the Hub ships (shape, gaps, borders, motion) and the
 // exclusives the active provider ships (ProviderSchema), so a new compositor's
 // knobs arrive with its package and never a Hub edit. It shows only the running
-// provider: settings apply at the next login and the other compositor's store is
-// unreachable from here, so there is nothing to edit for it. The head names the
-// compositor; the switch to another lives here too, beside the honest list of
-// what this compositor cannot do (the losses `apply --preview` reports, the same
-// reasons that keep a hidden row from reading as a bug). Every setting rides the
-// shared store (hub.hyprVal/hyprEdit) and the shared schema renderer, so a
-// capability the compositor lacks drops its rows rather than showing dead knobs.
+// provider: Save applies its settings now and keeps them for the next session;
+// the other compositor's store is unreachable from here, so there is nothing to
+// edit for it. The head names the compositor; the switch to another lives here
+// too, beside the honest list of what this compositor cannot do (the losses
+// `apply --preview` reports, the same reasons that keep a hidden row from reading
+// as a bug). Every setting rides the shared store (hub.hyprVal/hyprEdit) and the
+// shared schema renderer, so a capability the compositor lacks drops its rows
+// rather than showing dead knobs.
 Item {
     id: pg
     property var hub
@@ -25,7 +26,7 @@ Item {
     readonly property string providerName: Settings.provider
     readonly property string pTitle: pg.providerName !== "" ? pg.cap(pg.providerName) : I18n.tr("Window Manager")
     readonly property string pEyebrow: I18n.tr("COMPOSITOR")
-    readonly property string pBlurb: I18n.tr("How windows look and behave here. Changes apply at your next login.")
+    readonly property string pBlurb: I18n.tr("How windows look and behave here. Save applies changes now.")
 
     function hv(path) { return pg.hub ? pg.hub.hyprVal(path) : undefined }
     function cv(path) { return pg.hub ? pg.hub.hyprCommittedVal(path) : undefined }

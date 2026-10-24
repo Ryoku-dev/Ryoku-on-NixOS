@@ -69,4 +69,37 @@ run_dns 'getent() { return 2; }' 'RYOKU_DRYRUN=1'
 grep -qF 'would verify name resolution' <<<"$out" || fail "dry run did not narrate the plan"
 [[ -z $written ]] || fail "dry run wrote the resolver file"
 
+# --- filtered Ryoku DNS: explain the sinkhole before the TLS probe -------------
+run_mirror() {
+  local address=$1
+  rc=0
+  out="$(ROOT="$root" ADDRESS="$address" bash -c '
+    source "$ROOT/installation/backend/lib/common.sh"
+    source "$ROOT/installation/backend/lib/network.sh"
+    export RYOKU_MIRROR_PROBE_URLS="https://repo.ryoku.dev/stable/x86_64/ryoku.db"
+    export RYOKU_ONLINE=1
+    getent() {
+      printf "%s STREAM repo.ryoku.dev\n" "$ADDRESS"
+    }
+    curl() {
+      return 0
+    }
+    set -euo pipefail
+    ryoku_ensure_mirrors
+  ' 2>&1)" || rc=$?
+}
+
+run_mirror 10.10.34.35
+[[ $rc -ne 0 ]] || fail "private sinkhole resolution did not stop the mirror probe"
+grep -qF 'DNS for ryoku.dev is being filtered on this network' <<<"$out" ||
+  fail "private sinkhole resolution did not explain filtered DNS: $out"
+grep -qF 'docs/updates.md#filtered-dns' <<<"$out" ||
+  fail "filtered DNS message did not point to recovery guidance: $out"
+
+run_mirror 104.21.19.117
+[[ $rc -eq 0 ]] || fail "public mirror resolution failed the probe (rc=$rc): $out"
+if grep -qF 'DNS for ryoku.dev is being filtered on this network' <<<"$out"; then
+  fail "public mirror resolution was reported as filtered DNS: $out"
+fi
+
 echo "install-dns: all checks passed"

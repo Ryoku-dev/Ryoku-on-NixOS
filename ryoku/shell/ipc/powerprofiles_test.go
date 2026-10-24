@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +11,89 @@ import (
 
 	"github.com/godbus/dbus/v5"
 )
+
+type fakePowerProfilesObject struct {
+	active   string
+	profiles []string
+	sets     []string
+}
+
+func (f *fakePowerProfilesObject) GetProperty(name string) (dbus.Variant, error) {
+	switch name {
+	case ppIface + ".ActiveProfile":
+		return dbus.MakeVariant(f.active), nil
+	case ppIface + ".Profiles":
+		rows := make([]map[string]dbus.Variant, 0, len(f.profiles))
+		for _, profile := range f.profiles {
+			rows = append(rows, map[string]dbus.Variant{"Profile": dbus.MakeVariant(profile)})
+		}
+		return dbus.MakeVariant(rows), nil
+	default:
+		return dbus.Variant{}, fmt.Errorf("unknown property %s", name)
+	}
+}
+
+func (f *fakePowerProfilesObject) Call(_ string, _ dbus.Flags, args ...any) *dbus.Call {
+	if len(args) != 3 {
+		return &dbus.Call{Err: fmt.Errorf("unexpected set arguments")}
+	}
+	value, ok := args[2].(dbus.Variant).Value().(string)
+	if !ok {
+		return &dbus.Call{Err: fmt.Errorf("profile is not a string")}
+	}
+	f.active = value
+	f.sets = append(f.sets, value)
+	return &dbus.Call{}
+}
+
+func TestPowerProfilesCLIFallsBackWithoutSocket(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	gameMarker := filepath.Join(t.TempDir(), "game-mode.profile")
+	if err := os.WriteFile(gameMarker, []byte("balanced\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RYOKU_GAMEMODE_PROFILE_FILE", gameMarker)
+
+	obj := &fakePowerProfilesObject{
+		active:   "balanced",
+		profiles: []string{"power-saver", "balanced", "performance"},
+	}
+	oldOpen := openDirectPowerProfiles
+	openDirectPowerProfiles = func() (*powerProfilesState, func(), error) {
+		return &powerProfilesState{obj: obj}, func() {}, nil
+	}
+	t.Cleanup(func() { openDirectPowerProfiles = oldOpen })
+
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStdout := os.Stdout
+	os.Stdout = write
+	err = sendCommand("powerprofiles state")
+	_ = write.Close()
+	os.Stdout = oldStdout
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state powerProfilesFrame
+	if err := json.Unmarshal(body, &state); err != nil {
+		t.Fatalf("state output %q: %v", body, err)
+	}
+	if state.ActiveProfile != "balanced" || len(state.Profiles) != 3 {
+		t.Fatalf("state = %+v", state)
+	}
+	if err := sendCommand("powerprofiles set balanced"); err != nil {
+		t.Fatal(err)
+	}
+	if len(obj.sets) != 1 || obj.sets[0] != "balanced" {
+		t.Fatalf("set calls = %v", obj.sets)
+	}
+}
 
 // profileNames extracts the ordered profile names from the raw Profiles
 // property (aa{sv}), skipping malformed rows and preserving service order.
@@ -35,9 +120,10 @@ func TestProfileNames(t *testing.T) {
 	}
 }
 
-// TestLivePowerProfilesFrame exercises the real publish path against the running
-// power-profiles daemon and prints the frame, as evidence the topic renders live
-// data. Gated so the default `go test` stays deterministic and bus-free.
+// TestLivePowerProfilesFrame exercises the real provider through the client that
+// backs both the topic and socket calls. It also sets the current profile, a
+// no-op that proves the write path without changing the user's active profile.
+// Gated so the default `go test` stays deterministic and bus-free.
 func TestLivePowerProfilesFrame(t *testing.T) {
 	if os.Getenv("RYOKU_LIVE_DBUS") == "" {
 		t.Skip("set RYOKU_LIVE_DBUS=1 to run the live power-profiles integration")
@@ -58,15 +144,35 @@ func TestLivePowerProfilesFrame(t *testing.T) {
 	select {
 	case frame := <-sub.frames:
 		t.Logf("powerprofiles frame: %s", frame)
-		var m struct {
-			Active   string   `json:"active_profile"`
-			Profiles []string `json:"profiles"`
-		}
+		var m powerProfilesFrame
 		if err := json.Unmarshal(frame, &m); err != nil {
 			t.Fatalf("frame is not valid JSON: %v", err)
 		}
 		if len(m.Profiles) == 0 {
-			t.Error("no profiles from the running daemon")
+			t.Error("no profiles from the running provider")
+		}
+		if m.ActiveProfile == "" {
+			t.Fatal("running provider returned no active profile")
+		}
+		gameMarker := filepath.Join(t.TempDir(), "game-mode.profile")
+		if err := os.WriteFile(gameMarker, []byte(m.ActiveProfile+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("RYOKU_GAMEMODE_PROFILE_FILE", gameMarker)
+		d := &daemon{pp: p}
+		var cliState powerProfilesFrame
+		reply := d.powerProfilesCLI([]string{"state"})
+		if err := json.Unmarshal([]byte(reply), &cliState); err != nil {
+			t.Fatalf("powerprofiles state returned %q", reply)
+		}
+		if len(cliState.Profiles) != len(m.Profiles) || cliState.ActiveProfile != m.ActiveProfile {
+			t.Fatalf("CLI state = %+v, topic state = %+v", cliState, m)
+		}
+		if reply := d.powerProfilesCLI([]string{"set", m.ActiveProfile}); reply != "ok" {
+			t.Fatalf("setting current profile %q: %s", m.ActiveProfile, reply)
+		}
+		if got := p.activeProfile(); got != m.ActiveProfile {
+			t.Fatalf("active profile changed after no-op set: got %q, want %q", got, m.ActiveProfile)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("no powerprofiles frame published")

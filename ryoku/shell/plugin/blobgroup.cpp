@@ -1,9 +1,17 @@
 #include "blobgroup.hpp"
 #include "blobinvertedrect.hpp"
+#include "blobwave.hpp"
 #include "blobshape.hpp"
 
+#include <algorithm>
+#include <utility>
+
 BlobGroup::BlobGroup(QObject* parent)
-    : QObject(parent) {}
+    : QObject(parent) {
+    m_waveTimer.setSingleShot(true);
+    m_waveTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_waveTimer, &QTimer::timeout, this, &BlobGroup::flushWaveUpdates);
+}
 
 BlobGroup::~BlobGroup() {
     for (auto* shape : std::as_const(m_shapes))
@@ -60,6 +68,14 @@ void BlobGroup::setBorderWidth(qreal v) {
     markDirty();
 }
 
+void BlobGroup::setWaveColor(const QColor& c) {
+    if (m_waveColor == c)
+        return;
+    m_waveColor = c;
+    emit waveColorChanged();
+    markDirty();
+}
+
 void BlobGroup::addShape(BlobShape* shape) {
     if (!shape || m_shapes.contains(shape))
         return;
@@ -84,6 +100,22 @@ void BlobGroup::clearInvertedRect(BlobInvertedRect* rect) {
         return;
     m_invertedRect = nullptr;
     markDirty();
+}
+
+void BlobGroup::addWave(BlobWave* wave) {
+    if (!wave || m_waves.contains(wave))
+        return;
+    if (m_waves.size() >= 4) {
+        qWarning() << "BlobGroup accepts at most four BlobWaves";
+        return;
+    }
+    m_waves.append(wave);
+    markDirty();
+}
+
+void BlobGroup::removeWave(BlobWave* wave) {
+    if (m_waves.removeOne(wave))
+        markDirty();
 }
 
 void BlobGroup::markDirty() {
@@ -127,10 +159,62 @@ void BlobGroup::markShapeDirty(BlobShape* source) {
     }
 }
 
+void BlobGroup::requestWaveUpdate() {
+    if (m_waveTimer.isActive())
+        return;
+    // The analyser updates at 30 Hz, so a 165 Hz screen must not turn spring
+    // settling into a full-rate repaint loop.
+    constexpr int MinimumWaveFrameMs = 17;
+    const int delay = m_waveClock.isValid()
+        ? std::max(0, MinimumWaveFrameMs - static_cast<int>(m_waveClock.elapsed()))
+        : 0;
+    m_waveTimer.start(delay);
+}
+
+void BlobGroup::flushWaveUpdates() {
+    m_physicsUpdated = false;
+    m_updateWavePhysics = true;
+    ensurePhysicsUpdated();
+    m_updateWavePhysics = false;
+
+    BlobWave* changed[4] = {};
+    int changedCount = 0;
+    bool needsNextFrame = false;
+    for (auto* wave : std::as_const(m_waves)) {
+        if (wave->takeVisualChange() && changedCount < 4)
+            changed[changedCount++] = wave;
+        needsNextFrame = needsNextFrame || wave->activePhysics();
+    }
+    if (changedCount > 0)
+        markWaveDataDirty(changed, changedCount);
+
+    if (m_waveClock.isValid())
+        m_waveClock.restart();
+    else
+        m_waveClock.start();
+    if (needsNextFrame)
+        requestWaveUpdate();
+}
+
+void BlobGroup::markWaveDataDirty(BlobWave* const* waves, int count) {
+    for (auto* shape : std::as_const(m_shapes)) {
+        if (shape->refreshWaveData(waves, count))
+            shape->update();
+    }
+    if (m_invertedRect) {
+        auto* inverted = static_cast<BlobShape*>(m_invertedRect);
+        if (inverted->refreshWaveData(waves, count))
+            inverted->update();
+    }
+}
+
 void BlobGroup::ensurePhysicsUpdated() {
     if (m_physicsUpdated)
         return;
     m_physicsUpdated = true;
-    for (auto* shape : std::as_const(m_shapes))
+    for (auto* shape : std::as_const(m_shapes)) {
+        if (!m_updateWavePhysics && qobject_cast<BlobWave*>(shape))
+            continue;
         shape->updatePhysics();
+    }
 }

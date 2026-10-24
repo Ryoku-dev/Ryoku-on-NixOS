@@ -22,7 +22,8 @@ cd "$repo"
 
 # delivery paths: the package base config, the installer's one-time seeds, and
 # the dev deploy. an app config is "delivered" if any of them references it.
-sources=(release/packages/*/PKGBUILD installation/backend/lib/deploy.sh ryoku/shell/deploy.sh)
+# On NixOS the packages under nix/ lay the configs, so they count as delivery paths too.
+sources=(release/packages/*/PKGBUILD installation/backend/lib/deploy.sh ryoku/shell/deploy.sh nix/packages/*.nix)
 
 # delivered = the file, or any ancestor dir up to apps/, is named by a delivery
 # path. a wholesale `cp -a apps/foo/.` ships every file under foo, so a match on
@@ -41,7 +42,7 @@ fail=0
 
 # 1. config orphans. every dotfile under ryoku/apps that ends up in a user's
 # home must be laid by a delivery path. skip a GUI app's quickshell tree, bin
-# helpers, .desktop handlers, docs, Go build sources/artifacts, and a Go
+# helpers, .desktop handlers, docs, Go/C++ build sources/artifacts, and a Go
 # backend's testdata fixtures (test-only, never shipped): those ship by their
 # own package rules, not as materialized config.
 while IFS= read -r f; do
@@ -53,7 +54,7 @@ done < <(find ryoku/apps -type f \
 	-not -path '*/quickshell/*' -not -path '*/bin/*' -not -path '*/backend/testdata/*' \
 	-not -name '*.desktop' -not -name '*.md' -not -name 'README*' \
 	-not -name '*.go' -not -name 'go.mod' -not -name 'go.sum' \
-	-not -name '*.cpp' -not -name '*.h' -not -name '*.qml' -not -name 'CMakeLists.txt' ! -executable)
+	-not -name '*.cpp' -not -name '*.h' -not -name '*.hpp' -not -name '*.qml' -not -name 'CMakeLists.txt' ! -executable)
 
 (( fail )) || say "delivery: every ryoku/apps config is shipped by a package, installer, or deploy path"
 
@@ -81,6 +82,41 @@ if [[ -f $langs ]]; then
 		echo "delivery: no package installs ryoku/i18n/catalog to /usr/share/ryoku/i18n (every surface would read English on an installed box)" >&2
 		fail=1
 	fi
+fi
+
+# 1c. QML modules. A shipped surface that imports a module no Ryoku package
+# depends on loads on a dev box that happens to carry it and fails whole on
+# every other one: Shima imported KDE's Kirigami, which only arrives with
+# unrelated KDE apps, so the style could not load for most users. Each import
+# root must be in-tree or come from a package ryoku-desktop depends on. `qs` is
+# Quickshell's name for the running config's own root, so it is in-tree too.
+declare -A qml_module_pkg=(
+	[Qt]=qt6-declarative [QtQuick]=qt6-declarative [QtQml]=qt6-declarative
+	[QtCore]=qt6-declarative [QtMultimedia]=qt6-multimedia
+	[Qt5Compat]=qt6-5compat [QtQuick3D]=qt6-quick3d [Quickshell]=quickshell
+	[org.kde.syntaxhighlighting]=syntax-highlighting
+)
+qml_in_tree=(Ryoku inir shell stage RashinApp qs)
+desktop_depends="$(sed -n '/^depends=(/,/^)/p' release/packages/ryoku-desktop/PKGBUILD)"
+qml_fail=0
+while IFS=: read -r file module; do
+	root=${module%%.*}
+	[[ " ${qml_in_tree[*]} " == *" $root "* ]] && continue
+	pkg=${qml_module_pkg[$module]:-${qml_module_pkg[$root]:-}}
+	if [[ -z $pkg ]]; then
+		echo "delivery: $file imports $module, which no Ryoku package provides (add its package to ryoku-desktop depends and to this table, or drop the import)" >&2
+		qml_fail=1
+	elif [[ $desktop_depends != *"'$pkg"* ]]; then
+		echo "delivery: $file imports $module from $pkg, which ryoku-desktop does not depend on" >&2
+		qml_fail=1
+	fi
+done < <(git ls-files -z 'ryoku/*.qml' ':!ryoku/lockscreen/qylock/*' |
+	xargs -0 grep -HoE '^import [A-Za-z][A-Za-z0-9.]*( |$)' | grep -v ',' |
+	sed -E 's/:import /:/; s/ $//' | sort -u)
+if (( qml_fail )); then
+	fail=1
+else
+	say "delivery: every QML module the desktop imports is shipped or a ryoku-desktop dependency"
 fi
 
 # 2. publish lag. the [ryoku] repo publishes on push to main; unstable-dev work

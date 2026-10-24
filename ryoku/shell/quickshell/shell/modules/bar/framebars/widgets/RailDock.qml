@@ -16,18 +16,16 @@ import "../../../../components"
 Item {
     id: root
 
-    required property var pinned
     required property var clients        // [{ className, address, pid }], pid-sorted
     required property string activeClass
     required property string edge
     required property real scale
     signal activate(string className)
-    signal pin(string className)
-    signal unpin(string className)
 
     readonly property bool horizontal: edge === "top" || edge === "bottom"
     readonly property real cross: 48 * scale
-    readonly property var classes: Dock.resolve(pinned, clients)
+    readonly property var sharedPins: Dock.pinnedOrStarter()
+    readonly property var classes: Dock.resolve(sharedPins, clients)
     // space the zone can give the dock; -1 = unbounded. When the natural strip
     // would not fit, every item shrinks together, macOS style.
     // ponytail: floored at 0.55 (a 24px tile); past that the strip overlaps
@@ -88,13 +86,19 @@ Item {
             width: root.horizontal ? root.itemNatural * root.fit : root.cross
             height: root.horizontal ? root.cross : root.itemNatural * root.fit
 
-            // Docker-style items: the real app icon, in colour, resolved from
-            // the desktop entry and the system icon themes (user decision). The
-            // app-grid glyph is only the last resort when nothing resolves.
-            // Shared with the first-class dock (services/Dock.qml): resolves the
-            // desktop-entry icon then the class name, and re-resolves reactively so a
-            // transient miss at boot or after an app update heals without a reload.
-            readonly property string iconSource: Dock.iconFor(className)
+            // Dock.iconFor updates the unresolved-icon set while it resolves.
+            // Keep that side effect out of a binding and refresh the stored
+            // value only when its inputs change.
+            property string iconSource: ""
+            function refreshIcon(): void {
+                item.iconSource = Dock.iconFor(item.className)
+            }
+            onClassNameChanged: item.refreshIcon()
+            Component.onCompleted: item.refreshIcon()
+            Connections {
+                target: Dock
+                function onIconRevChanged(): void { item.refreshIcon() }
+            }
 
             Rectangle {
                 anchors.fill: parent
@@ -187,10 +191,8 @@ Item {
                 onClicked: event => {
                     if (event.button === Qt.LeftButton)
                         root.activate(item.className);
-                    else if (root.pinned.includes(item.className))
-                        root.unpin(item.className);
                     else
-                        root.pin(item.className);
+                        Dock.togglePin(item.className);
                 }
                 onEntered: {
                     if (item.count > 0) {

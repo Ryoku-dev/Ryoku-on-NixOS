@@ -32,9 +32,9 @@ them (see below), never as dead settings.
 | Rail name | `hub open` key | Page | What it owns |
 |---|---|---|---|
 | Profile | `profile` | ProfilePage.qml | the user profile, avatar, and hero |
-| General | `global` | GlobalPage.qml | Hub-wide preferences |
+| General | `global` | GlobalPage.qml | language, regional formats, time zone and units, the system font and its size, and the blur and dim behind open windows |
 | Updates | `updates` | UpdatesPage.qml | system updates and the release channel |
-| Displays | `displays` | DisplaysPage.qml | monitors, resolution, arrangement (gated: `monitorConfig`) |
+| Displays | `displays` | DisplaysPage.qml | monitors, resolution, arrangement, night light (gated: `monitorConfig`) |
 | Connections | `connections` | ConnectionsPage.qml | wifi and bluetooth |
 | Input | `input` | InputPage.qml | keyboard, mouse, and touchpad |
 | Graphics & Power | `gpu` | GpuPage.qml | GPU mode, power profile, and the idle/lock timers |
@@ -45,7 +45,8 @@ them (see below), never as dead settings.
 | Layer Rules | `layerrules` | LayerRulesPage.qml | layer-shell rules (advanced; shows only with rules present) |
 | Bar Studio | `bar-studio` | BarStudioPage.qml | the bar style and its studio |
 | Desktop | `desktop` | DesktopPage.qml | the desktop stage and its surfaces |
-| Widgets | `widgets` | WidgetsPage.qml | desktop widgets |
+| Controls | `controls` | ControlsPage.qml | the Super+Escape panel's section order and visibility |
+| Overlays | `overlays` | OverlaysPage.qml | the worn OSD, notification card, and Super+Escape sidebar designs, with Try actions for each |
 | App Launcher | `launcher` | LauncherPage.qml | how the Super+Space launcher behaves |
 | Keybinds | `keybinds` | KeybindsPage.qml | every shortcut; the one compositor-specific page kept out of the compositor group |
 | App Overrides | `appoverrides` | AppOverridesPage.qml | per-app tweaks (advanced) |
@@ -60,17 +61,31 @@ them (see below), never as dead settings.
 | Rashin | `rashin` | RashinPage.qml | the Rashin agent OS: enable, wire, the vault, the dashboard |
 | Credits | `credits` | CreditsPage.qml | credits |
 
+When someone asks about the look of an OSD, a notification card, or the
+Super+Escape sidebar, send them to Settings -> Overlays. The page keeps
+installation separate from selection and has a Try action for each surface; the
+OSD action flashes the volume display through `qs -c shell ipc call osd
+preview`.
+
+When someone says the desktop blurs or darkens behind an open app, on any
+compositor, send them to Settings -> General -> Appearance -> *Blur and dim
+behind windows*. Off removes both the blur and the darkening; it is not the
+window shadow, which lives on Window Manager -> Look.
+
 ## Surfaces outside the Hub
 
-Wallpaper, theme, the bar, the launcher, and the Stash are not Hub pages. Reach
-them here:
+Wallpaper, theme, the bar, the launcher, Controls, ryoshot, and Ask are outside
+the Hub. Reach them here:
 
 | Intent | GUI surface | How to open | The command behind it |
 |---|---|---|---|
 | Change wallpaper or theme | Wallpaper picker | Super+W | `ryogami wallpaper ui` (picker), `ryogami wallpaper set\|next\|random` |
 | Bar layout, widgets, dock | QS Bar Settings | `ryoku-shell bar settings [route]` | `ryoku-shell bar ...`, `ryoku-shell dock ...` (see bar.md) |
 | Launch an app | App launcher | Super+Space | the shell launcher (the App Launcher page tunes it) |
-| Screen time and downloads | Stash | Super+S | a shell surface; no config command |
+| System activity, connections, levels, and session actions | Controls (its look is picked in Hub > Overlays) | Super+Escape | `ryoku-shell quicksettings` |
+| Screenshots and recordings | ryoshot capture bar | Super+Shift+S | `ryoku-shell screenshot` |
+| Read-only answers, the persistent machine Agent, tools, and web search | Rashin bar | Alt+Space | `ryoku-shell ask`, `ryoku-shell ask chat`, `ryoku-shell ask tools`, `ryoku-shell compress`, `ryoku-shell install` |
+| Agent, Ask, plain Chat, vault, models, and Prowl controls | Rashin console | Super+Alt+Space | `rashin-app` (single-instance: a second press focuses it) |
 
 QS Bar Settings routes are `bars`, `layout`, `widgets`, `dock`, and `community`,
 so `ryoku-shell bar settings layout` opens straight to the layout lanes. The bar

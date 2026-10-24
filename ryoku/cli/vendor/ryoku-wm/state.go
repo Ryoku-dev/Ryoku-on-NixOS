@@ -27,26 +27,28 @@ const (
 )
 
 type Output struct {
-	Name            string  `json:"name"`
-	Width           int     `json:"width"`
-	Height          int     `json:"height"`
-	Scale           float64 `json:"scale"`
-	Focused         bool    `json:"focused,omitempty"`
-	ActiveWorkspace string  `json:"activeWorkspace,omitempty"`
+	Name    string  `json:"name"`
+	Width   int     `json:"width"`
+	Height  int     `json:"height"`
+	Scale   float64 `json:"scale"`
+	Focused bool    `json:"focused,omitempty"`
+	// ActiveWorkspace is Workspace.ID, the same provider-owned key carried by
+	// Window.Workspace and accepted by workspace actions.
+	ActiveWorkspace string `json:"activeWorkspace,omitempty"`
 	// EDID identity and physical size. Zero make, model and width together mean
 	// no EDID, which is how doctor spots a phantom output.
 	Make          string `json:"make,omitempty"`
 	Model         string `json:"model,omitempty"`
 	PhysicalWidth int    `json:"physicalWidth,omitempty"`
 	Disabled      bool   `json:"disabled,omitempty"`
-	// Editor detail, filled only by a full state read (runState) for the display
-	// page, never by a watch frame: the panel's current and advertised modes, its
-	// logical position, wayland transform and VRR state. Mode is the physical
-	// "WxH@Hz" the editor sizes tiles from, since Width and Height above are the
-	// logical rectangle on a fractional-scale compositor. All omitempty, so a lean
-	// watch output stays byte-identical to before.
-	X         int      `json:"x,omitempty"`
-	Y         int      `json:"y,omitempty"`
+	// Logical output position is always present so global window geometry can
+	// round-trip through output-relative placement. The remaining editor detail
+	// is filled only by a full state read (runState), never by a watch frame:
+	// current and advertised modes, Wayland transform and VRR state.
+	// Mode is the physical "WxH@Hz" the editor sizes tiles from, since Width and
+	// Height above are the logical rectangle on a fractional-scale compositor.
+	X         int      `json:"x"`
+	Y         int      `json:"y"`
 	Transform int      `json:"transform,omitempty"`
 	VRR       bool     `json:"vrr,omitempty"`
 	Mode      string   `json:"mode,omitempty"`
@@ -76,17 +78,22 @@ type Workspace struct {
 }
 
 type Window struct {
-	ID        string `json:"id"`
-	AppID     string `json:"appId,omitempty"`
-	Title     string `json:"title,omitempty"`
+	ID    string `json:"id"`
+	AppID string `json:"appId,omitempty"`
+	Title string `json:"title,omitempty"`
+	// Workspace is Workspace.ID, so consumers can join a window to its
+	// Workspace frame without depending on display names being unique.
 	Workspace string `json:"workspace,omitempty"`
 	Output    string `json:"output,omitempty"`
+	// Pid is 0 when the provider does not know the owning process.
+	Pid int `json:"pid,omitempty"`
 	// FocusOrder is 0 for the focused window, counting back through history.
 	// Meaningful only with CapFocusHistory.
 	FocusOrder int  `json:"focusOrder"`
 	Floating   bool `json:"floating,omitempty"`
-	// Output-logical geometry, present only with CapWindowGeometry. The shell's
-	// overview and the screenshot picker draw windows where they are.
+	// Global logical geometry. Providers with CapWindowGeometry publish it for
+	// every window; a provider may still publish it for floating windows so
+	// native move/resize can be persisted without claiming general geometry.
 	X      int `json:"x,omitempty"`
 	Y      int `json:"y,omitempty"`
 	Width  int `json:"width,omitempty"`

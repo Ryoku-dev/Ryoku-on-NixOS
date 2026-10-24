@@ -47,8 +47,8 @@ ryoku_aur() {
   [[ -f $aur_file ]] || { log 'AUR: no %s, skipping' "$aur_file"; return 0; }
 
   local -a pkgs=()
-  mapfile -t pkgs < <(grep -vE '^[[:space:]]*(#|$)' "$aur_file")
-  (( ${#pkgs[@]} )) || { log "AUR: package set is empty, skipping"; return 0; }
+  mapfile -t pkgs < <(ryoku_drop_from < <(grep -vE '^[[:space:]]*(#|$)' "$aur_file"))
+  (( ${#pkgs[@]} )) || { log "AUR: nothing left to build after the installer's app/browser choices; skipping"; return 0; }
 
   log 'AUR: bootstrapping yay and building %d package(s); this can take several minutes' "${#pkgs[@]}"
 
@@ -135,29 +135,80 @@ BOOTSTRAP
   return 0
 }
 
-# ryoku_default_browser points the target user's default web browser at Zen on a
-# fresh install, but only when Zen actually installed (the AUR set is best-effort
-# and online-only). It sets just the http/https scheme handlers via xdg-mime, so
-# an HTML file still opens in the editor. Install-time only: `ryoku update` never
-# repoints a browser, so an existing box keeps whatever default it had.
+# browser_desktop_keys NAME: the .desktop ids a shipped browser may install
+# under. zen ships a few across its AUR rebuilds; the repo browsers are fixed.
+browser_desktop_keys() {
+  case "$1" in
+    zen) echo "zen.desktop zen-browser.desktop app.zen_browser.zen.desktop" ;;
+    chromium) echo "chromium.desktop" ;;
+    firefox) echo "firefox.desktop" ;;
+  esac
+}
+
+# ryoku_default_browser points the target user's default web browser at the
+# installer's pick, but only when that browser actually landed. It sets the
+# http/https scheme handlers and HTML files through xdg-mime, then records the
+# same pick as desktop.apps.browser in ~/.config/ryoku/desktop.json so the
+# launcher and the shell agree with xdg. Install-time only: `ryoku update`
+# never repoints a browser, so an existing box keeps its choice.
 ryoku_default_browser() {
-  local u="$RYOKU_USERNAME" desk="" d
-  if [[ -n ${RYOKU_DRYRUN:-} ]]; then
-    log 'DRYRUN: set Zen as the default web browser for %s if installed' "$u"
+  local u="$RYOKU_USERNAME" br="${RYOKU_BROWSER:-firefox}" desk="" d
+  # "none" is the user declining a browser, not a browser that failed to land.
+  # Saying so here keeps the install log honest; the fall-through below would
+  # otherwise report it as missing, and browser_role_cmd would point the desktop
+  # role at Firefox, which is not installed.
+  if [[ $br == none ]]; then
+    log 'default browser: none chosen; leaving the browser default and the desktop role unset'
     return 0
   fi
-  for d in zen.desktop zen-browser.desktop app.zen_browser.zen.desktop; do
+  if [[ -n ${RYOKU_DRYRUN:-} ]]; then
+    log 'DRYRUN: set %s as the default web browser (xdg + desktop.apps.browser) for %s if installed' "$br" "$u"
+    return 0
+  fi
+  for d in $(browser_desktop_keys "$br"); do
     if [[ -f /mnt/usr/share/applications/$d ]]; then desk=$d; break; fi
   done
   if [[ -z $desk ]]; then
-    log "default browser: Zen not installed; leaving the browser default unchanged"
+    log "default browser: %s not installed; leaving the browser default unchanged" "$br"
     return 0
   fi
   if arch-chroot /mnt runuser -u "$u" -- env "HOME=/home/$u" "USER=$u" "LOGNAME=$u" \
-    xdg-mime default "$desk" x-scheme-handler/http x-scheme-handler/https 2>/dev/null; then
-    log 'default browser: set Zen (%s) for %s' "$desk" "$u"
+    xdg-mime default "$desk" x-scheme-handler/http x-scheme-handler/https text/html 2>/dev/null; then
+    log 'default browser: set %s (%s) for %s' "$br" "$desk" "$u"
   else
-    log 'default browser: warning, could not set Zen for %s (continuing)' "$u"
+    log 'default browser: warning, could not set %s for %s (continuing)' "$br" "$u"
+  fi
+  # The desktop role: same key the Hub's Default Apps page writes. jq is in
+  # the base set; a merge failure (corrupt store) is logged and skipped, the
+  # ryoku-app fallback still resolves the command by name.
+  local store="/mnt/home/$u/.config/ryoku/desktop.json"
+  if command -v jq >/dev/null 2>&1; then
+    local next
+    if [[ -s $store ]]; then
+      next=$(jq --arg b "$(browser_role_cmd "$br")" '. * {desktop:{apps:{browser:$b}}}' "$store") || next=""
+    else
+      mkdir -p "$(dirname "$store")"
+      next=$(jq -n --arg b "$(browser_role_cmd "$br")" '{desktop:{apps:{browser:$b}}}') || next=""
+    fi
+    if [[ -n $next ]]; then
+      printf '%s\n' "$next" >"$store"
+      # runs after deploy.sh's chown pass: hand the seeded file back to the user.
+      chown "$u:$u" "$store" 2>/dev/null || true
+      log 'browser role: desktop.apps.browser -> %s' "$(browser_role_cmd "$br")"
+    else
+      log 'browser role: skip (could not merge %s)' "$store"
+    fi
   fi
   return 0
+}
+
+# browser_role_cmd KEY is the command stored in the desktop browser role. Zen's
+# desktop IDs vary across builds, but its executable remains `zen`; an absent or
+# unknown key falls back to Firefox, matching the installer's default.
+browser_role_cmd() {
+  case "$1" in
+    zen) echo zen ;;
+    chromium) echo chromium ;;
+    *) echo firefox ;;
+  esac
 }

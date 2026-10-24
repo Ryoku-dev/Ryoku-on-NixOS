@@ -69,11 +69,12 @@ func buildBindRows(modulesDir string, o Overrides) []wm.BindRow {
 		}
 	}
 	consumed := make(map[string]bool, len(parsed))
+	off := wm.DisabledSet(o.KeybindDisabled)
 
 	rows := make([]wm.BindRow, 0, len(parsed)+len(o.Keybinds)+8)
 	for _, c := range wm.ShippedBinds() {
 		matched := matchCatalog(c, bound, consumed)
-		rows = append(rows, catalogRow(c, matched, o.KeybindRebinds))
+		rows = append(rows, catalogRow(c, matched, o.KeybindRebinds, off))
 	}
 
 	// Lua binds the catalogue does not document are Hyprland's own. None ship
@@ -85,7 +86,7 @@ func buildBindRows(modulesDir string, o Overrides) []wm.BindRow {
 			continue
 		}
 		consumed[n] = true
-		rows = append(rows, exclusiveRow(p))
+		rows = append(rows, exclusiveRow(p, off))
 	}
 
 	for i, k := range o.Keybinds {
@@ -134,7 +135,7 @@ func matchCatalog(c wm.CatalogBind, bound map[string]parsedBind, consumed map[st
 // and hint, its default chord, the effective chord after the user's rebind, and
 // the display tokens of that chord. An unmatched entry keeps its place but takes
 // the reason Hyprland cannot honour it.
-func catalogRow(c wm.CatalogBind, matched bool, rebinds map[string]string) wm.BindRow {
+func catalogRow(c wm.CatalogBind, matched bool, rebinds map[string]string, off map[string]bool) wm.BindRow {
 	// A family resolves through its family-level rebind, keeping the {n} so the
 	// row carries the effective placeholder chord and DisplayKeys renders the
 	// range. A plain bind takes the user's rebind when set.
@@ -157,6 +158,14 @@ func catalogRow(c wm.CatalogBind, matched bool, rebinds map[string]string) wm.Bi
 		Kind:       c.Kind,
 		Rebindable: rebindableCombo(c.Chord),
 		Locked:     c.Locked,
+		Disabled:   off[c.Chord],
+	}
+	// A switched-off bind holds no chord, so the sheet must not print the one it
+	// would have had. The row stays, which is the point: the action is still
+	// findable and can be given a chord again.
+	if row.Disabled {
+		row.Keys = nil
+		row.Chord = ""
 	}
 	// A rebind that moved this bind onto the number pad works in one NumLock state
 	// only: Hyprland's rebind path is a single K() lookup, so unlike a shipped
@@ -174,6 +183,11 @@ func catalogRow(c wm.CatalogBind, matched bool, rebinds map[string]string) wm.Bi
 		if !ok {
 			reason = "Not bound on Hyprland."
 		}
+		row.Unhonored = reason
+	}
+	// The Lua still names the bind, so it reads as matched; the K() table is
+	// what keeps it off while its program is absent, and the row says so.
+	if reason := c.Missing(hasProgram); reason != "" {
 		row.Unhonored = reason
 	}
 	return row
@@ -232,12 +246,12 @@ func rebindableCombo(combo string) bool {
 // exclusiveRow renders a Lua bind the catalogue does not document as a row under
 // the compositor's own name, its label the Lua comment (or a description read off
 // the dispatcher when the line carried none).
-func exclusiveRow(p parsedBind) wm.BindRow {
+func exclusiveRow(p parsedBind, off map[string]bool) wm.BindRow {
 	label := strings.TrimSpace(p.comment)
 	if label == "" {
 		label = describeDispatcher(p.dispatcher)
 	}
-	return wm.BindRow{
+	row := wm.BindRow{
 		ID:         "hyprland." + chordSlug(p.combo),
 		Category:   "Hyprland",
 		Label:      capitalize(label),
@@ -246,7 +260,13 @@ func exclusiveRow(p parsedBind) wm.BindRow {
 		Chord:      p.combo,
 		Kind:       wm.BindWM,
 		Rebindable: rebindableCombo(p.combo),
+		Disabled:   off[p.combo],
 	}
+	if row.Disabled {
+		row.Keys = nil
+		row.Chord = ""
+	}
+	return row
 }
 
 // customRow renders one of the store's own shortcuts as a Custom row. The label

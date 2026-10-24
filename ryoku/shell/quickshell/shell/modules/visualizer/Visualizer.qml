@@ -22,25 +22,124 @@ Item {
     // still honours the persisted enabled flag; the controller overrides it.
     property string mode: Config.enabled ? "desktop" : "off"
 
-    // Placement: the look becomes draggable and sizable on the desktop, on its
-    // own surface (Placer), and rides the top layer so it is not buried while
-    // being aimed.
-    property bool placing: false
+    // The desktop hosts this look while the stage is on or the editor frames
+    // the monitor. This separate surface steps aside while the shared feeds
+    // remain owned by the hosted renderer.
     property bool suppressed: false
-    signal placingDone
 
     readonly property bool active: root.mode !== "off"
-    readonly property bool placeable: root.placing && root.active
-    readonly property bool raised: root.mode === "overlay" || root.placeable
+    readonly property bool raised: root.mode === "overlay"
 
-    // Keep the shared spectrum running while this look is being aimed, even under
-    // Power Saver or silence, so it stays visible to place; released when done.
-    onPlaceableChanged: Spectrum.placementHolds += root.placeable ? 1 : -1
-    Component.onDestruction: if (root.placeable) Spectrum.placementHolds -= 1
+    function setting(data, key, fallback) {
+        return data && data[key] !== undefined && data[key] !== null
+            ? data[key] : fallback;
+    }
 
-    // cava runs whenever the visualiser is enabled: gating on "audio playing"
-    // needs a probe that is either broken or costs a periodic graph dump, while
-    // cava is ~1% idle and the render already freezes on silence.
+    function joinRect(a, b) {
+        if (!a)
+            return b;
+        if (!b)
+            return a;
+        var x0 = Math.min(a.x, b.x);
+        var y0 = Math.min(a.y, b.y);
+        var x1 = Math.max(a.x + a.width, b.x + b.width);
+        var y1 = Math.max(a.y + a.height, b.y + b.height);
+        return Qt.rect(x0, y0, x1 - x0, y1 - y0);
+    }
+
+    function auraRect(data, sw, sh) {
+        var edges = root.setting(data, "auraEdges", ["left", "right"]);
+        if (!edges || edges.length === 0)
+            edges = ["left", "right"];
+        var depth = Math.max(24, Number(root.setting(data, "auraDepth", 180)));
+        var horizontalDepth = Math.min(depth, sh * 0.45) + 8;
+        var verticalDepth = Math.min(depth, sw * 0.45) + 8;
+        var out = null;
+        if (edges.indexOf("top") >= 0)
+            out = root.joinRect(out, Qt.rect(0, 0, sw, horizontalDepth));
+        if (edges.indexOf("bottom") >= 0)
+            out = root.joinRect(out, Qt.rect(0, sh - horizontalDepth, sw, horizontalDepth));
+        if (edges.indexOf("left") >= 0)
+            out = root.joinRect(out, Qt.rect(0, 0, verticalDepth, sh));
+        if (edges.indexOf("right") >= 0)
+            out = root.joinRect(out, Qt.rect(sw - verticalDepth, 0, verticalDepth, sh));
+        return out || Qt.rect(0, 0, sw, sh);
+    }
+
+    function instanceRect(data, sw, sh) {
+        var rawStyle = "" + root.setting(data, "style", "bars");
+        var style = rawStyle === "circle" ? "orb" : rawStyle;
+        if (style === "frame")
+            return Qt.rect(0, 0, sw, sh);
+        if (style === "aura")
+            return root.auraRect(data, sw, sh);
+
+        var nw = Math.max(0.04, Math.min(1, Number(root.setting(data, "w", 1))));
+        var nh = Math.max(0.03, Math.min(1, Number(root.setting(data, "h", 0.42))));
+        var bw = Math.max(24, nw * sw);
+        var bh = Math.max(24, nh * sh);
+        var bars = Math.max(16, Math.min(128,
+            Math.round(Number(root.setting(data, "bars", 64)))));
+        var thickness = Number(root.setting(data, "thickness", 0.58));
+        var ui = Math.max(0.75, Math.min(2.5, Math.min(sw, sh) / 900));
+        var polar = style === "radial" || style === "orb" || style === "spiral";
+        var vertical = root.setting(data, "grow", "up") === "left"
+            || root.setting(data, "grow", "up") === "right";
+        var shapePx;
+        if (polar) {
+            var radius = Math.max(6, Math.min(bw, bh) / 2);
+            var r0 = radius * (style === "orb" ? 0.62 : 0.38);
+            var drawBands = Math.max(10, Math.min(bars,
+                Math.floor(2 * Math.PI * r0 / (14 * ui))));
+            shapePx = Math.max(3, 2 * Math.PI * r0 / drawBands * thickness);
+        } else {
+            var along = vertical ? bh : bw;
+            shapePx = Math.max(2, along / bars * thickness);
+        }
+        var glow = Math.max(0, Math.min(1, Number(root.setting(data, "bloom", 0.6))));
+        var glowPx = Math.max(1.5, Math.min(shapePx * 0.9, 12 * ui))
+            * (0.35 + 0.65 * glow);
+        var margin = Math.ceil(glow > 0 ? glowPx * 3.5 + 2 : 2 * ui);
+        var passW = bw + margin * 2;
+        var passH = bh + margin * 2;
+        var angle = Number(root.setting(data, "angle", 0)) * Math.PI / 180;
+        var c = Math.abs(Math.cos(angle));
+        var s = Math.abs(Math.sin(angle));
+        var rw = passW * c + passH * s;
+        var rh = passW * s + passH * c;
+        var cx = Number(root.setting(data, "x", 0)) * sw + bw / 2;
+        var cy = Number(root.setting(data, "y", 0.58)) * sh + bh / 2;
+        return Qt.rect(cx - rw / 2, cy - rh / 2, rw, rh);
+    }
+
+    function surfaceRect() {
+        var sw = Math.max(1, root.screen ? root.screen.width : 1);
+        var sh = Math.max(1, root.screen ? root.screen.height : 1);
+        var out = null;
+        var list = Config.list;
+        for (var i = 0; i < list.length; i++)
+            out = root.joinRect(out, root.instanceRect(list[i], sw, sh));
+        if (!out)
+            return Qt.rect(0, 0, sw, sh);
+        var x0 = Math.max(0, Math.floor(out.x));
+        var y0 = Math.max(0, Math.floor(out.y));
+        var x1 = Math.min(sw, Math.ceil(out.x + out.width));
+        var y1 = Math.min(sh, Math.ceil(out.y + out.height));
+        return Qt.rect(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0));
+    }
+
+    function hasPlacementPreview() {
+        for (var key in Config.previews)
+            return true;
+        return false;
+    }
+
+    readonly property rect drawRect: root.surfaceRect()
+    readonly property bool compactSurface: !root.raised
+        && Spectrum.placementHolds === 0 && !root.hasPlacementPreview()
+
+    // One shared analyser serves every visualizer instance and follows the
+    // visualizer performance policy inside Spectrum.
     Binding {
         target: Spectrum
         property: "active"
@@ -63,12 +162,13 @@ Item {
         value: Config.fps
     }
 
-    // the scope look draws the actual playback waveform; capture the monitor only
-    // while some instance is the line look and the visualiser is on.
+    // The scope capture is tied to the same hard policy as the visualizer feed.
+    // Placement is the one override: a frozen line cannot be aimed.
     Binding {
         target: Waveform
         property: "active"
-        value: root.active && Config.anyLine
+        value: (root.active || root.suppressed) && Config.anyLine
+            && (!Performance.visualizerFrozen || Spectrum.placementHolds > 0)
     }
 
     PanelWindow {
@@ -88,24 +188,35 @@ Item {
 
         // empty input region: every click falls through to windows above, so the
         // visualiser shares the desktop without ever intercepting it. Placement
-        // runs on its own surface (Placer) rather than lifting this one, since a
-        // surface masked click-through does not start taking a pointer again just
-        // because the region is swapped.
+        // runs inside the lifted desktop surface (the Stage Editor's grip), not
+        // here: a surface masked click-through does not start taking a pointer
+        // again just because the region is swapped.
         mask: emptyRegion
         Region { id: emptyRegion }
 
-        anchors { top: true; left: true; right: true; bottom: true }
+        anchors {
+            top: true
+            left: true
+            right: !root.compactSurface
+            bottom: !root.compactSurface
+        }
+        margins.left: root.compactSurface ? root.drawRect.x : 0
+        margins.top: root.compactSurface ? root.drawRect.y : 0
+        implicitWidth: root.compactSurface ? root.drawRect.width : 1
+        implicitHeight: root.compactSurface ? root.drawRect.height : 1
 
         // One view per instance: the primary plus every extra, each painting its
         // own look on the shared surface.
         Item {
-            anchors.fill: parent
+            x: root.compactSurface ? -root.drawRect.x : 0
+            y: root.compactSurface ? -root.drawRect.y : 0
+            width: Math.max(1, root.screen ? root.screen.width : win.width)
+            height: Math.max(1, root.screen ? root.screen.height : win.height)
             Repeater {
                 id: rep
                 model: Config.count
                 delegate: VisualizerView {
                     id: vizView
-                    required property int index
                     anchors.fill: parent
                     cfg: VizItem { data: Config.dataAt(vizView.index) }
                 }
@@ -113,21 +224,4 @@ Item {
         }
     }
 
-    // The active view, for the placement overlay to frame and colour-match.
-    readonly property Item activeView: {
-        rep.count;   // rebuild the binding when the delegates change
-        return rep.itemAt(Config.active);
-    }
-
-    // The placement overlay only exists while a look is being aimed; it tunes the
-    // active instance.
-    Loader {
-        active: root.placeable && root.activeView !== null
-        sourceComponent: Placer {
-            screen: root.screen
-            box: root.activeView.boxRect
-            guide: root.activeView.guide
-            onDone: root.placingDone()
-        }
-    }
 }

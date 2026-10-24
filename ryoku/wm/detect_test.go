@@ -2,6 +2,7 @@ package wm
 
 import (
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -21,8 +22,49 @@ func TestLeafScriptsDir(t *testing.T) {
 	}
 }
 
+// SessionGap is the switch's honesty gate: a checkout box has every provider's
+// binary and config tree, but only a session the greeter can actually boot is
+// switchable. The gap must name the missing half, and a provider with both
+// halves must report none.
+func TestSessionGap(t *testing.T) {
+	bin := t.TempDir()
+	niri := filepath.Join(bin, "niri")
+	if err := os.WriteFile(niri, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	entries := t.TempDir()
+	if err := os.WriteFile(filepath.Join(entries, "niri.desktop"), []byte("[Desktop Entry]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	orig := sessionEntryDirs
+	t.Cleanup(func() { sessionEntryDirs = orig })
+	sessionEntryDirs = func() []string { return []string{entries} }
+
+	if got := SessionGap(ProviderNiri); got != "" {
+		t.Errorf("installed compositor + entry = %q, want ready", got)
+	}
+	if got := SessionGap("nobody"); got != "compositor" {
+		t.Errorf("unknown provider = %q, want compositor (no binary named)", got)
+	}
+
+	// The entry disappears: the greeter has nothing to offer.
+	os.Remove(filepath.Join(entries, "niri.desktop"))
+	if got := SessionGap(ProviderNiri); got != "entry" {
+		t.Errorf("compositor without a session entry = %q, want entry", got)
+	}
+
+	// The compositor disappears: the entry would launch nothing.
+	os.WriteFile(filepath.Join(entries, "niri.desktop"), []byte("[Desktop Entry]\n"), 0o644)
+	t.Setenv("PATH", t.TempDir())
+	if got := SessionGap(ProviderNiri); got != "compositor" {
+		t.Errorf("entry without a compositor = %q, want compositor", got)
+	}
+}
+
 func TestDetectUsesLiveSystemdManagerHandle(t *testing.T) {
-	for _, key := range []string{"HYPRLAND_INSTANCE_SIGNATURE", "NIRI_SOCKET"} {
+	for _, key := range SessionHandles() {
 		t.Setenv(key, "")
 	}
 	t.Setenv("RYOKU_WM", "")

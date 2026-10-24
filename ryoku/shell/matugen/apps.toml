@@ -1,6 +1,6 @@
 [config]
 
-# Ryoku Matugen App Templates
+# Ryoku Arch Matugen App Templates
 # Configured and toggled via Ryoku Settings (Hub) -> Appearance -> Matugen
 
 [templates.gtk3]
@@ -14,8 +14,11 @@ output_path = "~/.config/gtk-3.0/gtk.css"
 input_path = "~/.config/matugen/templates/gtk4-colors.css"
 output_path = "~/.config/gtk-4.0/gtk.css"
 
+# Vesktop's Matugen layer is palette-only. Layout belongs to the selected
+# Vesktop/Vencord theme (including Ryostore themes), otherwise two full themes
+# fight over Discord's structure and the store theme appears only partially.
 [templates.vesktop]
-input_path = "~/.config/matugen/templates/discord.css"
+input_path = "~/.config/matugen/templates/vesktop-colors.css"
 output_path = "~/.config/vesktop/themes/matugen.css"
 
 [templates.equibop]
@@ -96,3 +99,10 @@ output_path = "~/.config/Sidra/custom.css"
 [templates.ryotunes]
 input_path = "~/.config/matugen/templates/ryotunes.json"
 output_path = "~/.config/ryotunes/skins/matugen/skin.json"
+
+# The active Starship layout remains user-selected. Matugen owns only this
+# palette sibling, then asks the Hub backend to refresh the composed config.
+[templates.starship]
+input_path = "~/.config/matugen/templates/starship-colors.toml"
+output_path = "~/.config/starship/ryoku-colors.toml"
+post_hook = "ryoku-hub starship refresh"

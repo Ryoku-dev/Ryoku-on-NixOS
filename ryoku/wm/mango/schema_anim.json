@@ -1,0 +1,274 @@
+[
+  {
+    "tab": "Animations",
+    "group": "WINDOW OPEN",
+    "key": "wm.mango.anim.open.mode",
+    "label": "Open animation",
+    "desc": "How a window arrives: mango slides, zooms, fades, or just maps it",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "default",
+      "on",
+      "off"
+    ],
+    "optLabels": {
+      "default": "Mango's own",
+      "on": "Ryoku tuning",
+      "off": "None"
+    },
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "WINDOW OPEN",
+    "key": "wm.mango.anim.open.type",
+    "label": "Open style",
+    "desc": "The motion an opening window makes",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "slide",
+      "zoom",
+      "fade"
+    ],
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "WINDOW OPEN",
+    "key": "wm.mango.anim.open.durationMs",
+    "label": "Open time",
+    "desc": "How long a window takes to open, in milliseconds",
+    "ctl": "step",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 2000,
+    "step": 50,
+    "unit": "ms",
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "WINDOW OPEN",
+    "key": "wm.mango.anim.open.curve",
+    "label": "Open curve",
+    "desc": "Bezier control points, x1,y1,x2,y2",
+    "ctl": "text",
+    "src": "desktop.json",
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "WINDOW CLOSE",
+    "key": "wm.mango.anim.close.mode",
+    "label": "Close animation",
+    "desc": "How a window leaves",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "default",
+      "on",
+      "off"
+    ],
+    "optLabels": {
+      "default": "Mango's own",
+      "on": "Ryoku tuning",
+      "off": "None"
+    },
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "WINDOW CLOSE",
+    "key": "wm.mango.anim.close.type",
+    "label": "Close style",
+    "desc": "The motion a closing window makes",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "slide",
+      "zoom",
+      "fade"
+    ],
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "WINDOW CLOSE",
+    "key": "wm.mango.anim.close.durationMs",
+    "label": "Close time",
+    "desc": "How long a window takes to close, in milliseconds",
+    "ctl": "step",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 2000,
+    "step": 50,
+    "unit": "ms",
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "WINDOW MOVE",
+    "key": "wm.mango.anim.move.durationMs",
+    "label": "Move time",
+    "desc": "How long a dragged or swapped window takes to settle",
+    "ctl": "step",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 2000,
+    "step": 50,
+    "unit": "ms",
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "TAG SWITCH",
+    "key": "wm.mango.anim.tag.mode",
+    "label": "Tag switch animation",
+    "desc": "How the desktop slides when you change tags",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "default",
+      "on",
+      "off"
+    ],
+    "optLabels": {
+      "default": "Mango's own",
+      "on": "Ryoku tuning",
+      "off": "None"
+    },
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "TAG SWITCH",
+    "key": "wm.mango.anim.tag.durationMs",
+    "label": "Tag switch time",
+    "desc": "How long a tag change takes, in milliseconds",
+    "ctl": "step",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 2000,
+    "step": 50,
+    "unit": "ms",
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "FADE",
+    "key": "wm.mango.fadeinBeginOpacity",
+    "label": "Fade-in starts at",
+    "desc": "How visible a window is when its opening fade begins",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 1,
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "FADE",
+    "key": "wm.mango.fadeoutBeginOpacity",
+    "label": "Fade-out ends at",
+    "desc": "How visible a closing window is when its fade ends; 0 means it vanishes",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 1,
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "ZOOM",
+    "key": "wm.mango.zoomInitialRatio",
+    "label": "Zoom opens from",
+    "desc": "The size fraction a window starts its zoom-in from",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.1,
+    "hi": 1,
+    "pct": true,
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "ZOOM",
+    "key": "wm.mango.zoomEndRatio",
+    "label": "Zoom closes to",
+    "desc": "The size fraction a window shrinks toward as it closes",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.1,
+    "hi": 1,
+    "pct": true,
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "TAG SWITCH",
+    "key": "wm.mango.tagAnimationDirection",
+    "label": "Tag slide direction",
+    "desc": "Which way windows fly when you change tag",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1"
+    ],
+    "optLabels": {
+      "0": "Vertical",
+      "1": "Horizontal"
+    },
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "LAYER ANIMATIONS",
+    "key": "wm.mango.layerAnimationTypeOpen",
+    "label": "Bar and widget entrance",
+    "desc": "How layer surfaces (the bar, widgets) arrive",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "default",
+      "none",
+      "fade",
+      "slide",
+      "zoom"
+    ],
+    "optLabels": {
+      "default": "Mango's own",
+      "none": "Instant",
+      "fade": "Fade",
+      "slide": "Slide",
+      "zoom": "Zoom"
+    },
+    "page": "animations"
+  },
+  {
+    "tab": "Animations",
+    "group": "LAYER ANIMATIONS",
+    "key": "wm.mango.layerAnimationTypeClose",
+    "label": "Bar and widget exit",
+    "desc": "How layer surfaces leave",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "default",
+      "none",
+      "fade",
+      "slide",
+      "zoom"
+    ],
+    "optLabels": {
+      "default": "Mango's own",
+      "none": "Instant",
+      "fade": "Fade",
+      "slide": "Slide",
+      "zoom": "Zoom"
+    },
+    "page": "animations"
+  }
+]

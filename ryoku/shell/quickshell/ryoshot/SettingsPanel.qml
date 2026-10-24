@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 import Quickshell.Io
 import "Singletons"
 import Ryoku.Ui.Singletons
@@ -182,6 +183,49 @@ Item {
 
                     HoverHandler { id: chooseHover }
                     TapHandler { onTapped: folderDialog.open() }
+                }
+            }
+
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.hair }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                Text {
+                    Layout.fillWidth: true
+                    text: I18n.tr("Recording settings")
+                    color: Theme.inkDim
+                    font.family: Theme.ui
+                    font.pixelSize: 12
+                    font.weight: Font.Medium
+                }
+
+                Rectangle {
+                    id: recordingBtn
+                    Layout.preferredHeight: 28
+                    Layout.preferredWidth: recordingLabel.implicitWidth + 24
+                    radius: 6
+                    color: recordingHover.hovered ? Theme.press : Theme.hover
+                    border.color: Theme.hair
+                    border.width: 1
+
+                    Text {
+                        id: recordingLabel
+                        anchors.centerIn: parent
+                        text: I18n.tr("Open")
+                        color: Theme.inkDim
+                        font.family: Theme.mono
+                        font.pixelSize: 12
+                    }
+
+                    HoverHandler { id: recordingHover }
+                    TapHandler {
+                        onTapped: {
+                            Quickshell.execDetached(["ryoku-shell", "hub", "open", "recording"]);
+                            panel.closeRequested();
+                        }
+                    }
                 }
             }
         }

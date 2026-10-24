@@ -248,7 +248,7 @@ Item {
                             color: Tokens.inkFaint
                             font.family: Tokens.mono
                             font.pixelSize: Tokens.fTiny
-                            text: I18n.tr("A custom image is dithered live. To bake your own art into this gallery:\n  ryodither <image> --out ~/Pictures/ryodecors\n(needs Pillow; add --invert for a dark subject on a pale ground). Hand-tune any field in ~/.config/ryoku/profile.json. Full guide: docs/profile.md.")
+                            text: I18n.tr("A custom image is dithered live. To bake your own art into this gallery:\n  ryodither <image> --out %1/ryodecors\n(needs Pillow; add --invert for a dark subject on a pale ground). Hand-tune any field in ~/.config/ryoku/profile.json. Full guide: docs/profile.md.").arg(Paths.picturesDir)
                         }
                     }
 

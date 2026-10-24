@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+runtime=${XDG_RUNTIME_DIR:-/tmp}
+mkdir -p "$runtime/ryoku"
+exec {lock_fd}>"$runtime/ryoku/grim.lock"
+flock "$lock_fd"
+
+for arg in "$@"; do
+  if [[ $arg == -c ]]; then
+    exec grim "$@"
+  fi
+done
+
+restore=
+restore_cursor() {
+  if [[ $restore == hidden || $restore == visible ]]; then
+    ryoku wm act cursor.visibility "$restore" >/dev/null 2>&1 || true
+  fi
+  restore=
+}
+trap restore_cursor EXIT
+
+if previous=$(ryoku wm act cursor.visibility hidden 2>/dev/null); then
+  case $previous in
+    hidden|visible) restore=$previous; sleep 0.08 ;;
+  esac
+fi
+
+grim "$@"
+status=$?
+restore_cursor
+trap - EXIT
+exit "$status"

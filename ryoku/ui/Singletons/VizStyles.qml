@@ -3,17 +3,19 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Ryoku.Ui.Singletons
-
-// The twelve visualiser looks, drawn. This is the ONE catalogue of looks: the Hub
+// The visualiser looks, drawn. This is the ONE catalogue of looks: the Hub
 // gallery, the preview and anything else read it instead of re-listing the
 // ids or re-inventing what each looks like. It mirrors Silhouette (the bar
 // skins) so the gallery can swap painters without knowing the difference: same
 // draw(c, key, W, H, fgA, dimA) signature, same monochrome bone ink, same
 // pill/dot helpers. Descriptions come from the spec's look table, not taste.
+// The `aura` tile is the edge field, drawn as two glowing rails rather than
+// bands, because that is what it reads as on the desktop.
 Singleton {
     // key + kind (edge honours span/align, polar honours origin/size, frame owns
-    // the whole screen) + a one-line what. Order is the spec's: the edge looks,
-    // the whole-screen frame, then the three polar looks. keys/edgeKeys/polarKeys
+    // the whole screen, field paints its own one-pass whole-screen effect) + a
+    // one-line what. Order is the spec's: the edge looks, the whole-screen
+    // frame, the three polar looks, then the edge field. keys/edgeKeys/polarKeys
     // derive from this so nothing else ever re-lists the set.
     readonly property var styles: [
         { key: "bars",     kind: "edge",  what: I18n.tr("Rounded columns with a gradient along their length, glow and optional peak caps") },
@@ -27,7 +29,8 @@ Singleton {
         { key: "frame",    kind: "frame", what: I18n.tr("Bars around the whole screen's edge, growing inward as one body") },
         { key: "radial",   kind: "polar", what: I18n.tr("Rounded bars around a placeable ring with a bass-pulsed centre") },
         { key: "orb",      kind: "polar", what: I18n.tr("A filled orb with a crisp lit rim and a pulsing pupil ring") },
-        { key: "spiral",   kind: "polar", what: I18n.tr("Bands laid along an Archimedean spiral over one and a half turns") }
+        { key: "spiral",   kind: "polar", what: I18n.tr("Bands laid along an Archimedean spiral over one and a half turns") },
+        { key: "aura",     kind: "field", what: I18n.tr("An organic current of light flowing along the screen's edges") }
     ]
 
     readonly property var keys: styles.map(function (s) { return s.key; })
@@ -60,7 +63,7 @@ Singleton {
     }
 
     // Each tile is a 1-bit silhouette recognisable at 132x74 with a 32px drawing
-    // area, so the ten looks tell apart at a glance without a screenshot's
+    // area, so every look tells apart at a glance without a screenshot's
     // colour. fgA/dimA let a selected tile lift without changing the drawing.
     function draw(c, key, W, H, fgA, dimA) {
         var fg = "rgba(205,196,186," + fgA + ")";
@@ -226,6 +229,23 @@ Singleton {
                 else c.lineTo(cx + Math.cos(sang) * srr, cy + Math.sin(sang) * srr);
             }
             c.stroke();
+        } else if (key === "aura") {
+            // a screen outline with a wavy field flowing down both side rails
+            c.strokeStyle = faint; c.lineWidth = 1;
+            c.strokeRect(3.5, 3.5, W - 7, H - 7);
+            for (var ax = 0; ax < 2; ax++) {
+                var railX = ax === 0 ? 5.5 : W - 5.5;
+                var inward = ax === 0 ? 1 : -1;
+                c.strokeStyle = ax === 0 ? dim : fg;
+                c.lineWidth = 1.4;
+                c.beginPath();
+                for (var ay = 4; ay <= H - 4; ay += 2) {
+                    var bulge = 2.5 * Math.sin(ay / H * Math.PI * 3 + ax * 1.4) + 2.5;
+                    if (ay === 4) c.moveTo(railX, ay);
+                    else c.lineTo(railX + inward * bulge, ay);
+                }
+                c.stroke();
+            }
         }
     }
 }

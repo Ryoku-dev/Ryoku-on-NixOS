@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Wayland
 import Ryoku.Ui.Singletons
 import "Singletons"
+import "../../services/lib/screens.js" as Screens
 
 /**
  * Ryoku workspace overview: a full-screen expo, migrated to a per-monitor module
@@ -46,7 +47,7 @@ Scope {
 
     PanelWindow {
         id: win
-        readonly property real s: Math.min(1.25, (root.screen ? root.screen.height / 1080 : 1)) * Math.max(0.8, Math.min(1.4, Config.fontScale)) * Tokens.uiScaleFor(root.screen ? root.screen.name : "")
+        readonly property real s: Screens.monitorScale(root.screen, Wm.outputScale(root.screen ? root.screen.name : ""), 1.25) * Math.max(0.8, Math.min(1.4, Config.fontScale)) * Tokens.uiScaleFor(root.screen ? root.screen.name : "")
         readonly property bool isFocused: !root.focusedMon || root.focusedMon === (root.screen ? root.screen.name : "")
         readonly property bool shown: root.active && root.available
 

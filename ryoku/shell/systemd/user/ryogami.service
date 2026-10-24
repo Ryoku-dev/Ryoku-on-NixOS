@@ -12,8 +12,6 @@ StartLimitIntervalSec=60
 StartLimitBurst=5
 
 [Service]
-Environment=QT_MEDIA_BACKEND=ffmpeg
-Environment=QT_FFMPEG_DECODING_HW_DEVICE_TYPES=,
 ExecStart=/usr/bin/ryogami
 Restart=always
 RestartSec=2

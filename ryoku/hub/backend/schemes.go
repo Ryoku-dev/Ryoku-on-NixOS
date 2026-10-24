@@ -319,6 +319,8 @@ func applyRyokuTheme() error {
 		frameBars = map[string]any{}
 	}
 	frameBars["style"] = "ryoku-frame"
+	// The terminal family is an independent user choice and is intentionally
+	// absent from this UI-theme patch.
 	mergeShellJSON(map[string]any{
 		"frameBars":   frameBars,
 		"roundness":   0,

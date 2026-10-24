@@ -44,17 +44,32 @@ Singleton {
     }
     property var player: null
     function repick() {
-        var next = root.pick(Mpris.players.values, root.player);
+        var next = root.pick(root.playerSet, root.player);
         if (next !== root.player)
             root.player = next;
     }
-    // Re-pick when the player set changes, and on a slow tick so the pick can
-    // move off a player that just stopped (an isPlaying change does not alter the
-    // set). The tick is deliberately unhurried: it settles the pick rather than
-    // chasing every transient state, which is what strobed the surfaces before.
     readonly property var playerSet: Mpris.players ? Mpris.players.values : []
+    readonly property int candidateCount: root.playerSet.filter(function(p) {
+        return p && !root.isWallpaper(p);
+    }).length
     onPlayerSetChanged: root.repick()
-    Timer { interval: 1000; repeat: true; running: true; onTriggered: root.repick() }
+
+    Instantiator {
+        model: root.playerSet
+        delegate: Connections {
+            required property var modelData
+            target: modelData
+            function onIsPlayingChanged() { root.repick(); }
+            function onMetadataChanged() { root.repick(); }
+        }
+    }
+
+    Timer {
+        interval: 5000
+        repeat: true
+        running: root.candidateCount > 1
+        onTriggered: root.repick()
+    }
     Component.onCompleted: root.repick()
     readonly property bool playing: player !== null && player.isPlaying
     readonly property bool present: player !== null && (player.trackTitle || "").length > 0

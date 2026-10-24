@@ -25,7 +25,7 @@ import (
 
 	"ryoku-i18n"
 	"ryoku-i18n/catalog"
-	wm "ryoku-wm"
+	installerplan "ryoku-installerplan"
 )
 
 // The failure screen renders this as a scannable QR code so the user can reach
@@ -37,7 +37,7 @@ const (
 	discordURL  = "https://discord.gg/8KjBmUEyKA"
 	redditURL   = "https://www.reddit.com/r/RyokuArch"
 	xURL        = "https://x.com/neur0map"
-	iconDiscord = "" // nf-fa-discord
+	iconDiscord = "󰙯" // nf-md-discord
 	iconReddit  = "" // nf-fa-reddit
 	iconX       = "𝕏"
 )
@@ -481,8 +481,12 @@ const (
 	kConfirm
 	kPartition
 	kInfo
-	kPass // password + confirm
+	kNotice
 	kNet  // connectivity / Wi-Fi
+	kApps // grouped keep/remove app checklist
+	kAdministrator
+	kRootAccount
+	kOtherPeople
 )
 
 const minDiskGiB = 32      // installer floor: minRootGiB closure + 1G ESP + swap/snapshot headroom
@@ -514,6 +518,24 @@ type step struct {
 }
 
 func steps() []step {
+	return stepsForVariant(sysVariant())
+}
+
+func unavailableChoiceNotices(plan installerplan.EditionPlan, kind string) []string {
+	var notices []string
+	for _, availability := range plan.Choices(kind) {
+		if !availability.Available {
+			notices = append(notices, i18n.Tf("%s is unavailable: %s", availability.Choice.Label, availability.Reason))
+		}
+	}
+	return notices
+}
+
+func stepsForVariant(variant string) []step {
+	browserDesc := []string{i18n.T("Ryoku ships three browsers; pick the one you want, or none."), i18n.T("It becomes the default and the launcher's browser role.")}
+	if n := shippedBrowserCount(variant); n != shippedBrowserCount("plain") {
+		browserDesc[0] = i18n.Tf("Ryoku ships %d browsers on this edition; pick the one you want, or none.", n)
+	}
 	all := []step{
 		{key: "keyboard", title: i18n.T("Keyboard layout"), kind: kSelect, items: keymaps(),
 			desc: []string{i18n.T("Type to filter · j/k or ↑↓ to move."), i18n.T("Sets console.keyMap + xkb.layout.")}},
@@ -527,8 +549,24 @@ func steps() []step {
 			desc: []string{i18n.T("Confirm or change the suggested profile."), i18n.T("Press 1-4 or pick below.")}},
 		{key: "gpu", title: i18n.T("Graphics mode"), kind: kSelect, items: gpuModes(), numbered: true,
 			desc: []string{i18n.T("Hybrid GPU (iGPU + NVIDIA) detected."), i18n.T("How should displays & apps use them?")}},
-		{key: "compositor", title: i18n.T("Window manager"), kind: kSelect, items: compositors(), numbered: true,
+		{key: "compositor", title: i18n.T("Window manager"), kind: kSelect, items: compositorsForVariant(variant), numbered: true,
 			desc: []string{i18n.T("The Wayland compositor to run.")}},
+		{key: "browser", title: i18n.T("Web browser"), kind: kSelect, items: browsersForVariant(variant), numbered: true,
+			desc: browserDesc},
+		{key: "login-shell", title: i18n.T("Login shell"), kind: kSelect, items: loginShellsForVariant(variant), numbered: true,
+			desc: []string{i18n.T("Choose the shell that opens in terminals."), i18n.T("Shared command-line tools stay available with every choice.")}},
+		{key: "file-manager", title: i18n.T("File manager"), kind: kSelect, items: fileManagersForVariant(variant), numbered: true,
+			desc: []string{i18n.T("Choose the app that opens folders and files.")}},
+		{key: "rashin", title: i18n.T("Rashin"), kind: kConfirm, desc: []string{
+			i18n.T("Rashin is Ryoku's AI agent: Ask on Alt+Space,"),
+			i18n.T("the Rashin window and the bar's AI usage."),
+			i18n.T("It runs the Hermes agent, which installs at your"),
+			i18n.T("first login when you are online."),
+			i18n.T("Turn it off later on the Rashin page"),
+			i18n.T("of Ryoku Settings."),
+		}},
+		{key: "apps", title: i18n.T("Apps & tools"), kind: kApps,
+			desc: []string{i18n.T("Space toggles · every app Ryoku ships, keep or remove."), i18n.T("Required rows back a desktop feature and cannot be removed.")}},
 		{key: "diskpick", title: i18n.T("Target disk"), kind: kSelect, items: disks(), numbered: true,
 			desc: []string{i18n.T("Pick the disk to install onto."), i18n.T("Everything after this applies to it.")}},
 		{key: "disk", title: i18n.T("Disk strategy"), kind: kSelect, items: diskStrategies(), numbered: true,
@@ -536,22 +574,98 @@ func steps() []step {
 		{key: "partitions", title: i18n.T("Disk layout"), kind: kPartition, desc: []string{}},
 		{key: "hostname", title: i18n.T("Hostname"), kind: kInput, placeholder: "ryoku", deflt: "ryoku",
 			desc: []string{i18n.T("Letters, digits and dashes.")}},
-		{key: "username", title: i18n.T("Primary user"), kind: kInput, placeholder: "you", deflt: "you",
-			desc: []string{i18n.T("Your login account name. Lowercase.")}},
-		{key: "password", title: i18n.T("User password"), kind: kPass,
-			desc: []string{i18n.T("Set a password for your account.")}},
+		{key: "administrator", title: i18n.T("Administrator account"), kind: kAdministrator},
+		{key: "root-account", title: i18n.T("Root account"), kind: kRootAccount},
+		{key: "other-people", title: i18n.T("Other people"), kind: kOtherPeople,
+			desc: []string{i18n.T("Optional accounts for everyone else who uses this computer.")}},
 		{key: "encryption", title: i18n.T("Disk encryption"), kind: kConfirm,
-			desc: []string{i18n.T("Encrypt the root with LUKS?"), i18n.T("Installs the -luks host variant.")}},
+			desc: []string{i18n.T("Encrypt the root with LUKS?"), i18n.T("You type its passphrase at every boot.")}},
 		{key: "review", title: i18n.T("Review"), kind: kConfirm,
 			desc: []string{i18n.T("Last safe point, nothing written yet.")}},
+	}
+	if component, ok := installerChoicesForVariant(variant).GamingComponent(); ok {
+		index := flowIndex(all, "apps")
+		gaming := gamingStep(variant, component.Component.Label)
+		all = append(all, step{})
+		copy(all[index+1:], all[index:])
+		all[index] = gaming
 	}
 	// On the graphical relaunch (keymapRelaunch), the keyboard layout is already
 	// chosen and cage runs under it; drop the step so the wizard resumes at locale,
 	// with the password captured in the user's real layout.
 	if os.Getenv("RYOKU_KB_PRESET") != "" {
-		return all[1:]
+		all = all[1:]
+	}
+	if notice, ok := editionNotice(variant); ok {
+		all = append([]step{notice}, all...)
 	}
 	return all
+}
+
+func gamingStep(variant, title string) step {
+	gaming := step{key: "gaming", title: i18n.T(title), kind: kConfirm}
+	switch variant {
+	case "plain":
+		gaming.desc = []string{
+			i18n.T("Adds the CachyOS kernel, CachyOS tuning and"),
+			i18n.T("sched-ext schedulers, Steam, and Proton-CachyOS"),
+			i18n.T("with Wine and umu-launcher."),
+			i18n.T("The CachyOS kernel boots by default; the Arch"),
+			i18n.T("kernel stays in the boot menu as a fallback."),
+			i18n.T("Needs a network connection and an x86-64-v3 CPU."),
+			i18n.T("If the download fails, setup goes on; add it later"),
+			i18n.T("in Ryostore."),
+		}
+	case variantCachyOS:
+		gaming.desc = []string{
+			i18n.T("Installs Steam and CachyOS's gaming packages:"),
+			i18n.T("Proton-CachyOS, Wine-CachyOS, umu-launcher and"),
+			i18n.T("winetricks."),
+			i18n.T("The CachyOS kernel and tuning are already part of"),
+			i18n.T("this edition. Everything is on this image,"),
+			i18n.T("no network needed."),
+		}
+	case variantVoid:
+		gaming.desc = []string{
+			i18n.T("Installs Steam with 32-bit graphics support."),
+			i18n.T("GameMode, MangoHud and Gamescope are in Apps & tools."),
+			i18n.T("The CachyOS kernel and Proton-CachyOS are not"),
+			i18n.T("available on Void; Steam uses its own Proton."),
+			i18n.T("Everything is on this image, no network needed."),
+		}
+	}
+	return gaming
+}
+
+func (m model) gamingUnavailableReason() string {
+	if m.variant != "plain" {
+		return ""
+	}
+	if !m.netOnline {
+		return i18n.T("Needs a network connection; this machine is offline.")
+	}
+	if !m.cpuV3 {
+		return i18n.T("Needs an x86-64-v3 CPU; this one is older.")
+	}
+	return ""
+}
+
+// editionNotice is the short note an edition image shows before setup.
+func editionNotice(variant string) (step, bool) {
+	if !isVoidVariant(variant) {
+		return step{}, false
+	}
+	edition := installerChoicesForVariant(variant)
+	lines := []string{
+		i18n.T("This Void edition is experimental."),
+		i18n.Tf("Available window managers: %s.", strings.Join(edition.AvailableIDs(installerplan.Compositor), ", ")),
+		i18n.T("Use ryoku update --system for base-system updates."),
+		i18n.T("XBPS has no update hooks; this keeps updates snapshotted."),
+	}
+	for _, kind := range []string{installerplan.Compositor, installerplan.Browser, installerplan.LoginShell, installerplan.FileManager} {
+		lines = append(lines, unavailableChoiceNotices(edition, kind)...)
+	}
+	return step{key: "void-notice", title: i18n.T("Ryoku on Void"), kind: kNotice, desc: lines}, true
 }
 
 func keymaps() []item {
@@ -631,6 +745,28 @@ func diskStrategiesFor(dl diskLayout) []item {
 	return []item{along, whole}
 }
 
+// diskStrategyChoices keeps the unsupported alongside path visible on a Void
+// BIOS boot, but leaves whole-disk as the only selectable strategy.
+func (m model) diskStrategyChoices(dl diskLayout) ([]item, map[string]bool) {
+	if m.hwBIOS && isVoidVariant(m.variant) {
+		whole := item{"whole", i18n.T("Use the whole disk"), i18n.T("blank disk · auto-layout")}
+		if len(dl.parts) > 0 {
+			whole = item{"whole", i18n.T("Erase whole disk"), i18n.T("wipe & auto-layout")}
+		}
+		alongside := item{
+			"alongside",
+			i18n.T("Install alongside (keep existing OS)"),
+			i18n.T("unavailable: needs UEFI and GPT"),
+		}
+		return []item{whole, alongside}, map[string]bool{"alongside": true}
+	}
+	items := diskStrategiesFor(dl)
+	if alongsideBlockReason(dl) != "" {
+		return items, map[string]bool{"alongside": true}
+	}
+	return items, nil
+}
+
 // alongsideBlockReason is why alongside cannot run on dl at all, or "" when it
 // can. It mirrors the layout step's hard blocks (a GPT disk with a usable EFI
 // system partition) so the strategy list can dim the option with its cause
@@ -678,13 +814,35 @@ func gpuModes() []item {
 	}
 }
 
-// compositors lists the window managers with a shipped variant package, in
-// wm.Providers order. The step auto-skips while the list has one entry.
+// compositors lists the window managers in shared manifest order.
 func compositors() []item {
-	return []item{
-		{wm.ProviderHyprland, "Hyprland", i18n.T("dynamic tiling, the Ryoku default")},
-		{wm.ProviderNiri, "niri", i18n.T("scrollable tiling")},
+	return choiceItems(installerplan.Compositor, installerplan.ResolveSource("Arch"), true)
+}
+
+func compositorsForVariant(variant string) []item {
+	edition := installerChoicesForVariant(variant)
+	var items []item
+	for _, availability := range edition.Choices(installerplan.Compositor) {
+		if !availability.Available && !availability.Choice.ShowUnavailableISO {
+			continue
+		}
+		hint := i18n.T(availability.Choice.TUIHint)
+		if !availability.Available {
+			hint = i18n.Tf("Unavailable on %s · %s", edition.Edition, availability.Reason)
+		}
+		items = append(items, item{availability.Choice.ID, i18n.T(availability.Choice.Label), hint})
 	}
+	return items
+}
+
+// compositorLabel is the display name for a compositor key (Review/rail cells).
+func compositorLabel(key string) string {
+	for _, c := range compositors() {
+		if c.key == key {
+			return c.label
+		}
+	}
+	return key
 }
 
 // gpuDetails returns the pros and cons shown for the highlighted graphics mode.
@@ -776,6 +934,8 @@ type model struct {
 	pass1    string // first passphrase entry (mock; never persisted)
 	encErr   string
 	picks    map[string]string
+	accounts accountsState
+	variant  string
 
 	state string // intro|transition|wizard|install|done|failed
 	phase int
@@ -784,8 +944,8 @@ type model struct {
 
 	hwOK         bool   // hardware detected & classified
 	hwHybrid     bool   // hybrid iGPU+dGPU present → ask GPU mode
-	hwBIOS       bool   // legacy BIOS boot → hard-block past the hardware step (backend is UEFI-only)
-	hwSecureBoot bool   // Secure Boot on → block Review (Limine is unsigned)
+	hwBIOS       bool   // legacy BIOS boot; Void supports whole-disk BIOS installs
+	hwSecureBoot bool   // Secure Boot on → block Review where Limine boots (it is unsigned)
 	diskHint     string // set when no installable disk was found (VMD / generic message)
 	doneSel      int    // reboot / poweroff / shell
 	exitAction   string // done screen choice: "reboot" | "poweroff" | "" (exit to shell)
@@ -794,10 +954,8 @@ type model struct {
 	diskTotal                                    int    // its size in GiB (layout math)
 	diskBytes                                    int64  // its exact size in bytes (dual-unit display)
 	netOnline                                    bool
+	cpuV3                                        bool
 	netStage                                     int    // 0 pick SSID · 1 Wi-Fi password (offline only)
-	pwStage                                      int    // 0 enter · 1 confirm
-	pw1                                          string // first password entry (mock; never persisted)
-	pwErr                                        string
 	netErr                                       string // Wi-Fi connect failure (offline flow)
 	failStep                                     string
 	logPath                                      string
@@ -837,7 +995,10 @@ type model struct {
 	reclaim []part
 	// retried is set by the failed screen's "r": the next backend run has to be
 	// allowed to clean up the debris the failed one left (see installEnv).
-	retried                    bool
+	retried bool
+	// partitioned is set once the backend reports its first install step: from
+	// then on the target disk holds this installer's own partitions.
+	partitioned                bool
 	reclaimG                   int
 	gpt                        bool   // target disk has a GPT label (alongside requires it)
 	bitlocker                  bool   // target disk carries a BitLocker partition (review warning)
@@ -861,6 +1022,12 @@ type model struct {
 	lsel                        int
 	sAnim, sVel                 float64
 	sSpr                        harmonica.Spring
+	// apps step: the keep/remove map over apps.go's rows (nil until the step
+	// first loads, then seeded with the shipped defaults), the selected row,
+	// and the scroll offset into the flattened row list.
+	keep  map[string]bool
+	alsel int
+	aoff  int
 	// wipeStage gates the Review->install transition for a whole-disk wipe on a
 	// populated disk: 0 = idle, 1 = user typing "ERASE", 2 = confirmed. installEnv
 	// emits RYOKU_WIPE_CONFIRMED=1 only when wipeStage == 2.
@@ -874,6 +1041,7 @@ type model struct {
 }
 
 var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 // installSteps names the backend's install phases for the progress panel. It is
 // a function, not a package-level var, so the names resolve in the language
 // main() picked (a var initializer would run before i18n.Use).
@@ -886,8 +1054,10 @@ func installSteps() []string {
 }
 
 func newModel() model {
+	variant := sysVariant()
 	m := model{
-		flow:     steps(),
+		variant:  variant,
+		flow:     stepsForVariant(variant),
 		picks:    map[string]string{},
 		state:    "intro",
 		introSpr: harmonica.NewSpring(harmonica.FPS(30), 3.4, 1.0),
@@ -910,14 +1080,38 @@ func newModel() model {
 	} else {
 		m.diskHint = diskHint()
 	}
-	// default the compositor so RYOKU_COMPOSITOR flows even when the step auto-skips.
-	m.picks["compositor"] = wm.Providers()[0]
-	m.netOnline = netOnline()
+	// Defaults must flow even when a choice step is skipped programmatically.
+	edition := installerChoicesForVariant(variant)
+	m.picks["compositor"] = installerplan.FreshSelection(installerplan.Compositor, edition.AvailableIDs(installerplan.Compositor))
+	m.picks["browser"] = installerplan.FreshDefault(installerplan.Browser)
+	m.picks["login-shell"] = installerplan.FreshDefault(installerplan.LoginShell)
+	m.picks["file-manager"] = installerplan.FreshDefault(installerplan.FileManager)
+	m.picks["rashin"] = "1"
+	m.picks["gaming"] = "0"
+	m.netOnline = probeNetworkOnline()
+	if variant == "plain" {
+		m.cpuV3 = probeX8664V3()
+	}
 	m.loadStep()
 	return m
 }
 
 func (m *model) cur() step { return m.flow[m.idx] }
+
+func (m *model) resetLayoutChoices() {
+	m.espG, m.swapG = layoutSizeDefaults(m.variant)
+	m.snapshots, m.sepHome, m.backups = true, true, false
+}
+
+// layoutSizeDefaults is the ESP and swap size (GiB) a fresh layout starts from.
+// The CachyOS edition matches CachyOS's own installer for Limine: a 4 GiB ESP
+// and no swap partition, because cachyos-settings already brings zram swap.
+func layoutSizeDefaults(variant string) (espG, swapG int) {
+	if variant == variantCachyOS {
+		return 4, 0
+	}
+	return 1, 16
+}
 
 func (m *model) loadStep() {
 	m.enterPos, m.enterVel = 0, 0
@@ -927,13 +1121,18 @@ func (m *model) loadStep() {
 		items := s.items
 		var disabled map[string]bool
 		if s.key == "disk" {
-			// strategies depend on what is actually on the picked disk; the static
-			// step list was built before any disk was chosen. A hard-blocked
-			// alongside is offered dimmed and non-committable, with its cause inline.
+			// Strategies depend on what is actually on the picked disk; the static
+			// step list was built before any disk was chosen. Hard-blocked choices
+			// remain visible and name their reason inline.
 			dl := sysDiskLayout(m.diskDev)
-			items = diskStrategiesFor(dl)
-			if alongsideBlockReason(dl) != "" {
-				disabled = map[string]bool{"alongside": true}
+			items, disabled = m.diskStrategyChoices(dl)
+		}
+		if s.key == "compositor" {
+			disabled = map[string]bool{}
+			for _, availability := range installerChoicesForVariant(m.variant).Choices(installerplan.Compositor) {
+				if !availability.Available {
+					disabled[availability.Choice.ID] = true
+				}
 			}
 		}
 		if s.key == "locale" {
@@ -943,11 +1142,18 @@ func (m *model) loadStep() {
 		}
 		m.pick = newPicker(items, s.numbered)
 		m.pick.disabled = disabled
+		if s.key == "compositor" {
+			for pos, idx := range m.pick.matches {
+				if !m.pick.disabled[m.pick.items[idx].key] {
+					m.pick.cursor = pos
+					break
+				}
+			}
+		}
 		m.pick.height = m.listRows()
 	case kPartition:
 		m.diskG = m.diskTotal
-		m.espG, m.swapG = 1, 16
-		m.snapshots, m.sepHome, m.backups = true, true, false
+		m.resetLayoutChoices()
 		m.lsel, m.sAnim = 0, 0
 		dl := sysDiskLayout(m.diskDev) // real partitions, used by alongside layout AND the wipe gate
 		m.existing = dl.parts
@@ -981,16 +1187,23 @@ func (m *model) loadStep() {
 			m.espKind, m.existingBoot, m.espFreeKiB = "", "", 0
 		}
 		m.clampSwapToLayout() // keep default swap within the layout (backend-consistent)
-	case kPass:
-		m.pwStage, m.pw1, m.pwErr, m.input = 0, "", "", ""
+	case kAdministrator, kRootAccount, kOtherPeople:
+		m.loadAccountsStep(s.key)
 	case kNet:
-		m.netOnline = netOnline()
+		m.netOnline = probeNetworkOnline()
 		m.netStage, m.input = 0, ""
 		// No Wi-Fi scan on a bundled image: it needs no network, netBody says so,
 		// and scanning here only makes the step wait on the radio.
-		if !m.netOnline && !offlineRepo() {
+		if !m.netOnline && !m.hasOfflineRepo() {
 			m.pick = newPicker(ssids(), true)
 			m.pick.height = 5
+		}
+	case kApps:
+		// Seed once; back/forward keeps the user's edits, and the row list is
+		// static so the cursor and scroll offset survive a revisit too.
+		if m.keep == nil {
+			m.keep = appDefaultsForVariant(m.variant)
+			m.alsel, m.aoff = appsRowIdx(m.appsRows(), 0), 0
 		}
 	case kInput:
 		// returning to a text step (esc back, or Review edit) shows what was
@@ -1000,15 +1213,24 @@ func (m *model) loadStep() {
 		m.input, m.yes = "", false
 		m.inputErr, m.encStage, m.pass1, m.encErr = "", 0, "", ""
 		m.wipeStage, m.eraseInput = 0, ""
+		if s.key == "rashin" {
+			m.yes = def(m.picks["rashin"], "1") == "1"
+		}
+		if s.key == "gaming" {
+			reason := m.gamingUnavailableReason()
+			m.yes = reason == "" && m.picks["gaming"] == "1"
+			if reason != "" {
+				m.picks["gaming"] = "0"
+			}
+		}
 		if s.key == "review" {
-			m.netOnline = netOnline() // re-probe: Review needs it only on a non-offline image
+			m.netOnline = probeNetworkOnline() // re-probe: Review needs it only on a non-offline image
 		}
 	}
 }
 
 // validation mirrors installer/script/ryoku-install (valid_hostname / valid_username)
 var hostRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
-var userRe = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 
 func validInput(key, v string) (bool, string) {
 	switch key {
@@ -1018,10 +1240,11 @@ func validInput(key, v string) (bool, string) {
 		}
 		return false, i18n.T("letters, digits, dashes, no leading or trailing dash")
 	case "username":
-		if userRe.MatchString(v) {
+		if err := validateAccountName(v, nil); err == nil {
 			return true, ""
+		} else {
+			return false, err.Error()
 		}
-		return false, i18n.T("lowercase; start with a letter or _")
 	}
 	return true, ""
 }
@@ -1079,7 +1302,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.tickCmd()
 	case installStepMsg:
-		m.installAt = int(msg)
+		m.installAt, m.partitioned = int(msg), true
 		if m.istream != nil {
 			return m, m.istream.wait()
 		}
@@ -1092,7 +1315,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case installDoneMsg:
 		if msg.err != nil {
-			m.failInstall(installSteps()[clamp(m.installAt, 0, len(installSteps())-1)])
+			phases := installSteps()
+			m.failInstall(phases[clamp(m.installAt, 0, len(phases)-1)])
 		} else {
 			m.installAt, m.progress, m.state = len(installSteps()), 1, "done"
 		}
@@ -1197,7 +1421,7 @@ func (m model) onKey(k string) (tea.Model, tea.Cmd) {
 	typing := s.kind == kInput || (s.kind == kSelect && m.pick.searching) ||
 		(s.kind == kConfirm && s.key == "encryption" && m.encStage > 0) ||
 		(s.kind == kConfirm && s.key == "review" && m.wipeStage > 0) ||
-		s.kind == kPass || (s.kind == kNet && m.netStage == 1)
+		(s.kind == kNet && m.netStage == 1) || m.accountsTyping()
 	if k == "?" && !typing {
 		m.help = true
 		return m, nil
@@ -1211,6 +1435,22 @@ func (m model) onKey(k string) (tea.Model, tea.Cmd) {
 	}
 
 	switch s.kind {
+	case kAdministrator:
+		m.adminAccountKey(k)
+		return m, nil
+	case kRootAccount:
+		m.rootAccountKey(k)
+		return m, nil
+	case kOtherPeople:
+		m.otherPeopleKey(k)
+		return m, nil
+	}
+
+	switch s.kind {
+	case kNotice:
+		if k == "enter" {
+			m.advance()
+		}
 	case kSelect:
 		if done, sel := m.pick.update(k); done {
 			// Commit from the picker's own list, never s.items: loadStep swaps
@@ -1240,47 +1480,15 @@ func (m model) onKey(k string) (tea.Model, tea.Cmd) {
 			}
 			m.advance()
 		}
-	case kPass:
-		switch k {
-		case "esc":
-			if m.pwStage == 1 {
-				m.pwStage, m.input, m.pwErr = 0, "", ""
-			} else {
-				m.back()
-			}
-		case "enter":
-			if m.pwStage == 0 {
-				if m.input == "" {
-					m.pwErr = i18n.T("password cannot be empty")
-				} else {
-					m.pw1, m.input, m.pwStage, m.pwErr = m.input, "", 1, ""
-				}
-			} else if m.input != m.pw1 {
-				m.pw1, m.input, m.pwStage, m.pwErr = "", "", 0, i18n.T("did not match, try again")
-			} else if h, err := hashPassword(m.pw1); err != nil {
-				// The hash is computed in-process (password.go), so the only way
-				// here is a kernel that cannot produce random bytes for the salt.
-				// Report it and keep the user on this screen rather than handing
-				// the backend an empty RYOKU_PASSWORD_HASH that only dies at
-				// preflight, after the whole wizard has been walked.
-				m.pw1, m.input, m.pwStage, m.pwErr = "", "", 0, i18n.Tf("could not hash the password: %s", err)
-			} else {
-				m.pwHash = h
-				m.picks["password"], m.pw1, m.input, m.pwStage = "set", "", "", 0
-				m.advance()
-			}
-		default:
-			m.editInput(k, &m.input)
-		}
 	case kNet:
 		// An offline image is as ready as a connected one, so it takes the same
 		// path. netBody already renders the "no network needed, enter to continue"
 		// card for it; gating this on netOnline alone meant enter did nothing and
 		// the user was stuck at a Wi-Fi picker the card never mentioned.
-		if m.netOnline || offlineRepo() {
+		if m.netOnline || m.hasOfflineRepo() {
 			if k == "enter" {
 				m.picks["network"] = "online"
-				if offlineRepo() {
+				if m.hasOfflineRepo() {
 					m.picks["network"] = "offline"
 				}
 				m.advance()
@@ -1293,7 +1501,7 @@ func (m model) onKey(k string) (tea.Model, tea.Cmd) {
 				// wifiConnect's result was ignored and netOnline forced true, so a
 				// wrong passphrase silently marched on to install with no network.
 				// Require a real connection AND a live probe; otherwise stay here.
-				if wifiConnect(m.netSSID, m.input) && netOnline() {
+				if wifiConnect(m.netSSID, m.input) && probeNetworkOnline() {
 					m.netOnline, m.picks["network"], m.input, m.netErr = true, "wifi", "", ""
 					m.advance()
 				} else {
@@ -1304,7 +1512,7 @@ func (m model) onKey(k string) (tea.Model, tea.Cmd) {
 				m.editInput(k, &m.input)
 			}
 		} else if k == "r" && !m.pick.searching {
-			m.netOnline = netOnline()
+			m.netOnline = probeNetworkOnline()
 			if !m.netOnline {
 				m.pick = newPicker(ssids(), true)
 				m.pick.height = 5
@@ -1322,8 +1530,8 @@ func (m model) onKey(k string) (tea.Model, tea.Cmd) {
 		switch k {
 		case "esc":
 			// input steps set `typing`, so the global esc->back above is skipped.
-			// Handle it here (as kPass/kNet do) so the footer's "esc back" works
-			// and hostname/username are not one-way dead ends.
+			// Handle it here (as kNet and the account screens do) so the footer's
+			// "esc back" works and hostname is not a one-way dead end.
 			m.inputErr, m.input = "", ""
 			m.back()
 		case "enter":
@@ -1342,6 +1550,14 @@ func (m model) onKey(k string) (tea.Model, tea.Cmd) {
 			m.editInput(k, &m.input)
 		}
 	case kConfirm:
+		if s.key == "gaming" && m.gamingUnavailableReason() != "" {
+			m.yes = false
+			if k == "enter" {
+				m.picks["gaming"] = "0"
+				m.advance()
+			}
+			return m, nil
+		}
 		if s.key == "encryption" && m.encStage > 0 { // passphrase entry
 			if k == "esc" {
 				m.encStage, m.input, m.encErr = 0, "", ""
@@ -1403,6 +1619,15 @@ func (m model) onKey(k string) (tea.Model, tea.Cmd) {
 		case "n":
 			m.yes = false
 		case "enter":
+			if s.key == "rashin" || s.key == "gaming" {
+				value := "0"
+				if m.yes {
+					value = "1"
+				}
+				m.picks[s.key] = value
+				m.advance()
+				return m, nil
+			}
 			if s.key == "encryption" {
 				if m.yes {
 					m.encStage, m.input, m.encErr = 1, "", "" // collect a passphrase
@@ -1447,10 +1672,12 @@ func (m model) onKey(k string) (tea.Model, tea.Cmd) {
 				m.jumpToActive(int(k[0] - '1')) // edit a step from Review
 			}
 		}
+	case kApps:
+		m.appsKey(k)
 	case kPartition:
 		m.partKey(k)
 	case kInfo:
-		if k == "enter" && !m.hwBIOS { // BIOS is a hard block: no UEFI, no install
+		if k == "enter" && !m.biosBlocked() {
 			m.advance()
 		}
 	}
@@ -1488,6 +1715,10 @@ func (m *model) advance() {
 }
 
 func (m *model) back() {
+	if m.idx == 0 && m.cur().kind == kNotice {
+		m.state = "welcome"
+		return
+	}
 	for m.idx > 0 {
 		m.idx--
 		if m.stepActive(m.idx) {
@@ -1521,7 +1752,7 @@ func (m model) stepActive(i int) bool {
 		return m.hwHybrid && (p == "amd-nvidia" || p == "intel-nvidia")
 	}
 	if m.flow[i].key == "compositor" {
-		return len(compositors()) > 1 // one provider: nothing to choose, skip
+		return len(m.flow[i].items) > 1 // one provider: nothing to choose, skip
 	}
 	return true
 }
@@ -1783,9 +2014,9 @@ func (m model) layoutRows() []lrow {
 	if m.picks["disk"] != "alongside" {
 		rows = append(rows, lrow{"size", "esp", i18n.T("ESP size"), "/boot · fat32", "required"}) // alongside boot is fixed at 2 GiB
 	}
+	rows = append(rows, lrow{"size", "swap", i18n.T("Swap (swapfile)"), i18n.T("@swap · 0 = none · carved from root"), "optional"})
+	rows = append(rows, lrow{"toggle", "snap", i18n.T("Snapshots & rollback"), "@snapshots → /.snapshots", "recommended"})
 	rows = append(rows,
-		lrow{"size", "swap", i18n.T("Swap (swapfile)"), i18n.T("@swap · 0 = none · carved from root"), "optional"},
-		lrow{"toggle", "snap", i18n.T("Snapshots & rollback"), "@snapshots → /.snapshots", "recommended"},
 		lrow{"toggle", "home", i18n.T("Separate /home"), "@home → /home", "optional"},
 		lrow{"toggle", "backups", i18n.T("Backups"), "@backups → /.backups", "optional"},
 	)
@@ -1891,8 +2122,7 @@ func (m *model) partKey(k string) {
 			m.clampSwapToLayout()
 		}
 	case "a": // reset the editable sizes and toggles to recommended
-		m.espG, m.swapG = 1, 16
-		m.snapshots, m.sepHome, m.backups = true, true, false
+		m.resetLayoutChoices()
 	case "tab":
 		if !m.partReady() {
 			return
@@ -1912,6 +2142,9 @@ func (m model) partBlockReason() string {
 	case "whole":
 		return ""
 	case "alongside":
+		if m.hwBIOS && isVoidVariant(m.variant) {
+			return i18n.T("Legacy BIOS supports whole-disk installation only; press esc and choose 'Erase whole disk'.")
+		}
 		if !m.gpt {
 			// The backend's alongside path is GPT-only (it appends a partition and
 			// reads GPT partlabels); an MBR disk with free space would pass the TUI
@@ -1947,8 +2180,192 @@ func (m model) partBlockReason() string {
 // partReady reports whether the chosen layout can be installed.
 func (m model) partReady() bool { return m.partBlockReason() == "" }
 
+// ───────────────────────── apps (keep/remove checklist) ─────────────────────────
+// arow is one display line of the apps step: a group header or a keep/remove
+// row for one appRow id. The cursor only ever lands on app rows.
+type arow struct {
+	kind string // hdr|app
+	id   string // appRow id when kind == app
+	text string // group label when kind == hdr
+}
+
+func (m model) appsRows() []arow {
+	var out []arow
+	for _, g := range appGroupsForVariant(m.variant) {
+		if g[0].Group != "" {
+			out = append(out, arow{kind: "hdr", text: g[0].Group})
+		}
+		for _, r := range g {
+			out = append(out, arow{kind: "app", id: r.ID})
+		}
+	}
+	return out
+}
+
+// appsRowIdx maps a cursor position to its row, skipping headers: it walks
+// up from n to the next app row, then falls back to the last app row, so the
+// end/G keys can never park on a header or past the list.
+func appsRowIdx(rows []arow, n int) int {
+	last := -1
+	for i, r := range rows {
+		if r.kind != "app" {
+			continue
+		}
+		if i >= n {
+			return i
+		}
+		last = i
+	}
+	return max(last, 0)
+}
+
+func (m *model) appsMove(d int) {
+	rows := m.appsRows()
+	n := m.alsel
+	for {
+		n += d
+		if n < 0 || n >= len(rows) {
+			return
+		}
+		if rows[n].kind == "app" {
+			m.alsel = n
+			return
+		}
+	}
+}
+
+func (m *model) appsToggle(id string) {
+	r, ok := appRowByIDForVariant(m.variant, id)
+	if !ok {
+		return
+	}
+	if r.Req != "" {
+		// Refuse with the reason, not silence: the row is marked REQUIRED for
+		// a named desktop feature, and the user deserves to read which.
+		m.inputErr = i18n.Tf("required: %s", r.Req)
+		return
+	}
+	m.keep[id] = !m.keep[id]
+	m.inputErr = ""
+}
+
+func (m *model) appsKey(k string) {
+	rows := m.appsRows()
+	switch k {
+	case "up", "k":
+		m.appsMove(-1)
+	case "down", "j":
+		m.appsMove(1)
+	case "pgup", "ctrl+u":
+		m.appsMove(-m.listRows())
+	case "pgdown", "ctrl+d":
+		m.appsMove(m.listRows())
+	case "home", "g":
+		m.alsel = appsRowIdx(rows, 0)
+	case "end", "G":
+		m.alsel = appsRowIdx(rows, len(rows)-1)
+	case "enter", "space":
+		m.appsToggle(rows[m.alsel].id)
+	case "a": // back to the shipped defaults
+		m.keep, m.inputErr = appDefaultsForVariant(m.variant), ""
+	case "tab":
+		m.picks["apps"] = appsSummaryForVariant(m.variant, m.keep)
+		m.advance()
+	}
+	m.appsFixScroll()
+}
+
+// appsFixScroll keeps the cursor inside the visible window, oldest-style:
+// pull the offset up when the cursor escapes above, slide it down below.
+func (m *model) appsFixScroll() {
+	vis := m.listRows() - 2 // the step keeps two intro lines above the list
+	if vis < 3 {
+		vis = 3
+	}
+	if m.alsel < m.aoff {
+		m.aoff = m.alsel
+	}
+	if m.alsel >= m.aoff+vis {
+		m.aoff = m.alsel - vis + 1
+	}
+	if m.aoff < 0 {
+		m.aoff = 0
+	}
+}
+
+func (m model) appsBody(inner int) string {
+	var b strings.Builder
+	rows := m.appsRows()
+	vis := m.listRows() - 2
+	if vis < 3 {
+		vis = 3
+	}
+	end := min(m.aoff+vis, len(rows))
+	labelW := 18
+	for _, r := range appRowsForVariant(m.variant) {
+		if lw := dw(r.Name); lw > labelW {
+			labelW = lw
+		}
+	}
+	for i := m.aoff; i < end; i++ {
+		r := rows[i]
+		prefix := "  "
+		if i == m.alsel {
+			prefix = bold(gradColor(float64(m.phase)/float64(smallW-1)), gSelCur)
+		}
+		if r.kind == "hdr" {
+			b.WriteString(fg(cSub, strings.ToUpper(r.text)) + "\n")
+			continue
+		}
+		ar, _ := appRowByIDForVariant(m.variant, r.id)
+		on := m.keep[r.id]
+		var box, name, tag string
+		switch {
+		case ar.Req != "":
+			box = fg(cGreen, "[■] ")
+			name = bold(cText, ar.Name)
+			tag = fg(cYell, i18n.T("REQUIRED"))
+		case on:
+			box = fg(cGreen, "[x] ")
+			name = fg(cText, ar.Name)
+			tag = fg(cDim, i18n.T("keep"))
+		default:
+			box = fg(cDim, "[ ] ")
+			name = fg(cSub, ar.Name)
+			tag = fg(cRed, i18n.T("remove"))
+		}
+		gut := 2 + 4 + labelW + 1 + dw(tag)
+		sub := ""
+		if avail := inner - gut; avail >= 8 {
+			text := ar.Sub
+			if text == "" {
+				text = ar.Req
+			}
+			sub = "  " + fg(cDim, truncW(text, avail))
+		}
+		b.WriteString(prefix + box + padTo(name, labelW) + " " + padTo(tag, dw(i18n.T("REQUIRED"))) + sub + "\n")
+	}
+	if m.inputErr != "" {
+		b.WriteString(fg(cYell, "⚠ "+m.inputErr) + "\n")
+	}
+	dropped := 0
+	for _, r := range appRowsForVariant(m.variant) {
+		if r.Req == "" && !m.keep[r.ID] {
+			dropped++
+		}
+	}
+	removable := 0
+	for _, r := range appRowsForVariant(m.variant) {
+		if r.Req == "" {
+			removable++
+		}
+	}
+	b.WriteString("\n" + fg(cDim, i18n.Tf("%d of %d apps removed", dropped, removable)))
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // reviewBlockReason reports why the install cannot start from Review, or "" when
-// it can. Secure Boot (Limine is unsigned) is a hard block. Connectivity is only
+// it can. Secure Boot is a hard block where Limine (unsigned) boots. Connectivity is only
 // a block when this ISO has no baked package closure: an offline ISO carries the
 // whole set in a file:// repo and installs with the network down, which is the
 // whole point of baking it. Gating on netOnline alone refused those installs at
@@ -1956,10 +2373,10 @@ func (m model) partReady() bool { return m.partBlockReason() == "" }
 // below (system.go: RYOKU_ONLINE=0) was already set up to do it. Fail here
 // honestly, not mid-install.
 func (m model) reviewBlockReason() string {
-	if m.hwSecureBoot {
+	if m.secureBootBlocked() {
 		return i18n.T("Secure Boot is enabled -- disable Secure Boot in firmware setup (Limine is unsigned), then reboot the installer.")
 	}
-	if !m.netOnline && !offlineRepo() {
+	if !m.netOnline && !m.hasOfflineRepo() {
 		return i18n.T("No internet connection, and this image has no offline package set. Go back to the Network step to connect.")
 	}
 	return ""
@@ -2123,6 +2540,7 @@ type fitLevel struct {
 	smallHeader bool // one-line wordmark instead of the three-row block banner
 	tightCard   bool // no vertical card padding, no spacer rows, no key hints
 	noRail      bool // drop the install-steps rail and give the width to the card
+	railRows    int  // 0 lists every step; otherwise the rail shows this many rows around the current step
 }
 
 // fitLevels: richest first, height chrome only. fittedFrame walks these until the
@@ -2292,6 +2710,12 @@ func (m model) fittedFrame() string {
 			break
 		}
 	}
+	// The rail grows with the step list and can outgrow a short grid on its own.
+	// Scroll it around the current step before clamping cuts the card's title off.
+	if _, h := frameBox(frame); !noRail && h > m.h {
+		m.fit.railRows = max(m.activeTotal()-(h-m.h), 3)
+		frame = build()
+	}
 	// Last resort: even the leanest level can be too tall for a truly tiny grid, and
 	// a frame wider or taller than the terminal is what wraps and shears the whole
 	// layout. Clamp unconditionally so that can never reach the screen, keeping the
@@ -2392,10 +2816,14 @@ func (m *model) ensureSocialQR() {
 
 func (m model) welcomeFrame() string {
 	logo := lipgloss.JoinVertical(lipgloss.Center, faintBig(m.phase)...)
+	liveImageLine := i18n.T("the live Arch image now, and this installer turns it into")
+	if isVoidVariant(m.variant) {
+		liveImageLine = i18n.T("the live Void image now, and this installer turns it into")
+	}
 	card := sty().Border(border()).BorderForeground(cBlue).Padding(1, 3).Render(
 		bold(cBrand, i18n.T("Thank you for installing Ryoku")) + "\n\n" +
 			fg(cText, i18n.T("There is no try-before-you-install demo. You are running")) + "\n" +
-			fg(cText, i18n.T("the live Arch image now, and this installer turns it into")) + "\n" +
+			fg(cText, liveImageLine) + "\n" +
 			fg(cText, i18n.T("Ryoku in a single pass. Nothing is written until you")) + "\n" +
 			fg(cText, i18n.T("confirm on the review screen.")))
 	di, ri := iconDiscord+" ", iconReddit+" "
@@ -2469,6 +2897,10 @@ func (m model) viewWizard() string {
 	var c strings.Builder
 	c.WriteString(bold(cBrand, s.title) + "\n\n")
 	switch {
+	case s.kind == kNotice:
+		for _, d := range s.desc {
+			c.WriteString(sty().Foreground(cSub).Width(inner).Render(d) + "\n")
+		}
 	case s.kind == kConfirm && s.key == "review":
 		// The step numbers live in the rail, so the hint only promises them when the
 		// rail is actually on screen; a tight grid drops the hint altogether.
@@ -2482,12 +2914,24 @@ func (m model) viewWizard() string {
 		c.WriteString(m.reviewBody(inner) + "\n\n" + m.confirmButtons() + hint)
 	case s.kind == kPartition:
 		c.WriteString(m.partBody(inner))
+	case s.kind == kApps:
+		for _, d := range s.desc {
+			c.WriteString(fg(cSub, truncW(d, inner)) + "\n")
+		}
+		c.WriteString("\n" + m.appsBody(inner))
 	case s.kind == kInfo:
 		c.WriteString(m.infoBody(inner))
 	case s.kind == kNet:
 		c.WriteString(m.netBody(inner))
-	case s.kind == kPass:
-		c.WriteString(m.passBody(inner))
+	case s.kind == kAdministrator:
+		c.WriteString(m.administratorBody(inner))
+	case s.kind == kRootAccount:
+		c.WriteString(m.rootAccountBody(inner))
+	case s.kind == kOtherPeople:
+		for _, d := range s.desc {
+			c.WriteString(fg(cSub, truncW(d, inner)) + "\n")
+		}
+		c.WriteString("\n" + m.otherPeopleBody(inner))
 	case s.kind == kSelect && s.key == "gpu":
 		for _, d := range s.desc {
 			c.WriteString(fg(cSub, truncW(d, inner)) + "\n")
@@ -2502,6 +2946,9 @@ func (m model) viewWizard() string {
 	default:
 		for _, d := range s.desc {
 			c.WriteString(fg(cSub, truncW(d, inner)) + "\n")
+		}
+		if reason := m.gamingUnavailableReason(); s.key == "gaming" && reason != "" {
+			c.WriteString(sty().Foreground(cYell).Width(inner).Render(reason) + "\n")
 		}
 		if s.key == "diskpick" && m.diskHint != "" {
 			c.WriteString("\n" + sty().Foreground(cYell).Width(inner).Render("⚠ "+m.diskHint) + "\n")
@@ -2708,7 +3155,7 @@ func (m model) partBody(inner int) string {
 }
 
 func (m model) netBody(inner int) string {
-	if offlineRepo() {
+	if m.hasOfflineRepo() {
 		return strings.Join([]string{
 			fg(cGreen, gOKtxt+" "+i18n.T("Offline")) + fg(cSub, i18n.T("   bundled image")), "",
 			fg(cSub, i18n.T("The whole system is bundled on this image, so no network")),
@@ -2763,24 +3210,6 @@ func strength(s string) string {
 	default:
 		return fg(cRed, i18n.T("weak"))
 	}
-}
-
-func (m model) passBody(inner int) string {
-	label := i18n.T("Set a password:")
-	if m.pwStage == 1 {
-		label = i18n.T("Confirm password:")
-	}
-	b := fg(cText, label) + "\n" + inputBox(m.input, "", true) + "\n"
-	if m.pwStage == 0 && m.input != "" {
-		b += fg(cSub, i18n.T("strength: ")) + strength(m.input) + "\n"
-	} else {
-		b += "\n"
-	}
-	if m.pwErr != "" {
-		b += fg(cRed, "⚠ "+m.pwErr) + "\n"
-	}
-	b += "\n" + fg(cDim, i18n.T("used at login; change it anytime · esc back"))
-	return b
 }
 
 func labelStyled(sel bool, s string, w int) string {
@@ -2907,6 +3336,8 @@ func (m model) infoBody(inner int) string {
 	if g := m.hwGateLines(); len(g) > 0 {
 		lines = append(lines, "")
 		lines = append(lines, g...)
+	}
+	if m.biosBlocked() || m.secureBootBlocked() {
 		lines = append(lines, "", fg(cDim, i18n.T("resolve the above in firmware, then reboot · esc to go back")))
 	} else {
 		lines = append(lines, "", fg(cDim, i18n.T("enter to continue, esc to go back")))
@@ -2914,28 +3345,47 @@ func (m model) infoBody(inner int) string {
 	return strings.Join(lines, "\n")
 }
 
-// fwCell colors the firmware summary red when the machine booted in BIOS mode (a
-// hard block), green for UEFI.
+// fwCell marks a supported Void BIOS path as a caution and an unsupported BIOS
+// path as a hard stop. UEFI remains the normal path.
 func (m model) fwCell() string {
 	if m.hwBIOS {
+		if isVoidVariant(m.variant) {
+			return fg(cYell, m.hwFW)
+		}
 		return fg(cRed, m.hwFW)
 	}
 	return fg(cGreen, m.hwFW)
 }
 
-// hwGateLines are the hard-stop firmware warnings shown on the hardware card and
-// enforced elsewhere: BIOS boot (backend is UEFI-only, blocks the hardware step)
-// and Secure Boot (Limine is unsigned, blocks Review). Empty when firmware is OK.
+func (m model) biosBlocked() bool {
+	return m.hwBIOS && !isVoidVariant(m.variant)
+}
+
+// secureBootBlocked reports whether unsigned Limine makes Review unsafe.
+func (m model) secureBootBlocked() bool {
+	return m.hwSecureBoot
+}
+
+// hwGateLines explains firmware constraints. Arch and CachyOS still reject
+// legacy BIOS. Void accepts it only when the installer owns the whole disk.
 func (m model) hwGateLines() []string {
 	var out []string
 	if m.hwBIOS {
-		out = append(out,
-			bold(cRed, i18n.T("⚠ Booted in BIOS / legacy mode -- Ryoku installs UEFI-only.")),
-			fg(cText, i18n.T("  Reboot, enter firmware setup, disable CSM / Legacy boot and")),
-			fg(cText, i18n.T("  enable UEFI boot mode, then start the installer again.")),
-		)
+		if isVoidVariant(m.variant) {
+			out = append(out,
+				bold(cYell, i18n.T("⚠ Legacy BIOS mode detected.")),
+				fg(cText, i18n.T("  Void BIOS installs use the whole disk.")),
+				fg(cText, i18n.T("  Alongside installs need UEFI and GPT.")),
+			)
+		} else {
+			out = append(out,
+				bold(cRed, i18n.T("⚠ Booted in BIOS / legacy mode -- Ryoku installs UEFI-only.")),
+				fg(cText, i18n.T("  Reboot, enter firmware setup, disable CSM / Legacy boot and")),
+				fg(cText, i18n.T("  enable UEFI boot mode, then start the installer again.")),
+			)
+		}
 	}
-	if m.hwSecureBoot {
+	if m.secureBootBlocked() {
 		out = append(out,
 			bold(cRed, i18n.T("⚠ Secure Boot is enabled -- Limine is unsigned.")),
 			fg(cText, i18n.T("  Disable Secure Boot in firmware setup, then reboot the installer.")),
@@ -2962,9 +3412,11 @@ func (m model) helpBody() string {
 // Nerd-font icons per step (gated on `nerd`; plain markers otherwise).
 var stepIcon = map[string]string{
 	"keyboard": "", "locale": "", "timezone": "", "network": "",
-	"hardware": "", "profile": "", "gpu": "", "diskpick": "",
-	"disk": "", "partitions": "", "hostname": "", "username": "",
-	"password": "", "encryption": "", "review": "",
+	"hardware": "", "profile": "", "gpu": "", "compositor": "",
+	"browser": "", "login-shell": "", "file-manager": "", "rashin": "",
+	"cachyos": "", "apps": "", "diskpick": "", "disk": "",
+	"partitions": "", "hostname": "", "administrator": "",
+	"root-account": "", "other-people": "", "encryption": "", "review": "",
 }
 
 func (m model) activeTotal() int {
@@ -2989,13 +3441,16 @@ func (m model) activePos() int { // 0-based index among active steps
 func (m model) rail() string {
 	const inner = 18
 	num := m.cur().key == "review" // number steps so 1-9 can jump to edit them
-	lines := []string{fg(cSub, i18n.T("install steps")), ""}
-	n := 0
+	var steps []string
+	cur, n := 0, 0
 	for i, s := range m.flow {
 		if !m.stepActive(i) {
 			continue
 		}
 		n++
+		if i <= m.idx {
+			cur = n - 1
+		}
 		g := ""
 		if nerd {
 			g = stepIcon[s.key]
@@ -3014,17 +3469,39 @@ func (m model) rail() string {
 		case i < m.idx:
 			l := lead(cGreen, gCheck+" ") + fg(cText, s.key)
 			if v := m.picks[s.key]; v != "" && !num {
+				if s.kind == kConfirm {
+					v = map[string]string{"1": i18n.T("yes"), "0": i18n.T("no")}[v]
+				}
 				l += " " + fg(cDim, truncW(v, 14-len(s.key)))
 			}
-			lines = append(lines, l)
+			steps = append(steps, l)
 		case i == m.idx && (m.state == "wizard" || m.state == "transition"):
-			lines = append(lines, lead(cBrand, gCurStep)+bold(cBrand, s.key))
+			steps = append(steps, lead(cBrand, gCurStep)+bold(cBrand, s.key))
 		default:
-			lines = append(lines, lead(cDim, gPend+" ")+fg(cDim, s.key))
+			steps = append(steps, lead(cDim, gPend+" ")+fg(cDim, s.key))
 		}
 	}
+	lines := append([]string{fg(cSub, i18n.T("install steps")), ""}, windowRail(steps, cur, m.fit.railRows)...)
 	return sty().Border(border()).BorderForeground(cDim).Padding(0, 1).
 		Render(padLines(strings.Join(lines, "\n"), inner))
+}
+
+// windowRail keeps at most rows step lines, scrolled so the current step stays
+// in view, and turns the first or last visible row into a count of the steps cut
+// off at that end.
+func windowRail(steps []string, cur, rows int) []string {
+	if rows <= 0 || len(steps) <= rows {
+		return steps
+	}
+	start := clamp(cur-rows/2, 0, len(steps)-rows)
+	out := append([]string(nil), steps[start:start+rows]...)
+	if start > 0 {
+		out[0] = fg(cDim, i18n.Tf("↑ %d more", start+1))
+	}
+	if end := start + rows; end < len(steps) {
+		out[rows-1] = fg(cDim, i18n.Tf("↓ %d more", len(steps)-end+1))
+	}
+	return out
 }
 
 func inputBox(val, placeholder string, pw bool) string {
@@ -3099,19 +3576,48 @@ func (m model) reviewBody(w int) string {
 	default:
 		stratCell = bold(cRed, i18n.T("unset (refused)"))
 	}
+	firmware := "UEFI"
+	if m.hwBIOS {
+		firmware = i18n.T("Legacy BIOS")
+	}
+	rashin := i18n.T("Yes")
+	if def(m.picks["rashin"], "1") != "1" {
+		rashin = i18n.T("No")
+	}
 	lines := []string{
 		bold(cBrand, i18n.T("Review, then confirm to install")), "",
 		fg(cRed, i18n.Tf("⚠ this writes the layout below to %s", m.diskDev)), "",
 		row(i18n.T("keyboard"), m.picks["keyboard"]), row(i18n.T("locale"), m.picks["locale"]),
 		row(i18n.T("time zone"), m.picks["timezone"]), row(i18n.T("profile"), m.picks["profile"]),
-		row(i18n.T("disk"), m.diskDev),
-		fg(cSub, fmt.Sprintf("%-11s", i18n.T("strategy"))) + stratCell,
-		row(i18n.T("hostname"), m.picks["hostname"]),
-		row(i18n.T("user"), m.picks["username"]), row(i18n.T("password"), m.picks["password"]),
-		row(i18n.T("encryption"), m.picks["encryption"]), "",
-		fg(cSub, i18n.T("layout     ")) + fg(cText, i18n.Tf("%s %s · root %dG · swap %s", bootKind, esp, m.availRoot()-m.swapG, swap)),
-		fg(cSub, i18n.T("subvols    ")) + fg(cText, subs),
+		row(i18n.T("firmware"), firmware),
+		row(i18n.T("wm"), compositorLabel(m.picks["compositor"])), row(i18n.T("browser"), browserLabel(m.picks["browser"])),
+		row(i18n.T("shell"), loginShellLabel(m.picks["login-shell"])),
+		row(i18n.T("files"), fileManagerLabel(m.picks["file-manager"])),
+		row(i18n.T("Rashin"), rashin),
+		row(i18n.T("apps"), m.appsReviewCell()),
 	}
+	if flowIndex(m.flow, "gaming") >= 0 {
+		gaming := i18n.T("No")
+		if m.picks["gaming"] == "1" {
+			gaming = i18n.T("Yes")
+		}
+		lines = append(lines, row(i18n.T("Gaming"), gaming))
+	}
+	lines = append(lines,
+		row(i18n.T("disk"), m.diskDev),
+		fg(cSub, fmt.Sprintf("%-11s", i18n.T("strategy")))+stratCell,
+		row(i18n.T("hostname"), m.picks["hostname"]),
+		row(i18n.T("admin"), accountReviewName(m.picks["username"], m.accounts.adminFullName)),
+		row(i18n.T("root"), rootReviewLabel(m.accounts.rootMode)),
+	)
+	for _, person := range m.accounts.people {
+		lines = append(lines, row(i18n.T("person"), accountReviewName(person.Name, person.FullName)+" · "+roleLabel(person.Role)))
+	}
+	lines = append(lines,
+		row(i18n.T("encryption"), m.picks["encryption"]), "",
+		fg(cSub, i18n.T("layout     "))+fg(cText, i18n.Tf("%s %s · root %dG · swap %s", bootKind, esp, m.availRoot()-m.swapG, swap)),
+		fg(cSub, i18n.T("subvols    "))+fg(cText, subs),
+	)
 	if len(m.kept) > 0 {
 		lines = append(lines, fg(cSub, i18n.T("kept       "))+fg(cYell, i18n.Tf("%d existing partition(s)", len(m.kept))))
 	}
@@ -3276,14 +3782,15 @@ func (m model) viewDone() string {
 	if user == "" {
 		user = "you"
 	}
+	next := i18n.T("snapshots and rollback from the Limine boot menu")
 	card := sty().Border(borderDouble()).BorderForeground(cGreen).Padding(1, 3).Align(lipgloss.Center).
 		Render(bold(cGreen, gCheck+"  "+i18n.T("Ryoku installed")) + "\n\n" +
 			fg(cText, m.picks["hostname"]+" · "+m.picks["username"]+" · "+m.picks["profile"]) + "\n" +
 			fg(cSub, i18n.T("encryption: ")+m.picks["encryption"]+" · "+m.picks["timezone"]) + "\n\n" +
 			fg(cSub, i18n.T("what's next")) + "\n" +
 			fg(cDim, i18n.Tf("log in as %s  ·  your configs live in ~/.config", user)) + "\n" +
-			fg(cDim, i18n.T("snapshots and rollback from the Limine boot menu")))
-	// WIRE: doneSel 0 → systemctl reboot · 1 → systemctl poweroff · 2 → exit to a shell
+			fg(cDim, next))
+	// WIRE: doneSel 0 → reboot · 1 → poweroff · 2 → exit to a shell (applyExit)
 	opts := []struct{ label, hint string }{
 		{i18n.T("Reboot now"), i18n.T("recommended")},
 		{i18n.T("Power off"), ""},
@@ -3330,6 +3837,8 @@ func (m model) footer() string {
 	s := m.cur()
 	var parts []string
 	switch {
+	case s.kind == kNotice:
+		parts = []string{keyHint("enter", i18n.T("continue")), keyHint("esc", i18n.T("back")), keyHint("q", i18n.T("quit"))}
 	case s.kind == kPartition:
 		switch {
 		case m.layoutRows()[m.lsel].kind == "keep", m.layoutRows()[m.lsel].kind == "reclaim":
@@ -3349,17 +3858,19 @@ func (m model) footer() string {
 		default:
 			parts = []string{keyHint("space", i18n.T("toggle")), keyHint("↑↓", i18n.T("move")), keyHint("a", i18n.T("reset")), keyHint("tab", i18n.T("done")), keyHint("esc", i18n.T("back"))}
 		}
+	case s.kind == kApps:
+		parts = []string{keyHint("↑↓", i18n.T("move")), keyHint("space", i18n.T("keep/remove")), keyHint("a", i18n.T("reset")), keyHint("tab", i18n.T("done")), keyHint("esc", i18n.T("back")), keyHint("q", i18n.T("quit"))}
 	case s.kind == kInfo:
-		if m.hwBIOS { // BIOS is a hard block; there is no "continue" to offer
+		if m.biosBlocked() {
 			parts = []string{keyHint("esc", i18n.T("back")), keyHint("q", i18n.T("quit"))}
 		} else {
 			parts = []string{keyHint("enter", i18n.T("continue")), keyHint("esc", i18n.T("back")), keyHint("?", i18n.T("help")), keyHint("q", i18n.T("quit"))}
 		}
-	case s.kind == kPass:
-		parts = []string{keyHint("type", i18n.T("password")), keyHint("enter", i18n.T("continue")), keyHint("esc", i18n.T("back"))}
+	case s.kind == kAdministrator, s.kind == kRootAccount, s.kind == kOtherPeople:
+		parts = []string{keyHint("↑↓/tab", i18n.T("move")), keyHint("enter", i18n.T("continue")), keyHint("esc", i18n.T("back"))}
 	case s.kind == kNet:
 		switch {
-		case m.netOnline || offlineRepo():
+		case m.netOnline || m.hasOfflineRepo():
 			parts = []string{keyHint("enter", i18n.T("continue")), keyHint("esc", i18n.T("back")), keyHint("q", i18n.T("quit"))}
 		case m.netStage == 1:
 			parts = []string{keyHint("type", i18n.T("password")), keyHint("enter", i18n.T("connect")), keyHint("esc", i18n.T("back"))}
@@ -3409,8 +3920,11 @@ func main() {
 
 func snapshot() {
 	picks := map[string]string{"keyboard": "us", "locale": "en_US.UTF-8", "timezone": "Europe/Madrid",
-		"profile": "amd-nvidia", "gpu": "offload", "disk": "alongside", "hostname": "ryoku", "username": "carlos", "encryption": "LUKS"}
+		"profile": "amd-nvidia", "gpu": "offload", "compositor": "niri", "browser": "zen",
+		"disk": "alongside", "hostname": "ryoku", "username": "carlos", "password": "set", "encryption": "LUKS"}
+	picks["browser"], picks["login-shell"] = "firefox", "fish"
 	mk := func() model { m := newModel(); m.w, m.h, m.enterPos, m.state = 112, 42, 1, "wizard"; return m }
+	at := func(m *model, key string) { m.idx = flowIndex(m.flow, key) }
 	sep := strings.Repeat("─", 112)
 	render := func(m model) string {
 		if m.state == "done" || m.state == "failed" || m.state == "install" {
@@ -3429,43 +3943,94 @@ func snapshot() {
 	fmt.Println("### welcome: social QR ###\n" + wm.welcomeQR() + "\n" + sep)
 
 	m := mk()
-	m.idx, m.picks = 3, picks // network (online)
+	at(&m, "network") // network (online)
+	m.picks = picks
 	m.loadStep()
 	m.enterPos = 1
 	show("network: connected", m)
 
 	m = mk()
-	m.idx, m.picks, m.netOnline = 3, picks, false // network offline → Wi-Fi list
+	at(&m, "network")
+	m.picks, m.netOnline = picks, false // network offline → Wi-Fi list
 	m.loadStep()
 	m.enterPos = 1
 	show("network: offline (Wi-Fi)", m)
 
 	m = mk()
-	m.idx, m.picks = 4, picks // hardware detected
+	at(&m, "hardware") // hardware detected
+	m.picks = picks
 	m.loadStep()
 	m.enterPos = 1
 	show("hardware: detected", m)
 
 	m = mk()
-	m.idx, m.picks, m.hwOK, m.hwHybrid = 4, picks, false, false
+	at(&m, "hardware")
+	m.picks, m.hwOK, m.hwHybrid = picks, false, false
 	m.loadStep()
 	m.enterPos = 1
 	show("hardware: not detected (graceful fallback)", m)
 
 	m = mk()
-	m.idx, m.picks = 6, picks // graphics mode (hybrid)
+	at(&m, "gpu") // graphics mode (hybrid)
+	m.picks = picks
 	m.loadStep()
 	m.enterPos = 1
 	show("graphics mode (hybrid GPU)", m)
 
 	m = mk()
-	m.idx, m.picks = 7, picks // target-disk picker
+	at(&m, "compositor") // window-manager picker
+	m.picks = picks
+	m.loadStep()
+	m.enterPos = 1
+	show("window manager (the shipped providers)", m)
+
+	m = mk()
+	at(&m, "browser") // browser picker: exactly the three shipped browsers
+	m.picks = picks
+	m.loadStep()
+	m.enterPos = 1
+	show("web browser", m)
+
+	m = mk()
+	at(&m, "login-shell")
+	m.picks = picks
+	m.loadStep()
+	m.enterPos = 1
+	show("login shell", m)
+
+	m = mk()
+	at(&m, "apps") // apps keep/remove checklist, shipped defaults
+	m.picks = picks
+	m.loadStep()
+	m.enterPos = 1
+	show("apps: keep/remove (defaults)", m)
+
+	m = mk()
+	at(&m, "apps") // a curated slim install: the gaming, VM and sharing rows off
+	m.picks = picks
+	m.loadStep()
+	for _, id := range []string{"gamescope", "gamemode", "mangohud", "controllers", "vm", "docker", "flatpak", "yazi", "localsend"} {
+		m.keep[id] = false
+	}
+	for i, r := range m.appsRows() { // park the cursor on a removed row
+		if r.kind == "app" && r.id == "gamescope" {
+			m.alsel = i
+		}
+	}
+	m.appsFixScroll()
+	m.enterPos = 1
+	show("apps: gaming + VM bundles removed", m)
+
+	m = mk()
+	at(&m, "diskpick") // target-disk picker
+	m.picks = picks
 	m.loadStep()
 	m.enterPos = 1
 	show("target disk", m)
 
 	m = mk()
-	m.idx, m.picks = 9, picks // partitions
+	at(&m, "partitions")
+	m.picks = picks
 	m.picks["disk"] = "whole"
 	m.loadStep()
 	m.enterPos, m.lsel = 1, 0
@@ -3490,7 +4055,7 @@ func snapshot() {
 	alongPicks["disk"] = "alongside"
 
 	m = mk()
-	m.idx = 8 // disk strategy
+	at(&m, "disk") // disk strategy
 	dl := diskLayout{parts: ryokuKept, gpt: true, espKind: "ryoku", probeVerdict: "ok"}
 	m.pick = newPicker(diskStrategiesFor(dl), true)
 	m.pick.height, m.picks, m.enterPos = m.listRows(), alongPicks, 1
@@ -3498,7 +4063,7 @@ func snapshot() {
 
 	carve := func() model {
 		c := mk()
-		c.idx, c.picks = 9, alongPicks
+		c.idx, c.picks = flowIndex(c.flow, "partitions"), alongPicks
 		c.diskDev, c.diskTotal, c.diskG = "/dev/loop0", 931, 931
 		c.diskBytes = 953869 * 1024 * 1024
 		c.gpt, c.espKind, c.existingBoot, c.probeVerdict, c.espFreeKiB = true, "ryoku", "none", "ok", 8192
@@ -3518,16 +4083,19 @@ func snapshot() {
 	show("alongside: layout with Shift big-step hint (130 GiB)", m)
 
 	m = carve()
-	m.idx, m.netOnline, m.hwSecureBoot = 14, true, false // review
+	at(&m, "review")
+	m.netOnline, m.hwSecureBoot = true, false
 	show("alongside: review (shared ESP, no erase)", m)
 
 	m = carve()
-	m.idx, m.netOnline, m.hwSecureBoot, m.espFreeKiB = 14, true, false, 6144
+	at(&m, "review")
+	m.netOnline, m.hwSecureBoot, m.espFreeKiB = true, false, 6144
 	m.espKind, m.existingBoot = "windows", "/EFI/Microsoft/Boot/bootmgfw.efi"
 	show("alongside: review (dedicated ESP, existing ESP untouched)", m)
 
 	m = carve()
-	m.idx, m.netOnline, m.hwSecureBoot = 14, true, false
+	at(&m, "review")
+	m.netOnline, m.hwSecureBoot = true, false
 	m.reclaim = []part{
 		{dev: "previous Ryoku", size: 6, fs: "ryoku", status: "reclaim", reclaim: true},
 		{dev: "previous Ryoku", size: 1, fs: "ryokuboot", status: "reclaim", reclaim: true},
@@ -3536,10 +4104,31 @@ func snapshot() {
 	show("alongside: review with reclaimed leftovers", m)
 
 	m = mk()
-	m.idx, m.picks = 12, picks // user password
+	at(&m, "administrator")
+	m.picks = picks
 	m.loadStep()
-	m.enterPos, m.input = 1, "Hunter2!"
-	show("user password (+ strength)", m)
+	m.accounts.adminName, m.accounts.adminFullName = "carlos", "Carlos Rivera"
+	m.accounts.adminField, m.accounts.adminPassword = 2, "Hunter2!"
+	m.enterPos = 1
+	show("administrator account", m)
+
+	m = mk()
+	at(&m, "root-account")
+	m.picks = picks
+	m.loadStep()
+	m.enterPos = 1
+	show("root account (locked, recommended)", m)
+
+	m = mk()
+	at(&m, "other-people")
+	m.picks = picks
+	m.accounts.people = []installerAccount{
+		{Name: "alex", Role: accountRoleAdmin},
+		{Name: "jo", Role: accountRoleStandard},
+	}
+	m.loadStep()
+	m.enterPos = 1
+	show("other people", m)
 
 	m = mk()
 	m.picks, m.state, m.doneSel = picks, "done", 0

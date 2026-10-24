@@ -10,8 +10,8 @@ import "tzmap.js" as Tz
 // The world-map time-zone picker (an Ubuntu-style chooser, Ryoku-toned): a live
 // equirectangular map with a day/night terminator, a dot per zone, click-to-pick
 // the nearest zone, a dropped pin, a fuzzy search, and the selected zone's live
-// local clock. Pure UI: it emits `applied(zone)` and lets the host run the
-// privileged `timedatectl`. Full-page overlay, mirroring PickFile.
+// local clock. Pure UI: it emits `applied(zone)` and lets GlobalPage hand the
+// privileged write to the host time seam. Full-page overlay, mirroring PickFile.
 Item {
     id: tzp
 
@@ -50,9 +50,14 @@ Item {
     }
     function refreshClock() {
         if (!tzp.selected) { tzp.localTime = ""; return; }
-        clockProc.command = ["env", "TZ=" + tzp.selected.tz, "date", "+%H:%M  %Z  UTC%z"];
+        clockProc.command = ["env", "TZ=" + tzp.selected.tz, "date", TimeFormat.is24h ? "+%H:%M  %Z  UTC%z" : "+%-I:%M %p  %Z  UTC%z"];
         clockProc.running = false;
         clockProc.running = true;
+    }
+
+    Connections {
+        target: TimeFormat
+        function onIs24hChanged() { if (tzp.active) tzp.refreshClock(); }
     }
 
     readonly property var results: Tz.search(tzp.zones, tzp.query)

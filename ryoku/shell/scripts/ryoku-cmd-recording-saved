@@ -1,13 +1,12 @@
 #!/bin/bash
 
-# Post-save hook for gpu-screen-recorder's -sc contract: gsr runs this
-# asynchronously once it has finished writing a recording, passing the saved
-# file path ($1) and a type ($2, one of regular|replay|screenshot). It exists
-# because gsr's stop path only learns the final path, size and duration HERE, so
-# this is where the honest "Recording saved" notification belongs instead of
-# ryoku-cmd-screenrecord announcing a save before the file is finalised.
-# wf-recorder has no -sc, so ryoku-cmd-screenrecord invokes this helper itself
-# (same two arguments) after wf exits, keeping one message path for both.
+# Post-save hook: fires the honest "Recording saved" notification once the clip
+# is really on disk, so the size and duration in the toast are real rather than a
+# promise made before the recorder finalised the file. ryoku-cmd-record calls this
+# after gpu-screen-recorder exits, passing the saved file path ($1) and a type
+# ($2, one of regular|replay|screenshot). Kept a separate helper so the
+# notification (with its Open / Show in folder / Copy path actions) has one home
+# for every capture path.
 
 set -euo pipefail
 

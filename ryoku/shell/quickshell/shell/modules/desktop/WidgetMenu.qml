@@ -3,56 +3,91 @@ import QtQuick
 import Quickshell
 import "Singletons"
 import Ryoku.Ui.Singletons
-// namespaced: shell.services also has a Config, and an unqualified import of it
-// shadowed this menu's own, leaving every widget toggle reading undefined.
-import shell.services as Services
-import "../visualizer/Singletons" as VizCfg
+import "iris/IrisRoster.js" as IrisRoster
+import "python/PythonRoster.js" as PythonRoster
+import "ii/IiRoster.js" as IiRoster
+import "ii/IiQuickControls.js" as IiQuickControls
 import "../stage/Singletons" as StageCfg
+import "../visualizer/Singletons" as VizCfg
+import stage.modules.common.functions as StageFunctions
+import stage.modules.common as StageCommon
 
-// The desktop right-click menu, built on the shared DesktopMenu chrome in the
-// quick-settings sidebar idiom. Two scopes:
-//   right-click bare desktop = desktop menu (show/hide the clock, settings,
-//     reload)
-//   right-click a widget     = its menu (cycle design, toggle date, lock, snap
-//     to a compass zone, hide) + the same globals
-// Every action writes the same widgets Config the drag and Ryoku Settings do.
+// A desktop widget's right-click menu, built on the shared DesktopMenu chrome in
+// the quick-settings sidebar idiom: a short card that names the widget, offers
+// its quick knobs -- Style, Size, Lock -- then a primary Customize row that opens
+// the widget inspector for everything else (colour, shape, snap and the widget's
+// own options), Hide, and the shell globals (Settings, Reload). The full control
+// set moved to WidgetInspector so this menu stays short; both write the same
+// widgets Config the drag and Ryoku Settings do. The bare-wallpaper right-click
+// is a separate surface, DesktopContextMenu.
 Item {
     id: menu
 
     anchors.fill: parent
 
-    property string scope: "desktop"   // desktop | clock
+    // Exposed so the host menu surface maps only while this menu is on screen.
+    readonly property bool showing: shell.showing
+
+    // Raised when Customize is chosen; the desktop layer opens the inspector.
+    signal customizeRequested(string widget)
+
+    property string scope: "desktop"   // desktop | clock | ...
+    property string monitor: ""
+    // The wallpaper of the monitor whose right-click opened this menu; the
+    // Depth row gates on it, so the lift is offered only where the scene has
+    // cut-outs. Set by the owning desktop with openFor.
+    property string wall: ""
 
     readonly property bool isWidget: menu.scope !== "desktop"
-    readonly property bool isClock: menu.scope === "clock"
+    // The visualiser is a framed widget like the rest, but its store is its
+    // own: no per-widget lock, no scale (the grip sizes its box), and a look
+    // catalogue walked through the visualiser config rather than a design ladder.
+    readonly property bool isVisualizer: menu.scope === "visualizer"
+    readonly property bool isStats: menu.scope === "stats"
+    readonly property bool isNotes: menu.scope === "notes"
     readonly property bool isCalendar: menu.scope === "calendar"
     readonly property bool isMusic: menu.scope === "music"
     readonly property bool isAio: menu.scope === "aio"
-    readonly property bool isStats: menu.scope === "stats"
-    readonly property bool isWeather: menu.scope === "weather"
-    readonly property bool isNotes: menu.scope === "notes"
-    // only offer to place the spectrum when it is actually running
-    readonly property bool vizOn: VizCfg.Config.enabled
-    readonly property bool locked: menu.isWidget ? Config[menu.scope + "Locked"] : false
-    readonly property string curAnchor: menu.isWidget ? Config[menu.scope + "Anchor"] : ""
-    // clock faces persist as <scope>Design; the calendar and the music sheet
-    // persist their look as <scope>Style.
-    readonly property string designKey: menu.isCalendar || menu.isMusic || menu.isAio
-        ? menu.scope + "Style" : menu.scope + "Design"
-    // A widget with one look (notes, stats) has no design key at all, so the
-    // lookup must resolve to a string rather than undefined.
-    readonly property string curDesign: menu.isWidget ? (Config[menu.designKey] ?? "") : ""
-    // ink colour of the open widget: "" follows the wallpaper (Auto), a hex is a
-    // solid, and Gradient blends <scope>Color -> <scope>Color2 across the glyphs.
-    readonly property string curColor: menu.isWidget ? (Config[menu.scope + "Color"] || "") : ""
-    readonly property bool curGradient: menu.isWidget ? (Config[menu.scope + "Gradient"] === true) : false
-    readonly property string colorMode: menu.curColor === "" ? "auto" : (menu.curGradient ? "gradient" : "solid")
+    readonly property bool isDayprogress: menu.scope === "dayprogress"
+    readonly property bool isShape: menu.scope === "shape"
+    readonly property bool locked: menu.isWidget && !menu.isVisualizer
+        ? Config[menu.scope + "Locked"] : false
+    // The stage lift (docs/stage.md): Depth offers this widget a place above
+    // every in-front cut-out; the row only shows while the wall cuts a subject.
+    readonly property bool stageActive: menu.wall !== ""
+        && StageCfg.StageBackend.isActiveFor(menu.wall)
+    readonly property bool lifted: StageCfg.Config.isFront(menu.scope)
 
-    readonly property var zones: [
-        { "zone": "top-left", "glyph": "\u2196" }, { "zone": "top", "glyph": "\u2191" }, { "zone": "top-right", "glyph": "\u2197" },
-        { "zone": "left", "glyph": "\u2190" }, { "zone": "center", "glyph": "\u2299" }, { "zone": "right", "glyph": "\u2192" },
-        { "zone": "bottom-left", "glyph": "\u2199" }, { "zone": "bottom", "glyph": "\u2193" }, { "zone": "bottom-right", "glyph": "\u2198" }
-    ]
+    // clock faces persist as <scope>Design; the calendar and the music sheet
+    // persist their look as <scope>Style; shape as <scope>Kind.
+    readonly property string designKey: menu.isCalendar || menu.isMusic || menu.isAio || menu.isDayprogress
+        ? menu.scope + "Style"
+        : menu.isShape ? menu.scope + "Kind"
+        : menu.scope + "Design"
+    readonly property string curDesign: menu.isWidget ? (Config[menu.designKey] ?? "") : ""
+
+    // Vendored face libraries hosted in Ryoku's slot: roster metadata, their
+    // upstream/Ryoku skin toggle, and the face-specific preset ladder.
+    readonly property var irisFace: IrisRoster.byPrefix(menu.scope)
+    readonly property bool isIris: menu.irisFace !== null
+    readonly property var pythonFace: PythonRoster.byPrefix(menu.scope)
+    readonly property bool isPython: menu.pythonFace !== null
+    readonly property var iiFace: IiRoster.byPrefix(menu.scope)
+    readonly property bool isIi: menu.iiFace !== null
+    readonly property var hostedFace: menu.isIris ? menu.irisFace
+        : menu.isPython ? menu.pythonFace : menu.iiFace
+    readonly property bool isHosted: menu.isIris || menu.isPython || menu.isIi
+    // The ii faces keep their own look always (they read the stage's option
+    // store); the Style row only exists for the libraries that carry a Ryoku
+    // skin: iris and python.
+    readonly property bool isRyokuStyle: (menu.isIris || menu.isPython)
+        && Config[menu.scope + "Style"] === "ryoku"
+    readonly property string curIrisSize: menu.isIris ? (Config[menu.scope + "Size"] || menu.irisFace.sizes[0]) : ""
+    readonly property string curPythonVariant: menu.isPython ? (Config[menu.scope + "Variant"] || menu.pythonFace.variants[0]) : ""
+    readonly property var facePresets: menu.isIris ? menu.irisFace.sizes
+        : menu.isPython ? menu.pythonFace.variants : []
+    readonly property string facePresetKey: menu.scope + (menu.isPython ? "Variant" : "Size")
+    readonly property string curFacePreset: menu.isPython ? menu.curPythonVariant : menu.curIrisSize
 
     // the kanji seal each scope carries in the menu masthead (docs/ui-ux.md).
     readonly property var glosses: ({
@@ -63,366 +98,316 @@ Item {
         "aio": "一体",
         "stats": "計測",
         "weather": "天気",
-        "notes": "筆記"
+        "notes": "筆記",
+        "dayprogress": "経過",
+        "shape": "図形"
     })
 
-    function openFor(widget, x, y) { menu.scope = widget; shell.px = x; shell.py = y; shell.open = true; }
-    function openDesktop(x, y) { menu.scope = "desktop"; shell.px = x; shell.py = y; shell.open = true; }
+    // Human names for the built-in scopes; the masthead never shows a raw key.
+    readonly property var builtinLabels: ({
+        clock: "Clock", calendar: "Calendar", music: "Music", aio: "All-in-one",
+        stats: "System stats", weather: "Weather", notes: "Notes",
+        dayprogress: "Day Progress", shape: "Shape"
+    })
+
+    // the widgets that cycle through a set of looks from the quick Style row; the
+    // rest (stats, notes) have a single look and skip the row.
+    readonly property var designLists: ({
+        clock: ["digital", "minimal", "grand", "column", "outline", "banner", "analog", "flip", "rings", "bighour", "metal", "goodnight"],
+        calendar: ["glass", "paper"],
+        music: ["cover", "glass"],
+        aio: ["wide", "tall"],
+        weather: ["compact", "full"],
+        dayprogress: ["ring", "arc"],
+        shape: ["dot", "ring", "diamond", "square"]
+    })
+    readonly property bool hasDesign: menu.isWidget && !menu.isIris && !menu.isPython && !menu.isIi
+        && (menu.designLists[menu.scope] !== undefined)
+
+    // The source menu and resize grip share the same named detents.
+    readonly property real curScale: menu.isWidget
+        ? (Config.get(menu.scope + "Scale", menu.monitor) || 1) : 1
+    readonly property real scaleStep: StageFunctions.EditModeLogic.nearestSizeStep(menu.curScale)
+    readonly property bool canGrow: StageFunctions.EditModeLogic.steppedScale(menu.curScale, 1) !== null
+    readonly property bool canShrink: StageFunctions.EditModeLogic.steppedScale(menu.curScale, -1) !== null
+    readonly property var iiControls: menu.isIi
+        ? IiQuickControls.forWidget(menu.iiFace.id) : []
+
+    function iiControlStore() {
+        if (!menu.isIi)
+            return null;
+        let store = StageCommon.Config.options;
+        const parts = String(IiQuickControls.storeFor(menu.iiFace.id)).split(".");
+        for (let i = 0; i < parts.length && store !== undefined && store !== null; i++)
+            store = store[parts[i]];
+        return store;
+    }
+    function iiControlValue(control) {
+        if (!control)
+            return undefined;
+        let value = menu.iiControlStore();
+        const parts = String(control.key).split(".");
+        for (let i = 0; i < parts.length && value !== undefined && value !== null; i++)
+            value = value[parts[i]];
+        return value === undefined || value === null ? control.def : value;
+    }
+    function iiControlChoiceLabel(control, value) {
+        const choices = control?.choices ?? [];
+        for (let i = 0; i < choices.length; i++)
+            if (choices[i].value === value)
+                return I18n.tr(choices[i].label);
+        return choices.length > 0 ? I18n.tr(choices[0].label) : "";
+    }
+    function setIiControlValue(control, value) {
+        if (!StageCommon.Config.ready || !control)
+            return;
+        let target = menu.iiControlStore();
+        const parts = String(control.key).split(".");
+        for (let i = 0; i < parts.length - 1; i++) {
+            if (target === undefined || target === null)
+                return;
+            target = target[parts[i]];
+        }
+        if (target !== undefined && target !== null)
+            target[parts[parts.length - 1]] = value;
+    }
+    function triggerIiControl(control) {
+        const current = menu.iiControlValue(control);
+        if (control.type === "toggle") {
+            menu.setIiControlValue(control, current !== true);
+            return;
+        }
+        const choices = control.choices ?? [];
+        if (choices.length === 0)
+            return;
+        let index = -1;
+        for (let i = 0; i < choices.length; i++) {
+            if (choices[i].value === current) {
+                index = i;
+                break;
+            }
+        }
+        menu.setIiControlValue(control, choices[(index + 1) % choices.length].value);
+    }
+
+    function openFor(widget, x, y, wall) { menu.scope = widget; menu.wall = wall; shell.px = x; shell.py = y; shell.open = true; }
     function close() { shell.open = false; }
     function cap(s) { return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
     function cycleDesign() {
-        const lists = {
-            clock: ["digital", "minimal", "grand", "column", "outline", "banner", "analog", "flip", "rings", "bighour", "metal", "goodnight"],
-            calendar: ["glass", "paper"],
-            music: ["cover", "glass"],
-            aio: ["wide", "tall"],
-            weather: ["compact", "full"]
-        };
-        const d = lists[menu.scope];
+        const d = menu.designLists[menu.scope];
         if (!d)
             return;
         Config.set(menu.designKey, d[(d.indexOf(Config[menu.designKey]) + 1) % d.length]);
     }
-    // "#RRGGBB" for a colour, the syntax widgets.json stores.
-    function hexOf(c) {
-        return "#" + [c.r, c.g, c.b].map(function (x) {
-            const s = Math.round(x * 255).toString(16);
-            return s.length === 1 ? "0" + s : s;
-        }).join("").toUpperCase();
-    }
-    // Auto clears the pin; Solid/Gradient need a base, so seed the wallpaper
-    // accent (and a lighter twin for the second stop) when coming from Auto.
-    function setColorMode(m) {
-        if (m === "auto") {
-            Config.set(menu.scope + "Color", "");
-            Config.set(menu.scope + "Gradient", false);
+    function cycleFacePreset() {
+        const presets = menu.facePresets;
+        if (!presets || presets.length < 2)
             return;
-        }
-        if (menu.curColor === "")
-            Config.set(menu.scope + "Color", menu.hexOf(Scheme.accent));
-        if (m === "gradient") {
-            if ((Config[menu.scope + "Color2"] || "") === "")
-                Config.set(menu.scope + "Color2", menu.hexOf(Qt.lighter(Scheme.accent, 1.5)));
-            Config.set(menu.scope + "Gradient", true);
-        } else {
-            Config.set(menu.scope + "Gradient", false);
-        }
+        const current = presets.indexOf(menu.curFacePreset);
+        Config.set(menu.facePresetKey, presets[(current + 1) % presets.length]);
+    }
+    function stepScale(direction) {
+        const next = StageFunctions.EditModeLogic.steppedScale(menu.curScale, direction);
+        if (next !== null)
+            Config.setFor(menu.monitor, menu.scope + "Scale", next);
+    }
+    function resetScale() {
+        Config.setFor(menu.monitor, menu.scope + "Scale", 1);
     }
     function openSettings() {
-        Spawn.run(["sh", "-c", "ryoku-hub config set section widgets; flock -n -o /tmp/ryoku-hub.lock qs -c hub"]);
+        Spawn.run(["ryoku-shell", "hub", "open"]);
         menu.close();
     }
     function refreshShell() {
         Quickshell.execDetached(["ryoku-shell", "reload"]);
         menu.close();
     }
-    function videoLabel(v) { return v === "canvas" ? "Spotify Canvas" : v === "custom" ? "Custom" : "Off"; }
-    function videoName(p) {
-        if (!p || p.length === 0)
-            return "None";
-        const s = ("" + p).replace(/\/+$/, "");
-        return decodeURIComponent(s.slice(s.lastIndexOf("/") + 1));
-    }
-    function cycleVideo() {
-        const d = ["off", "canvas", "custom"];
-        Config.set("musicVideo", d[(d.indexOf(Config.musicVideo) + 1) % d.length]);
-    }
-    // The three editors and the visualizer's own editor (docs/stage.md, "The
-    // desktop right-click menu"). Sessions open on the monitor the menu is on.
-    function activeMonitor() {
-        const st = Services.ShellState.forActive();
-        return (st && st.modelData) ? st.modelData.name : "";
-    }
-    function editWidgets() {
-        StageCfg.StageSession.enterWidgets(menu.activeMonitor());
-        menu.close();
-    }
-    // Every Depth and Parallax setting lives on the Stage tab of Super+Esc;
-    // "#stage" deep-links the panel there (FrameMenuManager.openSurface).
-    function depthSettings() {
-        Services.ShellState.requestSurfaceActive("quick-settings#stage", undefined);
-        menu.close();
-    }
-    function customizeVisualizer() {
-        const st = Services.ShellState.forActive();
-        if (!st)
-            return;
-        if (!VizCfg.Config.enabled)
-            VizCfg.Config.setEnabled(true);
-        st.visualizerPlacing = true;
-        menu.close();
-    }
-    // Depth off drops Parallax with it; Parallax on turns Depth on with it.
-    readonly property string stageEffect: StageCfg.StageBackend.effect
-    readonly property bool stageBusy: StageCfg.StageBackend.busy
-    readonly property int stagePct: StageCfg.StageBackend.percent
-    function toggleDepth() {
-        StageCfg.StageBackend.setEffect(menu.stageEffect === "off" ? "depth" : "off");
-    }
-    function toggleParallax() {
-        StageCfg.StageBackend.setEffect(menu.stageEffect === "parallax" ? "depth" : "parallax");
-    }
-    function changeWallpaper() {
-        Services.ShellState.requestSurfaceActive("wallpaper", null);
-        menu.close();
+
+    component ScaleButton: Rectangle {
+        id: scaleButton
+        property string symbol: ""
+        property bool available: true
+        signal activated()
+        width: 26
+        height: 26
+        radius: 6
+        color: scaleMouse.pressed ? Theme.tilePress
+            : scaleMouse.containsMouse ? Theme.tileHover : "transparent"
+        border.width: 1
+        border.color: scaleButton.available ? Theme.lineStrong : Theme.line
+        opacity: scaleButton.available ? 1 : 0.38
+        Text {
+            anchors.centerIn: parent
+            text: scaleButton.symbol
+            color: Theme.ink
+            font.family: Theme.font
+            font.pixelSize: 17
+            font.weight: Font.DemiBold
+        }
+        MouseArea {
+            id: scaleMouse
+            anchors.fill: parent
+            enabled: scaleButton.available
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: scaleButton.activated()
+        }
     }
 
     DesktopMenu {
         id: shell
-        title: menu.scope
-        gloss: menu.glosses[menu.scope] || ""
+        title: menu.isHosted ? I18n.tr(menu.hostedFace.label)
+            : I18n.tr(menu.builtinLabels[menu.scope] || menu.cap(menu.scope))
+        gloss: menu.glosses[menu.scope] || (menu.isHosted ? menu.hostedFace.gloss : "")
 
-        // ── desktop scope ──────────────────────────────────────────────
+        // ── quick knobs ────────────────────────────────────────────────
+        // Native widgets cycle their look; hosted faces flip between their
+        // upstream skin and Ryoku's backing. Everything finer opens Customize.
         MenuRow {
-            visible: !menu.isWidget
-            label: I18n.tr("Edit widgets")
-            onTriggered: menu.editWidgets()
-        }
-        MenuRow {
-            visible: !menu.isWidget
-            label: I18n.tr("Customize visualizer")
-            onTriggered: menu.customizeVisualizer()
-        }
-        MenuRow {
-            visible: !menu.isWidget
-            label: I18n.tr("Change wallpaper")
-            closeOnTrigger: false
-            onTriggered: menu.changeWallpaper()
-        }
-
-        // ── widget scope ───────────────────────────────────────────────
-        MenuRow {
-            visible: menu.isWidget && !menu.isStats && !menu.isNotes
-            label: I18n.tr("Design")
+            visible: menu.hasDesign
+            label: I18n.tr("Style")
             value: menu.cap(menu.curDesign)
             closeOnTrigger: false
             onTriggered: menu.cycleDesign()
         }
         MenuRow {
-            visible: menu.isClock
-            label: I18n.tr("Date")
-            value: Config.dateShow ? "On" : "Off"
-            on: Config.dateShow
+            visible: menu.isIris || menu.isPython
+            label: I18n.tr("Style")
+            value: menu.isRyokuStyle ? "Ryoku" : "Original"
+            on: menu.isRyokuStyle
             closeOnTrigger: false
-            onTriggered: Config.toggle("dateShow")
+            onTriggered: Config.set(menu.scope + "Style",
+                menu.isRyokuStyle ? (menu.isPython ? "serp" : "inir") : "ryoku")
         }
         MenuRow {
-            visible: menu.isMusic
-            label: I18n.tr("Lyrics")
-            value: Config.musicLyrics ? "On" : "Off"
-            on: Config.musicLyrics
+            visible: (menu.isIris || menu.isPython) && menu.facePresets.length > 1
+            label: menu.isPython ? I18n.tr("Variant") : I18n.tr("Face size")
+            value: menu.cap(menu.curFacePreset)
             closeOnTrigger: false
-            onTriggered: Config.toggle("musicLyrics")
+            onTriggered: menu.cycleFacePreset()
         }
         MenuRow {
-            visible: menu.isMusic
-            label: I18n.tr("Visualiser")
-            value: Config.musicViz === "wave" ? "Wave" : "Bars"
-            on: Config.musicViz === "wave"
+            visible: menu.isVisualizer
+            label: I18n.tr("Style")
+            value: menu.cap(VizCfg.Config.styleId)
             closeOnTrigger: false
-            onTriggered: Config.set("musicViz", Config.musicViz === "wave" ? "bars" : "wave")
+            onTriggered: VizCfg.Config.cycleStyle(1)
+        }
+        Repeater {
+            model: menu.iiControls
+            delegate: MenuRow {
+                id: iiQuickRow
+                required property var modelData
+                readonly property var controlValue: menu.iiControlValue(iiQuickRow.modelData)
+                label: I18n.tr(iiQuickRow.modelData.label)
+                value: iiQuickRow.modelData.type === "toggle"
+                    ? I18n.tr(iiQuickRow.controlValue === true ? "On" : "Off")
+                    : menu.iiControlChoiceLabel(iiQuickRow.modelData, iiQuickRow.controlValue)
+                on: iiQuickRow.modelData.type === "toggle"
+                    && iiQuickRow.controlValue === true
+                closeOnTrigger: false
+                onTriggered: menu.triggerIiControl(iiQuickRow.modelData)
+            }
+        }
+        Item {
+            visible: menu.isWidget && !menu.isVisualizer
+            width: parent ? parent.width : 0
+            implicitHeight: 34
+
+            Rectangle {
+                anchors.fill: parent
+                radius: 6
+                color: "transparent"
+                border.width: 1
+                border.color: Theme.line
+            }
+            MouseArea {
+                anchors.fill: parent
+            }
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: 9
+                anchors.verticalCenter: parent.verticalCenter
+                text: I18n.tr("Size")
+                color: Theme.inkSoft
+                font.family: Theme.font
+                font.pixelSize: 13
+                font.weight: Font.DemiBold
+            }
+            Row {
+                anchors.right: parent.right
+                anchors.rightMargin: 4
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 5
+                ScaleButton {
+                    symbol: "−"
+                    available: menu.canShrink
+                    onActivated: menu.stepScale(-1)
+                }
+                Text {
+                    width: 42
+                    height: 26
+                    verticalAlignment: Text.AlignVCenter
+                    horizontalAlignment: Text.AlignHCenter
+                    text: Math.round(menu.scaleStep * 100) + "%"
+                    color: Theme.inkDim
+                    font.family: Theme.mono
+                    font.pixelSize: 11
+                    font.weight: Font.Medium
+                }
+                ScaleButton {
+                    symbol: "+"
+                    available: menu.canGrow
+                    onActivated: menu.stepScale(1)
+                }
+            }
         }
         MenuRow {
-            visible: menu.isMusic
-            label: I18n.tr("Canvas")
-            value: Config.musicShape === "tall" ? "9:16" : "Wide"
-            on: Config.musicShape === "tall"
+            visible: menu.isWidget && !menu.isVisualizer
+                && Math.abs(menu.curScale - 1) > 0.001
+            label: I18n.tr("Reset size")
+            icon: "fit_screen"
             closeOnTrigger: false
-            onTriggered: Config.set("musicShape", Config.musicShape === "tall" ? "wide" : "tall")
+            onTriggered: menu.resetScale()
         }
         MenuRow {
-            visible: menu.isMusic
-            label: I18n.tr("Backdrop")
-            value: menu.videoLabel(Config.musicVideo)
-            on: Config.musicVideo !== "off"
-            closeOnTrigger: false
-            onTriggered: menu.cycleVideo()
-        }
-        MenuRow {
-            visible: menu.isMusic
-            label: I18n.tr("Video / GIF…")
-            value: menu.videoName(Config.musicVideoFile)
-            onTriggered: videoPicker.open = true
-        }
-        MenuRow {
-            visible: menu.isWidget
+            visible: menu.isWidget && !menu.isVisualizer
             label: I18n.tr("Lock")
             value: menu.locked ? "On" : "Off"
             on: menu.locked
             closeOnTrigger: false
             onTriggered: Config.toggle(menu.scope + "Locked")
         }
-
-        // Size + Opacity: discoverable equivalents of the corner-drag resize and
-        // Ryoku Settings' opacity, targeting whichever widget the menu is open
-        // for. Both scrub live and persist on release.
-        MenuSection { visible: menu.isWidget; label: I18n.tr("Adjust"); gloss: "調整" }
-        MenuSlider {
-            id: sizeSlider
-            visible: menu.isWidget
-            label: I18n.tr("Size")
-            from: 0.5
-            to: 2.5
-            step: 0.02
-            value: menu.isWidget ? Config[menu.scope + "Scale"] : 1
-            valueText: Math.round(sizeSlider.value * 100) + "%"
-            onMoved: (v) => Config.setLive(menu.scope + "Scale", v)
-            onReleased: (v) => Config.set(menu.scope + "Scale", v)
-        }
-        MenuSlider {
-            id: opacitySlider
-            visible: menu.isWidget
-            label: I18n.tr("Opacity")
-            from: 0.2
-            to: 1.0
-            step: 0.01
-            value: menu.isWidget ? Config[menu.scope + "Opacity"] : 1
-            valueText: Math.round(opacitySlider.value * 100) + "%"
-            onMoved: (v) => Config.setLive(menu.scope + "Opacity", v)
-            onReleased: (v) => Config.set(menu.scope + "Opacity", v)
+        MenuRow {
+            visible: menu.isWidget && menu.stageActive
+            label: I18n.tr("Depth")
+            value: menu.lifted ? I18n.tr("In front") : I18n.tr("Behind")
+            on: menu.lifted
+            closeOnTrigger: false
+            onTriggered: StageCfg.Config.setFront(menu.scope, !menu.lifted)
         }
 
-        // Colour: the widget's ink follows the wallpaper (Auto), a solid pin, or
-        // an A->B gradient -- the same model the visualiser wears. Solid/Gradient
-        // reveal a compact picker; edits scrub live and persist on release.
-        MenuSection { visible: menu.isWidget; label: I18n.tr("Colour"); gloss: "彩色" }
-        Item {
+        // ── customize ──────────────────────────────────────────────────
+        // The primary action: the widget inspector docks beside the widget with
+        // its colour, shape, placement and own option groups on tabs.
+        MenuRow {
             visible: menu.isWidget
-            width: parent.width
-            implicitHeight: menu.isWidget ? colorCol.implicitHeight : 0
-            Column {
-                id: colorCol
-                width: parent.width
-                spacing: Theme.s1
-                Row {
-                    id: modeRow
-                    width: parent.width
-                    spacing: Theme.s1
-                    readonly property real cw: (width - 2 * Theme.s1) / 3
-                    MenuChip {
-                        width: modeRow.cw; height: Theme.ctlH
-                        label: I18n.tr("Auto"); selected: menu.colorMode === "auto"
-                        onClicked: menu.setColorMode("auto")
-                    }
-                    MenuChip {
-                        width: modeRow.cw; height: Theme.ctlH
-                        label: I18n.tr("Solid"); selected: menu.colorMode === "solid"
-                        onClicked: menu.setColorMode("solid")
-                    }
-                    MenuChip {
-                        width: modeRow.cw; height: Theme.ctlH
-                        label: I18n.tr("Gradient"); selected: menu.colorMode === "gradient"
-                        onClicked: menu.setColorMode("gradient")
-                    }
-                }
-                MenuColorPicker {
-                    width: parent.width
-                    visible: menu.colorMode !== "auto"
-                    scope: menu.scope
-                    gradient: menu.colorMode === "gradient"
-                }
-            }
+            label: I18n.tr("Customize…")
+            icon: "tune"
+            accent: true
+            onTriggered: menu.customizeRequested(menu.scope)
         }
-
-        MenuSection { visible: menu.isWidget; label: I18n.tr("Snap"); gloss: "位置" }
-
-        // One placement control: an Auto lane above a square 3x3 compass whose
-        // centre cell is the centre zone. Auto lands the widget on the
-        // wallpaper's calmest region and re-follows every wallpaper change; Free
-        // is the implicit dragged state, so it has no cell of its own.
-        Item {
-            visible: menu.isWidget
-            width: parent.width
-            implicitHeight: menu.isWidget ? placer.implicitHeight : 0
-            Column {
-                id: placer
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: Theme.s1
-                readonly property real cellSize: Theme.s6
-                readonly property real span: placer.cellSize * 3 + Theme.s1 * 2
-                MenuChip {
-                    label: I18n.tr("Auto")
-                    width: placer.span
-                    height: Theme.ctlH
-                    selected: menu.curAnchor === "auto"
-                    onClicked: { Config.setAnchor(menu.scope, "auto"); menu.close(); }
-                }
-                Grid {
-                    columns: 3
-                    spacing: Theme.s1
-                    Repeater {
-                        model: menu.zones
-                        MenuChip {
-                            id: zoneCell
-                            required property var modelData
-                            width: placer.cellSize
-                            height: placer.cellSize
-                            selected: menu.curAnchor === zoneCell.modelData.zone
-                            onClicked: { Config.setAnchor(menu.scope, zoneCell.modelData.zone); menu.close(); }
-                            Text {
-                                anchors.centerIn: parent
-                                text: zoneCell.modelData.glyph
-                                color: zoneCell.contentColor
-                                font.family: Theme.font
-                                font.pixelSize: Theme.fSmall
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         MenuRow {
             visible: menu.isWidget
             label: I18n.tr("Hide")
-            onTriggered: Config.set(menu.scope + "Enabled", false)
-        }
-
-        // ── the two Stage switches, side by side (docs/stage.md) ────────
-        // The menu's own choice chips: a bone plate when the effect is on, a
-        // quiet tile when off, the state spelled out in the label.
-        MenuSection {}
-        Row {
-            id: stageRow
-            visible: !menu.isWidget
-            width: parent.width
-            spacing: Theme.s1
-            readonly property real cw: (width - Theme.s1) / 2
-            MenuChip {
-                width: stageRow.cw
-                height: Theme.ctlH + 6
-                selected: menu.stageEffect !== "off"
-                label: I18n.tr("Depth") + " \u00b7 " + (menu.stageBusy ? (menu.stagePct + "%")
-                    : menu.stageEffect !== "off" ? I18n.tr("On") : I18n.tr("Off"))
-                onClicked: menu.toggleDepth()
-            }
-            MenuChip {
-                width: stageRow.cw
-                height: Theme.ctlH + 6
-                selected: menu.stageEffect === "parallax"
-                label: I18n.tr("Parallax") + " \u00b7 " + (menu.stageEffect === "parallax" ? I18n.tr("On") : I18n.tr("Off"))
-                onClicked: menu.toggleParallax()
-            }
-        }
-
-        MenuRow {
-            visible: !menu.isWidget
-            label: I18n.tr("Depth settings…")
-            onTriggered: menu.depthSettings()
+            onTriggered: menu.isVisualizer ? VizCfg.Config.setEnabled(false)
+                : Config.set(menu.scope + "Enabled", false)
         }
 
         // ── globals ────────────────────────────────────────────────────
         MenuSection {}
-        MenuRow { label: I18n.tr("Settings"); accent: true; closeOnTrigger: false; onTriggered: menu.openSettings() }
+        MenuRow { label: I18n.tr("Settings"); closeOnTrigger: false; onTriggered: menu.openSettings() }
         MenuRow { label: I18n.tr("Reload shell"); closeOnTrigger: false; onTriggered: menu.refreshShell() }
-    }
-
-    MusicVideoPicker {
-        id: videoPicker
-        onChose: (url) => {
-            Config.set("musicVideoFile", url);
-            Config.set("musicVideo", "custom");
-        }
     }
 }

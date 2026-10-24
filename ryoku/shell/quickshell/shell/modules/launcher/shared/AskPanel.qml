@@ -1,134 +1,86 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
-import Quickshell.Io
+import shell.services as Svc
+import "../../../services" as Services
 import "Singletons"
 import Ryoku.Ui.Singletons
 
-// Quick-ask body panel for the "\" prefix: a terse question to the Rashin
-// agent (hermes), answered inline. `ryoku-rashin ask` streams marker lines;
-// while the agent works a pulsing dot names the step (tool title / thinking /
-// writing) and two live options sit under it: CONTINUE IN DASHBOARD (watch the
-// same turn there while it keeps running) and CANCEL. The finished answer is
-// selectable text over action chips: COPY, every entity the daemon detected
-// (files edit in nvim, folders open, URLs browse, commands and colors copy),
-// then DASHBOARD. "\resume" lists recent asks and recalls a cached answer with
-// its chips intact, no model call. Chips and the resume list walk with the
-// arrow keys and fire with ENTER.
 Item {
     id: root
 
     property real s: 1
     property string question: ""
-
-    // idle -> working -> done | failed ; resume is a separate list mode
-    property string phase: "idle"
-    property bool resumeMode: false
-    property var recent: []      // [{q,a,at,images,actions}]
-
-    property string working: ""
-    property string answerText: ""
-    property var answerImages: []
-    property var answerActions: []
-    property string errorText: ""
-    property bool permPending: false
-    property bool fromHistory: false
-    property string askedQuestion: ""
+    property alias phase: askSession.phase
+    property alias resumeMode: askSession.recentOpen
+    property alias recent: askSession.recent
+    property alias working: askSession.working
+    property alias answerText: askSession.answerText
+    property alias answerImages: askSession.answerImages
+    property alias answerActions: askSession.answerActions
+    property alias answerId: askSession.answerId
+    property alias needsAgent: askSession.needsAgent
+    property alias needsAgentReason: askSession.needsAgentReason
+    property alias errorText: askSession.errorText
+    property alias fromHistory: askSession.fromHistory
+    property alias askedQuestion: askSession.askedQuestion
     property int selectedChip: 0
     property int selectedRecent: 0
     property string flash: ""
+    readonly property bool motionAllowed: !Tokens.reduceMotion && !Motion.reduce
 
-    readonly property bool busy: phase === "working"
-    readonly property bool answerCurrent: phase === "done" && (fromHistory || question.trim() === askedQuestion)
-
-    // Working-phase actions and answer chips share the selection model.
+    readonly property bool busy: askSession.busy
+    readonly property bool answerCurrent: askSession.answerCurrent
     readonly property var workChips: [
-        { kind: "dash", value: "", label: I18n.tr("CONTINUE IN DASHBOARD") },
+        { kind: "chat", value: "", label: I18n.tr("CONTINUE IN CHAT") },
         { kind: "cancel", value: "", label: I18n.tr("CANCEL") }
     ]
     readonly property var chips: {
         if (busy)
             return workChips;
-        if (permPending)
-            return [{ kind: "dash", value: "", label: I18n.tr("APPROVE IN DASHBOARD") }];
         if (phase !== "done")
             return [];
-        var c = [{ kind: "copy", value: answerText, label: I18n.tr("COPY") }];
-        for (var i = 0; i < answerActions.length; i++)
-            c.push(answerActions[i]);
-        c.push({ kind: "dash", value: "", label: I18n.tr("DASHBOARD") });
-        return c;
+        const result = [];
+        if (needsAgent)
+            result.push({ kind: "chat", value: "", label: I18n.tr("OPEN CHAT") });
+        result.push({ kind: "copy", value: answerText, label: I18n.tr("COPY") });
+        for (let i = 0; i < answerActions.length; i++)
+            result.push(answerActions[i]);
+        if (!needsAgent)
+            result.push({ kind: "chat", value: "", label: I18n.tr("OPEN CHAT") });
+        return result;
     }
 
     signal finished()
 
     implicitHeight: col.implicitHeight
 
+    Services.AskSession {
+        id: askSession
+        question: root.question
+        onAnswered: root.selectedChip = 0
+    }
+
     function reset() {
-        askProc.running = false;
-        phase = "idle";
-        resumeMode = false;
-        recent = [];
-        working = "";
-        answerText = "";
-        answerImages = [];
-        answerActions = [];
-        errorText = "";
-        permPending = false;
-        fromHistory = false;
-        askedQuestion = "";
+        askSession.reset();
         selectedChip = 0;
         selectedRecent = 0;
         flash = "";
     }
 
-    // run() decides: "\resume" (or "\resume <text>") opens the recall list;
-    // anything else asks.
     function run() {
-        if (busy)
-            return;
-        var q = question.trim();
-        if (q === "resume" || q === "recent") {
-            openResume();
-            return;
-        }
-        if (q.length === 0)
-            return;
-        answerText = "";
-        answerImages = [];
-        answerActions = [];
-        errorText = "";
-        permPending = false;
-        fromHistory = false;
-        flash = "";
         selectedChip = 0;
-        resumeMode = false;
-        askedQuestion = q;
-        working = I18n.tr("waking the needle");
-        phase = "working";
-        askProc.command = ["ryoku-rashin", "ask", q];
-        askProc.running = true;
+        askSession.ask(root.question);
     }
 
     function openResume() {
-        resumeMode = true;
-        phase = "idle";
         selectedRecent = 0;
-        recentProc.command = ["ryoku-rashin", "ask", "--recent"];
-        recentProc.running = true;
+        askSession.requestRecent();
     }
 
-    // recall a stored ask into the normal answer view, chips and all
     function loadRecent(rec) {
-        answerText = String(rec.a || "");
-        answerImages = rec.images || [];
-        answerActions = rec.actions || [];
-        askedQuestion = String(rec.q || "");
-        fromHistory = true;
-        resumeMode = false;
-        permPending = false;
+        askSession.loadRecent(rec);
         selectedChip = 0;
-        phase = "done";
     }
 
     function move(d) {
@@ -138,9 +90,8 @@ Item {
             selectedRecent = Math.max(0, Math.min(recent.length - 1, selectedRecent + d));
             return;
         }
-        if (chips.length === 0)
-            return;
-        selectedChip = Math.max(0, Math.min(chips.length - 1, selectedChip + d));
+        if (chips.length > 0)
+            selectedChip = Math.max(0, Math.min(chips.length - 1, selectedChip + d));
     }
 
     function activate() {
@@ -149,14 +100,13 @@ Item {
                 loadRecent(recent[selectedRecent]);
             return;
         }
-        var chip = chips[selectedChip];
+        const chip = chips[selectedChip];
         if (chip)
             root.fire(chip);
     }
 
     function cancel() {
-        askProc.running = false;
-        Quickshell.execDetached(["ryoku-rashin", "ask", "--cancel"]);
+        askSession.cancel();
     }
 
     function fire(chip) {
@@ -179,10 +129,17 @@ Item {
         case "url":
             Spawn.runApp(["xdg-open", String(chip.value)]);
             break;
-        case "dash":
-            // Leave the turn running on the daemon; just go watch it.
-            Spawn.runApp(["xdg-open", "http://127.0.0.1:3600/#/chat"]);
+        case "chat": {
+            const runAgent = busy || needsAgent;
+            Svc.Needle.handoff(
+                runAgent ? "" : answerId,
+                askedQuestion,
+                runAgent ? "" : answerText,
+                runAgent
+            );
+            Svc.ShellState.requestSurfaceActive("ask#chat", undefined);
             break;
+        }
         }
         root.finished();
     }
@@ -204,56 +161,6 @@ Item {
         id: flashTimer
         interval: 1400
         onTriggered: root.flash = ""
-    }
-
-    Process {
-        id: recentProc
-        stdout: StdioCollector {
-            onStreamFinished: {
-                try {
-                    root.recent = JSON.parse(this.text) || [];
-                } catch (e) {
-                    root.recent = [];
-                }
-            }
-        }
-    }
-
-    Process {
-        id: askProc
-        stdout: SplitParser {
-            onRead: (line) => {
-                line = String(line);
-                if (line.indexOf("@working ") === 0) {
-                    root.working = line.slice(9);
-                } else if (line.indexOf("@perm ") === 0) {
-                    root.permPending = true;
-                    root.working = I18n.tr("waiting for approval: %1").arg(line.slice(6));
-                } else if (line.indexOf("@answer ") === 0) {
-                    try {
-                        var a = JSON.parse(line.slice(8));
-                        root.answerText = String(a.text || "");
-                        root.answerImages = a.images || [];
-                        root.answerActions = a.actions || [];
-                        root.fromHistory = false;
-                        root.phase = "done";
-                        root.selectedChip = 0;
-                    } catch (e) {
-                        root.errorText = I18n.tr("unreadable answer");
-                        root.phase = "failed";
-                    }
-                } else if (line.indexOf("@error ") === 0) {
-                    root.errorText = line.slice(7);
-                    root.phase = "failed";
-                }
-            }
-        }
-        onExited: (code) => {
-            if (root.phase === "working" && !root.permPending) {
-                root.errorText = code === 0 ? I18n.tr("no answer") : I18n.tr("ask failed");
-                root.phase = "failed";
-            }
-        }
     }
 
     Column {
@@ -353,7 +260,7 @@ Item {
                 width: 8 * root.s
                 height: 8 * root.s
                 radius: width / 2
-                color: root.permPending ? Theme.verm : Theme.flameGlow
+                color: Theme.flameGlow
                 anchors.verticalCenter: parent.verticalCenter
 
                 SequentialAnimation on opacity {
@@ -453,9 +360,15 @@ Item {
                     width: chipRow.implicitWidth + 18 * root.s
                     height: chipRow.implicitHeight + 10 * root.s
                     radius: Theme.radius
+                    scale: chipTap.pressed && root.motionAllowed ? 0.94
+                        : chipHover.hovered && root.motionAllowed ? 1.025 : 1
                     color: current || chipHover.hovered ? (danger ? Theme.vermDeep : Theme.verm) : "transparent"
                     border.color: current || chipHover.hovered ? (danger ? Theme.vermDeep : Theme.verm) : Theme.border
                     border.width: 1
+                    Behavior on scale {
+                        enabled: root.motionAllowed
+                        NumberAnimation { duration: Tokens.snap; easing.type: Tokens.easeSnap }
+                    }
 
                     Row {
                         id: chipRow
@@ -483,14 +396,14 @@ Item {
                     }
 
                     HoverHandler { id: chipHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: root.fire(chipBox.modelData) }
+                    TapHandler { id: chipTap; onTapped: root.fire(chipBox.modelData) }
                 }
             }
         }
 
         // key hints
         Text {
-            visible: (root.chips.length > 0 && !root.permPending) || root.resumeMode
+            visible: root.chips.length > 0 || root.resumeMode
             text: root.resumeMode
                 ? I18n.tr("\u2191\u2193 pick \u00b7 ENTER recall \u00b7 ESC back")
                 : (root.busy

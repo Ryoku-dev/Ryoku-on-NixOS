@@ -2,7 +2,43 @@
 
 ## Unreleased
 
+### Changed
+- `cachyos.packages`: **the CachyOS edition now carries CachyOS's current
+  defaults and identity.** `shelly`, `lsb-release`, and `cachyos-hello` join
+  the kernel pair, repositories, hooks, `chwd`, tuning, schedulers, and desktop
+  tools. Ryoku suppresses CachyOS Welcome's autostart but keeps it in the
+  launcher. Steam and `cachyos-gaming-meta` now follow the installer's
+  default-off Gaming choice instead of landing on every CachyOS install.
+
 ### Added
+- `base.packages`: **khal, vdirsyncer and translate-shell.** The dock's
+  calendar reads and syncs calendars through khal and vdirsyncer, and the
+  translator desktop widget runs translate-shell; existing boxes receive them
+  on their next update.
+- `phone.packages`: **the phone feature's packages, installed on demand.** The
+  Hub's Phone switch installs and removes this set; nothing in it joins a
+  default install.
+- `cachyos.packages`: **a CachyOS install carries what CachyOS's own installer
+  lays.** `linux-cachyos-lts` and its headers (the fallback kernel, in place of
+  stock `linux`), `cachyos-rate-mirrors`, `yay`, `cachyos-hooks`, `chwd`,
+  `cachyos-kernel-manager`, `cachyos-packageinstaller` and `btrfs-assistant`.
+  `zlib-ng-compat` and `lib32-zlib-ng-compat` are named because CachyOS marks
+  them as replacing zlib: pacman resolves a dependency by name, so without them
+  the install got plain zlib and the first update asked to swap it.
+- `cachyos.replaces`: **new.** The `base.packages` and `aur.packages` names the
+  CachyOS layer replaces (`linux`, `yay-bin`), left out of pacstrap, the AUR
+  step and the offline bake.
+- `base.packages`: **new installs choose one browser and one login-shell stack.**
+  Firefox and Fish are recommended, with Chromium or Zen and Bash or Zsh
+  available in the installers. The unchosen packages are filtered before
+  installation and recorded so updates leave them out. `ryoku-oh-my-zsh` joins
+  the Zsh stack in the signed package set, while shared prompt and CLI tools stay
+  available with every shell.
+- `base.packages`: **the screen recorder is now GPU Screen Recorder.** `wf-recorder`
+  is replaced by `gpu-screen-recorder` (GPU-only capture and encode on both
+  Hyprland and niri, behind `ryoku-cmd-record` / `ryoku-shell record`). It is also
+  a hard depend of `ryoku-desktop`, so the ISO and `ryoku update` carry it either
+  way.
 - `aur.packages`: **fingerprint unlock at the lock and login screens.** The
   qylock lock and the SDDM greeter authenticate through a PAM stack that loads
   `pam_fprintd_grosshack.so` (scans the sensor while the password field is live),
@@ -18,10 +54,10 @@
   NVDEC through `nvidia-utils`, so only Intel needed a package. It bakes into
   the offline ISO closure.
 
-- `base.packages`: **Bash and Zsh receive Fish-like editing.** `blesh`, `zsh`,
-  `zsh-autosuggestions`, `zsh-syntax-highlighting` and
-  `zsh-history-substring-search` ship with every machine so any account shell
-  selected in Ryoku Settings has highlighting, suggestions and history search.
+- `base.packages`: **Bash and Zsh receive Fish-like editing when selected.**
+  The installer keeps `blesh` with Bash and the Zsh plugins plus
+  `ryoku-oh-my-zsh` with Zsh, rather than installing all three shell stacks on
+  every machine.
 
 - `base.packages`: **the Spicetify Marketplace store ships by default.**
   `spicetify-marketplace` (the store custom app -- the Marketplace icon in
@@ -65,19 +101,18 @@
   so there is no per-brand driver to add). The gap was Bluetooth, which `xpad`
   does not speak at all: `xpadneo-dkms` fills it, and it now ships from
   `[ryoku]`.
-- `base.packages`: ship `docker` and `firefox`. Docker is what the stash "Cobalt
-  engine" switch has always needed and never had: cobalt is distributed only as a
-  container image, so on a clean install that switch could not work at all and
-  said so with a dead end ("Install Docker to use cobalt"). Both are official
-  repo packages, so `base.packages` is simply where they belong; they reach the
-  ISO through the offline closure (`installation/iso/offline-repo.sh`) like every
-  other repo package. The service is deliberately NOT enabled here: a machine
-  that never opens the switch should not pay for a running dockerd, a `docker0`
-  bridge and its iptables rules, so the setup wizard enables it on first use. No
-  `docker-compose`: the cobalt lifecycle is a single `docker run`.
-  Firefox is additive, so a Gecko engine is always on hand for a site Chromium
-  renders badly; it does not become the default, because `ryoku-app`'s `browser`
-  role stays `chromium` and Ryoku Settings owns the override.
+- `base.packages`: ship `docker` and make Firefox available to the installer.
+  Docker is what the stash "Cobalt engine" switch has always needed and never
+  had: cobalt is distributed only as a container image, so on a clean install
+  that switch could not work at all and said so with a dead end ("Install Docker
+  to use cobalt"). Both are official repo packages, so `base.packages` is where
+  they belong; they reach the ISO through the offline closure
+  (`installation/iso/offline-repo.sh`) like every other repo package. The
+  service is deliberately NOT enabled here: a machine that never opens that
+  switch should not pay for a running dockerd, a `docker0` bridge and its
+  iptables rules, so the setup wizard enables it on first use. No
+  `docker-compose`: the cobalt lifecycle is a single `docker run`. Firefox is
+  the recommended browser pick for new installs.
 - `base.packages`: `spicetify-cli` moves out of `aur.packages` and ships from
   `[ryoku]` (`release/packages/spicetify-cli`), listed next to `spotify-launcher`
   because neither is useful for the Canvas backdrop without the other. The ISO
@@ -240,6 +275,9 @@
   pacman transactions, wired to the snapper `root` config by the installer.
 
 ### Changed
+- `base.packages`: **cliphist is no longer installed.** Ryoku keeps clipboard
+  history in its own daemon, and the last UIs that read cliphist now read
+  that; existing boxes keep the package until it is removed as an orphan.
 - `aur.packages`: drop `phonto` and `mpvpaper`. The shell's live (video)
   wallpaper backend is now `ryoku-livewall`, which ships in the `ryoku-shell`
   package from the `[ryoku]` repo, so no AUR video daemon is needed. Both old

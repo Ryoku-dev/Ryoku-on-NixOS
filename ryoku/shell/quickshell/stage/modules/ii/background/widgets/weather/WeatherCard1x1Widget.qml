@@ -1,0 +1,167 @@
+import QtQuick
+import QtQuick.Layouts
+import stage
+import stage.services
+import stage.modules.common
+import stage.modules.common.functions
+import stage.modules.common.widgets
+import stage.modules.ii.background.widgets
+AbstractBackgroundWidget {
+    id: root
+
+    configEntryName: "weather_card"
+
+    implicitWidth: 240
+    implicitHeight: 240
+
+    readonly property var options: Config.options.background.widgets.weather_card
+    readonly property string colorScheme: (options.expressiveColors ?? true)
+        ? "expressive_primary" : "default"
+    readonly property var currentData: Weather.data
+    readonly property var forecastList: Weather.forecastData
+
+    readonly property color cardBgColor: WidgetColorScheme.getCardBgColor(colorScheme)
+    readonly property color textColorOnBg: WidgetColorScheme.getTextColorOnBg(colorScheme)
+
+    StyledDropShadow {
+        id: shadowEffect
+        target: mainContainer
+        visible: Config.options.background.widgets.enableShadows ?? true
+    }
+
+    Rectangle {
+        id: mainContainer
+        anchors.fill: parent
+        radius: Appearance.rounding.windowRounding
+        color: WidgetColorScheme.tintBackground(root.cardBgColor)
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 16
+            spacing: 6
+
+            StyledText {
+                visible: root.options.showLocation ?? true
+                text: root.currentData?.city || ""
+                color: root.textColorOnBg
+                font.pixelSize: Appearance.font.pixelSize.normal
+                font.weight: Font.DemiBold
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                StyledText {
+                    text: root.currentData?.temp ? root.currentData.temp.replace("°C", "°").replace("°F", "°") : ""
+                    color: root.textColorOnBg
+                    font.pixelSize: Appearance.font.pixelSize.huge * 2.2
+                    font.weight: Font.Bold
+                    Layout.alignment: Qt.AlignVCenter
+                }
+
+                Item { Layout.fillWidth: true }
+
+                ColumnLayout {
+                    Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                    spacing: 2
+
+                    Image {
+                        Layout.alignment: Qt.AlignRight
+                        source: WeatherIcons.getWeatherIcon(root.currentData?.wCode ?? 113, false)
+                        sourceSize: Qt.size(34, 34)
+                    }
+
+                    ColumnLayout {
+                        Layout.alignment: Qt.AlignRight
+                        spacing: 0
+
+                        StyledText {
+                            Layout.alignment: Qt.AlignRight
+                            text: {
+                                const firstFc = root.forecastList && root.forecastList.length > 0 ? root.forecastList[0] : null;
+                                if (!firstFc) return "";
+                                const h = Weather.useUSCS ? firstFc.maxF : firstFc.maxC;
+                                return "H " + h + "°";
+                            }
+                            color: root.textColorOnBg
+                            font.pixelSize: Appearance.font.pixelSize.smaller
+                            font.weight: Font.Medium
+                        }
+
+                        StyledText {
+                            Layout.alignment: Qt.AlignRight
+                            text: {
+                                const firstFc = root.forecastList && root.forecastList.length > 0 ? root.forecastList[0] : null;
+                                if (!firstFc) return "";
+                                const l = Weather.useUSCS ? firstFc.minF : firstFc.minC;
+                                return "L " + l + "°";
+                            }
+                            color: root.textColorOnBg
+                            font.pixelSize: Appearance.font.pixelSize.smaller
+                            font.weight: Font.Medium
+                        }
+                    }
+                }
+            }
+
+            Item { Layout.fillHeight: true }
+
+            ColumnLayout {
+                visible: root.options.showForecast ?? true
+                Layout.fillWidth: true
+                spacing: 8
+
+                Repeater {
+                    model: (root.options.showForecast ?? true) ? 3 : 0
+
+                    delegate: RowLayout {
+                        id: dayRow
+                        required property int index
+
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        readonly property var dayFc: root.forecastList && root.forecastList.length > index ? root.forecastList[index] : null
+
+                        readonly property string dayLabel: {
+                            if (!dayFc || !dayFc.date) return "";
+                            const dateObj = new Date(dayFc.date);
+                            return dateObj.toLocaleDateString(Qt.locale(), "ddd");
+                        }
+
+                        StyledText {
+                            Layout.preferredWidth: 60
+                            text: dayRow.dayLabel
+                            color: root.textColorOnBg
+                            font.pixelSize: Appearance.font.pixelSize.small
+                            font.weight: Font.Medium
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Image {
+                            source: WeatherIcons.getWeatherIcon(dayRow.dayFc?.code ?? 113, false)
+                            sourceSize: Qt.size(20, 20)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledText {
+                            Layout.alignment: Qt.AlignRight
+                            text: {
+                                if (!dayRow.dayFc) return "";
+                                const min = Weather.useUSCS ? dayRow.dayFc.minF : dayRow.dayFc.minC;
+                                const max = Weather.useUSCS ? dayRow.dayFc.maxF : dayRow.dayFc.maxC;
+                                return min + "°  " + max + "°";
+                            }
+                            color: root.textColorOnBg
+                            font.pixelSize: Appearance.font.pixelSize.small
+                            font.weight: Font.Medium
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

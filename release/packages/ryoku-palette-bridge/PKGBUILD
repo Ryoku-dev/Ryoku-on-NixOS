@@ -11,30 +11,40 @@ pkgdesc="Ryoku wallpaper palette event bridge: exposes colours to SPA integratio
 arch=('x86_64')
 url="https://ryoku.dev"
 license=('MIT')
-depends=()
+depends=('bash' 'curl' 'jq' 'matugen' 'ryoku')
 makedepends=('go')
 source=()
 
 _repo="$startdir/../../.."
 
 build() {
+  RYOKU_SRC="$_repo" \
+  RYOKU_BUILD_DIR="$srcdir" \
+  RYOKU_PKGVER="$pkgver" \
+  RYOKU_RELEASE="${RYOKU_RELEASE:-$pkgver}" \
+  RYOKU_CHANNEL="${RYOKU_CHANNEL:-stable}" \
+  RYOKU_NAME="${RYOKU_NAME:-Ryoku}" \
+    "$startdir/payload.sh" build
+}
+
+check() {
   cd "$_repo/ryoku/palette-bridge"
-  # no vendor tree is shipped with the bridge; GOFLAGS from the publish
-  # container pin the proxy so the build stays offline and reproducible.
-  CGO_ENABLED=0 go build -mod=vendor -trimpath -ldflags='-s -w' -o "$srcdir/ryoku-palette-bridge" .
+  go test ./...
+  if command -v node >/dev/null; then
+    node tests/spicetify-palette.test.js
+  fi
+  bash tests/install-integrations.test.sh
+  bash tests/zen-profiles.test.sh
+  bash tests/vesktop-quickcss.test.sh
+  bash tests/install.test.sh
 }
 
 package() {
-  install -Dm755 "$srcdir/ryoku-palette-bridge" \
-    "$pkgdir/usr/bin/ryoku-palette-bridge"
-  install -Dm755 "$_repo/ryoku/palette-bridge/doctor.sh" \
-    "$pkgdir/usr/bin/ryoku-palette-bridge-doctor"
-  install -Dm755 "$_repo/ryoku/palette-bridge/remove-integrations.sh" \
-    "$pkgdir/usr/bin/ryoku-palette-bridge-remove-integrations"
-  install -Dm644 "$_repo/ryoku/palette-bridge/packaging/systemd/ryoku-palette-bridge.service" \
-    "$pkgdir/usr/lib/systemd/user/ryoku-palette-bridge.service"
-  install -dm755 "$pkgdir/usr/share/ryoku/palette-bridge"
-  cp -a "$_repo/ryoku/palette-bridge/." "$pkgdir/usr/share/ryoku/palette-bridge/"
-  install -Dm644 "$_repo/ryoku/palette-bridge/LICENSE" \
-    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  RYOKU_SRC="$_repo" \
+  RYOKU_BUILD_DIR="$srcdir" \
+  RYOKU_PKGVER="$pkgver" \
+  RYOKU_RELEASE="${RYOKU_RELEASE:-$pkgver}" \
+  RYOKU_CHANNEL="${RYOKU_CHANNEL:-stable}" \
+  RYOKU_NAME="${RYOKU_NAME:-Ryoku}" \
+    "$startdir/payload.sh" install "$pkgdir" systemd
 }

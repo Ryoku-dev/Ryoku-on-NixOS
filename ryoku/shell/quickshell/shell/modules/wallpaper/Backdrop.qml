@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtMultimedia
+import stage.services
 import "Singletons"
 
 // A full-bleed wallpaper surface that REVEALS each new image over the current one
@@ -31,6 +32,13 @@ Item {
     // letterbox margins of a Contain / ScaleDown fit.
     property string url: ""
 
+    // The stable path from this screen's provider frame keys its framing and
+    // lets the editor follow the same per-output source that this surface paints.
+    property string screenName: ""
+    property string wallpaperPath: ""
+    readonly property string framingKey: WallpaperLayout.cleanPath(view.wallpaperPath)
+    property string registeredScreen: ""
+
     // content_fit -> Image.fillMode. ScaleDown is Contain that never upscales, which
     // QML has no fillMode for, so a picture smaller than the surface is padded and a
     // larger one is fit.
@@ -50,11 +58,35 @@ Item {
     // the layer; false for the in-shell engine, which plays inside this surface.
     property bool live: false
 
+    function syncPainterRegistration() {
+        if (view.registeredScreen !== "" && view.registeredScreen !== view.screenName)
+            WallpaperLayout.unregisterPainter(view.registeredScreen);
+        view.registeredScreen = view.screenName;
+        if (view.registeredScreen !== "")
+            WallpaperLayout.registerPainter(view.registeredScreen, view.live, view.wallpaperPath);
+    }
+    onScreenNameChanged: view.syncPainterRegistration()
+    onWallpaperPathChanged: view.syncPainterRegistration()
+    onLiveChanged: view.syncPainterRegistration()
+
     // The in-shell clip's audio the player binds: muted by default, volume
     // 0-100 (scaled to AudioOutput's 0..1). A live wallpaper is no longer
     // forced silent; the daemon threads the picker's mute/volume here.
     property bool videoMuted: true
     property int videoVolume: 100
+    // Every restart path respects the pause, so a watchdog never resumes a paused clip.
+    property bool videoPaused: false
+    onVideoPausedChanged: {
+        const p = view.player;
+        if (!p)
+            return;
+        if (view.videoPaused)
+            p.pause();
+        else if (p.playbackState === MediaPlayer.PausedState)
+            p.play();
+        else
+            view.startVideo();
+    }
 
     // Decoding is capped at the surface resolution: an 8K source costs a
     // screen-sized texture instead of a full-resolution decode, which lagged
@@ -66,14 +98,20 @@ Item {
     // load target for the incoming image.
     property bool aFront: true
     property bool rendered: false
+    // Capture/FBO nodes exist only for the short reveal. At rest the committed
+    // WallpaperFramedPlane paints directly, avoiding a full-output texture.
+    property bool transitioning: false
     readonly property bool decoded: imgA.status === Image.Ready || imgB.status === Image.Ready
+    readonly property real committedImageWidth: (view.aFront ? imgA : imgB).sourceSize.width
+    readonly property real committedImageHeight: (view.aFront ? imgA : imgB).sourceSize.height
 
     // The player is presenting frames: the reveal shader yields to the video
     // surface, exactly where the old ryogami-live READY flip hid the still.
     // Read this through the player itself from any notify handler: reading the
     // binding from its own notify handler (onVideoActiveChanged) looped the
     // MediaPlayer's playbackState notify and froze the wallpaper.
-    readonly property bool videoActive: player.playbackState === MediaPlayer.PlayingState && player.hasVideo
+    readonly property bool videoActive: view.player !== null
+        && view.player.playbackState === MediaPlayer.PlayingState && view.player.hasVideo
 
     // The video owns the surface once it has presented a frame; the reveal
     // hides only behind this, never a transient playbackState dip.
@@ -89,7 +127,7 @@ Item {
         interval: 80
         onTriggered: {
             view.yieldScheduled = false;
-            if (player.playing && view.videoUrl !== "")
+            if (view.player && view.player.playing && view.videoUrl !== "")
                 view.videoOn = true;
         }
     }
@@ -171,26 +209,22 @@ Item {
         view.rendered = false;
         view.beginReveal();
     }
-    Component.onCompleted: view.beginReveal()
+    Component.onCompleted: {
+        view.syncPainterRegistration();
+        view.beginReveal();
+    }
+    Component.onDestruction: WallpaperLayout.unregisterPainter(view.registeredScreen)
 
-    // A new clip loads on the url change; a cleared videoUrl stops the player
-    // and hands the surface back to the reveal shader (the still under it). A
-    // video swap to the same clip still restarts: the daemon re-publishes a
-    // fresh revision rather than sending the identical url twice. The clip is
-    // buffered here but NOT played: the transition runs first, and the video
-    // starts only once the reveal's picture is committed (startVideo).
+    // A new clip loads through the video stack's source binding; a cleared
+    // videoUrl drops the stack and hands the surface back to the reveal shader
+    // (the still under it). A video swap to the same clip still restarts: the
+    // daemon re-publishes a fresh revision rather than sending the identical url
+    // twice. The clip is buffered but NOT played: the transition runs first, and
+    // the video starts only once the reveal's picture is committed (startVideo).
     onVideoUrlChanged: {
-        if (view.videoUrl === "") {
-            player.stop();
-            view.videoOn = false;
-            view.yieldScheduled = false;
-            yieldDelay.stop();
-            return;
-        }
         view.videoOn = false;
         view.yieldScheduled = false;
         yieldDelay.stop();
-        player.source = view.videoUrl;
     }
 
     // Watchdog: a clip whose still never decoded must still play, and the yield is
@@ -201,7 +235,7 @@ Item {
         id: startWatch
         interval: 400
         repeat: true
-        running: view.videoUrl !== "" && !view.videoOn
+        running: view.videoUrl !== "" && !view.videoOn && !view.videoPaused
         onTriggered: {
             view.startVideo();
             view.maybeYield();
@@ -211,13 +245,14 @@ Item {
     // Begin playback at the still's moment (the daemon extracts the frame at
     // second 1); the seek runs only once the media is loaded and long enough.
     function startVideo() {
-        if (view.videoUrl === "" || player.playbackState === MediaPlayer.PlayingState)
+        const p = view.player;
+        if (!p || view.videoUrl === "" || view.videoPaused || p.playbackState === MediaPlayer.PlayingState)
             return;
-        const loaded = player.mediaStatus === MediaPlayer.LoadedMedia
-            || player.mediaStatus === MediaPlayer.BufferedMedia;
-        if (loaded && player.duration > 1000)
-            player.position = 1000;
-        player.play();
+        const loaded = p.mediaStatus === MediaPlayer.LoadedMedia
+            || p.mediaStatus === MediaPlayer.BufferedMedia;
+        if (loaded && p.duration > 1000)
+            p.position = 1000;
+        p.play();
     }
 
     // The video takes the surface once the reveal is done and frames present.
@@ -225,12 +260,13 @@ Item {
     // signal, which is why the yield used to be attempted once and never again),
     // so the yield is driven from the state it actually reports.
     Connections {
-        target: player
+        target: view.player
         function onPlaybackStateChanged() { view.maybeYield() }
         function onErrorChanged() {
-            if (player.error !== MediaPlayer.NoError && view.videoUrl !== "") {
-                player.position = 0;
-                player.play();
+            const p = view.player;
+            if (p && p.error !== MediaPlayer.NoError && view.videoUrl !== "" && !view.videoPaused) {
+                p.position = 0;
+                p.play();
             }
         }
     }
@@ -238,7 +274,7 @@ Item {
     function maybeYield() {
         if (view.videoUrl === "" || revealAnim.running)
             return;
-        const playing = player.playing;
+        const playing = view.player ? view.player.playing : false;
         const back = view.aFront ? imgB : imgA;
         if (!playing) {
             if (back.source === view.url && back.status === Image.Loading)
@@ -263,8 +299,11 @@ Item {
         if (revealAnim.running)
             view.commitInstant();
         const back = view.aFront ? imgB : imgA;
+        const backFrame = view.aFront ? frameB : frameA;
+        backFrame.framingKey = view.framingKey;
         if (back.source == view.url) {
             if (back.status === Image.Ready) {
+                view.publishGeometry(back);
                 renderTimer.restart();
                 view.startReveal();
             }
@@ -280,10 +319,14 @@ Item {
     function commit() {
         view.aFront = !view.aFront;
         reveal.progress = 0;
-        // Drop the outgoing image: it was only needed for the reveal, and held
-        // a second full decode of the wallpaper for the rest of the session.
+        view.transitioning = false;
+        // Drop the outgoing image and both capture providers. The committed
+        // frame now paints directly, so neither a stale decode nor a
+        // full-output ShaderEffectSource texture survives the transition.
         const stale = view.aFront ? imgB : imgA;
+        const staleFrame = view.aFront ? frameB : frameA;
         stale.source = "";
+        staleFrame.framingKey = "";
     }
 
     function commitInstant() {
@@ -291,12 +334,27 @@ Item {
         view.commit();
     }
 
+    function publishGeometry(img) {
+        // Image.source is a QUrl while the provider frame arrives as a string.
+        if (!img || img.source != view.url || img.status !== Image.Ready)
+            return;
+        WallpaperLayout.publishGeometry(view.screenName, view.width, view.height,
+            img.sourceSize.width, img.sourceSize.height);
+    }
+    onWidthChanged: view.publishGeometry(view.aFront ? imgA : imgB)
+    onHeightChanged: view.publishGeometry(view.aFront ? imgA : imgB)
+
     // Configure the shader + animation for the current transition and run it. A null
     // transition (init / live still-frame) or reduce-motion collapses to a plain
     // eased crossfade (instant when motion is reduced). A skwd catalog transition
     // (t.shader set) loads its own ported fragment shader and eases inside it, so
     // progress runs linear over the configured duration.
     function startReveal() {
+        view.transitioning = true;
+        // sourceItem bindings attach on this assignment. Explicit updates keep
+        // these non-live captures to exactly one frame per reveal.
+        srcA.scheduleUpdate();
+        srcB.scheduleUpdate();
         const t = view.transition;
         if (Motion.reduce || !t) {
             reveal.fragmentShader = "reveal.frag.qsb";
@@ -347,74 +405,120 @@ Item {
         onTriggered: view.rendered = true
     }
 
-    // The two ping-pong image buffers. Each renders (with its fill mode) only into
-    // its ShaderEffectSource; the shader composites the sources, so the raw Images
-    // are hidden. A buffer fires startReveal once its incoming image is decoded, but
-    // only while it is the back buffer (imgA is back when !aFront, imgB when aFront).
-    Image {
-        id: imgA
+    // Each buffer keeps its own framing key, so an incoming wallpaper enters
+    // with its own crop while the outgoing texture keeps the crop it had.
+    // The full-screen wrappers are what the reveal shader captures; their
+    // framed children may extend past the screen, but the capture remains the
+    // screen-sized plane.
+    WallpaperFramedPlane {
+        id: frameA
         anchors.fill: parent
-        cache: false
-        asynchronous: true
-        sourceSize.width: view.decodeW
-        sourceSize.height: view.decodeH
-        fillMode: view.fillModeFor(imgA)
-        onStatusChanged: {
-            if (status === Image.Ready) {
-                srcA.scheduleUpdate();
-                if (source === view.url)
-                    renderTimer.restart();
+        screenName: view.screenName
+        imageWidth: imgA.sourceSize.width
+        imageHeight: imgA.sourceSize.height
+
+        visible: view.transitioning || (view.aFront && !view.videoOn)
+        Image {
+            id: imgA
+            anchors.fill: parent
+            cache: false
+            asynchronous: true
+            sourceSize.width: view.decodeW
+            sourceSize.height: view.decodeH
+            fillMode: frameA.framed ? Image.PreserveAspectCrop : view.fillModeFor(imgA)
+            onStatusChanged: {
+                if (status === Image.Ready) {
+                    srcA.scheduleUpdate();
+                    view.publishGeometry(imgA);
+                    if (source === view.url)
+                        renderTimer.restart();
+                }
+                if (status === Image.Ready && source == view.url && !view.aFront)
+                    view.startReveal();
+                else if (status === Image.Error)
+                    view.maybeYield();
             }
-            if (status === Image.Ready && source == view.url && !view.aFront)
-                view.startReveal();
-            else if (status === Image.Error)
-                view.maybeYield();
         }
     }
-    Image {
-        id: imgB
+    WallpaperFramedPlane {
+        id: frameB
         anchors.fill: parent
-        cache: false
-        asynchronous: true
-        sourceSize.width: view.decodeW
-        sourceSize.height: view.decodeH
-        fillMode: view.fillModeFor(imgB)
-        onStatusChanged: {
-            if (status === Image.Ready) {
-                srcB.scheduleUpdate();
-                if (source === view.url)
-                    renderTimer.restart();
+        screenName: view.screenName
+        imageWidth: imgB.sourceSize.width
+        imageHeight: imgB.sourceSize.height
+
+        visible: view.transitioning || (!view.aFront && !view.videoOn)
+        Image {
+            id: imgB
+            anchors.fill: parent
+            cache: false
+            asynchronous: true
+            sourceSize.width: view.decodeW
+            sourceSize.height: view.decodeH
+            fillMode: frameB.framed ? Image.PreserveAspectCrop : view.fillModeFor(imgB)
+            onStatusChanged: {
+                if (status === Image.Ready) {
+                    srcB.scheduleUpdate();
+                    view.publishGeometry(imgB);
+                    if (source === view.url)
+                        renderTimer.restart();
+                }
+                if (status === Image.Ready && source == view.url && view.aFront)
+                    view.startReveal();
+                else if (status === Image.Error)
+                    view.maybeYield();
             }
-            if (status === Image.Ready && source == view.url && view.aFront)
-                view.startReveal();
-            else if (status === Image.Error)
-                view.maybeYield();
         }
     }
 
-    // live:false + an explicit scheduleUpdate() on load: re-capture only when the
-    // image content actually changes, not every frame forever on a static wallpaper.
+    // Frame bindings settle after the framing object changes. Coalesce capture
+    // to the next event turn so mirrors and quarter-turns never recapture the
+    // pre-transform texture.
+    Timer {
+        id: frameARefresh
+        interval: 0
+        onTriggered: srcA.scheduleUpdate()
+    }
+    Timer {
+        id: frameBRefresh
+        interval: 0
+        onTriggered: srcB.scheduleUpdate()
+    }
+    Connections {
+        target: frameA
+        function onFrameChanged() { frameARefresh.restart() }
+        function onFramingChanged() { frameARefresh.restart() }
+        function onFramingAngleChanged() { frameARefresh.restart() }
+    }
+    Connections {
+        target: frameB
+        function onFrameChanged() { frameBRefresh.restart() }
+        function onFramingChanged() { frameBRefresh.restart() }
+        function onFramingAngleChanged() { frameBRefresh.restart() }
+    }
+
+    // The capture providers attach only during a reveal and update once.
+    // sourceItem becomes null on commit, releasing the full-output textures;
+    // the front WallpaperFramedPlane then paints directly at rest.
     ShaderEffectSource {
         id: srcA
-        sourceItem: imgA
+        sourceItem: view.transitioning ? frameA : null
         hideSource: true
         live: false
     }
     ShaderEffectSource {
         id: srcB
-        sourceItem: imgB
+        sourceItem: view.transitioning ? frameB : null
         hideSource: true
         live: false
     }
 
-    // The reveal: mix(oldTex, newTex, mask) over the shared duration. oldTex is the
-    // committed front buffer, newTex the incoming back buffer; they swap on commit,
-    // so at rest (progress 0) the shader simply shows the committed image. It
-    // yields to the video surfaces only while the clip owns the slot (videoOn).
+    // The reveal exists only while switching. Once committed, the front frame
+    // bypasses this shader and its two capture textures are released.
     ShaderEffect {
         id: reveal
         anchors.fill: parent
-        visible: !view.videoOn
+        visible: view.transitioning && !view.videoOn
 
         property variant oldTex: view.aFront ? srcA : srcB
         property variant newTex: view.aFront ? srcB : srcA
@@ -430,6 +534,22 @@ Item {
 
         fragmentShader: "reveal.frag.qsb"
 
+        // A transition is optional eye candy. If a backend cannot compile one
+        // of the catalog shaders, keep the two captured frames and finish with
+        // the portable base fade instead of leaving the desktop transparent.
+        onStatusChanged: {
+            if (status !== ShaderEffect.Error
+                    || !view.transition || !view.transition.shader)
+                return;
+            fragmentShader = "reveal.frag.qsb";
+            kind = 0;
+            angle = 0;
+            waveAmp = 0;
+            originX = 0.5;
+            originY = 0.5;
+            edgeSoftness = 0.002;
+        }
+
         NumberAnimation {
             id: revealAnim
             target: reveal
@@ -444,20 +564,46 @@ Item {
         }
     }
 
-    MediaPlayer {
-        id: player
-        loops: MediaPlayer.Infinite
-        videoOutput: vout
-        audioOutput: AudioOutput {
-            muted: view.videoMuted
-            volume: view.videoVolume / 100
-        }
-    }
-    VideoOutput {
-        id: vout
+    // The video stack exists only while a clip is set. Creating a MediaPlayer
+    // loads FFmpeg and probes every hardware decoder (CUDA, NVDEC, VA-API),
+    // about 90 MB that a still wallpaper never uses. The clip loads from the
+    // binding; a cleared url drops the whole stack.
+    readonly property var player: videoStack.item ? videoStack.item.player : null
+    Loader {
+        id: videoStack
         anchors.fill: parent
-        fillMode: view.videoFill()
-        visible: view.videoOn
+        active: view.videoUrl !== ""
+        sourceComponent: Item {
+            readonly property alias player: player
+
+            MediaPlayer {
+                id: player
+                source: view.videoUrl
+                loops: MediaPlayer.Infinite
+                videoOutput: vout
+                audioOutput: AudioOutput {
+                    muted: view.videoMuted
+                    volume: view.videoVolume / 100
+                }
+            }
+            WallpaperFramedPlane {
+                id: videoFrame
+                anchors.fill: parent
+                visible: view.videoOn
+                screenName: view.screenName
+                framingKey: view.framingKey
+                imageWidth: imgA.source === view.url && imgA.status === Image.Ready
+                    ? imgA.sourceSize.width : imgB.sourceSize.width
+                imageHeight: imgA.source === view.url && imgA.status === Image.Ready
+                    ? imgA.sourceSize.height : imgB.sourceSize.height
+
+                VideoOutput {
+                    id: vout
+                    anchors.fill: parent
+                    fillMode: videoFrame.framed ? VideoOutput.PreserveAspectCrop : view.videoFill()
+                }
+            }
+        }
     }
 
 }

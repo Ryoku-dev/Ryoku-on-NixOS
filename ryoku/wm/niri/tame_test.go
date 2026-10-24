@@ -67,8 +67,8 @@ func TestTamerLeavesLaterMaximise(t *testing.T) {
 func TestTamerLeavesPreexisting(t *testing.T) {
 	now := time.Unix(0, 0)
 	tm := newTestTamer(true, &now)
-	tm.seen(1)  // replayed before ready
-	tm.open(1)  // the post-ready sighting must not adopt it
+	tm.seen(1) // replayed before ready
+	tm.open(1) // the post-ready sighting must not adopt it
 	if tm.wantsClear(tameOutput, 1, clientMaximized[0], clientMaximized[1]) {
 		t.Fatal("a window present at connect must never be cleared")
 	}

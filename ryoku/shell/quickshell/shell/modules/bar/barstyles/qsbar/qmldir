@@ -1,4 +1,4 @@
 BarPlugins BarPlugins.qml
 BarSlot BarSlot.qml
-QsTheme QsTheme.qml
+Theme Theme.qml
 VariantRoot VariantRoot.qml

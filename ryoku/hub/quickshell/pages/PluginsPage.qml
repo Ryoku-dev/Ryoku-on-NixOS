@@ -354,8 +354,8 @@ Item {
                 visible: pg.loaded && !pg.canBuild
                 width: parent.width
                 wrapMode: Text.WordWrap
-                text: I18n.tr("Plugins cannot be built on this machine: missing %1. Install base-devel, cmake, git and the hyprland package to rebuild or add one.")
-                      .arg(((pg.roster.toolchain && pg.roster.toolchain.missing) || []).join(", "))
+                text: I18n.tr("Plugins cannot be built on this machine. Missing build tools: %1.")
+                    .arg(((pg.roster.toolchain && pg.roster.toolchain.missing) || []).join(", "))
                 color: Tokens.inkMuted; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
             }
 

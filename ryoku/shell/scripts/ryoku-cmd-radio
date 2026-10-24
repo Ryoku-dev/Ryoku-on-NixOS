@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # Live lofi radio for the launcher's "@" prefix. Primary station is the Lofi
 # Girl 24/7 stream: pinned video ids rot every time the stream restarts, so the

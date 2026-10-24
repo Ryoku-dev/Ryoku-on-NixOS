@@ -1,6 +1,9 @@
 package doctor
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // classifyPacnew must auto-resolve only the provably safe cases: bytes identical
 // to the live file, or a pacman.conf whose sole difference is the [ryoku] repo
@@ -47,5 +50,27 @@ func TestStripRyokuRepoStanza(t *testing.T) {
 	wantTail := base + "[custom]\nServer = y\n"
 	if got := string(trimTrailing(stripRyokuRepoStanza([]byte(withTail)))); got != string(trimTrailing([]byte(wantTail))) {
 		t.Errorf("section after [ryoku] not preserved:\n%q", got)
+	}
+}
+
+// A config is replaced by its .pacnew only when nothing on this box has
+// written it: older than the box's first pacman transaction.
+func TestUntouchedSinceInstall(t *testing.T) {
+	installed := time.Date(2026, 6, 17, 16, 10, 8, 0, time.UTC)
+	cases := []struct {
+		name  string
+		mtime time.Time
+		at    time.Time
+		want  bool
+	}{
+		{"shipped by an older package", time.Date(2024, 9, 13, 21, 29, 0, 0, time.UTC), installed, true},
+		{"written by the installer", installed.Add(3 * time.Minute), installed, false},
+		{"edited later", time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), installed, false},
+		{"install time unknown", time.Date(2024, 9, 13, 0, 0, 0, 0, time.UTC), time.Time{}, false},
+	}
+	for _, c := range cases {
+		if got := untouchedSinceInstall(c.mtime, c.at); got != c.want {
+			t.Errorf("%s: untouchedSinceInstall = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

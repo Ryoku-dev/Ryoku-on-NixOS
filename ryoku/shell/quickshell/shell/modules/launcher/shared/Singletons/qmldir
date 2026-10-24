@@ -1,6 +1,7 @@
 singleton Theme Theme.qml
 singleton Config Config.qml
 singleton LauncherConfig LauncherConfig.qml
+singleton LauncherProducts LauncherProducts.qml
 singleton Scheme Scheme.qml
 singleton Motion Motion.qml
 singleton Metrics Metrics.qml

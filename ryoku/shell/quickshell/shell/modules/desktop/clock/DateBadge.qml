@@ -20,7 +20,7 @@ Item {
 
     readonly property var dp: Clk.dateParts(Now.date, Svc.Config.formatLoc)
     readonly property color accent: Clk.pickAccent(Config.clockAccent, Theme.accentOn2(date.underL, date.inkColorA), Theme.brand, date.ink)
-    readonly property real s: Config.clockScale
+    property real s: 1
 
     implicitWidth: chip.implicitWidth
     implicitHeight: chip.implicitHeight

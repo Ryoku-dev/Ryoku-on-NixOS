@@ -8,6 +8,7 @@ ShellRoot {
     id: root
 
     readonly property string token: Quickshell.env("RYOKU_RELOAD_COVER_TOKEN")
+    readonly property string mode: Quickshell.env("RYOKU_RELOAD_COVER_MODE")
     property string phase: "closing"
     property bool startClose: false
     property bool finishQueued: false
@@ -60,8 +61,12 @@ ShellRoot {
                 root.phase = "opening";
         }
     }
+    // The hold deadline: a reload is a supervised daemon restart, so 16.5 s
+    // is enough; a boot waits on the whole session chain (unit, daemon,
+    // wallpaper, every surface), so it gets a much longer hold before the
+    // cover gives up and releases the screen to a bare desktop.
     Timer {
-        interval: 16500
+        interval: root.mode === "boot" ? 45000 : 16500
         running: root.phase !== "opening" && root.phase !== "failed"
         onTriggered: root.phase = "failed"
     }
@@ -93,6 +98,7 @@ ShellRoot {
             ReloadCover {
                 required property var modelData
                 targetScreen: modelData
+                mode: root.mode
                 phase: root.phase
                 startClose: root.startClose
                 reloadCover: root.reloadCover

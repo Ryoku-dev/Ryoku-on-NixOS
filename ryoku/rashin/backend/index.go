@@ -39,6 +39,12 @@ func Reindex() error {
 	if err := WriteHabits(); err != nil {
 		return err
 	}
+	if err := writeOwnershipVaultDoc(); err != nil {
+		return err
+	}
+	if err := writeLogsMapVaultDoc(); err != nil {
+		return err
+	}
 	// Best effort, bounded, and never fatal: mirror the live config under the
 	// vault and refresh its prowl index so search_code works off a checkout.
 	_ = RefreshSourceMirror()
@@ -141,23 +147,6 @@ type desktopMapRow struct {
 	subsystem, path, owner, reload string
 }
 
-func packagesDesktopMapRow() desktopMapRow {
-	if rashinNixBackend() {
-		return desktopMapRow{
-			"Packages",
-			"/etc/nixos + active Nix generation",
-			"NixOS / Ryoku Nix backend",
-			"ryoku update",
-		}
-	}
-	return desktopMapRow{
-		"Packages",
-		"pacman + yay database",
-		"pacman, yay",
-		"ryoku update",
-	}
-}
-
 // desktopMap is distilled from docs/structure.md, docs/cli.md, the hub and shell
 // READMEs, and the shell IPC surface. Every path, owner, and reload command is
 // verified against the repo. The shell exposes no per-component restart verb, so
@@ -172,7 +161,7 @@ var desktopMap = []desktopMapRow{
 	{"Hub state", "~/.config/ryoku/hub.toml", "ryoku-hub (Ryoku Settings)", "written by Ryoku Settings; no reload"},
 	{"Theme + colour source", "~/.config/ryoku/theme.json", "ryoku-hub", "ryogami wallpaper repaint"},
 	{"Palette", "~/.cache/ryoku/colors.json", "ryoku-shell daemon (matugen)", "ryogami wallpaper repaint"},
-	packagesDesktopMapRow(),
+	{"Packages", "native package database", "ryoku-host", "ryoku update"},
 	{"System vault", "~/.local/share/ryoku/rashin/", "ryoku-rashin", "ryoku-rashin index"},
 }
 
@@ -191,7 +180,8 @@ func actingBody() string {
 	b.WriteString("`ryoku-hub`, `ryogami`, `ryoku wm act`), never by editing shipped files. The\n")
 	b.WriteString("`ryoku` skill is the contract for that: `SKILL.md` (rules and the command\n")
 	b.WriteString("catalogue), `gui.md` (the GUI map), `bar.md` (the QS Bar model), `plugins.md`\n")
-	b.WriteString("(how a new widget is written and installed).\n")
+	b.WriteString("(how a new widget is written and installed), `feature.md` (the ladder:\n")
+	b.WriteString("check the store, then the machine, then build).\n")
 	if d := skillSourceDir(); d != "" {
 		fmt.Fprintf(&b, "Read them at `%s/` (also linked into each agent's skills dir as `ryoku`).\n", d)
 	} else {
@@ -313,7 +303,7 @@ func barCatalogFile() string {
 	const rel = "quickshell/shell/modules/bar/barstyles/qsbar/core/widgets.json"
 	cands := []string{
 		filepath.Join(configHome(), rel),
-		filepath.Join("/usr/share/ryoku/config", rel),
+		filepath.Join(baseConfigDir(), rel),
 	}
 	if repo := recordedCheckout(); repo != "" {
 		cands = append(cands, filepath.Join(repo, "ryoku", "shell", rel))
@@ -451,54 +441,20 @@ func barSectionBody() string {
 }
 
 func packagesBody() string {
-	if rashinNixBackend() {
-		return nixPackagesBody()
-	}
-
 	var b strings.Builder
-	if out, ok := probe(5, "pacman", "-Qq"); ok {
-		fmt.Fprintf(&b, "## Total installed\n\n%d packages\n\n", len(nonEmptyLines(out)))
+	if out, ok := probe(5, "ryoku-host", "pkg", "count"); ok {
+		fmt.Fprintf(&b, "## Total installed\n\n%s packages\n\n", strings.TrimSpace(out))
 	} else {
-		b.WriteString("## Total installed\n\n(pacman unavailable)\n\n")
+		b.WriteString("## Total installed\n\n(native package database unavailable)\n\n")
 	}
-	if out, ok := probe(5, "pacman", "-Qqe"); ok {
-		lines := nonEmptyLines(out)
-		b.WriteString("## Explicitly installed\n\n")
-		fmt.Fprintf(&b, "<details><summary>%d explicit packages</summary>\n\n", len(lines))
-		for _, l := range lines {
-			fmt.Fprintf(&b, "- %s\n", l)
+	if out, ok := probe(8, "ryoku", "status", "--json"); ok {
+		var status struct {
+			SystemUpdates int `json:"systemUpdates"`
 		}
-		b.WriteString("\n</details>\n\n")
+		if json.Unmarshal([]byte(out), &status) == nil {
+			fmt.Fprintf(&b, "## Pending system updates\n\n%d packages\n", status.SystemUpdates)
+		}
 	}
-	// checkupdates exits non-zero (2) when nothing is pending; skip the section
-	// on any error or a missing tool rather than reporting a misleading zero.
-	if out, ok := probe(5, "checkupdates"); ok {
-		fmt.Fprintf(&b, "## Pending updates\n\n%d packages\n", len(nonEmptyLines(out)))
-	}
-	return strings.TrimRight(b.String(), "\n") + "\n"
-}
-
-func nixPackagesBody() string {
-	var b strings.Builder
-
-	b.WriteString("## Backend\n\nNixOS (declarative)\n\n")
-
-	if count := nixSystemPackageCount(); count != "" {
-		fmt.Fprintf(&b, "## Total installed\n\n%s direct system packages\n\n", count)
-	} else {
-		b.WriteString("## Total installed\n\n(system package count unavailable)\n\n")
-	}
-
-	b.WriteString("## Package ownership\n\n")
-	b.WriteString("System packages are owned by the active NixOS generation. ")
-	b.WriteString("Do not use pacman or yay on this host.\n\n")
-
-	if out, ok := probe(10, "ryoku-nix-update", "status", "--json"); ok {
-		b.WriteString("## Update status\n\n```json\n")
-		b.WriteString(strings.TrimSpace(out))
-		b.WriteString("\n```\n")
-	}
-
 	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
@@ -577,26 +533,11 @@ func diskRows() []string {
 }
 
 func packageVersion(pkg string) string {
-	if rashinNixBackend() {
-		out, ok := probe(5, "ryoku", "version")
-		if !ok {
-			return ""
-		}
-		return strings.TrimPrefix(strings.TrimSpace(out), "v")
-	}
-	return pacmanVersion(pkg)
-}
-
-func pacmanVersion(pkg string) string {
-	out, ok := probe(5, "pacman", "-Q", pkg)
+	out, ok := probe(5, "ryoku-host", "pkg", "version", pkg)
 	if !ok {
 		return ""
 	}
-	fields := strings.Fields(strings.TrimSpace(out))
-	if len(fields) >= 2 {
-		return fields[1]
-	}
-	return ""
+	return strings.TrimSpace(out)
 }
 
 // probe runs a command with a timeout, returning its stdout and whether it

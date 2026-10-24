@@ -31,6 +31,7 @@ Rectangle {
     // Scrub state while the user drags (or clicks) the progress bar to seek.
     property bool scrubbing: false
     property real scrubFrac: 0
+    readonly property bool clockHeld: surface.full > 0.5
     readonly property bool seekable: surface.player !== null
         && surface.player.canSeek && surface.length > 0
 
@@ -39,10 +40,19 @@ Rectangle {
     readonly property string artUrl: surface.player ? (surface.player.trackArtUrl || "") : ""
     readonly property bool hasArt: surface.artUrl.length > 0
     readonly property bool playing: surface.player !== null && surface.player.isPlaying
-    readonly property real length: surface.player ? (surface.player.length || 0) : 0
-    readonly property real position: surface.player ? (surface.player.position || 0) : 0
+    readonly property real length: Music.duration
+    readonly property real position: Music.position
     readonly property real fraction: surface.length > 0
         ? Math.max(0, Math.min(1, surface.position / surface.length)) : 0
+    readonly property bool backdropActive: surface.full > 0.5
+        && surface.hasArt && !Perf.blurDisabled
+    readonly property int coverDecodeSize: Math.max(1,
+        Math.ceil(Island.coverOpen * Screen.devicePixelRatio))
+    readonly property size backdropDecodeSize: Qt.size(
+        Math.max(1, Math.ceil((Island.musicWidth - 2 * Island.framePad)
+            * Screen.devicePixelRatio)),
+        Math.max(1, Math.ceil((Island.musicHeight - 2 * Island.framePad)
+            * Screen.devicePixelRatio)))
     readonly property string source: {
         if (!surface.player)
             return "";
@@ -57,13 +67,9 @@ Rectangle {
         return m + ":" + (r < 10 ? "0" + r : String(r));
     }
 
-    // The position does not tick on its own; pulse it while a panel is open.
-    Timer {
-        interval: 500
-        repeat: true
-        running: surface.full > 0.5 && surface.playing
-        onTriggered: if (surface.player) surface.player.positionChanged()
-    }
+    onClockHeldChanged: Music.holdClock(surface, surface.clockHeld)
+    Component.onCompleted: Music.holdClock(surface, surface.clockHeld)
+    Component.onDestruction: Music.holdClock(surface, false)
 
     width: Island.bubbleSize + (Island.musicWidth - Island.bubbleSize) * surface.extend
     height: Island.bubbleSize
@@ -101,13 +107,13 @@ Rectangle {
         visible: surface.full > 0.001
         opacity: surface.full
         readonly property real radius: Math.max(0, surface.radius - Island.framePad)
-        layer.enabled: true
-        layer.smooth: true
+        layer.enabled: surface.backdropActive
+        layer.smooth: surface.backdropActive
         layer.effect: MultiEffect {
-            maskEnabled: true
+            maskEnabled: surface.backdropActive
             maskSource: glassMask
             autoPaddingEnabled: false
-            blurEnabled: surface.hasArt && !Perf.blurDisabled
+            blurEnabled: surface.backdropActive
             blur: 1.0
             blurMax: 64
             saturation: 0.4
@@ -118,22 +124,27 @@ Rectangle {
         // off or there is no cover.
         Rectangle {
             anchors.fill: parent
+            radius: glass.radius
             color: Qt.darker(surface.accent, 1.4)
         }
         Image {
             anchors.fill: parent
             source: surface.artUrl
-            visible: surface.hasArt && !Perf.blurDisabled
+            sourceSize: surface.backdropDecodeSize
+            visible: surface.backdropActive
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
+            cache: true
         }
         Rectangle {
             anchors.fill: parent
+            radius: glass.radius
             color: surface.accent
             opacity: surface.hasArt ? 0.1 : 0.18
         }
         Rectangle {
             anchors.fill: parent
+            radius: glass.radius
             gradient: Gradient {
                 GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.26) }
                 GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.5) }
@@ -151,7 +162,7 @@ Rectangle {
         height: glass.height
         radius: glass.radius
         visible: false
-        layer.enabled: true
+        layer.enabled: surface.backdropActive
     }
 
     // The peek's own tinted fill, so the compact bar reads as part of the theme.
@@ -188,28 +199,34 @@ Rectangle {
             + (Island.coverPeekRadius - Island.bubbleSize / 2) * surface.peek
             + (Island.coverRadius - Island.bubbleSize / 2) * surface.full
 
+
+        Rectangle {
+            anchors.fill: parent
+            radius: cover.radius
+            color: Qt.darker(surface.accent, 1.5)
+            visible: !surface.hasArt
+        }
+
+        // The art is clipped through a mask layer, not a Shape fill: an
+        // invisible Image feeding ShapePath.fillItem never repainted once the
+        // art arrived, and the bubble stayed blank. The cover is static, so the
+        // two small layers cost nothing per frame.
         Rectangle {
             id: coverMask
             anchors.fill: parent
             radius: cover.radius
             visible: false
-            layer.enabled: true
-        }
-
-        Rectangle {
-            anchors.fill: parent
-            color: Qt.darker(surface.accent, 1.5)
-            visible: !surface.hasArt
-            layer.enabled: !surface.hasArt
-            layer.effect: MultiEffect { maskEnabled: true; maskSource: coverMask }
+            layer.enabled: surface.hasArt
         }
 
         Image {
             anchors.fill: parent
             source: surface.artUrl
+            sourceSize: Qt.size(surface.coverDecodeSize, surface.coverDecodeSize)
             visible: surface.hasArt
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
+            cache: true
             layer.enabled: surface.hasArt
             layer.smooth: true
             layer.effect: MultiEffect { maskEnabled: true; maskSource: coverMask }
@@ -380,7 +397,7 @@ Rectangle {
             onPositionChanged: mouse => { if (surface.scrubbing) surface.scrubFrac = seek.fracAt(mouse.x); }
             onReleased: {
                 if (surface.player && surface.scrubbing)
-                    surface.player.position = surface.scrubFrac * surface.length;
+                    Music.seekPosition(surface.scrubFrac * surface.length);
                 surface.scrubbing = false;
             }
             onCanceled: surface.scrubbing = false

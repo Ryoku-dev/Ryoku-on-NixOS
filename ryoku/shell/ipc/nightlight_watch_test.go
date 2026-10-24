@@ -26,11 +26,15 @@ func TestNightlightWatcherEndToEnd(t *testing.T) {
 
 	bin := t.TempDir()
 	fake := filepath.Join(bin, backend)
-	fakeScript := `#!/usr/bin/env bash
-	name="${0##*/}"
-exec -a "$name" bash -c 'while :; do sleep 600; done'
-`
-	if err := os.WriteFile(fake, []byte(fakeScript), 0o755); err != nil {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep binary")
+	}
+	raw, err := os.ReadFile(sleep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fake, raw, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,7 +107,7 @@ exit 0
 		t.Fatalf("after toggle: want temperature 4000, got %s", got.Raw)
 	}
 
-	// The script changes temperature by restarting hyprsunset, so the watcher
+	// The script changes temperature by restarting the backend, so the watcher
 	// may coalesce that into one frame; the settled state must carry the new
 	// temperature with the light still on.
 	set := d.callHandler("nightlight.set")
@@ -179,14 +183,18 @@ func buildNlFake(t *testing.T, backend string, capsFailFirst bool) nlFake {
 	state := t.TempDir()
 	bin := t.TempDir()
 
-	// Deliberately model a Nix wrapper: comm is bash, while argv[0]
-	// carries the public backend name that procCommIs must recognise.
+	// A renamed copy of sleep is the fake backend: its comm is <backend>, the
+	// name the watcher greps for and the provider reports.
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep binary")
+	}
+	raw, err := os.ReadFile(sleep)
+	if err != nil {
+		t.Fatal(err)
+	}
 	fake := filepath.Join(bin, backend)
-	fakeScript := `#!/usr/bin/env bash
-name="${0##*/}"
-exec -a "$name" bash -c 'while :; do sleep 600; done'
-`
-	if err := os.WriteFile(fake, []byte(fakeScript), 0o755); err != nil {
+	if err := os.WriteFile(fake, raw, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -220,17 +228,21 @@ printf '%s' '{"name":"testwm","supports":["nightLight"],"nightLightProcess":"@BA
 	).Replace(`#!/usr/bin/env bash
 set -u
 pid="@PID@"; marker="@MARKER@"; temp="@TEMP@"; fake="@FAKE@"; name="@NAME@"
-up() { [[ -f $pid ]] && kill -0 "$(cat "$pid")" 2>/dev/null; }
+up() { pgrep -x "$name" >/dev/null 2>&1; }
 case "${1:-toggle}" in
-  on|toggle)
-    printf '%s\n' "${2:-4000}" >"$temp"
+  on)
+    # The real script's on always re-asserts: the provider's nightlight.on
+    # kills any running backend and spawns a fresh one. So a hotplug re-claim
+    # is observable as a fresh pid, and a re-on keeps the saved temp.
+    printf '%s\n' "${2:-$(cat "$temp" 2>/dev/null || echo 4000)}" >"$temp"
     : >"$marker"
-    up && exit 0
-    # Marker before backend: the real race. Then block until the backend is up,
-    # like the provider's act, so run returns only once the light truly is on.
+    if [[ -f $pid ]]; then kill "$(cat "$pid")" 2>/dev/null; fi
     sleep 0.3
     setsid "$fake" 600 >/dev/null 2>&1 </dev/null & echo $! >"$pid"
     for _ in $(seq 1 200); do up && break; sleep 0.01; done
+    ;;
+  toggle)
+    if up; then "$0" off; else "$0" on; fi
     ;;
   off)
     [[ -f $pid ]] && kill "$(cat "$pid")" 2>/dev/null
@@ -343,5 +355,114 @@ func TestNightlightLazyBackendName(t *testing.T) {
 	}
 	if got := waitForFrame(t, sub, func(fr nlFrame) bool { return fr.On }, "on:true"); !got.On {
 		t.Fatalf("frame after a working intent should be on: %s", got.Raw)
+	}
+}
+
+// TestNightlightHotplugRearms pins the hotplug self-heal: with the light on,
+// a connector set that moves re-runs the on intent, and because the provider
+// replaces (kills and respawns) the backend on every on, the heal is
+// observable as a fresh backend pid. The first set only primes (boot reports
+// the steady set, not a change), and a frame whose set did not move never
+// churns the backend.
+func TestNightlightHotplugRearms(t *testing.T) {
+	old := nlRearmGrace
+	nlRearmGrace = 200 * time.Millisecond
+	t.Cleanup(func() { nlRearmGrace = old })
+
+	f := buildNlFake(t, "nlfakeplug", false)
+	topic := newStateTopic()
+	sub := topic.subscribe()
+	defer topic.unsubscribe(sub)
+	n := &nightlightState{topic: topic, wmc: wm.OpenNamed("testwm"), stateDir: f.state, tempFile: f.temp}
+
+	if err := n.intent("on", "4100"); err != nil {
+		t.Fatalf("intent on: %v", err)
+	}
+	waitForFrame(t, sub, func(fr nlFrame) bool { return fr.On }, "on:true")
+	first, err := os.ReadFile(filepath.Join(f.state, "fake.pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Prime the set: the first report is the boot state, not a change.
+	n.rearmOnOutputs([]wm.Output{{Name: "eDP-1"}})
+	// Dock: the set moves; the debounce schedules one re-claim.
+	n.rearmOnOutputs([]wm.Output{{Name: "eDP-1"}, {Name: "DP-1"}})
+	// An identical later frame must not churn the backend a second time.
+	n.rearmOnOutputs([]wm.Output{{Name: "eDP-1"}, {Name: "DP-1"}})
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		cur, err := os.ReadFile(filepath.Join(f.state, "fake.pid"))
+		if err == nil && string(cur) != string(first) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("hotplug did not re-claim the gamma: backend pid unchanged")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !n.running() {
+		t.Fatal("after the heal the light must still read on")
+	}
+	if got := n.savedTemp(); got != 4100 {
+		t.Fatalf("the heal must keep the user's temperature: got %d want 4100", got)
+	}
+}
+
+// TestNightlightHotplugIgnoredWhenOff pins the other half: with no enabled
+// marker (the user left the light off), a moving connector set must never
+// spawn the backend.
+func TestNightlightHotplugIgnoredWhenOff(t *testing.T) {
+	old := nlRearmGrace
+	nlRearmGrace = 200 * time.Millisecond
+	t.Cleanup(func() { nlRearmGrace = old })
+
+	f := buildNlFake(t, "nlfakeplugoff", false)
+	topic := newStateTopic()
+	n := &nightlightState{topic: topic, wmc: wm.OpenNamed("testwm"), stateDir: f.state, tempFile: f.temp}
+
+	n.rearmOnOutputs([]wm.Output{{Name: "eDP-1"}})
+	n.rearmOnOutputs([]wm.Output{{Name: "eDP-1"}, {Name: "DP-1"}})
+	time.Sleep(nlRearmGrace + 1500*time.Millisecond)
+	if n.running() {
+		t.Fatal("a hotplug must not turn the light on for a user who left it off")
+	}
+	if _, err := os.Stat(f.marker); err == nil {
+		t.Fatal("a hotplug must not write the enabled marker")
+	}
+}
+
+// TestNightlightHotplugAfterOffDoesNotRevive pins the interaction with an
+// explicit off: a re-claim scheduled while the light was on must find the
+// marker gone when it fires and stay inert.
+func TestNightlightHotplugAfterOffDoesNotRevive(t *testing.T) {
+	old := nlRearmGrace
+	nlRearmGrace = 800 * time.Millisecond
+	t.Cleanup(func() { nlRearmGrace = old })
+
+	f := buildNlFake(t, "nlfakeplugstop", false)
+	topic := newStateTopic()
+	sub := topic.subscribe()
+	defer topic.unsubscribe(sub)
+	n := &nightlightState{topic: topic, wmc: wm.OpenNamed("testwm"), stateDir: f.state, tempFile: f.temp}
+
+	if err := n.intent("on"); err != nil {
+		t.Fatalf("intent on: %v", err)
+	}
+	waitForFrame(t, sub, func(fr nlFrame) bool { return fr.On }, "on:true")
+	n.rearmOnOutputs([]wm.Output{{Name: "eDP-1"}})
+	// The user turns the light off while the re-claim is still debouncing.
+	if err := n.intent("off"); err != nil {
+		t.Fatalf("intent off: %v", err)
+	}
+	n.rearmOnOutputs([]wm.Output{{Name: "eDP-1"}, {Name: "DP-1"}})
+
+	if got := waitForFrame(t, sub, func(fr nlFrame) bool { return !fr.On }, "on:false"); got.On {
+		t.Fatalf("frame after off: %s", got.Raw)
+	}
+	time.Sleep(nlRearmGrace + 1500*time.Millisecond)
+	if n.running() {
+		t.Fatal("a hotplug after an explicit off must not revive the backend")
 	}
 }

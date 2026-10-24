@@ -83,6 +83,10 @@ hl.config({
   },
 })
 
+-- Sidebar panels stay mapped at a 1 px floor, like ryoku-frame-edge. Their QML
+-- resize and exclusive-zone motion never remaps the layer, so no_anim would only
+-- affect startup. The clear dismiss layer is not matched by any blur rule.
+
 -- the launcher is a translucent layer-shell overlay; blur its backdrop so the
 -- card reads against any wallpaper. its open/close is QML-driven, so suppress
 -- Hyprland's own layer animation to avoid a double move. no_anim covers both
@@ -128,9 +132,9 @@ hl.layer_rule({
   no_anim = true,
 })
 
--- the keybind cheatsheet (qs -c keys, Super+K) is a full-screen layer-shell
--- overlay: blur the desktop behind its dim scrim so the card reads on any
--- wallpaper, and suppress Hyprland's own layer animation (QML owns the fade).
+-- Kit (qs -c keys, Super+K) is a full-screen layer-shell overlay. Blur the
+-- desktop behind its dim scrim so the card reads on any wallpaper, and suppress
+-- the compositor's layer animation because QML owns the fade.
 hl.layer_rule({
   name    = "ryoku-keys-blur",
   match   = { namespace = "^ryoku-keys$" },
@@ -158,12 +162,12 @@ hl.layer_rule({
 -- no full-screen dim. QML owns the open/close morph, so suppress the layer anim.
 hl.layer_rule({
   name    = "wallpaper-picker-noanim",
-  match   = { namespace = "^ryoku-wallpaper-picker$" },
+  match   = { namespace = "^ryogami-picker$" },
   no_anim = true,
 })
 hl.layer_rule({
   name         = "wallpaper-picker-blur",
-  match        = { namespace = "^ryoku-wallpaper-picker$" },
+  match        = { namespace = "^ryogami-picker$" },
   blur         = not no_blur,
   ignore_alpha = 0.05,
 })

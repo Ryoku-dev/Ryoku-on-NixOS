@@ -1,10 +1,11 @@
 # The store
 
 Ryoku's extras are delivered through **RyoStore**: a browsable catalogue of
-rices, lockscreens, bar styles, fastfetch styles, plugins, and bundles that
-install into the running desktop without activating themselves. Remote
-catalogues live in `ryostore`; RyoStore owns discovery and installation;
-Ryoku Settings manages what is already present.
+rices, lockscreens, bar styles, docks, app launchers, OSDs, notification cards,
+sidebars, fastfetch styles, plugins, and bundles that install into the running
+desktop without activating themselves. Remote catalogues live in `ryostore`;
+RyoStore owns discovery and installation; Ryoku Settings manages what is
+already present.
 
 ## How it works today
 
@@ -15,16 +16,18 @@ Ryoku Settings manages what is already present.
   and caches it under `~/.cache/ryoku/extras`, so the catalogue still renders
   offline.
 - **Store UI = RyoStore.** The standalone Quickshell app presents every
-  category through one artwork-led showroom with global search, Library state,
-  reversible details, explicit local status, and install-only actions. Ryoku
-  Settings remains the destination for activation, configuration, updates,
-  placement, and removal.
+  category through an artwork-led catalogue with global search, Library state,
+  reversible details, and install, update, and removal actions. Ryoku Settings
+  remains the destination for activation, configuration, placement, and other
+  applied-state controls.
 - **Install = the actuator.** `ryostore-install` routes each bundle item by
-  type: `package` through `pacman -Syu` / the AUR helper (one package at a time,
-  so one failure never strands the rest), `script` through `installers/<name>.sh`,
-  and `plugin` / `nautilus-pack` through the shell's guest paths. It runs in a
-  floating terminal for the sudo prompt; a bundle's `requires` (such as
-  `multilib`) is ensured first. Removal is symmetric.
+  type: `package` through `ryoku-host` (the official repositories or the AUR
+  helper on Arch and CachyOS, the edition's own repositories under its own
+  package names on Fedora and Void; one package at a time, so one failure never
+  strands the rest), `script` through `installers/<name>.sh`, and `plugin` /
+  `nautilus-pack` through the shell's guest paths. It runs in a floating
+  terminal for the sudo prompt; a bundle's `requires` (such as `multilib`) is
+  ensured first. Removal is symmetric.
 - **Guests = host/guest.** The shell is the *host*; a bundle ships *guests*
   (a plugin that renders in a widget or frame-popout host, a nautilus pack that
   drops right-click scripts). A guest declares its host and mounts on install,
@@ -39,59 +42,69 @@ distinct product categories, discovery is split across unrelated Settings
 pages, and the store is intended to be a visible front door for the Ryoku
 ecosystem. Ryostore replaces those browse surfaces rather than duplicating them.
 
-There is one door for discovery and installation:
+There is one door for discovery and catalogue transactions:
 
-- **Ryostore discovers and installs.** It owns remote catalogues, cached
-  metadata, search, previews, item details, installation, and installed-state
-  summaries.
-- **Ryoku Settings manages what is present.** It owns activation, configuration,
-  updates, removal, placement, and applied-state controls.
+- **Ryostore discovers and transacts.** It owns remote catalogues, cached
+  metadata, search, previews, item details, installation, updates, removal, and
+  installed-state summaries.
+- **Ryoku Settings manages what is active.** It owns activation, configuration,
+  placement, and applied-state controls.
 - **Install never activates.** Installing a rice, lockscreen, plugin, bar style,
-  or future fastfetch style must not change the desktop. Completion offers
-  **Open in Settings**.
+  dock, app launcher, OSD, notification card, sidebar, or future fastfetch style
+  must not change the desktop. Completion offers **Open in Settings** (for a
+  dock, the Stage Editor's Dock section).
 
-The first release exposes Lockscreens, Plugins, Bundles, Rices, Bar styles, and
-Fastfetch styles. A category without a live remote registry remains visible with
-an honest empty plate. It never receives fake specimens.
+Every live category appears in the rail below. A category without a live remote
+registry remains visible with an honest empty plate. It never receives fake
+specimens.
 
 ## Product shape
 
-RyoStore is a standalone Quickshell app in the same family as Ryoport and
-Ryowalls. Its ideal window is 1180 by 760, clamped to the available screen.
-The header remains usable at smaller sizes: Discover, Search, and Library stay
-visible while category labels occupy a clipped horizontal strip that scrolls
-the focused category into view.
+RyoStore is a standalone Quickshell app in the same family as the Hub, Ryoport,
+and Ryowalls. Its ideal window is 1180 by 760, clamped to the available screen.
+Its Hub-family frame keeps a permanent navigation rail, page head, and bottom
+action bar. Search, Discover, every category, and Library remain reachable when
+the catalogue grows; the rail scrolls the focused route into view.
 
-The first view is a living showroom, not a dashboard. A full-bleed stage gives
-the committed product's artwork, title, state, and actions visual priority. A
-horizontal filmstrip below it browses the current collection with pointer,
-touchpad, wheel, and keyboard input. Hover may preview only artwork and title;
-status and actions always belong to the committed selection.
+Discover opens as a living showroom rather than a dashboard. Its committed
+product keeps an artwork stage, while a responsive editorial grid exposes the
+rest of the collection. A card may animate its cover only while hovered.
+Status and actions always belong to the committed selection.
 
-The fixed header exposes one semantic route order:
+The rail exposes one semantic route order:
 
 ```text
-Discover
-Lockscreens · Rices · Themes · Bar styles · Fastfetch · Plugins · Bundles
 Search
+Discover
+Lockscreens · Rices · Themes · Bar styles · Docks · App launchers
+On-screen displays · Notifications · Sidebars · Fastfetch · Plugins
+Omarchy plugins · Bundles
 Library
 ```
 
 **Library** is a first-class cross-category collection. Every item writes its
 state explicitly:
 
-- `ACTIVE` for the rice, lockscreen, bar, or fastfetch style currently worn;
+- `ACTIVE` for the rice, lockscreen, bar, dock, launcher, OSD, notification
+  card, sidebar, or fastfetch style currently worn;
 - `ENABLED` for a running plugin;
 - `INSTALLED` for an owned but inactive item;
-- `<installed> / <total> INSTALLED` for a partial bundle;
+- `<installed> / <total> INSTALLED` for a partial bundle, counting only the
+  parts this edition can install;
 - `UPDATE` when a newer store-managed version is available.
 
-Opening a product expands its selected cover into a reversible dossier with
-real preview art and screenshots, then author, source, version, compatibility,
-exact local state, description, and actions. Closing the dossier returns to the
-same collection, selection, filmstrip offset, and focus. Actual preview art may
-keep its color because it is the item being evaluated; app chrome remains paper
-and ink, with no permanent rail, inspector panel, grain, or dashboard cards.
+Opening a product expands its selected cover into a media-led dossier. Images
+fit without cropping and never enlarge past their source pixels; display-sized
+decodes account for the screen scale and mipmap only when reducing. Animated GIF
+and WebP previews run only while their view is visible and the window is focused.
+Video previews loop muted. Multiple previews gain a filmstrip, arrow-key
+navigation, and a lightbox that switches between fitted and 100% pixel scale.
+
+The dossier keeps author, source, version, compatibility, exact local state,
+description, and actions beside the media. Closing it returns to the same
+collection, selection, grid offset, and focus. Preview art may keep its colour
+because it is the item being evaluated; the rail, page head, cards, controls,
+and action bar remain paper and ink.
 
 ## Interaction contract
 
@@ -100,25 +113,28 @@ Navigation preserves context rather than replacing pages:
 - `/` and `Ctrl+K` open and focus global search from anywhere;
 - `Esc` closes detail, then search, restoring the exact collection frame at
   each layer; it never silently quits;
-- Left/Right move the pending filmstrip selection, Home/End reach its bounds,
-  and Enter commits the pending product;
-- wheel and drag gestures settle to one committed cover;
-- Tab follows Discover, categories, Search, then Library;
-- quitting during an active installation requires a second quit action.
+- Left/Right move across a row, Up/Down move between grid rows, Home/End reach
+  the collection bounds, and Enter opens the selected product;
+- Left/Right step through an open product gallery and lightbox;
+- wheel and drag gestures scroll the grid and filmstrip;
+- Tab follows Search, Discover, categories, Library, then page actions;
+- quitting during an active transaction waits for the transaction to settle.
 
 Search is global and grouped by category. Results retain state, so a query such
 as `installed clock` can find an installed lockscreen without navigating to its
 category. Returning from search restores the previous route, category,
-selection, visible filmstrip offset, and focused control.
+selection, visible grid offset, and focused control.
 
-Installation feedback stays in the detail:
+Installation and update feedback stays in the detail:
 
-1. The primary action locks immediately and reads `INSTALLING`.
+1. The primary action says `INSTALL` or `UPDATE`, then locks immediately and
+   reads the current transaction stage.
 2. The detail reports the real fetching, verifying, installing, or complete
    stage.
-3. The backend is re-probed after completion and whenever the window regains
-   focus.
-4. Success becomes `INSTALLED` with `OPEN IN SETTINGS`.
+3. The backend is re-probed after completion; an explicit refresh rebuilds the
+   catalogue from its providers.
+4. Success becomes `INSTALLED` with `OPEN IN SETTINGS` where the product has a
+   management page.
 5. Failure keeps the detail open, prints the actionable error, and offers
    `RETRY`.
 
@@ -146,9 +162,11 @@ ryoku/apps/ryostore/
     cache.go
     provider_locks.go
     provider_plugins.go
+    provider_omarchy_plugins.go
     provider_bundles.go
     provider_rices.go
     provider_bars.go
+    provider_shell_qml.go
     provider_fastfetch.go
   quickshell/
     shell.qml
@@ -182,9 +200,12 @@ Category
 
 Item
   id, category, name, summary, description
-  art, screenshots, author, version, compatibility
+  art, screenshots, initials, accent, author, version, compatibility
+  kind, license, stars, verificationStatus, listedAt
   installed, active, enabled, installedCount, totalCount
-  updateAvailable, downloadPaused, downloadPauseReason, metadata
+  updateAvailable, downloadPaused, downloadPauseReason
+  requiredWindowManager, requiredPackageManagers, unavailable,
+  unavailableEdition, unavailableReason, metadata
 ```
 
 A source may pause a product's downloads without delisting it: the registry
@@ -195,6 +216,31 @@ an install or update before fetching any manifest or payload byte. The check is
 keyed by category and id alone, so no client request can bypass it, and a
 default (absent) flag leaves normal behavior untouched.
 
+A catalogue item may also name the window manager it is written for, with the
+provider name `ryoku wm use <name>` takes: the registry entry carries
+`windowManager` and an optional human `windowManagerReason`, the backend compares
+it against the running provider (asked through the seam, never assumed), and the
+item comes back `unavailable` with `requiredWindowManager` named, so the store
+greys the tile out and says why instead of offering a control that cannot work.
+Install and update are refused the same way a pause is, on a fresh registry read,
+so the item stays listed and an installed copy stays removable. A catalogue built
+under one window manager is rebuilt rather than served after a switch, since the
+answer to "does this run here?" belongs to the desktop it was computed on.
+
+Ryoku runs on Arch, CachyOS, Fedora and Void, and a catalogue item can be gated
+on the package managers that can provide it the same way: the registry entry,
+or a single bundle item, carries `packageManagers` (`pacman`, `dnf`, `xbps`)
+and a human `packageManagersReason`, the backend asks `ryoku-host pkgmgr` which
+one this machine runs, and the item comes back `unavailable` with
+`unavailableEdition` set, so the store says *Not on this system* rather than
+naming a window manager. A window-manager gate wins when both apply. The
+refusal on install is the same fresh registry read. Bundle packages are named
+per edition by the catalogue's `bundles/packages/<edition>.tsv` tables, which
+`ryostore internal package-table` serves to the actuator. A part the running
+edition does not ship stays listed in the bundle's detail, greyed out with the
+table's reason, cannot be selected, and is left out of **Install all** and the
+part count.
+
 The public command surface is deliberately small:
 
 ```text
@@ -204,11 +250,11 @@ ryostore open <discover|library|category>
 ryostore settings <category> [id]
 ```
 
-QML invokes this contract instead of maintaining six bespoke process and state
-models. Adding a specimen changes only its upstream registry or owning local
-manifest. Adding a category adds one provider and one header entry; the generic
-stage, filmstrip, search, Library projection, and detail surface need no new QML
-page.
+QML invokes this contract instead of maintaining category-specific process and
+state models. Adding a specimen changes only its upstream registry or owning
+local manifest. Adding a category adds one provider and one header entry; the
+generic stage, filmstrip, search, Library projection, and detail surface need no
+new QML page.
 
 Runtime implementations remain with their owning subsystem. A bar style still
 lives under `modules/bar/barstyles/<id>/`, a qylock theme under the qylock theme tree,
@@ -227,6 +273,20 @@ and installation, not a second runtime copy.
   Install never enables a plugin, removal preserves that user state, and the
   running shell watches Store revisions and keys Loader URLs by installed
   version so updated content and services replace themselves without a reload.
+- **Omarchy plugins:** expose the installable entries from
+  `plugins.omarchy.org/catalog.json` only while Nomarchy is the active bar style.
+  The provider keeps a conditional HTTP cache using ETag and Last-Modified,
+  normalizes only the fields the store renders, and resolves marketplace preview
+  paths against the site. Installed IDs and versions come from
+  `~/.config/omarchy/plugins/*/manifest.json`; runtime state supplies the enabled
+  badge. Install and update use `omarchy plugin add|update ... --yes`, removal
+  uses `omarchy plugin remove ... --yes`, and the detail offers explicit Enable
+  and Disable controls. A compatibility scan after installation can block
+  enabling and surfaces its reason in the detail. Marketplace code is called out
+  as unsandboxed before the user enables it. The grid remains virtualized, while
+  the category offers Popular, New, and Verified orderings and global search.
+  Its thousands of preview and gallery URLs deliberately bypass eager asset
+  warming; only visible delegates request their remote media.
 - **Bundles:** fetch the `ryostore` bundle registry and join it with
   `ryostore-install status`. Partial counts are first-class. Settings owns
   installed bundle status and removal.
@@ -243,6 +303,38 @@ and installation, not a second runtime copy.
 - **Bar styles:** expose the shipped runtime style manifests and the active
   `shell.json` value. The current development styles are all visible and report
   installed state. Settings retains selection and configuration.
+- **Docks, App launchers, On-screen displays, Notifications and Sidebars:** one
+  shell-QML provider (`provider_shell_qml.go`) serves all five. It fetches each
+  category's `ryostore` registry, installs the product's receipt-owned folder
+  through the common transaction engine, and publishes a content-addressed view
+  per product. Docks and launchers use `dock-views` and `launcher-views`.
+  `osds` loads `Osd.qml` from `osd-views`, `notifications` loads `Card.qml` from
+  `notification-views`, and `sidebars` loads `Sidebar.qml` from
+  `sidebar-views`.
+
+  Active state is `dock.design` in `shell.json` (picked in Edit desktop -> Dock)
+  or `variant` in `launcher.json` (Settings -> App Launcher). The three overlay
+  categories use `shell.json` `designs.osd`, `designs.notification`, and
+  `designs.sidebar`, all defaulting to the shipped and reserved id `ryoku`.
+  They are picked in Settings -> Overlays, the `overlays` page in the DESKTOP
+  group after Controls; `ryostore settings osds`, `ryostore settings
+  notifications`, and `ryostore settings sidebars` all open it. The page has a
+  Try action for each surface, and its OSD action calls `qs -c shell ipc call
+  osd preview` to flash the volume OSD.
+
+  Installing never selects a product. Removing one that is worn moves its
+  setting back to the shell default in the same journaled transaction:
+  `ryoku` for docks and each overlay category, or the default launcher. A dock's
+  **Open in Settings** asks the running shell for the Stage Editor's Dock
+  section rather than the Hub.
+
+  The shell still owns the windows, timing, data, and input for an OSD,
+  notification, or sidebar; the installed design only draws. A design that
+  cannot load is replaced by Ryoku's own design. Bar styles that own their
+  banners or OSD, including Python, Nomarchy, Tansu, and Nacre, keep them.
+  The starter catalogue has Ito, an OSD drawn as a thread on the right edge;
+  Tegami, a letter-shaped notification card; and Byobu, a full-height
+  folding-screen sidebar. See `docs/ui-ux.md` and `docs/launcher.md`.
 - **Fastfetch styles:** expose the category and active local state. Until a
   style registry exists, the category renders its honest upcoming plate.
   Fastfetch editing remains in Settings.
@@ -291,17 +383,21 @@ precedence, and restored browse state. `qmllint` checks all new and touched QML.
 The live app is deployed from the checkout and exercised with `ydotool` and
 `grim`:
 
-- Discover, every category, a detail, and exact return restoration;
-- global search and Library;
-- keyboard-only navigation;
+- Discover, every category, Library, a detail, and exact return restoration;
+- global search and keyboard-only navigation;
+- an installed item with an available update, including the `UPDATE` transaction;
+- a multi-image gallery, arrow navigation, and fitted versus 100% lightbox scale;
+- GIF and animated WebP playback while focused, then paused after focus leaves
+  the window or the media moves off-screen;
+- a muted video preview when the fixture catalogue supplies one;
 - successful fixture install and retryable fixture failure;
-- Open in Settings deep links;
-- offline cached rendering;
+- Open in Settings deep links and offline cached rendering;
 - ideal and cramped window compositions.
 
 The captured frames are inspected for spacing, clipping, focus, status
-legibility, loading and error plates, and detail motion. A visible window alone
-is not acceptance.
+legibility, fixed loading geometry, uncropped screenshot aspect, crisp pixels at
+the output scale, and restrained detail motion. A visible window alone is not
+acceptance.
 
 Delivery is complete when the Hub contains no duplicate remote store, all moved
 callers use Ryostore, the existing app packaging loop ships the Quickshell tree,

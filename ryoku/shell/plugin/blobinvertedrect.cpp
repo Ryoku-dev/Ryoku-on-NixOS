@@ -121,8 +121,11 @@ QSGNode* BlobInvertedRect::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData
     material->m_shadowSize = static_cast<float>(m_group->shadowSize());
     material->m_borderColor = m_group->borderColor();
     material->m_borderWidth = static_cast<float>(m_group->borderWidth());
+    material->m_waveColor = m_group->waveColor();
     memcpy(material->m_invertedOuter, m_cachedInvertedOuter, sizeof(m_cachedInvertedOuter));
     memcpy(material->m_invertedInner, m_cachedInvertedInner, sizeof(m_cachedInvertedInner));
+    memcpy(material->m_waveInfo, m_cachedWaveInfo, sizeof(m_cachedWaveInfo));
+    memcpy(material->m_waveData, m_cachedWaveData, sizeof(m_cachedWaveData));
 
     const int count = static_cast<int>(qMin(m_cachedRects.size(), qsizetype(16)));
     material->m_rectCount = count;

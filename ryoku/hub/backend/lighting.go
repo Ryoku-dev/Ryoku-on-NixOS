@@ -1,8 +1,9 @@
 package main
 
-// `ryoku-hub lighting ...`, the control plane for RGB devices: the Hub's
-// Lighting tab drives it, the shell calls `accent` on a palette change, the
-// Hyprland autostart calls `apply` once a session.
+// `ryoku-hub lighting ...`, the control plane for RGB devices: the wallpaper
+// picker's Lighting settings drive it through the Ryogami daemon, the shell
+// calls `accent` on a palette change, and every compositor's autostart calls
+// `apply` once a session.
 //
 // Every path is opt-in. OpenRGB can reconfigure every controller while probing,
 // and native providers write firmware-backed laptop lighting directly. Off means
@@ -190,6 +191,7 @@ type lightDevice struct {
 	Effects     []lightFx         `json:"effects,omitempty"`
 	Zones       []lightZone       `json:"zones,omitempty"`
 	Managed     bool              `json:"managed"`
+	Following   bool              `json:"following"`
 	Mode        string            `json:"mode,omitempty"`
 	Effect      string            `json:"effect,omitempty"`
 	Source      string            `json:"source,omitempty"`
@@ -221,7 +223,7 @@ func lightingAvailable() bool {
 
 func runLighting(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("lighting needs a subcommand: state|scan|enable|disable|set|apply|accent|save|release|animate")
+		return fmt.Errorf("lighting needs a subcommand: state|scan|enable|disable|set|follow|apply|accent|save|release|animate")
 	}
 	switch args[0] {
 	case "state":
@@ -237,6 +239,18 @@ func runLighting(args []string) error {
 			return fmt.Errorf("lighting set needs <key> <json>")
 		}
 		return lightingSet(args[1], args[2])
+	case "follow":
+		if len(args) != 3 {
+			return fmt.Errorf("lighting follow needs <key>|--all on|off")
+		}
+		switch args[2] {
+		case "on":
+			return lightingFollow(args[1], true)
+		case "off":
+			return lightingFollow(args[1], false)
+		default:
+			return fmt.Errorf("lighting follow needs on or off")
+		}
 	case "apply":
 		return lightingApply("")
 	case "accent":
@@ -395,6 +409,7 @@ func mergeViews(live []orgbDevice, st lightingState) []lightDevice {
 			s = &lightingSettings{Brightness: -1, Speed: -1}
 		}
 		v := savedView(key, s)
+		v.Following = v.Managed && v.Source == "accent"
 		v.Name = d.Name
 		v.Vendor = d.Vendor
 		v.Type = d.Type
@@ -453,6 +468,7 @@ func savedView(key string, s *lightingSettings) lightDevice {
 		Key:        key,
 		Name:       name,
 		Managed:    s.Managed,
+		Following:  s.Managed && src == "accent",
 		Mode:       s.Mode,
 		Effect:     s.Effect,
 		Source:     src,
@@ -599,6 +615,203 @@ func lightingSet(key, patch string) error {
 	return printJSON(rep)
 }
 
+// lightingFollow adopts a device into palette following or hands it back. The
+// all-device forms share one provider pass so a batch cannot interleave with a
+// palette update or repeatedly reconnect to the SDK server.
+func lightingFollow(key string, on bool) error {
+	if key == "" {
+		return fmt.Errorf("lighting follow needs <key>|--all")
+	}
+	if !on {
+		if key == "--all" {
+			return lightingReleaseManaged()
+		}
+		return lightingRelease(key)
+	}
+
+	st := loadLighting()
+	if !st.Enabled {
+		return printJSON(failed(lightingStateReport(), fmt.Errorf("Lighting is off.")))
+	}
+
+	rep := lightingStateReport()
+	var issues []string
+	err := lightingAccess(true, true, followProviders(key), func(o *orgbConn, live []orgbDevice) error {
+		st = rememberFirstSight(live)
+		var targets []orgbDevice
+		if key == "--all" {
+			targets = live
+		} else if d, ok := findLive(live, key); ok {
+			targets = []orgbDevice{d}
+		} else {
+			issues = append(issues, fmt.Sprintf("%s is not connected", key))
+		}
+
+		adopted := make([]orgbDevice, 0, len(targets))
+		for _, d := range targets {
+			s := st.Devices[deviceKey(d)]
+			if s == nil {
+				continue
+			}
+			if !prepareFollow(d, s) {
+				issues = append(issues, fmt.Sprintf("%s has no colour-capable mode", d.Name))
+				continue
+			}
+			adopted = append(adopted, d)
+		}
+		if len(adopted) > 0 {
+			if err := saveLighting(st); err != nil {
+				return err
+			}
+			ensureAnimator(st)
+		}
+		accent := accentColor()
+		for _, d := range adopted {
+			id := deviceKey(d)
+			if err := applyOne(o, live, id, st.Devices[id], accent); err != nil {
+				issues = append(issues, fmt.Sprintf("%s: %v", d.Name, err))
+			}
+		}
+		rep = liveReport(st, afterWrite(o, live))
+		return nil
+	})
+	if err != nil {
+		issues = append(issues, err.Error())
+	}
+	if len(issues) > 0 {
+		rep.Error = strings.Join(issues, "; ")
+	}
+	return printJSON(rep)
+}
+
+func followProviders(key string) lightingProviders {
+	if key == "--all" {
+		return lightingAll
+	}
+	return providersForKey(key)
+}
+
+func prepareFollow(d orgbDevice, s *lightingSettings) bool {
+	firmwareOnly := d.Provider == auraProvider || d.Provider == qmkProvider
+	if s.Effect != "" && !firmwareOnly && canPaint(d) {
+		s.Managed = true
+		s.Source = "accent"
+		return true
+	}
+
+	mode, ok := colourMode(d, s.Mode)
+	if !ok {
+		return false
+	}
+	s.Managed = true
+	s.Source = "accent"
+	s.Mode = mode.Name
+	s.Effect = ""
+	return true
+}
+
+func colourMode(d orgbDevice, stored string) (orgbMode, bool) {
+	if _, mode, ok := d.mode(stored); ok && modeShowsColour(mode) {
+		return mode, true
+	}
+	if d.ActiveMode >= 0 && d.ActiveMode < len(d.Modes) {
+		if mode := d.Modes[d.ActiveMode]; modeShowsColour(mode) {
+			return mode, true
+		}
+	}
+	for _, mode := range d.Modes {
+		if mode.Name == "Static" && mode.ColorsMax > 0 {
+			return mode, true
+		}
+	}
+	for _, mode := range d.Modes {
+		if mode.Name == "Direct" && modeShowsColour(mode) {
+			return mode, true
+		}
+	}
+	for _, mode := range d.Modes {
+		if mode.Name == "Custom" && mode.has(modeHasPerLEDColor) {
+			return mode, true
+		}
+	}
+	for _, mode := range d.Modes {
+		if mode.ColorsMax > 0 {
+			return mode, true
+		}
+	}
+	for _, mode := range d.Modes {
+		if mode.has(modeHasPerLEDColor) {
+			return mode, true
+		}
+	}
+	return orgbMode{}, false
+}
+
+func modeShowsColour(mode orgbMode) bool {
+	return mode.ColorsMax > 0 || mode.has(modeHasPerLEDColor)
+}
+
+func lightingReleaseManaged() error {
+	st := loadLighting()
+	if !anyManaged(st) {
+		return printJSON(lightingStateReport())
+	}
+	if !st.Enabled {
+		for _, s := range st.Devices {
+			s.Managed = false
+		}
+		if err := saveLighting(st); err != nil {
+			return err
+		}
+		ensureAnimator(st)
+		return printJSON(lightingStateReport())
+	}
+
+	rep := lightingStateReport()
+	var issues []string
+	err := lightingAccess(true, false, providersForState(st), func(o *orgbConn, live []orgbDevice) error {
+		keys := make([]string, 0, len(st.Devices))
+		for key, s := range st.Devices {
+			if s.Managed {
+				keys = append(keys, key)
+			}
+		}
+		sort.Strings(keys)
+		released := make([]*lightingSettings, 0, len(keys))
+		for _, key := range keys {
+			s := st.Devices[key]
+			if err := restoreDevice(o, live, key, s); err != nil {
+				name := s.Name
+				if name == "" {
+					name = key
+				}
+				issues = append(issues, fmt.Sprintf("%s: %v", name, err))
+				continue
+			}
+			s.Managed = false
+			released = append(released, s)
+		}
+		if len(released) > 0 {
+			if err := saveLighting(st); err != nil {
+				for _, s := range released {
+					s.Managed = true
+				}
+				return err
+			}
+			ensureAnimator(st)
+		}
+		rep = liveReport(st, afterWrite(o, live))
+		return nil
+	})
+	if err != nil {
+		issues = append(issues, err.Error())
+	}
+	if len(issues) > 0 {
+		rep.Error = strings.Join(issues, "; ")
+	}
+	return printJSON(rep)
+}
+
 // lightingApply pushes stored settings at every adopted device. Called with an
 // accent by the shell when the palette changes (only accent-following devices
 // are touched then) and bare once a session by the Hyprland autostart.
@@ -666,10 +879,10 @@ func lightingSaveToDevice(key string) error {
 			return fmt.Errorf("%s does not offer saving %s to the device", d.Name, m.Name)
 		}
 		tuned := tuneMode(m, s, accentColor())
-		if err := o.SetMode(d.Index, idx, tuned); err != nil {
+		if err := o.SetMode(d, idx, tuned); err != nil {
 			return err
 		}
-		if err := o.SaveMode(d.Index, idx, tuned); err != nil {
+		if err := o.SaveMode(d, idx, tuned); err != nil {
 			return err
 		}
 		rep = liveReport(st, afterWrite(o, live))
@@ -701,11 +914,12 @@ func lightingRelease(key string) error {
 		if err := saveLighting(st); err != nil {
 			return err
 		}
+		ensureAnimator(st)
 		return printJSON(lightingStateReport())
 	}
 
 	rep := lightingStateReport()
-	err := access(true, false, providersForKey(key), func(o *orgbConn, live []orgbDevice) error {
+	err := lightingAccess(true, false, providersForKey(key), func(o *orgbConn, live []orgbDevice) error {
 		if err := restoreDevice(o, live, key, s); err != nil {
 			return err
 		}
@@ -714,6 +928,7 @@ func lightingRelease(key string) error {
 			s.Managed = true
 			return err
 		}
+		ensureAnimator(st)
 		rep = liveReport(st, afterWrite(o, live))
 		return nil
 	})
@@ -766,7 +981,7 @@ func restoreDevice(o *orgbConn, live []orgbDevice, key string, s *lightingSettin
 	if o == nil {
 		return fmt.Errorf("OpenRGB is not running")
 	}
-	return o.SetMode(d.Index, idx, m)
+	return o.SetMode(d, idx, m)
 }
 
 func anyManaged(st lightingState) bool {
@@ -849,7 +1064,7 @@ func applyOne(o *orgbConn, live []orgbDevice, key string, s *lightingSettings, a
 		if m.has(modeHasBrightness) {
 			m.Bri = m.BriMax // the effect scales the colour itself
 		}
-		if err := o.SetMode(d.Index, idx, m); err != nil {
+		if err := o.SetMode(d, idx, m); err != nil {
 			return err
 		}
 		if s.Effect != "solid" {
@@ -863,14 +1078,14 @@ func applyOne(o *orgbConn, live []orgbDevice, key string, s *lightingSettings, a
 		if s.Brightness >= 0 {
 			bri = float64(s.Brightness) / 100
 		}
-		return o.SetLEDs(d.Index, fxFrame("solid", make([]float64, d.LEDCount), 0, 0, bri, base))
+		return o.SetLEDs(d, fxFrame("solid", make([]float64, d.LEDCount), 0, 0, bri, base))
 	}
 	idx, m, ok := resolveMode(d, s.Mode)
 	if !ok {
 		return fmt.Errorf("%s reports no modes", d.Name)
 	}
 	tuned := tuneMode(m, s, accent)
-	if err := o.SetMode(d.Index, idx, tuned); err != nil {
+	if err := o.SetMode(d, idx, tuned); err != nil {
 		return err
 	}
 	if !m.has(modeHasPerLEDColor) {
@@ -932,7 +1147,7 @@ func paintLEDs(o *orgbConn, d orgbDevice, s *lightingSettings, accent string) er
 					c = v
 				}
 			}
-			if err := o.SetZoneLEDs(d.Index, i, repeat(c, int(z.LEDs))); err != nil {
+			if err := o.SetZoneLEDs(d, i, repeat(c, int(z.LEDs))); err != nil {
 				return err
 			}
 		}
@@ -941,7 +1156,7 @@ func paintLEDs(o *orgbConn, d orgbDevice, s *lightingSettings, accent string) er
 	if d.LEDCount == 0 {
 		return nil
 	}
-	return o.SetLEDs(d.Index, repeat(base[0], d.LEDCount))
+	return o.SetLEDs(d, repeat(base[0], d.LEDCount))
 }
 
 func repeat(c uint32, n int) []uint32 {
@@ -1161,7 +1376,7 @@ func serverUp() bool {
 }
 
 // connectServer: use the running server, or start Ryoku's own as a transient
-// systemd unit so it is supervised, logged, and stoppable by name. The second
+// host job so it is supervised, logged, and stoppable by name. The second
 // return says Ryoku started it, which matters: OpenRGB accepts connections
 // before it has finished finding devices, so a cold start needs a moment more
 // before the empty device list can be believed.
@@ -1189,16 +1404,9 @@ func connectServer() (*orgbConn, bool, error) {
 // startServer runs OpenRGB headless, bound to loopback: no window, no tray, and
 // nothing reachable from the network.
 func startServer() error {
-	if _, err := exec.LookPath("systemd-run"); err != nil {
-		cmd := exec.Command("openrgb", "--server", "--server-host", "127.0.0.1")
-		cmd.Env = append(os.Environ(), "QT_QPA_PLATFORM=offscreen")
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		return cmd.Start()
-	}
-	out, err := exec.Command("systemd-run", "--user", "--collect",
-		"--unit="+lightingUnit,
-		"--description=OpenRGB SDK server for Ryoku lighting",
-		"--setenv=QT_QPA_PLATFORM=offscreen",
+	out, err := exec.Command("ryoku-host", "transient", "start", lightingUnit,
+		"--prop", "Description=OpenRGB SDK server for Ryoku lighting",
+		"--env", "QT_QPA_PLATFORM=offscreen", "--",
 		"openrgb", "--server", "--server-host", "127.0.0.1").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("could not start OpenRGB: %s", strings.TrimSpace(string(out)))
@@ -1209,8 +1417,10 @@ func startServer() error {
 // stopServer stops only the unit Ryoku starts. A server the user runs themselves
 // is theirs; Ryoku never takes it down.
 func stopServer() {
-	_ = exec.Command("systemctl", "--user", "stop", lightingUnit+".service").Run()
+	_ = exec.Command("ryoku-host", "transient", "stop", lightingUnit).Run()
 }
+
+var lightingAccess = access
 
 // access runs one serialized job against the requested lighting providers.
 //

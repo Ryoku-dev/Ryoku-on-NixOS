@@ -32,17 +32,18 @@ Item {
     // again, on the GPU path this time). So the picture is advanced by a Timer, only
     // as often as it needs to change, at ParticleStream's own paces: its
     // fullMotionTick while audio drives the stream (60 fps for the fast positional
-    // modes 5 and 6, 30 fps otherwise), its driftTick (20 fps) for the silent drift,
-    // both slowed by pollFactor on battery / Saver / Game Mode. The silent drift is
-    // not promoted to full rate on Performance the way the Canvas does it: on a
-    // full-screen layer that promotion is the whole cost. And it runs only where
-    // the power profile allows it (Perf.ambientMotion: Performance), the same rule
-    // ParticleStream applies, so a silent bar sits still on Balanced and Saver,
-    // like caelestia and end-4. Music still animates the bar on every profile.
+    // modes 5 and 6, 30 fps otherwise), and 10 fps for the silent drift, which is
+    // slow enough that more samples only submit identical-looking frames. Both
+    // are slowed by pollFactor on battery / Saver / Game Mode. The silent drift
+    // is not promoted to full rate on Performance the way the Canvas does it: on
+    // a full-screen layer that promotion is the whole cost. It only runs where
+    // the power profile allows it (Perf.ambientMotion on Performance), the same
+    // rule ParticleStream applies, so a silent bar sits still on Balanced and
+    // Saver like caelestia and end-4. Music still animates the bar on every profile.
     // `time` is in seconds, matching stream.frag's time units.
     readonly property bool streamLive: root.visible && (root.audioLive || Perf.ambientMotion)
     readonly property int motionTick: (root.mode === 5 || root.mode === 6) ? 16 : 33
-    readonly property int driftTick: 50
+    readonly property int driftTick: 100
     property real time: 0
     Timer {
         id: clock

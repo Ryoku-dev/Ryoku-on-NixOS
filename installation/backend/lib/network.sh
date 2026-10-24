@@ -26,6 +26,8 @@
 # preflight, before the disk is touched. everything routes through the dry-run
 # wrappers.
 
+: "${RYOKU_CHROOT_CMD:=arch-chroot}"
+
 ryoku_network() {
   log "persisting NetworkManager configuration into the target"
   ryoku_network_backend
@@ -127,7 +129,7 @@ ryoku_network_regdom() {
     return 0
   fi
   log 'Wi-Fi regulatory domain: %s' "$cc"
-  run arch-chroot /mnt ryoku-wifi-regdom set "$cc" \
+  run "$RYOKU_CHROOT_CMD" /mnt ryoku-wifi-regdom set "$cc" \
     || log 'warn: could not pin the Wi-Fi regulatory domain to %s (continuing; '\''ryoku doctor'\'' retries it)' "$cc"
 }
 
@@ -175,6 +177,25 @@ ryoku_dns_works() {
   return 1
 }
 
+# ryoku_dns_filtered: the Ryoku host should never resolve to an address local to
+# the client. Some filtered resolvers answer with a private sinkhole while other
+# domains still resolve normally, so the general DNS check above cannot catch it.
+ryoku_dns_filtered() {
+  local host=${1:-repo.ryoku.dev} address
+  while read -r address _; do
+    case $address in
+      10.*|127.*|192.168.*|::1|0:0:0:0:0:0:0:1|::ffff:10.*|::ffff:127.*|::ffff:192.168.*|2001:4188:2:600:10:10:34:*)
+        return 0
+        ;;
+    esac
+    if [[ $address =~ ^172\.(1[6-9]|2[0-9]|3[01])\. ]] ||
+       [[ $address =~ ^::ffff:172\.(1[6-9]|2[0-9]|3[01])\. ]]; then
+      return 0
+    fi
+  done < <(getent ahosts "$host" 2>/dev/null || true)
+  return 1
+}
+
 # ryoku_ensure_mirrors: DNS can work while HTTP does not (captive portal, half-up
 # wifi, blocked egress). A flaky link then fails DEEP in pacstrap: a partial db
 # sync resolves core but not extra and pacman reports "target not found: go"
@@ -189,10 +210,15 @@ ryoku_ensure_mirrors() {
   fi
   [[ ${RYOKU_ONLINE:-1} == 1 ]] || { log "mirrors: offline install, skipping the reachability check"; return 0; }
 
-  local url healed=0
+  local url host healed=0
   for url in ${RYOKU_MIRROR_PROBE_URLS:-\
 https://geo.mirror.pkgbuild.com/core/os/x86_64/core.db \
 https://repo.ryoku.dev/stable/x86_64/ryoku.db}; do
+    host=${url#*://}
+    host=${host%%[/:]*}
+    if [[ $host == ryoku.dev || $host == *.ryoku.dev ]] && ryoku_dns_filtered "$host"; then
+      die 'DNS for ryoku.dev is being filtered on this network; see https://github.com/Ryoku-dev/ryoku/blob/main/docs/updates.md#filtered-dns. The disk has not been touched yet.'
+    fi
     curl -fsSI --retry 2 --max-time 20 -o /dev/null "$url" && continue
     # a dead-CMOS box has a badly wrong clock: TLS then rejects every cert (not
     # yet valid / expired) and pacman signatures fail too. once, read the

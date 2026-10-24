@@ -1,0 +1,35 @@
+module stage.modules.ii.editMode
+EditAddBadge 1.0 EditAddBadge.qml
+EditAlignBar 1.0 EditAlignBar.qml
+EditBarAppearancePage 1.0 EditBarAppearancePage.qml
+EditBarComponentPage 1.0 EditBarComponentPage.qml
+EditBarMenu 1.0 EditBarMenu.qml
+EditColourPage 1.0 EditColourPage.qml
+EditDesktopIconsPage 1.0 EditDesktopIconsPage.qml
+EditDockAppearancePage 1.0 EditDockAppearancePage.qml
+EditDockWidgetsPage 1.0 EditDockWidgetsPage.qml
+EditMenuPageHeader 1.0 EditMenuPageHeader.qml
+EditMenuRow 1.0 EditMenuRow.qml
+EditModeChrome 1.0 EditModeChrome.qml
+EditModeChromeContent 1.0 EditModeChromeContent.qml
+EditModeChromeSurface 1.0 EditModeChromeSurface.qml
+EditModeDrawer 1.0 EditModeDrawer.qml
+EditModeGuide 1.0 EditModeGuide.qml
+singleton EditModeInsets 1.0 EditModeInsets.qml
+EditOptionChips 1.0 EditOptionChips.qml
+EditPanelNotice 1.0 EditPanelNotice.qml
+EditPanelRow 1.0 EditPanelRow.qml
+EditPanelSectionLabel 1.0 EditPanelSectionLabel.qml
+EditRemoveBadge 1.0 EditRemoveBadge.qml
+EditStylePage 1.0 EditStylePage.qml
+EditStylePresets 1.0 EditStylePresets.qml
+EditTabletDockAppearancePage 1.0 EditTabletDockAppearancePage.qml
+EditWallpaperFramingOverlay 1.0 EditWallpaperFramingOverlay.qml
+EditWallpaperPage 1.0 EditWallpaperPage.qml
+EditWallpaperRootPage 1.0 EditWallpaperRootPage.qml
+EditWallpaperScreenMap 1.0 EditWallpaperScreenMap.qml
+EditWidgetConfigPanel 1.0 EditWidgetConfigPanel.qml
+EditWidgetMenu 1.0 EditWidgetMenu.qml
+EditDockDesignPicker 1.0 EditDockDesignPicker.qml
+EditIiDockStylePicker 1.0 EditIiDockStylePicker.qml
+EditIiDockWidgetsPage 1.0 EditIiDockWidgetsPage.qml

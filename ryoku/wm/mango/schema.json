@@ -1,0 +1,1042 @@
+[
+  {
+    "tab": "Behaviour",
+    "group": "FOCUS",
+    "key": "wm.mango.focusOnActivate",
+    "label": "Focus follows requests",
+    "desc": "A window that asks for focus (an app opening, a link clicked) gets it",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "FOCUS",
+    "key": "wm.mango.focusCrossMonitor",
+    "label": "Focus across screens",
+    "desc": "Directional focus can leave the screen you are on",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "FOCUS",
+    "key": "wm.mango.focusCrossTag",
+    "label": "Focus across tags",
+    "desc": "Directional focus can find a window on another tag",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "FOCUS",
+    "key": "wm.mango.warpCursor",
+    "label": "Warp the cursor on focus",
+    "desc": "The pointer jumps to a window you focus or move to",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "WORKSPACES",
+    "key": "wm.mango.viewCurrentToBack",
+    "label": "Current tag falls back",
+    "desc": "Switching to an already-shown tag steps back to the previous one",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "MASTER AND STACK",
+    "key": "wm.mango.defaultMfact",
+    "label": "Master area size",
+    "desc": "Screen fraction the master window keeps in the tile layouts",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.2,
+    "hi": 0.9,
+    "pct": true,
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "MASTER AND STACK",
+    "key": "wm.mango.defaultNMaster",
+    "label": "Master windows",
+    "desc": "How many windows sit in the master area before the stack starts",
+    "ctl": "step",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 8,
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "MASTER AND STACK",
+    "key": "wm.mango.newIsMaster",
+    "label": "New windows take the master slot",
+    "desc": "A new window opens as the master and pushes the old one into the stack",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "DEFAULT LAYOUT",
+    "key": "wm.mango.defaultLayout",
+    "label": "Every tag's layout",
+    "desc": "The tiling layout a tag starts in; a tag keeps its own once you switch it",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "tile",
+      "scroller",
+      "dwindle",
+      "grid",
+      "deck",
+      "monocle",
+      "vertical_tile",
+      "vertical_scroller"
+    ],
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SCROLLER",
+    "key": "wm.mango.scrollerDefaultProportion",
+    "label": "Scroller focus width",
+    "desc": "Screen fraction the focused window fills in the scrolling layout",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.2,
+    "hi": 1,
+    "pct": true,
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SCROLLER",
+    "key": "wm.mango.scrollerFocusCenter",
+    "label": "Centre the focused window",
+    "desc": "The scrolling layout parks the focused window in the middle of the screen",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SCROLLER",
+    "key": "wm.mango.scrollerProportionPreset",
+    "label": "Widths Super+R steps through",
+    "desc": "Proportions Super+R cycles a window through instead of dragging",
+    "ctl": "chips",
+    "src": "desktop.json",
+    "page": "windowmanager",
+    "opts": [
+      "0.5, 0.8, 1.0",
+      "0.33333, 0.5, 0.66667",
+      "0.618, 0.8, 1.0"
+    ],
+    "optLabels": {
+      "0.5, 0.8, 1.0": "Half, four-fifths, full",
+      "0.33333, 0.5, 0.66667": "Thirds and half",
+      "0.618, 0.8, 1.0": "Golden, four-fifths, full"
+    }
+  },
+  {
+    "tab": "Appearance",
+    "group": "BORDER",
+    "key": "wm.mango.noBorderWhenSingle",
+    "label": "Hide the border on one window",
+    "desc": "A tag holding a single window draws no border",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Appearance",
+    "group": "BORDER",
+    "key": "wm.mango.noRadiusWhenSingle",
+    "label": "Keep corners square on one window",
+    "desc": "A single window on a tag loses its corner rounding",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Appearance",
+    "group": "GAPS",
+    "key": "wm.mango.smartGaps",
+    "label": "Smart inner gaps",
+    "desc": "Inner gaps collapse when a tag holds a single window",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Appearance",
+    "group": "COLOURS",
+    "key": "wm.mango.urgentColor",
+    "label": "Urgent border",
+    "desc": "Border colour of a window asking for attention",
+    "ctl": "color",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Scratchpad",
+    "group": "SIZE",
+    "key": "wm.mango.scratchpadWidthRatio",
+    "label": "Scratchpad width",
+    "desc": "Screen fraction the scratchpad window spans",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.3,
+    "hi": 1,
+    "pct": true,
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Scratchpad",
+    "group": "SIZE",
+    "key": "wm.mango.scratchpadHeightRatio",
+    "label": "Scratchpad height",
+    "desc": "Screen fraction the scratchpad window fills",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.3,
+    "hi": 1,
+    "pct": true,
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Overview",
+    "group": "SPACING",
+    "key": "wm.mango.overviewGapIn",
+    "label": "Overview inner gap",
+    "desc": "Space between the previews in the overview grid",
+    "ctl": "step",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 64,
+    "unit": "px",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Overview",
+    "group": "SPACING",
+    "key": "wm.mango.overviewGapOut",
+    "label": "Overview outer gap",
+    "desc": "Space between the previews and the screen edge",
+    "ctl": "step",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 128,
+    "unit": "px",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Overview",
+    "group": "HOT CORNERS",
+    "key": "wm.mango.enableHotarea",
+    "label": "Overview hot corners",
+    "desc": "Pushing the pointer into a screen corner opens the overview",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Gaming",
+    "group": "TEARING",
+    "key": "wm.mango.allowTearing",
+    "label": "Tearing",
+    "desc": "Let games bypass the compositor's VSync for lower latency",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1",
+      "2"
+    ],
+    "optLabels": {
+      "0": "Off",
+      "1": "On",
+      "2": "Fullscreen only"
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "FOCUS",
+    "key": "wm.mango.tagGather",
+    "label": "Pack occupied tags",
+    "desc": "A tag switch skips to the next tag that holds windows",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "FOCUS",
+    "key": "wm.mango.tagCarousel",
+    "label": "Tag carousel wraps",
+    "desc": "Stepping past the last tag returns to the first",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "FOCUS",
+    "key": "wm.mango.focusdirOnlyZoneOverlap",
+    "label": "Directional focus stays in view",
+    "desc": "Arrow focus only leaves a window whose edge the next one overlaps",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "FOCUS",
+    "key": "wm.mango.exchangeCrossMonitor",
+    "label": "Swap windows across screens",
+    "desc": "Window exchanges can reach another monitor",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "FOCUS",
+    "key": "wm.mango.floatFullToTop",
+    "label": "Fullscreen floats above all",
+    "desc": "A fullscreen window covers even always-on-top ones",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "DRAGGING",
+    "key": "wm.mango.dragTileToTile",
+    "label": "Drag to swap tiles",
+    "desc": "Dragging a tiled window onto another swaps them",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "DRAGGING",
+    "key": "wm.mango.dragTileSmall",
+    "label": "Drag a tile by its corner",
+    "desc": "A tiled window is grabbed by its corner to start a drag",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "DRAGGING",
+    "key": "wm.mango.dragWarpCursor",
+    "label": "Warp the pointer when resizing",
+    "desc": "Resizing drags the pointer to the grabbed corner",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "DRAGGING",
+    "key": "wm.mango.dragCorner",
+    "label": "Resize grabs this corner",
+    "desc": "Which corner a resize drag pulls",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4"
+    ],
+    "optLabels": {
+      "0": "Top left",
+      "1": "Top right",
+      "2": "Bottom left",
+      "3": "Bottom right",
+      "4": "Nearest"
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "DRAGGING",
+    "key": "wm.mango.enableFloatingSnap",
+    "label": "Snap floating windows",
+    "desc": "A dragged floating window snaps to screen edges",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "DRAGGING",
+    "key": "wm.mango.snapDistance",
+    "label": "Snap distance",
+    "desc": "Pixels within an edge where the snap bites",
+    "ctl": "step",
+    "src": "desktop.json",
+    "page": "windowmanager",
+    "lo": 1,
+    "hi": 200
+  },
+  {
+    "tab": "Behaviour",
+    "group": "INPUT",
+    "key": "wm.mango.axisBindApplyTimeout",
+    "label": "Scroll-bind cooldown",
+    "desc": "How long a scroll-triggered shortcut waits before re-firing",
+    "ctl": "step",
+    "src": "desktop.json",
+    "page": "windowmanager",
+    "lo": 0,
+    "hi": 1000
+  },
+  {
+    "tab": "Behaviour",
+    "group": "SYSTEM",
+    "key": "wm.mango.xwaylandPersistence",
+    "label": "Keep X11 apps alive",
+    "desc": "X11 apps survive closing their last window",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "SYSTEM",
+    "key": "wm.mango.syncobjEnable",
+    "label": "Synchronised rendering",
+    "desc": "Wait on GPU fences before drawing: smoother, a hair slower",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "SYSTEM",
+    "key": "wm.mango.allowLockTransparent",
+    "label": "Let lock screens be transparent",
+    "desc": "A session lock may show the desktop behind it",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "SYSTEM",
+    "key": "wm.mango.allowShortcutsInhibit",
+    "label": "Apps may grab the Super key",
+    "desc": "Allow a fullscreen app to swallow the compositor's own shortcuts",
+    "ctl": "chips",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1"
+    ],
+    "optLabels": {
+      "0": "Never",
+      "1": "When the app asks"
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Behaviour",
+    "group": "SYSTEM",
+    "key": "wm.mango.idleInhibitWhenFullscreen",
+    "label": "Fullscreen keeps the screen on",
+    "desc": "A fullscreen window stops the screen from blanking",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "MASTER AND STACK",
+    "key": "wm.mango.centerMasterOverspread",
+    "label": "Centre the master area",
+    "desc": "The master area spreads to the screen middle instead of the left edge",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "MASTER AND STACK",
+    "key": "wm.mango.centerWhenSingleStack",
+    "label": "Centre a lone stack window",
+    "desc": "A stack with one window is centred rather than edge-aligned",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "DWINDDLE",
+    "key": "wm.mango.dwindleSmartSplit",
+    "label": "Smart split direction",
+    "desc": "A new window splits along the axis that fits it best",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "DWINDDLE",
+    "key": "wm.mango.dwindleSmartResize",
+    "label": "Drag splits toward the cursor",
+    "desc": "Pulling a split line drags the boundary to follow the pointer",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "DWINDDLE",
+    "key": "wm.mango.dwindleManualSplit",
+    "label": "Manual split mode",
+    "desc": "Splits follow your resize drags instead of the layout's rules",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "DWINDDLE",
+    "key": "wm.mango.dwindlePreserveSplit",
+    "label": "Keep space when a window closes",
+    "desc": "A closed window's share stays with its branch instead of rolling back",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "DWINDDLE",
+    "key": "wm.mango.dwindleDropSimpleSplit",
+    "label": "Simple split on drop",
+    "desc": "Dragging a window into dwindle splits once, not recursively",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "DWINDDLE",
+    "key": "wm.mango.dwindleHSplit",
+    "label": "Horizontal split side",
+    "desc": "Where a window lands when the split is horizontal",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1",
+      "2"
+    ],
+    "optLabels": {
+      "0": "By cursor",
+      "1": "After",
+      "2": "Before"
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "DWINDDLE",
+    "key": "wm.mango.dwindleVSplit",
+    "label": "Vertical split side",
+    "desc": "Where a window lands when the split is vertical",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1",
+      "2"
+    ],
+    "optLabels": {
+      "0": "By cursor",
+      "1": "Below",
+      "2": "Above"
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "DWINDDLE",
+    "key": "wm.mango.dwindleSplitRatio",
+    "label": "Split ratio",
+    "desc": "The share each split hands to its first branch",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.05,
+    "hi": 0.95,
+    "pct": true,
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SCROLLER",
+    "key": "wm.mango.scrollerPreferCenter",
+    "label": "New columns land centred",
+    "desc": "A new window opens at the middle of a scroller tag, not the edge",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SCROLLER",
+    "key": "wm.mango.scrollerPreferOverspread",
+    "label": "Spread grouped columns",
+    "desc": "A group of columns fills the screen instead of keeping its widths",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SCROLLER",
+    "key": "wm.mango.scrollerIgnoreProportionSingle",
+    "label": "Width keys ignore a lone window",
+    "desc": "Super+R steps proportions only once two columns exist",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SCROLLER",
+    "key": "wm.mango.scrollerDefaultProportionSingle",
+    "label": "Lone window width",
+    "desc": "Screen fraction a single scroller window keeps",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.2,
+    "hi": 1.0,
+    "pct": true,
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SCROLLER",
+    "key": "wm.mango.edgeScrollerPointerFocus",
+    "label": "Edge scroll changes focus",
+    "desc": "Scrolling a column at the screen edge focuses it",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "SCROLLER",
+    "key": "wm.mango.edgeScrollerFocusAllowSpeed",
+    "label": "Edge focus scroll speed",
+    "desc": "How hard you must scroll at an edge before it steals focus; 0 is always",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 10,
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Layout",
+    "group": "OVERCIRCLE",
+    "key": "wm.mango.overcircleCenterRatio",
+    "label": "Overview centre width",
+    "desc": "Screen fraction the focused column keeps in the overview",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.1,
+    "hi": 0.9,
+    "pct": true,
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Appearance",
+    "group": "COLOURS",
+    "key": "wm.mango.rootColor",
+    "label": "Desktop colour",
+    "desc": "What shows behind every window",
+    "ctl": "color",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Appearance",
+    "group": "COLOURS",
+    "key": "wm.mango.dropColor",
+    "label": "Drag shadow",
+    "desc": "The ghost drawn under a window you are dragging",
+    "ctl": "color",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Appearance",
+    "group": "COLOURS",
+    "key": "wm.mango.splitColor",
+    "label": "Manual split border",
+    "desc": "Border of a window whose split you set by hand",
+    "ctl": "color",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Appearance",
+    "group": "COLOURS",
+    "key": "wm.mango.maximizeScreenColor",
+    "label": "Maximised border",
+    "desc": "Border of a window maximised over its tag",
+    "ctl": "color",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Appearance",
+    "group": "COLOURS",
+    "key": "wm.mango.scratchpadColor",
+    "label": "Scratchpad border",
+    "desc": "Border of a window parked in the scratchpad",
+    "ctl": "color",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Appearance",
+    "group": "COLOURS",
+    "key": "wm.mango.globalColor",
+    "label": "Pinned border",
+    "desc": "Border of a window shown on every tag",
+    "ctl": "color",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Appearance",
+    "group": "COLOURS",
+    "key": "wm.mango.overlayColor",
+    "label": "Overlay border",
+    "desc": "Border of a window that floats above the rest",
+    "ctl": "color",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Overview",
+    "group": "HOT CORNERS",
+    "key": "wm.mango.hotareaCorner",
+    "label": "Hot corner",
+    "desc": "Which corner of the screen opens the overview",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1",
+      "2",
+      "3"
+    ],
+    "optLabels": {
+      "0": "Top left",
+      "1": "Top right",
+      "2": "Bottom left",
+      "3": "Bottom right"
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Overview",
+    "group": "HOT CORNERS",
+    "key": "wm.mango.hotareaDisableOnFullscreen",
+    "label": "Hot corner off in fullscreen",
+    "desc": "A fullscreen window stops the corner from firing",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Scratchpad",
+    "group": "BEHAVIOUR",
+    "key": "wm.mango.singleScratchpad",
+    "label": "One scratchpad window",
+    "desc": "Showing the scratchpad hides the one already shown",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Scratchpad",
+    "group": "BEHAVIOUR",
+    "key": "wm.mango.scratchpadCrossMonitor",
+    "label": "Scratchpad follows screens",
+    "desc": "The scratchpad shows on every monitor, not just its own",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Scratchpad",
+    "group": "SPECIAL TAG",
+    "key": "wm.mango.specialDim",
+    "label": "Special tag dim",
+    "desc": "How far the rest of the screen fades behind the scratchpad",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0,
+    "hi": 1,
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Scratchpad",
+    "group": "SPECIAL TAG",
+    "key": "wm.mango.specialGapsIn",
+    "label": "Special tag inner gaps",
+    "desc": "Gaps between windows on the scratchpad tag",
+    "ctl": "step",
+    "src": "desktop.json",
+    "page": "windowmanager",
+    "lo": 0,
+    "hi": 100
+  },
+  {
+    "tab": "Scratchpad",
+    "group": "SPECIAL TAG",
+    "key": "wm.mango.specialGapsOut",
+    "label": "Special tag outer gaps",
+    "desc": "Gaps around the edge of the scratchpad tag",
+    "ctl": "step",
+    "src": "desktop.json",
+    "page": "windowmanager",
+    "lo": 0,
+    "hi": 100
+  },
+  {
+    "tab": "Input",
+    "group": "TOUCH",
+    "key": "wm.mango.touchEnable",
+    "label": "Touchscreen on",
+    "desc": "Touch input works on screens that have it",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Input",
+    "group": "TOUCH",
+    "key": "wm.mango.touchMouseEmulation",
+    "label": "Touch acts as mouse",
+    "desc": "Taps send mouse button events",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Input",
+    "group": "TOUCH",
+    "key": "wm.mango.swipeMinThreshold",
+    "label": "Swipe threshold",
+    "desc": "Fingertip travel before a touch move counts as a swipe",
+    "ctl": "step",
+    "src": "desktop.json",
+    "page": "windowmanager",
+    "lo": 0,
+    "hi": 1000
+  },
+  {
+    "tab": "Input",
+    "group": "GESTURES",
+    "key": "wm.mango.gestureLive",
+    "label": "Live swipe preview",
+    "desc": "The overview follows your fingers mid-swipe",
+    "ctl": "sw",
+    "src": "desktop.json",
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Input",
+    "group": "GESTURES",
+    "key": "wm.mango.gestureSwipeDistance",
+    "label": "Swipe distance",
+    "desc": "Fingertip travel that completes a tag swipe",
+    "ctl": "step",
+    "src": "desktop.json",
+    "page": "windowmanager",
+    "lo": 50,
+    "hi": 1000
+  },
+  {
+    "tab": "Input",
+    "group": "GESTURES",
+    "key": "wm.mango.gestureSwipeCancelRatio",
+    "label": "Swipe cancel point",
+    "desc": "How far back a swipe must return to be called off",
+    "ctl": "slid",
+    "src": "desktop.json",
+    "lo": 0.05,
+    "hi": 0.95,
+    "pct": true,
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Input",
+    "group": "GESTURES",
+    "key": "wm.mango.gestureSwipeMinSpeedToForce",
+    "label": "Swipe speed to force",
+    "desc": "A swipe this fast jumps tags even if short",
+    "ctl": "step",
+    "src": "desktop.json",
+    "page": "windowmanager",
+    "lo": 0,
+    "hi": 100
+  },
+  {
+    "tab": "Input",
+    "group": "MOUSE",
+    "key": "wm.mango.mouseScrollMethod",
+    "label": "Mouse wheel",
+    "desc": "How the mouse scrolls: edge and button-held need a wheel without tilt",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1",
+      "2",
+      "4"
+    ],
+    "optLabels": {
+      "0": "Off",
+      "1": "Two fingers",
+      "2": "Edge",
+      "4": "Button-held"
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Input",
+    "group": "MOUSE",
+    "key": "wm.mango.mouseScrollButton",
+    "label": "Wheel-button scroll key",
+    "desc": "The mouse button held to scroll, by button number",
+    "ctl": "step",
+    "src": "desktop.json",
+    "page": "windowmanager",
+    "lo": 272,
+    "hi": 279,
+    "when": {
+      "wm.mango.mouseScrollMethod": [
+        "4"
+      ]
+    }
+  },
+  {
+    "tab": "Input",
+    "group": "MOUSE",
+    "key": "wm.mango.mouseSendEventsMode",
+    "label": "Mouse events",
+    "desc": "Send events from this mouse",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1",
+      "2"
+    ],
+    "optLabels": {
+      "0": "Always",
+      "1": "Never",
+      "2": "Off if another mouse"
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Input",
+    "group": "MOUSE",
+    "key": "wm.mango.buttonMap",
+    "label": "Tap button map",
+    "desc": "How tap buttons are assigned",
+    "ctl": "chips",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1"
+    ],
+    "optLabels": {
+      "0": "Left-mid-right",
+      "1": "Left-right-mid"
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Input",
+    "group": "TRACKPAD",
+    "key": "wm.mango.trackpadScrollMethod",
+    "label": "Pad scroll motion",
+    "desc": "How the touchpad scrolls; two fingers is the modern default",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1",
+      "2",
+      "4"
+    ],
+    "optLabels": {
+      "0": "Off",
+      "1": "Two fingers",
+      "2": "Edge",
+      "4": "Button-held"
+    },
+    "page": "windowmanager"
+  },
+  {
+    "tab": "Input",
+    "group": "TRACKPAD",
+    "key": "wm.mango.trackpadScrollButton",
+    "label": "Pad scroll button",
+    "desc": "The button held to scroll with the pad, by button number",
+    "ctl": "step",
+    "src": "desktop.json",
+    "page": "windowmanager",
+    "lo": 272,
+    "hi": 279,
+    "when": {
+      "wm.mango.trackpadScrollMethod": [
+        "4"
+      ]
+    }
+  },
+  {
+    "tab": "Input",
+    "group": "TRACKPAD",
+    "key": "wm.mango.trackpadSendEventsMode",
+    "label": "Pad events",
+    "desc": "Send events from this touchpad",
+    "ctl": "seg",
+    "src": "desktop.json",
+    "opts": [
+      "0",
+      "1",
+      "2"
+    ],
+    "optLabels": {
+      "0": "Always",
+      "1": "Never",
+      "2": "Off when a mouse is in"
+    },
+    "page": "windowmanager"
+  }
+]

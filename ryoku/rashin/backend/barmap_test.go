@@ -15,6 +15,9 @@ func barTestEnv(t *testing.T, catalogue string) {
 	t.Setenv("HOME", h)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(h, ".config")) // no live config
 	t.Setenv("XDG_STATE_HOME", filepath.Join(h, ".local", "state"))
+	// no packaged base: on an installed box /usr/share/ryoku/config would
+	// shadow the temp catalogue (and defeat the missing-catalogue case).
+	t.Setenv("RYOKU_CONFIG_BASE", filepath.Join(h, "usr-share-absent"))
 	t.Setenv("PATH", "") // loadPluginWidgets finds no ryoku-shell
 	if catalogue == "" {
 		t.Setenv("RYOKU_RASHIN_REPO", "")

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 )
 
@@ -45,9 +46,19 @@ func writeWallpaperTone(pic string) {
 		return
 	}
 	if isVideo(pic) {
-		if pic = liveFrame(pic); pic == "" {
+		frame := liveFrame(pic)
+		if frame == "" {
 			return
 		}
+		// This call happens for the wallpaper actually on screen, so it is the
+		// one place allowed to move the stable poster pointer; previews of other
+		// clips never repoint it.
+		publishLivePoster(frame)
+		pic = frame
+	} else {
+		// A still wallpaper: retire the pointer so no surface keeps sampling the
+		// last clip's frame after the desktop moved on.
+		_ = os.Remove(livePosterPath())
 	}
 	m, ok := wallToneMap(pic)
 	if !ok {

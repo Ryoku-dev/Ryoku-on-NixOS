@@ -204,3 +204,22 @@ func writeKeyringFixtureAt(t *testing.T, name string, encrypted bool) {
 		t.Fatal(err)
 	}
 }
+
+func TestApplyPAMHalfDoesNotMutateNixOSPam(t *testing.T) {
+	t.Setenv("RYOKU_UPDATE_BACKEND", "nix")
+	old, had := os.LookupEnv("RYOKU_PAM_FILE")
+	if err := os.Unsetenv("RYOKU_PAM_FILE"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv("RYOKU_PAM_FILE", old)
+		} else {
+			_ = os.Unsetenv("RYOKU_PAM_FILE")
+		}
+	})
+
+	if err := applyPAMHalf(ModeNeverAsk); err != nil {
+		t.Fatalf("NixOS PAM is declarative and should not be edited: %v", err)
+	}
+}

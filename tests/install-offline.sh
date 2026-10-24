@@ -26,6 +26,12 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$here/.."
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
+# The installer refuses to run without a compositor choice and the config dir
+# the TUI derives for it; the offline path is compositor-agnostic, so Hyprland
+# stands in.
+export RYOKU_COMPOSITOR="${RYOKU_COMPOSITOR:-hyprland}"
+export RYOKU_COMPOSITOR_CONFIG_DIR="${RYOKU_COMPOSITOR_CONFIG_DIR:-hypr}"
+
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -47,12 +53,12 @@ EOF
   chmod +x "$trip/$cmd"
 done
 
-# run_offline <repo> <online>: the backend in dry-run. Leaves output in \$out and
-# the exit code in \$rc. PATH is prefixed with the tripwires.
+# run_offline <repo> <online> [variant]: the backend in dry-run. Leaves output
+# in $out and the exit code in $rc. PATH is prefixed with the tripwires.
 run_offline() {
   rc=0
   out="$(PATH="$trip:$PATH" RYOKU_DRYRUN=1 RYOKU_REPO="$root" \
-    RYOKU_ONLINE="$2" RYOKU_OFFLINE_REPO="$1" \
+    RYOKU_VARIANT="${3:-plain}" RYOKU_ONLINE="$2" RYOKU_OFFLINE_REPO="$1" \
     RYOKU_DISK=/dev/vda RYOKU_PASSWORD_HASH='$6$fake$hash' \
     RYOKU_DISK_STRATEGY=whole RYOKU_ENCRYPT=0 RYOKU_SWAP_GIB=8 \
     bash "$root/installation/backend/ryoku-install" 2>&1)" || rc=$?
@@ -172,5 +178,84 @@ while IFS=: read -r file lineno _; do
   grep -qE "(-x /mnt/usr/bin/$helper|command -v $helper|chroot_has $helper)" <<<"$ctx" && continue
   fail "unguarded in-chroot call to $helper (a target whose baked desktop set predates it dies here): $file:$lineno"
 done < <(grep -rnE '^[^#]*run arch-chroot /mnt ryoku-[a-z-]+' "$root/installation/backend/lib/" || true)
+
+# ---- 7. CachyOS pacman.conf and update repositories match the CPU ------------
+# The target gets CachyOS's own pacman.conf (CachyOS-Live-ISO pacman-more.conf)
+# with the CPU tier's repositories above [cachyos], in the order
+# cachyos-calamares' detect-architecture writes them.
+# the sourced cachyos.sh calls these stubs; shellcheck can't see across source
+# shellcheck disable=SC2329
+(
+  write_file() { cat >"$1"; }
+  log() { :; }
+  # shellcheck source=/dev/null
+  source "$root/installation/backend/lib/cachyos.sh"
+
+  tail=$'[cachyos]\n[core]\n[extra]\n[multilib]'
+  declare -A want=(
+    [v3]=$'[cachyos-v3]\n[cachyos-extra-v3]\n[cachyos-core-v3]\n'"$tail"
+    [v4]=$'[cachyos-v4]\n[cachyos-extra-v4]\n[cachyos-core-v4]\n'"$tail"
+    [znver4]=$'[cachyos-znver4]\n[cachyos-core-znver4]\n[cachyos-extra-znver4]\n'"$tail"
+    [none]=$tail
+  )
+  for level in v3 v4 znver4 none; do
+    conf="$tmp/cachyos-$level.conf"
+    ryoku_cachyos_pacman_conf "$conf" "${level#none}"
+    headers=$(grep -oE '^\[[a-z0-9_-]+\]' "$conf" | grep -v '^\[options\]$')
+    [[ $headers == "${want[$level]}" ]] || fail "$level CachyOS repo order is '$headers'"
+    for opt in 'Architecture = auto' Color VerbosePkgLists 'ParallelDownloads = 10' 'DownloadUser = alpm' \
+               'SigLevel    = Required DatabaseOptional' \
+               'NoExtract = etc/skel/.config/autostart/cachyos-hello.desktop'; do
+      grep -qxF "$opt" "$conf" || fail "$level CachyOS pacman.conf lacks '$opt'"
+    done
+  done
+  grep -qxF 'Include = /etc/pacman.d/cachyos-v4-mirrorlist' "$tmp/cachyos-znver4.conf" \
+    || fail "znver4 repositories do not use the v4 mirrorlist"
+
+  # znver4 goes to Zen 4/5 with AVX-512 only (detect-architecture's table).
+  cpu() { printf 'cpu family\t: %s\nmodel\t\t: %s\nmodel name\t: x\nflags\t\t: fpu %s\n' "$1" "$2" "$3" >"$tmp/cpuinfo"; }
+  cpu 25 97 'avx2 avx512f'; ryoku_cachyos_is_zen45 "$tmp/cpuinfo" || fail "Zen 4 (25/97) with AVX-512 not read as znver4"
+  cpu 26 68 'avx2 avx512f'; ryoku_cachyos_is_zen45 "$tmp/cpuinfo" || fail "Zen 5 (26/68) with AVX-512 not read as znver4"
+  cpu 25 33 'avx2 avx512f'; ! ryoku_cachyos_is_zen45 "$tmp/cpuinfo" || fail "Zen 3 (25/33) read as znver4"
+  cpu 25 97 'avx2'; ! ryoku_cachyos_is_zen45 "$tmp/cpuinfo" || fail "a CPU without AVX-512 read as znver4"
+  cpu 6 143 'avx2 avx512f'; ! ryoku_cachyos_is_zen45 "$tmp/cpuinfo" || fail "an Intel CPU read as znver4"
+)
+
+# ---- 8. a CachyOS install drops the names CachyOS replaces --------------------
+# the stock kernel joins the drop list, which keeps it out of pacstrap and puts it
+# in the provisioning ledger, so `ryoku update` never delivers it afterwards.
+# shellcheck disable=SC2329
+(
+  log() { :; }
+  # shellcheck source=/dev/null
+  source "$root/installation/backend/lib/choices.sh"
+  # shellcheck source=/dev/null
+  source "$root/installation/backend/lib/cachyos.sh"
+  export RYOKU_REPO=$root
+  RYOKU_DROP_PACKAGES=chromium
+  ryoku_cachyos_drops
+  [[ $RYOKU_DROP_PACKAGES == chromium,linux,yay-bin ]] || fail "CachyOS drop list is '$RYOKU_DROP_PACKAGES'"
+  ryoku_cachyos_drops
+  [[ $RYOKU_DROP_PACKAGES == chromium,linux,yay-bin ]] || fail "CachyOS drops are not idempotent: '$RYOKU_DROP_PACKAGES'"
+)
+
+# ---- 9. CachyOS identity is applied without a second first-login welcome -----
+# cachyos-hooks cannot trigger itself in the pacstrap transaction that installs
+# it. The edition path therefore brands the finished target explicitly and
+# removes cachyos-hello's skel autostart after account creation. Plain Arch must
+# do neither.
+run_offline "$baked" 0 cachyos
+[[ $rc -eq 0 ]] || fail "CachyOS identity dry run exited $rc: $out"
+grep -qF 'run /usr/share/libalpm/scripts/cachyos-branding in the target' <<<"$out" \
+  || fail "CachyOS install did not apply CachyOS branding: $out"
+grep -qF 'remove etc/skel/.config/autostart/cachyos-hello.desktop from the target skel and created home directories' <<<"$out" \
+  || fail "CachyOS install did not suppress CachyOS Welcome autostart: $out"
+
+run_offline "$baked" 0 plain
+[[ $rc -eq 0 ]] || fail "plain identity dry run exited $rc: $out"
+! grep -qF '/usr/share/libalpm/scripts/cachyos-branding' <<<"$out" \
+  || fail "plain install applied CachyOS branding: $out"
+! grep -qF 'cachyos-hello.desktop' <<<"$out" \
+  || fail "plain install suppressed a CachyOS-only autostart: $out"
 
 echo "install-offline: OK"

@@ -1,95 +1,130 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
-// quickInfoJSON is the fast-lane backend state for the CLI and the needle's
-// picker: the resolved provider/model/endpoint, the list to choose from, and
-// whether asks currently fall back to the full hermes session.
-type quickInfoJSON struct {
-	Provider    string   `json:"provider"`
-	Model       string   `json:"model"`
-	Endpoint    string   `json:"endpoint"`
-	Label       string   `json:"label"`
-	Available   []string `json:"available"`
-	Ready       []string `json:"ready"`
-	SessionLane bool     `json:"sessionLane"`
-	Reason      string   `json:"reason,omitempty"`
+type quickGatewayJSON struct {
+	URL     string `json:"url"`
+	Running bool   `json:"running"`
 }
 
-// quickInfo resolves the fast-lane target for the given config, never erroring:
-// an unresolved target reports the session-lane fallback and why.
-func quickInfo(cfg Config) quickInfoJSON {
-	info := quickInfoJSON{Available: providerIDs(), Ready: readyProviders(), Provider: cfg.Quick.Provider}
-	t, err := resolveQuickTarget(cfg)
-	if err != nil {
-		info.SessionLane = true
-		info.Reason = err.Error()
-		info.Model = t.Model
-		return info
+type quickInfoJSON struct {
+	Route   string           `json:"route"`
+	Label   string           `json:"label"`
+	Routes  []quickRouteJSON `json:"routes"`
+	Gateway quickGatewayJSON `json:"gateway"`
+	Ready   bool             `json:"ready"`
+	Reason  string           `json:"reason,omitempty"`
+}
+
+func quickInfo(ctx context.Context, cfg Config) quickInfoJSON {
+	configured := strings.ToLower(strings.TrimSpace(cfg.Quick.Route))
+	if configured == "" {
+		configured = "auto"
 	}
-	info.Label = t.Label
-	info.Endpoint = t.BaseURL
-	info.Model = t.Model
-	if i := strings.IndexByte(t.Label, ':'); i >= 0 {
-		info.Provider = t.Label[:i]
+	agentRoute := quickAgentRoute(cfg)
+	info := quickInfoJSON{
+		Route:   configured,
+		Label:   configured,
+		Routes:  []quickRouteJSON{agentRoute},
+		Gateway: quickGatewayJSON{URL: prowlGatewayBase()},
+	}
+	_, agentReady := resolveChatBackend(cfg)
+	routing, routingErr := gatewayRouting(ctx)
+	prowlReady := routingErr == nil && routing.Routable
+	if routingErr == nil {
+		info.Gateway.Running = true
+	}
+	if prowlReady {
+		routes, err := quickRoutes(ctx)
+		info.Routes = append(info.Routes, routes...)
+		if err != nil {
+			info.Reason = quickGatewayError(err).Error()
+		}
+	} else if configured != "agent" {
+		info.Route = "agent"
+	}
+	if info.Route == "agent" {
+		info.Ready = agentReady
+	} else {
+		info.Ready = prowlReady
+	}
+	if !info.Ready {
+		info.Reason = "Ask needs an agent harness with an ACP adapter or a connected Prowl provider."
+	} else if routingErr != nil && configured != "agent" {
+		info.Reason = quickGatewayError(routingErr).Error()
+	} else if !routing.Routable && configured != "agent" {
+		info.Reason = "Prowl has no provider connected; using the Agent model"
+	}
+	for _, candidate := range info.Routes {
+		if candidate.ID == info.Route {
+			info.Label = candidate.Label
+			break
+		}
 	}
 	return info
 }
 
-// cmdBackend views or sets the fast-lane assistant backend. No args prints the
-// resolved state; `<provider>[:model]` selects one of the known providers;
-// `auto` clears the override so the fast lane follows hermes's own provider.
+func quickAgentRoute(cfg Config) quickRouteJSON {
+	id := activeChatAgentID(cfg)
+	name := id
+	if backend, ok := lookupChatBackend(id); ok {
+		name = backend.Name
+	}
+	model := modelPick(id)
+	if model == "" {
+		for _, def := range harnessDefs() {
+			if def.id == id {
+				model, _ = harnessModelChoice(id, def.home())
+				break
+			}
+		}
+	}
+	if model == "" {
+		model = "Default"
+	}
+	return quickRouteJSON{ID: "agent", Label: "Agent model", Sub: name + " · " + model}
+}
+
 func cmdBackend(args []string) error {
 	cfg := LoadConfig()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	if len(args) == 1 && (args[0] == "--json" || args[0] == "-j") {
-		return json.NewEncoder(os.Stdout).Encode(quickInfo(cfg))
+		return json.NewEncoder(os.Stdout).Encode(quickInfo(ctx, cfg))
 	}
 	if len(args) == 0 {
-		printBackend(cfg)
+		printBackend(ctx, cfg)
 		return nil
 	}
-	switch args[0] {
-	case "auto", "clear", "--clear":
-		cfg.Quick.Provider, cfg.Quick.Model, cfg.Quick.BaseURL, cfg.Quick.KeyEnv = "", "", "", ""
-		if err := SaveConfig(cfg); err != nil {
-			return err
-		}
-		fmt.Println("backend cleared; the fast lane follows hermes's provider")
-		printBackend(LoadConfig())
-		return nil
+	if len(args) != 1 {
+		return fmt.Errorf("usage: ryoku-rashin backend [--json|<route>]")
 	}
-	provider, model, _ := strings.Cut(args[0], ":")
-	if _, ok := quickProviders[provider]; !ok {
-		return fmt.Errorf("unknown provider %q; known: %s", provider, strings.Join(providerIDs(), ", "))
-	}
-	cfg.Quick.Provider = provider
-	if model != "" {
-		cfg.Quick.Model = model
-	}
-	if err := SaveConfig(cfg); err != nil {
+	if err := setQuickRoute(ctx, args[0]); err != nil {
 		return err
 	}
-	fmt.Printf("backend set to %s\n", args[0])
-	printBackend(LoadConfig())
+	fmt.Printf("fast lane route set to %s\n", strings.ToLower(strings.TrimSpace(args[0])))
+	printBackend(ctx, LoadConfig())
 	return nil
 }
 
-// printBackend renders the fast-lane state for the terminal.
-func printBackend(cfg Config) {
-	info := quickInfo(cfg)
-	if info.SessionLane {
-		fmt.Printf("fast lane: unavailable (%s)\n", info.Reason)
-		fmt.Println("           quick asks use the full hermes session")
-	} else {
-		fmt.Printf("fast lane: %s\n", info.Label)
-		fmt.Printf("  endpoint: %s\n", info.Endpoint)
+func printBackend(ctx context.Context, cfg Config) {
+	info := quickInfo(ctx, cfg)
+	fmt.Printf("fast lane: %s (%s)\n", info.Label, info.Route)
+	fmt.Printf("  gateway: %s\n", info.Gateway.URL)
+	if !info.Ready {
+		fmt.Printf("  unavailable: %s\n", info.Reason)
 	}
-	fmt.Printf("providers: %s\n", strings.Join(info.Available, ", "))
-	fmt.Println("keys:      ~/.config/ryoku/rashin.env (or the environment)")
-	fmt.Println("set with:  ryoku-rashin backend <provider>[:model]   (`backend auto` to follow hermes)")
+	ids := make([]string, 0, len(info.Routes))
+	for _, route := range info.Routes {
+		ids = append(ids, route.ID)
+	}
+	fmt.Printf("routes: %s\n", strings.Join(ids, ", "))
+	fmt.Println("set with: ryoku-rashin backend <route>")
 }

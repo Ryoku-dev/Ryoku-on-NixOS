@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -16,10 +21,9 @@ import (
 var shellDir = os.Getenv("RYOKU_SHELL_DIR")
 
 var frameBarMenuIDs = map[string]bool{
-	"quick-settings": true,
-	"theme":          true,
-	"wallpaper":      true,
-	"weather":        true,
+	"theme":     true,
+	"wallpaper": true,
+	"weather":   true,
 }
 
 func menuID(cmd string) (string, bool) {
@@ -152,102 +156,243 @@ var shellIpc = func(fn string, args ...string) string {
 	return ipcCallN("shell", "shell", fn, args...)
 }
 
-// lockMarker is the file qylock's lock_shell.qml touches once the compositor
-// confirms every output is covered by a lock surface (WlSessionLock.secure)
-// and removes again on unlock. lockSession blocks on it so hypridle's
-// before_sleep_cmd keeps logind's sleep delay-inhibitor held until the screen
-// is really locked; returning early suspends with the desktop still in the
-// framebuffer, visible for a beat on resume.
-func lockMarker() string {
+// Lock proof is scoped to the selected login1 session and one qylock
+// generation. A stale process, marker, or delayed callback from another
+// compositor instance can never authorize this session's suspend.
+func validSessionID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') &&
+			(r < 'A' || r > 'Z') &&
+			(r < '0' || r > '9') &&
+			r != '_' && r != '.' && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func lockSessionID() string {
+	id := os.Getenv("XDG_SESSION_ID")
+	if !validSessionID(id) {
+		return ""
+	}
+	return id
+}
+
+func lockProofPath(suffix string) string {
 	dir := os.Getenv("XDG_RUNTIME_DIR")
 	if dir == "" {
 		dir = "/tmp"
 	}
-	return filepath.Join(dir, "qylock.locked")
+	return filepath.Join(dir, "qylock."+lockSessionID()+"."+suffix)
 }
 
-// lockWait bounds the wait for the compositor-confirmed lock. It stays under
-// logind's 5s InhibitDelayMaxSec so a locker that never confirms (a qylock
-// predating the marker, a wedged Quickshell) delays suspend, never blocks it.
-var lockWait = 3 * time.Second
+func lockMarker() string     { return lockProofPath("locked") }
+func lockExpected() string   { return lockProofPath("expected") }
+func lockProofGuard() string { return lockProofPath("proof.lock") }
 
-// lockClientPattern matches the qylock locker process, so the daemon can tell
-// a live lock from a stale marker.
-const lockClientPattern = "quickshell.*quickshell-lockscreen.*/lock_shell.qml"
+func withLockProofGuard(fn func() error) error {
+	guard, err := os.OpenFile(lockProofGuard(), os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open qylock proof guard: %w", err)
+	}
+	defer guard.Close()
+	if err := syscall.Flock(int(guard.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("lock qylock proof guard: %w", err)
+	}
+	defer syscall.Flock(int(guard.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	return fn()
+}
 
-// A locker that dies with a signal took the compositor's session lock down with
-// it: Hyprland fails closed and shows "lockscreen app died :(", and with no
-// client left there is nothing to authenticate against, so the session is
-// stranded until a reboot (#218, a Quickshell abort on an input hotplug). The
-// daemon re-spawns a crashed locker, bounded so a locker that crashes on start
-// cannot spin: lockRetries attempts inside lockRetryWindow, after which the
-// session is left as-is (the user's own compositor, recoverable) rather than
-// hammered. A locker that lived past the window died for a fresh reason and gets
-// a new budget.
-var (
-	lockRetries     = 3
-	lockRetryWindow = 2 * time.Second
-)
+// clearCurrentLockProof shares proof.sh's advisory lock. prepareUnlock calls it
+// while holding the suspend transaction mutex, so no suspend request can accept
+// the authenticated generation between guard restoration and invalidation.
+func clearCurrentLockProof() error {
+	return withLockProofGuard(func() error {
+		if err := os.Remove(lockMarker()); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("clear qylock proof: %w", err)
+		}
+		return nil
+	})
+}
 
-// lockSession locks the screen with qylock, the in-session lock Ryoku ships.
-// the shell has no lock of its own. It returns once the compositor has
-// confirmed the lock (the marker), or after lockWait.
-func lockSession() string {
-	marker := lockMarker()
-	if !pgrepRunning(lockClientPattern) {
-		// no live locker: a marker on disk is a leftover of a killed one and
-		// must not fake "locked" below.
-		_ = os.Remove(marker)
-		if err := spawnLocker(0); err != nil {
-			return "err lock: " + err.Error()
+// clearInvalidLockProof rechecks marker, expectation and live owner under the
+// same flock used by proof.sh. A recovered client can publish a new proof
+// between polling iterations without an old mismatch deleting that new marker.
+func clearInvalidLockProof() error {
+	return withLockProofGuard(func() error {
+		token := readLockProof(lockMarker())
+		if token != "" && readLockProof(lockExpected()) == token &&
+			qylockProcessMatches(lockSessionID(), token) {
+			return nil
+		}
+		if err := os.Remove(lockMarker()); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("clear invalid qylock proof: %w", err)
+		}
+		return nil
+	})
+}
+
+func processEnvironmentValue(data []byte, key string) string {
+	prefix := []byte(key + "=")
+	for _, field := range bytes.Split(data, []byte{0}) {
+		if bytes.HasPrefix(field, prefix) {
+			return string(field[len(prefix):])
 		}
 	}
-	deadline := time.Now().Add(lockWait)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(marker); err == nil {
-			return "ok"
+	return ""
+}
+
+func qylockProcessPIDs(session, token string) []int {
+	if session == "" {
+		return nil
+	}
+	var matches []int
+	for _, value := range currentUserProcessIDs(lockClientPattern) {
+		env, err := os.ReadFile(filepath.Join("/proc", value, "environ"))
+		if err != nil || processEnvironmentValue(env, "XDG_SESSION_ID") != session {
+			continue
 		}
-		time.Sleep(50 * time.Millisecond)
+		if token != "" && processEnvironmentValue(env, "QYLOCK_PROOF_TOKEN") != token {
+			continue
+		}
+		pid, err := strconv.Atoi(value)
+		if err == nil {
+			matches = append(matches, pid)
+		}
+	}
+	return matches
+}
+
+func qylockProcessMatches(session, token string) bool {
+	return len(qylockProcessPIDs(session, token)) != 0
+}
+
+func readLockProof(path string) string {
+	value, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(value))
+}
+
+func currentLockProofValid() bool {
+	valid := false
+	if err := withLockProofGuard(func() error {
+		token := readLockProof(lockMarker())
+		valid = token != "" &&
+			readLockProof(lockExpected()) == token &&
+			qylockProcessMatches(lockSessionID(), token)
+		return nil
+	}); err != nil {
+		return false
+	}
+	return valid
+}
+
+// lockWait bounds an ordinary IPC lock request. Suspend requests pass their
+// live logind deadline directly to ensureSessionLocked.
+var (
+	lockWait           = 3 * time.Second
+	lockPoll           = 50 * time.Millisecond
+	lockRequestMu      sync.Mutex
+	lockProcessRunning = func() bool { return qylockProcessMatches(lockSessionID(), "") }
+	lockProcessPID     = func() int {
+		pids := qylockProcessPIDs(lockSessionID(), "")
+		if len(pids) == 0 {
+			return 0
+		}
+		return pids[0]
+	}
+	lockProofValid = currentLockProofValid
+	lockStarter    = spawnLocker
+)
+
+// lockClientPattern matches live and retained-stage qylock clients. Proof
+// validation also checks the selected session and generation token through
+// /proc.
+const lockClientPattern = "quickshell.*(quickshell-lockscreen|qylock-next/lockscreen).*/lock_shell[.]qml"
+
+// lockSession locks the screen with qylock, the in-session lock Ryoku ships.
+// The shell has no lock surface of its own.
+func lockSession() string {
+	if err := ensureSessionLocked(time.Now().Add(lockWait)); err != nil {
+		return "err lock: " + err.Error()
 	}
 	return "ok"
 }
 
-// spawnLocker starts qylock and hands the child to superviseLocker, which
-// re-locks if it dies while the session is still meant to be locked. attempt is
-// the caller's crash budget so far.
-func spawnLocker(attempt int) error {
-	lock := filepath.Join(os.Getenv("HOME"), ".local", "share", "quickshell-lockscreen", "lock.sh")
-	cmd := exec.Command(lock)
+// ensureSessionLocked serializes the full launch-to-secure handshake. The
+// process-local mutex closes the daemon race; lock.sh's flock closes the same
+// race against another launcher process.
+func ensureSessionLocked(deadline time.Time) error {
+	lockRequestMu.Lock()
+	defer lockRequestMu.Unlock()
+
+	if lockSessionID() == "" {
+		return fmt.Errorf("cannot identify the graphical login1 session")
+	}
+	marker := lockMarker()
+	running := lockProcessRunning()
+	if running && lockProofValid() {
+		return nil
+	}
+	if !deadline.After(time.Now()) {
+		return fmt.Errorf("secure lock deadline already expired")
+	}
+	started := false
+	if !running {
+		// A marker with no live locker is stale and must not make an unlocked
+		// session look secure.
+		_ = clearInvalidLockProof()
+		if err := lockStarter(0); err != nil {
+			return fmt.Errorf("start qylock: %w", err)
+		}
+		started = true
+	}
+
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			if lockProofValid() {
+				return nil
+			}
+			_ = clearInvalidLockProof()
+		}
+		if !lockProcessRunning() && !started {
+			if err := lockStarter(0); err != nil {
+				return fmt.Errorf("restart qylock after pending unlock: %w", err)
+			}
+			started = true
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("qylock did not confirm compositor security before the deadline")
+		}
+		pause := lockPoll
+		if remaining < pause {
+			pause = remaining
+		}
+		time.Sleep(pause)
+	}
+}
+
+// spawnLocker starts the long-lived qylock wrapper. The wrapper owns crash
+// recovery so its budget cannot be multiplied by a second daemon-side retry
+// loop; this goroutine only reaps it when the lock cycle ends.
+func spawnLocker(_ int) error {
+	launcher, err := exec.LookPath("ryoku-qylock-lock")
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(launcher)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	// reap at unlock; Release() would leave one zombie per lock cycle. The
-	// reaper is also the supervisor: it sees the exit status lock.sh carries.
-	go superviseLocker(cmd, attempt)
+	go func() { _ = cmd.Wait() }()
 	return nil
-}
-
-// superviseLocker waits for the locker and re-spawns it on an abnormal exit.
-// lock.sh exits with qylock's own status, so a clean unlock is 0 (never
-// re-locked) and a crash is a signal death (re-locked). The window resets the
-// budget for a locker that survived a while before dying, so only a tight crash
-// loop is bounded to a give-up.
-func superviseLocker(cmd *exec.Cmd, attempt int) {
-	started := time.Now()
-	err := cmd.Wait()
-	if err == nil {
-		return // the user authenticated: a clean unlock, stay open
-	}
-	if time.Since(started) > lockRetryWindow {
-		attempt = 0
-	}
-	if attempt >= lockRetries {
-		return
-	}
-	if pgrepRunning(lockClientPattern) {
-		return // something else already re-locked
-	}
-	_ = spawnLocker(attempt + 1)
 }
 
 // voxtypeRecord starts or stops dictation on the running Voxtype daemon (the
@@ -268,6 +413,19 @@ func voxtypeRecord(verb string) {
 	go func() { _ = cmd.Wait() }()
 }
 
+func hostUserServiceActive(unit string) bool {
+	return exec.Command("ryoku-host", "svc", "is-active", unit).Run() == nil
+}
+
+func stopHostUserService(unit string) error {
+	err := exec.Command("ryoku-host", "svc", "stop", unit).Run()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 4 {
+		return nil
+	}
+	return err
+}
+
 // dictationReady reports whether a Super+` tap can actually dictate: Voxtype
 // installed and its user service running. When it can't, the pill shows an
 // "off" note instead of a listening wave that would capture nothing.
@@ -275,11 +433,7 @@ func dictationReady() bool {
 	if _, err := exec.LookPath("voxtype"); err != nil {
 		return false
 	}
-	return exec.Command("systemctl", "--user", "is-active", "--quiet", "voxtype.service").Run() == nil
-}
-
-func pgrepRunning(pattern string) bool {
-	return exec.Command("pgrep", "-f", pattern).Run() == nil
+	return hostUserServiceActive("voxtype.service")
 }
 
 func stateDir() string {

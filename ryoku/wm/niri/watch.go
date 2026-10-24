@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"sort"
@@ -39,16 +40,22 @@ func (t niriTimestamp) after(other niriTimestamp) bool {
 }
 
 type niriWindow struct {
-	ID             uint64        `json:"id"`
-	Title          string        `json:"title"`
-	AppID          string        `json:"app_id"`
-	WorkspaceID    uint64        `json:"workspace_id"`
-	IsFocused      bool          `json:"is_focused"`
-	IsFloating     bool          `json:"is_floating"`
-	FocusTimestamp niriTimestamp `json:"focus_timestamp"`
-	Layout         struct {
-		WindowSize [2]int `json:"window_size"`
-	} `json:"layout"`
+	ID             uint64           `json:"id"`
+	Title          string           `json:"title"`
+	AppID          string           `json:"app_id"`
+	Pid            int              `json:"pid"`
+	WorkspaceID    uint64           `json:"workspace_id"`
+	IsFocused      bool             `json:"is_focused"`
+	IsFloating     bool             `json:"is_floating"`
+	FocusTimestamp niriTimestamp    `json:"focus_timestamp"`
+	Layout         niriWindowLayout `json:"layout"`
+}
+
+type niriWindowLayout struct {
+	TileSize               [2]float64  `json:"tile_size"`
+	WindowSize             [2]int      `json:"window_size"`
+	TilePosInWorkspaceView *[2]float64 `json:"tile_pos_in_workspace_view"`
+	WindowOffsetInTile     [2]float64  `json:"window_offset_in_tile"`
 }
 
 type niriWorkspace struct {
@@ -97,10 +104,11 @@ type session struct {
 	workspaces []niriWorkspace
 	windows    []niriWindow
 	keyboard   niriKeyboard
-	// outputs is kept only so the maximise correction can size a window against
-	// its own output; a plain watch never reads it.
+	// outputs also drives the last-output fallback. Niri has no output event, so
+	// every workspace-list change refreshes this snapshot.
 	outputs []wm.Output
-	// overview is the compositor's native overview state.
+	// overview is the compositor's native overview state, replayed on connect
+	// and folded from every OverviewOpenedOrClosed event.
 	overview bool
 	// ready gates the correction: everything replayed before it is a window that
 	// was already up, never an open this watch owns.
@@ -193,15 +201,14 @@ func (s *session) apply(name string, body json.RawMessage, emit func(wm.Frame), 
 		s.workspaces = e.Workspaces
 		s.emitWorkspaces(emit, wants)
 		s.emitFocus(emit, wants)
-		// No output event exists, so this is where a hotplug surfaces. The
-		// correction needs the output sizes too, so read them when it is on even
-		// if this watch would not otherwise emit them.
-		if wants(wm.FrameOutputs) || s.tamer != nil {
-			if outs, err := readOutputs(s.workspaces, false); err == nil {
-				s.outputs = outs
-				if wants(wm.FrameOutputs) {
-					emit(wm.Frame{Kind: wm.FrameOutputs, Outputs: outs})
-				}
+		// No output event exists, so this is where a hotplug surfaces. Always
+		// read outputs: even a narrowed watch must recover a connected panel when
+		// every configured enabled output has disappeared.
+		if outs, err := readOutputs(s.workspaces, false); err == nil {
+			s.outputs = outs
+			recovered := reconcileOutputFallback(outs)
+			if wants(wm.FrameOutputs) && !recovered {
+				emit(wm.Frame{Kind: wm.FrameOutputs, Outputs: outs})
 			}
 		}
 
@@ -270,10 +277,10 @@ func (s *session) apply(name string, body json.RawMessage, emit func(wm.Frame), 
 		s.emitWindows(emit, wants)
 
 	case "WindowLayoutsChanged":
-		// niri reports a resize or a maximise here, not through
-		// WindowOpenedOrChanged, so this is where a client's set_maximized lands
-		// a moment after the window mapped. Fold the new size into the held
-		// window and let the correction weigh it.
+		// niri reports native moves, resizes and maximise changes here rather
+		// than through WindowOpenedOrChanged. Fold the whole layout: size-only
+		// updates would leave a dragged floating window's persisted position
+		// stale until some unrelated full window event.
 		var e struct {
 			Changes [][]json.RawMessage `json:"changes"`
 		}
@@ -288,15 +295,14 @@ func (s *session) apply(name string, body json.RawMessage, emit func(wm.Frame), 
 			if json.Unmarshal(ch[0], &id) != nil {
 				continue
 			}
-			var lay struct {
-				WindowSize [2]int `json:"window_size"`
-			}
-			if json.Unmarshal(ch[1], &lay) != nil {
+			var layout niriWindowLayout
+			if json.Unmarshal(ch[1], &layout) != nil {
 				continue
 			}
-			s.setWindowSize(id, lay.WindowSize)
-			s.tameWindow(id, lay.WindowSize[0], lay.WindowSize[1])
+			s.setWindowLayout(id, layout)
+			s.tameWindow(id, layout.WindowSize[0], layout.WindowSize[1])
 		}
+		s.emitWindows(emit, wants)
 
 	case "KeyboardLayoutsChanged":
 		var e struct {
@@ -385,12 +391,12 @@ func (s *session) outputForWindow(id uint64) (wm.Output, bool) {
 	return wm.Output{}, false
 }
 
-// setWindowSize folds a WindowLayoutsChanged size into the held window, so the
-// geometry a later frame reports stays current after a resize or a maximise.
-func (s *session) setWindowSize(id uint64, size [2]int) {
+// setWindowLayout folds WindowLayoutsChanged into the held window, so the
+// geometry a later frame reports stays current after a native move or resize.
+func (s *session) setWindowLayout(id uint64, layout niriWindowLayout) {
 	for i := range s.windows {
 		if s.windows[i].ID == id {
-			s.windows[i].Layout.WindowSize = size
+			s.windows[i].Layout = layout
 			return
 		}
 	}
@@ -517,26 +523,22 @@ func (s *session) workspaceFrame() []wm.Workspace {
 			Windows: counts[ws.ID],
 		})
 	}
-	indices := make(map[string]int, len(s.workspaces))
-	for _, ws := range s.workspaces {
-		indices[formatUint(ws.ID)] = ws.Idx
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Output != out[j].Output {
-			return out[i].Output < out[j].Output
-		}
-		return indices[out[i].ID] < indices[out[j].ID]
-	})
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 
-// windowFrame renders the held windows. Geometry carries size only: niri
-// reports a tile size but no on-screen position, so CapWindowGeometry is absent
-// and a consumer uses niri's own overview instead of drawing windows itself.
+// windowFrame renders the held windows. niri exposes an absolute position only
+// for floating windows. That is enough for a native drag/resize to round-trip:
+// tile_pos_in_workspace_view is output-local logical geometry, then the output
+// origin turns it into the global logical coordinate convention wm.Window uses.
 func (s *session) windowFrame() []wm.Window {
 	byWorkspace := map[uint64]niriWorkspace{}
 	for _, ws := range s.workspaces {
 		byWorkspace[ws.ID] = ws
+	}
+	byOutput := map[string]wm.Output{}
+	for _, output := range s.outputs {
+		byOutput[output.Name] = output
 	}
 	ordered := make([]niriWindow, len(s.windows))
 	copy(ordered, s.windows)
@@ -548,17 +550,25 @@ func (s *session) windowFrame() []wm.Window {
 	})
 	out := make([]wm.Window, 0, len(ordered))
 	for i, w := range ordered {
-		out = append(out, wm.Window{
+		outputName := byWorkspace[w.WorkspaceID].Output
+		frame := wm.Window{
 			ID:         formatUint(w.ID),
 			AppID:      w.AppID,
 			Title:      w.Title,
+			Pid:        w.Pid,
 			Workspace:  formatUint(w.WorkspaceID),
-			Output:     byWorkspace[w.WorkspaceID].Output,
+			Output:     outputName,
 			FocusOrder: i,
 			Floating:   w.IsFloating,
 			Width:      w.Layout.WindowSize[0],
 			Height:     w.Layout.WindowSize[1],
-		})
+		}
+		if w.IsFloating && w.Layout.TilePosInWorkspaceView != nil {
+			origin := byOutput[outputName]
+			frame.X = origin.X + int(math.Round(w.Layout.TilePosInWorkspaceView[0]+w.Layout.WindowOffsetInTile[0]))
+			frame.Y = origin.Y + int(math.Round(w.Layout.TilePosInWorkspaceView[1]+w.Layout.WindowOffsetInTile[1]))
+		}
+		out = append(out, frame)
 	}
 	return out
 }
@@ -607,9 +617,9 @@ func readOutputs(workspaces []niriWorkspace, full bool) ([]wm.Output, error) {
 }
 
 // A disabled output has no logical rectangle, which is also how its size stops
-// being meaningful, so the mode is only read for an enabled one. full adds the
-// editor detail (physical modes, position, rotation, VRR) the display page needs
-// and the lean watch frame omits.
+// being meaningful, so the mode is only read for an enabled one. Position is
+// always carried because window frames use the global logical coordinate
+// convention; full adds rotation, VRR and physical modes for the display editor.
 func outputFrame(o niriOutput, focused string, active map[string]string, full bool) wm.Output {
 	out := wm.Output{
 		Name:            o.Name,
@@ -626,13 +636,13 @@ func outputFrame(o niriOutput, focused string, active map[string]string, full bo
 		out.Width = o.Logical.Width
 		out.Height = o.Logical.Height
 		out.Scale = o.Logical.Scale
+		out.X = o.Logical.X
+		out.Y = o.Logical.Y
 	}
 	if !full {
 		return out
 	}
 	if o.Logical != nil {
-		out.X = o.Logical.X
-		out.Y = o.Logical.Y
 		out.Transform = niriTransformToWayland(o.Logical.Transform)
 	}
 	out.VRR = o.VRREnabled
@@ -741,6 +751,7 @@ func runState() error {
 	if err != nil {
 		return err
 	}
+	s.outputs = outs
 	current, all := keyboardLayouts()
 	snap := wm.Snapshot{
 		Outputs:         outs,

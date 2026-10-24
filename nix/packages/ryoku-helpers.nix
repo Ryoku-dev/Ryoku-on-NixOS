@@ -58,6 +58,30 @@ pkgs.stdenvNoCC.mkDerivation {
     # interpreters now so every installed command has an immutable Nix runtime.
     patchShebangs "$out/bin"
 
+    if [ -x "$out/bin/ryoku-power-cutover" ]; then
+      substituteInPlace "$out/bin/ryoku-power-cutover" \
+        --replace-fail \
+          "/usr/bin/systemd-inhibit" \
+          "${pkgs.systemd}/bin/systemd-inhibit" \
+        --replace-fail \
+          "/usr/bin/sleep" \
+          "${pkgs.coreutils}/bin/sleep" \
+        --replace-fail \
+          "/usr/bin/env" \
+          "${pkgs.coreutils}/bin/env"
+    fi
+
+    install -Dm755 \
+      ryoku/lockscreen/ryoku-qylock-activate \
+      "$out/bin/ryoku-qylock-activate"
+
+    patchShebangs "$out/bin/ryoku-qylock-activate"
+
+    substituteInPlace "$out/bin/ryoku-qylock-activate" \
+      --replace-fail \
+        'power_helper=""' \
+        "power_helper=\"$out/bin/ryoku-power-cutover\""
+
     # Upstream's ryoku-idle owns policy/rendering while NixOS owns the daemon
     # lifecycle. Keep the upstream implementation intact in libexec and expose
     # a tiny systemd-aware front door for session/autostart and Hub calls.
@@ -76,11 +100,11 @@ systemctl_bin="@SYSTEMCTL@"
 
 case "''${1:-start}" in
   start)
-    exec "$systemctl_bin" --user start hypridle.service
+    exec "$systemctl_bin" --user start ryoku-idle.service
     ;;
   apply)
     "$real" render
-    exec "$systemctl_bin" --user restart hypridle.service
+    exec "$systemctl_bin" --user restart ryoku-idle.service
     ;;
   *)
     exec "$real" "$@"

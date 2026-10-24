@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"ryoku-cli/internal/doctor"
 	"ryoku-cli/internal/sys"
@@ -18,9 +20,10 @@ import (
 )
 
 // cmdWm is the neutral front door to the window-manager provider: what is running
-// (status), where its config lives (config), dispatch an action from a script
-// (act), print the provider's session entry (session), and switch compositors as
-// a reversible package op (use).
+// (status), whether a plugin's foreign interfaces are served (compat), where the
+// config lives (config), dispatch an action from a script (act), print the
+// provider's session entry (session), and switch compositors as a reversible
+// package op (use).
 func cmdWm(args []string) {
 	if len(args) == 0 {
 		wmUsage()
@@ -31,10 +34,18 @@ func cmdWm(args []string) {
 		cmdWmStatus()
 	case "caps":
 		cmdWmCaps()
+	case "compat":
+		cmdWmCompat(args[1:])
+	case "state":
+		cmdWmState()
+	case "outputs":
+		cmdWmOutputs(args[1:])
 	case "act":
 		cmdWmAct(args[1:])
 	case "session":
 		cmdWmSession()
+	case "handles":
+		cmdWmHandles()
 	case "config":
 		cmdWmConfig(args[1:])
 	case "reset-paths":
@@ -47,7 +58,8 @@ func cmdWm(args []string) {
 }
 
 func wmUsage() {
-	fmt.Print(i18n.T("Usage: ryoku wm <command>\n\n  status            print the detected provider, its capabilities and workspace model\n  caps              print the active provider's capability manifest (JSON)\n  config [name]     print a provider's config dir and the files it owns (JSON)\n  reset-paths       print the config files a factory reset clears (one path per line)\n  use <name>        preview and switch to another compositor (installs its package)\n  act <id> [args]   dispatch a window-manager action through the provider\n  session           print the provider's wayland-session desktop entry\n"))
+	fmt.Print(i18n.T("Usage: ryoku wm <command>\n\n  status            print the detected provider, its capabilities and workspace model\n  caps              print the active provider's capability manifest (JSON)\n  compat <dir>      check a plugin directory against the active provider (JSON)\n  state             print the active provider's current state (JSON)\n  config [name]     print a provider's config dir and the files it owns (JSON)\n  reset-paths       print the config files a factory reset clears (one path per line)\n  handles           print the session IPC handle variables (one per line)\n  use <name>        preview and switch to another compositor (installs its package)\n  act <id> [args]   dispatch a window-manager action through the provider\n  session           print the provider's wayland-session desktop entry\n"))
+	fmt.Print(i18n.T("  outputs <file>    apply and persist a neutral output layout (JSON)\n"))
 }
 
 func cmdWmStatus() {
@@ -93,6 +105,63 @@ func cmdWmCaps() {
 	}
 }
 
+func cmdWmCompat(args []string) {
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		die("usage: ryoku wm compat <plugin-dir>")
+	}
+	result, err := wm.Open().Compatibility(args[0])
+	if err != nil {
+		die("%v", err)
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+		die("%v", err)
+	}
+}
+
+// cmdWmState exposes the provider snapshot to compositor-neutral system
+// helpers that need readback before changing an output.
+func cmdWmState() {
+	ctx, cancel := wmCallContext()
+	defer cancel()
+	state, err := wm.Open().StateContext(ctx)
+	if err != nil {
+		die("%v", err)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(state); err != nil {
+		die("%v", err)
+	}
+}
+
+// cmdWmOutputs applies the same neutral output document used by the display
+// editor, so compatibility helpers never need to detect or invoke a provider.
+func cmdWmOutputs(args []string) {
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		die("usage: ryoku wm outputs <layout.json>")
+	}
+	report, err := wm.Open().ApplyOutputs(args[0])
+	if err != nil {
+		die("%v", err)
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+		die("%v", err)
+	}
+}
+
+func wmCallContext() (context.Context, context.CancelFunc) {
+	raw := strings.TrimSpace(os.Getenv("RYOKU_WM_CALL_TIMEOUT"))
+	if raw == "" {
+		return context.WithCancel(context.Background())
+	}
+	limit, err := time.ParseDuration(raw)
+	if err != nil || limit <= 0 {
+		die("invalid RYOKU_WM_CALL_TIMEOUT %q", raw)
+		return context.WithCancel(context.Background())
+	}
+	return context.WithTimeout(context.Background(), limit)
+}
+
 // cmdWmAct dispatches an action and maps the two seam errors to distinct exit
 // codes so a caller (a keybind, lock.sh) can tell "no compositor" from "this
 // compositor cannot". Quiet on success: it runs on the idle and lock paths.
@@ -100,10 +169,11 @@ func cmdWmAct(args []string) {
 	if len(args) == 0 {
 		die("usage: ryoku wm act <action> [args...]")
 	}
-	// ActOutput, not Act: an action that answers with a value (input.touchpad
-	// status prints on|off) must reach the caller's stdout, while the silent
-	// actions still print nothing because their output is empty.
-	out, err := wm.Open().ActOutput(wm.Action(args[0]), args[1:]...)
+	// Actions that answer with a value (input.touchpad status prints on|off)
+	// reach stdout; silent actions return an empty string.
+	ctx, cancel := wmCallContext()
+	defer cancel()
+	out, err := wm.Open().ActOutputContext(ctx, wm.Action(args[0]), args[1:]...)
 	if err == nil {
 		if out != "" {
 			fmt.Fprintln(os.Stdout, out)
@@ -128,6 +198,16 @@ func cmdWmSession() {
 		die("%v", err)
 	}
 	os.Stdout.Write(out)
+}
+
+// cmdWmHandles prints the environment variables a compositor session carries
+// as its live IPC handle, one per line: the names come from the seam so the
+// login cutover clears exactly the handles a session can hold, never a copy of
+// the list.
+func cmdWmHandles() {
+	for _, name := range wm.SessionHandles() {
+		fmt.Println(name)
+	}
 }
 
 // cmdWmConfig prints where a provider's config lives and which files belong to
@@ -216,12 +296,16 @@ func cmdWmUse(args []string) {
 	if !knownProvider(name) {
 		die("unknown compositor %q; known: %s", name, strings.Join(wm.Providers(), ", "))
 	}
-	store := filepath.Join(sys.ConfigHome(), "ryoku", "desktop.json")
 	active := wm.Detect().Name
 	if name == active {
 		fmt.Printf(i18n.T("%s is already the compositor.\n"), name)
 		return
 	}
+	pkg := "ryoku-desktop-" + name
+	if err := targetPackageAvailability(name, pkg); err != nil {
+		die("%v", err)
+	}
+	store := filepath.Join(sys.ConfigHome(), "ryoku", "desktop.json")
 
 	// A dry run, not an apply: asking the target what it cannot honour must not
 	// author its config as a side effect. Best-effort, since the provider may
@@ -233,11 +317,10 @@ func cmdWmUse(args []string) {
 	// leaving the active compositor reclaims, or that there is nothing to remove.
 	printWmPreviousChoice(active, name, keepPrevious)
 
-	pkg := "ryoku-desktop-" + name
 	// A checkout box runs deployed trees, so switching to one installs nothing;
 	// picking the session at the greeter is the whole move. A package box installs
-	// the target first, as a plain pacman transaction (no SNAP_PAC_SKIP) so
-	// snap-pac snapshots it and `ryoku rollback` can undo the switch.
+	// the target first through the host package seam so the native package manager
+	// and its snapshot hooks handle the switch.
 	if deployedProvider(name) {
 		// A checkout box runs deployed trees, so the switch installs no package,
 		// but the leaf scripts (ryoku-monitor and friends) the target's config
@@ -251,22 +334,19 @@ func cmdWmUse(args []string) {
 		}
 		fmt.Printf(i18n.T("%s is ready. Log out and pick %s at the greeter.\n"), name, name)
 	} else {
-		if !packageAvailable(pkg) {
-			die(i18n.T("cannot switch to %s yet: the %s package is not available on this channel"), name, pkg)
-		}
 		// The variants are not exclusive, so the install leaves the outgoing
-		// compositor in place and "keep" means what it says. A box whose packages
-		// predate that still declares the shared virtual as a conflict and pacman
-		// refuses the install under --noconfirm; only then drop it first.
-		if err := sys.Sudo("pacman", "-S", "--needed", "--noconfirm", pkg); err != nil {
+		// compositor in place and "keep" means what it says. Older variants may
+		// still declare the shared virtual as a conflict; only then drop the
+		// outgoing package first.
+		if err := sys.Sudo(wmSwitchInstallArgs(pkg)...); err != nil {
 			out := "ryoku-desktop-" + active
 			if active == "" || active == name || !packageInstalled(out) {
 				die(i18n.T("could not install %s: %v"), pkg, err)
 			}
-			if err := sys.Sudo("pacman", "-Rdd", "--noconfirm", out); err != nil {
+			if err := sys.Sudo("ryoku-host", "pkg", "remove", out); err != nil {
 				die(i18n.T("could not install %s, and could not remove %s first: %v"), pkg, out, err)
 			}
-			if err := sys.Sudo("pacman", "-S", "--needed", "--noconfirm", pkg); err != nil {
+			if err := sys.Sudo(wmSwitchInstallArgs(pkg)...); err != nil {
 				die(i18n.T("could not install %s after removing %s: %v"), pkg, out, err)
 			}
 		}
@@ -290,8 +370,7 @@ func cmdWmUse(args []string) {
 	// Removing the outgoing compositor's packages is a second transaction on
 	// purpose: the switch is complete once the target is ready, so a refusal or
 	// failure here leaves a working desktop rather than a half-switched one. It
-	// runs whether the target came from a package or a checkout, because the old
-	// compositor is a pacman package set either way.
+	// runs whether the target came from a package or a checkout.
 	if !keepPrevious && active != "" && active != name {
 		removePreviousCompositor(active, name)
 	}
@@ -313,9 +392,11 @@ func laySwitchConfig() error {
 }
 
 // deployedProvider reports whether a provider is usable without its package:
-// its binary answers caps and its config tree exists, which is what a checkout
-// deploy leaves behind. Both must hold, since a provider with no config tree
-// would start a bare compositor.
+// its binary answers caps, its config tree exists, and its session is real:
+// the compositor is installed and a greeter directory lists its session
+// entry. All must hold: a checkout deploys the provider and lays the tree,
+// but that alone cannot boot a session the greeter offers, and promising
+// "log out and pick it" without them strands the user on the old desktop.
 func deployedProvider(name string) bool {
 	if _, err := wm.OpenNamed(name).Caps(); err != nil {
 		return false
@@ -324,8 +405,10 @@ func deployedProvider(name string) bool {
 	if dir == "" {
 		return false
 	}
-	_, err := os.Stat(filepath.Join(sys.ConfigHome(), dir))
-	return err == nil
+	if _, err := os.Stat(filepath.Join(sys.ConfigHome(), dir)); err != nil {
+		return false
+	}
+	return wm.SessionReady(name)
 }
 
 // syncLeafScripts lays a checkout box's target-compositor leaf scripts into
@@ -384,11 +467,9 @@ func printWmPreviousChoice(active, incoming string, keep bool) {
 }
 
 // removePreviousCompositor removes the outgoing compositor's packages after a
-// switch to incoming, in one pacman transaction over exactly the reviewed set,
-// leaving its config tree and its wm.<name>.* settings alone so a switch back
-// restores the desktop rather than a default one. It refuses rather than remove
-// anything pacman's own plan no longer agrees with, so a switch can never
-// cascade past what the preview showed.
+// switch to incoming, in one host package transaction over exactly the reviewed
+// set, leaving its config tree and its wm.<name>.* settings alone so a switch
+// back restores the desktop rather than a default one.
 func removePreviousCompositor(active, incoming string) {
 	rs, err := wm.Reclaim(active, incoming)
 	if err != nil {
@@ -402,7 +483,7 @@ func removePreviousCompositor(active, incoming string) {
 		fmt.Printf(i18n.T("Switched, but %s was kept: %v\n"), active, err)
 		return
 	}
-	rmArgs := append([]string{"pacman", "-Rns", "--noconfirm"}, rs.Targets...)
+	rmArgs := append([]string{"ryoku-host", "pkg", "remove"}, rs.Targets...)
 	if err := sys.Sudo(rmArgs...); err != nil {
 		fmt.Printf(i18n.T("Switched, but %s could not be removed: %v\n"), active, err)
 		return
@@ -410,8 +491,7 @@ func removePreviousCompositor(active, incoming string) {
 	fmt.Printf(i18n.T("Removed %s: reclaimed %d packages (%s).\n"), active, rs.Count, humanSize(rs.Size))
 }
 
-// humanSize names a byte count the way pacman's own removal summary does, so a
-// reclaimed size reads the same in `ryoku wm use` as in pacman.
+// humanSize names a byte count the way a package manager's removal summary does.
 func humanSize(n int64) string {
 	if n >= 1<<30 {
 		return fmt.Sprintf("%.2f GiB", float64(n)/(1<<30))
@@ -485,14 +565,38 @@ func rawLen(raw json.RawMessage) int {
 	return 0
 }
 
+// wmSwitchInstallArgs keeps the switch on the host package seam while preserving
+// the switch-safe overwrite used by Arch's non-interactive transaction.
+func wmSwitchInstallArgs(pkg string) []string {
+	return []string{"ryoku-host", "pkg", "install", "--overwrite", updater.RyokuOverwriteGlob, pkg}
+}
+
+func targetPackageAvailability(name, pkg string) error {
+	if packageAvailable(pkg) {
+		return nil
+	}
+	if reason := packageUnavailableReason(pkg); reason != "" {
+		return errors.New(i18n.Tf("cannot switch to %s: %s", name, reason))
+	}
+	return errors.New(i18n.Tf("cannot switch to %s yet: %s is unavailable on this host", name, pkg))
+}
+
 func packageAvailable(pkg string) bool {
-	_, err := sys.RunOut("pacman", "-Si", pkg)
+	_, err := sys.RunOut("ryoku-host", "pkg", "available", pkg)
 	return err == nil
+}
+
+func packageUnavailableReason(pkg string) string {
+	out, err := sys.RunOut("ryoku-host", "pkg", "why", pkg)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // packageInstalled reports whether pkg is installed here, which decides whether
 // a switch has an outgoing variant package to drop.
 func packageInstalled(pkg string) bool {
-	_, err := sys.RunOut("pacman", "-Qq", pkg)
+	_, err := sys.RunOut("ryoku-host", "pkg", "installed", pkg)
 	return err == nil
 }

@@ -244,6 +244,67 @@ func TestApFrame(t *testing.T) {
 	}
 }
 
+func testNetworkSnapshot(path dbus.ObjectPath) *networkSnapshot {
+	ap := map[string]any{"ssid": "M", "strength": 50, "active": true}
+	return &networkSnapshot{
+		frame: map[string]any{
+			"wifi":         map[string]any{"ssid": "M", "strength": 50},
+			"accessPoints": []map[string]any{ap},
+		},
+		aps: map[dbus.ObjectPath]map[string]any{path: ap},
+	}
+}
+
+func apPropertiesSignal(path dbus.ObjectPath, properties map[string]dbus.Variant) *dbus.Signal {
+	return &dbus.Signal{
+		Path: path,
+		Name: propertiesInterface + ".PropertiesChanged",
+		Body: []any{nmApIface, properties, []string{}},
+	}
+}
+
+func TestAPSignalBurstUsesCachedStrength(t *testing.T) {
+	path := dbus.ObjectPath(nmPath + "/AccessPoint/7")
+	snapshot := testNetworkSnapshot(path)
+	handled, changed := applyAPSignalBurst(snapshot, []*dbus.Signal{
+		apPropertiesSignal(path, map[string]dbus.Variant{"Strength": dbus.MakeVariant(byte(63))}),
+	})
+	if !handled || !changed {
+		t.Fatalf("strength signal = handled %v, changed %v; want true, true", handled, changed)
+	}
+	if got := snapshot.aps[path]["strength"]; got != 63 {
+		t.Fatalf("cached AP strength = %v, want 63", got)
+	}
+	if got := snapshot.frame["wifi"].(map[string]any)["strength"]; got != 63 {
+		t.Fatalf("active wifi strength = %v, want 63", got)
+	}
+
+	handled, changed = applyAPSignalBurst(snapshot, []*dbus.Signal{
+		apPropertiesSignal(path, map[string]dbus.Variant{"LastSeen": dbus.MakeVariant(int32(123))}),
+	})
+	if !handled || changed {
+		t.Fatalf("LastSeen signal = handled %v, changed %v; want true, false", handled, changed)
+	}
+}
+
+func TestAPSignalBurstFallsBackForStructuralOrUnknownChanges(t *testing.T) {
+	path := dbus.ObjectPath(nmPath + "/AccessPoint/7")
+	added := &dbus.Signal{
+		Path: "/org/freedesktop/NetworkManager/Devices/2",
+		Name: nmWirelessIface + ".AccessPointAdded",
+		Body: []any{path},
+	}
+	if handled, _ := applyAPSignalBurst(testNetworkSnapshot(path), []*dbus.Signal{added}); handled {
+		t.Fatal("AccessPointAdded must force a full snapshot")
+	}
+	unknown := dbus.ObjectPath(nmPath + "/AccessPoint/99")
+	if handled, _ := applyAPSignalBurst(testNetworkSnapshot(path), []*dbus.Signal{
+		apPropertiesSignal(unknown, map[string]dbus.Variant{"Strength": dbus.MakeVariant(byte(40))}),
+	}); handled {
+		t.Fatal("an unknown AP path must force a full snapshot")
+	}
+}
+
 // A profile edit must drop the deprecated ipv4/ipv6 address and route mirrors:
 // NetworkManager rejects the round-trip otherwise (godbus re-encodes the ipv6
 // a(ayuay) pair as aav), while address-data/route-data carry the real config.
@@ -390,6 +451,74 @@ func TestDnsHelperPathPrefersPackaged(t *testing.T) {
 	}
 }
 
+// vpnProfileFrames lists only type "vpn" profiles, in service order, and marks
+// connecting/ip4 only for the ones with live state.
+func TestVpnProfileFrames(t *testing.T) {
+	saved := []savedConn{
+		{typ: "802-11-wireless", uuid: "w", id: "home"},
+		{typ: "vpn", uuid: "a", id: "Office", vpnService: "org.freedesktop.NetworkManager.openvpn"},
+		{typ: "wireguard", uuid: "g", id: "wg0"},
+		{typ: "vpn", uuid: "b", id: "Lab", vpnService: "org.freedesktop.NetworkManager.openconnect"},
+	}
+	live := map[string]vpnLive{"b": {connecting: true, ip4: "10.8.0.6"}}
+	got := vpnProfileFrames(saved, live)
+	if len(got) != 2 {
+		t.Fatalf("want 2 vpn profiles, got %d: %v", len(got), got)
+	}
+	if got[0]["name"] != "Office" || got[0]["service"] != "openvpn" || got[0]["active"] != false || got[0]["ip4"] != "" {
+		t.Errorf("idle profile wrong: %v", got[0])
+	}
+	if got[1]["name"] != "Lab" || got[1]["service"] != "openconnect" || got[1]["active"] != true ||
+		got[1]["connecting"] != true || got[1]["ip4"] != "10.8.0.6" {
+		t.Errorf("live profile wrong: %v", got[1])
+	}
+	if out := vpnProfileFrames(nil, nil); out == nil || len(out) != 0 {
+		t.Errorf("no profiles should marshal as an empty list, got %v", out)
+	}
+}
+
+// vpnServiceName keeps only the plugin's own name.
+func TestVpnServiceName(t *testing.T) {
+	for in, want := range map[string]string{
+		"org.freedesktop.NetworkManager.openvpn": "openvpn",
+		"openvpn":                                "openvpn",
+		"":                                       "",
+	} {
+		if got := vpnServiceName(in); got != want {
+			t.Errorf("vpnServiceName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// isVpnProfile accepts vpn and wireguard profiles only, so the VPN switch can
+// never deactivate Wi-Fi or Ethernet.
+func TestIsVpnProfile(t *testing.T) {
+	saved := []savedConn{
+		{typ: "vpn", uuid: "v"},
+		{typ: "wireguard", uuid: "g"},
+		{typ: "802-3-ethernet", uuid: "e"},
+	}
+	for uuid, want := range map[string]bool{"v": true, "g": true, "e": false, "missing": false} {
+		if got := isVpnProfile(uuid, saved); got != want {
+			t.Errorf("isVpnProfile(%q) = %v, want %v", uuid, got, want)
+		}
+	}
+}
+
+// firstAddress skips entries without an address.
+func TestFirstAddress(t *testing.T) {
+	data := []map[string]dbus.Variant{
+		{"prefix": dbus.MakeVariant(uint32(24))},
+		{"address": dbus.MakeVariant("10.8.0.6"), "prefix": dbus.MakeVariant(uint32(24))},
+	}
+	if got := firstAddress(data); got != "10.8.0.6" {
+		t.Errorf("firstAddress = %q", got)
+	}
+	if got := firstAddress(nil); got != "" {
+		t.Errorf("firstAddress(nil) = %q", got)
+	}
+}
+
 // TestLiveNetworkFrame exercises the real snapshot path against the running
 // NetworkManager and prints the frame, as evidence the topic renders live data.
 // Gated so the default `go test` stays deterministic and bus-free.
@@ -413,7 +542,7 @@ func TestLiveNetworkFrame(t *testing.T) {
 		if err := json.Unmarshal(frame, &m); err != nil {
 			t.Fatalf("frame is not valid JSON: %v", err)
 		}
-		for _, k := range []string{"wifi", "wired", "accessPoints", "wireguard", "dns"} {
+		for _, k := range []string{"wifi", "wired", "accessPoints", "wireguard", "vpn", "dns"} {
 			if _, ok := m[k]; !ok {
 				t.Errorf("frame missing key %q", k)
 			}

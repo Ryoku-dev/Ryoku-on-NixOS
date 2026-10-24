@@ -33,6 +33,8 @@ var generatedFiles = map[string]bool{
 	"ryoku-repo.md": true,
 	"user.md":       true,
 	"habits.md":     true,
+	"ownership.md":  true,
+	"logs.md":       true,
 }
 
 // AgentsTemplate is the vault entry contract. Its fenced body is refreshed on
@@ -41,9 +43,20 @@ var generatedFiles = map[string]bool{
 // map lives in the regenerated system.md and desktop.md.
 const AgentsTemplate = "# Ryoku system vault\n" +
 	"\n" +
-	"This is the shared knowledge base for every coding agent on this machine\n" +
-	"(the Ryoku desktop, managed by Ryoku). Read it before exploring\n" +
+	"This is the shared knowledge base for every coding agent on this Ryoku Linux\n" +
+	"desktop. The edition and compositor are named in `desktop.md` and by\n" +
+	"`ryoku wm status`; detect them, never assume. Read this vault before exploring\n" +
 	"the filesystem or guessing where things live.\n" +
+	"\n" +
+	"## Who you are\n" +
+	"\n" +
+	"Rashin has two separate lanes. The persistent Agent lane is the Needle, the\n" +
+	"resident agent for this machine. Ask is a read-only fresh-session lane; it\n" +
+	"answers quickly and stops with `NEEDS_AGENT` when work would change anything.\n" +
+	"In the Agent lane, a `[handoff from Ask]` block is carried context: read it,\n" +
+	"then act on the user's text after the block. Be direct and technical. A \"how\n" +
+	"do I\" question asks for guidance, not for you to change anything; when you do\n" +
+	"make a change, say what changed and how to see or undo it.\n" +
 	"\n" +
 	"## The one rule\n" +
 	"\n" +
@@ -53,8 +66,11 @@ const AgentsTemplate = "# Ryoku system vault\n" +
 	"\n" +
 	"To change the desktop, use the `ryoku` skill (linked into your skills dir;\n" +
 	"`desktop.md` names its path and carries the GUI map): answer \"how do I\" GUI-\n" +
-	"first, act through commands, never edit shipped files. A new bar widget is a\n" +
-	"plugin, per the skill's `plugins.md`.\n" +
+	"first, act through commands, never edit shipped files. When the ask is a\n" +
+	"feature the desktop does not have, climb the ladder in the skill's\n" +
+	"`feature.md` before writing code: `ryostore catalog`, then\n" +
+	"`ryoku-shell bar catalog`, then `ryoku plugin list`, then build a plugin per\n" +
+	"`plugins.md`. Never rebuild what the store or a hidden built-in already ships.\n" +
 	"\n" +
 	"## What is here\n" +
 	"\n" +
@@ -64,8 +80,29 @@ const AgentsTemplate = "# Ryoku system vault\n" +
 	"- `ryoku-repo.md` generated: the Ryoku source tree map (pre-indexed, ships with the system).\n" +
 	"- `user.md` generated: where this user's config diverges from the shipped baseline.\n" +
 	"- `habits.md` generated: this user's directories, tool stack, and shell rhythms.\n" +
+	"- `ownership.md` generated: who owns each config path and where a change belongs.\n" +
+	"- `logs.md` generated: where the logs live and the one command that gathers them.\n" +
 	"- `memory/` durable notes agents author and keep across sessions.\n" +
 	"- `journal/` dated notes, one file per day named `YYYY-MM-DD.md`.\n" +
+	"- `wiki/` shipped, read only: the plain-language guides for someone new to\n" +
+	"  Linux, Ryoku, Hyprland in Lua, niri in KDL, Quickshell QML and the Go tools\n" +
+	"  (`wiki/README.md` is the index). Cite the matching page when the user is new.\n" +
+	"\n" +
+	"## Skills, guides and the code index\n" +
+	"\n" +
+	"- The `ryoku` skill (linked into your skills dir) is how you change this\n" +
+	"  desktop. Read the guide that matches the ask: `gui.md` (the GUI map),\n" +
+	"  `bar.md` (the bar and dock), `wm.md` (the window-manager seam: `ryoku wm`,\n" +
+	"  where each compositor's config is authored and where a user's change goes),\n" +
+	"  `plugins.md` and `build.md` (building a widget, a plugin, or a change to the\n" +
+	"  Go tools the Ryoku way), `feature.md` (the ladder before writing code), and\n" +
+	"  `troubleshoot.md` (break/fix).\n" +
+	"- Prowl is an optional external tool that plugs into harnesses (model gateway,\n" +
+	"  code index, skills); it never overrides the user's model pick. When connected,\n" +
+	"  `prowl search|find|def|outline|references` (or `search_code`) locates Ryoku\n" +
+	"  source with file:line citations before any grep; `ryoku-repo.md` is its map.\n" +
+	"- `ryoku owner <path>` decides where an edit belongs; `ryoku-rashin logs <app>`\n" +
+	"  gathers the logs; `ryoku doctor` reports and repairs drift.\n" +
 	"\n" +
 	"## Rules\n" +
 	"\n" +
@@ -78,7 +115,26 @@ const AgentsTemplate = "# Ryoku system vault\n" +
 	"- Changes listed in `user.md` are the user's own; never revert them to\n" +
 	"  shipped defaults without being asked.\n" +
 	"- This file's generated body is refreshed on every reindex; add your own prose\n" +
-	"  outside the `rashin:generated` markers and it is kept. `CLAUDE.md` symlinks here.\n"
+	"  outside the `rashin:generated` markers and it is kept. `CLAUDE.md` symlinks here.\n" +
+	"\n" +
+	"## Before you edit a file\n" +
+	"\n" +
+	"- Run `ryoku owner <path>` first. It says who writes the file and where a\n" +
+	"  change belongs. `ownership.md` is the same rules for this whole machine.\n" +
+	"- Never edit a path it calls `ryoku`, `generated`, or `store`; those are\n" +
+	"  overwritten on update or owned by one writer. Edit the path it points you to\n" +
+	"  instead: a user-override file, a fork under `~/.config/ryoku/user_edits/`, or\n" +
+	"  the GUI or command that owns it.\n" +
+	"- `user.md` lists the edits this user already made; treat them as their own.\n" +
+	"\n" +
+	"## When something breaks\n" +
+	"\n" +
+	"- Gather first, change nothing yet: run `ryoku-rashin logs <app>` and read\n" +
+	"  `logs.md` for where each log lives.\n" +
+	"- Check the doctor report and the recent package changes (an upgrade right\n" +
+	"  before a breakage is the usual cause) before you touch anything.\n" +
+	"- Prefer a reversible fix, and ask before anything destructive.\n" +
+	"- Record what you found and did in `journal/YYYY-MM-DD.md`.\n"
 
 // buildFence wraps a generated body in the vault markers, normalising trailing
 // whitespace so repeated runs are byte stable.
@@ -147,7 +203,7 @@ func VaultTree() ([]VaultFile, error) {
 			Path:      rel,
 			Size:      fi.Size(),
 			Mtime:     fi.ModTime(),
-			Generated: generatedFiles[rel],
+			Generated: generatedFiles[rel] || isWikiPage(rel),
 		})
 		return nil
 	})
@@ -255,7 +311,7 @@ func EnsureVault() error {
 			return err
 		}
 	}
-	return nil
+	return syncWiki(root)
 }
 
 // atomicWrite writes via a temp file in the same directory then renames, so a

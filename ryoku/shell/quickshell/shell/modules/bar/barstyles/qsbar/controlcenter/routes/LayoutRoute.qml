@@ -558,7 +558,7 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
-                                Spawn.runApp(["ryostore", "open", "plugins"])
+                                Quickshell.execDetached(["ryostore", "open", "plugins"])
                                 page.pickerOpen = false
                             }
                         }

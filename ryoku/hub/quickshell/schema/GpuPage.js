@@ -26,7 +26,7 @@ var rows = [
         "label": "Editing profile",
         "desc": "Which profile you're editing, not the live one.",
         "ctl": "seg",
-        "src": "ryoku-hub cpu active (ryoku-power)",
+        "src": "ryoku-hub cpu active (ryoku-host power)",
         "opts": [
             "power-saver",
             "balanced",
@@ -40,7 +40,7 @@ var rows = [
         "label": "Governor",
         "desc": "CPU scaling governor for the edited profile.",
         "ctl": "seg",
-        "src": "ryoku-power profiles (scaling_governor, power.json)",
+        "src": "ryoku-host power profile (scaling_governor, power.json)",
         "opts": [
             "performance",
             "powersave"
@@ -53,7 +53,7 @@ var rows = [
         "label": "Energy preference",
         "desc": "Energy or performance hint",
         "ctl": "seg",
-        "src": "ryoku-power profiles (energy_performance_preference, power.json)",
+        "src": "ryoku-host power profile (energy_performance_preference, power.json)",
         "opts": [
             "default",
             "performance",
@@ -69,7 +69,7 @@ var rows = [
         "label": "Max frequency",
         "desc": "Ceiling for the CPU clock, in percent",
         "ctl": "slid",
-        "src": "ryoku-power profiles (scaling_max_freq, power.json)"
+        "src": "ryoku-host power profile (scaling_max_freq, power.json)"
     },
     {
         "tab": "",
@@ -78,7 +78,7 @@ var rows = [
         "label": "Thermal profile",
         "desc": "Fan and power envelope for the edited profile.",
         "ctl": "seg",
-        "src": "ryoku-power profiles (platform_profile, power.json)",
+        "src": "ryoku-host power profile (platform_profile, power.json)",
         "opts": [
             "quiet",
             "balanced",
@@ -146,7 +146,7 @@ var rows = [
         "label": "Charge limit",
         "desc": "Stop charging here to preserve battery health.",
         "ctl": "slid",
-        "src": "ryoku-power charge-limit (charge_control_end_threshold, power.json)"
+        "src": "ryoku-host power charge-limit (charge_control_end_threshold, power.json)"
     },
     {
         "tab": "",
@@ -155,7 +155,7 @@ var rows = [
         "label": "PCIe ASPM",
         "desc": "PCIe power policy: trade idle power for latency.",
         "ctl": "seg",
-        "src": "ryoku-power aspm (pcie_aspm/parameters/policy, power.json)",
+        "src": "ryoku-host power aspm (pcie_aspm/parameters/policy, power.json)",
         "opts": [
             "default",
             "performance",
@@ -179,7 +179,7 @@ var rows = [
         "label": "Disable passthrough",
         "desc": "",
         "ctl": "action",
-        "src": "qemu"
+        "src": "ryoku-host pkg available; ryoku-hub gpu apply disable"
     },
     {
         "tab": "",
@@ -188,7 +188,7 @@ var rows = [
         "label": "Review changes",
         "desc": "",
         "ctl": "action",
-        "src": "reads nothing; prints a plan"
+        "src": "ryoku-host capabilities + pkg available; ryoku-hub gpu apply enable --dry-run"
     },
     {
         "tab": "",
@@ -197,7 +197,7 @@ var rows = [
         "label": "Enable passthrough",
         "desc": "",
         "ctl": "action",
-        "src": "kvm; enables libvirtd; kvmfr static_size_mb=128"
+        "src": "ryoku-host capabilities + pkg install; kvm; enables libvirtd; kvmfr static_size_mb=128"
     },
     {
         "tab": "",

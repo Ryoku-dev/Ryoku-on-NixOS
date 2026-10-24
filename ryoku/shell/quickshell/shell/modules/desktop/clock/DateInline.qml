@@ -15,20 +15,21 @@ Item {
     property real underL: Scheme.wallLstar
     // a pinned colour ("" = follow wallpaper) paints this strip's own ink.
     property string inkColorA: ""
+    property real s: 1
     readonly property color ink:     Theme.inkOn2(date.underL, date.inkColorA)
     readonly property color inkDim:  Theme.inkDimOn2(date.underL, date.inkColorA)
     readonly property color inkSoft: Theme.inkSoftOn2(date.underL, date.inkColorA)
 
     readonly property var dp: Clk.dateParts(Now.date, Svc.Config.formatLoc)
     readonly property color accent: Clk.pickAccent(Config.clockAccent, Theme.accentOn2(date.underL, date.inkColorA), Theme.brand, date.ink)
-    readonly property real px: Math.round(22 * Config.clockScale)
+    readonly property real px: Math.round(22 * date.s)
 
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
 
     Row {
         id: row
-        spacing: Math.round(8 * Config.clockScale)
+        spacing: Math.round(8 * date.s)
 
         Text {
             text: date.dp.weekday

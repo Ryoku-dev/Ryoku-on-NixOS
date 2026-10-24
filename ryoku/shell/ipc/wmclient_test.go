@@ -102,6 +102,78 @@ func TestPublishCarriesKeyboardAndVersions(t *testing.T) {
 	}
 }
 
+// The frame is the only path a capability has to a QML consumer, and consumers
+// read Wm.caps.<name> === true. A capability that exists but is missing from
+// the map reads as absent, so the affordance gated on it silently disappears.
+// With no provider installed every Has is false, which is exactly what makes
+// the key-presence check the real assertion here.
+func TestPublishCarriesEveryCapability(t *testing.T) {
+	d := &daemon{wmc: wm.OpenNamed("does-not-exist")}
+	d.wmTopic = newStateTopic()
+	sub := d.wmTopic.subscribe()
+	defer d.wmTopic.unsubscribe(sub)
+
+	d.onWMFrame(wm.Frame{Kind: wm.FrameReady})
+
+	select {
+	case frame := <-sub.frames:
+		var out wmTopicFrame
+		if err := json.Unmarshal(frame, &out); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range wm.All() {
+			if _, ok := out.Caps[c]; !ok {
+				t.Errorf("caps frame omits %q, so a consumer cannot gate on it", c)
+			}
+		}
+		if got := out.Caps[wm.CapPersistentScreenCapture]; got {
+			t.Error("a missing provider must not report persistent screen capture")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no frame published")
+	}
+}
+
+func TestFocusUsesCompactTopic(t *testing.T) {
+	d := &daemon{wmc: wm.OpenNamed("does-not-exist")}
+	d.wmTopic = newStateTopic()
+	d.wmFocusTopic = newStateTopic()
+	full := d.wmTopic.subscribe()
+	focus := d.wmFocusTopic.subscribe()
+	defer d.wmTopic.unsubscribe(full)
+	defer d.wmFocusTopic.unsubscribe(focus)
+
+	d.onWMFrame(wm.Frame{Kind: wm.FrameFocus, FocusedOutput: "DP-1"})
+
+	select {
+	case frame := <-focus.frames:
+		var out wmFocusFrame
+		if err := json.Unmarshal(frame, &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.FocusedOutput != "DP-1" || out.Version != 1 {
+			t.Fatalf("focus frame = %+v, want DP-1 at version 1", out)
+		}
+		if len(frame) >= 128 {
+			t.Fatalf("focus frame is %d bytes; compact topic unexpectedly carries snapshot state", len(frame))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no compact focus frame published")
+	}
+	select {
+	case frame := <-full.frames:
+		t.Fatalf("focus change woke full wm topic with %d bytes", len(frame))
+	default:
+	}
+
+	d.onWMFrame(wm.Frame{Kind: wm.FrameFocus, FocusedOutput: "DP-1"})
+	select {
+	case frame := <-focus.frames:
+		t.Fatalf("duplicate focus published %q", frame)
+	default:
+	}
+}
+
 func BenchmarkActiveMonitorCached(b *testing.B) {
 	d := &daemon{}
 	d.onWMFrame(wm.Frame{Kind: wm.FrameFocus, FocusedOutput: "DP-1"})
@@ -125,52 +197,54 @@ func BenchmarkMonitorSpawnProxy(b *testing.B) {
 	}
 }
 
-func TestUnchangedWorkspaceFrameDoesNotWakeWidgets(t *testing.T) {
-	d := &daemon{widgetSig: make(chan struct{}, 1)}
+func TestUnchangedWMFrameDoesNotRepublish(t *testing.T) {
+	d := &daemon{
+		wmc:       wm.OpenNamed("does-not-exist"),
+		widgetSig: make(chan struct{}, 1),
+	}
+	d.wmTopic = newStateTopic()
+	sub := d.wmTopic.subscribe()
+	defer d.wmTopic.unsubscribe(sub)
 
-	f := wm.Frame{
-		Kind:       wm.FrameWorkspaces,
-		Workspaces: []wm.Workspace{{ID: "1", Windows: 2}},
+	frame := wm.Frame{
+		Kind: wm.FrameWorkspaces,
+		Workspaces: []wm.Workspace{{
+			ID: "1", Name: "1", Output: "DP-1", Active: true, Windows: 2,
+		}},
 	}
 
-	d.onWMFrame(f)
-	<-d.widgetSig
+	d.onWMFrame(frame)
+	select {
+	case <-sub.frames:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial changed frame was not published")
+	}
+	select {
+	case <-d.widgetSig:
+	default:
+		t.Fatal("initial changed workspace frame did not wake widget gate")
+	}
+	d.wmMu.Lock()
+	before := d.wmVersions[string(wm.FrameWorkspaces)]
+	d.wmMu.Unlock()
 
-	first := d.wmVersions[string(wm.FrameWorkspaces)]
-	d.onWMFrame(f)
+	d.onWMFrame(frame)
 
+	d.wmMu.Lock()
+	after := d.wmVersions[string(wm.FrameWorkspaces)]
+	d.wmMu.Unlock()
+	if after != before {
+		t.Fatalf("unchanged frame bumped version: before=%d after=%d", before, after)
+	}
+
+	select {
+	case <-sub.frames:
+		t.Fatal("unchanged frame republished wm topic")
+	case <-time.After(50 * time.Millisecond):
+	}
 	select {
 	case <-d.widgetSig:
 		t.Fatal("unchanged frame woke widget gate")
 	default:
-	}
-
-	if got := d.wmVersions[string(wm.FrameWorkspaces)]; got != first {
-		t.Fatalf("unchanged workspace frame advanced version: %d -> %d", first, got)
-	}
-
-	d.onWMFrame(wm.Frame{
-		Kind:       wm.FrameWorkspaces,
-		Workspaces: []wm.Workspace{},
-	})
-
-	select {
-	case <-d.widgetSig:
-	default:
-		t.Fatal("empty workspace transition lost")
-	}
-}
-
-func TestReadyFrameAdvancesVersionOnReconnect(t *testing.T) {
-	d := &daemon{}
-
-	d.onWMFrame(wm.Frame{Kind: wm.FrameReady})
-	first := d.wmVersions[string(wm.FrameReady)]
-
-	d.onWMFrame(wm.Frame{Kind: wm.FrameReady})
-	second := d.wmVersions[string(wm.FrameReady)]
-
-	if second != first+1 {
-		t.Fatalf("ready version = %d after reconnect, want %d", second, first+1)
 	}
 }

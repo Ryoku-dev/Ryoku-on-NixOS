@@ -3,11 +3,8 @@ import QtQuick
 import "Singletons"
 import Ryoku.Ui.Singletons
 
-// A selectable chip: an option in a choice group, a style swatch, a snap-zone
-// target. Selected = a bone plate carrying dark ink (inversion, never a tint),
-// a quiet tile wash on hover, a press dip. The studio selection idiom. A label
-// covers the common case; a caller that needs a glyph fills the default
-// content slot and binds to `contentColor` / `hovered`.
+// A choice keeps the ryogami inversion language while allowing its label to
+// yield inside wrapped Stage rows instead of widening through a neighbour.
 Item {
     id: chip
 
@@ -17,40 +14,56 @@ Item {
 
     signal clicked()
 
-    // for custom (glyph) content that must track the chip's state.
     readonly property bool hovered: ma.containsMouse
     readonly property color contentColor: chip.selected ? Theme.inkOnBone
         : (ma.containsMouse ? Theme.ink : Theme.inkDim)
 
     default property alias content: hold.data
 
-    implicitWidth: Math.max(chip.minWidth, lbl.implicitWidth + Theme.s5)
-    implicitHeight: Theme.ctlH
+    implicitWidth: Math.max(chip.minWidth, lbl.implicitWidth + 20)
+    implicitHeight: 26
 
     scale: ma.pressed ? 0.94 : 1
-    Behavior on scale { NumberAnimation { duration: Theme.quick; easing.type: Theme.ease } }
+    Behavior on scale {
+        NumberAnimation {
+            duration: 180
+            easing.type: Easing.OutBack
+            easing.overshoot: 2.2
+        }
+    }
 
     Rectangle {
         anchors.fill: parent
-        radius: Theme.menuTileRadius
+        radius: 6
         color: chip.selected ? Theme.bone
             : ma.pressed ? Theme.tilePress
-            : ma.containsMouse ? Theme.tileHover : Theme.tile
+            : ma.containsMouse ? Theme.tileHover : "transparent"
         border.width: 1
-        border.color: chip.selected ? Theme.bone : Theme.line
-        Behavior on color { ColorAnimation { duration: Theme.quick } }
+        border.color: chip.selected ? Theme.bone
+            : ma.containsMouse ? Theme.lineStrong : Theme.line
+        Behavior on color { ColorAnimation { duration: 180 } }
+        Behavior on border.color { ColorAnimation { duration: 180 } }
     }
 
     Text {
         id: lbl
         visible: chip.label.length > 0
-        anchors.centerIn: parent
+        anchors {
+            fill: parent
+            leftMargin: 9
+            rightMargin: 9
+        }
+        verticalAlignment: Text.AlignVCenter
+        horizontalAlignment: Text.AlignHCenter
         text: I18n.tr(chip.label)
         color: chip.contentColor
+        elide: Text.ElideRight
+        maximumLineCount: 1
         font.family: Theme.font
-        font.pixelSize: Theme.fSmall
-        font.weight: chip.selected ? Font.DemiBold : Font.Medium
-        Behavior on color { ColorAnimation { duration: Theme.quick } }
+        font.pixelSize: 9
+        font.weight: Font.DemiBold
+        font.letterSpacing: 0.6
+        Behavior on color { ColorAnimation { duration: 180 } }
     }
 
     Item { id: hold; anchors.fill: parent }

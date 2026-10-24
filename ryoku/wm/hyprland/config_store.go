@@ -140,6 +140,31 @@ type Windows struct {
 	TameMaximizeOnOpen bool `json:"tameMaximizeOnOpen"`
 }
 
+// SettingsWindow is the provider-owned size of the Hub window. Full keeps the
+// shipped work-area fit; custom scales that same area and stays centred.
+type SettingsWindow struct {
+	Mode   string  `json:"mode"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
+func normalizeSettingsWindow(v SettingsWindow) SettingsWindow {
+	if v.Mode != "custom" {
+		v.Mode = "full"
+	}
+	if v.Width < 0.25 {
+		v.Width = 0.25
+	} else if v.Width > 1 {
+		v.Width = 1
+	}
+	if v.Height < 0.25 {
+		v.Height = 0.25
+	} else if v.Height > 1 {
+		v.Height = 1
+	}
+	return v
+}
+
 // WindowRule = one user rule: optional class/title match + one action.
 type WindowRule struct {
 	Class  string `json:"class"`
@@ -250,6 +275,27 @@ type Hyprfocus struct {
 	Slide   float64 `json:"slide"`
 }
 
+// BordersPlusPlus is the official borders-plus-plus plugin: extra static
+// borders outside the window's own one, each with its own colour and width.
+type BordersPlusPlus struct {
+	Enabled         bool   `json:"enabled"`
+	Count           int    `json:"count"`
+	NaturalRounding bool   `json:"naturalRounding"`
+	Color           string `json:"color"`
+	Size            int    `json:"size"`
+}
+
+// Hyprgrass drives windows from touchscreen and touchpad gestures; the Ryoku
+// look wires the three edge swipes the shell cannot reach on a tablet.
+type Hyprgrass struct {
+	Enabled        bool    `json:"enabled"`
+	Sensitivity    float64 `json:"sensitivity"`
+	LongPressDelay int     `json:"longPressDelay"`
+	EdgeMargin     int     `json:"edgeMargin"`
+	ResizeOnBorder bool    `json:"resizeOnBorderLongPress"`
+	ThreeFingerTap bool    `json:"threeFingerTap"`
+}
+
 // Hyprscrolling is Hyprland core (0.54+) config, not a plugin: it applies
 // whenever the tiling layout is "scrolling".
 type Hyprscrolling struct {
@@ -273,14 +319,16 @@ type ExtraPlugin struct {
 }
 
 type Plugins struct {
-	DynamicCursors DynamicCursors         `json:"dynamicCursors"`
-	Hyprbars       Hyprbars               `json:"hyprbars"`
-	Imgborders     Imgborders             `json:"imgborders"`
-	Hyprglass      Hyprglass              `json:"hyprglass"`
-	Hyprfocus      Hyprfocus              `json:"hyprfocus"`
-	Keysounds      Keysounds              `json:"keysounds"`
-	Hyprscrolling  Hyprscrolling          `json:"hyprscrolling"`
-	Extra          map[string]ExtraPlugin `json:"extra,omitempty"`
+	DynamicCursors  DynamicCursors         `json:"dynamicCursors"`
+	Hyprbars        Hyprbars               `json:"hyprbars"`
+	Imgborders      Imgborders             `json:"imgborders"`
+	Hyprglass       Hyprglass              `json:"hyprglass"`
+	Hyprfocus       Hyprfocus              `json:"hyprfocus"`
+	Keysounds       Keysounds              `json:"keysounds"`
+	Hyprscrolling   Hyprscrolling          `json:"hyprscrolling"`
+	BordersPlusPlus BordersPlusPlus        `json:"borders-plus-plus"`
+	Hyprgrass       Hyprgrass              `json:"hyprgrass"`
+	Extra           map[string]ExtraPlugin `json:"extra,omitempty"`
 }
 
 type Overrides struct {
@@ -290,6 +338,7 @@ type Overrides struct {
 	Input          Input             `json:"input"`
 	Cursor         Cursor            `json:"cursor"`
 	Windows        Windows           `json:"windows"`
+	SettingsWindow SettingsWindow    `json:"settingsWindow"`
 	Env            []EnvVar          `json:"env"`
 	WindowRules    []WindowRule      `json:"windowRules"`
 	Autostart      []Autostart       `json:"autostart"`
@@ -304,6 +353,12 @@ type Overrides struct {
 	// Unbinds: default chords a config import must drop so an imported bind
 	// shadowing a shipped one wins. Rendered before the keybinds.
 	Unbinds []string `json:"unbinds,omitempty"`
+
+	// KeybindDisabled: shipped chords the user switched off in Settings, keyed by
+	// the shipped default. Kept apart from Unbinds, which an import writes for its
+	// own reasons: folding them into one list would let a re-import silently undo
+	// the user's choice. Both end up in the same emitted hl.unbind block.
+	KeybindDisabled []string `json:"keybindDisabled,omitempty"`
 
 	// inputSaved: the store carries an explicit input section, so genConfig pins
 	// the kb_* keys unconditionally (keyboard.lua loads earlier and would win).
@@ -339,33 +394,36 @@ func defaultOverrides() Overrides {
 		Master:  Master{Mfact: 0.55, NewStatus: "slave", NewOnTop: false, Orientation: "left", SmartResizing: true},
 		Input: Input{
 			KbLayout: "us", KbVariant: "", KbOptions: "", NumlockByDefault: false,
-			FollowMouse: 2, Sensitivity: 0, AccelProfile: "",
+			FollowMouse: 1, Sensitivity: 0, AccelProfile: "",
 			LeftHanded: false, MouseNaturalScroll: false, MouseScrollFactor: 1,
 			MiddleClickPaste: true,
 			NaturalScroll:    false, TapToClick: true, TapAndDrag: true,
-			Clickfinger: false, MiddleEmulation: false, TouchScrollFactor: 1,
+			Clickfinger: true, MiddleEmulation: false, TouchScrollFactor: 1,
 			DisableWhileTyping: true,
 			RepeatRate:         25, RepeatDelay: 600,
 			WorkspaceSwipe: false, SwipeFingers: 3,
 			SwipeInvert: true, SwipeCreateNew: true, SwipeDistance: 300,
 		},
-		Cursor:       Cursor{Theme: "Bibata-Modern-Ice", Size: 24, InactiveTimeout: 0, HideOnKeyPress: false},
-		Windows:      Windows{TameMaximizeOnOpen: true},
-		Env:          []EnvVar{},
-		WindowRules:  []WindowRule{},
-		Autostart:    []Autostart{},
-		Keybinds:     []Keybind{},
-		Anim:         Anim{Items: []AnimItem{}, Curves: []AnimCurve{}},
-		LayerRules:   []LayerRule{},
-		AppOverrides: []AppOverride{},
+		Cursor:         Cursor{Theme: "Bibata-Modern-Ice", Size: 24, InactiveTimeout: 0, HideOnKeyPress: false},
+		Windows:        Windows{TameMaximizeOnOpen: true},
+		SettingsWindow: SettingsWindow{Mode: "full", Width: 0.5, Height: 0.5},
+		Env:            []EnvVar{},
+		WindowRules:    []WindowRule{},
+		Autostart:      []Autostart{},
+		Keybinds:       []Keybind{},
+		Anim:           Anim{Items: []AnimItem{}, Curves: []AnimCurve{}},
+		LayerRules:     []LayerRule{},
+		AppOverrides:   []AppOverride{},
 		Plugins: Plugins{
-			DynamicCursors: DynamicCursors{Enabled: false, Mode: "tilt", Shake: true, Magnify: 4.0},
-			Hyprbars:       Hyprbars{Enabled: false, Height: 26, TextSize: 11, Blur: true, Buttons: true},
-			Imgborders:     Imgborders{Enabled: false, Image: "", Sizes: "8,8,8,8", Insets: "0,0,0,0", Scale: 1.0, Smooth: true, Blur: false},
-			Hyprglass:      Hyprglass{Enabled: false, Preset: "clear", BlurStrength: 2.0, Opacity: 1.0, Tint: "8899aa22", Brightness: 1.0, Theme: "dark"},
-			Hyprfocus:      Hyprfocus{Enabled: false, Mode: "flash", Opacity: 0.8, Bounce: 0.95, Slide: 20},
-			Keysounds:      Keysounds{Enabled: false, Profile: "cherry-mx-brown", Volume: 0.6, Release: true},
-			Hyprscrolling:  Hyprscrolling{ColumnWidth: 0.5, FollowFocus: true},
+			DynamicCursors:  DynamicCursors{Enabled: false, Mode: "tilt", Shake: true, Magnify: 4.0},
+			Hyprbars:        Hyprbars{Enabled: false, Height: 26, TextSize: 11, Blur: true, Buttons: true},
+			Imgborders:      Imgborders{Enabled: false, Image: "", Sizes: "8,8,8,8", Insets: "0,0,0,0", Scale: 1.0, Smooth: true, Blur: false},
+			Hyprglass:       Hyprglass{Enabled: false, Preset: "clear", BlurStrength: 2.0, Opacity: 1.0, Tint: "8899aa22", Brightness: 1.0, Theme: "dark"},
+			Hyprfocus:       Hyprfocus{Enabled: false, Mode: "flash", Opacity: 0.8, Bounce: 0.95, Slide: 20},
+			Keysounds:       Keysounds{Enabled: false, Profile: "cherry-mx-brown", Volume: 0.6, Release: true},
+			Hyprscrolling:   Hyprscrolling{ColumnWidth: 0.5, FollowFocus: true},
+			BordersPlusPlus: BordersPlusPlus{Enabled: false, Count: 1, NaturalRounding: true, Color: "#e0563b", Size: 2},
+			Hyprgrass:       Hyprgrass{Enabled: false, Sensitivity: 1.0, LongPressDelay: 400, EdgeMargin: 10, ResizeOnBorder: false, ThreeFingerTap: false},
 		},
 	}
 }
@@ -375,11 +433,12 @@ func defaultOverrides() Overrides {
 // active. Everything else is desktop.* intent every compositor honours. This is
 // the one split table, driving both the reader and splitStore.
 var wmHyprlandFields = map[string]bool{
-	"dwindle":    true,
-	"master":     true,
-	"anim":       true,
-	"layerRules": true,
-	"plugins":    true,
+	"dwindle":        true,
+	"master":         true,
+	"anim":           true,
+	"layerRules":     true,
+	"plugins":        true,
+	"settingsWindow": true,
 }
 
 // neutralStore is desktop.json on disk: { "desktop": {...}, "wm": { "hyprland":
@@ -434,6 +493,7 @@ func readNeutralStore(path string) (neutralStore, bool) {
 // normalizeOverrides replaces the nil slices a partial store leaves behind so
 // the generators never range a nil.
 func normalizeOverrides(o Overrides) Overrides {
+	o.SettingsWindow = normalizeSettingsWindow(o.SettingsWindow)
 	if o.Env == nil {
 		o.Env = []EnvVar{}
 	}

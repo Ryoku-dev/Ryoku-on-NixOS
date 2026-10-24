@@ -55,6 +55,10 @@ func runApply(args []string) error {
 	if err := writeOverlayKdl("rebinds.kdl", []byte(binds)); err != nil {
 		return err
 	}
+	if err := writeKeysounds(s.Niri.Keysounds); err != nil {
+		return err
+	}
+	wm.PublishGreeterNumlock(s.Input.NumlockByDefault)
 	rep.Written = []string{
 		filepath.Join(niriConfigDir(), "settings.kdl"),
 		filepath.Join(niriConfigDir(), "rebinds.kdl"),
@@ -143,7 +147,8 @@ var desktopHandled = map[string]bool{
 	"appearance": true, "input": true, "cursor": true, "env": true,
 	"windowRules": true, "appOverrides": true, "autostart": true,
 	"keybinds": true, "keybindRebinds": true, "unbinds": true, "apps": true,
-	"windows": true,
+	"keybindDisabled": true,
+	"windows":         true,
 }
 
 var appearanceEmitted = map[string]bool{

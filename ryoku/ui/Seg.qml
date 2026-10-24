@@ -12,6 +12,9 @@ import "Singletons"
 Item {
     id: seg
     property var options: []
+    // optLabels maps a stored value to readable text, so a compositor's numeric
+    // enum can show "Two fingers" while still writing "1".
+    property var labels: ({})
     property string current: ""
     signal chose(string key)
 
@@ -47,11 +50,12 @@ Item {
             model: seg.options
             Item {
                 required property string modelData
+                readonly property string shown: seg.labels && seg.labels[modelData] !== undefined ? seg.labels[modelData] : modelData
                 width: Math.max(seg.minSeg, mlab.implicitWidth + seg.padSeg)
                 height: seg.segH
                 Text {
                     id: mlab
-                    text: I18n.tr(parent.modelData)
+                    text: I18n.tr(parent.shown)
                     font.family: Tokens.ui; font.pixelSize: 9
                     font.weight: Font.Medium; font.letterSpacing: 0.6
                 }
@@ -68,6 +72,7 @@ Item {
             Rectangle {
                 required property string modelData
                 readonly property bool on: seg.current === modelData
+                readonly property string shown: seg.labels && seg.labels[modelData] !== undefined ? seg.labels[modelData] : modelData
                 width: Math.max(seg.minSeg, lab.implicitWidth + seg.padSeg)
                 height: seg.segH
                 radius: Tokens.radius
@@ -79,7 +84,7 @@ Item {
                 Text {
                     id: lab
                     anchors.centerIn: parent
-                    text: I18n.tr(parent.modelData)
+                    text: I18n.tr(parent.shown)
                     color: parent.on ? Tokens.inkOnBone : Tokens.inkDim
                     font.family: Tokens.ui
                     font.pixelSize: 9

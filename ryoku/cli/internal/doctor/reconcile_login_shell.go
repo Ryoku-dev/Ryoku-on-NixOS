@@ -18,44 +18,43 @@ package doctor
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
-	"os/user"
 	"path/filepath"
 	"strings"
 
+	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
 
 	i18n "ryoku-i18n"
 )
 
-// accountLoginShell is the shell field of the current user's /etc/passwd row:
+// accountLoginShell is the shell field of the target user's /etc/passwd row:
 // the real login shell, the value usermod writes. Empty when the user or the
 // file cannot be read. A var so a test drives it without a real passwd entry.
+var accountPasswdPath = "/etc/passwd"
+
 var accountLoginShell = func() string {
-	me, err := user.Current()
+	account, err := doctorAccount()
 	if err != nil {
 		return ""
 	}
-	b, err := os.ReadFile("/etc/passwd")
+	b, err := os.ReadFile(accountPasswdPath)
 	if err != nil {
 		return ""
 	}
 	for _, line := range strings.Split(string(b), "\n") {
 		parts := strings.Split(line, ":")
-		if len(parts) == 7 && parts[0] == me.Username {
+		if len(parts) == 7 && parts[0] == account.Username {
 			return parts[6]
 		}
 	}
 	return ""
 }
 
-// syncSessionShellEnv pushes SHELL into the user manager and the dbus activation
-// environment, the same two updates shellpref.go makes on a deliberate change,
-// so processes spawned after the repair read the corrected shell without a
-// logout. A var so the test never touches the live session managers.
+// syncSessionShellEnv publishes SHELL through the host's session environment
+// seam, which updates the systemd user manager on Arch and Turnstile's envdir on
+// runit. A var so the test never touches the live session managers.
 var syncSessionShellEnv = func(path string) {
-	_ = exec.Command("systemctl", "--user", "set-environment", "SHELL="+path).Run()
-	_ = exec.Command("dbus-update-activation-environment", "--systemd", "SHELL="+path).Run()
+	_ = host.Default().Service([]string{"env", "SHELL=" + path})
 }
 
 // storeShellOverride reads desktop.env's SHELL value and whether such a pair

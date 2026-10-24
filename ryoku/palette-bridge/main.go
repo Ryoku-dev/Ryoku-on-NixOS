@@ -15,7 +15,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"unsafe"
 )
 
 var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
@@ -64,10 +63,15 @@ func (h *paletteHub) publish(data []byte) error {
 		return err
 	}
 
+	h.publishSnapshot(valid)
+	return nil
+}
+
+func (h *paletteHub) publishSnapshot(valid []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if bytes.Equal(valid, h.current.data) {
-		return nil
+		return
 	}
 	h.current = snapshot{data: valid, version: h.current.version + 1}
 	for client := range h.clients {
@@ -82,7 +86,6 @@ func (h *paletteHub) publish(data []byte) error {
 			client <- h.current
 		}
 	}
-	return nil
 }
 
 func (h *paletteHub) readFile(path string) error {
@@ -188,46 +191,6 @@ func (h *paletteHub) eventsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func watchPalette(path string, reload func() error) error {
-	fd, err := syscall.InotifyInit1(syscall.IN_CLOEXEC)
-	if err != nil {
-		return err
-	}
-	defer syscall.Close(fd)
-	dir, name := filepath.Dir(path), filepath.Base(path)
-	_, err = syscall.InotifyAddWatch(fd, dir, syscall.IN_CLOSE_WRITE|syscall.IN_MOVED_TO)
-	if err != nil {
-		return err
-	}
-
-	buffer := make([]byte, syscall.SizeofInotifyEvent+4096)
-	for {
-		n, err := syscall.Read(fd, buffer)
-		if err != nil {
-			if errors.Is(err, syscall.EINTR) {
-				continue
-			}
-			return err
-		}
-		changed := false
-		for offset := 0; offset+syscall.SizeofInotifyEvent <= n; {
-			event := (*syscall.InotifyEvent)(unsafe.Pointer(&buffer[offset]))
-			start := offset + syscall.SizeofInotifyEvent
-			end := start + int(event.Len)
-			eventName := string(bytes.TrimRight(buffer[start:end], "\x00"))
-			offset = end
-			if eventName == name {
-				changed = true
-			}
-		}
-		if changed {
-			if err := reload(); err != nil {
-				log.Printf("palette update ignored: %v", err)
-			}
-		}
-	}
-}
-
 func main() {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -242,8 +205,10 @@ func main() {
 	flag.Parse()
 
 	hub := newPaletteHub()
+	// No palette yet is a box nobody has logged in to: the session writes one
+	// on first login, and until then the endpoints answer "unavailable".
 	if err := hub.readFile(*palette); err != nil {
-		log.Fatalf("initial palette: %v", err)
+		log.Printf("initial palette: %v; waiting for one", err)
 	}
 	go func() {
 		if err := watchPalette(*palette, func() error { return hub.readFile(*palette) }); err != nil {
@@ -251,10 +216,27 @@ func main() {
 		}
 	}()
 
+	config := os.Getenv("XDG_CONFIG_HOME")
+	if config == "" {
+		config = filepath.Join(home, ".config")
+	}
+	preferencesPath := filepath.Join(config, "ryoku", "ryogami.json")
+	preferences := newPreferencesHub()
+	if err := preferences.readFile(preferencesPath); err != nil {
+		log.Printf("initial preferences ignored: %v", err)
+	}
+	go func() {
+		if err := watchPalette(preferencesPath, func() error { return preferences.readFile(preferencesPath) }); err != nil {
+			log.Printf("preferences watcher unavailable; retaining current preferences: %v", err)
+		}
+	}()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/colors.json", hub.paletteHandler)
 	mux.HandleFunc("/v1/palette", hub.paletteHandler)
 	mux.HandleFunc("/v1/events", hub.eventsHandler)
+	mux.HandleFunc("/v1/preferences", preferences.paletteHandler)
+	mux.HandleFunc("/v1/preferences/events", preferences.eventsHandler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
 	server := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 

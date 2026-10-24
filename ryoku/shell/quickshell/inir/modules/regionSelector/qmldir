@@ -1,0 +1,3 @@
+module inir.modules.regionSelector
+
+RegionSelectorRouter 1.0 RegionSelectorRouter.qml

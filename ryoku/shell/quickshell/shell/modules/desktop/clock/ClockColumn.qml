@@ -15,12 +15,13 @@ Item {
     property real underL: Scheme.wallLstar
     // a pinned colour ("" = follow wallpaper) paints this face's own ink.
     property string inkColorA: ""
+    property real s: 1
     readonly property color ink: Theme.inkOn2(face.underL, face.inkColorA)
     readonly property color inkDim: Theme.inkDimOn2(face.underL, face.inkColorA)
     readonly property color accent: Clk.pickAccent(Config.clockAccent, Theme.accentOn2(face.underL, face.inkColorA), Theme.brand, face.ink)
 
-    readonly property var t: Clk.parts(Now.date, Config.clock24h)
-    readonly property real px: Math.round(150 * Config.clockScale)
+    readonly property var t: Clk.parts(Now.secondDate, Config.clock24h)
+    readonly property real px: Math.round(150 * face.s)
 
     implicitWidth: col.implicitWidth
     implicitHeight: col.implicitHeight
@@ -35,7 +36,7 @@ Item {
             font.family: Theme.font
             font.weight: Font.Bold
             font.pixelSize: face.px
-            font.letterSpacing: Math.round(-2 * Config.clockScale)
+            font.letterSpacing: Math.round(-2 * face.s)
         }
         Text {
             text: face.t.mm
@@ -43,10 +44,10 @@ Item {
             font.family: Theme.font
             font.weight: Font.Bold
             font.pixelSize: face.px
-            font.letterSpacing: Math.round(-2 * Config.clockScale)
+            font.letterSpacing: Math.round(-2 * face.s)
         }
         Row {
-            spacing: Math.round(8 * Config.clockScale)
+            spacing: Math.round(8 * face.s)
             topPadding: Math.round(0.1 * face.px)
             visible: Config.clockSeconds || !Config.clock24h
             Text {

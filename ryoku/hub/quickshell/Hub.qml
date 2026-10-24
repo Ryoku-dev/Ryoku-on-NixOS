@@ -1,13 +1,21 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
 import "Singletons"
+// The pages load by URL, so nothing else imports their directory, and
+// Quickshell writes a qmldir only for directories reached by an import.
+// Without one a page cannot name its siblings (UpdatesPage's UpdateRun) and
+// fails to load.
+import "pages"
 import "schema/DesktopPage.js" as DesktopSchema
+import "schema/GlobalPage.js" as GlobalSchema
 import "schema/BarStudioPage.js" as BarStudioSchema
+import "schema/ControlsPage.js" as ControlsSchema
 import "schema/WindowSettings.js" as WindowSettingsSchema
 import "schema/PluginsPage.js" as PluginsSchema
 import "schema/InputPage.js" as InputSchema
@@ -18,7 +26,6 @@ import "schema/RecordingPage.js" as RecordingSchema
 import "schema/DictationPage.js" as DictationSchema
 import "schema/LauncherPage.js" as LauncherSchema
 import "schema/FastfetchPage.js" as FastfetchSchema
-import "schema/WidgetsPage.js" as WidgetsSchema
 import "schema/LockscreenPage.js" as LockscreenSchema
 import "schema/AnimationsPage.js" as AnimationsSchema
 import "schema/AddonsPage.js" as AddonsSchema
@@ -29,6 +36,7 @@ import "schema/SessionPage.js" as SessionSchema
 import "schema/PerformancePage.js" as PerformanceSchema
 import "schema/UpdatesPage.js" as UpdatesSchema
 import "ReloadCoverModel.js" as ReloadCoverModel
+import "KeepsakeSequence.js" as Keepsake
 import Ryoku.FrameBars
 
 // Ryoku Settings, assembled. The rail owns navigation and global search; the
@@ -37,7 +45,8 @@ import Ryoku.FrameBars
 // pending-write diff); the action bar is the one surface whose absence eats an
 // edit, so it lives in the shell and no page can lose it.
 //
-// Nothing writes to disk except Save. Values live in `draft`; `committed` is
+// Modeled form values write only on Save. Dedicated studio pages own their
+// immediate service-backed writes. Values here live in `draft`; `committed` is
 // what the JsonAdapters hold from disk; the diff is draft against committed,
 // rendered in each file's own JSON syntax. Factory values live in `defs` and
 // only RESET reaches for them.
@@ -49,28 +58,69 @@ Rectangle {
     color: Tokens.paper
     focus: true
 
+    // A local, durable unlock marker. No global shortcut and no config schema changes.
+    property bool keepsakeOpen: false
+    property int keepsakeIndex: 0
+    property double keepsakeLastAt: 0
+
+    function keepsakeTextFocused() {
+        const window = hub.Window.window;
+        let item = window ? window.activeFocusItem : null;
+        while (item && item !== hub) {
+            const type = String(item).toLowerCase();
+            if (type.indexOf("textinput") >= 0 || type.indexOf("textedit") >= 0
+                    || type.indexOf("textfield") >= 0)
+                return true;
+            item = item.parent;
+        }
+        return false;
+    }
+
+    readonly property bool nixManaged:
+        (Quickshell.env("RYOKU_UPDATE_BACKEND") || "") === "nix"
+
     // ── which page ───────────────────────────────────────────────────────
     property string section: "windowmanager"
+    property string connectionSub: ""
     // remember the last section so a reopen lands where you left, not the default.
     // Read once at startup by `sectionGet` below; written here on every change.
     onSectionChanged: Quickshell.execDetached(["ryoku-hub", "config", "set", "section", hub.section])
-    // A Hub that remembered the retired `windows` section, or a deep link that
-    // still names it, lands on the compositor page that now holds those rows
-    // rather than a blank pane.
+    // Retired page names stay useful as entry points, but the desktop owns the
+    // editors now. A direct navigation call hands off without changing the
+    // already-open Hub's current page.
+    function editorSectionFor(target) {
+        if (target === "visualizer" || target === "desktop-scene-visualizer")
+            return "visualizer";
+        if (target === "widgets" || target === "desktop-scene-widgets")
+            return "widgets";
+        if (target === "stage" || target === "desktop-scene")
+            return "depth";
+        return "";
+    }
     function canonicalSection(s) {
-        // sections that were folded into another page: an old deep link (the
-        // Store's "open in settings", a keybind, a script) still lands right.
         if (s === "windows") return "windowmanager";
         if (s === "cursor") return "input";
         if (s === "autostart" || s === "environment") return "session";
+        if (s === "sidebar" || s === "sidebars-left" || s === "sidebars-right") return "controls";
         return s;
     }
-    // An explicit jump (the nav IPC, i.e. the Store's "open in settings") must
-    // win over the remembered section. `sectionGet` is a Process, so on a cold
-    // start its stdout lands AFTER the IPC has already set the page and the
-    // restore silently drags the user back to wherever they were last -- the
-    // handoff looked like it did nothing. Deep links come through here and latch.
+    // An explicit jump must win over the remembered section. `sectionGet` is
+    // asynchronous, so navigation latches before changing the current page.
     function navigate(target) {
+        var editorSection = hub.editorSectionFor(target);
+        if (editorSection !== "") {
+            hub.navigated = true;
+            editorHandoff.command = ["qs", "-c", "shell", "ipc", "call",
+                "desktop", "editSection", editorSection, ""];
+            editorHandoff.running = true;
+            return;
+        }
+        if (target === "phone") {
+            hub.connectionSub = "phone";
+            target = "connections";
+        } else if (target === "connections") {
+            hub.connectionSub = "";
+        }
         target = hub.canonicalSection(target);
         if (!target || hub.pageFile(target) === "" || !hub.sectionAvailable(target))
             return;
@@ -78,7 +128,6 @@ Rectangle {
         hub.section = target;
     }
     property bool navigated: false
-    readonly property bool nixManaged: (Quickshell.env("RYOKU_UPDATE_BACKEND") || "") === "nix"
     property string query: ""
 
     // progressive disclosure: one global Advanced switch (in the rail) reveals the
@@ -112,7 +161,8 @@ Rectangle {
             { key: "layerrules", name: "Layer Rules", adv: true, needs: { rows: true } } ] },
         { name: "DESKTOP", items: [
             { key: "bar-studio", name: "Bar Studio", wired: true }, { key: "desktop", name: "Desktop", wired: true },
-            { key: "widgets", name: "Widgets" }, { key: "launcher", name: "App Launcher" } ] },
+            { key: "controls", name: "Controls", wired: true }, { key: "overlays", name: "Overlays", wired: true },
+            { key: "launcher", name: "App Launcher" } ] },
         { name: "KEYS & APPS", items: [
             { key: "keybinds", name: "Keybinds" }, { key: "appoverrides", name: "App Overrides", adv: true },
             { key: "windowrules", name: "Window Rules", adv: true } ] },
@@ -123,7 +173,10 @@ Rectangle {
         { name: "EXTEND", items: [
             { key: "addons", name: "Add-ons" }, { key: "rashin", name: "Rashin" } ] },
         { name: "", items: hub.nixManaged
-            ? [ { key: "nixos-info", name: "NixOS information" }, { key: "credits", name: "Credits" } ]
+            ? [
+                { key: "nixos-info", name: "NixOS information" },
+                { key: "credits", name: "Credits" }
+              ]
             : [ { key: "credits", name: "Credits" } ] }
     ]
 
@@ -134,8 +187,8 @@ Rectangle {
     readonly property var jpName: ({
         "profile": "横顔", "displays": "画面", "input": "入力", "keybinds": "操作",
         "connections": "接続", "gpu": "演算", "recording": "録画", "dictation": "音声",
-        "plugins": "補", "bar-studio": "帯", "desktop": "卓上", "launcher": "起動", "fastfetch": "情報",
-        "widgets": "部品", "lockscreen": "施錠", "animations": "動き",
+        "plugins": "補", "bar-studio": "帯", "desktop": "卓上", "controls": "操作",
+        "overlays": "重ね", "launcher": "起動", "fastfetch": "情報", "lockscreen": "施錠", "animations": "動き",
         "addons": "拡張", "windowrules": "規則", "appoverrides": "上書", "layerrules": "階層",
         "session": "起動", "performance": "性能", "rashin": "羅針",
         "updates": "更新", "nixos-info": "雪", "credits": "謝辞", "global": "全般", "import": "取込", "windowmanager": "合成"
@@ -146,10 +199,10 @@ Rectangle {
     // schema rows (Connections, Rashin) and cover synonyms the copy avoids
     // (transparency->opacity, startup->autostart, screensaver->lockscreen).
     readonly property var sectionKeywords: ({
-        "global": "language locale region formats format date time number currency text size font scale location city weather timezone international i18n l10n",
+        "global": "language locale region formats format date time number currency text size font scale icons icon theme appearance location city weather timezone international i18n l10n",
         "profile": "dashboard status overview telemetry hostname cpu gpu memory uptime specs",
         "displays": "monitor screen resolution refresh scale rotation arrange mirror hidpi dual second external multiple",
-        "connections": "wifi wi-fi wireless bluetooth network hotspot tether internet ethernet pair pairing device",
+        "connections": "wifi wi-fi wireless bluetooth network hotspot tether internet ethernet pair pairing device phone android kde connect scrcpy mirror webcam microphone clipboard adb",
         "input": "keyboard mouse touchpad pointer trackpad sensitivity scroll layout dvorak remap capslock repeat gesture",
         "keybinds": "shortcuts hotkeys binds keys browser terminal editor files launch super",
         "gpu": "graphics nvidia amd vram passthrough vfio rendering hybrid performance cpu governor epp frequency thermal battery charge ceiling aspm profile",
@@ -158,10 +211,11 @@ Rectangle {
         "windowmanager": "compositor window manager wm wayland switch change swap session provider window windows rounding corners softness gaps border borders thickness colour tiling layout opacity transparency transparent dim blur shadow float snap resize animation spread offset",
         "plugins": "plugin plugins hyprland compositor hyprpm title bar titlebar hyprbars glass hyprglass image border imgborders cursor motion dynamic cursors focus flash hyprfocus key sound sounds keyboard keysounds typing click clicky thock creamy cherry mx topre mechvibes switch version abi mismatch rebuild build update add git repository install",
         "bar-studio": "bar frame rails zones widgets menus surfaces style catalogue layout framebars sidebar dock dockapps pinned pin magnify autohide auto-hide media chip peek labels edge taskbar",
-        "desktop": "desktop visualizer visualiser spectrum brand logo mark name widget board wallpaper",
+        "desktop": "desktop brand logo mark name wallpaper picker clipboard sidebar sidebars controls today panel corner",
+        "controls": "controls quick settings super escape sidebar panel layout sections order graph vitals levels media plugins",
+        "overlays": "osd volume popup brightness popup notifications popups toasts sidebar super escape quick settings design designs store",
         "launcher": "launcher spotlight command palette greeting weather home",
         "fastfetch": "fetch neofetch terminal system info logo ascii emblem readout",
-        "widgets": "desktop widget clock calendar weather face overlay wallpaper",
         "lockscreen": "lock screensaver signin greeter skin theme login",
         "animations": "animation animations motion transition bezier curve speed feel wobbly disable enable toggle",
         "addons": "installed plugin addon extension manage enable remove update widget bundle extras store marketplace browse",
@@ -172,8 +226,8 @@ Rectangle {
         "performance": "performance battery power saving save lowpower potato lag cpu gpu ram memory idle freeze reduce motion fps",
         "rashin": "rashin agent ai assistant hermes vault memory skills chat code llm needle",
         "updates": "update upgrade version channel commit behind check origin",
-        "import": "import bring migrate dotfiles config existing kitty fish fastfetch drop folder git backup undo restore adopt",
         "nixos-info": "nix nixos guide packages flake rebuild update generation rollback configuration declarative kernel driver",
+        "import": "import bring migrate dotfiles config existing kitty fish fastfetch drop folder git backup undo restore adopt",
         "credits": "credits thanks acknowledgement gratitude contributor"
     })
 
@@ -184,17 +238,18 @@ Rectangle {
     // section -> its schema rows, the one source for both global search and the
     // compositor-driving classification, so the two cannot drift apart.
     readonly property var sectionRows: ({
-        "bar-studio": BarStudioSchema.rows, "desktop": DesktopSchema.rows, "windowmanager": WindowSettingsSchema.rows, "plugins": PluginsSchema.rows,
+        "bar-studio": BarStudioSchema.rows, "desktop": DesktopSchema.rows, "controls": ControlsSchema.rows,
+        "windowmanager": WindowSettingsSchema.rows, "plugins": PluginsSchema.rows,
         "input": InputSchema.rows, "keybinds": KeybindsSchema.rows,
         "displays": DisplaysSchema.rows, "gpu": GpuSchema.rows,
         "recording": RecordingSchema.rows, "dictation": DictationSchema.rows,
         "launcher": LauncherSchema.rows, "fastfetch": FastfetchSchema.rows,
-        "widgets": WidgetsSchema.rows, "lockscreen": LockscreenSchema.rows,
+        "lockscreen": LockscreenSchema.rows,
         "animations": AnimationsSchema.rows, "addons": AddonsSchema.rows,
         "windowrules": WindowRulesSchema.rows, "appoverrides": AppOverridesSchema.rows,
         "layerrules": LayerRulesSchema.rows, "session": SessionSchema.rows,
         "performance": PerformanceSchema.rows,
-        "updates": UpdatesSchema.rows
+        "updates": UpdatesSchema.rows, "global": GlobalSchema.rows
     })
     readonly property var searchIndex: {
         var srcs = hub.sectionRows;
@@ -222,8 +277,9 @@ Rectangle {
                 // the deep-link path through a search hit must be closed here too.
                 if (!hub.needsMet(it)) continue;
                 var pkw = sectionKeywords[it.key] || "";
-                // The window-manager page answers to the running compositor's own
-                // name rather than a hard-coded provider list.
+                // the window-manager page answers to the running compositor's own
+                // name, read live from the provider rather than a hardcoded list, so
+                // a user reaches it by typing the name of the desktop they run.
                 if (it.key === "windowmanager" && Settings.provider)
                     pkw += " " + Settings.provider;
                 out.push({ section: it.key, sectionName: it.name, group: "", tab: "", label: it.name, desc: "", kw: pkw, key: "", isPage: true });
@@ -238,12 +294,12 @@ Rectangle {
             for (var ri = 0; ri < rows.length; ri++) {
                 var r = rows[ri];
                 if (!isSetting(r)) continue;
-                if (r.caps && !Settings.supports(r.caps)) continue;
+                if (!Settings.supports(r.caps, r.hostCaps)) continue;
                 if (!Settings.modelsKey(r.key)) continue;
                 // a setting also matches its option values (h264, dwindle, dark,
                 // fahrenheit): index the lowercase ones (skips DisplaysPage's
                 // capitalised doc placeholders) so an enum value finds its row.
-                var optkw = r.opts ? r.opts.filter(function (o) { return typeof o === "string" && /^[a-z0-9][a-z0-9 ._/-]*$/.test(o); }).join(" ") : "";
+                var optkw = (r.keywords || "") + " " + (r.opts ? r.opts.filter(function (o) { return typeof o === "string" && /^[a-z0-9][a-z0-9 ._/-]*$/.test(o); }).join(" ") : "");
                 out.push({ section: k, sectionName: nameOf[k] || k, group: cleanGroup(r.group), tab: r.tab || "", label: r.label, desc: r.desc || "", kw: optkw, key: r.key || "", isPage: false });
             }
         }
@@ -257,9 +313,9 @@ Rectangle {
             if (!isSetting(pr)) continue;
             var psec = pr.page || "windowmanager";
             if (!hub.sectionAvailable(psec)) continue;
-            if (pr.caps && !Settings.supports(pr.caps)) continue;
+            if (!Settings.supports(pr.caps, pr.hostCaps)) continue;
             if (!Settings.modelsKey(pr.key)) continue;
-            var poptkw = pr.opts ? pr.opts.filter(function (o) { return typeof o === "string" && /^[a-z0-9][a-z0-9 ._/-]*$/.test(o); }).join(" ") : "";
+            var poptkw = (pr.keywords || "") + " " + (pr.opts ? pr.opts.filter(function (o) { return typeof o === "string" && /^[a-z0-9][a-z0-9 ._/-]*$/.test(o); }).join(" ") : "");
             out.push({ section: psec, sectionName: nameOf[psec] || psec, group: cleanGroup(pr.group), tab: pr.tab || "", label: pr.label, desc: pr.desc || "", kw: poptkw, key: pr.key || "", isPage: false });
         }
         return out;
@@ -280,10 +336,10 @@ Rectangle {
         "screenshot": "recording capture", "screencast": "recording capture", "screensaver": "lockscreen lock", "lock": "lockscreen",
         "startup": "session", "boot": "session", "battery": "performance power", "powersaving": "performance power", "potato": "performance", "lag": "performance",
         "gap": "gaps spacing", "spacing": "gaps", "glass": "blur liquid", "liquid": "glass blur",
-        "titlebar": "title bar", "titlebars": "title bar", "plugin": "plugins addon", "plugins": "plugin addon",
+        "titlebar": "titlebars decoration csd", "titlebars": "titlebar decoration csd", "plugin": "plugins addon", "plugins": "plugin addon",
         "monitor": "displays screen", "monitors": "displays screen", "resolution": "displays screen", "hidpi": "displays scale", "refresh": "displays",
         "mouse": "input pointer", "pointer": "input", "keyboard": "input", "touchpad": "input trackpad", "trackpad": "input touchpad",
-        "visualizer": "desktop spectrum", "visualiser": "desktop spectrum", "clock": "widgets desktop", "notifications": "layerrules",
+        "notifications": "layerrules",
         "update": "updates upgrade", "upgrade": "updates", "blur": "windows glass", "rounding": "windows corners", "corners": "windows rounding",
         "animation": "animations motion", "motion": "animations", "gpu": "graphics", "graphics": "gpu",
         "voice": "dictation", "speech": "dictation voice", "microphone": "dictation", "mic": "dictation"
@@ -404,7 +460,7 @@ Rectangle {
     // `framed` pages keep the rail + bottom action bar; `ledger` pages also get
     // the right write-ledger column. Everything else is full-bleed.
     readonly property var framedSet: ({
-        "bar-studio": true, "desktop": true, "plugins": true, "input": true, "animations": true, "global": true, "windowmanager": true,
+        "bar-studio": true, "desktop": true, "controls": true, "plugins": true, "input": true, "animations": true, "global": true, "windowmanager": true,
         "windowrules": true, "appoverrides": true, "layerrules": true,
         "session": true
     })
@@ -466,7 +522,11 @@ Rectangle {
                 if (groups[g].items[i].key === s) return groups[g].items[i];
         return null;
     }
-    function sectionAvailable(s) { var it = hub.itemFor(s); return it ? hub.needsMet(it) : true; }
+    function sectionAvailable(s) {
+        if (s === "keepsake") return false;
+        var it = hub.itemFor(s);
+        return it ? hub.needsMet(it) : true;
+    }
     // Whether the active provider backs at least one setting on this page, tested
     // against the effective row set under the same supports + modelsKey gate the
     // rows themselves pass. A keyless row (a header or an action) is not a setting
@@ -476,7 +536,7 @@ Rectangle {
         for (var i = 0; i < rows.length; i++) {
             var r = rows[i];
             if (!r || !r.key) continue;
-            if (r.caps && !Settings.supports(r.caps)) continue;
+            if (!Settings.supports(r.caps, r.hostCaps)) continue;
             if (Settings.modelsKey(r.key)) return true;
         }
         return false;
@@ -491,7 +551,20 @@ Rectangle {
         return (prov && prov.length) ? base.concat(prov) : base;
     }
     function pageFile(s) {
-        var map = { "plugins": "PluginsPage", "profile": "ProfilePage", "bar-studio": "BarStudioPage", "desktop": "DesktopPage", "session": "SessionPage", "layerrules": "LayerRulesPage", "windowrules": "WindowRulesPage", "appoverrides": "AppOverridesPage", "animations": "AnimationsPage", "input": "InputPage", "keybinds": "KeybindsPage", "dictation": "DictationPage", "displays": "DisplaysPage", "connections": "ConnectionsPage", "gpu": "GpuPage", "updates": "UpdatesPage", "rashin": "RashinPage", "recording": "RecordingPage", "performance": "PerformancePage", "launcher": "LauncherPage", "lockscreen": "LockscreenPage", "fastfetch": "FastfetchPage", "addons": "AddonsPage", "widgets": "WidgetsPage", "nixos-info": "NixOSInfoPage", "credits": "CreditsPage" };
+        var map = {
+            "plugins": "PluginsPage", "profile": "ProfilePage",
+            "bar-studio": "BarStudioPage", "desktop": "DesktopPage", "controls": "ControlsPage", "overlays": "OverlaysPage", "session": "SessionPage",
+            "layerrules": "LayerRulesPage", "windowrules": "WindowRulesPage",
+            "appoverrides": "AppOverridesPage", "animations": "AnimationsPage",
+            "input": "InputPage", "keybinds": "KeybindsPage",
+            "dictation": "DictationPage", "displays": "DisplaysPage",
+            "connections": "ConnectionsPage", "gpu": "GpuPage",
+            "updates": "UpdatesPage", "rashin": "RashinPage",
+            "recording": "RecordingPage", "performance": "PerformancePage",
+            "launcher": "LauncherPage", "lockscreen": "LockscreenPage",
+            "fastfetch": "FastfetchPage", "addons": "AddonsPage",
+            "nixos-info": "NixOSInfoPage", "credits": "CreditsPage"
+        };
         map.global = "GlobalPage";
         map["import"] = "ImportPage";
         map.windowmanager = "WindowManagerPage";
@@ -503,6 +576,16 @@ Rectangle {
     // wm seam so no page forks a compositor CLI.
     readonly property var wmWindows: Settings.windows
     readonly property var wmConfigFiles: Settings.configFiles
+    function wmSettingsFilename() {
+        var files = hub.wmConfigFiles || [];
+        for (var i = 0; i < files.length; i++) {
+            var leaf = String(files[i]).split("/").pop();
+            var dot = leaf.lastIndexOf(".");
+            if (dot >= 0)
+                return "settings" + leaf.slice(dot);
+        }
+        return "desktop.json";
+    }
     function wmAct(action, args) { Settings.send("wm.act", { action: action, args: args || [] }); }
 
     // ── the store ─────────────────────────────────────────────────────────
@@ -516,20 +599,15 @@ Rectangle {
         "frameSmoothing": 8, "frameOpacity": 1, "shadowStrength": 0.63, "shadowSize": 12,
         "frameThickness": 2, "frameCorner": 8,
         "surfaceColor": "#0f1115", "osdRadius": 28, "osdOpacity": 1,
-        "fontFamily": "Space Grotesk", "fontSize": 11, "fontScale": 1.3,
+        "fontFamily": "Space Grotesk", "terminalFontFamily": "JetBrainsMono Nerd Font",
+        "fontSize": 11, "fontScale": 1.3,
         "frameBars": FrameBars.defaultConfig(),
-        "frameBars.menus.quick-settings.anchor": "left",
-        "frameBars.menus.quick-settings.expansion": "always",
-        "frameBars.menus.quick-settings.minWidth": 410,
         "weatherLocation": "", "weatherUnit": "auto", "formatLocale": "",
-        "enabled": true, "bars": 64, "thickness": 0.58, "bloom": 0.6,
-        "reflection": 0.1, "idleWave": true, "style": "bars", "shape": "rounded",
-        "mirror": false, "segments": 10, "fps": 30,
-        "adaptive": true, "smoothing": 0.5, "gain": 1.0, "peaks": false,
-        "spin": 0, "x": 0, "y": 0.58, "w": 1, "h": 0.42, "grow": "up", "angle": 0, "tiltX": 0, "tiltY": 0,
-        "markText": "力", "markImage": "", "markTint": true, "name": "Ryoku",
+        "general.clock_format_24_h": false,
         "reloadCover": ReloadCoverModel.empty(),
-        "language": "Auto", "barStyle": "sumi", "obi": {}, "nacre": NacreConfig.defaultConfig(), "qsbar": {}, "chroma": {}, "dock": {},
+        "language": "Auto", "barStyle": "orpheus", "obi": {}, "nacre": NacreConfig.defaultConfig(), "qsbar": {}, "dock": {},
+        "notifications.show_images": false,
+        "deckFrostEnabled": true, "deckFrost": 0.45,
         "clipboard.widthPercent": 65, "clipboard.heightPercent": 42, "clipboard.bottomPercent": 0,
         "clipboard.panelRadius": 18, "clipboard.paneRadius": 12, "clipboard.cardRadius": 9,
         "clipboard.pruneWeekly": false
@@ -546,8 +624,8 @@ Rectangle {
         m.frameBars = "shell";
         return m;
     }
-    function adapterFor(src) { return src === "viz" ? vizA : brandA; }
-    function fileFor(src) { return src === "viz" ? "visualizer" : (src === "brand" ? "brand" : "shell"); }
+    function adapterFor(src) { return brandA; }
+    function fileFor(src) { return src === "brand" ? "brand" : "shell"; }
 
     // The full config files backing the current page: the source of truth the GUI
     // writes and the user can hand-edit in place (every value present, not a sparse
@@ -596,7 +674,7 @@ Rectangle {
         if (e.seed)
             sh += "[ -e \"" + e.path + "\" ] || printf \"" + e.seed + "\" > \"" + e.path + "\"; ";
         sh += "xdg-open \"" + e.path + "\"";
-        Spawn.runApp(["sh", "-c", sh]);
+        Spawn.run(["sh", "-c", sh]);
     }
 
     function snapshot() {
@@ -639,7 +717,7 @@ Rectangle {
     // against liveBaseline: the state at open, re-snapshotted on every Save.
     // Quit and Revert walk the desktop back to that baseline through the same
     // channel, so an unsaved close leaves no residue.
-    readonly property var liveKeys: ["frameBars", "frameEnabled", "frameOpacity", "frameThickness", "frameCorner", "fontFamily", "fontSize", "barStyle", "obi", "nacre", "qsbar", "chroma", "dock", "clipboard.widthPercent", "clipboard.heightPercent", "clipboard.bottomPercent", "clipboard.panelRadius", "clipboard.paneRadius", "clipboard.cardRadius"]
+    readonly property var liveKeys: ["frameBars", "frameEnabled", "frameOpacity", "frameThickness", "frameCorner", "fontFamily", "terminalFontFamily", "fontSize", "barStyle", "obi", "nacre", "qsbar", "dock", "clipboard.widthPercent", "clipboard.heightPercent", "clipboard.bottomPercent", "clipboard.panelRadius", "clipboard.paneRadius", "clipboard.cardRadius"]
     property var liveBaseline: null
     property var livePending: ({})
     function captureLiveBaseline() {
@@ -696,7 +774,10 @@ Rectangle {
         hub.draft = d;
         return true;
     }
+
     function save() {
+        if (hyprSave.running)
+            return;
         var files = {};
         for (var k in defs) {
             if (draft[k] === undefined || committed[k] === undefined) continue;
@@ -706,7 +787,6 @@ Rectangle {
             else adapterFor(src)[k] = draft[k];
             files[src] = true;
         }
-        if (files.viz) vizFV.writeAdapter();
         if (files.brand) {
             brandFV.writeAdapter();
             hub.requestReloadCoverPrune(hub.draft.reloadCover);
@@ -717,9 +797,10 @@ Rectangle {
         // retranslates. Set it here too so this window switches deterministically.
         if (files.shell) I18n.configLang = hub.committed.language || "Auto";
         if (hub.hyprChanges().length) {
-            hyprSave.command = ["ryoku-hub", "desktop", "save", JSON.stringify(hub.hyprDraft)];
+            hub.wmSaveError = "";
+            hyprSave.pendingDraft = JSON.parse(JSON.stringify(hub.hyprDraft));
+            hyprSave.command = ["ryoku-hub", "desktop", "save", JSON.stringify(hyprSave.pendingDraft)];
             hyprSave.running = true;
-            hub.hyprCommitted = JSON.parse(JSON.stringify(hub.hyprDraft));
         }
         hub.captureLiveBaseline();
         hub.savePage();
@@ -777,7 +858,7 @@ Rectangle {
 
     // the diff, grouped by file, in each file's own JSON syntax.
     readonly property var diff: {
-        var by = { shell: [], viz: [], brand: [] };
+        var by = { shell: [], brand: [] };
         for (var k in defs) {
             if (draft[k] === undefined || committed[k] === undefined) continue;
             if (JSON.stringify(draft[k]) === JSON.stringify(committed[k])) continue;
@@ -785,16 +866,17 @@ Rectangle {
             by[src].push({ key: k, was: JSON.stringify(committed[k]), now: JSON.stringify(draft[k]) });
         }
         var out = [];
-        var order = ["shell", "viz", "brand"];
+        var order = ["shell", "brand"];
         for (var i = 0; i < order.length; i++)
             if (by[order[i]].length)
                 out.push({ file: hub.fileFor(order[i]) + ".json", changes: by[order[i]] });
         var hc = hub.hyprChanges();
-        if (hc.length) out.push({ file: "settings.lua", changes: hc });
+        if (hc.length) out.push({ file: hub.wmSettingsFilename(), changes: hc });
         return out;
     }
 
     Component.onCompleted: rebase()
+    Process { id: editorHandoff }
     Process {
         id: sectionGet
         command: ["ryoku-hub", "config", "get", "section"]
@@ -804,6 +886,7 @@ Rectangle {
                 if (hub.navigated)
                     return;
                 var s = hub.canonicalSection(this.text.trim());
+                if (s === "keepsake") return;
                 if (s && hub.pageFile(s) !== "" && hub.sectionAvailable(s)) hub.section = s;
             }
         }
@@ -829,47 +912,6 @@ Rectangle {
         function onRevisionChanged() { hub.rebase(); }
     }
     FileView {
-        id: vizFV
-        path: hub.cfgDir + "/visualizer.json"
-        watchChanges: true
-        onFileChanged: reload()
-        onLoaded: hub.rebase()
-        JsonAdapter {
-            id: vizA
-            property bool enabled: true
-            property real bars: 64
-            property real thickness: 0.58
-            property real bloom: 0.6
-            property real reflection: 0.1
-            property bool idleWave: true
-            property string style: "bars"
-            property string shape: "rounded"
-            property string color: ""
-            property string color2: ""
-            property bool gradient: false
-            property bool mirror: false
-            property real segments: 10
-            property real fps: 30
-            property bool adaptive: true
-            property real smoothing: 0.5
-            property real gain: 1.0
-            property bool peaks: false
-            property real spin: 0
-            property real x: 0
-            property real y: 0.58
-            property real w: 1
-            property real h: 0.42
-            property string grow: "up"
-        property real angle: 0
-        property real tiltX: 0
-        property real tiltY: 0
-        // Preserved so a hub save never drops the desktop's extra visualisers or
-        // which one it is editing; the hub itself tunes the primary (flat keys).
-        property var extras: []
-        property int active: 0
-        }
-    }
-    FileView {
         id: brandFV
         path: hub.cfgDir + "/brand.json"
         watchChanges: true
@@ -889,15 +931,16 @@ Rectangle {
         }
     }
 
-    // ── hypr backend (the Lua pages) ─────────────────────────────────────
-    // Every Lua page persists through one nested object via ryoku-hub, not a
-    // JsonAdapter. Pages read and write dotted paths (appearance.gapsIn); the
-    // change shows up in the same dirty/diff/save the JSON pages use, grouped
-    // under settings.lua. Nothing is written until Save calls `hypr save`.
+    // ── window-manager backend ───────────────────────────────────────────
+    // Every compositor page persists through one nested object via ryoku-hub,
+    // not a JsonAdapter. Pages read and write dotted paths; the change shows up
+    // in the same dirty/diff/save the JSON pages use, grouped under the active
+    // provider's generated settings file. Nothing is written until Save.
     property var hyprCommitted: ({})
     property var hyprDraft: ({})
     property var hyprDefaults: ({})
     property bool wmLoaded: false
+    property string wmSaveError: ""
 
     // A bespoke page (e.g. Appearance > Theme) that owns its own edits can route
     // them through the shared action bar: it raises pageDirty while it holds
@@ -931,7 +974,20 @@ Rectangle {
             onStreamFinished: { try { hub.hyprDefaults = JSON.parse(this.text); } catch (e) {} }
         }
     }
-    Process { id: hyprSave }
+    Process {
+        id: hyprSave
+        property var pendingDraft: ({})
+        stderr: StdioCollector { id: hyprSaveStderr }
+        onExited: function(code) {
+            if (code === 0) {
+                hub.hyprCommitted = JSON.parse(JSON.stringify(pendingDraft));
+                hub.wmSaveError = "";
+            } else {
+                hub.wmSaveError = hyprSaveStderr.text.trim() || I18n.tr("Couldn't save window-manager settings.");
+            }
+            pendingDraft = ({});
+        }
+    }
 
     // live preview: the shell owns it, not the pages. A hypr edit applies to the
     // running compositor (throttled) so "previewing live" is honest; revert and
@@ -1037,13 +1093,31 @@ Rectangle {
     }
 
     Keys.onEscapePressed: {
-        if (diffPop.open) diffPop.open = false;
+        if (hub.keepsakeOpen) { hub.keepsakeOpen = false; return; }
+        else if (diffPop.open) diffPop.open = false;
         else if (hub.query !== "") { hub.query = ""; searchField.clear(); }
         else hub.requestQuit();
     }
     Keys.onPressed: (e) => {
         if (e.key === Qt.Key_K && (e.modifiers & Qt.ControlModifier)) {
             searchField.grabFocus();
+            e.accepted = true;
+            return;
+        }
+        if (hub.keepsakeTextFocused()) {
+            hub.keepsakeIndex = 0;
+            return;
+        }
+        const letter = e.key === Qt.Key_W ? "W" : e.key === Qt.Key_S ? "S"
+            : e.key === Qt.Key_A ? "A" : e.key === Qt.Key_D ? "D" : "";
+        const next = Keepsake.step(hub.keepsakeIndex, hub.keepsakeLastAt, letter,
+            Date.now(), e.modifiers !== Qt.NoModifier, e.isAutoRepeat);
+        hub.keepsakeIndex = next.index;
+        hub.keepsakeLastAt = next.at;
+        if (next.complete) {
+
+            hub.navigated = true;
+            hub.keepsakeOpen = true;
             e.accepted = true;
         }
     }
@@ -1261,7 +1335,7 @@ Rectangle {
                                     spacing: Tokens.s2
                                     Text {
                                         id: navLead
-                                        visible: navItem.sel && navItem.modelData.key !== "nixos-info"
+                                        visible: navItem.sel
                                         text: "//"
                                         color: Tokens.inkOnBoneDim
                                         font.family: Tokens.mono; font.pixelSize: 11
@@ -1320,17 +1394,49 @@ Rectangle {
             ? 0
             : Math.max(Tokens.s6, Math.round((parent.width - rail.width - width) / 2)))
 
-        // Two loaders crossfade the page: the incoming page loads async into the
-        // hidden loader, then fades in as the visible one fades out, so the
-        // content never blanks to bare paper mid-swap (that blank was the
-        // "flicker on section change"). The new page always loads into the
-        // non-front loader, so the visible page is never disturbed even on rapid
+        // Two loaders swap the page: the incoming page loads async into the
+        // hidden loader, then takes over with a settle slide in the direction
+        // of the navigation, so the content never blanks to bare paper
+        // mid-swap (that blank was the "flicker on section change") and never
+        // sits half-transparent over its successor (the crossfade read as the
+        // words flashing). The new page always loads into the non-front
+        // loader, so the visible page is never disturbed even on rapid
         // switches, and a stale load from a superseded switch never reveals.
         Item {
             id: pageHost
             anchors.fill: parent
+            clip: true
             readonly property string src: hub.pageFile(hub.section)
             property Item front: lb
+            // the loader parked mid-slide, waiting for its exit to finish
+            property Item parking: null
+            // the settle slide: content enters from the direction of travel and
+            // its predecessor leaves the other way, both fully opaque. A
+            // crossfade put two half-transparent pages on screen at once, which
+            // read as the words flashing.
+            property int dir: 1
+            readonly property int slide: Tokens.s6 * 2
+            // the rail/router set `section` before the async load lands, so the
+            // direction of travel is decided here, once, off the section the
+            // screen is still showing.
+            property string shown: hub.section
+            Connections {
+                target: hub
+                function onSectionChanged() {
+                    pageHost.dir = pageHost.indexOf(hub.section) >= pageHost.indexOf(pageHost.shown) ? 1 : -1;
+                }
+            }
+            function indexOf(section) {
+                var n = 0;
+                for (var gi = 0; gi < hub.groups.length; gi++)
+                    for (var ii = 0; ii < hub.groups[gi].items.length; ii++) {
+                        var it = hub.groups[gi].items[ii];
+                        if (!hub.needsMet(it)) continue;
+                        if (it.key === section) return n;
+                        n++;
+                    }
+                return -1;
+            }
             onSrcChanged: pageHost.swap()
             Component.onCompleted: pageHost.swap()
             function swap() {
@@ -1343,29 +1449,82 @@ Rectangle {
             function reveal(l) {
                 if (l.source != pageHost.src)
                     return;
+                var out = pageHost.front;
                 pageHost.front = l;
-                la.opacity = la === l ? 1 : 0; la.z = la === l ? 1 : 0;
-                lb.opacity = lb === l ? 1 : 0; lb.z = lb === l ? 1 : 0;
+                pageHost.shown = hub.section;
+                // a superseded switch still mid-slide: snap the old exit home
+                // before the new pair takes over, or a parked loader can be
+                // left slid and half-visible under the new page.
+                if (pageHost.parking && pageHost.parking !== out) {
+                    pageHost.parking.opacity = 0;
+                    pageHost.parking.x = 0;
+                    pageHost.parking = null;
+                }
+                l.z = 1;
+                l.opacity = 1;
+                inAnim.target = l; inAnim.from = pageHost.dir * pageHost.slide; inAnim.to = 0;
+                inAnim.restart();
+                if (out && out !== l && out.item) {
+                    out.z = 0;
+                    pageHost.parking = out;
+                    outAnim.target = out; outAnim.from = out.x; outAnim.to = -pageHost.dir * pageHost.slide;
+                    outAnim.restart();
+                } else if (out && out !== l) {
+                    out.opacity = 0; out.x = 0;
+                }
             }
+            NumberAnimation {
+                id: inAnim
+                property: "x"
+                duration: Tokens.move
+                easing.type: Tokens.ease
+            }
+            NumberAnimation {
+                id: outAnim
+                property: "x"
+                duration: Tokens.move
+                easing.type: Tokens.ease
+                onFinished: {
+                    if (pageHost.parking) {
+                        pageHost.parking.opacity = 0;
+                        pageHost.parking.x = 0;
+                        pageHost.parking = null;
+                    }
+                }
+            }
+            // sized, not anchors.fill: an anchor would silently win over the
+            // slide's x and pin the page back in place.
             Loader {
                 id: la
-                anchors.fill: parent
+                width: pageHost.width
+                height: pageHost.height
+                x: 0
                 asynchronous: true
                 opacity: 1
-                // hidden once fully faded, so the parked page stops taking hover
+                // hidden once parked, so the idle page stops taking hover
                 // (a stale tooltip was leaking through the overlay layer).
                 visible: opacity > 0.01
-                onLoaded: { if (item) item.hub = hub; pageHost.reveal(la); }
-                Behavior on opacity { NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease } }
+                onLoaded: {
+                    if (item) {
+                        item.hub = hub;
+                    }
+                    pageHost.reveal(la);
+                }
             }
             Loader {
                 id: lb
-                anchors.fill: parent
+                width: pageHost.width
+                height: pageHost.height
+                x: 0
                 asynchronous: true
                 opacity: 0
                 visible: opacity > 0.01
-                onLoaded: { if (item) item.hub = hub; pageHost.reveal(lb); }
-                Behavior on opacity { NumberAnimation { duration: Tokens.swap; easing.type: Tokens.ease } }
+                onLoaded: {
+                    if (item) {
+                        item.hub = hub;
+                    }
+                    pageHost.reveal(lb);
+                }
             }
         }
 
@@ -1489,10 +1648,32 @@ Rectangle {
         visible: !pageArea.full
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         dirty: hub.dirty
+        cleanText: pageHost.shown === "controls" && pageHost.front && pageHost.front.item
+            ? pageHost.front.item.footerText
+            : I18n.tr("SAVED · LIVE ON YOUR DESKTOP")
         onSaved: hub.save()
         onReverted: hub.revert()
-        onReset: hub.resetDefaults()
+        onReset: {
+            if (pageHost.shown === "controls" && pageHost.front && pageHost.front.item)
+                pageHost.front.item.resetLayout();
+            else if (pageHost.shown === "global" && pageHost.front && pageHost.front.item)
+                pageHost.front.item.resetDefaults();
+            else
+                hub.resetDefaults();
+        }
         onDiffRequested: diffPop.toggle()
+    }
+    Text {
+        visible: hub.wmSaveError !== ""
+        z: 70
+        anchors { right: parent.right; rightMargin: Tokens.s6; bottom: bar.top; bottomMargin: Tokens.s2 }
+        width: Math.min(560, implicitWidth)
+        text: hub.wmSaveError
+        color: Tokens.ink
+        font.family: Tokens.ui
+        font.pixelSize: Tokens.fSmall
+        wrapMode: Text.WordWrap
+        horizontalAlignment: Text.AlignRight
     }
 
     // ── catalogue overlay (font pick) ──────────────────────────────────────
@@ -1820,4 +2001,64 @@ Rectangle {
         }
     }
 
+
+    // The unlocked chapter leaves a quiet halo around the whole Hub frame.
+    Item {
+        id: keepsakeFrameGlow
+        anchors.fill: parent
+        z: 895
+        opacity: hub.section === "keepsake" ? 1 : 0
+        visible: opacity > 0.001
+        Behavior on opacity {
+            NumberAnimation { duration: Tokens.dur(2200); easing.type: Easing.InOutSine }
+        }
+        Repeater {
+            model: 3
+            Rectangle {
+                required property int index
+                anchors.fill: parent
+                anchors.margins: index * 5
+                radius: Tokens.radius + index * 4
+                color: "transparent"
+                border.width: 1
+                border.color: Qt.rgba(Tokens.sun.r, Tokens.sun.g, Tokens.sun.b,
+                    0.21 - index * 0.065)
+            }
+        }
+    }
+
+
+    Item {
+        id: keepsakeOverlay
+        anchors.fill: parent
+        z: 1100
+        visible: hub.keepsakeOpen
+        focus: visible
+        onVisibleChanged: {
+            if (visible) {
+                forceActiveFocus();
+            } else {
+                hub.keepsakeIndex = 0;
+                hub.keepsakeLastAt = 0;
+                hub.forceActiveFocus();
+            }
+        }
+        Keys.onEscapePressed: (event) => {
+            hub.keepsakeOpen = false;
+            event.accepted = true;
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: Tokens.paper
+            MouseArea { anchors.fill: parent }
+        }
+
+        Loader {
+            anchors.fill: parent
+            active: hub.keepsakeOpen
+            source: "pages/KeepsakePage.qml"
+            onLoaded: { if (item) item.hub = hub; }
+        }
+    }
 }

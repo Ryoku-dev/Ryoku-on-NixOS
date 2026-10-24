@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
+import "." as HubComponents
 import "Singletons"
 import "ReloadCoverModel.js" as ReloadCoverModel
 
@@ -35,7 +36,6 @@ Item {
     // extras ride inside the sheet's scroll area, not pinned above it, so a page
     // with a tall extra block still scrolls as one surface.
     default property alias extras: sheet.lead
-    property var pendingImageRow: null
     property string externalReloadCoverError: ""
     property string importReloadCoverError: ""
     property var pendingReloadCoverRow: null
@@ -54,14 +54,14 @@ Item {
     // a search jump forwards here; the sheet switches tab, scrolls, and flashes.
     function focusKey(k) { sheet.focusKey(k) }
 
-    // A row the active compositor cannot back is dropped, not shown dead. Three
-    // gates: caps (a behavioural capability), modelsKey (a store leaf nothing
-    // would write), and the tiling illustration -- a bespoke keyless control the
-    // key gate cannot see, which needs a tiled layout to mean anything. Empty
-    // groups and tabs fall away on their own, both being derived from what
-    // survives here.
+    // A row the active host or compositor cannot back is dropped, not shown
+    // dead. Four gates: hostCaps, compositor caps, modelsKey (a store leaf
+    // nothing would write), and the tiling illustration, a bespoke keyless
+    // control the key gate cannot see which needs a tiled layout to mean
+    // anything. Empty groups and tabs fall away on their own, both being
+    // derived from what survives here.
     readonly property var capsSchema: (schema || []).filter(function (r) {
-        if (!Settings.supports(r.caps)) return false;
+        if (!Settings.supports(r.caps, r.hostCaps)) return false;
         if (r.ctl === "layoutdemo" && !Settings.supports("tiledLayout")) return false;
         return Settings.modelsKey(r.key);
     })
@@ -173,22 +173,33 @@ Item {
             page.importReloadCoverError = "";
             page.edited(r.key, ReloadCoverModel.empty());
         }
-        onImagePickRequested: (r) => { page.pendingImageRow = r; imgPick.open(); }
         onTimezonePickRequested: (r) => page.timezonePickRequested(r)
+        onAppPickRequested: (r) => { page.pendingAppRow = r; appPick.visible = true; }
     }
 
-    // the image-mark picker: an `image` control asks for it (SettingsSheet emits
-    // imagePickRequested); the chosen path lands on the row's key like any edit.
-    // full-page overlay so it covers the tabs, not just the sheet.
-    PickFile {
-        id: imgPick
-        title: I18n.tr("Choose an image")
-        onPicked: (p) => {
-            if (page.pendingImageRow) page.edited(page.pendingImageRow.key, ("" + p).replace("file://", ""));
-            imgPick.active = false;
+    // The app control: SettingsSheet emits appPickRequested; the hub's
+    // AppPicker overlay lists the installed apps and the chosen command lands
+    // on the row's key like any edit.
+    property var pendingAppRow: null
+
+    HubComponents.AppPicker {
+        id: appPick
+        anchors.fill: parent
+        visible: false
+        z: 20
+        title: page.pendingAppRow ? I18n.tr(String(page.pendingAppRow.label || "")) : ""
+        onChosen: (cmd) => {
+            if (page.pendingAppRow)
+                page.edited(page.pendingAppRow.key, cmd);
+            page.pendingAppRow = null;
+            appPick.visible = false;
         }
-        onCanceled: imgPick.active = false
+        onDismissed: {
+            page.pendingAppRow = null;
+            appPick.visible = false;
+        }
     }
+
 
     PickFile {
         id: reloadCoverPick

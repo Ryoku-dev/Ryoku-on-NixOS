@@ -2,7 +2,14 @@ package doctor
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
+
+	"ryoku-cli/internal/host"
+	i18n "ryoku-i18n"
 )
 
 // idempotency lock on the NVIDIA reconciler. canonical config we write must
@@ -48,6 +55,7 @@ func TestNvidiaGuardHookOK(t *testing.T) {
 }
 
 func TestReconcileKeplerNvidia(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
 	oldPCI := nvidiaPCIOutput
 	oldInstalled := nvidia580Installed
 	oldRemoveDriver := removeKepler580
@@ -115,6 +123,7 @@ func TestKepler580RemovalArgs(t *testing.T) {
 }
 
 func TestKeplerRemovalFailureUsesScopedRemedy(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
 	oldPCI := nvidiaPCIOutput
 	oldInstalled := nvidia580Installed
 	oldRemoveDriver := removeKepler580
@@ -175,5 +184,103 @@ func TestPlanNvidiaSleepUnits(t *testing.T) {
 				t.Errorf("%s: missing[%d] = %s, want %s", c.name, i, missing[i], c.wantMissing[i])
 			}
 		}
+	}
+}
+
+func TestNvidiaSleepVerdictUsesCatalogKey(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("RYOKU_I18N_DIR", root)
+	if err := os.WriteFile(filepath.Join(root, "tr.json"), []byte(`{"the NVIDIA sleep units are enabled":"NVIDIA uyku birimleri etkin"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	i18n.Use("tr")
+	t.Cleanup(func() { i18n.Use("en") })
+
+	if got := nvidiaSleepVerdictText("the NVIDIA sleep units are enabled"); got != "NVIDIA uyku birimleri etkin" {
+		t.Fatalf("verdict = %q", got)
+	}
+}
+
+func TestNvidiaVoidConfig(t *testing.T) {
+	modprobe := nvidiaVoidModprobeConf(true)
+	if !nvidiaConfigOKFor(host.XBPS, modprobe, nvidiaDracutConf) {
+		t.Fatal("canonical Void modprobe and dracut policy must be healthy")
+	}
+	if nvidiaConfigOKFor(host.XBPS, modprobe, nvidiaMkinitcpioConf) {
+		t.Fatal("mkinitcpio policy must not satisfy the Void dracut check")
+	}
+	if nvidiaConfigOKFor(host.XBPS, nvidiaVoidSafeModprobeConf, nvidiaVoidSafeDracutConf) {
+		t.Fatal("nouveau-safe fallback must not claim the proprietary driver is configured")
+	}
+	legacy := nvidiaVoidModprobeConf(false)
+	if strings.Contains(legacy, "NVreg_PreserveVideoMemoryAllocations") {
+		t.Fatal("nvidia470 must not receive the preserve-VRAM option without its elogind hook")
+	}
+}
+
+func TestNvidiaVoidHostBranches(t *testing.T) {
+	oldManager := nvidiaPackageManager
+	oldInit := nvidiaInitSystem
+	t.Cleanup(func() {
+		nvidiaPackageManager = oldManager
+		nvidiaInitSystem = oldInit
+	})
+	nvidiaPackageManager = func() host.PackageManager { return host.XBPS }
+	nvidiaInitSystem = func() host.InitSystem { return host.Runit }
+
+	modprobe, initramfs := nvidiaConfigPaths()
+	if modprobe != "/etc/modprobe.d/nvidia.conf" || initramfs != "/etc/dracut.conf.d/nvidia.conf" {
+		t.Fatalf("Void NVIDIA paths = %q, %q", modprobe, initramfs)
+	}
+	path, content, mode, executable := nvidiaGuardSpec()
+	if path != voidNvidiaGuardHookPath || content != voidNvidiaGuardHook || mode != "0755" || !executable {
+		t.Fatalf("Void guard spec = %q mode %q executable=%t", path, mode, executable)
+	}
+	if !nvidiaGuardHookOKFor(host.XBPS, voidNvidiaGuardHook, true) {
+		t.Fatal("canonical executable Void guard must pass")
+	}
+	if nvidiaGuardHookOKFor(host.XBPS, voidNvidiaGuardHook, false) {
+		t.Fatal("non-executable Void kernel hook must be repaired")
+	}
+}
+
+func TestVoidKernelSeriesFromXBPS(t *testing.T) {
+	got := voidKernelSeriesFrom("ii linux6.12-6.12.58_1 kernel\nii linux-base-4.4_1 base\nii linux6.6-6.6.91_1 kernel\nii linux6.12-6.12.58_1 duplicate\n")
+	want := []string{"linux6.12", "linux6.6"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Void kernel series = %v, want %v", got, want)
+	}
+}
+
+func TestPlanNvidiaElogindHook(t *testing.T) {
+	cases := []struct {
+		name        string
+		active      bool
+		ships       bool
+		exists      bool
+		wantMissing bool
+		wantVerdict string
+	}{
+		{"nouveau", false, false, false, false, "no proprietary NVIDIA driver in use"},
+		{"470 uses kernel suspend", true, false, false, false, "the installed NVIDIA branch uses the kernel suspend path and does not ship an elogind sleep hook"},
+		{"current hook installed", true, true, true, false, "the NVIDIA elogind sleep hook is installed"},
+		{"current hook missing", true, true, false, true, ""},
+	}
+	for _, tc := range cases {
+		missing, verdict := planNvidiaElogindHook(tc.active, tc.ships, tc.exists)
+		if missing != tc.wantMissing || verdict != tc.wantVerdict {
+			t.Errorf("%s: missing=%t verdict=%q", tc.name, missing, verdict)
+		}
+	}
+}
+
+func TestNvidiaBacklightKernelLog(t *testing.T) {
+	if !nvidiaBacklightDeadFrom("nvidia_wmi_ec_backlight: no NVIDIA native backlight") {
+		t.Fatal("dmesg fallback must recognize the NVIDIA backlight failure")
+	}
+	if nvidiaBacklightDeadFrom("NVIDIA DRM initialized") {
+		t.Fatal("unrelated NVIDIA kernel messages must not trigger the backlight warning")
 	}
 }

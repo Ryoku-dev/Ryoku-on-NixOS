@@ -156,14 +156,16 @@ func runTermAsk(cfg Config, o termOpts) error {
 // presenter turns the marker stream into terminal output and, at the end,
 // the buffer/copy/run action.
 type presenter struct {
-	o      termOpts
-	port   int
-	id     string
-	plan   *termPlan
-	answer string
-	hint   string
-	failed bool
-	spun   bool
+	o                termOpts
+	port             int
+	id               string
+	plan             *termPlan
+	answer           string
+	needsAgent       bool
+	needsAgentReason string
+	hint             string
+	failed           bool
+	spun             bool
 }
 
 func (p *presenter) line(s string) {
@@ -180,13 +182,13 @@ func (p *presenter) line(s string) {
 		}
 	case "@hint":
 		p.hint = detail
-	case "@perm":
-		p.handlePerm(detail)
 	case "@answer":
 		p.clearSpinner()
 		var a askAnswer
 		if json.Unmarshal([]byte(detail), &a) == nil {
 			p.answer = a.Text
+			p.needsAgent = a.NeedsAgent
+			p.needsAgentReason = a.NeedsAgentReason
 		}
 	case "@error":
 		p.clearSpinner()
@@ -205,6 +207,10 @@ func (p *presenter) finish() error {
 	w := os.Stderr // presentation channel: stderr under --buffer, else stdout
 	if !p.o.buffer {
 		w = os.Stdout
+	}
+	if p.needsAgent {
+		fmt.Fprintln(w, "\n"+termPaint(p.o, amberc, agentHandoffMessage(p.needsAgentReason)))
+		return nil
 	}
 	if p.answer != "" && p.answer != "(no answer)" {
 		fmt.Fprintln(w, "\n"+wrapText(p.answer, termCols(), "  "))
@@ -301,37 +307,12 @@ func (p *presenter) pick() string {
 	return cmds[0].Run
 }
 
-// handlePerm renders a session-lane permission request and answers it over
-// /api/perm from the tty, so an escalated turn never dead-ends outside the
-// dashboard.
-func (p *presenter) handlePerm(detail string) {
-	p.clearSpinner()
-	var pr struct {
-		ID      string       `json:"id"`
-		Title   string       `json:"title"`
-		Options []PermOption `json:"options"`
+func agentHandoffMessage(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "This request needs work outside the read-only terminal lane."
 	}
-	if json.Unmarshal([]byte(detail), &pr) != nil || len(pr.Options) == 0 {
-		return
-	}
-	w := actionChannel(p.o)
-	fmt.Fprintf(w, "\n  %s %s\n", termPaint(p.o, amberc, "needs approval:"), pr.Title)
-	for i, o := range pr.Options {
-		fmt.Fprintf(w, "    %d %s\n", i+1, o.Name)
-	}
-	tty := openTTY()
-	choice := ""
-	if tty != nil {
-		fmt.Fprintf(w, "  %s ", termPaint(p.o, dimc, "pick a number (Enter=cancel):"))
-		r := bufio.NewReader(tty)
-		ans, _ := r.ReadString('\n')
-		if n, err := strconv.Atoi(strings.TrimSpace(ans)); err == nil && n >= 1 && n <= len(pr.Options) {
-			choice = pr.Options[n-1].ID
-		}
-		tty.Close()
-	}
-	pb, _ := json.Marshal(map[string]string{"requestId": pr.ID, "optionId": choice})
-	http.Post(fmt.Sprintf("http://127.0.0.1:%d/api/perm", p.port), "application/json", strings.NewReader(string(pb)))
+	return reason + "\n  This work belongs to the Agent. Open it with Alt+Space, then choose the Agent tab."
 }
 
 // spinner updates a single status line on the presentation channel.

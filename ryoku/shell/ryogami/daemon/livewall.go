@@ -6,8 +6,8 @@ package main
 // so it holds ~40-60 MB RSS on any vendor, where mpv/mpvpaper (a client GL
 // pipeline) cost 300-700 MB, leak per loop, and on a hybrid layout dropped
 // frames wholesale. The daemon transcodes each clip once to the panel's
-// logical width (VAAPI when an AMD node is present, ~2s for a 4K clip; libx264
-// otherwise) and caches it, so the player's steady cost is a fraction of a core.
+// logical width on the strongest GPU (NVENC, else VA-API on AMD; a supported
+// CPU H.264 encoder otherwise) and caches it, so steady playback stays cheap.
 
 import (
 	"context"
@@ -21,6 +21,20 @@ import (
 )
 
 const liveDaemon = "ryogami-live"
+
+func init() {
+	guardApply(func(d *daemon, req *applyRequest) error {
+		if req.Type != "video" || d.settingBool("pickOnlyMode") {
+			return nil
+		}
+		src := liveProbe(req.Path)
+		return videoSourceDecodeError(src, ffmpegCodecs().decoders)
+	})
+}
+
+func videoSourceDecodeError(src liveShape, decoders codecSet) error {
+	return videoDecodeError(src.codec, decoders)
+}
 
 // liveEncRev marks the transcode flags a cached clip was produced with. Bump it
 // whenever they change, so old clips are re-encoded instead of being replayed
@@ -138,11 +152,10 @@ func liveDirect(src liveShape, capW int, fps string) bool {
 }
 
 // livewallSource is the cached clip livewall decodes, transcoded once per clip,
-// cap width, rate and encoder rev (keyed by mtime, so an edited file re-encodes).
-// VAAPI on an AMD render node does the whole decode-scale-encode on the video
-// engine; without one, libx264 with bicubic scaling. B-frames are off: they buy
-// compression this cache does not need, and each one the decoder holds for
-// reordering is a full frame of RAM charged against livewall's budget.
+// cap width, rate and encoder rev (keyed by mtime, so an edited file re-encodes)
+// on the strongest GPU (transcode.go). B-frames are off: they buy compression
+// this cache does not need, and each one the decoder holds for reordering is a
+// full frame of RAM charged against livewall's budget.
 // "" if every encoder fails, so the caller keeps the clip's still frame.
 func livewallSource(pic string, src liveShape, capW int, fps string) string {
 	st, err := os.Stat(pic)
@@ -166,7 +179,8 @@ func livewallSource(pic string, src liveShape, capW int, fps string) string {
 	// (the generation guard drops the launch, not the encode); a shared tmp
 	// would interleave both writers into a corrupt cached video.
 	tmp := out + ".tmp." + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano(), 10) + ".mp4"
-	if !runTranscode(pic, tmp, src, capW, fps) {
+	rate, _ := strconv.Atoi(fps)
+	if transcodeH264(context.Background(), transcodeSpec{src: pic, dst: tmp, fps: rate, maxWidth: capW, qp: 20, crf: 18}) != nil {
 		_ = os.Remove(tmp)
 		return ""
 	}
@@ -175,32 +189,6 @@ func livewallSource(pic string, src liveShape, capW int, fps string) string {
 		return ""
 	}
 	return out
-}
-
-func runTranscode(pic, tmp string, src liveShape, capW int, fps string) bool {
-	if dev := vaapiRenderNode(); dev != "" {
-		w := capW
-		if src.width > 0 && src.width < w {
-			w = src.width
-		}
-		w &^= 1
-		err := exec.Command("ffmpeg", "-y", "-v", "error",
-			"-hwaccel", "vaapi", "-hwaccel_device", dev, "-hwaccel_output_format", "vaapi",
-			"-i", pic,
-			"-vf", "fps="+fps+",scale_vaapi=w="+strconv.Itoa(w)+":h=-2:format=nv12",
-			"-c:v", "h264_vaapi", "-qp", "20", "-bf", "0", "-an", tmp).Run()
-		if err == nil && fileExists(tmp) {
-			return true
-		}
-		_ = os.Remove(tmp)
-	}
-	// The CPU fallback runs niced with bounded threads: a background encode
-	// must never contend with the desktop.
-	err := exec.Command("nice", "-n", "19", "ffmpeg", "-y", "-v", "error", "-i", pic,
-		"-vf", "scale='min("+strconv.Itoa(capW)+",iw)':-2:flags=bicubic", "-r", fps,
-		"-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-bf", "0",
-		"-threads", "4", "-pix_fmt", "yuv420p", "-an", tmp).Run()
-	return err == nil && fileExists(tmp)
 }
 
 // liveStill extracts one full-resolution frame from a clip, cached per mtime.
@@ -225,7 +213,7 @@ func liveStill(video string, sec float64) string {
 	if os.MkdirAll(dir, 0o755) != nil {
 		return ""
 	}
-	tmp := out + ".tmp." + strconv.Itoa(os.Getpid()) + ".jpg"
+	tmp := fmt.Sprintf("%s.tmp.%d-%d.jpg", out, os.Getpid(), time.Now().UnixNano())
 	err = exec.Command("ffmpeg", "-y", "-v", "error", "-ss", secStr, "-i", video,
 		"-frames:v", "1", "-q:v", "2", tmp).Run()
 	if err != nil || !fileExists(tmp) {
@@ -261,22 +249,6 @@ func liveFit(contentFit string) string {
 	return "fill"
 }
 
-// vaapiRenderNode is the AMD render node the transcode runs on, "" when the
-// machine has no amdgpu card or no radeonsi backend: with a hybrid layout the
-// default libva probe walks into the NVIDIA shim, which cannot encode.
-func vaapiRenderNode() string {
-	if !fileExists("/usr/lib/dri/radeonsi_drv_video.so") {
-		return ""
-	}
-	nodes, _ := filepath.Glob("/sys/class/drm/renderD*/device/driver")
-	for _, n := range nodes {
-		if dst, err := os.Readlink(n); err == nil && filepath.Base(dst) == "amdgpu" {
-			return "/dev/dri/" + filepath.Base(filepath.Dir(filepath.Dir(n)))
-		}
-	}
-	return ""
-}
-
 // transcodeCachePath is the cached re-encode path for a clip at a given
 // fps/width cap, keyed by source mtime + cap (distinct from livewallSource).
 func transcodeCachePath(src string, fps, capW int) string {
@@ -307,12 +279,7 @@ func ensureVideoTranscode(src string, fps, capW int) string {
 	tmp := out + ".tmp." + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano(), 10) + ".mp4"
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "nice", "-n", "19", "ffmpeg", "-y", "-v", "error",
-		"-i", src,
-		"-vf", fmt.Sprintf("scale='min(%d,iw)':-2:flags=bicubic,fps=%d", capW, fps),
-		"-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-bf", "0",
-		"-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-ac", "2", tmp)
-	if err := cmd.Run(); err != nil || !fileExists(tmp) {
+	if transcodeH264(ctx, transcodeSpec{src: src, dst: tmp, fps: fps, maxWidth: capW, qp: 23, crf: 23, audio: true}) != nil {
 		_ = os.Remove(tmp)
 		return ""
 	}

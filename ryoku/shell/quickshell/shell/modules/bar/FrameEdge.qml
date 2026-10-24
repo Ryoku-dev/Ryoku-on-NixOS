@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import shell.services
+import shell.modules.stage.frame
 
 // One of the four background reservation surfaces of the frame. It paints
 // nothing and takes no input; its exclusive zone reserves the revealed bar's
@@ -43,17 +44,30 @@ PanelWindow {
         left: edge !== "right"
         right: edge !== "left"
     }
-    // Never unmap. The reservation stack order is fixed at map time and the
-    // exclusive-zone arrange gives corners to whoever reserves first, so the
-    // four edges MUST map in a fixed order (top, bottom, left, right from
-    // shell.qml) for the horizontal edges to own the corners and the vertical
-    // ones to inset between them. Unmapping a collapsed edge and remapping it on
-    // reveal reorders the stack (the largest target crosses the map threshold
-    // first), which inverts the insets. So the surface stays mapped at a 1 px
-    // floor and only its exclusive zone drops to 0 when the bar hides.
-    implicitWidth: horizontal ? 0 : Math.max(1, Math.round(zone))
-    implicitHeight: horizontal ? Math.max(1, Math.round(zone)) : 0
+    // Never unmap while Sumi is up. The reservation stack order is fixed at map
+    // time and the exclusive-zone arrange gives corners to whoever reserves
+    // first, so the four edges MUST map in a fixed order (top, bottom, left,
+    // right, as Frame.qml declares them) for the horizontal edges to own the
+    // corners and the vertical ones to inset between them. Unmapping a collapsed
+    // edge and remapping it on reveal reorders the stack (the largest target
+    // crosses the map threshold first), which inverts the insets. So the surface
+    // stays mapped at a 1 px floor and only its exclusive zone drops to 0 when
+    // the bar hides.
+    implicitWidth: horizontal ? 0 : frameLayer.extent
+    implicitHeight: horizontal ? frameLayer.extent : 0
     visible: true
+
+    // Keep the reservation window's three-edge anchor contract while letting
+    // its cross-edge extent follow the Stage card. The exclusive zone is still
+    // `zone`, so clients never reflow when edit mode opens.
+    StageFramedLayer {
+        id: frameLayer
+        screenName: frameEdge.screen?.name ?? ""
+        edge: frameEdge.edge
+        restThickness: Math.max(1, Math.round(frameEdge.zone))
+        screenWidth: frameEdge.screen?.width ?? 1920
+        screenHeight: frameEdge.screen?.height ?? 1080
+    }
 
     mask: Region {}
 }

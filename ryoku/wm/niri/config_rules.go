@@ -47,7 +47,7 @@ func writeUserLayerRule(b *strings.Builder, r LayerRule) {
 	}
 	switch r.Blur {
 	case "on":
-		b.WriteString("    background-effect {\n        blur true\n    }\n")
+		b.WriteString("    background-effect {\n        blur true\n        xray true\n    }\n")
 	case "off":
 		b.WriteString("    background-effect {\n        blur false\n    }\n")
 	}
@@ -69,7 +69,7 @@ func writeUserLayerRule(b *strings.Builder, r LayerRule) {
 // writeWindowRules emits the global corner radius and opacity, then each user
 // window rule and per-app override niri can express. Rules niri cannot express
 // are reported unhonored by apply, not silently dropped here.
-func writeWindowRules(b *strings.Builder, a Appearance, rules []WindowRule, apps []AppOverride) {
+func writeWindowRules(b *strings.Builder, a Appearance, settingsWindow SettingsWindow, rules []WindowRule, apps []AppOverride) {
 	if a.Rounding > 0 {
 		b.WriteString("window-rule {\n")
 		fmt.Fprintf(b, "    geometry-corner-radius %d\n", a.Rounding)
@@ -77,6 +77,12 @@ func writeWindowRules(b *strings.Builder, a Appearance, rules []WindowRule, apps
 		b.WriteString("}\n\n")
 	}
 	writeOpacityRules(b, a)
+	if props := settingsWindowRuleProps(settingsWindow); len(props) > 0 {
+		writeRuleBlock(b, "", "^Ryoku Settings$", props)
+	}
+	for _, r := range builtinWindowRules {
+		writeRuleBlock(b, r.class, r.title, r.props)
+	}
 	for _, r := range rules {
 		if props := windowRuleProps(r); len(props) > 0 {
 			writeRuleBlock(b, r.Class, r.Title, props)
@@ -87,6 +93,43 @@ func writeWindowRules(b *strings.Builder, a Appearance, rules []WindowRule, apps
 			writeRuleBlock(b, ao.Class, ao.Title, props)
 		}
 	}
+}
+
+// builtinWindowRules are the desktop's own windows, matched by the app-id or
+// title each carries, floated at their designed size the way ryoku/hyprland/
+// modules/window_rules.lua floats them. They go out before the user's rules, so
+// a user rule on the same match wins (niri takes the last match).
+type builtinRule struct {
+	class string
+	title string
+	props []string
+}
+
+func settingsWindowRuleProps(v SettingsWindow) []string {
+	v = normalizeSettingsWindow(v)
+	if v.Mode != "custom" {
+		return nil
+	}
+	return []string{
+		"open-floating true",
+		fmt.Sprintf("default-column-width { proportion %s; }", kdlFloat(v.Width)),
+		fmt.Sprintf("default-window-height { proportion %s; }", kdlFloat(v.Height)),
+	}
+}
+
+var builtinWindowRules = []builtinRule{
+	// Floating windows open centred. Their own screen-fit maximums clamp these
+	// designed sizes before niri places them on smaller outputs.
+	{class: "", title: "^Welcome to Ryoku$", props: []string{"open-floating true", "default-column-width { fixed 1180; }", "default-window-height { fixed 760; }"}},
+	{class: "", title: "^Rashin$", props: []string{"open-floating true", "default-column-width { fixed 1280; }", "default-window-height { fixed 820; }"}},
+	{class: "", title: "^ryoku-phone-.*$", props: []string{"open-floating true", "default-column-width { fixed 520; }", "default-window-height { fixed 860; }"}},
+	// ryoport's GUI console clients (RDP, VNC): FreeRDP is asked to carry the
+	// class below via /wm-class, and xwayland-satellite folds the X11 class
+	// into the Wayland app-id, so the patterns match anywhere. Serial and
+	// telnet berths ride a real terminal window, whose placement stays the
+	// user's.
+	{class: "ryoport_console", title: "", props: []string{"open-floating true"}},
+	{class: "(v|V)ncviewer", title: "", props: []string{"open-floating true"}},
 }
 
 // writeOpacityRules emits the global opacity as a matchless window-rule and the
@@ -162,7 +205,7 @@ func windowRuleProps(r WindowRule) []string {
 	case "noshadow":
 		return []string{"shadow {", "    off", "}"}
 	case "blur":
-		return []string{"background-effect {", "    blur true", "}"}
+		return []string{"background-effect {", "    blur true", "    xray true", "}"}
 	case "noblur":
 		return []string{"background-effect {", "    blur false", "}"}
 	case "xray":
@@ -228,7 +271,7 @@ func appOverrideProps(a AppOverride) []string {
 	}
 	switch a.Blur {
 	case "on":
-		props = append(props, "background-effect {", "    blur true", "}")
+		props = append(props, "background-effect {", "    blur true", "    xray true", "}")
 	case "off":
 		props = append(props, "background-effect {", "    blur false", "}")
 	}

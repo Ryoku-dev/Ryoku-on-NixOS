@@ -37,9 +37,16 @@ source "$SCRIPT_DIR/ryoku-gpu-detect"
 GPU_CONF_DEFAULT="${RYOKU_GPU_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/gpu.lua}"
 # the niri drop-in we write to (included by niri's config.kdl).
 NIRI_CONF_DEFAULT="${RYOKU_GPU_NIRI_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/niri/gpu.kdl}"
-# udev rule destination and its source (rule shipped next to this script).
+# udev rule destination and source. In a checkout the rule lives beside this
+# script; packages put the script on PATH and the rule in udev's vendor dir.
 UDEV_RULE="${RYOKU_GPU_UDEV_RULE:-/etc/udev/rules.d/90-ryoku-gpu.rules}"
-RULE_SRC="${RYOKU_GPU_RULE_SRC:-$SCRIPT_DIR/90-ryoku-gpu.rules}"
+if [[ -n ${RYOKU_GPU_RULE_SRC:-} ]]; then
+  RULE_SRC=$RYOKU_GPU_RULE_SRC
+elif [[ -f $SCRIPT_DIR/90-ryoku-gpu.rules ]]; then
+  RULE_SRC=$SCRIPT_DIR/90-ryoku-gpu.rules
+else
+  RULE_SRC=/usr/lib/udev/rules.d/90-ryoku-gpu.rules
+fi
 
 # ── AQ_DRM_DEVICES value assembly ─────────────────────────────────────────────
 
@@ -169,15 +176,10 @@ EOF
 write_niri_snippet() {
   # Always written: niri includes this file unconditionally, and a missing
   # include is a hard config error.
-  local dest="${1:-$NIRI_CONF_DEFAULT}"
   analyze
-  _niri_dir="$(dirname "$dest")"
-  if [[ $dest == "-" ]]; then
-    niri_snippet
-    return 0
-  fi
+  _niri_dir="$(dirname "$NIRI_CONF_DEFAULT")"
   mkdir -p "$_niri_dir"
-  niri_snippet >"$dest"
+  niri_snippet >"$NIRI_CONF_DEFAULT"
 }
 
 niri_snippet() {
@@ -194,6 +196,7 @@ niri_snippet() {
     emit_niri_disabled
   fi
 }
+
 
 # ── subcommands ───────────────────────────────────────────────────────────────
 
@@ -228,15 +231,32 @@ cmd_detect() {
 }
 
 cmd_order() {
+  local dest="${1:-}"
+
+  if [[ $dest == "--effective" ]]; then
+    local conf="${2:-$GPU_CONF_DEFAULT}" value
+
+    value="$(
+      sed -n 's/^hl\.env("AQ_DRM_DEVICES", *"\([^"]*\)")$/\1/p'         "$conf" 2>/dev/null         | head -n1
+    )"
+
+    [[ -n $value ]] || return 1
+    printf '%s\n' "$value"
+    return 0
+  fi
+
   analyze
+
   if ! beneficial; then
     echo "ryoku-gpu: no discrete-GPU pin needed on this machine" >&2
     return 1
   fi
+
   aq_value_effective || {
     echo "ryoku-gpu: could not resolve GPU device nodes" >&2
     return 1
   }
+
   echo
 }
 
@@ -387,7 +407,9 @@ cmd_disable() {
   mkdir -p "$(dirname "$dest")"
   emit_disabled "$mode" >"$dest"
   # Clearing the pin says nothing about the cursor route: recompute the niri
-  # file from the hardware instead of resetting it, so a multi-GPU box keeps it.
+  # file from the hardware instead of resetting it, so a multi-GPU box keeps
+  # the route.
+  local GPU_CONF_DEFAULT="$dest"
   write_niri_snippet
   echo "ryoku-gpu: reset $dest to Hyprland's default GPU selection (active on next login)"
 }
@@ -462,7 +484,7 @@ Pin the strongest GPU as Hyprland's primary render device on multi-GPU machines.
 
 Commands:
   detect [--json]  Show detected GPUs (strongest first) and the chosen primary.
-  order           Print the recommended AQ_DRM_DEVICES value (exit 1 if none).
+  order [--effective]  Print the recommended order, or the currently written pin.
   persist [PATH]  Write the Hyprland pin (Lua) to PATH, to ~/.config/hypr/gpu.lua
                   by default, or to stdout when PATH is '-'.
   disable [PATH]  Reset the pin file to a managed comment-only placeholder.
@@ -480,7 +502,7 @@ case "${1:-status}" in
   detect)
     if [[ "${2:-}" == "--json" ]]; then gpu_records_json; else cmd_detect; fi
     ;;
-  order) cmd_order ;;
+  order) cmd_order "${2:-}" "${3:-}" ;;
   persist) cmd_persist "${2:-}" ;;
   install-udev) cmd_install_udev ;;
   status) cmd_status ;;

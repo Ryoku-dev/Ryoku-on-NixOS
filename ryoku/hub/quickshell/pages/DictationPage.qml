@@ -11,9 +11,9 @@ import Ryoku.Ui.Singletons
 // System > Dictation (DESIGN.md section 11, SYSTEM). Voxtype speech-to-text:
 // switch voice typing on, pick a speech-to-text engine and model, download
 // models in place, and add an API key for the cloud engine. This is not a
-// settings sheet -- its backend is the `ryoku-hub voxtype` subcommand and the
-// systemd user service, not the shared config store -- so it is full-bleed and
-// draws its whole content region itself. The shell owns Super+` and the pill's
+// settings sheet. Its backend is the `ryoku-hub voxtype` subcommand and the
+// host service seam, not the shared config store, so it is full-bleed and draws
+// its whole content region itself. The shell owns Super+` and the pill's
 // mic-wave; this page just shapes ~/.config/voxtype/config.toml and the user
 // service. Every colour, face, size, radius and duration reads from Tokens.
 Item {
@@ -33,14 +33,30 @@ Item {
     property bool voiceOn: false
     property bool installed: false
     property bool loaded: false
+    property bool packageAvailable: false
+    property string packageReason: ""
+    readonly property bool installAvailable: pg.packageAvailable
+    readonly property string installUnavailableReason: pg.packageReason
     property bool openaiKeySet: false
+    property bool cancelRequested: false
+    property string installError: ""
     property string downloading: ""    // preset key whose model is downloading, or ""
+    property string pendingDownload: "" // large model awaiting download confirmation
     property string busyError: ""
     property string notice: ""    // one-shot info banner, e.g. after a download
     // streamed download percent, -1 while indeterminate (voxtype emits progress
-    // to stdout; a newline-terminated percent lights the determinate track, and
-    // otherwise the heartbeat dot carries the wait).
+    // to stdout; a newline-terminated percent lights the determinate track).
     property real dlPercent: -1
+    // the step a multi-step install is on (Redux builds its runtime before the
+    // model downloads), worded here from the installer's `stage: <step>` lines.
+    property string dlStage: ""
+    readonly property var stageWords: ({
+        "fetch": I18n.tr("  \u00b7  fetching the source\u2026"),
+        "configure": I18n.tr("  \u00b7  preparing the build\u2026"),
+        "build": I18n.tr("  \u00b7  building the speech runtime\u2026"),
+        "download": I18n.tr("  \u00b7  downloading the model\u2026"),
+        "install": I18n.tr("  \u00b7  installing\u2026")
+    })
 
     readonly property var sel: {
         for (var i = 0; i < pg.presets.length; i++)
@@ -55,6 +71,22 @@ Item {
     // or a cloud engine needs its key. otherwise the toggle stays locked.
     readonly property bool usable: pg.sel !== null && (pg.sel.cloud ? pg.keyOnFile : pg.sel.present)
 
+    readonly property var pendingPreset: pg.presetFor(pg.pendingDownload)
+
+    function presetFor(key) {
+        for (var i = 0; i < pg.presets.length; i++)
+            if (pg.presets[i].key === key)
+                return pg.presets[i];
+        return null;
+    }
+    function groupLabel(group) {
+        if (group === "english")
+            return I18n.tr("ENGLISH · LOCAL");
+        if (group === "multilingual")
+            return I18n.tr("MULTILINGUAL · LOCAL");
+        return I18n.tr("CLOUD");
+    }
+
     function reload() { getProc.running = true; }
 
     // apply a full snapshot: the selected preset, the enable state, and any
@@ -68,15 +100,13 @@ Item {
         setProc.command = ["ryoku-hub", "voxtype", "set", JSON.stringify(req)];
         setProc.running = true;
     }
-    // clicking a card selects it; a local model that isn't downloaded is fetched
-    // first (one click gets it), then selected when the download lands.
+    // Clicking a missing local model starts its download. Models above 1 GB stop
+    // at the size confirmation first.
     function choose(key) {
-        var p = null;
-        for (var i = 0; i < pg.presets.length; i++)
-            if (pg.presets[i].key === key)
-                p = pg.presets[i];
+        if (pg.downloading !== "") return;
+        var p = pg.presetFor(key);
         if (p !== null && !p.cloud && !p.present) {
-            pg.download(key);
+            pg.requestDownload(key);
             return;
         }
         pg.selected = key;
@@ -91,42 +121,58 @@ Item {
     // download a model in-process, no terminal. the card shows a heartbeat (or a
     // filled track when voxtype streams a percent) until it lands; on success
     // the model is selected. one download at a time.
+    function requestDownload(key) {
+        var p = pg.presetFor(key);
+        if (p === null || p.cloud || p.present || pg.downloading !== "")
+            return;
+        if (Number(p.sizeBytes || 0) > 1000000000) {
+            pg.pendingDownload = key;
+            return;
+        }
+        pg.download(key);
+    }
     function download(key) {
         if (pg.downloading !== "")
             return;
         pg.busyError = "";
         pg.notice = "";
         pg.dlPercent = -1;
+        pg.dlStage = "";
+        pg.cancelRequested = false;
+        pg.installError = "";
         pg.downloading = key;
         dlProc.command = ["ryoku-hub", "voxtype", "download", key];
         dlProc.running = true;
     }
+    function cancelDownload() {
+        if (pg.downloading === "" || pg.cancelRequested) return;
+        pg.cancelRequested = true;
+        dlProc.signal(15);
+    }
     function removeModel(key) {
+        if (pg.downloading !== "") return;
         pg.busyError = "";
         rmProc.command = ["ryoku-hub", "voxtype", "rmmodel", key];
         rmProc.running = true;
     }
 
-    // gpk (GlazePKG, the RyokuArch package manager) needs a tty for its AUR
-    // build and sudo prompts; --hold keeps any error on screen after it exits.
     function installVoxtype() {
         Spawn.runApp(["kitty", "--hold", "-e", "gpk", "install", "voxtype-bin", "--manager", "aur"]);
     }
 
-    // remove: gpk drops the package (tty for sudo), then we disable and delete
-    // the user service so no dead unit lingers; config and models stay for a
-    // reinstall.
+    // Removal stops the user service through the init-neutral host seam, then
+    // removes the package through the active package manager.
     function removeVoxtype() {
         Spawn.runApp(["kitty", "--hold", "-e", "sh", "-c",
             "gpk remove voxtype-bin && { systemctl --user disable --now voxtype.service 2>/dev/null; rm -f ~/.config/systemd/user/voxtype.service; systemctl --user daemon-reload 2>/dev/null; }"]);
     }
 
-    // when the gpk terminal closes and the Hub regains focus, re-probe so the
-    // page flips from the install prompt to the live settings on its own.
+    // Re-probe when the package terminal closes and the Hub regains focus.
     readonly property bool windowActive: Window.active
     onWindowActiveChanged: if (pg.windowActive) pg.reload()
 
     Component.onCompleted: pg.reload()
+    Component.onDestruction: if (pg.downloading !== "") pg.cancelDownload()
 
     Process {
         id: getProc
@@ -139,6 +185,8 @@ Item {
                     pg.selected = d.selected || "whisper-fast";
                     pg.voiceOn = d.enabled === true;
                     pg.installed = d.installed === true;
+                    pg.packageAvailable = d.packageAvailable !== false;
+                    pg.packageReason = d.packageReason || "";
                     pg.openaiKeySet = d.openaiKeySet === true;
                     pg.loaded = true;
                 } catch (e) {
@@ -165,21 +213,36 @@ Item {
         stdout: SplitParser {
             splitMarker: "\n"
             onRead: (line) => {
-                var m = String(line).match(/(\d+(?:\.\d+)?)\s*%/);
+                var text = String(line);
+                if (text.startsWith("stage: ")) {
+                    pg.dlStage = text.slice(7).trim();
+                    return;
+                }
+                var m = text.match(/(\d+(?:\.\d+)?)\s*%/);
                 if (m)
                     pg.dlPercent = Math.max(0, Math.min(100, parseFloat(m[1])));
             }
         }
-        onExited: (code) => {
+        stderr: StdioCollector {
+            onStreamFinished: pg.installError = this.text.trim().split("\n").slice(-4).join("\n")
+        }
+        onStarted: if (pg.cancelRequested) dlProc.signal(15)
+        onExited: (code, exitStatus) => {
             var k = pg.downloading;
+            var canceled = pg.cancelRequested;
             pg.downloading = "";
             pg.dlPercent = -1;
-            if (code === 0) {
+            pg.dlStage = "";
+            pg.cancelRequested = false;
+            if (canceled) {
+                pg.notice = I18n.tr("Installation canceled. Your selected model is unchanged.");
+                pg.reload();
+            } else if (code === 0 && exitStatus === 0) {
                 pg.selected = k;
-                pg.notice = I18n.tr("Model downloaded. If dictation doesn't respond, a reboot may be needed to apply it.");
+                pg.notice = I18n.tr("Model installed.");
                 pg.apply(null);
             } else {
-                pg.busyError = I18n.tr("Download failed (voxtype exited %1).").arg(code);
+                pg.busyError = pg.installError || I18n.tr("Installation failed (exit %1).").arg(code);
                 pg.reload();
             }
         }
@@ -246,8 +309,7 @@ Item {
             leftMargin: Tokens.s6; rightMargin: Tokens.s6; topMargin: Tokens.s5; bottomMargin: Tokens.s6
         }
 
-        // voxtype missing: a clear message, not an inert page. voxtype-bin ships
-        // with the desktop, so this is the rare hand-removed case.
+        // Package availability comes from the active edition's catalogue.
         Column {
             id: emptyState
             visible: pg.loaded && !pg.installed
@@ -259,7 +321,7 @@ Item {
                 width: parent.width
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
-                text: I18n.tr("Voxtype isn't installed")
+                text: pg.installAvailable ? I18n.tr("Voxtype isn't installed") : I18n.tr("Voxtype is unavailable")
                 color: Tokens.ink
                 font.family: Tokens.ui; font.pixelSize: Tokens.fRow; font.weight: Font.DemiBold
             }
@@ -267,11 +329,16 @@ Item {
                 width: parent.width
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
-                text: I18n.tr("Voice dictation needs the voxtype-bin package. GlazePKG opens a terminal to confirm the install, and this page fills in once it finishes.")
+                text: pg.installAvailable
+                    ? I18n.tr("Voice dictation needs the voxtype-bin package. A terminal opens to confirm the install, and this page fills in once it finishes.")
+                    : (pg.installUnavailableReason !== ""
+                        ? I18n.tr(pg.installUnavailableReason)
+                        : I18n.tr("Voxtype is not available on this system."))
                 color: Tokens.inkMuted
                 font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
             }
             Text {
+                visible: pg.installAvailable
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 text: I18n.tr("About 600 MB for the engine and runtimes, before any model.")
@@ -279,8 +346,9 @@ Item {
                 font.family: Tokens.mono; font.pixelSize: Tokens.fMicro
             }
             Item {
+                visible: pg.installAvailable
                 width: parent.width
-                height: installBtn.implicitHeight
+                height: visible ? installBtn.implicitHeight : 0
                 Btn {
                     id: installBtn
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -293,7 +361,7 @@ Item {
 
         Flickable {
             id: flick
-            visible: !pg.loaded || pg.installed
+            visible: pg.loaded && pg.installed
             anchors.fill: parent
             contentWidth: width
             contentHeight: Math.max(content.height, height)
@@ -385,16 +453,33 @@ Item {
                         Repeater {
                             model: pg.presets
 
-                            // one engine/model row: name, provider, size, a wrapped
-                            // detail, and a trailing action (download / heartbeat /
-                            // remove). click the row to use it; a missing local
-                            // model downloads first.
-                            delegate: Rectangle {
-                                id: card
+                            // Each language family begins with a quiet register.
+                            // Within it, cards run from the lightest model toward
+                            // the higher-accuracy choices.
+                            delegate: Column {
+                                id: groupBlock
                                 required property var modelData
+                                required property int index
+                                width: parent ? parent.width : 0
+                                spacing: Tokens.s2
+
+                                Text {
+                                    visible: groupBlock.index === 0
+                                        || pg.presets[groupBlock.index - 1].group !== groupBlock.modelData.group
+                                    text: pg.groupLabel(groupBlock.modelData.group)
+                                    color: Tokens.inkFaint
+                                    font.family: Tokens.ui
+                                    font.pixelSize: Tokens.fTiny
+                                    font.weight: Font.Medium
+                                    font.letterSpacing: Tokens.trackLabel
+                                }
+
+                                Rectangle {
+                                id: card
+                                readonly property var modelData: groupBlock.modelData
                                 readonly property bool active: pg.selected === card.modelData.key
                                 readonly property bool busy: pg.downloading === card.modelData.key
-                                width: parent ? parent.width : 0
+                                width: groupBlock.width
                                 height: cardCol.implicitHeight + Tokens.s3 * 2
                                 radius: Tokens.radius
                                 // selection is the ON member of an exclusive set:
@@ -416,27 +501,26 @@ Item {
                                     anchors.rightMargin: Tokens.s3
                                     spacing: Tokens.s1
 
-                                    Row {
-                                        width: parent.width
-                                        spacing: Tokens.s2
-                                        Text {
-                                            text: I18n.tr(card.modelData.label)
-                                            color: card.active ? Tokens.ink : Tokens.inkDim
-                                            font.family: Tokens.ui
-                                            font.pixelSize: Tokens.fBody
-                                            font.weight: Font.DemiBold
-                                        }
-                                        Text {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            // provider . size . status is file-truth chrome, so mono.
-                                            text: card.modelData.provider + "  \u00b7  " + card.modelData.size
-                                                + (card.busy ? I18n.tr("  \u00b7  downloading\u2026")
-                                                    : (card.modelData.cloud ? ""
-                                                        : (card.modelData.present ? I18n.tr("  \u00b7  downloaded") : I18n.tr("  \u00b7  not downloaded"))))
-                                            color: (card.busy || (!card.modelData.cloud && !card.modelData.present)) ? Tokens.ink : Tokens.inkFaint
-                                            font.family: Tokens.mono
-                                            font.pixelSize: Tokens.fTiny
-                                        }
+                                    Text {
+                                        width: cardCol.width
+                                        text: I18n.tr(card.modelData.label)
+                                        color: card.active ? Tokens.ink : Tokens.inkDim
+                                        font.family: Tokens.ui
+                                        font.pixelSize: Tokens.fBody
+                                        font.weight: Font.DemiBold
+                                    }
+                                    Text {
+                                        width: cardCol.width
+                                        text: I18n.tr(card.modelData.language)
+                                            + "  \u00b7  " + I18n.tr(card.modelData.speed)
+                                            + "  \u00b7  " + card.modelData.size
+                                            + (card.busy ? (pg.stageWords[pg.dlStage] || I18n.tr("  \u00b7  installing\u2026"))
+                                                : (card.modelData.cloud ? ""
+                                                    : (card.modelData.present ? I18n.tr("  \u00b7  downloaded") : I18n.tr("  \u00b7  not downloaded"))))
+                                        color: (card.busy || (!card.modelData.cloud && !card.modelData.present)) ? Tokens.ink : Tokens.inkFaint
+                                        font.family: Tokens.mono
+                                        font.pixelSize: Tokens.fTiny
+                                        elide: Text.ElideRight
                                     }
                                     Text {
                                         width: cardCol.width
@@ -492,30 +576,25 @@ Item {
                                     font.pixelSize: 7
                                 }
 
-                                // trailing action: heartbeat while downloading, else
-                                // a download or remove glyph for local models (cloud:
-                                // none). the MouseArea consumes its own clicks so the
-                                // card's tap-to-select does not double-fire here.
+                                // Each installing model keeps a visible cancel action on its card.
                                 Item {
                                     id: action
                                     anchors.right: parent.right
                                     anchors.verticalCenter: parent.verticalCenter
                                     anchors.rightMargin: Tokens.s3
-                                    width: 26
+                                    width: card.busy ? cancelModelBtn.implicitWidth : 26
                                     height: 26
 
-                                    Rectangle {
-                                        anchors.centerIn: parent
+                                    Btn {
+                                        id: cancelModelBtn
+                                        objectName: "dictation-cancel-" + card.modelData.key
+                                        anchors.fill: parent
                                         visible: card.busy
-                                        width: 6; height: 6; radius: 3
-                                        color: Tokens.ink
-                                        // a heartbeat, not an alarm: 600ms each way (DESIGN.md section 5).
-                                        SequentialAnimation on opacity {
-                                            running: card.busy
-                                            loops: Animation.Infinite
-                                            NumberAnimation { to: 0.3; duration: 600 }
-                                            NumberAnimation { to: 1.0; duration: 600 }
-                                        }
+                                        compact: true
+                                        text: pg.cancelRequested ? I18n.tr("Canceling…") : I18n.tr("Cancel")
+                                        armed: !pg.cancelRequested
+                                        enabled: !pg.cancelRequested
+                                        onAct: pg.cancelDownload()
                                     }
                                     Rectangle {
                                         id: actBtn
@@ -548,7 +627,7 @@ Item {
                                             if (card.modelData.present)
                                                 pg.removeModel(card.modelData.key);
                                             else
-                                                pg.download(card.modelData.key);
+                                                pg.requestDownload(card.modelData.key);
                                         }
                                     }
                                 }
@@ -556,6 +635,7 @@ Item {
                                 HoverHandler { id: cardHov; cursorShape: Qt.PointingHandCursor }
                                 TapHandler { onTapped: pg.choose(card.modelData.key) }
                             }
+                                }
                         }
                         }
                     }
@@ -664,7 +744,11 @@ Item {
                         leftPadding: Tokens.s4; rightPadding: Tokens.s4
                         topPadding: Tokens.s3; bottomPadding: Tokens.s1
                         wrapMode: Text.WordWrap
-                        text: I18n.tr("Voxtype is installed (voxtype-bin). Removing it uninstalls the package; your engine choice and downloaded models stay on disk.")
+                        text: pg.installAvailable
+                            ? I18n.tr("Voxtype is installed (voxtype-bin). Removing it uninstalls the package; your engine choice and downloaded models stay on disk.")
+                            : (pg.installUnavailableReason !== ""
+                                ? I18n.tr(pg.installUnavailableReason)
+                                : I18n.tr("This edition cannot remove the Voxtype package from the Hub."))
                         color: Tokens.inkMuted
                         font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
                     }
@@ -677,6 +761,8 @@ Item {
                             anchors.left: parent.left; anchors.leftMargin: Tokens.s4
                             anchors.verticalCenter: parent.verticalCenter
                             text: I18n.tr("Remove Voxtype")
+                            armed: pg.installAvailable
+                            enabled: pg.installAvailable
                             onAct: pg.removeVoxtype()
                         }
                     }
@@ -724,6 +810,108 @@ Item {
                     }
                 }
 
+            }
+        }
+    }
+
+    MouseArea {
+        id: downloadConfirm
+        anchors.fill: parent
+        visible: pg.pendingPreset !== null
+        z: 100
+        onClicked: pg.pendingDownload = ""
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - Tokens.s6 * 2, Tokens.cardWide)
+            height: confirmCol.implicitHeight + Tokens.s5 * 2
+            radius: Tokens.radius
+            color: Tokens.bone
+            border.width: 2
+            border.color: Tokens.inkOnBone
+
+            MouseArea { anchors.fill: parent }
+
+            Column {
+                id: confirmCol
+                anchors.centerIn: parent
+                width: parent.width - Tokens.s5 * 2
+                spacing: Tokens.s4
+
+                Text {
+                    width: parent.width
+                    text: pg.pendingPreset
+                        ? I18n.tr("Download %1?").arg(I18n.tr(pg.pendingPreset.label))
+                        : ""
+                    color: Tokens.inkOnBone
+                    font.family: Tokens.ui
+                    font.pixelSize: Tokens.fValue
+                    font.weight: Font.Medium
+                    wrapMode: Text.WordWrap
+                }
+                Text {
+                    width: parent.width
+                    text: pg.pendingPreset
+                        ? I18n.tr("This model needs a %1 download. Dictation keeps using your current model until it finishes.").arg(pg.pendingPreset.size)
+                        : ""
+                    color: Tokens.inkOnBoneDim
+                    font.family: Tokens.ui
+                    font.pixelSize: Tokens.fSmall
+                    wrapMode: Text.WordWrap
+                }
+                Row {
+                    anchors.right: parent.right
+                    spacing: Tokens.s3
+
+                    Rectangle {
+                        width: cancelText.implicitWidth + Tokens.s6
+                        height: Tokens.s6
+                        radius: Tokens.radius
+                        color: cancelHover.hovered ? Tokens.lineOnBone : "transparent"
+                        border.width: Tokens.border
+                        border.color: Tokens.inkOnBoneDim
+                        Behavior on color { ColorAnimation { duration: Tokens.snap } }
+                        Text {
+                            id: cancelText
+                            anchors.centerIn: parent
+                            text: I18n.tr("CANCEL")
+                            color: Tokens.inkOnBone
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fMicro
+                            font.weight: Font.Medium
+                            font.letterSpacing: Tokens.trackLabel
+                        }
+                        HoverHandler { id: cancelHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: pg.pendingDownload = "" }
+                    }
+                    Rectangle {
+                        width: downloadText.implicitWidth + Tokens.s6
+                        height: Tokens.s6
+                        radius: Tokens.radius
+                        color: downloadHover.hovered ? Tokens.inkOnBoneDim : Tokens.inkOnBone
+                        Behavior on color { ColorAnimation { duration: Tokens.snap } }
+                        Text {
+                            id: downloadText
+                            anchors.centerIn: parent
+                            text: pg.pendingPreset
+                                ? I18n.tr("DOWNLOAD %1").arg(pg.pendingPreset.size)
+                                : I18n.tr("DOWNLOAD")
+                            color: Tokens.bone
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fMicro
+                            font.weight: Font.Medium
+                            font.letterSpacing: Tokens.trackLabel
+                        }
+                        HoverHandler { id: downloadHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler {
+                            onTapped: {
+                                var key = pg.pendingDownload;
+                                pg.pendingDownload = "";
+                                pg.download(key);
+                            }
+                        }
+                    }
+                }
             }
         }
     }

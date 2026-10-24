@@ -84,10 +84,8 @@ func TestBuildCatalogCountsAndOffline(t *testing.T) {
 	}
 }
 
-func TestBuildCatalogOfflineOnlyWhenEmpty(t *testing.T) {
-	// The store is offline to the user only when a source failed AND there is
-	// nothing to show. A source still serving items (live or cached) keeps the
-	// store online; a failed source with no items trips it.
+func TestBuildCatalogOfflineOnlyWithoutRemoteItems(t *testing.T) {
+	// Cached remote items keep the store usable even when their source is down.
 	serving := BuildCatalog(context.Background(), []Provider{fakeProvider{
 		category: Category{ID: "rices", Name: "Rices", Group: "wear"},
 		items:    []Item{{ID: "cached", Category: "rices"}},
@@ -96,12 +94,24 @@ func TestBuildCatalogOfflineOnlyWhenEmpty(t *testing.T) {
 	if serving.Offline {
 		t.Fatalf("serving cached items must keep the store online: %+v", serving)
 	}
-	empty := BuildCatalog(context.Background(), []Provider{fakeProvider{
-		category: Category{ID: "rices", Name: "Rices", Group: "wear"},
-		err:      errors.New("source unreachable"),
-	}}, false)
-	if !empty.Offline {
-		t.Fatal("a failed source with no items must flag the store offline")
+
+	// Built-in bars are local inventory, not a remote catalogue or cache. A
+	// failed remote source alongside them must still report the store offline.
+	builtinsOnly := BuildCatalog(context.Background(), []Provider{
+		fakeProvider{
+			category: Category{ID: "barstyles", Name: "Bars", Group: "wear"},
+			items: []Item{{
+				ID: "orpheus", Category: "barstyles",
+				Metadata: map[string]any{"core": true},
+			}},
+		},
+		fakeProvider{
+			category: Category{ID: "rices", Name: "Rices", Group: "wear"},
+			err:      errors.New("source unreachable"),
+		},
+	}, false)
+	if !builtinsOnly.Offline {
+		t.Fatalf("built-ins without a remote catalogue must report offline: %+v", builtinsOnly)
 	}
 }
 

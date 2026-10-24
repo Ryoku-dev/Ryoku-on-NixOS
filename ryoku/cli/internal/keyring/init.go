@@ -3,14 +3,16 @@ package keyring
 import (
 	"fmt"
 
+	"ryoku-cli/internal/sys"
 	i18n "ryoku-i18n"
 )
 
-// runInit is the first-login keyring default, run by the Hyprland autostart
-// (`ryoku keyring init`) every login. Its job is that no app ever prompts for a
-// keyring password out of the box: it records the mode for a user who has never
-// chosen one and seeds the blank, passwordless default keyring that never-ask
-// needs. Idempotent and user-side only (it never edits the root PAM stack).
+// runInit is the first-login keyring default, run by each compositor's
+// autostart (`ryoku keyring init`) every login. Its job is that no app ever
+// prompts for a keyring password out of the box: it records the mode for a user
+// who has never chosen one and seeds the blank, passwordless default keyring
+// that never-ask needs. Idempotent and user-side only (it never edits the root
+// PAM stack).
 //
 //   - Already configured -> no-op, so a user who picked a mode in Ryoku Settings
 //     keeps it.
@@ -26,6 +28,25 @@ func runInit(args []string) error {
 		return fmt.Errorf(i18n.T("usage: ryoku keyring init"))
 	}
 	if mode, ok := readConfig(); ok {
+		// Early NixOS builds looked only at /etc/pam.d/sddm. NixOS delegates
+		// that stack to /etc/pam.d/login, so a correctly PAM-wired machine was
+		// recorded as never-ask even when an encrypted login keyring already
+		// existed. Repair only that impossible combination. A deliberate blank
+		// never-ask keyring and autologin are left untouched.
+		if sys.NixBackend() && mode == ModeNeverAsk &&
+			pamPresentAt(pamFilePath()) &&
+			!autologinConfigured(sddmConfRoot()) &&
+			probeFormat(keyringFile("login")) == fmtEncrypted {
+			if _, _, err := pointDefaultAt("login"); err != nil {
+				return fmt.Errorf(i18n.T("repair default keyring: %w"), err)
+			}
+			if err := writeConfig(ModeUnlockOnLogin); err != nil {
+				return fmt.Errorf(i18n.T("repair keyring mode: %w"), err)
+			}
+			fmt.Println(i18n.T("keyring: repaired NixOS login-unlock mode"))
+			return nil
+		}
+
 		fmt.Printf(i18n.T("keyring: already configured (%s); leaving it\n"), mode)
 		return nil
 	}

@@ -443,7 +443,7 @@ func (m *playlistManager) applyKeyLocked(key string, outputs []string) {
 	if path == "" {
 		path = filepath.Join(m.d.config().wallpaperDir(), e.Name)
 	}
-	_ = m.d.applyWallpaper(typeOf(path), path, "set", outputs, nil, nil)
+	_ = m.d.applyWallpaperReason("playlist", typeOf(path), path, "set", outputs, nil, nil)
 }
 
 // resolveLocked returns the ordered member keys for a list: explicit members

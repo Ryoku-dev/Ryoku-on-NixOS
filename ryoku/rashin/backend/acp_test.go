@@ -2,8 +2,11 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -54,6 +57,7 @@ func (f *fakeAgent) update(session string, update map[string]any) {
 
 func newTestPair(t *testing.T) (*acpConn, *fakeAgent) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cr, cw := io.Pipe() // client -> agent
 	ar, aw := io.Pipe() // agent -> client
 	conn := newACPConn(cw, ar, cw)
@@ -144,11 +148,11 @@ func TestACPHandshakePromptStreamPermissionCancel(t *testing.T) {
 		t.Fatalf("chunk text %q", ev.Text)
 	}
 	ev = expectEvent(t, conn.Events(), "tool")
-	if ev.ToolID != "t1" || ev.ToolStatus != "in_progress" {
+	if ev.Tool.ID != "t1" || ev.Tool.Status != "in_progress" {
 		t.Fatalf("tool event %+v", ev)
 	}
 	ev = expectEvent(t, conn.Events(), "tool")
-	if ev.ToolStatus != "completed" {
+	if ev.Tool.Status != "completed" {
 		t.Fatalf("tool update %+v", ev)
 	}
 
@@ -164,6 +168,7 @@ func TestACPHandshakePromptStreamPermissionCancel(t *testing.T) {
 	})
 	fa.write(rpcMsg{JSONRPC: "2.0", ID: &permID, Method: "session/request_permission", Params: pp})
 
+	expectEvent(t, conn.Events(), "tool")
 	ev = expectEvent(t, conn.Events(), "permission")
 	if ev.RequestID != "77" || len(ev.Options) != 2 || ev.PermTitle != "Run ls" {
 		t.Fatalf("permission event %+v", ev)
@@ -183,6 +188,12 @@ func TestACPHandshakePromptStreamPermissionCancel(t *testing.T) {
 	if pr.Outcome.Outcome != "selected" || pr.Outcome.OptionID != "allow" {
 		t.Fatalf("permission outcome %+v", pr)
 	}
+	ev = expectEvent(t, conn.Events(), "permission_resolved")
+	if ev.RequestID != "77" || ev.Outcome != "allowed" {
+		t.Fatalf("resolved event %+v", ev)
+	}
+	// A second answer (another surface racing) is dropped, not re-sent.
+	conn.RespondPermission(77, "deny")
 
 	// Turn end.
 	fa.respond(*prompt.ID, map[string]any{"stopReason": "end_turn"})
@@ -196,6 +207,55 @@ func TestACPHandshakePromptStreamPermissionCancel(t *testing.T) {
 	cancel := fa.read()
 	if cancel.Method != "session/cancel" || cancel.ID != nil {
 		t.Fatalf("cancel frame %+v", cancel)
+	}
+}
+
+func TestACPInitializeTimesOutAndClearsPendingRequest(t *testing.T) {
+	oldTimeout := acpRequestTimeout
+	acpRequestTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { acpRequestTimeout = oldTimeout })
+	conn, agent := newTestPair(t)
+	defer conn.Close()
+
+	done := make(chan error, 1)
+	go func() { done <- conn.Initialize("/tmp/vault") }()
+	request := agent.read()
+	if request.Method != "initialize" {
+		t.Fatalf("method = %q, want initialize", request.Method)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("initialize error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("initialize did not time out")
+	}
+	conn.mu.Lock()
+	pending := len(conn.pending)
+	conn.mu.Unlock()
+	if pending != 0 {
+		t.Fatalf("pending requests after timeout = %d", pending)
+	}
+}
+
+func TestACPCloseKillsAChildThatDoesNotExit(t *testing.T) {
+	oldDelay := acpCloseKillDelay
+	acpCloseKillDelay = 10 * time.Millisecond
+	t.Cleanup(func() { acpCloseKillDelay = oldDelay })
+	killed := make(chan struct{}, 1)
+	conn := &acpConn{
+		pending: map[int64]chan rpcMsg{},
+		killProcess: func() error {
+			killed <- struct{}{}
+			return nil
+		},
+	}
+	conn.Close()
+	select {
+	case <-killed:
+	case <-time.After(time.Second):
+		t.Fatal("close did not kill the child")
 	}
 }
 
@@ -323,4 +383,332 @@ func TestACPV2ImagesModelsSessions(t *testing.T) {
 	}
 	expectEvent(t, conn.Events(), "models")
 	expectEvent(t, conn.Events(), "replay_end")
+}
+
+func stubChatProwlProfileSets(t *testing.T, lookup func(context.Context) (string, []string, error)) {
+	t.Helper()
+	previous := chatProwlProfileSets
+	chatProwlProfileSets = lookup
+	t.Cleanup(func() {
+		chatProwlProfileSets = previous
+	})
+}
+
+func hermesAdvertisedModels() []ModelInfo {
+	return []ModelInfo{
+		{ID: "openai-codex:gpt-5.6-sol", Name: "GPT 5.6 sol"},
+		{ID: "openai-codex:gpt-5.6-mini", Name: "GPT 5.6 mini"},
+		{ID: "openai-codex:gpt-5.5", Name: "GPT 5.5"},
+		{ID: "openai-codex:gpt-5.5-mini", Name: "GPT 5.5 mini"},
+		{ID: "openai-codex:gpt-5.4", Name: "GPT 5.4"},
+		{ID: "openai-codex:gpt-5.3", Name: "GPT 5.3"},
+		{ID: "openai-codex:gpt-5.2", Name: "GPT 5.2"},
+		{ID: "custom:auto", Name: "Custom endpoint · auto", Description: "Provider: Custom endpoint • current"},
+		{ID: "prowl:auto", Name: "prowl · auto", Description: "Provider: prowl"},
+		{ID: "custom:prowl:auto", Name: "auto", Description: "Provider: prowl"},
+	}
+}
+
+func hermesSessionResult(models []ModelInfo) map[string]any {
+	available := make([]map[string]string, 0, len(models))
+	for _, model := range models {
+		available = append(available, map[string]string{
+			"modelId": model.ID, "name": model.Name, "description": model.Description,
+		})
+	}
+	return map[string]any{
+		"sessionId": "s1",
+		"models": map[string]any{
+			"currentModelId":  "custom:auto",
+			"availableModels": available,
+		},
+	}
+}
+
+func TestChatOfferedModelsMergesProwlAliasesAndKeepsHarnessModels(t *testing.T) {
+	modelPickTestEnv(t)
+	lookups := 0
+	stubChatProwlProfileSets(t, func(context.Context) (string, []string, error) {
+		lookups++
+		return "Everything free", nil, nil
+	})
+	models := hermesAdvertisedModels()
+	conn := &acpConn{
+		agentID:      "hermes",
+		prowl:        chatAgentRouting{Active: true},
+		startedModel: "custom:auto",
+	}
+	conn.cacheProwlActiveSet(models)
+	conn.emitModels(modelState{models: models, current: "custom:auto", ok: true})
+
+	want := []ModelInfo{{ID: "custom:prowl:auto", Name: "Active set", Description: "Prowl · Everything free"}}
+	want = append(want, models[:7]...)
+	if got := conn.offeredModelsSnapshot(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("offered models = %#v, want %#v", got, want)
+	}
+	if lookups != 1 {
+		t.Fatalf("profile lookups = %d, want 1", lookups)
+	}
+}
+
+func TestChatOfferedModelsLookupFailureUsesPlainProwlDescription(t *testing.T) {
+	modelPickTestEnv(t)
+	stubChatProwlProfileSets(t, func(context.Context) (string, []string, error) {
+		return "", nil, errors.New("gateway unavailable")
+	})
+	models := hermesAdvertisedModels()
+	conn := &acpConn{
+		agentID:      "hermes",
+		prowl:        chatAgentRouting{Active: true},
+		startedModel: "custom:auto",
+	}
+	conn.cacheProwlActiveSet(models)
+	conn.emitModels(modelState{models: models, current: "custom:auto", ok: true})
+	got := conn.offeredModelsSnapshot()
+	if len(got) != 8 || got[0] != (ModelInfo{ID: "custom:prowl:auto", Name: "Active set", Description: "Prowl"}) {
+		t.Fatalf("offered models = %#v", got)
+	}
+}
+
+func TestModelsEventNormalizesProwlAliasCurrent(t *testing.T) {
+	models := hermesAdvertisedModels()
+	modelPickTestEnv(t)
+	conn := &acpConn{
+		agentID:      "hermes",
+		prowl:        chatAgentRouting{Active: true},
+		startedModel: "custom:auto",
+	}
+	conn.emitModels(modelState{models: models, current: "custom:auto", ok: true})
+	offered := conn.offeredModelsSnapshot()
+	if got := conn.modelsEvent(offered, "custom:auto").CurrentModel; got != "custom:prowl:auto" {
+		t.Fatalf("alias current = %q, want custom:prowl:auto", got)
+	}
+	if got := conn.modelsEvent(offered, "openai-codex:gpt-5.6-sol").CurrentModel; got != "openai-codex:gpt-5.6-sol" {
+		t.Fatalf("direct current = %q", got)
+	}
+}
+
+func TestChatOfferedModelsLeavesClaudeListUnchanged(t *testing.T) {
+	modelPickTestEnv(t)
+	stubChatProwlProfileSets(t, func(context.Context) (string, []string, error) {
+		t.Fatal("Claude must not look up Prowl's active set")
+		return "", nil, nil
+	})
+	models := []ModelInfo{
+		{ID: "anthropic:opus", Name: "Opus"},
+		{ID: "anthropic:sonnet", Name: "Sonnet"},
+	}
+	conn := &acpConn{agentID: "claude", prowl: chatAgentRouting{Active: true}}
+	conn.cacheProwlActiveSet(models)
+	conn.emitModels(modelState{models: models, current: models[0].ID, ok: true})
+	if got := conn.offeredModelsSnapshot(); !reflect.DeepEqual(got, models) {
+		t.Fatalf("offered models = %#v, want %#v", got, models)
+	}
+}
+
+func TestPendingRoutingMergesMarkedAliasesOnly(t *testing.T) {
+	modelPickTestEnv(t)
+	stubChatProwlProfileSets(t, func(context.Context) (string, []string, error) {
+		return "Everything free", nil, nil
+	})
+	models := hermesAdvertisedModels()
+	conn := &acpConn{
+		agentID:      "hermes",
+		prowl:        chatAgentRouting{Pending: true, Reason: "no provider"},
+		startedModel: "custom:auto",
+	}
+	conn.cacheProwlActiveSet(models)
+	conn.emitModels(modelState{models: models, current: "custom:auto", ok: true})
+	want := []ModelInfo{{ID: "custom:prowl:auto", Name: "Active set", Description: "Prowl · Everything free"}}
+	want = append(want, models[:8]...)
+	event := conn.modelsEvent(conn.offeredModelsSnapshot(), "custom:auto")
+	if event.Prowl != "pending" || event.ProwlReason != "no provider" || !reflect.DeepEqual(event.Models, want) {
+		t.Fatalf("models event = %#v, want %#v", event, want)
+	}
+	if event.CurrentModel != "custom:auto" {
+		t.Fatalf("current model = %q, want custom:auto", event.CurrentModel)
+	}
+}
+
+func TestSetModelSendsHarnessModelWhileRouted(t *testing.T) {
+	conn, agent := newTestPair(t)
+	defer conn.Close()
+	conn.agentID = "hermes"
+	conn.prowl = chatAgentRouting{Active: true}
+	conn.sessionID = "s1"
+	conn.sessionReady = true
+
+	done := make(chan error, 1)
+	go func() { done <- conn.SetModel("openai-codex:gpt-5.6-sol") }()
+	request := agent.read()
+	if request.Method != "session/set_model" {
+		t.Fatalf("method = %q, want session/set_model", request.Method)
+	}
+	var params struct {
+		ModelID string `json:"modelId"`
+	}
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		t.Fatal(err)
+	}
+	if params.ModelID != "openai-codex:gpt-5.6-sol" {
+		t.Fatalf("model id = %q", params.ModelID)
+	}
+	agent.respond(*request.ID, map[string]any{})
+	if err := <-done; err != nil {
+		t.Fatalf("SetModel: %v", err)
+	}
+	if got := conn.currentModelsEvent().CurrentModel; got != "openai-codex:gpt-5.6-sol" {
+		t.Fatalf("tracked current model = %q", got)
+	}
+}
+
+func TestSessionOpenReconcilesExplicitModelPick(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		method      string
+		pick        string
+		offered     []ModelInfo
+		wantSet     bool
+		unavailable bool
+	}{
+		{
+			name: "pick is applied after load", method: "session/load",
+			pick:    "openai-codex:gpt-5.6-sol",
+			offered: []ModelInfo{{ID: "openai-codex:gpt-5.6-sol", Name: "GPT 5.6 sol"}},
+			wantSet: true,
+		},
+		{
+			name: "provider prefix proves capped pick available", method: "session/new",
+			pick:    "openai-codex:gpt-6-luna",
+			offered: []ModelInfo{{ID: "openai-codex:gpt-5.5", Name: "GPT 5.5"}},
+			wantSet: true,
+		},
+		{
+			name: "absent provider keeps session model", method: "session/new",
+			pick:        "anthropic:opus",
+			offered:     []ModelInfo{{ID: "openai-codex:gpt-5.5", Name: "GPT 5.5"}},
+			unavailable: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			conn, agent := newTestPair(t)
+			defer conn.Close()
+			conn.agentID = "hermes"
+			conn.agentName = "Hermes"
+			if err := setModelPick("hermes", test.pick); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() {
+				done <- conn.openSession(test.method, map[string]any{"cwd": "/tmp/vault", "sessionId": "loaded"})
+			}()
+			request := agent.read()
+			if request.Method != test.method {
+				t.Fatalf("method = %q, want %q", request.Method, test.method)
+			}
+			result := hermesSessionResult(test.offered)
+			if test.method == "session/load" {
+				result["sessionId"] = ""
+			}
+			agent.respond(*request.ID, result)
+			if test.wantSet {
+				setRequest := agent.read()
+				if setRequest.Method != "session/set_model" {
+					t.Fatalf("method = %q, want session/set_model", setRequest.Method)
+				}
+				var params struct {
+					ModelID string `json:"modelId"`
+				}
+				if err := json.Unmarshal(setRequest.Params, &params); err != nil {
+					t.Fatal(err)
+				}
+				if params.ModelID != test.pick {
+					t.Fatalf("model id = %q, want %q", params.ModelID, test.pick)
+				}
+				agent.respond(*setRequest.ID, map[string]any{})
+			}
+			if err := <-done; err != nil {
+				t.Fatalf("open session: %v", err)
+			}
+			event := expectEvent(t, conn.Events(), "models")
+			if event.Pick != test.pick || event.PickUnavailable != test.unavailable {
+				t.Fatalf("models event = %+v", event)
+			}
+			if test.wantSet {
+				event = expectEvent(t, conn.Events(), "models")
+				if event.CurrentModel != test.pick {
+					t.Fatalf("reconciled current = %q", event.CurrentModel)
+				}
+			}
+		})
+	}
+}
+
+func TestPromptWaitsForModelReconciliation(t *testing.T) {
+	modelPickTestEnv(t)
+	conn, agent := newTestPair(t)
+	defer conn.Close()
+	conn.agentID = "hermes"
+	conn.agentName = "Hermes"
+	pick := "openai-codex:gpt-5.6-sol"
+	if err := setModelPick("hermes", pick); err != nil {
+		t.Fatal(err)
+	}
+
+	opened := make(chan error, 1)
+	go func() {
+		opened <- conn.openSession("session/new", map[string]any{"cwd": "/tmp/vault"})
+	}()
+	newRequest := agent.read()
+	if newRequest.Method != "session/new" {
+		t.Fatalf("method = %q, want session/new", newRequest.Method)
+	}
+	agent.respond(*newRequest.ID, hermesSessionResult([]ModelInfo{
+		{ID: pick, Name: "GPT 5.6 sol"},
+	}))
+	setRequest := agent.read()
+	if setRequest.Method != "session/set_model" {
+		t.Fatalf("method = %q, want session/set_model", setRequest.Method)
+	}
+
+	conn.Prompt("start after the model is ready", nil)
+	select {
+	case request := <-agent.lines:
+		t.Fatalf("sent %q before session/set_model completed", request.Method)
+	case <-time.After(125 * time.Millisecond):
+	}
+
+	agent.respond(*setRequest.ID, map[string]any{})
+	if err := <-opened; err != nil {
+		t.Fatalf("open session: %v", err)
+	}
+	promptRequest := agent.read()
+	if promptRequest.Method != "session/prompt" {
+		t.Fatalf("method = %q, want session/prompt", promptRequest.Method)
+	}
+	agent.respond(*promptRequest.ID, map[string]any{"stopReason": "end_turn"})
+}
+
+func TestModelUpdateTracksTrueCurrentModel(t *testing.T) {
+	modelPickTestEnv(t)
+	conn, _ := newTestPair(t)
+	defer conn.Close()
+	conn.agentID = "hermes"
+	conn.models = []ModelInfo{{ID: "openai-codex:gpt-6-luna", Name: "Luna"}}
+	conn.offeredModels = append([]ModelInfo(nil), conn.models...)
+	params, err := json.Marshal(map[string]any{
+		"sessionId": "s1",
+		"update": map[string]any{
+			"sessionUpdate":  "current_model_update",
+			"currentModelId": "openai-codex:gpt-6-luna",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.handleUpdate(params)
+	event := expectEvent(t, conn.Events(), "models")
+	if event.CurrentModel != "openai-codex:gpt-6-luna" {
+		t.Fatalf("updated current = %q", event.CurrentModel)
+	}
 }

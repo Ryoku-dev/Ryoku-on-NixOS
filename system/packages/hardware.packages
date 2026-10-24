@@ -39,8 +39,9 @@ intel-media-driver
 # only the ucode matching the CPU that is actually present.
 #
 # nvidia-utils is the userspace half for the Turing+ open modules, which is what
-# drivers/nvidia.sh installs on all but pre-Turing cards; on those it switches to
-# a legacy branch and pacman replaces this package as part of that transaction.
+# drivers/nvidia.sh installs on all but pre-Turing cards; on those it removes
+# this pair before installing the legacy branch, whose utils conflict with it
+# without replacing it.
 nvidia-utils
 lib32-nvidia-utils
 

@@ -35,16 +35,60 @@ func pamFilePath() string {
 func pamHasKeyring(content, kind string) bool {
 	for _, l := range strings.Split(content, "\n") {
 		f := strings.Fields(l)
-		if len(f) > 0 && f[0] == kind && strings.Contains(l, "pam_gnome_keyring.so") {
+		if len(f) > 0 &&
+			strings.TrimPrefix(f[0], "-") == kind &&
+			strings.Contains(l, "pam_gnome_keyring.so") {
 			return true
 		}
 	}
 	return false
 }
 
-// pamPresent reports whether the stack wires pam_gnome_keyring at all.
+// pamPresent reports whether one PAM stack text wires pam_gnome_keyring at all.
 func pamPresent(content string) bool {
 	return pamHasKeyring(content, "auth") || pamHasKeyring(content, "session")
+}
+
+// pamPresentAt follows auth/session include and substack edges in the same PAM
+// directory. NixOS keeps SDDM deliberately tiny and delegates to the generated
+// login stack, where pam_gnome_keyring actually lives. Looking only at sddm
+// therefore misclassifies a correctly wired NixOS login as "no PAM".
+func pamPresentAt(path string) bool {
+	return pamPresentAtSeen(path, map[string]bool{})
+}
+
+func pamPresentAtSeen(path string, seen map[string]bool) bool {
+	clean := filepath.Clean(path)
+	if seen[clean] {
+		return false
+	}
+	seen[clean] = true
+
+	raw, err := os.ReadFile(clean)
+	if err != nil {
+		return false
+	}
+	content := string(raw)
+	if pamPresent(content) {
+		return true
+	}
+
+	dir := filepath.Dir(clean)
+	for _, line := range strings.Split(content, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || (fields[0] != "auth" && fields[0] != "session") ||
+			(fields[1] != "include" && fields[1] != "substack") {
+			continue
+		}
+		service := fields[2]
+		if filepath.Base(service) != service {
+			continue
+		}
+		if pamPresentAtSeen(filepath.Join(dir, service), seen) {
+			return true
+		}
+	}
+	return false
 }
 
 // insertAfterInclude puts line immediately after the `<kind> include

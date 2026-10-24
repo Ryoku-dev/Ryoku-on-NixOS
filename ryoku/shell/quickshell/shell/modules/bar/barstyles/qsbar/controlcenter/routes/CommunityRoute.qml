@@ -262,12 +262,12 @@ Item {
                             Btn {
                                 visible: page.jobPath !== ""
                                 text: I18n.tr("OPEN FOLDER")
-                                onAct: Spawn.runApp(["xdg-open", page.jobPath])
+                                onAct: Quickshell.execDetached(["xdg-open", page.jobPath])
                             }
                             Btn {
                                 visible: page.jobUrl !== ""
                                 text: I18n.tr("OPEN PULL REQUEST")
-                                onAct: Spawn.runApp(["xdg-open", page.jobUrl])
+                                onAct: Quickshell.execDetached(["xdg-open", page.jobUrl])
                             }
                         }
                     }
@@ -322,7 +322,7 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             text: I18n.tr("OPEN RYOSTORE")
                             onAct: {
-                                Spawn.runApp(["ryostore", "open", "plugins"])
+                                Quickshell.execDetached(["ryostore", "open", "plugins"])
                                 if (page.cc) page.cc.close()
                             }
                         }

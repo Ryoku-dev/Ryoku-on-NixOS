@@ -57,3 +57,30 @@ func CopyFile(src, dst string) error {
 	}
 	return os.Rename(tmp, dst)
 }
+
+// WriteFileAtomic writes contents to path via a temp file in the same directory
+// and an atomic rename, so a reader never sees a half-written file. The
+// directory is created when missing.
+func WriteFileAtomic(path, contents string, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".ryoku-tmp-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if _, err := tmp.WriteString(contents); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
+}

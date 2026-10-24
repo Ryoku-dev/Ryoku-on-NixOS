@@ -224,7 +224,7 @@ PanelWindow {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             enabled: btPanel.adapter !== null
-                            onClicked: btPanel.adapter.enabled = !btPanel.adapter.enabled
+                            onClicked: BluetoothPower.toggle()
                         }
                     }
                     UiText {

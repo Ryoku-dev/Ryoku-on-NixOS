@@ -103,13 +103,34 @@ func liveFrame(video string) string {
 	return out
 }
 
+// livePosterPath is the stable name surfaces use for "the wallpaper as it is
+// on screen": a symlink the daemon repoints at the current clip's cached
+// still. It used to be a real file the cache prune deleted, which left every
+// glass surface over a video wallpaper reading a path that no longer exists.
+func livePosterPath() string { return filepath.Join(stateDir(), "ryoku-live-frame.png") }
+
+// publishLivePoster points the stable name at frame (the current wallpaper's
+// still) atomically: a fresh link is renamed over the old one, so a reader
+// never sees the pointer missing.
+func publishLivePoster(frame string) {
+	tmp := livePosterPath() + ".tmp"
+	_ = os.Remove(tmp)
+	if err := os.Symlink(frame, tmp); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, livePosterPath())
+}
+
 // pruneLiveFrames bounds the still cache: a 4K frame is a couple of MB and a
-// wallpaper library grows.
+// wallpaper library grows. The frame the stable poster points at is never
+// pruned, so the pointer cannot dangle.
 const liveFrameKeep = 24
 
 func pruneLiveFrames(dir string) {
-	// the one shared still this cache replaced, on a box that still carries it
-	_ = os.Remove(filepath.Join(stateDir(), "ryoku-live-frame.png"))
+	keep := map[string]bool{}
+	if target, err := os.Readlink(livePosterPath()); err == nil {
+		keep[target] = true
+	}
 	ents, err := os.ReadDir(dir)
 	if err != nil || len(ents) <= liveFrameKeep {
 		return
@@ -131,6 +152,9 @@ func pruneLiveFrames(dir string) {
 	}
 	sort.Slice(stills, func(i, j int) bool { return stills[i].mod.After(stills[j].mod) })
 	for _, s := range stills[liveFrameKeep:] {
+		if keep[s.path] {
+			continue
+		}
 		_ = os.Remove(s.path)
 	}
 }

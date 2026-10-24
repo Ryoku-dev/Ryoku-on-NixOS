@@ -12,12 +12,14 @@ import (
 // in-shell clip's audio, meaningful only for a VideoPath frame.
 
 type frameEntry struct {
-	Path       string      `json:"path"`
-	Revision   int64       `json:"revision"`
-	Fit        string      `json:"fit"`
-	Live       bool        `json:"live"`
-	Video      bool        `json:"video,omitempty"`
-	VideoPath  string      `json:"videoPath,omitempty"`
+	Path      string `json:"path"`
+	Revision  int64  `json:"revision"`
+	Fit       string `json:"fit"`
+	Live      bool   `json:"live"`
+	Video     bool   `json:"video,omitempty"`
+	VideoPath string `json:"videoPath,omitempty"`
+	// Paused freezes an in-shell clip in place without reloading the image.
+	Paused     bool        `json:"paused,omitempty"`
 	Mute       bool        `json:"mute"`
 	Volume     int         `json:"volume"`
 	Transition interface{} `json:"transition"`
@@ -46,6 +48,16 @@ func (w *wallSurface) publishLocked() {
 	f := wallFrame{Default: w.def, Outputs: map[string]frameEntry{}}
 	for k, v := range w.outputs {
 		f.Outputs[k] = v
+	}
+	if fitOverrides != nil {
+		for out, fit := range fitOverrides() {
+			e, ok := f.Outputs[out]
+			if !ok {
+				e = w.def
+			}
+			e.Fit = fit
+			f.Outputs[out] = e
+		}
 	}
 	b, err := json.Marshal(f)
 	if err != nil {
@@ -130,10 +142,9 @@ func (w *wallSurface) republish() {
 // setAudio changes the live frame's in-shell clip audio and republishes it, so a
 // running clip mutes or changes volume at once. A nil field is left untouched.
 // An empty outputs list (or "*") addresses the broadcast default and every
-// override; otherwise the named overrides plus the broadcast default (the
-// in-shell engine paints one clip across every output, so a per-output change
-// still lands on it). The revision is deliberately left alone: only the audio
-// changed, so the shell must not reload the image or restart the clip.
+// override; named updates also reach the default that an output may inherit.
+// The revision is deliberately left alone: only the audio changed, so the shell
+// must not reload the image or restart the clip.
 func (w *wallSurface) setAudio(mute *bool, volume *int, outputs []string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

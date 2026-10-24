@@ -18,9 +18,16 @@ layout(std140, binding = 0) uniform buf {
     vec4 color;
     int hasInverted;
     float invertedRadius;
+    float shadowStrength;
+    float shadowSize;
     vec4 invertedOuter;
     vec4 invertedInner;
     vec4 rectData[80];
+    vec4 borderColor;
+    float borderWidth;
+    vec4 waveInfo[4];
+    vec4 waveData[64];
+    vec4 waveColor;
 };
 
 void main() {

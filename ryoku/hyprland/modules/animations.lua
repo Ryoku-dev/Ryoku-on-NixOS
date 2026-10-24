@@ -17,7 +17,7 @@ local function readName()
     if not f then
         return "ryoku"
     end
-    local n = (f:read("l") or ""):gsub("%s+", "")
+    local n = (f:read("*l") or ""):gsub("%s+", "")
     f:close()
     if n == "" or not n:match("^[%w_]+$") then
         return "ryoku"

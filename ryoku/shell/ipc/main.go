@@ -41,12 +41,6 @@ func main() {
 		}
 		return
 	}
-	if args[0] == "__clip-ingest" {
-		// wl-paste --watch helper: read the new selection and stream it to the
-		// daemon. Internal, not a user verb.
-		runClipIngest()
-		return
-	}
 	if args[0] == "theme" && len(args) == 2 && args[1] == "catalog" {
 		// The colour-scheme catalog is static (compiled in) and larger than the
 		// daemon's 8192-byte socket reply, so print it here without a round trip;
@@ -71,6 +65,11 @@ func main() {
 		// one resolved path per line for spot checks.
 		os.Exit(runIcons(args[1:]))
 	}
+	if args[0] == "no-display-entries" {
+		// Quickshell's application model intentionally omits NoDisplay entries,
+		// but running helper windows still need their metadata and icons.
+		os.Exit(runNoDisplayEntries())
+	}
 	if args[0] == "browser-host" {
 		// WebExtension native-messaging host: the browser launches this with the
 		// manifest path as argv, then talks over stdin/stdout. Standalone, no
@@ -88,6 +87,10 @@ func main() {
 func sendCommand(line string) error {
 	conn, err := net.DialTimeout("unix", sockPath(), 2*time.Second)
 	if err != nil {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == "powerprofiles" {
+			return directPowerProfilesCLI(fields[1:])
+		}
 		return fmt.Errorf("daemon not reachable at %s (is `ryoku-shell daemon` running?)", sockPath())
 	}
 	defer conn.Close()
@@ -122,10 +125,12 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  ryoku-shell plugin <id>")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell <visualizer|visualizer-overlay>")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell lock")
+	fmt.Fprintln(os.Stderr, "  ryoku-shell suspend")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell theme [<scheme>|catalog]")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell gtk apply <light|dark>")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell voice")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell bar <list|catalog|move|show|hide|set|position|form|defaults|settings>")
+	fmt.Fprintln(os.Stderr, "  ryoku-shell powerprofiles <state|set PROFILE>")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell dock <show|hide|edge|autohide|pin|unpin|list>")
 	fmt.Fprintln(os.Stderr, "  ryoku-shell <reload|status|ping|quit>")
 }

@@ -1,6 +1,7 @@
 package wm
 
 import (
+	"bytes"
 	"net"
 	"os"
 	"os/exec"
@@ -17,7 +18,34 @@ import (
 const (
 	ProviderHyprland = "hyprland"
 	ProviderNiri     = "niri"
+	ProviderMango    = "mango"
 )
+
+// RetiredCompositorArtifacts names the state a removed provider left on
+// packaged systems. It is not a selectable provider; update and doctor use it
+// only to move old installations onto a supported variant and remove residue.
+type RetiredCompositorArtifacts struct {
+	VariantPackage string
+	Packages       []string
+	ConfigDir      string
+	ProviderBinary string
+	SessionHandle  string
+}
+
+func RetiredCompositor() RetiredCompositorArtifacts {
+	// NixOS keeps MangoWM as a supported third provider. Upstream Arch retired
+	// it, but there is no retired compositor to migrate on this port. Keep the
+	// API so shared doctor/updater code stays in sync with upstream.
+	return RetiredCompositorArtifacts{}
+}
+
+// RetiredCompositorLive is deliberately conservative: a process carrying the
+// retired session handle may still belong to that session, so cleanup waits
+// until the user is in a supported one.
+func RetiredCompositorLive() bool {
+	handle := RetiredCompositor().SessionHandle
+	return handle != "" && strings.TrimSpace(os.Getenv(handle)) != ""
+}
 
 type Detection struct {
 	Name string
@@ -47,6 +75,20 @@ var envProviders = []struct {
 	{"HYPRLAND_INSTANCE_SIGNATURE", ProviderHyprland, hyprlandSockets},
 	// niri exports the socket path itself.
 	{"NIRI_SOCKET", ProviderNiri, func(h string) []string { return []string{h} }},
+	// Mango exports its IPC socket path directly.
+	{"MANGO_INSTANCE_SIGNATURE", ProviderMango, func(h string) []string { return []string{h} }},
+}
+
+// SessionHandles names the environment variables a compositor session carries
+// as its live IPC handle. Consumers that clean or clear the session environment
+// (the login cutover, tests) derive the names here instead of repeating them:
+// the seam owns which handles prove which session.
+func SessionHandles() []string {
+	out := make([]string, 0, len(envProviders))
+	for _, p := range envProviders {
+		out = append(out, p.env)
+	}
+	return out
 }
 
 // Hyprland's socket dir survives the instance that made it, so the path
@@ -61,6 +103,12 @@ func hyprlandSockets(sig string) []string {
 
 // handleAlive dials the handle's socket. A refused or missing socket means the
 // session it names has exited.
+// managerEnvironment reads the systemd user manager environment. Ryoku's
+// compositor bootstrap deliberately imports the live session there before it
+// starts shell services, while commands launched later can lack the compositor
+// variables in their own inherited environment. Keep this best-effort so
+// chroots, non-systemd sessions and install-time tools retain the normal
+// process-environment/config-tree fallbacks. A var keeps detection testable.
 var managerEnvironment = func() map[string]string {
 	out := map[string]string{}
 	b, err := exec.Command("systemctl", "--user", "show-environment").Output()
@@ -95,6 +143,7 @@ func handleAlive(sockets []string) bool {
 var configDirs = map[string]string{
 	ProviderHyprland: "hypr",
 	ProviderNiri:     "niri",
+	ProviderMango:    "mango",
 }
 
 func ConfigDir(name string) string { return configDirs[name] }
@@ -120,6 +169,7 @@ func LeafScriptsDir(name string) string {
 var configEntries = map[string]string{
 	ProviderHyprland: "hyprland.lua",
 	ProviderNiri:     "config.kdl",
+	ProviderMango:    "config.conf",
 }
 
 // ConfigEntry returns the entry point of a provider's config tree as a path
@@ -131,6 +181,25 @@ func ConfigEntry(name string) string {
 	}
 	return dir + "/" + leaf
 }
+
+// gpuPinFile is the file each provider's ryoku-gpu writer owns inside the
+// config tree: the drop-in the compositor reads for its render-device order.
+// Empty for a provider that picks its own device (niri), for which a mode
+// write has no effect and the installer skips it.
+var gpuPinFile = map[string]string{
+	ProviderHyprland: "gpu.lua",
+	ProviderMango:    "gpu.conf",
+}
+
+// GpuPinFile returns a provider's render-pin file inside its config dir, or
+// "" when the compositor has no ryoku-gpu writer.
+func GpuPinFile(name string) string { return gpuPinFile[name] }
+
+// GpuPinStore is the canonical policy store every mode write lands in and
+// every reader (the Hub GPU page, doctor, the login persist) audits: the
+// Hyprland drop-in, because the policy predates the seam and the other
+// providers mirror it into their own dialect.
+func GpuPinStore() string { return configDirs[ProviderHyprland] + "/gpu.lua" }
 
 // configSeeds are the per-machine files under a provider's config dir that are
 // seeded once and then owned by the machine: the runtime rewrites them (display
@@ -144,7 +213,8 @@ var configSeeds = map[string][]string{
 	// monitors_user.kdl by name and a missing include is a hard config error,
 	// so the file has to exist from first boot. Being a seed is also what stops
 	// an update re-laying it over a user's edits.
-	ProviderNiri: {"monitors.kdl", "gpu.kdl", "keyboard.kdl", "user.kdl", "monitors_user.kdl"},
+	ProviderNiri:  {"monitors.kdl", "gpu.kdl", "keyboard.kdl", "user.kdl", "monitors_user.kdl"},
+	ProviderMango: {"monitors.conf", "gpu.conf", "keyboard.conf", "user.conf", "monitors_user.conf"},
 }
 
 // ConfigSeeds returns the seeded, machine-owned files for a provider, as paths
@@ -186,6 +256,7 @@ func ConfigUserOwned(name string) []string {
 var configFiles = map[string][]string{
 	ProviderHyprland: {"hypr/user.lua", "hypr/monitors_user.lua", "hypr/modules"},
 	ProviderNiri:     {"niri/user.kdl", "niri/monitors_user.kdl"},
+	ProviderMango:    {"mango/user.conf", "mango/monitors_user.conf"},
 }
 
 // generatedConfig are the files a provider's apply authors from the store, as
@@ -193,8 +264,9 @@ var configFiles = map[string][]string{
 // copy the updater re-lays. A pure function of the store, so clearing the store
 // clears these, and a reset that restores pure defaults removes them.
 var generatedConfig = map[string][]string{
-	ProviderHyprland: {"hypr/settings.lua", "hypr/rebinds.lua", "ryoku/user_edits/hypr/settings.lua", "ryoku/user_edits/hypr/rebinds.lua"},
+	ProviderHyprland: {"hypr/settings.lua", "hypr/settings_window.lua", "hypr/rebinds.lua", "ryoku/user_edits/hypr/settings.lua", "ryoku/user_edits/hypr/settings_window.lua", "ryoku/user_edits/hypr/rebinds.lua"},
 	ProviderNiri:     {"niri/settings.kdl", "niri/rebinds.kdl", "ryoku/user_edits/niri/settings.kdl", "ryoku/user_edits/niri/rebinds.kdl"},
+	ProviderMango:    {"mango/settings.conf", "mango/rebinds.conf", "ryoku/user_edits/mango/settings.conf", "ryoku/user_edits/mango/rebinds.conf"},
 }
 
 // ConfigFiles are a provider's user-editable config paths (the hand-edit escape
@@ -209,6 +281,44 @@ func GeneratedConfig(name string) []string {
 	return append([]string(nil), generatedConfig[name]...)
 }
 
+const generatedBaselineMarkerPrefix = "# ryoku-baseline-sha256="
+
+// GeneratedConfigBaselineMarker identifies a provider render with the baseline
+// it was composed from. Providers without a whole-file baseline return no mark.
+func GeneratedConfigBaselineMarker(name string, baseline []byte) string {
+	return ""
+}
+
+// GeneratedConfigIsRender distinguishes provider-authored output from a
+// user_edits fork. The legacy header keeps pre-marker renders upgradeable.
+func GeneratedConfigIsRender(name string, body []byte) bool {
+	return false
+}
+
+// GeneratedConfigStale reports whether an existing whole-file render was
+// composed from a different shipped baseline. A missing baseline means the
+// provider is not shipped by this config base, so its retained tree is left
+// alone.
+func GeneratedConfigStale(name, baseConfigDir, configHome string) bool {
+	entry := ConfigEntry(name)
+	if entry == "" {
+		return false
+	}
+	baseline, err := os.ReadFile(filepath.Join(baseConfigDir, entry))
+	if err != nil {
+		return false
+	}
+	mark := GeneratedConfigBaselineMarker(name, baseline)
+	if mark == "" {
+		return false
+	}
+	rendered, err := os.ReadFile(filepath.Join(configHome, entry))
+	if err != nil {
+		return false
+	}
+	return !bytes.HasPrefix(rendered, []byte(mark+"\n"))
+}
+
 // ResetPaths are the config files a factory reset removes for a provider, as
 // paths relative to ~/.config: its generated config and its hand-edit files. It
 // never names the per-machine seeds (the display, GPU and keyboard pins), which
@@ -221,7 +331,130 @@ func ResetPaths(name string) []string {
 
 // Providers is stable order, so generated config and installer prompts do not
 // reshuffle between runs.
-func Providers() []string { return []string{ProviderHyprland, ProviderNiri} }
+func Providers() []string {
+	return []string{ProviderHyprland, ProviderNiri, ProviderMango}
+}
+
+// compositorBins is the executable each provider's session runs. Named in the
+// seam because nothing outside it may know a compositor's shape; its absence
+// means the greeter would offer a session that cannot start.
+var compositorBins = map[string]string{
+	ProviderHyprland: "Hyprland",
+	ProviderNiri:     "niri",
+	ProviderMango:    "mango",
+}
+
+// VariantPackage returns the package that owns a known provider's Ryoku
+// desktop variant.
+func VariantPackage(name string) string {
+	if compositorBins[name] == "" {
+		return ""
+	}
+	return "ryoku-desktop-" + name
+}
+
+// SessionOffered reports whether a greeter entry in dirs launches the
+// provider's installed compositor executable. Session filenames are not
+// authoritative: distribution packages may choose their own names.
+func SessionOffered(name string, dirs []string) bool {
+	bin := compositorBins[name]
+	if bin == "" {
+		return false
+	}
+	if _, err := exec.LookPath(bin); err != nil {
+		return false
+	}
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".desktop" {
+				continue
+			}
+			body, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			if err == nil && desktopEntryLaunches(body, bin) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func desktopEntryLaunches(body []byte, bin string) bool {
+	inDesktopEntry := false
+	binBytes := []byte(bin)
+	for len(body) > 0 {
+		line := body
+		if i := bytes.IndexByte(body, '\n'); i >= 0 {
+			line, body = body[:i], body[i+1:]
+		} else {
+			body = nil
+		}
+		line = bytes.TrimSpace(line)
+		if len(line) >= 2 && line[0] == '[' && line[len(line)-1] == ']' {
+			inDesktopEntry = bytes.Equal(line, []byte("[Desktop Entry]"))
+			continue
+		}
+		if !inDesktopEntry || len(line) == 0 || line[0] == '#' {
+			continue
+		}
+		key, value, ok := bytes.Cut(line, []byte{'='})
+		if !ok || (!bytes.Equal(key, []byte("TryExec")) && !bytes.Equal(key, []byte("Exec"))) {
+			continue
+		}
+		value = bytes.TrimSpace(value)
+		end := 0
+		for end < len(value) && value[end] != ' ' && value[end] != '\t' {
+			end++
+		}
+		executable := bytes.Trim(value[:end], `"'`)
+		if slash := bytes.LastIndexByte(executable, '/'); slash >= 0 {
+			executable = executable[slash+1:]
+		}
+		if bytes.Equal(executable, binBytes) {
+			return true
+		}
+	}
+	return false
+}
+
+// sessionEntryDirs are the directories a greeter lists wayland-session entries
+// from: SDDM's configured SessionDir first, then the XDG data dirs every
+// greeter scans. A var so a test can point the scan at a sandbox tree.
+var sessionEntryDirs = func() []string {
+	dirs := []string{"/usr/local/share/wayland-sessions", "/usr/share/wayland-sessions"}
+	for _, d := range filepath.SplitList(os.Getenv("XDG_DATA_DIRS")) {
+		if d != "" {
+			dirs = append(dirs, filepath.Join(d, "wayland-sessions"))
+		}
+	}
+	return dirs
+}
+
+// SessionGap names what stops this provider from being entered at the greeter
+// right now, "" when nothing does: "compositor" when its binary is not
+// installed, "entry" when no greeter directory holds its session file. The
+// switch asks before promising "log out and pick it": a provider deployed
+// from a checkout has its binary and its config tree but may still have no
+// compositor and no greeter entry, and the promise is then false.
+func SessionGap(name string) string {
+	if _, err := exec.LookPath(compositorBins[name]); err != nil {
+		return "compositor"
+	}
+	entry := name + ".desktop"
+	for _, d := range sessionEntryDirs() {
+		if _, err := os.Stat(filepath.Join(d, entry)); err == nil {
+			return ""
+		}
+	}
+	return "entry"
+}
+
+// SessionReady reports whether picking this provider at the greeter now would
+// start a session: its compositor is installed and a greeter lists its entry.
+func SessionReady(name string) bool { return SessionGap(name) == "" }
 
 // Detect resolves the active provider: RYOKU_WM so a developer can drive one
 // without that session, then a live session handle, then XDG_CURRENT_DESKTOP,
@@ -235,6 +468,12 @@ func Detect() Detection {
 			return Detection{Name: p.name, Live: true, Source: p.env}
 		}
 	}
+	// A graphical command can be launched without the compositor variables even
+	// though Ryoku already imported them into systemd --user. Consult that
+	// authoritative session environment before falling back to a config tree;
+	// otherwise a machine carrying all three provider configs always reports the
+	// first one (Hyprland), regardless of what is actually running. Require the
+	// advertised IPC handle to answer so stale manager variables cannot win.
 	managerEnv := managerEnvironment()
 	for _, p := range envProviders {
 		if h := managerEnv[p.env]; h != "" && handleAlive(p.socket(h)) {

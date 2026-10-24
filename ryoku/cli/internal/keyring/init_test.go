@@ -2,6 +2,7 @@ package keyring
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -77,5 +78,34 @@ func TestInitLeavesEncryptedKeyringIntact(t *testing.T) {
 	}
 	if probeFormat(keyringFile("Default_Keyring")) != fmtEncrypted {
 		t.Fatal("init must leave the encrypted keyring intact")
+	}
+}
+
+func TestInitRepairsLegacyNixNeverAskState(t *testing.T) {
+	pam := sandbox(t, "auth substack login\nsession include login\n")
+	useFake(t)
+	t.Setenv("RYOKU_UPDATE_BACKEND", "nix")
+
+	loginPam := filepath.Join(filepath.Dir(pam), "login")
+	if err := os.WriteFile(loginPam, []byte("auth optional /nix/store/example/lib/security/pam_gnome_keyring.so\nsession optional /nix/store/example/lib/security/pam_gnome_keyring.so auto_start\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	enc := append(append([]byte{}, encryptedMagic...), 0x00)
+	if err := os.WriteFile(keyringFile("login"), enc, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seedDefault(t, "login")
+	if err := writeConfig(ModeNeverAsk); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runInit(nil); err != nil {
+		t.Fatalf("init repair: %v", err)
+	}
+	if mode, ok := readConfig(); !ok || mode != ModeUnlockOnLogin {
+		t.Fatalf("legacy Nix state must migrate to unlock-on-login, got %q configured=%v", mode, ok)
+	}
+	if probeFormat(keyringFile("login")) != fmtEncrypted {
+		t.Fatal("migration must preserve the encrypted login keyring")
 	}
 }

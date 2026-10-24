@@ -626,27 +626,26 @@ def edit_flake(
 
 
 def main() -> int:
-    if len(sys.argv) != 4:
+    input_only = len(sys.argv) == 4 and sys.argv[1] == "--input-only"
+    if input_only:
+        path = Path(sys.argv[2])
+        source = sys.argv[3]
+        host = ""
+    elif len(sys.argv) == 4:
+        path = Path(sys.argv[1])
+        host = sys.argv[2]
+        source = sys.argv[3]
+    else:
         print(
-            "usage: ryoku-install-edit.py FLAKE HOST SOURCE",
+            "usage: ryoku-install-edit.py [--input-only] FLAKE [HOST] SOURCE",
             file=sys.stderr,
         )
         return 2
 
-    path = Path(sys.argv[1])
-    host = sys.argv[2]
-    source = sys.argv[3]
-
     try:
         text = path.read_text()
 
-        path.write_text(
-            edit_flake(
-                text,
-                host,
-                source,
-            )
-        )
+        path.write_text(add_input(text, source) if input_only else edit_flake(text, host, source))
 
     except EditError as exc:
         print(

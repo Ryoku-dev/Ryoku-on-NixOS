@@ -3,11 +3,10 @@ import QtQuick
 import Ryoku.Ui.Singletons
 
 // One shortcut line: description on the left, its key caps ("+"-joined) on the
-// right. A row is a single line at rest; on hover, or while the sheet is
-// searching, its one-sentence hint drops in as a muted second line, so the sheet
-// stays calm to skim yet explains itself on demand. A bind the running
-// compositor cannot honour still lists, dimmed, with a small tag that names the
-// reason on hover. No rules or fills -- the rows are spaced, not packed.
+// right. A row is one line at rest; on hover, or while Kit is searching, its
+// one-sentence hint drops in as a muted second line. A bind the running
+// compositor cannot honour still lists, dimmed, with a small tag naming the
+// reason on hover. No rules or fills: the rows are spaced, not packed.
 Item {
     id: row
 
@@ -17,8 +16,7 @@ Item {
     // A short reason, set only when the running compositor cannot express this
     // bind. Empty means the bind is honoured.
     property string unhonored: ""
-    // The sheet is searching: reveal every shown row's hint, not just the hovered
-    // one, so a match reads with its full sentence.
+    // Kit search reveals the full sentence for every matching row.
     property bool searching: false
 
     readonly property bool unavailable: row.unhonored.length > 0

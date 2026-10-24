@@ -1,7 +1,406 @@
 # Changelog: ryoku/hub/
 
+## Unreleased
+
+### Fixed
+- **The sidebar identifies a CachyOS install as RYOKU CACHYOS.** It reads the
+  reported distribution before falling back to the package manager, so
+  CachyOS no longer appears as RYOKU ARCH (`quickshell/Hub.qml`).
 
 ### Added
+- **General manages people on this computer.** The Users tab lists local
+  accounts, sign-in state, roles, permissions and home storage, and lets an
+  administrator add or remove people, reset passwords and set storage limits
+  through the host account seam (`quickshell/pages/users/`,
+  `quickshell/pages/GlobalPage.qml`, `quickshell/Singletons/Host.qml`).
+- **App Launcher hides apps and offers more controls for store launchers.**
+  A Hidden apps card lists every installed app with a switch, so the launcher
+  stops showing entries you never open without editing any `.desktop` file.
+  A store launcher can also ask for an Overlay opacity slider, a Grid card
+  (columns and tile width), a Sections card to order or hide its section
+  chips, and a Favorites picker that pins apps first. A launcher declares what
+  it honours in a `settings.json` beside its `Main.qml`
+  (`quickshell/pages/LauncherPage.qml`, `quickshell/AppSetPicker.qml`,
+  `quickshell/SectionsEditor.qml`, `quickshell/LauncherSettings.js`,
+  `quickshell/schema/LauncherPage.js`).
+- **Bar Studio marks the heavier bar styles.** QS Bar, Python, Nomarchy, Shima
+  and Sumi now say they may need more CPU, GPU and memory; Orpheus and Kairos,
+  the two styles kept light, carry no mark. The tier comes from the RyoStore
+  catalogue, so store styles stay unmarked
+  (`quickshell/pages/StoreDesignGallery.qml`).
+- **Overlays chooses shell surface designs.** The new Desktop > Overlays page
+  wears installed RyoStore designs for pop-ups, notification cards and the
+  Super+Escape panel, previews each surface, and keeps Bar Studio's style
+  gallery on the same shared catalogue component
+  (`quickshell/pages/OverlaysPage.qml`,
+  `quickshell/pages/StoreDesignGallery.qml`,
+  `quickshell/pages/BarStudioPage.qml`, `quickshell/Hub.qml`).
+- **Deck frost has an on/off switch.** Desktop > General gains a Deck frost
+  switch for the blur and dim behind open windows, on Hyprland and niri alike;
+  the strength slider shows only while it is on. The slider now saves too: it
+  was missing from the page's defaults, so Save never wrote it
+  (`quickshell/schema/DesktopPage.js`, `quickshell/Hub.qml`).
+- **Add-ons reads part availability from the actuator.** The bundle card and
+  sheet take each part's availability and reason from `ryostore-install
+  status` instead of probing every package with `ryoku-host pkg available`,
+  so the Hub and the Store agree on what an edition can install, and Bar
+  studio and Launcher tag a product an edition cannot have *Not on this
+  system* (`quickshell/pages/AddonsPage.qml`).
+- **App Launcher shows launchers from RyoStore.** The style switch becomes a
+  gallery of every launcher: the shipped six and each RyoStore launcher, tagged
+  STORE (selectable once installed, with UPDATE when a newer version is out),
+  plus BROWSE RYOSTORE. A store launcher previews with its own `Preview.qml`, or
+  its store art when it has none, and picking and saving it works as for a
+  shipped one (`quickshell/pages/LauncherPage.qml`).
+- **Credits name Ron's Ryoku Discord theme.** The projects list gains
+  ryoku-discord by Ron (niqqudim), the default Discord theme, and the root
+  NOTICE records its MIT license and midnight lineage
+  (`quickshell/pages/CreditsPage.qml`, `../../NOTICE`).
+- **Dictation offers Redux Multilingual.** On systemd desktops the Dictation
+  page lists Redux, a fast Parakeet model for 25 European languages that runs
+  through a resident worker. Picking it builds the speech runtime from pinned
+  source on the machine and downloads the checksum-pinned model; the card shows
+  each step and one progress bar while the build stays at low priority, and
+  every installing model can be cancelled. Switching away keeps Redux for a
+  quick return and stops its worker. Contributed by Sipper1236, whose MIT
+  adapter ships unmodified and is credited on Credits and in `NOTICE`
+  (`backend/voxtype_install.go`, `backend/voxtype_redux.go`,
+  `backend/assets/redux/`, `quickshell/pages/DictationPage.qml`,
+  `../../docs/dictation.md`).
+- **General can choose the icon theme.** The picker lists installed icon themes
+  by their own names, leaves cursor-only and hidden themes out, and applies the
+  choice together to GNOME settings, GTK 3/4, Qt 6, KDE apps and the Ryoku
+  shell (`quickshell/pages/IconThemeSettings.qml`, `backend/icon_theme.go`).
+- **General has a Sounds tab.** Turn the desktop's sounds on or off, set
+  their volume, and for each one (notifications, charger plugged and
+  unplugged, low and full battery, USB devices, screenshots, volume keys) play
+  it, choose your own audio file, go back to the built-in sound or switch it
+  off. The language, region, location and font rows sit under Region & fonts
+  (`quickshell/pages/SoundsSettings.qml`, `quickshell/pages/SoundEventRow.qml`).
+- **Window Manager can install optional package-backed features.** Its generic
+  install row opens a privileged package install in a terminal, then starts the
+  feature without waiting for the next login (`quickshell/SettingsSheet.qml`).
+- **Desktop > Notifications can show notification images.** The new switch
+  writes the shell's opt-in image setting; off keeps the shipped text-only
+  notification look (`quickshell/schema/DesktopPage.js`).
+- **Window Manager can size the Settings window.** Each compositor's page
+  offers Full page or a centred percentage-based custom size that stays large
+  enough for the Settings layout; on niri Full page preserves its existing
+  normal column (`../wm/{hyprland,niri,wayfire}/schema.json`).
+- **Connections > Phone.** One switch installs or removes everything the phone
+  feature needs on Arch, CachyOS, Fedora and Void (KDE Connect, scrcpy, adb,
+  v4l2loopback and the helpers). The card says where the phone stands
+  ("Connected to Pixel 8 · 72%") and opens Kit's Phone tab, where setup and
+  everyday use live; below it sit the notification, mirroring, webcam and
+  microphone settings, with everything else in a collapsed Advanced drawer
+  (`quickshell/pages/PhoneConnectionTab.qml`, `backend/phone.go`).
+- **Credits name the Kit and Phone sources.** ii-p3drovfx now credits Kit and
+  Phone as well, and Monkeytype is listed for the typing test's words and sounds
+  (`quickshell/pages/CreditsPage.qml`, `../../NOTICE`).
+- **The Rashin switch owns the package.** On every edition, switching Rashin
+  off on its page now stops the agent and removes `ryoku-rashin` through the
+  host seam (the polkit prompt, no terminal), and switching it on installs the
+  package when it is absent and starts the agent with the desktop. Both
+  directions re-author the compositor config, so the Ask bar and Rashin window
+  shortcuts leave and return with the package, and record the choice in the
+  provisioning ledger so the doctor never delivers Rashin a second time
+  (`ryoku-hub rashin status|on|off`, `quickshell/pages/RashinPage.qml`).
+- **Keybinds can be removed and restored.** Each shipped shortcut has a control
+  that switches its action off without hiding the row, then restores it in one
+  press (`quickshell/pages/KeybindsPage.qml`).
+- **`ryoku-hub lighting follow <device>|--all on|off`.** One verb puts a device
+  on the palette accent in a mode that can show it (its Static mode, else a
+  Direct or Custom per-LED mode), names devices whose modes carry no colour
+  instead of adopting them, and hands devices back. Every report marks each
+  device `following` (`backend/lighting.go`).
+- **The Hub speaks to every edition through `ryoku-host`.** A `Host` singleton
+  reads `ryoku-host capabilities` (package manager, init, snapshots, AUR), and
+  schema rows can gate on it with `hostCaps` the way they gate on compositor
+  capabilities. Snapshots, keymap and initramfs rebuilds, power profiles,
+  network helpers, Bluetooth, fingerprint PAM, install dates, Rashin and
+  Dictation services, Add-ons repairs and config imports now go through the
+  host seam on Arch, CachyOS, Fedora and Void. A control the edition cannot
+  back is shown disabled with the reason instead of failing when used.
+- **Credits now name QS Bar's source.** Quickshell Rise by HANCORE-linux joins
+  the Hub credits and root provenance notice
+  (`quickshell/pages/CreditsPage.qml`, `../../NOTICE`).
+- **Credits name ii-p3drovfx as the ii dock's source too.** The row that
+  already credited the shell for the Stage Editor now names the dock design
+  beside it (`quickshell/pages/CreditsPage.qml`, `../../NOTICE`).
+- Global > Language & Region offers a 24-hour time switch for all Ryoku clocks; off selects 12-hour time with AM/PM.
+- Battery settings include low-battery alerts, independent warning and critical
+  switches and percentages, and a test notification. Either reminder can run
+  alone. Changes apply immediately and critical always stays
+  below warning (`quickshell/pages/BatteryAlertsSettings.qml`).
+
+### Changed
+- **Compositor switching recognises complete checkout deployments.** A desktop
+  with a working provider, config and greeter session remains switchable when
+  its variant package is not published for the host; published targets that are
+  not deployed still install through `ryoku wm use`. Session cards now grey out
+  commands or environment variables with a reason instead of editing settings
+  the running provider cannot apply (`backend/wm.go`,
+  `quickshell/Compositor*.qml`, `quickshell/pages/SessionPage.qml`).
+- **Fedora settings use the host's real capabilities.** Updates run through
+  DNF, package-backed controls use the host seam, AUR actions stay unavailable,
+  and the Updates page hides snapshot rollback with the Fedora GRUB reason
+  instead of offering a dead action. Power profile controls go through the shell
+  daemon, so they work with tuned-ppd or power-profiles-daemon.
+- **Updates stays clear when snapshots are unavailable.** The page shows the
+  host's short snapshot note near its header and hides snapshot ids, rollback
+  copy and the rollback action. GPU changes and config imports keep their file
+  backups but skip their best-effort snapper calls on those hosts
+  (`quickshell/Singletons/Updates.qml`, `quickshell/pages/UpdatesPage.qml`,
+  `quickshell/pages/UpdateRun.qml`, `backend/gpuapply.go`,
+  `backend/import_apply.go`).
+- **The fastfetch readout's palette is owned by the Hub backend.** `ryoku-hub
+  fastfetch effective` copies the user's config verbatim in fixed mode and
+  rebuilds it tinted with the live Material palette in wallpaper mode, so the
+  terminal readout follows the wallpaper like the other themed surfaces and a
+  retint never rewrites the user's layout. A sidecar records which mode produced
+  the effective config, so returning to the default rebuilds it (`backend/fastfetch.go`).
+- **Add-ons is a library of what you installed, not a wall of toggles.**
+  Desktop widgets no longer appear there; they are managed in Desktop. Shell
+  add-ons (bar glyphs, popouts, panels) and bundles are cards in a grid with
+  their kind, version or component count, state, settings and remove or
+  repair, under a header that counts what is installed. Clicking a bundle
+  opens a sheet listing every component, installed and missing, with Repair
+  and Remove. With Nomarchy as the bar style an Omarchy section lists the
+  installed Omarchy plugins with enable, remove and a link to the market
+  (`quickshell/pages/AddonsPage.qml`, `quickshell/pages/Addon*.qml`).
+- **Rices can ship with Ryoku.** The picker merges packaged looks from
+  `/usr/share/ryoku/rices` with the user's library, prefers a user rice when
+  slugs match, and copies a packaged rice into the user library before applying
+  it. A rice can also carry provider-specific window sections while its shared
+  look continues to apply everywhere (`backend/rice.go`).
+- **The Rashin page shows Prowl.** Beside the master switch the page reports
+  Prowl's gateway (running and its address, or why it is not) instead of
+  Hermes's model, and connecting an agent now says it routes that agent's models
+  through Prowl (`quickshell/pages/RashinPage.qml`).
+### Fixed
+- **Profile export, decor guidance and image pickers follow the localized
+  Pictures folder.** Exporting the profile card and browsing launcher art used
+  a hardcoded `~/Pictures`, while the Fastfetch emblem picker and decor guidance
+  still pointed there. A localized desktop could therefore grow a second
+  Pictures folder or miss Store-installed art. They now resolve it through
+  `Paths.picturesDir` (`XDG_PICTURES_DIR`), as does the shared `Ryodecors`
+  singleton that Decor and Placard render from
+  (`quickshell/pages/{ProfilePage,FastfetchPage,LauncherPage,HeroEditor}.qml`,
+  `ui/Singletons/Paths.qml`, `ui/Singletons/Ryodecors.qml`).
+- **Palette Bridge controls only enable for a complete installation.** Status
+  now follows the supplemental Matugen template locations and requires both the
+  packaged daemon and recipes, instead of showing setup actions that could only
+  fail (`backend/palettebridge.go`).
+- **Bluetooth stays off after reboot.** Connections now sends adapter power
+  changes through `ryoku-bluetooth-power`, so the Hub records the user's choice
+  instead of changing only BlueZ's temporary `Powered` property
+  (`quickshell/pages/ConnectionsPage.qml`).
+- **The blur and dim behind open windows switches off from General.** Its
+  switch sat on the Desktop page as *Deck frost*, where nobody looking for it
+  would find it. It now lives on General > Appearance as *Blur and dim behind
+  windows*, with its strength beside it, and the Hub search reaches it and
+  every other General setting (`quickshell/schema/GlobalPage.js`,
+  `quickshell/schema/DesktopPage.js`, `quickshell/pages/GlobalPage.qml`,
+  `quickshell/Hub.qml`).
+- **A rice is an exact copy of the desktop it was saved from.** Saving one
+  records the desktop widgets that desktop shows and where, including a
+  desktop edited on its own output, so the rice looks the same on a machine
+  whose screens have other names. Applying a rice leaves exactly its widgets:
+  any desktop or plugin widget it does not have switches off, and a rice with
+  none clears the desktop instead of keeping the old ones. Applying a shipped
+  rice also brings an untouched earlier copy of it up to the version the
+  package ships, so fixes to Default and NOC reach boxes that applied them
+  before; a rice you saved over stays yours (`backend/rice.go`).
+- **Saving a rice keeps its wallpaper after Ryogami optimises the image.**
+  Capture follows Ryogami's current wallpaper when the recorded file was
+  replaced by its WebP copy, and says so when it finds none. Applying a rice
+  whose wallpaper already sits in the wallpaper folder no longer copies it
+  again (`backend/rice.go`).
+- **Animation controls keep their names and copy inside each card.** Motion feel
+  chips wrap before the starting-point hint, curve notes use the room beside the
+  editor, and Advanced rows move their controls below the animation name when a
+  narrow column cannot hold both (`quickshell/pages/AnimationsPage.qml`).
+- **Global resets stay on the Global page, and Save says when it applies.**
+  Reset restores only language, region, location and font choices instead of
+  also changing the bar style or other pages. The window settings page now says
+  that Save applies its changes immediately.
+- **System and terminal fonts are separate choices.** Global keeps the
+  proportional UI face independent from a terminal monospace face, defaulting
+  the latter to JetBrainsMono Nerd Font.
+- **Battery alert controls stay off battery-less machines.** The Machine page
+  hides the Battery card on desktops and virtual machines unless the hardware
+  exposes a battery or battery tuning controls.
+- **Desktop has a Deck frost slider.** Its full 0 to 100 percent range writes
+  the validated shell setting, and zero turns the effect off.
+- **Lighting writes land on the intended device with OpenRGB 1.0.** The SDK
+  client spoke protocol 5 and addressed devices by list position. OpenRGB 1.0
+  (Arch, CachyOS, Void) routes protocol-5 writes through controller IDs, so
+  after a hotplug or a detection pass the accent painted another device or
+  nothing. The client now speaks protocol 6 with controller IDs and write
+  acknowledgements, and keeps protocol 5 for Fedora's OpenRGB 1.0~rc2
+  (`backend/openrgb.go`).
+- **Interface scale is editable in Global.** The whole shell reads the one
+  `fontScale` value that scales every surface and popout, but no Hub control
+  reached it: a hand-set value silently reverted to the factory 1.3 on a stale
+  save, and a 1440p desktop popped its surfaces to 1.73x with nothing to fix it
+  from (#333). Global > Font now carries an Interface scale slider, stored
+  through the same shell preference the launcher and sidebar read, so a Save
+  keeps the user's value and nothing resurrects the factory default.
+- **Unavailable desktops no longer start a switch.** The Hub keeps them visible
+  and says why they cannot be installed on this system.
+- On Void, Dictation and GPU passthrough say why they are unavailable instead of failing when you try them.
+- **Hub settings that touch services and packages work on Void.** The
+  keyboard layout, GPU mode, lighting, the palette bridge, the shell
+  preference and the Window Manager page go through `ryoku-host` instead of
+  `systemctl` and `pacman`. Voxtype, which only exists in the AUR, shows as
+  unavailable on Void instead of failing (`backend/`). The sidebar header
+  reads RYOKU VOID there instead of RYOKU ARCH (`quickshell/Hub.qml`).
+- **Mouse macros take a lone Shift, Ctrl, Alt or Super, and the side grid
+  stops double-acting.** Holding just a modifier while recording a macro showed
+  it but never added the step; it now commits when you let go. The MACRO and
+  CLEAR buttons on a side-grid key no longer also open the key-chord prompt,
+  clicking outside the prompt to cancel no longer starts a bind on the key
+  underneath, and the macro editor names the mouse (Razer · Naga V2 / Pro)
+  instead of its device id (`quickshell/pages/InputPage.qml`).
+- **The Add-ons page tells the truth.** Removing a bundle or one of its parts
+  now refreshes the card from the installer's own status once the terminal
+  closes, instead of showing stale counts and dead Remove buttons until you
+  pressed refresh. A failed install, removal, placement or settings write, or a
+  catalogue that cannot be read, shows a small error with Retry and keeps the
+  last good list rather than claiming nothing is installed. The sidebar card
+  placement no longer offers a Right side that never applied: Controls has one
+  host (`quickshell/pages/AddonsPage.qml`,
+  `../shell/quickshell/plugins/ryoku-plugins-place`).
+- **The Updates and Session pages open again.** The Updates page named its
+  own parts (the run timeline, the log, the password prompt), but Quickshell
+  only writes a type list for directories something imports, and nothing
+  imported the pages, so the page failed to load and the Hub stayed on the
+  previous one. The Hub now imports its pages directory. The Session page had
+  dropped out of the page map when Desktop Scene was retired, so its rail
+  entry did nothing. `tests/ui/hub-pages-probe.sh` loads every section's page
+  (`quickshell/Hub.qml`).
+
+- **Vesktop colours follow the Ryoku theme, not Midnight.** The palette
+  bridge's Vesktop integration wrote a competing Midnight theme file and could
+  clobber the user's QuickCSS; it now ships a managed palette template beside
+  the user's other matugen templates, toggles the bridge through Vesktop's own
+  QuickCSS marker, preserves any existing QuickCSS on setup and removal, and
+  the Settings integration card reports the template it actually manages
+  (`../palette-bridge/`, `backend/palettebridge.go`).
+
+- **The Profile dossier keeps its composure on short windows.** The live
+  telemetry column sat on hard-coded pixels while the dossier foot climbed from
+  the bottom, so under ~880px the callouts ran through the small print and the
+  sub-lines touched the label below. The pins now distribute over the real
+  space between the head and the foot, dropping sub-lines and shrinking the
+  figures as the page tightens, and the compositor row no longer prints two v's
+  before a version that already carries one. (`quickshell/pages/ProfilePage.qml`)
+- **The Updates page can always get out of a stuck run.** It believed any
+  "running" run-state, so one left with no live update behind it pinned the
+  page on "Applying updates" for good. The page now checks the pid the run
+  names: a document with no owner is cleared on sight, a run whose process is
+  gone is recorded as stopped, a live run that stops reporting or makes no
+  progress for three minutes gets a notice naming what it waits on with Keep
+  waiting and Stop update, and STOP is always in the action bar
+  (`quickshell/pages/UpdatesPage.qml`).
+- **App title bars can be turned off on niri from the Look tab.** The niri
+  switch that asks apps to drop their own title bars sat under Layout as
+  "Server-side window frames", where nobody looked for it. It is now "Hide app
+  title bars" on Window Manager > Look, says which apps may keep theirs, and a
+  Hub search for "titlebar" lands on it. (`../wm/niri/schema.json`,
+  `quickshell/Hub.qml`)
+- **General and Desktop settings no longer open blank.** The app picker now
+  resolves to Hub's own component and imports its scrolling controls.
+  (`quickshell/SchemaPage.qml`, `quickshell/AppPicker.qml`)
+
+### Removed
+- **The orphaned Lighting page.** Nothing loaded `pages/LightingTab.qml` since
+  the Appearance page left the Hub; its controls now live in the wallpaper
+  picker's Settings > Lighting.
+- **The Desktop page drops Brand and Pickers.** Renaming the desktop and
+  swapping its mark are gone, and the picker style moved to QS Bar Settings,
+  the bar it belongs to. General keeps the reload cover
+  (`quickshell/pages/DesktopPage.qml`, `quickshell/schema/DesktopPage.js`).
+- **Desktop Scene is no longer a Hub page.** Wallpaper depth, visualizers, and
+  desktop widgets now open directly in the shell's Stage Editor. Retired links
+  skip Hub and open the matching catalogue, while direct navigation to an
+  already-open Hub hands off without replacing its current page
+  (`quickshell/Hub.qml`, `../shell/ipc/control.go`).
+- **Sidebar styles and layout customization.** Controls and Today now have one
+  compact layout shared by every bar style. The Sidebars page, Classic/Modern
+  selector, geometry, pinning, and content-order controls are gone. Sidebar
+  plugins remain available through Add-ons; old sidebar links open Desktop.
+  (`quickshell/Hub.qml`)
+
+### Added
+- **Dictation has more Whisper models.** The page now lists English Tiny,
+  Base and Small, multilingual Base, Medium and Large Turbo, and the OpenAI
+  API, each with its language, speed and download size; models over 1 GB ask
+  before downloading. The Voxtype setup now runs from the shell service, so it
+  happens on niri as well as Hyprland, and it leaves boxes without Voxtype
+  untouched (`backend/voxtype.go`, `quickshell/pages/DictationPage.qml`,
+  `../shell/systemd/user/ryoku-shell.service`).
+- **Import config reads niri.** Point the Import page at a niri config folder
+  or a dotfiles checkout and it follows the `include` tree, maps input, layout,
+  animations, environment, startup apps, cursor, binds and window rules onto
+  Ryoku's settings, lists conflicts with Ryoku's shortcuts, and keeps anything
+  it cannot map in a marked `niri/user.kdl` block instead of dropping it. A niri
+  config imported while another desktop runs is saved for the switch and
+  nothing changes live; Undo restores every touched file
+  (`backend/import_provider.go`, `quickshell/pages/ImportPage.qml`).
+- **Credits name ii-p3drovfx.** The Stage Editor is ported from the Edit Mode
+  of P3DROVFX's ii-p3drovfx shell; the Credits page now lists it beside the
+  other shells Ryoku grows from, and NOTICE records where the ported code comes
+  from (`quickshell/pages/CreditsPage.qml`, `../../NOTICE`).
+- **UPDATE NOW runs the update right in Ryoku Settings.** No terminal window:
+  the page asks for your password itself, answers the run's questions, and
+  draws the run as a timeline of its steps with how long each took, the line
+  the running step last printed, and the run's own read of whether it is
+  progressing. DETAILS opens the full raw log beneath it, and the settled run
+  stays up until you dismiss it (`quickshell/pages/UpdatesPage.qml`,
+  `quickshell/pages/UpdateRun.qml`, `quickshell/pages/UpdateAuth.qml`,
+  `quickshell/pages/UpdateLog.qml`).
+- **Bar Studio knows Python.** The style shelf lists the ported serpantinum
+  style, and while it is active the page carries a Python card that opens the
+  style's own settings guide through the shell IPC, like the Shima and QS Bar
+  cards route to their surfaces. (`pages/BarStudioPage.qml`)
+
+### Added
+- **A rice now saves everything visual.** The capture grew the stores the
+  desktop gained since rices were written: the plugin roster (every plugin
+  widget's placement and per-widget settings), the widget stage (depth,
+  shadow, motion), the matugen palette engine, the Profile plate's decor (a
+  custom hero travels as a bundled image), and the picker's whole look
+  (transitions, overview backdrop, launch animation, filter style) instead of
+  only its matugen scheme. The window look allowlist now spans both
+  compositors' keys, so a niri box's frame, border gradient, backdrop and
+  overview shadow travel the way Hyprland's rounding and gaps always did.
+  Export no longer refuses a destination that does not exist yet, or a path
+  typed with a leading `~` (`backend/rice.go`).
+- **Recording settings follow GPU Screen Recorder.** The Recording page now
+  writes through the shell daemon (`ryoku-shell record settings`) instead of
+  owning the file, and carries the recorder's full surface: bitrate mode and
+  target, container, audio codec and bitrate, color range, keyframe interval,
+  and an output resolution cap. The under-the-hood readout names GPU Screen
+  Recorder with its version; the dead pick-each-time switch is gone
+  (`quickshell/pages/RecordingPage.qml`, `quickshell/schema/RecordingPage.js`).
+- **The Displays page saves resolution presets.** A hand-typed custom
+  resolution is typed once: SAVE stores the selected display's mode and
+  scale under a name, and the Resolution list offers it as a first-class
+  pick alongside the advertised modes. Picking one stages mode and scale
+  into the draft; Apply stays the only path that touches the displays
+  (`quickshell/pages/DisplaysPage.qml`, `backend/outputs.go`).
+- **Bar Studio switches iRiS between its Ryoku and iNiR looks.** The iRiS
+  card has a Look control that flips the live frame (`pages/BarStudioPage.qml`).
+- **The Visualizer tab edits the new edge field.** The Desktop page's
+  Visualizer tab grew an EDGE FIELD section - lit edges, reach, material,
+  movement, effect, colour mode, corners and flow up front, the deep drives
+  under Advanced - and the live preview renders the same `AuraField` the
+  desktop paints with, so the look retunes as you drag. Box-only rows (place,
+  angle, leans, gradient, bloom) now hide while `aura` is chosen, so no knob
+  that does nothing for the look is on screen
+  (`quickshell/schema/DesktopPage.js`, `quickshell/VizPreview.qml`,
+  `quickshell/Hub.qml`).
 - **The Machine page owns the two switches it used to describe.** The
   hardware display-routing knob (GPU Mode / MUX / Optimus) and the live CPU
   power profile were CLI-only, and both the render card's Hybrid and the
@@ -46,7 +445,37 @@
   the provider honours (`pages/AnimationsPage.qml`, `pages/LayerRulesPage.qml`,
   `pages/WindowRulesPage.qml`, `SettingsSheet.qml`, `Singletons/Settings.qml`).
 
+### Removed
+- **The Widgets page is gone; desktop widgets are edited on the desktop.** The
+  Hub's Desktop Widgets page -- the clock, calendar, music, all-in-one, stats,
+  weather, notes, day progress and shape editors, plus the vendored iRiS face
+  and canvas cards -- moved onto the wallpaper: right-click the desktop and pick
+  Widgets, then arrange and tune each widget in place. The page, its schema and
+  test, its preview cards and the rail entry are removed, and a stale
+  `ryoku-shell hub open widgets` now opens the desktop widget editor
+  (`quickshell/Hub.qml`; removed `pages/WidgetsPage.qml`, `schema/WidgetsPage.js`,
+  `schema/WidgetsPage.test.mjs` and the widget preview cards).
+
 ### Fixed
+- **A band-picked Wi-Fi join roams again.** Picking 5 GHz on a dual-band
+  network joined through `nmcli dev wifi connect <BSSID>`, which pins the
+  saved profile to that one access point; on a multi-AP network the access
+  points steer the client and the pin forces it back, so the connection
+  visibly reconnects in a loop (nmtui, which joins by SSID, worked). The join
+  now locks the profile to the band (`802-11-wireless.band`) after connecting,
+  keeping the 5 GHz choice without freezing the AP; profiles the old picker
+  pinned are healed by `ryoku doctor`
+  (`quickshell/pages/ConnectionsPage.qml`).
+- **The update and rollback log opens where you can see it.** Both launch a
+  terminal from inside Ryoku Settings, and a tiled window always sits under a
+  float, so the run's output hid behind the settings page until it finished
+  (#288). The launches name the `dev.ryoku.update` window class, which the
+  desktop's float-and-centre rule matches (`pages/UpdatesPage.qml`).
+- **The security-key enrolment terminal opens clean in Ghostty.** It launched
+  with `--class ryoku-passkey`; Ghostty wants `--class=NAME` and validates the
+  value as a GTK application id (a dot is required), so the old form raised its
+  configuration-error dialog on every enrol and the class never landed. The
+  launch now uses `--class=dev.ryoku.passkey` (`pages/LockscreenPage.qml`).
 - **No Hyprland wording or dead compositor toggles on niri.** The search
   vocabulary derives from the active provider's rows and name, the import
   wizard names the desktop you run and stands down where it cannot read its
@@ -55,6 +484,14 @@
   `pages/PerformancePage.qml`).
 
 ### Changed
+- **Desktop > Visualizer is gone.** The subtab's last three rows (enable, the
+  look gallery, Place on the desktop) only duplicated controls the desktop
+  already carries, so the tab is removed. The visualiser is configured in one
+  place now: the gear drawer in the desktop's placement bar, where the look is
+  visible while you tune it. The Hub no longer reads or writes `visualizer.json`;
+  the shell owns that file (`quickshell/schema/DesktopPage.js`,
+  `quickshell/Hub.qml`, `quickshell/pages/DesktopPage.qml`; removed
+  `quickshell/VizPreview.qml`).
 - **Ryoku Settings is a full-page window.** It opens at 99% of the screen (the
   Hyprland rule floats it at the same 99% and centres it; niri sizes the column),
   so the settings get the room the layout is designed for instead of a 1200px
@@ -81,11 +518,6 @@
   `docs/ui-ux.md`, "The retired poster layer").
 
 ### Added
-- **Displays can choose their own bar style and Chroma modules.** The connector
-  card follows the global Bar Studio choice by default, can select any installed
-  style, and exposes Chroma's module switches when that style is active. Bar
-  Studio now also tunes Chroma's edge, gap, radius, opacity, workspace labels
-  and clock (`quickshell/pages/{Displays,BarStudio}Page.qml`).
 - **"Bar drifts when silent" on the Performance page.** Opts the bar's gap
   stream into drifting on Balanced and Saver when nothing plays, not only on the
   Performance profile. Off by default (`quickshell/pages/PerformancePage.qml`).

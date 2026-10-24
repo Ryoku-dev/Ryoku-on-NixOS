@@ -83,8 +83,7 @@ func sddmConfRoot() string {
 }
 
 func gatherStatus() Status {
-	pamContent, _ := os.ReadFile(pamFilePath())
-	pam := pamPresent(string(pamContent))
+	pam := pamPresentAt(pamFilePath())
 
 	mode, configured := readConfig()
 	source := "configured"

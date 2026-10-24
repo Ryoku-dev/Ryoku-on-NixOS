@@ -11,6 +11,7 @@ PanelWindow {
 
     required property var targetScreen
     required property string phase
+    required property string mode
     required property bool startClose
     required property var reloadCover
     signal mapped()
@@ -124,7 +125,7 @@ PanelWindow {
         anchors.top: parent.verticalCenter
         anchors.topMargin: media.defaultLogoHeight / 2 + 18
         visible: cover.phase !== "failed" && media.showingDefault && cover.mediaOpacity > 0
-        text: I18n.tr("SHELL RELOADING")
+        text: cover.mode === "boot" ? I18n.tr("LOADING DESKTOP") : I18n.tr("SHELL RELOADING")
         color: "#d8e8f5"
         opacity: cover.mediaOpacity * 0.72
         font.family: "JetBrainsMono Nerd Font"
@@ -136,7 +137,7 @@ PanelWindow {
         anchors.top: parent.verticalCenter
         anchors.topMargin: media.defaultLogoHeight / 2 + 28
         visible: cover.phase === "failed"
-        text: I18n.tr("RELOAD FAILED")
+        text: cover.mode === "boot" ? I18n.tr("DESKTOP FAILED TO LOAD") : I18n.tr("RELOAD FAILED")
         color: "#ff735d"
         font.family: "JetBrainsMono Nerd Font"
         font.pixelSize: 14

@@ -89,10 +89,10 @@ func TestNightlightRegistration(t *testing.T) {
 
 func TestProcCommIsSelf(t *testing.T) {
 	// The test binary's own comm is its file name (truncated to 15 chars),
-	// never hyprsunset.
+	// never a backend name.
 	self := strconv.Itoa(os.Getpid())
-	if procCommIs(self, "hyprsunset") {
-		t.Fatal("test process matched hyprsunset")
+	if procCommIs(self, "wlsunset") {
+		t.Fatal("test process matched wlsunset")
 	}
 	if !procCommIs(self, commOfSelf(t)) {
 		t.Fatalf("own comm did not match its own comm file")

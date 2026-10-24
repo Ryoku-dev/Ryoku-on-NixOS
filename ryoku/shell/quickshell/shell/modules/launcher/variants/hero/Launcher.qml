@@ -215,7 +215,7 @@ Item {
     }
 
     function syncInvocationGeometry() {
-        var synchronized = LauncherState.synchronizeOuterGeometry({
+        var syncResult = LauncherState.synchronizeOuterGeometry({
             observedGeneration: observedLifecycleGeneration,
             lifecycleGeneration: lifecycleGeneration,
             lifecycleOuterHeight: lifecycleOuterHeight,
@@ -223,17 +223,17 @@ Item {
             bodyOpen: bodyOpen,
             shelfOpen: shelfOpen
         });
-        if (!synchronized)
+        if (!syncResult)
             return;
         shrinkOuter.stop();
-        observedLifecycleGeneration = synchronized.observedGeneration;
-        outerGeometryGeneration = synchronized.outerGeometryGeneration;
-        lastOuterHeight = synchronized.lastOuterHeight;
-        pendingOuterHeight = synchronized.pendingOuterHeight;
+        observedLifecycleGeneration = syncResult.observedGeneration;
+        outerGeometryGeneration = syncResult.outerGeometryGeneration;
+        lastOuterHeight = syncResult.lastOuterHeight;
+        pendingOuterHeight = syncResult.pendingOuterHeight;
         lastBodyOpenForGeometry =
-            synchronized.lastBodyOpenForGeometry;
+            syncResult.lastBodyOpenForGeometry;
         lastShelfOpenForGeometry =
-            synchronized.lastShelfOpenForGeometry;
+            syncResult.lastShelfOpenForGeometry;
     }
 
     function prepareRest() {
@@ -583,8 +583,7 @@ Item {
 
     function activateCurrent() {
         if (askMode) {
-            if (drawer.askResumeMode || drawer.askBusy
-                    || drawer.askAnswerCurrent || drawer.askPermissionPending)
+            if (drawer.askResumeMode || drawer.askBusy || drawer.askAnswerCurrent)
                 drawer.activateAsk();
             else
                 drawer.runAsk();

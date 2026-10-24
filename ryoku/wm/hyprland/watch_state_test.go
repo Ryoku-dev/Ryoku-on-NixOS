@@ -7,15 +7,49 @@ import (
 	wm "ryoku-wm"
 )
 
+func TestMonitorOutputsDisabledState(t *testing.T) {
+	live := hyprMonitor{Name: "eDP-1", Width: 2560, Height: 1600, Disabled: true, Focused: true}
+	live.ActiveWorkspace.ID, live.ActiveWorkspace.Name = 1, "1"
+	phantom := hyprMonitor{Name: "HDMI-A-1", Width: 1024, Height: 768, Disabled: true, MirrorOf: "none"}
+	mirror := hyprMonitor{Name: "DP-2", Width: 1920, Height: 1080, Disabled: true, MirrorOf: "eDP-1"}
+	outputs := monitorOutputs([]hyprMonitor{
+		live,
+		{Name: "DP-1", Width: 0, Height: 0, Disabled: false},
+		phantom,
+		mirror,
+	}, false)
+	if outputs[0].Disabled {
+		t.Fatal("an active output Hyprland mis-flagged as disabled was reported off")
+	}
+	if !outputs[1].Disabled {
+		t.Fatal("output without a live mode was reported enabled")
+	}
+	if !outputs[2].Disabled {
+		t.Fatal("a disabled output that keeps its last mode was reported enabled")
+	}
+	if outputs[3].Disabled {
+		t.Fatal("a mirroring output was reported off")
+	}
+}
+
 func TestFocusEventsDoNotQueryAndPreserveHistory(t *testing.T) {
 	restore := stubCtl(t, func(...string) ([]byte, error) { t.Fatal("focus queried compositor"); return nil, nil })
 	defer restore()
 	var frames []wm.Frame
 	s := newWatchState(func(f wm.Frame) { frames = append(frames, f) }, func(wm.FrameKind) bool { return true })
+	if mon, ok := parseFocusedMon("focusedmonv2>>DP-1,1"); !ok || mon != "DP-1" {
+		t.Fatalf("focusedmonv2 parsed as %q, %v", mon, ok)
+	}
 	s.windows = []wm.Window{{ID: "0xa", FocusOrder: 0}, {ID: "0xb", FocusOrder: 1}, {ID: "0xc", FocusOrder: 2}}
 	s.publish(wm.Frame{Kind: wm.FrameWindows, Windows: s.windows})
 	if s.event("activewindow>>kitty,a title, with commas") != 0 {
 		t.Fatal("v1 refreshed")
+	}
+	if s.event("focusedmon>>DP-1,1") != 0 {
+		t.Fatal("focused monitor refreshed full state")
+	}
+	if s.event("focusedmonv2>>DP-1,1") != 0 {
+		t.Fatal("focused monitor v2 refreshed full state")
 	}
 	if s.event("activewindowv2>>b") != 0 {
 		t.Fatal("known focus refreshed")
@@ -53,7 +87,7 @@ func TestWindowOpenQueriesOnlyClientsAndWorkspaces(t *testing.T) {
 		case "workspaces":
 			return []byte(`[{"id":1,"name":"1","monitor":"DP-1","windows":1}]`), nil
 		case "clients":
-			return []byte(`[{"address":"0xa","class":"kitty","monitor":0,"workspace":{"id":1,"name":"1"},"focusHistoryID":0}]`), nil
+			return []byte(`[{"address":"0xa","class":"kitty","pid":4242,"monitor":0,"workspace":{"id":1,"name":"1"},"focusHistoryID":0}]`), nil
 		default:
 			t.Fatalf("unexpected query %v", args)
 			return nil, nil
@@ -67,7 +101,7 @@ func TestWindowOpenQueriesOnlyClientsAndWorkspaces(t *testing.T) {
 	if !reflect.DeepEqual(calls, []string{"workspaces", "clients"}) {
 		t.Fatal(calls)
 	}
-	if len(frames) != 2 || frames[1].Windows[0].Output != "DP-1" {
+	if len(frames) != 2 || frames[1].Windows[0].Output != "DP-1" || frames[1].Windows[0].Pid != 4242 {
 		t.Fatal(frames)
 	}
 	s.refresh(refreshWindows | refreshWorkspaces)

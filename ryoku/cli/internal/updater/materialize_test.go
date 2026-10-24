@@ -1,10 +1,12 @@
 package updater
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
 	"ryoku-cli/internal/sys"
+	wm "ryoku-wm"
 	"slices"
 	"strings"
 	"testing"
@@ -27,6 +29,9 @@ func TestMaterializePreservesGeneratedAndUserFiles(t *testing.T) {
 	writeFile(t, filepath.Join(base, "hypr/keyboard.lua"), "kb_layout = \"us\"\n")
 	writeFile(t, filepath.Join(base, "hypr/user.lua"), "-- seed header\n")
 	writeFile(t, filepath.Join(base, "fastfetch/config.jsonc"), "\"source\": \"ryoku\"\n")
+	writeFile(t, filepath.Join(base, "fastfetch/ryoku-colors.json"), "\"keys\": \"1;2;3\"\n")
+	writeFile(t, filepath.Join(base, "starship.toml"), "palette = \"mythos\"\n")
+	writeFile(t, filepath.Join(base, "starship/ryoku-colors.toml"), "[palettes.wallpaper]\ndir_fg = \"#111111\"\n")
 	writeFile(t, filepath.Join(base, "kitty/current-theme.conf"), "background #16110b\n")
 
 	// fresh install: every file lands, seeds included so first boot works.
@@ -38,6 +43,9 @@ func TestMaterializePreservesGeneratedAndUserFiles(t *testing.T) {
 	wantFile(t, filepath.Join(dest, "hypr/keyboard.lua"), "kb_layout = \"us\"")
 	wantFile(t, filepath.Join(dest, "hypr/user.lua"), "seed header")
 	wantFile(t, filepath.Join(dest, "fastfetch/config.jsonc"), "ryoku")
+	wantFile(t, filepath.Join(dest, "fastfetch/ryoku-colors.json"), "1;2;3")
+	wantFile(t, filepath.Join(dest, "starship.toml"), "mythos")
+	wantFile(t, filepath.Join(dest, "starship/ryoku-colors.toml"), "#111111")
 	wantFile(t, filepath.Join(dest, "kitty/current-theme.conf"), "16110b")
 	// the shell's JSON stores live in ~/.config/ryoku, which no shipped file
 	// creates; materialize guarantees it so the QML self-seed can write there.
@@ -52,10 +60,16 @@ func TestMaterializePreservesGeneratedAndUserFiles(t *testing.T) {
 	writeFile(t, filepath.Join(dest, "hypr/keyboard.lua"), "kb_layout = \"us,ru,de,fr\"\n")
 	writeFile(t, filepath.Join(dest, "hypr/user.lua"), "USER\n")
 	writeFile(t, filepath.Join(dest, "fastfetch/config.jsonc"), "\"source\": \"my-custom-logo\"\n")
+	writeFile(t, filepath.Join(dest, "fastfetch/ryoku-colors.json"), "\"keys\": \"4;5;6\"\n")
+	writeFile(t, filepath.Join(dest, "starship.toml"), "palette = \"wallpaper\"\n")
+	writeFile(t, filepath.Join(dest, "starship/ryoku-colors.toml"), "[palettes.wallpaper]\ndir_fg = \"#abcdef\"\n")
 	writeFile(t, filepath.Join(dest, "kitty/current-theme.conf"), "background #3a5f8a\n") // matugen from the wallpaper
 	// later release changes the managed module and reworks the shipped readout.
 	writeFile(t, filepath.Join(base, "hypr/hyprland.lua"), "require(\"monitors_user\")\n")
 	writeFile(t, filepath.Join(base, "fastfetch/config.jsonc"), "\"source\": \"ryoku-redesigned\"\n")
+	writeFile(t, filepath.Join(base, "fastfetch/ryoku-colors.json"), "\"keys\": \"7;8;9\"\n")
+	writeFile(t, filepath.Join(base, "starship.toml"), "palette = \"new-default\"\n")
+	writeFile(t, filepath.Join(base, "starship/ryoku-colors.toml"), "[palettes.wallpaper]\ndir_fg = \"#222222\"\n")
 
 	// update: managed file is refreshed; the generated seeds, the user file,
 	// and the customized fastfetch readout stay exactly as the machine had them.
@@ -68,6 +82,9 @@ func TestMaterializePreservesGeneratedAndUserFiles(t *testing.T) {
 	wantFile(t, filepath.Join(dest, "hypr/user.lua"), "USER")
 	wantFile(t, filepath.Join(dest, "hypr/keyboard.lua"), "us,ru,de,fr")
 	wantFile(t, filepath.Join(dest, "fastfetch/config.jsonc"), "my-custom-logo")
+	wantFile(t, filepath.Join(dest, "fastfetch/ryoku-colors.json"), "4;5;6")
+	wantFile(t, filepath.Join(dest, "starship.toml"), "wallpaper")
+	wantFile(t, filepath.Join(dest, "starship/ryoku-colors.toml"), "#abcdef")
 	wantFile(t, filepath.Join(dest, "kitty/current-theme.conf"), "3a5f8a")
 }
 
@@ -598,5 +615,390 @@ func TestMaterializeKeepsTheTreeOfASwitchedAwayCompositor(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dest, "niri/config.kdl")); !os.IsNotExist(err) {
 		t.Fatal("a dropped file inside a shipped tree must still prune")
+	}
+}
+
+// TestApplyGeneratedCompletesLaidTrees pins the switch-breaking gap: a
+// compositor hard-includes the files its provider generates, the packages ship
+// only the static seeds, and nothing between a hyprland-to-niri switch and the
+// first login of the target used to run that target's apply. Every name here
+// comes from the seam, so the test names no compositor.
+func TestApplyGeneratedCompletesLaidTrees(t *testing.T) {
+	// An empty config base ships no whole-file baseline, so staleness never
+	// re-applies a laid tree here; a host with such a baseline installed would
+	// otherwise add its provider to every run.
+	t.Setenv("RYOKU_CONFIG_BASE", t.TempDir())
+	providers := wm.Providers()
+	if len(providers) == 0 {
+		t.Skip("no providers in the seam")
+	}
+	primary := func(name string) []string {
+		dir := wm.ConfigDir(name)
+		var out []string
+		for _, rel := range wm.GeneratedConfig(name) {
+			if d, _, ok := strings.Cut(rel, "/"); ok && d == dir {
+				out = append(out, rel)
+			}
+		}
+		return out
+	}
+	// lay builds a config home: every provider's tree dir exists, the neutral
+	// store exists unless withStore is false, and the generated primaries are
+	// written for every provider except skipGenerated.
+	lay := func(t *testing.T, withStore bool, skipGenerated string) string {
+		t.Helper()
+		home := t.TempDir()
+		for _, name := range providers {
+			dir := wm.ConfigDir(name)
+			if dir == "" {
+				continue
+			}
+			if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if name == skipGenerated {
+				continue
+			}
+			for _, rel := range primary(name) {
+				if err := os.WriteFile(filepath.Join(home, rel), []byte("// generated\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if withStore {
+			if err := os.MkdirAll(filepath.Join(home, "ryoku"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(home, "ryoku", "desktop.json"), []byte("{}\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return home
+	}
+	uninstalled := ""
+	run := func(t *testing.T, home string) []string {
+		t.Helper()
+		var calls []string
+		old, oldInstalled := applyProvider, providerInstalled
+		applyProvider = func(name, store string) error {
+			calls = append(calls, name)
+			return nil
+		}
+		providerInstalled = func(name string) bool { return name != uninstalled }
+		t.Cleanup(func() { applyProvider, providerInstalled = old, oldInstalled })
+		applyGenerated(home)
+		return calls
+	}
+
+	incomplete := providers[0]
+	if got := run(t, lay(t, true, incomplete)); len(got) != 1 || got[0] != incomplete {
+		t.Fatalf("a laid tree without its generated files must be completed, got %v want %v", got, incomplete)
+	}
+	if got := run(t, lay(t, true, "")); len(got) != 0 {
+		t.Fatalf("complete trees must not re-apply, got %v", got)
+	}
+	home := lay(t, true, incomplete)
+	for _, name := range providers {
+		if dir := wm.ConfigDir(name); dir != "" {
+			if err := os.RemoveAll(filepath.Join(home, dir)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if got := run(t, home); len(got) != 0 {
+		t.Fatalf("absent trees must not be created, got %v", got)
+	}
+	// The installer seeds desktop.json only for a non-default keyboard, so a
+	// us-layout install's materialize runs with the store absent. The provider
+	// renders its own defaults from an unreadable store path, so the
+	// hard-included generated files still land and the first login parses
+	// (#331): a missing store must never skip the render.
+	if got := run(t, lay(t, false, incomplete)); len(got) != 1 || got[0] != incomplete {
+		t.Fatalf("a laid tree with no store must still render its generated defaults, got %v", got)
+	}
+	uninstalled = incomplete
+	if got := run(t, lay(t, true, incomplete)); len(got) != 0 {
+		t.Fatalf("a laid tree whose provider is uninstalled must be skipped, got %v", got)
+	}
+}
+
+// A provider that composes its entire config marks the render with the shipped
+// baseline digest. Materialize repairs raw or old output, leaves current output
+// untouched, and never replaces a user_edits fork.
+func TestMaterializeRefreshesProviderGeneratedBaseline(t *testing.T) {
+	provider := ""
+	for _, name := range wm.Providers() {
+		if wm.GeneratedConfigBaselineMarker(name, []byte("probe")) != "" {
+			provider = name
+			break
+		}
+	}
+	if provider == "" {
+		t.Skip("no provider declares a generated baseline marker")
+	}
+
+	base, dest := t.TempDir(), t.TempDir()
+	t.Setenv("RYOKU_CONFIG_BASE", base)
+	t.Setenv("XDG_CONFIG_HOME", dest)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	entry := wm.ConfigEntry(provider)
+	dir := wm.ConfigDir(provider)
+	overlayRel := ""
+	for _, rel := range wm.GeneratedConfig(provider) {
+		if d, _, ok := strings.Cut(rel, "/"); !ok || d != dir {
+			overlayRel = rel
+			break
+		}
+	}
+	if entry == "" || overlayRel == "" {
+		t.Fatal("marked provider does not declare its live and overlay outputs")
+	}
+
+	baseline := []byte("# shipped baseline\n")
+	writeFile(t, filepath.Join(base, entry), string(baseline))
+	writeFile(t, filepath.Join(dest, entry), string(baseline))
+	writeFile(t, filepath.Join(dest, "ryoku", "desktop.json"), "{}\n")
+
+	var calls []string
+	installed := true
+	oldApply, oldInstalled := applyProvider, providerInstalled
+	applyProvider = func(name, store string) error {
+		calls = append(calls, name)
+		current, err := os.ReadFile(filepath.Join(base, entry))
+		if err != nil {
+			return err
+		}
+		body := wm.GeneratedConfigBaselineMarker(name, current) + "\n# provider render\n"
+		writeFile(t, filepath.Join(dest, entry), body)
+		writeFile(t, filepath.Join(dest, overlayRel), body)
+		return nil
+	}
+	providerInstalled = func(name string) bool { return installed }
+	t.Cleanup(func() { applyProvider, providerInstalled = oldApply, oldInstalled })
+
+	if err := Materialize(); err != nil {
+		t.Fatalf("materialize raw baseline: %v", err)
+	}
+	if len(calls) != 1 || calls[0] != provider {
+		t.Fatalf("raw baseline apply calls = %v, want %s", calls, provider)
+	}
+
+	current, err := os.ReadFile(filepath.Join(dest, entry))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls = nil
+	if err := Materialize(); err != nil {
+		t.Fatalf("materialize current render: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("current render must not be rewritten, got apply calls %v", calls)
+	}
+	unchanged, err := os.ReadFile(filepath.Join(dest, entry))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(unchanged, current) {
+		t.Fatal("current provider render changed without an apply")
+	}
+
+	baseline = []byte("# newer shipped baseline\n")
+	writeFile(t, filepath.Join(base, entry), string(baseline))
+	calls = nil
+	if err := Materialize(); err != nil {
+		t.Fatalf("materialize old digest: %v", err)
+	}
+	if len(calls) != 1 || calls[0] != provider {
+		t.Fatalf("old digest apply calls = %v, want %s", calls, provider)
+	}
+	wantFile(t, filepath.Join(dest, entry), wm.GeneratedConfigBaselineMarker(provider, baseline))
+
+	if err := os.Remove(filepath.Join(dest, "ryoku", "desktop.json")); err != nil {
+		t.Fatal(err)
+	}
+	fork := "# my whole-file fork\n"
+	writeFile(t, filepath.Join(dest, overlayRel), fork)
+	writeFile(t, filepath.Join(dest, entry), fork)
+	baseline = []byte("# third shipped baseline\n")
+	writeFile(t, filepath.Join(base, entry), string(baseline))
+	calls = nil
+	if err := Materialize(); err != nil {
+		t.Fatalf("materialize user fork: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("user_edits fork triggered apply calls %v", calls)
+	}
+	wantFile(t, filepath.Join(dest, entry), "my whole-file fork")
+
+	oldRender := wm.GeneratedConfigBaselineMarker(provider, []byte("# older baseline\n")) + "\n# provider render\n"
+	writeFile(t, filepath.Join(dest, overlayRel), oldRender)
+	writeFile(t, filepath.Join(dest, entry), oldRender)
+	installed = false
+	calls = nil
+	if err := Materialize(); err != nil {
+		t.Fatalf("materialize without provider binary: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("an uninstalled provider with a stale render must be skipped, got apply calls %v", calls)
+	}
+	got, err := os.ReadFile(filepath.Join(dest, entry))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, []byte(oldRender)) {
+		t.Fatal("unavailable provider changed the stale render")
+	}
+}
+
+func writeIconProjectionBase(t *testing.T, base, gtkTheme, qtStyle string) {
+	t.Helper()
+	writeFile(t, filepath.Join(base, "gtk-3.0/settings.ini"),
+		"[Settings]\ngtk-theme-name="+gtkTheme+"\ngtk-icon-theme-name=Default\n")
+	writeFile(t, filepath.Join(base, "gtk-4.0/settings.ini"),
+		"[Settings]\ngtk-theme-name="+gtkTheme+"\ngtk-icon-theme-name=Default\n")
+	writeFile(t, filepath.Join(base, "qt6ct/qt6ct.conf"),
+		"[Appearance]\nstyle="+qtStyle+"\nicon_theme=Default\n")
+}
+
+func writeTestIconProjection(t *testing.T, configHome, theme string) {
+	t.Helper()
+	for rel, projection := range iconThemeProjections {
+		path := filepath.Join(configHome, rel)
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(string(body), "\n")
+		section := ""
+		changed := false
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+				section = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "["), "]"))
+				continue
+			}
+			if section != projection.section {
+				continue
+			}
+			key, _, ok := strings.Cut(trimmed, "=")
+			if !ok || strings.TrimSpace(key) != projection.key {
+				continue
+			}
+			eq := strings.Index(line, "=")
+			lines[i] = line[:eq+1] + theme
+			changed = true
+			break
+		}
+		if !changed {
+			t.Fatalf("%s has no %s key", rel, projection.key)
+		}
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func stubIconThemeReapply(t *testing.T) {
+	t.Helper()
+	old := reapplyIconTheme
+	reapplyIconTheme = func(configHome string) error {
+		body, err := os.ReadFile(filepath.Join(configHome, "ryoku", "icon-theme"))
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		writeTestIconProjection(t, configHome, strings.TrimSpace(string(body)))
+		return nil
+	}
+	t.Cleanup(func() { reapplyIconTheme = old })
+}
+
+func TestMaterializeIgnoresHubIconProjectionBetweenUpdates(t *testing.T) {
+	base, dest := t.TempDir(), t.TempDir()
+	t.Setenv("RYOKU_CONFIG_BASE", base)
+	t.Setenv("XDG_CONFIG_HOME", dest)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stubIconThemeReapply(t)
+
+	writeIconProjectionBase(t, base, "First", "Fusion")
+	writeFile(t, filepath.Join(dest, "ryoku", "icon-theme"), "Papirus\n")
+	if err := Materialize(); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFile(t, filepath.Join(dest, "ryoku", "icon-theme"), "Papirus-Dark\n")
+	writeTestIconProjection(t, dest, "Papirus-Dark")
+	writeIconProjectionBase(t, base, "Second", "Breeze")
+	if err := Materialize(); err != nil {
+		t.Fatal(err)
+	}
+
+	for rel := range iconThemeProjections {
+		if sys.Exists(filepath.Join(sys.UserEditsDir(), rel)) {
+			t.Errorf("%s icon projection became a user fork", rel)
+		}
+		wantFile(t, filepath.Join(dest, rel), "Papirus-Dark")
+	}
+	wantFile(t, filepath.Join(dest, "gtk-3.0/settings.ini"), "gtk-theme-name=Second")
+	wantFile(t, filepath.Join(dest, "gtk-4.0/settings.ini"), "gtk-theme-name=Second")
+	wantFile(t, filepath.Join(dest, "qt6ct/qt6ct.conf"), "style=Breeze")
+}
+
+func TestMaterializeStillForksOtherEditsWithIconState(t *testing.T) {
+	base, dest := t.TempDir(), t.TempDir()
+	t.Setenv("RYOKU_CONFIG_BASE", base)
+	t.Setenv("XDG_CONFIG_HOME", dest)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stubIconThemeReapply(t)
+
+	writeIconProjectionBase(t, base, "First", "Fusion")
+	writeFile(t, filepath.Join(dest, "ryoku", "icon-theme"), "Papirus-Dark\n")
+	if err := Materialize(); err != nil {
+		t.Fatal(err)
+	}
+	gtk3 := filepath.Join(dest, "gtk-3.0/settings.ini")
+	body, err := os.ReadFile(gtk3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.Replace(body, []byte("gtk-theme-name=First"), []byte("gtk-theme-name=HandEdited"), 1)
+	if err := os.WriteFile(gtk3, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Materialize(); err != nil {
+		t.Fatal(err)
+	}
+	fork := filepath.Join(sys.UserEditsDir(), "gtk-3.0/settings.ini")
+	wantFile(t, fork, "gtk-theme-name=HandEdited")
+	wantFile(t, filepath.Join(dest, "gtk-3.0/settings.ini"), "gtk-theme-name=HandEdited")
+	wantFile(t, filepath.Join(dest, "gtk-3.0/settings.ini"), "gtk-icon-theme-name=Papirus-Dark")
+}
+
+func TestMaterializeAcceptsFirstIconPickAfterRawManifest(t *testing.T) {
+	base, dest := t.TempDir(), t.TempDir()
+	t.Setenv("RYOKU_CONFIG_BASE", base)
+	t.Setenv("XDG_CONFIG_HOME", dest)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stubIconThemeReapply(t)
+
+	writeIconProjectionBase(t, base, "First", "Fusion")
+	if err := Materialize(); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dest, "ryoku", "icon-theme"), "Papirus-Dark\n")
+	writeTestIconProjection(t, dest, "Papirus-Dark")
+
+	if err := Materialize(); err != nil {
+		t.Fatal(err)
+	}
+	for rel := range iconThemeProjections {
+		if sys.Exists(filepath.Join(sys.UserEditsDir(), rel)) {
+			t.Errorf("%s first icon pick became a user fork", rel)
+		}
+		wantFile(t, filepath.Join(dest, rel), "Papirus-Dark")
 	}
 }

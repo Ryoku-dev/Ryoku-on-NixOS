@@ -13,10 +13,10 @@ import Ryoku.Ui.Singletons
 // Capture card: the Super+S surface, a frame-edge card on the shared PopoutCard
 // skin so it opens, melts and dismisses exactly like the music / bluetooth cards.
 // Screenshot is the quick path -- pick a delay, a save target and a mode; with
-// "Beautify after" on the saved shot then opens in Ryoshot. Record starts a Quick
-// capture (the floating island takes over the live controls), with desktop / mic
-// toggles and an "edit in Ryomotion when done" hand-off. Every option is
-// remembered (Capture / Recorder prefs). Compact by design; never grabs the keyboard.
+// "Beautify after" on the saved shot then opens in Ryoshot. Record starts a
+// capture (the floating island takes over the live controls) with desktop / mic
+// toggles. Every option is remembered (Capture / Recorder prefs). Compact by
+// design; never grabs the keyboard.
 Item {
     id: root
 
@@ -43,14 +43,21 @@ Item {
     readonly property string saveLabel: Capture.save === "clipboard" ? I18n.tr("Clip")
         : Capture.save === "file" ? I18n.tr("Folder") : I18n.tr("Both")
 
+    // recording quality chips: value lists (daemon-validated) and the short labels
+    // the chips show. The chip's own I18n.tr wraps the label, so these stay English.
+    readonly property var codecSteps: ["h264", "hevc", "av1"]
+    readonly property var qualitySteps: ["medium", "high", "very_high", "ultra"]
+    readonly property var fpsSteps: [30, 60, 120]
+    readonly property var containerSteps: ["mp4", "mkv", "webm"]
+    function codecLabel(c) { return c === "hevc" ? "HEVC" : c === "av1" ? "AV1" : "H.264"; }
+    function qualityLabel(q) { return q === "medium" ? "Medium" : q === "high" ? "High" : q === "ultra" ? "Ultra" : "Very high"; }
+    function containerLabel(c) { return c === "mkv" ? "MKV" : c === "webm" ? "WEBM" : "MP4"; }
+
     function shoot(mode) { root.requestClose(); Capture.shoot(mode); }
     function record(mode) {
         root.requestClose();
-        // "screen" records the focused output (no target flag); the other three
-        // raise the shared selection overlay for that family via recordTarget,
-        // which applies the delay after the pick. Screen has nothing to pick, so
-        // it arms the same delay here rather than being the one target that
-        // ignores it.
+        // Screen has no target to pick, so it arms the delay here; the other three
+        // pick first, then apply the delay.
         if (mode === "screen")
             Recorder.startAfter(Recorder.recordArgs(), Capture.delay);
         else
@@ -61,8 +68,9 @@ Item {
     // The latest screenshots and recordings, each in its own labelled group so the
     // two never blur together. A recording shows a poster frame with a play badge
     // and its duration; a click on any tile opens that group's folder.
-    readonly property string recordingsDir: Quickshell.env("RYOKU_SCREENRECORD_DIR")
-        || ((Quickshell.env("XDG_VIDEOS_DIR") || (Quickshell.env("HOME") + "/Videos")) + "/Recordings")
+    // The one recordings directory every writer and list agree on (Paths resolves
+    // the env override, the Hub's setting, then the XDG Videos default).
+    readonly property string recordingsDir: Paths.recordingsDir
     readonly property string thumbDir: Quickshell.env("HOME") + "/.cache/ryoku-capture-thumbs"
     property var clipDur: ({})                // recording path -> "M:SS"
     property var clipPoster: ({})             // recording path -> poster jpg path
@@ -595,7 +603,8 @@ Item {
             ModeTile { w: (root.innerW - root.gap * 3) / 4; glyph: "region"; label: I18n.tr("Region"); accent: true; onTapped: root.record("region") }
         }
 
-        // live indicator: pulsing REC tag, elapsed clock, pause + stop.
+        // live indicator: pulsing REC tag, elapsed clock, stop. The floating island
+        // owns the full live controls; this is the card's compact mirror.
         Rectangle {
             width: parent.width
             visible: Recorder.anyActive
@@ -614,12 +623,17 @@ Item {
                     width: 8 * root.s
                     height: width
                     radius: width / 2
-                    color: Recorder.paused ? root.inkDim : Theme.vermLit
-                    opacity: Recorder.paused ? 1 : Recorder.pulse
+                    color: Theme.vermLit
+                    SequentialAnimation on opacity {
+                        running: Recorder.active
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 0.25; duration: 620; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 1.0; duration: 620; easing.type: Easing.InOutSine }
+                    }
                 }
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: Recorder.paused ? I18n.tr("Paused") : I18n.tr("Recording")
+                    text: I18n.tr("Recording")
                     color: root.ink
                     font.family: Theme.fontPrimary
                     font.pixelSize: 11.5 * root.s
@@ -634,33 +648,57 @@ Item {
                     font.features: { "tnum": 1 }
                 }
             }
-            Row {
+            MiniBtn {
                 anchors.right: parent.right
                 anchors.rightMargin: 7 * root.s
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 2 * root.s
-                MiniBtn {
-                    visible: Recorder.canPause
-                    glyph: Recorder.paused ? "play" : "pause"
-                    tint: root.ink
-                    onTapped: Recorder.togglePause()
-                }
-                MiniBtn {
-                    glyph: "stop"
-                    tint: Theme.vermLit
-                    onTapped: Recorder.studioActive ? Recorder.stopStudio() : Recorder.stop()
-                }
+                glyph: "stop"
+                tint: Theme.vermLit
+                onTapped: Recorder.stop()
             }
         }
 
-        // Post-capture actions for Quick recordings.
+        // recording quality (pre-record only): each chip reads the daemon-owned
+        // setting and cycles it through the daemon, which validates and rewrites
+        // recording.json; the mirror then reloads and the chip updates.
+        Flow {
+            width: parent.width
+            visible: !Recorder.anyActive
+            spacing: 5 * root.s
+            CycleChip {
+                glyph: "film"
+                label: root.codecLabel(Recorder.recCodec)
+                tip: I18n.tr("Video codec")
+                onTapped: Recorder.setSetting("codec", root.cycle(root.codecSteps, Recorder.recCodec))
+            }
+            CycleChip {
+                glyph: "sparkle"
+                label: root.qualityLabel(Recorder.recQuality)
+                tip: I18n.tr("Recording quality")
+                onTapped: Recorder.setSetting("quality", root.cycle(root.qualitySteps, Recorder.recQuality))
+            }
+            CycleChip {
+                glyph: "watch"
+                label: Recorder.recFps + " fps"
+                tip: I18n.tr("Frames per second")
+                onTapped: Recorder.setSetting("fps", root.cycle(root.fpsSteps, Recorder.recFps))
+            }
+            CycleChip {
+                glyph: "archive"
+                label: root.containerLabel(Recorder.recContainer)
+                tip: I18n.tr("File format")
+                onTapped: Recorder.setSetting("container", root.cycle(root.containerSteps, Recorder.recContainer))
+            }
+        }
         InlineToggle {
             width: parent.width
-            glyph: "film"
-            label: I18n.tr("Edit in Ryomotion")
-            on: Recorder.editMode
-            onToggled: Recorder.editMode = !Recorder.editMode
+            visible: !Recorder.anyActive
+            glyph: "mouse"
+            label: I18n.tr("Record cursor")
+            on: Recorder.recCursor
+            onToggled: Recorder.setSetting("cursor", !Recorder.recCursor)
         }
+        // Discord makes a size-capped copy of a finished clip.
         InlineToggle {
             width: parent.width
             visible: !Recorder.anyActive
@@ -668,6 +706,35 @@ Item {
             label: I18n.tr("Compact for Discord")
             on: Recorder.discordMode
             onToggled: Recorder.discordMode = !Recorder.discordMode
+        }
+        // the rest of the recording knobs live in the Hub.
+        Item {
+            width: parent.width
+            visible: !Recorder.anyActive
+            height: (root.roomy ? 24 : 18) * root.s
+            Row {
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 6 * root.s
+                GlyphIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 13 * root.s
+                    height: width
+                    name: "chevron-right"
+                    stroke: 1.7
+                    color: moreHov.hovered ? root.ink : root.inkDim
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: I18n.tr("More recording settings")
+                    color: moreHov.hovered ? root.ink : root.inkDim
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: 11 * root.s
+                    font.weight: Font.Medium
+                }
+            }
+            HoverHandler { id: moreHov; cursorShape: Qt.PointingHandCursor }
+            TapHandler { onTapped: Quickshell.execDetached(["ryoku-shell", "hub", "open", "recording"]) }
         }
 
         // RECENT - screenshots and recordings in separate labelled groups; a click

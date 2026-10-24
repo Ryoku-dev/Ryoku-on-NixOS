@@ -14,11 +14,10 @@ ConditionPathExistsGlob=/sys/class/bluetooth/*
 
 [Service]
 Type=oneshot
-# Restarting a system unit from a user session goes through polkit; the shipped
-# 54-ryoku-bluetooth-a2dp.rules authorizes exactly this one action, so no prompt.
-# If it is ever denied the unit just fails and nothing is restarted -- never a
-# regression, only the fix not taking effect.
-ExecStart=/usr/bin/systemctl restart bluetooth.service
+# The helper restores the user's saved radio state after the restart. This keeps
+# BlueZ's AutoEnable default for a new install without overriding a later off
+# choice.
+ExecStart=/usr/bin/ryoku-bluetooth-reset
 TimeoutStartSec=30
 
 [Install]

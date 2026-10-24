@@ -1,50 +1,88 @@
-#!/usr/bin/env bash
-
-# Ryoku pre-commit checks staged changes for basic repository hygiene:
-#   1. git whitespace/errors
-#   2. shell syntax
-#   3. low-value conversational filler in newly added comments
-#   4. update-delivery coverage for shipped user config
-
+#!/bin/bash
+# Ryoku pre-commit, on staged additions:
+#   1. no em-dash in text files (prose stays plain, not machine-styled)
+#   2. bash syntax on staged shell scripts
+#   3. no low-value filler phrases in added comment lines
+# vendored ryoku/lockscreen/qylock is exempt. bypass with --no-verify only when
+# you know what you're doing.
 set -euo pipefail
 
 fail() {
-  echo "" >&2
-  echo "pre-commit rejected this commit:" >&2
-  echo "  $1" >&2
-  echo "" >&2
-  exit 1
+	echo "" >&2
+	echo "pre-commit rejected this commit:" >&2
+	echo "  $1" >&2
+	echo "" >&2
+	exit 1
 }
 
-exempt='^ryoku/lockscreen/qylock/|^ryoku/shell/quickshell/shell/modules/bar/barstyles/qsbar/'
-
-git diff --cached --check \
-  || fail "git diff --check found whitespace or conflict-marker errors."
+# vendored trees, plus ryoku/i18n/catalog: those files are generated, their keys
+# are the English source strings verbatim (including the em-dashes the exempt
+# trees above still carry), and a key that differs from its source no longer
+# matches at lookup. sync.py already strips em-dashes from every translation.
+exempt='^ryoku/lockscreen/qylock/|^ryoku/shell/quickshell/shell/modules/bar/barstyles/qsbar/|^ryoku/shell/quickshell/shell/modules/bar/barstyles/python/|^ryoku/shell/quickshell/shell/modules/bar/barstyles/nomarchy/|^ryoku/i18n/catalog/'
+text='\.(md|txt|sh|bash|yml|yaml|toml|json|jsonc|conf|lua|tpl|fish|desktop|rules)$|(^|/)(README|NOTICE|LICENSE)$'
 
 mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACM)
 
+# 1. em-dash scan over text files.
 for f in "${staged[@]}"; do
-  [[ -f "$f" ]] || continue
-  [[ "$f" =~ $exempt ]] && continue
-
-  case "$f" in
-    *.sh|*.bash) ;;
-    *)
-      first=$(head -n1 "$f" 2>/dev/null || true)
-      [[ "$first" == '#!'*bash* || "$first" == '#!/bin/sh' || "$first" == '#!/usr/bin/env sh' ]] || continue
-      ;;
-  esac
-
-  if ! git show ":$f" | bash -n 2>/tmp/ryoku-bashn.err; then
-    cat /tmp/ryoku-bashn.err >&2
-    fail "bash syntax error in $f."
-  fi
+	[[ -f $f ]] || continue
+	[[ $f =~ $exempt ]] && continue
+	[[ $f =~ $text ]] || continue
+	if git show ":$f" | grep -q $'\xe2\x80\x94'; then
+		git show ":$f" | grep -n $'\xe2\x80\x94' >&2
+		fail "em-dash found in $f. Use a comma, colon, period, or parentheses."
+	fi
 done
 
-bin/ryoku-dev-check-comments --staged >/dev/null \
-  || fail "low-value filler comments found; reword or remove them."
+# 2. bash syntax on staged shell scripts (extension or shebang).
+for f in "${staged[@]}"; do
+	[[ -f $f ]] || continue
+	[[ $f =~ $exempt ]] && continue
+	case "$f" in
+		*.sh | *.bash) ;;
+		*)
+			first=$(head -n1 "$f" 2>/dev/null)
+			[[ $first == '#!'*bash* || $first == '#!/bin/sh' || $first == '#!/usr/bin/env sh' ]] || continue
+			;;
+	esac
+	if ! git show ":$f" | bash -n 2>/tmp/ryoku-bashn.err; then
+		cat /tmp/ryoku-bashn.err >&2
+		fail "bash syntax error in $f."
+	fi
+done
 
+# 3. filler phrases in ADDED comment lines, via the shared scanner (vendored
+#    tree excluded). same check runs in CI (.github/workflows/ai-slop.yml).
+bin/ryoku-dev-scan-slop --staged >/dev/null \
+	|| fail "low-value filler comments found (see above); reword or drop them."
+
+# 4. update-delivery: every user config in the repo reaches an installed box.
 bin/ryoku-dev-verify-delivery --quiet \
-  || fail "a user config reaches no installed system; see docs/updates.md."
+	|| fail "a config in ryoku/apps reaches no user (see above); ship it from a PKGBUILD or a deploy path. See docs/updates.md."
+
+# 5. wm-isolation: compositor specifics stay inside the ryoku/wm seam.
+bin/ryoku-dev-verify-wm-isolation --quiet \
+	|| fail "compositor specifics leak outside ryoku/wm (see above); gate on a capability or route through wm.Client."
+
+# 6. review gate (rashin-reviewer, settings in .rashin-reviewer.yaml): no
+#    secrets or conflict markers, no JSON, YAML, TOML, Python, Lua or QML file
+#    the commit leaves unparseable, and ShellCheck (CI's flags) and gofmt clean
+#    on the added lines. A clone that sets `git config ryoku.reviewGate
+#    required` refuses to commit without the reviewer; elsewhere a missing
+#    reviewer skips this step, like ShellCheck in pre-push.
+reviewer=$(command -v rashin-reviewer || true)
+[[ -z $reviewer && -x $HOME/.local/bin/rashin-reviewer ]] && reviewer=$HOME/.local/bin/rashin-reviewer
+if [[ -n $reviewer ]]; then
+	rc=0
+	"$reviewer" hook run pre-commit || rc=$?
+	case $rc in
+		0) ;;
+		1) fail "rashin-reviewer found blocking issues (see above)." ;;
+		*) fail "rashin-reviewer could not run (exit $rc); fix or reinstall it." ;;
+	esac
+elif [[ $(git config --get ryoku.reviewGate || true) == required ]]; then
+	fail "this clone requires the review gate (git config ryoku.reviewGate required), but rashin-reviewer is not installed."
+fi
 
 exit 0

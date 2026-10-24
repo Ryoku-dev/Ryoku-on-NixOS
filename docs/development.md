@@ -19,6 +19,9 @@ Edit the repo, deploy, test on the running system.
   per process, so a rebuilt `.qsb` needs the surface's process restarted; a QML
   hot-reload keeps serving the old one and the change looks like it did nothing.
 
+After displayed copy changes, regenerate translations by dispatching the
+`i18n` workflow by hand. Translation does not run on each push.
+
 ## Verify before committing
 
 - Lua: `luac -p <file>` parses every changed Lua file.
@@ -71,20 +74,71 @@ Edit the repo, deploy, test on the running system.
   surface down to a black screen. `deploy.sh` stamps `Ryoku.Blobs` with the Qt it
   built against and rebuilds when that changes; `ryoku doctor` reports a renderer
   or module that cannot load.
+- **A deploy build step:** wrap the work in `ryoku/shell/deploy.sh` with
+  `piece <key> <label>` and `piece_end`; send Go builds through `build_go`.
+  Add the label to the `pieceLabels` map in
+  `ryoku/cli/internal/updater/pieces.go` so it can be translated.
+  `RYOKU_UPDATE_PROGRESS` is the only switch for emitting piece markers.
+  Running `bash deploy.sh` by hand leaves it unset and prints only the human
+  lines.
 - **A system helper:** a `ryoku-<thing>` script under `system/hardware/.../`,
   shipped to `/usr/bin` by the `ryoku-desktop` package (its PKGBUILD installs
   every `system/hardware/*/ryoku-*`), and invoked by name from Lua autostart or
   a keybind.
+- **A service:** add its systemd unit, its runit service directory, and one row
+  in `system/services/manifest.tsv`. The row owns boot, session, on-demand, and
+  disable-preservation policy for every edition. Add a behavior test that runs
+  the service under its real supervisor and proves its activation state.
+
+## Branches and pushing
+
+Two branches, two jobs. Work goes to one; a release moves the other.
+
+- **`unstable-dev` is where work lands.** A push reaches source testers after
+  the **Testing gate** passes, normally in about six minutes. The package
+  publishers follow and feed the signed frozen testing builds used for pins and
+  rollback. Agents and maintainers wait for the Testing gate, not for Publish,
+  before telling testers the source lane is ready. Push with `git push origin
+  unstable-dev`; after the push the version bot adds a `[skip ci]` bump commit,
+  so `git fetch origin && git rebase origin/unstable-dev` before the next push.
+  Batch small commits: each push starts a gate and package publish cycle.
+- **`main` is the stable channel users run, and nothing is pushed to it.** It
+  advances only when a release is cut, by fast-forwarding to a commit
+  `unstable-dev` already carries (`docs/updates.md`, "Publishing: releases and
+  channels"). There are no hotfix commits on `main`: a fix goes to
+  `unstable-dev` and ships with the next release. The `pre-push` hook enforces
+  this: a push that moves `main` is refused unless it is the release
+  fast-forward, named as such:
+
+      git fetch origin unstable-dev
+      RYOKU_RELEASE_PUSH=1 git push origin unstable-dev:main
+
+  Even with the variable set, the hook refuses a `main` that would not be a
+  fast-forward, a target `origin/unstable-dev` does not carry, and any deletion.
+  The **Stable Release** workflow then tags `main`; it is the only thing that
+  commits there (a `VERSION` bump), and that commit is merged back into
+  `unstable-dev` before the next release fast-forward (`CONTRIBUTING.md`,
+  "Release notes").
+- **Any other branch is yours.** Push it freely, open a pull request against
+  `unstable-dev`, and merge it there (never squash: it drops the release notes).
 
 ## How a change reaches users
 
 Where a change lives decides whether, and how, it reaches an installed machine.
 
-- **Desktop config and binaries (`ryoku/`)** reach users through `ryoku update`:
-  config is re-laid by `ryoku materialize` (override-safe), binaries come from the
-  signed `[ryoku]` repo. They reach the testing channel on every push to
-  `unstable-dev` and stable when a release is tagged (`docs/updates.md`,
-  "Publishing: releases and channels").
+- **Desktop config and binaries (`ryoku/`)** reach source testers after the
+  Testing gate passes on an `unstable-dev` push. The edition publishers then
+  put the same change into signed native testing repositories and frozen builds.
+  Stable receives it when a release is tagged (`docs/updates.md`, "Publishing:
+  releases and channels").
+- **Push, or work on a branch that is not the channel.** `ryoku update` on a
+  checkout reconciles the branch it is ON onto `origin/<channel>`: a clean
+  fast-forward when it can, and a `git reset --hard` when the branch has diverged
+  (`ryoku/cli/internal/updater/channel.go`, `syncChannel`). The channel branch is
+  meant to mirror upstream, so **commits sitting unpushed on `unstable-dev` are
+  dropped by the next `ryoku update`** (they survive only in the reflog). Push
+  them, or keep them on any other branch. Local edits to tracked files are never
+  touched: the deploy runs on what is checked out.
 - **The installer (`installation/`)** runs once from the ISO. Fixes here reach
   only new installs from a new ISO, never an existing machine.
 - **Package-set additions (`system/packages/`)** are pacstrapped at install.
@@ -110,27 +164,167 @@ every supported install has run it, so the set stays small instead of piling up.
 
 ## Binaries and package managers
 
-- The desktop ships as signed pacman packages from the `[ryoku]` repo
-  (`release/packages/`): `ryoku-shell`, `ryoku-hub`, `ryoku`, and `ryoku-blobs`
-  build from source via their PKGBUILDs. The live ISO still prebuilds the
-  installer TUI (`installation/iso/build.sh`); the installed desktop's binaries
-  come from the repo, so never assume `go` at install time.
-- AUR packages install in the post-install step (`installation/backend/lib/
-  aur.sh`), not via pacstrap.
+- The desktop ships as native signed packages. Arch and CachyOS use the
+  `[ryoku]` pacman repository built from `release/packages/`; Void uses the XBPS
+  repository built from `void/packages/srcpkgs/`; Fedora uses the RPM repository
+  built from `fedora/packages/rpm/`. The Arch, CachyOS, and Void live ISOs
+  prebuild the installer TUI, while installed desktop binaries come from the
+  package repository, so never assume `go` exists at install time.
+- On Arch and CachyOS, AUR packages install in the post-install step
+  (`installation/backend/lib/aur.sh`), not via pacstrap.
 - User-level package managers install without root, into `~/.local/bin` (`npm`,
   `pip --user`, `go install`, `cargo install`, `pipx`, `mise`). Do not
   reintroduce root-global installs or assume `sudo`.
 
+### Caches in CI
+
+Publishers cache only ccache, Go's build and module caches, and native
+package-manager downloads. Ccache keys compiled objects from the preprocessed
+source, compiler, and flags, so a source, header, compiler, or flag change
+rebuilds the object. The Go caches are content-addressed. Pacman verifies cached
+packages by signature, xbps-src verifies cached distfiles by checksum, and DNF
+verifies its cached packages and metadata. Build outputs and repositories are
+never cached. Prebuilt vendored packages are never reused across runs because
+plugins are locked to the ABI of the compositor and libraries they build
+against.
+
+When an Arch package is added, give Void and Fedora a native build or a row in
+their `translations.tsv`. A `-` mapping must say why the edition cannot ship
+it. Run `bin/ryoku-edition-parity`; CI runs the same gate and rejects a package
+that is missing from either edition. The installer resolves both translation
+tables through `system/packages/resolve`, so add the package to the right lane
+instead of maintaining a second installer list.
+
+### Build the Void artifacts
+
+Build the XBPS repository in the official Void container:
+
+```sh
+RYOKU_XBPS_WORK=/tmp/ryoku-xbps-work \
+RYOKU_XBPS_OUT=/tmp/ryoku-xbps-out \
+RYOKU_XBPS_WORKTREE=1 \
+  void/packages/repo/container-runner.sh
+```
+
+Set `RYOKU_XBPS_PACKAGES` for a subset. Add `RYOKU_XBPS_KEY` to sign a local
+repository, and use `RYOKU_XBPS_KEYRING_DIR` only with a development key. A
+production build must use the committed trust plist:
+
+```sh
+void/packages/repo/new-signing-key /secure/ryoku-xbps.pem
+RYOKU_XBPS_KEY=/secure/ryoku-xbps.pem \
+RYOKU_XBPS_PRODUCTION=1 \
+  void/packages/repo/container-runner.sh
+```
+
+`new-signing-key` writes the fingerprint-named public plist under
+`void/packages/srcpkgs/ryoku-keyring/files/`; commit that plist, never the
+private key. Production mode rejects a keyring override and checks the
+`ryoku-keyring` package contains exactly the committed plist. CI keeps the
+private key in `VOID_REPO_SIGNING_KEY`; both Void workflows derive its plist
+again and stop if it is missing from the tree or differs from the committed
+file.
+
+Build the ISO from a completed repository:
+
+```sh
+RYOKU_VOID_ISO_RYOKU_REPO=/tmp/ryoku-xbps-out/x86_64 \
+RYOKU_VOID_ISO_WORKTREE=1 \
+  void/iso/build.sh
+```
+
+`.github/workflows/publish-repo-void.yml` builds and signs the XBPS repository:
+`unstable-dev` pushes publish testing, and Stable Release dispatches it on each
+`v*` tag to publish a frozen release and move stable. That stable path then
+dispatches `.github/workflows/build-iso-void.yml` from the frozen repository;
+the ISO upload refreshes the ledger with `images.void`. See
+`void/packages/README.md` and `void/iso/README.md` for the build inputs.
+
+### Build the Fedora artifacts
+
+Fedora RPMs are built for every release listed in `fedora/releases`, currently
+44 and 45. Prepare the source RPMs from tracked files, then rebuild and assemble
+the signed binary repository:
+
+```sh
+RYOKU_PKGVER=1.2.3 \
+RYOKU_RELEASE=v1.2.3 \
+RYOKU_CHANNEL=stable \
+RYOKU_SRPM_OUT=/tmp/ryoku-srpms \
+  fedora/packages/rpm/prepare-srpms.sh
+
+RYOKU_SRPM_IN=/tmp/ryoku-srpms \
+RYOKU_RPM_OUT=/tmp/ryoku-rpm-repo \
+RYOKU_RPM_SIGNING_KEY=EB6D3C0F55A7B3CABA6B2838847B274F025DD6E3 \
+  fedora/packages/rpm/build-rpm-repo.sh
+```
+
+Ryoku-tree specs stage payload from the checkout and take the release version.
+Upstream specs keep their own version and release. Each URL source needs a
+dist-git checksum manifest under `fedora/packages/rpm/sources/`. Go and Cargo
+specs vendor locked dependencies into `Source100` for offline rebuilding.
+Verified fetch hooks under `fedora/packages/rpm/fetch/` produce sources that
+cannot be named by a static URL. The repository builder may reuse a published
+upstream RPM only when its complete identity matches, its Ryoku signature
+verifies, and DNF can solve it for the target release. Ryoku-tree packages
+always rebuild.
+
+The output contains signed binary RPMs, `repodata/`, its detached armored
+signature, and `release.json`. SRPMs stay in the build artifact and are not
+published. `.github/workflows/publish-repo-fedora.yml` builds and tests each
+supported Fedora release in its own container, publishes stable or testing
+heads and their frozen targets, uploads `fedora/releases`, and rebuilds the
+ledgers. Stable Release dispatches it on the release tag. Ryoku reaches Fedora
+through the shell installer on an existing system; there is no Fedora ISO. See
+`fedora/packages/rpm/README.md` for the spec, checksum, vendoring, fetch-hook,
+and local-build details. The release-day order and verification endpoints are
+in `docs/updates.md`, "Release-day checklist".
+
+### Test ISOs from `unstable-dev`
+
+Build an unpublished Arch test ISO from the testing package repository without
+moving an ISO pointer:
+
+```sh
+gh workflow run build-iso.yml --ref unstable-dev -f publish=false -f repo_url=https://repo.ryoku.dev/stable/channels/testing/x86_64
+```
+
+The signed image, manifest, scan results, and sidecars land in the Actions run's
+`ryoku-iso` workflow artifact. With `publish=false`, nothing is uploaded to the
+public bucket and no release ledger or latest pointer moves.
+
+The R2 retention Worker lives in `release/r2-retention/`. Run its focused tests
+with `node --test release/r2-retention/test/*.test.js`, then deploy from that
+directory with `npx wrangler deploy`. For a first deployment, set its top-level
+`DRY_RUN` value to `1`, inspect one scheduled run with `npx wrangler tail
+ryoku-r2-retention`, then restore `DRY_RUN` to `0` and deploy again.
+
 ## Commit gates
 
-Every commit passes the hooks in `.githooks/`; never use `--no-verify`.
+Every commit passes the hooks in `.githooks/`; never use `--no-verify`. A fresh
+clone wires them once with `git config core.hooksPath .githooks`; the path is
+relative to the worktree, so each worktree runs the hooks of the tree it has
+checked out (a worktree sitting on `main` runs `main`'s copy until the next
+release fast-forwards it).
 
 - `commit-msg`: subject is `[area] scope: summary` with area in
   `global | installation | system | ryoku | docs | test | tooling | release`
   (shell uses `[global]`). No em-dash, no authorship/attribution trailer.
 - `pre-commit`: no em-dash in text files, valid bash syntax on staged scripts,
-  no filler comment lines.
-- `pre-push`: shellcheck when installed.
+  no filler comment lines, every user config delivered, compositor specifics
+  kept inside `ryoku/wm`, and, where `rashin-reviewer` is installed, its review
+  gate: no secrets or conflict markers, no JSON, YAML, TOML, Python, Lua or QML
+  file left unparseable, and ShellCheck (CI's flags) and gofmt clean on the
+  added lines. `.rashin-reviewer.yaml` holds its settings; mark an intentional
+  hit with `rashin-reviewer:allow <rule>` on the line. A clone that sets
+  `git config ryoku.reviewGate required` refuses to commit without the
+  reviewer. `rashin-reviewer review` adds a model review of uncommitted work,
+  steered by `.coderabbit.yaml`.
+- `pre-push`: `main` moves only as the release fast-forward
+  (`RYOKU_RELEASE_PUSH=1`, onto a commit `origin/unstable-dev` carries), is
+  never rewritten or deleted; shellcheck with CI's flags when installed; subjects
+  of 72 characters or fewer; PKGBUILD dependencies resolve and the vendored
+  window-manager seam copies match when a push touches them.
 
 One logical change per commit. Update the matching `CHANGELOG.md` in the area you
 touched, and keep the change documented where future readers will look.

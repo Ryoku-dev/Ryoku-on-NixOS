@@ -27,6 +27,21 @@ Singleton {
     readonly property string latestName: root.frame.channelReleaseName || ""
     readonly property var commits: root.frame.updates || []
     readonly property var packages: root.frame.packages || []
+    readonly property string buildState: root.frame.channelBuild ? (root.frame.channelBuild.state || "") : ""
+    readonly property string buildCommit: root.frame.channelBuild ? String(root.frame.channelBuild.commit || "").slice(0, 7) : ""
+    readonly property string buildRun: root.frame.channelBuild ? (root.frame.channelBuild.run || "") : ""
+    readonly property string buildStarted: root.frame.channelBuild ? (root.frame.channelBuild.started || "") : ""
+    readonly property int buildMinutes: {
+        root.frame;
+        var started = Date.parse(root.buildStarted);
+        return root.buildStarted === "" || isNaN(started)
+            ? 0
+            : Math.max(0, Math.floor((Date.now() - started) / 60000));
+    }
+    readonly property string checkState: root.frame.channelCheck ? (root.frame.channelCheck.state || "") : ""
+    readonly property string checkCommit: root.frame.channelCheck ? String(root.frame.channelCheck.commit || "").slice(0, 7) : ""
+    readonly property string checkRun: root.frame.channelCheck ? (root.frame.channelCheck.run || "") : ""
+
 
     function check() { root.send("updates.check", {}); }
 

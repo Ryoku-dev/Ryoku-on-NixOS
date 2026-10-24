@@ -1,0 +1,160 @@
+From ecb953778c1031d0492cc6bc65429449cb32163c Mon Sep 17 00:00:00 2001
+From: Samuel Ainsworth <skainsworth@gmail.com>
+Date: Thu, 27 Aug 2026 02:14:41 -0400
+Subject: [PATCH] Clean up layer surfaces when removing outputs
+
+Niri sends layer surfaces a close event before removing their output, but waits for the client-side destroy event to remove its MappedLayer. By then the output is no longer in the layout, so layer_destroyed cannot find the owning LayerMap and leaves the surface and its buffer alive indefinitely.
+
+Unmap every layer and remove mapped, unmapped, and on-demand-focus tracking while the output is still available. Later client destruction remains idempotent, and layers belonging to other outputs are preserved.
+
+Add a client-server regression covering mapped and unmapped layers, on-demand focus, a surviving output, close delivery, and late protocol destruction. The test fails before the fix with both mapped layers still retained after output removal.
+
+Refs: #1457
+---
+ src/niri.rs                | 13 +++++-
+ src/tests/client.rs        |  6 +++
+ src/tests/remove_output.rs | 87 ++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 105 insertions(+), 1 deletion(-)
+
+diff --git a/src/niri.rs b/src/niri.rs
+index fa44b5cbf4..76d830bb71 100644
+--- a/src/niri.rs
++++ b/src/niri.rs
+@@ -2932,9 +2932,20 @@ impl Niri {
+     }
+
+     pub fn remove_output(&mut self, output: &Output) {
+-        for layer in layer_map_for_output(output).layers() {
++        let mut layer_map = layer_map_for_output(output);
++        let layers = layer_map.layers().cloned().collect::<Vec<_>>();
++        for layer in layers {
+             layer.layer_surface().send_close();
++
++            layer_map.unmap_layer(&layer);
++            self.unmapped_layer_surfaces.remove(layer.wl_surface());
++            self.mapped_layer_surfaces.remove(&layer);
++
++            if self.layer_shell_on_demand_focus.as_ref() == Some(&layer) {
++                self.layer_shell_on_demand_focus = None;
++            }
+         }
++        drop(layer_map);
+
+         self.layout.remove_output(output);
+         self.global_space.unmap_output(output);
+diff --git a/src/tests/client.rs b/src/tests/client.rs
+index 7776b6a204..e317bd7f05 100644
+--- a/src/tests/client.rs
++++ b/src/tests/client.rs
+@@ -392,6 +392,12 @@ impl Window {
+ }
+
+ impl LayerSurface {
++    pub fn destroy(&self) {
++        self.viewport.destroy();
++        self.layer_surface.destroy();
++        self.surface.destroy();
++    }
++
+     pub fn commit(&self) {
+         self.surface.commit();
+     }
+diff --git a/src/tests/remove_output.rs b/src/tests/remove_output.rs
+index 60a6c880b3..e034ee7cf5 100644
+--- a/src/tests/remove_output.rs
++++ b/src/tests/remove_output.rs
+@@ -1,3 +1,8 @@
++use smithay::desktop::layer_map_for_output;
++use smithay::reexports::wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::Layer;
++use smithay::reexports::wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::KeyboardInteractivity;
++
++use super::client::LayerConfigureProps;
+ use super::*;
+
+ #[test]
+@@ -32,3 +37,85 @@ fn set_fullscreen_on_removed_output_does_not_panic() {
+     window.set_fullscreen(Some(&wl_output));
+     f.double_roundtrip(id);
+ }
++
++#[test]
++fn remove_output_cleans_up_layer_surfaces() {
++    let mut f = Fixture::new();
++    f.add_output(1, (1920, 1080));
++    f.add_output(2, (1280, 720));
++
++    let id = f.add_client();
++    f.double_roundtrip(id);
++    let surviving_wl_output = f.client(id).output("headless-1");
++    let wl_output = f.client(id).output("headless-2");
++
++    let surviving_layer =
++        f.client(id)
++            .create_layer(Some(&surviving_wl_output), Layer::Top, "surviving");
++    let surviving_surface = surviving_layer.surface.clone();
++    surviving_layer.set_configure_props(LayerConfigureProps {
++        size: Some((100, 100)),
++        ..Default::default()
++    });
++    surviving_layer.commit();
++    f.double_roundtrip(id);
++
++    let surviving_layer = f.client(id).layer(&surviving_surface);
++    surviving_layer.attach_new_buffer();
++    surviving_layer.set_size(100, 100);
++    surviving_layer.ack_last_and_commit();
++    f.double_roundtrip(id);
++
++    let layer = f
++        .client(id)
++        .create_layer(Some(&wl_output), Layer::Top, "removed");
++    let surface = layer.surface.clone();
++    layer.set_configure_props(LayerConfigureProps {
++        size: Some((100, 100)),
++        kb_interactivity: Some(KeyboardInteractivity::OnDemand),
++        ..Default::default()
++    });
++    layer.commit();
++    f.double_roundtrip(id);
++
++    let layer = f.client(id).layer(&surface);
++    layer.attach_new_buffer();
++    layer.set_size(100, 100);
++    layer.ack_last_and_commit();
++    f.double_roundtrip(id);
++
++    let unmapped_layer = f
++        .client(id)
++        .create_layer(Some(&wl_output), Layer::Top, "unmapped");
++    let unmapped_surface = unmapped_layer.surface.clone();
++    f.double_roundtrip(id);
++
++    assert_eq!(f.niri().mapped_layer_surfaces.len(), 2);
++    assert_eq!(f.niri().unmapped_layer_surfaces.len(), 1);
++    assert!(f.niri().layer_shell_on_demand_focus.is_some());
++
++    let output = f.niri_output(2);
++    f.niri().remove_output(&output);
++
++    let niri = f.niri();
++    assert_eq!(niri.mapped_layer_surfaces.len(), 1);
++    assert!(niri
++        .mapped_layer_surfaces
++        .keys()
++        .any(|layer| layer.namespace() == "surviving"));
++    assert!(niri.unmapped_layer_surfaces.is_empty());
++    assert!(niri.layer_shell_on_demand_focus.is_none());
++    assert_eq!(layer_map_for_output(&output).layers().count(), 0);
++
++    f.double_roundtrip(id);
++
++    assert!(!f.client(id).layer(&surviving_surface).close_requested);
++    assert!(f.client(id).layer(&surface).close_requested);
++    assert!(f.client(id).layer(&unmapped_surface).close_requested);
++
++    f.client(id).layer(&surface).destroy();
++    f.client(id).layer(&unmapped_surface).destroy();
++    f.double_roundtrip(id);
++
++    assert_eq!(f.niri().mapped_layer_surfaces.len(), 1);
++}

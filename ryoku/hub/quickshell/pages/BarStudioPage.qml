@@ -12,9 +12,9 @@ import Ryoku.FrameBars
 import "../barstudio/BarStudioModel.js" as Model
 
 // Bar Studio (DESKTOP). Choose which bar the desktop draws, and tune the
-// built-in styles. QS Bar is a folder style that keeps its own layout, widgets,
-// form and dock in QS Bar Settings (the bar logo opens it, or the OPEN QS BAR
-// SETTINGS card here); this page shows only a live summary of its order. Sumi is
+// built-in styles. QS Bar keeps its layout, widgets and form in QS Bar Settings
+// (the bar logo opens it, or the OPEN QS BAR SETTINGS card here); the universal
+// dock has one Stage Editor handoff regardless of bar style. Sumi is
 // edited in place: the frame's draw toggle and opacity, each rail's on/off and
 // thickness, and the widgets in its three zones (add via a per-zone drawer,
 // remove, reorder). Obi and Nacre carry their own small editors.
@@ -52,87 +52,6 @@ Item {
     readonly property var railWas: page.committedBars && page.committedBars.rails ? page.committedBars.rails[page.edge] : null
     readonly property bool horizontal: page.edge === "top" || page.edge === "bottom"
 
-    property var barStyles: []
-    property string updatingId: ""    // the style whose update is in flight
-
-    function browseBarStyles() {
-        Spawn.runApp(["ryostore", "open", "barstyles"]);
-    }
-
-    // Settings owns updates (docs/store.md); RyoStore only installs. The same
-    // transaction engine serves both, so this re-runs an install over the
-    // receipt-owned tree, which replaces the style in place. Install never
-    // activates, and only a removal rewrites the bar selection, so updating the
-    // style you are wearing is safe: the shell keys style URLs to the store
-    // revision and swaps the new content without a reload.
-    function updateStyle(id) {
-        if (!id || page.updatingId !== "")
-            return;
-        page.updatingId = id;
-        updateProc.command = ["ryostore", "install", "barstyles", id];
-        updateProc.running = true;
-    }
-
-    function refreshBarStyles() {
-        styleProc.running = false;
-        styleProc.running = true;
-    }
-
-    Process {
-        id: styleProc
-        command: ["ryostore", "catalog", "--category", "barstyles"]
-        running: true
-        stdout: StdioCollector {
-            onStreamFinished: {
-                try {
-                    const catalog = JSON.parse(this.text || "{}");
-                    // Every bar style the catalogue carries, not only the ones
-                    // already installed: a style you have yet to fetch still
-                    // belongs on the shelf so you can see it exists and how to
-                    // get it. The one style hidden here is one written for
-                    // another compositor that you have not installed -- it can
-                    // neither run nor be fetched, so it is not offered. Install
-                    // still lives in RyoStore; this page only shows state and
-                    // applies what is yours.
-                    page.barStyles = (catalog.items || [])
-                        .filter(item => item.category === "barstyles"
-                            && !(item.unavailable === true && item.installed !== true))
-                        .map(item => ({
-                            id: item.id,
-                            name: item.name || item.id,
-                            desc: item.summary || item.description || "",
-                            installed: item.installed === true,
-                            // The catalogue's versions ride through so the shelf
-                            // can name the update it offers: Settings owns
-                            // applying it, RyoStore does not (docs/store.md).
-                            version: item.version || "",
-                            installedVersion: item.installedVersion || "",
-                            updateAvailable: item.updateAvailable === true,
-                            active: item.active === true,
-                            unavailable: item.unavailable === true,
-                            unavailableReason: item.unavailableReason || "",
-                            requiredWindowManager: item.requiredWindowManager || "",
-                            downloadPaused: item.downloadPaused === true,
-                            downloadPauseReason: item.downloadPauseReason || ""
-                        }));
-                } catch (e) {
-                    page.barStyles = [];
-                }
-            }
-        }
-    }
-
-    // The update runs in the background: a bar style installs into the user's
-    // own data tree, so unlike a package there is no sudo prompt and no terminal
-    // to hand it. On any outcome the shelf is re-read, so a failed update leaves
-    // the same UPDATE affordance up rather than a dead button.
-    Process {
-        id: updateProc
-        onExited: {
-            page.updatingId = "";
-            page.refreshBarStyles();
-        }
-    }
 
     // The Obi bar's widgets, for the per-widget show/hide toggles below. Mirrors
     // barstyles/obi/Scene.qml; Workspaces is the bar's identity and has no toggle.
@@ -147,14 +66,17 @@ Item {
         { id: "tray", label: I18n.tr("Tray"), desc: I18n.tr("System tray icons.") },
         { id: "weather", label: I18n.tr("Weather"), desc: I18n.tr("Current conditions.") }
     ]
-
     readonly property var chromaWidgets: BarStyles.chromaWidgets
-    // The running bar style, default the built-in frame style. The frame, rails
-    // and zone editors below are Sumi's; a folder style owns its own layout.
-    readonly property string activeStyle: page.fval("barStyle", "sumi")
+    // The running bar style; an absent key renders the shipped QS Bar, the
+    // shell's own default. The frame, rails and zone editors below are Sumi's;
+    // a folder style owns its own layout.
+    readonly property string activeStyle: page.fval("barStyle", "orpheus")
     readonly property bool sumiActive: page.activeStyle === "sumi"
     readonly property string activeName: {
-        return BarStyles.nameFor(page.activeStyle);
+        const designs = styleGallery.designs || [];
+        for (let i = 0; i < designs.length; i++)
+            if (designs[i].id === page.activeStyle) return designs[i].name;
+        return page.activeStyle;
     }
 
     // Stage AND apply: edits ride the shared draft like every page, and the
@@ -235,11 +157,15 @@ Item {
     }
 
     // ── QS Bar layout summary ─────────────────────────────────────────────────
-    // The QS Bar's layout, widgets, form and dock are arranged in QS Bar Settings
-    // now (the bar logo opens it, or `ryoku-shell bar settings`). This page keeps
+    // The QS Bar's layout, widgets and form are arranged in QS Bar Settings
+    // (the bar logo opens it, or `ryoku-shell bar settings`). This page keeps
     // only a read-only summary of the order, watched off shell.json so it tracks a
     // move made from the panel or the CLI without a Hub reload.
     property var qsbarLayout: ({})
+    // The iRiS family's frontend (paper-and-ink "ryoku" or the upstream "inir"
+    // look) lives at inir.iris.appearance.frontend in shell.json; watched here so
+    // the toggle below tracks a flip made from the iRiS settings overlay too.
+    property string irisFrontend: "ryoku"
     readonly property string qsbarLayoutSummary: {
         const layout = page.qsbarLayout || ({});
         const lane = a => Array.isArray(a) ? a.join(" \u00b7 ") : "";
@@ -256,6 +182,8 @@ Item {
             try {
                 const cfg = JSON.parse(shellJsonFile.text() || "{}");
                 page.qsbarLayout = (cfg.qsbar && cfg.qsbar.layout) ? cfg.qsbar.layout : ({});
+                page.irisFrontend = (cfg.inir && cfg.inir.iris && cfg.inir.iris.appearance
+                    && cfg.inir.iris.appearance.frontend) || "ryoku";
             } catch (e) {
                 page.qsbarLayout = ({});
             }
@@ -264,6 +192,38 @@ Item {
     function openQsBarSettings() {
         Quickshell.execDetached(["ryoku-shell", "bar", "settings"]);
     }
+    function openDockSettings() {
+        Quickshell.execDetached(["qs", "-c", "shell", "ipc", "call", "desktop", "editSection", "dock", ""]);
+    }
+
+    // The frame family opens its own settings overlay through the shell IPC.
+    function openIrisSettings() {
+        Quickshell.execDetached(["qs", "-c", "shell", "ipc", "call", "iris", "settings", ""]);
+    }
+
+    // Writes through the shell's own config writer (iris set IPC), never the Hub
+    // draft, so it does not fight the frame's live Config and applies at once.
+    function setIrisFrontend(v) {
+        Quickshell.execDetached(["qs", "-c", "shell", "ipc", "call", "iris", "set",
+            "iris.appearance.frontend", JSON.stringify(v)]);
+    }
+
+    // Python keeps its whole settings surface in the style itself: the guide
+    // stage, opened through the style's resident `main` IPC target.
+    function openPythonSettings() {
+        Quickshell.execDetached(["qs", "-c", "shell", "ipc", "call", "main",
+            "handleCommand", "toggle", "guide", ""]);
+    }
+    function openNomarchyPlugins() {
+        Quickshell.execDetached(["qs", "-c", "shell", "ipc", "call", "nomarchy",
+            "summon", "omarchy.menu", "{\"menu\":\"setup.plugins\"}"]);
+    }
+
+    function openNomarchyThemes() {
+        Quickshell.execDetached(["qs", "-c", "shell", "ipc", "call", "nomarchy",
+            "summon", "omarchy.image-picker", "{\"source\":\"themes\"}"]);
+    }
+
 
     CatalogLabels { id: labels }
 
@@ -364,149 +324,48 @@ Item {
                 width: col.colWidth
                 title: I18n.tr("BAR STYLE")
 
+                StoreDesignGallery {
+                    id: styleGallery
+                    width: parent.width
+                    category: "barstyles"
+                    wornId: page.activeStyle
+                    shippedDesigns: BarStyles.builtins
+                    onWear: designId => page.fedit("barStyle", designId)
+                }
+            }
+
+            SettingCard {
+                width: col.colWidth
+                title: I18n.tr("DOCK")
+                kana: "台"
+
                 Item {
                     width: parent.width
-                    height: styleBody.height + Tokens.s3 + Tokens.s4
+                    height: dockHandoff.height + Tokens.s3 + Tokens.s4
                     Column {
-                        id: styleBody
+                        id: dockHandoff
                         anchors { left: parent.left; right: parent.right; top: parent.top }
-                        anchors.leftMargin: Tokens.s4; anchors.rightMargin: Tokens.s4; anchors.topMargin: Tokens.s3
+                        anchors.leftMargin: Tokens.s4
+                        anchors.rightMargin: Tokens.s4
+                        anchors.topMargin: Tokens.s3
                         spacing: Tokens.s3
-                        // A gallery, not a filmstrip: with a bar style per tile the
-                        // captions are what tell them apart, so the tiles wrap into
-                        // as many rows as they need instead of squeezing 8 into one.
-                        // The height is computed, not measured: a Flow reports its
-                        // post-wrap height a polish pass late, and CardColumns would
-                        // place the next card over this one's second row.
-                        Flow {
-                            id: styleRow
+                        Text {
                             width: parent.width
-                            spacing: Tokens.s2
-                            readonly property int perRow: Math.max(2, Math.floor((width + Tokens.s2) / 210))
-                            readonly property int tileH: 64
-                            readonly property int rowCount: Math.max(1, Math.ceil(styleRep.count / perRow))
-                            height: rowCount * tileH + (rowCount - 1) * spacing
-                            Repeater {
-                                id: styleRep
-                                model: BarStyles.items
-                                delegate: Rectangle {
-                                    id: styleCard
-                                    required property var modelData
-                                    // A style applies only when it is installed
-                                    // and can run on this compositor. A paused
-                                    // style stays applyable once installed (the
-                                    // pause blocks only new downloads); a
-                                    // not-installed or wm-gated one cannot.
-                                    readonly property bool applyable: styleCard.modelData.installed && !styleCard.modelData.unavailable
-                                    readonly property bool on: styleCard.applyable && page.activeStyle === styleCard.modelData.id
-                                    // The backend refuses an install over a paused download or a
-                                    // product written for another compositor, so an update is
-                                    // offered only where re-running the install can succeed --
-                                    // never a button that is guaranteed to do nothing.
-                                    readonly property bool updatable: styleCard.modelData.updateAvailable === true
-                                        && styleCard.modelData.version.length > 0
-                                        && !styleCard.modelData.unavailable && !styleCard.modelData.downloadPaused
-                                    // The sub line reads the style's own blurb
-                                    // when it is yours to apply, otherwise the
-                                    // honest reason it is not: the compositor it
-                                    // wants, that it is under construction, or
-                                    // where to fetch it. A style with an update
-                                    // shows the version it would move to, so the
-                                    // UPDATE button next to it is self-explanatory.
-                                    readonly property string subText: {
-                                        if (styleCard.updatable) {
-                                            const cur = styleCard.modelData.installedVersion.length > 0
-                                                ? styleCard.modelData.installedVersion : styleCard.modelData.version;
-                                            return I18n.tr("%1 \u2192 %2").arg(cur).arg(styleCard.modelData.version);
-                                        }
-                                        if (styleCard.applyable)
-                                            return I18n.tr(styleCard.modelData.desc);
-                                        if (styleCard.modelData.unavailable) {
-                                            const wm = ("" + styleCard.modelData.requiredWindowManager).toUpperCase();
-                                            const tag = wm.length > 0 ? I18n.tr("%1 only").arg(wm) : I18n.tr("Unavailable");
-                                            return styleCard.modelData.unavailableReason.length > 0
-                                                ? tag + " \u00b7 " + styleCard.modelData.unavailableReason : tag;
-                                        }
-                                        if (styleCard.modelData.downloadPaused)
-                                            return styleCard.modelData.downloadPauseReason.length > 0
-                                                ? I18n.tr("Under construction") + " \u00b7 " + styleCard.modelData.downloadPauseReason
-                                                : I18n.tr("Under construction");
-                                        return I18n.tr("Available \u00b7 install from RyoStore");
-                                    }
-
-                                    objectName: "bar-style-" + styleCard.modelData.id
-                                    // fill the row evenly: as many ~210px tiles as the
-                                    // measure holds, stretched to close the last gap.
-                                    width: Math.floor((styleRow.width - (styleRow.perRow - 1) * Tokens.s2) / styleRow.perRow)
-                                    height: styleRow.tileH
-                                    radius: Tokens.radius
-                                    // dim a style you cannot apply from here
-                                    opacity: styleCard.applyable ? 1.0 : 0.55
-                                    color: styleCard.on ? Tokens.bone : (sma.containsMouse ? Tokens.tint5 : "transparent")
-                                    border.width: Tokens.border
-                                    border.color: styleCard.on ? Tokens.bone : Tokens.line
-                                    Behavior on color { ColorAnimation { duration: Tokens.snap } }
-
-                                    Column {
-                                        anchors {
-                                            left: parent.left
-                                            right: updateBtn.visible ? updateBtn.left : parent.right
-                                            margins: Tokens.s3; rightMargin: updateBtn.visible ? Tokens.s2 : Tokens.s3
-                                            verticalCenter: parent.verticalCenter
-                                        }
-                                        spacing: 3
-                                        Text {
-                                            text: styleCard.modelData.name.toUpperCase()
-                                            color: styleCard.on ? Tokens.inkOnBone : Tokens.inkDim
-                                            font.family: Tokens.ui
-                                            font.pixelSize: 12
-                                            font.weight: Font.Medium
-                                            font.letterSpacing: Tokens.trackLabel
-                                        }
-                                        Text {
-                                            width: parent.width
-                                            text: styleCard.subText
-                                            color: styleCard.on ? Tokens.inkOnBoneDim : Tokens.inkFaint
-                                            font.family: Tokens.ui
-                                            font.pixelSize: Tokens.fTiny
-                                            elide: Text.ElideRight
-                                        }
-                                    }
-                                    MouseArea {
-                                        id: sma
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        preventStealing: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: styleCard.applyable ? page.fedit("barStyle", styleCard.modelData.id) : page.browseBarStyles()
-                                    }
-                                    // Declared after the MouseArea so it stacks
-                                    // above it: the tile applies on click, and the
-                                    // update must not be stolen by that handler.
-                                    Btn {
-                                        id: updateBtn
-                                        anchors { right: parent.right; rightMargin: Tokens.s3; verticalCenter: parent.verticalCenter }
-                                        visible: styleCard.updatable
-                                        compact: true
-                                        armed: page.updatingId === ""
-                                        text: page.updatingId === styleCard.modelData.id
-                                            ? I18n.tr("UPDATING")
-                                            : I18n.tr("UPDATE")
-                                        objectName: "bar-style-update-" + styleCard.modelData.id
-                                        onAct: page.updateStyle(styleCard.modelData.id)
-                                    }
-                                }
-                            }
+                            text: I18n.tr("Every bar style shares one dock. Choose its design, behaviour and pinned apps in Stage Editor.")
+                            color: Tokens.inkMuted
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fBody
+                            wrapMode: Text.WordWrap
                         }
                         Btn {
-                            text: I18n.tr("BROWSE RYOSTORE")
-                            onAct: page.browseBarStyles()
+                            text: I18n.tr("OPEN DOCK SETTINGS")
+                            onAct: page.openDockSettings()
                         }
                     }
                 }
             }
 
-            // ── QS BAR: its layout, widgets, form and dock live in QS Bar Settings
+            // ── QS BAR: its layout, widgets and form live in QS Bar Settings
             SettingCard {
                 id: qsbarSect
                 width: col.colWidth
@@ -524,7 +383,7 @@ Item {
                         spacing: Tokens.s3
                         Text {
                             width: parent.width
-                            text: I18n.tr("The QS Bar arranges its own layout, widgets, form and dock in QS Bar Settings. The bar logo opens it, or the button below.")
+                            text: I18n.tr("The QS Bar arranges its own layout, widgets and form in QS Bar Settings. The bar logo opens it, or the button below.")
                             color: Tokens.inkMuted
                             font.family: Tokens.ui
                             font.pixelSize: Tokens.fBody
@@ -549,7 +408,7 @@ Item {
 
             SettingCard {
                 id: chromaSect
-                width: col.width
+                width: col.colWidth
                 visible: page.activeStyle === "chroma"
                 title: I18n.tr("CHROMA")
 
@@ -675,12 +534,135 @@ Item {
                 }
             }
 
+            // iRiS arranges itself live: the island opens its own settings
+            // overlay and Studio, so this card only routes there, like QS Bar.
+            SettingCard {
+                id: irisSect
+                width: col.colWidth
+                visible: page.activeStyle === "iris"
+                title: I18n.tr("SHIMA")
+                kana: "島"
+
+                Item {
+                    width: parent.width
+                    height: irisBody.height + Tokens.s3 + Tokens.s4
+                    Column {
+                        id: irisBody
+                        anchors { left: parent.left; right: parent.right; top: parent.top }
+                        anchors.leftMargin: Tokens.s4; anchors.rightMargin: Tokens.s4; anchors.topMargin: Tokens.s3
+                        spacing: Tokens.s3
+                        Text {
+                            width: parent.width
+                            text: I18n.tr("Shima arranges its island, bubbles and look in its settings overlay. Dock settings stay in Stage Editor.")
+                            color: Tokens.inkMuted
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fBody
+                            wrapMode: Text.WordWrap
+                        }
+                        Item {
+                            width: parent.width
+                            height: Tokens.ctlH
+                            Text {
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: I18n.tr("Look")
+                                color: Tokens.ink
+                                font.family: Tokens.ui
+                                font.pixelSize: Tokens.fRow
+                            }
+                            Seg {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                options: ["RYOKU", "ORIGINAL"]
+                                current: page.irisFrontend === "inir" ? "ORIGINAL" : "RYOKU"
+                                onChose: key => page.setIrisFrontend(key === "ORIGINAL" ? "inir" : "ryoku")
+                            }
+                        }
+                        Btn {
+                            text: I18n.tr("OPEN SHIMA SETTINGS")
+                            onAct: page.openIrisSettings()
+                        }
+                    }
+                }
+            }
+
+            // Python arranges itself live from its own guide: the settings
+            // stage opens with the bar's gear, so this card only routes there.
+            SettingCard {
+                id: pythonSect
+                width: col.colWidth
+                visible: page.activeStyle === "python"
+                title: I18n.tr("PYTHON")
+                kana: "蛇"
+
+                Item {
+                    width: parent.width
+                    height: pythonBody.height + Tokens.s3 + Tokens.s4
+                    Column {
+                        id: pythonBody
+                        anchors { left: parent.left; right: parent.right; top: parent.top }
+                        anchors.leftMargin: Tokens.s4; anchors.rightMargin: Tokens.s4; anchors.topMargin: Tokens.s3
+                        spacing: Tokens.s3
+                        Text {
+                            width: parent.width
+                            text: I18n.tr("Python keeps its bar, widgets and look in its own settings guide. Dock settings stay in Stage Editor; Ryoku's launcher, wallpaper picker and clipboard stay on their usual keys.")
+                            color: Tokens.inkMuted
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fBody
+                            wrapMode: Text.WordWrap
+                        }
+                        Btn {
+                            text: I18n.tr("OPEN PYTHON SETTINGS")
+                            onAct: page.openPythonSettings()
+                        }
+                    }
+                }
+            }
+
+            SettingCard {
+                id: nomarchySect
+                width: col.colWidth
+                visible: page.activeStyle === "nomarchy"
+                title: I18n.tr("NOMARCHY")
+                kana: "野"
+
+                Item {
+                    width: parent.width
+                    height: nomarchyBody.height + Tokens.s3 + Tokens.s4
+                    Column {
+                        id: nomarchyBody
+                        anchors { left: parent.left; right: parent.right; top: parent.top }
+                        anchors.leftMargin: Tokens.s4; anchors.rightMargin: Tokens.s4; anchors.topMargin: Tokens.s3
+                        spacing: Tokens.s3
+                        Text {
+                            width: parent.width
+                            text: I18n.tr("Nomarchy keeps Omarchy's configurable bar, panels and plugin menus while routing desktop actions through Ryoku.")
+                            color: Tokens.inkMuted
+                            font.family: Tokens.ui
+                            font.pixelSize: Tokens.fBody
+                            wrapMode: Text.WordWrap
+                        }
+                        Row {
+                            spacing: Tokens.s2
+                            Btn {
+                                text: I18n.tr("CHOOSE THEME")
+                                onAct: page.openNomarchyThemes()
+                            }
+                            Btn {
+                                text: I18n.tr("OPEN PLUGINS")
+                                onAct: page.openNomarchyPlugins()
+                            }
+                        }
+                    }
+                }
+            }
+
             // A folder style owns its own frame, rails and widgets inside its
             // barstyles/<id>/ folder, so the Sumi editors below stand down.
             SettingCard {
                 id: folderNote
                 width: col.colWidth
-                visible: !page.sumiActive && page.activeStyle !== "qsbar" && page.activeStyle !== "chroma"
+                visible: !page.sumiActive && ["qsbar", "orpheus", "iris", "python", "nomarchy"].indexOf(page.activeStyle) === -1
                 title: I18n.tr("LAYOUT")
 
                 Text {

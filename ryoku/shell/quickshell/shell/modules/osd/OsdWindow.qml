@@ -6,65 +6,76 @@ import Quickshell.Wayland
 import shell.services
 import Ryoku.Ui.Singletons
 
-// One OSD window (contract 12 sec 1/2): a small overlay layer surface anchored
-// to the bottom centre, shown on every monitor. `kind` selects volume-out,
-// mic-in, or brightness; three of these are mapped per screen. Exclusive zone 0
-// (reserves nothing, respects other layers), never takes focus, click-through.
-//
-// It reads as a smooth bottom-centre popup: a compact panel fades in and slides
-// up as the OSD flashes, holds, then eases back down and fades out. The window
-// stays mapped through the ease-out (visible tracks the eased `prog`, not the
-// raw flash), so the panel never blinks off mid-animation.
-//
-// The surface spans the desktop hole (compositor clamps it between the frame's
-// bar reserves) and the panel is centred in it and pinned a small gap off the
-// bottom, so it lands bottom-centre with no manual reserve arithmetic. Size is
-// logical px, multiplied by the accessibility font scale and by this monitor's
-// UI scale (shell.json displays.ui_scale, `us`).
+// One passive overlay per output and kind. The shipped window spans the
+// desktop hole, centres its panel and rests it just above the bottom edge.
+// Its eased progress keeps the surface mapped until the slide-out has finished.
 PanelWindow {
     id: win
 
     required property var modelData
     required property string kind
-    // Per-monitor UI scale (shell.json displays.ui_scale). Multiplies this
-    // surface's own logical sizes so one monitor's OSD shrinks/grows without
-    // touching the compositor scale. Default 1.0 is a byte-identical no-op.
+
+    // Logical sizes follow this output's UI scale. Nacre's independent OSD
+    // scale applies only to the shipped panel and its slide headroom.
     readonly property real us: Tokens.uiScaleFor(modelData ? modelData.name : "")
     readonly property real pad: 16 * win.us
     readonly property real osdScale: Config.barStyle === "nacre"
         ? Config.normalizedNacre.osdScale : 1
-    // slide travel, and the headroom the surface keeps above the panel's rest
-    // spot so the slide-up is never clipped by the surface edge.
     readonly property real slide: 18 * win.us
+    // Store designs own their size and edge choice while the shell keeps the
+    // window, input policy and timing.
+    readonly property bool storeRuns: designLoader.storeRuns
+    readonly property bool stockRuns: Designs.osdReady && !win.storeRuns
 
-    // Eased reveal: prog 0 hidden, 1 shown. Shown even over fullscreen (Overlay,
-    // no keyboard focus, click-through) so volume/brightness reach games.
-    property real prog: osd.flashing ? 1 : 0
-    Behavior on prog { NumberAnimation { duration: Motion.effects; easing.type: Easing.OutCubic } }
+    property real prog: feed.flashing ? 1 : 0
+    Behavior on prog {
+        NumberAnimation {
+            duration: Motion.effects
+            easing.type: Easing.OutCubic
+        }
+    }
 
+    // A store design's reveal keeps its window mapped long enough to finish
+    // an exit animation; the shipped design uses the host's eased progress.
     screen: modelData
-    visible: win.prog > 0.01 || osd.flashing
+    visible: Designs.osdReady
+        && (feed.flashing || (win.storeRuns ? designLoader.reveal : win.prog) > 0.01)
+        && !Config.styleOwnsFeedbackFor(
+            modelData ? modelData.name : ""
+        )
     color: "transparent"
-    // Exclusive zone 0: reserve nothing, but respect other layers' zones
-    // (contract 12 sec 1). ExclusionMode.Ignore would request -1 instead.
     exclusionMode: ExclusionMode.Normal
     exclusiveZone: 0
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.namespace: "ryoku-osd"
 
-    // Span the desktop hole (compositor clamps to it), a small gap off the bottom.
-    anchors.bottom: true
-    anchors.left: true
-    anchors.right: true
-    margins.bottom: 24 * win.osdScale * win.us
+    // Single-edge anchors let layer shell centre the other axis. Center leaves
+    // every edge free; the shipped panel keeps its original bottom span.
+    anchors.bottom: !win.storeRuns || designLoader.placement === "bottom"
+    anchors.top: win.storeRuns && designLoader.placement === "top"
+    anchors.left: !win.storeRuns || designLoader.placement === "left"
+    anchors.right: !win.storeRuns || designLoader.placement === "right"
+    margins.bottom: win.storeRuns && designLoader.placement === "bottom"
+        ? 24 * win.us : (!win.storeRuns ? 24 * win.osdScale * win.us : 0)
+    margins.top: win.storeRuns && designLoader.placement === "top" ? 24 * win.us : 0
+    margins.left: win.storeRuns && designLoader.placement === "left" ? 24 * win.us : 0
+    margins.right: win.storeRuns && designLoader.placement === "right" ? 24 * win.us : 0
 
-    implicitHeight: box.height * win.osdScale + win.slide * win.osdScale
+    implicitWidth: win.storeRuns && designLoader.item
+        ? designLoader.item.implicitWidth : 0
+    implicitHeight: win.storeRuns && designLoader.item
+        ? designLoader.item.implicitHeight
+        : box.height * win.osdScale + win.slide * win.osdScale
 
-    // The panel: warm surface fill + hairline border, rounded like the sidebar
-    // surfaces (radiusWindow). Opacity and a slide offset ride the eased `prog`.
+    OsdSource {
+        id: feed
+        kind: win.kind
+    }
+
     Rectangle {
         id: box
+        visible: win.stockRuns
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         width: osd.implicitWidth + win.pad * 2
@@ -85,9 +96,29 @@ PanelWindow {
             anchors.margins: win.pad
             kind: win.kind
             us: win.us
+            value: feed.value
+            maxValue: feed.maxValue
+            muted: feed.muted
+            iconName: feed.iconName
         }
     }
 
-    // Click-through: the OSD is a passive readout, never eats a press.
+    OsdDesignLoader {
+        id: designLoader
+        anchors.fill: parent
+        kind: win.kind
+        screen: win.modelData
+        us: win.us
+        shown: feed.flashing
+        value: feed.value
+        maxValue: feed.maxValue
+        muted: feed.muted
+        icon: feed.iconName
+        iconSource: Qt.resolvedUrl("../../components/icons/"
+            + feed.iconName + "-symbolic.svg")
+        label: feed.label
+    }
+
+    // This readout is passive and must never consume a pointer press.
     mask: Region {}
 }

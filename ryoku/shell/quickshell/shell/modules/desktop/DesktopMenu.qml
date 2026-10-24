@@ -19,7 +19,14 @@ Item {
     readonly property bool ryoMenu: true
 
     anchors.fill: parent
-    visible: menu.open || panel.opacity > 0.01
+    // Live while the card is on screen (open, or still morphing shut) so the host
+    // surface stays mapped through the fade-out and unmaps only once it settles.
+    readonly property bool showing: menu.open || panel.opacity > 0.01
+    visible: menu.showing
+    // The host surface takes keyboard on demand; take focus while shown so Esc
+    // reaches the card and dismisses it, the same as a press outside it.
+    onShowingChanged: if (menu.showing) menu.forceActiveFocus()
+    Keys.onEscapePressed: menu.close()
 
     property bool open: false
     property string title: ""
@@ -62,18 +69,28 @@ Item {
 
         x: Math.max(Theme.s2, Math.min(menu.px, menu.width - width - Theme.s2))
         y: Math.max(Theme.s2, Math.min(menu.py, menu.height - height - Theme.s2))
-        width: menu.cardWidth
+        // Grow to the widest row/tile so a label never clips (content drives it,
+        // clamped to the screen); `cardWidth` is only the floor.
+        width: Math.max(menu.cardWidth, Math.min(menu.width - Theme.s2 * 2, col.implicitWidth + panel.pad * 2))
         height: Math.min(panel.fullHeight, menu.height - Theme.s2 * 2)
         radius: Theme.menuRadius
         color: Theme.surface
         border.width: 1
         border.color: Theme.line
 
-        transformOrigin: Item.TopLeft
-        scale: menu.open ? 1 : 0.96
+        // Grow out of the click point: the scale origin tracks where the cursor
+        // opened the card (clamped inside it), so the menu unfolds from under the
+        // pointer the way the iRiS menu morphs out of its anchor tile.
         opacity: menu.open ? 1 : 0
-        Behavior on scale { NumberAnimation { duration: Theme.quick; easing.type: Theme.ease } }
         Behavior on opacity { NumberAnimation { duration: Theme.quick } }
+        transform: Scale {
+            origin.x: Math.max(0, Math.min(panel.width, menu.px - panel.x))
+            origin.y: Math.max(0, Math.min(panel.height, menu.py - panel.y))
+            xScale: menu.open ? 1 : 0.9
+            yScale: menu.open ? 1 : 0.9
+            Behavior on xScale { NumberAnimation { duration: Theme.quick; easing.type: Theme.ease } }
+            Behavior on yScale { NumberAnimation { duration: Theme.quick; easing.type: Theme.ease } }
+        }
 
         // masthead eyebrow: the route's kanji gloss, its tracked Latin scope, and
         // a hairline leader running to the card edge. Pinned above the scroller.
@@ -94,8 +111,12 @@ Item {
             Text {
                 id: cap
                 anchors.verticalCenter: parent.verticalCenter
+                width: Math.min(Math.ceil(cap.implicitWidth),
+                    Math.max(0, mast.width - (seal.visible ? seal.width + mast.spacing : 0)))
                 text: menu.title.toUpperCase()
                 color: Theme.inkDim
+                elide: Text.ElideRight
+                maximumLineCount: 1
                 font.family: Theme.font
                 font.pixelSize: Theme.fMicro
                 font.weight: Font.DemiBold

@@ -13,12 +13,20 @@ import (
 //
 // The absences are niri's design, not gaps to fill later:
 //
-// CapWindowGeometry: a window reports its tile size but no on-screen position,
-// so the shell cannot draw windows where they are. It does not need to, because
-// CapNativeOverview is present and niri's own overview takes that job.
+// CapWindowGeometry: tiled windows still have no on-screen position, so the
+// shell cannot draw a general overview. Floating windows do report position and
+// size for persistence, while CapNativeOverview supplies the general overview.
+//
+// CapWorkspaceFullscreenState: niri's IPC windows carry no fullscreen field.
+// The shell instead enriches the active workspace from the matching
+// foreign-toplevel handle, whose fullscreen state niri publishes.
 //
 // CapSubmap, CapGlobalShortcuts, CapFocusGrab, CapScreenShader, CapPlugins:
 // niri implements none of these protocols or subsystems.
+//
+// CapWorkspaceSlideStyle: the animation is a config block with no query IPC,
+// so the provider cannot report the resolved style, curve and duration the way
+// the overlay needs; it keeps its built-in curve.
 //
 // CapLiveConfigEval and CapConfigReload: the config is file-only and niri
 // watches it, so there is nothing to evaluate and nothing to trigger.
@@ -30,6 +38,15 @@ import (
 // to make.
 //
 // CapSpecialWorkspace: niri has no scratchpad workspace.
+//
+// CapPersistentScreenCapture: niri offers only wlr-screencopy for outputs, so
+// Quickshell takes a screen capture by binding a second wl_output that the Qt
+// client later reads as one of its own screens after the capture is gone
+// (quickshell#1094). One capture is enough to segfault the shell. grim and
+// other out-of-process captures are fine. A niri release that ships
+// ext-image-copy-capture can claim this again.
+var foreignAPIs = []wm.ForeignAPI{}
+
 var capsManifest = []wm.Capability{
 	wm.CapWorkspaces,
 	wm.CapWorkspaceMoveToOutput,
@@ -40,6 +57,9 @@ var capsManifest = []wm.Capability{
 	wm.CapAnimations,
 	wm.CapNativeOverview,
 	wm.CapOverviewBackdrop,
+	// Overview open/closed and tile geometry back the pause rules gated on these.
+	wm.CapOverviewState,
+	wm.CapColumnFill,
 	wm.CapOutputPower,
 	wm.CapKeyboardLayoutSwitch,
 	wm.CapMonitorConfig,
@@ -48,6 +68,9 @@ var capsManifest = []wm.Capability{
 	wm.CapNightLight,
 	wm.CapTouchpadToggle,
 	wm.CapPaletteBorder,
+	// niri routes the pointer by input region whatever holds the keyboard, so
+	// an exclusive grab leaves every other surface clickable.
+	wm.CapKeyboardGrabSharesPointer,
 }
 
 // windowRuleActions are the neutral window-rule action ids niri's config writer
@@ -74,10 +97,10 @@ var compositorPackages = []string{
 	"niri",
 	"xwayland-satellite",
 	"xdg-desktop-portal-gnome",
-	// gammastep holds the warm gamma while the night light is on, over
+	// wlsunset holds the warm gamma while the night light is on, over
 	// wlr-gamma-control. niri's night-light backend, so its variant ships and
 	// reclaims it.
-	"gammastep",
+	"wlsunset",
 }
 
 // The manifest is fixed, not probed: niri does not gain features while running,
@@ -91,13 +114,14 @@ func runCaps() error {
 		// Workspaces are created and removed per output as windows come and
 		// go, so presenting them as numbered slots would be a lie.
 		WorkspaceModel: wm.WorkspaceModelDynamic,
+		ForeignAPIs:    foreignAPIs,
 		// wm.niri.* keys stay in the store untouched while another compositor
 		// is active, so they are still there on the way back.
-		SettingDomains: []string{"desktop", "wm." + wm.ProviderNiri},
-		ConfigFiles:    wm.ConfigFiles(wm.ProviderNiri),
-		GeneratedFiles: wm.GeneratedConfig(wm.ProviderNiri),
-		PortalBackend:  "gnome",
-		NightLightProcess: "gammastep",
+		SettingDomains:    []string{"desktop", "wm." + wm.ProviderNiri},
+		ConfigFiles:       wm.ConfigFiles(wm.ProviderNiri),
+		GeneratedFiles:    wm.GeneratedConfig(wm.ProviderNiri),
+		PortalBackend:     "gnome",
+		NightLightProcess: "wlsunset",
 		Packages:          compositorPackages,
 		WindowRuleActions: windowRuleActions,
 	}

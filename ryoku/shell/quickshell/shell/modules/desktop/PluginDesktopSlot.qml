@@ -2,6 +2,8 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Effects
 import Ryoku.PluginKit.Singletons
+import "Singletons"
+import "../stage/Singletons" as StageCfg
 
 // desktop placement frame for one plugin widget on the wallpaper layer.
 // measures the plugin's natural size, pads it, draws an optional card/glass
@@ -19,8 +21,10 @@ import Ryoku.PluginKit.Singletons
 // laid under it never sees a press the plugin's own MouseArea already took.
 Item {
     id: slot
+    enabled: !slot.stageInputBlocked
 
     property string pluginId: ""
+    property string monitor: ""              // output owning this tile
     property real freeX: 80
     property real freeY: 80
     property bool locked: false
@@ -30,14 +34,25 @@ Item {
     property real gridSize: 32
     property real scaleCfg: 1             // persisted scale, bound from the host
     property real opacityCfg: 1          // persisted opacity, bound from the host
+    property real depthV: 0.5
+    property bool spatial: false             // desktop's stageSpatial gate
+    property real mouseNX: 0                 // shared smoothed cursor, -1..1
+    property real mouseNY: 0
     // Keep the resize bracket present while an Edit widgets session is on: the
     // frame overlay above intercepts hover, so a hover-only bracket would never
     // reveal (see WidgetSlot).
     property bool composing: false
+    property var stageController: null
+    readonly property bool stageInputBlocked: !!(slot.stageController
+        && slot.stageController.inputBlocked)
+    readonly property real stageFramingDim: slot.stageController
+        ? slot.stageController.framingDim : 0
 
     signal moved(real x, real y)
     signal resized(real scale)
+    signal lockRequested(bool locked)
     signal menuRequested(real x, real y, string id)
+    signal settingsRequested(string id)
 
     // build the plugin widget directly as a child of `holder` (via
     // createComponent, which renders Image correctly where Loader doesn't),
@@ -95,11 +110,23 @@ Item {
     property real dragX: 0
     property real dragY: 0
     property bool resizing: false
-    property real resizeOX: 0
-    property real resizeOY: 0
+    property bool resizeMoved: false
+    property string resizeCorner: "br"
+    property real resizeOppX: 0
+    property real resizeOppY: 0
+    property real resizeStartWidth: 1
+    property real resizeStartHeight: 1
     property real resizeStartScale: 1
     property real resizeStartDiag: 1
     readonly property bool holding: slot.dragging || slot.resizing || guard.running
+    property bool stageMoveActive: false
+    property real stageMoveGrabX: 0
+    property real stageMoveGrabY: 0
+    property real groupDragMinX: -Infinity
+    property real groupDragMaxX: Infinity
+    property real groupDragMinY: -Infinity
+    property real groupDragMaxY: Infinity
+    readonly property string stageMoveId: "plugin:" + slot.pluginId
 
     // live scale during a resize scrub. mirrors scaleCfg when idle; mutates
     // while resizing so the readout and content track the cursor without
@@ -115,6 +142,157 @@ Item {
     function clampX(v) { return Math.max(0, Math.min(v, (slot.parent ? slot.parent.width : v + slot.width) - slot.width)); }
     function clampY(v) { return Math.max(0, Math.min(v, (slot.parent ? slot.parent.height : v + slot.height) - slot.height)); }
     function snap(v) { return Math.round(v / slot.gridSize) * slot.gridSize; }
+    function _quantiseScale(value, modifiers) {
+        const bounded = Math.max(0.5, Math.min(2.5, value));
+        if (Boolean(modifiers & Qt.ShiftModifier))
+            return Math.round(bounded * 100) / 100;
+        if (Math.abs(bounded - 1) < 0.03)
+            return 1;
+        return Math.round(bounded / 0.05) * 0.05;
+    }
+    function stageSetScale(value) {
+        if (slot.locked)
+            return;
+        slot.liveScale = slot._quantiseScale(value, Qt.NoModifier);
+        slot.resized(slot.liveScale);
+        guard.restart();
+    }
+    function stageToggleLock() {
+        slot.lockRequested(!slot.locked);
+    }
+    function stageBeginMove(point, modifiers) {
+        if (slot.locked || slot.stageInputBlocked)
+            return false;
+        slot.stageMoveActive = true;
+        slot.stageMoveGrabX = point.x - slot.x;
+        slot.stageMoveGrabY = point.y - slot.y;
+        slot.dragX = slot.x;
+        slot.dragY = slot.y;
+        if (slot.composing && slot.stageController) {
+            const bounds = slot.stageController.widgetDragStarted(slot.stageMoveId);
+            if (bounds.active === false) {
+                slot.stageMoveActive = false;
+                return false;
+            }
+            slot.groupDragMinX = bounds.minX;
+            slot.groupDragMaxX = bounds.maxX;
+            slot.groupDragMinY = bounds.minY;
+            slot.groupDragMaxY = bounds.maxY;
+        }
+        return true;
+    }
+    function stageUpdateMove(point, modifiers) {
+        if (!slot.stageMoveActive || slot.locked)
+            return;
+        const nx = point.x - slot.stageMoveGrabX;
+        const ny = point.y - slot.stageMoveGrabY;
+        if (!slot.dragging) {
+            if (Math.abs(nx - slot.x) < 6 && Math.abs(ny - slot.y) < 6)
+                return;
+            slot.dragging = true;
+        }
+        slot.dragX = Math.max(slot.groupDragMinX,
+            Math.min(slot.groupDragMaxX, slot.clampX(nx)));
+        slot.dragY = Math.max(slot.groupDragMinY,
+            Math.min(slot.groupDragMaxY, slot.clampY(ny)));
+        if (slot.composing && slot.stageController) {
+            const bounded = slot.stageController.widgetDragMoved(
+                slot.stageMoveId, slot.dragX, slot.dragY, modifiers);
+            slot.dragX = bounded.x;
+            slot.dragY = bounded.y;
+        }
+    }
+    function stageEndMove(modifiers) {
+        if (!slot.stageMoveActive)
+            return;
+        if (slot.dragging) {
+            const fx = Math.round(Math.max(slot.groupDragMinX,
+                Math.min(slot.groupDragMaxX, slot.composing
+                    ? slot.dragX : slot.snap(slot.dragX))));
+            const fy = Math.round(Math.max(slot.groupDragMinY,
+                Math.min(slot.groupDragMaxY, slot.composing
+                    ? slot.dragY : slot.snap(slot.dragY))));
+            const handled = slot.composing && slot.stageController
+                && slot.stageController.widgetDragEnded(
+                    slot.stageMoveId, fx, fy, modifiers);
+            if (!handled)
+                slot.moved(fx, fy);
+            slot.dragging = false;
+            guard.restart();
+        } else if (slot.composing && slot.stageController) {
+            slot.stageController.widgetDragCancelled(slot.stageMoveId);
+        }
+        slot.stageMoveActive = false;
+        slot.groupDragMinX = -Infinity;
+        slot.groupDragMaxX = Infinity;
+        slot.groupDragMinY = -Infinity;
+        slot.groupDragMaxY = Infinity;
+    }
+    function stageCancelMove() {
+        if (!slot.stageMoveActive)
+            return;
+        if (slot.composing && slot.stageController)
+            slot.stageController.widgetDragCancelled(slot.stageMoveId);
+        slot.dragging = false;
+        slot.stageMoveActive = false;
+        slot.groupDragMinX = -Infinity;
+        slot.groupDragMaxX = Infinity;
+        slot.groupDragMinY = -Infinity;
+        slot.groupDragMaxY = Infinity;
+    }
+    function stageBeginResize(corner, point, modifiers) {
+        if (slot.locked || slot.stageInputBlocked)
+            return;
+        slot.resizeCorner = corner;
+        slot.resizeStartScale = slot.effectiveScale;
+        slot.resizeStartWidth = slot.width;
+        slot.resizeStartHeight = slot.height;
+        slot.resizeOppX = corner.indexOf("l") >= 0 ? slot.x + slot.width : slot.x;
+        slot.resizeOppY = corner.indexOf("t") >= 0 ? slot.y + slot.height : slot.y;
+        slot.resizeStartDiag = Math.max(1,
+            Math.hypot(point.x - slot.resizeOppX, point.y - slot.resizeOppY));
+        slot.dragX = slot.x;
+        slot.dragY = slot.y;
+        slot.resizeMoved = false;
+        slot.resizing = true;
+    }
+    function stageUpdateResize(point, modifiers) {
+        if (!slot.resizing)
+            return;
+        slot.resizeMoved = true;
+        const distance = Math.max(1,
+            Math.hypot(point.x - slot.resizeOppX, point.y - slot.resizeOppY));
+        slot.liveScale = slot._quantiseScale(
+            slot.resizeStartScale * distance / slot.resizeStartDiag, modifiers);
+        const factor = slot.liveScale / Math.max(0.001, slot.resizeStartScale);
+        const nextW = slot.resizeStartWidth * factor;
+        const nextH = slot.resizeStartHeight * factor;
+        slot.dragX = slot.resizeCorner.indexOf("l") >= 0
+            ? slot.resizeOppX - nextW : slot.resizeOppX;
+        slot.dragY = slot.resizeCorner.indexOf("t") >= 0
+            ? slot.resizeOppY - nextH : slot.resizeOppY;
+    }
+    function stageEndResize() {
+        if (!slot.resizing)
+            return;
+        if (!slot.resizeMoved) {
+            slot.resizing = false;
+            return;
+        }
+        slot.dragX = slot.clampX(slot.dragX);
+        slot.dragY = slot.clampY(slot.dragY);
+        slot.resized(slot.liveScale);
+        slot.resizing = false;
+        guard.restart();
+    }
+    function stageCancelResize() {
+        slot.resizing = false;
+        slot.liveScale = slot.scaleCfg;
+    }
+    function stageResetScale() {
+        if (!slot.locked)
+            slot.stageSetScale(1);
+    }
 
     // A press that begins inside the plugin's own scroll area (a ListView or any
     // Flickable) has to scroll that list, not drag the tile: the DragHandler
@@ -148,26 +326,65 @@ Item {
     Behavior on x { enabled: !slot.holding; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
     Behavior on y { enabled: !slot.holding; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
-    // press bump: small lift while dragging, so it feels picked up.
-    scale: slot.dragging ? 1.03 : 1.0
-    transformOrigin: Item.Center
-    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutExpo } }
 
     // per-tile opacity (the menu and Ryoku Settings write desktopWidget.opacity),
     // clamped so a tile can fade back but never vanish or lose its clicks.
     opacity: Math.max(0.2, Math.min(1, slot.opacityCfg))
+        * (1 - 0.75 * slot.stageFramingDim) * (slot._hovered ? 0.85 : 1)
+    Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
     Timer { id: guard; interval: 90 }
 
-    // soft lift off the wallpaper for the backed styles.
+    readonly property bool _sceneOn: slot.spatial && !slot.composing
+    readonly property real _gainRaw: slot.spatial && StageCfg.Config.followMouse
+        ? StageCfg.Config.amountFactor * StageCfg.Config.sensitivity
+            * StageCfg.Config.range : 0
+    property real _gain: slot._gainRaw
+    Behavior on _gain { SmoothedAnimation { velocity: 2.5; duration: 200 } }
+    readonly property real _pivot: StageCfg.StageBackend.pivotDistanceFor(slot.monitor)
+    readonly property real _sceneH: slot.parent ? slot.parent.height : 0
+    readonly property bool _hovered: slot._sceneOn && slotHover.hovered && !slot.holding
+    property var _scene: slot._sceneOn
+        ? StageCfg.StageBackend.widgetSceneAt(
+            slot.depthV, slot._pivot, slot.mouseNX, slot.mouseNY, slot._gain,
+            slot.x + slot.width / 2, slot.y + slot.height / 2,
+            slot.width, slot.height, slot.parent.width, slot._sceneH)
+        : null
+    readonly property real _sceneDx: slot._scene ? slot._scene.dx : 0
+    readonly property real _sceneDy: slot._scene ? slot._scene.dy : 0
+    readonly property real _sceneScale: slot._scene ? slot._scene.scale : 1
+    // Contact shadow: farther, wider and softer the nearer the tile rides; the
+    // flat lift off the stage.
+    readonly property real _nearness: Math.max(0, Math.min(1, slot.depthV))
+    readonly property real _shadowAngle: StageCfg.Config.shadowAngle * Math.PI / 180
+    readonly property real _shadowSpan: slot._sceneOn ? 4 + 16 * slot._nearness : 6
+    transform: [
+        Scale {
+            origin.x: slot.width / 2
+            origin.y: slot.height / 2
+            xScale: slot._sceneScale
+            yScale: slot._sceneScale
+        },
+        Translate {
+            x: slot._sceneDx
+            y: slot._sceneDy
+        }
+    ]
+
     MultiEffect {
         source: backing
         anchors.fill: backing
-        visible: slot.bg !== "none"
+        visible: !slot.resizing && slot.bg !== "none"
         shadowEnabled: true
-        shadowColor: Qt.rgba(0, 0, 0, 0.5)
-        shadowBlur: 1.0
-        shadowVerticalOffset: 6
+        shadowColor: slot._sceneOn
+            ? Qt.rgba(0, 0, 0, 0.30 + 0.40 * slot._nearness)
+            : Qt.rgba(0, 0, 0, 0.5)
+        shadowBlur: slot._sceneOn ? 0.80 + 0.20 * slot._nearness : 1.0
+        shadowScale: slot._sceneOn ? 0.96 + 0.14 * slot._nearness : 1.0
+        shadowHorizontalOffset: Math.round(slot._sceneOn
+            ? Math.cos(slot._shadowAngle) * slot._shadowSpan : 0)
+        shadowVerticalOffset: Math.round(slot._sceneOn
+            ? Math.sin(slot._shadowAngle) * slot._shadowSpan : 6)
         blurMax: 32
         autoPaddingEnabled: true
     }
@@ -197,19 +414,16 @@ Item {
         }
     }
 
-    // left-drag anywhere moves the tile. a DragHandler (a passive pointer grab)
-    // shares the surface with the plugin's own controls: it only takes the grab
-    // once the press travels past the drag threshold, so a click or double-click
-    // that never moves stays with the plugin (a button, a style cycle) while a
-    // real drag moves the tile. persisted through moved() on release.
+    // Outside compose mode the DragHandler shares the tile with plugin controls.
+    // The compose frame calls the same move API after taking the topmost grab.
     DragHandler {
         id: dragger
         target: null
-        enabled: !slot.locked
+        enabled: !slot.composing && !slot.locked && !slot.stageInputBlocked
         acceptedButtons: Qt.LeftButton
-        // decline to steal when the press began inside a plugin's own scroll
-        // area, so list scrolling stays with the list; steal freely otherwise.
-        grabPermissions: slot._scrollableAt(dragger.centroid.pressPosition.x, dragger.centroid.pressPosition.y)
+        grabPermissions: slot._scrollableAt(
+                dragger.centroid.pressPosition.x,
+                dragger.centroid.pressPosition.y)
             ? PointerHandler.TakeOverForbidden
             : (PointerHandler.CanTakeOverFromItems
                 | PointerHandler.CanTakeOverFromHandlersOfDifferentType
@@ -217,28 +431,24 @@ Item {
                 | PointerHandler.ApprovesTakeOverByHandlersOfDifferentType
                 | PointerHandler.ApprovesTakeOverByItems
                 | PointerHandler.ApprovesCancellation)
-        property real grabOX: 0
-        property real grabOY: 0
         onActiveChanged: {
             if (dragger.active) {
-                const p = slot.mapToItem(slot.parent, dragger.centroid.pressPosition.x, dragger.centroid.pressPosition.y);
-                dragger.grabOX = p.x - slot.x;
-                dragger.grabOY = p.y - slot.y;
-                slot.dragX = slot.x;
-                slot.dragY = slot.y;
-                slot.dragging = true;
-            } else if (slot.dragging) {
-                slot.moved(Math.round(slot.dragX), Math.round(slot.dragY));
-                slot.dragging = false;
-                guard.restart();
+                const pressPoint = slot.mapToItem(slot.parent,
+                    dragger.centroid.pressPosition.x,
+                    dragger.centroid.pressPosition.y);
+                slot.stageBeginMove(pressPoint, Qt.NoModifier);
+                const currentPoint = slot.mapToItem(slot.parent,
+                    dragger.centroid.position.x,
+                    dragger.centroid.position.y);
+                slot.stageUpdateMove(currentPoint, Qt.NoModifier);
+            } else {
+                slot.stageEndMove(Qt.NoModifier);
             }
         }
         onCentroidChanged: {
-            if (!slot.dragging || slot.locked)
-                return;
-            const p = slot.mapToItem(slot.parent, dragger.centroid.position.x, dragger.centroid.position.y);
-            slot.dragX = slot.clampX(slot.snap(p.x - dragger.grabOX));
-            slot.dragY = slot.clampY(slot.snap(p.y - dragger.grabOY));
+            const point = slot.mapToItem(slot.parent,
+                dragger.centroid.position.x, dragger.centroid.position.y);
+            slot.stageUpdateMove(point, Qt.NoModifier);
         }
     }
 
@@ -248,9 +458,11 @@ Item {
     TapHandler {
         acceptedButtons: Qt.RightButton
         gesturePolicy: TapHandler.ReleaseWithinBounds
-        onTapped: (eventPoint) => {
-            const pr = slot.mapToItem(slot.parent, eventPoint.position.x, eventPoint.position.y);
-            slot.menuRequested(pr.x, pr.y, slot.pluginId);
+        enabled: !slot.composing && !slot.stageInputBlocked
+        onTapped: eventPoint => {
+            const position = slot.mapToItem(slot.parent,
+                eventPoint.position.x, eventPoint.position.y);
+            slot.menuRequested(position.x, position.y, slot.pluginId);
         }
     }
 
@@ -276,6 +488,18 @@ Item {
     HoverHandler {
         id: slotHover
         cursorShape: slot.locked ? Qt.ArrowCursor : (slot.dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor)
+
+        onPointChanged: {
+            if (!slot._sceneOn)
+                return;
+            const w = slot.parent ? slot.parent.width : 0;
+            const h = slot.parent ? slot.parent.height : 0;
+            if (w <= 0 || h <= 0)
+                return;
+            StageCfg.StageBackend.setCursor(slot.monitor,
+                point.scenePosition.x / w * 2 - 1,
+                point.scenePosition.y / h * 2 - 1);
+        }
     }
 
     // scroll to scale: Ctrl + wheel anywhere on the tile resizes it, an easier
@@ -283,11 +507,12 @@ Item {
     // settle timer does the one persisting write, through resized(), once
     // scrolling stops (plugins have no per-frame setLive fast path).
     WheelHandler {
-        enabled: !slot.locked
+        enabled: !slot.locked && !slot.stageInputBlocked
         acceptedModifiers: Qt.ControlModifier
         onWheel: (event) => {
-            const step = event.angleDelta.y > 0 ? 1.06 : 1 / 1.06;
-            slot.liveScale = Math.max(0.5, Math.min(2.5, slot.effectiveScale * step));
+            const step = event.angleDelta.y > 0 ? 0.05 : -0.05;
+            slot.liveScale = slot._quantiseScale(slot.effectiveScale + step,
+                event.modifiers);
             slot.dragX = slot.x;
             slot.dragY = slot.y;
             scalePersist.restart();
@@ -299,16 +524,16 @@ Item {
         onTriggered: { slot.resized(slot.liveScale); guard.restart(); }
     }
 
-    // quick resize: drag the bottom-right bracket to scrub the widget's
-    // scale. top-left is pinned during the resize so it grows toward the
-    // cursor; on release the new scale persists through the host.
+    // Outside the editor the bottom-right grip remains available. StageOutline
+    // supplies all four corners while the editor is composing.
     Item {
         id: handle
         width: 22
         height: 22
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        opacity: (((slotHover.hovered || slot.composing) && !slot.locked && !slot.dragging) || slot.resizing) ? 1 : 0
+        opacity: (((slotHover.hovered && !slot.composing) && !slot.locked
+            && !slot.dragging) || (slot.resizing && !slot.composing)) ? 1 : 0
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
 
@@ -319,7 +544,6 @@ Item {
             height: 2
             radius: Theme.radius
             color: (hgrip.containsMouse || slot.resizing) ? Theme.accent : Theme.faint
-            Behavior on color { ColorAnimation { duration: 100 } }
         }
         Rectangle {
             anchors.right: parent.right
@@ -328,53 +552,33 @@ Item {
             height: 13
             radius: Theme.radius
             color: (hgrip.containsMouse || slot.resizing) ? Theme.accent : Theme.faint
-            Behavior on color { ColorAnimation { duration: 100 } }
         }
 
         MouseArea {
             id: hgrip
             anchors.fill: parent
-            enabled: !slot.locked
+            enabled: !slot.locked && !slot.stageInputBlocked
             acceptedButtons: Qt.LeftButton
-            // hold the grab so the tile DragHandler can't hijack a corner
-            // resize into a move.
             preventStealing: true
             hoverEnabled: true
             cursorShape: Qt.SizeFDiagCursor
-
-            onPressed: (mouse) => {
-                const ox = slot.x;
-                const oy = slot.y;
-                slot.dragX = ox;
-                slot.dragY = oy;
-                slot.resizeOX = ox;
-                slot.resizeOY = oy;
-                slot.resizeStartScale = slot.effectiveScale;
+            onPressed: mouse => {
                 const p = hgrip.mapToItem(slot.parent, mouse.x, mouse.y);
-                slot.resizeStartDiag = Math.max(1, Math.hypot(p.x - ox, p.y - oy));
-                slot.resizing = true;
+                slot.stageBeginResize("br", p, mouse.modifiers);
             }
-            onPositionChanged: (mouse) => {
-                if (!slot.resizing)
-                    return;
+            onPositionChanged: mouse => {
                 const p = hgrip.mapToItem(slot.parent, mouse.x, mouse.y);
-                const diag = Math.hypot(p.x - slot.resizeOX, p.y - slot.resizeOY);
-                const ns = Math.max(0.5, Math.min(2.5, slot.resizeStartScale * diag / slot.resizeStartDiag));
-                slot.liveScale = ns;
+                slot.stageUpdateResize(p, mouse.modifiers);
             }
-            onReleased: (mouse) => {
-                if (slot.resizing) {
-                    slot.resized(slot.liveScale);
-                    slot.resizing = false;
-                    guard.restart();
-                }
-            }
+            onReleased: slot.stageEndResize()
+            onCanceled: slot.stageCancelResize()
+            onDoubleClicked: slot.stageResetScale()
         }
     }
 
     // live size readout while resizing.
     Rectangle {
-        visible: slot.resizing || scalePersist.running
+        visible: !slot.composing && (slot.resizing || scalePersist.running)
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: 26

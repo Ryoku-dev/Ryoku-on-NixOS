@@ -52,6 +52,10 @@ type ProductEntry struct {
 	// the provider name `ryoku wm use <name>` takes. Empty means any.
 	WindowManager       string `json:"windowManager,omitempty"`
 	WindowManagerReason string `json:"windowManagerReason,omitempty"`
+	// PackageManagers limits the product to the editions whose package manager
+	// `ryoku-host pkgmgr` names (pacman, dnf, xbps). Empty means every edition.
+	PackageManagers       []string `json:"packageManagers,omitempty"`
+	PackageManagersReason string   `json:"packageManagersReason,omitempty"`
 	// Upstream is the https:// home of the project a product comes from
 	// (a registry entry always names one); Discord is an optional invite to
 	// that project's community. Both surface as links on the detail page.
@@ -264,6 +268,10 @@ func validateProductManifest(category string, entry ProductEntry, manifest Produ
 		sources[file.Source] = struct{}{}
 		destinations[file.Destination] = struct{}{}
 	}
+	if category == vesktopThemesCategory {
+		_, err := vesktopThemeManifestFile(manifest.Files)
+		return err
+	}
 	return nil
 }
 
@@ -273,8 +281,8 @@ func productUpdateAvailable(installedVersion, availableVersion string) bool {
 
 func validProductCategory(category string) bool {
 	switch category {
-	case "rices", "lockscreens", "barstyles", "fastfetch", "plugins", "bundles", "decors",
-		"launcher-images", "fastfetch-emblems", "ryotunes-skins":
+	case "rices", "lockscreens", "barstyles", "launchers", "docks", "osds", "notifications", "sidebars", "fastfetch",
+		"plugins", "bundles", "decors", "launcher-images", "fastfetch-emblems", "ryotunes-skins", vesktopThemesCategory:
 		return true
 	default:
 		return false

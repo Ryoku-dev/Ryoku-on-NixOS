@@ -9,11 +9,11 @@ Item {
     id: root
 
     Repeater {
-        model: Config.count
+        model: Performance.visualizerResident && Config.enabled ? Config.count : 0
         delegate: VisualizerView {
-            required property int index
+            id: vizView
             anchors.fill: parent
-            cfg: VizItem { data: Config.dataAt(index) }
+            cfg: VizItem { data: Config.dataAt(vizView.index) }
         }
     }
 }

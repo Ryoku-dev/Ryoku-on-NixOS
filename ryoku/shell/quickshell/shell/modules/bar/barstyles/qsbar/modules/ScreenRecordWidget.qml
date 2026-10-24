@@ -61,7 +61,7 @@ Item {
 
     Process {
         id: toggleProc
-        command: ["bash", "-c", "ryoku-cmd-screenrecord --stop"]
+        command: ["ryoku-shell", "record", "stop"]
         onExited: root.refreshRecordingStatus()
     }
 

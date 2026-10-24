@@ -14,8 +14,16 @@ repo. Packages publish only from `main` release tags, never from `unstable-dev`.
 - `ryoku-hub` -- the Hub backend (Go), to `/usr/bin/ryoku-hub`.
 - `ryoku` -- the control CLI (update / rollback / snapshots / materialize / ...),
   to `/usr/bin/ryoku`.
+- `prowl` -- the pinned model gateway and code-intelligence engine behind
+  Rashin, built from source into `/usr/bin/prowl`.
+- `ryoku-rashin` -- the local assistant daemon and console backend. It ships
+  Prowl's user unit and starts the gateway only when Rashin runs.
 - `ryoku-blobs` -- the `Ryoku.Blobs` QML plugin, to
   `/usr/lib/qt6/qml/Ryoku/Blobs`.
+- `skwd-paper-bin` -- the pinned upstream skwd-paper scene renderer (Wallpaper
+  Engine wallpapers), a hard dependency of `ryogami`, into `/usr/bin`
+  and `/usr/lib/skwd-paper`. A fixed-version binary rebuild like `ryoku-cursors`:
+  bumped by `pkgver` + `sha256sums` when upstream cuts a release.
 - `hypr-dynamic-cursors`, `ryoku-hypr-plugins` (hyprbars + hyprfocus),
   `hyprglass`, `imgborders` -- the optional Hyprland compositor plugins the Hub
   can toggle, into `/usr/lib/hyprland/plugins/`. Each builds from source
@@ -38,18 +46,36 @@ repo. Packages publish only from `main` release tags, never from `unstable-dev`.
 Most of these PKGBUILDs build from the checked-out monorepo, not from release tarballs.
 `source=()` is empty; each PKGBUILD derives the repo root as `$startdir/../../..`,
 because the CI runs `makepkg` in place inside each package directory within a
-full checkout. The Go binaries and the QML plugin are built into `$srcdir`, so
-the source tree is never modified, and `makepkg --clean` removes `$srcdir` and
+full checkout. The Go binaries and QML plugins are built into `$srcdir`, so the
+source tree is never modified, and `makepkg --clean` removes `$srcdir` and
 `$pkgdir` afterward.
 
-The `gpk` and `ryoku-keyring` PKGBUILDs are the exceptions: they fetch a pinned
-upstream artifact (a release binary and the release key material, respectively)
-rather than building from the checkout.
+The `gpk`, `skwd-paper-bin`, and `ryoku-keyring` PKGBUILDs fetch pinned
+upstream artifacts instead of building from the checkout. `prowl` is also
+pinned upstream, but builds its selected commit from source.
 
-makedepends across the set: `go` (ryoku-shell, ryoku-hub, ryoku),
-`cmake ninja qt6-shadertools qt6-declarative` (ryoku-blobs), and `rust` + `git`
-(hyprland-preview-share-picker, asusctl), on top of the assumed `base-devel`.
-`ryoku-hub` (`github.com/BurntSushi/toml`) needs network at build time.
+## Shared package payloads
+
+Monorepo packages keep their build and install logic in
+`release/packages/<pkg>/payload.sh`. The PKGBUILD calls that payload with
+`systemd`, the matching `void/packages/srcpkgs/<pkg>/template` calls it with
+`runit`, and Fedora's adapter calls it with `systemd` before applying its small
+RPM-specific changes. Void does not ship Hyprland, so the parity test stages
+that shared payload's runit path directly. Fedora's Hyprland adapter changes
+only the portal picker's command name.
+
+When changing one of these packages, update `payload.sh` first. Change a native
+package recipe only for package-manager metadata or a documented adapter. Do
+not copy build or install commands into a wrapper. `tests/payload-parity.sh`
+stages all shared payloads with fake prebuilt binaries, exercises the Arch,
+Void, and Fedora wrappers, and compares normalized path, mode, and SHA-256
+manifests. Its single allow-list covers only init, boot, package-manager, and
+other edition adapters named in the test.
+
+makedepends across the set include `go` (the Ryoku Go tools and Prowl),
+`cmake ninja qt6-shadertools qt6-declarative` (ryoku-blobs), and `rust` +
+`git` (hyprland-preview-share-picker, asusctl), on top of the assumed
+`base-devel`. `ryoku-hub` and Prowl need network access at build time.
 
 ## Configs and materialize
 

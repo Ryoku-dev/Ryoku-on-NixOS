@@ -1,6 +1,7 @@
 package sys
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,9 +27,8 @@ func Xdg(envVar, fallback string) string {
 // ConfigHome is $XDG_CONFIG_HOME (default ~/.config).
 func ConfigHome() string { return Xdg("XDG_CONFIG_HOME", ".config") }
 
-// DataDirs returns the XDG data roots in lookup order. NixOS profiles are
-// included when XDG_DATA_DIRS is absent so Doctor sees desktop files, icons and
-// portal metadata exposed by the active generation instead of assuming /usr.
+// DataDirs returns XDG data roots in lookup order, including active NixOS
+// profiles when the session does not provide XDG_DATA_DIRS.
 func DataDirs() []string {
 	raw := strings.TrimSpace(os.Getenv("XDG_DATA_DIRS"))
 	if raw == "" {
@@ -45,6 +45,7 @@ func DataDirs() []string {
 			raw = "/usr/local/share:/usr/share"
 		}
 	}
+
 	var out []string
 	seen := map[string]bool{}
 	for _, dir := range strings.Split(raw, ":") {
@@ -58,34 +59,61 @@ func DataDirs() []string {
 	return out
 }
 
-// FindData resolves a packaged data file or directory through the active XDG
-// data roots. On Arch this naturally reaches /usr/share; on NixOS it reaches
-// the current generation and user profiles without hard-coding store hashes.
-func FindData(rel string) string {
-	rel = filepath.Clean(strings.TrimPrefix(rel, "/"))
-	if rel == "." || rel == "" {
+// PicturesDir is the user's Pictures folder: $XDG_PICTURES_DIR when the session
+// exports it, else the XDG_PICTURES_DIR line of user-dirs.dirs (a terminal or a
+// service that did not inherit the login environment), else ~/Pictures. A
+// localized desktop keeps its pictures in ~/Imágenes, ~/Bilder and so on, and a
+// hardcoded ~/Pictures grows a second, empty folder beside the real one.
+func PicturesDir() string {
+	if d := normalizePicturesDir(os.Getenv("XDG_PICTURES_DIR")); d != "" {
+		return d
+	}
+	if d := userDirsPictures(filepath.Join(ConfigHome(), "user-dirs.dirs")); d != "" {
+		return d
+	}
+	return filepath.Join(Home(), "Pictures")
+}
+
+func normalizePicturesDir(value string) string {
+	v := strings.TrimSpace(value)
+	v = strings.Trim(v, `"'`)
+	switch {
+	case v == "$HOME":
+		v = Home()
+	case strings.HasPrefix(v, "$HOME/"):
+		v = filepath.Join(Home(), strings.TrimPrefix(v, "$HOME/"))
+	}
+	if !filepath.IsAbs(v) {
 		return ""
 	}
-	for _, root := range DataDirs() {
-		p := filepath.Join(root, rel)
-		if Exists(p) {
-			return p
+	v = filepath.Clean(v)
+	if v == filepath.Clean(Home()) {
+		return ""
+	}
+	return v
+}
+
+// userDirsPictures reads XDG_PICTURES_DIR from a user-dirs.dirs file, expanding
+// the $HOME the format allows. Anything that is not an absolute path after the
+// expansion is rejected, and "" says the file has no usable answer.
+func userDirsPictures(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	const key = "XDG_PICTURES_DIR="
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if !strings.HasPrefix(line, key) {
+			continue
+		}
+		if v := normalizePicturesDir(strings.TrimPrefix(line, key)); v != "" {
+			return v
 		}
 	}
 	return ""
-}
-
-// ProfileBinDirs lists executable roots exposed by the active profiles.
-func ProfileBinDirs() []string {
-	if !NixBackend() {
-		return []string{"/usr/local/bin", "/usr/bin"}
-	}
-	return []string{
-		"/run/current-system/sw/bin",
-		filepath.Join("/etc/profiles/per-user", os.Getenv("USER"), "bin"),
-		filepath.Join(Home(), ".nix-profile", "bin"),
-		filepath.Join(Home(), ".local", "bin"),
-	}
 }
 
 // StateDir is the CLI's state root, $XDG_STATE_HOME/ryoku (default

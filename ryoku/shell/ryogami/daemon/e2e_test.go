@@ -46,6 +46,9 @@ func startDaemon(t *testing.T) *testDaemon {
 		"XDG_RUNTIME_DIR="+runtime,
 		"XDG_CONFIG_HOME="+filepath.Join(root, "config"),
 		"XDG_CACHE_HOME="+filepath.Join(root, "cache"),
+		"XDG_STATE_HOME="+filepath.Join(root, ".local", "state"),
+		"XDG_DATA_HOME="+filepath.Join(root, ".local", "share"),
+		"XDG_PICTURES_DIR="+filepath.Join(root, "Pictures"),
 	)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -327,6 +330,126 @@ func TestE2EFavouriteSurvivesRescan(t *testing.T) {
 	}
 }
 
+// The picker's in-memory Library only updates a wallpaper's heart when the
+// daemon echoes the mutated entry over ryogami.wall.cached; without it the
+// favourite toggle looks dead until a full rescan.
+func TestE2ESetFavouriteBroadcastsCached(t *testing.T) {
+	d := startDaemon(t)
+	img := filepath.Join(d.root, "Pictures", "Wallpapers", "a.png")
+	writeE2EPNG(t, img)
+	d.send(`{"method":"wall.cache_rebuild","id":1}`)
+	deadline := time.Now().Add(10 * time.Second)
+	var key string
+	for {
+		reply := d.send(`{"method":"wall.list","id":2}`)
+		var resp map[string]interface{}
+		_ = json.Unmarshal([]byte(reply), &resp)
+		if res, okRes := resp["result"].(map[string]interface{}); okRes {
+			if walls, okW := res["wallpapers"].([]interface{}); okW && len(walls) == 1 {
+				key = walls[0].(map[string]interface{})["key"].(string)
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("catalog never scanned")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Subscribe only after the scan settled so the scan's own cached frames
+	// are already flushed and the next one is the favourite echo.
+	sub := d.connect()
+	defer sub.Close()
+	_ = sub.SetDeadline(time.Now().Add(15 * time.Second))
+	r := bufio.NewReader(sub)
+	fmt.Fprintln(sub, `{"method":"subscribe","params":{"prefixes":["ryogami.wall."]},"id":9}`)
+	readJSONLine(t, r) // subscribe ack
+
+	req := fmt.Sprintf(`{"method":"wall.set_favourite","params":{"key":%q,"favourite":true},"id":3}`, key)
+	if got := d.send(req); !strings.Contains(got, `"ok"`) {
+		t.Fatalf("favourite reply: %s", got)
+	}
+
+	found := false
+	for i := 0; i < 40 && !found; i++ {
+		ev := readJSONLine(t, r)
+		if ev["event"] != "ryogami.wall.cached" {
+			continue
+		}
+		data, _ := ev["data"].(map[string]interface{})
+		if data == nil {
+			t.Fatalf("cached event carried no entry: %v", ev)
+		}
+		if data["key"] != key {
+			continue
+		}
+		if fav, _ := data["favourite"].(float64); fav != 1 {
+			t.Fatalf("cached entry favourite = %v, want 1", data["favourite"])
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("wall.set_favourite did not broadcast ryogami.wall.cached for the toggled key")
+	}
+}
+
+func TestE2EWallDeleteRequiresSubfolderCatalogKey(t *testing.T) {
+	d := startDaemon(t)
+	img := filepath.Join(d.root, "Pictures", "Wallpapers", "sub", "a.png")
+	writeE2EPNG(t, img)
+	d.send(`{"method":"wall.cache_rebuild","id":1}`)
+
+	const key = "sub--a.png"
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		reply := d.send(`{"method":"wall.list","id":2}`)
+		var resp map[string]interface{}
+		_ = json.Unmarshal([]byte(reply), &resp)
+		found := false
+		if res, ok := resp["result"].(map[string]interface{}); ok {
+			if walls, ok := res["wallpapers"].([]interface{}); ok {
+				for _, wall := range walls {
+					row, _ := wall.(map[string]interface{})
+					if row["key"] == key && row["name"] == "sub/a.png" {
+						found = true
+						break
+					}
+				}
+			}
+		}
+		if found {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("subfolder wallpaper never reached the catalog")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	favourite := fmt.Sprintf(`{"method":"wall.set_favourite","params":{"key":%q,"favourite":true},"id":3}`, key)
+	if got := d.send(favourite); !strings.Contains(got, `"ok"`) {
+		t.Fatalf("favourite reply: %s", got)
+	}
+	if got := d.send(`{"method":"wall.list","params":{"favourites":true},"id":4}`); !strings.Contains(got, `"key":"sub--a.png"`) {
+		t.Fatalf("subfolder favourite was not stored under its catalog key: %s", got)
+	}
+
+	if got := d.send(`{"method":"wall.delete","params":{},"id":5}`); !strings.Contains(got, `"error"`) {
+		t.Fatalf("delete without a key replied: %s", got)
+	}
+	if _, err := os.Stat(img); err != nil {
+		t.Fatalf("delete without a key touched the wallpaper: %v", err)
+	}
+
+	req := fmt.Sprintf(`{"method":"wall.delete","params":{"key":%q},"id":6}`, key)
+	if got := d.send(req); !strings.Contains(got, `"ok"`) {
+		t.Fatalf("delete reply: %s", got)
+	}
+	if _, err := os.Stat(img); !os.IsNotExist(err) {
+		t.Fatalf("wall.delete left the source file behind: %v", err)
+	}
+}
+
 // Regression: ryogami owns the wallpaper now, but rice capture, the overview
 // backdrop and the Super+W on-air dot still read ~/.local/state/ryoku-wallpaper.
 // A `wall.apply` must write that legacy state file with the applied path, or
@@ -356,5 +479,104 @@ func TestE2EWallApplyWritesLegacyState(t *testing.T) {
 	}
 	if got != img {
 		t.Fatalf("state file = %q, want %q", got, img)
+	}
+}
+
+// TestE2EDaemonDoesNotPreloadPicker keeps the wallpaper service cheap while idle.
+// The picker is a demand-owned UI process: login must not spawn it, but the first
+// wallpaper ui request must still cold-start it.
+func TestE2EDaemonDoesNotPreloadPicker(t *testing.T) {
+	root := t.TempDir()
+	runtime := filepath.Join(root, "run")
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(runtime, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	bin := filepath.Join(root, "ryogami-test-bin")
+	build := exec.Command("go", "build", "-o", bin, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+
+	marker := filepath.Join(root, "picker-launches")
+	fakeQuickShell := filepath.Join(binDir, "quickshell")
+	body := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + marker + "\n"
+	if err := os.WriteFile(fakeQuickShell, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	qml := filepath.Join(root, "shell.qml")
+	if err := os.WriteFile(qml, []byte("// picker probe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	env := append(os.Environ(),
+		"HOME="+filepath.Join(root, "home"),
+		"XDG_RUNTIME_DIR="+runtime,
+		"XDG_CONFIG_HOME="+filepath.Join(root, "config"),
+		"XDG_CACHE_HOME="+filepath.Join(root, "cache"),
+		"XDG_STATE_HOME="+filepath.Join(root, "state"),
+		"XDG_DATA_HOME="+filepath.Join(root, "data"),
+		"RYOGAMI_SHELL_QML="+qml,
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
+
+	cmd := exec.Command(bin, "daemon")
+	cmd.Env = env
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+
+	sock := filepath.Join(runtime, "ryogami.sock")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(sock); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("daemon socket never appeared")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	time.Sleep(250 * time.Millisecond)
+	if b, err := os.ReadFile(marker); err == nil && len(b) != 0 {
+		t.Fatalf("picker launched during daemon boot: %q", b)
+	} else if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+
+	client := exec.Command(bin, "wallpaper", "ui")
+	client.Env = env
+	if out, err := client.CombinedOutput(); err != nil {
+		t.Fatalf("wallpaper ui: %v: %s", err, out)
+	}
+
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		if b, err := os.ReadFile(marker); err == nil && len(b) != 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("wallpaper ui did not launch the picker")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func TestPickerReleaseDefaultIsBounded(t *testing.T) {
+	spec, ok := specFor("performance.releaseAfterHideSeconds")
+	if !ok {
+		t.Fatal("releaseAfterHideSeconds setting missing")
+	}
+	if got, ok := spec.Default.(float64); !ok || got <= 0 {
+		t.Fatalf("releaseAfterHideSeconds default = %#v, want a bounded nonzero delay", spec.Default)
 	}
 }

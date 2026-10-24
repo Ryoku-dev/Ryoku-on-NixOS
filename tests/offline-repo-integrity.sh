@@ -3,8 +3,8 @@
 # before baking it into the [offline] repo. `pacman -Sw --needed` never re-fetches
 # a file that already exists by name, and the cache is persistent, so a download
 # truncated by one network hiccup sat corrupt in the cache and shipped in every
-# ISO -- the offline pacstrap then died with a "truncated <pkg>" error (reported
-# on ryomotion, the large Electron package ryoku-desktop depends on). See the
+# ISO -- the offline pacstrap then died with a "truncated <pkg>" error, most
+# likely on a large package. See the
 # integrity loop in installation/iso/offline-repo.sh.
 set -euo pipefail
 
@@ -57,5 +57,34 @@ done < <(
 )
 (( ${#missing[@]} == 0 )) \
   || fail "driver packages missing from the offline bake (installation/iso/offline-repo.sh): ${missing[*]}"
+# 5. both compositor variants must be in the bake. The TUI offers every
+#    compositor it knows, and the offline desktop-set install (deploy.sh) names
+#    ryoku-desktop-$RYOKU_COMPOSITOR against the baked repo only: a variant that
+#    was never baked dies at "configure" with "target not found" and no network
+#    to recover with (issue #260: the ISO shipped hyprland only).
+for variant in ryoku-desktop-hyprland ryoku-desktop-niri ryoku-desktop-wayfire; do
+  grep -qF -- "$variant" <<<"$bake" \
+    || fail "compositor variant '$variant' is not baked into the offline repo"
+done
+# 6. every package the offline desktop-set install can name must be in the bake's
+#    completeness check, not only in its download list: the download staged
+#    ryotunes out of the repo unnoticed and the ISO died at "configure". The
+#    fresh-install apps come from deploy.sh; the file managers from choices.tsv.
+required=$(sed -n '/^for req in/,/; do$/p' "$repo")
+deploy="$root/installation/backend/lib/deploy.sh"
+apps=$(sed -n 's/^[[:space:]]*for package in \(.*\); do$/\1/p' "$deploy" | grep -v '\$' | head -n1)
+[[ -n $apps ]] || fail "could not find the fresh-install app loop in deploy.sh"
+for pkg in $apps; do
+  grep -qwF -- "$pkg" <<<"$required" \
+    || fail "deploy.sh installs '$pkg' with the desktop set, but the offline bake never checks it is in the repo"
+done
+# shellcheck disable=SC2016
+grep -qF '"${file_managers[@]}"' <<<"$required" \
+  || fail "the offered file managers are not in the offline bake's completeness check"
+# 7. a package whose file names its version without the epoch (ryotunes) must
+#    still be staged: the RESOLVED keys carry the epochless version too.
+# shellcheck disable=SC2016
+grep -qF 'RESOLVED["$name ${ver#*:}"]=1' "$repo" \
+  || fail "offline-repo.sh no longer matches epochless package filenames; ryotunes would be dropped from the repo"
 
 echo "offline-repo-integrity: OK"

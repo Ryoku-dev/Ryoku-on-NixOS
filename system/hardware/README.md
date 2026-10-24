@@ -108,6 +108,11 @@ in the machine, and do not waste power doing it.
     as root through pkexec.
   - `48-ryoku-wifi-regdom.rules` A polkit rule that lets the active wheel user run
     exactly that helper without a password, so pinning the country stays one click.
+- `tpm/`
+  - `60-ryoku-tpm-nvpcr.rules` Marks the TPM as having no usable NvPCRs when
+    the box carries no `tpm2-pcr-public-key.pem` (Ryoku's UKIs are not
+    PCR-signed). Without it systemd 262 fails `systemd-tpm2-setup-early`,
+    `systemd-pcrproduct` and every `systemd-pcrlogin@` at each boot.
 - `drivers/` One install script per vendor: `nvidia.sh`, `intel.sh`, `amd.sh`,
   and `vulkan.sh`. Each one checks whether its hardware is present and installs
   only what that hardware needs.

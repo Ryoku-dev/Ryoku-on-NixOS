@@ -10,7 +10,7 @@ StartLimitIntervalSec=60
 StartLimitBurst=5
 
 [Service]
-# the dev deploy rewrites this to ~/.local/bin; the package ships /usr/bin.
+# the dev deploy repoints the Exec lines at ~/.local/bin with a drop-in; the package ships /usr/bin.
 # set here, not only via the session env: an import that does not land would
 # silently drop the polkit agent back to the stock one.
 Environment=RYOKU_POLKIT_AGENT=1
@@ -20,11 +20,22 @@ Environment=RYOKU_POLKIT_AGENT=1
 # black (the same failure that hits Electron/CEF). The backdrop clips are short
 # loops, so software decode is cheap.
 Environment=QT_MEDIA_BACKEND=ffmpeg
-Environment=QT_FFMPEG_DECODING_HW_DEVICE_TYPES=,
+Environment=QT_FFMPEG_DECODING_HW_DEVICE_TYPES=
 # a stray unsupervised daemon (an old deploy, a crashed update) holds the
 # socket and would wedge the unit into its start limit; ask it to quit first.
+# A staged checkout deploy keeps the old lock client beside the old live daemon.
+# A staged qylock generation is promoted only after every prior daemon has
+# stopped; retained staged clients keep their generation files until unlock.
 ExecStartPre=-/usr/bin/ryoku-shell quit
+ExecStartPre=/usr/bin/ryoku-qylock-activate
 ExecStart=/usr/bin/ryoku-shell daemon
+ExecStop=/usr/bin/ryoku-qylock-activate --prepare-stop
+ExecStartPost=-/usr/bin/ryoku-power-cutover qylock-guards-stop
+# Voxtype is optional. When present, seed its managed config and service after
+# the shell is already running, regardless of which session started us.
+ExecStartPost=-/usr/bin/ryoku-hub voxtype ensure
+TimeoutStartSec=0
+TimeoutStopSec=0
 Restart=always
 RestartSec=2
 # Kill only the daemon on stop, not its cgroup: it reaps its own surfaces, and

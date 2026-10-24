@@ -128,6 +128,36 @@ func TestScanMergeFavouriteSurvives(t *testing.T) {
 	}
 }
 
+// TestScanMergeFollowsMovedFile: an unchanged file found at a new location (a
+// moved library or home keeps mtimes) is applied from where it is now, and an
+// animated still keeps its cached clip.
+func TestScanMergeFollowsMovedFile(t *testing.T) {
+	root := t.TempDir()
+	wall := filepath.Join(root, "moved")
+	cache := filepath.Join(root, "cache")
+	src := filepath.Join(wall, "a.png")
+	writePNG(t, src, color.RGBA{20, 200, 20, 255})
+	fi, err := os.Stat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior := map[string]Entry{
+		"a.png": {Key: "a.png", Name: "a.png", Type: "static", Favourite: 1,
+			Path: "/old/home/a.png", VideoFile: "/cache/a.mp4", Mtime: fi.ModTime().Unix()},
+	}
+	got, err := ScanDirs(wall, wall, cache, prior, func(Entry) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := got["a.png"]
+	if e.Path != src {
+		t.Fatalf("Path = %q, want the file's current location %q", e.Path, src)
+	}
+	if e.VideoFile != "/cache/a.mp4" || e.Favourite != 1 {
+		t.Fatalf("cached clip or favourite lost on a warm rescan: %+v", e)
+	}
+}
+
 // TestScanMergeVanishedDropped: a prior key with no source file on disk is not
 // carried into the fresh scan.
 func TestScanMergeVanishedDropped(t *testing.T) {
@@ -149,7 +179,7 @@ func TestScanMergeVanishedDropped(t *testing.T) {
 }
 
 // TestScanMergeMtimeChangeReprocesses: a changed mtime keeps favourites and
-// counts but discards derived analysis fields (Width/Height) so they are rebuilt.
+// counts but rebuilds derived analysis fields (Width/Height) from the new file.
 func TestScanMergeMtimeChangeReprocesses(t *testing.T) {
 	root := t.TempDir()
 	wall := filepath.Join(root, "wall")
@@ -178,8 +208,8 @@ func TestScanMergeMtimeChangeReprocesses(t *testing.T) {
 	if e.Favourite != 1 || e.ApplyCount != 3 {
 		t.Fatalf("favourite/count must survive mtime change: %+v", e)
 	}
-	if e.Width != 0 || e.Height != 0 {
-		t.Fatalf("analysis dims must reset on mtime change: %+v", e)
+	if e.Width != 8 || e.Height != 8 {
+		t.Fatalf("dims must be rebuilt from the changed file, not carried over: %+v", e)
 	}
 	if e.Mtime != newMt {
 		t.Fatalf("mtime not refreshed: got %d want %d", e.Mtime, newMt)

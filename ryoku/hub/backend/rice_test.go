@@ -1,9 +1,12 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -71,6 +74,7 @@ func TestShellCaptureOmitsPersonalAndOverlaysWhole(t *testing.T) {
 func TestSaveLoadListRice(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("RYOKU_SYSTEM_RICES_DIR", t.TempDir())
 
 	r := Rice{
 		Schema: riceSchema, Slug: "demo", Name: "Demo", CreatedWith: "0.6.8",
@@ -94,6 +98,231 @@ func TestSaveLoadListRice(t *testing.T) {
 	ls := listRices()
 	if len(ls) != 1 || ls[0].Slug != "demo" {
 		t.Fatalf("listRices = %v, want [demo] (reserved slot skipped)", ls)
+	}
+}
+
+func writeRiceManifest(t *testing.T, dir string, r Rice) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rice.json"), mustJSON(r), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSystemRicesListWithUserOverride(t *testing.T) {
+	config := t.TempDir()
+	system := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("RYOKU_SYSTEM_RICES_DIR", system)
+
+	writeRiceManifest(t, filepath.Join(system, "default"), Rice{
+		Schema: riceSchema, Slug: "default", Name: "Packaged", Look: map[string]map[string]any{},
+	})
+	writeRiceManifest(t, filepath.Join(system, "system-only"), Rice{
+		Schema: riceSchema, Slug: "system-only", Name: "System only", Look: map[string]map[string]any{},
+	})
+	writeRiceManifest(t, filepath.Join(ricesDir(), "default"), Rice{
+		Schema: riceSchema, Slug: "default", Name: "User", Look: map[string]map[string]any{},
+	})
+
+	got := listRices()
+	if len(got) != 2 {
+		t.Fatalf("listRices returned %d entries: %v", len(got), got)
+	}
+	if got[0].Slug != "default" || got[0].Name != "User" {
+		t.Fatalf("user rice did not override packaged slug: %+v", got[0])
+	}
+	if got[1].Slug != "system-only" {
+		t.Fatalf("packaged-only rice missing: %+v", got)
+	}
+}
+
+func TestApplyingSystemRiceCopiesItToUserStore(t *testing.T) {
+	home := t.TempDir()
+	system := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "run"))
+	t.Setenv("RYOKU_SYSTEM_RICES_DIR", system)
+
+	r := Rice{
+		Schema: riceSchema, Slug: "default", Name: "Default",
+		Color: RiceColor{Mode: "wallpaper"},
+		Assets: RiceAssets{
+			FastfetchStyle: "fastfetch.jsonc",
+		},
+		Look: map[string]map[string]any{
+			"hypr":     {},
+			"shell":    {"barStyle": "qsbar"},
+			"launcher": {},
+		},
+	}
+	systemDir := filepath.Join(system, "default")
+	writeRiceManifest(t, systemDir, r)
+	if err := os.WriteFile(filepath.Join(systemDir, "fastfetch.jsonc"), []byte(`{"modules":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls []string
+	origRun, origReload := riceRun, riceReload
+	riceRun = func(name string, args ...string) error {
+		calls = append(calls, strings.Join(append([]string{name}, args...), " "))
+		return nil
+	}
+	riceReload = func() {}
+	t.Cleanup(func() { riceRun, riceReload = origRun, origReload })
+
+	if err := applyRice("default", nil); err != nil {
+		t.Fatal(err)
+	}
+	userDir := filepath.Join(ricesDir(), "default")
+	if !isFile(filepath.Join(userDir, "rice.json")) || !isFile(filepath.Join(userDir, "fastfetch.jsonc")) {
+		t.Fatalf("packaged rice was not copied into %s", userDir)
+	}
+	for _, call := range calls {
+		if strings.Contains(call, "wallpaper set") {
+			t.Fatalf("wallpaper-free packaged rice changed the wallpaper: %v", calls)
+		}
+	}
+}
+
+func TestRiceInputLayerPreservesInstallerKeyboard(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(home, "run"))
+	t.Setenv("RYOKU_SYSTEM_RICES_DIR", t.TempDir())
+	writeDesktopStore(t, `{"input":{"kbLayout":"gb","kbVariant":"intl","kbOptions":"caps:escape","naturalScroll":false}}`)
+	r := Rice{
+		Schema: riceSchema, Slug: "portable", Name: "Portable",
+		Color: RiceColor{Mode: "wallpaper"},
+		Look: map[string]map[string]any{
+			"hypr": {}, "shell": {}, "launcher": {},
+		},
+		Layers: map[string]json.RawMessage{
+			"input": json.RawMessage(`{"naturalScroll":true,"tapToClick":true}`),
+		},
+	}
+	if err := saveRice(r); err != nil {
+		t.Fatal(err)
+	}
+
+	origRun, origReload := riceRun, riceReload
+	riceRun = func(string, ...string) error { return nil }
+	riceReload = func() {}
+	t.Cleanup(func() { riceRun, riceReload = origRun, origReload })
+
+	if err := applyRice("portable", []string{"input"}); err != nil {
+		t.Fatal(err)
+	}
+	input := readHyprSections()["input"].(map[string]any)
+	if input["kbLayout"] != "gb" || input["kbVariant"] != "intl" || input["kbOptions"] != "caps:escape" {
+		t.Fatalf("portable input layer clobbered installer keyboard fields: %v", input)
+	}
+	if input["naturalScroll"] != true || input["tapToClick"] != true {
+		t.Fatalf("portable input settings did not apply: %v", input)
+	}
+}
+
+func TestRiceWindowSectionsSelectActiveProvider(t *testing.T) {
+	r := Rice{Look: map[string]map[string]any{
+		"hypr": {
+			"appearance": map[string]any{"rounding": float64(8)},
+			"cursor":     map[string]any{"size": float64(24)},
+		},
+		"wm": {
+			"first": map[string]any{
+				"appearance": map[string]any{"blurEnabled": false},
+				"anim":       map[string]any{"preset": "first"},
+			},
+			"second": map[string]any{
+				"appearance": map[string]any{"blurEnabled": true},
+				"frame":      "second",
+			},
+		},
+	}}
+
+	first := riceWindowSections(r, "first")
+	firstAppearance := first["appearance"].(map[string]any)
+	if firstAppearance["rounding"] != float64(8) || firstAppearance["blurEnabled"] != false {
+		t.Fatalf("shared and active sections did not merge: %v", first)
+	}
+	if _, ok := first["frame"]; ok {
+		t.Fatalf("inactive provider section leaked: %v", first)
+	}
+
+	second := riceWindowSections(r, "second")
+	if second["frame"] != "second" {
+		t.Fatalf("active provider section missing: %v", second)
+	}
+	if _, ok := second["anim"]; ok {
+		t.Fatalf("other provider animation leaked: %v", second)
+	}
+	if second["cursor"].(map[string]any)["size"] != float64(24) {
+		t.Fatalf("shared section missing for second provider: %v", second)
+	}
+}
+
+func TestRiceWindowSectionsLegacyManifestIsUnchanged(t *testing.T) {
+	shared := map[string]any{
+		"appearance": map[string]any{"rounding": float64(8)},
+		"anim":       map[string]any{"speed": float64(4)},
+	}
+	r := Rice{Look: map[string]map[string]any{"hypr": shared}}
+	if got := riceWindowSections(r, "anything"); !reflect.DeepEqual(got, shared) {
+		t.Fatalf("legacy rice changed: got %v want %v", got, shared)
+	}
+}
+
+func TestCaptureRiceFallsBackToOptimizedWallpaper(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(root, "config")
+	state := filepath.Join(root, "state")
+	cache := filepath.Join(root, "cache")
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CACHE_HOME", cache)
+	t.Setenv("RYOKU_SYSTEM_RICES_DIR", t.TempDir())
+	for _, dir := range []string{filepath.Join(config, "ryoku"), state, filepath.Join(cache, "ryogami"), filepath.Join(root, "walls")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	missing := filepath.Join(root, "walls", "saved.png")
+	optimized := filepath.Join(root, "walls", "saved.webp")
+	if err := os.WriteFile(optimized, []byte("WEBP"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "ryoku-wallpaper"), []byte(missing+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cache, "ryogami", "outputs.json"),
+		[]byte(`{"*":{"type":"static","path":"`+missing+`"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(themeStatePath(), []byte(`{"followWallpaper":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rice, err := captureRice("Recovered", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rice.Assets.Wallpaper != "wall.webp" {
+		t.Fatalf("wallpaper asset = %q, want wall.webp", rice.Assets.Wallpaper)
+	}
+	dir := filepath.Join(ricesDir(), "recovered")
+	if got, err := os.ReadFile(filepath.Join(dir, "wall.webp")); err != nil || string(got) != "WEBP" {
+		t.Fatalf("captured wallpaper = %q, %v", got, err)
+	}
+	if !isFile(filepath.Join(dir, "preview.png")) {
+		t.Fatal("optimized wallpaper preview was not captured")
 	}
 }
 
@@ -469,6 +698,7 @@ func TestCaptureNewStoresDecorsAndLiveWall(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
 	t.Setenv("HOME", dir)
+	t.Setenv("RYOKU_SYSTEM_RICES_DIR", t.TempDir())
 	for _, d := range []string{filepath.Join(dir, "ryoku"), filepath.Join(dir, "state"), filepath.Join(dir, "pics")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -916,5 +1146,320 @@ func TestRehydrateReloadCoverAsset(t *testing.T) {
 	rc, _ = bm["reloadCover"].(map[string]any)
 	if rc == nil || rc["path"] != present {
 		t.Fatalf("resolvable absolute cover not kept: %v", bm)
+	}
+}
+
+// A rice is the whole visual desktop: the plugin roster (per-widget settings
+// and placements), the widget stage, the palette engine, and the Profile
+// plate's decor all travel, and the picker's look sections arrive as a
+// allowlist that holds back the author's hardware (gpuDevice, per-monitor
+// clip state) and accounts.
+func TestRiceCaptureCarriesEveryVisualStore(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "ryoku"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(p, body string) {
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeDesktopStore(t, `{"appearance":{"rounding":2}}`)
+	write(shellStorePath(), `{}`)
+	write(launcherStorePath(), `{}`)
+	write(themeStatePath(), `{"followWallpaper":true}`)
+	write(pluginsStorePath(), `{"mjw-calc":{"enabled":true,"host":"desktopWidget","placement":{"desktopWidget":{"x":120,"y":80}},"settings":{"digits":6}}}`)
+	write(stageStorePath(), `{"edge":0.15,"quality":"fine"}`)
+	write(matugenStorePath(), `{"schemeType":"scheme-vibrant","themeRyokuApps":true}`)
+	write(ryogamiStorePath(), `{"transition":{"shader":"morph"},"performance":{"gpuDevice":"uuid:deadbeef"},"monitor":"eDP-1","integrations":[{"name":"wallhaven"}]}`)
+
+	r, err := captureRice("Whole", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugins := r.Look["plugins"]
+	calc, _ := plugins["mjw-calc"].(map[string]any)
+	if calc == nil {
+		t.Fatalf("plugin roster not captured: %v", plugins)
+	}
+	if s, _ := calc["settings"].(map[string]any); s["digits"] != float64(6) {
+		t.Fatalf("per-widget plugin settings lost: %v", calc["settings"])
+	}
+	if r.Look["stage"]["quality"] != "fine" {
+		t.Fatalf("stage look not captured: %v", r.Look["stage"])
+	}
+	if r.Look["matugen"]["schemeType"] != "scheme-vibrant" {
+		t.Fatalf("palette engine not captured: %v", r.Look["matugen"])
+	}
+	ryog := r.Look["ryogami"]
+	if ryog["transition"] == nil {
+		t.Fatalf("picker transition not captured: %v", ryog)
+	}
+	if _, ok := ryog["performance"]; ok {
+		t.Fatal("the author's gpuDevice must not travel")
+	}
+	if _, ok := ryog["monitor"]; ok {
+		t.Fatal("the author's per-monitor clip state must not travel")
+	}
+	if _, ok := ryog["integrations"]; ok {
+		t.Fatal("external accounts must not travel")
+	}
+}
+
+// The profile plate's custom hero travels as a bundled asset and lands on the
+// recipient's profile store; the shipped-art case needs no bundle because the
+// name resolves against ~/Pictures/ryodecors on every box.
+func TestRiceProfileHeroRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	origRun, origReload := riceRun, riceReload
+	riceRun = func(string, ...string) error { return nil }
+	riceReload = func() {}
+	t.Cleanup(func() { riceRun, riceReload = origRun, origReload })
+
+	if err := os.MkdirAll(profileHeroDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profileHeroDir(), "myface.png"), []byte("img"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeDesktopStore(t, `{"appearance":{"rounding":2}}`)
+	if err := os.WriteFile(profileConfigPath(), []byte(`{"hero":{"kind":"custom","source":"myface.png","zoom":1.4}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := captureRice("Face", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hero, _ := r.Look["profile"]["hero"].(map[string]any)
+	if hero["source"] != "profilehero.png" {
+		t.Fatalf("custom hero not rebundled as an asset: %v", hero)
+	}
+	if !isFile(filepath.Join(ricesDir(), "face", "profilehero.png")) {
+		t.Fatal("hero image not bundled into the rice")
+	}
+
+	// a recipient applies it: the image lands in their profile store and the
+	// manifest points at the copy.
+	if err := os.Remove(profileConfigPath()); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyRice("face", nil); err != nil {
+		t.Fatal(err)
+	}
+	got := readJSONMap(profileConfigPath())
+	gh, _ := got["hero"].(map[string]any)
+	if gh["kind"] != "custom" || gh["source"] != "rice-face.png" {
+		t.Fatalf("apply did not land the hero: %v", gh)
+	}
+	if !isFile(filepath.Join(profileHeroDir(), "rice-face.png")) {
+		t.Fatal("applied hero image missing from the profile store")
+	}
+}
+
+// The folder field is free text: a leading ~ is the home, a bare name sits
+// under it, and a folder that does not exist yet is created. Refusing all
+// three was the top export failure people reported.
+func TestExpandUserDest(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cases := []struct{ in, want string }{
+		{"~/rice-out", filepath.Join(home, "rice-out")},
+		{"~", filepath.Join(home, "Rices")},
+		{"", filepath.Join(home, "Rices")},
+		{"rice-out", filepath.Join(home, "rice-out")},
+		{"/abs/path", "/abs/path"},
+		{"file://" + filepath.Join(home, "x"), filepath.Join(home, "x")},
+	}
+	for _, c := range cases {
+		if got := expandUserDest(c.in); got != c.want {
+			t.Errorf("expandUserDest(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// exportRice creates a destination that does not exist yet and accepts the ~
+// form, so typing "~/rice-share" into the folder field works.
+func TestRiceExportCreatesMissingDest(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	r := Rice{Schema: riceSchema, Slug: "demo", Name: "Demo",
+		Look: map[string]map[string]any{"shell": {"frameBars": map[string]any{"style": "ryoku-frame"}}}}
+	if err := saveRice(r); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exportRice("demo", "~/rice-share")
+	if err != nil {
+		t.Fatalf("export to a missing ~ folder: %v", err)
+	}
+	if want := filepath.Join(dir, "rice-share", "demo"); out != want {
+		t.Fatalf("exported to %q, want %q", out, want)
+	}
+	if !isFile(filepath.Join(out, "rice.json")) {
+		t.Fatal("manifest missing from the export")
+	}
+}
+
+// A desktop that forked its output shows the fork, not the shared values an
+// unforked output follows. The capture carries what that desktop showed, so
+// the rice lands the same on an output with another name.
+func TestRiceCaptureCarriesTheDesktopAsShown(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+	t.Setenv("HOME", dir)
+	t.Setenv("RYOKU_SYSTEM_RICES_DIR", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(dir, "ryoku"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store := `{"clockEnabled":true,"clockX":10,"weatherEnabled":false,"weatherX":5,
+	  "monitors":{"eDP-1":{"clockEnabled":false,"weatherEnabled":true,"weatherX":900}}}`
+	if err := os.WriteFile(widgetsStorePath(), []byte(store), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := captureRice("Desk", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := r.Look["widgets"]
+	if w["clockEnabled"] != false || w["weatherEnabled"] != true || w["weatherX"] != 900.0 {
+		t.Fatalf("captured shared values do not show eDP-1's desktop: %v", w)
+	}
+	if monitors, _ := w["monitors"].(map[string]any); monitors["eDP-1"] == nil {
+		t.Fatalf("captured forks lost: %v", w["monitors"])
+	}
+}
+
+func TestWidgetPrimaryOutputPrefersTheFocusedFork(t *testing.T) {
+	focused := func(name string) func() string { return func() string { return name } }
+	both := map[string]any{"monitors": map[string]any{"HDMI-A-1": map[string]any{}, "eDP-1": map[string]any{}}}
+	if got := widgetPrimaryOutput(both, focused("eDP-1")); got != "eDP-1" {
+		t.Fatalf("focused fork not chosen: %q", got)
+	}
+	if got := widgetPrimaryOutput(both, focused("DP-2")); got != "HDMI-A-1" {
+		t.Fatalf("unforked focus did not fall back to the first fork by name: %q", got)
+	}
+	one := map[string]any{"monitors": map[string]any{"eDP-1": map[string]any{}}}
+	if got := widgetPrimaryOutput(one, focused("HDMI-A-1")); got != "eDP-1" {
+		t.Fatalf("the only fork was not chosen: %q", got)
+	}
+}
+
+// Applying a rice leaves exactly its widgets on the desktop: a widget it does
+// not switch on goes off, the recipient's forks give way to the rice's, plugin
+// widgets it does not carry switch off, and a rice without widgets clears the
+// desktop.
+func TestRiceApplyLeavesExactlyItsWidgets(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(dir, "cache"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+	t.Setenv("HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "ryoku"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origRun, origReload := riceRun, riceReload
+	riceRun = func(string, ...string) error { return nil }
+	riceReload = func() {}
+	t.Cleanup(func() { riceRun, riceReload = origRun, origReload })
+	w := func(p, body string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w(widgetsStorePath(), `{"clockEnabled":true,"calendarEnabled":true,"monitors":{"eDP-1":{"shapeEnabled":true}}}`)
+	w(pluginsStorePath(), `{"mjw-sticker":{"enabled":true,"host":"desktopWidget","settings":{"size":200}}}`)
+	w(ricePath("desk"), `{"schema":1,"slug":"desk","name":"Desk","look":{
+	  "widgets":{"weatherEnabled":true,"weatherX":900},
+	  "plugins":{"mjw-calc":{"enabled":true,"host":"desktopWidget"}}}}`)
+	if err := applyRice("desk", nil); err != nil {
+		t.Fatal(err)
+	}
+	got := readJSONMap(widgetsStorePath())
+	if got["weatherEnabled"] != true || got["clockEnabled"] != false || got["calendarEnabled"] != false {
+		t.Fatalf("desktop widgets after apply: %v", got)
+	}
+	if monitors, _ := got["monitors"].(map[string]any); len(monitors) != 0 {
+		t.Fatalf("the recipient's forks survived the apply: %v", monitors)
+	}
+	plugins := readJSONMap(pluginsStorePath())
+	if sticker, _ := plugins["mjw-sticker"].(map[string]any); sticker["enabled"] != false {
+		t.Fatalf("a plugin widget the rice lacks stayed on: %v", sticker)
+	}
+	if calc, _ := plugins["mjw-calc"].(map[string]any); calc["enabled"] != true {
+		t.Fatalf("the rice's plugin widget did not land: %v", calc)
+	}
+
+	w(ricePath("bare"), `{"schema":1,"slug":"bare","name":"Bare","look":{}}`)
+	if err := applyRice("bare", nil); err != nil {
+		t.Fatal(err)
+	}
+	if readJSONMap(widgetsStorePath())["weatherEnabled"] != false {
+		t.Fatal("a rice without widgets left a widget on the desktop")
+	}
+}
+
+// A fix to a shipped rice used to stop at boxes that had applied it once: the
+// copy in the user's library won forever. Applying now refreshes a copy that
+// is still byte-for-byte a packaged version, recorded or legacy, and leaves a
+// rice the user saved over, or wrote, alone.
+func TestApplyRefreshesOnlyUntouchedPackagedCopies(t *testing.T) {
+	dir := t.TempDir()
+	system := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("RYOKU_SYSTEM_RICES_DIR", system)
+	sum := func(s string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(s))) }
+	write := func(p, body string) {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := func(slug, rev string) string {
+		return `{"schema":1,"slug":"` + slug + `","name":"` + rev + `","look":{}}`
+	}
+	legacy := manifest("old", "shipped-before-records")
+	legacyPackagedRices[sum(legacy)] = true
+	t.Cleanup(func() { delete(legacyPackagedRices, sum(legacy)) })
+
+	for _, c := range []struct {
+		slug, user, record string
+		refreshed          bool
+	}{
+		{"recorded", manifest("recorded", "v1"), sum(manifest("recorded", "v1")), true},
+		{"edited", manifest("edited", "mine"), sum(manifest("edited", "v1")), false},
+		{"old", legacy, "", true},
+		{"own", manifest("own", "mine"), "", false},
+	} {
+		write(filepath.Join(system, c.slug, "rice.json"), manifest(c.slug, "v2"))
+		write(filepath.Join(system, c.slug, "fastfetch.jsonc"), "v2 readout")
+		write(ricePath(c.slug), c.user)
+		if c.record != "" {
+			write(filepath.Join(ricesDir(), c.slug, packagedRiceRecord), c.record+"\n")
+		}
+		if err := ensureUserRice(c.slug); err != nil {
+			t.Fatalf("%s: %v", c.slug, err)
+		}
+		got, _ := os.ReadFile(ricePath(c.slug))
+		if refreshed := string(got) == manifest(c.slug, "v2"); refreshed != c.refreshed {
+			t.Fatalf("%s: refreshed=%v, want %v (manifest %s)", c.slug, refreshed, c.refreshed, got)
+		}
+		if !c.refreshed {
+			continue
+		}
+		readout, _ := os.ReadFile(filepath.Join(ricesDir(), c.slug, "fastfetch.jsonc"))
+		record, _ := os.ReadFile(filepath.Join(ricesDir(), c.slug, packagedRiceRecord))
+		if string(readout) != "v2 readout" || strings.TrimSpace(string(record)) != sum(manifest(c.slug, "v2")) {
+			t.Fatalf("%s: refreshed copy has readout %q and record %q", c.slug, readout, record)
+		}
 	}
 }

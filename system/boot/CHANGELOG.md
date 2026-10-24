@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Added
+- The Plymouth splash now shows on Fedora. `ryoku-desktop` there shipped the
+  theme but not the `script` and `label` plugins it draws with, and nothing made
+  it the default, so Fedora booted with its text splash. The RPM now requires
+  both plugins, and `fedora/system/boot/ryoku-plymouth-apply` (run from
+  `%posttrans`) makes `ryoku` the default theme and rebuilds every dracut image
+  once. Later updates rebuild only when the theme's files change and it is still
+  the default, so a theme picked by hand is kept; removing the package hands the
+  splash back to Fedora's default.
+
 - `mkinitcpio/install/ryoku-gpu-trim`: a mkinitcpio install hook that keeps the
   denylisted nouveau driver out of the initramfs, and with it the
   `nvidia/*/gsp` firmware linux-firmware ships for every Turing/Ampere/Ada chip
@@ -23,7 +32,29 @@
   54% to 43%. `ryoku-nvidia-guard` lifts the denylist when a kernel has no
   nvidia module and rebuilds, so the recovery image gets nouveau back.
 
+- `mkinitcpio/install/ryoku-console-keys` and
+  `mkinitcpio/hooks/ryoku-console-keys`: an early initramfs hook that carries
+  `/etc/vconsole.conf` into the image and turns Num Lock on for every console
+  before Plymouth starts. The disk unlock prompt now uses the keyboard layout
+  picked in the installer and starts with Num Lock on. It sits right after
+  `udev` in `mkinitcpio/ryoku.conf`.
+
 ### Fixed
+- `limine/50-ryoku-limine` now refreshes legacy BIOS installs when Void
+  updates Limine. It discovers the boot disk and its GPT BIOS partition from
+  the mounted `/boot`, installs the matching disk stage, then atomically
+  replaces `limine-bios.sys`; failed or ambiguous discovery leaves the existing
+  boot path untouched and records the reason in stderr and the journal.
+- `limine/90-ryoku-restore-default` resets Limine to the restored system's
+  first kernel and clears its remembered snapshot entry; Void's boot guard now
+  logs through vlogger.
+- `limine/50-ryoku-limine` now builds Void kernels under one `/Ryoku Linux`
+  menu, keeps snapshot entries in place across kernel changes, and excludes
+  ESP kernels whose matching module tree is absent after a snapshot restore.
+- `plymouth/ryoku/ryoku.script`: the unlock dialog says what it wants ("Enter
+  the disk passphrase") and says so when a passphrase is rejected ("Wrong
+  passphrase, try again"). Before, a wrong passphrase just emptied the box and
+  waited again with no sign anything had happened.
 - `limine/ryoku-windows-entry` now also restores the installer-recorded
   Linux/Ryoku neighbor after Limine regenerates its menu on dedicated-ESP
   dual-boot systems.

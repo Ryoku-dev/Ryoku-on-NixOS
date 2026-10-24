@@ -194,21 +194,6 @@ func domainState(domain string) string {
 	}
 }
 
-func resolveQEMUEmulator() (string, error) {
-	if nixManagedHost() {
-		const path = "/run/libvirt/nix-emulators/qemu-system-x86_64"
-		if fileExists(path) {
-			return path, nil
-		}
-	}
-
-	path, err := exec.LookPath("qemu-system-x86_64")
-	if err != nil {
-		return "", fmt.Errorf("qemu-system-x86_64 is unavailable: %w", err)
-	}
-	return path, nil
-}
-
 // ── create ───────────────────────────────────────────────────────────────────
 
 func vmDoCreate(f map[string]string) error {
@@ -249,14 +234,8 @@ func vmDoCreate(f map[string]string) error {
 		}
 	}
 
-	emulator, err := resolveQEMUEmulator()
-	if err != nil {
-		return err
-	}
-
 	spec := vmSpec{
 		Domain:     vmDomainPrefix + name,
-		Emulator:   emulator,
 		MemMB:      ramMB,
 		Pin:        pin,
 		Disk:       disk,
@@ -462,16 +441,6 @@ func atoiOr(s string, def int) int {
 // `ryovm virtio`); fall back to the usual system spots. Empty when none is
 // present (Linux guests need none).
 func findVirtioISO() string {
-	if p := strings.TrimSpace(os.Getenv("RYOKU_VIRTIO_WIN_ISO")); p != "" && fileExists(p) {
-		return p
-	}
-
-	if b, err := os.ReadFile("/etc/ryoku/virtio-win-iso"); err == nil {
-		if p := strings.TrimSpace(string(b)); p != "" && fileExists(p) {
-			return p
-		}
-	}
-
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {
 		home, _ := os.UserHomeDir()

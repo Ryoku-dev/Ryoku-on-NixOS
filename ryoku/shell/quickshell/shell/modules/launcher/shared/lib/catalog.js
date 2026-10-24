@@ -46,5 +46,48 @@ function entry(catalog, requestedId) {
   return find(catalog, String(requestedId || "")) || defaultEntry(catalog);
 }
 
+// A Store launcher runs from its receipt-owned view: launcher-views/<id>/<digest>
+// under the Store's state root, holding Main.qml and, when the product ships
+// one, Preview.qml.
+var STORE_VIEW = /^launcher-views\/([a-z0-9]+(?:-[a-z0-9]+)*)\/[a-f0-9]{64}$/;
+
+// storeVariants turns the Store's launchers.json index rows into catalog
+// entries with absolute file URLs. A malformed row, one whose view belongs to
+// another id, a repeat, or one that would shadow a shipped launcher is dropped:
+// the launcher the shell ships always answers to its own id.
+function storeVariants(catalog, rows, stateRoot) {
+  var taken = {};
+  catalog.variants.forEach(function (variant) { taken[variant.id] = true; });
+  var variants = [];
+  (Array.isArray(rows) ? rows : []).forEach(function (row) {
+    var id = String(row && row.id || "");
+    var version = String(row && row.version || "");
+    var match = STORE_VIEW.exec(String(row && row.view || ""));
+    if (!match || match[1] !== id || version === "" || taken[id])
+      return;
+    taken[id] = true;
+    var root = "file://" + stateRoot + "/" + row.view + "/";
+    variants.push({
+      id: id,
+      name: id,
+      description: "",
+      version: version,
+      store: true,
+      url: root + "Main.qml",
+      previewUrl: row.preview === "Preview.qml" ? root + "Preview.qml" : "",
+      capabilities: []
+    });
+  });
+  return variants;
+}
+
+function withStore(catalog, rows, stateRoot) {
+  return {
+    defaultId: catalog.defaultId,
+    fallbackId: catalog.fallbackId,
+    variants: catalog.variants.concat(storeVariants(catalog, rows, stateRoot))
+  };
+}
+
 if (typeof module !== "undefined" && module.exports)
-  module.exports = { safeQmlPath, normalize, find, entry, defaultEntry, fallbackEntry };
+  module.exports = { safeQmlPath, normalize, find, entry, defaultEntry, fallbackEntry, storeVariants, withStore };

@@ -19,7 +19,8 @@ pkgs.buildGo126Module {
     fi
 
     wrapProgram "$out/bin/ryoku-install" \
-      --set RYOKU_INSTALL_BACKEND "${backend}/bin/ryoku-install-backend"
+      --set RYOKU_INSTALL_BACKEND "${backend}/bin/ryoku-install-backend" \
+      --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.coreutils pkgs.curl pkgs.networkmanager pkgs.util-linux pkgs.whois ]}"
   '';
 
   meta = {

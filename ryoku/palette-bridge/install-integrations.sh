@@ -3,19 +3,13 @@ set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}"
-overlay_root="$config_root/ryoku/user_edits/matugen"
-overlay_apps="$overlay_root/apps.toml"
+data_root="${XDG_DATA_HOME:-$HOME/.local/share}"
+bridge_root="$config_root/ryoku/palette-bridge"
+bridge_apps="$bridge_root/matugen.toml"
+bridge_template_root="$data_root/ryoku/palette-bridge/templates"
+legacy_overlay_root="$config_root/ryoku/user_edits/matugen"
+legacy_overlay_apps="$legacy_overlay_root/apps.toml"
 live_apps="$config_root/matugen/apps.toml"
-if [[ "$config_root" == "$HOME/.config" ]]; then
-  # Literal paths written into apps.toml; Matugen expands the tilde.
-  # shellcheck disable=SC2088
-  matugen_template_root='~/.config/matugen/templates'
-  # shellcheck disable=SC2088
-  vesktop_quick_css='~/.config/vesktop/settings/quickCss.css'
-else
-  matugen_template_root="$config_root/matugen/templates"
-  vesktop_quick_css="$config_root/vesktop/settings/quickCss.css"
-fi
 want_spotify=false
 want_vesktop=false
 want_zen=false
@@ -28,6 +22,7 @@ usage() {
 
 while (( $# )); do
   case "$1" in
+    --capabilities) printf 'palette-bridge-matugen-v2\n'; exit 0 ;;
     --all) want_spotify=true; want_vesktop=true; want_zen=true ;;
     --spotify) want_spotify=true ;;
     --vesktop) want_vesktop=true ;;
@@ -43,14 +38,35 @@ if ! $want_spotify && ! $want_vesktop && ! $want_zen; then
   exit 2
 fi
 
-prepare_matugen_overlay() {
-  install -d "$overlay_root/templates"
-  if [[ ! -f "$overlay_apps" ]]; then
-    [[ -f "$live_apps" ]] || {
-      printf 'Matugen apps file not found: %s\n' "$live_apps" >&2
-      exit 1
-    }
-    install -m 0644 "$live_apps" "$overlay_apps"
+# Render first so an invalid palette cannot leave partial setup.
+carrier="${XDG_CACHE_HOME:-$HOME/.cache}/ryoku/matugen-carrier.json"
+vesktop_rendered=
+if $want_vesktop || $want_zen; then
+  command -v matugen >/dev/null || { printf 'matugen is required for app integrations\n' >&2; exit 1; }
+  [[ -f "$carrier" ]] || {
+    printf 'Current Ryoku palette not found: %s. Apply a wallpaper or theme first.\n' "$carrier" >&2
+    exit 1
+  }
+fi
+if $want_vesktop; then
+  command -v jq >/dev/null || { printf 'jq is required for --vesktop\n' >&2; exit 1; }
+  source "$project_root/vesktop/quickcss.sh"
+  vesktop_root=$(vesktop_config_root "$config_root") || {
+    printf 'Vesktop settings not found in %s or %s; start Vesktop once and retry.\n' \
+      "$config_root/vesktop/settings" "$(vesktop_flatpak_root)/settings" >&2
+    exit 1
+  }
+  vesktop_temporary=$(mktemp -d)
+  trap 'rm -rf "$vesktop_temporary"' EXIT
+  vesktop_rendered="$vesktop_temporary/palette.css"
+  vesktop_render_palette "$project_root/templates/vesktop-colors.css" "$carrier" "$vesktop_rendered"
+  vesktop_strip_palette "$vesktop_root/settings/quickCss.css" "$vesktop_temporary/custom.css" 1
+fi
+
+prepare_matugen_config() {
+  install -d "$bridge_root" "$bridge_template_root"
+  if [[ ! -f "$bridge_apps" ]]; then
+    printf '[config]\nreload_apps = false\n' > "$bridge_apps"
   fi
 }
 
@@ -66,20 +82,62 @@ record_owned() {
   rm -f "$temporary"
 }
 
-set_matugen_section() {
-  local section="$1" input_path="$2" output_path="$3" temporary
+forget_owned() {
+  local integration="$1" path="$2" temporary
+  [[ -f "$ownership_file" ]] || return 0
+  temporary=$(mktemp)
+  awk -F '\t' -v app="$integration" -v path="$path" '!($1 == app && $2 == path)' \
+    "$ownership_file" > "$temporary"
+  install -m 0600 "$temporary" "$ownership_file"
+  rm -f "$temporary"
+}
+
+migrate_legacy_matugen_section() {
+  local section="$1" old_template="$2" temporary base
+  [[ -f "$legacy_overlay_apps" ]] || return 0
+  grep -Fqx "[$section]" "$legacy_overlay_apps" || return 0
   temporary=$(mktemp)
   awk -v target="[$section]" '
     $0 == target { skip=1; next }
     /^\[/ && skip { skip=0 }
     !skip { print }
-  ' "$overlay_apps" > "$temporary"
+  ' "$legacy_overlay_apps" > "$temporary"
+  base=/usr/share/ryoku/config/matugen/apps.toml
+  if [[ -f "$project_root/../shell/matugen/apps.toml" ]]; then
+    base="$project_root/../shell/matugen/apps.toml"
+  fi
+  if [[ -f "$base" ]] &&
+      [[ "$(awk 'NF { print }' "$temporary")" == "$(awk 'NF { print }' "$base")" ]]; then
+    rm -f "$legacy_overlay_apps"
+    install -Dm0644 "$base" "$live_apps"
+  else
+    install -m 0644 "$temporary" "$legacy_overlay_apps"
+    install -Dm0644 "$temporary" "$live_apps"
+  fi
+  rm -f "$temporary" "$old_template"
+  forget_owned "${section#templates.}" "$old_template"
+}
+
+set_matugen_section() {
+  local section="$1" input_path="$2" output_path="$3" hook="${4:-}" temporary input_value output_value
+  command -v jq >/dev/null || { printf 'jq is required to write Matugen integrations\n' >&2; return 1; }
+  input_value=$(jq -Rn --arg value "$input_path" '$value')
+  output_value=$(jq -Rn --arg value "$output_path" '$value')
+  temporary=$(mktemp)
+  awk -v target="[$section]" '
+    $0 == target { skip=1; next }
+    /^\[/ && skip { skip=0 }
+    !skip { print }
+  ' "$bridge_apps" > "$temporary"
   {
     printf '\n[%s]\n' "$section"
-    printf 'input_path = "%s"\n' "$input_path"
-    printf 'output_path = "%s"\n' "$output_path"
+    printf 'input_path = %s\n' "$input_value"
+    printf 'output_path = %s\n' "$output_value"
+    if [[ -n "$hook" ]]; then
+      printf 'post_hook = %s\n' "$(jq -Rn --arg hook "$hook" '$hook')"
+    fi
   } >> "$temporary"
-  install -m 0644 "$temporary" "$overlay_apps"
+  install -m 0644 "$temporary" "$bridge_apps"
   rm -f "$temporary"
 }
 
@@ -98,56 +156,110 @@ fi
 
 if $want_vesktop; then
   command -v jq >/dev/null || { printf 'jq is required for --vesktop\n' >&2; exit 1; }
-  settings="$config_root/vesktop/settings/settings.json"
+  settings="$vesktop_root/settings/settings.json"
   [[ -f "$settings" ]] || { printf 'Vesktop settings not found: %s\n' "$settings" >&2; exit 1; }
-  prepare_matugen_overlay
-  install -m 0644 "$project_root/templates/vesktop-colors.css" "$overlay_root/templates/vesktop-colors.css"
-  record_owned vesktop "$overlay_root/templates/vesktop-colors.css"
-  set_matugen_section templates.vesktop \
-    "$matugen_template_root/vesktop-colors.css" \
-    "$vesktop_quick_css"
-  install -d "$config_root/vesktop/themes"
-  install -m 0644 "$project_root/vesktop/midnight-ryoku.theme.css" \
-    "$config_root/vesktop/themes/midnight-ryoku.theme.css"
-  record_owned vesktop "$config_root/vesktop/themes/midnight-ryoku.theme.css"
+  prepare_matugen_config
+  legacy_template="$legacy_overlay_root/templates/vesktop-colors.css"
+  migrate_legacy_matugen_section templates.vesktop "$legacy_template"
+  bridge_template="$bridge_template_root/vesktop-colors.css"
+  install -m 0644 "$project_root/templates/vesktop-colors.css" "$bridge_template"
+  record_owned vesktop "$bridge_template"
+  merge_root="$state_root/vesktop"
+  install -d "$merge_root"
+  install -m 0644 "$project_root/vesktop/quickcss.sh" "$merge_root/quickcss.sh"
+  install -m 0644 "$vesktop_rendered" "$merge_root/palette.css"
+  record_owned vesktop "$merge_root/quickcss.sh"
+  record_owned vesktop "$merge_root/palette.css"
+  shell_quote() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
+  merge_hook="bash $(shell_quote "$merge_root/quickcss.sh") $(shell_quote "$vesktop_root/settings/quickCss.css") $(shell_quote "$merge_root/palette.css")"
+  set_matugen_section templates.vesktop "$bridge_template" "$merge_root/palette.css" "$merge_hook"
+  # The Ryoku Discord theme (shipped as ryoku-discord.theme.css, or installed by
+  # hand as ryoku.theme.css) consumes the same palette roles itself, and
+  # stacking Midnight on it changes its layout.
+  ryoku_selected=$(jq '(.enabledThemes // []) | any(ascii_downcase | IN("ryoku.theme.css", "ryoku-discord.theme.css"))' "$settings")
+  if [[ "$ryoku_selected" != true ]]; then
+    install -d "$vesktop_root/themes"
+    install -m 0644 "$project_root/vesktop/midnight-ryoku.theme.css" \
+      "$vesktop_root/themes/midnight-ryoku.theme.css"
+    record_owned vesktop "$vesktop_root/themes/midnight-ryoku.theme.css"
+  fi
   temporary=$(mktemp)
-  jq '.useQuickCss = true | .enabledThemes = ((.enabledThemes // []) | if index("midnight-ryoku.theme.css") then . else . + ["midnight-ryoku.theme.css"] end)' \
+  jq --argjson ryoku "$ryoku_selected" '.useQuickCss = true | .enabledThemes = ((.enabledThemes // []) |
+    if $ryoku then map(select(. != "midnight-ryoku.theme.css"))
+    elif index("midnight-ryoku.theme.css") then . else . + ["midnight-ryoku.theme.css"] end)' \
     "$settings" > "$temporary"
   install -m 0644 "$temporary" "$settings"
   rm -f "$temporary"
-  printf 'Installed the Vesktop no-flash Midnight integration.\n'
+  vesktop_write_palette "$vesktop_root/settings/quickCss.css" "$vesktop_rendered"
+  printf 'Installed the Vesktop live-palette integration.\n'
 fi
 
 if $want_zen; then
-  zen_root="$config_root/zen"
   if [[ -n "${ZEN_PROFILE_ROOT:-}" ]]; then
     profile_root="$ZEN_PROFILE_ROOT"
   else
-    profile_root=$(find "$zen_root" -mindepth 2 -maxdepth 2 -name .parentlock -printf '%h\n' -quit 2>/dev/null || true)
-    if [[ -z "$profile_root" && -f "$zen_root/profiles.ini" ]]; then
-      profile_path=$(awk -F= '
-        /^\[Profile/ { active=1; path=""; preferred=0; next }
-        /^\[/ { if (active && preferred && path != "") { print path; exit }; active=0 }
-        active && $1 == "Path" { path=$2 }
-        active && $1 == "Default" && $2 == "1" { preferred=1 }
-        END { if (active && preferred && path != "") print path }
-      ' "$zen_root/profiles.ini" | head -n1)
-      [[ -n "$profile_path" ]] && profile_root="$zen_root/$profile_path"
-    fi
+    # Native Zen keeps its profiles in the config directory; the Flathub build
+    # keeps them in its own ~/.var/app folder, the only place its sandbox sees.
+    for zen_root in "$config_root/zen" \
+      "$HOME/.var/app/app.zen_browser.zen/config/zen" \
+      "$HOME/.var/app/app.zen_browser.zen/.zen"; do
+      profile_root=$(find "$zen_root" -mindepth 2 -maxdepth 2 -name .parentlock -printf '%h\n' -quit 2>/dev/null || true)
+      if [[ -z "$profile_root" && -f "$zen_root/profiles.ini" ]]; then
+        while IFS= read -r candidate; do
+          if [[ -d "$candidate" ]]; then
+            profile_root="$candidate"
+            break
+          fi
+        done < <(awk -v root="$zen_root" '
+          function saveProfile() {
+            if (profile && preferred && path != "")
+              defaults[++profileCount] = relative == "0" ? path : root "/" path
+          }
+          { sub(/\r$/, "") }
+          /^\[/ {
+            saveProfile()
+            profile = ($0 ~ /^\[Profile[^]]+\]$/)
+            installation = ($0 ~ /^\[Install[^]]+\]$/)
+            path = ""; preferred = 0; relative = "1"
+            next
+          }
+          /^[;#]/ { next }
+          index($0, "=") {
+            key = substr($0, 1, index($0, "=") - 1)
+            value = substr($0, index($0, "=") + 1)
+            if (profile && key == "Path") path = value
+            if (profile && key == "IsRelative") relative = value
+            if (profile && key == "Default" && value == "1") preferred = 1
+            if (installation && key == "Default" && value != "")
+              installs[++installCount] = substr(value, 1, 1) == "/" ? value : root "/" value
+          }
+          END {
+            saveProfile()
+            for (i = 1; i <= installCount; i++) print installs[i]
+            for (i = 1; i <= profileCount; i++) print defaults[i]
+          }
+        ' "$zen_root/profiles.ini")
+      fi
+      [[ -z "$profile_root" ]] || break
+    done
   fi
   [[ -n "${profile_root:-}" && -d "$profile_root" ]] || {
     printf 'Could not identify a Zen profile; set ZEN_PROFILE_ROOT and retry.\n' >&2
     exit 1
   }
-  prepare_matugen_overlay
-  install -m 0644 "$project_root/templates/zen.css" "$overlay_root/templates/zen.css"
-  record_owned zen "$overlay_root/templates/zen.css"
+  prepare_matugen_config
+  legacy_template="$legacy_overlay_root/templates/zen.css"
+  migrate_legacy_matugen_section templates.zen "$legacy_template"
+  bridge_template="$bridge_template_root/zen.css"
+  install -m 0644 "$project_root/templates/zen.css" "$bridge_template"
+  record_owned zen "$bridge_template"
   if [[ "$profile_root" == "$HOME/"* ]]; then
     profile_output="~${profile_root#"$HOME"}/chrome/ryoku-colors.css"
   else
     profile_output="$profile_root/chrome/ryoku-colors.css"
   fi
-  set_matugen_section templates.zen "$matugen_template_root/zen.css" "$profile_output"
+  set_matugen_section templates.zen "$bridge_template" "$profile_output"
+  record_owned zen "$profile_root/chrome/ryoku-colors.css"
   install -d "$profile_root/chrome"
   user_chrome="$profile_root/chrome/userChrome.css"
   touch "$user_chrome"
@@ -172,8 +284,7 @@ if $want_zen; then
 fi
 
 if $want_vesktop || $want_zen; then
-  command -v ryoku >/dev/null || { printf 'ryoku is required to materialize Matugen overlays\n' >&2; exit 1; }
-  ryoku materialize
+  matugen -c "$bridge_apps" json "$carrier"
   if command -v ryogami >/dev/null; then
     ryogami wallpaper repaint
   fi

@@ -120,7 +120,7 @@ build_pkg() {
 # the mirror already serves is not built at all: its served bytes are copied
 # in and re-signed. this is what makes a release a promotion of the testing
 # build (same commit, same names, same bytes) instead of a rebuild, and spares
-# a pinned external (ryotunes, ryomotion, prowl-agent) its compile on every
+# a pinned external (ryotunes, prowl) its compile on every
 # push. shipping a change to a fixed-version package means bumping pkgrel.
 MIRROR=${RYOKU_REPO_MIRROR:-https://repo.ryoku.dev/stable/$REPO_ARCH}
 
@@ -237,6 +237,20 @@ commit=$(git -C "$RELEASE_DIR/.." rev-parse HEAD 2>/dev/null || echo unknown)
 printf '{"schema":1,"release":"%s","name":"%s","channel":"%s","version":"%s","commit":"%s","date":"%s"}\n' \
   "$RYOKU_RELEASE" "$RYOKU_NAME" "$RYOKU_CHANNEL" "$RYOKU_PKGVER" "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   > "$ARCH_DIR/release.json"
+
+# 8. manifest.json beside release.json: every package this release is made of,
+#    by lane, generated from this checkout (never hand-edited). A box's
+#    `ryoku update` diff converges against it, which is what makes a package
+#    added to a set reach every box on the next update, and `ryoku verify`
+#    compare two boxes. The publish step's rclone sync carries it with the db.
+log "Generating the control manifest"
+manifest_src="$RELEASE_DIR/../ryoku/cli"
+manifest_bin="$(mktemp -d)/ryoku-manifest"
+( cd "$manifest_src" && go build -mod=vendor -o "$manifest_bin" ./cmd/ryoku-manifest ) \
+  || die "could not build cmd/ryoku-manifest"
+"$manifest_bin" -repo "$RELEASE_DIR/.." -release "$RYOKU_RELEASE" -version "$RYOKU_PKGVER" \
+  -commit "$commit" -channel "$RYOKU_CHANNEL" -out "$ARCH_DIR/manifest.json" \
+  || die "could not generate manifest.json"
 
 log "Repo ready at $ARCH_DIR"
 log "Serves as stable at https://repo.ryoku.dev/stable/$REPO_ARCH/, as testing under channels/testing/, or frozen under releases/<tag>/ (publish-repo.yml)"

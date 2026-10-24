@@ -102,6 +102,12 @@ def compile_theme(flags, body, primary, watch):
     for sub in ("src", "svg", "config"):
         shutil.copytree(SRC / sub, work / sub)
     render = work / "config/render.json"
+
+    # shutil.copytree preserves the source modes. On NixOS the bundled Bibata
+    # source comes from the immutable store, so render.json may still be 0444
+    # even though its temporary copy is owned by the user.
+    render.chmod(render.stat().st_mode | 0o200)
+
     d = json.loads(render.read_text())
     t = "Bibata-Modern-Classic"
     d[t]["colors"][0]["replace"] = body
@@ -150,7 +156,7 @@ def build_x11(body, primary, watch):
 
 
 def apply_live():
-    subprocess.run(["ryoku", "wm", "act", "cursor.set", THEME, str(cursor_size())],
+    subprocess.run(["ryoku", "wm", "act", "cursor.reassert"],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -182,7 +188,18 @@ def main():
     # internal: background X11-only pass spawned by the fast path.
     if "--x11only" in args:
         body, primary, watch = colors_from(accent())
-        x11_locked(lambda: build_x11(body, primary, watch))
+
+        # Niri consumes the Xcursor bitmap set, not hyprcursors. The normal
+        # matugen path launches this pass asynchronously after the fast
+        # hyprcursor update, so reassert again only after the Xcursor files are
+        # actually installed. Without this second reassert Niri reloads too
+        # early and keeps the previous cursor textures cached until some later
+        # config reload.
+        def rebuild_x11_and_reassert():
+            build_x11(body, primary, watch)
+            apply_live()
+
+        x11_locked(rebuild_x11_and_reassert)
         return
 
     if "--force" not in args and active_theme() != THEME:

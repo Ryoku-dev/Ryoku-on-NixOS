@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Ryoku stand-in for the Stage Editor's Material colour generator.
+
+The ported chrome previews its wallpaper-derived schemes by asking this
+script (by name and argument shape) for the palette each scheme would
+produce from a picture. Ryoku already generates its live palette with
+matugen, so this shim asks matugen the same questions and answers in the
+chrome's own JSON shapes:
+
+  --path IMG --scheme SCHEME --index N --preview   one swatch:
+      {"primary", "primary_container", "secondary", "tertiary"} on stdout
+  --path IMG --mode MODE --index N --all-previews -   every scheme,
+      keyed by scheme name, on stdout
+
+The preview is generated with the same scheme variant, resolved light/dark
+mode, and source-colour slot as Ryoku's daemon. The remaining compatibility
+flags are accepted and ignored.
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+# The wallpaper-derived schemes Ryoku accepts, and their matugen variants.
+SCHEMES = {
+    "scheme-content": "scheme-content",
+    "scheme-tonal-spot": "scheme-tonal-spot",
+    "scheme-fidelity": "scheme-fidelity",
+    "scheme-vibrant": "scheme-vibrant",
+    "scheme-fruit-salad": "scheme-fruit-salad",
+    "scheme-expressive": "scheme-expressive",
+    "scheme-rainbow": "scheme-rainbow",
+    "scheme-neutral": "scheme-neutral",
+    "scheme-monochrome": "scheme-monochrome",
+}
+
+
+def load_knobs():
+    config_home = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    try:
+        with open(os.path.join(config_home, "ryoku", "matugen.json"),
+                  encoding="utf-8") as handle:
+            value = json.load(handle)
+            return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def matugen_palette(image, variant, mode, source_index, knobs):
+    """The M3 roles Ryoku asks matugen for under one wallpaper setup."""
+    cmd = [
+        "matugen", "image", image,
+        "-t", variant, "-m", mode,
+        "--contrast", str(knobs.get("contrast", 0)),
+        "--lightness-dark", str(knobs.get("lightnessDark", 0)),
+        "--lightness-light", str(knobs.get("lightnessLight", 0)),
+        "--source-color-index", str(source_index),
+        "--prefer", str(knobs.get("prefer", "saturation")),
+        "--json", "hex", "--dry-run",
+    ]
+    out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+    doc = json.loads(out)
+    colors = doc.get("colors", {})
+
+    def role(name):
+        entry = colors.get(name)
+        if not entry:
+            return ""
+        for key in (mode, "default", "dark", "light"):
+            cell = entry.get(key)
+            if cell and (cell.get("color") or cell.get("hex")):
+                return cell.get("color") or cell.get("hex")
+        return ""
+
+    return {
+        "primary": role("primary"),
+        "primary_container": role("primary_container"),
+        "secondary": role("secondary"),
+        "tertiary": role("tertiary"),
+    }
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--path", required=True)
+    ap.add_argument("--scheme", default="")
+    ap.add_argument("--mode", default="dark")
+    ap.add_argument("--index", type=int, default=0)
+    ap.add_argument("--preview", action="store_true")
+    ap.add_argument("--all-previews", default="")
+    ap.add_argument("--termscheme", default="")
+    ap.add_argument("--blend_bg_fg", action="store_true")
+    ap.add_argument("--request-token", default="")
+    ap.add_argument("--request-value", default="")
+    args = ap.parse_args()
+
+    mode = "light" if args.mode == "light" else "dark"
+    source_index = max(0, min(4, args.index))
+    knobs = load_knobs()
+
+    if args.all_previews:
+        alls = {}
+        for scheme, variant in SCHEMES.items():
+            try:
+                alls[scheme] = matugen_palette(
+                    args.path, variant, mode, source_index, knobs)
+            except Exception:
+                continue
+        if not alls:
+            sys.exit(1)
+        if args.all_previews == "-":
+            print(json.dumps(alls))
+        else:
+            with open(args.all_previews, "w") as f:
+                json.dump(alls, f)
+        return
+
+    variant = SCHEMES.get(args.scheme, "scheme-tonal-spot")
+    print(json.dumps(matugen_palette(
+        args.path, variant, mode, source_index, knobs)))
+
+
+if __name__ == "__main__":
+    main()

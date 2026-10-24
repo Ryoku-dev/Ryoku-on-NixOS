@@ -2,17 +2,39 @@ local mod = "SUPER"
 
 local K = require("modules.rebind")
 
+-- The Shima frame can ask before a window closes. Only route through the shell
+-- when that is switched on, so every other close stays a native dispatch with
+-- no process in the way (reading shell.json here costs no fork).
+local function close_active()
+    local f = io.open((os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")) .. "/ryoku/shell.json")
+    local s = f and f:read("a") or ""
+    if f then f:close() end
+    local style = s:match('"barStyle"%s*:%s*"([^"]*)"') or "orpheus"
+    if style == "iris" and s:find('"closeConfirm"%s*:%s*{[^{}]*"enabled"%s*:%s*true') then
+        hl.exec_cmd("qs -c shell ipc call closeConfirm trigger")
+    else
+        hl.dispatch(hl.dsp.window.close())
+    end
+end
+
 -- Windows
-hl.bind(K(mod .. " + Q"),         hl.dsp.window.close())                           -- close active window
+hl.bind(K(mod .. " + Q"),         close_active)                                    -- close active window (Shima asks first when set to)
 hl.bind(K(mod .. " + F"),         hl.dsp.window.fullscreen())                      -- fullscreen
 hl.bind(K(mod .. " + SHIFT + P"), hl.dsp.window.pin())                             -- pin a floating window
 hl.bind(K(mod .. " + A"),         function() hl.dispatch(hl.dsp.window.float({ action = "toggle" })); hl.dispatch(hl.dsp.window.resize({ x = 1000, y = 660, exact = true })); hl.dispatch(hl.dsp.window.center()) end) -- float at 1000x660, centred (press again to tile back)
 hl.bind(K(mod .. " + R"),         function() hl.dispatch(hl.dsp.submap("resize")); hl.dispatch(hl.dsp.exec_cmd("hyprctl notify -1 2200 0 'Resize mode: arrows or hjkl resize, Esc exits'")) end) -- resize mode (arrows/hjkl resize, Esc exits)
-hl.bind(K(mod .. " + T"),         hl.dsp.group.toggle())                            -- Tabbed column
+hl.bind(K(mod .. " + T"),         hl.dsp.group.toggle())                            -- Group windows (tabbed)
 hl.bind(K(mod .. " + D"),         hl.dsp.window.fullscreen({ mode = "maximized" })) -- Maximise
 hl.bind(K(mod .. " + C"),         hl.dsp.window.center())                           -- Centre
 hl.bind(K("ALT + Tab"),           hl.dsp.focus({ last = true }))                    -- Last window
 hl.bind(K(mod .. " + P"),         hl.dsp.exec_cmd("ryoku-monitor toggle"))         -- mirror or extend displays (monitor layout)
+
+-- Directional focus keeps working while a window is maximized or fullscreen.
+-- With the default (off) the compositor refuses every direction focus from an
+-- FS window: the scrolling layout paints it over the whole workspace, so the
+-- neighbour on the tape is unreachable until the state clears. On, a direction
+-- move focuses the neighbour and leaves the maximized window maximized.
+hl.config({ binds = { movefocus_cycles_fullscreen = true } })
 
 -- Focus and move windows
 hl.bind(K(mod .. " + Left"),          hl.dsp.focus({ direction = "left" }))        -- focus left
@@ -56,7 +78,9 @@ hl.bind(K(mod .. " + J"),         hl.dsp.exec_cmd("ryotunes"))                  
 
 -- Shell surfaces and tools
 hl.bind(K(mod .. " + Space"),     hl.dsp.global("ryoku:launcher"))                 -- open the app launcher
-hl.bind(K(mod .. " + K"),         hl.dsp.exec_cmd("pkill -x -f 'qs -c keys' 2>/dev/null || flock -n -o /tmp/ryoku-keys.lock qs -c keys")) -- keybind cheatsheet: toggle (press to open, press again to close)
+hl.bind(K("ALT + Space"),         hl.dsp.global("ryoku:ask"))                      -- ask Rashin
+hl.bind(K(mod .. " + ALT + Space"), hl.dsp.exec_cmd("ryoku-summon Rashin flock -n -o /tmp/rashin-app.lock rashin-app")) -- Rashin app: the AI companion window (a second press focuses it)
+hl.bind(K(mod .. " + K"),         hl.dsp.exec_cmd("pkill -x -f 'qs -c keys' 2>/dev/null || flock -n -o /tmp/ryoku-keys.lock qs -c keys")) -- Kit: toggle (press to open, press again to close)
 hl.bind(K(mod .. " + L"),         hl.dsp.exec_cmd("ryoku-shell lock"))             -- lock the screen
 hl.bind(K(mod .. " + Escape"),    hl.dsp.global("ryoku:quicksettings")) -- quick settings: power, logout, restart, shutdown, wifi
 hl.bind(K(mod .. " + W"),         hl.dsp.exec_cmd("ryogami wallpaper ui"))     -- ryogami wallpaper picker (full-screen browser: hero cards, colour filters, effects); the frame-blob menu stays on the bar logo
@@ -70,8 +94,7 @@ hl.bind(K(mod .. " + SHIFT + M"), hl.dsp.global("ryoku:visualizer-overlay")) -- 
 hl.bind(K(mod .. " + ALT + M"),   hl.dsp.global("ryoku:visualizer-place"))   -- move the audio visualiser: drag the ring or orb into place
 hl.bind(K(mod .. " + grave"),     hl.dsp.exec_cmd("ryoku-shell voice"))             -- voice typing: speech-to-text with a mic wave (tap again to stop)
 hl.bind(K(mod .. " + comma"),     hl.dsp.exec_cmd("ryoku-shell hub open"))     -- ryoku settings
-hl.bind(K(mod .. " + S"),         hl.dsp.global("ryoku:stash"))         -- sidebar: screen time and downloads
-hl.bind(K(mod .. " + SHIFT + S"), hl.dsp.exec_cmd("flock -n -o /tmp/ryoshot.lock qs -c ryoshot"))  -- screenshot: capture, annotate and beautify
+hl.bind(K(mod .. " + SHIFT + S"), hl.dsp.exec_cmd("ryoku-cmd-ryoshot")) -- screenshot: capture, annotate and beautify
 hl.bind(K(mod .. " + SHIFT + C"), hl.dsp.exec_cmd("hyprpicker -a"))                 -- pick a color
 
 -- Move/resize with the mouse
@@ -119,6 +142,7 @@ end
 hl.bind(K("XF86AudioRaiseVolume"), hl.dsp.exec_cmd("ryoku-volume up"),   { locked = true, repeating = true }) -- raise the volume
 hl.bind(K("XF86AudioLowerVolume"), hl.dsp.exec_cmd("ryoku-volume down"), { locked = true, repeating = true }) -- lower the volume
 hl.bind(K("XF86AudioMute"),        hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),     { locked = true })
+hl.bind(K("XF86AudioMicMute"),     hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),   { locked = true })
 hl.bind(K("XF86AudioPlay"),        hl.dsp.exec_cmd("playerctl play-pause"),                           { locked = true })
 hl.bind(K("XF86AudioNext"),        hl.dsp.exec_cmd("playerctl next"),                                 { locked = true })
 hl.bind(K("XF86AudioPrev"),        hl.dsp.exec_cmd("playerctl previous"),                             { locked = true })

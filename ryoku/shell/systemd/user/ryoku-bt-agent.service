@@ -1,0 +1,24 @@
+[Unit]
+Description=Ryoku Bluetooth pairing agent (BlueZ default agent)
+Documentation=https://github.com/Ryoku-dev/ryoku/issues/308
+# bluetoothd must be up to talk to; the agent is useless without it, and a
+# bluetooth restart drops the registration, so follow it through.
+After=bluetooth.service
+Wants=bluetooth.service
+PartOf=bluetooth.service
+
+[Service]
+Type=simple
+# KeyboardDisplay is the capability BLE HID devices (gamepads, keyboards)
+# pair with: they confirm a numeric passkey, and bluetoothd denies the bond
+# when no agent can answer (#308). Devices that need nothing (headphones,
+# Just Works) are unaffected. bluetoothctl exits at stdin EOF when it is not
+# attached to a terminal, so hold stdin open; the agent then sits idle and
+# auto-confirms the comparison prompts bluetoothd sends it.
+ExecStart=/bin/sh -c 'tail -f /dev/null | bluetoothctl --agent KeyboardDisplay'
+Restart=on-failure
+RestartSec=2
+Slice=session.slice
+
+[Install]
+WantedBy=default.target

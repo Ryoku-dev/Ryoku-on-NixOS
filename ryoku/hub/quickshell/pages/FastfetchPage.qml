@@ -30,7 +30,7 @@ Item {
     property var hub
     readonly property bool fullBleed: true
 
-    property var model: ({ "logo": { "kind": "none", "source": "", "width": 28, "height": 14, "padding": 3, "paddingRight": 5, "paddingTop": 5 }, "accent": "226;52;42", "rows": [] })
+    property var model: ({ "logo": { "kind": "none", "source": "", "width": 28, "height": 14, "padding": 3, "paddingRight": 5, "paddingTop": 5 }, "accent": "226;52;42", "palette": "fixed", "rows": [] })
     property var committed: ({})
     property bool ready: false
     property int rev: 0
@@ -68,7 +68,7 @@ Item {
         }
     }
 
-    // A store-installed emblem is one flat PNG in ~/Pictures/ryoemblems, so its
+    // A store-installed emblem is one flat PNG in <Pictures>/ryoemblems, so its
     // id is the file's stem and removing it is the store's own remove. The
     // repoint happens after the file is gone, not before: a commit racing the
     // delete let the reload read the dangling source, and a missing source
@@ -97,7 +97,7 @@ Item {
     // file the Hub writes on Save so hand-edits and the GUI share one source.
     readonly property string configPath: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/fastfetch/config.jsonc"
     function browseFastfetch() {
-        Spawn.runApp(["ryostore", "open", "fastfetch"]);
+        Quickshell.execDetached(["ryostore", "open", "fastfetch"]);
     }
 
     // info modules the Add menu offers, beyond the brand lines already present.
@@ -218,7 +218,14 @@ Item {
     function commitModel(m) { pg.model = m; pg.rev++; pg.queuePreview(); }
     function setLogo(k, v) { var m = pg.clone(); m.logo[k] = v; pg.commitModel(m); }
     function setAccent(v) { var m = pg.clone(); m.accent = v; pg.commitModel(m); }
-    function setRow(i, k, v) { var m = pg.clone(); m.rows[i][k] = v; pg.commitModel(m); }
+    function setPalette(v) { var m = pg.clone(); m.palette = v; pg.commitModel(m); }
+    function setRow(i, k, v) {
+        var m = pg.clone();
+        m.rows[i][k] = v;
+        if (k === "text" && m.rows[i].kind === "tagline")
+            m.rows[i].textEdited = true;
+        pg.commitModel(m);
+    }
     function moveRow(i, d) {
         var j = i + d;
         if (j < 0 || j >= pg.model.rows.length)
@@ -277,28 +284,35 @@ Item {
     // imports a file since it can live anywhere. Paths keep a leading ~ so the
     // config stays portable.
     property var installedArt: []
+    // The Pictures folder written with a leading ~, so a localized desktop
+    // (~/Imágenes) keeps the same portable form as the English default.
+    readonly property string picsRoot: {
+        var home = Paths.home;
+        var dir = Paths.picturesDir;
+        return (home.length > 0 && dir.indexOf(home + "/") === 0) ? "~" + dir.slice(home.length) : dir;
+    }
     readonly property var brandArt: [
         { "name": "RYOKU", "path": "~/.local/share/ryoku/assets/brand/fastfetch-emblem.png" },
         { "name": "MARK", "path": "~/.local/share/ryoku/assets/brand/logo-mark.png" },
-        { "name": "LAOCOON", "path": "~/Pictures/ryodecors/laocoon.png" },
-        { "name": "DAVID", "path": "~/Pictures/ryodecors/david.png" },
-        { "name": "AURELIUS", "path": "~/Pictures/ryodecors/aurelius.png" },
-        { "name": "HAWK", "path": "~/Pictures/ryodecors/hawk.png" },
-        { "name": "KATANA", "path": "~/Pictures/ryodecors/katana.png" },
-        { "name": "MOON", "path": "~/Pictures/ryodecors/moon.png" },
-        { "name": "NEEDLE", "path": "~/Pictures/ryodecors/needle.png" },
-        { "name": "MIC", "path": "~/Pictures/ryodecors/mic.png" },
-        { "name": "CAMERA", "path": "~/Pictures/ryodecors/camera.png" },
-        { "name": "RASHIN", "path": "~/Pictures/ryodecors/rashin-hero.png" }
+        { "name": "LAOCOON", "path": pg.picsRoot + "/ryodecors/laocoon.png" },
+        { "name": "DAVID", "path": pg.picsRoot + "/ryodecors/david.png" },
+        { "name": "AURELIUS", "path": pg.picsRoot + "/ryodecors/aurelius.png" },
+        { "name": "HAWK", "path": pg.picsRoot + "/ryodecors/hawk.png" },
+        { "name": "KATANA", "path": pg.picsRoot + "/ryodecors/katana.png" },
+        { "name": "MOON", "path": pg.picsRoot + "/ryodecors/moon.png" },
+        { "name": "NEEDLE", "path": pg.picsRoot + "/ryodecors/needle.png" },
+        { "name": "MIC", "path": pg.picsRoot + "/ryodecors/mic.png" },
+        { "name": "CAMERA", "path": pg.picsRoot + "/ryodecors/camera.png" },
+        { "name": "RASHIN", "path": pg.picsRoot + "/ryodecors/rashin-hero.png" }
     ]
     readonly property var readyArt: pg.brandArt.concat(pg.installedArt)
 
-    // Emblems installed from the store land in ~/Pictures/ryoemblems as one flat
+    // Emblems installed from the store land in <Pictures>/ryoemblems as one flat
     // PNG each, so listing that folder is the whole discovery step.
     Process {
         id: emblemScan
         running: true
-        command: ["sh", "-c", "ls -1 \"$HOME/Pictures/ryoemblems\" 2>/dev/null | grep -i '\\.png$' || true"]
+        command: ["sh", "-c", "ls -1 \"$1\" 2>/dev/null | grep -i '\\.png$' || true", "sh", Paths.picturesDir + "/ryoemblems"]
         stdout: StdioCollector {
             onStreamFinished: {
                 var out = [];
@@ -309,7 +323,7 @@ Item {
                         continue;
                     var stem = file.replace(/\.png$/i, "");
                     out.push({ "name": stem.replace(/-/g, " ").toUpperCase(),
-                               "path": "~/Pictures/ryoemblems/" + file });
+                               "path": pg.picsRoot + "/ryoemblems/" + file });
                 }
                 pg.installedArt = out;
             }
@@ -433,14 +447,28 @@ Item {
     }
 
     // ---- save / revert ------------------------------------------------------
-    Process { id: saveProc }
+    Process {
+        id: saveProc
+        property var pending: ({})
+        stderr: StdioCollector { id: saveError }
+        onExited: function (code) {
+            if (code !== 0) {
+                pg.storeStyleError = saveError.text.trim() || I18n.tr("Couldn't save the Fastfetch settings.");
+                return;
+            }
+            pg.committed = JSON.parse(JSON.stringify(saveProc.pending));
+            pg.rev++;
+        }
+    }
     function save() {
+        if (saveProc.running)
+            return;
         throttle.stop();
         pg.previewPending = false;
-        saveProc.command = ["ryoku-hub", "fastfetch", "save", JSON.stringify(pg.model)];
+        pg.storeStyleError = "";
+        saveProc.pending = pg.clone();
+        saveProc.command = ["ryoku-hub", "fastfetch", "save", JSON.stringify(saveProc.pending)];
         saveProc.running = true;
-        pg.committed = pg.clone();
-        pg.rev++;
     }
     function revert() {
         throttle.stop();
@@ -1182,9 +1210,27 @@ Item {
 
                     SectionHead { label: I18n.tr("ACCENT") }
 
+                    Seg {
+                        options: [I18n.tr("Fixed"), I18n.tr("Follow wallpaper")]
+                        current: pg.model.palette === "wallpaper" ? I18n.tr("Follow wallpaper") : I18n.tr("Fixed")
+                        onChose: (label) => pg.setPalette(label === I18n.tr("Follow wallpaper") ? "wallpaper" : "fixed")
+                    }
+
+                    Text {
+                        width: Math.min(parent.width, 560)
+                        visible: pg.model.palette === "wallpaper"
+                        wrapMode: Text.WordWrap
+                        text: I18n.tr("The live Material palette colours the title, labels, sections, rules and percentage gauges. Your fixed accent stays saved underneath.")
+                        color: Tokens.inkMuted
+                        font.family: Tokens.ui
+                        font.pixelSize: Tokens.fSmall
+                    }
+
                     // the readout accent is a colour the user is choosing, so its
                     // swatch is a specimen (section 1): it is allowed to be itself.
                     Item {
+                        enabled: pg.model.palette !== "wallpaper"
+                        opacity: enabled ? 1 : 0.38
                         width: parent.width
                         height: 30
                         Text {

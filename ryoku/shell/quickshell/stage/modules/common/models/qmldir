@@ -1,0 +1,7 @@
+module stage.modules.common.models
+AdaptedMaterialScheme 1.0 AdaptedMaterialScheme.qml
+AnimatedTabIndexPair 1.0 AnimatedTabIndexPair.qml
+FolderListModelWithHistory 1.0 FolderListModelWithHistory.qml
+IndexModel 1.0 IndexModel.qml
+LauncherSearchResult 1.0 LauncherSearchResult.qml
+NestableObject 1.0 NestableObject.qml

@@ -1,9 +1,11 @@
 package doctor
 
 import (
-	"os/exec"
+	"fmt"
+	"os"
 	"strings"
 
+	"github.com/godbus/dbus/v5"
 	i18n "ryoku-i18n"
 )
 
@@ -26,10 +28,13 @@ import (
 // REPORTS only and never rewrites power-profiles-daemon configuration.
 
 // ppdAmdgpuState is what the verdict needs: whether an amdgpu card drives a
-// connected connector, and ppd's action list output ("" when ppd is absent).
+// connected connector, which provider owns the standard PowerProfiles name,
+// and power-profiles-daemon's optional action state.
 type ppdAmdgpuState struct {
 	amdgpuDrivesPanel bool
-	actionsOut        string
+	provider          string
+	actions           map[string]bool
+	actionsAvailable  bool
 }
 
 var gatherPpdAmdgpu = func() ppdAmdgpuState {
@@ -41,39 +46,66 @@ var gatherPpdAmdgpu = func() ppdAmdgpuState {
 			break
 		}
 	}
-	if out, err := exec.Command("powerprofilesctl", "list-actions").Output(); err == nil {
-		s.actionsOut = string(out)
+	conn, err := dbus.ConnectSystemBus()
+	if err != nil {
+		return s
+	}
+	defer conn.Close()
+	s.provider = powerProfilesProvider(conn)
+	obj := conn.Object("org.freedesktop.UPower.PowerProfiles", dbus.ObjectPath("/org/freedesktop/UPower/PowerProfiles"))
+	v, err := obj.GetProperty("org.freedesktop.UPower.PowerProfiles.ActionsInfo")
+	if err == nil {
+		s.actions, s.actionsAvailable = ppdActions(v.Value())
+		if s.actionsAvailable {
+			s.provider = "power-profiles-daemon"
+		}
 	}
 	return s
 }
 
-// ppdActionEnabled parses `powerprofilesctl list-actions` blocks (Name: /
-// Enabled: pairs) for one action's state. pure, so the parse is testable
-// without ppd installed.
-func ppdActionEnabled(out, action string) bool {
-	current := ""
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if v, ok := strings.CutPrefix(line, "Name:"); ok {
-			current = strings.TrimSpace(v)
-			continue
-		}
-		if v, ok := strings.CutPrefix(line, "Enabled:"); ok {
-			if current == action && strings.EqualFold(strings.TrimSpace(v), "true") {
-				return true
-			}
+func powerProfilesProvider(conn *dbus.Conn) string {
+	var pid uint32
+	if err := conn.BusObject().Call("org.freedesktop.DBus.GetConnectionUnixProcessID", 0,
+		"org.freedesktop.UPower.PowerProfiles").Store(&pid); err != nil {
+		return ""
+	}
+	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	if err != nil {
+		return ""
+	}
+	name := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(name, "power-profiles-") {
+		return "power-profiles-daemon"
+	}
+	return name
+}
+
+func ppdActions(v any) (map[string]bool, bool) {
+	rows, ok := v.([]map[string]dbus.Variant)
+	if !ok {
+		return nil, false
+	}
+	actions := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		name, nameOK := row["Name"].Value().(string)
+		enabled, enabledOK := row["Enabled"].Value().(bool)
+		if nameOK && enabledOK {
+			actions[name] = enabled
 		}
 	}
-	return false
+	return actions, true
 }
 
 // planPpdAmdgpu turns observed state into a result. pure.
 func planPpdAmdgpu(s ppdAmdgpuState) recResult {
-	if !s.amdgpuDrivesPanel || s.actionsOut == "" {
+	if s.provider != "power-profiles-daemon" || !s.actionsAvailable {
+		return okRes(i18n.T("not applicable: the active power-profile provider does not expose power-profiles-daemon actions"))
+	}
+	if !s.amdgpuDrivesPanel {
 		return okRes(i18n.T("no amdgpu-driven panel with power-profiles-daemon actions to audit"))
 	}
-	dpm := ppdActionEnabled(s.actionsOut, "amdgpu_dpm")
-	abm := ppdActionEnabled(s.actionsOut, "amdgpu_panel_power")
+	dpm := s.actions["amdgpu_dpm"]
+	abm := s.actions["amdgpu_panel_power"]
 	switch {
 	case dpm && abm:
 		return warnRes(i18n.T("power-profiles-daemon has amdgpu_dpm and amdgpu_panel_power enabled: power-saver will clamp the GPU rendering the desktop (visible lag) and ABM will wash panel colours. Disable them in the power-profiles-daemon action configuration"))

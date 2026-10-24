@@ -5,9 +5,12 @@ import Quickshell.Io
 import Ryoku.Ui.Singletons
 
 // The remote fleet: SSH hosts and VPS drawn from ~/.ssh/config (plus ryoport's
-// own include file), their live reachability, and on-demand health probes. All
-// driven through the `ryossh` engine, which speaks JSON. The list is the facts;
-// reach and health are kept in maps beside it so a poll never rebuilds the list.
+// own include file), their live reachability, on-demand health probes, and the
+// experimental consoles (serial/telnet/RDP/VNC berths saved in ryoport's book).
+// All driven through the `ryossh` engine, which speaks JSON. The list is the
+// facts; reach and health are kept in maps beside it so a poll never rebuilds
+// the list. `alerts` is the rolled-up "what needs attention" the header, the
+// annunciator, and the harbour log all read.
 Singleton {
     id: root
 
@@ -21,8 +24,11 @@ Singleton {
     // alias -> { up, rttMs, sshUp } and alias -> full probe object.
     property var reach: ({})
     property var health: ({})
+    property var metricHistory: ({})
+    property var metricPrevious: ({})
     property int reachRev: 0
     property int healthRev: 0
+    property int metricsRevision: 0
     function reachOf(a) { void reachRev; return reach[a] || null; }
     function healthOf(a) { void healthRev; return health[a] || null; }
 
@@ -45,8 +51,119 @@ Singleton {
 
     property var keysData: ({ agent: [], files: [] })
 
-    // a short session log of fleet actions, newest last, shared with the harbour
-    // dashboard's activity feed (paired with Vm.events).
+    // ---- consoles (experimental berths, saved in ryoport's own book) --------
+    // {id, kind(serial|telnet|rdp|vnc), name, device, baud, address, port,
+    //  user, domain, fullscreen, auth} -- the engine owns the file and the
+    // keyring; this map mirrors reach by id so a poll never rebuilds the list.
+    property var consoles: []
+    property var consoleReach: ({})
+    property int consolesRev: 0
+    property var consoleCaps: ({ serial: false, telnet: false, rdp: false, vnc: false })
+    property var consoleAdvice: ({ serial: "", telnet: "", rdp: "", vnc: "" })
+    function consoleReachOf(id) { void consolesRev; return consoleReach[id] || null; }
+    function consoleById(id) {
+        for (var i = 0; i < consoles.length; i++)
+            if (consoles[i].id === id) return consoles[i];
+        return null;
+    }
+    function consoleStateOf(c) {
+        var r = consoleReachOf(c.id);
+        if (!r) return "unknown";
+        if (r.up === true) return "up";
+        return (r.error || "").length > 0 ? "down" : "unknown";
+    }
+    function consoleTarget(c) {
+        if (c.kind === "serial")
+            return c.device + " @ " + c.baud;
+        return c.kind === "vnc" ? c.address + "::" + c.port : c.address + ":" + c.port;
+    }
+    function consoleClientOf(kind) {
+        return ({ serial: "picocom", telnet: "telnet", rdp: "xfreerdp", vnc: "vncviewer" })[kind] || kind;
+    }
+    function loadConsoles() { consoleListProc.running = true; consoleCapsProc.running = true; }
+    function pingConsoles() {
+        if (consoles.length === 0) { consoleReach = ({}); consolesRev++; return; }
+        consolePingProc.running = true;
+    }
+    function openConsole(id) {
+        consoleOpenProc.forId = id;
+        consoleOpenProc.running = true;
+    }
+    function addConsole(obj, pw, clearPw) {
+        consoleAddProc.pendingJson = JSON.stringify(obj);
+        consoleAddProc.pendingPw = pw || "";
+        consoleAddProc.pendingClear = !!clearPw;
+        consoleAddProc.running = true;
+    }
+    function removeConsole(id) {
+        consoleRemoveProc.forId = id;
+        consoleRemoveProc.running = true;
+    }
+    function setConsolePass(id, pw) {
+        consoleSetPassProc.forId = id;
+        consoleSetPassProc.pw = pw;
+        consoleSetPassProc.running = true;
+    }
+    function clearConsolePass(id) {
+        consoleClearPassProc.forId = id;
+        consoleClearPassProc.running = true;
+    }
+    function _mergeConsoles(arr) {
+        consoles = Array.isArray(arr) ? arr : [];
+        consolesRev++;
+    }
+    function _mergeConsoleReach(arr) {
+        var m = {};
+        for (var i = 0; i < arr.length; i++)
+            m[arr[i].id] = arr[i];
+        consoleReach = m;
+        consolesRev++;
+    }
+
+    // ---- alerts: what needs attention, with the reason beside it ------------
+    // The dashboard tile, the rail annunciator, and the harbour log all read
+    // this one list instead of re-deriving counts from different places.
+    readonly property var alerts: {
+        void reachRev; void healthRev; void consolesRev;
+        var out = [], i;
+        for (i = 0; i < hosts.length; i++) {
+            var a = hosts[i].alias, state = stateOf(a);
+            var h = healthOf(a);
+            // order matters: a dead port is a down alert even if the last
+            // probe that got a TCP answer failed on auth.
+            if (state === "down") {
+                out.push({ kind: "down", key: a, title: a,
+                    text: I18n.tr("unreachable"),
+                    detail: (h && h.error) || I18n.tr("the port did not answer") });
+                continue;
+            }
+            if (h && h.needAuth === true) {
+                out.push({ kind: "auth", key: a, title: a,
+                    text: I18n.tr("health probe needs a password"),
+                    detail: I18n.tr("save the password in the keyring and the graphs will fill in") });
+                continue;
+            }
+            if (state === "warn" && h && h.ok === true) {
+                var why = stateReason(a, "warn");
+                out.push({ kind: "warn", key: a, title: a,
+                    text: I18n.tr("degraded"),
+                    detail: why.length > 0 ? why : I18n.tr("health check flagged this host") });
+            }
+        }
+        for (i = 0; i < consoles.length; i++) {
+            var c = consoles[i], r = consoleReachOf(c.id);
+            if (r && r.up === false) {
+                out.push({ kind: "console", key: c.id, title: c.name,
+                    text: consoleTarget(c),
+                    detail: r.error || I18n.tr("console not reachable") });
+            }
+        }
+        return out;
+    }
+    readonly property int alertCount: alerts.length
+
+    // A short session log of fleet actions and observed health transitions,
+    // newest last. Dashboard and detail views share it with Vm.events.
     property var events: []
     function logEvent(kind, alias, text) {
         var d = new Date();
@@ -56,6 +173,41 @@ Singleton {
                  at: d.getTime(), alias: alias, kind: kind, text: text });
         if (e.length > 100) e = e.slice(e.length - 100);
         events = e;
+    }
+
+    function stateReason(a, state) {
+        state = state || stateOf(a);
+        var h = healthOf(a);
+        var r = reachOf(a);
+        if (state === "down")
+            return I18n.tr("connection unavailable");
+        if (state === "up" && r && r.rttMs >= 0)
+            return I18n.tr("reachable in %1 ms").arg(r.rttMs);
+        if (state !== "warn" || !h)
+            return "";
+        var reasons = [];
+        var memPct = h.memTotalKb > 0 ? Math.round(100 * (h.memTotalKb - h.memAvailKb) / h.memTotalKb) : 0;
+        if (h.diskPct >= 90)
+            reasons.push(I18n.tr("%1% disk used").arg(h.diskPct));
+        if (memPct >= 90)
+            reasons.push(I18n.tr("%1% memory used").arg(memPct));
+        if (h.cpus > 0 && h.load1 > h.cpus)
+            reasons.push(I18n.tr("load %1 on %2 cores").arg(Number(h.load1).toFixed(1)).arg(h.cpus));
+        if (h.failedUnits > 0)
+            reasons.push(I18n.tr("%1 failed services").arg(h.failedUnits));
+        return reasons.join(", ");
+    }
+
+    function _recordStateChange(alias, before) {
+        var after = stateOf(alias);
+        if (after === before || after === "unknown")
+            return;
+        var labels = { up: I18n.tr("UP"), warn: I18n.tr("DEGRADED"), down: I18n.tr("DOWN") };
+        var text = before === "unknown"
+            ? I18n.tr("Status is %1").arg(labels[after])
+            : I18n.tr("Status changed from %1 to %2").arg(labels[before] || before.toUpperCase()).arg(labels[after]);
+        var reason = stateReason(alias, after);
+        logEvent("status", alias, reason.length > 0 ? text + ": " + reason : text);
     }
 
     readonly property var selected: {
@@ -108,7 +260,7 @@ Singleton {
 
     Component.onCompleted: root.refresh()
 
-    function refresh() { listProc.running = true; loadTunnels(); }
+    function refresh() { listProc.running = true; loadTunnels(); loadConsoles(); }
 
     // ---- tunnels (ssh -L / -R / -D), tracked by the engine ------------------
     property var tunnels: []
@@ -120,10 +272,16 @@ Singleton {
     }
     function loadTunnels() { tunnelListProc.running = true; }
     function openTunnel(alias, spec) {
+        tunnelOpenProc.forAlias = alias;
+        tunnelOpenProc.spec = spec;
         tunnelOpenProc.command = ["ryossh", "tunnel", "open", alias, spec];
         tunnelOpenProc.running = true;
     }
     function closeTunnel(id) {
+        tunnelCloseProc.forAlias = "";
+        for (var i = 0; i < tunnels.length; i++)
+            if (tunnels[i].id === id) { tunnelCloseProc.forAlias = tunnels[i].alias || ""; break; }
+        tunnelCloseProc.tunnelId = id;
         tunnelCloseProc.command = ["ryossh", "tunnel", "close", id];
         tunnelCloseProc.running = true;
     }
@@ -132,7 +290,7 @@ Singleton {
         if (a.length > 0) { root.probe(a); root.appCheck(a); root.loadGuests(a); }
     }
     function pingAll() { if (hosts.length > 0) pingProc.running = true; }
-    function probeAll() { if (hosts.length > 0) { probing = true; probeProc.running = true; } }
+    function probeAll() { if (hosts.length > 0 && !probeProc.running) { probing = true; probeProc.running = true; } }
     function probe(a) {
         if (!a || a.length === 0) return;
         oneProbe.command = ["ryossh", "probe", a];
@@ -140,6 +298,49 @@ Singleton {
     }
     function appCheckAll() { if (hosts.length > 0) appCheckProc.running = true; }
     function appCheck(a) { if (a && a.length > 0) { appCheckOne.command = ["ryossh", "appcheck", a]; appCheckOne.running = true; } }
+
+    function _rate(now, previous, sample, key) {
+        if (!previous || !previous.sample || previous.sample[key] === undefined || sample[key] === undefined)
+            return 0;
+        var seconds = Math.max(0.001, (now - previous.at) / 1000);
+        return Math.max(0, (+sample[key] - +previous.sample[key]) / seconds);
+    }
+    function _recordMetrics(alias, sample) {
+        if (!sample || sample.ok !== true)
+            return;
+        var now = Date.now();
+        var previous = metricPrevious[alias] || null;
+        var memPct = sample.memTotalKb > 0
+            ? 100 * (sample.memTotalKb - sample.memAvailKb) / sample.memTotalKb : 0;
+        var point = {
+            at: now,
+            cpu: Math.max(0, +sample.cpuPercent || 0),
+            ram: Math.max(0, Math.min(100, memPct)),
+            disk: _rate(now, previous, sample, "diskReadBytes") + _rate(now, previous, sample, "diskWriteBytes"),
+            net: _rate(now, previous, sample, "netRxBytes") + _rate(now, previous, sample, "netTxBytes")
+        };
+        var histories = metricHistory;
+        var history = (histories[alias] || []).slice();
+        history.push(point);
+        if (history.length > 60)
+            history = history.slice(history.length - 60);
+        histories[alias] = history;
+        metricHistory = histories;
+        var prior = metricPrevious;
+        prior[alias] = { at: now, sample: sample };
+        metricPrevious = prior;
+        metricsRevision++;
+    }
+    function historyFor(alias) {
+        void metricsRevision;
+        return metricHistory[alias] || [];
+    }
+    function series(alias, key) {
+        var history = historyFor(alias), values = [];
+        for (var i = 0; i < history.length; i++)
+            values.push(+history[i][key] || 0);
+        return values;
+    }
     function loadGuests(a) {
         if (!a || a.length === 0) return;
         var h = null;
@@ -160,9 +361,9 @@ Singleton {
         logEvent(action, a, action + " " + type + "/" + vmid);
     }
     function connect(a) {
+        connectProc.forAlias = a;
         connectProc.command = ["ryossh", "connect", a];
         connectProc.running = true;
-        logEvent("connect", a, I18n.tr("opened a session to %1").arg(a));
     }
     function loadKeys() { keysProc.running = true; }
     // ssh-copy-id is interactive (it may prompt for a password), so it runs in a
@@ -170,14 +371,14 @@ Singleton {
     // stays readable instead of vanishing when the window closes.
     function copyId(a) {
         Quickshell.execDetached(["sh", "-c",
-            "exec \"${TERMINAL:-kitty}\" --class ryoport-ssh -e sh -c 'ryossh copyid \"$1\"; printf \"\\n── press enter to close ──\\n\"; read _' _ \"$1\"", "--", a]);
+            "exec \"${TERMINAL:-kitty}\" --class=dev.ryoku.ryoport_ssh -e sh -c 'ryossh copyid \"$1\"; printf \"\\n── press enter to close ──\\n\"; read _' _ \"$1\"", "--", a]);
     }
     // run one command on the host in a TTY, then hold on its output with a local
     // read so a fast command like df stays readable instead of being buried under
     // a fresh shell; the remote command stays unwrapped so non-POSIX shells can't mangle it.
     function runOn(alias, cmd) {
         Quickshell.execDetached(["sh", "-c",
-            "exec \"${TERMINAL:-kitty}\" --class ryoport-ssh -e sh -c 'ssh -t \"$1\" \"$2\"; printf \"\\n── press enter to close ──\\n\"; read _' _ \"$1\" \"$2\"", "--", alias, cmd]);
+            "exec \"${TERMINAL:-kitty}\" --class=dev.ryoku.ryoport_ssh -e sh -c 'ssh -t \"$1\" \"$2\"; printf \"\\n── press enter to close ──\\n\"; read _' _ \"$1\" \"$2\"", "--", alias, cmd]);
         logEvent("run", alias, I18n.tr("%1 on %2").arg(cmd.split(" ")[0]).arg(alias));
     }
     // browse and transfer files over SFTP in the file manager. nautilus (the
@@ -216,16 +417,30 @@ Singleton {
     }
 
     function _mergeReach(arr) {
+        var before = {};
+        for (var i = 0; i < arr.length; i++)
+            before[arr[i].alias] = stateOf(arr[i].alias);
         var m = {};
-        for (var i = 0; i < arr.length; i++) m[arr[i].alias] = arr[i];
+        for (i = 0; i < arr.length; i++)
+            m[arr[i].alias] = arr[i];
         reach = m;
         reachRev++;
+        for (i = 0; i < arr.length; i++)
+            _recordStateChange(arr[i].alias, before[arr[i].alias]);
     }
     function _mergeHealth(arr) {
+        var before = {};
+        for (var i = 0; i < arr.length; i++)
+            before[arr[i].alias] = stateOf(arr[i].alias);
         var m = health;
-        for (var i = 0; i < arr.length; i++) m[arr[i].alias] = arr[i];
+        for (i = 0; i < arr.length; i++) {
+            m[arr[i].alias] = arr[i];
+            root._recordMetrics(arr[i].alias, arr[i]);
+        }
         health = m;
         healthRev++;
+        for (i = 0; i < arr.length; i++)
+            _recordStateChange(arr[i].alias, before[arr[i].alias]);
     }
     function _mergeApps(arr) {
         var m = root.appStatus;
@@ -333,7 +548,16 @@ Singleton {
         onTriggered: root.loadGuests(root.selectedAlias)
     }
 
-    Process { id: connectProc }
+    Process {
+        id: connectProc
+        property string forAlias: ""
+        onExited: (code) => {
+            if (code === 0)
+                root.logEvent("connect", forAlias, I18n.tr("opened a session to %1").arg(forAlias));
+            else
+                root.logEvent("connect", forAlias, I18n.tr("could not open a session to %1").arg(forAlias));
+        }
+    }
     Process {
         id: addProc
         property string alias: ""
@@ -377,9 +601,118 @@ Singleton {
     }
     Process {
         id: tunnelOpenProc
-        onExited: (code) => { root.loadTunnels(); if (code === 0) root.logEvent("tunnel", "", I18n.tr("opened a tunnel")); }
+        property string forAlias: ""
+        property string spec: ""
+        onExited: (code) => {
+            root.loadTunnels();
+            if (code === 0)
+                root.logEvent("tunnel", forAlias, I18n.tr("opened tunnel %1").arg(spec));
+        }
     }
-    Process { id: tunnelCloseProc; onExited: root.loadTunnels() }
+    Process {
+        id: tunnelCloseProc
+        property string forAlias: ""
+        property string tunnelId: ""
+        onExited: (code) => {
+            root.loadTunnels();
+            if (code === 0)
+                root.logEvent("tunnel", forAlias, I18n.tr("closed tunnel %1").arg(tunnelId));
+        }
+    }
+
+    // ---- console plumbing: same JSON contract as the ssh fleet --------------
+    Process {
+        id: consoleListProc
+        command: ["ryossh", "console", "list"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try { root._mergeConsoles(JSON.parse(this.text) || []); } catch (e) {}
+                root.pingConsoles();
+            }
+        }
+    }
+    Process {
+        id: consoleCapsProc
+        command: ["ryossh", "console", "caps"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const caps = JSON.parse(this.text)
+                    root.consoleCaps = caps
+                    root.consoleAdvice = caps.advice || ({ serial: "", telnet: "", rdp: "", vnc: "" })
+                } catch (e) {}
+            }
+        }
+    }
+    Process {
+        id: consolePingProc
+        command: ["ryossh", "console", "probeall"]
+        stdout: StdioCollector {
+            onStreamFinished: { try { root._mergeConsoleReach(JSON.parse(this.text) || []); } catch (e) {} }
+        }
+    }
+    Process {
+        id: consoleOpenProc
+        property string forId: ""
+        onExited: (code) => {
+            var c = root.consoleById(forId), label = c ? c.name : forId;
+            if (code === 0)
+                root.logEvent("console", forId, I18n.tr("opened %1 console %2").arg(c ? c.kind : "").arg(label));
+            else
+                root.logEvent("fault", forId, I18n.tr("could not open console %1").arg(label));
+            root.pingConsoles();
+        }
+        command: ["ryossh", "console", "open", forId]
+    }
+    Process {
+        id: consoleAddProc
+        property string pendingJson: ""
+        property string pendingPw: ""
+        property bool pendingClear: false
+        command: ["ryossh", "console", "add", pendingJson]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var id = "";
+                try { id = JSON.parse(this.text).id || ""; } catch (e) {}
+                if (id.length > 0) {
+                    if (consoleAddProc.pendingPw.length > 0)
+                        root.setConsolePass(id, consoleAddProc.pendingPw);
+                    else if (consoleAddProc.pendingClear)
+                        root.clearConsolePass(id);
+                    var obj = {};
+                    try { obj = JSON.parse(consoleAddProc.pendingJson); } catch (e) {}
+                    root.logEvent("console", id, I18n.tr("saved %1").arg(obj.name || id));
+                }
+                consoleAddProc.pendingPw = "";
+                consoleAddProc.pendingClear = false;
+                root.loadConsoles();
+            }
+        }
+        onExited: (code) => { if (code !== 0) consoleAddProc.pendingPw = ""; }
+    }
+    Process {
+        id: consoleSetPassProc
+        property string forId: ""
+        property string pw: ""
+        stdinEnabled: true
+        command: ["ryossh", "console", "setpass", forId]
+        onStarted: { write(consoleSetPassProc.pw + "\n"); consoleSetPassProc.pw = ""; }
+        onExited: (code) => { if (code === 0) root.loadConsoles(); }
+    }
+    Process {
+        id: consoleClearPassProc
+        property string forId: ""
+        command: ["ryossh", "console", "clearpass", forId]
+        onExited: (code) => { if (code === 0) root.loadConsoles(); }
+    }
+    Process {
+        id: consoleRemoveProc
+        property string forId: ""
+        command: ["ryossh", "console", "remove", forId]
+        onExited: (code) => {
+            if (code === 0) { root.loadConsoles(); root.logEvent("console", forId, I18n.tr("forgot console")); }
+        }
+    }
 
     // reachability on a short cadence; the fuller health probe less often. Both
     // gate on a page being on screen, so a hidden hub costs nothing.
@@ -387,12 +720,13 @@ Singleton {
         interval: 15000
         repeat: true
         running: root.active
-        onTriggered: { root.pingAll(); root.loadTunnels(); root.appCheckAll(); root.loadGuests(root.selectedAlias); }
+        onTriggered: { root.pingAll(); root.loadTunnels(); root.appCheckAll(); root.loadGuests(root.selectedAlias); root.pingConsoles(); }
     }
     Timer {
-        interval: 60000
+        interval: 15000
         repeat: true
         running: root.active
+        triggeredOnStart: true
         onTriggered: root.probeAll()
     }
 }

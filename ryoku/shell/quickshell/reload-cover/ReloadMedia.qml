@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Qt5Compat.GraphicalEffects
 
 Item {
     id: root
@@ -58,14 +59,48 @@ Item {
     readonly property real defaultLogoWidth: Math.min(width * 0.58, 928)
     readonly property real defaultLogoHeight: defaultLogoWidth * 160 / 928
 
-    Image {
+    // The bundled wordmark with its loading light sweep: the cue that the
+    // cover is working, not frozen. Lost in the ReloadMedia refactor merge;
+    // restored here where the default mark now lives.
+    Item {
+        id: defaultLogo
         anchors.centerIn: parent
-        visible: root.showingDefault
-        source: "assets/logo.png"
-        sourceSize.width: Math.round(root.defaultLogoWidth)
-        fillMode: Image.PreserveAspectFit
         width: root.defaultLogoWidth
         height: root.defaultLogoHeight
+        visible: root.showingDefault
+
+        Image {
+            id: logo
+            anchors.fill: parent
+            source: "assets/logo.png"
+            sourceSize.width: Math.round(root.defaultLogoWidth)
+            fillMode: Image.PreserveAspectFit
+        }
+
+        Item {
+            id: loadingSweep
+            x: defaultLogo.width
+            width: Math.max(36, defaultLogo.width * 0.24)
+            height: defaultLogo.height
+            clip: true
+
+            ColorOverlay {
+                x: -loadingSweep.x
+                width: defaultLogo.width
+                height: defaultLogo.height
+                source: logo
+                color: "#e2f0ff"
+                opacity: 0.28
+            }
+
+            NumberAnimation on x {
+                from: defaultLogo.width
+                to: -loadingSweep.width
+                duration: 1200
+                running: defaultLogo.visible && root.active
+                loops: Animation.Infinite
+            }
+        }
     }
 
     Component {

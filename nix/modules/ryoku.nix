@@ -1,4 +1,4 @@
-{ self, ryokuNixpkgs, hermesAgent }:
+{ self, ryokuNixpkgs, hermesAgent, ryokuUpstream }:
 
 { config, lib, pkgs, options, ... }:
 
@@ -7,7 +7,19 @@ let
 
   system = pkgs.stdenv.hostPlatform.system;
 
-  ryokuPkgs = self.packages.${system};
+  # Keep legacy NixOS customizations available during migration.
+  legacyRyokuPkgs = self.packages.${system};
+
+  ryokuPkgs =
+    legacyRyokuPkgs // (lib.optionalAttrs cfg.upstreamPackages.enable {
+      ryoku-bundle = legacyRyokuPkgs.ryoku-upstream-nixos-bundle;
+      ryoku-shell = ryokuUpstream.packages.${system}.ryoku-shell;
+      ryoku-qml = ryokuUpstream.packages.${system}.ryoku-qml;
+      ryoku-wm-hyprland =
+        ryokuUpstream.packages.${system}.ryoku-wm-hyprland;
+      ryoku-wm-niri =
+        ryokuUpstream.packages.${system}.ryoku-wm-niri;
+    });
 
   ryokuShell = ryokuPkgs.ryoku-shell;
   ryokuRashin = ryokuPkgs.ryoku-rashin;
@@ -16,8 +28,15 @@ let
   ryokuSystemBridge = ryokuPkgs.ryoku-nixos-system-bridge;
   ryokuDesktopData = ryokuPkgs.ryoku-desktop-data;
   ryokuRyogami = ryokuPkgs.ryoku-ryogami;
+  ryokuSkwdPaper = ryokuPkgs.ryoku-skwd-paper;
   ryokuPaletteBridge = ryokuPkgs.ryoku-palette-bridge;
   ryokuQuickshell = ryokuNixpkgs.quickshell;
+
+  # The in-session lock authenticates inside ryokuQuickshell, so its PAM
+  # modules must be built against the same glibc as that binary. The host's
+  # security.pam.package follows the host nixpkgs and stops loading in the
+  # lock once the host glibc moves ahead of Ryoku's pinned package set.
+  qylockPamModules = "${ryokuNixpkgs.linux-pam}/lib/security";
 
   # Keep the preview share picker in Ryoku's pinned package universe rather
   # than the host package set. NixOS stable releases may not expose this
@@ -27,12 +46,14 @@ let
   ryokuRyotunes = ryokuPkgs.ryoku-ryotunes;
   ryokuWmHyprland = ryokuPkgs.ryoku-wm-hyprland;
   ryokuWmNiri = ryokuPkgs.ryoku-wm-niri;
+  ryokuWmMango = ryokuPkgs.ryoku-wm-mango;
 
   # Hyprland plugins are ABI-sensitive, so the compositor, portal and
   # plugin bundle must all come from Ryoku's own locked package set.
   ryokuHyprland = ryokuPkgs.ryoku-hyprland;
   ryokuHyprlandPortal = ryokuPkgs.ryoku-xdg-desktop-portal-hyprland;
-  ryokuNiri = ryokuNixpkgs.niri;
+  ryokuNiri = ryokuPkgs.ryoku-niri;
+  ryokuMango = ryokuPkgs.ryoku-mango;
   ryokuXwaylandSatellite = ryokuPkgs.ryoku-xwayland-satellite;
   ryokuMatugen = ryokuPkgs.ryoku-matugen;
   ryokuHyprPlugins = ryokuPkgs.ryoku-hypr-plugins;
@@ -54,9 +75,6 @@ let
       --prefix PATH : ${lib.makeBinPath [ pkgs.util-linux ]}
   '';
 
-  # A compositor can start before login1/systemd --user has fully published the
-  # graphical session. Centralize the NixOS handoff so Hyprland and Niri do not
-  # race WAYLAND_DISPLAY and leave a fresh login with no shell.
   ryokuNixSessionStart = pkgs.writeShellScriptBin "ryoku-nix-session-start" ''
     set -euo pipefail
 
@@ -65,6 +83,7 @@ let
 
     if [ -n "$sid" ]; then
       attempt=0
+
       while [ "$attempt" -lt 150 ]; do
         session_type="$(${pkgs.systemd}/bin/loginctl show-session "$sid" -p Type --value 2>/dev/null || true)"
         session_class="$(${pkgs.systemd}/bin/loginctl show-session "$sid" -p Class --value 2>/dev/null || true)"
@@ -72,7 +91,8 @@ let
 
         if [ "$session_type" = "wayland" ] &&
            { [ "$session_class" = "user" ] || [ "$session_class" = "user-early" ]; } &&
-           [ "$session_active" = "yes" ]; then
+           [ "$session_active" = "yes" ]
+        then
           ready=1
           break
         fi
@@ -82,7 +102,7 @@ let
       done
 
       if [ "$ready" -ne 1 ]; then
-        printf 'ryoku-nix-session-start: graphical session %s never became ready\n' "$sid" >&2
+        printf 'ryoku-nix-session-start: login1 did not expose graphical session %s\n' "$sid" >&2
         exit 1
       fi
     fi
@@ -94,22 +114,59 @@ let
     # clean that migration state before systemd resolves the session target.
     ${materializer}/bin/ryoku-materialize || true
     ${pkgs.systemd}/bin/systemctl --user daemon-reload
-    ${pkgs.systemd}/bin/systemctl --user reset-failed \
-      ryoku-shell.service ryogami.service hypridle.service >/dev/null 2>&1 || true
+
+    ${pkgs.systemd}/bin/systemctl --user reset-failed       ryoku-shell.service       ryogami.service       hypridle.service       >/dev/null 2>&1 || true
+
     ${pkgs.systemd}/bin/systemctl --user restart ryoku-session.target
-    ${pkgs.systemd}/bin/systemctl --user try-restart \
-      xdg-desktop-portal.service \
-      xdg-desktop-portal-hyprland.service \
-      xdg-desktop-portal-gnome.service \
-      xdg-desktop-portal-gtk.service >/dev/null 2>&1 || true
+
+    ${pkgs.systemd}/bin/systemctl --user try-restart       xdg-desktop-portal.service       xdg-desktop-portal-gnome.service       xdg-desktop-portal-gtk.service       xdg-desktop-portal-wlr.service       >/dev/null 2>&1 || true
+  '';
+
+  # Hyprland has the same first-login dependency as the other compositors:
+  # a newly-created account has no writable Ryoku config tree yet. Materialize
+  # before the compositor starts so its first config parse already contains the
+  # Ryoku bootstrap instead of relying on a user service that starts afterwards.
+  ryokuHyprlandSession = pkgs.runCommand "ryoku-hyprland-session" {
+    passthru.providedSessions = [ "ryoku-hyprland" ];
+  } ''
+    mkdir -p "$out/bin" "$out/share/wayland-sessions"
+
+    cat > "$out/bin/ryoku-hyprland-session" <<'EOF'
+#!${pkgs.runtimeShell}
+set -eu
+
+${materializer}/bin/ryoku-materialize
+
+export PATH="${lib.makeBinPath [
+  ryokuHyprland
+  pkgs.bash
+  pkgs.coreutils
+  pkgs.dbus
+  pkgs.gnugrep
+  pkgs.procps
+  pkgs.systemd
+]}:$PATH"
+
+exec ${ryokuHyprland}/bin/Hyprland "$@"
+EOF
+
+    chmod 0755 "$out/bin/ryoku-hyprland-session"
+
+    cat > "$out/share/wayland-sessions/ryoku-hyprland.desktop" <<EOF
+[Desktop Entry]
+Name=Hyprland (Ryoku)
+Comment=Ryoku desktop on the Hyprland compositor
+Exec=$out/bin/ryoku-hyprland-session
+Type=Application
+DesktopNames=Hyprland
+EOF
   '';
 
   # Niri's stock display-manager entry can start before Ryoku has ever
   # materialized ~/.config/niri. In that state Niri falls back to its bare
   # default config, which also means the Ryoku session bootstrap is absent and
   # ryoku-materialize.service can never be reached. Break that cycle at the
-  # session boundary: the Ryoku-owned entry seeds the config before handing off
-  # to Nixpkgs' normal niri-session launcher.
+  # session boundary by seeding the config before handing off to niri-session.
   ryokuNiriSession = pkgs.runCommand "ryoku-niri-session" {
     passthru.providedSessions = [ "ryoku-niri" ];
   } ''
@@ -146,6 +203,45 @@ Comment=Ryoku desktop on the Niri compositor
 Exec=$out/bin/ryoku-niri-session
 Type=Application
 DesktopNames=niri
+EOF
+  '';
+
+  # Mango's stock session starts the compositor directly. Ryoku needs its
+  # writable config tree before Mango reads config.conf, so the greeter entry
+  # closes the first-login gap by materializing once when that entry is absent.
+  ryokuMangoSession = pkgs.runCommand "ryoku-mango-session" {
+    passthru.providedSessions = [ "ryoku-mango" ];
+  } ''
+    mkdir -p "$out/bin" "$out/share/wayland-sessions"
+
+    cat > "$out/bin/ryoku-mango-session" <<'EOF'
+#!${pkgs.runtimeShell}
+set -eu
+
+config_home="''${XDG_CONFIG_HOME:-$HOME/.config}"
+
+if [ ! -f "$config_home/mango/config.conf" ]; then
+  ${materializer}/bin/ryoku-materialize || true
+fi
+
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=mango
+export XDG_SESSION_DESKTOP=mango
+export DESKTOP_SESSION=ryoku-mango
+
+exec ${ryokuMango}/bin/mango "$@"
+EOF
+
+    chmod 0755 "$out/bin/ryoku-mango-session"
+
+    cat > "$out/share/wayland-sessions/ryoku-mango.desktop" <<'EOF'
+[Desktop Entry]
+Name=Mango (Ryoku)
+Comment=Ryoku desktop on the MangoWM compositor
+Exec=ryoku-mango-session
+Icon=mango
+Type=Application
+DesktopNames=mango;wlroots
 EOF
   '';
 
@@ -193,39 +289,48 @@ EOF
     chmod -R u+w "$tmp"
     chmod 700 "$tmp/lock.sh"
 
-    # NixOS does not ship Arch's pam_fprintd_grosshack module.
-    # Replace qylock's bundled Arch-oriented PAM stack with a
-    # password-only stack using absolute modules from Nix's PAM package.
+    # NixOS does not provide Ryoku's Arch-only fingerprint grosshack.
+    # Keep the fingerprint conversation fail-closed and give typed passwords
+    # their own PAM service, matching qylock's parallel auth design. Every
+    # module path points into qylockPamModules.
     pam_dir="$tmp/assets/pam"
     mkdir -p "$pam_dir"
 
     cat > "$pam_dir/ryoku-lock" <<'EOF'
 #%PAM-1.0
 #
-# Ryoku qylock — NixOS PAM stack
-#
-# Fingerprint grosshack support is intentionally omitted until it has
-# a proper Nix package. Password authentication remains fully native.
+# Fingerprint authentication is unavailable in the NixOS qylock runtime.
+# Deny it explicitly while retaining valid account and session handling.
 
-auth       required  ${config.security.pam.package}/lib/security/pam_unix.so try_first_pass
-auth       optional  ${config.security.pam.package}/lib/security/pam_env.so
-account    required  ${config.security.pam.package}/lib/security/pam_unix.so
-password   required  ${config.security.pam.package}/lib/security/pam_deny.so
-session    required  ${config.security.pam.package}/lib/security/pam_unix.so
+auth       required  ${qylockPamModules}/pam_deny.so
+account    required  ${qylockPamModules}/pam_unix.so
+password   required  ${qylockPamModules}/pam_deny.so
+session    required  ${qylockPamModules}/pam_unix.so
 EOF
 
     chmod 600 "$pam_dir/ryoku-lock"
 
+    cat > "$pam_dir/ryoku-lock-pw" <<'EOF'
+#%PAM-1.0
+#
+# Password authentication runs separately from the fingerprint conversation.
 
-    # Linux-PAM also probes the fallback "other" service when using a
-    # custom config directory. Provide a deny-by-default fallback so the
-    # lock journal stays clean and unknown PAM services fail securely.
+auth       required  ${qylockPamModules}/pam_unix.so nullok
+account    required  ${qylockPamModules}/pam_unix.so
+password   required  ${qylockPamModules}/pam_deny.so
+session    required  ${qylockPamModules}/pam_unix.so
+EOF
+
+    chmod 600 "$pam_dir/ryoku-lock-pw"
+
+    # Linux-PAM probes this fallback service for a custom config directory.
+    # Unknown services must fail closed.
     cat > "$pam_dir/other" <<'EOF'
 #%PAM-1.0
-auth       required  ${config.security.pam.package}/lib/security/pam_deny.so
-account    required  ${config.security.pam.package}/lib/security/pam_deny.so
-password   required  ${config.security.pam.package}/lib/security/pam_deny.so
-session    required  ${config.security.pam.package}/lib/security/pam_deny.so
+auth       required  ${qylockPamModules}/pam_deny.so
+account    required  ${qylockPamModules}/pam_deny.so
+password   required  ${qylockPamModules}/pam_deny.so
+session    required  ${qylockPamModules}/pam_deny.so
 EOF
 
     chmod 600 "$pam_dir/other"
@@ -251,6 +356,29 @@ EOF
       chmod 600 "$config_home/qylock/theme"
     fi
   '';
+
+  # Upstream's SDDM 0.21 recovery watches for the daemon running with no
+  # greeter/session helper. NixOS owns the display-manager unit, so translate
+  # the one privileged host action into a direct restart of that unit rather
+  # than routing it through a mutable distro service backend.
+  ryokuGreeterGuardHost = pkgs.writeShellScriptBin "ryoku-greeter-guard-host" ''
+    set -eu
+    if [ "$#" -eq 4 ] && [ "$1" = svc ] && [ "$2" = --system ] &&
+       [ "$3" = restart ] && [ "$4" = sddm ]; then
+      exec ${pkgs.systemd}/bin/systemctl restart display-manager.service
+    fi
+    printf 'ryoku-greeter-guard-host: unsupported request\n' >&2
+    exit 2
+  '';
+
+  ryokuGreeterGuard = pkgs.writeShellApplication {
+    name = "ryoku-greeter-guard";
+    runtimeInputs = with pkgs; [ coreutils util-linux ];
+    text = ''
+      export RYOKU_GREETER_GUARD_HOST=${ryokuGreeterGuardHost}/bin/ryoku-greeter-guard-host
+      exec ${pkgs.bash}/bin/bash ${../../ryoku/lockscreen/sddm/ryoku-greeter-guard} "$@"
+    '';
+  };
 
   # SDDM itself remains declaratively configured as the fixed "ryoku" theme.
   # Only the selected theme payload is mutable.
@@ -375,6 +503,13 @@ EOF
       ${self}/system/hardware/ddc/60-ryoku-i2c.rules \
       "$rules/60-ryoku-i2c.rules"
 
+    # Ryoku does not build PCR-signed UKIs. Tell systemd that NvPCR setup is
+    # unavailable instead of failing the TPM setup/login measurement units on
+    # every boot. The upstream rule is command-free, so it is portable as-is.
+    install -Dm644 \
+      ${self}/system/hardware/tpm/60-ryoku-tpm-nvpcr.rules \
+      "$rules/60-ryoku-tpm-nvpcr.rules"
+
     install -Dm644 \
       ${self}/system/hardware/input/62-ryoku-qmk-hid.rules \
       "$rules/62-ryoku-qmk-hid.rules"
@@ -451,10 +586,12 @@ EOF
   qtQmlPath = lib.makeSearchPath "lib/qt-6/qml" [
     ryokuNixpkgs.qt6.qtdeclarative
     ryokuNixpkgs.qt6.qtmultimedia
+    ryokuNixpkgs.qt6.qtquick3d
     ryokuNixpkgs.qt6.qtwayland
     ryokuNixpkgs.qt6.qt5compat
     ryokuNixpkgs.qt6.qtsvg
     ryokuNixpkgs.qt6.qtimageformats
+    ryokuNixpkgs.kdePackages.kirigami.unwrapped
   ];
 
 
@@ -464,6 +601,8 @@ EOF
   ryokuQs = pkgs.writeShellScriptBin "ryoku-qs" ''
     export QML_IMPORT_PATH="${qmlRoot}:${qtQmlPath}''${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
     export QML2_IMPORT_PATH="${qmlRoot}:${qtQmlPath}''${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
+
+    export QT_PLUGIN_PATH="${ryokuNixpkgs.qt6.qtimageformats}/lib/qt-6/plugins:${ryokuNixpkgs.qt6.qtbase}/lib/qt-6/plugins''${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
 
     exec ${ryokuQuickshell}/bin/qs "$@"
   '';
@@ -478,8 +617,9 @@ EOF
     else [ ];
 
   compositorSession = {
-    hyprland = "hyprland";
+    hyprland = "ryoku-hyprland";
     niri = "ryoku-niri";
+    mango = "ryoku-mango";
   };
 
   optionalAppIds = [
@@ -592,6 +732,7 @@ EOF
     ryokuSddmThemeApply
     ryokuSddmTheme
     ryokuPkgs.gpk
+    ryokuSkwdPaper
 
     # ─────────────────────────────────────────────────────────
     # Standard userspace expected by Ryoku's shell snippets
@@ -603,6 +744,7 @@ EOF
 
     bash
     coreutils
+    getent
     findutils
     gnugrep
     gnused
@@ -620,6 +762,7 @@ EOF
     bash-completion
     gh
     desktop-file-utils
+    sound-theme-freedesktop
 
     # ─────────────────────────────────────────────────────────
     # Compositor / shell
@@ -630,7 +773,9 @@ EOF
     ryokuHyprPlugins
     ryokuWmHyprland
     ryokuWmNiri
+    ryokuWmMango
     ryokuNiri
+    ryokuMango
     ryokuXwaylandSatellite
 
     # ─────────────────────────────────────────────────────────
@@ -639,12 +784,13 @@ EOF
 
     ryokuNixpkgs.qt6.qtdeclarative
     ryokuNixpkgs.qt6.qtmultimedia
+    ryokuNixpkgs.qt6.qtquick3d
     ryokuNixpkgs.qt6.qtwayland
     ryokuNixpkgs.qt6.qt5compat
     ryokuNixpkgs.qt6.qtsvg
-    ryokuNixpkgs.qt6.qtimageformats
     ryokuNixpkgs.qt6Packages.qt6ct
     ryokuNixpkgs.kdePackages.syntax-highlighting
+    ryokuNixpkgs.kdePackages.kirigami.unwrapped
 
     # ─────────────────────────────────────────────────────────
     # Session / portals / secrets
@@ -676,6 +822,8 @@ EOF
     # ─────────────────────────────────────────────────────────
 
     hypridle
+    wlsunset
+    wlr-randr
     brightnessctl
     playerctl
 
@@ -723,7 +871,6 @@ EOF
     fd
     inxi
     lm_sensors
-    mako
     pciutils
     usbutils
 
@@ -732,6 +879,18 @@ EOF
     # ─────────────────────────────────────────────────────────
 
     python3
+
+    # ii desktop/dock runtime helpers. Upstream installs these in its base
+    # package set; on NixOS they live in the Ryoku service PATH instead.
+    #
+    # khal comes from Ryoku's pinned set. On current nixos-unstable, Python
+    # packages default to structured attrs while sphinxHook still reads
+    # sphinxBuilders as a string, so khal 0.14.1 never builds its man page
+    # and fails every system rebuild. NixOS/nixpkgs#573479 fixes the hook but
+    # has not reached the channel yet.
+    ryokuNixpkgs.khal
+    vdirsyncer
+    translate-shell
 
     # Rashin setup/runtime prerequisites. Rashin itself remains
     # opt-in; these mirror the dependencies of the upstream package.
@@ -911,16 +1070,37 @@ in
   imports = [
     (import ./gpu-passthrough.nix { inherit self; })
     ./release-identity.nix
+    ./runtime-state-ownership.nix
+    (import ./phone.nix { inherit ryokuNixpkgs; })
   ];
 
   options.programs.ryoku = {
     enable = lib.mkEnableOption "Ryoku desktop";
 
+    upstreamPackages.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Preview upstream Ryoku packaging while preserving NixOS-specific
+        desktop data, Mango, system services and materialization.
+      '';
+    };
+
+    binaryCache.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+
+      description = ''
+        Use Ryoku's public Ryotunes binary cache to avoid
+        compiling the music application locally.
+      '';
+    };
 
     defaultCompositor = lib.mkOption {
       type = lib.types.nullOr (lib.types.enum [
         "hyprland"
         "niri"
+        "mango"
       ]);
       default = null;
 
@@ -952,17 +1132,7 @@ in
       description = ''
         Optional Ryoku applications and tool groups supplied by the NixOS
         integration. Required desktop contracts remain installed regardless of
-        this list. The graphical installer writes this option declaratively.
-      '';
-    };
-
-    binaryCache.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-
-      description = ''
-        Use Ryoku's public Ryotunes binary cache to avoid
-        compiling the music application locally.
+        this list. The guided installer writes this option declaratively.
       '';
     };
 
@@ -1071,12 +1241,18 @@ in
       package = lib.mkForce ryokuNiri;
     };
 
+    hardware.graphics = {
+      package = lib.mkForce ryokuNixpkgs.mesa;
+      package32 = lib.mkForce ryokuNixpkgs.pkgsi686Linux.mesa;
+    };
+
     xdg.portal = {
       enable = true;
 
       extraPortals = [
         pkgs.xdg-desktop-portal-gtk
         pkgs.xdg-desktop-portal-gnome
+        pkgs.xdg-desktop-portal-wlr
       ];
 
       config.hyprland.default = [
@@ -1092,6 +1268,28 @@ in
 
         "org.freedesktop.impl.portal.FileChooser" = [
           "gtk"
+        ];
+      };
+
+      config.mango = {
+        default = [
+          "gtk"
+        ];
+
+        "org.freedesktop.impl.portal.Secret" = [
+          "gnome-keyring"
+        ];
+
+        "org.freedesktop.impl.portal.ScreenCast" = [
+          "wlr"
+        ];
+
+        "org.freedesktop.impl.portal.ScreenShot" = [
+          "wlr"
+        ];
+
+        "org.freedesktop.impl.portal.Inhibit" = [
+          "none"
         ];
       };
     };
@@ -1397,6 +1595,37 @@ in
       };
     };
 
+    # BlueZ needs a persistent session agent for HID devices that confirm a
+    # numeric passkey. Upstream ships this as a user unit around bluetoothctl;
+    # NixOS owns bluetoothd as a system service, so the user agent only needs
+    # immutable executable paths and restart semantics here.
+    systemd.user.services.ryoku-bt-agent = {
+      description = "Ryoku Bluetooth pairing agent (BlueZ default agent)";
+
+      wantedBy = [
+        "default.target"
+      ];
+
+      # Per-user units start for every user manager, including the display
+      # manager's system account. Run them for real users only.
+      unitConfig = {
+        ConditionPathExistsGlob = "/sys/class/bluetooth/*";
+        ConditionUser = "!@system";
+      };
+
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = "${pkgs.writeShellScript "ryoku-bt-agent" ''
+          set -euo pipefail
+          ${pkgs.coreutils}/bin/tail -f /dev/null | \
+            ${pkgs.bluez}/bin/bluetoothctl --agent KeyboardDisplay
+        ''}";
+        Restart = "on-failure";
+        RestartSec = 2;
+        Slice = "session.slice";
+      };
+    };
+
     services.upower.enable = lib.mkDefault true;
     services.power-profiles-daemon.enable = lib.mkDefault true;
 
@@ -1424,7 +1653,7 @@ in
       [Login]
       HandleLidSwitch=suspend
       HandleLidSwitchExternalPower=suspend
-      HandleLidSwitchDocked=suspend
+      HandleLidSwitchDocked=ignore
       InhibitDelayMaxSec=15
     '';
 
@@ -1455,8 +1684,11 @@ in
       lib.mkIf (cfg.defaultCompositor != null)
         (lib.mkOverride 900 compositorSession.${cfg.defaultCompositor});
 
+    # Supply a greeter on No Desktop installs, preserving another login manager.
     services.displayManager.sessionPackages = [
+      ryokuHyprlandSession
       ryokuNiriSession
+      ryokuMangoSession
     ];
 
     services.displayManager.sddm = {
@@ -1492,15 +1724,37 @@ in
       ];
     };
 
+    # SDDM 0.21 can treat a crashed Wayland greeter as a successful login and
+    # leave the machine on an empty VT. The upstream guard waits until SDDM has
+    # no greeter or session helper for 20 seconds, then performs a bounded
+    # display-manager restart. Keep the recovery behaviour while leaving NixOS
+    # in sole ownership of the compositor and unit definitions.
+    systemd.services.ryoku-greeter-guard = lib.mkIf
+      (config.services.displayManager.sddm.enable &&
+       config.services.displayManager.sddm.wayland.enable) {
+        description = "Ryoku login screen guard";
+        wantedBy = [ "graphical.target" ];
+        wants = [ "display-manager.service" ];
+        after = [ "display-manager.service" ];
+
+        serviceConfig = {
+          Type = "simple";
+          ExecStart = "${ryokuGreeterGuard}/bin/ryoku-greeter-guard";
+          Restart = "on-failure";
+          RestartSec = 5;
+        };
+      };
+
     # NixOS uses Ryoku's Nix-only update backend; the Arch transaction stays disabled.
     # Session scope also covers Hub instances launched directly.
     environment.sessionVariables = {
       RYOKU_NIX_SYSTEM_BRIDGE = "1";
       RYOKU_NIX_INTEGRATION = "/etc/ryoku/nix-integration.json";
-      RYOKU_DEFAULT_BROWSER = if cfg.browser == null then "" else cfg.browser;
       RYOKU_DOCKER_HOST_MANAGED = "1";
+      RYOKU_DEFAULT_BROWSER = if cfg.browser == null then "" else cfg.browser;
       RYOKU_UPDATE_BACKEND = "nix";
       RYOKU_I18N_DIR = "${ryokuDesktopData}/share/ryoku/i18n";
+      RYOKU_NOMARCHY_SOURCE = "${ryokuDesktopData}/share/ryoku/nomarchy";
       RYOKU_NIX_FLAKE = cfg.updateFlake;
       RYOKU_NIX_INPUT = cfg.updateInput;
       RYOKU_NIX_SUDO =
@@ -1508,6 +1762,10 @@ in
       RYOKU_SDDM_THEME_APPLY =
         "${ryokuSddmThemeApply}/bin/ryoku-sddm-theme-apply";
       RYOKU_SYSTEM_UPDATES_EXTERNAL = "0";
+      RYOKU_QYLOCK_INSTALLER =
+        "${ryokuDesktopData}/share/ryoku/lockscreen/install-qylock";
+      RYOKU_QYLOCK_BUNDLE =
+        "${ryokuDesktopData}/share/ryoku/lockscreen/qylock";
 
       # Hyprland plugin binaries are ABI-sensitive generation state.
       # Hub may configure them, but Nix owns compilation and package paths.
@@ -1534,12 +1792,16 @@ in
       browser = if cfg.browser == null then "" else cfg.browser;
       defaultCompositor = if cfg.defaultCompositor == null then "" else cfg.defaultCompositor;
       shell = cfg.shell;
+      # The Hub's account manager stays read-only when NixOS owns the accounts.
+      mutableUsers = config.users.mutableUsers;
       optionalApps = cfg.optionalApps;
       packages = nixIntegrationPackages;
     };
 
     fonts.packages =
       [
+        pkgs.rubik
+        pkgs.readexpro
         pkgs.inter
         pkgs.fraunces
         spaceGrotesk
@@ -1586,8 +1848,8 @@ in
     # policy from power.json and reaches display power through the WM seam.
     # NixOS keeps only the process lifecycle declarative; policy remains owned
     # by Ryoku and is editable from the Hub.
-    systemd.user.services.hypridle = {
-      description = "Ryoku idle and session lock daemon";
+    systemd.user.services.ryoku-idle = {
+      description = "Ryoku idle policy daemon";
 
       wantedBy = [
         "ryoku-session.target"
@@ -1620,6 +1882,45 @@ in
 
         Restart = "on-failure";
         RestartSec = "1s";
+      };
+    };
+
+    systemd.user.services.ryoku-clamshell = {
+      description = "Ryoku clamshell policy daemon";
+
+      wantedBy = [
+        "ryoku-session.target"
+      ];
+
+      partOf = [
+        "ryoku-session.target"
+      ];
+
+      requires = [
+        "ryoku-materialize.service"
+      ];
+
+      after = [
+        "ryoku-session.target"
+        "ryoku-materialize.service"
+      ];
+
+      path = [ ryokuPrivilegePath ] ++ runtimePackages;
+
+      unitConfig = {
+        ConditionEnvironment = "WAYLAND_DISPLAY";
+        StartLimitIntervalSec = 60;
+        StartLimitBurst = 5;
+      };
+
+      serviceConfig = {
+        ExecStart =
+          "${ryokuHelpers}/bin/ryoku-clamshell daemon";
+
+        Restart = "on-failure";
+        RestartSec = "2s";
+        TimeoutStopSec = "5s";
+        Slice = "session.slice";
       };
     };
 
@@ -1657,7 +1958,6 @@ in
       ];
 
       after = [
-        "ryoku-session.target"
         "wireplumber.service"
       ];
 
@@ -1688,8 +1988,11 @@ in
         RYOKU_UPDATE_BACKEND = "nix";
       };
 
+      # SDDM's greeter account would otherwise take 127.0.0.1:3600 first and
+      # leave the user's daemon restarting on "address already in use".
       unitConfig = {
         StartLimitIntervalSec = 0;
+        ConditionUser = "!@system";
       };
 
       serviceConfig = {
@@ -1710,6 +2013,14 @@ in
     systemd.user.services.ryoku-ai-usage = {
       description = "Ryoku AI usage collectors";
 
+      # The collectors look up claude and codex on PATH, which a user unit
+      # only has from the system and the user's profiles.
+      path = [
+        "/run/current-system/sw"
+        "/etc/profiles/per-user/%u"
+        "%h/.nix-profile"
+      ];
+
       serviceConfig = {
         Type = "oneshot";
 
@@ -1727,6 +2038,8 @@ in
       wantedBy = [
         "timers.target"
       ];
+
+      unitConfig.ConditionUser = "!@system";
 
       timerConfig = {
         OnBootSec = "2min";
@@ -1752,7 +2065,6 @@ in
 
       restartTriggers = [
         materializer
-        qylockMaterializer
       ];
 
       serviceConfig = {
@@ -1786,8 +2098,6 @@ in
           ${materializer}/bin/ryoku-materialize
         '';
 
-        ExecStartPost =
-          "${qylockMaterializer}";
       };
     };
 
@@ -1810,6 +2120,8 @@ in
       wantedBy = [
         "sockets.target"
       ];
+
+      unitConfig.ConditionUser = "!@system";
 
       socketConfig = {
         ListenStream = "%t/ryotunes/ryotunesd.sock";
@@ -1869,7 +2181,6 @@ in
       ];
 
       after = [
-        "ryoku-session.target"
         "ryoku-materialize.service"
       ];
 
@@ -1886,10 +2197,10 @@ in
         QT_FFMPEG_DECODING_HW_DEVICE_TYPES = ",";
 
         QML_IMPORT_PATH =
-          "${qmlRoot}:${qtQmlPath}";
+          "${ryokuRyogami}/lib/qt-6/qml:${qmlRoot}:${qtQmlPath}";
 
         QML2_IMPORT_PATH =
-          "${qmlRoot}:${qtQmlPath}";
+          "${ryokuRyogami}/lib/qt-6/qml:${qmlRoot}:${qtQmlPath}";
       };
 
       unitConfig = {
@@ -1912,6 +2223,7 @@ in
     };
 
     systemd.user.services.ryoku-shell = {
+      restartTriggers = [ qylockMaterializer ];
 
       requires = [
         "ryoku-materialize.service"
@@ -1927,7 +2239,6 @@ in
       ];
 
       after = [
-        "ryoku-session.target"
         "ryoku-materialize.service"
       ];
 
@@ -1940,6 +2251,7 @@ in
         RYOKU_NIX_SYSTEM_BRIDGE = "1";
         RYOKU_NIX_INTEGRATION = "/etc/ryoku/nix-integration.json";
         RYOKU_DEFAULT_BROWSER = if cfg.browser == null then "" else cfg.browser;
+        RYOKU_NOMARCHY_SOURCE = "${ryokuDesktopData}/share/ryoku/nomarchy";
         RYOKU_POLKIT_AGENT = "1";
         RYOKU_SYSTEMD_RUN = "${pkgs.systemd}/bin/systemd-run";
 
@@ -1953,6 +2265,10 @@ in
         RYOKU_SDDM_THEME_APPLY =
           "${ryokuSddmThemeApply}/bin/ryoku-sddm-theme-apply";
         RYOKU_SYSTEM_UPDATES_EXTERNAL = "0";
+      RYOKU_QYLOCK_INSTALLER =
+        "${ryokuDesktopData}/share/ryoku/lockscreen/install-qylock";
+      RYOKU_QYLOCK_BUNDLE =
+        "${ryokuDesktopData}/share/ryoku/lockscreen/qylock";
 
       # Hyprland plugin binaries are ABI-sensitive generation state.
       # Hub may configure them, but Nix owns compilation and package paths.
@@ -1963,6 +2279,9 @@ in
 
         QT_MEDIA_BACKEND = "ffmpeg";
         QT_FFMPEG_DECODING_HW_DEVICE_TYPES = ",";
+
+        QT_PLUGIN_PATH =
+          "${ryokuNixpkgs.qt6.qtimageformats}/lib/qt-6/plugins:${ryokuNixpkgs.qt6.qtbase}/lib/qt-6/plugins";
 
         QML_IMPORT_PATH =
           "${qmlRoot}:${qtQmlPath}";
@@ -1977,17 +2296,39 @@ in
       };
 
       serviceConfig = {
-        ExecStartPre =
-          "-${ryokuShell}/bin/ryoku-shell quit";
+        ExecStartPre = [
+          "-${ryokuShell}/bin/ryoku-shell quit"
+
+          # Ryoku Shell is the session's notification server. A Mako process
+          # from an older Nix generation can survive the package removal and
+          # keep org.freedesktop.Notifications, making Ryoku styling and DND
+          # appear broken after an in-place update. Retire both a user unit and
+          # any surviving standalone process before Quickshell starts.
+          "-${pkgs.systemd}/bin/systemctl --user stop mako.service"
+          "-${pkgs.procps}/bin/pkill -f /bin/mako([[:space:]]|$)"
+
+          "${qylockMaterializer}"
+          "${ryokuHelpers}/bin/ryoku-qylock-activate"
+        ];
 
         ExecStart =
           ryokuSessionLauncher;
+
+        ExecStop =
+          "${ryokuHelpers}/bin/ryoku-qylock-activate --prepare-stop";
+
+        ExecStartPost =
+          "-${ryokuHelpers}/bin/ryoku-power-cutover qylock-guards-stop";
+
+        TimeoutStartSec = 0;
+        TimeoutStopSec = 0;
 
         Restart = "always";
         RestartSec = 2;
 
         # User applications are launched into independent app.slice scopes,
         # so the shell can safely own and clean up its complete process tree.
+        # This prevents stale shell helpers from surviving generation changes.
         KillMode = "control-group";
         Slice = "session.slice";
       };

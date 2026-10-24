@@ -73,6 +73,9 @@ func reconcilePacmanCandy(checkOnly bool) recResult {
 	if sys.NixBackend() {
 		return okRes("pacman configuration is not applicable on NixOS")
 	}
+	if !hasPacman() {
+		return okRes(i18n.T("not a pacman host; there is no pacman progress bar to configure"))
+	}
 
 	const conf = "/etc/pacman.conf"
 	marker := pacmanCandyMarker()

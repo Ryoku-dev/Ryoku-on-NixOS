@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ryoku/ui/Singletons/Spawn.qml explains why child Quickshell processes cannot inherit these handles.
+unset __QUICKSHELL_CRASH_INFO_FD __QUICKSHELL_CRASH_DUMP_PID \
+  __QUICKSHELL_CRASH_DUMP_FD __QUICKSHELL_CRASH_LOG_FD \
+  __QUICKSHELL_CRASH_SIGNAL
+
+usage() {
+  printf 'ryoku-kit [<tab> [<rail>]]\n' >&2
+}
+
+if (( $# > 2 )); then
+  usage
+  exit 2
+fi
+
+tab=${1:-keys}
+rail=${2:-}
+case "$tab" in
+  keys|commands|phone|devtools|typing) ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+
+qs_bin=qs
+if command -v ryoku-qs >/dev/null 2>&1; then
+  qs_bin=ryoku-qs
+fi
+
+if "$qs_bin" -c keys ipc call kit open "$tab" "$rail" >/dev/null 2>&1; then
+  exit 0
+fi
+
+exec env RYOKU_KIT_TAB="$tab" RYOKU_KIT_RAIL="$rail" \
+  flock -n -o /tmp/ryoku-keys.lock "$qs_bin" -c keys

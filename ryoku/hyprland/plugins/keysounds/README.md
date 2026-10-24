@@ -5,7 +5,9 @@ compositor sees every key before any application does, so one plugin covers
 every window with no per-app hook and nothing grabbing your input.
 
 Turn it on under Ryoku Settings > Plugins > Key sounds. The package is
-`ryoku-keysounds`; the plugin loads as `keysounds.so`.
+`ryoku-keysounds`; the plugin loads as `keysounds.so`. On niri, which has no
+plugins, the same feature comes from the optional `ryoku-keysounds-niri` engine
+under Settings > Window Manager > Behaviour.
 
 ## Settings
 
@@ -22,8 +24,11 @@ All under `plugin:keysounds:` (the Hub writes them into `settings.lua` for you):
 
 Every shipped profile is a recording of the real switch, cut from the
 MIT-licensed [Mechvibes](https://github.com/hainguyents13/mechvibes) packs at
-build time (`profiles.txt` maps each to its pack; the licence ships beside the
-samples). Named for the switch, nothing more:
+build time (`ryoku/keysounds/profiles.txt` maps each to its pack; the licence
+ships beside the samples). The samples are their own package,
+`ryoku-keysounds-profiles`, shared with niri's key-sounds daemon; this plugin
+depends on it and reads the profiles from `/usr/share/ryoku/keysounds`. Named
+for the switch, nothing more:
 
 | Profile | Switch | Character |
 |---|---|---|
@@ -77,11 +82,12 @@ decoded or scheduled on Hyprland's thread.
 
 ## Building
 
-`make all` builds `keysounds.so` against the installed Hyprland headers and
-lays the profiles into `sounds/`: it clones Mechvibes at the pinned commit (or
-uses `MECHVIBES=<checkout>`) and runs `ryoku-keysounds-import` on each line of
-`profiles.txt` (`IMPORTER=` overrides which copy). `hyprpm.toml` names the same
-step, which is what `ryoku-hub desktop plugins rebuild keysounds` runs (from a
-checkout, or from the copy `ryoku-keysounds` lays under
-`/usr/share/ryoku/hypr-plugins`). Depends on `hyprland` (headers),
-`libcanberra`, and `git` + `ffmpeg` to cut the profiles.
+`make keysounds.so` builds the plugin against the installed Hyprland headers.
+`make all` also lays the profiles into `sounds/` for a local build: it clones
+Mechvibes at the pinned commit (or uses `MECHVIBES=<checkout>`) and runs
+`ryoku-keysounds-import` on each line of `ryoku/keysounds/profiles.txt`
+(`IMPORTER=` overrides which copy). `hyprpm.toml` names the `.so` step, which is
+what `ryoku-hub desktop plugins rebuild keysounds` runs (from a checkout, or
+from the copy `ryoku-keysounds` lays under `/usr/share/ryoku/hypr-plugins`).
+Depends on `hyprland` (headers), `libcanberra`, and `git` + `ffmpeg` to cut the
+profiles.

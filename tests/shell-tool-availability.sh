@@ -12,24 +12,36 @@ ships() {
   grep -qxF "$1" "$pkgs/base.packages" "$pkgs/dev.packages" "$pkgs/aur.packages" 2>/dev/null && return 0
   # first-party [ryoku] repo packages (ryogami, ...) ship from release/packages,
   # not the package sets.
-  [[ -d "$ROOT/release/packages/$1" ]]
+  [[ -d "$ROOT/release/packages/$1" ]] && return 0
+  # a compositor's own backend (hyprsunset, wlsunset) ships as a hard depend of
+  # that variant's PKGBUILD, not in a package set: every box that can run the
+  # feature installs the variant, so the depends line is the delivery.
+  hard_depend "$1"
 }
 
 # reach: a tool merely in base.packages ships on the ISO (pacstrap) but NEVER
 # reaches an already-installed box on `ryoku update` (that is a pacman -Syu, and
 # base.packages is not a package) nor a shell-installer box unless it is also a
-# hard depend of the ryoku-desktop umbrella. hard_depend() checks exactly that:
-# is $1 in the ryoku-desktop depends=() array (version pin ignored). This is the
-# guard the ddcutil regression slipped past -- ddcutil was added to base.packages
-# but not to depends, so the pill DISPLAY faders were dead on every packaged box.
-desktop_pkgbuild="$ROOT/release/packages/ryoku-desktop/PKGBUILD"
+# hard depend of the ryoku-desktop umbrella, or of a compositor variant the
+# umbrella pulls through its ryoku-desktop-compositor virtual (a tool only that
+# compositor's features shell out to, like hypridle, reaches every box that can
+# run them that way). hard_depend() checks exactly that: is $1 in a depends=()
+# array of one of those PKGBUILDs (version pin ignored). This is the guard the
+# ddcutil regression slipped past -- ddcutil was added to base.packages but not
+# to depends, so the pill DISPLAY faders were dead on every packaged box.
+desktop_pkgbuilds=("$ROOT/release/packages/ryoku-desktop/PKGBUILD"
+  "$ROOT"/release/packages/ryoku-desktop-*/PKGBUILD)
 hard_depend() {
   # capture the block first, then grep a here-string: piping awk into `grep -q`
   # lets grep close the pipe on the first match, and under `set -o pipefail`
   # awk's SIGPIPE would make the pipeline (nondeterministically) report failure.
-  local block
-  block=$(awk '/^depends=\(/{d=1;next} d&&/^\)/{d=0} d' "$desktop_pkgbuild")
-  grep -qE "[\"']$1(=[^\"']*)?[\"']" <<<"$block"
+  local pkgbuild block
+  for pkgbuild in "${desktop_pkgbuilds[@]}"; do
+    [[ -f $pkgbuild ]] || continue
+    block=$(awk '/^depends=\(/{d=1;next} d&&/^\)/{d=0} d' "$pkgbuild")
+    grep -qE "[\"']$1(=[^\"']*)?[\"']" <<<"$block" && return 0
+  done
+  return 1
 }
 # official_repo: shipped from base/dev (an Arch repo), not AUR, not first-party
 # [ryoku]. AUR tools reach boxes via the post-install AUR step; first-party
@@ -41,16 +53,17 @@ official_repo() {
 }
 # shipped_app: the other delivery path. An application a user may delete is not a
 # hard depend (pacman would put it back on the next upgrade); `ryoku doctor`
-# delivers it once and then honours the removal. Membership is the doctor's own
-# table, so a name cannot fall out of delivery and still pass this gate.
-shipped_apps_go="$ROOT/ryoku/cli/internal/doctor/reconcile_shipped_apps.go"
+# delivers it once and then honours the removal. Membership is the release
+# manifest's own apps table (the doctor's reconciler reads it from there), so a
+# name cannot fall out of delivery and still pass this gate.
+shipped_apps_go="$ROOT/ryoku/cli/internal/ryokumanifest/manifest.go"
 shipped_app() {
   grep -qE "^[[:space:]]*\{\"$1\", " "$shipped_apps_go"
 }
 # deliberately neither a hard depend nor a provisioned app (documented exception):
-#   chromium -- the default browser is user-swappable; base.packages ships it and
-#               the ryoku-app role resolver tolerates another browser being set.
-declare -A dependExempt=( [chromium]=1 )
+#   firefox -- the recommended browser is user-swappable; base.packages ships it
+#              and the ryoku-app role resolver tolerates another browser being set.
+declare -A dependExempt=( [firefox]=1 )
 
 # feature -> package that provides it
 declare -A need=(
@@ -60,7 +73,7 @@ declare -A need=(
   # it, 7c20f7dd; awww was retired with 25a57f57).
   [wallpaper-daemon]=ryogami
   [palette]=matugen
-  [clipboard-history]=cliphist
+  [clipboard-history]=ryoku-shell
   [color-picker]=hyprpicker
   [music-visualizer]=cava
   [led-color]=openrgb
@@ -69,11 +82,19 @@ declare -A need=(
   [ocr]=tesseract
   [qr-scan]=zbar
   [screen-record]=gpu-screen-recorder
-  [screen-record-fallback]=wf-recorder
   [screen-share-picker]=hyprland-preview-share-picker
-  [night-light]=hyprsunset
+  # the night light's backend is the provider's: hyprsunset over Hyprland's
+  # CTM, wlsunset over wlr-gamma-control on niri. Each ships as its variant's
+  # hard depend, so both rows gate the same feature from both sides.
+  [night-light-hyprland]=hyprsunset
+  [night-light-niri]=wlsunset
   [voice-type]=wtype
   [voice-stt]=voxtype-bin
+  # key sounds on niri: the Hub's Window Manager page installs
+  # ryoku-keysounds-niri on demand (the samples come from
+  # ryoku-keysounds-profiles), so neither is a default install but both must
+  # exist in the [ryoku] repo for the button to work.
+  [key-sounds]=ryoku-keysounds-niri
   [media-control]=playerctl
   # the launcher's "@" live radio: mpv plays, mpv-mpris puts it on the players
   # bus (without it every now-playing surface goes blind to the broadcast),
@@ -86,7 +107,7 @@ declare -A need=(
   [battery]=upower
   [shell]=quickshell
   [terminal]=kitty
-  [browser]=chromium
+  [browser]=firefox
   [files]=nautilus
   [editor]=neovim
   [file-cli]=yazi
@@ -123,6 +144,11 @@ done
 if (( ${#notreached[@]} )); then
   echo "::error::feature tools in base.packages but NOT a ryoku-desktop hard depend (ISO-only; never reach 'ryoku update' or shell-installer boxes -- the ddcutil-class drift):" >&2
   printf '  %s\n' "${notreached[@]}" | sort >&2
+  exit 1
+fi
+
+if grep -RIsqE 'fish[[:space:]]+-c' "$ROOT/ryoku"; then
+  echo "::error::shipped QML and scripts must not launch commands through fish -c" >&2
   exit 1
 fi
 

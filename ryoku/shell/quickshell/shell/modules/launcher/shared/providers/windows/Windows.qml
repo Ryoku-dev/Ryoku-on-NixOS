@@ -71,7 +71,7 @@ Provider {
             var w = wins[i];
             if (!w || !w.id)
                 continue;
-            var ws = Wm.workspaceByName(w.workspace);
+            var ws = Wm.workspaceById(w.workspace);
             if (ws && ws.special)
                 continue;
             out.push({

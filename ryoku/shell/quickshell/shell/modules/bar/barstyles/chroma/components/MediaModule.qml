@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import shell.services
 import shell.barkit as Pill
 

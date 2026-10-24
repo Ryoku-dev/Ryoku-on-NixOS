@@ -13,10 +13,44 @@ demand); see `docs/updates.md` for the delivery contract they guard.
 - `install-vm.py --iso <iso>` boots the ISO in QEMU, runs the installer
   unattended against a virtual disk (driving the live root shell over the serial
   console), waits for `@@RYOKU_DONE`, then mounts the installed root and asserts
-  the tree (the package, the materialized config, the bootloader, the greeter).
-  `--boot-only` just reaches the live shell; `--dry` runs the installer in
-  `RYOKU_DRYRUN` mode. Uses KVM when `/dev/kvm` is present, else TCG. Needs
+  the tree (the package, the materialized config, the bootloader, and the
+  greeter). `--encrypt` enables LUKS root encryption; `--passphrase` selects the
+  passphrase and defaults to the layout-safe value `123`. The encrypted
+  verification opens the LUKS volume and checks both `crypttab` and the Limine
+  `cryptdevice=` argument.
+
+  `--boot-installed` boots the target disk after verification and passes only
+  when `ryoku-test login:` appears on its serial console. For an encrypted
+  target it waits 45 seconds, records unlock screendumps, and types the
+  passphrase through QEMU's monitor. `--keypad` uses `kp_0` through `kp_9`
+  instead of digit-row keys and requires a digits-only passphrase.
+  `--wrong-first` submits an incorrect passphrase, records `unlock-wrong.ppm`,
+  then retries with the real passphrase. `--prompt-wait` changes the initial
+  delay, and `--boot-timeout` changes the 600 second login deadline.
+
+  `--payload-dir <checkout>` packs that checkout's `installation/backend` and
+  `system` directories, serves them to the live guest, and overlays both the
+  `/usr/share/ryoku` payload and the backend used by `ryoku-install`. This lets
+  an ISO exercise installer changes from a working tree without rebuilding the
+  image. `--boot-only` just reaches the live shell; `--dry` runs the installer
+  in `RYOKU_DRYRUN` mode. Uses KVM when `/dev/kvm` is present, else TCG. Needs
   `qemu`, `edk2-ovmf`, and `python-pexpect`.
+
+- `install-vm-void.py --iso <void-iso>` runs the corresponding unattended
+  Void gate. It boots the image with OVMF, requires the baked
+  `/run/initramfs/live/ryoku/repo`, installs a whole-disk niri VM through the
+  serial root shell, waits for the single `@@RYOKU_DONE`, removes the ISO, and
+  boots the target until `ryoku-test login:` appears. The exact release check is:
+
+  ```
+  python3 installation/tests/install-vm-void.py \
+    --iso out/ryoku-void-x86_64.iso \
+    --work /var/tmp/ryoku-void-install
+  ```
+
+  The work directory retains the qcow2 disk and both serial logs. It needs
+  `qemu-system-x86_64`, `qemu-img`, OVMF, OpenSSL, and Python `pexpect`; KVM is
+  used when available.
 
 - `iso-stage-check.sh` stages the ISO profile twice (`iso/build.sh --stage-only`
   into two throwaway dirs) and diffs the trees, proving the prebuilt binaries and

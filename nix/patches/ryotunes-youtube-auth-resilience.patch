@@ -1,0 +1,146 @@
+diff --git a/crates/innertube/src/transport.rs b/crates/innertube/src/transport.rs
+index 1aa0de9..dd5ccdc 100644
+--- a/crates/innertube/src/transport.rs
++++ b/crates/innertube/src/transport.rs
+@@ -127,3 +127,9 @@ impl InnerTube {
+-    fn refresh_cookie_from_headers(&self, headers: &HeaderMap) -> bool {
+-        // Keep the session lock through the sink call. Responses may finish concurrently; this
+-        // preserves rotation order so persistence cannot land one generation behind the live jar.
++    fn refresh_cookie_from_headers(
++        &self,
++        request_cookie: Option<&str>,
++        headers: &HeaderMap,
++    ) -> bool {
++        let Some(request_cookie) = request_cookie else { return false };
++        // A response is allowed to rotate only the exact cookie generation it was sent with.
++        // Concurrent requests can finish out of order; applying a late response to a newer live
++        // jar would resurrect an older SIDTS/SIDCC generation and eventually invalidate login.
+@@ -131,0 +138,3 @@ impl InnerTube {
++        if current != request_cookie {
++            return false;
++        }
+@@ -194,7 +203,2 @@ impl InnerTube {
+-            let res = self
+-                .http
+-                .post(&url)
+-                .headers(self.headers(client, set_login))
+-                .body(body.clone())
+-                .send()
+-                .await;
++            let (headers, request_cookie) = self.headers(client, set_login);
++            let res = self.http.post(&url).headers(headers).body(body.clone()).send().await;
+@@ -204 +208 @@ impl InnerTube {
+-                        self.refresh_cookie_from_headers(resp.headers());
++                        self.refresh_cookie_from_headers(request_cookie.as_deref(), resp.headers());
+@@ -246 +250 @@ impl InnerTube {
+-        let mut headers = self.headers(client, true);
++        let (mut headers, request_cookie) = self.headers(client, true);
+@@ -260 +264 @@ impl InnerTube {
+-        self.refresh_cookie_from_headers(resp.headers());
++        self.refresh_cookie_from_headers(request_cookie.as_deref(), resp.headers());
+@@ -268 +272 @@ impl InnerTube {
+-    fn headers(&self, client: &YouTubeClient, set_login: bool) -> HeaderMap {
++    fn headers(&self, client: &YouTubeClient, set_login: bool) -> (HeaderMap, Option<String>) {
+@@ -291 +295 @@ impl InnerTube {
+-        if set_login && client.login_supported {
++        let request_cookie = if set_login && client.login_supported {
+@@ -298,0 +303,3 @@ impl InnerTube {
++                Some(cookie.clone())
++            } else {
++                None
+@@ -300,2 +307,4 @@ impl InnerTube {
+-        }
+-        h
++        } else {
++            None
++        };
++        (h, request_cookie)
+@@ -322 +331 @@ impl InnerTube {
+-        let headers = self.headers(client, true);
++        let (headers, request_cookie) = self.headers(client, true);
+@@ -324 +333 @@ impl InnerTube {
+-        self.refresh_cookie_from_headers(resp.headers());
++        self.refresh_cookie_from_headers(request_cookie.as_deref(), resp.headers());
+@@ -598,2 +607,2 @@ mod tests {
+-        it.refresh_cookie_from_headers(&headers);
+-        it.refresh_cookie_from_headers(&headers);
++        it.refresh_cookie_from_headers(Some("SAPISID=secret; SIDTS=old"), &headers);
++        it.refresh_cookie_from_headers(Some("SAPISID=secret; SIDTS=new"), &headers);
+@@ -607,0 +617,20 @@ mod tests {
++    #[test]
++    fn stale_cookie_rotation_response_cannot_overwrite_newer_session() {
++        let it = InnerTube::new(
++            Session { cookie: Some("SAPISID=secret; SIDTS=old".into()), ..Default::default() },
++            None,
++        )
++        .unwrap();
++
++        // Another request wins the race and advances the live jar first.
++        it.set_cookie(Some("SAPISID=secret; SIDTS=newer".into()));
++        let mut headers = HeaderMap::new();
++        headers.append(SET_COOKIE, HeaderValue::from_static("SIDTS=late-old; Path=/; Secure"));
++
++        assert!(!it.refresh_cookie_from_headers(
++            Some("SAPISID=secret; SIDTS=old"),
++            &headers,
++        ));
++        assert_eq!(it.cookie().as_deref(), Some("SAPISID=secret; SIDTS=newer"));
++    }
++
+diff --git a/crates/ryotunesd/src/browser_auth.rs b/crates/ryotunesd/src/browser_auth.rs
+index c07e081..142cce4 100644
+--- a/crates/ryotunesd/src/browser_auth.rs
++++ b/crates/ryotunesd/src/browser_auth.rs
+@@ -91 +91 @@ fn import_from(stores: &[Store]) -> Option<SoundcloudAuth> {
+-        if !changed_since_last_look(&store.path, "soundcloud") {
++        if !changed_since_last_look(&store.path, "soundcloud", false) {
+@@ -108,3 +108,3 @@ fn import_from(stores: &[Store]) -> Option<SoundcloudAuth> {
+-/// scanned / cannot be stat'ed — err toward reading it). The memo is process-wide and only
+-/// ever consulted by the sign-in poller, so a stale entry costs one re-read, never a miss.
+-fn changed_since_last_look(path: &Path, scope: &'static str) -> bool {
++/// scanned / cannot be stat'ed — err toward reading it). `force` starts a new login attempt with
++/// one unconditional read so an unchanged browser session can repair a lost Ryotunes session.
++fn changed_since_last_look(path: &Path, scope: &'static str, force: bool) -> bool {
+@@ -127 +127 @@ fn changed_since_last_look(path: &Path, scope: &'static str) -> bool {
+-    if seen.get(&key) == Some(&current) {
++    if !force && seen.get(&key) == Some(&current) {
+@@ -161 +161 @@ pub fn harvest(cookies: Vec<(String, String, String)>) -> Option<SoundcloudAuth>
+-pub fn import_youtube_any() -> Option<LoginResult> {
++pub fn import_youtube_any(force: bool) -> Option<LoginResult> {
+@@ -163 +163 @@ pub fn import_youtube_any() -> Option<LoginResult> {
+-        if !changed_since_last_look(&store.path, "youtube") {
++        if !changed_since_last_look(&store.path, "youtube", force) {
+@@ -525,0 +526,12 @@ mod tests {
++    #[test]
++    fn youtube_rescan_can_force_an_unchanged_browser_store() {
++        let temp = tempfile::tempdir().unwrap();
++        let path = temp.path().join("cookies.sqlite");
++        std::fs::write(&path, b"same browser session").unwrap();
++
++        assert!(changed_since_last_look(&path, "youtube-rescan-test", false));
++        assert!(!changed_since_last_look(&path, "youtube-rescan-test", false));
++        assert!(changed_since_last_look(&path, "youtube-rescan-test", true));
++        assert!(!changed_since_last_look(&path, "youtube-rescan-test", false));
++    }
++
+diff --git a/crates/ryotunesd/src/login.rs b/crates/ryotunesd/src/login.rs
+index 46672b6..6de3ef7 100644
+--- a/crates/ryotunesd/src/login.rs
++++ b/crates/ryotunesd/src/login.rs
+@@ -49,0 +50 @@ impl LoginFlow for GtkLogin {
++            let mut force_scan = true;
+@@ -51,3 +52,9 @@ impl LoginFlow for GtkLogin {
+-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+-                if let Ok(Some(result)) =
+-                    tokio::task::spawn_blocking(crate::browser_auth::import_youtube_any).await
++                // Every sign-in attempt gets one unconditional scan. A user may still be signed
++                // into YouTube in the browser even if Ryotunes lost its own session, in which case
++                // the cookie DB can be byte-for-byte unchanged from the previous attempt.
++                let force = force_scan;
++                force_scan = false;
++                if let Ok(Some(result)) = tokio::task::spawn_blocking(move || {
++                    crate::browser_auth::import_youtube_any(force)
++                })
++                .await
+@@ -56,0 +64 @@ impl LoginFlow for GtkLogin {
++                tokio::time::sleep(std::time::Duration::from_secs(2)).await;

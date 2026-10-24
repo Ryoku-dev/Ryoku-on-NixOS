@@ -12,18 +12,23 @@ var rows = [
         "label": "Voice typing",
         "desc": "Tap Super+` to dictate into the focused app",
         "ctl": "sw",
-        "src": " disable --now (off). Read back via `systemctl --user is-enabled --quiet voxtype.service`."
+        "src": "ryoku-hub voxtype set; service state is read and changed through `ryoku-host svc --user`."
     },
     {
         "tab": "",
         "group": "ENGINE & MODEL",
         "key": "# ryoku-preset: <key>",
         "label": "Speech engine",
-        "desc": "Which engine turns speech into text",
+        "desc": "Curated English, multilingual, and cloud models",
         "ctl": "seg",
-        "src": "voxtype.go, mode 0600, atomicWrite. Selection is persisted ONLY as a TOML *comment* marker `# ryoku-preset: <key>` and read back by selectedPreset() scanning for that comment prefix.",
+        "src": "voxtype.go, mode 0600, atomicWrite. Selection is persisted as a TOML comment marker `# ryoku-preset: <key>` and read back by selectedPreset().",
         "opts": [
+            "whisper-tiny-en",
             "whisper-fast",
+            "whisper-small-en",
+            "whisper-base",
+            "parakeet-redux",
+            "whisper-medium",
             "whisper-accurate",
             "openai"
         ]
@@ -31,18 +36,54 @@ var rows = [
     {
         "tab": "",
         "group": "ENGINE & MODEL",
+        "key": "whisper.model = \"tiny.en\" + whisper.language = \"en\"",
+        "label": "Tiny English",
+        "desc": "English, fastest, offline, 39 MB",
+        "ctl": "action",
+        "src": "ggml-tiny.en.bin"
+    },
+    {
+        "tab": "",
+        "group": "ENGINE & MODEL",
         "key": "whisper.model = \"base.en\" + whisper.language = \"en\"",
-        "label": "Whisper - Fast",
-        "desc": "English, offline, small model, quick to load",
+        "label": "Base English",
+        "desc": "English, fast, offline, 142 MB",
         "ctl": "action",
         "src": "ggml-base.en.bin"
     },
     {
         "tab": "",
         "group": "ENGINE & MODEL",
+        "key": "whisper.model = \"small.en\" + whisper.language = \"en\"",
+        "label": "Small English",
+        "desc": "English, best balance, offline, 466 MB",
+        "ctl": "action",
+        "src": "ggml-small.en.bin"
+    },
+    {
+        "tab": "",
+        "group": "ENGINE & MODEL",
+        "key": "whisper.model = \"base\" + whisper.language = \"auto\"",
+        "label": "Base Multilingual",
+        "desc": "99+ languages, fast, offline, 142 MB",
+        "ctl": "action",
+        "src": "ggml-base.bin"
+    },
+    {
+        "tab": "",
+        "group": "ENGINE & MODEL",
+        "key": "whisper.model = \"medium\" + whisper.language = \"auto\"",
+        "label": "Medium Multilingual",
+        "desc": "99+ languages, higher accuracy, offline, 1.5 GB",
+        "ctl": "action",
+        "src": "ggml-medium.bin"
+    },
+    {
+        "tab": "",
+        "group": "ENGINE & MODEL",
         "key": "whisper.model = \"large-v3-turbo\" + whisper.language = \"auto\"",
-        "label": "Whisper - Accurate",
-        "desc": "Any language, offline, a 1.6 GB download",
+        "label": "Large Turbo",
+        "desc": "99+ languages, fast and accurate, offline, 1.6 GB",
         "ctl": "action",
         "src": "ggml-large-v3-turbo.bin"
     },
@@ -80,7 +121,7 @@ var rows = [
         "label": "Install Voxtype",
         "desc": "",
         "ctl": "action",
-        "src": "none (package manager)"
+        "src": "ryoku-host pkg install --aur voxtype-bin"
     },
     {
         "tab": "",
@@ -89,6 +130,6 @@ var rows = [
         "label": "Remove Voxtype",
         "desc": "",
         "ctl": "action",
-        "src": "none (package manager + systemd unit removal)"
+        "src": "ryoku-host svc --user + ryoku-host pkg remove voxtype-bin"
     }
 ];

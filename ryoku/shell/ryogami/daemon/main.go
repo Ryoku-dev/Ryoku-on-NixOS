@@ -52,12 +52,13 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: ryogami [daemon | wallpaper <mode> ... | depth <set|clear> ... | upscale <start|status|cancel> ...]")
+		fmt.Fprintln(os.Stderr, "usage: ryogami [daemon | wallpaper set [--workspace] [--screen <output>] <path> | wallpaper assign|unassign [--screen <output>] | wallpaper <mode> ... | depth <set|clear> ... | upscale <start|status|cancel> ...]")
 		os.Exit(2)
 	}
 }
 
-func sendLine(line string) (string, error) {	conn, err := net.DialTimeout("unix", socketPath(), 2*time.Second)
+func sendLine(line string) (string, error) {
+	conn, err := net.DialTimeout("unix", socketPath(), 2*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("daemon not reachable at %s (is `ryogami` running?)", socketPath())
 	}

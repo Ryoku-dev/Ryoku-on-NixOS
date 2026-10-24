@@ -73,7 +73,9 @@ Item {
             font.letterSpacing: 1.2
         }
         HoverHandler { id: sdh; enabled: bar.dirty > 0; cursorShape: Qt.PointingHandCursor }
-        TapHandler { enabled: bar.dirty > 0; onTapped: bar.diffRequested() }
+        TapHandler { enabled: bar.dirty > 0
+            onPressedChanged: if (pressed) parent.forceActiveFocus()
+            onTapped: bar.diffRequested() }
     }
 
     Row {
@@ -82,13 +84,13 @@ Item {
         anchors.rightMargin: Tokens.s6
         spacing: Tokens.s3
 
-        Btn { text: I18n.tr("RESET TO DEFAULTS"); onAct: bar.reset() }
+        Btn { text: I18n.tr("RESET TO DEFAULTS"); stealFocus: true; onAct: bar.reset() }
         Rectangle {
             width: 1; height: 22
             color: Tokens.line
             anchors.verticalCenter: parent.verticalCenter
         }
-        Btn { text: I18n.tr("REVERT"); armed: bar.dirty > 0; onAct: bar.reverted() }
-        Btn { text: I18n.tr("SAVE"); primary: true; armed: bar.dirty > 0; onAct: bar.saved() }
+        Btn { text: I18n.tr("REVERT"); armed: bar.dirty > 0; stealFocus: true; onAct: bar.reverted() }
+        Btn { text: I18n.tr("SAVE"); primary: true; armed: bar.dirty > 0; stealFocus: true; onAct: bar.saved() }
     }
 }

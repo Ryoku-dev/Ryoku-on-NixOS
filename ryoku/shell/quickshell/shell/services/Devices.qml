@@ -83,8 +83,7 @@ Singleton {
     // A connector coming or going is the one event that changes the answer.
     function invalidateDisplays() {
         root.displaysProbed = false;
-        if (root.probesWanted)
-            root.probeDisplays();
+        root.probeDisplays();
     }
 
     function detect() {
@@ -195,10 +194,13 @@ Singleton {
         }
     }
 
-    // Focus and workspace fields also change in Wm.outputs. Only the connector
-    // set invalidates the expensive I2C probe, never those transient fields.
-    readonly property string connectorSet: Wm.outputs.map(o => o.name).sort().join("\n")
-    onConnectorSetChanged: Qt.callLater(root.invalidateDisplays)
+    // Hotplug: a display plugged in after login gets its fader without a restart.
+    Connections {
+        target: Wm
+        function onOutputsChanged() {
+            Qt.callLater(root.invalidateDisplays);
+        }
+    }
 
     FileView {
         id: vibState

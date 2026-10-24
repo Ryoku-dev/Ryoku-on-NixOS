@@ -27,6 +27,22 @@ function uniqueByName(screens) {
     return out;
 }
 
+// Whether two sanitized screen lists hold exactly the same live objects. A
+// monitor power-off/on makes QtWayland signal the screen list several times
+// while the real outputs have not changed (a nameless placeholder is added,
+// then removed); rebuilding every per-monitor surface for that churn is what
+// crashed the shell (#312). A recreated output comes back as a NEW object with
+// the same name, so identity, not just the name, must be compared: the same
+// name with a different object is a genuine change and must flow through.
+function sameOutputs(a, b) {
+    if (!a || !b || a.length !== b.length)
+        return false;
+    for (var i = 0; i < a.length; i++)
+        if (a[i] !== b[i])
+            return false;
+    return true;
+}
+
 // An output's stable identity is its NAME, never its ShellScreen object. A
 // disabled and re-enabled output -- a laptop lid, a modeset -- comes back as a
 // new object with the same name, so a per-monitor slice found by object identity
@@ -47,5 +63,22 @@ function sliceForScreen(instances, screen) {
     return screen ? sliceForName(instances, screen.name) : null;
 }
 
+// A surface's monitor-derived size factor: the output's PHYSICAL pixel height
+// over 1080, capped. Quickshell reports the logical rectangle, so dividing
+// that by 1080 makes chrome shrink as the display scale rises -- the
+// compositor then scales it back up, the surface keeps its old physical size
+// while every app grows, and the launcher reads as tiny next to the desktop.
+// Multiplying by the compositor's own scale (the daemon's wm outputs) converts
+// logical to physical, so the factor tracks the panel, not the scale setting.
+// `scale` is the caller's resolved output scale; anything unusable means 1.
+// `cap` is optional: without it the factor is uncapped.
+function monitorScale(screen, scale, cap) {
+    if (!screen || !(screen.height > 0))
+        return 1;
+    var s = (typeof scale === "number" && scale > 0) ? scale : 1;
+    var f = (screen.height * s) / 1080;
+    return (typeof cap === "number" && cap > 0) ? Math.min(cap, f) : f;
+}
+
 if (typeof module !== "undefined" && module.exports)
-    module.exports = { uniqueByName, sliceForName, sliceForScreen };
+    module.exports = { uniqueByName, sameOutputs, sliceForName, sliceForScreen, monitorScale };

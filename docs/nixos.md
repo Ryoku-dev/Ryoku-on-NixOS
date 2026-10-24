@@ -2,7 +2,7 @@
 
 Ryoku on NixOS is the NixOS implementation of the Ryoku desktop.
 
-The desktop experience is shared with Ryoku on Arch: Hyprland or Niri, the
+The desktop experience is shared with Ryoku on Arch: Hyprland, niri or MangoWM, the
 Ryoku shell, Hub, Ryostore, theming, launcher, lockscreen, media surfaces and
 the wider Ryoku UI all remain Ryoku. The difference is how the operating system
 underneath is managed.
@@ -16,7 +16,7 @@ Ryoku on NixOS currently targets:
 
 - `x86_64-linux`
 - an existing flake-based NixOS installation
-- Hyprland or Niri on Wayland
+- Hyprland, niri or MangoWM on Wayland
 - a reasonably recent NixOS package set
 
 The installer integrates Ryoku into the system you already have. It does **not**
@@ -28,56 +28,20 @@ the host's graphics-driver configuration.
 Run the installer as your normal user:
 
 ```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#install
+nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install
 ```
 
-The default installer is a full-screen Ryoku terminal UI adapted from the Arch
-installer. It keeps the same visual language and keyboard-first flow while the
-backend remains NixOS-native. It does not partition disks, run Pacman, replace
-the bootloader, or mutate packages outside the host flake.
+The installer requests elevated privileges only when it needs to write system
+configuration or build/switch the NixOS generation.
 
-The setup flow covers:
-
-1. the initial compositor: Hyprland or Niri,
-2. Chromium or Firefox,
-3. Fish or Zsh,
-4. optional applications and tool groups,
-5. a final review before the generation is built and switched.
-
-Required desktop contracts such as Kitty, Files, Neovim, btop, the Fish runtime,
-Node.js, Python and Ryoku's own services are kept installed. Optional choices
-are written to `programs.ryoku.optionalApps`, so removing a tool in the installer
-changes declarative NixOS state rather than running an imperative uninstall.
-
-The installer requests elevated privileges only when the backend needs to write
-system configuration or build/switch the NixOS generation.
-
-For a preview first, choose the same options normally and run the backend as a
-dry run at the final step:
+For a preview first:
 
 ```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#install -- --dry-run
+nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install -- \
 ```
 
-The TUI still opens, but its final backend pass only prints the proposed
-`flake.nix` changes and generated `ryoku.nix`.
-
-For CI, SSH, scripting, or terminals where a full-screen interface is unwanted,
-the same transactional backend is available directly:
-
-```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#install -- \
-  --cli \
-  --flake /etc/nixos#my-host \
-  --compositor niri \
-  --browser firefox \
-  --shell zsh \
-  --apps prompt,fastfetch,yazi,cli-tools,docker \
-  --dry-run -y
-```
-
-Passing `-y`, `--compositor`, `--browser`, `--shell` or `--apps` also selects
-the direct backend path for compatibility with the previous script installer.
+A dry run prints the proposed `flake.nix` changes and generated `ryoku.nix`
+without modifying the system.
 
 ### Custom flake path or host
 
@@ -87,7 +51,7 @@ host when it can.
 For another flake location or a multi-host configuration:
 
 ```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#install -- \
+nix run github:Ryoku-dev/Ryoku-on-NixOS/main#install -- \
   --flake /path/to/nixos#hostname
 ```
 
@@ -96,26 +60,17 @@ Useful installer options:
 ```text
 --flake PATH[#HOST]   NixOS flake to configure
 --source REF          Ryoku flake reference
---dry-run             Preview the final backend transaction
---cli                 Skip the TUI and use the backend directly
---compositor NAME     Direct mode: hyprland or niri
---browser NAME        Direct mode: chromium or firefox
---shell NAME          Direct mode: fish or zsh
---apps CSV            Direct mode: optional app IDs, or none
--y, --yes             Direct mode and skip confirmation
+--compositor NAME     Initial compositor: hyprland, niri, or mango
+--browser NAME        Browser: chromium or firefox
+--dry-run             Show proposed changes without writing them
+-y, --yes             Skip confirmation
 -h, --help            Show help
 ```
 
-The optional catalogue currently includes Starship, Blesh, Fastfetch, Yazi,
-modern CLI tools, Lazygit, pavucontrol, SongRec, OpenRGB, image upscaling,
-LocalSend, Gamescope, GameMode, MangoHud, VM tooling, Docker, Flatpak, Go, pipx
-and mise. Choices that need a system service, such as Docker and Flatpak, toggle
-the corresponding NixOS module rather than merely placing a command on `PATH`.
-
-### What the installer changes
+## What the installer changes
 
 The installer adds Ryoku as a flake input, imports the Ryoku NixOS module, and
-creates an installer-managed `ryoku.nix` containing the selected desktop state:
+creates an installer-managed `ryoku.nix` containing:
 
 ```nix
 { ... }:
@@ -123,16 +78,8 @@ creates an installer-managed `ryoku.nix` containing the selected desktop state:
 {
   programs.ryoku = {
     enable = true;
-    defaultCompositor = "niri";
-    browser = "firefox";
-    shell = "zsh";
-    optionalApps = [
-      "prompt"
-      "fastfetch"
-      "yazi"
-      "cli-tools"
-      "docker"
-    ];
+    defaultCompositor = "hyprland";
+    browser = "chromium";
   };
 }
 ```
@@ -150,9 +97,8 @@ It then:
 3. switches only after the build succeeds,
 4. materializes the user-facing Ryoku configuration.
 
-The installer hands the terminal to the backend for password prompts and build
-output, then returns to the result screen. If locking, building, or switching fails, the backend
-restores the installer-managed configuration files from its backup.
+If locking, building, or switching fails, the installer restores the backed-up
+configuration files.
 
 ## Manual flake integration
 
@@ -166,7 +112,7 @@ Add the NixOS port as an input:
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     ryoku = {
-      url = "github:aethctl/Ryoku-on-NixOS";
+      url = "github:Ryoku-dev/Ryoku-on-NixOS";
     };
   };
 }
@@ -207,7 +153,7 @@ sudo nixos-rebuild switch --flake .#my-host
 For a manual integration, the packaged materializer is also exposed as:
 
 ```bash
-nix run github:aethctl/Ryoku-on-NixOS/main#ryoku-materialize
+nix run github:Ryoku-dev/Ryoku-on-NixOS/main#ryoku-materialize
 ```
 
 Normal installer-managed systems run materialization automatically after a
@@ -219,7 +165,7 @@ The NixOS module provides the machine-facing integration needed by the Ryoku
 desktop, including:
 
 - Ryoku packages and runtime dependencies
-- the Ryoku Hyprland and Niri provider/portal package sets
+- the Ryoku Hyprland, niri and MangoWM provider/session package sets
 - PipeWire and WirePlumber integration
 - NetworkManager and Bluetooth integration
 - polkit and keyring support
@@ -236,11 +182,15 @@ Both compositor sessions and their Ryoku providers come from Ryoku's locked
 package set. ABI-sensitive Hyprland plugins therefore remain compatible with
 the Hyprland build in the same generation.
 
-At the display manager, choose either **Hyprland** or **Niri**. Both
-sessions use the same Ryoku shell and neutral desktop settings. The Hub's
-Window Manager page previews settings that the other compositor cannot express
-before changing the preferred compositor; on NixOS both implementations are
-already deployed, so no mutable package transaction is needed.
+At the display manager, choose **Hyprland**, **niri** or **MangoWM**. All three
+sessions use the same Ryoku shell and neutral desktop settings. The installer's
+`defaultCompositor` choice only preselects the initial session; every provider
+remains deployed, so Hub switching never needs a mutable package transaction.
+
+`browser` is similarly declarative. The installer can choose Chromium or
+Firefox, and the selected package becomes Ryoku's fallback browser role while a
+Hub Default Apps override still wins. Other optional applications remain owned
+by the host NixOS configuration rather than a second mutable provisioning ledger.
 
 ## Materialized user configuration
 
@@ -344,6 +294,59 @@ The same Ryoku desktop can sit on top of two different system-management models:
 
 The UI and desktop product remain Ryoku; the operating-system integration follows
 the conventions of the host platform.
+
+## Syncing with Ryoku
+
+This port follows upstream Ryoku on the same two lanes as every other edition:
+
+| Lane | Port branch | Follows | Moves when |
+|---|---|---|---|
+| unstable | `unstable-dev` | Ryoku `unstable-dev` commits that passed the Testing gate (`channels/testing/checked.json`) | Every upstream push that passes |
+| stable | `main` | The newest Ryoku `v*` tag | A maintainer fast-forwards Ryoku `main` and dispatches Stable Release |
+
+Every 20 minutes the **Sync Ryoku** workflow (`.github/workflows/sync-ryoku.yml`)
+looks for a newer upstream target on each lane. When there is one, it pushes a
+single commit to `sync/unstable` or `sync/stable` and opens or updates the pull
+request for that lane. Nothing lands on a lane branch until a maintainer merges
+that pull request. After a merge, `nix-cache.yml` pushes the new system closure
+to the binary cache, and users get the change on their next `ryoku update`.
+
+How the merge works:
+
+- `nix/sync/ryoku-commit` records the upstream commit the branch is synced to.
+  The bot runs a three-way merge from there, so only upstream's new changes come in.
+- `nix/`, `flake.nix`, `flake.lock`, `.github/`, `website/`, `README.md` and
+  this file belong to the port. Upstream edits to them never come in.
+- Paths listed in `nix/sync/upstream-wins` take upstream's version: the Arch
+  installer, PKGBUILDs, changelogs, upstream docs and tests. Edit that file when
+  the port starts or stops carrying a change somewhere.
+- A file that is still byte-identical to an older upstream version takes
+  upstream's newest version. Folders the port deleted stay deleted.
+- Anything else that both sides changed is committed with conflict markers and
+  listed in the pull request.
+
+Merging a sync:
+
+- Start with the **What to do** line at the top of the pull request. It says
+  whether the sync is ready for checks or needs a maintainer's decision.
+- Conflicts appear under **Needs a decision**, one file at a time, with the
+  marked line ranges and recent changes from Ryoku and the port. The same
+  ranges have red marks in **Files changed**.
+- For a conflict, check out `sync/<lane>`, fix every marked range, commit and
+  push. The bot then leaves that branch alone.
+- Merge only when no markers remain and the Nix checks are green. Clean bot
+  syncs report `ryoku-sync/checks`; maintainer pushes report
+  **Sync PR: no conflict markers left** and **Sync PR: Nix checks**.
+
+Run it by hand from **Actions > Sync Ryoku > Run workflow** (choose a lane), or
+from a checkout:
+
+```bash
+nix/sync/ryoku-sync --lane unstable --dry-run
+```
+
+`--dry-run` prints the target, the conflicts and the pull request body without
+pushing or calling GitHub.
 
 ## Development
 

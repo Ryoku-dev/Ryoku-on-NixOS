@@ -32,7 +32,7 @@ Singleton {
     property real previewRevision: 0
     property bool placementPreview: false
 
-    readonly property bool recordingActive: Recorder.anyActive
+    readonly property bool recordingActive: Recorder.active
 
     signal chord(var keys, bool repeat, string state, real timestamp)
 
@@ -172,8 +172,8 @@ Singleton {
 
     Connections {
         target: Recorder
-        function onAnyActiveChanged() {
-            if (Recorder.anyActive) {
+        function onActiveChanged() {
+            if (Recorder.active) {
                 root.placementPreview = false;
                 root.sawRecording = true;
             } else if (root.sawRecording) {

@@ -94,10 +94,13 @@ func TestWireSkillNoOpWhenSkillDirMissing(t *testing.T) {
 	}
 }
 
-func TestSymlinkForceKeepsRealDir(t *testing.T) {
+func TestSymlinkForceKeepsForeignSkillDir(t *testing.T) {
 	dir := t.TempDir()
 	link := filepath.Join(dir, "ryoku")
-	if err := os.MkdirAll(link, 0o755); err != nil { // a real dir sits here
+	if err := os.MkdirAll(link, 0o755); err != nil { // a real skill dir sits here
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(link, "SKILL.md"), []byte("---\nname: someone-else\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	wrote, err := symlinkForce(link, t.TempDir())
@@ -105,11 +108,63 @@ func TestSymlinkForceKeepsRealDir(t *testing.T) {
 		t.Fatalf("symlinkForce: %v", err)
 	}
 	if wrote {
-		t.Fatal("symlinkForce reported writing over a real directory")
+		t.Fatal("symlinkForce reported writing over a foreign skill dir")
 	}
 	fi, _ := os.Lstat(link)
 	if fi.Mode()&os.ModeSymlink != 0 {
-		t.Fatal("symlinkForce clobbered a real directory")
+		t.Fatal("symlinkForce clobbered a foreign skill dir")
+	}
+}
+
+func TestSymlinkForceKeepsForeignSkillSymlink(t *testing.T) {
+	_, ours := skillEnv(t)
+	dir := t.TempDir()
+	foreign := filepath.Join(dir, "foreign")
+	if err := os.MkdirAll(foreign, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(foreign, "SKILL.md"), []byte("---\nname: someone-else\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "ryoku")
+	if err := os.Symlink(foreign, link); err != nil {
+		t.Fatal(err)
+	}
+	wrote, err := symlinkForce(link, ours)
+	if err != nil {
+		t.Fatalf("symlinkForce: %v", err)
+	}
+	if wrote {
+		t.Fatal("symlinkForce reported replacing a foreign link")
+	}
+	if dest, err := os.Readlink(link); err != nil || dest != foreign {
+		t.Fatalf("foreign link = %q, %v", dest, err)
+	}
+}
+
+// Hermes keeps skills in category folders: ~/.hermes/skills/ryoku is a real
+// directory (no SKILL.md of its own) and the skill lives inside it as a
+// nested ryoku link. Wire must lay the link inside, status must read the
+// skill as wired, and unwire must remove the link and leave the folder.
+func TestSkillLinkInsideCategoryFolder(t *testing.T) {
+	h, ryoku := skillEnv(t)
+	cat := filepath.Join(h, ".hermes", "skills", "ryoku")
+	if err := os.MkdirAll(cat, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WireSkill(); err != nil {
+		t.Fatalf("WireSkill: %v", err)
+	}
+	assertSkillLink(t, filepath.Join(cat, "ryoku"), ryoku)
+	if !isOurSkillLink(cat) {
+		t.Fatal("a category folder holding our nested link must read as wired")
+	}
+	UnwireSkill()
+	if _, err := os.Lstat(filepath.Join(cat, "ryoku")); !os.IsNotExist(err) {
+		t.Fatal("UnwireSkill left the nested link")
+	}
+	if fi, err := os.Lstat(cat); err != nil || !fi.IsDir() {
+		t.Fatal("UnwireSkill removed the user's category folder")
 	}
 }
 

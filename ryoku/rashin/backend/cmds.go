@@ -1,10 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 )
 
@@ -77,7 +77,7 @@ func cmdPaths(format string) error {
 		fmt.Printf("  %-10s present=%-5v wired=%-5v skill=%-5v %s\n", a.ID, a.Present, a.Wired, a.SkillWired, a.File)
 	}
 	fmt.Println()
-	fmt.Println("Chat backends (Super+S; Hermes recommended):")
+	fmt.Println("Agent backends (Hermes recommended):")
 	for _, b := range m.ChatBackends {
 		tag := ""
 		if b.Recommended {
@@ -103,15 +103,12 @@ func cmdAgent(args []string) error {
 		if len(args) >= 2 {
 			id = args[1]
 		}
-		if err := setChatAgent(id); err != nil {
+		if _, err := setChatAgent(context.Background(), id); err != nil {
 			return err
 		}
 		// Tell a running daemon to drop its live session so the switch takes
 		// effect on the very next turn, not only after a restart.
-		cfg := LoadConfig()
-		if pingDaemon(cfg.Port) {
-			askPost(cfg.Port, "/api/chat/agent?id="+url.QueryEscape(id))
-		}
+		notifyDaemonChatAgent(LoadConfig().Port, id)
 		fmt.Printf("chat backend set to %q\n", id)
 		return nil
 	}

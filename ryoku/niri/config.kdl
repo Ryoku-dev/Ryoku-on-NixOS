@@ -16,6 +16,7 @@
 // values, so it sits above the override chain rather than in its tail, and
 // before user.kdl so your file stays the last word.
 include "autostart.kdl"
+include "lid.kdl"
 
 // Seeded once, then owned by this machine. keyboard.kdl is yours to edit; gpu
 // and monitors are rewritten at runtime on a GPU reset or a hotplug.
@@ -32,6 +33,24 @@ include "monitors_user.kdl"
 // the Hub or in user.kdl.
 include "settings.kdl"
 include "rebinds.kdl"
+
+// RyoManager is a bounded utility surface, not a workspace-sized app. Keep it
+// floating by default; the app itself supplies the same size bounds, while a
+// user.kdl rule below remains the last word.
+window-rule {
+    match app-id="^ryomanager$"
+
+    open-floating true
+    default-floating-position x=0.5 y=0.5 relative-to="bottom-right"
+
+    min-width 1120
+    min-height 720
+    max-width 1560
+    max-height 980
+
+    geometry-corner-radius 8
+    clip-to-geometry true
+}
 
 // The last word, and yours. Seeded once and never touched by an update.
 include "user.kdl"

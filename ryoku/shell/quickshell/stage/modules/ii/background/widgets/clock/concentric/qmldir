@@ -1,0 +1,7 @@
+module stage.modules.ii.background.widgets.clock.concentric
+ConcentricArc24h 1.0 ConcentricArc24h.qml
+ConcentricComplication 1.0 ConcentricComplication.qml
+ConcentricDialCanvas 1.0 ConcentricDialCanvas.qml
+ConcentricHourDisplay 1.0 ConcentricHourDisplay.qml
+ConcentricMinutePill 1.0 ConcentricMinutePill.qml
+ConcentricSubDial 1.0 ConcentricSubDial.qml

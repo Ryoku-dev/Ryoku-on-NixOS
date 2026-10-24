@@ -71,9 +71,10 @@ start_recording() {
     local label="$1"
     [[ "$label" =~ ^[A-Za-z0-9_-]+$ ]] || return 2
     [[ -z "$record_pid" ]] || return 2
-    command -v wf-recorder >/dev/null 2>&1 || return 127
+    command -v gpu-screen-recorder >/dev/null 2>&1 || return 127
     record_label="$label"
-    wf-recorder -y -D -r 120 -f "$dir/${label}.mkv" \
+    gpu-screen-recorder -w screen -f 120 -c mkv -v no \
+        -o "$dir/${label}.mkv" \
         >"$dir/${label}.recorder.log" 2>&1 &
     record_pid=$!
     sleep 0.25

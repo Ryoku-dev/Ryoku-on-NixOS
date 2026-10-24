@@ -1,8 +1,6 @@
 -- A floating window sized past the monitor reads as a broken fullscreen (issue
 -- 147: Files on a 1366x768 panel). Every fixed size below is capped to the
 -- monitor the window opens on; Hyprland evaluates the expressions per window.
--- `page()` is the one exception: a full-page surface (Ryoku Settings) asks for
--- 99% of the monitor, so it stays proportional to whatever screen it opens on.
 local function fit(w, h)
     return {
         "min(" .. w .. ", monitor_w * 0.92)",
@@ -10,9 +8,59 @@ local function fit(w, h)
     }
 end
 
+local settings_window = { mode = "full", width = 0.5, height = 0.5 }
+if package.searchpath == nil or package.searchpath("settings_window", package.path) then
+    local ok, configured = pcall(require, "settings_window")
+    if ok and type(configured) == "table" then settings_window = configured end
+end
+
+local function settings_fraction(value)
+    return math.max(0.25, math.min(tonumber(value) or 0.5, 1))
+end
+
+-- The Settings layout needs this much room to remain usable.
+local SETTINGS_MIN_WIDTH, SETTINGS_MIN_HEIGHT = 1120, 820
+
 local function page()
+    if settings_window.mode == "custom" then
+        return {
+            "monitor_w * " .. settings_fraction(settings_window.width),
+            "monitor_h * " .. settings_fraction(settings_window.height),
+        }
+    end
     return { "monitor_w * 0.99", "monitor_h * 0.96" }
 end
+
+-- Rule expressions only see the whole monitor. Once the Hub opens, fit its full
+-- page or custom fraction inside the work area with the same gaps and border a
+-- tiled window gets.
+local function fit_page_to_work_area(win)
+    if not win or win.title ~= "Ryoku Settings" then return end
+    local mon = win.monitor
+    if not mon then return end
+    local scale = mon.scale or 1
+    local mw, mh = mon.width / scale, mon.height / scale
+    if (mon.transform or 0) % 2 == 1 then mw, mh = mh, mw end
+    local r = mon.reserved
+    local gap = hl.get_config("general.gaps_out")
+    local border = hl.get_config("general.border_size") or 0
+    local left = r.left + gap.left + border
+    local top = r.top + gap.top + border
+    local right = r.right + gap.right + border
+    local bottom = r.bottom + gap.bottom + border
+    local aw, ah = mw - left - right, mh - top - bottom
+    local width, height = aw, ah
+    if settings_window.mode == "custom" then
+        width = math.max(aw * settings_fraction(settings_window.width), math.min(SETTINGS_MIN_WIDTH, aw))
+        height = math.max(ah * settings_fraction(settings_window.height), math.min(SETTINGS_MIN_HEIGHT, ah))
+    end
+    local x = mon.x + left + (aw - width) / 2
+    local y = mon.y + top + (ah - height) / 2
+    local target = "address:" .. win.address
+    hl.dispatch(hl.dsp.window.resize({ x = math.floor(width + 0.5), y = math.floor(height + 0.5), exact = true, window = target }))
+    hl.dispatch(hl.dsp.window.move({ x = math.floor(x + 0.5), y = math.floor(y + 0.5), window = target }))
+end
+hl.on("window.open", fit_page_to_work_area)
 
 hl.window_rule({
     name           = "suppress-maximize",
@@ -80,6 +128,45 @@ hl.window_rule({
 	center = true,
 })
 
+
+hl.window_rule({
+    name   = "float-rashin-app",
+    match  = { title = "^(Rashin)$" },
+    float  = true,
+    size   = fit(1280, 820),
+    center = true,
+})
+hl.window_rule({
+    name   = "float-phone-tools",
+    match  = { title = "^ryoku-phone-.*$" },
+    float  = true,
+    size   = fit(520, 860),
+    center = true,
+})
+
+
+hl.window_rule({
+    name   = "float-ryomanager",
+    match  = { class = "^ryomanager$" },
+    float  = true,
+    size   = fit(1460, 900),
+    center = true,
+})
+
+hl.window_rule({
+    -- The update and rollback logs are started from Ryoku Settings itself
+    -- (UpdatesPage, and the bar's update widget), and a tiled window always
+    -- sits under a float, so the run's output hid behind the 99% settings
+    -- page until it finished (issue 288). The launches name this GTK-valid
+    -- class (see the ryoport rule below for why a dot is required) and this
+    -- rule floats and centres the log, where the user can watch it.
+    name   = "float-ryoku-update",
+    match  = { class = "^dev\\.ryoku\\.update$" },
+    float  = true,
+    size   = fit(1180, 760),
+    center = true,
+})
+
 hl.window_rule({
     name   = "float-ryostore",
     match  = { title = "^(Ryostore)$" },
@@ -101,16 +188,30 @@ hl.window_rule({
 })
 
 hl.window_rule({
+    -- The launch asks every terminal for this id (see ryossh.go's ryoportAppID):
+    -- Ghostty validates --class as a GTK application id and rejects a name
+    -- without a dot, so a bare "ryoport-ssh" never reached the window and this
+    -- rule could not match it.
     name   = "float-ryoport-ssh",
-    match  = { class = "ryoport-ssh" },
+    match  = { class = "^dev\\.ryoku\\.ryoport_ssh$" },
     float  = true,
     size   = fit(900, 560),
     center = true,
 })
 
 hl.window_rule({
+    -- SPICE (the VM yard) and the RDP berth (which asks FreeRDP to carry this
+    -- exact class via /wm-class; see ryossh.go) both open as centred floats.
     name   = "float-ryoport-console",
-    match  = { class = "spicy" },
+    match  = { class = "^(spicy|dev\\.ryoku\\.ryoport_console)$" },
+    float  = true,
+    center = true,
+})
+
+hl.window_rule({
+    -- TigerVNC names its own class: instance "vncviewer", class "Vncviewer".
+    name   = "float-ryoport-vnc",
+    match  = { class = "^Vncviewer$" },
     float  = true,
     center = true,
 })

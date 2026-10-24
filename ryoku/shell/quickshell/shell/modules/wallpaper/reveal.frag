@@ -99,12 +99,18 @@ vec4 revealExpressive(vec2 uv) {
     if (kind == 9) {
         // ripple: a single wave front expands from the reveal origin, bending the
         // sample point just ahead of itself so the new image wells up under a ring
-        // of water; step() commits everything the front has already crossed.
-        vec2 origin = vec2(originX, originY);
-        float d = distance(uv, origin);
-        float front = p * 0.9;
+        // of water; step() commits everything the front has already crossed. The
+        // front runs to the farthest corner so the whole screen commits before the
+        // animation ends, rather than snapping the last ring in at the finish.
+        float asp = res.x / max(res.y, 1.0);
+        vec2 origin = vec2(originX * asp, originY);
+        vec2 pu = vec2(uv.x * asp, uv.y);
+        float d = distance(pu, origin);
+        float m = max(max(distance(origin, vec2(0.0, 0.0)), distance(origin, vec2(asp, 0.0))),
+                      max(distance(origin, vec2(0.0, 1.0)), distance(origin, vec2(asp, 1.0))));
+        float front = p * m;
         float wave = sin((d - front) * 35.0) * exp(-abs(d - front) * 10.0);
-        vec2 dir = normalize(uv - origin + 1e-4);
+        vec2 dir = normalize(pu - origin + 1e-4);
         vec2 suv = uv + dir * wave * 0.04;
         float reveal = step(d, front);
         vec4 colour = mix(texture(oldTex, suv), texture(newTex, suv), reveal);

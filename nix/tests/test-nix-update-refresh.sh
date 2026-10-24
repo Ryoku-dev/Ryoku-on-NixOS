@@ -25,6 +25,7 @@ printf '#!%s\n' "$bash_bin" >"$bin/systemctl"
 cat >>"$bin/systemctl" <<'SH'
 case " $* " in
   *' daemon-reload '*) exit 0 ;;
+  *' restart ryoku-materialize.service '*) exit 0 ;;
   *' restart ryoku-shell.service '*) exit 0 ;;
   *' is-active --quiet ryoku-shell.service '*) exit 0 ;;
   *' try-restart ryoku-shell.service '*) exit 0 ;;
@@ -38,6 +39,7 @@ printf '#!%s\n' "$bash_bin" >"$bin/systemctl"
 cat >>"$bin/systemctl" <<'SH'
 case " $* " in
   *' daemon-reload '*) exit 0 ;;
+  *' restart ryoku-materialize.service '*) exit 0 ;;
   *' restart ryoku-shell.service '*) exit 0 ;;
   *' is-active --quiet ryoku-shell.service '*) exit 1 ;;
 esac

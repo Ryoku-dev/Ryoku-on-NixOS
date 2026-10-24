@@ -154,15 +154,18 @@ it under `~/.local/lib/qt6/qml`, and only the daemon injects that path
 `QML_IMPORT_PATH`. `hyprland/modules/env.lua` sets it for the session. If an
 import fails in dev and works on an installed box, that is why.
 
-### The one sanctioned brand takeover
+### The web dashboard is a Ryoku surface too
 
-**Rashin** (`hub/pages/RashinPage.qml`) fronts the Rashin/Hermes dashboard
-(`127.0.0.1:3600`), so it deliberately wears that product's identity instead of
-the Hub's: the warm poster palette and Archivo Black type mirrored from
-`ryoku/rashin/backend/web/css/base.css`, kept in one local palette object at the
-top of the page plus a bundled `fonts/archivo-black.ttf`. It is a page-scoped
-brand takeover, not drift; keep it in step with that `base.css`, and do not copy
-the pattern into another page.
+Rashin's console (`ryoku/rashin/web`, a Svelte app served on `127.0.0.1:3600`
+and hosted by the `rashin-app` window) is HTML, so it cannot import `Tokens`,
+but it follows them. `GET /api/theme` resolves the same Material roles through
+the same chain (a named scheme, then the wallpaper while Match wallpaper is on,
+then the signature default), and `src/app.css` maps them onto its variables
+under the `Tokens` names:
+`--paper`, `--ink`, `--bone`, `--sun`, `--alert`, the hairlines and tints. The
+type is the same four families, bundled as subset woff2. The Hub's Rashin page
+reads `Tokens` like any other page. There is no brand takeover left: if the
+dashboard needs a value, it takes it from the palette, never a hex of its own.
 
 ### What follows the wallpaper, and what does not
 
@@ -191,16 +194,26 @@ doing that arithmetic itself.
   soot.
 - **The 力 seal is never derived.** `Theme.brand` is a fixed vermillion, and
   `Tokens.alert` is the same red. A sun is a sun on any wallpaper.
+- **Rashin wears a sibling seal, not the 力.** Its mark (`assets/brand/rashin-mark.svg`)
+  is the same tile carrying 十, the cross that ends 針 (needle) and is also the
+  compass card at its four cardinals; the north-south stroke is the needle,
+  with north painted in the brand vermillion and the pivot left as tile. One
+  geometry, three cuts: the colour master (app icon, lockup), a one-colour
+  evenodd master, and a small cut without the pivot for 16 to 32 px (the
+  console favicon and the Ask bar's header). On black paper the tile
+  disappears and only the needle shows; that is the intended reversed form.
+  The lockup (`rashin-lockup.svg`) sets Rashin in Space Grotesk Medium with
+  the 羅針 gloss at a shared baseline; below 48 px tall use the mark alone.
 - **App content carries no accent at all.** The Hub, ryowalls, ryovm and ryostore
   are paper and ink. Emphasis is inversion: a surface flips to bone and its ink
   flips to dark. The frame carries the accent; the content does not compete with
   it.
-- **The default bar is the one surface that wears the whole palette.** QS Bar,
-  the shipped default, retints every slot from the wallpaper's seven colour slots
-  (`color01..color07`, mapped onto the ANSI roles), not just the accent, so it
-  reads in full colour like a terminal theme. It is a deliberate exception opted
-  into as the default; the Hub, the apps, the frame, and the monochrome Sumi bar
-  hold the line above. See `docs/barstyles.md`.
+- **QS Bar is the one surface that wears the whole palette.** It retints every
+  slot from the wallpaper's seven colour slots (`color01..color07`, mapped onto
+  the ANSI roles), not just the accent, so it reads in full colour like a
+  terminal theme. It is a deliberate built-in exception; the default Orpheus
+  bar, the Hub, the apps, the frame, and the monochrome Sumi bar hold the line
+  above. See `docs/barstyles.md`.
 
 So the rice wins inside an envelope the brand enforces. Write that down rather
 than the reverse: the envelope is the design.
@@ -340,8 +353,8 @@ it in `Ryoku.Ui` and use it somewhere in the same change.
 
 Under `ryoku/ui/lib/` sit the four maths files, each with a `.test.mjs` beside
 it, because they are the arithmetic a component cannot eyeball: `spectrum.js`
-(band resampling), `place.js` (box tilt and rotation, shared by `SpectrumField`
-and the visualiser's `Placer` so the preview and the real thing cannot drift),
+(band resampling), `place.js` (the box's tilt and rotation maths, used by
+`SpectrumField` so previews and the live look cannot drift),
 `keypress.js` (the keypress stack), and `hero.js` (image framing, imported by
 relative path rather than exported, since only `HeroCrop` needs it).
 
@@ -393,7 +406,7 @@ not look broken; it looks fine and then eats the edit on the way out.
 
 `Hub.qml` owns the frame, so a page only writes its content:
 
-- **The rail.** A masthead (力 seal, `RYOKU ARCH`, `SETTINGS`),
+- **The rail.** A masthead (力 seal, `RYOKU`, `SETTINGS`),
   a search field, then eight groups. A group header is its zero-padded index and
   name in tracked mono (`01 OVERVIEW`, `02 DEVICES`, `03 LOOK`, `04 COMPOSITOR`,
   `05 DESKTOP`, `06 KEYS & APPS`, `07 SYSTEM`, `08 EXTEND`, and a nameless ninth
@@ -474,36 +487,54 @@ and per-monitor visibility from `ShellState`.
 
 - **frame** the rounded screen border and the popouts that melt into it; the
   desktop's signature surface. See `docs/frame.md`.
-- **bar** the desktop's edge instrument, chosen by `barStyle`. Two ship built in:
-  **QS Bar** (the default, `barstyles/qsbar/`, a full-colour top bar retinted
-  from the wallpaper's seven palette slots) and **Sumi** (the monochrome
-  four-edge frame-bar system in `shell/modules/bar/framebars/`, the paper-and-ink
-  alternative). **Obi** and **Nacre** are folder styles you install from
-  Ryostore, and the Hub carries their controls (`OBI WIDGETS`, `NACRE LAYOUT`)
-  for when they are present. `BarProducts` resolves the id: built in, or from
+- **bar** the desktop's edge instrument, chosen by `barStyle`. Seven ship built
+  in. **Orpheus** is the default liquid top bar. **QS Bar**
+  (`barstyles/qsbar/`) is a full-colour top bar retinted from the wallpaper's
+  seven palette slots, and **Sumi** is the monochrome four-edge frame-bar system
+  in `shell/modules/bar/framebars/`. **Obi** and **Nacre** are folder styles you
+  install from Ryostore, and the Hub carries their controls (`OBI WIDGETS`,
+  `NACRE LAYOUT`) for when they are present. `BarProducts` resolves the id:
+  built in, or from
   `~/.local/state/ryoku/store/barstyles.json`. Every style reads the same service
   surfaces and grows the same popout cards from the kit under
   `shell/modules/bar/popouts/`: clicking a status widget (network, Bluetooth,
   battery, audio, system monitor, recording, music, voice) grows its live
-  controls out of the bar. The monitor-local menu manager owns those cards, the
-  bounded frame menus, the Super+Escape control sidebar and the Super+S feature
-  sidebar. See `docs/bar.md` and `docs/barstyles.md`.
-- **dock** an app island cluster on a screen edge, its own shell surface
-  (`shell/modules/dock/DockSurface.qml`, one per monitor) rather than a part of
-  any one bar, so it rides every bar style. Pinned apps hold a stable order you
-  set, then a separator, then whatever else is running; drag an island to
-  reorder the pins. Autohide keeps it as a thin peek strip that reveals on a
-  slow hover along the edge; off reserves its space and always shows it.
-  Hovering magnifies an island to 1.4, shows the app name as a hover label, and
-  grows a live window-preview strip (thumbnail, title, window count, close);
-  left click activates, cycles or launches, middle click opens a fresh
-  instance, right click pins or unpins. An optional media chip rides the end of
-  the band. The top-level `dock` object in `shell.json` drives it: `enabled`
-  (off by default), `edge` (`auto` = opposite the bar, or a fixed side),
-  `autohide`, `pinned`, `magnify`, `frost`, `shadow`, `labels` and `media`.
-  Sumi's `RailDock` rail widget is the in-band alternative: the same pin model
-  on the frame rail, no magnify and no preview, with a running indicator on the
-  outer edge.
+  controls out of the bar. The monitor-local menu manager owns those cards and
+  the bounded frame menus. The global Controls panel lives in
+  `ryoku/shell/quickshell/shell/modules/sidebar/`; see `docs/sidebars.md`.
+- **dock** a per-monitor shell surface that is independent of the selected bar
+  style. `UniversalDockHost.qml` loads exactly one design: Ryoku's paper islands,
+  the Python flowing dock, Shima's notched capsule, or none. All three consume
+  the same running-window model and canonical desktop-entry pins from the
+  top-level `dock` object in `shell.json`, so changing designs keeps app order
+  and aliases cannot create duplicate pins. The shared controls are enabled
+  state, edge, autohide, icon size, magnification and pin order; each design's
+  own look lives below `dock.python`, `dock.shima`, or the Ryoku look keys.
+  Stage Editor's Dock section is the only settings surface. It carries design
+  previews, shared placement and behaviour, each design's details, and pin
+  ordering. Older dock pages only open that section. The selected design is
+  loaded lazily; unselected designs do not create windows or models.
+  Ryoku's design places pinned apps first, then a separator and running apps.
+  It can magnify, label and preview windows, and optionally show media. Sumi's
+  `RailDock` remains an in-bar alternative, but reads and writes the same shared
+  pins and app identities.
+
+  Docks from RyoStore (the `docks/` catalogue of the ryostore repository, whose
+  `docks/AUTHORING.md` is the author's guide) join the same picker. Installing
+  one publishes `~/.local/state/ryoku/store/docks.json` with a content-addressed
+  view under `dock-views/<id>/<digest>/`; `services/DockProducts.qml` reads that
+  index (through the shared `StoreIndex`) and `UniversalDockHost` runs the
+  view's `Dock.qml` as the design of that id, waiting for the index so a saved
+  store dock does not flash the Ryoku design first. A store dock gets the same
+  `screen`, `surfaceVisible` and `stageEditing` the shipped designs get, reads
+  the shared model and settings from `Dock`, and opens Ryoku's context menu with
+  `Dock.openMenu`. One that fails to load draws the Ryoku design and logs why;
+  an update swaps the new view in live. The picker lists every store dock
+  beside the shipped ones (an uninstalled one opens RyoStore), offers Update, and
+  links to RyoStore. Removing the dock in use moves `dock.design` back to
+  `ryoku` in the Store's own transaction, and any dock edit drops that
+  removal's recovery marker. The shipped design ids (`Dock.builtinDesigns`) are
+  reserved.
 - **wallpaper** the background itself, drawn on the bottom layer with its own
   reveal shader for transitions: 22 presets the daemon draws from at random on
   each switch, from the crossfades, directional sweeps and circle irises to a
@@ -517,16 +548,18 @@ and per-monitor visibility from `ShellState`.
   glance (glyph, temperature, city) or the full card (condition, humidity / wind
   / feels, three days); notes is a scratch pad whose text lives in
   `~/.local/state/ryoku/desktop-notes.txt`, not in a config key, and which holds
-  the keyboard only while it has focus. Each sits
-  on auto (the wallpaper's calmest, most tonally even region, re-followed on
-  every wallpaper change), a compass zone, or free pixels; drag to move (grid
-  snap, which turns auto into free), scroll to resize, right click for the
-  widget's own menu. A drag draws a faint grid and centre guides under the
-  widgets, and the release flashes the edges and any centre line it snapped to.
-  The desktop's own right-click menu toggles each widget, opens the visualiser
-  placement, and reaches Settings and Reload shell. Configured in Ryoku
-  Settings' Desktop Widgets page, where each widget is a live preview card rather
-  than a name in a list.
+  keyboard only while it has focus. Each sits on auto (the wallpaper's calmest,
+  most tonally even region, re-followed on every wallpaper change), a compass
+  zone, or free pixels. In the Stage Editor, a widget's frame appears on hover
+  or selection with four corner handles, a size badge, and Settings and Remove.
+  Moves snap to the grid, the card centre, and other widgets' edges and centres;
+  Alt keeps a move free. Resize previews stay local, snap to 5% unless Shift is
+  held, and commit once on release. Double-clicking a handle resets to 100%.
+  Double-clicking the widget or choosing Settings opens its named drawer page
+  with quick size, lock, depth, and remove controls above its full inspector.
+  The desktop's own right-click menu has Wallpaper and Search in its quick row.
+  Its single accent row, Edit desktop, opens the Stage Editor on that monitor;
+  Settings and Reload shell remain below it.
 - **the desktop spectrum** the audio visualiser, described in full below.
 
 ### Summoned
@@ -535,26 +568,32 @@ and per-monitor visibility from `ShellState`.
 |---|---|---|
 |**launcher**|`Super+Space`|the app launcher and command palette|
 |**overview**|`Super+Tab`|the full-screen workspace expo|
-|**quick settings**|`Super+Escape`|the full-height control sidebar|
-|**feature sidebar**|`Super+S`|the framed card: chat, usage, tools|
+|**Controls**|`Super+Escape`|live system activity, connections, levels, and session actions|
+|**Kit**|`Super+K`|shortcuts, command references, phone controls, quick tools, and a typing test|
+|**ryoshot capture bar**|`Super+Shift+S`|Shot, Edit, OCR, Search, Record, and capture options in one floating bar|
+|**Ask**|`Alt+Space`|quick Rashin answers, chat, tools, web search, and the optional desktop bubble|
 |**clipboard**|`Super+V`|clipboard history at the bottom edge, with fuzzy search and a starred pane|
 |**wallpaper and theme menu**|`Super+W`|the wallpaper carousel and theme picker|
-|**ryoshot**|`Super+Shift+S`|capture, annotate, pin|
-|**visualiser placement**|`Super+Alt+M`|grab the spectrum box and aim it|
+|**visualiser placement**|`Super+Alt+M`|open the Stage Editor's Visualizer catalogue|
 |**voice**|`Super+grave`|speech to text with a live mic wave|
 |**Ryoku Settings**|`Super+,`|the Hub|
+
+### Kit
+
+Kit keeps five tools behind one search field:
+
+- **Keys** lists shared and window-manager shortcuts.
+- **Commands** keeps Ryoku, Linux, and Saved libraries separate.
+- **Phone** is set up and used in Kit. Its settings live in Ryoku Hub >
+  Connections > Phone, and `ryoku-kit phone` opens it directly.
+- **Dev tools** holds the quick tools useful during a session.
+- **Typing test** provides focused practice and history.
 
 ![The launcher at rest](media/launcher.webp)
 
 *The launcher at zero query: the hero plate, the greeting and clock, the weather,
 the search rule, and the mode buttons. Everything else appears only once you
 type.*
-
-![The control sidebar](media/controls.webp)
-
-*Quick settings, Home module: session actions, the connect tiles, sound and
-per-output brightness, the media card, a month calendar, and the power profile.
-One rail, five modules, no colour.*
 
 - **launcher** three variants ship, chosen by `LauncherConfig.variant` against
   `launcher/catalog.json`: **Hero** (the default, a full image header with mode
@@ -575,23 +614,21 @@ One rail, five modules, no colour.*
   ten workspace ids, so each desktop keeps its own 01..10; the same grouping
   drives the desktop-relative `Super+N` binds (`scripts/ryoku-workspace`). The
   gesture legend sits along the bottom margin as marginalia, not as buttons.
-- **quick settings** the shell's one full-height control body. A fixed icon rail
-  selects independently catalogued modules: **Home** (session actions,
-  connectivity and airplane, night light, keep awake, do not disturb, game mode,
-  volume and mic, per-output brightness, the media card, a month calendar, and
-  the power profile), **Notifications** (the history, grouped by app, with Clear
-  all), **Weather** (current, hourly, three-day, sun, moon phase, conditions, air
-  quality), **Capture** (screenshot and record, with the recent shots and
-  recordings), and **Media** when a player is present. Five utility buttons sit
-  at the rail's foot: lens search, OCR, QR scan, the Hub, and the colour picker.
-- **feature sidebar** a framed floating card whose left rail switches **Chat**,
-  **Usage** and **Tools**. Chat is the needle: `Needle` (`shell/services/`) holds
-  the thread in a singleton rather than in the sidebar body, so a conversation and
-  an in-flight answer survive a close and reopen, and a new chat starts only after
-  ten minutes away. A turn runs `ryoku-rashin chat` and streams the shared Hermes
-  session as JSONL, with the model picker offering whatever that session exposes.
-  Usage is a local screen-time overview. Tools is link download plus an in-shell
-  file picker that compresses media or installs packages. See `docs/bar.md`.
+- **Controls** is a compact top-left panel. Vitals is a native mini system
+  monitor with per-core load, temperatures, memory, GPU, network and disk.
+  Connections summarizes Wi-Fi, Bluetooth, Ethernet and VPN. Levels keeps fine
+  volume and brightness controls with inline per-application audio and
+  per-display brightness drawers. Its bottom bar combines hold-to-activate
+  session actions, quick toggles, Extensions, and a gear popup.
+- **ryoshot capture bar** is the single entry point for screenshots and screen
+  recording. Its settings popover owns the 0/1/3/5/10-second delay,
+  clipboard/file/both saving, editor handoff, desktop and microphone audio,
+  key-press and webcam overlays, the screenshots folder, and the link to Hub >
+  Recording. Controls does not duplicate any of these capture options.
+- **Ask** is a Raycast-style Rashin bar for quick streaming answers, full chat,
+  tools and web search. `\`, `?` and `/` select Ask, Web and Tools; Tab cycles
+  modes. A pinned chat bubble can be dragged, edge-snapped and dismissed, with
+  its position stored under `ask.bubble`. See `docs/sidebars.md`.
 - **wallpaper and theme menu** a carousel of the wallpaper library (four layouts:
   strips, grid, drift, hearthstone) with the current wall large and named, a
   colour-filter strip, a live tab for animated walls, and a bottom-centre frame
@@ -616,11 +653,14 @@ One rail, five modules, no colour.*
 
 - **notifications** toasts in a top corner, left or right by config, 16px off it,
   driven over D-Bus. Each card glides in from off the edge it is anchored to and
-  leaves the same way, and its siblings slide down to close the gap.
+  leaves the same way, and its siblings slide down to close the gap. This card is
+  the shipped `ryoku` notification design; other installed designs can be worn
+  from Settings -> Overlays.
 - **OSD** one pill, bottom centre, for volume, mic or brightness, raised by the
   media and brightness keys and hidden on a timer. It spans the desktop hole so
   the compositor clamps it inside the frame, which is why it needs no reserve
-  arithmetic of its own.
+  arithmetic of its own. The pill is the shipped `ryoku` OSD design; other
+  installed designs can be worn from Settings -> Overlays.
 - **capture overlays** the region selector, the camera permission prompt, and the
   keypress overlay a recording draws so a demo shows its own keys.
 - **confirm** the session dialog for shutdown, reboot and logout, drawn on the
@@ -654,11 +694,12 @@ One rail, five modules, no colour.*
   Hub's Lockscreen page and install from Ryostore; they are the one part of the
   desktop that deliberately does not read `Tokens`, because a lock skin is a
   whole look, not a surface inside ours.
-- **third-party widgets** a plugin ships `manifest.json`, a `service/Main.qml`
-  and a `content/Widget.qml`, and picks one of three hosts: a desktop widget, a
-  frame popout, or a bar glyph. `Ryoku.PluginKit` gives it the shared primitives,
-  and the kit's Theme reads `Scheme`, so a plugin follows the active theme without
-  knowing anything about it. See `docs/plugins.md`.
+- **third-party widgets and cards** a plugin ships `manifest.json`, a
+  `service/Main.qml` and a `content/Widget.qml`, then picks one of four hosts: a
+  desktop widget, a frame popout, a bar glyph, or a sidebar card.
+  `Ryoku.PluginKit` gives it the shared primitives, and the kit's Theme reads
+  `Scheme`, so a plugin follows the active theme without knowing anything about
+  it. See `docs/plugins.md`.
 
 ## The desktop spectrum
 
@@ -677,8 +718,17 @@ through the same `Ryoku.Ui.SpectrumField`, so the preview is the exact geometry
 the wallpaper draws and the two cannot drift; only the ramp differs, since app
 content carries no accent.
 
-There are eleven looks, eight that grow from an edge of their box and three that
-are polar:
+There are twelve looks: eight that grow from an edge of their box, three that
+are polar, and one that is not a box at all. `aura` is an edge field, drawn by
+`ryoku/ui/AuraField` and `shaders/aura.frag` instead of the spectrum shader:
+twelve eased sectors (folded and followed in `lib/aura.js`) flow along chosen
+screen edges as one organic current, a rail, an open frame or a joined
+perimeter. It owns four small vocabularies -- material (silk, aurora, contour,
+liquid), movement (flow, ribbon, cells, filament), effect (clean, shimmer,
+echo, prism, bloom, caustic, afterglow) and colour mode (flow, spectrum, pulse,
+static) -- plus reach, span, taper and corner blending, and it paints a
+wallpaper-lit triad unless all three stops are pinned. Its motion twin is
+`AuraMotion`, which runs the same adaptive idle/halve rules as `Motion`.
 
 |Look|Kind|What it is|
 |---|---|---|
@@ -693,8 +743,9 @@ are polar:
 |`radial`|polar|rounded polar bars and a per-angle ramp around a bass-pulsed inner ring|
 |`orb`|polar|a glass sphere: a barely-there body, a wobbling lit rim and ripples inside|
 |`spiral`|polar|bands laid along an Archimedean spiral over one and a half turns|
+|`aura`|field|a living current of light flowing along the screen's edges, twelve sectors deep|
 
-Every look lives in a box, and the box goes anywhere. `x` and `y` place its top
+Every look but `aura` lives in a box, and the box goes anywhere. `x` and `y` place its top
 left corner as fractions of the screen, `w` and `h` size it, `grow` says which of
 its edges the bands rise from (up, down, center, left or right), and `angle` turns
 the whole thing about its centre. A polar look centres in the box and takes its
@@ -729,37 +780,36 @@ maps that bound onto the box. The quad then touches all four sides at every lean
 crosses none of them, which `place.test.mjs` pins as an invariant, and the placement
 guides stay honest without the gestures having to invert a projection.
 
-The box is placed by hand rather than by numbers. `Super+Alt+M`, the Move
-visualiser row in the desktop's right-click menu, or the Hub's Place on the desktop
-button starts placement mode. The box takes an outline, a grip on its corner and a
-dot on a stem above its top edge: a drag anywhere moves it, the grip or the wheel
-sizes it, and the dot turns it through a full circle. Each step writes to
-`visualizer.json` as it happens, and right click, Escape or the keybind ends it.
+Each visualizer instance is placed by hand rather than by numbers.
+`Super+Alt+M` or
+`qs -c shell ipc call desktop editSection visualizer` opens the Stage Editor's
+Visualizer catalogue with an instance selected. Every instance has its own
+frame and grip (`visualizer:<index>`); selecting one retargets the catalogue.
+Dragging moves it, a corner sizes it, and the top handle turns it. The preview
+stays local during a resize, then one write and one undo step land on release.
+Remove deletes only that instance. The visualizer turns off when the last
+instance is removed, and undo restores a removed instance at its index with all
+of its settings.
 
-An editing bar (`EditBar.qml`) comes with it, fixed to the bottom of the screen and
-stepping to the top when the box would be under it: a readout of the thing being
-moved is the one thing on screen that must not move with it. It carries the look
-itself, and the knobs you judge by eye rather than by number: the current look drawn
-as a silhouette (click for a tray of all eleven, or wheel the chip to walk them),
-bands, mirror, peak caps, gain, smoothing, the live angle with a SQUARE reset, the
-two leans with a LEVEL reset, the size, FLIP and DONE. `F` flips, `M` mirrors, `P`
-toggles peak caps, `R` squares, `[` and `]` walk the looks. The point is that a look
-is tuned where you can see it,
-on the wallpaper, instead of behind the Hub's window; the Hub keeps the full board.
+The catalogue leads with a gallery of every look, followed by Look, Place,
+Colour, Motion, Shape, and, where useful, Field chips. Place offers width,
+height, across, down, and turn, with Centre, Square, Full width, Top, Middle,
+and Bottom actions. Done leaves the editor; Escape first closes the open panel
+and clears the selection.
 
-The bar is built from `Ryoku.Ui`'s own controls (`Btn`, `Step`, `Sw`, `Slid`,
-`Gallery`) at the shell's own token metrics, so it is the shell's idiom at the
-shell's size rather than a surface with a look of its own, and the tray is the Hub's
-gallery with the Hub's painter (`VizStyles`), so what a look looks like is drawn from
-one catalogue. Each control carries a tracked eyebrow naming it, and the gestures sit
-under a hairline inside the plate: an instruction is not a control, and outside the
-plate it was unreadable over a picture. A knob that means nothing for the look in
-hand dims rather than vanishing, since a bar that reflows as you walk the catalogue
-cannot be aimed at; `Config` owns which those are (`peaksApply`, `mirrorApplies`) and
-the renderer reads the same rule, so the switch that dims is the one the shader
-ignores. Every edit from the bar settles through the same coalescer as a placement
-gesture: the file is watched, so a write returns as a reload, and the look changes
-the instant the adapter does because the render reads the adapter, not the file.
+The Stage island maps its paper, ink, spacing, and Space Grotesk, Fraunces, and
+mono type through `modules/common/Appearance.qml` to Ryoku.Ui tokens. A look is
+tuned where it is visible, on the live wallpaper, rather than in a detached
+placement surface.
+
+The catalogue uses the desktop menu's rows (`MenuRow`, `MenuSlider`,
+`MenuChip`, `MenuInkPicker`) and the shared `Gallery` painter (`VizStyles`), so
+what a look looks like is drawn from one catalogue. A knob that means nothing
+for the look in hand hides rather than dims; `Config` owns those rules
+(`peaksApply`, `mirrorApplies`) and the renderer reads the same answer. Every
+committed edit settles through the same coalescer: the file is watched, so a
+write returns as a reload, and the render reads the adapter rather than the
+file.
 
 Every gesture applies the pointer's delta from where it was pressed rather than its
 absolute position, so nothing jumps out from under the cursor, and the box eases
@@ -789,19 +839,18 @@ one transform instead of re-deriving every band, its reflection and its bloom; t
 box itself stays axis-aligned, and the wallpaper tone is read from the turned
 region the look actually covers rather than from the box.
 
-Placement runs on its own overlay surface (`Placer.qml`) rather than lifting the
-spectrum's own, which is click-through for life: a masked surface does not start
-taking a pointer again just because the region is swapped. While a box is being
-aimed the spectrum rides the top layer so a window cannot hide what is being
-placed, and aiming one that is off turns it on first, since aiming nothing places
-nothing. Ending placement hands the layer back to the mode, so it drops behind
-windows again unless the overlay is what the user chose.
+Placement runs inside the lifted desktop surface while the Stage Editor frames
+the monitor: the spectrum's own surface is click-through for life and a masked
+surface does not start taking a pointer again just because the region is
+swapped, so the grip rides the desktop instead, which already takes presses
+while composing. Aiming a look that is off turns it on first, since aiming
+nothing places nothing; outside the editor the overlay mode still raises the
+spectrum's own surface over windows.
 
-Whether the spectrum runs at all is the persisted `enabled` key, so the keybind, the
-Hub's switch and the next restart all read one answer; only the layer, desktop or
-overlay, is per-monitor memory. It was in-memory state before, which meant a restart
-started at off with `enabled` still true, and the Hub's switch could not turn a
-running shell's spectrum on.
+Whether the spectrum runs at all is the persisted `enabled` key, so the
+keybind, the catalogue, and the next restart all read one answer; only the
+layer, desktop, or overlay is per-monitor memory. It was in-memory state before,
+which meant a restart started at off with `enabled` still true.
 
 The `curtain` is the one look that reads the rest of the shell: its surface
 honours exclusive zones instead of ignoring them, so it starts where the bar ends
@@ -846,6 +895,13 @@ which process you are in.
   opening) and `effects` (200ms). A curve is a `cubic-bezier` control-point array
   handed to `easing.bezierCurve` beside a bezier `easing.type`; the shared
   expressive family keeps indicator, popout and frame-bar reveal motion coherent.
+- **The Controls surface moves in small, local steps.** `SidebarState` scales
+  `Tokens.swap` for opening and `Tokens.move` for closing; `quick`, `standard`,
+  and `calm` apply multipliers of 0.6, 1, and 1.5. The panel fades in and settles
+  a short distance from its screen edge. Detail pages crossfade; selected rows
+  use a quiet bone plate. Hover, focus, and save states ease between colours or
+  opacity. Both `Motion.reduce` and `Tokens.reduceMotion` remove every surface
+  and chrome animation.
 - **Every shell token is already scaled.** Each one is defined as `dur(ms)`,
   which multiplies by `Perf.motionSpeed` (the user's tempo, `motionSpeed` in
   `performance.json`) and collapses to zero under reduce-motion, so the whole
@@ -907,8 +963,8 @@ how each shipped specimen was made is `bin/art/README.md`. In short:
 - **One home.** Both bakers write into `ryoku/assets/ryodecors`, so a new decor
   ships everywhere at once: the installer seeds it, the `ryoku-desktop` package
   carries it to `/usr/share/ryoku/ryodecors`, and `ryoku doctor` lays it into
-  every `~/Pictures/ryodecors`. The profile hero and its editor read it by bare
-  filename.
+  `ryodecors/` under each user's configured Pictures folder. The profile hero
+  and its editor read it by bare filename.
 
 Figurative art that is not decor (the launcher hero, the welcome backdrop, the
 profile portrait) follows the same rule: generated at dev time, background

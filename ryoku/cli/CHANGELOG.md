@@ -2,7 +2,664 @@
 
 ## Unreleased
 
+### Added
+- **`ryoku-host users` manages local accounts on every edition.** The typed
+  JSON API lists human users, roles, curated permissions, sessions and Btrfs
+  home usage; privileged verbs add, remove and edit accounts without putting
+  passwords in argv. It rejects unsafe names, active or self deletion, and
+  deleting or demoting the last Administrator (`internal/host/users.go`).
+- **`ryoku-host pkg status` answers a whole batch.** It prints one line per
+  package, `name<TAB>installed|available|unavailable<TAB>repo|aur<TAB>reason`,
+  on pacman, dnf and xbps alike, with the edition table's sentence as the
+  reason for a package the edition does not ship
+  (`internal/host/package_status.go`).
+- **`ryoku-host pkg --overlay <table>`** (or `RYOKU_HOST_PKG_OVERLAY`) lays a
+  catalogue's own package table under Ryoku's edition table, so Store bundles
+  name their packages per edition while Ryoku's own row still wins
+  (`internal/host/overlay.go`). A Void row's `repo=` may list several
+  repositories (`repo=nonfree,multilib`); each `void-repo-*` package is
+  installed first (`internal/host/xbps_enablers.go`).
+- **Doctor watches the Fedora release key.** It warns when `ryoku-keyring` is
+  gone, when the key file is missing or no longer the packaged one, and puts
+  the key back into the rpm keyring when rpm stopped trusting it. It also
+  drops revoked Ryoku keys from the rpm keyring after an update; that part
+  was contributed by itsKontra.
+- **Icon-theme choices survive updates.** Materialize reapplies the Hub's
+  remembered icon theme after refreshing the shipped GTK and Qt configs, before
+  recording their final hashes, so the choice neither resets nor becomes a
+  frozen whole-file fork (`internal/updater/materialize.go`).
+- **Every dnf transaction on Fedora gets a snapshot pair.** The `ryoku` RPM
+  ships a libdnf5 actions hook (`fedora/system/snapshots/`) that takes a snapper
+  pre/post pair around each `dnf` run, the way snap-pac does for pacman.
+  `ryoku update` writes its pid and start time to `/run/ryoku/update-snapshot`,
+  and the hook takes no pair inside the update's own. Once that pid is gone or
+  belongs to another process, the hook takes pairs again.
+- **`ryoku doctor` lays out Fedora snapshots.** On a btrfs Fedora root it
+  creates `/.snapshots` as a top-level subvolume with its own `/etc/fstab`
+  entry (copied from the root's, with its own `subvol=`), so a whole-system
+  restore that swaps the root subvolume keeps the snapshots. An existing
+  subvolume or fstab entry is adopted, and an empty `/.snapshots` nested in the
+  root (what `snapper create-config /` makes) is moved to the top level; one
+  that already holds snapshots is reported with the steps to clear it.
+  `SNAPPER_CONFIGS` goes to `/etc/sysconfig/snapper`, where Fedora's snapper
+  units read it.
+- **Fedora gets snapshots.** The host now reports snapshots as supported on
+  Fedora, so `ryoku update` takes its pre/post pair, `ryoku snapshots` lists
+  them, and the doctor sets them up.
+- **Fedora's GRUB lists the snapshots.** A **Ryoku snapshots** submenu boots
+  each snapshot read-only, its writes in RAM, from a copy of Fedora's own
+  signed kernel on `/boot`, so Secure Boot keeps working. `ryoku boot-menu
+  sync` rewrites it after every snapshot (through `ryoku-snapshot-menu.path`
+  and a snapper plugin), and `sudo ryoku boot-menu restore`, run in that
+  snapshot's boot, makes the snapshot the root again and keeps the replaced
+  root for two weeks. The first boot after a restore brings Fedora's kernel
+  entries in line with the restored root. Fedora's `grub-boot-success.timer` is left alone.
+- **Fedora's GRUB uses the Ryoku theme.** It draws the Limine menu's layout on
+  the Ryoku wallpaper: the "Ryoku Bootloader" title, the key help, the centred
+  list with a burnt-orange selection bar, and the countdown. The wallpaper moves
+  from `system/boot/limine/`, where nothing used it, to `fedora/system/boot/grub/theme/`.
+  `ryoku-grub-menu install` builds the "Ryoku Mono" fonts onto `/boot` (SpaceMono,
+  else Noto Sans Mono, else GRUB's Unifont), so an encrypted root never has to
+  be read for them; a serial terminal is kept as it is.
+- **`ryoku rollback` and the boot guard use Fedora's snapshot menu.**
+  `ryoku rollback <id>` walks through booting the snapshot (or
+  `grub2-reboot` to it) and `sudo ryoku boot-menu restore`, falling back to
+  `snapper undochange` while the menu lists nothing. `ryoku snapshots` says the
+  GRUB menu lists them. After three failed boots, the boot guard sends the next
+  boot once to the pre-update snapshot's read-only entry; it never restores on
+  its own.
+- **`ryoku-host phone` installs and removes the phone feature.** `status`,
+  `enable`, `disable` and their `plan-` dry runs translate one package set per
+  edition (Arch, CachyOS with the running kernel's headers, Fedora through two
+  COPRs, Void), load v4l2loopback from `phone-v4l2loopback.conf` (a name the
+  doctor's stray-file sweep leaves alone), roll back a half-finished install,
+  keep the record of what it installed across repeated enables, and remove only
+  what the switch itself installed (`internal/host/phone.go`).
+
+### Fixed
+- **Doctor seeds the decor art into the localized Pictures folder.** On a
+  desktop whose Pictures folder is `~/Imágenes`, `~/Bilder` and so on, the
+  decor reconciler recreated an English `~/Pictures/ryodecors` on every run, so
+  deleting the stray folder never stuck. It now follows `XDG_PICTURES_DIR`,
+  then `user-dirs.dirs`, and falls back to `~/Pictures` when neither names a
+  usable folder or Pictures is disabled (`internal/sys/paths.go`,
+  `internal/doctor/doctor.go`).
+- **Doctor removes Stage Editor keys retired by the widget settings update.**
+  Existing `stage-editor.json` files kept fourteen settings whose controls and
+  readers were removed, so Stage reported them after every shell restart.
+  Doctor now removes those paths while preserving every current widget setting
+  (`internal/doctor/doctor.go`).
+- **`ryoku update` never rolls the desktop back.** Offline, it could not read
+  the Testing gate, stayed on a checkout a week behind the running desktop and
+  deployed it anyway, which took the default bar away with every newer
+  change. Without the gate it now keeps the desktop that is running, and it
+  never lays down a checked commit older than the one already deployed
+  (`internal/updater/channel.go`).
+- **Fedora's 32-bit packages resolve.** A name with an architecture suffix,
+  such as `mesa-dri-drivers.i686`, is looked up as a package, not as something
+  a package provides, so `ryoku-host pkg status`, `install` and `version` find
+  it (`internal/host/dnf.go`).
+- **`ryoku update` no longer hangs in its closing doctor run.** When the shell
+  was down and left no log, the desktop-load check started the shell to see
+  whether it loads and then waited for it to exit, which a working shell never
+  does. The check now stops the probe as soon as it reports loading, or after
+  twenty seconds, and leaves nothing it started running
+  (`internal/doctor/bounded_probe.go`).
+- **Neovim shows up once in the launcher.** Ryoku's `ryoku-nvim.desktop` and
+  the neovim package's `nvim.desktop` both say Neovim, so every launcher and app
+  grid listed it twice. The doctor writes a user-level copy of the package's
+  entry with `NoDisplay=true` (MIME handling keeps working) and ledgers it, so
+  a user who deletes it keeps the package's entry; fresh ISO installs get the
+  same copy at install time (`internal/doctor/reconcile_launcher_duplicates.go`,
+  `installation/backend/lib/deploy.sh`).
+- **`ryoku update` no longer warns about a removed compositor provider.**
+  Materialize preserves a switched-away compositor's config tree so it can be
+  restored later, but after its variant package was removed it still tried to
+  repair missing or stale generated files and printed a provider-not-found note.
+  Trees without their `ryoku-wm-<name>` binary are now left untouched; installed
+  providers still report real render failures (`internal/updater/materialize.go`).
+- **Wallpaper app colours recover after switching to packaged Ryoku.** The
+  doctor now recognizes old palette bridge user services using
+  `%h/.local/bin/ryoku-palette-bridge`, restores the packaged service while
+  preserving enablement, and restarts an enabled or running bridge. Disabled
+  bridges stay disabled, and service reload failures are reported.
+- **`ryoku update --help` prints help instead of updating the machine.** Any
+  option update did not know used to fall through into a full run: the password
+  prompt, the config re-laid, the desktop restarted. `-h` and `--help` now
+  print the usage, and an unknown option is refused before anything starts
+  (`internal/updater/update.go`).
+- **An update waits for the desktop to load before healing it.** The healing
+  step started as soon as the shell's sleep guard answered, while Quickshell
+  could still be loading the new tree, so the doctor flagged "desktop loads"
+  on every update on slower boxes. The run now waits up to 25 seconds for
+  Quickshell's finished-load line and says so in one line if it never comes
+  (`internal/updater/update.go`).
+- **The line after an update names the box's own package manager.** Void and
+  Fedora boxes were told prowl is managed by pacman; it now says xbps or dnf
+  (`internal/updater/update.go`).
+- **`ryoku doctor` waits for a just-started Prowl gateway to listen.** A
+  successful service start could be reported as failed before the gateway
+  opened its socket. The doctor now waits up to 15 seconds for it to answer
+  (`internal/doctor/reconcile_rashin_daemon.go`).
+- **Snapshot boots explain their read-only state and refuse updates.** The
+  `ryoku rollback` and `ryoku status` messages now say the boot runs a snapshot
+  read-only and point at the restore command. `ryoku update` refuses before its
+  package steps, avoiding writes to the live disk's boot files from a
+  RAM-backed root (`internal/updater/update.go`).
+- **`ryoku debug` stops reporting the shell as missing.** The desktop section
+  ran `pgrep -af quickshell`, but the shell is invoked as `qs -c shell`, and
+  only ryogami and the lockscreen carry `quickshell` in their command line. So
+  every bundle anyone shared looked like the shell was not running, which is the
+  first line a maintainer reads, and the pattern matched the report's own
+  command line besides. It now anchors on the executable and catches both
+  spellings (`internal/doctor/report.go`).
+- **A service state the report could not read is no longer printed as absent.**
+  runit answers `is-active` for a system service by reading root's supervise
+  directory, and the report is normally unprivileged, so the query failed
+  and the host layer called the service absent. Every Void bundle therefore
+  claimed sddm, NetworkManager and bluetooth were all down while they were
+  running, with and without a sudo ticket, because sudo is never invoked. The
+  report now says the state is unreadable without root
+  (`internal/doctor/report.go`).
+- **`ryoku doctor` recognizes displays attached to the discrete GPU.** A
+  never-suspended card now reports the dGPU-wired output as expected load instead
+  of blaming processes for idle drain (`internal/doctor/reconcile_dgpu_panel.go`).
+- **`ryoku doctor` clears what earlier Fedora packages left in the boot menu.**
+  Their console plugin twinned every kernel's boot entry as
+  `<kver>~ryokuconsole`; once the plugin is gone the twins are removed. Their
+  `%post` disabled Fedora's `grub-boot-success.timer` for every user; the
+  doctor turns it back on once (`/var/lib/ryoku/migrations/grub-boot-success-timer`),
+  so a later choice to disable it stands. `ryoku-grub-menu install` drops the
+  files an earlier theme left in `/boot/grub2/themes/ryoku`.
+- **Updates preserve installer package choices.** Control-manifest convergence
+  now excludes browser, login-shell, and compositor packages selected per box,
+  so it cannot install alternatives the user did not choose.
+- **`ryoku doctor` adopts the buttonless-touchpad click default once.** Saved
+  desktop settings that still carry the old disabled clickfinger default move
+  to the new enabled default, while a later explicit choice remains untouched.
+- **Privileged doctor checks stay on the desktop user's session and boot path.**
+  User services and the login shell now target the resolved sudo account,
+  Limine migrations write a nested kernel entry path instead of a numeric
+  default, and stale unloaded app scopes no longer produce reset-failed noise.
+- **`ryoku update` stops ending on a health warning you cannot act on.** On a box
+  where /boot is root-only, the kernel-image reconciler could not stat the boot
+  images and reported a warning, so every unprivileged update finished with "the
+  health check found issues" over something only root can even look at. A denied
+  read is now a note, like the boot-layout and /boot-headroom reconcilers beside
+  it already treated it; an image that fails to stat for any other reason is
+  still a warning (`internal/doctor/reconcile_limine_images.go`).
+
+### Removed
+- **`ryoku doctor` removes the unread nested frame switch.** Existing
+  `shell.json` files shed the retired key while preserving every sibling
+  setting (`internal/doctor/doctor.go`).
+
+### Added
+- **Doctor now gates the 0.75.5 shell-settings jump with a real fixture.** The
+  test runs every shell-store migration, checks preserved choices and
+  idempotency, and rejects any retired key drop that is not explicitly listed
+  (`internal/doctor/shell_migration_fixture_test.go`).
+- **`ryoku update` shows one bar per compilation on source boxes, with how long
+  each piece usually takes.** The terminal and Hub share the per-piece view and
+  first-build explanation.
+- **`ryoku update` checks the channel build before touching the box.** An
+  in-progress packaged build stops the run with its Actions URL; `--wait` polls
+  for completion and `--force` bypasses the hold. A failed last build warns and
+  leaves update on the previous published repository.
+- **`ryoku status` adds `build:` and `check:` lines.** Packaged boxes show an
+  in-progress or failed channel build, while source boxes show when the current
+  tip is still being checked. The JSON report carries the same `channelBuild`
+  and `channelCheck` records.
+- **`ryoku track unstable` is the source testing lane.** It follows
+  `unstable-dev` only as far as the Testing gate has passed, while `--wait`
+  polls a running gate and `--force` deploys the current tip. Frozen unstable
+  build names remain package pins for tracking and rollback.
+- **The host seam reconciles service activation from one manifest.**
+  `ryoku-host svc reconcile` enables system services through systemd or runit,
+  writes the ordered Turnstile session roster, and preserves explicit user
+  disables. Doctor applies the user scope after every update.
+- **Updates, channels, rollback, and doctor now work on Fedora.** The host seam
+  detects dnf5 or dnf, translates the shared package catalogue, reads and
+  rewrites `/etc/yum.repos.d/ryoku.repo`, and moves the exact RPM set served by
+  stable, testing, or a frozen target in one transaction. The boot guard can
+  downgrade a failed update; snapshot commands explain that Fedora's GRUB path
+  has no Ryoku snapshot support. Doctor repairs repository metadata and uses
+  RPM-specific health advice.
+- **Unstable builds now have the same rollback path as stable releases.**
+  The latest ten testing builds are listed on unstable boxes and can be pinned
+  with `ryoku track <build>` or restored with `ryoku rollback --to <build>`.
+  Pacman and XBPS use their frozen build repositories, and the boot guard can
+  return to the previous unstable build after a failed boot.
+- **The host seam now publishes capabilities and portable system actions.**
+  `ryoku-host` can explain unavailable Void packages, print native install
+  advice, distinguish AUR availability, pass pacman overwrite rules through
+  package installs, list time zones, drive power actions through systemd or
+  elogind, and report package, init, snapshot, and AUR capabilities as JSON
+  (`internal/host/`).
+- **Void updates now use the signed Ryoku XBPS repository end to end.**
+  `ryoku update`, channel tracking, status, manifest convergence, shipped-app
+  repair, and retired-package cleanup use the same host seams as Arch, mapped
+  to `xbps-query`, `xbps-install`, and `xbps-remove`. Managed transactions
+  carry `RYOKU_MANAGED_UPDATE=1` so the package hook does not run a second
+  power cutover. The old installer-created Void source-update fallback is gone;
+  explicit development checkouts still work.
+- **Void updates now have the same snapshot and rollback safety net as Arch.**
+  Updates create snapper pre/post pairs, frozen-release rollback moves the XBPS
+  set transactionally, and the boot guard can revert a bad release or select the
+  pre-update Limine snapshot.
+- **`ryoku-host` answers "how does this machine do it" for everything else.**
+  One small binary names the init system and package manager and runs service,
+  package, inhibitor, timezone and keymap actions through systemd and pacman
+  on Arch or runit and xbps on Void, with the same exit codes everywhere: 3 for
+  "no", 4 for "not here", 5 for "this host has no such thing". Scripts, the Hub
+  and the shell call it instead of `systemctl` or `pacman`, so a fix lands once
+  for every distro (`internal/host/`, `cmd/ryoku-host/`).
+- **Void's Turnstile and D-Bus setup is automatic and self-healing.**
+  `ryoku-host session ensure` enables turnstiled and dbus, sets
+  `manage_rundir = no` for elogind, keeps `pam_turnstile` in
+  `/etc/pam.d/system-login` (backing the file up before the one-line insert),
+  and gives the user a dbus service Turnstile waits for at login. Every deploy
+  and update runs it. `ryoku-host session check` lists what is missing, and
+  `session fix-wrappers` removes `dbus-run-session` and `dbus-launch` wrappers
+  from login files and user session entries, keeping a backup, because they
+  start a second bus that portals, PipeWire and polkit never see. `ryoku
+  doctor` runs the check on runit machines and repairs what it finds
+  (`internal/host/turnstile.go`, `internal/doctor/reconcile_turnstile.go`).
+- **`ryoku doctor` keeps Prowl's gateway up for Rashin.** When Rashin runs but
+  the gateway on port 8788 (`RYOKU_PROWL_PORT`) does not answer, the doctor runs
+  `ryoku-rashin ensure` and checks again
+  (`internal/doctor/reconcile_rashin_daemon.go`).
+- **`ryoku update` is a clean console now, not a wall of logs.** A terminal
+  run shows a header, one line per step with its time and what it found, a
+  live line for the step in flight, a progress bar, and a closing card; the
+  raw output of pacman, git, the builds and the doctor lands in
+  `~/.local/state/ryoku/update-log.txt` instead. Only `error:`, `warning:` and
+  `note:` lines, a `.pacnew` and the doctor's findings reach the screen. A
+  failure shows the error, the last lines the work printed and the rollback
+  snapshot. `ryoku update -v` streams the raw output instead
+  (`internal/updater/console.go`, `internal/updater/capture.go`).
+- **`ryoku update --gui` runs an update from Ryoku Settings, no terminal.** It
+  starts the run in the background under a pseudo terminal; sudo's password
+  and any question come back through the Hub (`--auth` takes the password on
+  stdin, over a FIFO), and `--cancel` stops a run (`internal/updater/gui.go`).
+- **An update watches itself.** Every two seconds the run rewrites its
+  run-state with a heartbeat, the line its work last printed, and a read of
+  its own process tree: output or CPU time is progress, three minutes of
+  neither is a stall, and the newest command in the tree is named. A stopped
+  run (Ctrl-C, `--cancel`) hands back what it quiesced (the shell, the sleep
+  guard) and lets a committing package transaction finish on its own
+  (`internal/updater/watch.go`, `internal/updater/abort.go`).
+- **Updates and repairs cover the desktop they blank.** `ryoku update`'s
+  packaged teardown and `ryoku doctor`'s daemon restart both raise the reload
+  cover before stopping the shell, so the swap and cold reload run behind the
+  animation instead of a grey flicker; headless calls fail fast and proceed
+  uncovered (`internal/updater/update.go`, `internal/doctor/doctor.go`).
+- **`ryoku doctor` retires Shima's stored frame music choice.** The
+  `inir.iris.surround.music` key chose between a wave Ryoku never hosts and the
+  frame; the switch now drives the frame on its own, so the key is removed from
+  `shell.json` while every sibling setting stays as it was.
+  (`internal/doctor/reconcile_shima_frame_music.go`)
+- **`ryoku doctor` cleans up the retired panel state and shortcut.** The
+  sidebar migration removes obsolete layout records, and the Ask-keybind
+  migration removes only the orphaned retired-surface rebind while preserving
+  every current custom shortcut and neighbouring shell setting.
+  (`internal/doctor/reconcile_sidebar_rework.go`,
+  `internal/doctor/reconcile_ask_keybind.go`)
+- **`ryoku doctor` removes the retired Ryoku Motion package.** `ryomotion`, the
+  screen-demo recorder, shipped as a hard depend once, so a box installed before
+  it was dropped still carries it and pacman never removes it on its own. The new
+  retired-apps reconciler removes it (`pacman -Rns --noconfirm ryomotion`); a box
+  that never had it is left untouched
+  (`internal/doctor/reconcile_retired_apps.go`).
+- **`ryoku doctor` names the reverse-PRIME first-commit hazard.** On a laptop
+  whose connected panel is driven by the iGPU while the render pin puts NVIDIA
+  first, the session's very first cross-GPU commit fails once on some kernels
+  and the panel stays black until reboot (#270). The pin is deliberate Ryoku
+  policy, so this is a note, never a change: it names the combination and both
+  ways out (`ryoku-gpu disable` clears the pin, `ryoku-gpu persist` restores
+  it), so a black-panel report carries its own suspect
+  (`internal/doctor/reconcile_gpu_pin_panel.go`).
+- **`ryoku wm caps` prints the active provider's capabilities as JSON**, the
+  same payload the daemon and the Hub gate on, so a script can read the night
+  light backend or a capability without spelling a compositor. `ryoku wm act`
+  now forwards the provider's stdout, which is how `input.touchpad status`
+  answers (`wm.go`).
+- **`ryoku update` re-authors the compositor settings.** The generated config
+  is a pure function of the store and the provider that wrote it, so after the
+  new config tree lands the live provider applies the store again; a provider
+  fix that changes what it emits (niri's border needing an explicit on) reaches
+  a box on the update instead of waiting for the next Hub edit
+  (`internal/updater/update.go`).
+- **`ryoku doctor` repairs a read-only boot volume.** /boot, and /efi on an
+  alongside install, are FAT volumes, and one the firmware or a neighbouring OS
+  left dirty can come up read-only: every boot-path write then fails in ways
+  that look unrelated (mkinitcpio copies nothing, limine-update writes nothing,
+  an update ends in "rollback now"). The new reconciler remounts it read-write,
+  and if the kernel refuses, unmounts, runs `fsck.fat -a` and mounts again; a
+  busy mount is left alone with the exact manual command instead of being
+  forced. The btrfs root's read-only flip stays `reconcileBtrfsHealth`'s
+  (`internal/doctor/reconcile_boot_rw.go`).
+
 ### Changed
+- **Rashin is a deliver-once app.** `ryoku-rashin` joins the manifest's apps
+  table, so the doctor installs it once on a box that never had it, marks an
+  existing install as explicit (it stays when the desktop stops depending on
+  it), and leaves a removal alone. `prowl` joins the opt-in list: it only ever
+  arrives as Rashin's dependency, so a box without Rashin never gets it back
+  from the first-party lane.
+- **`bin/ryoku-track` prepares one compositor-neutral source checkout.** It
+  clones `https://github.com/ryoku-dev/ryoku.git`, installs the toolchain
+  through the host package manager, and no longer writes a compositor config
+  file.
+- **The Prowl checks know only `prowl`.** The install check suggests
+  `sudo pacman -S prowl`, `ryoku update` refreshes only `prowl`, and a
+  dev-deployed `ryoku-prowl.service` that shadows the packaged unit is cleaned
+  like the Rashin one (`internal/doctor/reconcile_dev_residue.go`,
+  `internal/updater/update.go`).
+- **`ryoku track` speaks stable and unstable.** The channel switch is now
+  `ryoku track stable` and `ryoku track unstable`; the old `ryoku track main`
+  and `ryoku track unstable-dev` are retired and fail naming their replacement.
+  `unstable` is the user-facing name of the `testing` channel (its internal key
+  -- the repo path, the `[ryoku]` `Server`, the channel-intent file -- is
+  unchanged, and `ryoku track testing` still works as a quiet synonym), and
+  every message the CLI prints (`status`, `version --branch`, the doctor, the
+  boot guard notice, help) says `unstable`, never `testing`. `--source` takes
+  the new names too: `ryoku track stable --source` builds from the `main`
+  branch, `ryoku track unstable --source` from `unstable-dev` (`track.go`,
+  `internal/sys/release.go`, `internal/updater/release.go`).
+
+### Fixed
+- **Updates stop fighting packages a box carries its own way.** The manifest
+  step counted a package as present only under its exact name, so a box with
+  rustup, sudo-rs, tuned-ppd or CachyOS's plain limine-entry-tool looked like it
+  was missing rust, sudo, power-profiles-daemon or limine-mkinitcpio-hook. Every
+  update tried to install the stock package over it, pacman refused under
+  `--noconfirm`, and the next update tried again. A name an installed package
+  provides now counts as present (`pacman -T`, as the shell installer already
+  did), limine-mkinitcpio-hook joins limine-snapper-sync as a Limine-box package
+  the doctor owns, and the UKI boot-tree check accepts any build of
+  limine-entry-tool instead of installing the hook over it
+  (`internal/updater/manifest.go`, `internal/ryokumanifest/manifest.go`,
+  `internal/doctor/reconcile_limine.go`).
+- **A refused package transaction names its packages everywhere.** The pair
+  pacman says are in conflict, or the dependency it cannot satisfy or would
+  break, now reaches the error the Hub's failure card and the console's closing
+  card show, not only the console notes, and the question pacman printed under
+  `--noconfirm` reads as the same pair instead of a second note. The
+  package-database healing still reads only pacman's own error lines, so a
+  package name never drops the [ryoku] db (`internal/updater/upgradelog.go`,
+  `internal/updater/console.go`).
+- **NVIDIA driver updates now warn before a black-screen login.** Doctor
+  compares the loaded module with the version installed for the running kernel,
+  and a completed update tells the user to restart before logging out when they
+  differ.
+- **Doctor repairs login entries that are missing their Ryoku desktop
+  variant.** It installs the coinstallable variant before config materializes,
+  so a separately installed compositor receives the shell, wallpaper, and
+  keybinds. Distribution lanes that do not carry the variant explain that the
+  session will be bare instead of attempting an unavailable package.
+- **Repository failures now identify filtered Ryoku DNS.** Update and doctor
+  recognize private, loopback, and known sinkhole answers for `ryoku.dev` and
+  point to the encrypted-DNS recovery steps instead of leaving a package-manager
+  or TLS error unexplained.
+- **Doctor removes Shima's retired battery warning thresholds.** Updates drop
+  the old `inir.battery.low` and `inir.battery.critical` keys without changing
+  suspend, charge-limit, or unrelated shell settings.
+- **`ryoku-host transient` on Void replaces a detached job of the same name**
+  instead of orphaning the old process, which left a second OpenRGB server
+  running (`internal/host/transient.go`).
+- **Doctor installs the QMK lighting provider by its real package name.** It
+  asked for `qmk-hid`, which no edition ships; every catalogue calls it
+  `qmk_hid`. Aura and QMK guidance now points to the wallpaper picker's
+  Settings > Lighting (`internal/doctor/reconcile_qmk.go`,
+  `reconcile_asus_aura.go`).
+- **Public source, recovery, issue, and plugin links use the canonical
+  `ryoku-dev/ryoku` repository.** Existing source checkouts whose origin still
+  uses the retired `ryoku-arch` name remain valid.
+- **Doctor now converges `shell.json` frame bars in one pass.** The reconciler
+  accepts the live versioned frame-bar schema, preserves every effective rail
+  and menu value, and no longer creates the retired nested dock store that the
+  following reconciler immediately removes.
+- **Doctor findings are stable and fully translated.** A palette-driven animated
+  border is no longer mistaken for a stale fixed-colour pin on every run.
+  Count-led findings, NVIDIA sleep status, and hybrid-GPU power draw now pass
+  complete sentences through the catalog instead of leaving English fragments.
+- **Doctor skips the AMD action audit under tuned-ppd.** It reads
+  power-profiles-daemon's optional action metadata over D-Bus and reports the
+  row as not applicable when the active provider does not expose those actions.
+- **Boot fallback and channel overrides now survive the last mile.** The guard
+  writes complete nested Limine paths and clears remembered EFI entries,
+  including when it returns to the restored system after
+  `limine-snapper-restore`. Stable channel selection also keeps an explicit
+  release-base override on pacman and XBPS.
+- **Void updates complete over SSH when no desktop session is active.** The
+  updater skips the session cutover sleep inhibitor when there are no live
+  desktop suspend owners to replace, while keeping the guard for desktop
+  updates (`internal/updater/update.go`).
+- **Void package and service health checks now inspect the real installed
+  system.** Ryoku-owned `@repo` package names map to their native XBPS names,
+  and the doctor reads system runit state through one passwordless,
+  fixed-argument host query while continuing to inspect Turnstile services
+  directly (`internal/host/`, `internal/doctor/`).
+
+- **Void service failures are visible in `ryoku doctor`.** The runit host seam
+  reads system and Turnstile supervise state, reports services that want up but
+  are down or repeatedly restarting, and leaves parked services alone
+  (`internal/host/service.go`, `internal/doctor/doctor.go`).
+- **The doctor understands Void's full snapshot and boot stack.** Snapshot,
+  snapper cleanup, Limine and boot-guard checks now use XBPS, runit, dracut and
+  Void's kernel hook while keeping Arch's answers unchanged
+  (`internal/doctor/`).
+- **Switching desktops says why a target is missing.** `ryoku wm` checks,
+  installs and removes desktop packages through `ryoku-host`, so a desktop
+  this system cannot install is refused up front with the reason (`wm.go`).
+- **Keyring status recognizes standard optional PAM lines.** SDDM stacks often
+  prefix optional module types with `-`, and those `-auth` and `-session` lines
+  now count as login-keyring wiring instead of being misreported as
+  `never-ask` (`internal/keyring/pam.go`).
+- **Doctor distinguishes a protected ESP from a broken boot check.** Permission
+  denial under a root-only `/boot` is an advisory note, so a healthy hardened
+  install no longer raises the post-update health warning. Other inspection
+  failures remain warnings, and real boot drift still surfaces. The Limine
+  autoboot check migrates the old numeric fallback to a kernel entry path while
+  preserving `remember_last_entry`, and no longer claims the countdown loops
+  when a remembered entry takes precedence (`internal/doctor/`).
+- **A read-only doctor run through sudo audits the desktop user, not root.**
+  `SUDO_USER` supplies the home, XDG paths, identity, runtime directory and
+  session bus. Repair mode refuses a whole-command sudo so user files cannot be
+  created under `/root` or with root ownership; each system repair requests its
+  own privilege. Repair hints now point back to the normal-user command, while
+  protected boot checks still recommend the read-only sudo form
+  (`internal/doctor/`).
+- **Updates reset only user services that are actually failed.** Unloaded or
+  inactive idle, clamshell, wallpaper and cutover-guard units are left alone,
+  so `systemctl` no longer logs misleading `Unit ... not loaded` failures
+  (`internal/updater/update.go`, `internal/host/service.go`).
+- **Doctor scopes incomplete kernel metadata to the affected boot entry.**
+  Module-only leftovers without a `pkgbase` or `vmlinuz` are ignored, while a
+  partly installed kernel protects only its own Limine entry and no longer
+  prevents repair of unrelated stale entries. Limine discovery also checks the
+  EFI location for the active Ryoku edition (`internal/doctor/`).
+- **Existing installs use their console layout at the disk unlock prompt.** The
+  doctor adds the `ryoku-console-keys` initramfs hook right after `udev` in
+  `/etc/mkinitcpio.conf.d/ryoku.conf` once ryoku-desktop ships it, and rebuilds
+  the boot images. The prompt then reads keys in the user's console layout with
+  Num Lock on instead of falling back to a US layout with Num Lock off and
+  rejecting a passphrase set in the installer
+  (`internal/doctor/reconcile_initramfs.go`).
+- **A fresh install's first niri login starts.** The installer runs
+  `ryoku materialize` before a neutral store exists on a box with the default
+  keyboard layout, and materialize skipped rendering a compositor's generated
+  includes without one. niri treats a missing include as a hard parse error, so
+  the first login came up a grey screen with a config error until a later login
+  wrote the files. Materialize now renders the provider's defaults into a laid
+  tree that has no generated files, a fork or a laid edit of one still wins
+  over defaults, and `ryoku doctor`'s config-tree check reports a laid tree
+  whose includes are missing instead of reading it as healthy
+  (`internal/updater/materialize.go`, `internal/doctor/reconcile_config_tree.go`).
+- **`ryoku doctor` clears what it used to report on every run.** The TPM
+  units that fail only for want of NvPCRs are re-run once the TPM carries the
+  new udev mark, instead of sitting in "failed services" until reboot. A
+  `.pacnew` whose live file nobody has written since before the box was
+  installed (it is still an older package's file, pacman's own timestamp) is
+  now applied, since that loses nothing; a config written on the box stays a
+  review for `pacdiff` (`internal/doctor/reconcile_tpm_nvpcr.go`,
+  `internal/doctor/doctor.go`).
+- **The update console no longer stacks copies of the running step.** While
+  a step runs something under sudo, sudo switches the terminal to raw mode,
+  so a plain newline stopped returning to the left edge; every redraw then
+  wrapped and stranded a copy of "Deploying the desktop". The console now
+  writes explicit carriage returns and turns autowrap off while it redraws.
+  A doctor finding about `.pacnew` files also shows once, not as a doubled
+  "! !" plus its detail line (`internal/updater/console.go`).
+- **The Hub no longer sticks on a phantom "Applying updates".** Code that
+  narrated outside an update (`ryoku track`'s channel move, the updater's own
+  tests) wrote a "running" run-state with no owner, and the Updates page could
+  never leave it. Only a run that has begun writes the file now, it names its
+  pid, the doctor's stale-run check reads that pid, and the updater's tests
+  run against a throwaway runtime dir (`internal/updater/runstate.go`,
+  `internal/doctor/doctor.go`).
+- **A packaged update's log keeps the package transaction.** The stage2
+  hand-off reopened `update-log.txt` truncated, so the log held only the
+  deploy and the doctor (`internal/updater/upgradelog.go`).
+- **`ryoku doctor` stops listing every shipped file.** Its stray-file scan
+  asked pacman who owns each of the hundred-odd shipped system paths with
+  pacman's output on the terminal, so every run printed a wall of
+  "<path> is owned by ryoku-desktop" lines. It reads only the answer now
+  (`internal/doctor/doctor.go`).
+- **A checkout's update runs the doctor it just built.** `ryoku update` on a
+  source checkout ran `/usr/bin/ryoku doctor`, the packaged CLI the box was
+  installed from, which a channel update never moves, so every doctor fix
+  pushed to the channel stayed out of the update. It now runs the CLI deploy
+  just built into `~/.local/bin` (`internal/updater/update.go`).
+- **The shell comes back after a reboot on a box that left the dev loop.**
+  `ryoku doctor` cleared the home builds a dev deploy or `ryoku recovery`
+  left in `~/.local/bin`, but not the user units still running them: a
+  `user_edits` fork of the rewritten shell unit, the live copy it re-laid, and
+  Rashin's home unit. After the next login the shell unit failed on a missing
+  binary and the desktop had no shell. The same pass now puts those units back
+  on the packaged ones (keeping Rashin enabled), drops the deploy's drop-ins,
+  treats ryogami's home build as residue, and removes the retired dev-switch
+  `ryoku` fish wrapper that otherwise turns every `ryoku` command into
+  "Unknown command". (`internal/doctor/reconcile_dev_residue.go`)
+- **`ryoku update` says what pacman actually failed on.** A failed Ryoku
+  transaction reported only "exit status 1": pacman's real reason (a signature
+  rejection, a package conflict, a broken dependency) lived in the rendered
+  stream and was thrown away, so the Hub's failure card and the terminal's
+  last line said nothing a support channel could act on. The
+  `error:` lines are now carried into the returned error, the raw firehose
+  lands in `~/.local/state/ryoku/update-log.txt` on the packaged path too
+  (stage2 appends to the same file), and the failure hint names that path
+  (`internal/updater/upgradelog.go`, `internal/updater/update.go`).
+- **`ryoku doctor` drops a Wi-Fi profile's access-point pin.** A profile saved
+  by the old Hub band picker carried `802-11-wireless.bssid`, which locks the
+  client to one AP; on a multi-AP 5 GHz network the association cycles as the
+  access points steer and the pin forces back, reading as "5 GHz keeps
+  reconnecting". Every pinned Wi-Fi profile loses the pin, so it roams again
+  inside its band (`internal/doctor/reconcile_wifi_bssid_pin.go`).
+
+- **`ryoku update` survives a private `/var/lib/ryoku`.** The power-cutover
+  preflight statted the adoption marker as the user; with the state dir at
+  0700 (a drifted mode the kill switch used to leave behind) the stat failed
+  with EACCES and the whole update aborted on "inspect package power cutover
+  state: permission denied". An unreadable marker is now a question for root
+  (`sudo -n test -e`), and a probe that cannot run reads as absent, which
+  errs toward re-adoption instead of a hard failure
+  (`internal/updater/update.go`).
+- **`ryoku track unstable` explains itself on a box moved by the old name.**
+  A box that ran `ryoku track unstable-dev` is already on the unstable channel,
+  so tracking it again moves nothing; it now says so in those words instead of
+  a bare "already on unstable", and records the choice for the doctor.
+- **The doctor's reverse-PRIME guard (#270) now sees the pin the machine
+  actually runs.** The render-pin-vs-panel check resolved the pin through
+  `ryoku-gpu order`, the policy's recommendation, which refuses to speak
+  whenever a stored hybrid or passthrough choice opts out: a RYOKU_GPU_FORCE
+  pin kept under a hybrid stamp, or one drifted in by an older release, hid
+  from the guard while the panel sat on the iGPU under a NVIDIA-first pin.
+  The check now reads `order --effective`, the pin file's own value.
+- **The boot guard's revert no longer strands the channel pin.** A failed
+  update's auto-revert rewrote the `[ryoku]` pin to the previous release and
+  then ran a narrower pacman transaction that could not move the compositor
+  split metas (`ryoku-desktop-hyprland` pins `ryoku-desktop=<exact>`); the
+  downgrade failed with the pin already changed, leaving the pin, the sync db,
+  and the installed set disagreeing so `ryoku status` read "behind" backwards
+  and `ryoku wm use niri` refused (#291). The pacman side of a channel move now
+  lives in one place (`moveRyokuSetToChannel`) that both `ryoku track` and the
+  revert use: it drops the unserved split metas and moves the whole set in one
+  transaction. The pin is transactional (`retargetChannel`) -- any failure
+  restores the previous `[ryoku]` Server exactly, re-syncs, and reinstalls any
+  split meta the move had already dropped, so a failed downgrade never strands a
+  box without ryoku-desktop-hyprland/niri -- and the guard records the tracked
+  channel so its notice names `ryoku track <channel>` as the
+  way back. `ryoku doctor` heals a box already wedged this way (a stale release
+  pin older than the installed release, unless `ryoku track v...` recorded it on
+  purpose) and `ryoku status` says so plainly instead of "behind N"
+  (`internal/updater/channelmove.go`, `internal/updater/bootguard.go`,
+  `internal/doctor/reconcile_channel_pin.go`).
+- **`ryoku update` releases its sleep guard even when the cutover fails.**
+  Every failure between acquiring the durable update inhibitor and the final
+  release (a failed session-bind, a reload that errored) returned with the
+  block still live, and logind then denied every suspend with "Operation
+  denied due to active block inhibitor" until logout (#282). The release is
+  now deferred, so it runs on every exit path; the explicit success-path
+  release stays authoritative and the deferred one is a no-op after it
+  (`internal/updater/update.go`).
+- **`ryoku doctor` reclaims a sleep guard a crashed update leaked.** On a box
+  still holding the durable inhibitor from a failed cutover (the #282/#285
+  class, before the release fix shipped), every suspend is denied until
+  logout. The guard unit is only ever taken while the power-cutover lock is
+  held, so a live guard with a free lock and no deferred-cutover waiter is
+  provably orphaned, and doctor now stops it (`internal/doctor/
+  reconcile_sleep_guard.go`).
+- **`ryoku update` no longer dies where taking a sleep inhibitor is denied.**
+  The transaction runs under `systemd-inhibit --mode=block`, which is
+  polkit-gated in sessions with no agent (SSH, a headless run): there it exits
+  "Access denied" BEFORE the wrapped command starts, so pacman never ran and
+  the update reported a failure that had nothing to do with packages. The
+  inhibitor is now probed once per run and dropped on a denial, keeping the
+  lid-close guard wherever the session allows it (`internal/updater/upgradelog.go`).
+- **The update view is curated for pipes, not only terminals.** The Hub's
+  update island and `ryoku update > log` read stdout through a pipe, which used
+  to get the raw pacman firehose: database chatter, per-file progress redraws
+  and long conflict lists that read as a broken install. A piped run now gets
+  the same collapsed view a terminal sees (phase, one-line package summary,
+  warnings, errors), animated only on a TTY; the full firehose still lands in
+  `~/.local/state/ryoku/update-log.txt` and `--verbose` keeps the raw passthrough
+  (`internal/updater/upgradelog.go`).
+- **A switched-to desktop no longer boots without its generated config.**
+  niri's config.kdl hard-includes settings.kdl and rebinds.kdl, and a missing
+  include is a hard niri config error, yet the packages ship only the static
+  seeds and every apply followed the ACTIVE provider: nothing between
+  `ryoku wm use niri` and the first niri login rendered the target's generated
+  half, so the switch laid a tree niri refuses to parse. Materialize, the one
+  call the login bootstrap, the switch and the update all share, now completes
+  every laid-down tree from the neutral store through the seam; a missing
+  user_edits mirror or a missing store triggers nothing, and an absent
+  provider binary notes instead of failing (`internal/updater/materialize.go`).
+- **Colours follow the wallpaper again on boxes the mono era left behind.**
+  A theme.json with followWallpaper false and no locked palette is incoherent
+  legacy state (the desktop sits on a static ramp while every surface claims
+  to follow the wallpaper), most visible on niri where no Hyprland decoration
+  regen masks it. A one-time reconciler restores the follow default; a locked
+  palette, or follow turned off afterwards, is a choice and stands
+  (`internal/doctor/reconcile_theme_follow.go`).
+
+### Changed
+- **`ryoku update` adopts the sleep policy as a guarded transaction.** Stage
+  two takes a durable login1 sleep block, activates logind's sessionless
+  fallback, and refuses to quiesce the shell unless the old `ryoku-idle` and
+  `ryoku-clamshell` services are verifiably stopped. The canonical
+  `ryoku-power-cutover` helper binds the replacement target to the exact active
+  login1 session, reloads the compositor's power bindings, waits for the new
+  shell's inhibitor state, and verifies both service owners before protection
+  is released; Ryogami is then restarted onto the installed binary. Any earlier
+  failure leaves the durable block active until retry or reboot. Package hooks
+  use the same all-session helper for every logged-in Ryoku user, while later
+  managed updates hand their already-protected active session to it instead of
+  racing a second transaction. Stale compositor variables in a lingering user
+  manager no longer make an SSH/TTY update own desktop power policy. The stop
+  path also adopts releases that had no daemon PID state
+  (`internal/updater/update.go`).
 - **`ryoku doctor` keeps your login shell honest.** Changing your shell in the
   Hub writes it in two places: your account shell, and a session override the
   compositor exports so everything it launches agrees. Nothing noticed when the
@@ -11,8 +668,8 @@
   and points the override back at your real account shell, refreshing the
   running session so it takes effect without a logout
   (`internal/doctor/reconcile_login_shell.go`).
-- **The Rashin AI assistant is on by default now.** The needle (Super+S) and its
-  dashboard used to sit dormant until you found the switch in the Hub; a fresh
+- **The Rashin AI assistant is on by default now.** Ask and the dashboard used
+  to sit dormant until you found the switch in the Hub; a fresh
   box now brings the daemon up at boot. `ryoku-rashin disable` turns it off for
   good (recorded as `optedOut`, so an update never flips it back on), `enable`
   turns it back on. A new `ryoku-rashin ensure` is the quiet default-on
@@ -690,9 +1347,9 @@
 - **Flatpak works out of the box, and its apps update with everything else.**
   Ryoku already shipped the `flatpak` client in `base.packages`, which means it
   is in the ISO's offline closure and installs with no network. What it never
-  shipped was a configured remote: the only thing that ever added flathub was
-  `stash-install.sh`, per-user, and only while installing a `.flatpak` bundle the
-  user had already downloaded. So a fresh box had the client and no catalogue, and
+  shipped was a configured remote: only the legacy bundle installer added
+  flathub, per-user, and only while installing a `.flatpak` bundle the user had
+  already downloaded. So a fresh box had the client and no catalogue, and
   `flatpak install` had nothing to search. A new reconciler adds the system
   flathub remote, and `ryoku update` gained a Flatpak pass so those apps stop
   rotting a release behind.
@@ -974,12 +1631,6 @@
   restart` reported success while starting nothing, so doctor's shell-daemon
   reconciler pushed a restart into a void. It now imports the live session's
   env into the user manager first (`internal/doctor/doctor.go`).
-- **Doctor moves a persisted Stash sidebar to the right.** The Stash board is now
-  the floating Features page on the right, but a box that persisted frameBars
-  still carried `surfaces.stash.anchor: "left"` (the old full-span default), which
-  normalize keeps, so the page would grow from the wrong edge. Doctor flips that
-  one leaf to `right` in place, leaving every other key untouched
-  (`internal/doctor/reconcile_stash_sidebar.go`, `internal/doctor/doctor.go`).
 - **Doctor installs the missing in-session lockscreen.** Only the ISO installer
   ever laid down the qylock lock, so a box that predates the step (or where it
   failed) had a dead lock button and suspended without locking, silently:

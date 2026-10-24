@@ -27,9 +27,16 @@ func providers() []Provider {
 		newRiceProvider(c),
 		newColorschemeProvider(c),
 		newBarProvider(c),
+		newShellQMLProvider(dockProducts, c),
+		newShellQMLProvider(launcherProducts, c),
+		newShellQMLProvider(osdProducts, c),
+		newShellQMLProvider(notificationProducts, c),
+		newShellQMLProvider(sidebarProducts, c),
 		newFastfetchProvider(c),
 		newRyotunesSkinsProvider(c),
+		newVesktopThemesProvider(c),
 		pluginProvider{cache: c},
+		newOmarchyPluginProvider(),
 		bundleProvider{cache: c, status: defaultBundleStatus, launch: launchBundleInstall},
 		newDecorProvider(c),
 		newLauncherImageProvider(c),
@@ -72,6 +79,7 @@ func BuildCatalog(ctx context.Context, provs []Provider, refresh bool) Catalog {
 		Items:         []Item{},
 	}
 	anyFailure := false
+	hasRemoteItems := false
 	for i, p := range provs {
 		c := p.Category()
 		r := results[i]
@@ -87,6 +95,9 @@ func BuildCatalog(ctx context.Context, provs []Provider, refresh bool) Catalog {
 				if r.items[j].owned() {
 					c.InstalledCount++
 				}
+				if !isBuiltinCatalogItem(r.items[j]) {
+					hasRemoteItems = true
+				}
 			}
 			cat.Items = append(cat.Items, r.items...)
 		}
@@ -95,12 +106,15 @@ func BuildCatalog(ctx context.Context, provs []Provider, refresh bool) Catalog {
 		}
 		cat.Categories[i] = c
 	}
-	// The store is "offline" to the user only when a source failed AND there is
-	// nothing at all to show. Serving cached or partial data is normal
-	// resilience, not an offline state, so a stale-but-reachable source (or one
-	// category falling back to cache) never blanks the store or trips the banner.
-	cat.Offline = anyFailure && len(cat.Items) == 0
+	// Built-ins ship with the app, so they do not prove that a remote source or
+	// its cache was reachable. Cached remote items still count as usable data.
+	cat.Offline = anyFailure && !hasRemoteItems
 	return cat
+}
+
+func isBuiltinCatalogItem(item Item) bool {
+	core, _ := item.Metadata["core"].(bool)
+	return core
 }
 
 // providerFor returns the provider owning category id, or ok=false when none

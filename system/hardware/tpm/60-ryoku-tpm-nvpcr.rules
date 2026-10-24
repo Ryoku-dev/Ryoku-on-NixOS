@@ -1,0 +1,14 @@
+# systemd keeps NvPCRs (TPM NV indexes it extends with the hardware, product
+# and login measurements) only on a box whose UKI is signed with a PCR key:
+# setting one up needs tpm2-pcr-public-key.pem. Ryoku's UKIs are unsigned, so
+# every boot failed systemd-tpm2-setup-early, systemd-pcrproduct and each
+# systemd-pcrlogin@ on "No such file or directory". TPM2_BROKEN_NVPCR is
+# systemd's own switch for a TPM without usable NvPCRs: the setup skips them
+# and the measurement units exit cleanly. A box that does carry the key keeps
+# its NvPCRs.
+SUBSYSTEM=="tpmrm", KERNEL=="tpmrm[0-9]*", \
+  TEST!="/etc/systemd/tpm2-pcr-public-key.pem", \
+  TEST!="/run/systemd/tpm2-pcr-public-key.pem", \
+  TEST!="/usr/lib/systemd/tpm2-pcr-public-key.pem", \
+  TEST!="/.extra/tpm2-pcr-public-key.pem", \
+  ENV{TPM2_BROKEN_NVPCR}="1"

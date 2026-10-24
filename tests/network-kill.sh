@@ -12,25 +12,26 @@ guard="$ROOT/system/hardware/network/ryoku-network-kill-guard.service"
 disconnect="$ROOT/system/hardware/network/ryoku-network-kill-disconnect.service"
 page="$ROOT/ryoku/hub/quickshell/pages/ConnectionsPage.qml"
 pkgbuild="$ROOT/release/packages/ryoku-desktop/PKGBUILD"
-install_hook="$ROOT/release/packages/ryoku-desktop/ryoku-desktop.install"
+payload="$ROOT/release/packages/ryoku-desktop/payload.sh"
+service_manifest="$ROOT/system/services/manifest.tsv"
 base_packages="$ROOT/system/packages/base.packages"
 
 grep -qxF nftables "$base_packages"
 grep -qF "  'nftables'" "$pkgbuild"
-grep -qF '55-ryoku-network-kill.rules' "$pkgbuild"
-grep -qF 'ryoku-network-kill-guard.service' "$pkgbuild"
+grep -qF '55-ryoku-network-kill.rules' "$payload"
+grep -qF 'ryoku-network-kill-guard.service' "$payload"
 grep -qF 'RequiredBy=NetworkManager.service' "$guard"
 grep -qF 'WantedBy=multi-user.target NetworkManager.service' "$disconnect"
-grep -qF 'ryoku-network-kill-disconnect.service' "$pkgbuild"
-post_install="$(sed -n '/^post_install()/,/^}/p' "$install_hook")"
-post_upgrade="$(sed -n '/^post_upgrade()/,/^}/p' "$install_hook")"
-if grep -qF '_network_kill_units' <<<"$post_install"; then
-  echo "package install must leave kill-switch units disabled" >&2
-  exit 1
-fi
-grep -qF '_network_kill_units' <<<"$post_upgrade"
+grep -qF 'ryoku-network-kill-disconnect.service' "$payload"
+for service in network-kill-guard network-kill-disconnect; do
+  awk -F '\t' -v id="$service" '
+    $1 == id && $2 == "system" && $3 == "conditional" &&
+      $6 == "condition:/var/lib/ryoku/network-kill-switch.enabled" { found = 1 }
+    END { exit !found }
+  ' "$service_manifest"
+done
 
-grep -qF '["pkexec", "/usr/bin/ryoku-network-kill", "status"]' "$page"
+grep -qF 'command: ["ryoku-host", "network", "kill", "status"]' "$page"
 grep -qF 'killSetProc.target = killState === "off" ? "on" : "off";' "$page"
 grep -qF 'Blocks Wi-Fi, Ethernet, VPN, LAN and IPv4/IPv6. It also severs SSH.' "$page"
 
@@ -41,7 +42,7 @@ grep -qF 'ExecStart=/usr/bin/nmcli networking off' "$disconnect"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$work/bin" "$work/state"
+mkdir -p "$work/bin" "$work/state" "$work/services"
 
 cat >"$work/bin/nft" <<'EOF'
 #!/usr/bin/env bash
@@ -74,10 +75,34 @@ set -euo pipefail
 printf 'nmcli %s\n' "$*" >>"$RYOKU_NETWORK_KILL_LOG"
 EOF
 
-cat >"$work/bin/systemctl" <<'EOF'
+cat >"$work/bin/ryoku-host" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'systemctl %s\n' "$*" >>"$RYOKU_NETWORK_KILL_LOG"
+[[ ${1:-} == svc && ${2:-} == --system && $# -ge 4 ]] || {
+  echo "unexpected ryoku-host command: $*" >&2
+  exit 64
+}
+shift 2
+verb=$1
+shift
+case "$verb" in
+  enable)
+    for service in "$@"; do
+      : >"$RYOKU_NETWORK_KILL_FAKE_SERVICES/$service"
+    done
+    printf 'kill services enabled\n' >>"$RYOKU_NETWORK_KILL_LOG"
+    ;;
+  disable)
+    for service in "$@"; do
+      rm -f "$RYOKU_NETWORK_KILL_FAKE_SERVICES/$service"
+    done
+    printf 'kill services disabled\n' >>"$RYOKU_NETWORK_KILL_LOG"
+    ;;
+  *)
+    echo "unexpected ryoku-host service verb: $verb" >&2
+    exit 64
+    ;;
+esac
 EOF
 chmod +x "$work/bin"/*
 
@@ -86,6 +111,7 @@ run() {
   RYOKU_NETWORK_KILL_STATE="$work/state/enabled" \
   RYOKU_NETWORK_KILL_LOG="$work/log" \
   RYOKU_NETWORK_KILL_FAKE_TABLE="$work/table" \
+  RYOKU_NETWORK_KILL_FAKE_SERVICES="$work/services" \
   RYOKU_NETWORK_KILL_CHECKED_RULES="$work/checked.nft" \
   RYOKU_NETWORK_KILL_APPLIED_RULES="$work/applied.nft" \
   "$helper" "$@"
@@ -99,10 +125,16 @@ line_of() {
 run on
 [[ -e $work/state/enabled ]] || { echo "on did not persist armed state" >&2; exit 1; }
 [[ -e $work/table ]] || { echo "on did not install firewall" >&2; exit 1; }
-grep -qxF 'systemctl enable --quiet ryoku-network-kill-guard.service ryoku-network-kill-disconnect.service' "$work/log"
+grep -qxF 'kill services enabled' "$work/log"
+for service in ryoku-network-kill-guard ryoku-network-kill-disconnect; do
+  [[ -e $work/services/$service ]] || { echo "on did not enable $service" >&2; exit 1; }
+done
 grep -qxF 'nmcli networking off' "$work/log"
 [[ $(line_of 'nft -f -') -lt $(line_of 'nmcli networking off') ]] || {
   echo "NetworkManager was disabled before firewall was installed" >&2; exit 1;
+}
+[[ $(line_of 'kill services enabled') -lt $(line_of 'nft -f -') ]] || {
+  echo "firewall was installed before its boot services were enabled" >&2; exit 1;
 }
 for fragment in \
   'table inet ryoku_kill_switch' \
@@ -122,9 +154,15 @@ run off
 [[ ! -e $work/state/enabled ]] || { echo "off did not clear armed state" >&2; exit 1; }
 [[ ! -e $work/table ]] || { echo "off did not remove firewall" >&2; exit 1; }
 grep -qxF 'nmcli networking on' "$work/log"
-grep -qxF 'systemctl disable --quiet ryoku-network-kill-guard.service ryoku-network-kill-disconnect.service' "$work/log"
+grep -qxF 'kill services disabled' "$work/log"
+for service in ryoku-network-kill-guard ryoku-network-kill-disconnect; do
+  [[ ! -e $work/services/$service ]] || { echo "off did not disable $service" >&2; exit 1; }
+done
 [[ $(line_of 'nft delete table inet ryoku_kill_switch') -lt $(line_of 'nmcli networking on') ]] || {
   echo "NetworkManager was enabled before firewall was removed" >&2; exit 1;
+}
+[[ $(line_of 'kill services disabled') -lt $(line_of 'nft delete table inet ryoku_kill_switch') ]] || {
+  echo "firewall was removed before its boot services were disabled" >&2; exit 1;
 }
 [[ $(run status) == off ]] || { echo "status did not report off" >&2; exit 1; }
 
@@ -145,5 +183,16 @@ if run arbitrary >/dev/null 2>&1; then
   exit 1
 fi
 [[ ! -s $work/log ]] || { echo "invalid action ran a privileged command" >&2; exit 1; }
+
+# /var/lib/ryoku is shared state: tmpfiles owns its mode (0755) because the
+# sessions' boot-ok files and the update's cutover-marker probe read through
+# it. install -d chmods an existing directory, so the helper's mode must
+# match the contract and repair a drifted one, never leave it private.
+chmod 700 "$work/state"
+run on
+[[ $(stat -c '%a' "$work/state") == 755 ]] || {
+  echo "the kill helper left its state dir private to root" >&2; exit 1;
+}
+run off
 
 echo "network kill helper checks passed"

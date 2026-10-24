@@ -1,0 +1,256 @@
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import QtQuick.Effects
+import Qt5Compat.GraphicalEffects
+import stage
+import stage.services
+import stage.modules.common
+import stage.modules.common.functions
+import stage.modules.common.widgets
+import stage.modules.ii.background.widgets
+AbstractBackgroundWidget {
+    id: root
+
+    configEntryName: "photo_weather_2x1"
+
+    implicitWidth: 492
+    implicitHeight: 240
+
+    readonly property var currentData: Weather.data
+
+    readonly property color cardBgColor: WidgetColorScheme.cardBgColor
+    readonly property color textColorOnBg: WidgetColorScheme.textColorOnBg
+    readonly property color subtextColorOnBg: WidgetColorScheme.subtextColorOnBg
+    readonly property int imageFillMode:
+        (Config.options.background.widgets.photo_weather_2x1.fitMode ?? "crop") === "fit"
+            ? Image.PreserveAspectFit : Image.PreserveAspectCrop
+
+    StyledDropShadow {
+        id: shadowEffect
+        target: outerBorder
+        visible: Config.options.background.widgets.enableShadows ?? true
+    }
+
+    readonly property string cleanSource: {
+        let entry = Config.options.background.widgets[root.configEntryName];
+        let path = root.instanceImagePath !== undefined ? root.instanceImagePath
+            : ((entry && entry.imagePath && entry.imagePath !== "") ? entry.imagePath : Config.options.background.widgets.photo.imagePath);
+        if (!path || path === "") return "";
+        const qIdx = path.indexOf("?");
+        if (qIdx !== -1) path = path.substring(0, qIdx);
+        return path.startsWith("file://") ? path : ("file://" + path);
+    }
+
+    readonly property bool isAnimated: {
+        const lower = root.cleanSource.toLowerCase();
+        return lower.includes(".gif") || lower.includes(".webp");
+    }
+
+    readonly property bool shouldPlay: {
+        return root.visible && root.opacity > 0 && root.isAnimated
+            && !GlobalStates.screenLocked
+            && !root.activeWorkspaceHasWindows;
+    }
+
+    // The photo is minified straight down to the widget box by the GPU's 2x2 tap,
+    // which aliases badly past ~2x. Cap the decode so the JPEG decoder does that
+    // downscale properly instead, and the texture arrives at the size it is shown.
+    // The window's DPR churns while the window is set up (2 -> 1.5 -> 1) and every
+    // change re-decodes the file, so keep its high-water mark. The box itself still
+    // follows the widget: latching that too would leave an oversized texture to
+    // undersample again after scaling down.
+    readonly property real windowDpr: Math.max(1, (QsWindow.window as QsWindow)?.devicePixelRatio ?? 1)
+    property real dprLatched: 1
+    function updateDpr() {
+        if (root.windowDpr > root.dprLatched) root.dprLatched = root.windowDpr;
+    }
+
+    // Quantised so small box changes don't re-decode, and frozen outright while
+    // the resize grip runs: this widget resizes through the widgetSize path,
+    // which rewrites its layout box on every 5% step, and a decode per step
+    // drops the picture back to its placeholder mid-drag. It rides the gesture
+    // at the resolution it already had and is re-decoded once, on release.
+    readonly property real decodeScale: root.dprLatched * root.renderScale
+    property int decodeWidth: 0
+    property int decodeHeight: 0
+    function updateDecodeBox() {
+        if (root._resizeActive || root.width <= 0 || root.height <= 0) return;
+        root.decodeWidth = Math.ceil(root.width * root.decodeScale / 64) * 64;
+        root.decodeHeight = Math.ceil(root.height * root.decodeScale / 64) * 64;
+    }
+
+    // The window is not attached yet at completion, so latch the DPR on both.
+    onWindowDprChanged: root.updateDpr()
+    onDecodeScaleChanged: root.updateDecodeBox()
+    onWidthChanged: root.updateDecodeBox()
+    onHeightChanged: root.updateDecodeBox()
+    on_ResizeActiveChanged: root.updateDecodeBox()
+    Component.onCompleted: {
+        root.updateDpr();
+        root.updateDecodeBox();
+    }
+
+    Rectangle {
+        id: outerBorder
+        anchors.fill: parent
+        radius: Appearance.rounding.windowRounding
+        color: "transparent"
+        border.color: WidgetColorScheme.cardBgColor
+        border.width: 4
+
+        Item {
+            id: innerContent
+            anchors.fill: parent
+            anchors.margins: outerBorder.border.width / 2
+
+            Rectangle {
+                id: fallbackBg
+                anchors.fill: parent
+                radius: Math.max(0, outerBorder.radius - (outerBorder.border.width / 2))
+                color: WidgetColorScheme.tintBackground(WidgetColorScheme.innerShapeColor)
+            }
+
+            // Static Image loader (hardware-accelerated, zero QMovie overhead)
+            Image {
+                id: staticImg
+                anchors.fill: parent
+                source: (root.decodeWidth <= 0 || root.isAnimated) ? "" : root.cleanSource
+                sourceSize: Qt.size(root.decodeWidth, root.decodeHeight)
+                fillMode: root.imageFillMode
+                asynchronous: true
+                // Hold the frame already on screen across a re-decode instead of
+                // falling back to the placeholder for the frames it takes.
+                retainWhileLoading: true
+                property bool everLoaded: false
+                onStatusChanged: if (status === Image.Ready) staticImg.everLoaded = true
+                visible: !root.isAnimated && (status === Image.Ready || staticImg.everLoaded)
+
+                layer.enabled: true
+                layer.smooth: true
+                layer.effect: OpacityMask {
+                    maskSource: Rectangle {
+                        width: staticImg.width
+                        height: staticImg.height
+                        radius: Math.max(0, outerBorder.radius - (outerBorder.border.width / 2))
+                    }
+                }
+            }
+
+            // Animated GIF loader (only active when isAnimated is true)
+            AnimatedImage {
+                id: photoImage
+                anchors.fill: parent
+                source: root.isAnimated ? root.cleanSource : ""
+                fillMode: root.imageFillMode
+                playing: root.shouldPlay
+                paused: !root.shouldPlay
+                asynchronous: true
+                cache: false
+                visible: root.isAnimated && status === Image.Ready
+
+                layer.enabled: true
+                layer.smooth: true
+                layer.effect: OpacityMask {
+                    maskSource: Rectangle {
+                        width: photoImage.width
+                        height: photoImage.height
+                        radius: Math.max(0, outerBorder.radius - (outerBorder.border.width / 2))
+                    }
+                }
+            }
+
+            // Bottom glass/overlay pill container
+            Item {
+                id: overlayContainer
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: 14
+                height: 76
+                visible: {
+                    let entry = Config.options.background.widgets[root.configEntryName];
+                    return entry && entry.showOverlay !== undefined ? entry.showOverlay : true;
+                }
+
+                // Semi-transparent color overlay
+                Rectangle {
+                    anchors.fill: parent
+                    radius: Appearance.rounding.windowRounding
+                    color: ColorUtils.applyAlpha(WidgetColorScheme.cardBgColor, 0.75)
+                }
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    spacing: 12
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 2
+
+                        StyledText {
+                            text: (root.currentData && root.currentData.wDesc) ? root.currentData.wDesc : Translation.tr("Clear Sky")
+                            color: root.textColorOnBg
+                            font.pixelSize: Appearance.font.pixelSize.large
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+
+                        StyledText {
+                            text: {
+                                const humidity = (root.currentData && root.currentData.humidity !== undefined) ? String(root.currentData.humidity) : "";
+                                const city = (root.currentData && root.currentData.city) ? root.currentData.city : "";
+                                if (humidity && city) {
+                                    return Translation.tr("Humidity %1% in %2").arg(humidity).arg(city);
+                                } else if (city) {
+                                    return city;
+                                } else if (humidity) {
+                                    return Translation.tr("Humidity %1%").arg(humidity);
+                                }
+                                return "";
+                            }
+                            color: root.subtextColorOnBg
+                            font.pixelSize: Appearance.font.pixelSize.smaller
+                            font.weight: Font.Normal
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    // Circle 1: Temperature display
+                    Rectangle {
+                        Layout.preferredWidth: 48
+                        Layout.preferredHeight: 48
+                        radius: width / 2
+                        color: WidgetColorScheme.innerShapeColor
+
+                        StyledText {
+                            anchors.centerIn: parent
+                            text: (root.currentData && root.currentData.temp) ? root.currentData.temp.replace("°C", "°").replace("°F", "°") : "--°"
+                            color: WidgetColorScheme.textColorOnBg
+                            font.pixelSize: Appearance.font.pixelSize.normal
+                            font.weight: Font.Bold
+                        }
+                    }
+
+                    // Circle 2: Weather icon circle
+                    Rectangle {
+                        Layout.preferredWidth: 48
+                        Layout.preferredHeight: 48
+                        radius: width / 2
+                        color: WidgetColorScheme.accentColor
+
+                        Image {
+                            anchors.centerIn: parent
+                            source: WeatherIcons.getWeatherIcon(root.currentData?.wCode ?? 113, false)
+                            sourceSize: Qt.size(26, 26)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

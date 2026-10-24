@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The cover imports Ryoku.Ui (I18n). Packaged boxes find it on Qt's default
+# /usr/lib/qt6/qml; a checkout deploy installs it under ~/.local. Begin can
+# run straight from a compositor autostart, whose environment may carry
+# neither, so put the home module dir on the path before launching qs.
+if [[ -d "$HOME/.local/lib/qt6/qml" ]]; then
+    export QML_IMPORT_PATH="${QML_IMPORT_PATH:+$QML_IMPORT_PATH:}$HOME/.local/lib/qt6/qml"
+    export QML2_IMPORT_PATH="${QML2_IMPORT_PATH:+$QML2_IMPORT_PATH:}$HOME/.local/lib/qt6/qml"
+fi
+
 state="${XDG_RUNTIME_DIR:-/tmp}/ryoku-reload-cover.json"
 base="${XDG_CONFIG_HOME:-$HOME/.config}"
 dir="${RYOKU_SHELL_DIR:+$RYOKU_SHELL_DIR/quickshell/reload-cover}"
@@ -92,8 +101,13 @@ cleanup_after_open() {
     ) >/dev/null 2>&1 &
 }
 
+mode="${2:-reload}"
 case "${1:-}" in
     begin)
+        [[ $mode == reload || $mode == boot ]] || {
+            printf 'usage: ryoku-reload-cover begin [boot] | finish <token> | fail <token>\n' >&2
+            exit 2
+        }
         reclaim_state || exit 1
         if [[ ${RYOKU_RELOAD_COVER_TEST:-0} == 1 ]]; then
             token="test-$(date +%s%N)"
@@ -103,12 +117,16 @@ case "${1:-}" in
             exit 0
         fi
         command -v qs >/dev/null 2>&1 && [[ -f "$dir/shell.qml" ]] || exit 1
+        # begin only makes sense inside a running compositor session; without one
+        # (a TTY doctor repair, an SSH update) the cover could never map, so fail
+        # at once instead of burning the whole map-poll budget.
+        [[ -n ${WAYLAND_DISPLAY:-} ]] || exit 1
         token="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
         claim_state "$token" || exit 1
         if command -v setsid >/dev/null 2>&1; then
-            setsid env RYOKU_RELOAD_COVER_TOKEN="$token" qs -p "$dir" >/dev/null 2>&1 < /dev/null &
+            setsid env RYOKU_RELOAD_COVER_TOKEN="$token" RYOKU_RELOAD_COVER_MODE="$mode" qs -p "$dir" >/dev/null 2>&1 < /dev/null &
         else
-            env RYOKU_RELOAD_COVER_TOKEN="$token" qs -p "$dir" >/dev/null 2>&1 < /dev/null &
+            env RYOKU_RELOAD_COVER_TOKEN="$token" RYOKU_RELOAD_COVER_MODE="$mode" qs -p "$dir" >/dev/null 2>&1 < /dev/null &
         fi
         pid=$!
         write_state "$token" "$pid"
@@ -133,7 +151,15 @@ case "${1:-}" in
             rm -f "$state"
             exit 0
         fi
-        call_bool finish "$token" || exit 1
+        # The shell can read the token and finish before the cover's own
+        # instance has loaded; retry briefly so that race releases the cover
+        # instead of stranding it on the watchdog.
+        ok=0
+        for _ in $(seq 1 10); do
+            call_bool finish "$token" && { ok=1; break; }
+            sleep 0.2
+        done
+        (( ok )) || exit 1
         cleanup_after_open "$token" "$(state_pid)" "$(state_start)"
         ;;
     fail)
@@ -142,7 +168,7 @@ case "${1:-}" in
         [[ ${RYOKU_RELOAD_COVER_TEST:-0} == 1 ]] || call_bool fail "$token"
         ;;
     *)
-        printf 'usage: ryoku-reload-cover begin | finish <token> | fail <token>\n' >&2
+        printf 'usage: ryoku-reload-cover begin [boot] | finish <token> | fail <token>\n' >&2
         exit 2
         ;;
 esac

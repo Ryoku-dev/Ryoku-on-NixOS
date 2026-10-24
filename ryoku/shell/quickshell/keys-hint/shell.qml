@@ -4,12 +4,10 @@ import Quickshell
 import Quickshell.Wayland
 import Ryoku.Ui.Singletons
 
-// First-boot hint -- a one-shot `qs -c keys-hint` toast the session autostart
-// launches exactly once, ever (a state marker gates it), to point a new user at
-// the keyboard cheatsheet. A quiet top-centre card in the reference vocabulary:
-// ink kanji seal, hairline mono caps, no accent. It never steals keyboard focus
-// and has no timeout -- it stays until the user clicks its X, then quits so the
-// launch flock releases.
+// First-boot hint: a one-shot `qs -c keys-hint` toast the session launches
+// exactly once, pointing a new user at Kit. The quiet top-centre card uses ink,
+// key caps and hairlines, never accent. It does not take keyboard focus or time
+// out; dismissing it quits the process and releases the launch flock.
 ShellRoot {
     id: app
 
@@ -97,9 +95,8 @@ ShellRoot {
             }
             readonly property real shown: app.closing ? 0 : appear
 
-            // Two stacked cards, appearing together: the cheatsheet pointer (with
-            // the dismiss control) and the sidebar / settings shortcuts. One X
-            // dismisses the whole set.
+            // Two stacked cards, appearing together: the Kit pointer and the
+            // sidebar / settings shortcuts. One X dismisses the whole set.
             Column {
                 id: stack
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -112,7 +109,7 @@ ShellRoot {
                 // both cards take the wider content's width so they stack flush.
                 readonly property real cardW: Math.max(kRow.implicitWidth, hintCol.implicitWidth) + Tokens.s5 * 2
 
-                // ── card 1: the cheatsheet pointer + dismiss ──
+                // ── card 1: Kit + dismiss ──
                 Rectangle {
                     width: stack.cardW
                     height: 54
@@ -149,7 +146,7 @@ ShellRoot {
                         Cap { anchors.verticalCenter: parent.verticalCenter; text: "K" }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: I18n.tr("for every keyboard shortcut"); color: Tokens.inkDim
+                            text: I18n.tr("to open Kit"); color: Tokens.inkDim
                             font.family: Tokens.ui; font.pixelSize: Tokens.fBody
                         }
 

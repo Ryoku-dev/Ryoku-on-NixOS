@@ -13,9 +13,10 @@ import (
 // `subscribe` request.
 
 type request struct {
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params"`
-	ID     int64           `json:"id"`
+	Method       string          `json:"method"`
+	Params       json.RawMessage `json:"params"`
+	ID           int64           `json:"id"`
+	ConnectionID uint64          `json:"-"`
 }
 
 type response struct {

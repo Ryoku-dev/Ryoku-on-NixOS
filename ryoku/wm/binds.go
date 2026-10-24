@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,8 +14,8 @@ import (
 // desktop offers, described by what it does rather than by any compositor's
 // binding language. A provider reads this catalogue, resolves the user's
 // rebinds, marks what its compositor cannot honour, and reports the result as
-// the effective legend the cheatsheet and the Hub draw. Keeping the list here,
-// in the seam, means the two surfaces read one source instead of each parsing a
+// the effective legend Kit and the Hub draw. Keeping the list here, in the
+// seam, means the two surfaces read one source instead of each parsing a
 // compositor's own config and drifting apart.
 
 // BindKind groups a bind by who acts on it, so a consumer can colour or section
@@ -49,6 +50,25 @@ type BindRow struct {
 	// The row is still listed so the sheet reads honestly rather than silently
 	// dropping a bind the user expects to see.
 	Unhonored string `json:"unhonored,omitempty"`
+	// Disabled is the user's own decision that this bind should hold no chord at
+	// all. Distinct from Unhonored, which is the compositor's refusal, and from an
+	// absent rebind, which means the shipped chord stands. The row stays listed so
+	// the action remains findable and can be given a chord again.
+	Disabled bool `json:"disabled,omitempty"`
+}
+
+// DisabledSet turns the stored list of switched-off chords into a lookup. The
+// stored key is always the shipped default, the stable id a rebind is recorded
+// over, so a bind that is both moved and switched off is found by the same key
+// either way.
+func DisabledSet(list []string) map[string]bool {
+	out := make(map[string]bool, len(list))
+	for _, c := range list {
+		if c = strings.TrimSpace(c); c != "" {
+			out[c] = true
+		}
+	}
+	return out
 }
 
 // CatalogBind is one shipped Ryoku bind, compositor-neutral. It is the raw
@@ -66,7 +86,39 @@ type CatalogBind struct {
 	// pad instead, KP_1..KP_9 then KP_0.
 	Family bool
 	Numpad bool
+	// Needs is the program the bind launches when that program is an optional
+	// app the user may remove. A provider registers no chord for a bind whose
+	// program is absent, so a key never opens a surface that can only say the
+	// app is missing, and the legend row names the program instead of listing
+	// a dead key.
+	Needs string
 }
+
+// HasProgram reports whether name resolves on PATH. It is the lookup Missing
+// takes on a live box; a test passes its own.
+func HasProgram(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+// Missing is the legend line for a bind whose program is not installed, or ""
+// when the bind needs nothing or has what it needs.
+func (c CatalogBind) Missing(has func(string) bool) string {
+	if c.Needs == "" || has(c.Needs) {
+		return ""
+	}
+	return fmt.Sprintf("%s is not installed.", c.Needs)
+}
+
+// IrisCloseCheck succeeds when the iRiS frame is the bar style and its close
+// confirmation is switched on, so a close bind can ask the shell first and fall
+// through to the compositor. QmlEnv is the module path a bind-spawned qs
+// surface needs: it never passes through ryoku-shell's daemon, which is what
+// injects the path into the configs it supervises. Both are shell strings the
+// emitting providers concatenate into a spawn command.
+const IrisCloseCheck = `jq -e '(.barStyle // "qsbar") == "iris" and .inir.closeConfirm.enabled == true' "${XDG_CONFIG_HOME:-$HOME/.config}/ryoku/shell.json" >/dev/null 2>&1`
+
+const QmlEnv = `env QML_IMPORT_PATH="$HOME/.local/lib/qt6/qml" QML2_IMPORT_PATH="$HOME/.local/lib/qt6/qml"`
 
 // catalogue is the shipped set, in the order the legend presents it. The four
 // move-workspace-to-screen chords carry their modifiers in canonical order
@@ -81,7 +133,7 @@ var catalogue = []CatalogBind{
 	{ID: "window.pin", Category: "Windows", Label: "Pin window", Hint: "Keep a floating window on every workspace", Chord: "SUPER + SHIFT + P", Kind: BindWM},
 	{ID: "window.resize", Category: "Windows", Label: "Resize mode", Hint: "Resize from the keyboard: arrows or hjkl, Esc exits", Chord: "SUPER + R", Kind: BindWM},
 	{ID: "window.presetHeight", Category: "Windows", Label: "Step window height", Hint: "Cycle the window through its preset heights", Chord: "SUPER + SHIFT + R", Kind: BindWM},
-	{ID: "column.tabbed", Category: "Windows", Label: "Tabbed column", Hint: "Stack the column into tabs, one window showing at a time", Chord: "SUPER + T", Kind: BindWM},
+	{ID: "column.tabbed", Category: "Windows", Label: "Group windows (tabbed)", Hint: "Stack the column into tabs, one window showing at a time", Chord: "SUPER + T", Kind: BindWM},
 	{ID: "column.maximize", Category: "Windows", Label: "Maximise", Hint: "Fill the screen width, keeping gaps and bar", Chord: "SUPER + D", Kind: BindWM},
 	{ID: "column.center", Category: "Windows", Label: "Centre", Hint: "Centre the focused window on screen", Chord: "SUPER + C", Kind: BindWM},
 	{ID: "window.focusPrevious", Category: "Windows", Label: "Last window", Hint: "Switch to the previously focused window", Chord: "ALT + Tab", Kind: BindWM},
@@ -155,7 +207,9 @@ var catalogue = []CatalogBind{
 
 	// Shell
 	{ID: "shell.launcher", Category: "Shell", Label: "App launcher", Chord: "SUPER + Space", Kind: BindShell},
-	{ID: "shell.cheatsheet", Category: "Shell", Label: "Keybind cheatsheet", Hint: "Press again to close", Chord: "SUPER + K", Kind: BindShell},
+	{ID: "shell.ask", Category: "Shell", Label: "Ask Rashin", Hint: "AI chat bar", Chord: "ALT + Space", Kind: BindShell, Needs: "ryoku-rashin"},
+	{ID: "shell.rashin", Category: "Shell", Label: "Rashin", Hint: "The AI companion app; a second press focuses it", Chord: "SUPER + ALT + Space", Kind: BindShell, Needs: "rashin-app"},
+	{ID: "shell.cheatsheet", Category: "Shell", Label: "Kit", Hint: "Press again to close", Chord: "SUPER + K", Kind: BindShell},
 	{ID: "shell.lock", Category: "Shell", Label: "Lock the screen", Chord: "SUPER + L", Kind: BindShell},
 	{ID: "shell.quicksettings", Category: "Shell", Label: "Quick settings", Hint: "Power, logout, restart, shutdown, wifi", Chord: "SUPER + Escape", Kind: BindShell},
 	{ID: "shell.wallpaper", Category: "Shell", Label: "Wallpaper picker", Chord: "SUPER + W", Kind: BindShell},
@@ -167,8 +221,7 @@ var catalogue = []CatalogBind{
 	{ID: "shell.visualizerPlace", Category: "Shell", Label: "Place the visualiser", Hint: "Drag the ring or orb into place", Chord: "SUPER + ALT + M", Kind: BindShell},
 	{ID: "shell.voice", Category: "Shell", Label: "Voice typing", Hint: "Speech to text; tap again to stop", Chord: "SUPER + grave", Kind: BindShell},
 	{ID: "shell.settings", Category: "Shell", Label: "Ryoku settings", Chord: "SUPER + comma", Kind: BindShell},
-	{ID: "shell.stash", Category: "Shell", Label: "Stash", Hint: "Screen time and downloads", Chord: "SUPER + S", Kind: BindShell},
-	{ID: "shell.screenshot", Category: "Shell", Label: "Screenshot", Hint: "Capture, annotate and beautify", Chord: "SUPER + SHIFT + S", Kind: BindShell},
+	{ID: "shell.screenshot", Category: "Shell", Label: "Capture", Hint: "Screenshot and recording", Chord: "SUPER + SHIFT + S", Kind: BindShell},
 	{ID: "shell.screenshotPrint", Category: "Shell", Label: "Screenshot", Chord: "Print", Kind: BindShell},
 	{ID: "shell.screenshotMonitor", Category: "Shell", Label: "Screenshot, whole screen", Chord: "SHIFT + Print", Kind: BindShell},
 	{ID: "shell.colorPicker", Category: "Shell", Label: "Pick a colour", Chord: "SUPER + SHIFT + C", Kind: BindShell},
@@ -180,6 +233,7 @@ var catalogue = []CatalogBind{
 	{ID: "media.volumeUp", Category: "Media", Label: "Volume up", Chord: "XF86AudioRaiseVolume", Kind: BindShell, Locked: true},
 	{ID: "media.volumeDown", Category: "Media", Label: "Volume down", Chord: "XF86AudioLowerVolume", Kind: BindShell, Locked: true},
 	{ID: "media.mute", Category: "Media", Label: "Mute", Chord: "XF86AudioMute", Kind: BindShell, Locked: true},
+	{ID: "media.micMute", Category: "Media", Label: "Mute microphone", Chord: "XF86AudioMicMute", Kind: BindShell, Locked: true},
 	{ID: "media.play", Category: "Media", Label: "Play or pause", Chord: "XF86AudioPlay", Kind: BindShell, Locked: true},
 	{ID: "media.next", Category: "Media", Label: "Next track", Chord: "XF86AudioNext", Kind: BindShell, Locked: true},
 	{ID: "media.prev", Category: "Media", Label: "Previous track", Chord: "XF86AudioPrev", Kind: BindShell, Locked: true},
@@ -323,6 +377,7 @@ var displayNames = map[string]string{
 	"XF86AudioRaiseVolume":  "Vol +",
 	"XF86AudioLowerVolume":  "Vol -",
 	"XF86AudioMute":         "Mute",
+	"XF86AudioMicMute":      "Mic mute",
 	"XF86AudioPlay":         "Play",
 	"XF86AudioNext":         "Next",
 	"XF86AudioPrev":         "Prev",

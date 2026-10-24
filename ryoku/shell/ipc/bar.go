@@ -973,7 +973,16 @@ func (d *daemon) barSet(args []string) string {
 		if d.settings == nil {
 			return "err bar: settings not ready"
 		}
-		if err := d.settings.patch("qsbar."+key, v); err != nil {
+		path := "qsbar." + key
+		if key == "clock12h" {
+			path = "general.clock_format_24_h"
+			var twelve bool
+			if err := json.Unmarshal(v, &twelve); err != nil {
+				return "err bar: " + err.Error()
+			}
+			v, _ = json.Marshal(!twelve)
+		}
+		if err := d.settings.patch(path, v); err != nil {
 			return "err bar: " + err.Error()
 		}
 		return "ok"
@@ -1201,7 +1210,7 @@ func (d *daemon) barSettings(args []string) string {
 // partial dock object in shell.json never drops a field a mutation did not set.
 func defaultDock() map[string]any {
 	return map[string]any{
-		"enabled": false, "edge": "auto", "autohide": true, "pinned": []string{},
+		"enabled": false, "edge": "auto", "autohide": false, "pinned": []string{},
 		"magnify": true, "frost": true, "shadow": true, "labels": true, "media": false,
 	}
 }

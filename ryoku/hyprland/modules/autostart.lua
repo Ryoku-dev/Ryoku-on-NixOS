@@ -15,25 +15,10 @@ hl.on("hyprland.start", function()
     -- Papirus-Dark overlay under ~/.local/share/icons tinted to the palette and
     -- selects it. Rebuilt on every palette change by the shell's matugen hook.
     hl.exec_cmd("command -v ryoku-cmd-folders >/dev/null 2>&1 && ryoku-cmd-folders")
-    -- ONE chained command: exec is fire-and-forget, so as separate lines the
-    -- shell start races the env import, and losing means
-    -- ConditionEnvironment=WAYLAND_DISPLAY skips the unit (a black desktop).
-    -- --all, not a name list: a keybind-launched app is Hyprland's child and
-    -- sees every hl.env() name, a systemd or D-Bus launched one sees only what
-    -- is pushed here, and a hand-kept list drifts the moment env.lua, the Hub,
-    -- or user.lua adds one.
-    -- restart, not start: the user manager outlives a session (linger, a
-    -- relogin after a compositor crash), and a daemon it still holds from the
-    -- previous one answers `start` with "already active" while its surfaces are
-    -- bound to the dead compositor, so the login lands on bare Hyprland with no
-    -- shell. daemon-reload first, so a unit materialize just re-laid is the one
-    -- that runs, and reset-failed so a unit that hit its start limit last
-    -- session can start at all.
-    -- Portals restart last, once the desktop is up: they are only
-    -- PartOf=graphical-session.target and nothing stops that target, so a
-    -- previous session's frontend survives and every ScreenCast request it
-    -- proxies times out instead of reaching the backend.
-    hl.exec_cmd("dbus-update-activation-environment --systemd --all; systemctl --user daemon-reload; systemctl --user reset-failed ryogami ryoku-shell 2>/dev/null; systemctl --user start ryoku-session.target; systemctl --user restart ryoku-shell; systemctl --user restart ryogami; systemctl --user try-restart xdg-desktop-portal.service xdg-desktop-portal-hyprland.service xdg-desktop-portal-gtk.service")
+    -- The shared entrypoint keeps this config init-neutral while preserving
+    -- the ordered environment handoff and stale-session restart on every
+    -- supported service supervisor.
+    hl.exec_cmd("ryoku-host session start xdg-desktop-portal-hyprland.service xdg-desktop-portal-gtk.service")
     -- Polkit authentication is answered by the shell's own agent (the island
     -- that matches the rest of the desktop), so the stock Qt agent must not
     -- take the session's single agent slot. Stopping it is idempotent and
@@ -43,8 +28,8 @@ hl.on("hyprland.start", function()
     -- Per-device Bluetooth codec memory. WirePlumber restores a device's PROFILE
     -- across reconnects but not its A2DP codec, so a user who picked one has to
     -- pick it again every single time the buds come back. `watch` reconciles on
-    -- every card event and is a no-op for anyone who never chose a codec, so it
-    -- costs a subscription and nothing else.
+    -- every card event and owns a per-user lock, so compositor reloads cannot
+    -- create duplicate subscriptions.
     hl.exec_cmd("command -v ryoku-bt-audio >/dev/null 2>&1 && ryoku-bt-audio watch")
     -- Keyring default: no app ever prompts for a keyring password out of the box.
     -- `keyring init` records the mode once and seeds a blank passwordless default
@@ -52,15 +37,13 @@ hl.on("hyprland.start", function()
     -- effort: an old ryoku without the subcommand just fails silently here.
     hl.exec_cmd("command -v ryoku >/dev/null 2>&1 && ryoku keyring init")
     hl.exec_cmd("command -v ryoku-gpu >/dev/null 2>&1 && ryoku-gpu persist")
-    hl.exec_cmd("command -v ryoku-idle >/dev/null 2>&1 && ryoku-idle start")
-    hl.exec_cmd("command -v ryoku-clamshell >/dev/null 2>&1 && ryoku-clamshell daemon")
     -- Power knobs the kernel forgets across a reboot: the battery charge ceiling
     -- and the PCIe link policy are plain sysfs values, so a stored choice has to
     -- be pushed back at login or it silently lapses. A no-op with no
     -- ~/.config/ryoku/power.json, and on a desktop or a box without the knobs.
     hl.exec_cmd("command -v ryoku-power >/dev/null 2>&1 && ryoku-power apply")
     -- Device lighting: push the stored look back at the keyboards and mice the
-    -- user put under Ryoku's control (Hub > Appearance > Lighting). A no-op, and
+    -- user put under Ryoku's control (wallpaper picker > Settings > Lighting). A no-op, and
     -- no OpenRGB at all, until lighting is on with a device adopted.
     hl.exec_cmd("command -v ryoku-hub >/dev/null 2>&1 && ryoku-hub lighting apply")
     hl.exec_cmd("command -v ryoku-mic >/dev/null 2>&1 && ryoku-mic")
@@ -72,50 +55,15 @@ hl.on("hyprland.start", function()
     -- Hyprland never runs (no autostart manager), so start it here; on a normal
     -- boot it detects no snapshot and exits silently.
     hl.exec_cmd("command -v limine-snapper-restore >/dev/null 2>&1 && limine-snapper-restore --notify")
-    -- Voxtype dictation: `ryoku-hub voxtype ensure` seeds a default config with
-    -- the built-in hotkey off (the shell owns Super+` and the mic wave), installs
-    -- the user service once, and starts it unless you turned dictation off in the
-    -- Hub. The shell then drives it with `voxtype record` on the Super+` tap.
-    hl.exec_cmd("command -v voxtype >/dev/null 2>&1 && command -v ryoku-hub >/dev/null 2>&1 && ryoku-hub voxtype ensure >/dev/null 2>&1")
     -- AI UI translation: seed ~/.config/ryoku/i18n-llm.json (empty key) so the
     -- file exists for the user to paste an API key into; idempotent, a no-op if
     -- present. The Hub's Language > "Generate with AI" then reads it.
     hl.exec_cmd("command -v ryoku-i18n >/dev/null 2>&1 && ryoku-i18n ensure >/dev/null 2>&1")
-    -- Welcome walkthrough: show the guided tour once per tour VERSION. A fresh
-    -- box (no flag) sees it; a box that saw an older tour (a bare flag or a lower
-    -- version) sees the refreshed tour once more on update; a box already on this
-    -- version is left alone. The flag lives in state (not config), so it needs no
-    -- doctor reconciler. The seen-check lives in Lua because Hyprland's exec reads
-    -- a leading [...] as its window-rules prefix, and because Lua can compare the
-    -- stored version. The flock guards a double fire, and the version is written
-    -- only if qs actually ran the tour (`&&`), so a first-boot launch failure
-    -- retries next login instead of marking it seen. exec is async, so the
-    -- blocking `qs` never holds up autostart. Bump welcome_version when the tour
-    -- changes materially (beta 18 = 18).
-    local welcome_state = (os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")) .. "/ryoku"
-    local welcome_version = 18
-    local seen_file = io.open(welcome_state .. "/welcome-seen", "r")
-    local seen_version = 0
-    if seen_file then
-        seen_version = tonumber((seen_file:read("*l") or "")) or 0
-        seen_file:close()
-    end
-    if seen_version < welcome_version then
-        hl.exec_cmd("flock -n \"${XDG_RUNTIME_DIR:-/tmp}/ryoku-welcome.lock\" qs -c welcome && mkdir -p '" .. welcome_state .. "' && printf '" .. welcome_version .. "' > '" .. welcome_state .. "/welcome-seen'")
-    end
-
-    -- First-boot keyboard hint. A one-shot toast pointing new users at Super+K,
-    -- shown exactly once ever: the marker is written the first time this runs and
-    -- checked forever after, so it never returns on a relogin, reboot or update
-    -- (unlike the versioned welcome flag above). The marker is written before the
-    -- async launch, so a reboot before the user dismisses the toast cannot bring
-    -- it back. It rides the overlay layer above the welcome tour and stays until
-    -- its X is clicked.
-    local keys_hint_seen = welcome_state .. "/keys-hint-seen"
-    local kh = io.open(keys_hint_seen, "r")
-    if kh then
-        kh:close()
-    else
-        hl.exec_cmd("mkdir -p '" .. welcome_state .. "' && printf 'seen' > '" .. keys_hint_seen .. "' && flock -n \"${XDG_RUNTIME_DIR:-/tmp}/ryoku-keys-hint.lock\" qs -c keys-hint")
-    end
+    -- Welcome tour and first-boot keyboard hint: the tour once per tour
+    -- version, the hint exactly once ever. The behaviour lives in
+    -- ryoku-session-intro so every compositor's autostart calls the same
+    -- script. Bump the tour version in the helper when the tour changes
+    -- materially (beta 18 = 18).
+    hl.exec_cmd("command -v ryoku-session-intro >/dev/null 2>&1 && ryoku-session-intro welcome")
+    hl.exec_cmd("command -v ryoku-session-intro >/dev/null 2>&1 && ryoku-session-intro keys-hint")
 end)

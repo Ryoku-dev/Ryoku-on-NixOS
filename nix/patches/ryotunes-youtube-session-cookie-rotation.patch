@@ -1,0 +1,329 @@
+diff --git a/crates/core/src/state.rs b/crates/core/src/state.rs
+index fd3a607..f9058a7 100644
+--- a/crates/core/src/state.rs
++++ b/crates/core/src/state.rs
+@@ -673,7 +673,8 @@ impl AppState {
+             // mark the login unfinished, and remove stale projections. A restart will reopen the
+             // required picker instead of silently acting as YouTube's default channel.
+             self.it.set_data_sync_id(None);
+-            self.db.set_pending_auth_selection(&cookie).map_err(|error| {
++            let session_cookie = self.it.cookie().unwrap_or_else(|| cookie.clone());
++            self.db.set_pending_auth_selection(&session_cookie).map_err(|error| {
+                 self.restore_auth_transport(previous_cookie.clone(), previous_data_sync_id.clone());
+                 self.restore_session_cookie_setting(previous_cookie.as_deref());
+                 error.to_string()
+diff --git a/crates/innertube/src/endpoints.rs b/crates/innertube/src/endpoints.rs
+index 7a22227..5b6720a 100644
+--- a/crates/innertube/src/endpoints.rs
++++ b/crates/innertube/src/endpoints.rs
+@@ -310,14 +310,19 @@ impl InnerTube {
+             #[serde(skip_serializing_if = "Option::is_none")]
+             params: Option<String>,
+         }
+-        let body = BrowseBody {
++        let make_body = || BrowseBody {
+             context: self.context_for(client),
+             browse_id: browse_id.map(str::to_owned),
+             params: params.map(str::to_owned),
+         };
+-        let value = self.post("browse", client, &body, true).await?;
+-        // A stale cookie authenticates transport-wise but YouTube returns a logged-out "Sign in"
+-        // state for account-scoped browse. Surface it as a clear error, not a blank page.
++        let cookie_before = self.cookie();
++        let mut value = self.post("browse", client, &make_body(), true).await?;
++        // A stale cookie can produce a 200 "Sign in" page while the same response rotates the
++        // browser cookies. Browsing is read-only, so replay it once with the refreshed jar before
++        // telling the user their account expired.
++        if self.is_logged_in() && browse::is_signed_out(&value) && self.cookie() != cookie_before {
++            value = self.post("browse", client, &make_body(), true).await?;
++        }
+         if self.is_logged_in() && browse::is_signed_out(&value) {
+             return Err(Error::SessionExpired);
+         }
+diff --git a/crates/innertube/src/transport.rs b/crates/innertube/src/transport.rs
+index 300247a..1aa0de9 100644
+--- a/crates/innertube/src/transport.rs
++++ b/crates/innertube/src/transport.rs
+@@ -3,7 +3,7 @@
+ use std::sync::{Arc, RwLock};
+ use std::time::Duration;
+ 
+-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
++use reqwest::header::{HeaderMap, HeaderName, HeaderValue, SET_COOKIE};
+ use serde::Serialize;
+ use sha1::{Digest, Sha1};
+ 
+@@ -67,10 +67,13 @@ pub fn cookie_sapisid(cookie: &str) -> Option<&str> {
+ /// `session` is behind a shared lock: the app clones `InnerTube` into the orchestrator, and a
+ /// runtime login (authentication flow) must be visible through every clone. Reads/writes are quick and
+ /// never held across an `.await`, so a std `RwLock` is right (no async lock needed).
++type CookieRefreshSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
++
+ #[derive(Clone)]
+ pub struct InnerTube {
+     http: reqwest::Client,
+     session: Arc<RwLock<Session>>,
++    cookie_refresh_sink: Arc<RwLock<Option<CookieRefreshSink>>>,
+ }
+ 
+ impl InnerTube {
+@@ -83,7 +86,11 @@ impl InnerTube {
+         if let Some(p) = proxy {
+             builder = builder.proxy(reqwest::Proxy::all(p)?);
+         }
+-        Ok(InnerTube { http: builder.build()?, session: Arc::new(RwLock::new(session)) })
++        Ok(InnerTube {
++            http: builder.build()?,
++            session: Arc::new(RwLock::new(session)),
++            cookie_refresh_sink: Arc::new(RwLock::new(None)),
++        })
+     }
+ 
+     // --- session accessors (authentication flow) -----------------------------------------------------
+@@ -107,6 +114,30 @@ impl InnerTube {
+         self.session.write().unwrap().cookie = cookie;
+     }
+ 
++    /// Persist server-driven cookie rotations without coupling this transport crate to the app DB.
++    /// Login still owns the initial cookie write; this sink is only called when an authenticated
++    /// YouTube response refreshes the browser-style cookie jar.
++    pub fn set_cookie_refresh_sink<F>(&self, sink: F)
++    where
++        F: Fn(&str, &str) + Send + Sync + 'static,
++    {
++        *self.cookie_refresh_sink.write().unwrap() = Some(Arc::new(sink));
++    }
++
++    fn refresh_cookie_from_headers(&self, headers: &HeaderMap) -> bool {
++        // Keep the session lock through the sink call. Responses may finish concurrently; this
++        // preserves rotation order so persistence cannot land one generation behind the live jar.
++        let mut session = self.session.write().unwrap();
++        let Some(current) = session.cookie.as_deref().map(str::to_owned) else { return false };
++        let Some(updated) = merge_set_cookie_headers(&current, headers) else { return false };
++        session.cookie = Some(updated.clone());
++
++        if let Some(sink) = self.cookie_refresh_sink.read().unwrap().clone() {
++            sink(&current, &updated);
++        }
++        true
++    }
++
+     pub fn set_data_sync_id(&self, id: Option<String>) {
+         self.session.write().unwrap().data_sync_id = id;
+     }
+@@ -154,7 +185,6 @@ impl InnerTube {
+         // `path` may already carry query params (e.g. browse continuations); chain accordingly.
+         let sep = if path.contains('?') { '&' } else { '?' };
+         let url = format!("{BASE_URL}{path}{sep}prettyPrint=false");
+-        let headers = self.headers(client, set_login);
+         let body = serde_json::to_vec(body)?;
+ 
+         let mut delay = Duration::from_millis(500);
+@@ -164,11 +194,19 @@ impl InnerTube {
+             let res = self
+                 .http
+                 .post(&url)
+-                .headers(headers.clone())
++                .headers(self.headers(client, set_login))
+                 .body(body.clone())
+                 .send()
+-                .await
+-                .and_then(|r| r.error_for_status());
++                .await;
++            let res = match res {
++                Ok(resp) => {
++                    if set_login && client.login_supported {
++                        self.refresh_cookie_from_headers(resp.headers());
++                    }
++                    resp.error_for_status()
++                }
++                Err(error) => Err(error),
++            };
+             match res {
+                 Ok(resp) => return Ok(resp.json().await?),
+                 // Retry only on connect/timeout (transient), matching Metrolist's IOException filter.
+@@ -217,14 +255,10 @@ impl InnerTube {
+         if let Ok(v) = HeaderValue::from_str(&body.len().to_string()) {
+             headers.insert(reqwest::header::CONTENT_LENGTH, v);
+         }
+-        let resp = self
+-            .http
+-            .post(format!("{ORIGIN}/{path}"))
+-            .headers(headers)
+-            .body(body)
+-            .send()
+-            .await?
+-            .error_for_status()?;
++        let resp =
++            self.http.post(format!("{ORIGIN}/{path}")).headers(headers).body(body).send().await?;
++        self.refresh_cookie_from_headers(resp.headers());
++        let resp = resp.error_for_status()?;
+         let headers = resp.headers().clone();
+         Ok((headers, resp.bytes().await?.to_vec()))
+     }
+@@ -286,7 +320,9 @@ impl InnerTube {
+     ) -> Result<(), Error> {
+         let url = build_playback_url(base_url, &client.client_name, cpn, playlist_id);
+         let headers = self.headers(client, true);
+-        self.http.get(&url).headers(headers).send().await?.error_for_status()?;
++        let resp = self.http.get(&url).headers(headers).send().await?;
++        self.refresh_cookie_from_headers(resp.headers());
++        resp.error_for_status()?;
+         Ok(())
+     }
+ 
+@@ -296,6 +332,62 @@ impl InnerTube {
+     }
+ }
+ 
++/// Merge browser-style `Set-Cookie` rotations into a request `Cookie` header. YouTube rotates
++/// `__Secure-*SIDTS` while a session is alive; keeping the login-time snapshot forever eventually
++/// makes an otherwise-valid account look signed out. Attributes stay response-only — the request
++/// header stores just name/value pairs, exactly like the login harvester.
++fn merge_set_cookie_headers(current: &str, headers: &HeaderMap) -> Option<String> {
++    let mut cookies: Vec<(String, String)> = current
++        .split(';')
++        .filter_map(|part| {
++            let (name, value) = part.trim().split_once('=')?;
++            (!name.is_empty()).then(|| (name.to_owned(), value.to_owned()))
++        })
++        .collect();
++    let mut changed = false;
++
++    for header in headers.get_all(SET_COOKIE).iter() {
++        let Ok(raw) = header.to_str() else { continue };
++        let mut parts = raw.split(';');
++        let Some(pair) = parts.next() else { continue };
++        let Some((name, value)) = pair.trim().split_once('=') else { continue };
++        if name.is_empty() {
++            continue;
++        }
++
++        let remove = parts.any(|attribute| {
++            let attribute = attribute.trim();
++            attribute.eq_ignore_ascii_case("max-age=0")
++                || attribute.to_ascii_lowercase().starts_with("expires=thu, 01 jan 1970")
++        });
++
++        if remove {
++            let before = cookies.len();
++            cookies.retain(|(existing, _)| existing != name);
++            changed |= cookies.len() != before;
++            continue;
++        }
++
++        if let Some((_, existing)) = cookies.iter_mut().find(|(existing, _)| existing == name) {
++            if existing != value {
++                *existing = value.to_owned();
++                changed = true;
++            }
++        } else {
++            cookies.push((name.to_owned(), value.to_owned()));
++            changed = true;
++        }
++    }
++
++    changed.then(|| {
++        cookies
++            .into_iter()
++            .map(|(name, value)| format!("{name}={value}"))
++            .collect::<Vec<_>>()
++            .join("; ")
++    })
++}
++
+ /// Build the playback-tracking GET URL. write API §registerPlayback. Pure — unit-tested. The
+ /// `base_url` already carries YouTube's own query params, so we chain onto it.
+ fn build_playback_url(
+@@ -462,6 +554,57 @@ mod tests {
+         assert_eq!(it.context_for(web).user.on_behalf_of_user.as_deref(), Some("committed-id"));
+     }
+ 
++    #[test]
++    fn set_cookie_rotation_updates_adds_and_deletes() {
++        let mut headers = HeaderMap::new();
++        headers.append(
++            SET_COOKIE,
++            HeaderValue::from_static("__Secure-3PSIDTS=fresh; Path=/; Secure; HttpOnly"),
++        );
++        headers.append(SET_COOKIE, HeaderValue::from_static("NEW_COOKIE=added; Path=/"));
++        headers.append(SET_COOKIE, HeaderValue::from_static("OLD_COOKIE=; Max-Age=0; Path=/"));
++
++        let merged = merge_set_cookie_headers(
++            "SAPISID=secret; __Secure-3PSIDTS=stale; OLD_COOKIE=gone",
++            &headers,
++        )
++        .expect("response changed the cookie jar");
++
++        assert_eq!(merged, "SAPISID=secret; __Secure-3PSIDTS=fresh; NEW_COOKIE=added");
++    }
++
++    #[test]
++    fn identical_set_cookie_is_a_noop() {
++        let mut headers = HeaderMap::new();
++        headers.append(SET_COOKIE, HeaderValue::from_static("SIDTS=same; Path=/; Secure"));
++        assert!(merge_set_cookie_headers("SAPISID=secret; SIDTS=same", &headers).is_none());
++    }
++
++    #[test]
++    fn response_cookie_rotation_updates_live_session_and_notifies_sink() {
++        let it = InnerTube::new(
++            Session { cookie: Some("SAPISID=secret; SIDTS=old".into()), ..Default::default() },
++            None,
++        )
++        .unwrap();
++        let seen = Arc::new(std::sync::Mutex::new(Vec::<(String, String)>::new()));
++        let seen_sink = seen.clone();
++        it.set_cookie_refresh_sink(move |previous, cookie| {
++            seen_sink.lock().unwrap().push((previous.to_owned(), cookie.to_owned()));
++        });
++
++        let mut headers = HeaderMap::new();
++        headers.append(SET_COOKIE, HeaderValue::from_static("SIDTS=new; Path=/; Secure"));
++        it.refresh_cookie_from_headers(&headers);
++        it.refresh_cookie_from_headers(&headers);
++
++        assert_eq!(it.cookie().as_deref(), Some("SAPISID=secret; SIDTS=new"));
++        assert_eq!(
++            seen.lock().unwrap().as_slice(),
++            &[("SAPISID=secret; SIDTS=old".into(), "SAPISID=secret; SIDTS=new".into())]
++        );
++    }
++
+     #[test]
+     fn sapisid_extracted_from_cookie() {
+         let s = Session {
+diff --git a/crates/ryotunesd/src/app.rs b/crates/ryotunesd/src/app.rs
+index 3f5a350..a007340 100644
+--- a/crates/ryotunesd/src/app.rs
++++ b/crates/ryotunesd/src/app.rs
+@@ -131,6 +131,12 @@ pub fn build(
+             InnerTube::new(session, None).expect("build InnerTube without proxy")
+         }
+     };
++    let session_db = db.clone();
++    it.set_cookie_refresh_sink(move |previous, cookie| {
++        if session_db.get_setting("session_cookie").as_deref() == Some(previous) {
++            session_db.set_setting("session_cookie", cookie);
++        }
++    });
+     let clients = Clients::bundled();
+ 
+     let mut player = Player::new(cache_dir.to_str().unwrap()).expect("init libmpv");
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 3bd8d81..b89175e 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -331,6 +331,12 @@ pub fn run() {
+                     InnerTube::new(session, None).expect("build InnerTube without proxy")
+                 }
+             };
++            let session_db = db.clone();
++            it.set_cookie_refresh_sink(move |previous, cookie| {
++                if session_db.get_setting("session_cookie").as_deref() == Some(previous) {
++                    session_db.set_setting("session_cookie", cookie);
++                }
++            });
+             let clients = Clients::bundled();
+ 
+             let mut player = Player::new(cache_dir.to_str().unwrap()).expect("init libmpv");

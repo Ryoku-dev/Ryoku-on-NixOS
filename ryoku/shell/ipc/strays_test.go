@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -33,12 +34,46 @@ func TestSelectsComponentMatchesEitherSelectorForm(t *testing.T) {
 		{"an app path is not ours", []string{"qs", "-p", "/home/u/.config/quickshell/ryovm"}, byName, false},
 		{"an ipc client is not an instance", []string{"qs", "-c", "shell", "ipc", "call", "bar", "hide"}, byName, false},
 		{"a kill client is not an instance", []string{"qs", "-c", "shell", "kill"}, byName, false},
+		{"instance flags after the selector still draw a desktop", []string{"qs", "-c", "shell", "--no-duplicate", "--log-times"}, byName, true},
+		{"a daemonized instance is still an instance", []string{"qs", "-c", "shell", "-d"}, byName, true},
+		{"an option value is not a subcommand", []string{"qs", "-c", "shell", "--log-rules", "qt.*=false"}, byName, true},
+		{"a flagged checkout leftover is still a stray", []string{"qs", "-p", "/repo/ryoku/shell/quickshell/shell", "--no-duplicate"}, byName, true},
 		{"some other program", []string{"kitty", "-c", "shell"}, byName, false},
 		{"no selector", []string{"qs", "ipc", "call"}, byName, false},
 	} {
 		if got := selectsComponent(tc.argv, tc.sel); got != tc.want {
 			t.Errorf("%s: selectsComponent(%v, %v) = %v, want %v", tc.name, tc.argv, tc.sel, got, tc.want)
 		}
+	}
+}
+
+// A watcher spawned as `bash -c "... inotifywait"` is a grandchild of the
+// surface: killing only the surface reparents it to init, where it leaks for
+// the rest of the session. The reap must take the whole subtree.
+func TestWithDescendantsIncludesChildProcesses(t *testing.T) {
+	nested := exec.Command("bash", "-c", "sleep 60 & sleep 60")
+	nested.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := nested.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = syscall.Kill(-nested.Process.Pid, syscall.SIGKILL)
+		_ = nested.Wait()
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	all := withDescendants([]int{nested.Process.Pid})
+	if len(all) < 2 {
+		t.Fatalf("expected the backgrounded child too, got %v", all)
+	}
+	root := false
+	for _, pid := range all {
+		if pid == nested.Process.Pid {
+			root = true
+		}
+	}
+	if !root {
+		t.Fatal("the root pid must stay in the set")
 	}
 }
 
@@ -177,5 +212,38 @@ func TestTailLineReadsTheLastRealLine(t *testing.T) {
 	}
 	if got := tailLine(dir + "/missing.log"); got != "" {
 		t.Fatalf("a missing log has no line, got %q", got)
+	}
+}
+
+// The python barstyle's keyboard watcher execs python3 -u -c with the script
+// body inline, so the reaper must recognise it by the marker in its source,
+// and the bash fallback by the script name it runs.
+func TestIsShellWatcherCoversKeyboardWatcherForms(t *testing.T) {
+	joined := func(argv ...string) string {
+		return strings.Join(append(append([]string{}, argv...), ""), "\x00") + "\x00"
+	}
+	watchers := [][]string{
+		{"python3", "-u", "-c", "# ryoku-python kb_locks watcher\nimport sys\n"},
+		{"python3", "-u", "/home/u/.config/quickshell/inir/scripts/daemon/keyboard_lock_state_daemon.py"},
+		{"python3", "-u", "-c", "import glob\nlast_caps = read_sysfs(\"/sys/class/leds/*capslock*/brightness\")\n"},
+		{"bash", "/home/u/.config/quickshell/shell/.../watchers/kb_locks.sh", "watch"},
+		{"inotifywait", "-m", "-e", "modify", "/home/u/.cache/ryoku/python/recording"},
+		{"cava", "-p", "/tmp/ryoku-cava.piper"},
+	}
+	for _, argv := range watchers {
+		if !isShellWatcher(joined(argv...)) {
+			t.Errorf("reaper misses the watcher %q", argv[0]+" "+argv[len(argv)-1])
+		}
+	}
+	notWatchers := [][]string{
+		{"python3", "-m", "http.server"},
+		{"bash", "-c", "sleep 1"},
+		{"inotifywait", "-m", "/home/u/projects"},
+		{"cava"},
+	}
+	for _, argv := range notWatchers {
+		if isShellWatcher(joined(argv...)) {
+			t.Errorf("reaper would kill an unrelated %q", argv[0])
+		}
 	}
 }

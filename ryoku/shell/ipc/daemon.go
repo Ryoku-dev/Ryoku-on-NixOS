@@ -50,7 +50,10 @@ var reloadCoverOutput = func(ctx context.Context) ([]byte, error) {
 }
 
 var reloadCoverBegin = func() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// The launcher polls ~4.4 s for the cover to map and close before it
+	// gives up; a shorter deadline would kill a cover that is one poll away
+	// from ready and strand the reload with no animation.
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
 	out, err := reloadCoverOutput(ctx)
 	if err != nil {
@@ -101,6 +104,10 @@ func componentDisabled(name string) bool {
 	return parseDisabledComponents(b)[name]
 }
 
+type suspendRequest struct {
+	cancel context.CancelFunc
+}
+
 type daemon struct {
 	mu           sync.Mutex
 	sup          map[string]bool      // components that already have a supervisor goroutine
@@ -110,12 +117,17 @@ type daemon struct {
 	stageForce   atomic.Bool          // a pending forced regenerate (effect/quality change, refresh, re-cut)
 	stageGen     atomic.Bool          // a pending enable: reuse an existing cut, else generate
 	stageBusy    atomic.Bool          // a cut/inpaint is in flight (for the status/topic)
+	stageNotice  atomic.Value         // why the last reconcile could not produce a cut ("" when fine)
 	ledsSig      chan struct{}        // coalescing wake for the OpenRGB worker
 	widgetSig    chan struct{}        // coalescing wake for the widget-occupancy gate
+	guardKick    chan struct{}        // coalescing wake for the qylock fallback-guard watcher
+	parkSig      chan struct{}        // coalescing wake for palette idle deadlines and saver changes
+	sunSig       chan struct{}        // wakes the sun-mode worker on knob/window changes
 	quit         chan struct{}
 	closed       bool
 	ln           net.Listener
-	lock         *os.File // exclusive single-daemon guard, held until exit
+	lock         *os.File    // exclusive single-daemon guard, held until exit
+	lockQuiesced atomic.Bool // rejects new lock launches during generation cutover
 	failMu       sync.Mutex
 	lastFail     map[string]string // component -> last line it died with
 	voiceMu      sync.Mutex        // serializes voice (Super+`) toggles
@@ -134,6 +146,8 @@ type daemon struct {
 	wmReady      bool
 	wmVersions   map[string]int // frame kind -> publishes since daemon start
 	wmTopic      *stateTopic
+	wmFocusTopic *stateTopic
+	nightlight   *nightlightState         // night-light self-heal (nil until started)
 	gateMu       sync.Mutex               // guards gateWant / gateWake
 	gateWant     map[string]bool          // component -> may run now (absent = yes)
 	gateWake     map[string]chan struct{} // wakes a parked supervisor when its gate opens
@@ -147,10 +161,108 @@ type daemon struct {
 	tray         *trayState               // system tray watcher/host state (nil until started)
 	ryoWallMu    sync.Mutex               // guards ryoWall
 	ryoWall      ryogamiFrame             // last wallpaper frame seen from ryogami; feeds the stage worker
-	polkit       *polkitAgent             // PolicyKit1 authentication agent (nil until started)
-	settings     *settingsStore           // shell.json store (nil until startSettings); theme apply patches through it
-	pp           *powerProfilesState      // power-profiles-daemon bus state; nil until startPowerProfiles
-	keypress     *keypressManager         // evdev key stream; opens devices only while the overlay is enabled
+	polkit       *polkitAgent             // PolicyKit1 authentication agent (nil when unavailable)
+	settings     *settingsStore           // shell.json store (nil until startSettings)
+	pp           *powerProfilesState      // power-profiles-daemon bus state
+	keypress     *keypressManager         // evdev key stream while the overlay is enabled
+	mousemap     *mouseMapManager         // per-mouse evdev grab + uinput clone remapper
+	sun          *sunState                // latest weather sunrise/sunset window
+	sleepMu      sync.RWMutex
+	sleep        *sleepCycle // coordinated login1 suspend transaction; guarded by sleepMu
+	suspendReqMu sync.Mutex
+	suspendReq   map[string]*suspendRequest
+}
+
+func (d *daemon) currentSleepCycle() *sleepCycle {
+	d.sleepMu.RLock()
+	defer d.sleepMu.RUnlock()
+	return d.sleep
+}
+
+func (d *daemon) kickQylockGuardWatcher() {
+	select {
+	case d.guardKick <- struct{}{}:
+	default:
+	}
+}
+
+func validSuspendToken(token string) bool {
+	if token == "" || len(token) > 96 {
+		return false
+	}
+	for _, r := range token {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') &&
+			(r < '0' || r > '9') && r != '-' && r != '_' && r != '.' {
+			return false
+		}
+	}
+	return true
+}
+
+func (d *daemon) startSuspendRequest(token string) (context.Context, *suspendRequest, error) {
+	if !validSuspendToken(token) {
+		return nil, nil, fmt.Errorf("invalid transaction token")
+	}
+	d.suspendReqMu.Lock()
+	defer d.suspendReqMu.Unlock()
+	if d.suspendReq == nil {
+		d.suspendReq = make(map[string]*suspendRequest)
+	}
+	if pending, exists := d.suspendReq[token]; exists {
+		if pending.cancel == nil {
+			delete(d.suspendReq, token)
+			return nil, nil, context.Canceled
+		}
+		return nil, nil, fmt.Errorf("transaction is already active")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	request := &suspendRequest{cancel: cancel}
+	d.suspendReq[token] = request
+	return ctx, request, nil
+}
+
+func (d *daemon) finishSuspendRequest(token string, request *suspendRequest) {
+	d.suspendReqMu.Lock()
+	defer d.suspendReqMu.Unlock()
+	if d.suspendReq[token] == request {
+		delete(d.suspendReq, token)
+	}
+	request.cancel()
+}
+
+func (d *daemon) cancelSuspendRequest(token string) error {
+	if !validSuspendToken(token) {
+		return fmt.Errorf("invalid transaction token")
+	}
+	d.suspendReqMu.Lock()
+	if d.suspendReq == nil {
+		d.suspendReq = make(map[string]*suspendRequest)
+	}
+	if request, exists := d.suspendReq[token]; exists {
+		if request.cancel != nil {
+			request.cancel()
+		}
+		d.suspendReqMu.Unlock()
+		return nil
+	}
+	tombstone := &suspendRequest{}
+	d.suspendReq[token] = tombstone
+	d.suspendReqMu.Unlock()
+	time.AfterFunc(time.Minute, func() {
+		d.suspendReqMu.Lock()
+		if d.suspendReq[token] == tombstone {
+			delete(d.suspendReq, token)
+		}
+		d.suspendReqMu.Unlock()
+	})
+	return nil
+}
+
+func (d *daemon) setSleepCycle(cycle *sleepCycle) {
+	d.sleepMu.Lock()
+	d.sleep = cycle
+	d.sleepMu.Unlock()
+	d.kickQylockGuardWatcher()
 }
 
 func runDaemon() error {
@@ -200,12 +312,16 @@ func runDaemon() error {
 		stageSig:    make(chan struct{}, 1),
 		ledsSig:     make(chan struct{}, 1),
 		widgetSig:   make(chan struct{}, 1),
+		guardKick:   make(chan struct{}, 1),
+		parkSig:     make(chan struct{}, 1),
+		sunSig:      make(chan struct{}, 1),
 		quit:        make(chan struct{}),
 		gateWant:    map[string]bool{},
 		gateWake:    map[string]chan struct{}{},
 		hiddenSince: map[string]time.Time{},
 		lastFail:    map[string]string{},
 		wmc:         wmc,
+		sun:         daySun,
 	}
 	d.ln = ln
 	d.lock = lock // held for the process lifetime: closing it would free the guard
@@ -333,7 +449,10 @@ func setupQmlImportPath() {
 // components.
 func (d *daemon) bootstrap() {
 	d.startSettings()
+	d.startPresence()
 	d.startKeypress()
+	d.startRecord()
+	d.startMouseMap()
 	d.startClipboard()
 	d.startTray()
 	d.startWeather()
@@ -342,6 +461,7 @@ func (d *daemon) bootstrap() {
 	d.startPowerProfiles()
 	d.startNetwork()
 	d.startNightlight()
+	go d.watchSunMode()
 	d.startOsd()
 	d.prompter = startKeyringPrompter()
 	if d.prompter != nil {
@@ -356,7 +476,6 @@ func (d *daemon) bootstrap() {
 	go d.watchMatugenKnobs()
 	go d.ledsWorker()
 	d.startWM()
-	go d.watchAudio()
 	go d.watchPowerSounds()
 	go d.watchAutoPowerSaver()
 	go d.widgetGateWorker()
@@ -397,24 +516,193 @@ const startupStagger = 250 * time.Millisecond
 // and a leftover that ignores SIGTERM used to survive the session, so this waits
 // for the process to go and SIGKILLs what does not. It runs before every start,
 // since a stray can appear at any point.
+//
+// Each stray is taken down with its whole subtree: a watcher started as
+// `bash -c "... inotifywait"` without exec is a grandchild, and killing only
+// the surface reparents it to init, where it outlives every reload. Those
+// leaks are what made a plain `ps` show a dozen dead shells' helpers.
 func (d *daemon) reapStrays() int {
 	strays := d.strayPids()
-	if len(strays) == 0 {
+	n := len(strays)
+	targets := withDescendants(strays)
+	// Watchers orphaned by an earlier SIGKILL are no longer under any surface:
+	// systemd-user adopted them. Sweep those by signature too, so a reload does
+	// not leave a helper watching a path its shell is gone to serve.
+	targets = append(targets, orphanedWatchers()...)
+	if len(targets) == 0 {
 		return 0
 	}
-	signalAll(strays, syscall.SIGTERM)
-	strays = waitGone(strays, 3*time.Second)
-	if len(strays) > 0 {
+	signalAll(targets, syscall.SIGTERM)
+	left := waitGone(targets, 3*time.Second)
+	if len(left) > 0 {
 		// SIGTERM was ignored or the process is stuck in a syscall: take it out,
 		// because a second live shell is worse than a hard kill.
-		signalAll(strays, syscall.SIGKILL)
-		strays = waitGone(strays, time.Second)
+		signalAll(left, syscall.SIGKILL)
+		left = waitGone(left, time.Second)
 	}
-	return len(strays)
+	return n
+}
+
+// orphanedWatchers lists the shell's own helper processes that a dead surface
+// left behind: an inotifywait/keyboard/cava watcher reparented away from any
+// quickshell, so its shell died and it watches paths for nobody.
+func orphanedWatchers() []int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	var out []int
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+		if !isShellWatcher(string(raw)) {
+			continue
+		}
+		if !orphanedFromShell(pid) {
+			continue
+		}
+		out = append(out, pid)
+	}
+	return out
+}
+
+// isShellWatcher recognises the helper processes the shell spawns: the ryoku
+// python inotifywait watchers, the keyboard-lock daemons (the packaged script
+// and the python watcher it execs), and the cava analyser.
+func isShellWatcher(cmdline string) bool {
+	argv := strings.Split(strings.TrimRight(cmdline, "\x00"), "\x00")
+	if len(argv) == 0 {
+		return false
+	}
+	switch filepath.Base(argv[0]) {
+	case "inotifywait":
+		for _, a := range argv[1:] {
+			if strings.Contains(a, "ryoku-python") || strings.Contains(a, "ryoku/python") {
+				return true
+			}
+		}
+	case "python3", "python":
+		for _, a := range argv[1:] {
+			if strings.Contains(a, "keyboard_lock_state_daemon.py") ||
+				strings.Contains(a, "ryoku-python") ||
+				strings.Contains(a, "/sys/class/leds/*capslock*") {
+				return true
+			}
+		}
+	case "bash":
+		for _, a := range argv[1:] {
+			if strings.Contains(a, "kb_locks.sh") {
+				return true
+			}
+		}
+	case "cava":
+		for _, a := range argv[1:] {
+			if strings.Contains(a, "ryoku-cava") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// orphanedFromShell walks a process's ancestors: a live helper sits under a
+// quickshell instance, so reaching init or a systemd without crossing one
+// means its shell died and left it behind.
+func orphanedFromShell(pid int) bool {
+	cur := pid
+	for range 8 {
+		ppid, err := parentPid(cur)
+		if err != nil || ppid <= 1 {
+			return true
+		}
+		comm, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(ppid), "comm"))
+		if err != nil {
+			return true
+		}
+		switch strings.TrimSpace(string(comm)) {
+		case "qs", "quickshell":
+			return false
+		case "systemd", "systemd-userwr":
+			return true
+		}
+		cur = ppid
+	}
+	return false
+}
+
+// parentPid reads a pid's parent from its /proc stat: the second field after
+// the parenthesised comm (ppid follows the state letter).
+func parentPid(pid int) (int, error) {
+	raw, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return 0, err
+	}
+	rest := raw[strings.LastIndex(string(raw), ")")+2:]
+	fields := strings.Fields(string(rest))
+	if len(fields) < 2 {
+		return 0, fmt.Errorf("short stat for %d", pid)
+	}
+	return strconv.Atoi(fields[1])
+}
+
+// withDescendants expands a pid set to include every process under it, so a
+// single signal wave takes a surface and the watchers it spawned.
+func withDescendants(roots []int) []int {
+	children := map[int][]int{}
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return roots
+	}
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join("/proc", e.Name(), "stat"))
+		if err != nil {
+			continue
+		}
+		// ppid is the field after the comm, which may contain spaces: read past ')'.
+		rest := raw[strings.LastIndex(string(raw), ")")+2:]
+		fields := strings.Fields(string(rest))
+		if len(fields) < 2 {
+			continue
+		}
+		ppid, err := strconv.Atoi(fields[1])
+		if err != nil {
+			continue
+		}
+		children[ppid] = append(children[ppid], pid)
+	}
+	out := make([]int, 0, len(roots))
+	seen := map[int]bool{}
+	var walk func(int)
+	walk = func(pid int) {
+		if seen[pid] {
+			return
+		}
+		seen[pid] = true
+		out = append(out, pid)
+		for _, c := range children[pid] {
+			walk(c)
+		}
+	}
+	for _, r := range roots {
+		walk(r)
+	}
+	return out
 }
 
 // strayPids lists live quickshell processes that render a component this daemon
-// owns but are not its own children.
+// owns but are not its own children. A process running under a different HOME
+// or XDG_CONFIG_HOME is a deliberately isolated instance (a sandboxed nested
+// probe, a second user), not a leftover of this session, and is left alone.
 func (d *daemon) strayPids() []int {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
@@ -422,6 +710,11 @@ func (d *daemon) strayPids() []int {
 	}
 	mine := d.ownedPids()
 	self := os.Getpid()
+	myHome := os.Getenv("HOME")
+	myCfg := os.Getenv("XDG_CONFIG_HOME")
+	if myCfg == "" {
+		myCfg = myHome + "/.config"
+	}
 	var out []int
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
@@ -433,14 +726,46 @@ func (d *daemon) strayPids() []int {
 			continue
 		}
 		argv := strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00")
+		matches := false
 		for _, c := range components {
 			if selectsComponent(argv, qsSelect(c.name)) {
-				out = append(out, pid)
+				matches = true
 				break
 			}
 		}
+		if !matches {
+			continue
+		}
+		envRaw, err := os.ReadFile(filepath.Join("/proc", e.Name(), "environ"))
+		if err != nil {
+			continue // gone, or not ours to read: never kill what we cannot place
+		}
+		if !sameSessionEnv(string(envRaw), myHome, myCfg) {
+			continue
+		}
+		out = append(out, pid)
 	}
 	return out
+}
+
+// sameSessionEnv reports whether a /proc environ blob belongs to this daemon's
+// session: the same HOME and the same effective config directory.
+func sameSessionEnv(environ, home, cfgDir string) bool {
+	env := map[string]string{}
+	for _, kv := range strings.Split(environ, "\x00") {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			env[k] = v
+		}
+	}
+	h := env["HOME"]
+	if h != "" && h != home {
+		return false
+	}
+	c := env["XDG_CONFIG_HOME"]
+	if c == "" {
+		c = home + "/.config"
+	}
+	return c == cfgDir
 }
 
 // ownedPids: the quickshell children this daemon is supervising right now, so a
@@ -461,6 +786,9 @@ func (d *daemon) ownedPids() map[int]bool {
 // component sel names. Both selector forms count: a packaged daemon looks for
 // "-c shell" while a checkout's leftover reads "-p .../quickshell/shell", and
 // matching only its own form is why the reap used to miss the strays that matter.
+// Trailing instance flags (--no-duplicate, --log-times, -d) still describe an
+// instance drawing a desktop; only a subcommand (ipc, kill) after the selector
+// makes the process a client that must be left alone.
 func selectsComponent(argv, sel []string) bool {
 	if len(argv) < 3 || len(sel) < 2 {
 		return false
@@ -470,22 +798,37 @@ func selectsComponent(argv, sel []string) bool {
 	default:
 		return false
 	}
-	// a client invocation (`qs -c shell ipc call ...`) talks to an instance, it
-	// is not one; only a bare selector runs a config.
 	name := filepath.Base(sel[1])
 	for i := 1; i < len(argv)-1; i++ {
 		switch argv[i] {
 		case "-c", "--config":
-			if argv[i+1] == name && i+2 == len(argv) {
-				return true
+			if argv[i+1] == name {
+				return instanceTail(argv[i+2:])
 			}
 		case "-p", "--path":
-			if filepath.Base(argv[i+1]) == name && i+2 == len(argv) {
-				return true
+			if filepath.Base(argv[i+1]) == name {
+				return instanceTail(argv[i+2:])
 			}
 		}
 	}
 	return false
+}
+
+// instanceTail reports whether everything after a config selector is instance
+// options. A bare word that is not a known option's value is a subcommand, so
+// the process talks to an instance instead of being one.
+func instanceTail(tail []string) bool {
+	for i := 0; i < len(tail); i++ {
+		switch tail[i] {
+		case "-m", "--manifest", "--log-rules":
+			i++ // the next word is this option's value, not a subcommand
+		default:
+			if !strings.HasPrefix(tail[i], "-") {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func signalAll(pids []int, sig syscall.Signal) {
@@ -593,13 +936,27 @@ const jemallocConf = "narenas:2,background_thread:true,dirty_decay_ms:5000,muzzy
 // qsEnv is the environment for a supervised quickshell process: the daemon's own
 // env (which carries the QML import path setupQmlImportPath exports) plus the
 // jemalloc tuning, unless the user already pinned MALLOC_CONF.
+//
+// It also turns off Qt's frame-callback timeout. The compositor sends a hidden
+// surface (the overview backdrop, anything under a fullscreen window, a locked
+// or powered-off screen) one frame callback about once a second. After 100 ms
+// without one Qt marks the window unexposed, and each late callback exposes it
+// again, which rebuilds its swapchain and redraws the same frame: a full-screen
+// render every second, forever, for nothing. Without the timeout a hidden
+// surface with nothing new to draw stays quiet, and one that does still paces
+// itself on the compositor's callbacks.
 func qsEnv() []string {
-	env := os.Environ()
+	env := nomarchyEnv()
 	if os.Getenv("MALLOC_CONF") == "" {
 		env = append(env, "MALLOC_CONF="+jemallocConf)
 	}
+	if _, set := os.LookupEnv(frameCallbackTimeoutEnv); !set {
+		env = append(env, frameCallbackTimeoutEnv+"=0")
+	}
 	return env
 }
+
+const frameCallbackTimeoutEnv = "QT_WAYLAND_FRAME_CALLBACK_TIMEOUT"
 
 // surfaceLog is where a supervised surface's stderr goes, one file per component
 // so a crash on start is still readable after the respawn.
@@ -607,6 +964,14 @@ func surfaceLog(name string) string {
 	dir := filepath.Join(stateDir(), "ryoku", "surfaces")
 	_ = os.MkdirAll(dir, 0o755)
 	return filepath.Join(dir, name+".log")
+}
+
+// ensureStoreIndexDir makes the folder RyoStore publishes its indexes in. The
+// shell watches those indexes, and a file watch only notices a new file inside a
+// folder that already exists, so on a box that had never installed from the
+// store the first install went unseen until the shell restarted.
+func ensureStoreIndexDir() {
+	_ = os.MkdirAll(filepath.Join(stateDir(), "ryoku", "store"), 0o755)
 }
 
 func tailLine(path string) string {
@@ -642,14 +1007,15 @@ func tailLines(path string, n int) string {
 // it dies immediately so a broken config does not spin the CPU.
 func (d *daemon) supervise(name string) {
 	backoff := time.Second
+	memoryLimit := memoryCeiling(systemMemory())
 	for {
 		select {
 		case <-d.quit:
 			return
 		default:
 		}
-		// park while a gate keeps this component unloaded (the visualiser
-		// audio-unload). a fresh open wakes us; the timeout is a safety re-check.
+		// Park while an idle-freeable component's gate is closed. A fresh open
+		// wakes the supervisor; the timeout is only a safety re-check.
 		for !d.gateAllows(name) {
 			select {
 			case <-d.quit:
@@ -662,6 +1028,7 @@ func (d *daemon) supervise(name string) {
 		// component is a leftover (our own child is tracked, so it is excluded),
 		// and it goes before we draw over it.
 		d.reapStrays()
+		ensureStoreIndexDir()
 		cmd := exec.Command("qs", qsSelect(name)...)
 		cmd.Env = qsEnv()
 		// Keep the surface's own output: a config that fails to load reports on
@@ -691,10 +1058,13 @@ func (d *daemon) supervise(name string) {
 			// which reverts an update whose next boots never get here.
 			go recordBootOK(exited)
 		}
+		heldAtKill := make(chan uint64, 1)
+		go watchSurfaceMemory(cmd.Process.Pid, memoryLimit, exited, heldAtKill)
 
 		start := time.Now()
 		_ = cmd.Wait()
 		close(exited)
+		killedHolding := <-heldAtKill
 		if name == "shell" && d.keypress != nil {
 			d.keypress.configure(false, d.keypress.currentMode())
 		}
@@ -725,7 +1095,17 @@ func (d *daemon) supervise(name string) {
 			return
 		default:
 		}
-		if time.Since(start) < 3*time.Second {
+		if killedHolding > 0 {
+			why := fmt.Sprintf("killed holding %d MiB, over its %d MiB memory ceiling",
+				killedHolding>>20, memoryLimit>>20)
+			d.failMu.Lock()
+			d.lastFail[name] = why
+			d.failMu.Unlock()
+			fmt.Fprintf(os.Stderr, "%s %s\n", name, why)
+			// A leak that comes back on every start must not turn into a kill loop.
+			backoff = capDur(backoff*2, 30*time.Second)
+			time.Sleep(backoff)
+		} else if time.Since(start) < 3*time.Second {
 			if line := tailLine(logPath); line != "" {
 				d.failMu.Lock()
 				d.lastFail[name] = line
@@ -821,6 +1201,9 @@ func (d *daemon) shutdown() {
 	if d.keypress != nil {
 		d.keypress.configure(false, "all")
 	}
+	if d.mousemap != nil {
+		d.mousemap.stop()
+	}
 	d.mu.Lock()
 	pids := make([]int, 0, len(d.proc))
 	for _, c := range d.proc {
@@ -866,12 +1249,6 @@ func (d *daemon) handle(conn net.Conn) {
 		d.serveCalls(conn, r, cmd)
 		return
 	}
-	// A clipboard capture helper streams new selection bytes after its header
-	// line, so they never reach a command line.
-	if strings.HasPrefix(cmd, "clip-ingest ") {
-		fmt.Fprintln(conn, d.clipIngest(cmd, r))
-		return
-	}
 	if strings.HasPrefix(cmd, "clip-copy ") {
 		fmt.Fprintln(conn, d.clipCopy(cmd))
 		return
@@ -880,31 +1257,27 @@ func (d *daemon) handle(conn net.Conn) {
 }
 
 var surfaceCommands = map[string]string{
-	// One bare kebab verb per shell surface, spelled to match its CustomShortcut
-	// id, so a compositor keybind reaches any surface as `ryoku-shell <id>` where
-	// no global-shortcuts protocol exists (niri). Flag surfaces land on ShellState
-	// through the surface bus's style-independent consumer; frame-menu surfaces
-	// land on the per-monitor FrameMenuManager. Both are the same transition a
-	// CustomShortcut press runs in-process.
-	"bar-toggle":         "barToggle",
-	"launcher":           "launcher",
-	"overview":           "overview",
-	"visualizer":         "visualizer",
-	"visualizer-overlay": "visualizer-overlay",
-	"visualizer-place":   "visualizer-place",
-	"quicksettings":      "quick-settings",
-	"wallpaper-menu":     "wallpaper",
-	"clipboard":          "clipboard",
-	"stash":              "stash",
-	"screenshot":         "quick-settings#capture",
-	"compress":           "stash#compress",
-	"install":            "stash#install",
-	// Preserved aliases so nothing scripted today breaks: the menu-prefixed
-	// spellings and the file-picker desktop entries (install-app.desktop,
-	// compress-video.desktop) land on the same surfaces they always have.
-	"menu screenshot":   "screenshot",
-	"menu stash":        "stash",
-	"menu app-launcher": "launcher",
+	// Surface verbs resolve to ids handled by the shell's openSurface route.
+	// Ask subcommands deep-link into a mode; menu aliases preserve established
+	// command spellings.
+	"bar-toggle":          "barToggle",
+	"launcher":            "launcher",
+	"overview":            "overview",
+	"visualizer":          "visualizer",
+	"visualizer-overlay":  "visualizer-overlay",
+	"visualizer-place":    "visualizer-place",
+	"quicksettings":       "sidebar-left",
+	"wallpaper-menu":      "wallpaper",
+	"clipboard":           "clipboard",
+	"screenshot":          "screenshot",
+	"ask":                 "ask",
+	"ask chat":            "ask#chat",
+	"ask tools":           "ask#tools",
+	"compress":            "ask#tools/compress",
+	"install":             "ask#tools/install",
+	"menu quick-settings": "sidebar-left",
+	"menu screenshot":     "screenshot",
+	"menu app-launcher":   "launcher",
 }
 
 // route resolves an IPC-style command to the single shell's IpcHandler config,
@@ -944,12 +1317,12 @@ func (d *daemon) dispatch(line string) string {
 	routeCmd := cmd
 	switch cmd {
 	case "menu":
-		// menu close clears every open menu. App launcher and dedicated frame
-		// surfaces keep their established menu commands.
+		// menu close clears every open menu. App launcher and dedicated surface
+		// aliases keep their established menu commands.
 		switch {
 		case len(args) == 1 && args[0] == "close":
 			return d.menuClose()
-		case len(args) == 1 && (args[0] == "app-launcher" || args[0] == "screenshot" || args[0] == "stash"):
+		case len(args) == 1 && (args[0] == "app-launcher" || args[0] == "quick-settings" || args[0] == "screenshot"):
 			routeCmd = line
 		default:
 			if _, ok := menuID(line); !ok {
@@ -957,6 +1330,15 @@ func (d *daemon) dispatch(line string) string {
 			}
 			routeCmd = line
 		}
+	case "ask":
+		if len(args) == 0 {
+			break
+		}
+		if len(args) == 1 && (args[0] == "chat" || args[0] == "tools") {
+			routeCmd = line
+			break
+		}
+		return "err ask: expected chat or tools"
 	case "bar":
 		// The data-layout verbs (list/catalog/move/show/hide/set/position/form/
 		// defaults/settings) take a verb first; the reveal grammar takes an edge
@@ -972,6 +1354,8 @@ func (d *daemon) dispatch(line string) string {
 		return d.barToggle(edge, action)
 	case "dock":
 		return d.dockCLI(args)
+	case "powerprofiles":
+		return d.powerProfilesCLI(args)
 	}
 	if config, target, fn, ok := route(routeCmd); ok {
 		if componentDisabled(config) {
@@ -980,10 +1364,9 @@ func (d *daemon) dispatch(line string) string {
 			return "ok"
 		}
 		d.ensure(config)
-		if config == "visualizer" || parkable(config) {
-			// an explicit toggle must win over the idle-unload gate: reopen a
-			// parked visualiser or palette so its supervisor respawns, then
-			// ipcCall retries until the fresh instance answers.
+		if parkable(config) {
+			// An explicit open wins over the idle-unload gate, then ipcCall
+			// retries until the palette's fresh process answers.
 			d.setGate(config, true)
 		}
 		mon := d.activeMonitor()
@@ -1015,16 +1398,94 @@ func (d *daemon) dispatch(line string) string {
 			return "err barstyle: " + err.Error()
 		}
 		return "ok"
+	case "lock-quiesce":
+		if len(args) != 0 {
+			return "err lock-quiesce: takes no arguments"
+		}
+		d.lockQuiesced.Store(true)
+		return "ok"
 	case "lock":
 		// lock status is the reference check (prints locked/unlocked, exit 0);
-		// bare lock engages the session lock.
-		if len(args) >= 1 && args[0] == "status" {
+		// bare lock engages this daemon's login1 session.
+		if len(args) == 1 && args[0] == "status" {
 			if isLocked() {
 				return "locked"
 			}
 			return "unlocked"
 		}
-		return lockSession()
+		if d.lockQuiesced.Load() {
+			return "err lock: generation cutover is in progress"
+		}
+		if len(args) == 2 && args[0] == "session" {
+			if args[1] != lockSessionID() {
+				return "err lock: requested login1 session is not owned by this daemon"
+			}
+			reply := lockSession()
+			d.kickQylockGuardWatcher()
+			return reply
+		}
+		if len(args) != 0 {
+			return "err lock: expected no arguments, status, or session <id>"
+		}
+		reply := lockSession()
+		d.kickQylockGuardWatcher()
+		return reply
+	case "unlock-prepare":
+		if len(args) != 2 || args[0] != "session" {
+			return "err unlock-prepare: expected session <id>"
+		}
+		if args[1] != lockSessionID() {
+			return "err unlock-prepare: requested login1 session is not owned by this daemon"
+		}
+		cycle := d.currentSleepCycle()
+		if cycle == nil {
+			return "err unlock-prepare: sleep guard is unavailable"
+		}
+		if err := cycle.prepareUnlock(); err != nil {
+			return "err unlock-prepare: " + err.Error()
+		}
+		d.kickQylockGuardWatcher()
+		return "ok"
+	case "sleep-ready":
+		if len(args) != 0 {
+			return "err sleep-ready: takes no arguments"
+		}
+		cycle := d.currentSleepCycle()
+		if cycle == nil || !cycle.ready() {
+			return "err sleep-ready: guard is not ready"
+		}
+		return "ok"
+	case "suspend":
+		cycle := d.currentSleepCycle()
+		if cycle == nil {
+			return "err suspend: sleep guard is unavailable"
+		}
+		if len(args) == 0 {
+			if err := cycle.requestSuspend(); err != nil {
+				return "err suspend: " + err.Error()
+			}
+			return "ok"
+		}
+		if len(args) != 2 || args[0] != "transaction" {
+			return "err suspend: expected no arguments or transaction <token>"
+		}
+		ctx, request, err := d.startSuspendRequest(args[1])
+		if err != nil {
+			return "err suspend: " + err.Error()
+		}
+		defer d.finishSuspendRequest(args[1], request)
+		if err := cycle.requestSuspendContext(ctx); err != nil {
+			return "err suspend: " + err.Error()
+		}
+		return "ok"
+	case "suspend-cancel":
+		if len(args) != 2 || args[0] != "transaction" {
+			return "err suspend-cancel: expected transaction <token>"
+		}
+		if err := d.cancelSuspendRequest(args[1]); err != nil {
+			return "err suspend-cancel: " + err.Error()
+		}
+		return "ok"
 	case "audio":
 		if len(args) != 1 {
 			return "err audio: expected up, down, or mute"
@@ -1047,10 +1508,12 @@ func (d *daemon) dispatch(line string) string {
 		// One verb surface for Ryostage (docs/stage.md): set-effect records the
 		// three-way effect per wallpaper; set-layer applies a layer's arrangement
 		// flags (enabled/front/depth); add-layer / cut-layer / remove-layer manage
-		// the manual layers; refresh forces a re-cut; cancel kills a running engine
-		// child; clear drops the current wall's generated artifacts; status
-		// snapshots the topic; models proxies the engine catalogue. QML normally
-		// subscribes to the `stage` topic; these verbs carry intent the other way.
+		// the manual layers; refresh forces a re-cut; depth-refresh rebuilds only
+		// the 3D depth map; depth-sample reads one depth value for the widget
+		// depth-pick; cancel kills a running engine child; clear drops the
+		// current wall's generated artifacts; status snapshots the topic; models
+		// proxies the engine catalogue. QML normally subscribes to the `stage`
+		// topic; these verbs carry intent the other way.
 		if len(args) == 0 {
 			return "err stage: expected a verb"
 		}
@@ -1072,6 +1535,24 @@ func (d *daemon) dispatch(line string) string {
 			d.stageForce.Store(true)
 			d.scheduleStage()
 			return "ok"
+		case "depth-refresh":
+			d.stageDepthRefresh()
+			return "ok"
+		case "depth-sample":
+			// <wall> <nx> <ny> <width> <height> <fit>: one depth value for the
+			// widget depth-pick. The wall path may carry spaces, so it is the
+			// join of the fields between the verb and the fixed numeric tail.
+			if len(args) < 7 {
+				return "err stage depth-sample: expected <wall> <nx> <ny> <width> <height> <fit>"
+			}
+			val, err := d.stageDepthSampleCall(
+				strings.Join(args[1:len(args)-5], " "),
+				args[len(args)-5], args[len(args)-4], args[len(args)-3],
+				args[len(args)-2], args[len(args)-1])
+			if err != nil {
+				return "err stage depth-sample: " + err.Error()
+			}
+			return "ok " + val
 		case "cancel":
 			stageCancel()
 			return "ok"
@@ -1164,7 +1645,7 @@ func (d *daemon) dispatch(line string) string {
 		if args[1] != "light" && args[1] != "dark" {
 			return "err gtk: mode must be light or dark"
 		}
-		matugenReload(args[1])
+		matugenReload(args[1], d.kdePaletteEmitter())
 		return "ok"
 	case "reload":
 		return d.reload()
@@ -1213,8 +1694,10 @@ func (d *daemon) dispatch(line string) string {
 		if len(args) != 1 || !knownSound(args[0]) {
 			return "err sound: expected a known event"
 		}
-		playSound(args[0])
+		d.playSound(args[0])
 		return "ok"
+	case "record":
+		return d.record(args)
 
 	default:
 		return "err unknown command: " + cmd

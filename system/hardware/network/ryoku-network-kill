@@ -8,7 +8,7 @@ set -euo pipefail
 state=${RYOKU_NETWORK_KILL_STATE:-/var/lib/ryoku/network-kill-switch.enabled}
 nft=${RYOKU_NETWORK_KILL_NFT:-nft}
 nmcli=${RYOKU_NETWORK_KILL_NMCLI:-nmcli}
-systemctl=${RYOKU_NETWORK_KILL_SYSTEMCTL:-systemctl}
+host=${RYOKU_NETWORK_KILL_HOST:-ryoku-host}
 table='ryoku_kill_switch'
 
 usage() {
@@ -69,13 +69,17 @@ firewall_present() {
 
 lock_transitions() {
     require flock
-    install -d -m 700 "$(dirname "$state")"
+    # /var/lib/ryoku is shared state: tmpfiles owns its mode (0755) because
+    # the boot-ok files and the greeter connector are written through it by
+    # unprivileged sessions. install -d would chmod an existing directory, so
+    # the mode here must match the contract, never a private 700.
+    install -d -m 755 "$(dirname "$state")"
     exec 9>"${state}.lock"
     flock -x 9
 }
 
 persist() {
-    install -d -m 700 "$(dirname "$state")"
+    install -d -m 755 "$(dirname "$state")"
     umask 077
     : >"$state"
 }
@@ -83,11 +87,11 @@ persist() {
 on() {
     require "$nft"
     require "$nmcli"
-    require "$systemctl"
+    require "$host"
     lock_transitions
     # Make the boot guard durable before changing live state. If the host loses
     # power mid-transition, the guard recreates the drop table before NM starts.
-    "$systemctl" enable --quiet ryoku-network-kill-guard.service ryoku-network-kill-disconnect.service
+    "$host" svc --system enable ryoku-network-kill-guard ryoku-network-kill-disconnect
     persist
     arm_firewall
     "$nmcli" networking off
@@ -96,14 +100,14 @@ on() {
 off() {
     require "$nft"
     require "$nmcli"
-    require "$systemctl"
+    require "$host"
     lock_transitions
     # Drop the boot marker and disarm the units before touching live state: with
     # the marker gone the guard cannot re-arm at boot, so a failure past this
     # point can never leave the machine isolated across a reboot. The rest is
     # best-effort -- off is the recovery path and must not abort half done.
     rm -f "$state"
-    "$systemctl" disable --quiet ryoku-network-kill-guard.service ryoku-network-kill-disconnect.service || true
+    "$host" svc --system disable ryoku-network-kill-guard ryoku-network-kill-disconnect || true
     if firewall_present; then
         "$nft" delete table inet "$table" || true
     fi

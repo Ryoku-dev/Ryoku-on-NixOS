@@ -33,10 +33,10 @@ package as the base config under `/usr/share/ryoku/config`, which
   Hyprland autostart (`gsettings color-scheme`), not a shipped file.
 - `systemd/` The user session target.
 
-The Hyprland config that hosts this shell lives at `ryoku/hyprland`; its
-`scripts/` holds the clipboard and wallpaper thumbnailers the UI calls directly.
-Its autostart also runs `ryoku-idle start`, which enables dim/lock/display-off/
-suspend timeouts only on detected laptops.
+Both compositor session entries run `ryoku-power-cutover session-start`. It
+binds the shared user services to the foreground login1 session under a sleep
+guard, then starts the shell, idle timers, lid owner and wallpaper in that
+order. An inactive session is secured and observed instead of taking ownership.
 
 ## The IPC
 
@@ -50,6 +50,8 @@ socket and one place that knows how to talk to the components:
 | `bar <id>` | open a finite frame-bar menu or surface on the active monitor |
 | `overview` | open the workspace overview on the active monitor |
 | `lock` | lock the screen with qylock |
+| `suspend` | from the active login1 session, require compositor-secure qylock, release its sleep block, then ask login1 to suspend |
+| `unlock-prepare session <id>` | internal qylock handoff: require this daemon to own the named active session, acquire the hard block, and reject unlock while login1 is entering sleep |
 | `wallpaper [next\|init\|set <path>]` | change the wallpaper and retheme |
 | `voice` | toggle Voxtype transcription and its live mic surface |
 | `visualizer`, `visualizer-overlay` | toggle the desktop audio visualizer or its overlay mode |
@@ -59,11 +61,29 @@ The daemon resolves the active monitor itself, so the client and the keybinds st
 dumb. Build it with `go build` in `ipc/`; the binary belongs on `PATH` as
 `ryoku-shell`.
 
+### Mouse remapping
+
+The Hub's Input > Mouse tab talks to the daemon through `mouse.state`,
+`mouse.map`, `mouse.capture`, and `mouse.test`. Bindings live in
+`~/.config/ryoku/mousemap.json` and take effect immediately. The embedded
+catalogue gives common Logitech, Razer, SteelSeries, Corsair, Glorious and Zowie
+mice their model names and printed button labels; unknown mice keep the same
+capability-based generic path.
+
+MMO mice can publish their numbered side grid on a keyboard-class evdev
+interface. The daemon pairs only a sibling of an already-classified physical
+mouse, grabs that interface only when one of its keys is bound, and replays every
+unbound event through its uinput clone. A macro binding is an ordered list of
+key-down, key-up, tap and delay steps with a repeat count. It runs asynchronously
+and can either finish after the source button is released or cancel and release
+held keys.
+
 ## Dependencies
 
 Beyond Hyprland, quickshell, `go` (to build `ryoku-shell`), and cmake + ninja +
 qt6-shadertools (to build the `Ryoku.Blobs` plugin), the shell calls at
-LED color), `wl-clipboard` (clipboard history and capture copy), `wl-clip-persist`
+LED color), `wl-clipboard` (`wl-copy` sets the selection for captures and history
+picks; the daemon watches the clipboard itself), `wl-clip-persist`
 (keeps the selection when the app that copied closes), `imagemagick`
 (wallpaper thumbnails), `hyprpicker`, `hypridle` and `brightnessctl` (laptop
 idle/dim), `upower` (battery state), `wireplumber` (`wpctl`), `pipewire-pulse`
@@ -71,7 +91,8 @@ idle/dim), `upower` (battery state), `wireplumber` (`wpctl`), `pipewire-pulse`
 `jq`, `glib2` (`gio`), `curl` (weather and LocalSend), and `python`/`openssl`/
 `libnotify`/`xdg-utils` (the LocalSend file stash and opening stashed files).
 The frame-surface tools use `grim`/`slurp`, `hyprpicker`, `curl`/`jq`, `mpv`,
-`tesseract`, `zbar`, `gpu-screen-recorder`/`wf-recorder`, and `hyprsunset`.
+`tesseract`, `zbar`, `gpu-screen-recorder`, and the night-light backend
+(`hyprsunset` on Hyprland, `wlsunset` on niri, reached through the wm seam).
 The ``Super+` `` voice dictation drives `voxtype` (optional, from `voxtype-bin`)
 for the transcription and `wtype` to type it into the focused app; pick the
 engine and model in Ryoku Settings' Dictation page.
@@ -99,8 +120,9 @@ binaries and the plugin and materializes from a checkout. Both leave user files
 ## Install
 
 This tree ships in the `[ryoku]` packages: `ryoku-shell` builds the daemon to
-`/usr/bin`, `ryoku-blobs` installs the `Ryoku.Blobs` plugin onto the QML import
-path (`ryoku-shell` points `QML2_IMPORT_PATH` there for the components it
-supervises), and `ryoku-desktop` lays the QML and configs under
-`/usr/share/ryoku/config` for `ryoku materialize` to copy into `~/.config`. The
-lock screen is qylock, shipped by `ryoku/lockscreen`; the shell does not replace it.
+`/usr/bin`; `ryoku-blobs` installs the `Ryoku.Blobs` plugin onto the QML
+import path (`ryoku-shell` points
+`QML2_IMPORT_PATH` there for the components it supervises); and `ryoku-desktop`
+lays the QML and configs under `/usr/share/ryoku/config` for `ryoku materialize`
+to copy into `~/.config`. The lock screen is qylock, shipped by
+`ryoku/lockscreen`; the shell does not replace it.

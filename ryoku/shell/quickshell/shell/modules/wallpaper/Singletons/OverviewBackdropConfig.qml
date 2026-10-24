@@ -4,44 +4,39 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// The overview-backdrop knobs, read straight from ryogami's wallpaper config
-// (~/.config/ryogami-wall/config.json), the same overviewBackdrop.* block the
-// picker's "Overview backdrop" panel writes. Those settings had no consumer:
-// nothing rendered a backdrop, so the picker wrote them into a void. The shell
-// paints the surface itself now (modules/wallpaper -> OverviewBackdrop) and
-// reads its shape here, so the one place the user sets this drives it.
+// The overviewBackdrop.* keys live in ryogami.json, owned by the daemon.
 Singleton {
     id: root
 
     readonly property string configPath: {
-        const override = Quickshell.env("RYOGAMI_WALL_CONFIG");
-        if (override && override.length > 0)
-            return override + "/config.json";
         const base = Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config");
-        return base + "/ryogami-wall/config.json";
+        return base + "/ryoku/ryogami.json";
+    }
+
+    readonly property string statePath: {
+        const base = Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache");
+        return base + "/ryogami/overview-backdrop/state.json";
     }
 
     // The overviewBackdrop sub-object, refreshed on every file write below.
     property var _ob: ({})
+    // The daemon's recoloured image, when auto-theme produced one.
+    property string _themedPath: ""
 
-    // Map the blurred wallpaper into the overview backdrop at all. On by
-    // default: the surface is capability-gated, so it can only ever map on a
-    // compositor that hosts it, and a box that never opened the picker should
-    // still see its wallpaper in the overview.
+    // On unless turned off, so an overview shows the wallpaper before anyone opens the picker.
     readonly property bool enabled: root._ob.enabled !== false
-    // A sharp copy when off; a Gaussian blur when on (the picker's default).
     readonly property bool blurEnabled: root._ob.blurEnabled !== false
-    // Blur radius, matching the picker's 1..200 range and 30 default.
     readonly property int blur: {
         const v = root._ob.blur;
-        return Math.max(1, Math.min(200, (typeof v === "number") ? v : 30));
+        return Math.max(0, Math.min(200, (typeof v === "number") ? v : 20));
     }
-    // Track the live wallpaper, or paint a per-card backdrop image the user
-    // pinned instead (path below). Following is the common case; a pinned image
-    // wins only when the user turned following off and set one.
-    readonly property bool followWallpaper: root._ob.followWallpaper === true
-    readonly property string customPath: root._ob.path || ""
-    // How far to darken the backdrop, as the picker's percentage.
+    readonly property bool followWallpaper: root._ob.followWallpaper !== false
+    readonly property bool autoTheme: root._ob.autoTheme === true
+    readonly property string customPath: {
+        if (root.autoTheme && root._themedPath.length > 0)
+            return root._themedPath;
+        return root._ob.path || "";
+    }
     readonly property int dim: {
         const v = root._ob.dim;
         return Math.max(0, Math.min(100, (typeof v === "number") ? v : 0));
@@ -58,6 +53,16 @@ Singleton {
             ? data.overviewBackdrop : ({});
     }
 
+    function _reparseState() {
+        let data = {};
+        try {
+            data = JSON.parse(stateFile.text() || "{}");
+        } catch (e) {
+            data = {};
+        }
+        root._themedPath = (data && typeof data.themedPath === "string") ? data.themedPath : "";
+    }
+
     FileView {
         id: file
         path: root.configPath
@@ -67,6 +72,18 @@ Singleton {
         onFileChanged: {
             reload();
             root._reparse();
+        }
+    }
+
+    FileView {
+        id: stateFile
+        path: root.statePath
+        watchChanges: true
+        printErrors: false
+        onLoaded: root._reparseState()
+        onFileChanged: {
+            reload();
+            root._reparseState();
         }
     }
 }

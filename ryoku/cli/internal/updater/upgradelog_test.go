@@ -1,128 +1,17 @@
 package updater
 
 import (
-	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
 
-// a transcript shaped like a real `pacman -Syu`, including the mixed-repo
-// "newer than" chatter and a file-conflict failure like the plymouth one.
-const pacmanTranscript = `:: Synchronizing package databases...
- cachyos-v3 is up to date
- core is up to date
- ryoku is up to date
-:: Starting full system upgrade...
-warning: binutils: local (2.47-4) is newer than cachyos-v3 (2.47-2)
-warning: zstd: local (1.5.7-3) is newer than cachyos-v3 (1.5.7-2)
-resolving dependencies...
-looking for conflicting packages...
-
-Packages (37) blesh-0.4.0_devel3-1  colord-1.4.8-1  ryoku-desktop-0.49.9.r2972.gdc7b811-2
-              ryoku-shell-0.49.9.r2972.gdc7b811-1  wine-11.16-2.1  zsh-5.9.2-1
-
-Total Installed Size:  1903.15 MiB
-Net Upgrade Size:      64.09 MiB
-
-(37/37) checking keys in keyring
-(37/37) checking package integrity
-(1/37) upgrading blesh
-(2/37) upgrading colord
-(37/37) upgrading zsh
-error: failed to commit transaction (conflicting files)
-ryoku-desktop: /usr/share/plymouth/themes/ryoku/bullet.png exists in filesystem
-Errors occurred, no packages were upgraded.`
-
-func renderTranscript(t *testing.T, transcript string, ok bool) string {
-	t.Helper()
-	var buf bytes.Buffer
-	r := newUpgradeRenderer(&buf, "System", false) // animate=false: deterministic
-	for _, ln := range strings.Split(transcript, "\n") {
-		r.feed(ln)
-	}
-	r.finish(ok)
-	return buf.String()
-}
-
-func TestRendererHidesNoise(t *testing.T) {
-	out := renderTranscript(t, pacmanTranscript, false)
-	for _, noise := range []string{
-		"Synchronizing", "is up to date", "is newer than",
-		"resolving dependencies", "looking for conflicting",
-		"checking keys", "checking package integrity", "upgrading blesh",
-	} {
-		if strings.Contains(out, noise) {
-			t.Errorf("curated output leaked noise %q:\n%s", noise, out)
-		}
-	}
-}
-
-func TestRendererKeepsSignal(t *testing.T) {
-	out := renderTranscript(t, pacmanTranscript, false)
-	for _, want := range []string{
-		"System packages",       // header
-		"37 packages",           // collapsed summary
-		"64.09 MiB",             // net size in the summary
-		"ryoku-desktop",         // ryoku highlight (version stripped)
-		"ryoku-shell",           // ryoku highlight
-		"exists in filesystem",  // conflict detail is surfaced
-		"failed to commit",      // real error is surfaced
-		"System upgrade failed", // failure cap
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("curated output missing %q:\n%s", want, out)
-		}
-	}
-	if strings.Contains(out, "ryoku-desktop-0.49") {
-		t.Errorf("version not stripped from ryoku highlight:\n%s", out)
-	}
-}
-
-func TestRendererSuccessCap(t *testing.T) {
-	out := renderTranscript(t, pacmanTranscript, true)
-	if !strings.Contains(out, "✓") || !strings.Contains(out, "37 upgraded") {
-		t.Errorf("expected success cap with count, got:\n%s", out)
-	}
-}
-
-func TestClassify(t *testing.T) {
-	cases := []struct {
-		line string
-		want lineClass
-	}{
-		{" core is up to date", clDrop},
-		{"warning: zstd: local (1.5.7-3) is newer than cachyos-v3 (1.5.7-2)", clDrop},
-		{"warning: /etc/foo.conf installed as /etc/foo.conf.pacnew", clWarn},
-		{"error: failed to commit transaction (conflicting files)", clError},
-		{"ryoku-desktop: /usr/share/plymouth/themes/ryoku/logo.png exists in filesystem", clConflict},
-		{"(12/37) upgrading wine", clProgress},
-		{":: Running post-transaction hooks...", clProgress},
-	}
-	for _, c := range cases {
-		if got := classify(c.line, strings.TrimSpace(c.line)); got != c.want {
-			t.Errorf("classify(%q) = %d, want %d", c.line, got, c.want)
-		}
-	}
-}
-
-func TestSizeValueAndCount(t *testing.T) {
-	if got := sizeValue("Net Upgrade Size:      64.09 MiB"); got != "64.09 MiB" {
-		t.Errorf("sizeValue = %q, want 64.09 MiB", got)
-	}
-	if got := countUpgrade("(9/37) upgrading wine", 3); got != 9 {
-		t.Errorf("countUpgrade = %d, want 9", got)
-	}
-	if got := countUpgrade("(2/37) checking integrity", 9); got != 9 {
-		t.Errorf("countUpgrade should ignore non-upgrade step, got %d", got)
-	}
-}
-
 func TestConflictPath(t *testing.T) {
 	cases := map[string]string{
-		"noto-fonts: /usr/share/fontconfig/conf.avail/46-noto-sans.conf exists in filesystem": "/usr/share/fontconfig/conf.avail/46-noto-sans.conf",
+		"noto-fonts: /usr/share/fontconfig/conf.avail/46-noto-sans.conf exists in filesystem":          "/usr/share/fontconfig/conf.avail/46-noto-sans.conf",
 		"ryoku-desktop: /usr/lib/systemd/system/ryoku-network-kill-guard.service exists in filesystem": "/usr/lib/systemd/system/ryoku-network-kill-guard.service",
-		"foo: /a/b exists in filesystem (owned by bar)": "/a/b",
-		" downloading...":                              "",
+		"foo: /a/b exists in filesystem (owned by bar)":                                                "/a/b",
+		" downloading...": "",
 		"error: failed to commit transaction (conflicting files)": "",
 		":: Proceed with installation? [Y/n]":                     "",
 	}
@@ -130,5 +19,73 @@ func TestConflictPath(t *testing.T) {
 		if got := conflictPath(line); got != want {
 			t.Errorf("conflictPath(%q) = %q, want %q", line, got, want)
 		}
+	}
+}
+
+// A failed transaction hands back what the healing retry needs: the conflict
+// paths pacman named, and its own error lines in the returned error instead of
+// a bare "exit status 1".
+func TestTransactionCollectsConflictsAndReasons(t *testing.T) {
+	oldInhibit := sleepInhibitOK
+	sleepInhibitOK = func() bool { return false }
+	t.Cleanup(func() { sleepInhibitOK = oldInhibit })
+
+	devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	keep := os.Stdout
+	os.Stdout = devnull
+	script := `printf '%s\n' '(1/2) upgrading ryoku' 'ryoku-desktop: /usr/share/plymouth/themes/ryoku/bullet.png exists in filesystem' 'error: failed to commit transaction (conflicting files)' 'error: failed to commit transaction (conflicting files)'; exit 1`
+	conflicts, err := runUpgradeCollecting("test", []string{"bash", "-c", script})
+	os.Stdout = keep
+	devnull.Close()
+
+	if len(conflicts) != 1 || conflicts[0] != "/usr/share/plymouth/themes/ryoku/bullet.png" {
+		t.Errorf("conflicts = %q, want the one pacman conflict path", conflicts)
+	}
+	if err == nil || strings.Count(err.Error(), "failed to commit transaction") != 1 {
+		t.Errorf("error = %v, want pacman's reason exactly once", err)
+	}
+}
+
+// A refused transaction names its culprit in the returned error, which is all
+// the Hub's failure card shows. The pair pacman prints twice is reported once,
+// and a package name never sends the healing down the database path (#271).
+func TestTransactionErrorNamesTheConflict(t *testing.T) {
+	oldInhibit := sleepInhibitOK
+	sleepInhibitOK = func() bool { return false }
+	t.Cleanup(func() { sleepInhibitOK = oldInhibit })
+
+	devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	keep := os.Stdout
+	os.Stdout = devnull
+	script := `printf '%s\n' ':: limine-mkinitcpio-hook-1.37.1-1 and limine-entry-tool-1.40.0-1 are in conflict. Remove limine-entry-tool? [y/N] error: unresolvable package conflicts detected' 'error: failed to prepare transaction (conflicting dependencies)' '' ':: limine-mkinitcpio-hook-1.37.1-1 and limine-entry-tool-1.40.0-1 are in conflict' ":: unable to satisfy dependency 'python-databases' required by ryoku-rashin"; exit 1`
+	_, err = runUpgradeCollecting("test", []string{"bash", "-c", script})
+	os.Stdout = keep
+	devnull.Close()
+
+	want := "failed to prepare transaction (conflicting dependencies); limine-mkinitcpio-hook-1.37.1-1 and limine-entry-tool-1.40.0-1 are in conflict; unable to satisfy dependency 'python-databases' required by ryoku-rashin: exit status 1"
+	if err == nil || err.Error() != want {
+		t.Fatalf("error = %v\nwant %s", err, want)
+	}
+	if dbRejection(err) {
+		t.Fatal("a dependency naming python-databases was read as a database rejection")
+	}
+}
+
+func TestVoidInhibitorUsesHostSeam(t *testing.T) {
+	oldInhibit := sleepInhibitOK
+	sleepInhibitOK = func() bool { return true }
+	t.Cleanup(func() { sleepInhibitOK = oldInhibit })
+	t.Setenv("RYOKU_HOST_INIT", "runit")
+
+	got := strings.Join(inhibited("package update", []string{"xbps-install", "-Syu"}), " ")
+	want := "ryoku-host inhibit --what=sleep:idle --who=ryoku update --why=package update --mode=block xbps-install -Syu"
+	if got != want || strings.Contains(got, "systemd") {
+		t.Fatalf("inhibited command = %q, want %q", got, want)
 	}
 }

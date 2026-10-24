@@ -1,0 +1,87 @@
+{
+  "barStyle": "nomarchy",
+  "fontFamily": "JetBrainsMono Nerd Font Mono",
+  "fontScale": 1.3,
+  "frameBars": {
+    "menus": {
+      "theme": {
+        "anchor": "right",
+        "expansion": "never",
+        "minWidth": 320,
+        "widgets": [
+          "theme"
+        ]
+      },
+      "wallpaper": {
+        "anchor": "bottom",
+        "expansion": "always",
+        "minWidth": 1400,
+        "widgets": [
+          "theme",
+          "wallpaper"
+        ]
+      },
+      "weather": {
+        "anchor": "right",
+        "expansion": "never",
+        "minWidth": 320,
+        "widgets": [
+          "weather"
+        ]
+      }
+    },
+    "rails": {
+      "bottom": {
+        "center": [],
+        "enabled": false,
+        "end": [],
+        "reveal": true,
+        "size": 32,
+        "start": []
+      },
+      "left": {
+        "bottom": [
+          "recording",
+          "tray",
+          "audio-input",
+          "audio-output",
+          "bluetooth",
+          "network",
+          "clock",
+          "battery"
+        ],
+        "center": [
+          "dock"
+        ],
+        "enabled": true,
+        "reveal": true,
+        "size": 48,
+        "top": [
+          "quick-settings",
+          "workspaces"
+        ]
+      },
+      "right": {
+        "bottom": [],
+        "center": [],
+        "enabled": false,
+        "reveal": true,
+        "size": 48,
+        "top": []
+      },
+      "top": {
+        "center": [],
+        "enabled": false,
+        "end": [],
+        "reveal": true,
+        "size": 32,
+        "start": []
+      }
+    },
+    "style": "slate-frame",
+    "surfaces": {},
+    "version": 1
+  },
+  "weatherLocation": "",
+  "weatherUnit": "auto"
+}

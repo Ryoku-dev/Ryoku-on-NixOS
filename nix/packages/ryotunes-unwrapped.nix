@@ -5,13 +5,21 @@
 
 pkgs.rustPlatform.buildRustPackage rec {
   pname = "ryotunes-unwrapped";
-  version = "1.1.6";
+  version = "1.2.0";
 
   src = ryotunesSrc;
 
+  patches = [
+    ../patches/ryotunes-youtube-browser-auth.patch
+    ../patches/ryotunes-youtube-session-cookie-rotation.patch
+    ../patches/ryotunes-youtube-auth-resilience.patch
+    ../patches/ryotunes-youtube-auth-persistence.patch
+    ../patches/ryotunes-youtube-cookie-durability.patch
+  ];
+
   # Cargo dependencies include pinned librespot Git revisions.
   # Keep the vendor hash tied to the exact upstream release.
-  cargoHash = "sha256-SoWIji85omW32TyXwk/zBzreShj/ZVXkOabHsHbxa1I=";
+  cargoHash = "sha256-ROI5KT1XdUu4OyEHkP5PLQHUa8go+NhRa+0VSC1mkUw=";
 
   # The Linux application launches its native QML client.
   # The Tauri build currently also requires the Svelte/Vite payload.

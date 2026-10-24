@@ -40,7 +40,7 @@ func Version(args []string) error {
 	}
 
 	if branch {
-		ch := ryokuChannel()
+		ch := sys.DisplayChannel(ryokuChannel())
 		if nixBackend() {
 			ch = nixChannel()
 		}

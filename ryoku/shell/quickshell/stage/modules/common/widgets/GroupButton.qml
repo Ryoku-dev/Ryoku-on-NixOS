@@ -1,0 +1,182 @@
+import stage.modules.common
+import stage.modules.common.widgets
+import stage.modules.common.functions
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+/**
+ * Material 3 button with expressive bounciness. 
+ * See https://m3.material.io/components/button-groups/overview
+ */
+Button {
+    id: root
+    property bool toggled
+    property string buttonText
+    readonly property bool isHovered: buttonMouseArea.containsMouse
+    property bool isPressed: false
+    property real buttonRadius: Appearance?.rounding?.small ?? 6
+    property real buttonRadiusPressed: Appearance?.rounding?.small ?? 6
+    property var downAction // When left clicking (down)
+    property var releaseAction // When left clicking (release)
+    property var altAction // When right clicking
+    property var middleClickAction // When middle clicking
+    property bool bounce: false
+    property real baseWidth: contentItem.implicitWidth + horizontalPadding * 2
+    property real baseHeight: contentItem.implicitHeight + verticalPadding * 2
+    property bool enableImplicitWidthAnimation: true
+    property bool enableImplicitHeightAnimation: true
+    property real clickedWidth: baseWidth + (isAtSide ? 10 : 20)
+    property real clickedHeight: baseHeight
+    property var parentGroup: root.parent
+    property int clickIndex: parentGroup?.clickIndex ?? -1
+    property int indexInParent: {
+        if (clickIndex < 0 && !root.isPressed) return -1;
+        var p = parentGroup;
+        if (!p || !p.children) return -1;
+        for (var i = 0; i < p.children.length; ++i) {
+            if (p.children[i] === root) return i;
+        }
+        return -1;
+    }
+    property bool isAtSide: {
+        if (clickIndex < 0 && !root.isPressed) return false;
+        var p = parentGroup;
+        if (!p || !p.children) return false;
+        return indexInParent === 0 || indexInParent === (p.children.length - 1);
+    }
+
+    readonly property bool isNeighborPressed: {
+        if (clickIndex < 0) return false;
+        return Math.abs(indexInParent - clickIndex) === 1;
+    }
+
+    Layout.fillWidth: (clickIndex >= 0 && clickIndex - 1 <= indexInParent && indexInParent <= clickIndex + 1)
+    Layout.fillHeight: (clickIndex >= 0 && clickIndex - 1 <= indexInParent && indexInParent <= clickIndex + 1)
+    implicitWidth: (root.isPressed && bounce) ? clickedWidth : (isNeighborPressed && bounce ? Math.max(16, baseWidth - 6) : baseWidth)
+    implicitHeight: (root.isPressed && bounce) ? clickedHeight : baseHeight
+
+    property color colBackground: "transparent"
+    property color colBackgroundHover: Appearance.colors.colLayer1Hover
+    property color colBackgroundActive: Appearance.colors.colLayer1Active
+    property color colBackgroundToggled: Appearance.colors.colSecondary
+    property color colBackgroundToggledHover: Appearance.colors.colSecondaryHover
+    property color colBackgroundToggledActive: Appearance.colors.colSecondaryActive
+
+    property real radius: root.isPressed ? root.buttonRadiusPressed : root.buttonRadius
+    property real leftRadius: root.isPressed ? root.buttonRadiusPressed : root.buttonRadius
+    property real rightRadius: root.isPressed ? root.buttonRadiusPressed : root.buttonRadius
+    property color color: root.enabled ? (root.toggled ? 
+        (root.isPressed ? colBackgroundToggledActive : 
+            isHovered ? colBackgroundToggledHover : 
+            colBackgroundToggled) :
+        (root.isPressed ? colBackgroundActive : 
+            isHovered ? colBackgroundHover : 
+            colBackground)) : colBackground
+
+    onIsPressedChanged: {
+        if (parentGroup && parentGroup.clickIndex !== undefined) {
+            if (root.isPressed) {
+                parentGroup.clickIndex = indexInParent;
+            } else if (parentGroup.clickIndex === indexInParent) {
+                parentGroup.clickIndex = -1;
+            }
+        }
+    }
+
+    Behavior on implicitWidth {
+        enabled: root.enableImplicitWidthAnimation
+        animation: Appearance.animation.clickBounce.numberAnimation.createObject(this)
+    }
+
+    Behavior on implicitHeight {
+        enabled: root.enableImplicitHeightAnimation
+        animation: Appearance.animation.clickBounce.numberAnimation.createObject(this)
+    }
+
+    Behavior on leftRadius {
+        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+    }
+    Behavior on rightRadius {
+        animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+    }
+
+    scale: root.isPressed ? 0.96 : 1
+    Behavior on scale {
+        NumberAnimation {
+            duration: Appearance.animation.elementMoveSnap.duration
+            easing.type: Appearance.animation.elementMoveSnap.type
+        }
+    }
+
+    property alias mouseArea: buttonMouseArea
+    MouseArea {
+        id: buttonMouseArea
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        onPressed: (event) => { 
+            if (event.button === Qt.LeftButton) {
+                root.isPressed = true;
+                root.down = true;
+            }
+            if(event.button === Qt.RightButton) {
+                if (root.altAction) root.altAction();
+                return;
+            }
+            if(event.button === Qt.MiddleButton) {
+                if (root.middleClickAction) root.middleClickAction();
+                return;
+            }
+            if (root.downAction) root.downAction();
+        }
+        onReleased: (event) => {
+            if (event.button === Qt.LeftButton) {
+                root.isPressed = false;
+                root.down = false;
+            }
+            if (event.button != Qt.LeftButton) return;
+            if (root.releaseAction) root.releaseAction();
+        }
+        onClicked: (event) => {
+            if (event.button != Qt.LeftButton) return;
+            root.click()
+        }
+        onCanceled: (event) => {
+            root.isPressed = false;
+            root.down = false;
+        }
+
+        onPressAndHold: () => {
+            altAction(); 
+            root.clicked = false;
+        };
+    }
+
+    property bool tabbedTo: root.focus && (focusReason === Qt.TabFocusReason || focusReason === Qt.BacktabFocusReason)
+    background: Rectangle {
+        id: buttonBackground
+        topLeftRadius: root.leftRadius
+        topRightRadius: root.rightRadius
+        bottomLeftRadius: root.leftRadius
+        bottomRightRadius: root.rightRadius
+        implicitHeight: Appearance.sizes.controlHeight
+
+        color: root.color
+        Behavior on color {
+            animation: Appearance.animation.elementMoveFast.colorAnimation.createObject(this)
+        }
+
+        border.width: root.tabbedTo ? 2 : 1
+        border.color: root.toggled ? Appearance.colors.colSecondary
+            : root.tabbedTo ? Appearance.colors.colOnSurface
+            : root.isHovered ? Appearance.colors.colOutline : Appearance.colors.colOutlineVariant
+
+    }
+
+    contentItem: StyledText {
+        text: root.buttonText
+        color: root.toggled ? Appearance.colors.colOnSecondary : Appearance.colors.colOnSurface
+    }
+}

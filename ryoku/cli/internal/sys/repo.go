@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	wm "ryoku-wm"
 )
 
 // repoPathFile records where the live-mirror checkout sits. The deployed
@@ -96,11 +94,9 @@ func RetireSourceTracking() error {
 	if err := dropEnvChannel(filepath.Join(ConfigHome(), "environment.d", "ryoku.conf")); err != nil {
 		return err
 	}
-	dir := wm.ConfigDir(wm.Detect().Name)
-	if dir == "" {
-		return nil
-	}
-	return dropLuaChannel(filepath.Join(ConfigHome(), dir, "user.lua"))
+	return dropLuaChannel(
+		filepath.Join(ConfigHome(), "hypr", "user.lua"),
+	)
 }
 
 // dropEnvChannel removes the RYOKU_CHANNEL= line from an environment.d file,

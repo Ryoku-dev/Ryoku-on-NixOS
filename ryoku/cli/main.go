@@ -5,8 +5,13 @@
 //
 //	ryoku update            snapshot -> the Ryoku packages (or the channel) -> deploy -> reload
 //	ryoku update --system   the same, plus the distribution's own upgrade (pacman -Syu, AUR, Flatpak)
+//	ryoku update --wait     wait for a channel build or source check to finish
+//	ryoku update --force    update despite an in-progress build or source check
+//	ryoku update -v         the same, streaming the raw output instead of the curated console
+//	ryoku update --gui      the same, in the background, driven from Ryoku Hub
 //	ryoku rollback          list releases + snapshots; --to <tag> moves back to a release; [id] guides a snapshot restore
 //	ryoku snapshots         list snapper snapshots
+//	ryoku boot-menu         Fedora's GRUB snapshot menu: sync; restore (from a look boot); restored
 //	ryoku status            version, commits behind the channel, snapshot count
 //	ryoku materialize       lay the base configs into ~/.config (override-safe)
 //	ryoku reset [path]      drop a user_edits override, back to the Ryoku default
@@ -14,6 +19,7 @@
 //	ryoku deploy            DEV ONLY: build + materialize from a checkout
 //	ryoku recovery          last resort: reset to main + redeploy (overwrites configs)
 //	ryoku doctor            run convergent reconcilers (also runs inside update)
+//	ryoku verify            report box-vs-release-package-set drift (read-only)
 //	ryoku debug             print a shareable diagnostic bundle for bug reports
 //
 // The concerns live in their own folders: internal/updater (update, status,
@@ -22,6 +28,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -51,6 +58,8 @@ func main() {
 		err = updater.Materialize()
 	case "reset":
 		err = updater.Reset(os.Args[2:])
+	case "owner":
+		err = updater.Owner(os.Args[2:])
 	case "rollback":
 		if sys.NixBackend() {
 			err = fmt.Errorf("Ryoku package rollback is an Arch feature; use NixOS generation rollback on this system")
@@ -62,6 +71,12 @@ func main() {
 			err = fmt.Errorf("the Arch Ryoku boot guard is not used on NixOS; recovery belongs to NixOS generations")
 		} else {
 			err = updater.BootGuard(os.Args[2:])
+		}
+	case "boot-menu":
+		if sys.NixBackend() {
+			err = fmt.Errorf("the Fedora snapshot boot menu is not used on NixOS; boot an earlier NixOS generation instead")
+		} else {
+			err = updater.BootMenu(os.Args[2:])
 		}
 	case "snapshots":
 		err = updater.Snapshots()
@@ -91,6 +106,10 @@ func main() {
 		err = cmdPlugin(os.Args[2:])
 	case "doctor":
 		err = doctor.Run(os.Args[2:])
+	case "migrate-shell-config":
+		err = doctor.MigrateShellConfig()
+	case "verify":
+		err = doctor.Verify(os.Args[2:])
 	case "debug":
 		err = doctor.Debug(os.Args[2:])
 	case "keyring":
@@ -107,12 +126,17 @@ func main() {
 		die("unknown command: %s", os.Args[1])
 	}
 	if err != nil {
+		// an update failure the console already showed in full
+		var shown interface{ Reported() bool }
+		if errors.As(err, &shown) && shown.Reported() {
+			os.Exit(1)
+		}
 		die("%v", err)
 	}
 }
 
 func usage() {
-	fmt.Print(i18n.T("Usage: ryoku <command>\n\n  update         update the Ryoku packages (or channel commits), redeploy, reload\n  update --system  the same, plus your distribution's own upgrade (pacman -Syu)\n  track <chan>   NixOS: stable|unstable; Arch: stable|testing|unstable-dev|main|v<tag>\n  rollback       list releases and snapshots; --to <tag> puts the Ryoku set back on that release\n  rollback [id]  guide restoring snapshot <id> from the boot menu\n  snapshots      list snapper snapshots\n  status         version, commits behind the channel, snapshot count\n  version        print the running version (--branch = channel · sha)\n  materialize    lay the base configs into ~/.config (keeps your overrides)\n  reset [path]   drop a user_edits override (no path: all, -y skips confirm)\n  reload         restart the shell and reload Hyprland\n  wm <cmd>       compositor: status, use <name>, act <id>, session\n  deploy         DEV ONLY: deploy from a repo checkout (RYOKU_REPO)\n  recovery       last resort: reset to main and redeploy (overwrites configs)\n  doctor         run convergent reconcilers (idempotent stateful fixes)\n  debug          print a shareable diagnostic bundle for bug reports\n  keyring        show or set how the GNOME keyring unlocks at sign-in\n  security-key   enroll and wire a FIDO2/U2F security key for PAM\n  import <path>  bring an existing config in: scan, resolve clashes, apply (--undo)\n  plugin <cmd>   install/remove/list/validate a shell plugin from git\n"))
+	fmt.Print(i18n.T("Usage: ryoku <command>\n\n  update         update Ryoku packages/channel commits, redeploy and reload\n  update --system  the same, plus the host distribution package upgrade\n  update --wait  wait for an in-progress channel build/source check\n  update --force update despite an in-progress build/source check\n  update -v      stream full raw update output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   NixOS: stable|unstable; packages: stable|unstable|v<tag>; --source builds a checkout\n  rollback       list releases/snapshots; --to <tag> moves back to a release; [id] guides snapshot restore\n  snapshots      list snapper snapshots\n  status         show channel, installed/latest version, pending changes and snapshots\n  version        print version/commit information (--pretty, --branch)\n  materialize    compose the Ryoku base config into ~/.config while preserving overrides\n  reset [path]   drop a user_edits override (no path: all, -y skips confirmation)\n  owner <path>   classify config ownership (--json, --map)\n  reload         restart the shell and reload the compositor\n  wm <cmd>       provider-backed window-manager controls\n  host <cmd>     internal host abstraction used by scripts and the Hub\n  bind <cmd>     set/reset/list keybindings\n  bar <cmd>      add/remove/move/show/hide/list/configure bar modules\n  deploy         DEV ONLY: deploy from a repository checkout\n  recovery       last-resort reset/redeploy recovery path\n  doctor         converge system/config drift (--check, --explain)\n  verify         report whether this box matches its configured release/channel\n  debug          print a shareable diagnostic bundle\n  keyring        show or configure GNOME keyring sign-in unlock\n  security-key   enroll and wire a FIDO2/U2F security key for PAM\n  import <path>  import existing config with conflict resolution (--undo)\n  plugin <cmd>   create/validate/add/remove/share shell plugins\n  help           show this help\n"))
 }
 
 func die(format string, a ...any) {

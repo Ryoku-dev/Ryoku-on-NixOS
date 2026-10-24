@@ -13,6 +13,14 @@ let
       [ "" "" ]
       (builtins.readFile ../../CODENAME);
 
+  # nix/sync/ryoku-sync writes the upstream Ryoku commit this tree is
+  # synced to, so the marker names the exact upstream build.
+  ryokuCommit =
+    builtins.replaceStrings
+      [ "\n" "\r" ]
+      [ "" "" ]
+      (builtins.readFile ../sync/ryoku-commit);
+
 in
 {
   config = lib.mkIf config.programs.ryoku.enable {
@@ -27,7 +35,7 @@ in
       NAME="${codename}"
       CHANNEL="nix"
       VERSION="${version}"
-      COMMIT=""
+      COMMIT="${ryokuCommit}"
       DATE=""
     '';
   };

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newTestStore builds a settings store over a fresh temp shell.json path. The
@@ -43,10 +44,61 @@ func frameNum(t *testing.T, frame []byte, path string) float64 {
 
 func rm(s string) json.RawMessage { return json.RawMessage(s) }
 
-// TestPatchRejectsInvalidSchemaValues checks a strict patch of a bad enum, an
-// out-of-range integer, an empty required string, or an unknown enum member is
-// rejected and never touches the file (the daemon commits only after a clean
-// validate + persist).
+func TestNotificationDefaultsMatchContract(t *testing.T) {
+	store := newTestStore(t)
+	if got := frameGet(t, store.frameLocked(), "notifications.show_images"); got != false {
+		t.Fatalf("notifications.show_images = %v, want false", got)
+	}
+}
+
+func TestPhoneDefaultsMatchContract(t *testing.T) {
+	store := newTestStore(t)
+	var want any
+	if err := json.Unmarshal([]byte(`{
+		"enabled": false,
+		"desktopNotifications": true,
+		"contacts": {"enabled": true, "hideUnnamed": true},
+		"scrcpy": {
+			"audio": true,
+			"useWireless": false,
+			"autoWirelessIp": true,
+			"wirelessIp": "",
+			"wirelessPort": 5555,
+			"pinAdbPort": false,
+			"maxSize": 0,
+			"maxFps": 60,
+			"videoBitRate": "8M",
+			"turnScreenOff": false,
+			"stayAwake": true,
+			"showTouches": false,
+			"clipboardSync": true,
+			"keyboardMode": "uhid",
+			"autoResume": true,
+			"appMode": {
+				"showAppIcons": true,
+				"autoUnlock": true,
+				"flexDisplay": false,
+				"displayWidth": 1280,
+				"displayHeight": 960,
+				"displayDpi": 240,
+				"onSessionEnd": "home"
+			},
+			"recording": {"folder": ""}
+		},
+		"webcam": {"cameraFacing": "back", "width": 1280, "height": 720, "fps": 30, "videoDevice": ""},
+		"microphone": {"enabled": false, "micGain": 100, "monitor": false, "setDefault": false},
+		"alarm": {"enabled": true, "pollMinutes": 10, "clockApps": [], "ignorePackages": []}
+	}`), &want); err != nil {
+		t.Fatal(err)
+	}
+	if got := frameGet(t, store.frameLocked(), "phone"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("phone defaults = %#v, want %#v", got, want)
+	}
+}
+
+// TestPatchRejectsInvalidSchemaValues checks bad schema values and retired
+// namespaces are rejected without touching the file. The daemon commits only
+// after a clean validation and persist.
 func TestPatchRejectsInvalidSchemaValues(t *testing.T) {
 	cases := []struct {
 		name, path, val, want string
@@ -58,8 +110,22 @@ func TestPatchRejectsInvalidSchemaValues(t *testing.T) {
 		{"bad menu widget", "menus.clock_menu.widgets", `[{"type":"Bogus"}]`, "is not one of"},
 		{"border too high", "theme.attributes.sizing.border_width", `999`, "out of range"},
 		{"margin negative", "notifications.popup_window_margins", `-5`, "out of range"},
+		{"bad image switch", "notifications.show_images", `1`, "cannot unmarshal"},
 		{"min height too high", "bars.top_bar.minimum_height", `9000`, "out of range"},
+		{"bad ask enabled type", "ask.bubble.enabled", `1`, "cannot unmarshal"},
+		{"bad ask screen type", "ask.bubble.screen", `42`, "cannot unmarshal"},
+		{"unknown ask key", "ask.bubble.nope", `true`, "unknown setting"},
 		{"empty theme", "theme.theme", `""`, "must not be empty"},
+		{"bad phone port", "phone.scrcpy.wirelessPort", `0`, "out of range"},
+		{"bad phone keyboard mode", "phone.scrcpy.keyboardMode", `"raw"`, "is not one of"},
+		{"bad phone session end", "phone.scrcpy.appMode.onSessionEnd", `"quit"`, "is not one of"},
+		{"bad phone camera", "phone.webcam.cameraFacing", `"side"`, "is not one of"},
+		{"bad phone fps", "phone.webcam.fps", `0`, "out of range"},
+		{"bad phone gain", "phone.microphone.micGain", `201`, "out of range"},
+		{"bad phone alarm interval", "phone.alarm.pollMinutes", `0`, "out of range"},
+		{"retired sidebar layout", "sidebars.layout", `"classic"`, "sidebars settings are retired"},
+		{"retired sidebar subtree", "sidebars.left.width", `930`, "sidebars settings are retired"},
+		{"retired sidebar root", "sidebars", `{"layout":"modern"}`, "sidebars settings are retired"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -86,12 +152,18 @@ func TestPatchClampsFloatStrengths(t *testing.T) {
 		path, val string
 		want      float64
 	}{
+		{"deckFrost", "2", 1},
+		{"deckFrost", "-1", 0},
 		{"theme.matugen.contrast", "9", 1},
 		{"theme.matugen.contrast", "-9", -1},
 		{"theme.attributes.window_opacity", "2", 1},
 		{"theme.attributes.window_opacity", "-1", 0},
 		{"theme.motion.scale", "9", 3},
 		{"theme.motion.scale", "0.1", 0.25},
+		{"ask.bubble.x", "4", 1},
+		{"ask.bubble.x", "-2", 0},
+		{"ask.bubble.y", "3", 1},
+		{"ask.bubble.y", "-1", 0},
 	}
 	for _, c := range cases {
 		t.Run(c.path+"="+c.val, func(t *testing.T) {
@@ -117,6 +189,16 @@ func TestPatchAcceptsValidSchemaValues(t *testing.T) {
 		{"theme.attributes.sizing.border_width", `15`},
 		{"menus.clock_menu.position", `"Right"`},
 		{"bars.top_bar.left_widgets", `["Clock","Battery"]`},
+		{"ask.bubble.enabled", `true`},
+		{"ask.bubble.screen", `"DP-2"`},
+		{"phone.enabled", `true`},
+		{"phone.desktopNotifications", `false`},
+		{"phone.scrcpy.audio", `false`},
+		{"phone.scrcpy.maxFps", `90`},
+		{"phone.scrcpy.videoBitRate", `"12M"`},
+		{"phone.webcam.cameraFacing", `"front"`},
+		{"phone.microphone.micGain", `125`},
+		{"phone.alarm.clockApps", `["com.google.android.deskclock"]`},
 	}
 	for _, st := range steps {
 		if err := s.patch(st.path, rm(st.val)); err != nil {
@@ -136,6 +218,24 @@ func TestPatchAcceptsValidSchemaValues(t *testing.T) {
 	ws, ok := frameGet(t, frame, "bars.top_bar.left_widgets").([]any)
 	if !ok || len(ws) != 2 || ws[0] != "Clock" || ws[1] != "Battery" {
 		t.Fatalf("left_widgets = %v, want [Clock Battery]", ws)
+	}
+	if got := frameGet(t, frame, "ask.bubble.enabled"); got != true {
+		t.Fatalf("ask.bubble.enabled = %v, want true", got)
+	}
+	if got := frameGet(t, frame, "ask.bubble.screen"); got != "DP-2" {
+		t.Fatalf("ask.bubble.screen = %v, want DP-2", got)
+	}
+	if got := frameGet(t, frame, "phone.enabled"); got != true {
+		t.Fatalf("phone.enabled = %v, want true", got)
+	}
+	if got := frameGet(t, frame, "phone.scrcpy.audio"); got != false {
+		t.Fatalf("phone.scrcpy.audio = %v, want false", got)
+	}
+	if got := frameNum(t, frame, "phone.scrcpy.maxFps"); got != 90 {
+		t.Fatalf("phone.scrcpy.maxFps = %v, want 90", got)
+	}
+	if got := frameGet(t, frame, "phone.webcam.cameraFacing"); got != "front" {
+		t.Fatalf("phone.webcam.cameraFacing = %v, want front", got)
 	}
 }
 
@@ -198,10 +298,6 @@ func TestPatchPersistsPerDisplayShellVisibility(t *testing.T) {
 		{"displays.bar.DP-2", `false`},
 		{"displays.widgets.DP-1", `true`},
 		{"displays.widgets.DP-2", `false`},
-		{"displays.bar_style.DP-1", `"chroma"`},
-		{"displays.bar_style.DP-2", `""`},
-		{"displays.bar_widgets.DP-1.chroma.media", `false`},
-		{"displays.bar_widgets.DP-1.chroma.clock", `true`},
 	}
 
 	for _, step := range steps {
@@ -217,23 +313,6 @@ func TestPatchPersistsPerDisplayShellVisibility(t *testing.T) {
 		"displays.bar.DP-2":     false,
 		"displays.widgets.DP-1": true,
 		"displays.widgets.DP-2": false,
-	} {
-		got, ok := frameGet(t, frame, path).(bool)
-		if !ok || got != want {
-			t.Fatalf("%s = %v, want %v", path, got, want)
-		}
-	}
-	for path, want := range map[string]string{
-		"displays.bar_style.DP-1": "chroma",
-		"displays.bar_style.DP-2": "",
-	} {
-		if got := frameGet(t, frame, path); got != want {
-			t.Fatalf("%s = %v, want %q", path, got, want)
-		}
-	}
-	for path, want := range map[string]bool{
-		"displays.bar_widgets.DP-1.chroma.media": false,
-		"displays.bar_widgets.DP-1.chroma.clock": true,
 	} {
 		got, ok := frameGet(t, frame, path).(bool)
 		if !ok || got != want {
@@ -376,13 +455,16 @@ func TestMalformedFileFirstLoad(t *testing.T) {
 		if !reflect.DeepEqual(s.cur, defaultSettings()) {
 			t.Fatalf("unparseable file did not fall back to defaults")
 		}
-		// Defaults only: exactly the six schema namespaces, no passthrough.
-		if len(s.raw) != 6 {
-			t.Fatalf("first-load fallback carried %d top-level keys, want 6 (schema only)", len(s.raw))
+		// Defaults only: exactly the schema roots, no passthrough.
+		if len(s.raw) != len(contractKeys) {
+			t.Fatalf("first-load fallback carried %d top-level keys, want %d (schema only)", len(s.raw), len(contractKeys))
 		}
-		for _, k := range []string{"general", "theme", "bars", "menus", "notifications", "wallpaper"} {
+		for _, k := range []string{
+			"deckFrostEnabled", "deckFrost", "general", "theme", "bars", "menus", "notifications",
+			"wallpaper", "ask", "controls", "batteryAlerts",
+		} {
 			if _, ok := s.raw[k]; !ok {
-				t.Fatalf("first-load fallback missing schema namespace %q", k)
+				t.Fatalf("first-load fallback missing schema root %q", k)
 			}
 		}
 	})
@@ -517,6 +599,33 @@ func TestDefaultsValidate(t *testing.T) {
 	}
 }
 
+func TestControlsNormalization(t *testing.T) {
+	s := newTestStore(t)
+	value := `{"sections":[{"id":"levels","visible":false},{"id":"unknown","visible":true},{"id":"levels","visible":true}],"hidden":["liveGraph","unknown","liveGraph"]}`
+	if err := s.patch("controls", rm(value)); err != nil {
+		t.Fatalf("patch controls: %v", err)
+	}
+
+	controls := frameGet(t, s.frameLocked(), "controls").(map[string]any)
+	sections := controls["sections"].([]any)
+	if len(sections) != len(controlSectionIDs) {
+		t.Fatalf("normalized sections = %d, want %d: %v", len(sections), len(controlSectionIDs), sections)
+	}
+	first := sections[0].(map[string]any)
+	if first["id"] != "levels" || first["visible"] != false {
+		t.Fatalf("first normalized section = %v, want hidden levels", first)
+	}
+	for _, raw := range sections {
+		if raw.(map[string]any)["id"] == "unknown" {
+			t.Fatalf("unknown section survived normalization: %v", sections)
+		}
+	}
+	hidden := controls["hidden"].([]any)
+	if len(hidden) != 1 || hidden[0] != "liveGraph" {
+		t.Fatalf("normalized hidden = %v, want [liveGraph]", hidden)
+	}
+}
+
 // TestFrameBarsPatchPreservesSubtrees enforces the subtree-preservation
 // invariant: a whole-object passthrough patch that omits a subtree can never
 // drop it from the store, while a subtree the patch does carry is replaced
@@ -624,6 +733,57 @@ func TestBarStyleCommandUsesSettingsStore(t *testing.T) {
 	}
 	if got := d.dispatch("barstyle ../obi"); !strings.HasPrefix(got, "err ") {
 		t.Fatalf("invalid barstyle command = %q", got)
+	}
+}
+
+// A Store dock removal marks the design it moved to its fallback; once the user
+// edits the dock themselves, recovery must not put the removed design back.
+func TestDockEditDropsTheStoreRemovalMarker(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.patch(dockTransactionKey, json.RawMessage(`"engawa-1"`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.patch("weatherLocation", json.RawMessage(`"Oslo"`)); err != nil {
+		t.Fatal(err)
+	}
+	if !frameHas(t, store.frameLocked(), dockTransactionKey) {
+		t.Fatal("an unrelated edit dropped the dock marker")
+	}
+	if err := store.patch("dock", json.RawMessage(`{"design":"ryoku","autohide":false}`)); err != nil {
+		t.Fatal(err)
+	}
+	if frameHas(t, store.frameLocked(), dockTransactionKey) {
+		t.Fatal("a dock edit retained the store removal marker")
+	}
+}
+
+// An overlay design the user picks drops only that design's removal marker; the
+// other designs' recoveries stay theirs. Replacing the whole designs object
+// drops all three.
+func TestDesignEditDropsOnlyItsStoreRemovalMarker(t *testing.T) {
+	store := newTestStore(t)
+	for _, marker := range designTransactionKeys {
+		if err := store.patch(marker, json.RawMessage(`"remove-1"`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.patch("designs.osd", json.RawMessage(`"ito"`)); err != nil {
+		t.Fatal(err)
+	}
+	frame := store.frameLocked()
+	if frameHas(t, frame, designTransactionKeys["osd"]) {
+		t.Fatal("an OSD design edit retained its store removal marker")
+	}
+	if !frameHas(t, frame, designTransactionKeys["notification"]) || !frameHas(t, frame, designTransactionKeys["sidebar"]) {
+		t.Fatal("an OSD design edit dropped another design's marker")
+	}
+	if err := store.patch("designs", json.RawMessage(`{"osd":"ryoku","notification":"ryoku","sidebar":"ryoku"}`)); err != nil {
+		t.Fatal(err)
+	}
+	for design, marker := range designTransactionKeys {
+		if frameHas(t, store.frameLocked(), marker) {
+			t.Fatalf("replacing designs retained the %s marker", design)
+		}
 	}
 }
 
@@ -757,5 +917,140 @@ func TestSettingsBoolAt(t *testing.T) {
 	}
 	if s.boolAt("clipboard.pruneWeekly") {
 		t.Error("boolAt still true after the key was patched off")
+	}
+}
+
+func startSettingsWatch(t *testing.T, s *settingsStore) {
+	t.Helper()
+	quit := make(chan struct{})
+	ready := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.watch(quit, ready)
+	}()
+	<-ready
+	t.Cleanup(func() {
+		close(quit)
+		<-done
+	})
+}
+
+func TestSettingsWatchFollowsRenameReplace(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.patch("weatherLocation", rm(`"before"`)); err != nil {
+		t.Fatal(err)
+	}
+	changed := make(chan []byte, 1)
+	s.onChange = func(frame []byte) { changed <- frame }
+	startSettingsWatch(t, s)
+
+	body, err := os.ReadFile(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["weatherLocation"] = "after"
+	body, err = json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := s.path + ".editor"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case frame := <-changed:
+		if got := frameGet(t, frame, "weatherLocation"); got != "after" {
+			t.Fatalf("weatherLocation = %v, want after", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("rename-replaced shell.json did not reload")
+	}
+}
+
+func TestSettingsWatchFollowsMissingParent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "ryoku", "shell.json")
+	s := newSettingsStore(path)
+	changed := make(chan []byte, 1)
+	s.onChange = func(frame []byte) { changed <- frame }
+	startSettingsWatch(t, s)
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"weatherLocation":"after"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case frame := <-changed:
+		if got := frameGet(t, frame, "weatherLocation"); got != "after" {
+			t.Fatalf("weatherLocation = %v, want after", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("shell.json under a newly-created parent did not reload")
+	}
+}
+
+func TestSettingsWatchReloadsAFinishedRewriteThatKeepsItsStat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shell.json")
+	s := newSettingsStore(path)
+	changed := make(chan []byte, 2)
+	s.onChange = func(frame []byte) { changed <- frame }
+	startSettingsWatch(t, s)
+
+	if err := os.WriteFile(path, []byte(`{"weatherLocation":"alpha"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changed:
+	case <-time.After(time.Second):
+		t.Fatal("initial shell.json did not load")
+	}
+	// the create and the finished write can each publish; settle first
+settle:
+	for {
+		select {
+		case <-changed:
+		case <-time.After(50 * time.Millisecond):
+			break settle
+		}
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := fi.ModTime()
+
+	// rewrite in place and put the old mtime back before closing: the watcher
+	// only sees the finished write, with the stat it already latched
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"weatherLocation":"bravo"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case frame := <-changed:
+		if got := frameGet(t, frame, "weatherLocation"); got != "bravo" {
+			t.Fatalf("weatherLocation = %v, want bravo", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("a finished rewrite under the latched stat did not reload")
 	}
 }

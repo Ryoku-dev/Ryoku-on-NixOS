@@ -25,8 +25,8 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 # nvidia-smi stub: drops a sentinel if ever called, so a spawn is provable.
 bin="$tmp/bin"; mkdir -p "$bin"
 sentinel="$tmp/nvidia-smi-called"
-cat >"$bin/nvidia-smi" <<EOF
-#!/usr/bin/env bash
+printf '#!%s\n' "$(command -v bash)" >"$bin/nvidia-smi"
+cat >>"$bin/nvidia-smi" <<EOF
 echo called >"$sentinel"
 exit 0
 EOF
@@ -51,8 +51,9 @@ armoury_value() { cat "$1/asus-armoury/attributes/gpu_mux_mode/current_value"; }
 
 # fake DRM card whose device uevent names its kernel driver, and connectors.
 mk_card() { # <drm-root> <cardN> <driver>
-  local d="$1/$2/device"; mkdir -p "$d"
-  printf 'DRIVER=%s\nPCI_SLOT_NAME=0000:0%s:00.0\n' "$3" "${2#card}" >"$d/uevent"
+  local n="${2#card}" d="$1/$2/device"
+  mkdir -p "$d/drm/renderD$((128 + n))"
+  printf 'DRIVER=%s\nPCI_SLOT_NAME=0000:0%s:00.0\n' "$3" "$n" >"$d/uevent"
 }
 mk_conn() { # <drm-root> <cardN-CONNECTOR> <connected|disconnected>
   mkdir -p "$1/$2"; printf '%s\n' "$3" >"$1/$2/status"

@@ -14,10 +14,11 @@ Item {
     property real underL: Scheme.wallLstar
     // a pinned colour ("" = follow wallpaper) paints this face's own ink.
     property string inkColorA: ""
+    property real s: 1
     readonly property color ink: Theme.inkOn2(face.underL, face.inkColorA)
     readonly property color accent: Clk.pickAccent(Config.clockAccent, Theme.accentOn2(face.underL, face.inkColorA), Theme.brand, face.ink)
     readonly property var t: Clk.parts(Now.date, Config.clock24h)
-    readonly property real px: Math.round(190 * Config.clockScale)
+    readonly property real px: Math.round(190 * face.s)
 
     // hollow outlined text: a hidden Text measures the run, a Canvas strokes it.
     component Hollow: Item {
@@ -65,13 +66,13 @@ Item {
 
     Row {
         id: row
-        spacing: Math.round(6 * Config.clockScale)
+        spacing: Math.round(6 * face.s)
         Hollow {
             anchors.verticalCenter: parent.verticalCenter
             txt: face.t.hh
             col: face.ink
             ps: face.px
-            lw: Math.max(2, 3 * Config.clockScale)
+            lw: Math.max(2, 3 * face.s)
         }
         Text {
             anchors.verticalCenter: parent.verticalCenter
@@ -86,7 +87,7 @@ Item {
             txt: face.t.mm
             col: face.ink
             ps: face.px
-            lw: Math.max(2, 3 * Config.clockScale)
+            lw: Math.max(2, 3 * face.s)
         }
     }
 }

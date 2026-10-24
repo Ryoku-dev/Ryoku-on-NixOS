@@ -27,10 +27,15 @@ import (
 // once so the space is reclaimed now rather than at the next kernel update.
 
 const (
-	initramfsDropIn = "/etc/mkinitcpio.conf.d/ryoku.conf"
-	gpuTrimHook     = "/usr/lib/initcpio/install/ryoku-gpu-trim"
-	gpuTrimName     = "ryoku-gpu-trim"
+	initramfsDropIn        = "/etc/mkinitcpio.conf.d/ryoku.conf"
+	gpuTrimHook            = "/usr/lib/initcpio/install/ryoku-gpu-trim"
+	gpuTrimName            = "ryoku-gpu-trim"
+	consoleKeysInstallHook = "/usr/lib/initcpio/install/ryoku-console-keys"
+	consoleKeysRuntimeHook = "/usr/lib/initcpio/hooks/ryoku-console-keys"
+	consoleKeysName        = "ryoku-console-keys"
 )
+
+var mkinitcpioHost = func() bool { return sys.Has("mkinitcpio") }
 
 // withGPUTrim inserts gpuTrimName into a HOOKS= line, right after autodetect,
 // and reports whether it changed anything. Pure, so the placement rule is
@@ -71,6 +76,15 @@ func withGPUTrim(conf string) (string, bool) {
 }
 
 func reconcileInitramfsGPUTrim(checkOnly bool) recResult {
+	if dnfHost() {
+		return okRes(i18n.T("Fedora uses dracut; this image-trim check does not apply"))
+	}
+	if xbpsHost() {
+		return okRes(i18n.T("Void boots a kernel plus a dracut initramfs image; the mkinitcpio GPU-trim check does not apply"))
+	}
+	if !mkinitcpioHost() {
+		return okRes(i18n.T("mkinitcpio does not manage the initramfs on this host"))
+	}
 	// Naming a hook mkinitcpio cannot find aborts every image build, so the
 	// file has to be on the box before the name goes in the drop-in.
 	if !sys.Exists(gpuTrimHook) {
@@ -97,4 +111,84 @@ func reconcileInitramfsGPUTrim(checkOnly bool) recResult {
 			withFix("sudo limine-mkinitcpio || sudo mkinitcpio -P")
 	}
 	return fixedRes(i18n.T("dropped the denylisted nouveau driver from the initramfs and rebuilt the kernel images (~107 MiB of boot partition back per kernel)"))
+}
+
+// ---- reconciler: initramfs console keys ------------------------------------
+//
+// Some Plymouth packages do not copy /etc/vconsole.conf, so the unlock prompt
+// falls back to a US layout, and the virtual consoles start with Num Lock off.
+// The hook makes the prompt follow the user's console layout with Num Lock on.
+
+// withConsoleKeys inserts consoleKeysName into a HOOKS= line, right after udev,
+// and reports whether it changed anything. Pure, so the placement rule is
+// unit-testable: the hook must run before Plymouth starts.
+func withConsoleKeys(conf string) (string, bool) {
+	lines := strings.Split(conf, "\n")
+	changed := false
+	for i, line := range lines {
+		if !strings.HasPrefix(strings.TrimSpace(line), "HOOKS=(") {
+			continue
+		}
+		open := strings.Index(line, "(")
+		shut := strings.LastIndex(line, ")")
+		if open < 0 || shut < open {
+			continue
+		}
+		hooks := strings.Fields(line[open+1 : shut])
+		if slices.Contains(hooks, consoleKeysName) {
+			continue
+		}
+		at := slices.Index(hooks, "udev")
+		if at < 0 {
+			continue
+		}
+		withConsoleKeys := make([]string, 0, len(hooks)+1)
+		withConsoleKeys = append(withConsoleKeys, hooks[:at+1]...)
+		withConsoleKeys = append(withConsoleKeys, consoleKeysName)
+		withConsoleKeys = append(withConsoleKeys, hooks[at+1:]...)
+		lines[i] = line[:open+1] + strings.Join(withConsoleKeys, " ") + line[shut:]
+		changed = true
+	}
+	if !changed {
+		return conf, false
+	}
+	return strings.Join(lines, "\n"), true
+}
+
+func reconcileInitramfsConsoleKeys(checkOnly bool) recResult {
+	if dnfHost() {
+		return okRes(i18n.T("Fedora uses dracut; this console-key image check does not apply"))
+	}
+	if xbpsHost() {
+		return okRes(i18n.T("Void boots a kernel plus a dracut initramfs image; the mkinitcpio console-key check does not apply"))
+	}
+	if !mkinitcpioHost() {
+		return okRes(i18n.T("mkinitcpio does not manage the initramfs on this host"))
+	}
+	// Naming a hook mkinitcpio cannot find aborts every image build, so both
+	// files have to be on the box before the name goes in the drop-in.
+	if !sys.Exists(consoleKeysInstallHook) || !sys.Exists(consoleKeysRuntimeHook) {
+		return okRes(i18n.T("the initramfs console-key hook is not installed yet"))
+	}
+	conf := readFileSafe(initramfsDropIn)
+	if !strings.Contains(conf, "HOOKS=(") {
+		return okRes(i18n.T("no Ryoku initramfs HOOKS drop-in to update"))
+	}
+	next, changed := withConsoleKeys(conf)
+	if !changed {
+		return okRes(i18n.T("the initramfs unlock prompt reads keys in the user's console layout with Num Lock on"))
+	}
+	if checkOnly {
+		return wouldRes(i18n.T("the initramfs unlock prompt can fall back to a US layout with Num Lock off, so a passphrase set in the installer is rejected at boot")).
+			withFix(i18n.T("ryoku doctor  (adds %s to %s and rebuilds the images)"), consoleKeysName, initramfsDropIn)
+	}
+	if err := writeRootFile(initramfsDropIn, next+"\n", "0644"); err != nil {
+		return failRes(i18n.T("could not write %s: %v"), initramfsDropIn, err).
+			withFix(i18n.T("re-run with sudo access"))
+	}
+	if err := rebuildInitramfs(); err != nil {
+		return failRes(i18n.T("added %s to %s, but the image rebuild failed: %v"), consoleKeysName, initramfsDropIn, err).
+			withFix(i18n.T("sudo limine-mkinitcpio || sudo mkinitcpio -P"))
+	}
+	return fixedRes(i18n.T("the initramfs unlock prompt now reads keys in the user's console layout with Num Lock on; rebuilt the kernel images"))
 }

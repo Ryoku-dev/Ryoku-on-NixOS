@@ -3,10 +3,13 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"hash/fnv"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,13 +18,17 @@ import (
 // small append-capped JSONL under XDG_STATE_HOME, newest last.
 
 type askRecord struct {
-	At       string      `json:"at"`             // RFC3339
-	Kind     string      `json:"kind,omitempty"` // quick (default) | term
-	Question string      `json:"q"`
-	Answer   string      `json:"a"`
-	Images   []string    `json:"images,omitempty"`
-	Actions  []askAction `json:"actions,omitempty"`
-	Plan     *termPlan   `json:"plan,omitempty"` // the terminal lane's command plan
+	ID               string      `json:"id"`
+	At               string      `json:"at"`             // RFC3339
+	Kind             string      `json:"kind,omitempty"` // quick (default) | term
+	Question         string      `json:"q"`
+	Answer           string      `json:"a"`
+	Images           []string    `json:"images,omitempty"`
+	Actions          []askAction `json:"actions,omitempty"`
+	Plan             *termPlan   `json:"plan,omitempty"` // the terminal lane's command plan
+	Via              string      `json:"via,omitempty"`
+	NeedsAgent       bool        `json:"needsAgent,omitempty"`
+	NeedsAgentReason string      `json:"needsAgentReason,omitempty"`
 }
 
 const askHistoryCap = 40
@@ -32,13 +39,35 @@ func askHistoryPath() string {
 
 var askHistoryMu sync.Mutex
 
-// recordAsk appends one completed ask, trimming the file to the cap. A record
-// with no answer text but a plan (a fence-only terminal proposal) is still
-// worth keeping for --resume and recipe save.
+var askIDClock atomic.Int64
+
+func newAskID(prefix byte) string {
+	for {
+		old := askIDClock.Load()
+		next := time.Now().UnixNano()
+		if next <= old {
+			next = old + 1
+		}
+		if askIDClock.CompareAndSwap(old, next) {
+			return string(prefix) + strconv.FormatInt(next, 36)
+		}
+	}
+}
+
+// recordAsk appends one completed ask, trimming the file to the cap. New
+// records keep their id even when no answer arrived, so an in-progress hand-off
+// can still resolve the original question.
 func recordAsk(rec askRecord) {
 	empty := strings.TrimSpace(rec.Answer) == "" || strings.HasPrefix(rec.Answer, "(no answer")
-	if empty && rec.Plan == nil {
+	if empty && rec.Plan == nil && rec.ID == "" {
 		return
+	}
+	if rec.ID == "" {
+		prefix := byte('a')
+		if rec.Kind == "term" {
+			prefix = 't'
+		}
+		rec.ID = newAskID(prefix)
 	}
 	askHistoryMu.Lock()
 	defer askHistoryMu.Unlock()
@@ -79,10 +108,27 @@ func readAskHistoryLocked() []askRecord {
 		}
 		var r askRecord
 		if json.Unmarshal([]byte(line), &r) == nil && r.Question != "" {
+			if r.ID == "" {
+				r.ID = legacyAskID(r)
+			}
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+func legacyAskID(rec askRecord) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(rec.At))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(rec.Kind))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(rec.Question))
+	prefix := "a"
+	if rec.Kind == "term" {
+		prefix = "t"
+	}
+	return prefix + strconv.FormatUint(h.Sum64(), 36)
 }
 
 // RecentAsks returns up to n asks, newest first, for the resume list.
@@ -98,6 +144,17 @@ func RecentAsks(n int) []askRecord {
 		recs = recs[:n]
 	}
 	return recs
+}
+
+func askByID(id string) (askRecord, bool) {
+	askHistoryMu.Lock()
+	defer askHistoryMu.Unlock()
+	for _, rec := range readAskHistoryLocked() {
+		if rec.ID == id {
+			return rec, true
+		}
+	}
+	return askRecord{}, false
 }
 
 func nowRFC3339() string { return time.Now().Format(time.RFC3339) }

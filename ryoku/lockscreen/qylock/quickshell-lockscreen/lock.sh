@@ -3,8 +3,62 @@
 # Current directory
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# The stable ryoku-qylock-lock launcher holds the shared generation lock before
+# this replaceable script is selected. This wrapper then owns only its
+# session-scoped launch guard for the full compositor-lock lifetime.
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+# Session lock acquisition is process-global, not just daemon-local. Take the
+# guard before touching the secure marker or any locker process so simultaneous
+# lid, idle, and manual requests cannot race two WlSessionLock clients.
+session_id="${XDG_SESSION_ID:-}"
+if [[ ! $session_id =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    echo "qylock: XDG_SESSION_ID is required for session-scoped lock proof" >&2
+    exit 1
+fi
+guard_file="$runtime_dir/qylock-${UID:-$(id -u)}.$session_id.lock"
+if ! exec 9>"$guard_file"; then
+    echo "qylock: cannot open launch guard $guard_file" >&2
+    exit 1
+fi
+flock -n 9 || exit 0
+proof_helper="$DIR/proof.sh"
+generation=""
+for generation_file in "$DIR/../.generation" "$DIR/../ryoku/qylock-live-generation"; do
+    if [[ -r $generation_file ]]; then
+        generation="$(<"$generation_file")"
+        break
+    fi
+done
+if [[ $generation =~ ^[a-f0-9]{64}$ ]]; then
+    export QYLOCK_GENERATION="$generation"
+else
+    unset QYLOCK_GENERATION
+fi
+proof_token=""
+cleanup_proof() {
+    if [[ -n $proof_token ]]; then
+        "$proof_helper" retire "$proof_token" "$session_id" >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup_proof EXIT
+
+session_alive() {
+    local state
+    state="$(loginctl show-session "$session_id" -p State --value 2>/dev/null)" || return 1
+    [[ $state == active || $state == online ]]
+}
+
+sleep_while_session_alive() {
+    local remaining=$1
+    while (( remaining > 0 )); do
+        sleep 1
+        session_alive || return 1
+        remaining=$((remaining - 1))
+    done
+}
+
 # Set library paths
-export QML2_IMPORT_PATH="$DIR/imports:$QML2_IMPORT_PATH"
+export QML2_IMPORT_PATH="$DIR/imports:${QML2_IMPORT_PATH:-}"
 export QML_XHR_ALLOW_FILE_READ=1
 
 # The lock is spawned by the shell daemon, a systemd user service whose env is
@@ -27,11 +81,16 @@ if [ -z "${XDG_SESSION_TYPE:-}" ]; then
     [ -n "$XDG_SESSION_TYPE" ] || XDG_SESSION_TYPE=wayland
 fi
 export XDG_SESSION_TYPE
+if [[ $XDG_SESSION_TYPE != wayland ]]; then
+    echo "qylock: secure in-session locking requires a Wayland session" >&2
+    exit 1
+fi
+
 
 # User theme preference
 # Get user theme
 CONFIG_FILE="$HOME/.config/qylock/theme"
-if [ -n "$1" ]; then
+if [ -n "${1:-}" ]; then
     export QS_THEME="$1"
 elif [ -f "$CONFIG_FILE" ]; then
     QS_THEME=$(cat "$CONFIG_FILE")
@@ -40,19 +99,23 @@ else
     export QS_THEME="clockwork/orbital"
 fi
 
-# Set theme path
-if [ -d "$DIR/../themes" ] && [ ! -d "$DIR/themes_link" ]; then
-    export QS_THEME_PATH="$DIR/../themes/$QS_THEME"
+# A staged generation carries its core theme beside the wrapper. Prefer that
+# complete generation; optional user themes deliberately fall back through the
+# live themes_link because they are owned by RyoStore, not this installer.
+staged_theme="$DIR/../themes/$QS_THEME"
+linked_theme="$DIR/themes_link/$QS_THEME"
+if [ -f "$staged_theme/Main.qml" ]; then
+    export QS_THEME_PATH="$staged_theme"
 else
-    export QS_THEME_PATH="$DIR/themes_link/$QS_THEME"
+    export QS_THEME_PATH="$linked_theme"
 fi
 
 # A theme that vanished (an uninstalled skin still named by the config, a
 # broken themes_link) must never lock into a black screen with no unlock UI:
-# fall back to the stock theme before launching.
+# fall back to the stock theme from this generation before considering live.
 if [ ! -f "$QS_THEME_PATH/Main.qml" ]; then
     echo "qylock: theme '$QS_THEME' not found at $QS_THEME_PATH; falling back to clockwork/orbital" >&2
-    for fb in "$DIR/themes_link/clockwork/orbital" "$DIR/../themes/clockwork/orbital"; do
+    for fb in "$DIR/../themes/clockwork/orbital" "$DIR/themes_link/clockwork/orbital"; do
         if [ -f "$fb/Main.qml" ]; then
             export QS_THEME="clockwork/orbital"
             export QS_THEME_PATH="$fb"
@@ -74,11 +137,82 @@ fi
 # Kill active lockers
 killall -9 hyprlock swaylock wlogout 2>/dev/null || true
 
-# Execute lock screen. Whatever way it ends (unlock or crash), drop the
-# "compositor confirmed the lock" marker lock_shell.qml wrote: a stale marker
-# would let a later `ryoku-shell lock` read a starting locker as already
-# covering the screen.
-quickshell -p "$DIR/lock_shell.qml"
-rc=$?
-rm -f "${XDG_RUNTIME_DIR:-/tmp}/qylock.locked"
-exit "$rc"
+# Execute and supervise the lock screen in this long-lived wrapper. It survives
+# a ryoku-shell service restart (KillMode=process), so a later qylock crash can
+# recover after the compositor or GPU settles. Three quick retries lead into a
+# capped backoff instead of either a hot crash loop or a permanently black lock.
+short_failures=0
+backoff=1
+session_alive || exit 0
+while :; do
+    proof_token="$(< /proc/sys/kernel/random/uuid)"
+    export QYLOCK_PROOF_TOKEN="$proof_token"
+    "$proof_helper" begin "$proof_token" "$session_id"
+    attempt_started=$(date +%s%N)
+    # The guard and generation flocks must not reach the client's tree: an
+    # inherited fd keeps the flock alive in any coprocess that outlives the
+    # client, and a stuck guard makes every later lock a silent no-op.
+    (
+        exec 7>&- 9>&-
+        env QSG_RENDER_LOOP=basic quickshell -p "$DIR/lock_shell.qml" &
+        ql_pid=$!
+
+        dpms_files=$(find /sys/class/drm/*/dpms -type f 2>/dev/null)
+        [ -n "$dpms_files" ] || { wait "$ql_pid"; exit $?; }
+
+        # While every connected output is off the client is stopped, so its
+        # render loop cannot grow amdgpu's TTM/shmem pages until the OOM killer
+        # fires. Outputs are checked once a second, but the client exiting
+        # (an unlock or a crash) ends the wait at once: the retry budget
+        # below counts lifetimes, and a late exit would read as a healthy run.
+        while :; do
+            sleep 1 &
+            tick=$!
+            wait -n -p finished "$ql_pid" "$tick"
+            status=$?
+            if [ "$finished" = "$ql_pid" ]; then
+                kill "$tick" 2>/dev/null || true
+                exit "$status"
+            fi
+
+            all_off=1
+            for f in $dpms_files; do
+                [ "$(cat "${f%/dpms}/status" 2>/dev/null)" = connected ] || continue
+                if [ "$(cat "$f" 2>/dev/null)" != Off ]; then
+                    all_off=0
+                    break
+                fi
+            done
+            if [ "$all_off" = 1 ]; then
+                kill -STOP "$ql_pid" 2>/dev/null || true
+            else
+                kill -CONT "$ql_pid" 2>/dev/null || true
+            fi
+        done
+    )
+    rc=$?
+    lifetime_ns=$(( $(date +%s%N) - attempt_started ))
+    "$proof_helper" retire "$proof_token" "$session_id" >/dev/null 2>&1 || true
+    proof_token=""
+    session_alive || exit 0
+    (( rc == 0 )) && exit 0
+
+    # A client that stayed healthy before crashing receives a fresh recovery
+    # budget. Repeated short-lived starts get three quick attempts, then retry
+    # forever at a bounded rate so a recovering compositor regains its UI.
+    if (( lifetime_ns >= 2000000000 )); then
+        short_failures=0
+        backoff=1
+        sleep 0.1
+        continue
+    fi
+    short_failures=$((short_failures + 1))
+    if (( short_failures < 3 )); then
+        sleep 0.1
+        continue
+    fi
+    echo "qylock: lock client failed repeatedly; retrying in ${backoff}s" >&2
+    sleep_while_session_alive "$backoff" || exit 0
+    (( backoff < 30 )) && backoff=$((backoff * 2))
+    (( backoff > 30 )) && backoff=30
+done

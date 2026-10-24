@@ -9,25 +9,30 @@ import (
 
 const usage = `ryoku-rashin: the Ryoku agent OS daemon
 
-  serve [--if-enabled]   run the dashboard and agent bridge on 127.0.0.1
+  serve [--if-enabled]   run Rashin and bring up Prowl on 127.0.0.1
   index                  regenerate the vault maps (system, desktop, packages, repo, user, habits)
   repo-index <root> [out]  build the Ryoku source map from a checkout (build/deploy time)
-  ask <question>         one-shot quick ask against the shared session (launcher)
+  ask <question>         one-shot read-only ask (fast lane or the Ask lane)
   term <question>        terminal ask: answer + a ready-to-run command plan (the 'rashin' command)
+  terminal [--lane ryoku|chat]  open the current agent session in its harness TUI
   setup                  one-click Hermes install, onboarding, and wiring
   wire [agent]           apply vault pointers (all detected agents, or one)
   unwire [agent]         remove vault pointers
-  status [--json]        report daemon, vault, hermes, and wiring state
-  enable [--at-boot]     start the daemon now and at every login; --at-boot
-                         adds user lingering so it starts with the machine
-  disable                stop the daemon and turn autostart off (opt out of the default)
-  ensure                 default-on convergence: enable at boot unless the user opted out
+  status [--json]        report Rashin, Prowl, vault, Hermes, and wiring state
+  enable [--at-boot]     start Rashin and Prowl now and at every login; --at-boot
+                         adds user lingering so they start with the machine
+  disable                stop Rashin and Prowl and turn autostart off
+  ensure                 bring up Rashin and Prowl unless the user opted out
   backend [provider[:model]]  view or set the fast-lane assistant backend ('auto' follows hermes)
   paths [--json]         show every skill/vault/prowl path (and a paste snippet for any agent)
   agent [use <id>]       list agents + chat backends, or set which agent drives the chat
+  logs <target> [--since <dur>] [--lines <n>]
+                         gather every log relevant to <target> when it broke
+  fix doctor|tip <id>|app <name> [what happened]
+                         open your agent in a terminal on the problem (Fix with AI)
 
 Invoked as 'rashin', a bare argument is a terminal ask; status/enable/disable/
-setup/index still work as subcommands.
+setup/index/logs/fix still work as subcommands.
 `
 
 func main() {
@@ -59,6 +64,8 @@ func main() {
 		err = cmdChat(os.Args[2:])
 	case "term":
 		err = cmdTerm(os.Args[2:])
+	case "terminal":
+		err = cmdChatTerminal(os.Args[2:])
 	case "setup":
 		err = cmdSetup()
 	case "wire":
@@ -79,6 +86,10 @@ func main() {
 		err = cmdPaths(pathsFormat(os.Args[2:]))
 	case "agent":
 		err = cmdAgent(os.Args[2:])
+	case "logs":
+		err = cmdLogs(os.Args[2:])
+	case "fix":
+		err = cmdFix(os.Args[2:])
 	default:
 		fmt.Print(usage)
 		os.Exit(2)
@@ -112,6 +123,18 @@ func dispatchRashin(args []string) error {
 			return cmdSetup()
 		case "index":
 			return cmdIndex()
+		case "logs":
+			// "rashin logs are huge" is a plain ask; only a clean
+			// `logs <target>` with optional flags routes to the command.
+			if len(args) > 1 && logsCommandTarget(args[1:]) != "" {
+				return cmdLogs(args[1:])
+			}
+		case "fix":
+			// "rashin fix the wifi" is still a plain ask; only the Fix with
+			// AI kinds route to the command.
+			if len(args) > 1 && fixKinds[args[1]] {
+				return cmdFix(args[1:])
+			}
 		}
 	}
 	return cmdTerm(args)

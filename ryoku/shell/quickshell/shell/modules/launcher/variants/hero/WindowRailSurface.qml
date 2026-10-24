@@ -5,7 +5,9 @@ import Quickshell
 import Quickshell.Wayland
 import Quickshell.Widgets
 import "../../shared/Singletons"
+import Ryoku.Ui.Singletons
 import "." as HeroVariant
+import "../../../../services/lib/screens.js" as Screens
 
 // The open-window rail owns a second, deliberately small layer surface. It is
 // not part of the launcher card: its transparent envelope has its own input
@@ -21,8 +23,8 @@ PanelWindow {
 
     readonly property string surfaceMonitor: modelData
         ? String(modelData.name || "") : ""
-    readonly property real s: Math.min(
-        1.2, (modelData ? modelData.height / 1080 : 1))
+    readonly property real s: Screens.monitorScale(modelData,
+            Wm.outputScale(win.surfaceMonitor), 1.2)
         * Math.max(0.8, Math.min(1.4, Config.fontScale))
     readonly property bool sameMonitor: launcherSurface
         && String(launcherSurface.surfaceMonitor || "") === surfaceMonitor

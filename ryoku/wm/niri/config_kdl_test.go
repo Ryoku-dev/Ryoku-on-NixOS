@@ -203,6 +203,18 @@ func TestLayoutExtrasEmitted(t *testing.T) {
 	}
 }
 
+func TestPreferNoCSD(t *testing.T) {
+	if out := string(genSettings(defaultStore())); !strings.Contains(out, "\nprefer-no-csd\n") {
+		t.Errorf("the default must ask apps to hide client-side title bars\n%s", out)
+	}
+
+	s := defaultStore()
+	s.Niri.PreferNoCSD = false
+	if out := string(genSettings(s)); strings.Contains(out, "prefer-no-csd") {
+		t.Errorf("prefer-no-csd must be absent when app title bars are enabled\n%s", out)
+	}
+}
+
 // The overview backdrop colour and the workspace shadow. niri draws the shadow by
 // default, so an untouched shadow stays silent, a disabled one turns off, and a
 // retuned one carries its fields.
@@ -338,6 +350,35 @@ func TestAnimKindsRendered(t *testing.T) {
 	}
 }
 
+func TestWelcomeBuiltinWindowRule(t *testing.T) {
+	out := string(genSettings(defaultStore()))
+	want := "window-rule {\n" +
+		"    match title=\"^Welcome to Ryoku$\"\n" +
+		"    open-floating true\n" +
+		"    default-column-width { fixed 1180; }\n" +
+		"    default-window-height { fixed 760; }\n" +
+		"}\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("welcome must open as a centred 1180x760 floating window\n%s", out)
+	}
+	if strings.Count(out, `match title="^Welcome to Ryoku$"`) != 1 {
+		t.Errorf("welcome builtin rule must be emitted once\n%s", out)
+	}
+}
+
+func TestPhoneToolsBuiltinWindowRule(t *testing.T) {
+	out := string(genSettings(defaultStore()))
+	want := "window-rule {\n" +
+		"    match title=\"^ryoku-phone-.*$\"\n" +
+		"    open-floating true\n" +
+		"    default-column-width { fixed 520; }\n" +
+		"    default-window-height { fixed 860; }\n" +
+		"}\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("phone tools must open as a portrait floating window\n%s", out)
+	}
+}
+
 // The neutral window-rule actions niri gained: each one renders its niri property
 // lines so a rule the WindowRulesPage offers on niri actually reaches the config.
 func TestNiriWindowRuleActions(t *testing.T) {
@@ -380,8 +421,8 @@ func TestPerAppBlurRendered(t *testing.T) {
 		{Class: "mpv", Opacity: -1, Rounding: -1, BorderSize: -1, Blur: "off"},
 	}
 	out := string(genSettings(s))
-	if !strings.Contains(out, "match app-id=\"kitty\"\n    background-effect {\n        blur true\n    }") {
-		t.Errorf("per-app forced blur must render blur true\n%s", out)
+	if !strings.Contains(out, "match app-id=\"kitty\"\n    background-effect {\n        blur true\n        xray true\n    }") {
+		t.Errorf("per-app forced blur must render xray-safe blur\n%s", out)
 	}
 	if !strings.Contains(out, "match app-id=\"mpv\"\n    background-effect {\n        blur false\n    }") {
 		t.Errorf("per-app suppressed blur must render blur false\n%s", out)
@@ -402,7 +443,7 @@ func TestUserLayerRulesRendered(t *testing.T) {
 		`match namespace="waybar"`,
 		"opacity 0.9",
 		"geometry-corner-radius 12",
-		"    background-effect {\n        blur true\n    }",
+		"    background-effect {\n        blur true\n        xray true\n    }",
 		"    shadow {\n        on\n    }",
 		`block-out-from "screencast"`,
 		"baba-is-float true",

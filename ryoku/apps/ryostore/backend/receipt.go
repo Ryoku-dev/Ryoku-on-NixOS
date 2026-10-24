@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -47,22 +46,6 @@ type StoreRevision struct {
 	ID        string `json:"id"`
 	Version   string `json:"version"`
 	Operation string `json:"operation"`
-}
-
-var errLegacyStoreRevision = errors.New("legacy Store revision")
-
-func legacyStoreRevision(raw []byte) bool {
-	var legacy struct {
-		Revision string `json:"revision"`
-		Category string `json:"category"`
-		ID       string `json:"id"`
-	}
-	if err := decodeOneJSON(raw, &legacy); err != nil {
-		return false
-	}
-	return productHashPattern.MatchString(legacy.Revision) &&
-		validProductCategory(legacy.Category) &&
-		productIDPattern.MatchString(legacy.ID)
 }
 
 func stateHome() string {
@@ -149,6 +132,10 @@ func validateReceipt(category, id string, receipt Receipt) error {
 			return fmt.Errorf("receipt %s file %d is invalid", label, index)
 		}
 	}
+	if category == vesktopThemesCategory {
+		_, err := vesktopThemeReceiptFile(receipt.Files)
+		return err
+	}
 	return nil
 }
 
@@ -170,7 +157,7 @@ func writeStoreRevision(change StoreRevision) error {
 	defer unlock()
 
 	current, err := readStoreRevision()
-	if os.IsNotExist(err) || errors.Is(err, errLegacyStoreRevision) {
+	if os.IsNotExist(err) {
 		current = StoreRevision{}
 	} else if err != nil {
 		return err
@@ -192,9 +179,6 @@ func readStoreRevision() (StoreRevision, error) {
 	}
 	var revision StoreRevision
 	if err := decodeOneJSON(raw, &revision); err != nil {
-		if legacyStoreRevision(raw) {
-			return StoreRevision{}, errLegacyStoreRevision
-		}
 		return StoreRevision{}, fmt.Errorf("Store revision: %w", err)
 	}
 	if revision.Revision == 0 || !validProductCategory(revision.Category) ||

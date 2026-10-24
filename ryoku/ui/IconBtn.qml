@@ -5,9 +5,11 @@ import "Singletons"
 // inline component is private, so having one in two apps means having two.
 Rectangle {
     id: btn
-
     property string glyph: ""
     property bool armed: true
+    // See Btn.stealFocus: page-level buttons grab focus on press so a focused
+    // text field commits its edit first; row buttons leave it off.
+    property bool stealFocus: false
     signal act()
 
     implicitWidth: 26
@@ -29,5 +31,7 @@ Rectangle {
         font.pixelSize: 12
     }
     HoverHandler { id: hh; enabled: btn.armed; cursorShape: Qt.PointingHandCursor }
-    TapHandler { id: tap; enabled: btn.armed; onTapped: btn.act() }
+    TapHandler { id: tap; enabled: btn.armed
+        onPressedChanged: if (tap.pressed && btn.stealFocus) btn.forceActiveFocus()
+        onTapped: btn.act() }
 }

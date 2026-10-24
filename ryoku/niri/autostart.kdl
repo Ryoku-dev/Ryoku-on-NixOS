@@ -1,6 +1,6 @@
 // The login bootstrap: everything a Ryoku session must bring up when niri
 // starts. niri has no scripting layer, so each entry is a spawn node. The
-// systemd session line is load-bearing; the rest are best-effort helpers, each
+// session handoff line is load-bearing; the rest are best-effort helpers, each
 // guarded so a missing binary or a second login still lands a session.
 //
 // X11 has no line here on purpose: niri creates the X11 sockets, exports
@@ -21,21 +21,16 @@ spawn-at-startup "gsettings" "set" "org.gnome.desktop.interface" "gtk-theme" "ad
 // Folder icons tinted to the wallpaper accent, rebuilt on every palette change.
 spawn-sh-at-startup "command -v ryoku-cmd-folders >/dev/null 2>&1 && ryoku-cmd-folders"
 
-// The session, in one chained command. Push the compositor env into the user
-// manager first: a lost race skips ConditionEnvironment=WAYLAND_DISPLAY units
-// and lands a black desktop. restart, not start: a daemon the manager still
-// holds from a previous login answers `start` with "already active" while bound
-// to the dead session; reset-failed lets a unit that hit its start limit run
-// again, and daemon-reload picks up a freshly laid unit. Portals restart last,
-// once the desktop is up, so a stale frontend does not proxy dead ScreenCast
-// requests; the backend niri's caps report is the GNOME one.
-spawn-sh-at-startup "dbus-update-activation-environment --systemd --all; systemctl --user daemon-reload; systemctl --user reset-failed ryogami ryoku-shell 2>/dev/null; systemctl --user start ryoku-session.target; systemctl --user restart ryoku-shell; systemctl --user restart ryogami; systemctl --user try-restart xdg-desktop-portal.service xdg-desktop-portal-gnome.service xdg-desktop-portal-gtk.service"
+// The shared entrypoint keeps this config init-neutral while preserving the
+// ordered environment handoff and stale-session restart on every supported
+// service supervisor.
+spawn-sh-at-startup "ryoku-host session start xdg-desktop-portal-gnome.service xdg-desktop-portal-gtk.service"
 
 // No autoscale line: niri picks each output's scale itself, and ryoku-monitor is the Hyprland provider's display tool.
 
 // Per-device Bluetooth codec memory: WirePlumber restores a device's profile
 // across reconnects but not its A2DP codec, so reconcile on every card event.
-// A no-op for anyone who never chose a codec.
+// The watcher owns a per-user lock, making repeated autostart harmless.
 spawn-sh-at-startup "command -v ryoku-bt-audio >/dev/null 2>&1 && ryoku-bt-audio watch"
 
 // Record the keyring mode once and seed a blank passwordless default, so no app
@@ -43,8 +38,6 @@ spawn-sh-at-startup "command -v ryoku-bt-audio >/dev/null 2>&1 && ryoku-bt-audio
 spawn-sh-at-startup "command -v ryoku >/dev/null 2>&1 && ryoku keyring init"
 
 spawn-sh-at-startup "command -v ryoku-gpu >/dev/null 2>&1 && ryoku-gpu persist"
-spawn-sh-at-startup "command -v ryoku-idle >/dev/null 2>&1 && ryoku-idle start"
-spawn-sh-at-startup "command -v ryoku-clamshell >/dev/null 2>&1 && ryoku-clamshell daemon"
 // Battery charge ceiling and PCIe link policy are plain sysfs values the kernel
 // forgets across a reboot, so a stored choice is pushed back at login. A no-op
 // with no power.json and on a box without the knobs.
@@ -54,6 +47,10 @@ spawn-sh-at-startup "command -v ryoku-power >/dev/null 2>&1 && ryoku-power apply
 // until lighting is on with a device adopted.
 spawn-sh-at-startup "command -v ryoku-hub >/dev/null 2>&1 && ryoku-hub lighting apply"
 spawn-sh-at-startup "command -v ryoku-mic >/dev/null 2>&1 && ryoku-mic"
+
+// Key sounds: the optional engine reads the keyboard directly and adds nothing
+// to niri's own workload. A no-op until Window Manager > Behaviour installs it.
+spawn-sh-at-startup "command -v ryoku-keysounds >/dev/null 2>&1 && ! pgrep -x ryoku-keysounds >/dev/null 2>&1 && ryoku-keysounds"
 
 // A touchpad locked off with the FN key stays off across logins (the lock lives
 // in the generated settings niri reads), so name it once the shell can show a
@@ -76,13 +73,9 @@ spawn-sh-at-startup "command -v voxtype >/dev/null 2>&1 && command -v ryoku-hub 
 // Seed the empty AI-translation key file so Language > Generate with AI can read it.
 spawn-sh-at-startup "command -v ryoku-i18n >/dev/null 2>&1 && ryoku-i18n ensure >/dev/null 2>&1"
 
-// Welcome tour, once per tour version: a fresh or older-version box sees it, a
-// box already on this version is left alone. The version is written only after
-// qs actually runs the tour, so a first-boot launch failure retries next login,
-// and the flock guards a double fire. Bump the version when the tour changes.
-// qs surfaces spawned here bypass ryoku-shell's daemon, which injects the QML module path.
-spawn-sh-at-startup "s=\"${XDG_STATE_HOME:-$HOME/.local/state}/ryoku\"; v=$(head -n1 \"$s/welcome-seen\" 2>/dev/null); case \"$v\" in ''|*[!0-9]*) v=0;; esac; [ \"$v\" -lt 18 ] && flock -n \"${XDG_RUNTIME_DIR:-/tmp}/ryoku-welcome.lock\" env QML_IMPORT_PATH=\"$HOME/.local/lib/qt6/qml\" QML2_IMPORT_PATH=\"$HOME/.local/lib/qt6/qml\" qs -c welcome && mkdir -p \"$s\" && printf 18 > \"$s/welcome-seen\""
-
-// First-boot keyboard hint, shown exactly once ever. The marker is written
-// before the async launch, so a reboot before it is dismissed cannot bring it back.
-spawn-sh-at-startup "s=\"${XDG_STATE_HOME:-$HOME/.local/state}/ryoku\"; [ -e \"$s/keys-hint-seen\" ] || { mkdir -p \"$s\" && printf seen > \"$s/keys-hint-seen\" && flock -n \"${XDG_RUNTIME_DIR:-/tmp}/ryoku-keys-hint.lock\" env QML_IMPORT_PATH=\"$HOME/.local/lib/qt6/qml\" QML2_IMPORT_PATH=\"$HOME/.local/lib/qt6/qml\" qs -c keys-hint; }"
+// Welcome tour (once per tour version) and the first-boot keyboard hint
+// (exactly once ever). The behaviour lives in ryoku-session-intro so every
+// compositor's autostart calls the same script. Bump the tour version in the
+// helper when the tour changes.
+spawn-sh-at-startup "command -v ryoku-session-intro >/dev/null 2>&1 && ryoku-session-intro welcome"
+spawn-sh-at-startup "command -v ryoku-session-intro >/dev/null 2>&1 && ryoku-session-intro keys-hint"

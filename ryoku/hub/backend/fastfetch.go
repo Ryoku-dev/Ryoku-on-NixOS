@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -25,18 +26,42 @@ import (
 // fixed brand palette used by the custom-line templates, matching the shipped
 // config.jsonc. only the accent is user-facing (it also drives display.color).
 const (
-	ffTan    = "143;135;112"
-	ffBright = "243;237;225"
-	ffDim    = "58;46;36"
-	ffAccent = "226;52;42"
+	ffTan              = "143;135;112"
+	ffBright           = "243;237;225"
+	ffDim              = "58;46;36"
+	ffAccent           = "226;52;42"
+	ffPaletteFixed     = "fixed"
+	ffPaletteWallpaper = "wallpaper"
+	ffBaseOSToken      = "{$RYOKU_BASE_OS}"
 )
 
 var (
-	ffAnsiRe    = regexp.MustCompile("\x1b\\[[0-9;]*m")
-	ffTanRe     = regexp.MustCompile("\x1b\\[38;2;" + regexp.QuoteMeta(ffTan) + "m(.*?)\x1b\\[0m")
-	ffLabelRe   = regexp.MustCompile("\x1b\\[1;38;2;" + regexp.QuoteMeta(ffBright) + "m(.*?)\x1b\\[0m")
-	ffKeysColor = regexp.MustCompile(`(?:38;2;)?([0-9]+;[0-9]+;[0-9]+)`)
+	ffAnsiRe      = regexp.MustCompile("\x1b\\[[0-9;]*m")
+	ffTanRe       = regexp.MustCompile("\x1b\\[38;2;" + regexp.QuoteMeta(ffTan) + "m(.*?)\x1b\\[0m")
+	ffLabelRe     = regexp.MustCompile("\x1b\\[1;38;2;" + regexp.QuoteMeta(ffBright) + "m(.*?)\x1b\\[0m")
+	ffKeysColor   = regexp.MustCompile(`(?:38;2;)?([0-9]+;[0-9]+;[0-9]+)`)
+	ffRGBTriple   = regexp.MustCompile(`^([0-9]{1,3});([0-9]{1,3});([0-9]{1,3})$`)
+	ffTrueColorRe = regexp.MustCompile("\x1b\\[((?:1;)?)38;2;([0-9]+;[0-9]+;[0-9]+)m")
+	// ffSlotTrueColorRe matches a rice's inline fastfetch colour placeholder
+	// "{#38;2;R;G;B}", whose R;G;B is a fixed brand tone baked into the format
+	// (fastfetch resolves it to literal ANSI). The wallpaper pass rewrites the
+	// ones that name a palette role.
+	ffSlotTrueColorRe = regexp.MustCompile(`\{#((?:1;)?38;2;)([0-9]+;[0-9]+;[0-9]+)\}`)
 )
+
+func ffBaseOS() string {
+	if base, ok := os.LookupEnv("RYOKU_BASE_OS"); ok {
+		return base
+	}
+	out, err := exec.Command("ryoku-base-os").Output()
+	if err != nil {
+		return "Linux"
+	}
+	if base := strings.TrimSpace(string(out)); base != "" {
+		return base
+	}
+	return "Linux"
+}
 
 func fastfetchDir() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
@@ -46,7 +71,11 @@ func fastfetchDir() string {
 	return filepath.Join(base, "fastfetch")
 }
 
-func fastfetchConfigPath() string { return filepath.Join(fastfetchDir(), "config.jsonc") }
+func fastfetchConfigPath() string  { return filepath.Join(fastfetchDir(), "config.jsonc") }
+func fastfetchPalettePath() string { return filepath.Join(fastfetchDir(), "ryoku-colors.json") }
+func fastfetchPaletteStatePath() string {
+	return filepath.Join(filepath.Dir(fastfetchDir()), "ryoku", "fastfetch.json")
+}
 
 // stripJSONC removes // line and /* */ block comments from a JSONC document,
 // leaving comment-like text inside string literals (a $schema URL) intact so
@@ -113,7 +142,7 @@ type ffLogo struct {
 	Source       string `json:"source"`
 	Width        int    `json:"width"`
 	Height       int    `json:"height"`
-	Padding      int    `json:"padding"`      // left, the one the UI exposes
+	Padding      int    `json:"padding"` // left, the one the UI exposes
 	PaddingRight int    `json:"paddingRight"`
 	PaddingTop   int    `json:"paddingTop"`
 	// Dither is on when Source names a baked 1-bit sibling; it rides the source
@@ -121,30 +150,122 @@ type ffLogo struct {
 	Dither bool `json:"dither"`
 }
 
-// ffRow is one readout line. break/colors/title/module keep their original JSON in
-// Raw so extra fields (a gpu detectionMethod, a command's echo) survive; tagline
-// and header carry editable Text and are rebuilt from a template.
+// ffRow keeps raw modules intact. Taglines also keep their stored text so the
+// base-OS token survives an unchanged Hub save while Text remains suitable for
+// display; TextEdited distinguishes a user replacement from that display copy.
 type ffRow struct {
-	Kind    string          `json:"kind"` // title|tagline|header|module|break|colors|raw
-	Enabled bool            `json:"enabled"`
-	Label   string          `json:"label,omitempty"`
-	Module  string          `json:"module,omitempty"`
-	Key     string          `json:"key,omitempty"`
-	Text    string          `json:"text,omitempty"`
-	Raw     json.RawMessage `json:"raw,omitempty"`
+	Kind       string          `json:"kind"` // title|tagline|header|module|break|colors|raw
+	Enabled    bool            `json:"enabled"`
+	Label      string          `json:"label,omitempty"`
+	Module     string          `json:"module,omitempty"`
+	Key        string          `json:"key,omitempty"`
+	Text       string          `json:"text,omitempty"`
+	StoredText string          `json:"storedText,omitempty"`
+	TextEdited bool            `json:"textEdited,omitempty"`
+	Raw        json.RawMessage `json:"raw,omitempty"`
 }
 
 type ffModel struct {
 	Logo    ffLogo          `json:"logo"`
 	Accent  string          `json:"accent"`
+	Palette string          `json:"palette"`
 	Rows    []ffRow         `json:"rows"`
 	Display json.RawMessage `json:"display,omitempty"`
 	Schema  string          `json:"schema,omitempty"`
 }
 
+type ffPalette struct {
+	Keys    string `json:"keys"`
+	Title   string `json:"title"`
+	Muted   string `json:"muted"`
+	Section string `json:"section"`
+	Rule    string `json:"rule"`
+	Percent struct {
+		Green  string `json:"green"`
+		Yellow string `json:"yellow"`
+		Red    string `json:"red"`
+	} `json:"percent"`
+}
+
+type ffPaletteState struct {
+	Palette string `json:"palette"`
+}
+
+func ffPaletteMode(mode string) string {
+	if mode == ffPaletteWallpaper {
+		return ffPaletteWallpaper
+	}
+	return ffPaletteFixed
+}
+
+// readFastfetchPaletteMode: the readout follows the wallpaper palette by
+// default, so a fresh box tints with the theme instead of the fixed brand
+// red. A box whose palette file has never rendered (first boot, before
+// matugen's first pass) or holds invalid colours falls back to the fixed
+// brand palette, which is exactly what the shipped config draws.
+func readFastfetchPaletteMode() string {
+	b, err := os.ReadFile(fastfetchPaletteStatePath())
+	if err == nil {
+		var state ffPaletteState
+		if json.Unmarshal(b, &state) == nil {
+			return ffPaletteMode(state.Palette)
+		}
+	}
+	if _, err := loadFastfetchPalette(); err != nil {
+		return ffPaletteFixed
+	}
+	return ffPaletteWallpaper
+}
+
+func setFastfetchPaletteMode(mode string) error {
+	mode = ffPaletteMode(mode)
+	b, err := json.MarshalIndent(ffPaletteState{Palette: mode}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicWrite(fastfetchPaletteStatePath(), append(b, '\n'), 0o644)
+}
+
+func validFFRGB(value string) bool {
+	match := ffRGBTriple.FindStringSubmatch(value)
+	if match == nil {
+		return false
+	}
+	for _, part := range match[1:] {
+		n, err := strconv.Atoi(part)
+		if err != nil || n > 255 {
+			return false
+		}
+	}
+	return true
+}
+
+func loadFastfetchPalette() (ffPalette, error) {
+	var palette ffPalette
+	b, err := os.ReadFile(fastfetchPalettePath())
+	if err != nil {
+		return palette, fmt.Errorf("read Fastfetch wallpaper palette: %w", err)
+	}
+	if err := json.Unmarshal(b, &palette); err != nil {
+		return palette, fmt.Errorf("parse Fastfetch wallpaper palette: %w", err)
+	}
+	values := map[string]string{
+		"keys": palette.Keys, "title": palette.Title, "muted": palette.Muted,
+		"section": palette.Section, "rule": palette.Rule,
+		"percent.green": palette.Percent.Green, "percent.yellow": palette.Percent.Yellow,
+		"percent.red": palette.Percent.Red,
+	}
+	for name, value := range values {
+		if !validFFRGB(value) {
+			return ffPalette{}, fmt.Errorf("Fastfetch wallpaper palette has invalid %s colour", name)
+		}
+	}
+	return palette, nil
+}
+
 func runFastfetch(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("fastfetch needs get|save|reset|preview|import-logo|remove-logo|dither-logo")
+		return fmt.Errorf("fastfetch needs get|save|reset|preview|effective|palette|import-logo|remove-logo|dither-logo")
 	}
 	switch args[0] {
 	case "get":
@@ -161,11 +282,20 @@ func runFastfetch(args []string) error {
 		if err := json.Unmarshal([]byte(args[1]), &m); err != nil {
 			return err
 		}
+		m.Palette = ffPaletteMode(m.Palette)
+		if m.Palette == ffPaletteWallpaper {
+			if _, err := loadFastfetchPalette(); err != nil {
+				return err
+			}
+		}
 		b, err := buildFastfetch(m)
 		if err != nil {
 			return err
 		}
-		return atomicWrite(fastfetchConfigPath(), b, 0o644)
+		if err := atomicWrite(fastfetchConfigPath(), b, 0o644); err != nil {
+			return err
+		}
+		return setFastfetchPaletteMode(m.Palette)
 	case "preview":
 		if len(args) < 2 {
 			return fmt.Errorf("fastfetch preview needs a JSON argument")
@@ -175,6 +305,21 @@ func runFastfetch(args []string) error {
 			return err
 		}
 		return previewFastfetch(m)
+	case "effective":
+		if len(args) != 2 {
+			return fmt.Errorf("fastfetch effective needs an output path")
+		}
+		return writeEffectiveFastfetch(args[1])
+	case "palette":
+		if len(args) != 2 || (args[1] != ffPaletteFixed && args[1] != ffPaletteWallpaper) {
+			return fmt.Errorf("fastfetch palette needs fixed or wallpaper")
+		}
+		if args[1] == ffPaletteWallpaper {
+			if _, err := loadFastfetchPalette(); err != nil {
+				return err
+			}
+		}
+		return setFastfetchPaletteMode(args[1])
 	case "import-logo":
 		if len(args) < 2 {
 			return fmt.Errorf("fastfetch import-logo needs a path")
@@ -205,7 +350,9 @@ func runFastfetch(args []string) error {
 		fmt.Println(p)
 		return nil
 	case "reset":
-		b, err := buildFastfetch(defaultFastfetchModel())
+		m := defaultFastfetchModel()
+		m.Palette = readFastfetchPaletteMode()
+		b, err := buildFastfetch(m)
 		if err != nil {
 			return err
 		}
@@ -220,7 +367,9 @@ func runFastfetch(args []string) error {
 func loadFastfetch() (ffModel, error) {
 	raw, err := os.ReadFile(fastfetchConfigPath())
 	if err != nil {
-		return defaultFastfetchModel(), nil
+		m := defaultFastfetchModel()
+		m.Palette = readFastfetchPaletteMode()
+		return m, nil
 	}
 	var doc struct {
 		Schema  string            `json:"$schema"`
@@ -231,9 +380,10 @@ func loadFastfetch() (ffModel, error) {
 	if err := json.Unmarshal(stripJSONC(raw), &doc); err != nil {
 		return ffModel{}, fmt.Errorf("parse config.jsonc: %w", err)
 	}
-	m := ffModel{Schema: doc.Schema, Display: doc.Display, Accent: ffDisplayAccent(doc.Display), Logo: ffNormalizeLogo(doc.Logo)}
+	m := ffModel{Schema: doc.Schema, Display: doc.Display, Accent: ffDisplayAccent(doc.Display), Palette: readFastfetchPaletteMode(), Logo: ffNormalizeLogo(doc.Logo)}
+	baseOS := ffBaseOS()
 	for _, rm := range doc.Modules {
-		m.Rows = append(m.Rows, ffNormalizeModule(rm))
+		m.Rows = append(m.Rows, ffNormalizeModule(rm, baseOS))
 	}
 	return m, nil
 }
@@ -281,7 +431,7 @@ func ffNormalizeLogo(l map[string]any) ffLogo {
 	return out
 }
 
-func ffNormalizeModule(rm json.RawMessage) ffRow {
+func ffNormalizeModule(rm json.RawMessage, baseOS string) ffRow {
 	s := strings.TrimSpace(string(rm))
 	if strings.HasPrefix(s, "\"") { // a bare string module ("break")
 		var str string
@@ -301,7 +451,11 @@ func ffNormalizeModule(rm json.RawMessage) ffRow {
 		if strings.Contains(ffStripAnsi(obj.Format), "─") {
 			return ffRow{Kind: "header", Enabled: true, Text: ffHeaderLabel(obj.Format), Label: "Section header", Raw: rm}
 		}
-		return ffRow{Kind: "tagline", Enabled: true, Text: ffTaglineText(obj.Format), Label: "Tagline", Raw: rm}
+		text := ffTaglineText(obj.Format)
+		return ffRow{
+			Kind: "tagline", Enabled: true, Text: strings.ReplaceAll(text, ffBaseOSToken, baseOS),
+			StoredText: text, Label: "Tagline", Raw: rm,
+		}
 	case "colors":
 		return ffRow{Kind: "colors", Enabled: true, Label: "Colour swatches", Raw: rm}
 	default:
@@ -400,6 +554,240 @@ func buildFastfetch(m ffModel) ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
+func ffApplyPaletteToRow(raw json.RawMessage, palette ffPalette) (json.RawMessage, error) {
+	if len(raw) == 0 || raw[0] == '"' {
+		return raw, nil
+	}
+	var row map[string]any
+	if err := json.Unmarshal(raw, &row); err != nil {
+		return raw, nil
+	}
+	format, ok := row["format"].(string)
+	if !ok || format == "" {
+		return raw, nil
+	}
+	role := func(color string) string {
+		switch color {
+		case ffAccent:
+			return palette.Section
+		case ffBright:
+			return palette.Title
+		case ffTan:
+			return palette.Muted
+		case ffDim:
+			return palette.Rule
+		default:
+			return ""
+		}
+	}
+	// Literal ANSI codes (the shipped config) and inline {#38;2;R;G;B} colour
+	// placeholders (a rice's config, which fastfetch resolves to literal ANSI)
+	// both carry the brand tones; rewrite each that names a palette role.
+	format = ffTrueColorRe.ReplaceAllStringFunc(format, func(code string) string {
+		match := ffTrueColorRe.FindStringSubmatch(code)
+		if match == nil {
+			return code
+		}
+		mapped := role(match[2])
+		if mapped == "" {
+			return code
+		}
+		return "\x1b[" + match[1] + "38;2;" + mapped + "m"
+	})
+	format = ffSlotTrueColorRe.ReplaceAllStringFunc(format, func(code string) string {
+		match := ffSlotTrueColorRe.FindStringSubmatch(code)
+		if match == nil {
+			return code
+		}
+		mapped := role(match[2])
+		if mapped == "" {
+			return code
+		}
+		return "{#" + match[1] + mapped + "}"
+	})
+	row["format"] = format
+	return json.Marshal(row)
+}
+
+func ffApplyPaletteToDisplay(display json.RawMessage, palette ffPalette) json.RawMessage {
+	display = ffApplyAccentToDisplay(display, palette.Keys)
+	var doc map[string]any
+	if json.Unmarshal(display, &doc) != nil {
+		doc = map[string]any{}
+	}
+	// fastfetch reads its key/value separator and title-module colour straight
+	// from these named display.color slots (unlike the {#...} format tokens it
+	// strips). Recolour the ones the config sets so the separators and title text
+	// follow the theme; a config without them is left untouched.
+	if color, ok := doc["color"].(map[string]any); ok {
+		if _, ok := color["title"]; ok {
+			color["title"] = "38;2;" + palette.Title
+		}
+		if _, ok := color["separator"]; ok {
+			color["separator"] = "38;2;" + palette.Muted
+		}
+	}
+	percent, _ := doc["percent"].(map[string]any)
+	if percent == nil {
+		percent = map[string]any{}
+	}
+	colors, _ := percent["color"].(map[string]any)
+	if colors == nil {
+		colors = map[string]any{}
+	}
+	colors["green"] = "38;2;" + palette.Percent.Green
+	colors["yellow"] = "38;2;" + palette.Percent.Yellow
+	colors["red"] = "38;2;" + palette.Percent.Red
+	percent["color"] = colors
+	doc["percent"] = percent
+	b, err := json.Marshal(doc)
+	if err != nil {
+		return display
+	}
+	return b
+}
+
+func buildFastfetchEffective(m ffModel) ([]byte, error) {
+	if ffPaletteMode(m.Palette) != ffPaletteWallpaper {
+		return buildFastfetch(m)
+	}
+	palette, err := loadFastfetchPalette()
+	if err != nil {
+		return nil, err
+	}
+	accent := m.Accent
+	if !validFFRGB(accent) {
+		accent = ffAccent
+	}
+	var mods []json.RawMessage
+	for _, row := range m.Rows {
+		if !row.Enabled {
+			continue
+		}
+		var raw json.RawMessage
+		switch row.Kind {
+		case "tagline", "header":
+			// Recolour the row's own format in place so the user's exact layout
+			// survives (a rice's {#...} placeholders included). Only a row with
+			// no stored raw -- one added in the Hub -- is rebuilt from its text.
+			if len(row.Raw) > 0 {
+				raw = row.Raw
+			} else if row.Kind == "tagline" {
+				raw = ffCustomModule(ffTaglineStyled(palette.Section, palette.Muted, ffTaglineBuildText(row)))
+			} else {
+				raw = ffCustomModule(ffHeaderStyled(palette.Section, palette.Title, palette.Rule, row.Text))
+			}
+			if raw != nil {
+				raw, err = ffApplyPaletteToRow(raw, palette)
+				if err != nil {
+					return nil, err
+				}
+			}
+		default:
+			raw, err = ffBuildRow(row, accent)
+			if err != nil {
+				return nil, err
+			}
+			if raw != nil {
+				raw, err = ffApplyPaletteToRow(raw, palette)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		if raw == nil {
+			continue
+		}
+		mods = append(mods, raw)
+	}
+	out := ffOutConfig{
+		Schema: m.Schema, Logo: ffBuildLogo(m.Logo), Modules: mods,
+		Display: ffApplyPaletteToDisplay(m.Display, palette),
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(b, '\n'), nil
+}
+
+func fastfetchEffectiveFresh(path string, mode string) bool {
+	out, err := os.Stat(path)
+	if err != nil || out.IsDir() {
+		return false
+	}
+	// The config is always required (a missing one is not a fresh cache). The
+	// palette file is required in wallpaper mode. The resolved mode is recorded in
+	// a sidecar (see effectiveModeMarker): a state-file mtime cannot detect a
+	// removal that returns to the default, so the sidecar is what makes every
+	// mode transition rebuild.
+	required := []string{fastfetchConfigPath()}
+	if mode == ffPaletteWallpaper {
+		required = append(required, fastfetchPalettePath())
+	}
+	for _, input := range required {
+		info, err := os.Stat(input)
+		if err != nil || out.ModTime().Before(info.ModTime()) {
+			return false
+		}
+	}
+	stored, err := os.ReadFile(effectiveModeMarker(path))
+	if err != nil || strings.TrimSpace(string(stored)) != mode {
+		return false
+	}
+	if executable, err := os.Executable(); err == nil {
+		info, err := os.Stat(executable)
+		if err != nil || out.ModTime().Before(info.ModTime()) {
+			return false
+		}
+	}
+	return true
+}
+
+// effectiveModeMarker is the sidecar path that records which palette mode
+// produced the effective config at path. The palette mode cannot be detected by
+// mtime alone: a state file that is *removed* (returning to the wallpaper
+// default) has no timestamp to compare, so a stale fixed-mode cache would be
+// served. Storing the resolved mode beside the cache makes every transition
+// (set, change, unset) visible.
+func effectiveModeMarker(path string) string { return path + ".mode" }
+
+// writeEffectiveFastfetch renders the config fastfetch should actually read into
+// path. It is the single source of truth for the palette default: the wrapper
+// always runs this and reads the result, so the wallpaper-by-default decision
+// lives here, not in shell. Fixed mode copies the user's config verbatim (a
+// retint never rewrites their layout or comments); wallpaper mode rebuilds it
+// with the live Material palette swapped in for the fixed brand tones.
+func writeEffectiveFastfetch(path string) error {
+	mode := readFastfetchPaletteMode()
+	if fastfetchEffectiveFresh(path, mode) {
+		return nil
+	}
+	var b []byte
+	if mode != ffPaletteWallpaper {
+		raw, err := os.ReadFile(fastfetchConfigPath())
+		if err != nil {
+			return err
+		}
+		b = raw
+	} else {
+		model, err := loadFastfetch()
+		if err != nil {
+			return err
+		}
+		model.Palette = mode
+		built, err := buildFastfetchEffective(model)
+		if err != nil {
+			return err
+		}
+		b = built
+	}
+	if err := atomicWrite(path, b, 0o600); err != nil {
+		return err
+	}
+	return atomicWrite(effectiveModeMarker(path), []byte(mode+"\n"), 0o600)
+}
+
 // ffApplyAccentToDisplay writes the accent into display.color.keys so the key
 // labels match the accent the custom-line templates use, and so a saved accent
 // reloads (get reads it back from here). Other display fields are preserved.
@@ -451,7 +839,7 @@ func ffBuildRow(r ffRow, accent string) (json.RawMessage, error) {
 		}
 		return json.RawMessage(`"break"`), nil
 	case "tagline":
-		return ffCustomModule(ffTaglineFormat(accent, r.Text)), nil
+		return ffCustomModule(ffTaglineFormat(accent, ffTaglineBuildText(r))), nil
 	case "header":
 		return ffCustomModule(ffHeaderFormat(accent, r.Text)), nil
 	case "module":
@@ -481,23 +869,38 @@ func ffCustomModule(format string) json.RawMessage {
 	return b
 }
 
+func ffTaglineBuildText(r ffRow) string {
+	if !r.TextEdited && r.StoredText != "" {
+		return r.StoredText
+	}
+	return r.Text
+}
+
 func ffTaglineFormat(accent, text string) string {
-	return "\x1b[38;2;" + accent + "m■\x1b[0m \x1b[38;2;" + ffTan + "m" + text + "\x1b[0m"
+	return ffTaglineStyled(accent, ffTan, text)
+}
+
+func ffTaglineStyled(section, muted, text string) string {
+	return "\x1b[38;2;" + section + "m■\x1b[0m \x1b[38;2;" + muted + "m" + text + "\x1b[0m"
 }
 
 func ffHeaderFormat(accent, label string) string {
+	return ffHeaderStyled(accent, ffBright, ffDim, label)
+}
+
+func ffHeaderStyled(section, title, ruleColor, label string) string {
 	n := 32 - utf8.RuneCountInString(label)
 	if n < 4 {
 		n = 4
 	}
 	rule := strings.Repeat("─", n)
-	return "\x1b[38;2;" + accent + "m──\x1b[0m \x1b[1;38;2;" + ffBright + "m" + label + "\x1b[0m \x1b[38;2;" + ffDim + "m" + rule + "\x1b[0m"
+	return "\x1b[38;2;" + section + "m──\x1b[0m \x1b[1;38;2;" + title + "m" + label + "\x1b[0m \x1b[38;2;" + ruleColor + "m" + rule + "\x1b[0m"
 }
 
 // ---- preview + logo import --------------------------------------------------
 
 func previewFastfetch(m ffModel) error {
-	b, err := buildFastfetch(m)
+	b, err := buildFastfetchEffective(m)
 	if err != nil {
 		return err
 	}
@@ -512,7 +915,9 @@ func previewFastfetch(m ffModel) error {
 	tmp.Close()
 	// --logo none: the emblem is previewed in the Hub, this is just the readout.
 	// --pipe false keeps the truecolor SGR the Hub parses into rich text.
-	out, _ := exec.Command("fastfetch", "--config", tmp.Name(), "--logo", "none", "--pipe", "false").Output()
+	cmd := exec.Command("fastfetch", "--config", tmp.Name(), "--logo", "none", "--pipe", "false")
+	cmd.Env = append(os.Environ(), "RYOKU_BASE_OS="+ffBaseOS())
+	out, _ := cmd.Output()
 	os.Stdout.Write(out)
 	return nil
 }
@@ -765,8 +1170,9 @@ func defaultFastfetchModel() ffModel {
 		return ffRow{Kind: "module", Enabled: true, Module: t, Key: k, Label: k, Raw: raw}
 	}
 	return ffModel{
-		Accent: ffAccent,
-		Logo:   ffLogo{Kind: "builtin", Width: 28, Height: 14, Padding: 3},
+		Accent:  ffAccent,
+		Palette: ffPaletteFixed,
+		Logo:    ffLogo{Kind: "builtin", Width: 28, Height: 14, Padding: 3},
 		Rows: []ffRow{
 			mk("os", "OS"), mk("kernel", "KERNEL"), mk("cpu", "CPU"),
 			mk("memory", "MEMORY"), mk("uptime", "UPTIME"),

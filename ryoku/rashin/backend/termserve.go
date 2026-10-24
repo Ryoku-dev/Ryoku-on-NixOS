@@ -3,25 +3,21 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
-// termserve.go runs terminal asks INSIDE the daemon (POST /api/term): the
-// launcher's fast lane with a terminal persona, terminal context (cwd, last
-// command), and one action tool, propose, whose validated output is the
-// command plan the rashin CLI renders and fish injects at the prompt. Heavy
-// asks escalate to the hermes session exactly like /api/ask. The daemon
-// never executes a proposed command; the user is the executor.
+// termserve.go runs terminal asks inside the daemon. The fast path proposes
+// commands without executing them; escalations use the same isolated,
+// read-only Ask lane as the launcher.
 
-const termPattern = `You are Rashin, the resident agent of this Ryoku desktop, answering inside the user's terminal (fish in kitty).
+const termPattern = `You are the Needle, Rashin's resident agent on a Ryoku Linux desktop, answering inside the user's terminal. The edition and compositor are named in desktop.md and by ` + "`ryoku wm status`" + `; detect them, never assume.
 
 You have read-only tools for live state (system_query, read_file, list_dir, search_code, fetch_url) and ONE action tool: propose.
 
@@ -30,7 +26,7 @@ Rules:
 - Use this machine's real paths and installed tools; the maps and habits below are current. Prefer the user's stack: fd over find, rg over grep, eza over ls, bat over cat.
 - Commands must be real and complete: correct flags, absolute or ~ paths, no placeholders. If something is unknowable, look it up with your read tools first, then propose.
 - After propose, reply with ONE terse sentence of context. For pure questions, answer directly: one or two sentences, no markdown headers.
-- Escalate by replying exactly TOOLS_REQUIRED only when the request needs the full agent: editing file contents, generating images, an interactive browser, running a hermes skill, or multi-step work the user wants done for them rather than handed back as commands.`
+- Escalate by replying exactly TOOLS_REQUIRED only when the request needs broader read-only inspection or multi-step reasoning the fast lane cannot provide. The isolated Ask harness is a fresh read-only session and still does not change the machine.`
 
 type termReq struct {
 	Q          string `json:"q"`
@@ -182,28 +178,28 @@ func termContext(req termReq) string {
 	return b.String()
 }
 
-// termPreamble rides in front of session-lane escalations so hermes answers
-// tersely and formats commands where planFromText can lift them.
+// termPreamble keeps Ask-lane terminal escalations terse and command-oriented.
 func termPreamble(req termReq) string {
 	loc := ""
 	if req.Cwd != "" {
 		loc = " from " + req.Cwd
 	}
 	return "[terminal ask" + loc + ": you propose commands for the user to run " +
-		"in their terminal, you do not do the work yourself. If the request changes " +
-		"files or the system (move, rename, delete, install, configure), do NOT run " +
-		"it: put the exact command(s) in one fenced code block, one per line, and " +
-		"stop. For a question or a location, answer straight from the system vault " +
-		"(AGENTS.md, desktop.md, habits.md) in one or two sentences, without running " +
-		"tools unless you truly cannot answer otherwise] "
+		"in their terminal, you do not do the work yourself. Do not change files or " +
+		"the system. If the request requires you to perform a change, reply " +
+		"NEEDS_AGENT: <one line why> and stop. You may answer a question or propose " +
+		"commands the user can run from the system vault (AGENTS.md, desktop.md, " +
+		"habits.md) in one or two sentences, without running tools unless you truly " +
+		"cannot answer otherwise.] "
 }
-
-var termIDCounter atomic.Uint64
 
 // handleTerm is POST /api/term. The turn runs on a background context so a
 // closed terminal never aborts the work; only /api/term/cancel?id= or the
 // timeout stops it.
 func (h *chatHub) handleTerm(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, true) {
+		return
+	}
 	var req termReq
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&req); err != nil {
 		http.Error(w, "bad request body", http.StatusBadRequest)
@@ -221,9 +217,9 @@ func (h *chatHub) handleTerm(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	sink := &askSink{w: w, f: f, permJSON: true}
+	sink := &askSink{w: w, f: f}
 
-	id := "t" + strconv.FormatUint(termIDCounter.Add(1), 10) + "-" + strconv.FormatInt(time.Now().Unix(), 36)
+	id := newAskID('t')
 	sink.marker("id", id)
 
 	ctx, cancel := context.WithTimeout(context.Background(), quickTimeout+2*time.Minute)
@@ -237,57 +233,51 @@ func (h *chatHub) handleTerm(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 	}()
 
-	// The terminal ask joins the shared transcript, so "continue in the
-	// dashboard" (and \resume in the launcher) already have it.
-	h.broadcast(wsOut{Type: "user_text", Text: req.Q})
-	h.broadcast(wsOut{Type: "state", State: "busy"})
-
 	var plan *termPlan
-	if target, err := resolveQuickTarget(LoadConfig()); err == nil {
+	target, targetErr := resolveQuickTarget(LoadConfig())
+	if targetErr == nil {
 		sink.marker("working", "thinking ("+target.Label+")")
 		spec := h.termSpec(req, &plan)
 		qctx, qcancel := context.WithTimeout(ctx, quickTimeout)
-		answer, qerr := laneComplete(qctx, target, spec, req.Q, func(delta string) {
+		answer, model, qerr := laneComplete(qctx, target, spec, req.Q, func(string) {
 			if !sink.started {
 				sink.started = true
 				sink.marker("working", "writing")
 			}
-			h.broadcast(wsOut{Type: "agent_text", Text: delta})
-		}, func(tid, title, status string) {
+		}, func(_ string, title, status string) {
 			if status == "in_progress" {
 				sink.marker("working", title)
 			}
-			h.broadcast(wsOut{Type: "tool", ID: tid, Title: title, Kind: "quick", Status: status})
 		})
 		qcancel()
 		switch {
 		case qerr == nil:
-			h.broadcast(wsOut{Type: "turn_end", StopReason: "end_turn"})
-			h.broadcast(wsOut{Type: "state", State: "ready"})
-			h.finishTerm(sink, req, answer, plan)
+			viaModel := strings.TrimSpace(model)
+			if viaModel == "" {
+				viaModel = target.Label
+			}
+			h.finishTerm(sink, id, req, answer, plan, "Prowl · "+viaModel, "")
 			return
 		case qerr == errNeedsTools:
-			sink.marker("working", "needs tools, waking the full agent")
+			sink.marker("working", "needs the read-only agent")
 		case ctx.Err() != nil:
-			h.broadcast(wsOut{Type: "state", State: "ready"})
 			sink.marker("error", "cancelled")
 			return
 		default:
-			sink.marker("working", "fast lane unavailable, waking the full agent")
+			sink.marker("working", "fast lane unavailable, waking the agent")
 		}
-	} else {
-		sink.marker("working", "waking the needle")
+	} else if !errors.Is(targetErr, errAgentRoute) {
+		sink.marker("working", "fast lane unavailable, waking the agent")
 	}
 
-	if answer, ok := h.sessionAsk(ctx, sink, termPreamble(req), req.Q); ok {
-		h.finishTerm(sink, req, answer, plan)
+	if result, ok := h.sessionAsk(ctx, sink, termPreamble(req), req.Q); ok {
+		h.finishTerm(sink, id, req, result.Text, plan, result.Via, result.Denied)
 	}
 }
 
-// finishTerm closes out a term turn on either lane: lift a plan from fenced
-// text when propose never fired, validate, persist, hint on repetition, and
-// emit @plan then @answer.
-func (h *chatHub) finishTerm(sink *askSink, req termReq, answer string, plan *termPlan) {
+// finishTerm lifts and validates a command plan, persists the terminal record,
+// and updates only the `rashin -c` continuation memory.
+func (h *chatHub) finishTerm(sink *askSink, id string, req termReq, answer string, plan *termPlan, via, denied string) {
 	if plan == nil {
 		if p := planFromText(answer); p != nil {
 			plan = p
@@ -312,14 +302,14 @@ func (h *chatHub) finishTerm(sink *askSink, req termReq, answer string, plan *te
 	if n := countSimilarAsks(req.Q); n >= 2 {
 		sink.marker("hint", fmt.Sprintf(`{"kind":"repeat","n":%d}`, n+1))
 	}
-	rec := askRecord{At: nowRFC3339(), Kind: "term", Question: req.Q, Answer: answer,
-		Images: extractImages(answer), Plan: plan}
+	rec := makeAskRecord(id, "term", req.Q, answer, via, denied)
+	rec.Plan = plan
 	recordAsk(rec)
-	recordLastTerm(lastTerm{At: rec.At, Q: req.Q, Answer: answer, Plan: plan})
+	recordLastTerm(lastTerm{At: rec.At, Q: req.Q, Answer: rec.Answer, Plan: plan})
 
 	// Continuation memory: the next `rashin -c` sees this exchange, with the
 	// proposed commands inline so the model recalls exactly what it said.
-	hist := answer
+	hist := rec.Answer
 	if plan != nil {
 		var runs []string
 		for _, c := range plan.Commands {
@@ -331,7 +321,7 @@ func (h *chatHub) finishTerm(sink *askSink, req termReq, answer string, plan *te
 	h.termHist = []chatMessage{{Role: "user", Content: req.Q}, {Role: "assistant", Content: hist}}
 	h.mu.Unlock()
 
-	sink.marker("answer", mustAskJSON(answer))
+	sink.marker("answer", mustAskJSON(rec))
 }
 
 // termSpec builds the terminal lane: persona + terminal context + machine
@@ -444,19 +434,18 @@ func stripCodeFences(answer string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// handleTermCancel stops one term request by id; other terminals' asks keep
-// running.
+// handleTermCancel stops one terminal request. The request cancels its own ACP
+// turn after it observes the cancelled context.
 func (h *chatHub) handleTermCancel(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, false) {
+		return
+	}
 	id := r.URL.Query().Get("id")
 	h.mu.Lock()
 	cancel := h.termCancels[id]
-	conn := h.conn
 	h.mu.Unlock()
 	if cancel != nil {
 		cancel()
-		if conn != nil {
-			conn.Cancel() // a session-lane turn needs the ACP cancel too
-		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -464,6 +453,9 @@ func (h *chatHub) handleTermCancel(w http.ResponseWriter, r *http.Request) {
 // handleTermRan is the learning feedback: shell post-command hooks (and --run)
 // report what actually ran after a rashin proposal, and how it exited.
 func (h *chatHub) handleTermRan(w http.ResponseWriter, r *http.Request) {
+	if !allowLocalMutation(w, r, true) {
+		return
+	}
 	var rec runRecord
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16*1024)).Decode(&rec); err != nil {
 		http.Error(w, "bad request body", http.StatusBadRequest)
@@ -471,33 +463,5 @@ func (h *chatHub) handleTermRan(w http.ResponseWriter, r *http.Request) {
 	}
 	rec.At = nowRFC3339()
 	recordRun(rec)
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// handlePerm answers a pending session-lane permission request from any
-// surface (the terminal, primarily). The ACP conn guards double answers, so
-// racing the dashboard is safe.
-func (h *chatHub) handlePerm(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		RequestID string `json:"requestId"`
-		OptionID  string `json:"optionId"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4*1024)).Decode(&in); err != nil {
-		http.Error(w, "bad request body", http.StatusBadRequest)
-		return
-	}
-	h.mu.Lock()
-	conn := h.conn
-	h.mu.Unlock()
-	if conn == nil {
-		http.Error(w, "no session", http.StatusConflict)
-		return
-	}
-	id, err := strconv.ParseInt(in.RequestID, 10, 64)
-	if err != nil {
-		http.Error(w, "bad requestId", http.StatusBadRequest)
-		return
-	}
-	conn.RespondPermission(id, in.OptionID)
 	w.WriteHeader(http.StatusNoContent)
 }

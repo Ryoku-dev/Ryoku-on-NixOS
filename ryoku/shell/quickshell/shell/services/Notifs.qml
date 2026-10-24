@@ -3,31 +3,29 @@ import QtQuick
 import Quickshell
 import Quickshell.Services.Notifications
 import Ryoku.Ui.Singletons
+import shell.modules.phone as Phone
 
 // Notification model, faithful to the reference wayle-notification service
 // (contract 07 sec 4.3, sec 8; verified against monitoring.rs). Two flat,
 // newest-first lists with NO app grouping:
 //   history  the panel list: every tracked, non-transient notification, newest
-//            first, self-expiring per remove_expired.
+//            first, kept until dismissed or closed by its sender.
 //   popups   the transient popup list: newest first (insert at 0), gated by DND,
 //            dedup-then-front by id, each with its own display timer.
-// Urgency is parsed by the server but has ZERO effect here: no styling, no
-// ordering, no timeout weighting, exactly as upstream. DND is shell-owned (bound
-// from Flags.dnd in shell.qml) and suppresses popups only; history still fills.
+// Critical notifications persist until dismissed. Other urgency levels only pick
+// the arrival cue; DND is shell-owned (bound from Flags.dnd in shell.qml) and
+// suppresses popups and their cue while history still fills.
 Singleton {
     id: root
 
     // Shell-owned Do Not Disturb; gates popups only.
     property bool dnd: false
 
-    // popup_duration: the reference wayle builder default. Quickshell's server
-    // carries no popup timer, so the shell owns it.
-    readonly property int popupDuration: 5000
+    // popup_duration: the reference wayle builder default unless the active
+    // bar style supplies its own fallback.
+    readonly property int popupDuration: Config.styleNotificationMs > 0
+        ? Config.styleNotificationMs : 5000
 
-    // 24-hour clock for the card time label. The reference default is 12-hour
-    // (general.clock_format_24_h = false); the Go clock config owns this in the
-    // settings phase, so it follows the reference default for now.
-    property bool format24h: false
 
     // Arrival wall-clock per id, for newest-first ordering and expiry math.
     property var arrivalMs: ({})
@@ -37,16 +35,38 @@ Singleton {
     // Raw server-tracked notifications (the rail's has-notifs dot reads this).
     readonly property var tracked: server.trackedNotifications.values
 
-    // Panel list: flat, newest-first, transient excluded. A notification whose
-    // remove_expired has elapsed has already left `tracked` (historyReaper calls
-    // expire()); expire_timeout 0 is excluded here because it is removed from
-    // history at once while its popup persists (contract 07 sec 8 asymmetry).
+    // All screen-local bars acknowledge the same in-memory notification cursor.
+    property double seenMs: 0
+    readonly property double newestArrivalMs: {
+        const notifications = root.tracked || [];
+        let newest = 0;
+        for (let index = 0; index < notifications.length; ++index)
+            newest = Math.max(newest, Number(root.arrivalMs[notifications[index].id] || 0));
+        return newest;
+    }
+    readonly property bool hasUnread: !root.dnd && root.newestArrivalMs > root.seenMs
+
+    function markSeen(throughMs) {
+        const value = throughMs === undefined
+            ? root.newestArrivalMs : Number(throughMs || 0);
+        if (value > root.seenMs)
+            root.seenMs = value;
+    }
+
+    onDndChanged: {
+        if (dnd)
+            root.markSeen();
+    }
+
+    // Panel list: flat, newest-first, transient excluded. A sender's
+    // expire_timeout only times its popup; the notification stays here until the
+    // user dismisses it or the sender closes it, so the panel is a real history.
     readonly property var history: {
         var t = root.tracked;
         var out = [];
         for (var i = 0; i < t.length; i++) {
             var n = t[i];
-            if (n.transient || n.expireTimeout === 0)
+            if (n.transient)
                 continue;
             out.push(n);
         }
@@ -58,13 +78,23 @@ Singleton {
     // can drive it.
     property var popups: []
 
-    // Popup timer rule (contract 07 sec 8): expire_timeout -1 (server default)
-    // -> popupDuration; 0 -> never (persist); n>0 -> min(popupDuration, n).
+    // Popup timer rule (contract 07 sec 8): critical or expire_timeout 0 persists;
+    // -1 uses popupDuration; n>0 uses min(popupDuration, n).
     function popupTtl(n) {
+        if (n.urgency === NotificationUrgency.Critical) return -1;
         var et = n.expireTimeout;
         if (et === 0) return -1;
         if (et < 0) return root.popupDuration;
         return Math.min(root.popupDuration, et);
+    }
+
+    function cancelPopupTimeout(id) {
+        if (root.popupExpireAt[id] === undefined)
+            return;
+        var e = Object.assign({}, root.popupExpireAt);
+        delete e[id];
+        root.popupExpireAt = e;
+        root.schedulePopupReap();
     }
 
     // Two popups are the same alert when their app, summary and body match; a
@@ -75,10 +105,34 @@ Singleton {
             && (a.summary || "") === (b.summary || "")
             && (a.body || "") === (b.body || "");
     }
+    function isKdeConnectNotification(n) {
+        if (!(Config.phone?.enabled ?? false))
+            return false
+        const name = String(n?.appName || "").toLowerCase()
+        if (name === "kdeconnect" || name === "kde connect"
+                || name === "org.kde.kdeconnect")
+            return true
+        return Phone.KdeConnectService.devices.some(device =>
+            device.name && String(device.name).toLowerCase() === name)
+    }
 
     // Add a popup: dedup-then-insert-front. A re-posted id, or a distinct id with
     // the same content, replaces the live card (moved to the top with a fresh
     // timer) rather than adding a twin; then arm its timer unless it is persistent.
+    // The arrival cue. The daemon owns the clip, the user's choice of file, the
+    // volume and the on/off switches (`sounds` in shell.json); a sender can still
+    // ask for silence with the spec's suppress-sound hint. A bar style that
+    // plays its own sound for its banners takes the cue over.
+    function chime(n) {
+        if (Config.styleOwnsNotificationSound)
+            return;
+        const hints = n.hints || {};
+        if (hints["suppress-sound"] === true)
+            return;
+        const critical = n.urgency === NotificationUrgency.Critical;
+        Quickshell.execDetached(["ryoku-shell", "sound", critical ? "notification-critical" : "notification"]);
+    }
+
     function addPopup(n) {
         var list = root.popups.filter(function(p) { return p.id !== n.id && !root.sameContent(p, n); });
         list.unshift(n);
@@ -107,9 +161,9 @@ Singleton {
     }
 
     // Clear all (contract 07 sec 4.3): dismiss every history item. Their popups
-    // fall away with them via the closed hook; a persistent popup (expire_timeout
-    // 0, not in history) is deliberately left, matching dismiss_all.
+    // fall away with them via the closed hook.
     function clearAll() {
+        root.markSeen();
         var h = root.history.slice();
         for (var i = 0; i < h.length; i++)
             if (typeof h[i].dismiss === "function")
@@ -123,12 +177,7 @@ Singleton {
         var ts = root.arrivalMs[n.id];
         if (!ts)
             return "";
-        var d = new Date(ts);
-        var mm = ("0" + d.getMinutes()).slice(-2);
-        if (root.format24h)
-            return ("0" + d.getHours()).slice(-2) + ":" + mm;
-        var h = d.getHours();
-        return ("0" + ((h % 12) || 12)).slice(-2) + ":" + mm + " " + (h < 12 ? I18n.tr("am") : I18n.tr("pm"));
+        return TimeFormat.format(new Date(ts));
     }
 
     // Popup reaper: remove popups past their deadline. A transient popup is
@@ -176,42 +225,15 @@ Singleton {
         }
     }
 
-    // History reaper (remove_expired, contract 07 sec 8): a notification with
-    // expire_timeout n>0 leaves history at arrival + n (full, uncapped); -1 and
-    // 0 are handled elsewhere (-1 never, 0 excluded from history immediately).
-    Timer {
-        id: historyReaper
-        onTriggered: {
-            var now = Date.now();
-            var t = root.tracked;
-            for (var i = 0; i < t.length; i++) {
-                var n = t[i];
-                if (n.transient || n.expireTimeout <= 0)
-                    continue;
-                if ((root.arrivalMs[n.id] || 0) + n.expireTimeout <= now && typeof n.expire === "function")
-                    n.expire();
-            }
-            root.scheduleHistoryReap();
-        }
-    }
+    // Oldest history entries are released past this many, so a chatty sender
+    // cannot grow the tracked list for the whole session.
+    readonly property int historyLimit: 100
 
-    function scheduleHistoryReap() {
-        var now = Date.now();
-        var soonest = -1;
-        var t = root.tracked;
-        for (var i = 0; i < t.length; i++) {
-            var n = t[i];
-            if (n.transient || n.expireTimeout <= 0)
-                continue;
-            var due = (root.arrivalMs[n.id] || 0) + n.expireTimeout;
-            if (soonest < 0 || due < soonest)
-                soonest = due;
-        }
-        historyReaper.stop();
-        if (soonest >= 0) {
-            historyReaper.interval = Math.max(1, soonest - now);
-            historyReaper.start();
-        }
+    function trimHistory() {
+        var h = root.history;
+        for (var i = h.length - 1; i >= root.historyLimit; i--)
+            if (typeof h[i].expire === "function")
+                h[i].expire();
     }
 
     // On close (dismiss / expire / app request): drop the popup and forget the
@@ -223,7 +245,6 @@ Singleton {
             delete a[n.id];
             root.arrivalMs = a;
             root.schedulePopupReap();
-            root.scheduleHistoryReap();
         });
     }
 
@@ -232,7 +253,7 @@ Singleton {
         keepOnReload: true
         bodySupported: true
         actionsSupported: true
-        imageSupported: true
+        imageSupported: Config.notifications?.show_images === true
 
         Component.onCompleted: {
             var l = trackedNotifications.values;
@@ -243,18 +264,32 @@ Singleton {
                 root.hookClosed(l[i]);
             }
             root.arrivalMs = a;
-            root.scheduleHistoryReap();
+            root.trimHistory();
         }
 
         onNotification: function(n) {
+            const mirrored = root.isKdeConnectNotification(n)
+            if (mirrored && Phone.KdeConnectService.considerTransferNotification(n)) {
+                n.tracked = false
+                return
+            }
+            if (mirrored && (!(Config.phone?.desktopNotifications ?? true)
+                    || Phone.KdeConnectService.isIgnoredNotification(n))) {
+                n.tracked = false
+                return
+            }
             var a = Object.assign({}, root.arrivalMs);
             a[n.id] = Date.now();
             root.arrivalMs = a;
+            if (root.dnd)
+                root.markSeen(a[n.id]);
             n.tracked = true;
             root.hookClosed(n);
-            if (!root.dnd)
+            if (!root.dnd) {
                 root.addPopup(n);
-            root.scheduleHistoryReap();
+                root.chime(n);
+            }
+            root.trimHistory();
         }
     }
 }

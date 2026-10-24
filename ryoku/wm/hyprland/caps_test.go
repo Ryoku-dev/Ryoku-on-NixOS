@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	wm "ryoku-wm"
 )
 
 // The caps list is documented as "kept in step with that package's depends".
@@ -46,4 +48,74 @@ func TestReclaimListMatchesVariantDepends(t *testing.T) {
 			t.Errorf("PKGBUILD depends on %s but the reclaim list omits it", p)
 		}
 	}
+}
+
+// A capability the manifest claims but wm.All() omits never reaches a QML
+// consumer: the caps frame carries one boolean per All() entry, so the shell
+// reads the gate as false and the affordance silently disappears on Hyprland.
+func TestManifestIsDeliverable(t *testing.T) {
+	all := map[wm.Capability]bool{}
+	for _, c := range wm.All() {
+		all[c] = true
+	}
+	for _, c := range capsManifest {
+		if !all[c] {
+			t.Errorf("manifest claims %q but wm.All() omits it, so it never rides the caps frame", c)
+		}
+	}
+}
+
+func TestClaimsWorkspaceFullscreenState(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if !c.Has(wm.CapWorkspaceFullscreenState) {
+		t.Error("Hyprland workspace frames carry hasfullscreen and must stay authoritative")
+	}
+}
+
+// The launcher's frost backdrop is gated on this capability, so Hyprland must
+// claim it or every Hyprland user loses the blurred launcher.
+func TestClaimsPersistentScreenCapture(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if !c.Has(wm.CapPersistentScreenCapture) {
+		t.Error("Hyprland hosts long-lived capturing layer surfaces; the manifest must say so")
+	}
+}
+
+// The Stage Editor's canvas holds the keyboard exclusively wherever this is
+// claimed. Hyprland then hands it every click as well, and the editor's toolbar
+// and catalogue stop answering, so the manifest must keep denying it.
+func TestDeniesKeyboardGrabSharesPointer(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if c.Has(wm.CapKeyboardGrabSharesPointer) {
+		t.Error("Hyprland gives an exclusive keyboard grab the pointer too; the manifest must not claim it shares")
+	}
+}
+
+// The live-draw overlay matches its ink to the compositor's workspace slide,
+// read through the slide bridge; without the claim the ink drifts out of step
+// with the windows on any config that changed the animation.
+func TestClaimsWorkspaceSlideStyle(t *testing.T) {
+	c := wm.Caps{Supports: capsManifest}
+	if !c.Has(wm.CapWorkspaceSlideStyle) {
+		t.Error("Hyprland answers `animations -j`; the manifest must say so")
+	}
+}
+
+func TestServesForeignShellAPIs(t *testing.T) {
+	want := []wm.ForeignAPI{
+		wm.ForeignAPIHyprctl,
+		wm.ForeignAPIHyprlandIPC,
+		wm.ForeignAPIQuickshellHyprland,
+	}
+	if strings.Join(foreignAPINames(foreignAPIs), ",") != strings.Join(foreignAPINames(want), ",") {
+		t.Fatalf("foreign APIs = %v, want %v", foreignAPIs, want)
+	}
+}
+
+func foreignAPINames(apis []wm.ForeignAPI) []string {
+	names := make([]string, len(apis))
+	for i, api := range apis {
+		names[i] = string(api)
+	}
+	return names
 }

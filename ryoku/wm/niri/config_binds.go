@@ -16,8 +16,8 @@ import (
 // niri's own action vocabulary and folds the store's rebinds, unbinds and custom
 // binds into it, resolving every chord collision to exactly one winner (custom
 // over rebound default over static default) so the emitted config never carries
-// a chord twice. binds reports the full effective legend the cheatsheet and Hub
-// draw; apply writes the resolved KDL.
+// a chord twice. binds reports the full effective legend Kit and the Hub draw;
+// apply writes the resolved KDL.
 
 // niriBind is how niri expresses one catalogue entry: the niri action string, or
 // a reason when niri has no action for the behaviour (which lists the bind as an
@@ -46,19 +46,57 @@ func spawnSh(cmd string) string { return "spawn-sh " + kdlStr(cmd) }
 
 // A bind-spawned qs surface never passes through ryoku-shell's daemon, which is
 // what injects the shared QML module path into the configs it supervises.
+// irisCloseCheck succeeds when the iRiS frame is the bar style and its close
+// confirmation is switched on.
+const irisCloseCheck = `jq -e '(.barStyle // "qsbar") == "iris" and .inir.closeConfirm.enabled == true' "${XDG_CONFIG_HOME:-$HOME/.config}/ryoku/shell.json" >/dev/null 2>&1`
+
 const qmlEnv = `env QML_IMPORT_PATH="$HOME/.local/lib/qt6/qml" QML2_IMPORT_PATH="$HOME/.local/lib/qt6/qml"`
+
+// NixOS supplies ryoku-qs with the packaged QML imports. Other
+// distributions retain the existing checkout import path.
+func screenshotLaunchCommand(mode string) string {
+	command := "flock -n -o /tmp/ryoshot.lock "
+	if mode == "monitor" {
+		command += "env RYOSHOT_MODE=monitor "
+	}
+
+	return "if command -v ryoku-qs >/dev/null 2>&1; then " +
+		command + "ryoku-qs -c ryoshot; else " +
+		qmlEnv + " " + command + "qs -c ryoshot; fi"
+}
+
+// hasProgram is the PATH lookup behind the catalogue's Needs rule; a test pins
+// it so the rendered config never depends on what the box running it has.
+var hasProgram = wm.HasProgram
 
 // defaultBinds maps each catalogue id to niri's expression of it. Compositor
 // behaviours become niri actions; app and shell launches spawn the same commands
 // (shell surfaces go through ryoku-shell, whose openSurface bus is compositor
 // agnostic); niri's own overview takes the workspace overview. Behaviours niri
 // cannot perform (pin, the scratchpad, mouse-button drag, desktop blocks) carry
-// a reason so the legend reports them instead of hiding them. An id absent here
-// is left off entirely, which would be a bug, so the tests assert full coverage.
+// a reason so the legend reports them instead of hiding them, and a bind whose
+// program is not installed takes the same shape, so it is neither emitted nor
+// hidden. An id absent here is left off entirely, which would be a bug, so the
+// tests assert full coverage.
 func defaultBinds() map[string]niriBind {
+	defs := shippedBinds()
+	for _, cb := range wm.ShippedBinds() {
+		if reason := cb.Missing(hasProgram); reason != "" {
+			nb := defs[cb.ID]
+			nb.action = ""
+			nb.reason = reason
+			defs[cb.ID] = nb
+		}
+	}
+	return defs
+}
+
+func shippedBinds() map[string]niriBind {
 	return map[string]niriBind{
 		// Windows
-		"window.close":      {action: "close-window", noRepeat: true},
+		// The iRiS frame can ask before a window closes; only when that is on and
+		// iRiS is the bar style does the close go through the shell.
+		"window.close":      {action: spawnSh(wm.IrisCloseCheck + " && qs -c shell ipc call closeConfirm trigger || niri msg action close-window"), noRepeat: true},
 		"window.fullscreen": {action: "fullscreen-window"},
 		// The catalogue names this "Float or tile", which is niri's mechanic too.
 		"window.float": {action: "toggle-window-floating"},
@@ -145,25 +183,26 @@ func defaultBinds() map[string]niriBind {
 
 		// Shell
 		"shell.launcher":          {action: spawnArgs("ryoku-shell", "launcher")},
-		"shell.cheatsheet":        {action: spawnSh("pkill -x -f 'qs -c keys' 2>/dev/null || " + qmlEnv + " flock -n -o /tmp/ryoku-keys.lock qs -c keys")},
+		"shell.ask":               {action: spawnArgs("ryoku-shell", "ask")},
+		"shell.rashin":            {action: spawnSh("ryoku-summon Rashin flock -n -o /tmp/rashin-app.lock rashin-app")},
+		"shell.cheatsheet":        {action: spawnSh("pkill -x -f 'qs -c keys' 2>/dev/null || " + wm.QmlEnv + " flock -n -o /tmp/ryoku-keys.lock qs -c keys")},
 		"shell.lock":              {action: spawnArgs("ryoku-shell", "lock")},
 		"shell.quicksettings":     {action: spawnArgs("ryoku-shell", "quicksettings")},
 		"shell.wallpaper":         {action: spawnArgs("ryogami", "wallpaper", "ui")},
 		"shell.wallpaperRandom":   {action: spawnArgs("ryogami", "wallpaper", "random")},
-		"shell.ryovm":             {action: spawnSh("ryoku-summon ryovm " + qmlEnv + " flock -n -o /tmp/ryovm.lock qs -c ryovm")},
+		"shell.ryovm":             {action: spawnSh("ryoku-summon ryovm " + wm.QmlEnv + " flock -n -o /tmp/ryovm.lock qs -c ryovm")},
 		"shell.clipboard":         {action: spawnArgs("ryoku-shell", "clipboard")},
 		"shell.visualizer":        {action: spawnArgs("ryoku-shell", "visualizer")},
 		"shell.visualizerOverlay": {action: spawnArgs("ryoku-shell", "visualizer-overlay")},
 		"shell.visualizerPlace":   {action: spawnArgs("ryoku-shell", "visualizer-place")},
 		"shell.voice":             {action: spawnArgs("ryoku-shell", "voice")},
 		"shell.settings":          {action: spawnArgs("ryoku-shell", "hub", "open")},
-		"shell.stash":             {action: spawnArgs("ryoku-shell", "stash")},
-		"shell.screenshot":        {action: spawnSh(qmlEnv + " flock -n -o /tmp/ryoshot.lock qs -c ryoshot")},
+		"shell.screenshot":        {action: spawnSh(screenshotLaunchCommand(""))},
 		// Hyprland gives ryoshot three entry points, so niri gets the same three:
 		// without Print the key a user reaches for does nothing, and monitor mode
 		// would otherwise only be reachable by cycling inside the tool.
-		"shell.screenshotPrint":   {action: spawnSh(qmlEnv + " flock -n -o /tmp/ryoshot.lock qs -c ryoshot")},
-		"shell.screenshotMonitor": {action: spawnSh(qmlEnv + " flock -n -o /tmp/ryoshot.lock env RYOSHOT_MODE=monitor qs -c ryoshot")},
+		"shell.screenshotPrint":   {action: spawnSh(screenshotLaunchCommand(""))},
+		"shell.screenshotMonitor": {action: spawnSh(screenshotLaunchCommand("monitor"))},
 		"shell.colorPicker":       {action: spawnArgs("hyprpicker", "-a")},
 		"shell.restartAudio":      {action: spawnArgs("ryoku-restart-audio")},
 		"shell.inhibitShortcuts":  {action: "toggle-keyboard-shortcuts-inhibit"},
@@ -172,6 +211,7 @@ func defaultBinds() map[string]niriBind {
 		"media.volumeUp":   {action: spawnArgs("ryoku-volume", "up")},
 		"media.volumeDown": {action: spawnArgs("ryoku-volume", "down")},
 		"media.mute":       {action: spawnArgs("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle")},
+		"media.micMute":    {action: spawnArgs("wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "toggle")},
 		"media.play":       {action: spawnArgs("playerctl", "play-pause")},
 		"media.next":       {action: spawnArgs("playerctl", "next")},
 		"media.prev":       {action: spawnArgs("playerctl", "previous")},
@@ -210,6 +250,20 @@ func resolveBinds(s niriStore) ([]outBind, []wm.Unhonored) {
 	for _, c := range s.Unbinds {
 		if c = strings.TrimSpace(c); c != "" {
 			unbind[c] = true
+		}
+	}
+	// A bind the user switched off is dropped the same way an imported config
+	// drops one. The check below reads the shipped chord, so a family has to be
+	// spread into its ten members here or only the placeholder would match.
+	for _, c := range s.KeybindDisabled {
+		if c = strings.TrimSpace(c); c == "" {
+			continue
+		}
+		unbind[c] = true
+		if strings.Contains(c, "{n}") {
+			for n := 1; n <= 10; n++ {
+				unbind[wm.ExpandChord(c, n)] = true
+			}
 		}
 	}
 
@@ -359,11 +413,12 @@ func genBinds(s niriStore) (string, []wm.Unhonored) {
 // row in catalogue order (its chord resolved against the user's rebinds, its
 // copy overridden where niri's mechanic differs, and marked unhonored where niri
 // cannot perform it), then niri's own binds outside the catalogue, then the
-// user's custom binds. One list, so the cheatsheet and the Hub read the legend
-// from the seam rather than parsing niri's config.
+// user's custom binds. One list, so Kit and the Hub read the legend from the
+// seam rather than parsing niri's config.
 func bindRows(s niriStore) []wm.BindRow {
 	defs := defaultBinds()
 	rows := make([]wm.BindRow, 0, 128)
+	off := wm.DisabledSet(s.KeybindDisabled)
 
 	for _, cb := range wm.ShippedBinds() {
 		nb := defs[cb.ID]
@@ -392,6 +447,11 @@ func bindRows(s niriStore) []wm.BindRow {
 			Kind:       cb.Kind,
 			Rebindable: rebindable(cb),
 			Locked:     cb.Locked,
+			Disabled:   off[cb.Chord],
+		}
+		if row.Disabled {
+			row.Keys = nil
+			row.Chord = ""
 		}
 		if nb.action == "" {
 			row.Unhonored = nb.reason

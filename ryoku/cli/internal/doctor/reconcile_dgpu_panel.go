@@ -2,7 +2,6 @@ package doctor
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ryoku-cli/internal/host"
 
 	i18n "ryoku-i18n"
 )
@@ -54,6 +55,7 @@ type dgpuState struct {
 	present     bool     // a discrete GPU exists on this box
 	slot        string   // the dGPU's PCI slot, "" when unknown
 	panelOnDgpu bool     // every connected DRM connector belongs to the dGPU
+	dgpuOutputs []string // connected outputs driven by the dGPU
 	status      string   // the dGPU's power/runtime_status
 	suspended   int64    // power/runtime_suspended_time, -1 when unreadable
 	watts       float64  // measured idle draw in W, -1 when unknown
@@ -65,6 +67,11 @@ type dgpuState struct {
 type cardInfo struct {
 	driver string
 	slot   string
+}
+
+type connectorInfo struct {
+	card   string
+	output string
 }
 
 // gatherDgpuState reads the DRM/PCI tree into a dgpuState. A var so a test can
@@ -83,7 +90,9 @@ var gatherDgpuState = func() dgpuState {
 	}
 	s.present = true
 	s.slot = info.slot
-	s.panelOnDgpu = allConnectorsOnDgpu(dcard, connectedConnectorCards())
+	connectors := connectedConnectors()
+	s.panelOnDgpu = allConnectorsOnDgpu(dcard, connectors)
+	s.dgpuOutputs = outputsOnCard(dcard, connectors)
 	s.status = strings.TrimSpace(readFileSafe("/sys/class/drm/" + dcard + "/device/power/runtime_status"))
 	if n, err := strconv.ParseInt(strings.TrimSpace(readFileSafe("/sys/class/drm/"+dcard+"/device/power/runtime_suspended_time")), 10, 64); err == nil {
 		s.suspended = n
@@ -117,14 +126,14 @@ func drmCards() map[string]cardInfo {
 	return out
 }
 
-// connectedConnectorCards lists, for every DRM connector currently reporting
-// `connected`, the card it belongs to (cardN-eDP-1 -> cardN).
-func connectedConnectorCards() []string {
+// connectedConnectors lists every DRM connector currently reporting connected,
+// together with its card and user-facing output name.
+func connectedConnectors() []connectorInfo {
 	entries, err := os.ReadDir("/sys/class/drm")
 	if err != nil {
 		return nil
 	}
-	var out []string
+	var out []connectorInfo
 	for _, e := range entries {
 		name := e.Name()
 		card := connectorCard(name)
@@ -132,8 +141,18 @@ func connectedConnectorCards() []string {
 			continue
 		}
 		if strings.TrimSpace(readFileSafe("/sys/class/drm/"+name+"/status")) == "connected" {
-			out = append(out, card)
+			out = append(out, connectorInfo{card: card, output: strings.TrimPrefix(name, card+"-")})
 		}
+	}
+	return out
+}
+
+// connectedConnectorCards keeps the card-only view used by the AMD PPD check.
+func connectedConnectorCards() []string {
+	connectors := connectedConnectors()
+	out := make([]string, len(connectors))
+	for i, connector := range connectors {
+		out[i] = connector.card
 	}
 	return out
 }
@@ -201,16 +220,26 @@ func discreteCard(cards map[string]cardInfo) (card string, info cardInfo, ok boo
 // discrete GPU's card, i.e. the internal panel is wired to the dGPU. False with
 // no connected connector: with nothing lit we cannot conclude the panel routes
 // through the dGPU. pure, so the wiring verdict is unit-testable.
-func allConnectorsOnDgpu(dgpuCard string, connected []string) bool {
+func allConnectorsOnDgpu(dgpuCard string, connected []connectorInfo) bool {
 	if len(connected) == 0 {
 		return false
 	}
-	for _, c := range connected {
-		if c != dgpuCard {
+	for _, connector := range connected {
+		if connector.card != dgpuCard {
 			return false
 		}
 	}
 	return true
+}
+
+func outputsOnCard(card string, connected []connectorInfo) []string {
+	var out []string
+	for _, connector := range connected {
+		if connector.card == card {
+			out = append(out, connector.output)
+		}
+	}
+	return out
 }
 
 // dgpuCanSuspend reports whether the discrete GPU is able to runtime-suspend: it
@@ -360,6 +389,13 @@ func dgpuMuxFix() string {
 // dgpuRtd3OffFix applies when the driver itself reports runtime D3 off. Then no
 // amount of closing applications will help: the feature is switched off.
 func dgpuRtd3OffFix() string {
+	manager, _ := host.Default().PackageManager()
+	if manager == host.DNF {
+		return i18n.T("the NVIDIA driver reports runtime D3 power management off for this card, so it can never power down. Enable fine-grained control with `NVreg_DynamicPowerManagement=0x02` in a /etc/modprobe.d/nvidia.conf `options nvidia` line, rebuild the initramfs with `sudo dracut --regenerate-all --force`, and reboot.")
+	}
+	if manager == host.XBPS {
+		return i18n.T("the NVIDIA driver reports runtime D3 power management off for this card, so it can never power down. Enable fine-grained control with `NVreg_DynamicPowerManagement=0x02` in a /etc/modprobe.d/nvidia.conf `options nvidia` line, then rebuild the dracut initramfs with XBPS (`sudo xbps-reconfigure -f <kernel package>`) or directly (`sudo dracut --regenerate-all --force`), and reboot.")
+	}
 	return i18n.T("the NVIDIA driver reports runtime D3 power management off for this card, so it can never power down. Enable fine-grained control with `NVreg_DynamicPowerManagement=0x02` in a /etc/modprobe.d/nvidia.conf `options nvidia` line, rebuild the initramfs (`sudo mkinitcpio -P`), and reboot.")
 }
 
@@ -370,6 +406,40 @@ func dgpuRtd3OffFix() string {
 // a verdict, and this must not tell the user to go kill their compositor.
 func dgpuHeldFix() string {
 	return i18n.T("runtime D3 is enabled yet the card has never slept, so something is genuinely keeping it busy. NVIDIA documents the blockers as driving a display or a running CUDA application: check for an attached external display on the dGPU and for a CUDA/compute process. The processes listed are the ones with the card open, which is a lead rather than proof, since fine-grained mode tolerates an idle open device.")
+}
+
+func dgpuNeverSuspendedDetail(s dgpuState) string {
+	holders := strings.Join(s.holders, ", ")
+	if rtd3Off(s.rtd3) {
+		if s.watts >= 0 {
+			return i18n.Tf("the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing %.1f W: the driver reports runtime D3 %q", s.watts, s.rtd3)
+		}
+		return i18n.Tf("the discrete GPU does not drive the panel yet has never runtime-suspended: the driver reports runtime D3 %q", s.rtd3)
+	}
+	if s.watts >= 0 {
+		if holders != "" {
+			return i18n.Tf("the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing %.1f W, with the card open in %s", s.watts, holders)
+		}
+		return i18n.Tf("the discrete GPU does not drive the panel yet has never runtime-suspended and is drawing %.1f W", s.watts)
+	}
+	if holders != "" {
+		return i18n.Tf("the discrete GPU does not drive the panel yet has never runtime-suspended, with the card open in %s", holders)
+	}
+	return i18n.T("the discrete GPU does not drive the panel yet has never runtime-suspended")
+}
+
+func dgpuOutputDetail(s dgpuState) string {
+	outputs := strings.Join(s.dgpuOutputs, ", ")
+	if len(s.dgpuOutputs) == 1 {
+		if s.watts >= 0 {
+			return i18n.Tf("the discrete GPU is driving %s and drawing %.1f W; it cannot runtime-suspend while that display is attached", outputs, s.watts)
+		}
+		return i18n.Tf("the discrete GPU is driving %s; it cannot runtime-suspend while that display is attached", outputs)
+	}
+	if s.watts >= 0 {
+		return i18n.Tf("the discrete GPU is driving %s and drawing %.1f W; it cannot runtime-suspend while those displays are attached", outputs, s.watts)
+	}
+	return i18n.Tf("the discrete GPU is driving %s; it cannot runtime-suspend while those displays are attached", outputs)
 }
 
 // planDgpuPanel turns observed state into a result. pure, so every branch is
@@ -387,23 +457,17 @@ func planDgpuPanel(s dgpuState) recResult {
 		if dgpuCanSuspend(s.status, s.suspended) {
 			return okRes(i18n.T("the internal panel is driven by the integrated GPU and the discrete GPU can runtime-suspend"))
 		}
+		if len(s.dgpuOutputs) > 0 {
+			return okRes(dgpuOutputDetail(s))
+		}
 		// The MUX is already right, so the panel is not what pins the card. Left
 		// unreported, a box that switched the MUX and gained nothing would look
 		// clean while still paying the full idle draw.
-		draw := ""
-		if s.watts >= 0 {
-			draw = fmt.Sprintf(i18n.T(" and is drawing %.1f W"), s.watts)
-		}
+		detail := dgpuNeverSuspendedDetail(s)
 		if rtd3Off(s.rtd3) {
-			return noteRes(i18n.T("the discrete GPU does not drive the panel yet has never runtime-suspended%s: the driver reports runtime D3 %q"), draw, s.rtd3).
-				withFix(dgpuRtd3OffFix())
+			return noteRes(detail).withFix(dgpuRtd3OffFix())
 		}
-		held := ""
-		if len(s.holders) > 0 {
-			held = i18n.Tf(", with the card open in %s", strings.Join(s.holders, ", "))
-		}
-		return noteRes(i18n.T("the discrete GPU does not drive the panel yet has never runtime-suspended%s%s"), draw, held).
-			withFix(dgpuHeldFix())
+		return noteRes(detail).withFix(dgpuHeldFix())
 	}
 	if dgpuCanSuspend(s.status, s.suspended) {
 		return okRes(i18n.T("the discrete GPU drives the panel but can still runtime-suspend, so it is not pinned awake"))

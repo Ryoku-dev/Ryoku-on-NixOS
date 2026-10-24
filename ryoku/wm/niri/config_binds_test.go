@@ -126,8 +126,8 @@ func TestNumpadTwinForCustomAndRebind(t *testing.T) {
 	// Both faces carry the rebound action, so the rebind owns the physical key
 	// whichever way NumLock sits, not a leftover workspace bind.
 	for _, o := range out {
-		if (o.chord == "Super+KP_1" || o.chord == "Super+KP_End") && o.action != "close-window" {
-			t.Errorf("chord %q action = %q, want close-window", o.chord, o.action)
+		if (o.chord == "Super+KP_1" || o.chord == "Super+KP_End") && o.action != defaultBinds()["window.close"].action {
+			t.Errorf("chord %q action = %q, want the window.close action", o.chord, o.action)
 		}
 	}
 
@@ -315,7 +315,7 @@ func TestRebindMovesChordNotDefault(t *testing.T) {
 	out, _ := resolveBinds(s)
 	got := ""
 	for _, o := range out {
-		if o.action == "close-window" {
+		if o.action == defaultBinds()["window.close"].action {
 			got = o.chord
 		}
 	}
@@ -422,5 +422,43 @@ func TestTouchpadBindsDoNotRepeat(t *testing.T) {
 	}
 	if count != 3 {
 		t.Fatalf("got %d touchpad binds", count)
+	}
+}
+
+func TestNiriScreenshotQmlRunner(t *testing.T) {
+	cases := []struct {
+		id      string
+		monitor bool
+	}{
+		{"shell.screenshot", false},
+		{"shell.screenshotPrint", false},
+		{"shell.screenshotMonitor", true},
+	}
+
+	binds := defaultBinds()
+
+	for _, tc := range cases {
+		t.Run(tc.id, func(t *testing.T) {
+			action := binds[tc.id].action
+
+			for _, expected := range []string{
+				"command -v ryoku-qs",
+				"ryoku-qs -c ryoshot",
+				"qs -c ryoshot",
+				".local/lib/qt6/qml",
+			} {
+				if !strings.Contains(action, expected) {
+					t.Errorf("missing %q in %s", expected, action)
+				}
+			}
+
+			if got := strings.Contains(action, "RYOSHOT_MODE=monitor"); got != tc.monitor {
+				t.Errorf("monitor mode = %v, want %v", got, tc.monitor)
+			}
+
+			if got := strings.Count(action, "flock -n -o /tmp/ryoshot.lock"); got != 2 {
+				t.Errorf("expected both launch paths to retain locking, got %d", got)
+			}
+		})
 	}
 }
