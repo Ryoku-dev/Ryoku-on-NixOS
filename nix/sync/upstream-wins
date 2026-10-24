@@ -1,0 +1,16 @@
+installation/
+!installation/recovery/
+release/
+!release/packages/ryoku-cursor-material/
+system/packages/
+system/extras/
+!system/extras/ryoku-cmd-present
+docs/
+!docs/nixos.md
+!docs/maintenance.md
+tests/
+!tests/gpu-mux.sh
+!tests/gpu-pin-policy.sh
+CHANGELOG.md
+website/
+ryoku-shell-installer/

@@ -8,7 +8,16 @@ FORK_OWNED_PATHS=(
   flake.nix
   flake.lock
   .github
+  README.md
+  docs/nixos.md
 )
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+upstream_wins_file="$script_dir/upstream-wins"
+[[ -f $upstream_wins_file ]] || {
+  printf 'ryoku-sync: missing %s\n' "$upstream_wins_file" >&2
+  exit 1
+}
 
 lane=""
 dry_run=0
@@ -218,6 +227,41 @@ is_fork_owned() {
   done
   return 1
 }
+is_upstream_wins() {
+  local path=$1 rule prefix
+  local result=1
+  while IFS= read -r rule || [[ -n $rule ]]; do
+    rule=${rule%$'\r'}
+    rule=${rule#"${rule%%[![:space:]]*}"}
+    rule=${rule%"${rule##*[![:space:]]}"}
+    [[ -n $rule && $rule != \#* ]] || continue
+
+    local include=1
+    if [[ $rule == '!'* ]]; then
+      include=0
+      rule=${rule#!}
+    fi
+
+    if [[ $rule == */ ]]; then
+      prefix=${rule%/}
+      if [[ $path != "$prefix" && $path != "$prefix/"* ]]; then
+        continue
+      fi
+    elif [[ $rule != */* ]]; then
+      [[ ${path##*/} == "$rule" ]] || continue
+    else
+      [[ $path == "$rule" ]] || continue
+    fi
+
+    if ((include)); then
+      result=0
+    else
+      result=1
+    fi
+  done <"$upstream_wins_file"
+  return "$result"
+}
+
 
 under_removed_directory() {
   local path=$1 base=$2 ours=$3 prefix="" component depth=0
@@ -406,6 +450,11 @@ for path in "${initial_conflicts[@]}"; do
     remove_index_paths "$index" "$path"
     continue
   fi
+  if is_upstream_wins "$path"; then
+    set_index_file "$index" "$target" "$path"
+    continue
+  fi
+
   if ! path_exists "$merge_base" "$path" && path_exists "$target" "$path" \
     && under_removed_directory "$path" "$merge_base" "$ours"; then
     remove_index_paths "$index" "$path"
@@ -420,6 +469,13 @@ while IFS= read -r -d '' path; do
     remove_index_paths "$index" "$path"
   fi
 done < <(git diff-tree --no-commit-id --name-only --diff-filter=A -r -z "$merge_base" "$target")
+while IFS= read -r -d '' path; do
+  is_fork_owned "$path" && continue
+  if is_upstream_wins "$path" && path_exists "$ours" "$path"; then
+    set_index_file "$index" "$target" "$path"
+  fi
+done < <(git diff-tree --no-commit-id --name-only -r -z "$merge_base" "$ours")
+
 
 sync_blob=$(printf '%s\n' "$target" | git hash-object -w --stdin)
 GIT_INDEX_FILE=$index git update-index --add --cacheinfo "100644,$sync_blob,nix/sync/ryoku-commit"

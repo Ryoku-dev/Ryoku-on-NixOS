@@ -82,7 +82,8 @@ mkdir -p "$upstream"
 git -C "$upstream" init -q -b unstable-dev
 git -C "$upstream" config user.name 'Test Maintainer'
 git -C "$upstream" config user.email test@example.com
-mkdir -p "$upstream/nix" "$upstream/.github" "$upstream/gone" "$upstream/elsewhere"
+mkdir -p "$upstream/nix" "$upstream/.github" "$upstream/gone" "$upstream/elsewhere" \
+  "$upstream/installation/recovery" "$upstream/component"
 printf '1.0.0\n' >"$upstream/VERSION"
 printf 'base\n' >"$upstream/shared.txt"
 printf 'base conflict\n' >"$upstream/conflict.txt"
@@ -91,6 +92,9 @@ printf 'old directory file\n' >"$upstream/gone/existing.txt"
 printf 'upstream nix base\n' >"$upstream/nix/upstream.txt"
 printf 'upstream flake base\n' >"$upstream/flake.nix"
 printf 'upstream workflow base\n' >"$upstream/.github/workflow.yml"
+printf 'base stale installer\n' >"$upstream/installation/stale.txt"
+printf 'base recovery\n' >"$upstream/installation/recovery/keep.txt"
+printf 'base component changelog\n' >"$upstream/component/CHANGELOG.md"
 commit_all "$upstream" 'feat: base'
 base=$(git -C "$upstream" rev-parse HEAD)
 
@@ -147,10 +151,16 @@ assert_absent_at "$runner" "$clean_sync" gone/new.txt
 # A real content conflict remains marked in the generated commit and is listed.
 git -C "$fork_seed" switch -q unstable-dev
 printf 'fork conflict\n' >"$fork_seed/conflict.txt"
+printf 'fork stale installer\n' >"$fork_seed/installation/stale.txt"
+printf 'fork recovery\n' >"$fork_seed/installation/recovery/keep.txt"
+printf 'fork component changelog\n' >"$fork_seed/component/CHANGELOG.md"
 commit_all "$fork_seed" 'fix(nix): adapt conflicting file'
 fork_conflict_base=$(git -C "$fork_seed" rev-parse HEAD)
 git -C "$fork_seed" push -q fork unstable-dev
 printf 'upstream conflict\n' >"$upstream/conflict.txt"
+printf 'upstream stale installer\n' >"$upstream/installation/stale.txt"
+printf 'upstream recovery\n' >"$upstream/installation/recovery/keep.txt"
+printf 'upstream component changelog\n' >"$upstream/component/CHANGELOG.md"
 commit_all "$upstream" 'feat: conflict upstream file'
 target_conflict=$(git -C "$upstream" rev-parse HEAD)
 write_checked "$target_conflict"
@@ -163,6 +173,17 @@ conflict_text=$(git -C "$runner" show "$conflict_sync:conflict.txt")
 [[ $conflict_text == *'<<<<<<<'* && $conflict_text == *'======='* && $conflict_text == *'>>>>>>>'* ]] \
   || fail 'content conflict markers missing'
 [[ $(<"$output") == *'conflict.txt'* ]] || fail 'conflict path not listed'
+assert_file_at "$runner" "$conflict_sync" installation/stale.txt 'upstream stale installer'
+assert_file_at "$runner" "$conflict_sync" component/CHANGELOG.md 'upstream component changelog'
+recovery_text=$(git -C "$runner" show "$conflict_sync:installation/recovery/keep.txt")
+[[ $recovery_text == *'<<<<<<<'* && $recovery_text == *'======='* && $recovery_text == *'>>>>>>>'* ]] \
+  || fail 'upstream-wins exception did not stay conflicted'
+[[ $(<"$output") == *'installation/recovery/keep.txt'* ]] \
+  || fail 'upstream-wins exception path not listed'
+[[ $(<"$output") != *'installation/stale.txt'* ]] \
+  || fail 'upstream-wins path remained conflicted'
+[[ $(<"$output") != *'component/CHANGELOG.md'* ]] \
+  || fail 'basename upstream-wins path remained conflicted'
 
 # A checked target advances through release bump commits only.
 printf 'bump one\n' >"$upstream/bump-one.txt"
