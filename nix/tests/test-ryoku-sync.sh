@@ -330,5 +330,9 @@ run_sync unstable
 protected_after=$(git --git-dir="$fork_bare" rev-parse refs/heads/sync/unstable)
 assert_eq "$protected_before" "$protected_after" 'maintainer-owned sync branch was rewritten'
 [[ $(<"$output") == *'has a maintainer commit'* ]] || fail 'protected branch notice missing'
+[[ $(<"$gh_state/unstable.body") == *'Newer Ryoku waiting: '* ]] || fail 'waiting note missing from PR body'
+run_sync unstable
+[[ $(grep -c 'Newer Ryoku waiting: ' "$gh_state/unstable.body") == 1 ]] || fail 'waiting note repeated'
+[[ $(<"$gh_state/unstable.body") == *"<!-- ryoku-sync-head: "* ]] || fail 'waiting note dropped the head marker'
 
 printf 'ok: ryoku sync clean merge, conflict, lane targets and branch protection\n'

@@ -211,13 +211,12 @@ sync_branch_is_reusable() {
   local branch_head body marker
   branch_head=$(git rev-parse "$sync_ref")
   open_pr_number=$(gh_find_pr)
-  if [[ -n $open_pr_number ]]; then
-    body=$(gh_get_pr_body "$open_pr_number")
-    marker=$(extract_sync_marker "$body")
-    [[ $marker == "$branch_head" ]]
-    return
-  fi
-  git merge-base --is-ancestor "$branch_head" "$fork_base_ref"
+  # Without an open PR nobody is working on the branch: it was merged or the
+  # PR was closed, so the next target may replace it.
+  [[ -n $open_pr_number ]] || return 0
+  body=$(gh_get_pr_body "$open_pr_number")
+  marker=$(extract_sync_marker "$body")
+  [[ $marker == "$branch_head" ]]
 }
 
 path_exists() {
@@ -412,7 +411,7 @@ gh_find_pr() {
 }
 gh_get_pr_body() {
   local number=$1
-  "$gh_command" api "repos/$repository/pulls/$number" --method GET --jq '.body // \"\"'
+  "$gh_command" api "repos/$repository/pulls/$number" --method GET --jq '.body // ""'
 }
 
 
@@ -429,10 +428,22 @@ gh_update_pr() {
     -f title="$title" -f base="$base_branch" -f body="$body" >/dev/null
 }
 
-gh_comment_pr() {
+gh_set_pr_body() {
   local number=$1 body=$2
-  "$gh_command" api "repos/$repository/issues/$number/comments" --method POST \
+  "$gh_command" api "repos/$repository/pulls/$number" --method PATCH \
     -f body="$body" >/dev/null
+}
+
+# Keeps one "Newer Ryoku waiting" line in the PR body, replaced on each run,
+# instead of a new comment every twenty minutes.
+note_waiting_target() {
+  local number=$1 message=$2 body line kept=""
+  body=$(gh_get_pr_body "$number")
+  while IFS= read -r line; do
+    [[ $line == 'Newer Ryoku waiting: '* ]] && continue
+    kept+="$line"$'\n'
+  done <<<"$body"
+  gh_set_pr_body "$number" "${kept%$'\n'}"$'\n\n'"$message"
 }
 
 gh_label_pr() {
@@ -485,9 +496,9 @@ fi
 open_pr_number=""
 if ((dry_run == 0)) && git show-ref --verify --quiet "$sync_ref" \
   && ! sync_branch_is_reusable; then
-  message="Ryoku $target is ready, but sync/$lane has a maintainer commit. The bot left the branch unchanged."
+  message="Newer Ryoku waiting: $target. sync/$lane has a maintainer commit, so the bot left it unchanged; merge this PR and the next sync follows."
   printf '%s\n' "$message"
-  [[ -z $open_pr_number ]] || gh_comment_pr "$open_pr_number" "$message"
+  note_waiting_target "$open_pr_number" "$message"
   emit_output created false
   emit_output conflicts 0
   exit 0
