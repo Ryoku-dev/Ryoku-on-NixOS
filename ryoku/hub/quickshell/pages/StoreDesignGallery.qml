@@ -28,7 +28,7 @@ Item {
     // Bundled styles stay installed even if a stale Store catalogue describes
     // them as downloadable or unavailable. This includes NixOS-owned Karuma.
     function cardModel() {
-        return GalleryModel.cardModel(gallery.shippedDesigns, gallery.catalogueDesigns);
+        return GalleryModel.galleryCards(gallery.category, gallery.shippedDesigns, gallery.catalogueDesigns);
     }
 
     function browse() {

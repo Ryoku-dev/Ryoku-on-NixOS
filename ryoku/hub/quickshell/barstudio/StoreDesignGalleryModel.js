@@ -21,11 +21,21 @@ function shippedCard(entry) {
     };
 }
 
+function toList(value) {
+    if (Array.isArray(value)) return value;
+    if (!value || !Number.isSafeInteger(value.length) || value.length < 0) return [];
+    const result = [];
+    for (let i = 0; i < value.length; i++) result.push(value[i]);
+    return result;
+}
+
 function cardModel(shippedDesigns, catalogueDesigns) {
     const out = [];
     const seen = {};
-    const shipped = Array.isArray(shippedDesigns) ? shippedDesigns : [];
-    const catalogue = Array.isArray(catalogueDesigns) ? catalogueDesigns : [];
+    // QML QVariantList/sequence wrappers are array-like, but Array.isArray()
+    // can return false. Preserve the shipped manifest rather than dropping it.
+    const shipped = toList(shippedDesigns);
+    const catalogue = toList(catalogueDesigns);
 
     for (let i = 0; i < shipped.length; i++) {
         const card = shippedCard(shipped[i]);
@@ -67,4 +77,17 @@ function cardModel(shippedDesigns, catalogueDesigns) {
         }
     }
     return out;
+}
+
+// The Hub's final bar gallery must include the NixOS-shipped Karuma even when
+// an old Store catalogue or QML list conversion omits its registry entry.
+// Keep this decision in the pure model so the actual rendered list is tested.
+function galleryCards(category, shippedDesigns, catalogueDesigns) {
+    const cards = cardModel(shippedDesigns, catalogueDesigns);
+    if (category !== "barstyles") return cards;
+
+    const karuma = shippedCard({
+        id: "karuma", name: "Karuma", desc: "The default Ryoku Nix bar."
+    });
+    return [karuma].concat(cards.filter(card => card && card.id !== "karuma"));
 }
