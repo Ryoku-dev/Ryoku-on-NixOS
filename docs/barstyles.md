@@ -1,23 +1,29 @@
 # Bar styles
 
-Ryoku ships six bar styles, and a single key decides which one runs. The
-shipped default is **QS Bar** (`qsbar`), the full-colour top bar. **Shima**
-(`iris`), **Python** (`python`), and **Nomarchy** (`nomarchy`) are the frame
-family: whole-desktop systems hosted once on the primary output. Shima is an
-island on any screen edge that morphs into whatever you clicked, with glass
-popups, bubbles, a dock, a live Studio and its own settings overlay. Python is a
-bar of pill widgets that open into one morphing stage (its own guide carries its
+Ryoku ships seven bar styles, and a single key decides which one runs. The
+shipped default is **Orpheus** (`orpheus`), the liquid top bar. **QS Bar**
+(`qsbar`) is the full-colour top bar. **Shima** (`iris`), **Python** (`python`),
+and **Nomarchy** (`nomarchy`) are the frame family: whole-desktop systems hosted
+once on the primary output. Shima is an island on any screen edge that morphs
+into whatever you clicked, with glass popups, bubbles, a dock, a live Studio and
+settings that can open over the desktop or as an application window. Its frame,
+surfaces and widget faces can also wear Afterglow or Light leak film textures
+without replacing Ryogami's wallpaper or Ryoku's palette. Python is a bar of
+pill widgets that open into one morphing stage (its own guide carries its
 settings), based on Serpantinum by ilyamiro. Nomarchy preserves Omarchy
 quattro's bar, panels, widgets and plugin host while routing desktop state and
 actions through Ryoku. **Sumi** is the monochrome left rail, and **Kairos** is a
 single island at the top centre that carries the clock: hovering opens it into a
 rolling date wheel, a track that plays adds a cover bubble beside it, and
 Super+Space grows the same island into its own app launcher
-(`docs/launcher.md`). Sumi is not a folder: the shell paints it from the
-built-in frame scene in `shell.qml`, so it has no scene file of its own. The
-other five live under `ryoku/shell/quickshell/shell/modules/bar/barstyles/`,
-ship their own scene, and load once per monitor. Shima is special: its scene is
-a thin host that mounts the vendored frame family in
+(`docs/launcher.md`). **Orpheus** hangs liquid drops from the top edge, with a
+voice in the middle that shows the time, music, notifications, or a recording.
+Sumi is not a folder: the shell paints it from the built-in frame scene in
+`shell.qml`, so it has no scene file of its own.
+The other six live under
+`ryoku/shell/quickshell/shell/modules/bar/barstyles/`, ship their own scene, and
+load once per monitor. Shima is special: its scene is a thin host that mounts
+the vendored frame family in
 `ryoku/shell/quickshell/inir/`. It is based on iNiR by snowarch
 (https://github.com/snowarch/inir) and tracks its releases (the one it follows is
 in `inir/VERSION`). iNiR's NOTICE grants no rights to the names iNiR and iRiS,
@@ -30,14 +36,133 @@ reads the desktop only through the window-manager seam and the daemon's
 settings topic, so it runs on every compositor Ryoku supports.
 Store-installed styles land under the same folder contract.
 
+## Resource cost
+
+Orpheus and Kairos are the optimized styles: their music paths, cards and idle
+timers were measured and trimmed. Bar Studio marks the other built-in styles as
+heavy, so the extra cost is visible before switching; store-installed styles are
+unrated.
+
+Idle readings from one 2560×1600 display at 165 Hz under niri, the shell
+rendering on an RTX 4060 in discrete mode, Performance profile. CPU is a
+percentage of one core for the shell process; see `docs/performance.md` for the
+method and the music numbers.
+
+| style | tier | `qs` CPU at idle | `qs` wakeups/s |
+|---|---|---:|---:|
+| Orpheus | light | 3.1% | 83 |
+| Kairos | light | 1.5% | 27 |
+| QS Bar | heavy | 10.7% | 245 |
+| Python | heavy | 1.6% | 28 |
+| Nomarchy | heavy | 1.5% | 24 |
+| Shima | heavy | 2.1% | 35 |
+| Sumi | heavy | 1.6% | 24 |
+
+At idle most heavy styles now sit beside the light ones; the mark is about what
+happens in use (popups, music, their own surfaces), which only Orpheus and
+Kairos have been measured and tuned for. QS Bar is heavy even at rest: its
+ambient stream draws on the GPU on the Performance profile. These are one
+machine's readings, not a promise for every machine.
+
 **QS Bar wears colour on purpose, and it is the one place the desktop does.** It
-is a Quickshell "Rise" bar ported onto Ryoku's data plane, and it keeps that
-project's full-colour skin: its `Theme.qml` reads the live wallpaper palette from
+is a port of HANCORE-linux's MIT-licensed
+[Quickshell Rise](https://github.com/HANCORE-linux/quickshell-dots) bar onto
+Ryoku's data plane, and it keeps that project's full-colour skin: its `Theme.qml`
+reads the live wallpaper palette from
 `~/.cache/ryoku/colors.json` into a seven-slot set (`color01..07`) over a warm,
 near-black `paper`, so the bar retints with the wallpaper like a terminal theme
 rather than clamping to bone-on-black. Sumi is the paper-and-ink bar for anyone
 who wants the rest of the desktop's restraint on the edge too; `docs/ui-ux.md` is
 where colour is and is not allowed, and the bar is the sanctioned exception.
+
+## Orpheus
+
+Orpheus hangs from the top edge as drops drawn by `Ryoku.Blobs`: a left drop, a
+right drop, and the voice in the middle. Every drop moves with the music. Its
+lower edge rises on the beat and settles on the chosen feel, traced in ink where
+sound lifts it, then lies flat and still in silence. The Sound page's Gain slider
+sets how much it reacts. The `islands` span keeps the three drops apart with the
+side drops tucked into the screen corners, `fused` joins them into one centred
+body, and `full` runs edge to edge; switching spans morphs the drops into place.
+The `liquid` form melts every drop into the top edge and swells the voice like a
+drop; the `square` form keeps crisp corners and hangs a row of level blocks
+under the voice instead. Anything that reaches a side edge melts into it the way
+every drop melts into the top. The body is the frame's paper; inside it the bar,
+its pages, and its settings use Ryoku's own controls (hairlines, a hair of
+rounding, a bone plate for whatever is on or chosen). All text and numbers
+follow the global font.
+
+The voice shows the time, date, and weather at rest. It turns into the current
+track while music plays, into the newest notification for a few seconds when one
+arrives, and into a timer while the screen is recorded. While it is busy the time
+moves into a small bubble beside it, and a recording over music puts the cover in
+a second bubble. Click the voice to open the page it shows (Today, the player,
+notifications, or the recording), scroll over it to step through those pages,
+middle-click to play or pause, and right-click to open Controls.
+
+Pages grow out of the bar and stay joined to the drop they came from; a page
+that reaches a side edge melts into it. Click anywhere outside one, over a
+window or the desktop, or press Escape to close it.
+Today is a month calendar with events, holidays, and the day's weather. Controls
+holds Wi-Fi, Bluetooth, quick toggles, volume and brightness with their own
+pages, power profiles, and hold-to-activate session actions. The other pages
+cover media, weather, notifications grouped by app, tray menus, power, system,
+and session. Right-click empty bar space to open Controls.
+
+Left-click the 力 logo to open settings, and right-click it to open the
+launcher. The settings pages are Bar, Layout, Modules, Sound, and About. A choice
+applies at once and is written through the shell daemon; the foot of the
+settings rail reads Saved, Saving, or Not saved, and hovering Not saved shows
+why. On Layout, drag a module between the left, centre, and right lanes, or into
+Not shown to remove it; click a hidden module to add it back, or right-click a
+placed one to remove it. The logo and the voice stay put. The modules are logo;
+workspaces as dots, numbers, kanji, Greek, dashes, or app icons; window title;
+voice; media; weather; system monitor; keyboard layout; recording and microphone
+activity; coding-agent limits; a paired phone; VPN (Tailscale, with its exit
+node picker, LAN access and run-as-exit-node switches, and NetworkManager VPN
+and WireGuard profiles, each with its own switch in the VPN card, which also
+shows the public IP); updates; tray; notifications; controls; battery; clock; shortcuts for the
+launcher, Ask, overview, clipboard, screenshot, wallpaper, and Ryoku Hub; and
+power. Auto-hide can be `off`, `smart`, or `always`; smart hides the bar while
+the current workspace has windows, and touching the top edge brings it back. AI
+usage, Phone and VPN are available in the Layout editor but stay out of the
+default layout.
+
+Its settings use the `orpheus` namespace in `shell.json`:
+
+| key | values | default | purpose |
+|---|---|---|---|
+| `span` | `islands`, `fused`, or `full` | `islands` | Keep the drops apart, join them, or run edge to edge. An old `fit` reads as `fused`. |
+| `form` | `liquid` or `square` | `liquid` | Melt the drops into the edge with a smooth wave, or keep crisp corners with a block wave and square workspace marks. |
+| `scale` | `0.85` to `1.3` | `1.0` | Scale the bar. |
+| `opacity` | `0.6` to `1.0` | `0.94` | Set the body's opacity at rest; an open page is always solid. |
+| `rim` | boolean | `true` | Draw a faint rim along the bar's edge. |
+| `autoHide` | `off`, `smart`, or `always` | `off` | Set when the bar hides. |
+| `hoverOpen` | boolean | `false` | Open a page after a short hover. |
+| `hoverSwitch` | boolean | `true` | Switch pages on hover while one is open. |
+| `layout` | `{left:[ids], center:[ids], right:[ids]}` | `{left:["logo","workspaces"], center:["voice"], right:["tray","controls","battery"]}` | Arrange modules in three lanes. A layout saved before the voice existed drops media, weather, and clock and puts the voice in the centre. |
+| `gain` | `0` to `3` | `1` | Set how much the edge reacts to sound; `0` keeps it still. An old `reaction` of lively, calm or still reads as 1, 0.55 or 0. |
+| `depth` | `8` to `40` | `22` | Set how far sound can pull the lower edge, in pixels. |
+| `mirror` | boolean | `true` | Mirror the spectrum around the centre. |
+| `feel` | `fluid` or `tight` | `fluid` | Set the wave spring and damping. |
+| `workspaceStyle` | `dots`, `numbers`, `kanji`, `greek`, `dashes`, or `icons` | `dots` | Choose the workspace marks. |
+| `workspaceShowEmpty` | boolean | `true` | Include empty workspaces. Where workspaces are numbered, gaps fill in and one free slot follows the last used. |
+| `showDate` | boolean | `true` | Show the date under the idle time. |
+| `seconds` | boolean | `false` | Show seconds in the idle time. |
+| `voiceWeather` | boolean | `true` | Show the weather beside the idle time. |
+| `clock12h` | global `TimeFormat` preference | global `TimeFormat` setting | Use the shared 12 or 24-hour format. |
+| `mediaWidth` | `120` to `320` | `220` | Set the track title's maximum width. |
+| `coverSpin` | boolean | `true` | Spin the artwork while media plays. |
+| `wavy` | boolean | `true` | Draw a wavy media progress line. |
+| `spectrum` | boolean | `true` | Show the spectrum on the media page. |
+| `windowWidth` | `120` to `420` | `240` | Set the window title width. |
+| `sysmonItems` | subset of `cpu`, `mem`, `temp`, `gpu`, `net` | `["cpu","mem","temp"]` | Choose system readings. |
+| `actions` | subset of `launcher`, `ask`, `overview`, `clipboard`, `capture`, `wallpaper`, `hub` | `["launcher","capture","clipboard"]` | Choose shortcut actions. |
+| `trayLimit` | `3` to `12` | `6` | Set the visible tray item limit. |
+| `statusItems` | subset of `wifi`, `bluetooth`, `volume`, `mic` | all four | Choose the icons in the Controls module. |
+
+The name is Orpheus, the musician of Greek myth whose lyre moved rivers and
+stones. Made by neur0map.
 
 ## Nomarchy
 
@@ -85,13 +210,17 @@ Ryoku's resident services.
 ## How selection works
 
 The `barStyle` key in `~/.config/ryoku/shell.json` picks the active style by id.
-It is a top-level string, default `"qsbar"`:
+It is a top-level string, default `"orpheus"`:
 
 ```json
 {
   "barStyle": "sumi"
 }
 ```
+
+New installs write `"orpheus"`. `ryoku doctor` also moves a store with no
+`barStyle`, or one that names a retired style, to Orpheus. Explicit choices such
+as `"qsbar"` and `"sumi"` are kept.
 
 `Config.qml` surfaces it as `Config.barStyle`, and the file is watched, so a save
 retunes the running shell without a reload. The valid ids are resolved by the
@@ -103,6 +232,7 @@ file. Built-in folder styles ship inside the shell, one row each:
 readonly property var builtins: ({
     "qsbar": "barstyles/qsbar/Scene.qml",
     "kairos": "barstyles/kairos/Scene.qml",
+    "orpheus": "barstyles/orpheus/Scene.qml",
     "iris": "barstyles/iris/Scene.qml",
     "python": "barstyles/python/Scene.qml",
     "nomarchy": "barstyles/nomarchy/Scene.qml"
@@ -114,7 +244,7 @@ readonly property var builtins: ({
 - `""` for `"sumi"`, an empty id, or a style that has failed to load. An empty
   scene is the built-in frame scene (Sumi), which `shell.qml` paints itself.
 - the built-in's relative `Scene.qml` for a built-in id (`"qsbar"`, `"kairos"`,
-  `"iris"`, `"python"`, `"nomarchy"`).
+  `"orpheus"`, `"iris"`, `"python"`, `"nomarchy"`).
 - a `file://` path drawn from `~/.local/state/ryoku/store/barstyles.json` for a
   store-installed folder style. The store writes that index and a `revision.json`;
   `BarProducts` watches both and reloads live.
@@ -630,21 +760,22 @@ A style with no settings omits all of this.
 ## QS Bar Settings
 
 QS Bar carries its own settings panel, **QS Bar Settings** (`controlcenter/`), the
-plate the bar's 力 logo opens. It is a quick panel, not a second Hub: four routes
+plate the bar's 力 logo opens. It is a quick panel, not a second Hub: six routes
 over the same `Ryoku.Ui` form kit the rest of Ryoku Settings uses.
 
 | Route | Gloss | Holds |
 |---|---|---|
-| Bar | 帯 | position, form, surface, gaps, scale, accent, gap animation, auto-hide |
+| Bar | 帯 | position, form, surface, gaps, scale, accent, gap animation, auto-hide, picker style |
+| Identity | 印 | launcher mark and workspace count and marker style |
 | Layout | 配置 | the three lanes: move, hide, add and reset the bar's widgets |
 | Widgets | 部品 | every widget as a row: on/off, density, colour and its own settings |
 | Dock | 台 | the app dock: enabled, edge, autohide, magnify, labels, frost, pinned apps |
+| Community | 有志 | installed third-party bar widgets and adding from git or Ryostore |
 
 Open it from the bar logo, or from a terminal or a keybind with `ryoku-shell bar
-settings [route]`. The picker style it used to carry now lives in the Hub
-(Desktop page); desktop widgets are edited in place from the wallpaper's
-right-click menu (Widgets). Session and mid-work toggles live in the Super+Escape
-quick settings.
+settings [route]`. Picker style lives on the Bar route; desktop widgets are
+edited in place from the wallpaper's right-click menu (Widgets). Session and
+mid-work toggles live in the Super+Escape quick settings.
 
 ## Kairos Settings
 
@@ -682,45 +813,57 @@ never replaces Ryoku Settings.
 
 ## Python Settings
 
-Python keeps its settings in the style itself: the **guide**, opened by the bar's
-gear pill (or `qs -c shell ipc call main handleCommand toggle guide`). It is
-serpantinum's own settings surface, ported 1:1, with tabs for Welcome, General,
-Display, Theme, Bar, Dock, Launcher, On-Screen Display, Notifications, Wellbeing
-and About. Every
-control writes the `python` key in `shell.json` through the shell daemon (the
-sole writer) and applies live; Ryoku Settings is untouched except that Bar
-Studio carries an **OPEN PYTHON SETTINGS** button that routes to the guide.
+Python tracks Serpantinum past 2.2.12 (commit `cfdd810`). Open its guide from the bar's gear pill or
+with `qs -c shell ipc call main handleCommand toggle guide`. The guide controls
+bar layout, module faces, theme, OSD, notifications, quick actions, media
+presentation and wellbeing views. It writes the `python` key in `shell.json`
+through the shell daemon and applies changes live. Bar Studio's
+**OPEN PYTHON SETTINGS** button routes to the same guide.
+
+The port uses Serpantinum's orientation-aware module registry. Top,
+bottom and side bars share module definitions while choosing the appropriate
+face. New settings include bar thickness, edge-aware centering, music channel
+balance and the expanded face choices. Existing `python.*` settings remain
+valid.
 
 What stays Ryoku's while Python is the bar: the app launcher (Super+Space), the
-clipboard history, the wallpaper picker (Super+W, ryogami), the lock screen,
-screen capture, updates and the desktop widgets. The bar's buttons for those
-hand over to Ryoku's own surfaces. Two visual takeovers are the style's: while
-`barStyle` is `python`, the shell's own notification banners and OSD pills stand
-down (`Config.styleOwnsBanners` / `styleOwnsFeedback`) and Python draws its
-ported versions; a user can flip `python.general.notifications` (or
-`python.general.osd`) off to get Ryoku's back.
+clipboard history, the wallpaper picker (Super+W, Ryogami), the lock screen,
+screen capture, updates, notification server, idle service and desktop widget
+host. The bar's buttons hand over to those surfaces. Python still draws its
+ported notification banners and OSD while active; switching
+`python.general.notifications` or `python.general.osd` off returns those roles
+to Ryoku.
 
-Python also brings serpantinum's desktop-widget faces to Ryoku's global desktop
-widgets: the style folder carries the ported face library under
-`barstyles/python/widgets/faces/`, and `shell/modules/desktop/` adapts each type
-(clock, music, weather, visualizer, image, user, cpu, ram, temp, disk, battery,
-github, each with its variant ladder) into the same `WidgetSlot` that hosts the
-built-ins and the Shima faces. Placement, size, lock, backing and the colour
-modes are Ryoku's (widgets.json, the desktop edit bar and the widget menu); the
-face only paints. Pick **Serpantinum** or **Ryoku** as the widget's style in its
-right-click menu: Serpantinum draws the upstream plate, Ryoku lets the slot draw
-the shared paper-and-ink backing, so the widget can read as part of either
-system while staying on the same host. The Customize panel carries each face's
-own options (clock seconds, music layout, the image path, the GitHub account)
-under each widget's own tab; they persist in the widget's `<prefix>Opts` slot of
-widgets.json and reach the live face through `PythonFaceProvider`.
+The guide's Theme tab turns on glass (`python.theme.blurBackground`) as blur
+or liquid (`python.theme.blurStyle`). It covers the whole style: the bar and
+its module pills, every popup, notifications, the OSD, quick actions, the
+guide, the Python dock and the Python desktop faces, which sample Ryoku's
+current wallpaper and live poster as their backdrop; Python does not run
+Serpantinum's wallpaper engine or theme solver. The recording pill in the bar
+follows Ryoku's recorder, so it shows the elapsed time of any capture started
+from the capture card, ryoshot or `ryoku-shell record`. The port also adds Serpantinum's circular battery, CPU, RAM, disk
+and temperature faces and its simple lyrics face to Ryoku's desktop face
+picker. They run inside the shared `WidgetSlot`: placement, size, lock, backing
+and colour modes still belong to Ryoku's Stage Editor and widget menu. Each
+face's own options live in its Customize tab: the music face's lyric lines,
+lyric alignment and continuous ring, the circle faces' wave edge and line
+thickness, the image path, the GitHub account, and the visualizer's
+**Span the screen width**.
 
 The style's palette follows Ryoku's live wallpaper palette, with one exception:
 picking a preset in the guide's Theme tab stores that palette under
 `python.theme.colors` and Python paints itself with it (the ported Catppuccin
 slot names map onto the Material roles in `ThemeBackend`). The font picker
 writes Ryoku's single global `fontFamily`, so the whole desktop retunes, and
-the blue-light rows drive the daemon's night light.
+the blue-light rows drive the daemon's night light. Serpantinum writes its
+icons into ordinary text, so Python follows the global font only when it is a
+Nerd Font; with any other global font it draws in JetBrainsMono Nerd Font,
+which `ryoku-desktop` ships on every edition.
+
+The Wellbeing tab reads Ryoku's own screen-time record
+(`~/.local/state/ryoku/screentime.json`, kept by the shell's `ScreenTime`
+service on every compositor), so it shows real per-app and per-hour usage
+without Serpantinum's focus daemon.
 
 ## Frame menus
 

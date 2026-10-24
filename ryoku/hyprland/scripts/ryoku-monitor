@@ -137,15 +137,18 @@ require_jq() {
 # live monitor state as JSON. RYOKU_MONITOR_JSON points at a fixture file for
 # tests (and skips the live hyprctl side effects below).
 #
-# Hyprland's "disabled" flag is not trustworthy across versions: hyprland-git
-# reports "disabled": true on a plainly active output (focused, DPMS on, a real
-# mode, an active workspace), which made every `select(.disabled | not)` drop the
-# live panel -- no scale, GDK_SCALE wrong, and write_monitors_conf even persisted
-# `disabled = true` into monitors.lua, disabling it for real on the next login.
-# Derive disabled from the mode instead: a genuinely off output has no resolution
-# (width/height 0), while a user-disabled one is removed from the layout and so
-# also reports 0x0. This is stable across Hyprland versions and leaves a sleeping
-# (DPMS-off) panel, which keeps its mode, enabled.
+# Hyprland's "disabled" flag alone is not trustworthy across versions:
+# hyprland-git reported "disabled": true on a plainly active output (focused,
+# DPMS on, a real mode, an active workspace), which made every
+# `select(.disabled | not)` drop the live panel and persisted `disabled = true`
+# into monitors.lua, disabling it for real on the next login. The size alone is
+# not either: Hyprland 0.56 keeps a disabled output's last mode, so a turned-off
+# phantom read as enabled, the Hub showed it on again, and every persist wrote it
+# back into monitors.lua enabled. An output is off when it has no resolution, or
+# when Hyprland flags it disabled and it holds no workspace and mirrors nothing
+# (a mirror has no workspace of its own); the active panel of the old bug always
+# holds one, and a sleeping (DPMS-off) panel stays enabled. The Hyprland
+# provider's monitorDisabled applies the same rule.
 #
 # FALLBACK is the placeholder Hyprland creates when no real output is enabled
 # (the internal panel saved as disabled and the external monitor unplugged). It
@@ -158,7 +161,11 @@ monitors_json() {
   else
     raw="$(hyprctl monitors all -j)"
   fi
-  printf '%s' "$raw" | jq -c 'if type == "array" then map(select(.name != "FALLBACK") | .disabled = (((.width // 0) <= 0) or ((.height // 0) <= 0))) else . end' 2>/dev/null \
+  printf '%s' "$raw" | jq -c 'if type == "array" then map(select(.name != "FALLBACK")
+      | .disabled = (((.width // 0) <= 0) or ((.height // 0) <= 0)
+          or ((.disabled == true) and ((.activeWorkspace.id // 0) == 0)
+              and ((.activeWorkspace.name // "") == "")
+              and ((.mirrorOf // "none") == "none" or (.mirrorOf // "") == "")))) else . end' 2>/dev/null \
     || printf '%s' "$raw"
 }
 
@@ -884,7 +891,30 @@ Both sync GDK_SCALE for GTK/XWayland apps. DPI buckets: <=120=1x, <=150=1.25,
 EOF
 }
 
+# Commands that change the layout run one at a time. Applying a layout adds or
+# removes outputs, and the hotplug hook starts an autoscale for each event; run
+# alongside the apply, that autoscale read the applied layout before it was
+# written and put the old one back, live and in monitors.lua, so a display
+# turned off in Settings came straight back. An autoscale that finds another
+# already waiting exits instead of queueing: the waiting one reads the state
+# after every event before it. A holder that hangs is waited out for a minute.
+take_layout_lock() {
+  local dir="${RYOKU_MONITOR_LOCK_DIR:-${XDG_RUNTIME_DIR:-/tmp}}"
+  exec 9>>"$dir/ryoku-monitor.lock" || return 0
+  if [[ ${1:-} == coalesce ]]; then
+    exec 8>>"$dir/ryoku-monitor.pending" || return 0
+    flock -n 8 || exit 0
+  fi
+  flock -w 60 9 || true
+  [[ ${1:-} == coalesce ]] && exec 8>&-
+  return 0
+}
+
 main() {
+  case "${1:-}" in
+    autoscale) take_layout_lock coalesce ;;
+    persist | settle | mirror | extend | toggle | apply | save | load | rm) take_layout_lock ;;
+  esac
   case "${1:-}" in
     autoscale) cmd_autoscale "${2:-}" ;;
     persist) cmd_persist ;;

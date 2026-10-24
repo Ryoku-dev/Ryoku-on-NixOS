@@ -37,6 +37,7 @@ ASPM_FILE="${RYOKU_ASPM_POLICY_FILE:-/sys/module/pcie_aspm/parameters/policy}"
 CONFIG="${RYOKU_POWER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ryoku/power.json}"
 CPU_DIR="${RYOKU_CPU_DIR:-/sys/devices/system/cpu}"
 PLATFORM_PROFILE_FILE="${RYOKU_PLATFORM_PROFILE_FILE:-/sys/firmware/acpi/platform_profile}"
+SHELL_HELPER="${RYOKU_SHELL_BIN-$(command -v ryoku-shell || true)}"
 
 # pkexec resets HOME to root's and strips our environment, so a pkexec re-run of
 # `apply` would read /root's power.json instead of the caller's. Resolve the
@@ -54,6 +55,17 @@ fi
 APPLY_LOCK="${TMPDIR:-/tmp}/.ryoku-power-apply-${PKEXEC_UID:-$(id -u)}.lock"
 
 log() { printf 'ryoku-power: %s\n' "$*" >&2; }
+powerprofiles_state() {
+  [[ -n $SHELL_HELPER && -x $SHELL_HELPER ]] || return 1
+  local runtime="${XDG_RUNTIME_DIR:-/tmp}"
+  [[ -z ${PKEXEC_UID:-} ]] || runtime="/run/user/$PKEXEC_UID"
+  XDG_RUNTIME_DIR="$runtime" "$SHELL_HELPER" powerprofiles state 2>/dev/null |
+    jq -e .
+}
+
+active_power_profile() {
+  powerprofiles_state | jq -er '.active_profile | select(type == "string" and length > 0)'
+}
 
 hw_laptop() {
   if command -v ryoku-hw-laptop >/dev/null 2>&1; then
@@ -434,14 +446,13 @@ apply_cpu_profile() {
 }
 
 # SAFETY: no profiles block => no CPU write and no escalation. The config guard
-# runs before ppd or sysfs is touched, so an unconfigured user never sees a
-# pkexec prompt on a profile switch.
+# runs before the active provider or sysfs is touched, so an unconfigured user
+# never sees a pkexec prompt on a profile switch.
 apply_active_cpu() {
   [[ -f $CONFIG ]] || return 0
   jq -e '(.profiles // {}) | length > 0' "$CONFIG" >/dev/null 2>&1 || return 0
-  command -v powerprofilesctl >/dev/null 2>&1 || return 0
   local active
-  active="$(powerprofilesctl get 2>/dev/null || true)"
+  active="$(active_power_profile 2>/dev/null || true)"
   [[ -n $active ]] && apply_cpu_profile "$active"
 }
 
@@ -530,6 +541,7 @@ cmd_capabilities() {
 
   local gov_opts gov_cur epp_opts epp_cur pp_opts pp_cur
   local maxpct="" charge_cur="" aspm_opts="" aspm_cur="" active="" idle_cur=""
+  local power_state="" profiles='["power-saver","balanced","performance"]'
 
   gov_opts="$(governor_options)"; gov_cur=""
   [[ -n $gov_opts ]] && gov_cur="$(cat "$CPU_DIR/cpu0/cpufreq/scaling_governor" 2>/dev/null || true)"
@@ -553,11 +565,13 @@ cmd_capabilities() {
   # An unset knob is therefore 100: uncapped, which is the truth on a machine
   # nobody has capped. A cap set outside Ryoku is not guessed at here, because
   # there is no way to tell one from the driver idling at nominal.
+  power_state="$(powerprofiles_state 2>/dev/null || true)"
+  if [[ -n $power_state ]]; then
+    active="$(jq -r '.active_profile // empty' <<<"$power_state")"
+    profiles="$(jq -c '.profiles // []' <<<"$power_state")"
+  fi
   if [[ -n "$(governor_options)" ]]; then
-    local cur_profile=""
-    command -v powerprofilesctl >/dev/null 2>&1 &&
-      cur_profile="$(powerprofilesctl get 2>/dev/null || true)"
-    maxpct="$(jq -r '.maxFreqPct // empty' <<<"$(profile_json "$cur_profile")" 2>/dev/null || true)"
+    maxpct="$(jq -r '.maxFreqPct // empty' <<<"$(profile_json "$active")" 2>/dev/null || true)"
     [[ $maxpct =~ ^[0-9]+$ ]] || maxpct=100
   fi
 
@@ -567,7 +581,6 @@ cmd_capabilities() {
   if aspm_supported; then
     aspm_opts="$(aspm_options)"; aspm_cur="$(aspm_read || true)"
   fi
-  command -v powerprofilesctl >/dev/null 2>&1 && active="$(powerprofilesctl get 2>/dev/null || true)"
   idle_cur="$(idle_merged)"
 
   jq -n \
@@ -578,12 +591,13 @@ cmd_capabilities() {
     --arg charge "$charge_cur" \
     --arg aspm_opts "$aspm_opts" --arg aspm_cur "$aspm_cur" \
     --arg active "$active" \
+    --argjson profiles "$profiles" \
     --argjson idle "$idle_cur" '
     def words($s): ($s | split(" ") | map(select(length > 0)));
     def seg($o; $c): {options: words($o), current: $c};
     {}
     | (if $active   != "" then .activeProfile = $active else . end)
-    | .profiles = ["power-saver","balanced","performance"]
+    | .profiles = $profiles
     | .cpu = ( {}
         | (if $gov_opts != "" then .governor        = seg($gov_opts; $gov_cur) else . end)
         | (if $epp_opts != "" then .epp             = seg($epp_opts; $epp_cur) else . end)
@@ -671,11 +685,10 @@ profile_set() {
       log "unknown key: $key (valid: governor epp maxFreqPct platformProfile)"; exit 2 ;;
   esac
 
-  # Editing the profile that is already active produces no ppd switch, so nothing
-  # would trigger the hook and the change would look ignored until the next
-  # switch. Apply it here so a slider takes effect where the user expects.
-  if command -v powerprofilesctl >/dev/null 2>&1 &&
-     [[ "$(powerprofilesctl get 2>/dev/null || true)" == "$p" ]]; then
+  # Editing the profile that is already active produces no provider switch, so
+  # nothing would trigger the hook and the change would look ignored until the
+  # next switch. Apply it here so a slider takes effect where the user expects.
+  if [[ "$(active_power_profile 2>/dev/null || true)" == "$p" ]]; then
     apply_cpu_profile "$p"
   fi
 }
@@ -724,9 +737,9 @@ cmd_status() {
 # ── apply: converge the hardware to power.json (idempotent, any machine) ───────
 
 cmd_apply() {
-  # CPU half first: re-apply the active profile's knobs on top of ppd's defaults
-  # (the boot case). Inert without a profiles block, powerprofilesctl or ppd, and
-  # unlike the battery/link half it is not laptop-gated.
+  # CPU half first: re-apply the active profile's knobs on top of the provider's
+  # defaults at boot. Inert without a profiles block or a reachable shell daemon,
+  # and unlike the battery/link half it is not laptop-gated.
   apply_active_cpu
 
   # laptop-only battery/link policy; a desktop is a no-op success, like ryoku-idle.

@@ -61,11 +61,6 @@ Loader {
         onTriggered: root.active = false
     }
 
-    // A grabbing popup left open under the region selector steals its input and resizes it.
-    Connections {
-        target: GlobalStates
-        function onRegionSelectorOpenChanged(): void { if (GlobalStates.regionSelectorOpen) root.active = false }
-    }
 
     active: false
     onActiveChanged: {

@@ -57,7 +57,23 @@ func TestLoginShellNumberCommitsDisplayedChoice(t *testing.T) {
 	if got.picks["login-shell"] != "zsh" {
 		t.Fatalf("number 2 committed %q, want zsh", got.picks["login-shell"])
 	}
-	if got.cur().key != "apps" {
-		t.Fatalf("login-shell commit advanced to %q, want apps", got.cur().key)
+	if got.cur().key != "file-manager" {
+		t.Fatalf("login-shell commit advanced to %q, want file-manager", got.cur().key)
+	}
+}
+
+func TestFileManagerNumberCommitsDisplayedChoice(t *testing.T) {
+	m := newModel()
+	m.state, m.w, m.h, m.enterPos = "wizard", 112, 42, 1
+	m.idx = stepIdx(t, m, "file-manager")
+	m.loadStep()
+
+	next, _ := m.onKey("2")
+	got := next.(model)
+	if got.picks["file-manager"] != "dolphin" {
+		t.Fatalf("number 2 committed %q, want dolphin", got.picks["file-manager"])
+	}
+	if got.cur().key != "rashin" {
+		t.Fatalf("file-manager commit advanced to %q, want rashin", got.cur().key)
 	}
 }

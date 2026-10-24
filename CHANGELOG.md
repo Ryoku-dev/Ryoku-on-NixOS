@@ -14,6 +14,57 @@ for finer detail.
   user is no longer in a mango session.
 
 ### Fixed
+- Users on filtered networks can route `ryoku update` and pacman through a
+  local HTTP proxy without weakening package signature checks.
+- Screenshots no longer pick up the animated pointer when a cursor effect has
+  fallen back to software rendering. Capture tools now hide it only while the
+  source frame is frozen and restore the exact state they found; explicit
+  include-cursor captures are unchanged.
+- The Store installs bundles on every edition. Bundle packages keep their Arch
+  names in the catalogue, and on Fedora and Void the catalogue's own edition
+  tables name them for that edition, so **Install all** brings in the
+  edition's packages instead of failing on Arch names. A part an edition does
+  not ship stays listed, greyed out with the reason and where to get it
+  instead, and the install skips it; the CachyOS layer and DaVinci Resolve,
+  which need Arch's repositories or the AUR, say so up front on Fedora and
+  Void.
+- The 32-bit GPU drivers (`ryoku-gpu-lib32`) install on Void and Fedora too:
+  the helper installs only what the edition provides, turns on Void's
+  multilib repository first, and no longer fails with
+  `line 51: : command not found` when run as root.
+- Store items that theme Vesktop and Zen follow the Flathub builds Fedora and
+  Void users install: a Vesktop theme lands in the Flathub folder too, and the
+  palette bridge sets up Flathub Vesktop and Zen.
+- The CachyOS edition now installs what a vanilla CachyOS install carries:
+  CachyOS's own builds of pacman, mesa, the firmware and the kernel layer, its
+  own pacman.conf with the repositories for the CPU's tier, the CachyOS LTS
+  kernel as the fallback, and the Zen browser, yay and the legacy NVIDIA
+  drivers from the CachyOS repositories rather than AUR builds. It still
+  installs on any x86-64 CPU; as with CachyOS's own offline install, the first
+  `pacman -Syu` moves a v3, v4 or Zen 4 CPU onto its optimized builds, with no
+  replacement prompts.
+- Stable Release now publishes all four edition repositories from the release
+  tag and starts the Void ISO alongside the Arch and CachyOS images. Release
+  documentation and installer plans identify the experimental Void, Fedora, and
+  Wayfire paths and use the canonical `ryoku-dev/ryoku` repository.
+- Void installs now use Ryoku's GPU Screen Recorder 6.1.3 package, including the `gsr-cli` recording controls.
+- Void installs now get Mesa's VA-API drivers (`mesa-vaapi`), which Arch's
+  `mesa` already carries, so AMD GPUs record the screen and decode video in
+  hardware instead of on the CPU. Existing Void boxes pick them up on their
+  next update.
+- `ryoku-shell` now depends on `inotify-tools` on every edition. Without it
+  the python bar style respawned its settings watcher thousands of times a
+  second.
+- Fedora installs now get `pulseaudio-utils` (`pactl`, used by the doctor's
+  audio route check) and `NetworkManager-wifi`, which Arch's `libpulse` and
+  `networkmanager` already carry, so Fedora Server and minimal spins have wifi
+  in the bar. Existing Fedora boxes pick them up on their next update.
+- The Fedora repository now publishes the release control manifest, so
+  `ryoku update` installs a desktop package an existing Fedora box is missing,
+  as it already does on Arch. Doctor reported "no release manifest to converge
+  to" and installed nothing. The manifest carries only the packages the Fedora
+  installer installs, never the kernel or compilers. A package removed by hand
+  before this update may come back once.
 - The doctor's reverse-PRIME warning (#270, a black panel after login on a
   hybrid-GPU laptop) now also fires when a forced or drifted GPU render pin
   coexists with a stored hybrid or passthrough choice, which previously
@@ -42,6 +93,48 @@ for finer detail.
   mutable channels current without changing frozen distro snapshots.
 
 ### Added
+- **Community docks.** RyoStore gains a Docks section: anyone can submit a dock
+  as a folder to the ryostore catalogue, users install it there and pick it in
+  Edit desktop -> Dock, and it becomes the dock on every monitor and every bar
+  style, the same way community launchers and bar styles work. Engawa, a plank
+  that lies flush with the screen edge, is the first one.
+- **Community app launchers.** RyoStore gains an App launchers section: anyone
+  can submit a launcher as a folder to the ryostore catalogue, users install it
+  there and pick it in Ryoku Settings -> App Launcher, and Super+Space opens it,
+  the same way community bar styles work. Tatami, a full-screen app shelf, is
+  the first one.
+- **RyoManager joins the default apps.** Fresh installs can keep or drop the
+  system monitor; existing boxes get it once through doctor, and a removal
+  stays removed.
+- **niri gains key sounds.** niri has no plugin system, so it could not have the
+  keyboard sound Hyprland gets from its `keysounds` plugin; it has one now, from
+  a small Rust engine (`ryoku-keysounds`) that reads the keyboard straight from
+  evdev and plays each press through libcanberra, adding no work to niri itself.
+  It is not installed by default: Ryoku Hub -> Window Manager -> Behaviour has an
+  **Install engine** button that installs and starts it, with on/off, sound
+  profile, volume and key-release settings that apply within a second of saving.
+  Any pack imported with `ryoku-keysounds-import` joins the profile list. The
+  samples and the importer move to their own package, `ryoku-keysounds-profiles`,
+  shared with the Hyprland plugin.
+- **Commits pass a review gate.** Where `rashin-reviewer` is installed, the
+  pre-commit hook refuses secrets, conflict markers, a JSON, YAML, TOML,
+  Python, Lua or QML file the commit leaves unparseable, and ShellCheck (CI's
+  flags) or gofmt problems on the added lines. Replayed over the last 400
+  commits, it stopped seven, each for ShellCheck warnings CI's own flags
+  raise or for gofmt slips, and raised no false blocks.
+- **Fedora 44 and 45 now carry the complete Fedora-compatible Ryoku desktop.**
+  The shell installer supports mutable Workstation, KDE Plasma, Server, and
+  spin systems, refuses unpublished releases before sudo, and names the
+  published list. Ryoku's signed RPM repository supplies Quickshell, Ryotunes,
+  recording, wallpaper, fonts, cursors, controller support, and the Hyprland
+  plugins. Both tuned-ppd and power-profiles-daemon work without provider
+  replacement. Fedora keeps GRUB, has no snapshot boot menu, stays on
+  nouveau, and cannot offer Wayfire until Fedora ships 0.11. Thanks @aethctl for
+  the original Fedora port.
+- **Void gains GlazePKG, dualsensectl, Oh My Zsh, and Ryotunes.** They install
+  and update through Ryoku's signed XBPS repository.
+- **CI keeps edition packages in step.** A new Arch package must have a native
+  build or an explained translation-table row for both Void and Fedora.
 - **`main` is pushed only as the release fast-forward.** The `pre-push` hook now
   refuses every push that moves `main` unless it is named as the release
   (`RYOKU_RELEASE_PUSH=1 git push origin unstable-dev:main`), and even then

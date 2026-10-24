@@ -28,7 +28,6 @@ Item {
     property var spectrumColors: CavaTheme.visualizerColors
     property color spectrumColor: CavaTheme.primaryColor
     property real spectrumOpacity: 0.45
-    property bool threadedRendering: true
     property int smoothing: 2
     property string frequencyProfile: "flat"
     property real accentStrength: 0.7
@@ -191,7 +190,6 @@ Item {
                 endTaper: root.endTaper
                 clipSegments: root.clipSegments
                 active: root.effectiveActive && root.visualizerType !== "organic" && drawn.drawing
-                threadedRendering: root.threadedRendering
                 visualizerType: root.visualizerType
                 normalizationCeiling: root.normalizationCeiling
                 spectrumColors: root.spectrumColors

@@ -10,20 +10,38 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
+<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
 // managedProcess supervises the picker while it is in use or inside its short keep-warm window.
+=======
+const (
+	pickerReleaseSetting = "performance.releaseAfterHideSeconds"
+	pickerReconcileWait  = 5 * time.Minute
+	pickerStopGrace      = 2 * time.Second
+)
+
+// managedProcess supervises the picker and serializes every stop and start.
+>>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
 type managedProcess struct {
 	mu           sync.Mutex
 	cmd          *exec.Cmd
+	done         chan struct{}
+	stopping     bool
 	command      func(string, ...string) *exec.Cmd
 	qml          string
 	gpuEnv       func() []string
+	idleGrace    func() time.Duration
 	gpu          []string
 	ready        bool
 	startVisible bool
 	subscriberID uint64
 	pending      pickerPendingEvent
+	hidden       bool
+	hiddenSince  time.Time
+	busy         bool
+	parkWake     chan struct{}
 }
 
 type pickerPendingEvent struct {
@@ -33,16 +51,24 @@ type pickerPendingEvent struct {
 
 func headless() bool { return os.Getenv("RYOGAMI_HEADLESS") != "" }
 
-// gpuEnv is read at each spawn so a changed GPU preference applies on the next start.
-func newPickerProcess(gpuEnv func() []string) *managedProcess {
-	return &managedProcess{qml: resolveShellQML(), gpuEnv: gpuEnv, command: exec.Command}
+// Runtime settings are read for every park decision; GPU preference is read
+// for every spawn.
+func newPickerProcess(gpuEnv func() []string, idleGrace func() time.Duration) *managedProcess {
+	return &managedProcess{
+		qml:       resolveShellQML(),
+		gpuEnv:    gpuEnv,
+		idleGrace: idleGrace,
+		command:   exec.Command,
+		parkWake:  make(chan struct{}, 1),
+	}
 }
 
-// resolveShellQML finds the picker entry point: env override first (the dev
-// deploy sets it on the unit), then the packaged default.
+// resolveShellQML finds the picker entry point: an explicit immutable override
+// first, then the entry installed in this user's runtime XDG data home, then the
+// packaged default.
 func resolveShellQML() string {
 	if p := os.Getenv("RYOGAMI_SHELL_QML"); p != "" {
-		return p
+		return resolvePath(p)
 	}
 	if p := "shell.qml"; fileExists(p) {
 		abs, err := filepath.Abs(p)
@@ -50,7 +76,49 @@ func resolveShellQML() string {
 			return abs
 		}
 	}
+	if p := filepath.Join(dataHome(), "ryogami", "shell.qml"); fileExists(p) {
+		return p
+	}
 	return "/usr/share/ryogami/shell.qml"
+}
+
+func pickerParkDue(since time.Time, hidden, busy bool, grace time.Duration, now time.Time) bool {
+	return grace > 0 && hidden && !busy && now.Sub(since) >= grace
+}
+
+func (d *daemon) pickerIdleGrace() time.Duration {
+	seconds := d.settingNumber(pickerReleaseSetting)
+	if seconds <= 0 {
+		return 0
+	}
+	return time.Duration(seconds * float64(time.Second))
+}
+
+func (m *managedProcess) idleGraceNow() time.Duration {
+	if m.idleGrace == nil {
+		return 0
+	}
+	grace := m.idleGrace()
+	if grace < 0 {
+		return 0
+	}
+	return grace
+}
+
+func init() {
+	watchSetting(pickerReleaseSetting, func(d *daemon, key string, _ interface{}) {
+		if key == pickerReleaseSetting && d.ui != nil {
+			d.ui.kickPark()
+		}
+	})
+}
+
+func (m *managedProcess) clearRuntimeLocked() {
+	m.ready = false
+	m.startVisible = false
+	m.subscriberID = 0
+	m.pending = pickerPendingEvent{}
+	m.busy = false
 }
 
 func (m *managedProcess) running() bool {
@@ -60,18 +128,7 @@ func (m *managedProcess) running() bool {
 }
 
 func (m *managedProcess) runningLocked() bool {
-	if m.cmd == nil || m.cmd.Process == nil {
-		return false
-	}
-	if m.cmd.ProcessState != nil {
-		m.cmd = nil
-		m.ready = false
-		m.startVisible = false
-		m.subscriberID = 0
-		m.pending = pickerPendingEvent{}
-		return false
-	}
-	return true
+	return m.cmd != nil && m.cmd.Process != nil && m.cmd.ProcessState == nil
 }
 
 // launch starts the picker; extraEnv rides on top of the daemon's environment.
@@ -85,13 +142,10 @@ func (m *managedProcess) launch(extraEnv ...string) {
 }
 
 func (m *managedProcess) launchLocked(extraEnv ...string) {
-	if m.runningLocked() {
+	if m.stopping || m.runningLocked() {
 		return
 	}
-	m.ready = false
-	m.startVisible = false
-	m.subscriberID = 0
-	m.pending = pickerPendingEvent{}
+	m.clearRuntimeLocked()
 	m.clearLeftover()
 	// The picker watches the shell's palette file; a directory that does not exist yet
 	// cannot be watched, and on a first login the shell may not have created it.
@@ -117,10 +171,23 @@ func (m *managedProcess) launchLocked(extraEnv ...string) {
 		fmt.Fprintf(os.Stderr, "ryogami: launch picker: %v\n", err)
 		return
 	}
+	done := make(chan struct{})
 	m.cmd = cmd
+	m.done = done
 	m.gpu = gpu
 	m.startVisible = slices.Contains(extraEnv, "RYOGAMI_START_VISIBLE=1")
-	go func() { _ = cmd.Wait() }()
+	go func() {
+		_ = cmd.Wait()
+		m.mu.Lock()
+		if m.cmd == cmd {
+			m.cmd = nil
+			m.done = nil
+			m.stopping = false
+			m.clearRuntimeLocked()
+		}
+		close(done)
+		m.mu.Unlock()
+	}()
 }
 
 // clearLeftover stops a picker an earlier daemon of this session left holding the
@@ -154,18 +221,135 @@ func (m *managedProcess) clearLeftover() {
 	}
 }
 
+func (m *managedProcess) kickPark() {
+	select {
+	case m.parkWake <- struct{}{}:
+	default:
+	}
+}
+
+func (m *managedProcess) updateState(visible, busy bool) {
+	m.mu.Lock()
+	if visible {
+		m.hidden = false
+		m.hiddenSince = time.Time{}
+	} else if !m.hidden {
+		m.hidden = true
+		m.hiddenSince = time.Now()
+	}
+	m.busy = busy
+	m.mu.Unlock()
+	m.kickPark()
+}
+
+func (m *managedProcess) idlePark() {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
+		now := time.Now()
+		grace := m.idleGraceNow()
+		wait := pickerReconcileWait
+
+		m.mu.Lock()
+		hidden, busy, since := m.hidden, m.busy, m.hiddenSince
+		m.mu.Unlock()
+
+		if pickerParkDue(since, hidden, busy, grace, now) {
+			m.parkIfDue(now)
+			continue
+		}
+		if grace > 0 && hidden && !busy {
+			if left := grace - now.Sub(since); left < wait {
+				wait = left
+			}
+		}
+		if wait < 0 {
+			wait = 0
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(wait)
+		select {
+		case <-m.parkWake:
+		case <-timer.C:
+		}
+	}
+}
+
+func (m *managedProcess) beginStopLocked(graceful bool) (*exec.Cmd, <-chan struct{}) {
+	if m.cmd == nil || m.cmd.Process == nil {
+		return nil, nil
+	}
+	cmd, done := m.cmd, m.done
+	if graceful {
+		if !m.stopping {
+			m.stopping = true
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+		}
+	} else {
+		m.stopping = true
+		_ = cmd.Process.Kill()
+	}
+	return cmd, done
+}
+
+func (m *managedProcess) waitForStop(cmd *exec.Cmd, done <-chan struct{}, graceful bool) {
+	if cmd == nil || done == nil {
+		return
+	}
+	if !graceful {
+		<-done
+		return
+	}
+	timer := time.NewTimer(pickerStopGrace)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return
+	case <-timer.C:
+		m.mu.Lock()
+		if m.cmd == cmd {
+			_ = cmd.Process.Kill()
+		}
+		m.mu.Unlock()
+		<-done
+	}
+}
+
+func (m *managedProcess) parkIfDue(now time.Time) {
+	grace := m.idleGraceNow()
+	m.mu.Lock()
+	if !pickerParkDue(m.hiddenSince, m.hidden, m.busy, grace, now) {
+		m.mu.Unlock()
+		return
+	}
+	m.hidden = false
+	m.hiddenSince = time.Time{}
+	cmd, done := m.beginStopLocked(true)
+	m.mu.Unlock()
+	m.waitForStop(cmd, done, true)
+}
+
 // The GPU is fixed at process start, so a hidden picker is swapped off-screen when the preference changes.
 func (m *managedProcess) refreshIfStale() {
-	if m.gpuEnv == nil || !m.running() {
+	if m.gpuEnv == nil {
 		return
 	}
 	m.mu.Lock()
-	stale := !slices.Equal(m.gpu, m.gpuEnv())
-	m.mu.Unlock()
-	if stale {
-		m.kill()
-		m.launch()
+	if !m.hidden || m.stopping || !m.runningLocked() || slices.Equal(m.gpu, m.gpuEnv()) {
+		m.mu.Unlock()
+		return
 	}
+	m.hidden = false
+	m.hiddenSince = time.Time{}
+	cmd, done := m.beginStopLocked(true)
+	m.mu.Unlock()
+	m.waitForStop(cmd, done, true)
+	m.launch()
 }
 
 // The daemon spawns quickshell itself and a session does not always export these paths.
@@ -181,8 +365,8 @@ func pickerImportDirs() string {
 // pickerDiskCacheEnv keeps the picker off Qt's on-disk shader and pipeline
 // caches. Every quickshell process shares one cache file, and on NVIDIA's
 // OpenGL driver programs reloaded from it drew the picker's text scrambled.
-// The picker stays resident, so compiling once per daemon start costs little.
-// The backend is left to Qt: on niri a Vulkan picker took no pointer input.
+// The picker can be restarted after an idle release, so the driver caches stay
+// disabled even though each cold open recompiles its pipeline.
 //
 // Video previews decode in software, as the shell's own clips do: on hybrid
 // NVIDIA boxes hardware-decoded frames (NVDEC, shared into GL through CUDA)
@@ -233,48 +417,64 @@ func prependList(prefix, existing string) string {
 
 func (m *managedProcess) kill() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.cmd != nil && m.cmd.Process != nil {
-		_ = m.cmd.Process.Kill()
-		m.cmd = nil
-	}
-	m.ready = false
-	m.startVisible = false
-	m.subscriberID = 0
-	m.pending = pickerPendingEvent{}
+	cmd, done := m.beginStopLocked(false)
+	m.mu.Unlock()
+	m.waitForStop(cmd, done, false)
 }
 
-// ensure reports whether the resident picker is ready to receive an event. A
-// request arriving while its process connects is retained until subscription.
+// ensure reports whether the picker is ready to receive an event. A request
+// arriving during a graceful park waits for that process to exit before one
+// cold visible start; a request arriving while a start connects is retained.
 func (m *managedProcess) ensure(extra ...string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.runningLocked() {
-		if m.ready {
-			return true
-		}
-		pending := pickerPendingEvent{
-			name: "ryogami.wall.toggle",
-			data: map[string]interface{}{},
-		}
-		for _, entry := range extra {
-			if tab, ok := strings.CutPrefix(entry, "RYOGAMI_START_SETTINGS="); ok {
-				pending = pickerPendingEvent{
-					name: "ryogami.wall.settings",
-					data: map[string]interface{}{"tab": tab},
-				}
-				break
+	for {
+		m.mu.Lock()
+		m.hidden = false
+		m.hiddenSince = time.Time{}
+		if m.stopping {
+			done := m.done
+			if done == nil {
+				m.stopping = false
+				m.mu.Unlock()
+				continue
 			}
+			m.mu.Unlock()
+			m.kickPark()
+			<-done
+			continue
 		}
-		if pending.name != "ryogami.wall.toggle" || !m.startVisible {
-			m.pending = pending
+		if m.runningLocked() {
+			if m.ready {
+				m.mu.Unlock()
+				m.kickPark()
+				return true
+			}
+			pending := pickerPendingEvent{
+				name: "ryogami.wall.toggle",
+				data: map[string]interface{}{},
+			}
+			for _, entry := range extra {
+				if tab, ok := strings.CutPrefix(entry, "RYOGAMI_START_SETTINGS="); ok {
+					pending = pickerPendingEvent{
+						name: "ryogami.wall.settings",
+						data: map[string]interface{}{"tab": tab},
+					}
+					break
+				}
+			}
+			if pending.name != "ryogami.wall.toggle" || !m.startVisible {
+				m.pending = pending
+			}
+			m.mu.Unlock()
+			m.kickPark()
+			return false
 		}
+		if !headless() {
+			m.launchLocked(append([]string{"RYOGAMI_START_VISIBLE=1"}, extra...)...)
+		}
+		m.mu.Unlock()
+		m.kickPark()
 		return false
 	}
-	if !headless() {
-		m.launchLocked(append([]string{"RYOGAMI_START_VISIBLE=1"}, extra...)...)
-	}
-	return false
 }
 
 func (d *daemon) refreshWorkshopOnPickerStart() {

@@ -33,6 +33,18 @@ Item {
     property real scaleAfter: 1
     property var scalePluginPlacement: null
 
+    property string depthTarget: ""
+    property real depthBefore: 0.5
+    property real depthAfter: 0.5
+    property var depthPluginPlacement: null
+
+    readonly property real depthValue: page.depthTarget === page.target
+        ? page.depthAfter
+        : (page.plugin ? Number(page.pluginValue("depth", 0.5))
+        : WidgetStore.Config.widgetDepth(page.target, StageCfg.StageSession.monitor))
+    readonly property bool depthPickable: page.depthAvailable && page.provider
+        && StageCfg.StageBackend.spatialFor(page.provider.wallpaperPath)
+
 
     function pluginPlacementFor(id) {
         if (String(id).indexOf("plugin:") !== 0)
@@ -61,8 +73,11 @@ Item {
         const scale = key === "scale" ? value : (desktop.scale !== undefined ? desktop.scale : 0.85);
         const locked = key === "locked" ? value : desktop.locked === true;
         const opacity = desktop.opacity !== undefined ? desktop.opacity : 1;
+        const depth = key === "depth" ? value
+            : (desktop.depth !== undefined ? desktop.depth : "");
         page.provider.enqueue([page.provider.placeTool, id.slice(7), "desktopWidget",
-            "" + x, "" + y, "" + scale, "" + locked, "" + opacity]);
+            "" + x, "" + y, "" + scale, "" + locked, "" + opacity,
+            depth === "" ? "" : "" + depth]);
     }
 
     function setQuick(key, value) {
@@ -160,6 +175,59 @@ Item {
         });
     }
 
+    function setWallDepth(value) {
+        const clamped = Math.max(0, Math.min(1, value));
+        if (page.depthTarget !== page.target) {
+            page.finishDepth();
+            page.depthTarget = page.target;
+            page.depthBefore = page.depthValue;
+            page.depthAfter = page.depthValue;
+            page.depthPluginPlacement = page.plugin
+                ? JSON.parse(JSON.stringify(page.pluginPlacement())) : null;
+        }
+        page.depthAfter = clamped;
+        if (page.plugin) {
+            if (page.depthPluginPlacement)
+                page.applyPluginPlacement(page.target, page.depthPluginPlacement,
+                    "depth", clamped);
+        } else {
+            WidgetStore.Config.setWidgetDepth(
+                StageCfg.StageSession.monitor, page.target, clamped);
+        }
+        depthCommit.restart();
+    }
+
+    function finishDepth() {
+        if (page.depthTarget === "")
+            return;
+        depthCommit.stop();
+        const id = page.depthTarget;
+        const before = page.depthBefore;
+        const after = page.depthAfter;
+        const pluginSnap = page.depthPluginPlacement;
+        const monitor = StageCfg.StageSession.monitor;
+        page.depthTarget = "";
+        page.depthPluginPlacement = null;
+        if (Math.abs(after - before) < 0.001)
+            return;
+        if (id.indexOf("plugin:") !== 0)
+            WidgetStore.Config.setWidgetDepth(monitor, id, after);
+        GlobalStates.editHistoryPush({
+            undo: () => {
+                if (id.indexOf("plugin:") === 0)
+                    page.applyPluginPlacement(id, pluginSnap, "depth", before);
+                else
+                    WidgetStore.Config.setWidgetDepth(monitor, id, before);
+            },
+            redo: () => {
+                if (id.indexOf("plugin:") === 0)
+                    page.applyPluginPlacement(id, pluginSnap, "depth", after);
+                else
+                    WidgetStore.Config.setWidgetDepth(monitor, id, after);
+            }
+        });
+    }
+
     function removeTarget() {
         page.finishScale();
         const id = page.target;
@@ -191,6 +259,7 @@ Item {
 
     onTargetChanged: {
         page.finishScale();
+        page.finishDepth();
         WidgetStore.Config.selectMonitor(StageCfg.StageSession.monitor, true);
         page.routeVisualizer();
     }
@@ -200,6 +269,7 @@ Item {
     }
     Component.onDestruction: {
         page.finishScale();
+        page.finishDepth();
         if (GlobalStates.editDrawerSection !== "widget")
             StageCfg.StageSession.inspecting = "";
     }
@@ -208,6 +278,11 @@ Item {
         id: scaleCommit
         interval: 180
         onTriggered: page.finishScale()
+    }
+    Timer {
+        id: depthCommit
+        interval: 180
+        onTriggered: page.finishDepth()
     }
 
     Flickable {
@@ -295,8 +370,8 @@ Item {
                     visible: page.depthAvailable
                     width: parent.width
                     divider: true
-                    label: I18n.tr("Depth")
-                    desc: I18n.tr("Place the widget around the wallpaper subject")
+                    label: I18n.tr("Stack")
+                    desc: I18n.tr("Layer the widget above or below the cut-outs")
                     controlWidth: 130
                     Seg {
                         width: parent.width
@@ -304,6 +379,38 @@ Item {
                         labels: ({ behind: I18n.tr("Behind"), front: I18n.tr("In front") })
                         current: page.inFront ? "front" : "behind"
                         onChose: key => page.setDepth(key === "front")
+                    }
+                }
+
+                SettingRow {
+                    visible: page.depthPickable
+                    width: parent.width
+                    divider: true
+                    label: I18n.tr("Wall depth")
+                    desc: I18n.tr("Ride the wallpaper's 3D depth with the mesh")
+                    value: Math.round(page.depthValue * 100) + "%"
+                    Row {
+                        width: parent.width
+                        height: Tokens.ctlH
+                        spacing: Tokens.s2
+                        Slid {
+                            width: Math.max(40,
+                                parent.width - pickBtn.implicitWidth - parent.spacing * 2)
+                            anchors.verticalCenter: parent.verticalCenter
+                            from: 0
+                            to: 1
+                            value: page.depthValue
+                            onModified: value => page.setWallDepth(value)
+                        }
+                        Btn {
+                            id: pickBtn
+                            anchors.verticalCenter: parent.verticalCenter
+                            compact: true
+                            text: I18n.tr("PICK")
+                            armed: StageSession.depthPick === page.target
+                            onAct: StageSession.depthPick =
+                                (StageSession.depthPick === page.target ? "" : page.target)
+                        }
                     }
                 }
 

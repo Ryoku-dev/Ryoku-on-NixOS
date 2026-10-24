@@ -14,28 +14,36 @@ trap 'rm -rf "$tmp"' EXIT
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
 bin="$tmp/.local/bin"
-mkdir -p "$bin" "$tmp/cache/bundles/default" "$tmp/cache/collections/demo" "$tmp/data" "$tmp/run"
+mkdir -p "$bin" "$tmp/cache/bundles/default" "$tmp/cache/bundles/packages" "$tmp/cache/collections/demo" "$tmp/data" "$tmp/run"
+printf 'arch\tvoid\tlanes\tnotes\n' >"$tmp/cache/bundles/packages/void.tsv"
 
+# Every item carries a summary, as catalogue items do: an empty field before it
+# (an ungated item's managers and reason) must not shift it into another field.
 cat >"$tmp/cache/bundles/registry.json" <<'EOF'
 { "bundles": [
   { "id": "demo", "path": "collections/demo", "components": [
-    { "type": "package", "name": "corepkg", "detect": "corepkg", "tier": "core", "interactive": false, "summary": "" },
-    { "type": "package", "name": "optpkg", "detect": "optpkg", "tier": "optional", "interactive": false, "summary": "" },
-    { "type": "nautilus-pack", "name": "video-reformat", "detect": "video-reformat", "tier": "core", "interactive": false, "summary": "" },
-    { "type": "plugin", "name": "creator-deck", "detect": "creator-deck", "tier": "core", "interactive": false, "summary": "" } ] },
+    { "type": "package", "name": "corepkg", "detect": "corepkg", "tier": "core", "interactive": false, "summary": "A core tool." },
+    { "type": "package", "name": "optpkg", "detect": "optpkg", "tier": "optional", "interactive": false, "summary": "An optional tool." },
+    { "type": "script", "name": "pacman-only", "detect": "pacman-only", "tier": "core", "interactive": false, "summary": "Built from the AUR.",
+      "packageManagers": ["pacman"], "packageManagersReason": "Needs the AUR." },
+    { "type": "nautilus-pack", "name": "video-reformat", "detect": "video-reformat", "tier": "core", "interactive": false, "summary": "Right-click video tools." },
+    { "type": "plugin", "name": "creator-deck", "detect": "creator-deck", "tier": "core", "interactive": false, "summary": "A desk widget." } ] },
   { "id": "default", "path": "", "components": [
-    { "type": "package", "name": "defaultpkg", "detect": "defaultpkg", "tier": "core", "interactive": false, "summary": "" } ] } ] }
+    { "type": "package", "name": "defaultpkg", "detect": "defaultpkg", "tier": "core", "interactive": false, "summary": "The default tool." } ] },
+  { "id": "archonly", "path": "", "packageManagers": ["pacman"], "packageManagersReason": "Only for Arch-based Ryoku.", "components": [
+    { "type": "package", "name": "corepkg", "detect": "corepkg", "tier": "core", "interactive": false, "summary": "A core tool." } ] } ] }
 EOF
 cat >"$tmp/cache/collections/demo/bundle.json" <<'EOF'
-{ "id": "demo", "requires": ["gpu-lib32"], "items": [
-  { "type": "package", "name": "corepkg", "tier": "core" },
-  { "type": "package", "name": "optpkg", "tier": "optional" },
-  { "type": "nautilus-pack", "name": "video-reformat" },
-  { "type": "plugin", "name": "creator-deck" } ] }
+{ "id": "demo", "requires": ["multilib", "gpu-lib32"], "items": [
+  { "type": "package", "name": "corepkg", "tier": "core", "summary": "A core tool." },
+  { "type": "package", "name": "optpkg", "tier": "optional", "summary": "An optional tool." },
+  { "type": "script", "name": "pacman-only", "tier": "core", "packageManagers": ["pacman"], "packageManagersReason": "Needs the AUR.", "summary": "Built from the AUR." },
+  { "type": "nautilus-pack", "name": "video-reformat", "summary": "Right-click video tools." },
+  { "type": "plugin", "name": "creator-deck", "summary": "A desk widget." } ] }
 EOF
 cat >"$tmp/cache/bundles/default/bundle.json" <<'EOF'
 { "id": "default", "items": [
-  { "type": "package", "name": "defaultpkg", "tier": "core" } ] }
+  { "type": "package", "name": "defaultpkg", "tier": "core", "summary": "The default tool." } ] }
 EOF
 
 # fake ryostore: the cache dir, and the internal guest primitives the actuator
@@ -45,6 +53,7 @@ cat >"$bin/ryostore" <<EOF
 #!/usr/bin/env bash
 case "\$1 \$2" in
   "internal cache") echo "$tmp/cache"; exit 0 ;;
+  "internal package-table") echo "$tmp/cache/bundles/packages/void.tsv"; exit 0 ;;
   "internal bundle")
     case "\$3" in
       demo)    echo "$tmp/cache/collections/demo/bundle.json"; exit 0 ;;
@@ -69,6 +78,45 @@ EOF
 cat >"$bin/pacman" <<'EOF'
 #!/usr/bin/env bash
 exit 1
+EOF
+
+# Every system-changing helper the actuator can reach is faked and logged, so a
+# non-dryrun install below never runs a real package transaction (the real
+# ryoku-gpu-lib32 behind a cached sudo once upgraded the whole host).
+for helper in sudo ryoku-gpu-lib32 ryoku-pkg-add ryoku-pkg-aur-add ryoku-pkg-remove ryoku-pkg-multilib ryoku-pkg-cachyos; do
+  cat >"$bin/$helper" <<EOF
+#!/usr/bin/env bash
+echo "$helper \$*" >>"$tmp/helpers.log"
+exit 0
+EOF
+done
+
+# fake ryoku-host: the persona comes from FAKE_PKGMGR; on a non-pacman host the
+# package table answers status for the edition (corepkg ships there, optpkg
+# does not).
+cat >"$bin/ryoku-host" <<EOF
+#!/usr/bin/env bash
+echo "ryoku-host \$* overlay=\${RYOKU_HOST_PKG_OVERLAY:-}" >>"$tmp/helpers.log"
+case "\$1" in
+  pkgmgr) echo "\${FAKE_PKGMGR:-pacman}"; exit 0 ;;
+  pkg)
+    shift
+    case "\$1" in
+      status)
+        shift
+        for n in "\$@"; do
+          case "\$n" in
+            corepkg) printf '%s\tavailable\trepo\t\n' "\$n" ;;
+            defaultpkg) printf '%s\tinstalled\trepo\t\n' "\$n" ;;
+            *) printf '%s\tunavailable\t\tNot packaged for this edition.\n' "\$n" ;;
+          esac
+        done
+        exit 0 ;;
+      installed) [[ \$2 == defaultpkg ]]; exit \$? ;;
+      why) echo "Answered by pkg why."; exit 0 ;;
+    esac ;;
+esac
+exit 4
 EOF
 
 chmod +x "$bin"/*
@@ -106,5 +154,41 @@ bash "$act" install item demo video-reformat >/dev/null 2>&1 || true
 [ -f "$tmp/data/ryoku/nautilus/video-reformat/manifest.json" ] || fail "nautilus pack not installed"
 bash "$act" remove item demo video-reformat >/dev/null 2>&1 || true
 [ -f "$tmp/data/ryoku/nautilus/video-reformat/manifest.json" ] && fail "nautilus pack not removed"
+
+# --- away from pacman: the edition answers availability, gates hold -----------
+# A Void host: ryoku-host names the packages through the catalogue table that
+# Ryostore hands over; corepkg ships there, optpkg does not; the pacman-only
+# script and the Arch-only bundle are refused with their catalogue reasons.
+export FAKE_PKGMGR=xbps
+: >"$tmp/helpers.log"
+out="$(bash "$act" status bundle demo)"
+jq -e '.items[] | select(.name == "corepkg") | .status == "absent"' <<<"$out" >/dev/null || fail "available package not absent on xbps"
+jq -e '[.items[] | select(.type == "plugin" or .type == "nautilus-pack") | .status] == ["absent", "absent"]' <<<"$out" >/dev/null \
+  || fail "ungated guests not offered on xbps: $out"
+jq -e '.items[] | select(.name == "optpkg") | .status == "unavailable" and .reason == "Not packaged for this edition."' <<<"$out" >/dev/null \
+  || fail "edition-unavailable package not reported with the batched status reason: $out"
+jq -e '.items[] | select(.name == "pacman-only") | .status == "unavailable" and .reason == "Needs the AUR."' <<<"$out" >/dev/null \
+  || fail "gated script not unavailable with its reason"
+jq -e '.items[] | select(.name == "corepkg") | .summary == "A core tool."' <<<"$out" >/dev/null \
+  || fail "summary moved into another field: $out"
+grep -q "ryoku-host pkg status corepkg optpkg overlay=$tmp/cache/bundles/packages/void.tsv" "$tmp/helpers.log" \
+  || fail "status did not batch packages through ryoku-host with the catalogue table"
+
+: >"$tmp/helpers.log"
+out="$(bash "$act" install bundle demo 2>&1 || true)"
+grep -q '^ryoku-pkg-add corepkg$' "$tmp/helpers.log" || fail "available package not installed on xbps: $(cat "$tmp/helpers.log")"
+grep -q 'ryoku-pkg-multilib' "$tmp/helpers.log" && fail "pacman multilib enabler ran on xbps"
+grep -q 'Not on this system: pacman-only (Needs the AUR.)' <<<"$out" || fail "gated item not explained: $out"
+jq -e '.items["pacman-only"].status == "unavailable"' "$tmp/run/ryostore/demo.json" >/dev/null || fail "gated item not reported unavailable"
+
+: >"$tmp/helpers.log"
+out="$(bash "$act" install bundle archonly 2>&1)" && fail "Arch-only bundle installed on xbps"
+grep -q 'Only for Arch-based Ryoku.' <<<"$out" || fail "bundle gate reason missing: $out"
+grep -q 'ryoku-pkg' "$tmp/helpers.log" && fail "a package helper ran for a refused bundle"
+
+# On pacman the same gated script is offered like any other.
+export FAKE_PKGMGR=pacman
+out="$(bash "$act" status bundle demo)"
+jq -e '.items[] | select(.name == "pacman-only") | .status == "absent"' <<<"$out" >/dev/null || fail "pacman-only script hidden on pacman"
 
 echo "extras-install: all checks passed"

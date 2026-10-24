@@ -20,6 +20,7 @@ class Settings : public QObject, public ParamSource
     QML_ELEMENT
     QML_SINGLETON
     Q_PROPERTY(bool ready READ ready NOTIFY readyChanged)
+    Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(int viewportWidth READ viewportWidth WRITE setViewportWidth NOTIFY viewportWidthChanged)
     Q_PROPERTY(QVariantMap caps READ caps NOTIFY schemaChanged)
     Q_PROPERTY(QVariantMap availability READ availability NOTIFY schemaChanged)
@@ -30,6 +31,7 @@ public:
     static Settings *instance() { return s_instance; }
 
     bool ready() const { return m_ready; }
+    bool busy() const { return !m_pending.isEmpty() || m_writesInFlight > 0; }
     int viewportWidth() const { return m_viewportWidth; }
     void setViewportWidth(int width);
 
@@ -55,6 +57,7 @@ public:
 
 Q_SIGNALS:
     void readyChanged();
+    void busyChanged();
     void changed(const QString &key, const QVariant &value);
     void viewportWidthChanged();
     void schemaChanged();
@@ -79,6 +82,7 @@ private:
     QVariantMap m_caps;
     QVariantMap m_availability;
     int m_revision = 0;
+    int m_writesInFlight = 0;
     int m_viewportWidth = 0;
     bool m_ready = false;
     bool m_schemaLoaded = false;

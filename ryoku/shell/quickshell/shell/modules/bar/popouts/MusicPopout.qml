@@ -39,7 +39,12 @@ Item {
     implicitWidth: 264 * root.s
     implicitHeight: (root.present ? cardCol.implicitHeight : emptyCol.implicitHeight) + root.pad * 2
 
-    Component.onCompleted: AudioBars.setActive(root, true)
+    function syncAudioClaim() {
+        AudioBars.setActive(root, root.open && root.playing);
+    }
+    onOpenChanged: root.syncAudioClaim()
+    onPlayingChanged: root.syncAudioClaim()
+    Component.onCompleted: root.syncAudioClaim()
     Component.onDestruction: AudioBars.setActive(root, false)
 
     // ── album-art colour ────────────────────────────────────────────────────

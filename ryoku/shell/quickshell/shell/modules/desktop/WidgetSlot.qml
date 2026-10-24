@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Effects
 import Qt5Compat.GraphicalEffects
 import "Singletons"
+import "../stage/Singletons" as StageCfg
 
 // placement / shape / interaction frame for one desktop widget. measures its
 // single child's natural size, pads it, positions it either at a compass
@@ -37,6 +38,10 @@ Item {
     property real borderOpacity: -1
     property bool composing: false
     property var stageController: null
+    property real depthV: 0.5
+    property bool spatial: false             // desktop's stageSpatial gate
+    property real mouseNX: 0                 // shared smoothed cursor, -1..1
+    property real mouseNY: 0
     readonly property bool stageInputBlocked: !!(slot.stageController
         && slot.stageController.inputBlocked)
     readonly property real stageFramingDim: slot.stageController
@@ -401,8 +406,8 @@ Item {
 
 
     opacity: Math.max(0.2, Math.min(1, Config[slot.widget + "Opacity"]))
-        * (1 - 0.75 * slot.stageFramingDim)
-    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+        * (1 - 0.75 * slot.stageFramingDim) * (slot._hovered ? 0.85 : 1)
+    Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
     Timer { id: guard; interval: 90 }
 
@@ -434,15 +439,54 @@ Item {
         when: slot.item !== null && slot.item.inkColorA !== undefined
     }
 
-    // soft lift off the wallpaper for the backed styles.
+    readonly property bool _sceneOn: slot.spatial && !slot.composing
+    readonly property real _gainRaw: slot.spatial && StageCfg.Config.followMouse
+        ? StageCfg.Config.amountFactor * StageCfg.Config.sensitivity * StageCfg.Config.range : 0
+    property real _gain: slot._gainRaw
+    Behavior on _gain { SmoothedAnimation { velocity: 2.5; duration: 200 } }
+    readonly property real _pivot: StageCfg.StageBackend.pivotDistanceFor(slot.monitor)
+    readonly property real _sceneH: slot.parent ? slot.parent.height : 0
+    readonly property bool _hovered: slot._sceneOn && slotHover.hovered
+        && !slot.holding && !slot.editing
+    property var _scene: slot._sceneOn
+        ? StageCfg.StageBackend.widgetSceneAt(
+            slot.depthV, slot._pivot, slot.mouseNX, slot.mouseNY, slot._gain,
+            slot.x + slot.width / 2, slot.y + slot.height / 2,
+            slot.width, slot.height, slot.parent.width, slot._sceneH)
+        : null
+    readonly property real _sceneDx: slot._scene ? slot._scene.dx : 0
+    readonly property real _sceneDy: slot._scene ? slot._scene.dy : 0
+    readonly property real _sceneScale: slot._scene ? slot._scene.scale : 1
+    readonly property real _nearness: Math.max(0, Math.min(1, slot.depthV))
+    readonly property real _shadowAngle: StageCfg.Config.shadowAngle * Math.PI / 180
+    readonly property real _shadowSpan: slot._sceneOn ? 4 + 16 * slot._nearness : 6
+    transform: [
+        Scale {
+            origin.x: slot.width / 2
+            origin.y: slot.height / 2
+            xScale: slot._sceneScale
+            yScale: slot._sceneScale
+        },
+        Translate {
+            x: slot._sceneDx
+            y: slot._sceneDy
+        }
+    ]
+
     MultiEffect {
         source: backing
         anchors.fill: backing
         visible: !slot.resizing && !Performance.shadowsDisabled && slot.bg !== "none"
         shadowEnabled: true
-        shadowColor: Theme.shadow
-        shadowBlur: 1.0
-        shadowVerticalOffset: 6
+        shadowColor: slot._sceneOn
+            ? Qt.rgba(0, 0, 0, 0.30 + 0.40 * slot._nearness)
+            : Theme.shadow
+        shadowBlur: slot._sceneOn ? 0.80 + 0.20 * slot._nearness : 1.0
+        shadowScale: slot._sceneOn ? 0.96 + 0.14 * slot._nearness : 1.0
+        shadowHorizontalOffset: Math.round(slot._sceneOn
+            ? Math.cos(slot._shadowAngle) * slot._shadowSpan : 0)
+        shadowVerticalOffset: Math.round(slot._sceneOn
+            ? Math.sin(slot._shadowAngle) * slot._shadowSpan : 6)
         blurMax: 32
         autoPaddingEnabled: true
     }
@@ -536,9 +580,15 @@ Item {
         id: shadowFx
         MultiEffect {
             shadowEnabled: true
-            shadowColor: Qt.rgba(0, 0, 0, 0.5)
-            shadowBlur: 0.8
-            shadowVerticalOffset: 2
+            shadowColor: slot._sceneOn
+                ? Qt.rgba(0, 0, 0, 0.32 + 0.36 * slot._nearness)
+                : Qt.rgba(0, 0, 0, 0.5)
+            shadowBlur: slot._sceneOn ? 0.70 + 0.30 * slot._nearness : 0.8
+            shadowScale: slot._sceneOn ? 0.97 + 0.10 * slot._nearness : 1.0
+            shadowHorizontalOffset: Math.round(slot._sceneOn
+                ? Math.cos(slot._shadowAngle) * (2 + 8 * slot._nearness) : 0)
+            shadowVerticalOffset: Math.round(slot._sceneOn
+                ? Math.sin(slot._shadowAngle) * (2 + 8 * slot._nearness) : 2)
             blurMax: 28
             autoPaddingEnabled: true
         }
@@ -557,7 +607,21 @@ Item {
 
     // hover state for the slot and its children, so the resize handle stays
     // lit while you reach across to it.
-    HoverHandler { id: slotHover }
+    HoverHandler {
+        id: slotHover
+
+        onPointChanged: {
+            if (!slot._sceneOn)
+                return;
+            const w = slot.parent ? slot.parent.width : 0;
+            const h = slot.parent ? slot.parent.height : 0;
+            if (w <= 0 || h <= 0)
+                return;
+            StageCfg.StageBackend.setCursor(slot.monitor,
+                point.scenePosition.x / w * 2 - 1,
+                point.scenePosition.y / h * 2 - 1);
+        }
+    }
 
     // Wheel scaling previews locally and commits once after the gesture settles.
     WheelHandler {
@@ -655,3 +719,4 @@ Item {
         }
     }
 }
+

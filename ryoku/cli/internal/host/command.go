@@ -45,6 +45,15 @@ Phone:
   phone enable|disable
   phone plan-enable|plan-disable
 
+Users:
+  users list
+  users caps
+  users add <name> --full-name <s> --role <admin|standard> [--perm id]... [--limit bytes]
+  users delete <name> <--keep-files|--erase-files>
+  users set-role <name> <admin|standard>
+  users set-perms <name> <id,id,...>
+  users set-password <name>
+  users set-limit <name> <bytes|0>
 
 Packages (names use the Arch/Ryoku catalogue):
   pkg [--overlay TABLE] <verb> ...   TABLE (or RYOKU_HOST_PKG_OVERLAY) maps names
@@ -155,6 +164,8 @@ func (a *App) Execute(args []string) int {
 		return a.Network(args[1:])
 	case "phone":
 		return a.Phone(args[1:])
+	case "users":
+		return a.Users(args[1:])
 	default:
 		fmt.Fprint(a.cfg.Stderr, Usage)
 		return ExitUsage

@@ -261,6 +261,7 @@ Column {
     }
     MenuInkPicker {
         id: vizInk
+        showHexEntry: false
         // The base and gradient stops, plus the field's triad when the field
         // is on: one picker, one surface for every colour the look wears.
         roles: opts.aura ? [
@@ -268,10 +269,12 @@ Column {
             { key: "color2", label: I18n.tr("Second"), fallback: opts.hexOf(Qt.lighter(Theme.accent, 1.5)) },
             { key: "aura2", label: I18n.tr("Field 2"), fallback: opts.hexOf(Tokens.ink) },
             { key: "aura3", label: I18n.tr("Field 3"), fallback: opts.hexOf(Tokens.ink) }
-        ] : [
+        ] : (opts.cfg.gradient ? [
             { key: "color", label: I18n.tr("Base"), fallback: opts.hexOf(Theme.accent) },
             { key: "color2", label: I18n.tr("Second"), fallback: opts.hexOf(Qt.lighter(Theme.accent, 1.5)) }
-        ]
+        ] : [
+            { key: "color", label: I18n.tr("Base"), fallback: opts.hexOf(Theme.accent) }
+        ])
         readColor: (key, fb) => {
             let value = fb;
             if (key === "color")
@@ -301,6 +304,29 @@ Column {
             target: opts.cfg
             function onActiveChanged() { vizInk.seedFromRole(); }
         }
+    }
+    MenuTextField {
+        label: opts.cfg.gradient ? I18n.tr("Stop 1 hex") : I18n.tr("Custom hex")
+        placeholder: "#rrggbb"
+        text: opts.cfg.normalizeHex(opts.cfg.colorHex)
+        normalize: value => opts.cfg.normalizeHex(value)
+        validate: value => /^#[0-9a-f]{6}$/.test(value)
+        commitOnFocusLoss: false
+        showSwatch: true
+        invalidMessage: I18n.tr("Use #rrggbb")
+        onCommitted: value => opts.cfg.setColor(value)
+    }
+    MenuTextField {
+        visible: opts.cfg.gradient
+        label: I18n.tr("Stop 2 hex")
+        placeholder: "#rrggbb"
+        text: opts.cfg.normalizeHex(opts.cfg.color2Hex)
+        normalize: value => opts.cfg.normalizeHex(value)
+        validate: value => /^#[0-9a-f]{6}$/.test(value)
+        commitOnFocusLoss: false
+        showSwatch: true
+        invalidMessage: I18n.tr("Use #rrggbb")
+        onCommitted: value => opts.cfg.setColor2(value)
     }
 
     // ── Playback ────────────────────────────────────────────────────────

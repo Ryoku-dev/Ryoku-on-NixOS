@@ -2223,7 +2223,7 @@ Singleton {
         if (root.configMalformed)
             return;
         root.configMalformed = true;
-        console.warn(`[Config] config.json is not valid JSON (${parseError.message}); preserving it as-is and blocking writes until it's fixed`);
+        console.warn(`[Config] ${Directories.shellConfigName} is not valid JSON (${parseError.message}); preserving it as-is and blocking writes until it's fixed`);
         // Preserve the broken file exactly as the user left it — it's the
         // only copy, and hand-editing it back to valid JSON is the intended
         // recovery path (the existing watchChanges watcher picks the fix up
@@ -2241,7 +2241,7 @@ Singleton {
             return;
         root.configMalformed = false;
         root.blockWrites = false;
-        console.log("[Config] config.json is valid JSON again; resuming normal writes");
+        console.log(`[Config] ${Directories.shellConfigName} is valid JSON again; resuming normal writes`);
         root.notifyConfigHealth("recovered", []);
     }
 
@@ -2250,7 +2250,7 @@ Singleton {
     function resetConfigToDefaults() {
         if (root.defaultOptions === null)
             return;
-        console.warn("[Config] Resetting config.json to defaults at user request");
+        console.warn(`[Config] Resetting ${Directories.shellConfigName} to defaults at user request`);
         root.configMalformed = false;
         root.blockWrites = false;
         // Object spread ({...obj}) isn't supported by this JS engine
@@ -2274,12 +2274,12 @@ Singleton {
         root.configHealthState = state;
         root.configHealthKeys = keys;
         const copy = {
-            "malformed": ["Config file is broken", "config.json has invalid JSON syntax. Your settings are safe on disk, but changes won't save until it's fixed."],
-            "recovered": ["Config file fixed", "config.json is valid again — settings will save normally."],
+            "malformed": ["Config file is broken", `${Directories.shellConfigName} has invalid JSON syntax. Your settings are safe on disk, but changes won't save until it's fixed.`],
+            "recovered": ["Config file fixed", `${Directories.shellConfigName} is valid again — settings will save normally.`],
             "migrated": ["Config updated", "Some settings were migrated to a newer format."],
             "repaired": ["Config values reset", `${keys.length} setting${keys.length === 1 ? "" : "s"} had an invalid value and ${keys.length === 1 ? "was" : "were"} reset to default.`],
-            "unknownKeys": ["Unrecognized settings", `${keys.length} entr${keys.length === 1 ? "y" : "ies"} in config.json ${keys.length === 1 ? "isn't" : "aren't"} recognized and will be removed on the next save.`],
-            "reset": ["Config reset to defaults", "config.json was replaced with default settings."]
+            "unknownKeys": ["Unrecognized settings", `${keys.length} entr${keys.length === 1 ? "y" : "ies"} in ${Directories.shellConfigName} ${keys.length === 1 ? "isn't" : "aren't"} recognized and will be removed on the next save.`],
+            "reset": ["Config reset to defaults", `${Directories.shellConfigName} was replaced with default settings.`]
         }[state];
         if (!copy)
             return;
@@ -7136,8 +7136,8 @@ Singleton {
                     property string customText: ""
                     property string buttonsDesign: "circles" // "default", "circles"
                 }
-                property bool enableBanner
-                property bool useCustomBanner
+                property bool enableBanner: false
+                property bool useCustomBanner: false
                 property string bannerImage: ""
                 property JsonObject dashboardSubHeader: JsonObject {
                     property string greetingSubtextMode: "uptime"  // "uptime", "custom", "none"

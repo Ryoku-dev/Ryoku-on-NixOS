@@ -40,6 +40,42 @@ var rows = [
     },
     {
         "tab": "",
+        "group": "OVERLAY",
+        "key": "overlayOpacity",
+        "label": "Overlay opacity",
+        "desc": "How opaque the backdrop behind the launcher is",
+        "ctl": "slid",
+        "src": "launcher.json",
+        "lo": 0.3,
+        "hi": 1.0,
+        "unit": "%",
+        "pct": true
+    },
+    {
+        "tab": "",
+        "group": "GRID",
+        "key": "columns",
+        "label": "Columns",
+        "desc": "Apps per row; fewer fit on a narrow screen",
+        "ctl": "step",
+        "src": "launcher.json",
+        "lo": 3.0,
+        "hi": 16.0
+    },
+    {
+        "tab": "",
+        "group": "GRID",
+        "key": "matWidth",
+        "label": "Tile width",
+        "desc": "Width of each app tile; the grid is columns times this",
+        "ctl": "step",
+        "src": "launcher.json",
+        "lo": 90.0,
+        "hi": 240.0,
+        "unit": "px"
+    },
+    {
+        "tab": "",
         "group": "RESULT MOTION",
         "key": "resultSettleMs",
         "label": "Type settle",

@@ -8,6 +8,7 @@ import Quickshell.Wayland
 import Quickshell.Widgets
 import inir
 import inir.services
+import shell.services as Ryoku
 import inir.modules.common
 import inir.modules.common.functions
 import inir.modules.common.widgets
@@ -139,7 +140,7 @@ PanelWindow {
             width: popupColumn.width
             height: plate.height
 
-            onHoveredChanged: if (banner.hovered) Notifications.cancelTimeout(banner.notification.notificationId)
+            onHoveredChanged: if (banner.hovered) Ryoku.Notifs.cancelPopupTimeout(banner.notification.notificationId)
             HoverHandler { id: bannerHover }
 
             property real appear: 0

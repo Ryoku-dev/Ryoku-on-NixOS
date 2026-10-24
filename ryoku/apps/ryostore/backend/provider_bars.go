@@ -154,21 +154,21 @@ func builtinBarStyles() []Item {
 		Description: "A liquid top bar that hugs what it shows, ripples along its whole edge when music plays, and grows each group into a card.",
 		Tags:        []string{"top", "liquid", "built-in"},
 		Installed:   true,
-		Metadata:    map[string]any{"scene": "Scene.qml", "core": true},
+		Metadata:    map[string]any{"scene": "Scene.qml", "core": true, "resourceTier": "light"},
 	}, {
 		ID: "sumi", Category: "barstyles", Name: "Sumi",
 		Summary:     "Ink spine",
 		Description: "The built-in left rail: paper, ink, and a vertical working edge.",
 		Tags:        []string{"rail", "vertical", "built-in"},
 		Installed:   true,
-		Metadata:    map[string]any{"scene": "", "core": true},
+		Metadata:    map[string]any{"scene": "", "core": true, "resourceTier": "heavy"},
 	}, {
 		ID: "qsbar", Category: "barstyles", Name: "QS Bar",
 		Summary:     "Hancore top bar",
 		Description: "Hancore's Quickshell Rise top bar, ported to Ryoku.",
 		Tags:        []string{"top", "horizontal", "built-in"},
 		Installed:   true,
-		Metadata:    map[string]any{"scene": "Scene.qml", "core": true},
+		Metadata:    map[string]any{"scene": "Scene.qml", "core": true, "resourceTier": "heavy"},
 	}, {
 		ID: "chroma", Category: "barstyles", Name: "Chroma",
 		Summary:     "Matugen signal bar",
@@ -182,29 +182,37 @@ func builtinBarStyles() []Item {
 		Description: "One floating island at the top of the screen: the clock that grows on hover.",
 		Tags:        []string{"top", "island", "built-in"},
 		Installed:   true,
-		Metadata:    map[string]any{"scene": "Scene.qml", "core": true},
+		Metadata:    map[string]any{"scene": "Scene.qml", "core": true, "resourceTier": "light"},
 	}, {
 		ID: "iris", Category: "barstyles", Name: "Shima",
 		Summary:     "Based on iNiR by snowarch",
 		Description: "An island on any screen edge that grows into whatever you clicked: morphing glass, bubbles, a dock, a studio and its own settings.",
 		Tags:        []string{"island", "frame", "built-in"},
 		Installed:   true,
-		Metadata:    map[string]any{"scene": "Scene.qml", "core": true},
+		Metadata:    map[string]any{"scene": "Scene.qml", "core": true, "resourceTier": "heavy"},
 	}, {
 		ID: "python", Category: "barstyles", Name: "Python",
 		Summary:     "Based on Serpantinum by ilyamiro",
 		Description: "Serpantinum's orientation-aware bar, liquid-glass stage, popups, quick actions, dock design, settings guide and desktop face library on Ryoku's shared services.",
 		Tags:        []string{"top", "stage", "dock", "built-in"},
 		Installed:   true,
-		Metadata:    map[string]any{"scene": "Scene.qml", "core": true},
+		Metadata:    map[string]any{"scene": "Scene.qml", "core": true, "resourceTier": "heavy"},
 	}, {
 		ID: "nomarchy", Category: "barstyles", Name: "Nomarchy",
 		Summary:     "Based on Omarchy by 37signals",
 		Description: "Omarchy's configurable bar, panels, menu, notifications and plugin host, adapted to Ryoku's window-manager seam.",
 		Tags:        []string{"bar", "panels", "plugins", "built-in"},
 		Installed:   true,
-		Metadata:    map[string]any{"scene": "Scene.qml", "core": true},
+		Metadata:    map[string]any{"scene": "Scene.qml", "core": true, "resourceTier": "heavy"},
 	}}
+}
+
+func barStyleResourceTier(item Item) string {
+	if item.Metadata == nil {
+		return ""
+	}
+	tier, _ := item.Metadata["resourceTier"].(string)
+	return tier
 }
 
 // snapshotStaleBuiltins reports a snapshot whose built-in bar styles read
@@ -251,8 +259,13 @@ func snapshotStaleBuiltins(data []byte) bool {
 		if !ok || it.Category != "barstyles" {
 			continue
 		}
+<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
 		seen[it.ID] = true
 		if it.Name != want.Name || it.Summary != want.Summary || it.Description != want.Description {
+=======
+		if it.Name != want.Name || it.Summary != want.Summary || it.Description != want.Description ||
+			barStyleResourceTier(it) != barStyleResourceTier(want) {
+>>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
 			return true
 		}
 	}
@@ -269,6 +282,7 @@ func (p barProvider) Install(ctx context.Context, id string) error {
 	if id == "sumi" || id == "qsbar" || id == "chroma" || id == "orpheus" || id == "kairos" || id == "iris" || id == "python" || id == "nomarchy" {
 		return fmt.Errorf("the built-in %s bar style is already installed", id)
 	}
+	reportProgress(ctx, "download", 0, 0)
 	entries, _, err := loadProductRegistry(ctx, p.cache, "barstyles", false)
 	if err != nil {
 		return err

@@ -38,6 +38,7 @@ Item {
             unavailableReason: "",
             requiredWindowManager: "",
             downloadPaused: false,
+            resourceTier: entry.resourceTier || "",
             downloadPauseReason: ""
         };
     }
@@ -123,6 +124,7 @@ Item {
                             unavailableReason: item.unavailableReason || "",
                             requiredWindowManager: item.requiredWindowManager || "",
                             downloadPaused: item.downloadPaused === true,
+                            resourceTier: (item.metadata && item.metadata.resourceTier) || "",
                             downloadPauseReason: item.downloadPauseReason || ""
                         }));
                 } catch (e) {
@@ -160,7 +162,9 @@ Item {
             width: parent.width
             spacing: Tokens.s2
             readonly property int perRow: Math.max(2, Math.floor((width + Tokens.s2) / 210))
-            readonly property int tileH: 64
+            readonly property bool hasResourceWarnings: gallery.designs.some(
+                design => design.resourceTier === "heavy")
+            readonly property int tileH: hasResourceWarnings ? 88 : 64
             readonly property int rowCount: Math.max(1, Math.ceil(cardRepeater.count / perRow))
             height: rowCount * tileH + (rowCount - 1) * spacing
 
@@ -177,6 +181,7 @@ Item {
                     readonly property bool updatable: designCard.modelData.updateAvailable === true
                         && designCard.modelData.version.length > 0
                         && !designCard.modelData.unavailable && !designCard.modelData.downloadPaused
+                    readonly property bool heavy: designCard.modelData.resourceTier === "heavy"
                     readonly property string subText: {
                         if (designCard.updatable) {
                             const current = designCard.modelData.installedVersion.length > 0
@@ -242,6 +247,31 @@ Item {
                             font.family: Tokens.ui
                             font.pixelSize: Tokens.fTiny
                             elide: Text.ElideRight
+                        }
+                        Row {
+                            width: parent.width
+                            spacing: Tokens.s2
+                            visible: designCard.heavy
+
+                            Text {
+                                text: "▲"
+                                color: Tokens.alert
+                                font.family: Tokens.mono
+                                font.pixelSize: Tokens.fMicro
+                            }
+                            Text {
+                                width: Math.max(0, parent.width - x)
+                                text: I18n.tr("May need more CPU, GPU and memory.")
+                                color: designCard.worn ? Tokens.inkOnBoneDim : Tokens.inkFaint
+                                font.family: Tokens.mono
+                                font.pixelSize: Tokens.fMicro
+                                font.weight: Font.Medium
+                                font.letterSpacing: Tokens.trackMark
+                                font.capitalization: Font.AllUppercase
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                            }
                         }
                     }
 

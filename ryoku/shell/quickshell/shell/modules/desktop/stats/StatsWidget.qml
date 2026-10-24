@@ -101,6 +101,10 @@ Item {
         }
 
 
+        // SystemGraph cannot consume these owner-shared 1.5 s histories; it
+        // requires its own 250 ms SystemMonitor collector. Instantiating that
+        // here would increase full-desktop invalidations and duplicate polling,
+        // so these event-driven Canvases remain until the shared feed is native.
         // ---- CPU area chart ----
         Canvas {
             id: cpuCanvas

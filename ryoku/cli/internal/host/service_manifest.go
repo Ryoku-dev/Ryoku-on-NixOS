@@ -71,7 +71,7 @@ func validateServiceManifestEntry(entry serviceManifestEntry) error {
 		if entry.Scope != "system" {
 			return fmt.Errorf(i18n.T("activation %q requires system scope"), entry.Activation)
 		}
-	case "session", "session-core":
+	case "session", "session-core", "session-global":
 		if entry.Scope != "user" {
 			return fmt.Errorf(i18n.T("activation %q requires user scope"), entry.Activation)
 		}
@@ -103,8 +103,8 @@ func (a *App) ServiceReconcile(scope string, checkOnly bool) int {
 	if !user && scope != "--system" {
 		return ExitUsage
 	}
-	if !user && a.cfg.UID != 0 {
-		return a.failf("%s", i18n.T("svc reconcile --system must run as root"))
+	if !user && !checkOnly && a.cfg.UID != 0 {
+		return a.failf("%s", i18n.T("svc reconcile --system must run as root unless --check is used"))
 	}
 	entries, err := readServiceManifest(a.cfg.ServiceManifest)
 	if err != nil {
@@ -137,6 +137,20 @@ func (a *App) reconcileSystemdServices(entries []serviceManifestEntry, user, che
 		changed = adopted
 	}
 	for _, entry := range entries {
+		if !user && entry.Scope == "user" && entry.Activation == "session-global" {
+			if entry.SystemdUnit == "-" || !fileExists(filepath.Join(a.cfg.SystemdUserDir, entry.SystemdUnit)) {
+				continue
+			}
+			enabled := a.probe("systemctl", "--global", "is-enabled", "--quiet", entry.SystemdUnit).Code == 0
+			if enabled {
+				continue
+			}
+			changed = true
+			if !checkOnly && commandExit(a.run("systemctl", "--global", "enable", entry.SystemdUnit)) != ExitOK {
+				return ExitFailure
+			}
+			continue
+		}
 		if !user && a.isSystemdGlobalUserEntry(entry) {
 			marker := a.serviceActivationMarker(entry, false)
 			if fileExists(marker) {
@@ -166,8 +180,11 @@ func (a *App) reconcileSystemdServices(entries []serviceManifestEntry, user, che
 			if !checkOnly && a.enableSystemdManifestUnit(user, false, entry.SystemdUnit) != ExitOK {
 				return ExitFailure
 			}
-		case "enable-once", "session":
+		case "enable-once", "session", "session-global":
 			marker := a.serviceActivationMarker(entry, user)
+			if entry.Activation == "session-global" && a.systemdManifestUnitEnabled(user, entry.SystemdUnit) {
+				continue
+			}
 			if a.serviceActivationRecorded(entry, user) {
 				continue
 			}
@@ -404,11 +421,16 @@ func (a *App) reconcileRunitUserServices(entries []serviceManifestEntry, checkOn
 	}
 	var desired []string
 	for _, entry := range entries {
-		if entry.Scope != "user" || entry.Activation != "session" || entry.RunitName == "-" {
+		if entry.Scope != "user" ||
+			entry.Activation != "session" && entry.Activation != "session-global" ||
+			entry.RunitName == "-" {
 			continue
 		}
 		service := filepath.Join(a.userServiceDir(), entry.RunitName)
-		if !isDir(service) || fileExists(filepath.Join(service, runitUserDisabledMarker)) {
+		if !isDir(service) {
+			continue
+		}
+		if entry.Activation == "session" && fileExists(filepath.Join(service, runitUserDisabledMarker)) {
 			continue
 		}
 		desired = append(desired, entry.RunitName)

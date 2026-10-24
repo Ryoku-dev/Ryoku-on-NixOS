@@ -29,6 +29,25 @@ Item {
     property color ink: "#ffffff"
     property color accent: "#7fd4d4"
     property var locale: Qt.locale()
+    property var labels: []
+
+    function rebuildLabels() {
+        var next = [];
+        for (var i = 0; i <= 2 * wheel.span; i++) {
+            var day = wheel.dayAt(i);
+            var weekday = day.toLocaleDateString(wheel.locale, "ddd").toUpperCase();
+            next.push({
+                weekday: weekday,
+                initial: weekday.charAt(0),
+                date: String(day.getDate())
+            });
+        }
+        wheel.labels = next;
+    }
+    onAnchorChanged: wheel.rebuildLabels()
+    onSpanChanged: wheel.rebuildLabels()
+    onLocaleChanged: wheel.rebuildLabels()
+    Component.onCompleted: wheel.rebuildLabels()
 
     // The picked day, reported because this surface's state is out of the
     // launcher's reach.
@@ -64,12 +83,13 @@ Item {
     clip: true
 
     Repeater {
-        model: 2 * wheel.span + 1
+        model: wheel.labels
 
         delegate: Item {
             id: slot
 
             required property int index
+            required property var modelData
 
             readonly property real dist: (index - wheel.span) + wheel.offset
                 + (1 - wheel.reveal) * 1.6
@@ -78,7 +98,6 @@ Item {
             // switching at a threshold.
             readonly property real near: Math.max(0, 1 - Math.abs(dist))
             readonly property real far: Math.max(0, 1 - Math.abs(dist) / 2.6)
-            readonly property date day: wheel.dayAt(index)
 
             width: wheel.itemWidth
             height: wheel.height
@@ -116,7 +135,7 @@ Item {
                     height: 14
                     Text {
                         anchors.centerIn: parent
-                        text: slot.day.toLocaleDateString(wheel.locale, "ddd").charAt(0).toUpperCase()
+                        text: slot.modelData.initial
                         color: wheel.ink
                         opacity: 1 - slot.near
                         font.family: Theme.fontPrimary
@@ -124,7 +143,7 @@ Item {
                     }
                     Text {
                         anchors.centerIn: parent
-                        text: slot.day.toLocaleDateString(wheel.locale, "ddd").toUpperCase()
+                        text: slot.modelData.weekday
                         color: wheel.ink
                         opacity: slot.near
                         font.family: Theme.fontPrimary
@@ -135,7 +154,7 @@ Item {
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: slot.day.getDate()
+                    text: slot.modelData.date
                     font.family: Theme.mono
                     font.pixelSize: 22
                     color: Qt.rgba(

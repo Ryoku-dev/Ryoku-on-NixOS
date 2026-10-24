@@ -8,6 +8,7 @@ import Quickshell.Io
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
 import ".."
+import "../LauncherSettings.js" as LauncherSettings
 
 Item {
     id: pg
@@ -18,13 +19,15 @@ Item {
     readonly property var keys: [
         "variant", "radius", "bgBlur", "weatherUnit", "heroImage",
         "heroStrength", "heroPosX", "heroPosY", "showWeather", "showGreeting",
-        "resultSettleMs", "horizonMode", "horizonColor"
+        "resultSettleMs", "horizonMode", "horizonColor", "overlayOpacity", "hiddenApps",
+        "columns", "matWidth", "sectionOrder", "hiddenSections", "pinnedApps"
     ]
     readonly property var factory: ({
             "variant": "hero", "radius": 16, "bgBlur": 2, "weatherUnit": "auto", "heroImage": "",
             "heroStrength": 0.6, "heroPosX": 0.5, "heroPosY": 0.5,
             "showWeather": true, "showGreeting": true, "resultSettleMs": 360,
-            "horizonMode": "auto", "horizonColor": "#ffc777"
+            "horizonMode": "auto", "horizonColor": "#ffc777", "overlayOpacity": 0.94, "hiddenApps": [],
+            "columns": 8, "matWidth": 144, "sectionOrder": [], "hiddenSections": [], "pinnedApps": []
         })
     readonly property string launcherRoot: {
         var shellDir = String(Quickshell.env("RYOKU_SHELL_DIR") || "");
@@ -78,14 +81,25 @@ Item {
         return variants.length > 0 ? variants[0]
             : ({ id: "", name: "", description: "", preview: "", capabilities: [] });
     }
-    // A Store launcher's Settings preview is the Preview.qml in its installed
-    // view; the store's view path is checked before it becomes a file URL.
-    function storePreviewUrl(item) {
-        var meta = item.metadata || {};
-        var view = String(meta.view || "");
+    // A Store launcher runs from its installed view; the store's view path is
+    // checked before it becomes a file path.
+    function storeViewDir(item) {
+        var view = String((item.metadata || {}).view || "");
         var pattern = new RegExp("^launcher-views/" + item.id + "/[a-f0-9]{64}$");
-        return meta.preview === "Preview.qml" && pattern.test(view)
-            ? "file://" + pg.storeRoot + "/" + view + "/Preview.qml" : "";
+        return pattern.test(view) ? pg.storeRoot + "/" + view : "";
+    }
+    // Its Settings preview is the Preview.qml in that view.
+    function storePreviewUrl(item) {
+        var dir = pg.storeViewDir(item);
+        return (item.metadata || {}).preview === "Preview.qml" && dir.length > 0
+            ? "file://" + dir + "/Preview.qml" : "";
+    }
+    // What Settings offers for a Store launcher comes from the settings.json in
+    // its view (see LauncherSettings.js); a shipped launcher's comes from
+    // catalog.json.
+    property var storeSettings: LauncherSettings.parse("")
+    function activeSections() {
+        return pg.variantEntry(pg.draft.variant).store ? pg.storeSettings.sections : [];
     }
     function browseStore() {
         Quickshell.execDetached(["ryostore", "open", "launchers"]);
@@ -104,13 +118,24 @@ Item {
         storeCatalog.running = true;
     }
     function activeCapabilities() {
-        var capabilities = pg.variantEntry(pg.draft.variant).capabilities;
-        return Array.isArray(capabilities) ? capabilities : [];
+        var entry = pg.variantEntry(pg.draft.variant);
+        if (entry.store)
+            return pg.storeSettings.capabilities;
+        return Array.isArray(entry.capabilities) ? entry.capabilities : [];
     }
     function supports(capability) {
         return pg.activeCapabilities().indexOf(capability) !== -1;
     }
     function same(a, b) { return String(a) === String(b); }
+    // JsonAdapter hands lists back as array-likes; keep plain arrays in the draft.
+    function norm(v) {
+        return (v && typeof v === "object" && v.length !== undefined)
+            ? Array.prototype.slice.call(v).map(String) : v;
+    }
+    function listOf(d, k) { return pg.norm(d[k]) || []; }
+    function hiddenList(d) { return pg.listOf(d, "hiddenApps"); }
+    property bool hiddenOpen: false
+    property bool pinnedOpen: false
     function basename(p) { return ("" + p).replace(/^.*\//, ""); }
 
     readonly property int dirtyCount: {
@@ -133,8 +158,8 @@ Item {
         var d = {}, c = {};
         for (var i = 0; i < pg.keys.length; i++) {
             var k = pg.keys[i];
-            d[k] = cfgA[k];
-            c[k] = cfgA[k];
+            d[k] = pg.norm(cfgA[k]);
+            c[k] = pg.norm(cfgA[k]);
         }
         pg.draft = d;
         pg.committed = c;
@@ -144,11 +169,11 @@ Item {
         for (var i = 0; i < pg.keys.length; i++) {
             var k = pg.keys[i];
             if (pg.same(pg.draft[k], pg.committed[k])) {
-                d[k] = cfgA[k];
-                c[k] = cfgA[k];
+                d[k] = pg.norm(cfgA[k]);
+                c[k] = pg.norm(cfgA[k]);
             } else {
                 d[k] = pg.draft[k];
-                c[k] = cfgA[k];
+                c[k] = pg.norm(cfgA[k]);
             }
         }
         pg.draft = d;
@@ -198,6 +223,7 @@ Item {
                             previewUrl: item.installed === true ? pg.storePreviewUrl(item) : "",
                             art: item.art || "",
                             capabilities: [],
+                            viewDir: item.installed === true ? pg.storeViewDir(item) : "",
                             installed: item.installed === true,
                             version: item.version || "",
                             installedVersion: item.installedVersion || "",
@@ -228,6 +254,18 @@ Item {
     }
 
     FileView {
+        id: storeSettingsFile
+        path: {
+            var entry = pg.variantEntry(pg.draft.variant);
+            return entry.store && entry.viewDir ? entry.viewDir + "/settings.json" : "";
+        }
+        printErrors: false
+        onPathChanged: pg.storeSettings = LauncherSettings.parse("")
+        onLoaded: pg.storeSettings = LauncherSettings.parse(text())
+        onLoadFailed: pg.storeSettings = LauncherSettings.parse("")
+    }
+
+    FileView {
         id: cfg
         path: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/ryoku/launcher.json"
         blockLoading: true
@@ -253,6 +291,13 @@ Item {
             property int resultSettleMs: 360
             property string horizonMode: "auto"
             property string horizonColor: "#ffc777"
+            property real overlayOpacity: 0.94
+            property var hiddenApps: []
+            property int columns: 8
+            property int matWidth: 144
+            property var sectionOrder: []
+            property var hiddenSections: []
+            property var pinnedApps: []
         }
     }
 
@@ -578,6 +623,167 @@ Item {
             }
 
             SettingCard {
+                id: overlayCard
+                width: col.colWidth
+                title: I18n.tr("OVERLAY")
+                visible: pg.supports("overlay")
+
+                SettingRow {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    label: I18n.tr("Overlay opacity")
+                    desc: I18n.tr("How opaque the backdrop behind the launcher is.")
+                    unit: "%"
+                    value: String(Math.round((Number(pg.draft.overlayOpacity) || 0) * 100))
+                    def: String(Math.round((Number(pg.committed.overlayOpacity) || 0) * 100))
+                    changed: !pg.same(pg.draft.overlayOpacity, pg.committed.overlayOpacity)
+                    source: "launcher.json"
+                    controlWidth: Math.min(240, Math.max(160, Math.round(overlayCard.width * 0.34)))
+                    Slid {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width
+                        value: Math.round((Number(pg.draft.overlayOpacity) || 0) * 100)
+                        from: 30; to: 100
+                        onModified: (v) => pg.edit("overlayOpacity", v / 100)
+                    }
+                }
+            }
+
+            SettingCard {
+                id: hiddenCard
+                width: col.colWidth
+                title: I18n.tr("HIDDEN APPS")
+                visible: pg.supports("hiddenApps")
+
+                SettingRow {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    footH: 32
+                    label: I18n.tr("Apps hidden from the launcher")
+                    desc: I18n.tr("They stay installed; only the launcher stops listing them.")
+                    unit: I18n.tr("hidden")
+                    value: String(pg.hiddenList(pg.draft).length)
+                    def: String(pg.hiddenList(pg.committed).length)
+                    changed: !pg.same(pg.hiddenList(pg.draft), pg.hiddenList(pg.committed))
+                    source: "launcher.json"
+                    controlWidth: 190
+                    Row {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Tokens.s2
+                        Btn {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: pg.hiddenList(pg.draft).length > 0
+                            text: I18n.tr("SHOW ALL")
+                            onAct: pg.edit("hiddenApps", [])
+                        }
+                        Btn {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: I18n.tr("CHOOSE")
+                            onAct: pg.hiddenOpen = true
+                        }
+                    }
+                }
+            }
+
+            SettingCard {
+                id: layoutCard
+                width: col.colWidth
+                title: I18n.tr("GRID")
+                visible: pg.supports("grid")
+
+                SettingRow {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    label: I18n.tr("Columns")
+                    desc: I18n.tr("Apps per row. Fewer fit on a narrow screen.")
+                    value: String(pg.draft.columns)
+                    def: String(pg.committed.columns)
+                    changed: !pg.same(pg.draft.columns, pg.committed.columns)
+                    source: "launcher.json"
+                    controlWidth: 58
+                    Step {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        value: Number(pg.draft.columns) || 8
+                        from: 3; to: 16; stepBy: 1
+                        onModified: (v) => pg.edit("columns", v)
+                    }
+                }
+                SettingRow {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    divider: true
+                    label: I18n.tr("Tile width")
+                    desc: I18n.tr("Width of each app tile; the grid is columns times this.")
+                    unit: "px"
+                    value: String(pg.draft.matWidth)
+                    def: String(pg.committed.matWidth)
+                    changed: !pg.same(pg.draft.matWidth, pg.committed.matWidth)
+                    source: "launcher.json"
+                    controlWidth: 76
+                    Step {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        value: Number(pg.draft.matWidth) || 144
+                        from: 90; to: 240; stepBy: 6
+                        onModified: (v) => pg.edit("matWidth", v)
+                    }
+                }
+            }
+
+            SettingCard {
+                id: sectionsCard
+                width: col.colWidth
+                title: I18n.tr("SECTIONS")
+                visible: pg.supports("sections") && pg.activeSections().length > 0
+
+                SectionsEditor {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    known: pg.activeSections()
+                    order: pg.listOf(pg.draft, "sectionOrder")
+                    hidden: pg.listOf(pg.draft, "hiddenSections")
+                    onEdited: (order, hidden) => {
+                        pg.edit("sectionOrder", order);
+                        pg.edit("hiddenSections", hidden);
+                    }
+                }
+            }
+
+            SettingCard {
+                id: favoritesCard
+                width: col.colWidth
+                title: I18n.tr("FAVORITES")
+                visible: pg.supports("pinnedApps")
+
+                SettingRow {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    footH: 32
+                    label: I18n.tr("Pinned apps")
+                    desc: I18n.tr("Listed first in every section and in search, marked with a star.")
+                    unit: I18n.tr("pinned")
+                    value: String(pg.listOf(pg.draft, "pinnedApps").length)
+                    def: String(pg.listOf(pg.committed, "pinnedApps").length)
+                    changed: !pg.same(pg.listOf(pg.draft, "pinnedApps"), pg.listOf(pg.committed, "pinnedApps"))
+                    source: "launcher.json"
+                    controlWidth: 190
+                    Row {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Tokens.s2
+                        Btn {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: pg.listOf(pg.draft, "pinnedApps").length > 0
+                            text: I18n.tr("CLEAR")
+                            onAct: pg.edit("pinnedApps", [])
+                        }
+                        Btn {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: I18n.tr("CHOOSE")
+                            onAct: pg.pinnedOpen = true
+                        }
+                    }
+                }
+            }
+
+            SettingCard {
                 width: col.colWidth
                 title: I18n.tr("RESULT MOTION")
                 visible: pg.supports("results")
@@ -840,12 +1046,33 @@ Item {
 
     property bool pickerOpen: false
     readonly property string home: Quickshell.env("HOME") || ""
-    property url pickerFolder: "file://" + pg.home + "/Pictures"
+    property url pickerFolder: "file://" + Paths.picturesDir
     function openPicker() {
-        pg.pickerFolder = "file://" + pg.home + "/Pictures";
+        pg.pickerFolder = "file://" + Paths.picturesDir;
         pg.pickerOpen = true;
     }
     function gotoDir(sub) { pg.pickerFolder = "file://" + pg.home + (sub.length ? "/" + sub : ""); }
+
+    AppSetPicker {
+        anchors.fill: parent
+        visible: pg.hiddenOpen
+        z: 110
+        hidden: pg.hiddenList(pg.draft)
+        onChanged: (ids) => pg.edit("hiddenApps", ids)
+        onDismissed: pg.hiddenOpen = false
+    }
+
+    AppSetPicker {
+        anchors.fill: parent
+        visible: pg.pinnedOpen
+        z: 110
+        title: I18n.tr("Pinned apps")
+        countText: I18n.tr("%1 pinned")
+        invert: false
+        hidden: pg.listOf(pg.draft, "pinnedApps")
+        onChanged: (ids) => pg.edit("pinnedApps", ids)
+        onDismissed: pg.pinnedOpen = false
+    }
 
     Item {
         id: pickerLayer
@@ -909,9 +1136,9 @@ Item {
 
                 Btn { text: I18n.tr("\u2191 UP"); onAct: pg.pickerFolder = fm.parentFolder }
                 Btn { text: I18n.tr("HOME"); onAct: pg.gotoDir("") }
-                Btn { text: I18n.tr("PICTURES"); onAct: pg.gotoDir("Pictures") }
+                Btn { text: I18n.tr("PICTURES"); onAct: pg.pickerFolder = "file://" + Paths.picturesDir }
                 Btn { text: I18n.tr("DOWNLOADS"); onAct: pg.gotoDir("Downloads") }
-                Btn { text: I18n.tr("STORE"); onAct: pg.gotoDir("Pictures/ryoku-launchers") }
+                Btn { text: I18n.tr("STORE"); onAct: pg.pickerFolder = "file://" + Paths.picturesDir + "/ryoku-launchers" }
             }
 
             GridView {

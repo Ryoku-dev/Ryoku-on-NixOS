@@ -6,16 +6,21 @@
 /installation/tui/ryoku-tui
 /ryoku/shell/ipc/ryoku-shell
 /ryoku/wm/hyprland/ryoku-wm-hyprland
+/ryoku/wm/hyprland/hyprland
 /ryoku/wm/niri/ryoku-wm-niri
+/ryoku/wm/niri/niri
+/ryoku/wm/wayfire/ryoku-wm-wayfire
+/ryoku/wm/wayfire/wayfire
 /ryoku/hub/backend/ryoku-hub
 /ryoku/rashin/backend/ryoku-rashin
 /ryoku/cli/ryoku
 /ryoku/cli/ryoku-cli
+/ryoku/cli/ryoku-host
 /ryoku/apps/ryovm/fetch/ryovm-fetch
 /ryoku/apps/ryovm/remote/ryossh
 /ryoku/apps/ryovm/mon/ryovm-mon
 /ryoku/apps/ryostore/backend/ryostore
-/ryoku/apps/rashin-app/build/
+/ryoku/rashin/app/build/
 /ryoku/rashin/web/node_modules/
 /ryoku/shell/plugin/build/
 /ryoku/shell/sidebarfx/build/
@@ -25,6 +30,12 @@
 *.iso
 __pycache__/
 *.pyc
+# Compiler caches the package publishers restore into the checkout.
+/.ccache*/
+/.gocache*/
+/.gomod*/
+# Wrangler's local state from the R2 uploads.
+/.wrangler/
 
 # Isolated worktrees
 /.worktrees/

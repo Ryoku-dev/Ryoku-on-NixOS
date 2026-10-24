@@ -27,6 +27,8 @@ puts its name and colors on it.
   called `ryoku`, sets the kernel command line, and wires up snapshot entries.
 - `plymouth/ryoku/` The splash theme: the manifest, the animation script, and
   the image assets (logo, progress bar, password prompt). Vendored as-is.
+  Fedora ships the same theme; `fedora/system/boot/ryoku-plymouth-apply` sets
+  it there, since Fedora keeps GRUB and dracut instead of this chain.
 - `mkinitcpio/ryoku.conf` The list of initramfs hooks, including `plymouth`
   for the splash, `kms` for an early, flicker-free GPU handoff, and `resume`
   (right after `encrypt`) so a hibernated system is restored from its swapfile.

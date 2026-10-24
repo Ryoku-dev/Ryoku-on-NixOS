@@ -299,12 +299,12 @@ DockButton {
         }
 
         // Custom image (for trash icon, etc.)
-        Image {
+        StyledImage {
             visible: root.customImageSource !== ""
             source: root.customImageSource
             anchors.centerIn: parent
-            width: root.buttonSize * 1.0 // Standard size
-            height: root.buttonSize * 1.0
+            width: root.buttonSize
+            height: root.buttonSize
             fillMode: Image.PreserveAspectFit
             smooth: true
             antialiasing: true

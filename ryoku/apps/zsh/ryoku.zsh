@@ -8,6 +8,11 @@ unset _ryoku_env
 
 [[ -o interactive ]] || return
 
+_ryoku_desktop_env=${XDG_CONFIG_HOME:-$HOME/.config}/ryoku-terminal/desktop-display.sh
+[[ -r $_ryoku_desktop_env ]] || _ryoku_desktop_env=${${(%):-%N}:A:h}/../terminal-shell/desktop-display.sh
+[[ -r $_ryoku_desktop_env ]] && source "$_ryoku_desktop_env"
+unset _ryoku_desktop_env
+
 command -v ryoku-fastfetch >/dev/null 2>&1 && ryoku-fastfetch
 
 _ryoku_prompt=${RYOKU_ZSH_PROMPT:-starship}

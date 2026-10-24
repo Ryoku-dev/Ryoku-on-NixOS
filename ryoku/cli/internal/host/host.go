@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+	"time"
 )
 
 const (
@@ -162,6 +163,11 @@ type Config struct {
 	PhoneModprobePath    string
 	PhoneStatePath       string
 	PhoneCoprDir         string
+	PasswdPath           string
+	GroupPath            string
+	HomeRoot             string
+	SkeletonDir          string
+	Now                  func() time.Time
 }
 
 type App struct {
@@ -272,6 +278,21 @@ func New(cfg Config) *App {
 	}
 	if cfg.PhoneCoprDir == "" {
 		cfg.PhoneCoprDir = "/etc/yum.repos.d"
+	}
+	if cfg.PasswdPath == "" {
+		cfg.PasswdPath = "/etc/passwd"
+	}
+	if cfg.GroupPath == "" {
+		cfg.GroupPath = "/etc/group"
+	}
+	if cfg.HomeRoot == "" {
+		cfg.HomeRoot = "/home"
+	}
+	if cfg.SkeletonDir == "" {
+		cfg.SkeletonDir = "/etc/skel"
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
 	}
 	if !cfg.UIDSet && cfg.UID == 0 {
 		cfg.UID = os.Geteuid()

@@ -9,15 +9,28 @@
   comma-separated allowlist.
 
 ### Fixed
-- **The CachyOS kernel toggle adds only `[cachyos-v3]` again, not the whole
-  CachyOS stack.** `ryoku-pkg-cachyos` had drifted to also add
-  `[cachyos-core-v3]`, `[cachyos-extra-v3]`, and the baseline `[cachyos]` --
-  pulling CachyOS's forked pacman and letting a later `pacman -Syu` convert the
-  Arch userland, which is exactly what the kernel toggle is documented to avoid
-  (docs/kernels.md). It now inserts just `[cachyos-v3]` (where `linux-cachyos`
-  lives). The full-CachyOS install variant keeps its full stack via a separate
-  path (installation/backend/lib/cachyos.sh). Existing boxes that already got the
-  extra repos can comment or delete those repo blocks in `/etc/pacman.conf`.
+- **Bundles install on Fedora and Void.** `ryostore-install` routes package
+  items through `ryoku-host` with the catalogue's edition table laid under
+  Ryoku's, asks `ryoku-host pkg status` once per bundle, marks a package the
+  edition does not ship unavailable with the table's reason, and honours a
+  `packageManagers` gate on a bundle or an item. `ryoku-pkg-add` and
+  `ryoku-pkg-remove` carry the table across `sudo` as `--overlay`.
+- **The CachyOS kernel toggle keeps CachyOS repositories below Arch, not above
+  `[core]`.** `ryoku-pkg-cachyos` had drifted to add
+  `[cachyos-core-v3]`, `[cachyos-extra-v3]`, and the baseline `[cachyos]` above
+  Arch's repositories, pulling CachyOS's forked pacman and letting a later
+  `pacman -Syu` convert the Arch userland, which is exactly what the toggle is
+  documented to avoid (`docs/kernels.md`). It now inserts `[cachyos-v3]` and
+  `[cachyos]` below every Arch repository and `[ryoku]`. The full-CachyOS
+  install variant keeps its native stack via a separate path
+  (`installation/backend/lib/cachyos.sh`). Existing v3-only above-`[core]`
+  layouts are migrated the next time the helper runs.
+- **CachyOS Gaming no longer risks converting an Arch userland.** RyoStore's
+  renamed 1.1.0 bundle keeps id `cachyos-layer` and now installs the same
+  kernel, tuning, scheduler, Steam, and CachyOS gaming set as the Arch installer.
+  The helper leaves a CachyOS edition's native configuration untouched and
+  falls back from keyservers to a checksum- and fingerprint-verified
+  `cachyos-keyring` package.
 - **A failed multilib enable now aborts the bundle instead of mis-routing its
   packages.** `ensure_requires` ran `ryoku-pkg-multilib || true`, so when the
   repo could not be enabled (sed no-op on a hand-edited pacman.conf, a failed
@@ -78,10 +91,10 @@
   AUR-helper wrappers for repo installs, AUR installs, and removals.
 - `ryoku-pkg-multilib`: idempotently enables the `[multilib]` repo for bundles
   that need 32-bit packages (Gaming, for Steam and the lib32 libraries).
-- `ryoku-pkg-cachyos`: idempotently adds the `[cachyos-v3]` repository (CachyOS
-  key, x86-64-v3 only, additive, without the baseline `[cachyos]` repo or its
-  forked pacman) so the CachyOS Kernel bundle can install `linux-cachyos`
-  through pacman.
+- `ryoku-pkg-cachyos`: idempotently adds `[cachyos-v3]` and `[cachyos]`
+  (CachyOS key, x86-64-v3 only) below Arch's repositories and `[ryoku]`, so the
+  CachyOS Gaming bundle can install `linux-cachyos` and its generic-repository
+  packages through pacman without replacing the Arch userland.
 - `ryoku-extras-install`: satisfy `"requires": ["cachyos"]` via
   `ryoku-pkg-cachyos`, and abort with a "run ryoku update" message on any
   unrecognized requirement instead of skipping it (which would mis-route the

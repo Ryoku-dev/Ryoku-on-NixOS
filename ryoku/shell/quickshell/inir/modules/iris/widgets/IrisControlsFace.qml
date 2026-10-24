@@ -96,7 +96,7 @@ IrisWidgetFace {
                 on: BluetoothStatus.enabled
                 available: BluetoothStatus.available
                 tint: IrisStyle.identity.blue
-                onToggled: { if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = !Bluetooth.defaultAdapter.enabled }
+                onToggled: BluetoothStatus.toggle()
             }
             Toggle {
                 glyph: Notifications.manualDndActive ? "do_not_disturb_on" : "do_not_disturb_off"

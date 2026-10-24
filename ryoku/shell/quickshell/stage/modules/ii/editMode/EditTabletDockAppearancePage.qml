@@ -75,8 +75,8 @@ StyledFlickable {
             title: Translation.tr("Keep app row pinned")
             subtitle: Translation.tr("Keep launcher icons always visible")
             trailingKind: "switch"
-            switchChecked: Config.options.dock.pinnedOnStartup ?? false
-            onActivated: Config.options.dock.pinnedOnStartup = !(Config.options.dock.pinnedOnStartup ?? false)
+            switchChecked: Config.options.dock.pinnedOnStartup ?? true
+            onActivated: Config.options.dock.pinnedOnStartup = !(Config.options.dock.pinnedOnStartup ?? true)
         }
 
         EditPanelRow {

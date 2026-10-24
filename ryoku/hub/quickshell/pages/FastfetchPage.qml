@@ -68,7 +68,7 @@ Item {
         }
     }
 
-    // A store-installed emblem is one flat PNG in ~/Pictures/ryoemblems, so its
+    // A store-installed emblem is one flat PNG in <Pictures>/ryoemblems, so its
     // id is the file's stem and removing it is the store's own remove. The
     // repoint happens after the file is gone, not before: a commit racing the
     // delete let the reload read the dangling source, and a missing source
@@ -284,28 +284,35 @@ Item {
     // imports a file since it can live anywhere. Paths keep a leading ~ so the
     // config stays portable.
     property var installedArt: []
+    // The Pictures folder written with a leading ~, so a localized desktop
+    // (~/Imágenes) keeps the same portable form as the English default.
+    readonly property string picsRoot: {
+        var home = Paths.home;
+        var dir = Paths.picturesDir;
+        return (home.length > 0 && dir.indexOf(home + "/") === 0) ? "~" + dir.slice(home.length) : dir;
+    }
     readonly property var brandArt: [
         { "name": "RYOKU", "path": "~/.local/share/ryoku/assets/brand/fastfetch-emblem.png" },
         { "name": "MARK", "path": "~/.local/share/ryoku/assets/brand/logo-mark.png" },
-        { "name": "LAOCOON", "path": "~/Pictures/ryodecors/laocoon.png" },
-        { "name": "DAVID", "path": "~/Pictures/ryodecors/david.png" },
-        { "name": "AURELIUS", "path": "~/Pictures/ryodecors/aurelius.png" },
-        { "name": "HAWK", "path": "~/Pictures/ryodecors/hawk.png" },
-        { "name": "KATANA", "path": "~/Pictures/ryodecors/katana.png" },
-        { "name": "MOON", "path": "~/Pictures/ryodecors/moon.png" },
-        { "name": "NEEDLE", "path": "~/Pictures/ryodecors/needle.png" },
-        { "name": "MIC", "path": "~/Pictures/ryodecors/mic.png" },
-        { "name": "CAMERA", "path": "~/Pictures/ryodecors/camera.png" },
-        { "name": "RASHIN", "path": "~/Pictures/ryodecors/rashin-hero.png" }
+        { "name": "LAOCOON", "path": pg.picsRoot + "/ryodecors/laocoon.png" },
+        { "name": "DAVID", "path": pg.picsRoot + "/ryodecors/david.png" },
+        { "name": "AURELIUS", "path": pg.picsRoot + "/ryodecors/aurelius.png" },
+        { "name": "HAWK", "path": pg.picsRoot + "/ryodecors/hawk.png" },
+        { "name": "KATANA", "path": pg.picsRoot + "/ryodecors/katana.png" },
+        { "name": "MOON", "path": pg.picsRoot + "/ryodecors/moon.png" },
+        { "name": "NEEDLE", "path": pg.picsRoot + "/ryodecors/needle.png" },
+        { "name": "MIC", "path": pg.picsRoot + "/ryodecors/mic.png" },
+        { "name": "CAMERA", "path": pg.picsRoot + "/ryodecors/camera.png" },
+        { "name": "RASHIN", "path": pg.picsRoot + "/ryodecors/rashin-hero.png" }
     ]
     readonly property var readyArt: pg.brandArt.concat(pg.installedArt)
 
-    // Emblems installed from the store land in ~/Pictures/ryoemblems as one flat
+    // Emblems installed from the store land in <Pictures>/ryoemblems as one flat
     // PNG each, so listing that folder is the whole discovery step.
     Process {
         id: emblemScan
         running: true
-        command: ["sh", "-c", "ls -1 \"$HOME/Pictures/ryoemblems\" 2>/dev/null | grep -i '\\.png$' || true"]
+        command: ["sh", "-c", "ls -1 \"$1\" 2>/dev/null | grep -i '\\.png$' || true", "sh", Paths.picturesDir + "/ryoemblems"]
         stdout: StdioCollector {
             onStreamFinished: {
                 var out = [];
@@ -316,7 +323,7 @@ Item {
                         continue;
                     var stem = file.replace(/\.png$/i, "");
                     out.push({ "name": stem.replace(/-/g, " ").toUpperCase(),
-                               "path": "~/Pictures/ryoemblems/" + file });
+                               "path": pg.picsRoot + "/ryoemblems/" + file });
                 }
                 pg.installedArt = out;
             }

@@ -5,165 +5,124 @@ import inir.modules.common
 import inir.modules.common.functions
 import QtQuick
 import Quickshell
-import Quickshell.Io
 import inir.services
+import shell.services as RyokuServices
 
 Singleton {
     id: root
-    // property string cliphistBinary: FileUtils.trimFileProtocol(`${Directories.home}/.cargo/bin/stash`)
-    property string cliphistBinary: "cliphist"
-    // Limit how many entries we keep/read to avoid huge models and heavy fuzzy search
+
     property int maxEntries: 400
-    property real pasteDelay: 0.05
-    property string pressPasteCommand: "ydotool key -d 1 29:1 47:1 47:0 29:0"
     property bool sloppySearch: Config.options?.search?.sloppy ?? false
     property real scoreThreshold: 0.2
-    property list<string> entries: []
-    property int _readAttempts: 0
-    property bool _refreshQueued: false
-    readonly property var preparedEntries: entries.map(a => ({
-        name: Fuzzy.prepare(`${a.replace(/^\s*\S+\s+/, "")}`),
-        entry: a
-    }))
 
-    function _log(...args): void {
-        if (Quickshell.env("QS_DEBUG") === "1") console.log(...args);
-    }
+    readonly property var entries: Array.from(RyokuServices.Clipboard.entries ?? []).slice(0, root.maxEntries)
+    readonly property var pinned: Array.from(Config.options?.clipboard?.pinned ?? [])
+    readonly property var missingPinnedEntries: root.pinned.filter(text => {
+        return !root.entries.some(entry => root.isCompleteText(entry) && String(entry.preview ?? "") === String(text))
+    }).map(text => ({
+        id: "",
+        kind: "text",
+        mime: "text/plain",
+        size: root.utf8Size(String(text)),
+        preview: String(text),
+        thumb: "",
+        thumbW: 0,
+        thumbH: 0,
+        pinnedOnly: true
+    }))
+    readonly property var searchEntries: root.missingPinnedEntries.concat(root.entries)
+    readonly property var preparedEntries: root.searchEntries
+        .filter(entry => entry.kind === "text")
+        .map(entry => ({
+            name: Fuzzy.prepare(String(entry.preview ?? "")),
+            entry: entry
+        }))
 
     function fuzzyQuery(search: string): var {
-        if (search.trim() === "") {
-            return entries.slice(0, root.maxEntries);
-        }
+        if (search.trim() === "")
+            return root.searchEntries.slice(0, root.maxEntries + root.missingPinnedEntries.length)
+
+        const candidates = root.searchEntries.filter(entry => entry.kind === "text")
         if (root.sloppySearch) {
-            const results = entries.slice(0, Math.min(100, root.maxEntries)).map(str => ({
-                entry: str,
-                score: Levendist.computeTextMatchScore(str.toLowerCase(), search.toLowerCase())
+            return candidates.slice(0, Math.min(100, candidates.length)).map(entry => ({
+                entry: entry,
+                score: Levendist.computeTextMatchScore(
+                    String(entry.preview ?? "").toLowerCase(),
+                    search.toLowerCase())
             })).filter(item => item.score > root.scoreThreshold)
                 .sort((a, b) => b.score - a.score)
-            return results
                 .map(item => item.entry)
         }
 
-        return Fuzzy.go(search, preparedEntries, {
+        return Fuzzy.go(search, root.preparedEntries, {
             all: true,
             key: "name"
-        }).map(r => {
-            return r.obj.entry
-        });
+        }).map(result => result.obj.entry)
     }
 
-    function entryIsImage(entry) {
-        return !!(/^\d+\t\[\[.*binary data.*\d+x\d+.*\]\]$/.test(entry))
+    function entryIsImage(entry): bool {
+        return entry?.kind === "image"
     }
 
-    function entryId(entry): string {
-        const match = String(entry ?? "").match(/^\s*(\d+)/)
-        return match ? match[1] : ""
-    }
-
-    // Entries captured before the watcher started stripping browser markup still
-    // hold it, and they outlive the fix — so clean on the way out as well. The
-    // filter forwards anything that is not a browser text/html payload byte for
-    // byte, which keeps images intact.
-    readonly property string _markupFilter: `'${Directories.scriptsPath}/clipboard-store.py' --filter`
-
-    function decodeCommand(entry): string {
-        if (root.cliphistBinary.includes("cliphist")) {
-            const id = root.entryId(entry)
-            if (id.length > 0)
-                return `${root.cliphistBinary} decode ${id} | ${root._markupFilter}`
-            return `printf '%s\n' '${StringUtils.shellSingleQuoteEscape(entry)}' | ${root.cliphistBinary} decode | ${root._markupFilter}`
-        }
-
-        const entryNumber = String(entry ?? "").split("\t")[0]
-        return `${root.cliphistBinary} decode ${entryNumber} | ${root._markupFilter}`
-    }
-
-    function refresh() {
-        if (readProc.running) {
-            root._refreshQueued = true
+    function copy(entry): void {
+        if (!entry)
+            return
+        if (entry.pinnedOnly === true) {
+            Quickshell.clipboardText = String(entry.preview ?? "")
             return
         }
-        readProc.buffer = []
-        readProc.running = true
+        RyokuServices.Clipboard.copy(Number(entry.id))
     }
 
-    function copy(entry) {
-        root._log("[Cliphist] copy()", String(entry).slice(0, 120))
-        root._selfCopy = true
-        selfCopyResetTimer.restart()
-        Quickshell.execDetached(["/usr/bin/bash", "-c", `${root.decodeCommand(entry)} | /usr/bin/wl-copy`]);
-    }
-
-    function paste(entry) {
-        root._selfCopy = true
-        Quickshell.execDetached(["/usr/bin/bash", "-c", `${root.decodeCommand(entry)} | /usr/bin/wl-copy\n${root.pressPasteCommand}`]);
-    }
-
-    function superpaste(count, isImage = false) {
-        // Find entries
-        const targetEntries = entries.filter(entry => {
-            if (!isImage) return true;
-            return entryIsImage(entry);
-        }).slice(0, count)
-        const pasteCommands = [...targetEntries].reverse().map(entry => `${root.decodeCommand(entry)} | /usr/bin/wl-copy\n/usr/bin/sleep ${root.pasteDelay}\n${root.pressPasteCommand}`)
-        // Act
-        Quickshell.execDetached(["/usr/bin/bash", "-c", pasteCommands.join(`\n/usr/bin/sleep ${root.pasteDelay}\n`)]);
-    }
-
-    Process {
-        id: deleteProc
-        property string entry: ""
-        command: [root.cliphistBinary, "delete"]
-        stdinEnabled: true
-        function deleteEntry(entry) {
-            deleteProc.entry = entry;
-            deleteProc.stdinEnabled = true
-            deleteProc.running = true;
+    function deleteEntry(entry): void {
+        if (!entry)
+            return
+        if (entry.pinnedOnly === true) {
+            root.unpin(String(entry.preview ?? ""))
+            return
         }
-        onRunningChanged: {
-            if (deleteProc.running) {
-                const toWrite = deleteProc.entry
-                deleteProc.write(toWrite)
-                deleteProc.write("\n")
-                deleteProc.stdinEnabled = false
+        RyokuServices.Clipboard.del(Number(entry.id))
+    }
+
+    function wipe(): void {
+        RyokuServices.Clipboard.clear()
+    }
+
+    function utf8Size(text): int {
+        const value = String(text ?? "")
+        let size = 0
+        for (let i = 0; i < value.length; i++) {
+            const code = value.charCodeAt(i)
+            if (code <= 0x7f) {
+                size += 1
+            } else if (code <= 0x7ff) {
+                size += 2
+            } else if (code >= 0xd800 && code <= 0xdbff
+                    && i + 1 < value.length
+                    && value.charCodeAt(i + 1) >= 0xdc00
+                    && value.charCodeAt(i + 1) <= 0xdfff) {
+                size += 4
+                i++
             } else {
-                deleteProc.stdinEnabled = true
+                size += 3
             }
         }
-        onExited: (exitCode, exitStatus) => {
-            deleteProc.entry = "";
-            root.refresh();
-        }
+        return size
     }
 
-    function deleteEntry(entry) {
-        deleteProc.deleteEntry(entry);
+    // A preview is the full text only when its UTF-8 byte count still equals
+    // the daemon's captured size. This also admits exact 200-character entries.
+    function isCompleteText(entry): bool {
+        return entry?.kind === "text"
+            && root.utf8Size(String(entry.preview ?? "")) === Number(entry.size ?? -1)
     }
-
-    Process {
-        id: wipeProc
-        command: [root.cliphistBinary, "wipe"]
-        onExited: (exitCode, exitStatus) => {
-            root.refresh();
-        }
-    }
-
-    function wipe() {
-        wipeProc.running = true;
-    }
-
-    // Pins store the decoded text, not the cliphist id: ids are recycled and
-    // entries fall out of the store once maxEntries rotates past them.
-    readonly property var pinned: Config.options?.clipboard?.pinned ?? []
-    property int maxPinLength: 8000
 
     function isPinnable(entry): bool {
-        return String(entry ?? "").length > 0 && !root.entryIsImage(entry)
+        return root.isCompleteText(entry) && String(entry.preview ?? "").length > 0
     }
 
     function pinPreview(text): string {
-        const firstLine = String(text ?? "").split("\n").find(l => l.trim().length > 0) ?? ""
+        const firstLine = String(text ?? "").split("\n").find(line => line.trim().length > 0) ?? ""
         return firstLine.trim()
     }
 
@@ -171,160 +130,24 @@ Singleton {
         return root.pinned.indexOf(text) !== -1
     }
 
-    // Pins hold decoded text; list entries are "id<TAB>preview". Decoding every
-    // visible row to compare would mean a subprocess per item, so match on the
-    // preview instead.
-    //
-    // cliphist truncates that preview at 100 characters. Below the cut the
-    // preview IS the whole entry, so it has to match exactly: prefix-matching a
-    // short preview would mark every entry that merely starts a longer pin as
-    // pinned. At or above the cut the preview is a prefix of the pinned text.
-    readonly property int previewLimit: 100
-
-    function _previewKey(text): string {
-        return String(text ?? "").replace(/\s+/g, " ").trim()
-    }
-
     function pinnedTextFor(entry): string {
-        const raw = String(entry ?? "")
-        const tab = raw.indexOf("\t")
-        if (tab < 0) return ""
-        const preview = root._previewKey(raw.slice(tab + 1))
-        if (preview.length === 0) return ""
-        const truncated = preview.length >= root.previewLimit
-        return root.pinned.find(p => {
-            const key = root._previewKey(p)
-            return truncated ? key.startsWith(preview) : key === preview
-        }) ?? ""
+        if (!entry)
+            return ""
+        const text = String(entry.preview ?? "")
+        if (entry.pinnedOnly === true)
+            return root.isPinned(text) ? text : ""
+        return root.isCompleteText(entry) && root.isPinned(text) ? text : ""
     }
 
     function unpin(text): void {
-        Config.setNestedValue("clipboard.pinned", root.pinned.filter(p => p !== text))
+        Config.setNestedValue("clipboard.pinned", root.pinned.filter(pin => pin !== text))
     }
 
     function pinEntry(entry): void {
-        if (!root.isPinnable(entry)) return
-        pinProc.command = ["/usr/bin/bash", "-c", root.decodeCommand(entry)]
-        pinProc.running = true
-    }
-
-    Process {
-        id: pinProc
-        stdout: StdioCollector {
-            onStreamFinished: {
-                // Entries stored before the watcher stripped browser markup still
-                // carry it, and a pin keeps the decoded text forever — so clean it
-                // here too, or pinning an old entry pins the markup with it.
-                const decoded = root.stripBrowserMarkup(text).slice(0, root.maxPinLength)
-                if (decoded.length === 0 || root.isPinned(decoded)) return
-                Config.setNestedValue("clipboard.pinned", [decoded, ...root.pinned])
-            }
-        }
-    }
-
-    // Two wrappers mark a text/html payload: Firefox's content-type meta tag and
-    // the CF_HTML fragment markers Chromium and Electron apps emit. They are the
-    // only reliable sign that the content is markup rather than text that happens
-    // to contain tags. Kept in sync with scripts/clipboard-store.py.
-    function isBrowserMarkup(str): bool {
-        return str.startsWith('<meta http-equiv="content-type" content="text/html')
-            || str.indexOf("<!--StartFragment-->") !== -1
-    }
-
-    function stripBrowserMarkup(text): string {
-        const str = String(text ?? "")
-        if (!root.isBrowserMarkup(str))
-            return str
-        return StringUtils.stripHtmlTags(str.replace(/<!--[\s\S]*?-->/g, "")).trim()
-    }
-
-    Connections {
-        target: Quickshell
-        function onClipboardTextChanged() {
-            // Skip refresh if clipboard text matches what we just copied ourselves
-            if (root._selfCopy) {
-                root._selfCopy = false;
-                selfCopyResetTimer.stop();
-                return;
-            }
-            // Skip refresh while window previews are being captured. The persistent
-            // image watcher also filters these frames before cliphist storage.
-            if (root.suppressRefresh) return;
-            delayedUpdateTimer.restart()
-        }
-    }
-
-    property bool _selfCopy: false
-    property bool suppressRefresh: false
-
-    // Safety: reset _selfCopy if onClipboardTextChanged never fires (e.g. pipeline failed)
-    Timer {
-        id: selfCopyResetTimer
-        interval: 2000
-        onTriggered: {
-            if (root._selfCopy) {
-                root._log("[Cliphist] _selfCopy reset by timeout (pipeline may have failed)")
-                root._selfCopy = false
-            }
-        }
-    }
-
-    Timer {
-        id: delayedUpdateTimer
-        interval: 800
-        repeat: false
-        onTriggered: {
-            // Only refresh if not already running a read
-            if (!readProc.running) root.refresh()
-        }
-    }
-
-    Timer {
-        id: readRetryTimer
-        interval: 250
-        repeat: false
-        onTriggered: root.refresh()
-    }
-
-    Process {
-        id: readProc
-        property list<string> buffer: []
-
-        command: [root.cliphistBinary, "list"]
-
-        stdout: SplitParser {
-            onRead: (line) => {
-                readProc.buffer.push(line)
-            }
-        }
-
-        onExited: (exitCode, exitStatus) => {
-            if (exitCode === 0) {
-                // Cap the number of entries we keep to avoid heavy models
-                root.entries = readProc.buffer.slice(0, root.maxEntries)
-                root._readAttempts = 0
-                if (root._refreshQueued) {
-                    root._refreshQueued = false
-                    root.refresh()
-                }
-            } else {
-                if (root._readAttempts < 3) {
-                    root._readAttempts++
-                    readRetryTimer.interval = 250 * root._readAttempts
-                    readRetryTimer.restart()
-                } else {
-                    root._readAttempts = 0
-                    console.error("[Cliphist] Failed to refresh with code", exitCode, "and status", exitStatus)
-                }
-            }
-        }
-    }
-
-    IpcHandler {
-        target: "cliphistService"
-
-        function update(): void {
-            root.refresh()
-        }
+        if (!root.isPinnable(entry))
+            return
+        const text = String(entry.preview ?? "")
+        if (!root.isPinned(text))
+            Config.setNestedValue("clipboard.pinned", [text, ...root.pinned])
     }
 }

@@ -44,15 +44,16 @@ Item {
         radius: icon.radius
         color: faviconImage.status === Image.Ready ? ClockStyle.colSurfaceHighest : icon.tint
 
-        Image {
+        StyledImage {
             id: faviconImage
             anchors.centerIn: parent
             width: Math.round(parent.width * icon.iconScale)
             height: width
             source: icon.favicon
-            sourceSize: Qt.size(Math.ceil(width * Math.max(2, icon.renderScale * 1.5)), Math.ceil(height * Math.max(2, icon.renderScale * 1.5)))
+            sourceSize: Qt.size(
+                Math.ceil(width * Math.max(2, icon.renderScale * 1.5)),
+                Math.ceil(height * Math.max(2, icon.renderScale * 1.5)))
             fillMode: Image.PreserveAspectFit
-            asynchronous: true
             smooth: true
             visible: status === Image.Ready
         }

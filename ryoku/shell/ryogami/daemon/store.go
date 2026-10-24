@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -58,12 +59,30 @@ func openStore(cacheDir string) *store {
 	return s
 }
 
+func portableJSON(b []byte) []byte {
+	h := filepath.Clean(home())
+	if h == "." || h == string(filepath.Separator) {
+		return b
+	}
+	prefix, _ := json.Marshal(h + string(filepath.Separator))
+	return bytes.ReplaceAll(b, prefix[:len(prefix)-1], []byte(`"~/`))
+}
+
+func resolvedJSON(b []byte) []byte {
+	h := filepath.Clean(home())
+	if h == "." || h == string(filepath.Separator) {
+		return b
+	}
+	prefix, _ := json.Marshal(h + string(filepath.Separator))
+	return bytes.ReplaceAll(b, []byte(`"~/`), prefix[:len(prefix)-1])
+}
+
 func loadJSON(path string, into interface{}) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
-	_ = json.Unmarshal(b, into)
+	_ = json.Unmarshal(resolvedJSON(b), into)
 }
 
 func saveJSON(path string, v interface{}) {
@@ -72,7 +91,7 @@ func saveJSON(path string, v interface{}) {
 		return
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.WriteFile(tmp, portableJSON(b), 0o644); err != nil {
 		return
 	}
 	_ = os.Rename(tmp, path)

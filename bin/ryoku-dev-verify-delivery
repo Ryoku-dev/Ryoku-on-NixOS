@@ -93,7 +93,7 @@ fi
 declare -A qml_module_pkg=(
 	[Qt]=qt6-declarative [QtQuick]=qt6-declarative [QtQml]=qt6-declarative
 	[QtCore]=qt6-declarative [QtMultimedia]=qt6-multimedia
-	[Qt5Compat]=qt6-5compat [Quickshell]=quickshell
+	[Qt5Compat]=qt6-5compat [QtQuick3D]=qt6-quick3d [Quickshell]=quickshell
 	[org.kde.syntaxhighlighting]=syntax-highlighting
 )
 qml_in_tree=(Ryoku inir shell stage RashinApp qs)

@@ -153,7 +153,7 @@ Item {
 
     Process {
         id: grimProc
-        command: ["grim", "-o", overlay.scrName, overlay.fallbackPath]
+        command: ["ryoku-cmd-grim", "-o", overlay.scrName, overlay.fallbackPath]
         onExited: (code) => {
             if (code !== 0) {
                 console.error("ryoshot: grim fallback exited " + code + " for " + overlay.scrName);

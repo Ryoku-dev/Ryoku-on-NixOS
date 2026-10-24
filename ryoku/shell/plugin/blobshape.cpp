@@ -178,6 +178,7 @@ void BlobShape::updatePolish() {
     }
     for (auto& data : m_cachedWaveData)
         std::fill_n(data, 64, 0.0f);
+    std::fill_n(m_cachedWaves, 4, nullptr);
 
     // parallel array of shape ptrs so we can do pairwise exclusion lookups
     QVector<BlobShape*> rectShapes;
@@ -266,6 +267,7 @@ void BlobShape::updatePolish() {
                 info[2] = static_cast<float>(otherWave->stepped() ? -count : count);
                 info[3] = static_cast<float>(m_cachedRects.size() - 1);
                 std::copy_n(otherWave->waveHeights().begin(), count, m_cachedWaveData[waveSlot]);
+                m_cachedWaves[waveSlot] = otherWave;
                 ++waveSlot;
             }
         }
@@ -383,6 +385,31 @@ void BlobShape::updatePolish() {
     }
 }
 
+bool BlobShape::refreshWaveData(BlobWave* const* waves, int count) {
+    // Geometry and union caches are static while a wave settles. Refresh only
+    // the height arrays uploaded by the material.
+    bool changed = false;
+    for (int slot = 0; slot < 4; ++slot) {
+        auto* cachedWave = m_cachedWaves[slot];
+        if (!cachedWave)
+            continue;
+        bool matches = false;
+        for (int i = 0; i < count; ++i) {
+            if (waves[i] == cachedWave) {
+                matches = true;
+                break;
+            }
+        }
+        if (!matches)
+            continue;
+        const int waveCount = cachedWave->count();
+        std::copy_n(cachedWave->waveHeights().begin(), waveCount, m_cachedWaveData[slot]);
+        std::fill(m_cachedWaveData[slot] + waveCount, m_cachedWaveData[slot] + 64, 0.0f);
+        changed = true;
+    }
+    return changed;
+}
+
 QSGNode* BlobShape::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     if (!m_group) {
         delete oldNode;
@@ -390,6 +417,7 @@ QSGNode* BlobShape::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     }
 
     auto* node = static_cast<QSGGeometryNode*>(oldNode);
+    const bool created = !node;
     if (!node) {
         node = new QSGGeometryNode;
 
@@ -412,12 +440,13 @@ QSGNode* BlobShape::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) {
     const float x1 = x0 + static_cast<float>(m_localPaddedRect.width());
     const float y1 = y0 + static_cast<float>(m_localPaddedRect.height());
 
-    v[0].set(x0, y0, 0.0f, 0.0f);
-    v[1].set(x1, y0, 1.0f, 0.0f);
-    v[2].set(x0, y1, 0.0f, 1.0f);
-    v[3].set(x1, y1, 1.0f, 1.0f);
-
-    node->markDirty(QSGNode::DirtyGeometry);
+    if (created || v[0].x != x0 || v[0].y != y0 || v[1].x != x1 || v[2].y != y1) {
+        v[0].set(x0, y0, 0.0f, 0.0f);
+        v[1].set(x1, y0, 1.0f, 0.0f);
+        v[2].set(x0, y1, 0.0f, 1.0f);
+        v[3].set(x1, y1, 1.0f, 1.0f);
+        node->markDirty(QSGNode::DirtyGeometry);
+    }
 
     auto* material = static_cast<BlobMaterial*>(node->material());
     material->m_paddedX = m_cachedPaddedX;

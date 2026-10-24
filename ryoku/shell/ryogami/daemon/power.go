@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
-const powerPollInterval = 10 * time.Second
+const powerFallbackPollInterval = time.Minute
 
 // A variable so a test can point it at a fixture tree.
 var powerSupplyRoot = "/sys/class/power_supply"
@@ -88,18 +91,71 @@ func (d *daemon) pickerGpuEnv() []string {
 	return nil
 }
 
+var powerSupplyUevent = []byte("\x00SUBSYSTEM=power_supply\x00")
+
+func openPowerEventSocket() (int, error) {
+	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_DGRAM|syscall.SOCK_CLOEXEC, syscall.NETLINK_KOBJECT_UEVENT)
+	if err != nil {
+		return -1, err
+	}
+	addr := &syscall.SockaddrNetlink{Family: syscall.AF_NETLINK, Groups: 1}
+	if err := syscall.Bind(fd, addr); err != nil {
+		syscall.Close(fd)
+		return -1, err
+	}
+	return fd, nil
+}
+
+func runPowerEvents(fd int, changed func()) error {
+	return runPowerEventReader(func(buf []byte) (int, error) {
+		return syscall.Read(fd, buf)
+	}, changed)
+}
+
+func runPowerEventReader(readEvent func([]byte) (int, error), changed func()) error {
+	buf := make([]byte, 16*1024)
+	for {
+		n, err := readEvent(buf)
+		if err == syscall.EINTR {
+			continue
+		}
+		if err == syscall.ENOBUFS {
+			changed()
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if n > 0 && bytes.Contains(buf[:n], powerSupplyUevent) {
+			changed()
+		}
+	}
+}
+
 func (d *daemon) watchPower() {
 	last := powerOnBattery()
 	d.broadcastPower(last)
-	for {
-		time.Sleep(powerPollInterval)
+	changed := func() {
 		now := powerOnBattery()
 		if now == last {
-			continue
+			return
 		}
 		last = now
 		d.broadcastPower(now)
 		d.reevaluatePause()
+	}
+	fd, err := openPowerEventSocket()
+	if err == nil {
+		err = runPowerEvents(fd, changed)
+		syscall.Close(fd)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ryogami: power event watch unavailable, polling every %s: %v\n", powerFallbackPollInterval, err)
+	}
+	ticker := time.NewTicker(powerFallbackPollInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		changed()
 	}
 }
 

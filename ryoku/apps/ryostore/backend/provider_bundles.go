@@ -211,12 +211,14 @@ func (p bundleProvider) Load(ctx context.Context, refresh bool) ([]Item, SourceS
 }
 
 func (p bundleProvider) Install(ctx context.Context, id string) error {
+	reportProgressNow(ctx, "apply", 0, 0)
 	return p.launch(id, nil)
 }
 
 // InstallComponents installs only the named components (the store's manual
 // selection); an empty list falls back to the whole-bundle install.
 func (p bundleProvider) InstallComponents(ctx context.Context, id string, only []string) error {
+	reportProgressNow(ctx, "apply", 0, 0)
 	return p.launch(id, only)
 }
 

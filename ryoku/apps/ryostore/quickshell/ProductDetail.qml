@@ -11,6 +11,9 @@ FocusScope {
     property rect originRect: Qt.rect(0, 0, 0, 0)
     property string busyKey: ""
     property string installStage: ""
+    property string installProgressStage: ""
+    property real installProgressDone: 0
+    property real installProgressTotal: 0
     property string installErrorKey: ""
     property string installError: ""
     property bool reducedMotion: false
@@ -750,6 +753,18 @@ FocusScope {
                 installError: detail.installError
             }
 
+            InstallProgress {
+                objectName: "ryostore-detail-install-progress"
+                width: parent.width
+                stage: detail.installProgressStage
+                done: detail.installProgressDone
+                total: detail.installProgressTotal
+                category: String(detail.actionItem.category || "")
+                installed: StoreLogic.isInstalled(detail.actionItem)
+                active: detail.busyKey === detail.actionKey
+                reducedMotion: detail.reducedMotion
+            }
+
             Text {
                 objectName: "ryostore-detail-foreign-wm"
                 width: parent.width
@@ -815,6 +830,8 @@ FocusScope {
                     primary: true
                     busy: detail.busyKey === detail.actionKey
                     reducedMotion: detail.reducedMotion
+                    progressDone: detail.installProgressDone
+                    progressTotal: detail.installProgressTotal
                     armed: detail.item !== null && detail.selectedNames.length > 0
                             && !StoreLogic.isDownloadPaused(detail.actionItem)
                             && !StoreLogic.isUnavailable(detail.actionItem)
@@ -842,6 +859,8 @@ FocusScope {
                     busy: detail.busyKey === detail.actionKey
                     installed: StoreLogic.primaryAction(detail.actionItem) === "INSTALLED"
                     reducedMotion: detail.reducedMotion
+                    progressDone: detail.installProgressDone
+                    progressTotal: detail.installProgressTotal
                     armed: detail.item !== null
                             && !installed
                             && !StoreLogic.isDownloadPaused(detail.actionItem)

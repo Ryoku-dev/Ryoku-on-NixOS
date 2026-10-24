@@ -1,167 +1,36 @@
 pragma Singleton
 import QtQuick
 import Quickshell
-import Quickshell.Io
+import Ryoku.Blobs
 import "../utils/menupoll.js" as MenuPoll
 
-// playback spectrum for the pill: the bar's music widget and its card both draw
-// from this one cava feed (the PipeWire playback monitor, 40 bands / 30fps), so
-// one analyser serves every music surface. `setActive` is owner-refcounted like
-// PowerProfiles, but the analyser runs only while a visible surface claims it AND
-// the shell's pill policy (Perf.pillFrozen: lowPowerMode / Power Saver) permits a
-// live feed -- otherwise a visible music widget would hold a 30fps analyser open
-// with the desktop asking for stillness. levels settle flat when frames stop
-// arriving (system silent, a restart gap, or the policy freezing the feed), so
-// the bars fall to their rest slivers instead of freezing on the last peak.
-// cava's autosens is off: it normalises every passage to the top within
-// seconds, so a quiet intro and the drop looked the same. With a fixed
-// sensitivity (1.8, measured so a loud master peaks near the top about one
-// frame in ten) levels follow the stream's real loudness; quiet reads quiet.
 Singleton {
     id: root
 
     property var activeOwners: []
     readonly property bool active: activeOwners.length > 0
+    readonly property bool analysing: root.active && !Perf.pillFrozen
+    readonly property int bars: 40
+    readonly property int fps: 30
+    readonly property list<real> levels: feed.levels
+    readonly property real energy: feed.energy
+    readonly property bool silent: feed.silent
+
     function setActive(owner, enabled) {
         activeOwners = MenuPoll.setOwnership(activeOwners, owner, enabled);
     }
 
-    // The live analyser: an owner claims the feed, the pill policy permits it, and
-    // something is actually playing. Perf.pillFrozen (lowPowerMode, the Power Saver
-    // profile, or Game Mode) drops cava even while a music surface is on screen,
-    // and routes the reset below so the bars settle flat exactly as they do when
-    // the last owner releases.
-    //
-    // Playback belongs in this gate rather than in each consumer. Six surfaces can
-    // claim the feed (the bar rail, the music popout, the particle stream, the
-    // desktop visualiser and two AIO widgets) and every one of them gated on its
-    // own visibility, so a visible-but-idle surface kept cava alive indefinitely:
-    // measured here as two cava processes, seven and four hours old, analysing
-    // silence. Asking the question once, here, is also the honest place for it --
-    // there is no audio to analyse, whoever is watching.
-    readonly property bool analysing: root.active && !Perf.pillFrozen
-
-    readonly property int bars: 40
-    readonly property int fps: 30
-
-    // 0..1 per band + mean energy across all bands.
-    property var levels: root.flat()
-    property real energy: 0
-    property real lastReadMs: 0
-
-    // The fixed sensitivity is tuned on loud masters, so a video, a game or a
-    // track at half volume barely lifted the bars. A slow peak follower lifts
-    // quiet sources (up to quietBoostMax) until their peaks reach peakTarget;
-    // loud sources sit above the target and pass through unchanged, so their
-    // real ups and downs survive. The slow release keeps a quiet bridge in a
-    // loud song quiet rather than normalising it away.
-    readonly property real peakTarget: 0.6
-    readonly property real quietBoostMax: 4
-    readonly property real peakReleaseMs: 8000
-    property real peak: 0
-
-    function flat() {
-        var a = [];
-        for (var i = 0; i < root.bars; i++)
-            a.push(0);
-        return a;
-    }
-
-    Process {
-        id: cavaProc
-        // playback spectrum via cava's native pipewire backend, source=auto (the default sink's monitor). the pulse backend can't connect here ("Connection terminated") even with pipewire-pulse up, and this path needs no pactl. exec so quickshell's SIGTERM reaches cava, leaving no orphaned analyser when the surface unloads.
-        command: ["sh", "-c", "command -v cava >/dev/null 2>&1 || exit 0; cfg=\"${XDG_RUNTIME_DIR:-/tmp}/ryoku-cava-pill.conf\"; printf '%s\\n' '[general]' 'framerate = " + root.fps + "' 'bars = " + root.bars + "' 'autosens = 0' 'sensitivity = 180' '' '[input]' 'method = pipewire' 'source = auto' '' '[output]' 'method = raw' 'raw_target = /dev/stdout' 'data_format = ascii' 'ascii_max_range = 1000' 'channels = mono' 'mono_option = average' '' '[smoothing]' 'noise_reduction = 45' > \"$cfg\"; exec cava -p \"$cfg\""]
-        // Bound, never assigned. `cavaProc.running = true` from the restart timer
-        // used to live here, and an imperative write destroys the binding: from the
-        // first restart onward `running` no longer followed `analysing`, so cava
-        // outlived every gate meant to stop it -- playback, the pill policy, Power
-        // Saver, Game Mode. That is how two analysers ended up seven and four hours
-        // old with nothing playing. The backoff below expresses the same restart
-        // without ever taking the binding away.
-        running: root.analysing && !cavaProc.backoff
-        property bool backoff: false
-        stdout: SplitParser {
-            splitMarker: "\n"
-            onRead: (line) => root.readBars(line)
-        }
-        // cava exiting while we still want it (a transient pipewire hiccup) earns
-        // one paced retry rather than a spin.
-        onExited: if (root.analysing) {
-            cavaProc.backoff = true;
-            restartTimer.restart();
-        }
-    }
-
-    Timer {
-        id: restartTimer
-        interval: 1200
-        onTriggered: cavaProc.backoff = false
-    }
-
-    // cava sleeps and stops emitting frames once playback idles, so settle back
-    // to flat when no frame has arrived recently.
-    Timer {
-        interval: 120
-        running: root.analysing
-        repeat: true
-        onTriggered: if (root.energy !== 0 && Date.now() - root.lastReadMs > 260) {
-            root.levels = root.flat();
-            root.energy = 0;
-        }
-    }
-
-    onAnalysingChanged: {
-        levels = flat();
-        energy = 0;
-        peak = 0;
-        if (analysing)
-            lastReadMs = 0;
-    }
-
-    function norm(v) {
-        var n = parseInt(v);
-        if (isNaN(n))
-            return 0;
-        return Math.max(0, Math.min(1, n / 1000));
-    }
-
-    function readBars(line) {
-        var t = line.trim();
-        if (!t)
-            return;
-        var parts = t.split(/[;\s]+/);
-        if (parts.length < root.bars)
-            return;
-        var raw = [];
-        var frameMax = 0;
-        for (var i = 0; i < root.bars; i++) {
-            var r = root.norm(parts[i]);
-            raw.push(r);
-            if (r > frameMax)
-                frameMax = r;
-        }
-        var now = Date.now();
-        var dt = root.lastReadMs > 0 ? Math.min(now - root.lastReadMs, 1000) : 0;
-        root.peak = Math.max(frameMax, root.peak * Math.exp(-dt / root.peakReleaseMs));
-        var gain = root.peak > 0
-            ? Math.max(1, Math.min(root.quietBoostMax, root.peakTarget / root.peak)) : 1;
-        var out = [];
-        var sum = 0;
-        for (var j = 0; j < root.bars; j++) {
-            // A band at the noise floor reads as silent, so a quiet room
-            // leaves every surface at rest.
-            var v = Math.min(1, raw[j] * gain);
-            if (v < 0.02)
-                v = 0;
-            out.push(v);
-            sum += v;
-        }
-        root.lastReadMs = now;
-        // A silent frame after a silent frame changes nothing; skipping it
-        // spares every bound surface a re-read.
-        if (sum === 0 && root.energy === 0)
-            return;
-        root.levels = out;
-        root.energy = sum / root.bars;
+    CavaFeed {
+        id: feed
+        active: root.analysing
+        bars: root.bars
+        framerate: root.fps
+        method: "pipewire"
+        source: "auto"
+        autosens: false
+        sensitivity: 180
+        noiseReduction: 45
+        peakFollow: true
+        staleMs: 120
     }
 }

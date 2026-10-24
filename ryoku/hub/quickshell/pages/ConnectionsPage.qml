@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Shapes
+import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
 import Quickshell.Bluetooth
@@ -13,8 +14,8 @@ import Ryoku.Ui.Singletons
 // head, a bone-pill tab strip (Wi-Fi / Bluetooth / Hotspot), and a Loader that
 // swaps between three live subtabs. Every backend is a system tool -- the
 // Quickshell Networking/Bluetooth services plus nmcli/bluetoothctl -- so the
-// page applies immediately and writes no Ryoku config. The subtab bodies are
-// ported verbatim from the old WifiTab/BluetoothTab/HotspotTab: identical
+// page applies immediately; Bluetooth power also records the user's choice.
+// The subtab bodies are
 // process wiring, identical logic; only the presentation is recast to
 // monochrome. State is by word and inversion, never colour; signal strength is
 // drawn in ink bars. The Loader destroys the outgoing tab on every switch, so
@@ -1466,18 +1467,11 @@ Item {
             pairProc.running = true;
         }
 
-        // one entry point for the adapter toggle. a blocked radio is unblocked
-        // first (/dev/rfkill is seat-writable via systemd uaccess, no root), and
-        // powered on when the unblock lands; everything else is a plain flip.
+        // Keep the fresh-install default on, but persist every explicit choice.
         function setAdapterEnabled(v) {
             if (!bt.adapter)
                 return;
-            if (v && (bt.blocked || unblockProc.running)) {
-                if (!unblockProc.running)
-                    unblockProc.running = true;
-                return;
-            }
-            bt.adapter.enabled = v;
+            Quickshell.execDetached(["ryoku-bluetooth-power", v ? "on" : "off"]);
         }
 
         function startService() {
@@ -1523,12 +1517,6 @@ Item {
             }
         }
 
-        // rfkill unblock, then power the adapter once the radio is free.
-        Process {
-            id: unblockProc
-            command: ["rfkill", "unblock", "bluetooth"]
-            onExited: if (bt.adapter) bt.adapter.enabled = true
-        }
 
         // revive a stopped bluetoothd. pkexec raises the polkit prompt;
         // enable --now so it also survives the next boot.

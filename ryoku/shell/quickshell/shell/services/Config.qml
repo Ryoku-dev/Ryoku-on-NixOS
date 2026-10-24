@@ -31,9 +31,9 @@ Singleton {
     property alias osdRadius:  adapter.osdRadius
     property alias osdOpacity: adapter.osdOpacity
 
-    // The desktop and the bar read one shell.json pair, so their haze agrees.
-    // deckFrostEnabled is the on/off switch; deckFrost is its strength, and zero
-    // is a hard off too even when several windows are stacked.
+    // Deck frost belongs to the desktop behind client windows. Bar styles keep
+    // their own opacity controls so a growing window count cannot erase them.
+    // deckFrostEnabled is the on/off switch; zero strength is a hard off.
     property alias deckFrostEnabled: adapter.deckFrostEnabled
     property alias deckFrost: adapter.deckFrost
 
@@ -68,27 +68,45 @@ Singleton {
     property alias chroma: adapter.chroma
     property alias orpheus: adapter.orpheus
 
-    // python: the serpantinum bar style's own settings namespace (shell.json
-    // "python"), read and written by the style's own Config mirror.
+    // Style stores are loaded here, but each style persists through the daemon.
     property alias python: adapter.python
     property alias nomarchy: adapter.nomarchy
+<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
     property alias displays: adapter.displays
+=======
+    readonly property var inir: adapter.inir
+>>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
 
     // Folder styles may own notification and feedback surfaces.
     readonly property bool styleOwnsBanners: (barStyle === "python"
         && !(root.python && root.python.general && root.python.general.notifications === false))
         || (barStyle === "nomarchy"
         && !(root.nomarchy && root.nomarchy.notifications === false))
+        || (barStyle === "iris" && (root.inir?.iris?.modules?.notificationPopup ?? true))
         || barStyle === "tansu"
+<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
         || barStyle === "gokko"
+=======
+        || (barStyle === "gokko" && BarProducts.gokkoReady)
+>>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
     // Only a style that plays its own notification sound silences the shell's
     // cue; Nomarchy and Tansu draw banners but play nothing themselves.
-    readonly property bool styleOwnsNotificationSound: barStyle === "python"
-        && !(root.python && root.python.general && root.python.general.notifications === false)
+    readonly property bool styleOwnsNotificationSound: (barStyle === "python"
+        && !(root.python && root.python.general && root.python.general.notifications === false))
+        || (barStyle === "gokko" && BarProducts.gokkoReady)
     readonly property bool styleOwnsFeedback: (barStyle === "python"
         && !(root.python && root.python.general && root.python.general.osd === false))
         || (barStyle === "nomarchy"
         && !(root.nomarchy && root.nomarchy.osd === false))
+
+    // Shima's banner slider owns the fallback only while Shima draws the banners.
+    readonly property int styleNotificationMs: {
+        if (barStyle !== "iris")
+            return 0
+        const raw = Number(root.inir?.iris?.notifications?.duration ?? 4000)
+        const seconds = isFinite(raw) ? raw / 1000 : 4
+        return Math.round(Math.max(2, Math.min(12, seconds)) * 1000)
+    }
 
     // dock: the universal app dock store. It is top-level because design,
     // placement and pins survive bar-style and dock-design changes. Stage
@@ -401,12 +419,16 @@ Singleton {
                 "notifications": true,
                 "osd": true
             })
+<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
             property var displays: ({})
+=======
+            property var inir: ({})
+>>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
             property var dock: ({
                 "enabled": false,
                 "design": "ryoku",
                 "edge": "auto",
-                "autohide": true,
+                "autohide": false,
                 "size": 44,
                 "pinned": [],
                 "magnify": true,

@@ -2,9 +2,8 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// The Picker stays built while closed, so opening only maps it. A nonzero
-// performance.releaseAfterHideSeconds ends the process once it has been closed
-// that long; the daemon starts a fresh one on the next open.
+// The daemon releases this process after the closed picker has stayed idle for
+// its configured grace. A later open cold-starts directly onto the requested view.
 Scope {
     id: shell
 
@@ -12,18 +11,16 @@ Scope {
     readonly property var _startSettings: Quickshell.env("RYOGAMI_START_SETTINGS")
     property bool _startupPending: false
 
-    property SettingValue _releaseSetting: SettingValue { key: "performance.releaseAfterHideSeconds" }
-    readonly property int _releaseSecs: {
-        var v = Number(shell._releaseSetting.value)
-        return (isNaN(v) || v <= 0) ? 0 : Math.round(v)
-    }
-
     Picker { id: picker }
 
     function show() { picker.show() }
     function hide() { picker.hide() }
     function toggle() { picker.toggle() }
     function settings(tab) { picker.openSettings(tab) }
+    function reportState() {
+        if (Daemon.connected)
+            Daemon.call("picker.state", { visible: picker.active, busy: picker.busy })
+    }
 
     function completeStartup() {
         shell._startupPending = false
@@ -33,24 +30,10 @@ Scope {
             shell.show()
     }
 
-    Timer {
-        id: releaseTimer
-        interval: Math.max(shell._releaseSecs, 1) * 1000
-        onTriggered: if (shell._releaseSecs > 0 && !picker.shown) Qt.quit()
-    }
-
     Connections {
         target: picker
-        function onShownChanged() {
-            if (picker.shown) {
-                releaseTimer.stop()
-            } else {
-                if (shell._releaseSecs > 0)
-                    releaseTimer.restart()
-                // The daemon swaps in a fresh process while hidden when the GPU preference changed.
-                Daemon.call("picker.hidden")
-            }
-        }
+        function onActiveChanged() { shell.reportState() }
+        function onBusyChanged() { shell.reportState() }
     }
 
     Connections {
@@ -64,6 +47,7 @@ Scope {
         function onReconnected() {
             if (shell._startupPending)
                 shell.completeStartup()
+            shell.reportState()
         }
     }
 
@@ -76,11 +60,15 @@ Scope {
     }
 
     Component.onCompleted: {
-        if (typeof shell._startSettings !== "string" && !shell._startVisible)
+        if (typeof shell._startSettings !== "string" && !shell._startVisible) {
+            shell.reportState()
             return
-        if (Daemon.connected)
+        }
+        if (Daemon.connected) {
             shell.completeStartup()
-        else
+            shell.reportState()
+        } else {
             shell._startupPending = true
+        }
     }
 }

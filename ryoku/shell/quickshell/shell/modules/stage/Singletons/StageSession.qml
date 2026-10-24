@@ -27,6 +27,7 @@ Singleton {
     // the catalogue that handed off, so the hidden page returns to its caller.
     property string inspecting: ""
     property string inspectingBack: "widgets"
+    property string depthPick: ""
 
     readonly property bool active: root.mode !== ""
     readonly property bool widgets: root.mode === "widgets"
@@ -55,6 +56,7 @@ Singleton {
         root.panel = "";
         root.inspecting = "";
         root.inspectingBack = "widgets";
+        root.depthPick = "";
         root.left();
     }
 

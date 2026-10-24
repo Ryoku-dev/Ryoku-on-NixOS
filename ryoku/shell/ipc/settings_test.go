@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newTestStore builds a settings store over a fresh temp shell.json path. The
@@ -916,5 +917,140 @@ func TestSettingsBoolAt(t *testing.T) {
 	}
 	if s.boolAt("clipboard.pruneWeekly") {
 		t.Error("boolAt still true after the key was patched off")
+	}
+}
+
+func startSettingsWatch(t *testing.T, s *settingsStore) {
+	t.Helper()
+	quit := make(chan struct{})
+	ready := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.watch(quit, ready)
+	}()
+	<-ready
+	t.Cleanup(func() {
+		close(quit)
+		<-done
+	})
+}
+
+func TestSettingsWatchFollowsRenameReplace(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.patch("weatherLocation", rm(`"before"`)); err != nil {
+		t.Fatal(err)
+	}
+	changed := make(chan []byte, 1)
+	s.onChange = func(frame []byte) { changed <- frame }
+	startSettingsWatch(t, s)
+
+	body, err := os.ReadFile(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["weatherLocation"] = "after"
+	body, err = json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := s.path + ".editor"
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case frame := <-changed:
+		if got := frameGet(t, frame, "weatherLocation"); got != "after" {
+			t.Fatalf("weatherLocation = %v, want after", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("rename-replaced shell.json did not reload")
+	}
+}
+
+func TestSettingsWatchFollowsMissingParent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "ryoku", "shell.json")
+	s := newSettingsStore(path)
+	changed := make(chan []byte, 1)
+	s.onChange = func(frame []byte) { changed <- frame }
+	startSettingsWatch(t, s)
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"weatherLocation":"after"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case frame := <-changed:
+		if got := frameGet(t, frame, "weatherLocation"); got != "after" {
+			t.Fatalf("weatherLocation = %v, want after", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("shell.json under a newly-created parent did not reload")
+	}
+}
+
+func TestSettingsWatchReloadsAFinishedRewriteThatKeepsItsStat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shell.json")
+	s := newSettingsStore(path)
+	changed := make(chan []byte, 2)
+	s.onChange = func(frame []byte) { changed <- frame }
+	startSettingsWatch(t, s)
+
+	if err := os.WriteFile(path, []byte(`{"weatherLocation":"alpha"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changed:
+	case <-time.After(time.Second):
+		t.Fatal("initial shell.json did not load")
+	}
+	// the create and the finished write can each publish; settle first
+settle:
+	for {
+		select {
+		case <-changed:
+		case <-time.After(50 * time.Millisecond):
+			break settle
+		}
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := fi.ModTime()
+
+	// rewrite in place and put the old mtime back before closing: the watcher
+	// only sees the finished write, with the stat it already latched
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"weatherLocation":"bravo"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case frame := <-changed:
+		if got := frameGet(t, frame, "weatherLocation"); got != "bravo" {
+			t.Fatalf("weatherLocation = %v, want bravo", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("a finished rewrite under the latched stat did not reload")
 	}
 }

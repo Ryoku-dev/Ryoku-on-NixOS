@@ -6,6 +6,8 @@
 # root inside the chroot. configure stage, after the base system, before
 # the initramfs so kernel modules (e.g. nvidia-dkms) are there for mkinitcpio.
 
+: "${RYOKU_TARGET_CHROOT:=arch-chroot}"
+
 ryoku_drivers() {
 	log "installing GPU drivers for the detected hardware"
 	local dir="$RYOKU_REPO/system/hardware/drivers" vendor name
@@ -22,7 +24,7 @@ ryoku_drivers() {
 		}
 		name="ryoku-driver-$vendor.sh"
 		run cp "$dir/$vendor.sh" "/mnt/root/$name"
-		if ! run timeout 900 arch-chroot /mnt env RYOKU_DRYRUN="${RYOKU_DRYRUN:-}" RYOKU_PACMAN_CONF="$pmconf" bash "/root/$name"; then
+		if ! run timeout 900 "$RYOKU_TARGET_CHROOT" /mnt env RYOKU_DRYRUN="${RYOKU_DRYRUN:-}" RYOKU_PACMAN_CONF="$pmconf" bash "/root/$name"; then
 			log 'drivers: WARNING, the %s driver install timed out (>15m) or failed and was skipped; the desktop will run on the integrated GPU. Run '\''ryoku doctor'\'' after first boot to install the %s driver. Continuing so the install finishes.' "$vendor" "$vendor"
 		fi
 		run rm -f "/mnt/root/$name"
@@ -34,7 +36,7 @@ ryoku_drivers() {
 	local bl="$RYOKU_REPO/system/hardware/display/ryoku-hw-backlight-fix"
 	if [[ -f $bl ]]; then
 		run cp "$bl" /mnt/root/ryoku-hw-backlight-fix
-		if ! run timeout 300 arch-chroot /mnt env RYOKU_DRYRUN="${RYOKU_DRYRUN:-}" bash /root/ryoku-hw-backlight-fix; then
+		if ! run timeout 300 "$RYOKU_TARGET_CHROOT" /mnt env RYOKU_DRYRUN="${RYOKU_DRYRUN:-}" bash /root/ryoku-hw-backlight-fix; then
 			log "drivers: ryoku-hw-backlight-fix failed; continuing (set the backlight kernel param after first boot)"
 		fi
 		run rm -f /mnt/root/ryoku-hw-backlight-fix
@@ -57,7 +59,7 @@ ryoku_drivers() {
 # niri's gpu.kdl still gets the cursor half of the policy from `ryoku-gpu
 # persist`, which lands at login.
 # ryoku-gpu's analyze reads /sys/class/drm,
-# which arch-chroot bind-mounts, so detection sees the real target GPUs; the tool
+# which the target runner bind-mounts, so detection sees the real target GPUs; the tool
 # self-gates (a single GPU no-ops, a missing iGPU refuses passthrough), so a
 # non-hybrid box is harmless. best-effort: a failure only skips the pin.
 #
@@ -91,7 +93,7 @@ ryoku_gpu_mode() {
 		return 0
 	fi
 	if [[ -n ${RYOKU_DRYRUN:-} ]]; then
-		log "DRYRUN: arch-chroot /mnt runuser -u $u -- env HOME=/home/$u ryoku-gpu mode $mapped (writes /home/$u/.config/$RYOKU_COMPOSITOR_CONFIG_DIR/$RYOKU_COMPOSITOR_GPU_PIN)"
+		log "DRYRUN: $RYOKU_TARGET_CHROOT /mnt runuser -u $u -- env HOME=/home/$u ryoku-gpu mode $mapped (writes /home/$u/.config/$RYOKU_COMPOSITOR_CONFIG_DIR/$RYOKU_COMPOSITOR_GPU_PIN)"
 		return 0
 	fi
 	if [[ ! -f /mnt/usr/share/ryoku/config/$RYOKU_COMPOSITOR_CONFIG_DIR/$RYOKU_COMPOSITOR_GPU_PIN ]]; then
@@ -103,7 +105,7 @@ ryoku_gpu_mode() {
 		return 0
 	fi
 	log 'GPU mode: applying '\''%s'\'' -> ryoku-gpu mode %s for %s' "$RYOKU_GPU_MODE" "$mapped" "$u"
-	arch-chroot /mnt runuser -u "$u" -- env "HOME=/home/$u" "USER=$u" "LOGNAME=$u" \
+	"$RYOKU_TARGET_CHROOT" /mnt runuser -u "$u" -- env "HOME=/home/$u" "USER=$u" "LOGNAME=$u" \
 		ryoku-gpu mode "$mapped" \
 		|| log 'GPU mode: warning, '\''ryoku-gpu mode %s'\'' failed (continuing; set it later from Ryoku Settings > GPU)' "$mapped"
 }

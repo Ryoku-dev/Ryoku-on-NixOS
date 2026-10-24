@@ -222,6 +222,24 @@ func runAct(args []string) error {
 		_, err := ctl("setcursor", o.Cursor.Theme, strconv.Itoa(o.Cursor.Size))
 		return err
 
+	case wm.ActionCursorVisibility:
+		state, err := arg(rest, 0, "hidden|visible")
+		if err != nil {
+			return err
+		}
+		if state != "hidden" && state != "visible" {
+			return fmt.Errorf("act %s: state must be hidden or visible, got %q", action, state)
+		}
+		previous, err := cursorVisibility()
+		if err != nil {
+			return err
+		}
+		invisible := state == "hidden"
+		if _, err := fmt.Fprintln(stdout, previous); err != nil {
+			return err
+		}
+		return evalLua(fmt.Sprintf(`hl.config({ cursor = { invisible = %t } })`, invisible))
+
 	case wm.ActionScreenShader:
 		// A shader NAME, not a path: callers must not know the config layout.
 		// Empty clears.
@@ -590,6 +608,24 @@ func shaderPath(name string) string {
 // and its default matches the shipped input.lua.
 func followMouseMode() string {
 	return strconv.Itoa(loadStore(desktopStorePath()).Input.FollowMouse)
+}
+
+func cursorVisibility() (string, error) {
+	out, err := ctl("getoption", "cursor:invisible", "-j")
+	if err != nil {
+		return "", err
+	}
+	var option struct {
+		Bool bool `json:"bool"`
+		Int  int  `json:"int"`
+	}
+	if err := json.Unmarshal(out, &option); err != nil {
+		return "", fmt.Errorf("read cursor visibility: %w", err)
+	}
+	if option.Bool || option.Int != 0 {
+		return "hidden", nil
+	}
+	return "visible", nil
 }
 
 // placeWindow applies the neutral output-local rectangle without ever falling

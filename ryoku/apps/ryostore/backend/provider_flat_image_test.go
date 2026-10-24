@@ -100,3 +100,32 @@ func readFile(t *testing.T, path string) string {
 	}
 	return string(data)
 }
+
+// A localized desktop keeps Pictures in ~/Imágenes. The Store follows either
+// the session export or user-dirs.dirs when invoked outside that session.
+func TestPicturesHomeFollowsXDG(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("XDG_PICTURES_DIR", "")
+	if got := picturesHome(); got != "/home/u/Pictures" {
+		t.Fatalf("unset: picturesHome = %q, want /home/u/Pictures", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(config, "user-dirs.dirs"), []byte("XDG_PICTURES_DIR=\"$HOME/My Pictures\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := picturesHome(); got != "/home/u/My Pictures" {
+		t.Fatalf("file: picturesHome = %q, want /home/u/My Pictures", got)
+	}
+
+	t.Setenv("XDG_PICTURES_DIR", "/home/u/Imágenes")
+	if got := picturesHome(); got != "/home/u/Imágenes" {
+		t.Fatalf("localized: picturesHome = %q, want /home/u/Imágenes", got)
+	}
+
+	t.Setenv("XDG_PICTURES_DIR", "/home/u")
+	if got := picturesHome(); got != "/home/u/My Pictures" {
+		t.Fatalf("disabled env: picturesHome = %q, want file value", got)
+	}
+}

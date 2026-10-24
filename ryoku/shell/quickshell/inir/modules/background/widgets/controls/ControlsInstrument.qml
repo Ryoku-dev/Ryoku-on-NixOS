@@ -31,7 +31,7 @@ Item {
               available: true, toggle: () => Network.toggleWifi() },
             { glyph: "bluetooth", label: Translation.tr("Bluetooth"), detail: BluetoothStatus.activeDeviceSummary() || "",
               on: BluetoothStatus.enabled, available: BluetoothStatus.available,
-              toggle: () => { if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = !Bluetooth.defaultAdapter.enabled } },
+              toggle: () => BluetoothStatus.toggle() },
             { glyph: "do_not_disturb_on", label: Translation.tr("Focus"), detail: "", on: Notifications.manualDndActive,
               available: true, toggle: () => Notifications.toggleSilent() },
             { glyph: "nightlight", label: Translation.tr("Night light"), detail: "", on: Nightlight.active,

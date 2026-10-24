@@ -54,6 +54,24 @@ The `gpk`, `skwd-paper-bin`, and `ryoku-keyring` PKGBUILDs fetch pinned
 upstream artifacts instead of building from the checkout. `prowl` is also
 pinned upstream, but builds its selected commit from source.
 
+## Shared package payloads
+
+Monorepo packages keep their build and install logic in
+`release/packages/<pkg>/payload.sh`. The PKGBUILD calls that payload with
+`systemd`, the matching `void/packages/srcpkgs/<pkg>/template` calls it with
+`runit`, and Fedora's adapter calls it with `systemd` before applying its small
+RPM-specific changes. Void does not ship Hyprland, so the parity test stages
+that shared payload's runit path directly. Fedora's Hyprland adapter changes
+only the portal picker's command name.
+
+When changing one of these packages, update `payload.sh` first. Change a native
+package recipe only for package-manager metadata or a documented adapter. Do
+not copy build or install commands into a wrapper. `tests/payload-parity.sh`
+stages all shared payloads with fake prebuilt binaries, exercises the Arch,
+Void, and Fedora wrappers, and compares normalized path, mode, and SHA-256
+manifests. Its single allow-list covers only init, boot, package-manager, and
+other edition adapters named in the test.
+
 makedepends across the set include `go` (the Ryoku Go tools and Prowl),
 `cmake ninja qt6-shadertools qt6-declarative` (ryoku-blobs), and `rust` +
 `git` (hyprland-preview-share-picker, asusctl), on top of the assumed

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -40,6 +41,74 @@ func readJSONFile(t *testing.T, path string) map[string]interface{} {
 		t.Fatalf("parse %s: %v", path, err)
 	}
 	return m
+}
+
+func TestSettingsWatchRenameReplaceReconcilesOnce(t *testing.T) {
+	parent := t.TempDir()
+	path := filepath.Join(parent, "ryogami.json")
+	if err := os.WriteFile(path, []byte(`{"general":{"randomInterval":60}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fd, err := openSettingsWatch(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const debounce = 40 * time.Millisecond
+	reconciled := make(chan struct{}, 4)
+	done := make(chan error, 1)
+	go func() {
+		done <- runSettingsWatch(fd, filepath.Base(path), debounce, func() {
+			reconciled <- struct{}{}
+		})
+	}()
+
+	replacement := filepath.Join(parent, ".ryogami.json.next")
+	if err := os.WriteFile(replacement, []byte(`{"general":{"randomInterval":120}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-reconciled:
+	case <-time.After(time.Second):
+		t.Fatal("rename-replace did not trigger reconciliation")
+	}
+	select {
+	case <-reconciled:
+		t.Fatal("rename-replace triggered more than one reconciliation")
+	case <-time.After(3 * debounce):
+	}
+
+	if err := os.RemoveAll(parent); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		syscall.Close(fd)
+		t.Fatal("settings watcher did not stop after its directory was removed")
+	}
+}
+
+func TestSettingsWatchOverflowForcesReconcileWithoutDroppingPendingChange(t *testing.T) {
+	scheduled := 0
+	reconciled := 0
+	events := []inotifyEvent{
+		{name: "ryogami.json", mask: syscall.IN_MOVED_TO},
+		{wd: -1, mask: syscall.IN_Q_OVERFLOW},
+	}
+	err := handleSettingsWatchEvents(events, "ryogami.json", func() {
+		scheduled++
+	}, func() {
+		reconciled++
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheduled != 1 || reconciled != 1 {
+		t.Fatalf("scheduled=%d reconciled=%d, want one of each", scheduled, reconciled)
+	}
 }
 
 func TestValidateSetting(t *testing.T) {

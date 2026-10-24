@@ -6,11 +6,10 @@ import Quickshell.Io
 import Ryoku.Ui.Singletons
 import "lib/chatstate.js" as ChatState
 
-// Needle is the resident bridge to the Agent lane. One
-// `ryoku-rashin chat --follow` process proxies /ws/chat both ways; every server
-// frame feeds the shared reducer and the projected state drives the transcript
-// ListModel. A turn started from another Rashin frontend arrives here too, and a
-// shell reload reconnects and replays without owning a second session.
+// Needle is the shared bridge to the Agent lane. While an Agent surface is
+// visible, one `ryoku-rashin chat --follow` process proxies /ws/chat both ways;
+// every server frame feeds the shared reducer and the projected state drives
+// the transcript ListModel. Closing the last surface releases the process.
 Singleton {
     id: root
 
@@ -36,6 +35,7 @@ Singleton {
     property var standalonePerms: []
     property bool pendingHandoff: false
     property int visibleAgentSurfaces: 0
+    readonly property bool followHeld: root.visibleAgentSurfaces > 0
 
     // Recent quick asks (the launcher's \resume history), newest first. The
     // Ask bar's history drawer reads this; it reloads when an ask completes.
@@ -164,8 +164,6 @@ Singleton {
         root.loadBackends();
         root.loadRecentAsks();
         root.loadQuickLane();
-        if (!follow.running && !followRestart.running)
-            follow.running = true;
     }
 
     function noteClosed() {}
@@ -176,6 +174,18 @@ Singleton {
 
     function agentSurfaceClosed() {
         root.visibleAgentSurfaces = Math.max(0, root.visibleAgentSurfaces - 1);
+    }
+    onFollowHeldChanged: {
+        if (root.followHeld) {
+            if (!follow.running && !followRestart.running) {
+                root._launched = false;
+                follow.running = true;
+            }
+        } else {
+            followRestart.stop();
+            if (follow.running)
+                follow.running = false;
+        }
     }
 
     function loadRecentAsks() { recentProc.running = true; }
@@ -382,20 +392,21 @@ Singleton {
 
     ListModel { id: messages }
 
-    // The one resident bridge. It stays connected across turns and reconnects on
-    // its own; it exits only if it crashes, and then we bring it straight back.
+    // The streaming bridge exists only while an Agent surface is visible.
+    // Crashes reconnect while held; closing the last surface terminates it.
     Process {
         id: follow
         command: ["ryoku-rashin", "chat", "--follow"]
-        running: true
+        running: false
         stdinEnabled: true
         stdout: SplitParser {
             splitMarker: "\n"
             onRead: (line) => root._frame(line)
         }
-        // A missing binary never starts and never exits, so this is the only sign.
-        onRunningChanged: if (!running && !root._launched) root.available = false
+        // If a held bridge cannot start, expose the install-state failure.
+        onRunningChanged: if (!running && root.followHeld && !root._launched) root.available = false
         onStarted: {
+            root.available = true;
             root._started = true;
             root._launched = true;
             for (var i = 0; i < root._outbox.length; i++)
@@ -404,13 +415,19 @@ Singleton {
         }
         onExited: () => {
             root._started = false;
-            followRestart.restart();
+            if (root.followHeld && root.available)
+                followRestart.restart();
         }
     }
     Timer {
         id: followRestart
         interval: 400
-        onTriggered: if (!follow.running) follow.running = true
+        onTriggered: {
+            if (root.followHeld && !follow.running) {
+                root._launched = false;
+                follow.running = true;
+            }
+        }
     }
 
     // Attachment encoding: the daemon returns {type:"images", images:[...]} and

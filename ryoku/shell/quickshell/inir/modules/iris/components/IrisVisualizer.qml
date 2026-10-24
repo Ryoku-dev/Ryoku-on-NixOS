@@ -84,7 +84,6 @@ Item {
                             color: root.tint
                             y: root.style === "rise" ? lane.height - height : Math.round((lane.height - height) / 2)
                             height: Math.max(root.unit, (face.levels[lane.index] ?? 0) * lane.height)
-                            Behavior on height { NumberAnimation { duration: IrisStyle.duration(90); easing.type: IrisStyle.feedbackEasing } }
                         }
                     }
                 }
@@ -105,7 +104,6 @@ Item {
                         color: root.tint
                         scale: 0.4 + 0.6 * (face.levels[index] ?? 0)
                         opacity: 0.55 + 0.45 * (face.levels[index] ?? 0)
-                        Behavior on scale { NumberAnimation { duration: IrisStyle.duration(90); easing.type: IrisStyle.feedbackEasing } }
                     }
                 }
             }
@@ -177,7 +175,6 @@ Item {
                             color: root.tint
                             height: Math.max(width, ring.reach * (0.25 + 0.75 * spoke.level))
                             y: parent.height / 2 - ring.inner - height
-                            Behavior on height { NumberAnimation { duration: IrisStyle.duration(90); easing.type: IrisStyle.feedbackEasing } }
                         }
                     }
                 }

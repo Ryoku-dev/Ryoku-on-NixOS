@@ -133,7 +133,7 @@ Column {
             anchors { right: parent.right; verticalCenter: parent.verticalCenter }
             visible: page.adapter !== null
             value: page.adapter ? page.adapter.enabled : false
-            onToggled: (v) => { if (page.adapter) page.adapter.enabled = v; }
+            onToggled: v => BluetoothPower.setEnabled(v)
         }
     }
 

@@ -84,10 +84,19 @@ func (d *daemon) startPowerProfiles() {
 	sigs := make(chan *dbus.Signal, 8)
 	conn.Signal(sigs)
 	go func() {
-		for range sigs {
+		for sig := range sigs {
+			if sig == nil || sig.Path != dbus.ObjectPath(ppPath) ||
+				sig.Name != propertiesInterface+".PropertiesChanged" {
+				continue
+			}
 			p.publish()
 			p.scheduleApply()
 			p.maybeHandleProfileChange()
+			d.kickPalettePark()
+			select {
+			case d.widgetSig <- struct{}{}:
+			default:
+			}
 		}
 		if p.applyTimer != nil {
 			p.applyTimer.Stop()
@@ -137,6 +146,11 @@ func (d *daemon) startPowerProfiles() {
 	p.restoreDone.Store(true)
 
 	p.publish()
+	d.kickPalettePark()
+	select {
+	case d.widgetSig <- struct{}{}:
+	default:
+	}
 }
 
 type powerProfilesFrame struct {

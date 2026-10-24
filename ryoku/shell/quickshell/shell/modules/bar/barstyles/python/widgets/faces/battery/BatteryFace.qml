@@ -34,17 +34,41 @@ Item {
     }
 
     property real animCapacity: 0
+    property bool waveActive: false
+    property bool waveReady: false
+
+    function stirWave() {
+        if (!root.waveReady || !root.visible || !root.hasBattery
+                || root.fillLevel <= 0.0 || root.fillLevel >= 1.0)
+            return;
+        root.waveActive = true;
+        waveSettleTimer.restart();
+    }
+
     Behavior on animCapacity {
         enabled: root.visible
         NumberAnimation { duration: 1200; easing.type: Easing.OutQuint }
     }
 
     onBatCapacityChanged: {
-        if (root.visible && hasBattery) animCapacity = batCapacity;
+        if (root.visible && hasBattery)
+            animCapacity = batCapacity;
+        root.stirWave();
+    }
+    onIsChargingChanged: root.stirWave()
+    onVisibleChanged: {
+        if (visible && hasBattery) {
+            animCapacity = batCapacity;
+        } else {
+            waveActive = false;
+            waveSettleTimer.stop();
+        }
     }
 
     Component.onCompleted: {
-        if (hasBattery) animCapacity = batCapacity;
+        if (hasBattery)
+            animCapacity = batCapacity;
+        waveReady = true;
     }
 
     readonly property real fillLevel: hasBattery ? animCapacity / 100 : 0
@@ -54,8 +78,14 @@ Item {
     property real wavePhase: waveClock.phase
     WaveClock {
         id: waveClock
-        running: root.visible && root.hasBattery && root.fillLevel > 0.0 && root.fillLevel < 1.0
+        running: root.visible && root.waveActive
         duration: root.isCharging ? 1200 : 3400
+    }
+    Timer {
+        id: waveSettleTimer
+        interval: root.isCharging ? 1200 : 3400
+        repeat: false
+        onTriggered: root.waveActive = false
     }
 
     readonly property string timeString: {

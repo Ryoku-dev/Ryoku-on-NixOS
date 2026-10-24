@@ -13,6 +13,7 @@ import inir.modules.iris.pieces
 import inir.modules.iris.palette
 import inir.modules.iris.settings
 import inir.modules.iris.studio
+import inir.modules.iris.equalizer
 import inir.modules.iris.polkit
 import inir.modules.iris.wallpaper
 import inir.modules.iris.sidebar
@@ -115,6 +116,18 @@ Item {
         closeGraceMs: IrisStyle.settleDuration + 120
         component: String(Config.options?.iris?.appearance?.settingsHost ?? "overlay") === "window"
             ? irisSettingsWindowComponent : irisSettingsOverlayComponent
+    }
+
+    OnDemandPanelLoader {
+        identifier: "irisEqualizer"
+        requireEnabledPanel: false
+        open: GlobalStates.irisEqualizerOpen
+        closeGraceMs: IrisStyle.settleDuration + 120
+        component: IrisEqualizerPanel {
+            open: GlobalStates.irisEqualizerOpen
+            targetOutput: GlobalStates.irisEqualizerTargetOutput
+            onCloseRequested: GlobalStates.closeIrisEqualizer()
+        }
     }
 
     PanelLoader {

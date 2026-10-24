@@ -105,6 +105,45 @@ func TestReadPowerStateSkipsPeripheralBattery(t *testing.T) {
 	}
 }
 
+func TestPowerCueWaitUsesEventsAndKeepsLowRepeat(t *testing.T) {
+	now := time.Unix(1000, 0)
+	cases := []struct {
+		name                 string
+		cue                  powerCue
+		bus, usb, deviceCues bool
+		want                 time.Duration
+	}{
+		{"fully event driven", powerCue{}, true, true, true, 0},
+		{"bus fallback", powerCue{}, false, true, false, powerReconcile},
+		{"USB fallback only when used", powerCue{}, true, false, true, powerReconcile},
+		{"disabled USB cues need no USB poll", powerCue{}, true, false, false, 0},
+		{"low battery repeat deadline", powerCue{lowActive: true, lastLow: now.Add(-15 * time.Second)}, true, true, false, 45 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := powerCueWait(tc.cue, tc.bus, tc.usb, tc.deviceCues, now); got != tc.want {
+				t.Fatalf("powerCueWait = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDeviceCueReseedsOnlyAcrossSuspend(t *testing.T) {
+	cue := &deviceCue{}
+	base := map[string]bool{"1-1": true}
+	if got := cue.stepWithSuspend(base, time.Second); len(got) != 0 {
+		t.Fatalf("initial seed played %v", got)
+	}
+	added := map[string]bool{"1-1": true, "1-2": true}
+	if got := cue.stepWithSuspend(added, time.Second); len(got) != 1 || got[0] != soundDeviceAdded {
+		t.Fatalf("ordinary add played %v, want device-added", got)
+	}
+	afterResume := map[string]bool{"1-3": true}
+	if got := cue.stepWithSuspend(afterResume, time.Second+time.Minute); len(got) != 0 {
+		t.Fatalf("resume re-enumeration played %v, want reseed", got)
+	}
+}
+
 func writeSupply(t *testing.T, root, name string, attrs map[string]string) {
 	t.Helper()
 	dir := filepath.Join(root, name)

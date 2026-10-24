@@ -12,8 +12,8 @@ import shell.services
 // Each bar averages the cava bands that fall in its slice, so a coarse strip
 // reads the whole spectrum instead of sampling one spiky band. Bars are tinted
 // on a low -> high ramp (the album-art accent in the card, the palette
-// otherwise); loud tips lighten. `running` off eases every bar to its rest
-// sliver, and the ticker halts once the strip settles on silence.
+// otherwise); loud tips lighten. The bars update only when the shared 30 fps
+// feed publishes a frame and stop depending on its levels while silent.
 Item {
     id: root
 
@@ -32,7 +32,14 @@ Item {
     implicitWidth: root.horiz ? 24 * root.s : root.bands * 6 * root.s
     implicitHeight: root.horiz ? root.bands * 6 * root.s : 22 * root.s
 
-    property var shown: []
+    readonly property var shown: {
+        if (!root.running || AudioBars.silent)
+            return [];
+        const out = [];
+        for (let i = 0; i < root.bands; ++i)
+            out.push(root.targetAt(i));
+        return out;
+    }
 
     function lerpColor(a, b, t) {
         return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1);
@@ -64,38 +71,6 @@ Item {
         return Math.min(1, Math.pow(v, 0.7));
     }
 
-    Timer {
-        interval: Math.round(1000 / AudioBars.fps)
-        running: root.visible && (AudioBars.energy > 0.015 || root._live)
-        repeat: true
-        onTriggered: root.tick()
-    }
-
-    // any bar still off its target keeps the ticker alive for one last settle.
-    property bool _live: false
-
-    function tick() {
-        var out = [];
-        var prev = root.shown;
-        var live = AudioBars.energy > 0.015;
-        for (var i = 0; i < root.bands; i++) {
-            var target = root.targetAt(i);
-            var cur = (prev && i < prev.length) ? prev[i] : 0;
-            // fast attack, slow decay.
-            var k = target > cur ? 0.5 : 0.18;
-            var next = cur + (target - cur) * k;
-            if (Math.abs(next - target) < 0.004)
-                next = target;
-            out.push(next);
-            if (next > 0.004)
-                live = true;
-        }
-        root.shown = out;
-        root._live = live;
-    }
-
-    onBandsChanged: root.shown = []
-    onRunningChanged: if (!root.running) root._live = true
 
     Repeater {
         model: root.bands
@@ -114,8 +89,7 @@ Item {
             radius: Math.min(width, height) / 2
             antialiasing: true
             color: root.bandColor(index, level)
-            Behavior on height { enabled: !root.horiz; NumberAnimation { duration: Math.round(1000 / AudioBars.fps); easing.type: Easing.OutQuad } }
-            Behavior on width { enabled: root.horiz; NumberAnimation { duration: Math.round(1000 / AudioBars.fps); easing.type: Easing.OutQuad } }
+
         }
     }
 }

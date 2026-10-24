@@ -185,8 +185,13 @@ func (d *daemon) dispatchRequest(req *request) response {
 		d.setAudio(mute, volume, strsParam(p, "outputs"))
 		return ok(req.ID, map[string]interface{}{"ok": true})
 
-	case "picker.hidden":
-		go d.ui.refreshIfStale()
+	case "picker.state":
+		visible := boolParam(p, "visible", false)
+		busy := boolParam(p, "busy", false)
+		d.ui.updateState(visible, busy)
+		if !visible {
+			go d.ui.refreshIfStale()
+		}
 		return ok(req.ID, map[string]interface{}{"ok": true})
 
 	case "wall.random_start":

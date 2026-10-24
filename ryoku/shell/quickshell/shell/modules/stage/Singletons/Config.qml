@@ -18,6 +18,7 @@ Singleton {
 
     property alias quality: adapter.quality
     property alias models: adapter.models
+    property alias depthModel: adapter.depthModel
     property alias edge: adapter.edge
     property alias shadow: adapter.shadow
     property alias shadowAngle: adapter.shadowAngle
@@ -88,6 +89,12 @@ Singleton {
         adapter.models = next;
         file.writeAdapter();
     }
+    function setDepthModel(model) {
+        if (["small", "base", "large"].indexOf(model) < 0)
+            return;
+        adapter.depthModel = model;
+        file.writeAdapter();
+    }
 
     function setEdge(v) { adapter.edge = Math.max(0, Math.min(1, v)); settle.restart(); }
     function setShadow(v) { adapter.shadow = Math.max(0, Math.min(1, v)); settle.restart(); }
@@ -96,7 +103,7 @@ Singleton {
         adapter.edge = 0.15;
         adapter.shadow = 0;
         adapter.shadowAngle = 90;
-        adapter.motion = ({ amount: "normal", idle: "none", music: false, musicLevel: 0.6, speed: 1.0, mouse: true, sensitivity: 1.0, range: 1.0, backdrop: 0.0 });
+        adapter.motion = ({ amount: "normal", idle: "none", music: false, musicLevel: 0.6, speed: 1.0, mouse: true, sensitivity: 1.0, range: 1.0, backdrop: 0.5 });
         settle.restart();
     }
 
@@ -125,24 +132,12 @@ Singleton {
     function setAmount(a) { if (["subtle", "normal", "strong"].indexOf(a) >= 0) root._setMotion("amount", a); }
     function setIdle(i) { if (["none", "float", "breathe", "sway"].indexOf(i) >= 0) root._setMotion("idle", i); }
     function setMusic(on) { root._setMotion("music", on === true); }
-
-    // Live (coalesced) motion writes for the drag sliders: update the in-memory
-    // object now so the renderer reacts this frame, and settle one file write.
-    function _setMotionLive(key, v) {
-        var m = {};
-        var src = adapter.motion || {};
-        for (var k in src)
-            m[k] = src[k];
-        m[key] = v;
-        adapter.motion = m;
-        settle.restart();
-    }
     function setMouse(on) { root._setMotion("mouse", on === true); }
-    function setSensitivity(v) { root._setMotionLive("sensitivity", Math.max(0, Math.min(2, v))); }
-    function setRange(v) { root._setMotionLive("range", Math.max(0, Math.min(2, v))); }
-    function setBackdrop(v) { root._setMotionLive("backdrop", Math.max(0, Math.min(1, v))); }
-    function setMusicLevel(v) { root._setMotionLive("musicLevel", Math.max(0, Math.min(1, v))); }
-    function setSpeed(v) { root._setMotionLive("speed", Math.max(0.25, Math.min(2, v))); }
+    function setSensitivity(v) { root._setMotion("sensitivity", Math.max(0, Math.min(2, v))); }
+    function setRange(v) { root._setMotion("range", Math.max(0, Math.min(2, v))); }
+    function setBackdrop(v) { root._setMotion("backdrop", Math.max(0, Math.min(1, v))); }
+    function setMusicLevel(v) { root._setMotion("musicLevel", Math.max(0, Math.min(1, v))); }
+    function setSpeed(v) { root._setMotion("speed", Math.max(0.25, Math.min(2, v))); }
 
     Timer {
         id: settle
@@ -163,10 +158,12 @@ Singleton {
             id: adapter
             property string quality: "draft"
             property var models: ({ draft: "u2netp", standard: "u2netp", fine: "birefnet-general-lite" })
+            // The depth estimator behind the 3D backdrop: small | base | large.
+            property string depthModel: "small"
             property real edge: 0.15
             property real shadow: 0.0
             property int shadowAngle: 90
-            property var motion: ({ amount: "normal", idle: "none", music: false, musicLevel: 0.6, speed: 1.0, mouse: true, sensitivity: 1.0, range: 1.0, backdrop: 0.0 })
+            property var motion: ({ amount: "normal", idle: "none", music: false, musicLevel: 0.6, speed: 1.0, mouse: true, sensitivity: 1.0, range: 1.0, backdrop: 0.5 })
             property var front: []
             property int editGridSize: 32
             property bool editGridSnap: true

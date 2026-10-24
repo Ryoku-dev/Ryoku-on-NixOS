@@ -6,6 +6,7 @@ bash "$project_root/tests/zen-profiles.test.sh"
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/ryoku-palette install's \"quote\".XXXXXX")
 trap 'rm -rf "$test_root"' EXIT
 config_root="$test_root/config"
+data_root="$test_root/data"
 fake_bin="$test_root/bin"
 profile_root="$config_root/zen/test.default"
 state_file="$test_root/spicetify-extensions"
@@ -18,22 +19,24 @@ for tool in jq matugen; do
 done
 mkdir -p "$cache_root/ryoku"
 write_carrier() {
-  jq -n --arg primary "$1" '{colors: (["inverse_primary", "error", "tertiary_container", "on_primary", "tertiary", "primary", "surface_bright", "primary_fixed_dim", "surface", "on_surface", "on_surface_variant", "outline", "surface_variant", "surface_container_high", "surface_container_low"] | map({key: ., value: {default: {hex: (if . == "primary" then $primary else "#123456" end)}}}) | from_entries)}' > "$cache_root/ryoku/matugen-carrier.json"
+  jq -n --arg primary "$1" '{colors: (["inverse_primary", "error", "tertiary_container", "on_primary", "tertiary", "primary", "primary_container", "secondary", "surface_bright", "primary_fixed_dim", "surface", "surface_container", "on_surface", "on_surface_variant", "outline", "outline_variant", "surface_variant", "surface_container_high", "surface_container_low"] | map({key: ., value: {default: {hex: (if . == "primary" then $primary else "#123456" end)}}}) | from_entries)}' > "$cache_root/ryoku/matugen-carrier.json"
 }
 write_carrier "#abcdef"
 mkdir -p "$fake_bin" "$config_root/matugen" "$config_root/vesktop/settings" "$profile_root/chrome"
-
 printf '[config]\n\n[templates.existing]\ninput_path = "keep"\noutput_path = "keep"\n' \
   > "$config_root/matugen/apps.toml"
-# Upgrading the old direct-output registration must replace it exactly once.
+legacy_overlay="$config_root/ryoku/user_edits/matugen"
+mkdir -p "$legacy_overlay/templates"
+cp "$config_root/matugen/apps.toml" "$legacy_overlay/apps.toml"
+# Upgrading the old direct-output registration removes it from the shipped-roster fork.
 printf '\n[templates.vesktop]\ninput_path = "%s"\noutput_path = "%s"\n' \
   "$config_root/matugen/templates/vesktop-colors.css" \
-  "$config_root/vesktop/settings/quickCss.css" >> "$config_root/matugen/apps.toml"
+  "$config_root/vesktop/settings/quickCss.css" >> "$legacy_overlay/apps.toml"
+cp "$project_root/templates/vesktop-colors.css" "$legacy_overlay/templates/vesktop-colors.css"
 printf '{}\n' > "$config_root/vesktop/settings/settings.json"
 printf '@import "existing.css";\n' > "$profile_root/chrome/userChrome.css"
 printf 'user_pref("existing", true);\n' > "$profile_root/user.js"
 
-printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$fake_bin/ryoku"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$fake_bin/ryogami"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
@@ -44,10 +47,11 @@ printf '%s\n' \
   'elif [[ $1 != apply ]]; then' \
   '  exit 2' \
   'fi' > "$fake_bin/spicetify"
-chmod +x "$fake_bin/ryoku" "$fake_bin/ryogami" "$fake_bin/spicetify"
+chmod +x "$fake_bin/ryogami" "$fake_bin/spicetify"
 
 for _ in 1 2; do
   XDG_CONFIG_HOME="$config_root" \
+  XDG_DATA_HOME="$data_root" \
   XDG_STATE_HOME="$state_root" \
   ZEN_PROFILE_ROOT="$profile_root" \
   FAKE_SPICETIFY_STATE="$state_file" \
@@ -55,18 +59,19 @@ for _ in 1 2; do
     "$project_root/install-integrations.sh" --all
 done
 
-overlay="$config_root/ryoku/user_edits/matugen"
+bridge="$config_root/ryoku/palette-bridge"
+templates="$data_root/ryoku/palette-bridge/templates"
 cmp "$project_root/spicetify/ryoku-wallpaper-colors.js" \
   "$config_root/spicetify/Extensions/ryoku-wallpaper-colors.js"
-cmp "$project_root/templates/vesktop-colors.css" "$overlay/templates/vesktop-colors.css"
-cmp "$project_root/templates/zen.css" "$overlay/templates/zen.css"
+cmp "$project_root/templates/vesktop-colors.css" "$templates/vesktop-colors.css"
+cmp "$project_root/templates/zen.css" "$templates/zen.css"
 cmp "$project_root/vesktop/midnight-ryoku.theme.css" \
   "$config_root/vesktop/themes/midnight-ryoku.theme.css"
-[[ $(grep -c '^\[templates\.vesktop\]$' "$overlay/apps.toml") == 1 ]]
-grep -Fxq "output_path = $(jq -Rn --arg path "$state_root/ryoku/palette-bridge/vesktop/palette.css" '$path')" "$overlay/apps.toml"
-grep -q '^post_hook = .*quickcss' "$overlay/apps.toml"
-[[ $(grep -c '^\[templates\.zen\]$' "$overlay/apps.toml") == 1 ]]
-[[ $(grep -c '^\[templates\.existing\]$' "$overlay/apps.toml") == 1 ]]
+[[ $(grep -c '^\[templates\.vesktop\]$' "$bridge/matugen.toml") == 1 ]]
+grep -Fxq "output_path = $(jq -Rn --arg path "$state_root/ryoku/palette-bridge/vesktop/palette.css" '$path')" "$bridge/matugen.toml"
+grep -q '^post_hook = .*quickcss' "$bridge/matugen.toml"
+[[ $(grep -c '^\[templates\.zen\]$' "$bridge/matugen.toml") == 1 ]]
+! grep -Fq '[templates.vesktop]' "$legacy_overlay/apps.toml"
 [[ $(grep -Fc '@import "ryoku-colors.css";' "$profile_root/chrome/userChrome.css") == 1 ]]
 [[ $(grep -Fc 'toolkit.legacyUserProfileCustomizations.stylesheets' "$profile_root/user.js") == 1 ]]
 [[ $(grep -Fc 'ryoku-wallpaper-colors.js' "$state_file") == 1 ]]
@@ -75,6 +80,7 @@ jq -e '.useQuickCss == true and (.enabledThemes | map(select(. == "midnight-ryok
 
 for integration in spotify vesktop zen; do
   XDG_CONFIG_HOME="$config_root" \
+  XDG_DATA_HOME="$data_root" \
   XDG_STATE_HOME="$state_root" \
   FAKE_SPICETIFY_STATE="$state_file" \
   PATH="$fake_bin:$PATH" \
@@ -82,20 +88,38 @@ for integration in spotify vesktop zen; do
 done
 
 [[ ! -e "$config_root/spicetify/Extensions/ryoku-wallpaper-colors.js" ]]
-[[ ! -e "$overlay/templates/vesktop-colors.css" ]]
-[[ ! -e "$overlay/templates/zen.css" ]]
+[[ ! -e "$templates/vesktop-colors.css" ]]
+[[ ! -e "$templates/zen.css" ]]
 [[ ! -e "$config_root/vesktop/themes/midnight-ryoku.theme.css" ]]
-! grep -Fq '[templates.vesktop]' "$overlay/apps.toml"
-! grep -Fq '[templates.zen]' "$overlay/apps.toml"
-grep -Fq '[templates.existing]' "$overlay/apps.toml"
+! grep -Fq '[templates.vesktop]' "$bridge/matugen.toml"
+! grep -Fq '[templates.zen]' "$bridge/matugen.toml"
+grep -Fq '[templates.existing]' "$legacy_overlay/apps.toml"
 grep -Fq '@import "existing.css";' "$profile_root/chrome/userChrome.css"
 ! grep -Fq '@import "ryoku-colors.css";' "$profile_root/chrome/userChrome.css"
 grep -Fq 'user_pref("existing", true);' "$profile_root/user.js"
 ! grep -Fq 'toolkit.legacyUserProfileCustomizations.stylesheets' "$profile_root/user.js"
 [[ ! -s "$state_root/ryoku/palette-bridge/owned-files.tsv" ]]
 
+# Removing an integration created by the old installer also repairs its
+# whole-roster overlay, rather than leaving a dead template in live Matugen.
+printf '[config]\n\n[templates.existing]\ninput_path = "keep"\noutput_path = "keep"\n\n[templates.vesktop]\ninput_path = "old"\noutput_path = "old"\n' \
+  > "$legacy_overlay/apps.toml"
+mkdir -p "$legacy_overlay/templates"
+cp "$project_root/templates/vesktop-colors.css" "$legacy_overlay/templates/vesktop-colors.css"
+printf 'vesktop\t%s\n' "$legacy_overlay/templates/vesktop-colors.css" \
+  > "$state_root/ryoku/palette-bridge/owned-files.tsv"
+XDG_CONFIG_HOME="$config_root" XDG_DATA_HOME="$data_root" \
+XDG_STATE_HOME="$state_root" PATH="$fake_bin:$PATH" \
+  "$project_root/remove-integrations.sh" --vesktop
+! grep -Fq '[templates.vesktop]' "$legacy_overlay/apps.toml"
+! grep -Fq '[templates.vesktop]' "$config_root/matugen/apps.toml"
+grep -Fq '[templates.existing]' "$legacy_overlay/apps.toml"
+[[ ! -e "$legacy_overlay/templates/vesktop-colors.css" ]]
+[[ ! -s "$state_root/ryoku/palette-bridge/owned-files.tsv" ]]
+
 run_vesktop() {
-  XDG_CONFIG_HOME="$config_root" XDG_STATE_HOME="$state_root" PATH="$fake_bin:$PATH" \
+  XDG_CONFIG_HOME="$config_root" XDG_DATA_HOME="$data_root" \
+    XDG_STATE_HOME="$state_root" PATH="$fake_bin:$PATH" \
     "$project_root/$1-integrations.sh" --vesktop
 }
 
@@ -118,7 +142,7 @@ for _ in 1 2; do run_vesktop install; done
 jq -e '.useQuickCss == true and .enabledThemes == ["custom.theme.css", "Ryoku.theme.css"]' \
   "$config_root/vesktop/settings/settings.json" >/dev/null
 [[ ! -e "$config_root/vesktop/themes/midnight-ryoku.theme.css" ]]
-grep -Fq -- '--ryo-bridge-enabled: 1;' "$overlay/templates/vesktop-colors.css"
+grep -Fq -- '--ryo-bridge-enabled: 1;' "$templates/vesktop-colors.css"
 
 printf ':root { --user-after: gold; }\n' > "$test_root/custom-after.css"
 [[ $(head -n 1 "$quick_css") == '@import url("custom.css");' ]]
@@ -126,12 +150,8 @@ grep -Fq -- '--ryo-bridge-enabled: 1;' "$quick_css"
 grep -Fq -- '--accent-2: #abcdef;' "$quick_css"
 [[ $(grep -Fc '/* ryoku-palette-bridge:begin */' "$quick_css") == 1 ]]
 cat "$test_root/custom-after.css" >> "$quick_css"
-# Exercise the real wallpaper fan-out, not only the immediate setup merge.
-mkdir -p "$config_root/matugen/templates"
-cp "$overlay/templates/vesktop-colors.css" "$config_root/matugen/templates/vesktop-colors.css"
-printf '[config]\n' > "$test_root/vesktop-render.toml"
-awk '/^\[templates.vesktop\]$/ { keep=1; print; next } /^\[/ { keep=0 } keep { print }' \
-  "$overlay/apps.toml" >> "$test_root/vesktop-render.toml"
+# Exercise the real supplemental wallpaper fan-out, not only the immediate setup merge.
+cp "$bridge/matugen.toml" "$test_root/vesktop-render.toml"
 matugen json "$cache_root/ryoku/matugen-carrier.json" --config "$test_root/vesktop-render.toml" --quiet
 [[ $(head -n 1 "$quick_css") == '@import url("custom.css");' ]] || {
   printf 'FAIL: wallpaper fan-out erased the user QuickCSS import\n' >&2; exit 1;
@@ -159,7 +179,7 @@ cmp "$test_root/expected-noblank.css" "$test_root/actual-noblank.css"
 ! grep -Fq -- '--ryo-bridge-enabled: 1;' "$quick_css"
 jq -e '.useQuickCss == true and .enabledThemes == ["custom.theme.css", "Ryoku.theme.css"]' \
   "$config_root/vesktop/settings/settings.json" >/dev/null
-! grep -Fq '[templates.vesktop]' "$overlay/apps.toml"
+! grep -Fq '[templates.vesktop]' "$bridge/matugen.toml"
 [[ ! -e "$state_root/ryoku/palette-bridge/vesktop/quickcss.sh" ]]
 [[ ! -e "$state_root/ryoku/palette-bridge/vesktop/palette.css" ]]
 
@@ -238,14 +258,14 @@ grep -Fq -- '--accent-2: #fedcba;' "$flatpak_vesktop/settings/quickCss.css"
 cmp "$project_root/vesktop/midnight-ryoku.theme.css" "$flatpak_vesktop/themes/midnight-ryoku.theme.css"
 jq -e '.useQuickCss == true' "$flatpak_vesktop/settings/settings.json" >/dev/null
 grep -Fq 'dev.vencord.Vesktop/config/vesktop/settings/quickCss.css' \
-  "$flatpak_config/ryoku/user_edits/matugen/apps.toml"
+  "$flatpak_config/ryoku/palette-bridge/matugen.toml"
 [[ ! -e "$flatpak_config/vesktop" ]]
 run_flatpak_vesktop remove
 if grep -Fq -- '--ryo-bridge-enabled: 1;' "$flatpak_vesktop/settings/quickCss.css"; then
   printf 'FAIL: removal left the palette in the Flathub QuickCSS\n' >&2; exit 1
 fi
 [[ ! -e "$flatpak_vesktop/themes/midnight-ryoku.theme.css" ]]
-if grep -Fq '[templates.vesktop]' "$flatpak_config/ryoku/user_edits/matugen/apps.toml"; then
+if grep -Fq '[templates.vesktop]' "$flatpak_config/ryoku/palette-bridge/matugen.toml"; then
   printf 'FAIL: removal left the Flathub Vesktop Matugen hook\n' >&2; exit 1
 fi
 

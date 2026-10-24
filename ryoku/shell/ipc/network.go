@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -52,6 +53,14 @@ const (
 type networkState struct {
 	conn  *dbus.Conn
 	topic *stateTopic
+
+	cacheMu sync.Mutex
+	cache   *networkSnapshot
+}
+
+type networkSnapshot struct {
+	frame map[string]any
+	aps   map[dbus.ObjectPath]map[string]any
 }
 
 // apInfo is one access point flattened to the fields the reveal renders.
@@ -235,25 +244,97 @@ func (d *daemon) startNetwork() {
 }
 
 // republishOnSignal coalesces bursts of NetworkManager signals into one publish
-// after a short settle window, so a scan that adds twenty access points at once
-// costs a single frame rather than twenty.
+// after a short settle window. Signal-strength drift patches the cached frame;
+// structural or unrecognised changes still take the authoritative full snapshot.
 func (n *networkState) republishOnSignal(sigs chan *dbus.Signal) {
 	const settle = 150 * time.Millisecond
 	timer := time.NewTimer(time.Hour)
 	timer.Stop()
-	pending := false
+	var pending []*dbus.Signal
 	for {
 		select {
-		case <-sigs:
-			if !pending {
-				pending = true
+		case sig, ok := <-sigs:
+			if !ok {
+				return
+			}
+			pending = append(pending, sig)
+			if len(pending) == 1 {
 				timer.Reset(settle)
 			}
 		case <-timer.C:
-			pending = false
-			n.publish()
+			burst := pending
+			pending = nil
+			if !n.patchAndPublishAPBurst(burst) {
+				n.publish()
+			}
 		}
 	}
+}
+
+func applyAPSignalBurst(snapshot *networkSnapshot, sigs []*dbus.Signal) (handled, changed bool) {
+	if snapshot == nil || len(sigs) == 0 {
+		return false, false
+	}
+	for _, sig := range sigs {
+		if sig == nil || sig.Name != propertiesInterface+".PropertiesChanged" ||
+			!strings.HasPrefix(string(sig.Path), nmPath+"/AccessPoint/") ||
+			len(sig.Body) != 3 {
+			return false, false
+		}
+		iface, ok := sig.Body[0].(string)
+		properties, propertiesOK := sig.Body[1].(map[string]dbus.Variant)
+		invalidated, invalidatedOK := sig.Body[2].([]string)
+		ap, known := snapshot.aps[sig.Path]
+		if !ok || iface != nmApIface || !propertiesOK || !invalidatedOK ||
+			len(invalidated) != 0 || !known {
+			return false, false
+		}
+		for name, variant := range properties {
+			switch name {
+			case "LastSeen":
+				continue
+			case "Strength":
+				strength, ok := variant.Value().(byte)
+				if !ok {
+					return false, false
+				}
+				value := int(strength)
+				if ap["strength"] == value {
+					continue
+				}
+				ap["strength"] = value
+				changed = true
+				if active, _ := ap["active"].(bool); active {
+					wifi, ok := snapshot.frame["wifi"].(map[string]any)
+					if !ok {
+						return false, false
+					}
+					wifi["strength"] = value
+				}
+			default:
+				return false, false
+			}
+		}
+	}
+	return true, changed
+}
+
+func (n *networkState) patchAndPublishAPBurst(sigs []*dbus.Signal) bool {
+	n.cacheMu.Lock()
+	handled, changed := applyAPSignalBurst(n.cache, sigs)
+	var frame []byte
+	var err error
+	if handled && changed {
+		frame, err = json.Marshal(n.cache.frame)
+	}
+	n.cacheMu.Unlock()
+	if !handled || err != nil {
+		return false
+	}
+	if changed && n.topic != nil {
+		n.topic.publish(frame)
+	}
+	return true
 }
 
 func (n *networkState) obj(path dbus.ObjectPath) dbus.BusObject {
@@ -266,15 +347,21 @@ func (n *networkState) publish() {
 	if n.topic == nil {
 		return
 	}
-	frame, err := json.Marshal(n.snapshot())
-	if err != nil {
-		return
+	n.cacheMu.Lock()
+	snapshot := n.snapshotState()
+	frame, err := json.Marshal(snapshot.frame)
+	if err == nil {
+		n.cache = snapshot
 	}
-	n.topic.publish(frame)
+	n.cacheMu.Unlock()
+	if err == nil {
+		n.topic.publish(frame)
+	}
 }
 
-// snapshot reads the current NetworkManager state into the QML frame shape.
-func (n *networkState) snapshot() map[string]any {
+// snapshotState reads the current NetworkManager state and keeps the AP object
+// paths beside the public frame so property-only signals can patch it safely.
+func (n *networkState) snapshotState() *networkSnapshot {
 	saved := n.savedConnections()
 	active := n.activeConnections()
 
@@ -287,6 +374,7 @@ func (n *networkState) snapshot() map[string]any {
 		"strength":     0,
 	}
 	aps := []map[string]any{}
+	apsByPath := make(map[dbus.ObjectPath]map[string]any)
 	if wifiDev != "" {
 		wifi["connectivity"] = connectivityFromState(n.uintProp(n.obj(wifiDev), nmDeviceIface+".State"))
 		activeAp := n.pathProp(n.obj(wifiDev), nmWirelessIface+".ActiveAccessPoint")
@@ -302,7 +390,9 @@ func (n *networkState) snapshot() map[string]any {
 				wifi["ssid"] = info.Ssid
 				wifi["strength"] = info.Strength
 			}
-			aps = append(aps, apFrame(info))
+			frame := apFrame(info)
+			aps = append(aps, frame)
+			apsByPath[ap] = frame
 		}
 	}
 
@@ -315,13 +405,16 @@ func (n *networkState) snapshot() map[string]any {
 		wired["connectivity"] = connectivityFromState(n.uintProp(n.obj(wiredDev), nmDeviceIface+".State"))
 	}
 
-	return map[string]any{
-		"wifi":         wifi,
-		"wired":        wired,
-		"accessPoints": aps,
-		"wireguard":    n.wireguardTunnels(saved, active),
-		"vpn":          vpnProfileFrames(saved, n.vpnLiveState(saved, active)),
-		"dns":          n.dnsFrame(),
+	return &networkSnapshot{
+		frame: map[string]any{
+			"wifi":         wifi,
+			"wired":        wired,
+			"accessPoints": aps,
+			"wireguard":    n.wireguardTunnels(saved, active),
+			"vpn":          vpnProfileFrames(saved, n.vpnLiveState(saved, active)),
+			"dns":          n.dnsFrame(),
+		},
+		aps: apsByPath,
 	}
 }
 

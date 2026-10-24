@@ -56,7 +56,7 @@ The ten verbs, in plain terms:
 |`apply <store>`|"Turn these settings into my config file."|
 |`defaults`|"Here is my baseline for those settings."|
 |`schema`|"Here are the settings only I have, so the Hub can draw them."|
-|`binds <store>`|"Here are the keybinds only I have, so the cheatsheet can list them under my name."|
+|`binds <store>`|"Here are the keybinds only I have, so Kit's Keys tab can list them under my name." Kit also carries Commands, Phone, Dev tools, and Typing test.|
 |`outputs <file>`|"Arrange the displays like this."|
 |`session`|The `wayland-session` desktop entry, so a greeter can offer you.|
 
@@ -120,7 +120,7 @@ settings page uses. A row looks like this:
 `ctl` is the shared control vocabulary: a switch, a stepper, a slider, a colour,
 a text field, a segmented picker. Pick from what exists rather than adding a
 control type, and your page looks like the rest of Ryoku because it literally is
-the rest of Ryoku. Two compositors cannot drift apart visually, because there is
+the rest of Ryoku. Compositors cannot drift apart visually, because there is
 one renderer.
 
 Write real labels and descriptions. Terse, concrete, no marketing. A user should

@@ -13,7 +13,75 @@ Item {
     required property string lane
     property bool present: true
 
-    readonly property var rows: {
+    property var rows: []
+    property string appliedSignature: ""
+    readonly property string rowSignature: workspaceSignature()
+
+    function field(value) {
+        const text = String(value);
+        return text.length + ":" + text;
+    }
+
+    function workspaceSignature() {
+        const live = Wm.workspaces || [];
+        const iconStyle = S.Prefs.workspaceStyle === "icons";
+        let outputsReported = false;
+        for (let index = 0; index < live.length; ++index) {
+            if (String(live[index].output || "").length > 0) {
+                outputsReported = true;
+                break;
+            }
+        }
+
+        const parts = [
+            field(S.Prefs.workspaceStyle),
+            S.Prefs.workspaceShowEmpty ? "1" : "0",
+            field(Wm.workspaceModel),
+            field(scene.screenName),
+            outputsReported ? "1" : "0"
+        ];
+        for (let index = 0; index < live.length; ++index) {
+            const workspace = live[index];
+            if (workspace.special === true)
+                continue;
+            if (outputsReported && scene.screenName.length > 0
+                    && String(workspace.output || "") !== scene.screenName)
+                continue;
+
+            const key = workspace.id !== undefined ? workspace.id : workspace.name;
+            let count = Math.max(0, Number(workspace.windows) || 0);
+            const apps = [];
+            if (iconStyle) {
+                const windows = Wm.windowsOnWorkspace(key);
+                count = windows.length;
+                const seen = ({});
+                for (let windowIndex = 0; windowIndex < windows.length; ++windowIndex) {
+                    const appId = String(windows[windowIndex].appId || "").trim();
+                    if (appId.length > 0 && seen[appId] !== true) {
+                        seen[appId] = true;
+                        apps.push(appId);
+                    }
+                }
+            }
+            parts.push(field(key), field(workspace.name || key),
+                field(workspace.idx !== undefined ? workspace.idx : index + 1),
+                workspace.active === true ? "1" : "0",
+                workspace.occupied === true ? "1" : "0",
+                workspace.urgent === true ? "1" : "0",
+                String(count), field(apps.join("\u001f")));
+        }
+        return parts.join("\u001e");
+    }
+
+    function rebuildRows() {
+        const signature = root.rowSignature;
+        if (signature === root.appliedSignature)
+            return;
+        root.rows = root.buildRows();
+        root.appliedSignature = signature;
+    }
+
+    function buildRows() {
         const live = Wm.workspaces || [];
         let outputsReported = false;
         for (let index = 0; index < live.length; ++index) {
@@ -67,6 +135,7 @@ Item {
             ? root.padded(shown) : shown;
     }
 
+
     // A fixed workspace model numbers its slots, yet only the ones in use are
     // reported. Fill the holes, plus one fresh slot after the last occupied
     // one, so empty workspaces show the way the setting promises.
@@ -99,6 +168,9 @@ Item {
         }
         return filled;
     }
+
+    onRowSignatureChanged: rebuildRows()
+    Component.onCompleted: rebuildRows()
 
     implicitWidth: strip.implicitWidth + 2 * K.Style.hitPad
     implicitHeight: K.Style.barH

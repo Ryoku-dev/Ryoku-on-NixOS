@@ -134,13 +134,18 @@ func TestTurnstilePAMExistingEntryIsUntouchedAndFallbackPosition(t *testing.T) {
 
 func TestTurnstileUserEnsureMergesCoreServices(t *testing.T) {
 	app, stdout, _, _, home := turnstileTestApp(t, "runit", &fakeRunner{})
+	app.cfg.ServiceManifest = writeManifestFixture(t, strings.Join([]string{
+		"pipewire\tuser\tsession-core\tpipewire.service\tpipewire\tnone",
+		"pipewire-pulse\tuser\tsession-core\tpipewire-pulse.service\tpipewire-pulse\tnone",
+		"wireplumber\tuser\tsession-core\twireplumber.service\twireplumber\tnone",
+	}, "\n")+"\n")
 	ready := filepath.Join(home, ".config/service/turnstile-ready/conf")
 	writeFixture(t, ready, "core_services=\"pipewire custom\"\n")
 	if code := app.SessionEnsure("--user"); code != ExitOK {
 		t.Fatal(code)
 	}
 	body, _ := os.ReadFile(ready)
-	if string(body) != "core_services=\"pipewire custom dbus\"\n" {
+	if string(body) != "core_services=\"pipewire custom dbus pipewire-pulse wireplumber\"\n" {
 		t.Fatalf("core services = %q", body)
 	}
 	for _, name := range []string{"run", "check"} {

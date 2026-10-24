@@ -19,6 +19,13 @@ Singleton {
     property alias resultSettleMs: adapter.resultSettleMs
     property alias horizonMode:  adapter.horizonMode
     property alias horizonColor: adapter.horizonColor
+    property alias overlayOpacity: adapter.overlayOpacity
+    property alias hiddenApps: adapter.hiddenApps
+    property alias columns: adapter.columns
+    property alias matWidth: adapter.matWidth
+    property alias sectionOrder: adapter.sectionOrder
+    property alias hiddenSections: adapter.hiddenSections
+    property alias pinnedApps: adapter.pinnedApps
 
     FileView {
         id: file
@@ -44,6 +51,13 @@ Singleton {
             property int resultSettleMs: 360
             property string horizonMode: "auto"
             property string horizonColor: "#ffc777"
+            property real overlayOpacity: 0.94
+            property var hiddenApps: []
+            property int columns: 8
+            property int matWidth: 144
+            property var sectionOrder: []
+            property var hiddenSections: []
+            property var pinnedApps: []
         }
     }
 

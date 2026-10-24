@@ -17,6 +17,12 @@ set -uo pipefail
   exit 2
 }
 
+manager=$(ryoku-host pkgmgr 2>/dev/null || true)
+if [[ -n $manager && $manager != pacman ]]; then
+  echo "ryoku-pkg-aur-add: the AUR is available only on pacman hosts (this host uses ${manager:-an unknown manager})" >&2
+  exit 5
+fi
+
 # makepkg (under yay/paru) refuses to build as root; fail early with one clear
 # message instead of a cryptic per-package refusal from every build.
 (( EUID != 0 )) || {

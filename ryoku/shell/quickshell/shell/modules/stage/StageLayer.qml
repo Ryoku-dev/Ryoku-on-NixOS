@@ -24,8 +24,8 @@ Item {
     property real mouseNX: 0
     property real mouseNY: 0
     property real energy: 0
-    // Off for the still Depth effect; on for the drifting Parallax stack.
     property bool motionEnabled: true
+    property bool spatial: false
 
     readonly property int i: root.layerIndex - 1
     readonly property bool layerShown: root.url !== ""
@@ -59,8 +59,18 @@ Item {
     // pull, Range scales how far a layer may travel (the Parallax tab's knobs).
     readonly property real _pointerGain: (root.motionEnabled && Config.followMouse)
         ? Config.sensitivity * Config.range * Config.amountFactor * root._near : 0
-    function _driftX() { return root.mouseNX * root._baseMax * root._pointerGain; }
-    function _driftY() { return root.mouseNY * root._baseMax * root._pointerGain; }
+    // On the spatial stage the cut-outs take a barely visible counter-slide
+    // opposite the flat drift, so the moving cut edge crosses the stationary
+    // desktop cards instead of following them.
+    readonly property real _nearGain: root.spatial && root.motionEnabled && Config.followMouse
+        ? Config.sensitivity * Config.range * Config.amountFactor : 0
+    function _driftX() { return root.spatial
+        ? -root.mouseNX * root.width * 0.005 * root._nearGain
+        : root.mouseNX * root._baseMax * root._pointerGain; }
+    function _driftY() { return root.spatial
+        ? -root.mouseNY * root.height * 0.005 * root._nearGain
+        : root.mouseNY * root._baseMax * root._pointerGain; }
+
     // Music lifts near layers more than far ones, so the stack pulses with depth.
     function _musicY() {
         if (!root.motionEnabled || !Config.music) return 0;
@@ -119,9 +129,7 @@ Item {
                 fillMode: framedLayer.framed ? Image.PreserveAspectCrop : root._fillMode(img)
                 sourceSize.width: root.width
                 sourceSize.height: root.height
-                // No overscan: a cut-out is transparent at its edges, so drift
-                // needs no headroom. Breathe is the only extra scale.
-                scale: root._idleScale
+                scale: root._idleScale * (root.spatial ? StageBackend.spatialZoom : 1)
                 rotation: root._idleRot
                 opacity: (status === Image.Ready ? 1 : 0) * (root._busyHere ? 0.45 : 1)
                 Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }

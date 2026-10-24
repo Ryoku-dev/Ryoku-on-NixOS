@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import shell.services
 import stage.modules.common.widgets
 import stage.services
 import "../clock"
@@ -7,57 +8,66 @@ import stage.modules.common.functions
 import ".."
 
 /**
- * Clipboard: the history of what was copied, with pins — text, images and
- * files (Cliphist). Square: the kind of the last copy (text, link, image,
- * file) on a gem. Wide: that badge, the last copy in one line and what it
- * is, with the pin count. The panel holds the pins and the history.
+ * Clipboard: the daemon's text, image and binary history. Square: the kind of
+ * the latest entry on a gem. Wide: that badge, the latest preview and its kind,
+ * with the starred count. The panel holds starred and recent entries.
  */
 UtilityTile {
     id: tile
 
-    readonly property var entries: Cliphist.entries ?? []
-    readonly property var pinned: Cliphist.pinnedEntries ?? []
-    readonly property var latest: tile.entries.length > 0 ? tile.entries[0] : ""
-    readonly property bool historyLoading: !Cliphist.loaded
-    readonly property bool historyUnavailable: Cliphist.loaded && Cliphist.loadFailed
+    readonly property var entries: Clipboard.entries || []
+    readonly property var starred: tile.entries.filter(entry => entry && entry.starred === true)
+    readonly property var latest: tile.entries.length > 0 ? tile.entries[0] : null
 
     function textOf(entry) {
-        return String(entry ?? "").replace(/^\s*\S+\s+/, "").trim();
+        return String(entry?.preview ?? "").trim();
     }
     function kindOf(entry) {
-        if (Cliphist.entryIsImage(entry))
-            return "image";
+        const kind = String(entry?.kind ?? "");
+        if (kind === "image" || kind === "binary")
+            return kind;
         const text = tile.textOf(entry);
-        if (/^file:\/\//.test(text) || Cliphist.classifyEntry(entry) === "filepath")
+        if (/^(file:\/\/|\/|~\/)/.test(text))
             return "file";
-        if (Cliphist.classifyEntry(entry) === "url")
+        if (/^https?:\/\//.test(text))
             return "link";
         return "text";
     }
     function symbolOf(entry) {
         switch (tile.kindOf(entry)) {
         case "image": return "image";
+        case "binary": return "draft";
         case "file": return UtilityFiles.symbolFor(UtilityFiles.pathFromUrl(tile.textOf(entry).split(/\r?\n/)[0]));
         case "link": return "link";
         default: return "notes";
         }
     }
-    function labelOf(entry) {
-        const kind = tile.kindOf(entry);
-        if (kind === "image") {
-            const size = String(entry).match(/(\d+)x(\d+)/);
-            const format = String(entry).match(/\b(png|jpe?g|webp|gif|bmp)\b/i);
-            return size ? size[1] + " × " + size[2] + (format ? " " + format[1].toUpperCase() : "") : Translation.tr("Image");
-        }
-        const text = tile.textOf(entry);
-        if (kind === "file")
-            return UtilityFiles.baseName(UtilityFiles.pathFromUrl(text.split(/\r?\n/)[0]));
-        return text.replace(/\s+/g, " ");
+    function humanSize(bytes) {
+        const size = Math.max(0, Number(bytes) || 0);
+        if (size < 1024)
+            return size + " B";
+        if (size < 1048576)
+            return (size / 1024).toFixed(1) + " KB";
+        return (size / 1048576).toFixed(1) + " MB";
     }
-
+    function labelOf(entry) {
+        const kind = String(entry?.kind ?? "");
+        if (kind === "image") {
+            const dimensions = Number(entry?.w ?? 0) > 0 && Number(entry?.h ?? 0) > 0
+                ? entry.w + " × " + entry.h : Translation.tr("Image");
+            const mime = String(entry?.mime ?? "");
+            return mime.length > 0 ? dimensions + " · " + mime : dimensions;
+        }
+        if (kind === "binary") {
+            const mime = String(entry?.mime ?? "") || Translation.tr("Binary");
+            return mime + " · " + tile.humanSize(entry?.size ?? 0);
+        }
+        return tile.textOf(entry).replace(/\s+/g, " ");
+    }
     function kindName(entry) {
         switch (tile.kindOf(entry)) {
         case "image": return Translation.tr("Image");
+        case "binary": return Translation.tr("Binary");
         case "file": return Translation.tr("File");
         case "link": return Translation.tr("Link");
         default: return Translation.tr("Text");
@@ -67,17 +77,14 @@ UtilityTile {
     surfaceColor: ClockStyle.colSurfaceHigh
     contentColor: ClockStyle.colOnSurface
 
-    tooltipText: tile.historyLoading ? Translation.tr("Clipboard · Loading history…")
-        : tile.historyUnavailable ? Translation.tr("Clipboard history unavailable")
-        : tile.latest !== "" ? Translation.tr("Clipboard · %1").arg(tile.labelOf(tile.latest).substring(0, 60))
+    tooltipText: tile.latest !== null
+        ? Translation.tr("Clipboard · %1").arg(tile.labelOf(tile.latest).substring(0, 60))
         : Translation.tr("Clipboard")
-    panelSubtitle: tile.historyLoading ? Translation.tr("Loading history…")
-        : tile.historyUnavailable ? Translation.tr("History unavailable")
-        : tile.pinned.length > 0 ? Translation.tr("%1 pinned · %2 in history").arg(tile.pinned.length).arg(tile.entries.length)
+    panelSubtitle: tile.starred.length > 0
+        ? Translation.tr("%1 starred · %2 in history").arg(tile.starred.length).arg(tile.entries.length)
         : Translation.tr("%1 in history").arg(tile.entries.length)
     panelWidth: 380
 
-    // ── Square ──────────────────────────────────────────────────────────
     TileBadge {
         anchors.centerIn: parent
         visible: !tile.wide
@@ -87,11 +94,10 @@ UtilityTile {
         shape: MaterialShape.Shape.Gem
         color: ClockStyle.colPrimaryContainer
         colSymbol: ClockStyle.colOnPrimaryContainer
-        text: tile.latest !== "" ? tile.symbolOf(tile.latest) : "content_paste"
+        text: tile.latest !== null ? tile.symbolOf(tile.latest) : "content_paste"
         iconScale: 0.48
     }
 
-    // ── Wide ────────────────────────────────────────────────────────────
     RowLayout {
         anchors.fill: parent
         anchors.margins: tile.pad
@@ -106,7 +112,7 @@ UtilityTile {
             shape: MaterialShape.Shape.Gem
             color: ClockStyle.colPrimaryContainer
             colSymbol: ClockStyle.colOnPrimaryContainer
-            text: tile.latest !== "" ? tile.symbolOf(tile.latest) : "content_paste"
+            text: tile.latest !== null ? tile.symbolOf(tile.latest) : "content_paste"
             iconScale: 0.48
         }
         ColumnLayout {
@@ -115,9 +121,7 @@ UtilityTile {
             spacing: 0
             TileText {
                 Layout.fillWidth: true
-                text: tile.historyLoading ? Translation.tr("Loading history…")
-                    : tile.historyUnavailable ? Translation.tr("History unavailable")
-                    : tile.latest !== "" ? tile.labelOf(tile.latest) : Translation.tr("Nothing copied yet")
+                text: tile.latest !== null ? tile.labelOf(tile.latest) : Translation.tr("Nothing copied yet")
                 color: tile.contentColor
                 font.pixelSize: Math.round(tile.height * 0.27)
                 font.weight: Font.DemiBold
@@ -126,8 +130,8 @@ UtilityTile {
             }
             TileCaption {
                 Layout.fillWidth: true
-                text: (tile.latest !== "" ? tile.kindName(tile.latest) : Translation.tr("Clipboard"))
-                    + (tile.pinned.length > 0 ? " · " + Translation.tr("%1 pinned").arg(tile.pinned.length) : "")
+                text: (tile.latest !== null ? tile.kindName(tile.latest) : Translation.tr("Clipboard"))
+                    + (tile.starred.length > 0 ? " · " + Translation.tr("%1 starred").arg(tile.starred.length) : "")
                 color: tile.captionColor
                 font.pixelSize: tile.captionSize
             }

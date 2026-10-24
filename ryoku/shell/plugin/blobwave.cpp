@@ -47,6 +47,12 @@ BlobWave::~BlobWave() {
     m_group = nullptr;
 }
 
+bool BlobWave::takeVisualChange() {
+    const bool changed = m_visualChanged;
+    m_visualChanged = false;
+    return changed;
+}
+
 void BlobWave::setLevels(const QList<qreal>& levels) {
     if (m_levels == levels)
         return;
@@ -65,6 +71,8 @@ void BlobWave::setPoints(int points) {
     rebuildTargets();
     emit pointsChanged();
     startIfNeeded();
+    if (m_group && m_group->waves().contains(this))
+        m_group->markShapeDirty(this);
 }
 
 void BlobWave::setAmplitude(qreal amplitude) {
@@ -75,6 +83,8 @@ void BlobWave::setAmplitude(qreal amplitude) {
     rebuildTargets();
     emit amplitudeChanged();
     startIfNeeded();
+    if (m_group && m_group->waves().contains(this))
+        m_group->markShapeDirty(this);
 }
 void BlobWave::setGain(qreal gain) {
     const qreal bounded = std::isfinite(gain) ? std::max(gain, 0.0) : 0.0;
@@ -104,6 +114,8 @@ void BlobWave::setEdgeInset(qreal edgeInset) {
     rebuildTargets();
     emit edgeInsetChanged();
     startIfNeeded();
+    if (m_group && m_group->waves().contains(this))
+        m_group->markShapeDirty(this);
 }
 
 void BlobWave::setWaveStiffness(qreal stiffness) {
@@ -158,20 +170,6 @@ void BlobWave::geometryChange(const QRectF& newGeometry, const QRectF& oldGeomet
     }
 }
 
-void BlobWave::updatePolish() {
-    BlobRect::updatePolish();
-    if (!m_active)
-        return;
-
-    QMetaObject::invokeMethod(
-        this,
-        [this]() {
-            if (m_active && m_group && m_group->waves().contains(this))
-                m_group->markShapeDirty(this);
-        },
-        Qt::QueuedConnection);
-}
-
 void BlobWave::updatePhysics() {
     BlobRect::updatePhysics();
     if (!m_active)
@@ -209,19 +207,38 @@ void BlobWave::updatePhysics() {
     bool hasTarget = false;
     bool displaced = false;
     bool inMotion = false;
+    bool settled = true;
     for (int i = 0; i < m_count; ++i) {
         hasTarget = hasTarget || m_targets[i] > 0.0f;
         displaced = displaced || std::abs(m_heights[i]) > 0.05f;
         inMotion = inMotion || std::abs(m_velocities[i]) > 0.5f;
+        settled = settled && std::abs(m_heights[i] - m_targets[i]) < 0.01f &&
+                  std::abs(m_velocities[i]) < 0.5f;
     }
     setMoving(displaced || inMotion);
 
-    if (!hasTarget && !displaced && !inMotion) {
+    if (settled) {
+        std::copy_n(m_targets.begin(), m_count, m_heights.begin());
+        std::fill(m_velocities.begin(), m_velocities.end(), 0.0f);
+        m_active = false;
+        m_elapsed.invalidate();
+    } else if (!hasTarget && !displaced && !inMotion) {
         std::fill(m_heights.begin(), m_heights.end(), 0.0f);
         std::fill(m_velocities.begin(), m_velocities.end(), 0.0f);
         m_active = false;
         m_elapsed.invalidate();
         setMoving(false);
+    }
+
+    // Material data is sub-pixel; only wake the scene graph when its fixed
+    // representation would actually change.
+    constexpr float HeightQuantum = 64.0f;
+    for (int i = 0; i < m_count; ++i) {
+        const int quantized = static_cast<int>(std::lround(m_heights[i] * HeightQuantum));
+        if (m_quantizedHeights[i] == quantized)
+            continue;
+        m_quantizedHeights[i] = quantized;
+        m_visualChanged = true;
     }
 }
 
@@ -338,9 +355,17 @@ void BlobWave::startIfNeeded() {
     if (!needsFrames) {
         std::fill(m_heights.begin(), m_heights.end(), 0.0f);
         std::fill(m_velocities.begin(), m_velocities.end(), 0.0f);
+        for (int i = 0; i < m_count; ++i) {
+            if (m_quantizedHeights[i] == 0)
+                continue;
+            m_quantizedHeights[i] = 0;
+            m_visualChanged = true;
+        }
         m_active = false;
         m_elapsed.invalidate();
         setMoving(false);
+        if (m_visualChanged && m_group && m_group->waves().contains(this))
+            m_group->requestWaveUpdate();
         return;
     }
 
@@ -352,7 +377,7 @@ void BlobWave::startIfNeeded() {
         m_active = true;
         m_elapsed.start();
     }
-    m_group->markShapeDirty(this);
+    m_group->requestWaveUpdate();
 }
 
 void BlobWave::setMoving(bool moving) {

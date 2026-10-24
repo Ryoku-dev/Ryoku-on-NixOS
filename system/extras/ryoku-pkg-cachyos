@@ -1,71 +1,146 @@
 #!/usr/bin/env bash
 
-# Ryoku plus the CachyOS kernel, and nothing else: add ONLY the [cachyos-v3]
-# repository (where linux-cachyos lives) above [core], and trust the CachyOS
-# key. The userland stays Arch + [ryoku] -- we do NOT add the core/extra
-# rebuilds (so a later `pacman -Syu` cannot convert the userland) or the
-# baseline [cachyos] repo (which ships CachyOS's forked pacman). The stock
-# kernel stays as the boot fallback. See docs/kernels.md. Needs a TTY for sudo.
-# (The full-CachyOS install variant is a separate path: installation/backend/lib/cachyos.sh.)
+# Add the CachyOS v3 and baseline repositories below every Arch repository and
+# [ryoku]. Pacman keeps the first repository serving a package authoritative,
+# so Arch userland stays Arch while CachyOS-only kernels, tuning, and gaming
+# packages remain available. The stock kernel stays as the boot fallback.
+# The full CachyOS install uses installation/backend/lib/cachyos.sh instead.
 
 set -euo pipefail
 
-conf=/etc/pacman.conf
+manager=$(ryoku-host pkgmgr 2>/dev/null || true)
+if [[ -n $manager && $manager != pacman ]]; then
+  echo "ryoku-pkg-cachyos: the CachyOS repository is available only on pacman hosts (this host uses ${manager:-an unknown manager})" >&2
+  exit 5
+fi
+
+conf=${RYOKU_PKG_CACHYOS_CONF:-/etc/pacman.conf}
+privilege_command=${RYOKU_PRIVILEGE_COMMAND-sudo}
+ld_linux=${RYOKU_LD_LINUX:-/lib/ld-linux-x86-64.so.2}
 key=F3B607488DB35A47
+fingerprint=882DCFE48E2051D48E2562ABF3B607488DB35A47
 mirror=https://mirror.cachyos.org/repo
 
-# serialize the pacman.conf + keyring mutation below: a double-fired bundle
-# install (two Hub terminals racing) could otherwise duplicate the repo
-# stanza. the second holder just waits, then exits on the idempotence checks.
+privileged() {
+  if [[ -n $privilege_command ]]; then
+    "$privilege_command" "$@"
+  else
+    "$@"
+  fi
+}
+
+trust_key_from_keyring_package() (
+  set -e
+  local tmp member filename sha package keyring found=
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+
+  curl --proto '=https' --tlsv1.2 -fsSL \
+    "$mirror/x86_64/cachyos/cachyos.db" -o "$tmp/cachyos.db"
+  while IFS= read -r member; do
+    case $member in
+      cachyos-keyring-*/desc) break ;;
+      *) member= ;;
+    esac
+  done < <(bsdtar -tf "$tmp/cachyos.db")
+  [[ -n $member ]]
+
+  filename=$(bsdtar -xOf "$tmp/cachyos.db" "$member" |
+    awk '$0 == "%FILENAME%" { getline; print; exit }')
+  sha=$(bsdtar -xOf "$tmp/cachyos.db" "$member" |
+    awk '$0 == "%SHA256SUM%" { getline; print; exit }')
+  [[ -n $filename && -n $sha ]]
+
+  package="$tmp/$filename"
+  curl --proto '=https' --tlsv1.2 -fsSL \
+    "$mirror/x86_64/cachyos/$filename" -o "$package"
+  printf '%s  %s\n' "$sha" "$package" | sha256sum -c - >/dev/null
+
+  keyring="$tmp/cachyos.gpg"
+  bsdtar -xOf "$package" usr/share/pacman/keyrings/cachyos.gpg >"$keyring"
+  mkdir -m 700 "$tmp/gnupg"
+  while IFS=: read -r kind _ _ _ _ _ _ _ _ got _; do
+    [[ $kind == fpr && $got == "$fingerprint" ]] && found=1
+  done < <(GNUPGHOME="$tmp/gnupg" gpg --batch --with-colons --show-keys "$keyring")
+  [[ $found == 1 ]]
+
+  privileged pacman-key --add "$keyring"
+  privileged pacman-key --lsign-key "$fingerprint"
+)
+
+# Serialize pacman.conf and keyring mutation. Two bundle installs can otherwise
+# race and duplicate the repository stanzas.
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/ryoku-pkg-conf.lock"
 flock 9
 
-if ! /lib/ld-linux-x86-64.so.2 --help 2>/dev/null | grep -q 'x86-64-v3 (supported'; then
+if ! "$ld_linux" --help 2>/dev/null | grep -q 'x86-64-v3 (supported'; then
   echo "ryoku-pkg-cachyos: this CPU does not support x86-64-v3; the CachyOS kernel needs it" >&2
   exit 1
 fi
 
-# stock pacman resolves Architecture = auto to x86_64 and rejects the v3
-# packages, so it must also accept x86_64_v3. an active line gets the value
-# appended whatever its spacing; a config without one (hand-edited, or the
-# line only in a comment) gets the line inserted under [options], never by
-# rewriting a commented line, which could sit inside a repo section and
-# would break pacman's parse there. verified after, so a silent sed no-op
-# exits loudly instead of stranding a repo pacman then rejects.
-if ! grep -qE '^Architecture[[:space:]]*=.*x86_64_v3' "$conf"; then
-  echo "==> Allowing x86_64_v3 packages in $conf"
-  if grep -qE '^Architecture[[:space:]]*=' "$conf"; then
-    sudo sed -i 's|^Architecture[[:space:]]*=.*|& x86_64_v3|' "$conf"
-  else
-    sudo sed -i 's|^\[options\]$|[options]\nArchitecture = auto x86_64_v3|' "$conf"
-  fi
-  grep -qE '^Architecture[[:space:]]*=.*x86_64_v3' "$conf" || {
-    echo "ryoku-pkg-cachyos: could not enable x86_64_v3 in $conf (set 'Architecture = auto x86_64_v3' by hand)" >&2
-    exit 1
-  }
-fi
-
-if grep -qE '^\[cachyos' "$conf"; then
+# A CachyOS edition or an already-fixed Arch box already has the baseline
+# repository. Its native repository ordering and architecture policy are left
+# byte-for-byte untouched.
+if grep -qE '^\[cachyos\][[:space:]]*$' "$conf"; then
   echo "cachyos: repository already configured"
   exit 0
 fi
 
 echo "==> Trusting the CachyOS signing key"
-sudo pacman-key --recv-keys "$key" --keyserver keyserver.ubuntu.com \
-  || sudo pacman-key --recv-keys "$key" --keyserver hkps://keys.openpgp.org
-sudo pacman-key --lsign-key "$key"
-
-echo "==> Adding the [cachyos-v3] repository above [core]"
-block="[cachyos-v3]\nServer = $mirror/x86_64_v3/cachyos-v3\n\n[core]"
-sudo sed -i "0,/^\[core\]/ s|^\[core\]|$block|" "$conf"
-if ! grep -qE '^\[cachyos-v3\]' "$conf"; then
-  echo "ryoku-pkg-cachyos: could not add the [cachyos-v3] repository to $conf" >&2
-  exit 1
+if {
+  privileged pacman-key --recv-keys "$key" --keyserver keyserver.ubuntu.com ||
+    privileged pacman-key --recv-keys "$key" --keyserver hkps://keys.openpgp.org
+} && privileged pacman-key --finger "$fingerprint" >/dev/null; then
+  privileged pacman-key --lsign-key "$fingerprint"
+else
+  echo "==> Keyserver unavailable; importing the pinned key from cachyos-keyring"
+  trust_key_from_keyring_package || {
+    echo "ryoku-pkg-cachyos: could not establish trust in the CachyOS signing key" >&2
+    exit 1
+  }
 fi
 
-echo "==> Synchronizing package databases"
-sudo pacman -Sy
+echo "==> Adding [cachyos-v3] and [cachyos] after the Arch repositories"
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+has_architecture=0
+grep -qE '^Architecture[[:space:]]*=' "$conf" && has_architecture=1
+awk -v has_architecture="$has_architecture" '
+  $0 == "[cachyos-v3]" { skip = 1; next }
+  skip && /^\[[^]]+\][[:space:]]*$/ { skip = 0 }
+  skip { next }
+  /^Architecture[[:space:]]*=/ {
+    if ($0 !~ /(^|[[:space:]])x86_64_v3([[:space:]]|$)/) $0 = $0 " x86_64_v3"
+    print
+    next
+  }
+  $0 == "[options]" && !has_architecture {
+    print
+    print "Architecture = auto x86_64_v3"
+    next
+  }
+  { print }
+' "$conf" >"$tmp"
+cat >>"$tmp" <<EOF
 
-# best-effort: the keyring package keeps trust current across key rotations.
-# recv/lsign above already covers today's packages if it is unavailable.
-sudo pacman -S --needed --noconfirm cachyos-keyring || true
+[cachyos-v3]
+Server = $mirror/x86_64_v3/cachyos-v3
+
+[cachyos]
+Server = $mirror/x86_64/cachyos
+EOF
+privileged cp "$tmp" "$conf"
+
+grep -qE '^Architecture[[:space:]]*=.*x86_64_v3' "$conf" || {
+  echo "ryoku-pkg-cachyos: could not enable x86_64_v3 in $conf" >&2
+  exit 1
+}
+[[ $(grep -cE '^\[cachyos-v3\][[:space:]]*$' "$conf") -eq 1 ]] &&
+  [[ $(grep -cE '^\[cachyos\][[:space:]]*$' "$conf") -eq 1 ]] || {
+  echo "ryoku-pkg-cachyos: could not add the CachyOS repositories to $conf" >&2
+  exit 1
+}
+
+echo "==> Synchronizing package databases"
+privileged pacman -Sy
+privileged pacman -S --needed --noconfirm cachyos-keyring

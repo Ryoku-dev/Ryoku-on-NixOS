@@ -19,7 +19,7 @@ Item {
     readonly property color inkDim:  Theme.inkDimOn2(face.underL, face.inkColorA)
     readonly property color inkSoft: Theme.inkSoftOn2(face.underL, face.inkColorA)
 
-    readonly property var t: Clk.parts(Now.date, Config.clock24h)
+    readonly property var t: Clk.parts(Now.secondDate, Config.clock24h)
     readonly property color accent: Clk.pickAccent(Config.clockAccent, Theme.accentOn2(face.underL, face.inkColorA), Theme.brand, face.ink)
     readonly property real px: Math.round(82 * face.s)
     readonly property string caption: (Config.clockSeconds ? face.t.ss : "")

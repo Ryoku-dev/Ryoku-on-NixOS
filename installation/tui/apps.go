@@ -1,17 +1,16 @@
-// apps.go holds the installer's browser, login-shell, and app choice tables:
-// what Ryoku ships, what a user may pick or skip, and why. The required rows
-// are not opinion: each names a desktop feature (a ryoku-app role or the stash
-// menu) that breaks without the package. The same feature-to-package contract
-// is gated by tests/shell-tool-availability.sh. Tools that are hard depends of
-// ryoku-desktop (grim, cava, matugen, mpv, the portals) never appear here at
-// all: removing them would break a Ryoku surface the user never touched, so
-// the desktop owns them, not the installer's picker.
+// apps.go adapts the shared installer choices and component catalogue to TUI
+// rows. Package ownership and edition availability stay in installerplan so the
+// ISO and script installers render the same choices.
 package main
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"ryoku-i18n"
+	installerplan "ryoku-installerplan"
 )
 
 // flowIndex finds the wizard index of a step by key; the flow shifts when
@@ -25,14 +24,78 @@ func flowIndex(flow []step, key string) int {
 	return -1
 }
 
-// browsers returns the three browsers Ryoku ships. The installer picks exactly
-// one; the browser step offers these and nothing else.
-func browsers() []item {
-	return []item{
-		{"firefox", "Firefox", i18n.T("Recommended · official repo · the Gecko engine")},
-		{"chromium", "Chromium", i18n.T("official repo · fast and familiar")},
-		{"zen", "Zen", i18n.T("vertical tabs · AUR build")},
+func installerChoicesForVariant(variant string) installerplan.EditionPlan {
+	if !isVoidVariant(variant) {
+		return installerplan.ResolveSource(variant)
 	}
+	var paths []string
+	if root := os.Getenv("RYOKU_REPO"); root != "" {
+		paths = append(paths, filepath.Join(root, "void/packages/translations.tsv"))
+	}
+	paths = append(paths,
+		"/usr/share/ryoku/void/packages/translations.tsv",
+		filepath.Join("..", "..", "void", "packages", "translations.tsv"),
+	)
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		plan, err := installerplan.ResolveEdition(data)
+		if err != nil {
+			panic(err)
+		}
+		return plan
+	}
+	panic(fmt.Sprintf("Void package table not found in %s", strings.Join(paths, ", ")))
+}
+
+func choiceItems(kind string, plan installerplan.EditionPlan, availableOnly bool) []item {
+	var items []item
+	for _, availability := range plan.Choices(kind) {
+		if availableOnly && !availability.Available {
+			continue
+		}
+		choice := availability.Choice
+		hint := i18n.T(choice.TUIHint)
+		if !availability.Available {
+			hint = i18n.Tf("Unavailable on %s · %s", plan.Edition, availability.Reason)
+		}
+		items = append(items, item{choice.ID, i18n.T(choice.Label), hint})
+	}
+	return items
+}
+
+func browsers() []item {
+	return choiceItems(installerplan.Browser, installerplan.ResolveSource("Arch"), true)
+}
+
+// cachyosBrowserHints replaces the shared hint of a browser the CachyOS
+// repositories serve, which that edition installs from the repo, not the AUR.
+var cachyosBrowserHints = map[string]string{"zen": "vertical tabs · CachyOS repo"}
+
+func browsersForVariant(variant string) []item {
+	items := choiceItems(installerplan.Browser, installerChoicesForVariant(variant), true)
+	if variant == variantCachyOS {
+		for i := range items {
+			if hint, ok := cachyosBrowserHints[items[i].key]; ok {
+				items[i].hint = i18n.T(hint)
+			}
+		}
+	}
+	return items
+}
+
+// shippedBrowserCount is how many browsers the edition can install: the None
+// row is a choice, not a browser, so it stays out of the step's description.
+func shippedBrowserCount(variant string) int {
+	n := 0
+	for _, availability := range installerChoicesForVariant(variant).Choices(installerplan.Browser) {
+		if availability.Available && !availability.Choice.NoPackages {
+			n++
+		}
+	}
+	return n
 }
 
 // browserLabel is the display name for a browser key, for Review and the rail.
@@ -45,19 +108,13 @@ func browserLabel(key string) string {
 	return key
 }
 
-// browserPackages is every browser name the package sets carry, in picker
-// order, so the handoff can add the two that lost to the backend's drop list.
-func browserPackages() []string { return []string{"firefox", "chromium", "zen-browser-bin"} }
-
-// loginShells returns the three account shells in the order shown by the
-// installer. Every shell keeps the shared terminal tools; only its own editing
-// stack is installed.
+// loginShells returns the account shells in shared manifest order.
 func loginShells() []item {
-	return []item{
-		{"fish", "Fish", i18n.T("Recommended · autosuggestions, abbreviations")},
-		{"zsh", "Zsh", i18n.T("Oh My Zsh with Ryoku's plugins")},
-		{"bash", "Bash", i18n.T("the classic shell · ble.sh editing")},
-	}
+	return choiceItems(installerplan.LoginShell, installerplan.ResolveSource("Arch"), true)
+}
+
+func loginShellsForVariant(variant string) []item {
+	return choiceItems(installerplan.LoginShell, installerChoicesForVariant(variant), true)
 }
 
 // loginShellLabel is the display name for a shell key, for Review and the rail.
@@ -70,22 +127,24 @@ func loginShellLabel(key string) string {
 	return key
 }
 
-// loginShellDropPackages returns the stacks not owned by the selected shell.
-// Bash itself is part of the base system and is never dropped.
-func loginShellDropPackages(key string) []string {
-	switch key {
-	case "zsh":
-		return []string{"fish", "blesh"}
-	case "bash":
-		return []string{"fish", "zsh", "zsh-autosuggestions", "zsh-history-substring-search", "zsh-syntax-highlighting", "ryoku-oh-my-zsh"}
-	default:
-		return []string{"zsh", "zsh-autosuggestions", "zsh-history-substring-search", "zsh-syntax-highlighting", "ryoku-oh-my-zsh", "blesh"}
-	}
+func fileManagers() []item {
+	return choiceItems(installerplan.FileManager, installerplan.ResolveSource("Arch"), true)
 }
 
-// appRow is one keep/remove decision: a named app or tool group, the packages
-// it stands for, and its honesty labels. Req is why the row cannot be removed
-// (empty = removable); Sub is what it does; Group heads a section of rows.
+func fileManagersForVariant(variant string) []item {
+	return choiceItems(installerplan.FileManager, installerChoicesForVariant(variant), true)
+}
+
+func fileManagerLabel(key string) string {
+	for _, manager := range fileManagers() {
+		if manager.key == key {
+			return manager.label
+		}
+	}
+	return key
+}
+
+// appRow adapts one shared component for the Apps & tools checklist.
 type appRow struct {
 	ID    string
 	Name  string
@@ -96,75 +155,47 @@ type appRow struct {
 	Group string
 }
 
-// appRows is the shipped-app table. Order is display order; membership mirrors
-// ryokumanifest.Apps() (deliver-once apps), the AUR extras, and the feature-to-
-// package map in tests/shell-tool-availability.sh (role apps are required).
 func appRows() []appRow {
-	return []appRow{
-		{ID: "terminal", Name: "Kitty", Pkgs: []string{"kitty"}, Def: true, Group: i18n.T("System (required)"),
-			Req: i18n.T("the Ryoku terminal role: the launcher's terminal, the Hub, and 'open in terminal' all run it")},
-		{ID: "files", Name: "Files", Pkgs: []string{"nautilus"}, Def: true,
-			Req: i18n.T("the Ryoku file-manager role: the launcher's Files, the stash, and the wallpaper picker open it")},
-		{ID: "stash-menu", Name: "Files stash menu", Pkgs: []string{"nautilus-python"}, Def: true,
-			Req: i18n.T("the Ryoku stash actions in the Files right-click menu (ships with Files)")},
-		{ID: "editor", Name: "Neovim", Pkgs: []string{"neovim"}, Def: true,
-			Req: i18n.T("the Ryoku editor role: the launcher's editor opens 'kitty -e nvim'")},
+	return appRowsForVariant("plain")
+}
 
-		{ID: "prompt", Name: "Starship prompt", Pkgs: []string{"starship"}, Def: true, Group: i18n.T("Terminal"),
-			Sub: i18n.T("the Ryoku shell prompt")},
-		{ID: "fastfetch", Name: "Fastfetch", Pkgs: []string{"fastfetch"}, Def: true,
-			Sub: i18n.T("system summary card (launcher, RyoStore covers)")},
-		{ID: "yazi", Name: "Yazi", Pkgs: []string{"yazi"}, Def: true,
-			Sub: i18n.T("terminal file manager")},
-		{ID: "monitor", Name: "btop monitor", Pkgs: []string{"btop"}, Def: true,
-			Req: i18n.T("the CPU, GPU, and battery panels' monitor button opens btop in the terminal")},
-		{ID: "cli-tools", Name: "Modern CLI tools", Pkgs: []string{"eza", "bat", "fzf", "zoxide"}, Def: true,
-			Sub: i18n.T("ls/cat replacements · Ctrl-R + fuzzy cd in the shell (each degrades cleanly if removed)")},
-		{ID: "git-tools", Name: "Git tools", Pkgs: []string{"github-cli", "lazygit"}, Def: true,
-			Sub: i18n.T("the gh CLI and the lazygit terminal UI")},
-
-		{ID: "pavucontrol", Name: "PulseAudio GUI", Pkgs: []string{"pavucontrol"}, Def: true, Group: i18n.T("Media & tools"),
-			Sub: i18n.T("the mixer the bar's audio button opens")},
-		{ID: "songrec", Name: "Songrec", Pkgs: []string{"songrec"}, Def: true,
-			Sub: i18n.T("feature: Recognize Music in the launcher")},
-		{ID: "openrgb", Name: "OpenRGB", Pkgs: []string{"openrgb"}, Def: true,
-			Sub: i18n.T("feature: keyboard/mouse lighting follows the wallpaper palette")},
-		{ID: "upscale", Name: "AI upscale", Pkgs: []string{"waifu2x-ncnn-vulkan"}, Def: true,
-			Sub: i18n.T("feature: ryoshot Beautify HD and ryowalls Enhance")},
-		{ID: "localsend", Name: "LocalSend", Pkgs: []string{"localsend-bin"}, Def: true,
-			Sub: i18n.T("feature: LAN file sharing (the pill's file stash speaks it; AUR)")},
-		{ID: "voxtype", Name: "Voxtype", Pkgs: []string{"voxtype-bin"}, Def: true,
-			Sub: i18n.T("feature: voice dictation on Super+` (AUR)")},
-
-		{ID: "gamescope", Name: "Gamescope", Pkgs: []string{"gamescope"}, Def: true, Group: i18n.T("Gaming"),
-			Sub: i18n.T("the nested gaming micro-compositor")},
-		{ID: "gamemode", Name: "GameMode", Pkgs: []string{"gamemode"}, Def: true,
-			Sub: i18n.T("the performance governor Steam invokes")},
-		{ID: "mangohud", Name: "MangoHud", Pkgs: []string{"mangohud"}, Def: true,
-			Sub: i18n.T("in-game FPS and frametime overlay")},
-		{ID: "controllers", Name: "Game controllers", Pkgs: []string{"xpadneo-dkms", "game-devices-udev"}, Def: true,
-			Sub: i18n.T("wireless Xbox pads + controller access rules")},
-
-		{ID: "vm", Name: "Virtual machines", Pkgs: []string{"qemu-desktop", "edk2-ovmf", "virglrenderer"}, Def: true, Group: i18n.T("System services"),
-			Sub: i18n.T("the windowed VM behind Ryoku Settings > GPU > Machine")},
-		{ID: "docker", Name: "Docker", Pkgs: []string{"docker"}, Def: true,
-			Sub: i18n.T("the Cobalt engine the file stash downloads through")},
-		{ID: "flatpak", Name: "Flatpak", Pkgs: []string{"flatpak"}, Def: true,
-			Sub: i18n.T("the portable app channel (the stash installs .flatpak bundles)")},
-
-		{ID: "go", Name: "Go toolchain", Pkgs: []string{"go"}, Def: true, Group: i18n.T("Developer toolchains")},
-		{ID: "node", Name: "Node.js + npm", Pkgs: []string{"nodejs", "npm"}, Def: true},
-		{ID: "pytools", Name: "Python pip + pipx", Pkgs: []string{"python-pip", "python-pipx"}, Def: true},
-		{ID: "mise", Name: "mise", Pkgs: []string{"mise"}, Def: true,
-			Sub: i18n.T("language/version manager")},
+func appRowsForVariant(variant string) []appRow {
+	plan := installerChoicesForVariant(variant)
+	var rows []appRow
+	lastGroup := ""
+	for _, availability := range plan.Components() {
+		component := availability.Component
+		if component.Step != installerplan.ComponentApps || !availability.Available {
+			continue
+		}
+		group := ""
+		if component.Group != lastGroup {
+			group = i18n.T(component.GroupLabel)
+			lastGroup = component.Group
+		}
+		required := ""
+		if availability.Locked {
+			required = i18n.T(availability.Reason)
+		}
+		rows = append(rows, appRow{
+			ID: component.ID, Name: i18n.T(component.Label),
+			Pkgs: append([]string(nil), component.Packages...),
+			Def:  component.DefaultOn || availability.Locked,
+			Req:  required, Sub: i18n.T(component.Detail), Group: group,
+		})
 	}
+	return rows
 }
 
 // appGroups returns the rows grouped for display: each group's rows in table
 // order. A row carrying a Group header opens a new group.
 func appGroups() [][]appRow {
+	return appGroupsForVariant("")
+}
+
+func appGroupsForVariant(variant string) [][]appRow {
 	var out [][]appRow
-	for _, r := range appRows() {
+	for _, r := range appRowsForVariant(variant) {
 		if r.Group != "" || len(out) == 0 {
 			out = append(out, []appRow{r})
 			continue
@@ -176,7 +207,11 @@ func appGroups() [][]appRow {
 
 // appRowByID finds a row by its stable id.
 func appRowByID(id string) (appRow, bool) {
-	for _, r := range appRows() {
+	return appRowByIDForVariant("", id)
+}
+
+func appRowByIDForVariant(variant, id string) (appRow, bool) {
+	for _, r := range appRowsForVariant(variant) {
 		if r.ID == id {
 			return r, true
 		}
@@ -186,32 +221,26 @@ func appRowByID(id string) (appRow, bool) {
 
 // appDefaults is the initial keep map: every row at its shipped default.
 func appDefaults() map[string]bool {
+	return appDefaultsForVariant("")
+}
+
+func appDefaultsForVariant(variant string) map[string]bool {
 	m := map[string]bool{}
-	for _, r := range appRows() {
+	for _, r := range appRowsForVariant(variant) {
 		m[r.ID] = r.Def
 	}
 	return m
 }
 
-// deselectedPkgs lists the package names the keep map removes from the
-// install, in table order. Required rows are never counted, so a stale map
-// entry cannot ask the backend to strip a feature package.
-func deselectedPkgs(keep map[string]bool) []string {
-	var out []string
-	for _, r := range appRows() {
-		if r.Req != "" || keep[r.ID] {
-			continue
-		}
-		out = append(out, r.Pkgs...)
-	}
-	return out
-}
-
 // appsSummary is the Review row for the app choice: "all" when nothing was
 // removed, else the ids of the dropped rows.
 func appsSummary(keep map[string]bool) string {
+	return appsSummaryForVariant("", keep)
+}
+
+func appsSummaryForVariant(variant string, keep map[string]bool) string {
 	var names []string
-	for _, r := range appRows() {
+	for _, r := range appRowsForVariant(variant) {
 		if r.Req == "" && !keep[r.ID] {
 			names = append(names, r.ID)
 		}
@@ -228,14 +257,32 @@ func (m model) appsReviewCell() string {
 	if m.keep == nil {
 		return i18n.T("all")
 	}
-	return appsSummary(m.keep)
+	return appsSummaryForVariant(m.variant, m.keep)
 }
 
 // selectedApps is the keep map, with the shipped defaults standing in for a
 // wizard that never visited the apps step (a scripted handoff keeps every app).
 func (m model) selectedApps() map[string]bool {
 	if m.keep == nil {
-		return appDefaults()
+		return appDefaultsForVariant(m.variant)
 	}
 	return m.keep
+}
+
+func (m model) componentSelections() map[string]bool {
+	plan := installerChoicesForVariant(m.variant)
+	selected := plan.DefaultComponents()
+	for id, on := range m.selectedApps() {
+		selected[id] = on
+	}
+	selected["rashin"] = def(m.picks["rashin"], "1") == "1"
+	if gaming, ok := plan.GamingComponent(); ok {
+		selected[gaming.Component.ID] = m.picks["gaming"] == "1"
+	}
+	for _, availability := range plan.Components() {
+		if availability.Locked {
+			selected[availability.Component.ID] = true
+		}
+	}
+	return selected
 }

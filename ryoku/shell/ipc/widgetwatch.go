@@ -114,38 +114,47 @@ func (d *daemon) desktopVisible() bool {
 }
 
 // widgetGateWorker parks the widget layer after a grace period of being fully
-// covered (only when the opt-in is on) and reloads it the instant an empty
-// desktop reappears. Window/workspace events wake it through widgetSig; a tick
-// lets the cover grace elapse without events. Reload is immediate and only the
-// unload waits, so flicking through covered workspaces never drops the widgets.
+// covered and reloads it on the next workspace/output event. Its timer is armed
+// for the actual grace deadline; a slow reconciliation only covers hand-edited
+// performance settings.
 func (d *daemon) widgetGateWorker() {
-	const grace = 3 * time.Second
+	const (
+		grace     = 3 * time.Second
+		reconcile = 5 * time.Minute
+	)
 	var coveredSince time.Time
-	reeval := func() {
-		// Power Saver forces the unload too (like the QML freezes), reclaiming RAM.
+	reeval := func(now time.Time) time.Duration {
 		if (!unloadWidgetsWhenCovered() && !d.saverActive()) || d.desktopVisible() {
 			coveredSince = time.Time{}
 			d.setGate("widgets", true)
-			return
+			return reconcile
 		}
 		if coveredSince.IsZero() {
-			coveredSince = time.Now()
+			coveredSince = now
 		}
-		if time.Since(coveredSince) >= grace {
-			d.setGate("widgets", false)
+		if left := grace - now.Sub(coveredSince); left > 0 {
+			return left
 		}
+		d.setGate("widgets", false)
+		return reconcile
 	}
-	reeval()
-	tick := time.NewTicker(5 * time.Second)
-	defer tick.Stop()
+
+	timer := time.NewTimer(0)
+	defer timer.Stop()
 	for {
+		wait := reeval(time.Now())
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(wait)
 		select {
 		case <-d.quit:
 			return
 		case <-d.widgetSig:
-			reeval()
-		case <-tick.C:
-			reeval()
+		case <-timer.C:
 		}
 	}
 }

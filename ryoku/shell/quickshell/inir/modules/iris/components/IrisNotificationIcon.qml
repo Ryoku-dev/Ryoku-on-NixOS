@@ -106,13 +106,12 @@ Item {
             radius: IrisStyle.iconRadius(width)
             readonly property bool insignia: root.fromShell && !root.critical
             readonly property bool battery: root.semantic.battery >= 0 && !tile.insignia
-            readonly property color base: IrisStyle.ryokuFrontend ? IrisStyle.surfaceHigh
-                : tile.battery ? root.semantic.tint
+            readonly property color base: tile.battery ? root.semantic.tint
                 : root.critical ? IrisStyle.danger : tile.insignia ? IrisStyle.surfaceHigh : root.semantic.tint
-            border.width: IrisStyle.ryokuFrontend || root.hasImage || tile.insignia ? Math.max(1, Math.round(root.width * 0.04)) : 0
-            border.color: IrisStyle.ryokuFrontend || tile.insignia ? IrisStyle.hairlineStrong : IrisStyle.surface
+            border.width: root.hasImage || tile.insignia ? Math.max(1, Math.round(root.width * 0.04)) : 0
+            border.color: tile.insignia ? IrisStyle.hairlineStrong : IrisStyle.surface
             gradient: Gradient {
-                GradientStop { position: 0; color: IrisStyle.ryokuFrontend ? tile.base : IrisStyle.tileTop(tile.base) }
+                GradientStop { position: 0; color: IrisStyle.tileTop(tile.base) }
                 GradientStop { position: 1; color: tile.base }
             }
             IrisMark {
@@ -126,16 +125,16 @@ Item {
                 anchors.horizontalCenterOffset: Math.round(tile.width * 0.02)
                 markHeight: Math.round(tile.width * 0.3)
                 level: root.semantic.battery
-                tint: IrisStyle.ryokuFrontend ? (root.critical ? IrisStyle.danger : IrisStyle.text) : IrisStyle.onTint
-                frame: IrisStyle.ryokuFrontend ? (root.critical ? IrisStyle.danger : IrisStyle.text) : IrisStyle.onTint
+                tint: IrisStyle.onTint
+                frame: IrisStyle.onTint
             }
             MaterialSymbol {
                 visible: !tile.insignia && !tile.battery
                 anchors.centerIn: parent
                 text: root.critical ? "priority_high" : root.semantic.glyph
-                fill: IrisStyle.ryokuFrontend ? 0 : 1
+                fill: 1
                 iconSize: Math.round(parent.width * 0.56)
-                color: IrisStyle.ryokuFrontend ? (root.critical ? IrisStyle.danger : IrisStyle.text) : IrisStyle.onTint
+                color: IrisStyle.onTint
             }
         }
     }

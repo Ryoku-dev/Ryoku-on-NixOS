@@ -16,14 +16,16 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 # Force the Python fallback so this test exercises the qalc-less path regardless
-# of whether the box has libqalculate. Put a failing qalc shim first while
-# preserving the host PATH behind it; hard-coding /usr/bin:/bin breaks on
-# non-FHS systems such as NixOS where bash and python live in the store.
+# of whether the box has libqalculate. An empty PATH shim is not enough: qalc
+# lives in /usr/bin, which the script still needs on PATH for python3 and bash.
+# So drop a stub `qalc` that exits nonzero into the shim dir and put it first;
+# the script's `command -v qalc` finds the stub, it fails, and the Python
+# evaluator takes over, which is exactly the code under test.
 shim="$(mktemp -d)"
 trap 'rm -rf "$shim"' EXIT
 printf '#!/bin/sh\nexit 1\n' > "$shim/qalc"
 chmod +x "$shim/qalc"
-export PATH="$shim:$PATH"
+export PATH="$shim:/usr/bin:/bin"
 
 fail=0
 pass=0

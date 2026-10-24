@@ -21,8 +21,9 @@ Singleton {
     property var _queue: []
     property var _failed: ({})
 
-    function keyFor(path: string, width: int, height: int): string {
-        return path + "|" + width + "x" + height
+    // mode: how the desktop scales the picture (Wallpapers.fillMode; span asks for fill on the whole canvas).
+    function keyFor(path: string, width: int, height: int, mode = "fill"): string {
+        return path + "|" + width + "x" + height + (mode === "fill" ? "" : "|" + mode)
     }
 
     function imagePath(wallpaper: string): string {
@@ -30,17 +31,17 @@ Singleton {
         return FileUtils.trimFileProtocol(still)
     }
 
-    function has(path: string, width: int, height: int): bool {
-        return root.maps[root.keyFor(path, width, height)] !== undefined
+    function has(path: string, width: int, height: int, mode = "fill"): bool {
+        return root.maps[root.keyFor(path, width, height, mode)] !== undefined
     }
 
-    function request(path: string, width: int, height: int): void {
+    function request(path: string, width: int, height: int, mode = "fill"): void {
         if (!path || width <= 0 || height <= 0)
             return
-        const key = root.keyFor(path, width, height)
+        const key = root.keyFor(path, width, height, mode)
         if (root.maps[key] !== undefined || root._failed[key] || root._queue.some(job => job.key === key))
             return
-        root._queue.push({ key: key, path: path, width: width, height: height })
+        root._queue.push({ key: key, path: path, width: width, height: height, mode: mode })
         // Browsing previews asks for one wallpaper after another: only the latest few are worth reading.
         while (root._queue.length > 3)
             root._queue.shift()
@@ -49,10 +50,10 @@ Singleton {
 
     // {level, spread, color, luminance} for the rect in screen coordinates, or null until analysed.
     // level and spread are gamma-encoded luma (0-1), luminance is the mean colour's relative luminance.
-    function sample(path: string, width: int, height: int, x: real, y: real, w: real, h: real): var {
-        const data = root.maps[root.keyFor(path, width, height)]
+    function sample(path: string, width: int, height: int, x: real, y: real, w: real, h: real, mode = "fill"): var {
+        const data = root.maps[root.keyFor(path, width, height, mode)]
         if (data === undefined) {
-            root.request(path, width, height)
+            root.request(path, width, height, mode)
             return null
         }
         const c = data.cell
@@ -114,6 +115,7 @@ Singleton {
         proc.command = [Directories.payloadPath("scripts/images/least-busy-region-venv.sh"),
             "--luma-grid", String(root.cell),
             "--screen-width", String(job.width), "--screen-height", String(job.height),
+            "--screen-mode", String(job.mode ?? "fill"),
             job.path]
         proc.running = true
         watchdog.restart()

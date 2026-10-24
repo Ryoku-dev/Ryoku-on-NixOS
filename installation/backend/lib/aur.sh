@@ -153,6 +153,14 @@ browser_desktop_keys() {
 # never repoints a browser, so an existing box keeps its choice.
 ryoku_default_browser() {
   local u="$RYOKU_USERNAME" br="${RYOKU_BROWSER:-firefox}" desk="" d
+  # "none" is the user declining a browser, not a browser that failed to land.
+  # Saying so here keeps the install log honest; the fall-through below would
+  # otherwise report it as missing, and browser_role_cmd would point the desktop
+  # role at Firefox, which is not installed.
+  if [[ $br == none ]]; then
+    log 'default browser: none chosen; leaving the browser default and the desktop role unset'
+    return 0
+  fi
   if [[ -n ${RYOKU_DRYRUN:-} ]]; then
     log 'DRYRUN: set %s as the default web browser (xdg + desktop.apps.browser) for %s if installed' "$br" "$u"
     return 0

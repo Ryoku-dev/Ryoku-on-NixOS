@@ -244,6 +244,67 @@ func TestApFrame(t *testing.T) {
 	}
 }
 
+func testNetworkSnapshot(path dbus.ObjectPath) *networkSnapshot {
+	ap := map[string]any{"ssid": "M", "strength": 50, "active": true}
+	return &networkSnapshot{
+		frame: map[string]any{
+			"wifi":         map[string]any{"ssid": "M", "strength": 50},
+			"accessPoints": []map[string]any{ap},
+		},
+		aps: map[dbus.ObjectPath]map[string]any{path: ap},
+	}
+}
+
+func apPropertiesSignal(path dbus.ObjectPath, properties map[string]dbus.Variant) *dbus.Signal {
+	return &dbus.Signal{
+		Path: path,
+		Name: propertiesInterface + ".PropertiesChanged",
+		Body: []any{nmApIface, properties, []string{}},
+	}
+}
+
+func TestAPSignalBurstUsesCachedStrength(t *testing.T) {
+	path := dbus.ObjectPath(nmPath + "/AccessPoint/7")
+	snapshot := testNetworkSnapshot(path)
+	handled, changed := applyAPSignalBurst(snapshot, []*dbus.Signal{
+		apPropertiesSignal(path, map[string]dbus.Variant{"Strength": dbus.MakeVariant(byte(63))}),
+	})
+	if !handled || !changed {
+		t.Fatalf("strength signal = handled %v, changed %v; want true, true", handled, changed)
+	}
+	if got := snapshot.aps[path]["strength"]; got != 63 {
+		t.Fatalf("cached AP strength = %v, want 63", got)
+	}
+	if got := snapshot.frame["wifi"].(map[string]any)["strength"]; got != 63 {
+		t.Fatalf("active wifi strength = %v, want 63", got)
+	}
+
+	handled, changed = applyAPSignalBurst(snapshot, []*dbus.Signal{
+		apPropertiesSignal(path, map[string]dbus.Variant{"LastSeen": dbus.MakeVariant(int32(123))}),
+	})
+	if !handled || changed {
+		t.Fatalf("LastSeen signal = handled %v, changed %v; want true, false", handled, changed)
+	}
+}
+
+func TestAPSignalBurstFallsBackForStructuralOrUnknownChanges(t *testing.T) {
+	path := dbus.ObjectPath(nmPath + "/AccessPoint/7")
+	added := &dbus.Signal{
+		Path: "/org/freedesktop/NetworkManager/Devices/2",
+		Name: nmWirelessIface + ".AccessPointAdded",
+		Body: []any{path},
+	}
+	if handled, _ := applyAPSignalBurst(testNetworkSnapshot(path), []*dbus.Signal{added}); handled {
+		t.Fatal("AccessPointAdded must force a full snapshot")
+	}
+	unknown := dbus.ObjectPath(nmPath + "/AccessPoint/99")
+	if handled, _ := applyAPSignalBurst(testNetworkSnapshot(path), []*dbus.Signal{
+		apPropertiesSignal(unknown, map[string]dbus.Variant{"Strength": dbus.MakeVariant(byte(40))}),
+	}); handled {
+		t.Fatal("an unknown AP path must force a full snapshot")
+	}
+}
+
 // A profile edit must drop the deprecated ipv4/ipv6 address and route mirrors:
 // NetworkManager rejects the round-trip otherwise (godbus re-encodes the ipv6
 // a(ayuay) pair as aav), while address-data/route-data carry the real config.

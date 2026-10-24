@@ -194,6 +194,22 @@ func TestInClockWindow(t *testing.T) {
 	}
 }
 
+func TestNextNightlightScheduleEdge(t *testing.T) {
+	now := time.Date(2026, 1, 1, 21, 30, 15, 0, time.Local)
+	if got, want := nextClockScheduleEdge(now, 22*60, 7*60), 29*time.Minute+45*time.Second; got != want {
+		t.Fatalf("next clock edge = %v, want %v", got, want)
+	}
+	if got := nextClockScheduleEdge(now, 22*60, 22*60); got != nlSlowReconcile {
+		t.Fatalf("all-day clock window wait = %v, want %v", got, nlSlowReconcile)
+	}
+	sunrise := time.Date(2026, 1, 1, 6, 30, 0, 0, time.Local)
+	sunset := time.Date(2026, 1, 1, 19, 30, 0, 0, time.Local)
+	sunNow := time.Date(2026, 1, 1, 18, 15, 0, 0, time.Local)
+	if got, want := nextSunScheduleEdge(sunNow, sunrise, sunset, time.Hour), 2*time.Hour+15*time.Minute; got != want {
+		t.Fatalf("next sun edge = %v, want %v", got, want)
+	}
+}
+
 func TestNightlightClockScheduleRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	n := &nightlightState{

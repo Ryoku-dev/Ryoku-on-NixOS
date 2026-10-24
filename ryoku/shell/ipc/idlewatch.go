@@ -4,6 +4,11 @@ import (
 	"time"
 )
 
+const (
+	paletteIdleGrace     = 60 * time.Second
+	paletteReconcileWait = 5 * time.Minute
+)
+
 // idlewatch frees an idle palette (launcher, overview) after a grace
 // of not being used. These palettes draw nothing while hidden yet hold a full
 // Qt/jemalloc process, so freeing one reclaims ~a quarter gig of RSS until the
@@ -40,16 +45,25 @@ func unloadPaletteWhenIdle(name string) bool {
 // process is assumed hidden (both palettes boot hidden and supervise marks them
 // so), which starts the grace at launch so a never-opened palette parks on its
 // own.
+func (d *daemon) kickPalettePark() {
+	select {
+	case d.parkSig <- struct{}{}:
+	default:
+	}
+}
+
 func (d *daemon) markHidden(name string) {
 	d.parkMu.Lock()
 	d.hiddenSince[name] = time.Now()
 	d.parkMu.Unlock()
+	d.kickPalettePark()
 }
 
 func (d *daemon) markShown(name string) {
 	d.parkMu.Lock()
 	delete(d.hiddenSince, name)
 	d.parkMu.Unlock()
+	d.kickPalettePark()
 }
 
 // setPaletteVisible is the `state <name> <0|1>` handler: visible cancels the park
@@ -69,29 +83,46 @@ func parkDue(since time.Time, hidden bool, grace time.Duration, now time.Time) b
 	return hidden && now.Sub(since) >= grace
 }
 
-// idlePark frees each parkable palette that has been hidden past the grace, when
-// its opt-in is on and its process is actually running. A show command reopens
-// the gate before this can re-fire, and supervise re-marks a respawn hidden, so
-// the freshly reopened palette gets a full grace before it can park again.
-func (d *daemon) idlePark() {
-	const grace = 60 * time.Second
-	tick := time.NewTicker(10 * time.Second)
-	defer tick.Stop()
-	for {
-		select {
-		case <-d.quit:
-			return
-		case <-tick.C:
+func nextPaletteParkWait(hidden map[string]time.Time, eligible map[string]bool, grace time.Duration, now time.Time) time.Duration {
+	wait := paletteReconcileWait
+	for name, since := range hidden {
+		if !eligible[name] {
+			continue
 		}
+		left := grace - now.Sub(since)
+		if left <= 0 {
+			return 0
+		}
+		if left < wait {
+			wait = left
+		}
+	}
+	return wait
+}
+
+// idlePark sleeps until the next hidden palette is actually due. Visibility
+// reports and power-profile changes rouse it; a slow reconciliation covers a
+// hand-edited performance file without a ten-second permanent ticker.
+func (d *daemon) idlePark() {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
+		now := time.Now()
+		eligible := map[string]bool{}
 		for _, name := range []string{"launcher", "overview"} {
-			// Power Saver forces the park too (like the QML freezes), reclaiming RAM.
-			if !unloadPaletteWhenIdle(name) && !d.saverActive() {
-				continue
-			}
-			d.parkMu.Lock()
-			since, hidden := d.hiddenSince[name]
-			d.parkMu.Unlock()
-			if !parkDue(since, hidden, grace, time.Now()) {
+			eligible[name] = unloadPaletteWhenIdle(name) || d.saverActive()
+		}
+
+		d.parkMu.Lock()
+		hidden := make(map[string]time.Time, len(d.hiddenSince))
+		for name, since := range d.hiddenSince {
+			hidden[name] = since
+		}
+		d.parkMu.Unlock()
+
+		for _, name := range []string{"launcher", "overview"} {
+			since, isHidden := hidden[name]
+			if !eligible[name] || !parkDue(since, isHidden, paletteIdleGrace, now) {
 				continue
 			}
 			d.mu.Lock()
@@ -100,6 +131,25 @@ func (d *daemon) idlePark() {
 			if running {
 				d.setGate(name, false)
 			}
+			d.parkMu.Lock()
+			delete(d.hiddenSince, name)
+			delete(hidden, name)
+			d.parkMu.Unlock()
+		}
+
+		wait := nextPaletteParkWait(hidden, eligible, paletteIdleGrace, now)
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(wait)
+		select {
+		case <-d.quit:
+			return
+		case <-d.parkSig:
+		case <-timer.C:
 		}
 	}
 }

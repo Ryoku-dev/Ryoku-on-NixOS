@@ -9,14 +9,16 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
 // Each key persists in one store, chosen by its schema Store: ryogami.json, shell.json or the Hub's matugen store.
 
 const (
-	settingsFlushDelay   = 300 * time.Millisecond
-	settingsPollInterval = 2 * time.Second
+	settingsFlushDelay           = 300 * time.Millisecond
+	settingsWatchDebounce        = 150 * time.Millisecond
+	settingsFallbackPollInterval = 30 * time.Second
 )
 
 var (
@@ -526,22 +528,114 @@ func settingsBaselineSnapshot() map[string]interface{} {
 }
 
 func (d *daemon) watchSettingsFile() {
+	var initial map[string]interface{}
 	if settingsBaselineSnapshot() == nil {
-		setSettingsBaseline(flattenSettings(loadRyogamiTree()))
+		initial = flattenSettings(loadRyogamiTree())
 	}
-	var last time.Time
+	path := configPath()
+	fd, err := openSettingsWatch(path)
+	if initial != nil {
+		setSettingsBaseline(initial)
+	}
+	d.reconcileSettingsFile()
+	if err == nil {
+		err = runSettingsWatch(fd, filepath.Base(path), settingsWatchDebounce, d.reconcileSettingsFile)
+		syscall.Close(fd)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ryogami: settings watch unavailable, polling every %s: %v\n", settingsFallbackPollInterval, err)
+	}
+	d.pollSettingsFile(path)
+}
+
+func openSettingsWatch(path string) (int, error) {
+	parent := filepath.Dir(path)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return -1, err
+	}
+	fd, err := syscall.InotifyInit1(syscall.IN_CLOEXEC)
+	if err != nil {
+		return -1, err
+	}
+	mask := uint32(syscall.IN_CLOSE_WRITE | syscall.IN_CREATE | syscall.IN_MOVED_TO |
+		syscall.IN_DELETE_SELF | syscall.IN_MOVE_SELF)
+	if _, err := syscall.InotifyAddWatch(fd, parent, mask); err != nil {
+		syscall.Close(fd)
+		return -1, err
+	}
+	return fd, nil
+}
+
+func runSettingsWatch(fd int, name string, debounce time.Duration, reconcile func()) error {
+	var timer *time.Timer
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+	buf := make([]byte, 16*1024)
 	for {
-		time.Sleep(settingsPollInterval)
-		st, err := os.Stat(configPath())
+		n, err := syscall.Read(fd, buf)
+		if err == syscall.EINTR {
+			continue
+		}
 		if err != nil {
+			return err
+		}
+		if err := handleSettingsWatchEvents(
+			parseInotifyEvents(buf[:n]),
+			name,
+			func() {
+				if timer == nil {
+					timer = time.AfterFunc(debounce, reconcile)
+				} else {
+					timer.Stop()
+					timer.Reset(debounce)
+				}
+			},
+			reconcile,
+		); err != nil {
+			return err
+		}
+	}
+}
+
+func handleSettingsWatchEvents(events []inotifyEvent, name string, schedule, reconcile func()) error {
+	for _, ev := range events {
+		if ev.mask&syscall.IN_Q_OVERFLOW != 0 {
+			reconcile()
 			continue
 		}
-		if !st.ModTime().After(last) {
+		if ev.mask&(syscall.IN_DELETE_SELF|syscall.IN_MOVE_SELF|syscall.IN_IGNORED) != 0 {
+			return fmt.Errorf("config directory watch was removed")
+		}
+		if ev.name == name && ev.mask&(syscall.IN_CLOSE_WRITE|syscall.IN_CREATE|syscall.IN_MOVED_TO) != 0 {
+			schedule()
+		}
+	}
+	return nil
+}
+
+func (d *daemon) pollSettingsFile(path string) {
+	last := settingsFileStamp(path)
+	ticker := time.NewTicker(settingsFallbackPollInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		next := settingsFileStamp(path)
+		if next == last {
 			continue
 		}
-		last = st.ModTime()
+		last = next
 		d.reconcileSettingsFile()
 	}
+}
+
+func settingsFileStamp(path string) string {
+	st, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d", st.ModTime().UnixNano(), st.Size())
 }
 
 func (d *daemon) reconcileSettingsFile() {

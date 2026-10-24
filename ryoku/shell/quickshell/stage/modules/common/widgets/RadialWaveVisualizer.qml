@@ -16,25 +16,48 @@ Canvas { // High-performance silky-smooth radial wave visualizer
     property real waveBlur: 0
     property real barThickness: 10
 
-    // Frame animation loop for organic LERP interpolation
-    FrameAnimation {
-        running: root.live && root.points.length > 0
-        onTriggered: {
-            var n = root.points.length;
-            if (n === 0) return;
-            if (root.renderedPoints.length !== n) {
-                root.renderedPoints = root.points.slice();
-            } else {
-                var lerpSpeed = 0.20;
-                var arr = root.renderedPoints.slice();
-                for (var i = 0; i < n; i++) {
-                    var target = root.live ? (root.points[i] || 0) : 0;
-                    arr[i] += (target - arr[i]) * lerpSpeed;
-                }
-                root.renderedPoints = arr;
-            }
-            root.requestPaint();
+    readonly property bool hasSignal: root.nonZero(root.points)
+    readonly property bool hasMotion: root.nonZero(root.renderedPoints)
+
+    function nonZero(values) {
+        for (var i = 0; i < values.length; i++) {
+            if (Math.abs(Number(values[i] || 0)) > 0.5)
+                return true;
         }
+        return false;
+    }
+
+    function advance() {
+        var n = root.points.length;
+        if (n === 0)
+            return;
+        var arr = root.renderedPoints.length === n
+            ? root.renderedPoints.slice() : new Array(n).fill(0);
+        for (var i = 0; i < n; i++) {
+            var target = root.live ? Number(root.points[i] || 0) : 0;
+            arr[i] += (target - arr[i]) * 0.20;
+            if (Math.abs(target - arr[i]) < 0.5)
+                arr[i] = target;
+        }
+        root.renderedPoints = arr;
+        root.requestPaint();
+    }
+
+    Timer {
+        interval: 17
+        repeat: true
+        running: root.live && root.points.length > 0
+            && (root.hasSignal || root.hasMotion)
+        onTriggered: root.advance()
+    }
+
+    onLiveChanged: if (!root.live) {
+        root.renderedPoints = [];
+        root.requestPaint();
+    }
+    onPointsChanged: if (root.points.length === 0) {
+        root.renderedPoints = [];
+        root.requestPaint();
     }
 
     anchors.fill: parent

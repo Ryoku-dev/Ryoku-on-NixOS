@@ -55,43 +55,35 @@ func setLockSeams(t *testing.T, running func() bool, starter func(int) error) {
 }
 
 func TestLockerProcessLookupIgnoresAnotherUsersLock(t *testing.T) {
-	bin := t.TempDir()
-	argsPath := filepath.Join(bin, "args")
-	script := `#!/bin/sh
-printf '%s\n' "$*" >"$PGREP_ARGS"
-if [ "${1:-}" = "-u" ]; then
-  [ "${2:-}" = "$FOREIGN_UID" ]
-  exit
-fi
-exit 0
-`
-	if err := os.WriteFile(filepath.Join(bin, "pgrep"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+	root := t.TempDir()
+	writeProcess := func(pid string, effectiveUID int) {
+		t.Helper()
+		dir := filepath.Join(root, pid)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		status := "Name:\tquickshell\nUid:\t" + strconv.Itoa(effectiveUID) + "\t" +
+			strconv.Itoa(effectiveUID) + "\t" + strconv.Itoa(effectiveUID) + "\t" +
+			strconv.Itoa(effectiveUID) + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "status"), []byte(status), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmdline := []byte("quickshell\x00-p\x00/tmp/quickshell-lockscreen/lock_shell.qml\x00")
+		if err := os.WriteFile(filepath.Join(dir, "cmdline"), cmdline, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("PGREP_ARGS", argsPath)
-	t.Setenv("FOREIGN_UID", strconv.Itoa(os.Getuid()+1))
-
-	if exec.Command("pgrep", "-f", lockClientPattern).Run() != nil {
-		t.Fatal("foreign-user fixture did not produce a global pgrep match")
+	writeProcess("101", os.Getuid()+1)
+	if got := userProcessIDsUnder(root, os.Getuid(), lockClientPattern); len(got) != 0 {
+		t.Fatalf("another user's qylock was treated as this user's locker: %v", got)
 	}
-	if currentUserProcessRunning(lockClientPattern) {
-		t.Fatal("another user's qylock was treated as this session's locker")
-	}
-	args, err := os.ReadFile(argsPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "-u " + strconv.Itoa(os.Getuid()) + " -f " + lockClientPattern + "\n"
-	if string(args) != want {
-		t.Fatalf("pgrep args = %q, want %q", args, want)
+	writeProcess("102", os.Getuid())
+	if got := userProcessIDsUnder(root, os.Getuid(), lockClientPattern); len(got) != 1 || got[0] != "102" {
+		t.Fatalf("current user's qylock matches = %v, want [102]", got)
 	}
 }
 
 func TestLockerProcessLookupFindsRetainedStageClient(t *testing.T) {
-	if _, err := exec.LookPath("pgrep"); err != nil {
-		t.Skip("pgrep unavailable")
-	}
 	cmd := exec.Command(
 		"bash", "-c",
 		"exec -a 'quickshell -p /tmp/qylock-next/lockscreen/lock_shell.qml' sleep 10",

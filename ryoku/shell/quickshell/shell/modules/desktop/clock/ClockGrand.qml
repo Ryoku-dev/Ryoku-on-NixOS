@@ -20,7 +20,7 @@ Item {
     readonly property color inkDim: Theme.inkDimOn2(face.underL, face.inkColorA)
     readonly property color accent: Clk.pickAccent(Config.clockAccent, Theme.accentOn2(face.underL, face.inkColorA), Theme.brand, face.ink)
 
-    readonly property var t: Clk.parts(Now.date, Config.clock24h)
+    readonly property var t: Clk.parts(Now.secondDate, Config.clock24h)
     readonly property real px: Math.round(168 * face.s)
     readonly property bool side: Config.clockSeconds || !Config.clock24h
 

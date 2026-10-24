@@ -13,7 +13,8 @@
         "shape",
         "background",
         "results",
-        "hero"
+        "hero",
+        "hiddenApps"
       ]
     },
     {
@@ -26,7 +27,8 @@
         "shape",
         "background",
         "results",
-        "hero"
+        "hero",
+        "hiddenApps"
       ]
     },
     {

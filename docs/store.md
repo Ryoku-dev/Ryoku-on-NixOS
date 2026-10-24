@@ -1,10 +1,11 @@
 # The store
 
 Ryoku's extras are delivered through **RyoStore**: a browsable catalogue of
-rices, lockscreens, bar styles, fastfetch styles, plugins, and bundles that
-install into the running desktop without activating themselves. Remote
-catalogues live in `ryostore`; RyoStore owns discovery and installation;
-Ryoku Settings manages what is already present.
+rices, lockscreens, bar styles, docks, app launchers, OSDs, notification cards,
+sidebars, fastfetch styles, plugins, and bundles that install into the running
+desktop without activating themselves. Remote catalogues live in `ryostore`;
+RyoStore owns discovery and installation; Ryoku Settings manages what is
+already present.
 
 ## How it works today
 
@@ -20,11 +21,13 @@ Ryoku Settings manages what is already present.
   remains the destination for activation, configuration, placement, and other
   applied-state controls.
 - **Install = the actuator.** `ryostore-install` routes each bundle item by
-  type: `package` through `pacman -Syu` / the AUR helper (one package at a time,
-  so one failure never strands the rest), `script` through `installers/<name>.sh`,
-  and `plugin` / `nautilus-pack` through the shell's guest paths. It runs in a
-  floating terminal for the sudo prompt; a bundle's `requires` (such as
-  `multilib`) is ensured first. Removal is symmetric.
+  type: `package` through `ryoku-host` (the official repositories or the AUR
+  helper on Arch and CachyOS, the edition's own repositories under its own
+  package names on Fedora and Void; one package at a time, so one failure never
+  strands the rest), `script` through `installers/<name>.sh`, and `plugin` /
+  `nautilus-pack` through the shell's guest paths. It runs in a floating
+  terminal for the sudo prompt; a bundle's `requires` (such as `multilib`) is
+  ensured first. Removal is symmetric.
 - **Guests = host/guest.** The shell is the *host*; a bundle ships *guests*
   (a plugin that renders in a widget or frame-popout host, a nautilus pack that
   drops right-click scripts). A guest declares its host and mounts on install,
@@ -47,12 +50,13 @@ There is one door for discovery and catalogue transactions:
 - **Ryoku Settings manages what is active.** It owns activation, configuration,
   placement, and applied-state controls.
 - **Install never activates.** Installing a rice, lockscreen, plugin, bar style,
-  or future fastfetch style must not change the desktop. Completion offers
-  **Open in Settings**.
+  dock, app launcher, OSD, notification card, sidebar, or future fastfetch style
+  must not change the desktop. Completion offers **Open in Settings** (for a
+  dock, the Stage Editor's Dock section).
 
-The first release exposes Lockscreens, Plugins, Bundles, Rices, Bar styles, and
-Fastfetch styles. A category without a live remote registry remains visible with
-an honest empty plate. It never receives fake specimens.
+Every live category appears in the rail below. A category without a live remote
+registry remains visible with an honest empty plate. It never receives fake
+specimens.
 
 ## Product shape
 
@@ -72,7 +76,8 @@ The rail exposes one semantic route order:
 ```text
 Search
 Discover
-Lockscreens · Rices · Themes · Bar styles · Fastfetch · Plugins
+Lockscreens · Rices · Themes · Bar styles · Docks · App launchers
+On-screen displays · Notifications · Sidebars · Fastfetch · Plugins
 Omarchy plugins · Bundles
 Library
 ```
@@ -80,10 +85,12 @@ Library
 **Library** is a first-class cross-category collection. Every item writes its
 state explicitly:
 
-- `ACTIVE` for the rice, lockscreen, bar, or fastfetch style currently worn;
+- `ACTIVE` for the rice, lockscreen, bar, dock, launcher, OSD, notification
+  card, sidebar, or fastfetch style currently worn;
 - `ENABLED` for a running plugin;
 - `INSTALLED` for an owned but inactive item;
-- `<installed> / <total> INSTALLED` for a partial bundle;
+- `<installed> / <total> INSTALLED` for a partial bundle, counting only the
+  parts this edition can install;
 - `UPDATE` when a newer store-managed version is available.
 
 Opening a product expands its selected cover into a media-led dossier. Images
@@ -159,6 +166,7 @@ ryoku/apps/ryostore/
     provider_bundles.go
     provider_rices.go
     provider_bars.go
+    provider_shell_qml.go
     provider_fastfetch.go
   quickshell/
     shell.qml
@@ -196,7 +204,8 @@ Item
   kind, license, stars, verificationStatus, listedAt
   installed, active, enabled, installedCount, totalCount
   updateAvailable, downloadPaused, downloadPauseReason
-  requiredWindowManager, unavailable, unavailableReason, metadata
+  requiredWindowManager, requiredPackageManagers, unavailable,
+  unavailableEdition, unavailableReason, metadata
 ```
 
 A source may pause a product's downloads without delisting it: the registry
@@ -218,6 +227,20 @@ so the item stays listed and an installed copy stays removable. A catalogue buil
 under one window manager is rebuilt rather than served after a switch, since the
 answer to "does this run here?" belongs to the desktop it was computed on.
 
+Ryoku runs on Arch, CachyOS, Fedora and Void, and a catalogue item can be gated
+on the package managers that can provide it the same way: the registry entry,
+or a single bundle item, carries `packageManagers` (`pacman`, `dnf`, `xbps`)
+and a human `packageManagersReason`, the backend asks `ryoku-host pkgmgr` which
+one this machine runs, and the item comes back `unavailable` with
+`unavailableEdition` set, so the store says *Not on this system* rather than
+naming a window manager. A window-manager gate wins when both apply. The
+refusal on install is the same fresh registry read. Bundle packages are named
+per edition by the catalogue's `bundles/packages/<edition>.tsv` tables, which
+`ryostore internal package-table` serves to the actuator. A part the running
+edition does not ship stays listed in the bundle's detail, greyed out with the
+table's reason, cannot be selected, and is left out of **Install all** and the
+part count.
+
 The public command surface is deliberately small:
 
 ```text
@@ -227,11 +250,11 @@ ryostore open <discover|library|category>
 ryostore settings <category> [id]
 ```
 
-QML invokes this contract instead of maintaining six bespoke process and state
-models. Adding a specimen changes only its upstream registry or owning local
-manifest. Adding a category adds one provider and one header entry; the generic
-stage, filmstrip, search, Library projection, and detail surface need no new QML
-page.
+QML invokes this contract instead of maintaining category-specific process and
+state models. Adding a specimen changes only its upstream registry or owning
+local manifest. Adding a category adds one provider and one header entry; the
+generic stage, filmstrip, search, Library projection, and detail surface need no
+new QML page.
 
 Runtime implementations remain with their owning subsystem. A bar style still
 lives under `modules/bar/barstyles/<id>/`, a qylock theme under the qylock theme tree,
@@ -280,6 +303,38 @@ and installation, not a second runtime copy.
 - **Bar styles:** expose the shipped runtime style manifests and the active
   `shell.json` value. The current development styles are all visible and report
   installed state. Settings retains selection and configuration.
+- **Docks, App launchers, On-screen displays, Notifications and Sidebars:** one
+  shell-QML provider (`provider_shell_qml.go`) serves all five. It fetches each
+  category's `ryostore` registry, installs the product's receipt-owned folder
+  through the common transaction engine, and publishes a content-addressed view
+  per product. Docks and launchers use `dock-views` and `launcher-views`.
+  `osds` loads `Osd.qml` from `osd-views`, `notifications` loads `Card.qml` from
+  `notification-views`, and `sidebars` loads `Sidebar.qml` from
+  `sidebar-views`.
+
+  Active state is `dock.design` in `shell.json` (picked in Edit desktop -> Dock)
+  or `variant` in `launcher.json` (Settings -> App Launcher). The three overlay
+  categories use `shell.json` `designs.osd`, `designs.notification`, and
+  `designs.sidebar`, all defaulting to the shipped and reserved id `ryoku`.
+  They are picked in Settings -> Overlays, the `overlays` page in the DESKTOP
+  group after Controls; `ryostore settings osds`, `ryostore settings
+  notifications`, and `ryostore settings sidebars` all open it. The page has a
+  Try action for each surface, and its OSD action calls `qs -c shell ipc call
+  osd preview` to flash the volume OSD.
+
+  Installing never selects a product. Removing one that is worn moves its
+  setting back to the shell default in the same journaled transaction:
+  `ryoku` for docks and each overlay category, or the default launcher. A dock's
+  **Open in Settings** asks the running shell for the Stage Editor's Dock
+  section rather than the Hub.
+
+  The shell still owns the windows, timing, data, and input for an OSD,
+  notification, or sidebar; the installed design only draws. A design that
+  cannot load is replaced by Ryoku's own design. Bar styles that own their
+  banners or OSD, including Python, Nomarchy, Tansu, and Nacre, keep them.
+  The starter catalogue has Ito, an OSD drawn as a thread on the right edge;
+  Tegami, a letter-shaped notification card; and Byobu, a full-height
+  folding-screen sidebar. See `docs/ui-ux.md` and `docs/launcher.md`.
 - **Fastfetch styles:** expose the category and active local state. Until a
   style registry exists, the category renders its honest upcoming plate.
   Fastfetch editing remains in Settings.

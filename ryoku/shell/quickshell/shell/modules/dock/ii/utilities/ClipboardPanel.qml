@@ -1,10 +1,10 @@
 import QtQuick
 import QtQuick.Layouts
 import Ryoku.Ui.Singletons
+import shell.services
 import stage.modules.common.widgets
 import stage.services
 import "../clock"
-import "../widgets"
 import ".."
 
 /**
@@ -16,27 +16,25 @@ ColumnLayout {
 
     property var host: null
     readonly property var tile: panel.host?.tile ?? null
-    readonly property var pinned: Cliphist.pinnedEntries ?? []
-    readonly property var history: (Cliphist.entries ?? []).filter(entry => !Cliphist.isPinned(entry)).slice(0, 8)
-    readonly property bool historyLoading: !Cliphist.loaded
-    readonly property bool historyUnavailable: Cliphist.loaded && Cliphist.loadFailed
-    property string copiedEntry: ""
+    readonly property var pinned: (Clipboard.entries || []).filter(entry => entry && entry.starred === true)
+    readonly property var history: (Clipboard.entries || []).filter(entry => entry && entry.starred !== true).slice(0, 8)
+    property var copiedEntryId: null
 
     spacing: 3
 
     Timer {
         id: copiedTimer
         interval: 1400
-        onTriggered: panel.copiedEntry = ""
+        onTriggered: panel.copiedEntryId = null
     }
 
     component EntryRow: RippleButton {
         id: row
-        property string entry
-        property bool isPinned: false
+        property var entry: null
         property bool first: false
-        readonly property bool image: Cliphist.entryIsImage(row.entry)
-        readonly property bool copied: panel.copiedEntry === row.entry
+        readonly property bool isPinned: row.entry?.starred === true
+        readonly property bool image: row.entry?.kind === "image"
+        readonly property bool copied: panel.copiedEntryId === Number(row.entry?.id ?? -1)
         Layout.fillWidth: true
         implicitHeight: 52
         buttonRadius: row.first ? ClockStyle.radiusNormal : ClockStyle.radiusSmall
@@ -45,9 +43,10 @@ ColumnLayout {
         colBackgroundHover: row.isPinned ? ClockStyle.colTertiaryContainerHover : ClockStyle.colFieldHover
         colRipple: ClockStyle.colSurfaceActive
         onClicked: {
-            Cliphist.copy(row.entry);
-            panel.copiedEntry = row.entry;
+            Clipboard.copy(Number(row.entry.id));
+            panel.copiedEntryId = Number(row.entry.id);
             copiedTimer.restart();
+            panel.host?.closePanel();
         }
         HoverHandler {
             id: rowHover
@@ -69,19 +68,16 @@ ColumnLayout {
                     fill: 1
                     color: row.colContent
                 }
-                // An image: its picture fitted in a small frame, then its size.
                 Item {
                     visible: row.image && !row.copied
                     implicitWidth: 56
                     implicitHeight: 36
-                    Loader {
-                        anchors.centerIn: parent
-                        active: row.image
-                        sourceComponent: CliphistImage {
-                            entry: row.entry
-                            maxWidth: 56
-                            maxHeight: 36
-                        }
+                    StyledImage {
+                        anchors.fill: parent
+                        source: row.image && row.entry?.thumb ? "file://" + row.entry.thumb : ""
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        cache: false
                     }
                 }
                 StyledText {
@@ -99,7 +95,7 @@ ColumnLayout {
                     symbol: "keep"
                     tip: row.isPinned ? Translation.tr("Unpin") : Translation.tr("Pin")
                     colContent: row.colContent
-                    onClicked: row.isPinned ? Cliphist.unpin(row.entry) : Cliphist.pin(row.entry)
+                    onClicked: Clipboard.star(Number(row.entry.id), !row.isPinned)
                 }
                 ClockCardAction {
                     visible: rowHover.hovered
@@ -108,7 +104,7 @@ ColumnLayout {
                     symbol: "delete"
                     tip: Translation.tr("Delete")
                     danger: true
-                    onClicked: Cliphist.deleteEntry(row.entry)
+                    onClicked: Clipboard.del(Number(row.entry.id))
                 }
             }
         }
@@ -116,19 +112,18 @@ ColumnLayout {
 
     StyledText {
         Layout.leftMargin: 4
-        visible: !panel.historyLoading && !panel.historyUnavailable && panel.pinned.length > 0
+        visible: panel.pinned.length > 0
         text: Translation.tr("Pinned")
         color: ClockStyle.colOnSurfaceVariant
         font.pixelSize: Appearance.font.pixelSize.smallest
         font.weight: Font.Bold
     }
     Repeater {
-        model: panel.historyLoading || panel.historyUnavailable ? [] : panel.pinned
+        model: panel.pinned
         delegate: EntryRow {
-            required property string modelData
+            required property var modelData
             required property int index
             entry: modelData
-            isPinned: true
             first: index === 0
         }
     }
@@ -136,16 +131,15 @@ ColumnLayout {
     StyledText {
         Layout.leftMargin: 4
         Layout.topMargin: panel.pinned.length > 0 ? 6 : 0
-        visible: !panel.historyLoading && !panel.historyUnavailable
         text: Translation.tr("Recent")
         color: ClockStyle.colOnSurfaceVariant
         font.pixelSize: Appearance.font.pixelSize.smallest
         font.weight: Font.Bold
     }
     Repeater {
-        model: panel.historyLoading || panel.historyUnavailable ? [] : panel.history
+        model: panel.history
         delegate: EntryRow {
-            required property string modelData
+            required property var modelData
             required property int index
             entry: modelData
             first: index === 0
@@ -153,21 +147,7 @@ ColumnLayout {
     }
     Rectangle {
         Layout.fillWidth: true
-        visible: panel.historyLoading || panel.historyUnavailable
-        implicitHeight: 64
-        radius: ClockStyle.radiusLarge
-        color: ClockStyle.colField
-        StyledText {
-            anchors.centerIn: parent
-            text: panel.historyLoading ? Translation.tr("Loading history…")
-                : Translation.tr("Clipboard history unavailable")
-            color: ClockStyle.colOnSurfaceVariant
-            font.pixelSize: ClockStyle.textNormal
-        }
-    }
-    Rectangle {
-        Layout.fillWidth: true
-        visible: !panel.historyLoading && !panel.historyUnavailable && panel.history.length === 0
+        visible: panel.pinned.length === 0 && panel.history.length === 0
         implicitHeight: 64
         radius: ClockStyle.radiusLarge
         color: ClockStyle.colField

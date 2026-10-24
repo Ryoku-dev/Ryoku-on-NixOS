@@ -19,5 +19,9 @@ package, then `pacman-key --populate ryoku` trusts the key.
    - add the old fingerprint to `ryoku-revoked`
 2. Bump `pkgver` and rebuild/publish. Machines pick up the new trust on upgrade.
 
+Fedora's `ryoku-keyring` RPM ships the same `ryoku-revoked` file; `ryoku doctor`
+deletes each listed fingerprint from the rpm keyring after an update. Entries
+there must be full 40-character fingerprints.
+
 Current key: `Ryoku Releases <releases@ryoku.dev>`,
 fingerprint `EB6D 3C0F 55A7 B3CA BA6B 2838 847B 274F 025D D6E3`.

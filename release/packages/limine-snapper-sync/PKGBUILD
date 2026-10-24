@@ -7,24 +7,25 @@
 # an AUR-only package it was skipped on offline installs, leaving those boxes
 # with no boot-menu rollback; base.packages now pacstraps it.
 pkgname="limine-snapper-sync"
-pkgver=1.31.0
+pkgver=1.32.1
 pkgrel=1
 pkgdesc="Integrates Limine boot entries with Snapper snapshots."
 arch=('x86_64')
 url="https://gitlab.com/Zesko/limine-snapper-sync"
 # Gradle is vendored for the same reason as limine-mkinitcpio-hook: Arch's 9.7.0
 # stopped resolving the gradle-public-api-legacy module the graalvm buildtools
-# plugin wants, which failed nativeCompile and blocked every user update. Both
+# plugin wanted, which failed nativeCompile and blocked every user update. Both
 # halves of the Limine stack pin the same version, so bump them together.
 # The graalvm buildtools plugin is vendored in release/gradle-offline/repo
 # (shared with limine-mkinitcpio-hook, same pinned version) and resolved from
 # there first, so a plugin-portal outage cannot fail the publish gate. Compile
-# deps and the reachability-metadata zip are still fetched upstream.
+# deps and the reachability-metadata zip are still fetched upstream. gettext is
+# for msgfmt: since 1.32 the build compiles the po/ catalogues into the tree.
 _gradleoffline="$startdir/../../gradle-offline"
 _gradlever=9.6.1
 source=("${pkgname}::git+${url}.git#tag=${pkgver}"
 	"https://services.gradle.org/distributions/gradle-${_gradlever}-bin.zip")
-source_x86_64=("https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-25.0.2/graalvm-community-jdk-25.0.2_linux-x64_bin.tar.gz")
+source_x86_64=("https://github.com/graalvm/graalvm-ce-builds/releases/download/graal-25.2.4/graalvm-community-jdk-25i2-25.0.4_linux-x64_bin.tar.gz")
 license=("GPL3")
 options=(!debug !strip)
 _graalvm_version=graalvm_ce_jdk25
@@ -36,21 +37,22 @@ depends=(
 	'libnotify')
 optdepends=(
 	'limine-mkinitcpio-hook: Automates kernel installation/removal and Limine boot entry management.'
+	'limine-dracut-support: Automates kernel installation/removal and Limine boot entry management.'
 	'inotify-tools: Monitors when snapshots are created or deleted.'
 	'rsync: Alternative method for restoring snapshots.'
 	'b3sum: Fast Blake3 hash function to prevent duplication.'
 	'xxhash: Fast hashing utility for deduplication with shorter hashes.'
 )
-makedepends=('git')
+makedepends=('git' 'gettext')
 backup=(etc/limine-snapper-sync.conf)
 conflicts=('limine-snapper-cli' 'limine-snapper-sync-git')
-sha256sums=('SKIP'
+sha256sums=('c2a8a9618fc481e036fbfeb2016b2991c593abbcea871c13adc1af5d23eb2337'
 	'9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14')
-sha256sums_x86_64=('e0be791c8fda4d03b6b0a0cb824fef3149736170057b3a515252b44419606af0')
+sha256sums_x86_64=('3f4a89de8eaa96f2ed677f09957c7e872cd8467aad3537f8b5394c1b8c4b942e')
 
 prepare() {
 	[[ -d "${_graalvm_version}" ]] && rm -rf "${_graalvm_version}"
-	mv graalvm-community-openjdk-*/ "${_graalvm_version}"
+	mv graalvm-community-*/ "${_graalvm_version}"
 	if ! command -v "${_graalvm_version}"/bin/javac >/dev/null 2>&1; then
 		echo "Error: ${_graalvm_version}/bin/javac not found." >&2
 		return 1

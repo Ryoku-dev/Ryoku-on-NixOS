@@ -82,7 +82,8 @@ held keys.
 
 Beyond Hyprland, quickshell, `go` (to build `ryoku-shell`), and cmake + ninja +
 qt6-shadertools (to build the `Ryoku.Blobs` plugin), the shell calls at
-LED color), `wl-clipboard` (clipboard history and capture copy), `wl-clip-persist`
+LED color), `wl-clipboard` (`wl-copy` sets the selection for captures and history
+picks; the daemon watches the clipboard itself), `wl-clip-persist`
 (keeps the selection when the app that copied closes), `imagemagick`
 (wallpaper thumbnails), `hyprpicker`, `hypridle` and `brightnessctl` (laptop
 idle/dim), `upower` (battery state), `wireplumber` (`wpctl`), `pipewire-pulse`

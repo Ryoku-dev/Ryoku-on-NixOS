@@ -81,7 +81,7 @@ AbstractBackgroundWidget {
         } else if (key === "color_picker") {
             Spawn.run(["ryoku-cmd-color-picker"]);
         } else if (key === "screenshot") {
-            Spawn.run(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
+            Spawn.run(["ryoku-cmd-ryoshot"]);
         } else {
             Spawn.run(["ryoku-shell", "launcher"]);
         }

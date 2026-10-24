@@ -144,18 +144,20 @@ func TestSha512CryptMatchesLibcCrypt(t *testing.T) {
 	}
 }
 
-// The reported bug, at the screen it happened on: typing a password twice must
-// set the hash and move on. The confirm field used to call out to
-// `openssl passwd -6` here, and a live session where that child process could
-// not run answered with "could not hash the password (openssl failed)" and a
-// wizard that would not advance.
-func TestPasswordStepCommitsAHash(t *testing.T) {
+// Typing an administrator password twice must set the hash and move on. The
+// account screen collects the name fields first, then uses the same in-process
+// sha512-crypt implementation for the password.
+func TestAdministratorStepCommitsAHash(t *testing.T) {
+	oldRuntime := accountsRuntimeDir
+	accountsRuntimeDir = t.TempDir()
+	t.Cleanup(func() { accountsRuntimeDir = oldRuntime })
+
 	const pw = "ryoku-install-pw"
 
 	m := model{state: "wizard", flow: steps(), picks: map[string]string{}}
-	m.idx = flowIndex(m.flow, "password")
+	m.idx = flowIndex(m.flow, "administrator")
 	if m.idx <= 0 {
-		t.Fatal("the password step is not reachable in the flow")
+		t.Fatal("the administrator account step is not reachable in the flow")
 	}
 	m.loadStep()
 
@@ -170,16 +172,18 @@ func TestPasswordStepCommitsAHash(t *testing.T) {
 		m = nm.(model)
 	}
 
+	enter() // default username
+	enter() // optional full name
 	type_(pw)
 	enter()
-	if m.pwStage != 1 {
-		t.Fatalf("first enter must move to the confirm field, pwStage = %d (%s)", m.pwStage, m.pwErr)
+	if m.accounts.adminField != 3 {
+		t.Fatalf("first password enter must move to confirm, field = %d (%s)", m.accounts.adminField, m.accounts.adminErr)
 	}
-	// A mismatch re-prompts and commits nothing.
 	type_(pw + "x")
 	enter()
-	if m.pwStage != 0 || m.pwHash != "" || m.pwErr == "" {
-		t.Fatalf("a mismatch must re-prompt with an error and no hash (stage %d, hash %q, err %q)", m.pwStage, m.pwHash, m.pwErr)
+	if m.accounts.adminField != 2 || m.pwHash != "" || m.accounts.adminErr == "" {
+		t.Fatalf("a mismatch must re-prompt with an error and no hash (field %d, hash %q, err %q)",
+			m.accounts.adminField, m.pwHash, m.accounts.adminErr)
 	}
 
 	at := m.idx
@@ -187,17 +191,17 @@ func TestPasswordStepCommitsAHash(t *testing.T) {
 	enter()
 	type_(pw)
 	enter()
-	if m.pwErr != "" {
-		t.Fatalf("matching passwords were rejected: %s", m.pwErr)
+	if m.accounts.adminErr != "" {
+		t.Fatalf("matching passwords were rejected: %s", m.accounts.adminErr)
 	}
-	if m.picks["password"] != "set" || m.idx <= at {
-		t.Fatalf("a committed password must advance the wizard (pick %q, idx %d -> %d)", m.picks["password"], at, m.idx)
+	if m.picks["username"] != "you" || m.picks["password"] != "set" || m.idx <= at {
+		t.Fatalf("a committed password must advance the wizard (user %q, pick %q, idx %d -> %d)",
+			m.picks["username"], m.picks["password"], at, m.idx)
 	}
 	if m.pwHash == "" {
 		t.Fatal("the wizard advanced with an empty hash; the backend would die at preflight")
 	}
 
-	// The hash the backend is handed has to be the one that verifies at login.
 	var hash string
 	for _, kv := range m.installEnv() {
 		if v, ok := strings.CutPrefix(kv, "RYOKU_PASSWORD_HASH="); ok {

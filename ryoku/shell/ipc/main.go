@@ -41,12 +41,6 @@ func main() {
 		}
 		return
 	}
-	if args[0] == "__clip-ingest" {
-		// wl-paste --watch helper: read the new selection and stream it to the
-		// daemon. Internal, not a user verb.
-		runClipIngest()
-		return
-	}
 	if args[0] == "theme" && len(args) == 2 && args[1] == "catalog" {
 		// The colour-scheme catalog is static (compiled in) and larger than the
 		// daemon's 8192-byte socket reply, so print it here without a round trip;

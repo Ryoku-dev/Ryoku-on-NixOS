@@ -38,7 +38,7 @@ func init() {
 func loadTrashManifest() []trashItem {
 	var items []trashItem
 	if b, err := os.ReadFile(trashManifestPath()); err == nil {
-		_ = json.Unmarshal(b, &items)
+		_ = json.Unmarshal(resolvedJSON(b), &items)
 	}
 	return items
 }
@@ -52,7 +52,7 @@ func saveTrashManifest(items []trashItem) error {
 		return err
 	}
 	tmp := trashManifestPath() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.WriteFile(tmp, portableJSON(b), 0o644); err != nil {
 		return err
 	}
 	return os.Rename(tmp, trashManifestPath())

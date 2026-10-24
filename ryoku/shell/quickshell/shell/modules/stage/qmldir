@@ -1,4 +1,5 @@
 StageBackdrop StageBackdrop.qml
+StageSpatialScene StageSpatialScene.qml
 StageLayer StageLayer.qml
 StageOutline StageOutline.qml
 StageSelection StageSelection.qml
@@ -11,3 +12,4 @@ StageDepthPage StageDepthPage.qml
 StageDepthOptions StageDepthOptions.qml
 StageDepthHero StageDepthHero.qml
 StageWidgetPage StageWidgetPage.qml
+StageDepthPick StageDepthPick.qml

@@ -31,13 +31,15 @@ depends=(
   "hyprglass=$pkgver"
   "imgborders=$pkgver"
   "ryoku-keysounds=$pkgver"
+  "hyprgrass=$pkgver"
   'hyprpolkitagent'
   'xdg-desktop-portal-hyprland'
   # XDPH names /usr/bin/hyprland-preview-share-picker for the screen-share source
   # chooser, so a hard depend keeps the picker atomic with the portal.
   'hyprland-preview-share-picker'
-  'hypridle'
-  'hyprpicker'
+  # night-light backend: warms the screen over Hyprland's CTM, so it is the
+  # Hyprland variant's to ship and reclaim (ryoku-cmd-nightlight, pill Super+U).
+  'hyprsunset'
 )
 provides=('ryoku-desktop-compositor')
 # deliberately not exclusive: both variants may be installed, so a switch is a
@@ -46,42 +48,22 @@ source=()
 
 _repo="$startdir/../../.."
 
+build() {
+  RYOKU_SRC="$_repo" \
+    RYOKU_PKGVER="$pkgver" \
+    RYOKU_RELEASE="${RYOKU_RELEASE:-}" \
+    RYOKU_CHANNEL="${RYOKU_CHANNEL:-}" \
+    RYOKU_NAME="${RYOKU_NAME:-}" \
+    RYOKU_BUILD_DIR="$srcdir" \
+    "$startdir/payload.sh" build
+}
+
 package() {
-  local cfg="$pkgdir/usr/share/ryoku/config"
-
-  # Hyprland config tree: includes scripts/ (shell calls ~/.config/hypr/scripts/*
-  # by absolute path) and the hardware-managed gpu/keyboard/monitors drop-ins.
-  install -d "$cfg/hypr"
-  cp -a "$_repo/ryoku/hyprland/." "$cfg/hypr/"
-
-  # xdg-desktop-portal: route ScreenCast/Screenshot to Hyprland for screen sharing.
-  install -Dm644 "$_repo/ryoku/hyprland/hyprland-portals.conf" \
-    "$cfg/xdg-desktop-portal/hyprland-portals.conf"
-
-  # the screen-share source chooser xdph launches (hypr/xdph.conf names it); its
-  # stylesheet is the matugen template rendered on palette change.
-  install -Dm644 "$_repo/ryoku/apps/hyprland-preview-share-picker/config.yaml" \
-    "$cfg/hyprland-preview-share-picker/config.yaml"
-
-  # cp -a kept source modes; keep hypr/scripts executable, the rest world-readable.
-  chmod -R u=rwX,go=rX "$pkgdir/usr/share/ryoku"
-
-  # the Hyprland leaf scripts the keybinds, autostart and the shell call by bare
-  # name. Same ryoku-* glob the dev deploy uses, so a new script lands in both.
-  local s
-  for s in "$_repo"/ryoku/hyprland/scripts/ryoku-*; do
-    [[ -f $s ]] || continue
-    install -Dm755 "$s" "$pkgdir/usr/bin/${s##*/}"
-  done
-
-  # ryoku-wm-hyprland: the Hyprland half of the window-manager seam. Built from the
-  # ryoku/wm module (its root is one dir up from the hyprland package).
-  ( cd "$_repo/ryoku/wm/hyprland" && go build -o ryoku-wm-hyprland . )
-  install -Dm755 "$_repo/ryoku/wm/hyprland/ryoku-wm-hyprland" \
-    "$pkgdir/usr/bin/ryoku-wm-hyprland"
-
-  # Ryoku.Wm.Hyprland: the provider's QML bridges (global shortcuts, focus grab)
-  # the shell imports instead of Quickshell.Hyprland. Pure QML, like Ryoku.Ui.
-  install -d "$pkgdir/usr/lib/qt6/qml/Ryoku/Wm/Hyprland"
-  cp -a "$_repo/ryoku/wm/hyprland/qml/." "$pkgdir/usr/lib/qt6/qml/Ryoku/Wm/Hyprland/"
+  RYOKU_SRC="$_repo" \
+    RYOKU_PKGVER="$pkgver" \
+    RYOKU_RELEASE="${RYOKU_RELEASE:-}" \
+    RYOKU_CHANNEL="${RYOKU_CHANNEL:-}" \
+    RYOKU_NAME="${RYOKU_NAME:-}" \
+    RYOKU_BUILD_DIR="$srcdir" \
+    "$startdir/payload.sh" install "$pkgdir" systemd
 }

@@ -20,9 +20,10 @@ Provider {
     readonly property var entries: {
         void apps.applicationRevision;
         var src = DesktopEntries.applications.values;
+        var hid = LauncherConfig.hiddenApps || [];
         var out = [];
         for (var i = 0; i < src.length; i++)
-            if (src[i] && !src[i].noDisplay) out.push(src[i]);
+            if (src[i] && !src[i].noDisplay && hid.indexOf(src[i].id) < 0) out.push(src[i]);
         return out;
     }
 

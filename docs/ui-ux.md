@@ -208,12 +208,12 @@ doing that arithmetic itself.
   are paper and ink. Emphasis is inversion: a surface flips to bone and its ink
   flips to dark. The frame carries the accent; the content does not compete with
   it.
-- **The default bar is the one surface that wears the whole palette.** QS Bar,
-  the shipped default, retints every slot from the wallpaper's seven colour slots
-  (`color01..color07`, mapped onto the ANSI roles), not just the accent, so it
-  reads in full colour like a terminal theme. It is a deliberate exception opted
-  into as the default; the Hub, the apps, the frame, and the monochrome Sumi bar
-  hold the line above. See `docs/barstyles.md`.
+- **QS Bar is the one surface that wears the whole palette.** It retints every
+  slot from the wallpaper's seven colour slots (`color01..color07`, mapped onto
+  the ANSI roles), not just the accent, so it reads in full colour like a
+  terminal theme. It is a deliberate built-in exception; the default Orpheus
+  bar, the Hub, the apps, the frame, and the monochrome Sumi bar hold the line
+  above. See `docs/barstyles.md`.
 
 So the rice wins inside an envelope the brand enforces. Write that down rather
 than the reverse: the envelope is the design.
@@ -487,13 +487,14 @@ and per-monitor visibility from `ShellState`.
 
 - **frame** the rounded screen border and the popouts that melt into it; the
   desktop's signature surface. See `docs/frame.md`.
-- **bar** the desktop's edge instrument, chosen by `barStyle`. Two ship built in:
-  **QS Bar** (the default, `barstyles/qsbar/`, a full-colour top bar retinted
-  from the wallpaper's seven palette slots) and **Sumi** (the monochrome
-  four-edge frame-bar system in `shell/modules/bar/framebars/`, the paper-and-ink
-  alternative). **Obi** and **Nacre** are folder styles you install from
-  Ryostore, and the Hub carries their controls (`OBI WIDGETS`, `NACRE LAYOUT`)
-  for when they are present. `BarProducts` resolves the id: built in, or from
+- **bar** the desktop's edge instrument, chosen by `barStyle`. Seven ship built
+  in. **Orpheus** is the default liquid top bar. **QS Bar**
+  (`barstyles/qsbar/`) is a full-colour top bar retinted from the wallpaper's
+  seven palette slots, and **Sumi** is the monochrome four-edge frame-bar system
+  in `shell/modules/bar/framebars/`. **Obi** and **Nacre** are folder styles you
+  install from Ryostore, and the Hub carries their controls (`OBI WIDGETS`,
+  `NACRE LAYOUT`) for when they are present. `BarProducts` resolves the id:
+  built in, or from
   `~/.local/state/ryoku/store/barstyles.json`. Every style reads the same service
   surfaces and grows the same popout cards from the kit under
   `shell/modules/bar/popouts/`: clicking a status widget (network, Bluetooth,
@@ -517,6 +518,23 @@ and per-monitor visibility from `ShellState`.
   It can magnify, label and preview windows, and optionally show media. Sumi's
   `RailDock` remains an in-bar alternative, but reads and writes the same shared
   pins and app identities.
+
+  Docks from RyoStore (the `docks/` catalogue of the ryostore repository, whose
+  `docks/AUTHORING.md` is the author's guide) join the same picker. Installing
+  one publishes `~/.local/state/ryoku/store/docks.json` with a content-addressed
+  view under `dock-views/<id>/<digest>/`; `services/DockProducts.qml` reads that
+  index (through the shared `StoreIndex`) and `UniversalDockHost` runs the
+  view's `Dock.qml` as the design of that id, waiting for the index so a saved
+  store dock does not flash the Ryoku design first. A store dock gets the same
+  `screen`, `surfaceVisible` and `stageEditing` the shipped designs get, reads
+  the shared model and settings from `Dock`, and opens Ryoku's context menu with
+  `Dock.openMenu`. One that fails to load draws the Ryoku design and logs why;
+  an update swaps the new view in live. The picker lists every store dock
+  beside the shipped ones (an uninstalled one opens RyoStore), offers Update, and
+  links to RyoStore. Removing the dock in use moves `dock.design` back to
+  `ryoku` in the Store's own transaction, and any dock edit drops that
+  removal's recovery marker. The shipped design ids (`Dock.builtinDesigns`) are
+  reserved.
 - **wallpaper** the background itself, drawn on the bottom layer with its own
   reveal shader for transitions: 22 presets the daemon draws from at random on
   each switch, from the crossfades, directional sweeps and circle irises to a
@@ -551,6 +569,7 @@ and per-monitor visibility from `ShellState`.
 |**launcher**|`Super+Space`|the app launcher and command palette|
 |**overview**|`Super+Tab`|the full-screen workspace expo|
 |**Controls**|`Super+Escape`|live system activity, connections, levels, and session actions|
+|**Kit**|`Super+K`|shortcuts, command references, phone controls, quick tools, and a typing test|
 |**ryoshot capture bar**|`Super+Shift+S`|Shot, Edit, OCR, Search, Record, and capture options in one floating bar|
 |**Ask**|`Alt+Space`|quick Rashin answers, chat, tools, web search, and the optional desktop bubble|
 |**clipboard**|`Super+V`|clipboard history at the bottom edge, with fuzzy search and a starred pane|
@@ -558,6 +577,17 @@ and per-monitor visibility from `ShellState`.
 |**visualiser placement**|`Super+Alt+M`|open the Stage Editor's Visualizer catalogue|
 |**voice**|`Super+grave`|speech to text with a live mic wave|
 |**Ryoku Settings**|`Super+,`|the Hub|
+
+### Kit
+
+Kit keeps five tools behind one search field:
+
+- **Keys** lists shared and window-manager shortcuts.
+- **Commands** keeps Ryoku, Linux, and Saved libraries separate.
+- **Phone** is set up and used in Kit. Its settings live in Ryoku Hub >
+  Connections > Phone, and `ryoku-kit phone` opens it directly.
+- **Dev tools** holds the quick tools useful during a session.
+- **Typing test** provides focused practice and history.
 
 ![The launcher at rest](media/launcher.webp)
 
@@ -623,11 +653,14 @@ type.*
 
 - **notifications** toasts in a top corner, left or right by config, 16px off it,
   driven over D-Bus. Each card glides in from off the edge it is anchored to and
-  leaves the same way, and its siblings slide down to close the gap.
+  leaves the same way, and its siblings slide down to close the gap. This card is
+  the shipped `ryoku` notification design; other installed designs can be worn
+  from Settings -> Overlays.
 - **OSD** one pill, bottom centre, for volume, mic or brightness, raised by the
   media and brightness keys and hidden on a timer. It spans the desktop hole so
   the compositor clamps it inside the frame, which is why it needs no reserve
-  arithmetic of its own.
+  arithmetic of its own. The pill is the shipped `ryoku` OSD design; other
+  installed designs can be worn from Settings -> Overlays.
 - **capture overlays** the region selector, the camera permission prompt, and the
   keypress overlay a recording draws so a demo shows its own keys.
 - **confirm** the session dialog for shutdown, reboot and logout, drawn on the
@@ -930,8 +963,8 @@ how each shipped specimen was made is `bin/art/README.md`. In short:
 - **One home.** Both bakers write into `ryoku/assets/ryodecors`, so a new decor
   ships everywhere at once: the installer seeds it, the `ryoku-desktop` package
   carries it to `/usr/share/ryoku/ryodecors`, and `ryoku doctor` lays it into
-  every `~/Pictures/ryodecors`. The profile hero and its editor read it by bare
-  filename.
+  `ryodecors/` under each user's configured Pictures folder. The profile hero
+  and its editor read it by bare filename.
 
 Figurative art that is not decor (the launcher hero, the welcome backdrop, the
 profile portrait) follows the same rule: generated at dev time, background

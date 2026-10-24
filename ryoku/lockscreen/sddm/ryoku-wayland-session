@@ -106,8 +106,22 @@ warn_nvidia_driver_mismatch() {
     true
 }
 
+# A home without the Ryoku tree boots the compositor's own defaults: no
+# autostart line, so nothing of Ryoku ever starts and the services that could
+# have laid the tree never run. Lay it here, as the user, before the session
+# reads its config. The same condition ryoku-bootstrap uses, so a home that has
+# its tree pays nothing; on a box without a packaged base there is nothing to
+# lay and materialize says so in the session log.
+lay_missing_config() {
+  local config="${XDG_CONFIG_HOME:-$HOME/.config}"
+  [[ -d $config/ryoku && -f $config/quickshell/shell/shell.qml ]] && return 0
+  command -v ryoku >/dev/null 2>&1 || return 0
+  timeout "${RYOKU_SESSION_MATERIALIZE_TIMEOUT:-120}" ryoku materialize >&2 || true
+}
+
 import_session_environment
 apply_panel_gpu_environment
+lay_missing_config
 
 if needs_software_renderer; then
   export LIBGL_ALWAYS_SOFTWARE=1

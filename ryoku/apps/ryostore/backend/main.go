@@ -255,24 +255,31 @@ func runInstall(provs []Provider, args []string) error {
 	if !ok {
 		return fmt.Errorf("unknown category %q", category)
 	}
+	ctx := withProgress(context.Background(), newProgressReporter(os.Stderr))
+	finish := func(err error) error {
+		if err == nil {
+			reportProgressNow(ctx, "apply", 1, 1)
+		}
+		return err
+	}
 	if from != "" {
 		li, ok := p.(localInstaller)
 		if !ok {
 			return fmt.Errorf("category %q does not support --from", category)
 		}
-		return li.InstallFrom(context.Background(), id, from)
+		return finish(li.InstallFrom(ctx, id, from))
 	}
 	if len(only) > 0 {
 		if ci, ok := p.(componentInstaller); ok {
-			return ci.InstallComponents(context.Background(), id, only)
+			return finish(ci.InstallComponents(ctx, id, only))
 		}
 	}
 	if dither {
 		if vi, ok := p.(variantInstaller); ok {
-			return vi.InstallVariant(context.Background(), id, true)
+			return finish(vi.InstallVariant(ctx, id, true))
 		}
 	}
-	return p.Install(context.Background(), id)
+	return finish(p.Install(ctx, id))
 }
 
 // localInstaller is a provider that can install a product from a local

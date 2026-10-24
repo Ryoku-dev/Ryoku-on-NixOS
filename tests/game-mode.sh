@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # fixture test for ryoku-cmd-game-mode (the one-click competitive toggle). stubs
-# hyprctl, pkexec, powerprofilesctl and both privileged helpers, points state +
-# sysfs scan at a tmp dir, so the real compositor, the real wifi radio and the
-# real power profile are never touched. verifies:
+# the shell control plane and privileged helpers, points state + sysfs scan at a
+# tmp dir, so the real compositor, wifi radio and power profile are never
+# touched. verifies:
 #   - toggle lifecycle
-#   - compositor tuning goes through the window-manager seam
-#     (`decoration.gameMode on|off`), never directly through hyprctl
+#   - compositor overrides and exact reversion
 #   - the power profile flips to performance and the PRIOR one comes back, not a
 #     guessed default
 #   - the privileged system tune is applied on start and restored on stop
@@ -35,24 +34,28 @@ echo "$1 \$*" >>"$calls"
 exit 0
 EOF
 }
-logger hyprctl
 logger pkexec
 logger ryoku-wifi-powersave
 logger ryoku-game-tune
 
 printf '#!/usr/bin/env bash\nexit 0\n' >"$bin/notify-send"
 
-# powerprofilesctl stub with a real backing value, so a restore that writes back
-# the wrong profile is visible rather than merely unlogged.
+# ryoku-shell stub with a real backing value. It exposes the same state and set
+# calls as the daemon, so a wrong restore is visible rather than merely logged.
 profile="$tmp/profile"; echo balanced >"$profile"
-cat >"$bin/powerprofilesctl" <<EOF
+cat >"$bin/ryoku-shell" <<EOF
 #!/usr/bin/env bash
-echo "powerprofilesctl \$*" >>"$calls"
-case "\${1:-}" in
-  get) cat "$profile" ;;
-  set) printf '%s\n' "\${2:-}" >"$profile" ;;
+echo "ryoku-shell \$*" >>"$calls"
+case "\${1:-}:\${2:-}" in
+  powerprofiles:state)
+    jq -cn --arg active "\$(cat "$profile")" \
+      '{active_profile:\$active,profiles:["power-saver","balanced","performance"]}'
+    ;;
+  powerprofiles:set)
+    printf '%s\n' "\${3:-}" >"$profile"
+    ;;
+  *) exit 1 ;;
 esac
-exit 0
 EOF
 
 # ryoku-idle owns the AC/battery question; exit 1 = on AC (permissive default).
@@ -64,15 +67,18 @@ echo "ryoku-idle \$*" >>"$calls"
 exit 0
 EOF
 
-# A stubbed ryoku CLI: game mode asks `wm status` for capabilities and sends
-# compositor tuning through `wm act decoration.gameMode`. Log every invocation
-# so this fixture tests the seam boundary rather than reaching into hyprctl.
-mk_ryoku() {  # path caps -> ryoku stub
+# A stubbed ryoku CLI reports compositor capabilities and models the observable
+# decoration override. A caps line without live evaluation stands in for a
+# compositor that must be left untouched.
+deco="$tmp/decorations"
+mk_ryoku() {  # path caps -> a ryoku stub whose `wm status` prints caps
   cat >"$1" <<EOF
 #!/usr/bin/env bash
-echo "ryoku \$*" >>"$calls"
-[ "\$1 \$2" = "wm status" ] && echo "Capabilities: $2"
-exit 0
+case "\$*" in
+  "wm status") echo "Capabilities: $2" ;;
+  "wm act decoration.gameMode on") touch "$deco" ;;
+  "wm act decoration.gameMode off") rm -f "$deco" ;;
+esac
 EOF
   chmod +x "$1"
 }
@@ -91,6 +97,7 @@ export RYOKU_NET_SYSFS="$net"
 export RYOKU_WIFI_POWERSAVE_BIN="$bin/ryoku-wifi-powersave"
 export RYOKU_GAME_TUNE_BIN="$bin/ryoku-game-tune"
 export RYOKU_IDLE_BIN="$bin/ryoku-idle"
+export RYOKU_SHELL_BIN="$bin/ryoku-shell"
 export RYOKU_BIN="$bin/ryoku"
 state="$RYOKU_GAMEMODE_STATE_FILE"
 
@@ -99,15 +106,11 @@ on() { [[ -f $state ]]; }
 
 "$gm" status && fail "status reported on before any start"
 
-# --- start: compositor through seam + profile + tune + wifi off -------------
+# --- start: compositor override + profile + tune + wifi off -----------------
 : >"$calls"
 "$gm" start
 on || fail "start did not persist the request"
-grep -qF 'ryoku wm act decoration.gameMode on' "$calls" ||
-  fail "compositor did not go through decoration.gameMode on"
-grep -qF 'hyprctl ' "$calls" &&
-  fail "game-mode helper bypassed the window-manager seam"
-grep -qF 'powerprofilesctl set performance' "$calls" || fail "did not ask for the performance profile"
+[[ -e $deco ]] || fail "start did not apply the compositor override"
 grep -qF 'ryoku-game-tune apply' "$calls" || fail "system tune not applied"
 grep -qE 'pkexec .*ryoku-wifi-powersave off' "$calls" || fail "WiFi helper not asked to disable power-save"
 [[ "$(cat "$profile")" == performance ]] || fail "profile did not actually reach performance"
@@ -117,10 +120,7 @@ grep -qE 'pkexec .*ryoku-wifi-powersave off' "$calls" || fail "WiFi helper not a
 : >"$calls"
 "$gm" stop
 on && fail "stop did not clear the request"
-grep -qF 'ryoku wm act decoration.gameMode off' "$calls" ||
-  fail "stop did not go through decoration.gameMode off"
-grep -qF 'hyprctl ' "$calls" &&
-  fail "game-mode helper bypassed the window-manager seam on stop"
+[[ ! -e $deco ]] || fail "stop did not restore the compositor"
 grep -qF 'ryoku-game-tune restore' "$calls" || fail "system tune not restored"
 grep -qE 'pkexec .*ryoku-wifi-powersave on' "$calls" || fail "WiFi helper not asked to restore power-save"
 [[ "$(cat "$profile")" == balanced ]] ||
@@ -145,8 +145,7 @@ echo balanced >"$profile"
 : >"$calls"
 "$gm" start && fail "start succeeded on battery"
 on && fail "a refused start still persisted the request"
-grep -qF 'ryoku wm act decoration.gameMode on' "$calls" &&
-  fail "stripped the compositor on battery"
+[[ ! -e $deco ]] || fail "a refused start changed the compositor"
 grep -qF 'ryoku-game-tune' "$calls" && fail "applied the privileged tune on battery"
 [[ "$(cat "$profile")" == balanced ]] || fail "changed the power profile on battery"
 : >"$ac"                         # back on AC
@@ -161,16 +160,14 @@ RYOKU_IDLE_BIN="$tmp/nope" "$gm" stop
 : >"$calls"
 RYOKU_NET_SYSFS="$nonet" "$gm" start
 on || fail "start failed on a no-WiFi host"
-grep -qF 'ryoku wm act decoration.gameMode on' "$calls" ||
-  fail "compositor seam did not apply on a no-WiFi host"
+[[ -e $deco ]] || fail "compositor did not apply on a no-WiFi host"
 grep -qF 'ryoku-wifi-powersave' "$calls" && fail "touched WiFi on a host with no WiFi device"
 RYOKU_NET_SYSFS="$nonet" "$gm" stop
 
 # --- helpers absent: the rest still applies --------------------------------
 : >"$calls"
 RYOKU_WIFI_POWERSAVE_BIN="$tmp/nope" RYOKU_GAME_TUNE_BIN="$tmp/nope" "$gm" start
-grep -qF 'ryoku wm act decoration.gameMode on' "$calls" ||
-  fail "compositor seam did not apply when helpers absent"
+[[ -e $deco ]] || fail "compositor did not apply when helpers were absent"
 grep -qF 'ryoku-wifi-powersave' "$calls" && fail "tried to call an absent WiFi helper"
 grep -qF 'ryoku-game-tune' "$calls" && fail "tried to call an absent tune helper"
 RYOKU_WIFI_POWERSAVE_BIN="$tmp/nope" RYOKU_GAME_TUNE_BIN="$tmp/nope" "$gm" stop
@@ -181,14 +178,12 @@ mk_ryoku "$tmp/ryoku-nolive" "animations, windowRules, workspaces"
 : >"$calls"
 RYOKU_BIN="$tmp/ryoku-nolive" "$gm" start
 on || fail "start did not persist where the compositor has no live config eval"
-grep -qF 'ryoku wm act decoration.gameMode on' "$calls" &&
-  fail "stripped a compositor that cannot evaluate its config live"
-grep -qF 'powerprofilesctl set performance' "$calls" || fail "power did not boost without a compositor strip"
+[[ "$(cat "$profile")" == performance ]] ||
+  fail "power did not boost without a compositor strip"
 grep -qF 'ryoku-game-tune apply' "$calls" || fail "system tune skipped without a compositor strip"
 : >"$calls"
 RYOKU_BIN="$tmp/ryoku-nolive" "$gm" stop
-grep -qF 'ryoku wm act decoration.gameMode off' "$calls" &&
-  fail "restored a compositor that never took the live override"
+[[ ! -e $deco ]] || fail "compositor without live config evaluation was changed"
 on && fail "stop did not clear the request without a compositor strip"
 
 echo "game-mode: all checks passed"

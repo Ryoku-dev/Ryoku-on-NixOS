@@ -82,7 +82,7 @@ PanelWindow {
     }
 
     function editShot() {
-        Spawn.run(["sh", "-c", "RYOSHOT_OPEN=$1 exec qs -c ryoshot", "sh", entry.path]);
+        Spawn.run(["env", "RYOSHOT_OPEN=" + entry.path, "ryoku-cmd-ryoshot"]);
         pin.closeSelf();
     }
     function copyShot() { Quickshell.execDetached(["ryoku-shell", "clip-copy", "image/png", entry.path]); }

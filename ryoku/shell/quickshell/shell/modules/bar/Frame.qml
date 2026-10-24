@@ -10,9 +10,9 @@ import shell.modules.stage.frame
 import "framebars/RailGeometry.js" as RailGeometry
 import "../../services/lib/screens.js" as Screens
 
-// One monitor's frame bar. It maps four exclusive-zone background surfaces that
-// reserve the revealed bar's thickness (so tiled windows clear the rails) and a
-// full-screen transparent overlay that hosts the painted frame chrome, the rail
+// One monitor's frame bar. While Sumi is active it maps four exclusive-zone
+// background surfaces that reserve the revealed bar's thickness, plus a
+// full-screen transparent overlay that hosts the painted frame chrome, rail
 // widgets, and this monitor's frame menu/popout host. Reveal binds to this
 // monitor's ShellState: the bar toggle shortcut flips ShellState.barRevealed and
 // each edge then follows its Config reveal flag, so the resting desktop shows
@@ -82,7 +82,7 @@ Scope {
         case "logout":
         case "reboot":
         case "shutdown": ShellState.askSessionAction(id, root.modelData ? root.modelData.name : ""); break;
-        case "screenshot": Spawn.run(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]); break;
+        case "screenshot": Spawn.run(["ryoku-cmd-ryoshot"]); break;
         case "wallpaper": Quickshell.execDetached(["ryogami", "wallpaper", "ui"]); break;
         case "color-picker": Quickshell.execDetached(["ryoku-cmd-color-picker"]); break;
         case "app-launcher": if (root.state) root.state.launcherOpen = !root.state.launcherOpen; break;
@@ -163,12 +163,17 @@ Scope {
     onSidebarRailClearancesChanged: root.syncSidebarRailClearances()
     Component.onCompleted: Qt.callLater(root.syncSidebarRailClearances)
 
-    // Four background reservation surfaces, mapped top, bottom, left, right in
-    // that fixed order so the horizontal edges own the shared corners.
-    FrameEdge { edge: "top";    screen: root.modelData; reserve: root.sumiActive ? root.edgeReserve("top") : 0 }
-    FrameEdge { edge: "bottom"; screen: root.modelData; reserve: root.sumiActive ? root.edgeReserve("bottom") : 0 }
-    FrameEdge { edge: "left";   screen: root.modelData; reserve: root.sumiActive ? root.edgeReserve("left") : 0 }
-    FrameEdge { edge: "right";  screen: root.modelData; reserve: root.sumiActive ? root.edgeReserve("right") : 0 }
+    // The reservation stack owns shared corners by map order. Keep all four in
+    // one lifetime so activating Sumi always maps top, bottom, left, right.
+    LazyLoader {
+        active: root.sumiActive
+        component: Scope {
+            FrameEdge { edge: "top";    screen: root.modelData; reserve: root.edgeReserve("top") }
+            FrameEdge { edge: "bottom"; screen: root.modelData; reserve: root.edgeReserve("bottom") }
+            FrameEdge { edge: "left";   screen: root.modelData; reserve: root.edgeReserve("left") }
+            FrameEdge { edge: "right";  screen: root.modelData; reserve: root.edgeReserve("right") }
+        }
+    }
 
     PanelWindow {
         id: overlay

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 guard_unit=ryoku-power-cutover-guard.service
-cutover_marker=/var/lib/ryoku/power-cutover-hook-active
+cutover_marker=${RYOKU_CUTOVER_MARKER:-/var/lib/ryoku/power-cutover-hook-active}
 runtime_root=${RYOKU_CUTOVER_RUNTIME_ROOT:-/run/user}
 qylock_installer="${RYOKU_QYLOCK_INSTALLER:-}"
 cgroup_root=${RYOKU_CGROUP_ROOT:-/sys/fs/cgroup}
@@ -53,7 +53,256 @@ qylock_generation_lock="${XDG_RUNTIME_DIR:-/tmp}/ryoku-qylock-generation.lock"
 qylock_mutation_lock="${XDG_RUNTIME_DIR:-/tmp}/ryoku-qylock-mutation.lock"
 qylock_launch_guard_unit=ryoku-qylock-launch-guard.service
 qylock_launch_guard_ready="${XDG_RUNTIME_DIR:-/tmp}/ryoku-qylock-launch-guard.ready"
+qylock_cutover_wait_unit=ryoku-qylock-cutover-wait.service
 log() { printf 'ryoku-power-cutover: %s\n' "$*"; }
+
+host_bin=${RYOKU_HOST_BIN:-ryoku-host}
+if ! init_system="$("$host_bin" init)"; then
+  log "cannot identify the host init system" >&2
+  return 1 2>/dev/null || exit 1
+fi
+case "$init_system" in
+  systemd|runit) ;;
+  *)
+    log "unsupported init system: $init_system" >&2
+    return 1 2>/dev/null || exit 1
+    ;;
+esac
+
+runit_host() {
+  XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
+    TURNSTILE_ENV_DIR="${TURNSTILE_ENV_DIR:-${HOME:-}/.config/service-env}" \
+    "$host_bin" "$@"
+}
+
+runit_job_name() {
+  printf '%s\n' "${1%.service}"
+}
+
+runit_transient_dir() {
+  printf '%s/ryoku/transient\n' "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+}
+
+runit_transient_active() {
+  runit_host transient is-active "$(runit_job_name "$1")" >/dev/null 2>&1
+}
+
+runit_transient_start() {
+  local unit=$1
+  shift
+  runit_host transient start "$(runit_job_name "$unit")" "$@"
+}
+
+runit_transient_stop() {
+  local unit=$1
+  runit_host transient stop "$(runit_job_name "$unit")" >/dev/null 2>&1 || {
+    local rc=$?
+    (( rc == 3 || rc == 4 ))
+  }
+}
+
+runit_transient_stop_pattern() {
+  local pattern=$1 dir file job
+  dir="$(runit_transient_dir)"
+  pattern=${pattern%.service}
+  for file in "$dir"/$pattern.pid; do
+    [[ -e $file ]] || continue
+    job=${file##*/}
+    job=${job%.pid}
+    runit_host transient stop "$job" >/dev/null 2>&1 || true
+  done
+}
+
+user_unit_active() {
+  local unit=$1
+  if [[ $init_system == systemd ]]; then
+    systemctl --user is-active --quiet "$unit"
+    return $?
+  fi
+  runit_transient_active "$unit" ||
+    runit_host svc --user is-active "$unit" >/dev/null 2>&1
+}
+
+user_unit_state() {
+  local unit=$1
+  if [[ $init_system == systemd ]]; then
+    systemctl --user is-active "$unit"
+    return
+  fi
+  if user_unit_active "$unit"; then
+    printf 'active\n'
+  else
+    printf 'inactive\n'
+  fi
+}
+
+user_unit_stop() {
+  if [[ $init_system == systemd ]]; then
+    systemctl --user stop "$@"
+    return
+  fi
+  local unit rc
+  for unit in "$@"; do
+    if [[ $unit == *'*'* || $unit == *'?'* || $unit == *'['* ]]; then
+      runit_transient_stop_pattern "$unit"
+      continue
+    fi
+    if runit_transient_active "$unit"; then
+      runit_transient_stop "$unit" || return
+      continue
+    fi
+    rc=0
+    runit_host svc --user stop "$unit" >/dev/null 2>&1 || rc=$?
+    (( rc == 0 || rc == 4 )) || return "$rc"
+  done
+}
+
+user_unit_start() {
+  if [[ $init_system == systemd ]]; then
+    systemctl --user start "$@"
+  else
+    runit_host svc --user start "$@"
+  fi
+}
+
+user_unit_restart() {
+  if [[ $init_system == systemd ]]; then
+    systemctl --user restart "$@"
+  else
+    runit_host svc --user restart "$@"
+  fi
+}
+
+user_unit_reset_failed() {
+  if [[ $init_system == systemd ]]; then
+    systemctl --user reset-failed "$@"
+  else
+    runit_host svc --user reset-failed "$@"
+  fi
+}
+
+user_unit_known() {
+  local unit=$1 rc=0
+  if [[ $init_system == systemd ]]; then
+    systemctl --user cat "$unit" >/dev/null 2>&1
+    return
+  fi
+  runit_host svc --user is-active "$unit" >/dev/null 2>&1 || rc=$?
+  (( rc == 0 || rc == 3 ))
+}
+
+user_daemon_reload() {
+  if [[ $init_system == systemd ]]; then
+    systemctl --user daemon-reload
+  else
+    runit_host svc --user daemon-reload
+  fi
+}
+
+scope_cgroup() {
+  [[ $init_system == systemd ]] || return 1
+  systemctl show "$1" -p ControlGroup --value
+}
+
+escape_unit_component() {
+  if [[ $init_system == systemd ]]; then
+    systemd-escape -- "$1"
+  else
+    printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_'
+  fi
+}
+
+bind_user_environment() {
+  local -a clear=()
+  if [[ $init_system == systemd ]]; then
+    systemctl --user unset-environment "${session_clear[@]}" >/dev/null
+    systemctl --user set-environment "${assignments[@]}"
+    return
+  fi
+  local key
+  for key in "${session_clear[@]}"; do
+    clear+=("$key=")
+  done
+  runit_host svc --user env "${clear[@]}" "${assignments[@]}"
+}
+
+stop_session_services() {
+  if [[ $init_system == systemd ]]; then
+    systemctl --user stop "$session_target"
+    return
+  fi
+  local roster=${RYOKU_RUNIT_SESSION_SERVICES:-${RYOKU_USER_SERVICE_DIR:-${HOME:-}/.config/service}/.ryoku-session-services}
+  local service
+  [[ -r $roster ]] || return 0
+  while IFS= read -r service; do
+    [[ -n $service && $service != \#* ]] || continue
+    runit_host svc --user stop "$service" >/dev/null 2>&1 || {
+      local rc=$?
+      (( rc == 4 )) || return "$rc"
+    }
+  done <"$roster"
+}
+
+stop_graphical_session_targets() {
+  [[ $init_system == systemd ]] || return 0
+  local target
+  for target in graphical-session.target graphical-session-pre.target; do
+    if systemctl --user is-active --quiet "$target"; then
+      systemctl --user stop "$target" || return
+    fi
+  done
+}
+
+stop_session_and_guards() {
+  if [[ $init_system == systemd ]]; then
+    systemctl --user stop "$session_target" "$session_guard_pattern"
+    return
+  fi
+  stop_session_services
+  user_unit_stop "$session_guard_pattern"
+}
+
+start_session_services() {
+  if [[ $init_system == systemd ]]; then
+    systemctl --user start "$session_target"
+    return
+  fi
+  local roster=${RYOKU_RUNIT_SESSION_SERVICES:-${RYOKU_USER_SERVICE_DIR:-${HOME:-}/.config/service}/.ryoku-session-services}
+  local service service_dir=${RYOKU_USER_SERVICE_DIR:-${HOME:-}/.config/service}
+  [[ -r $roster ]] || return 0
+  while IFS= read -r service; do
+    [[ -n $service && $service != \#* ]] || continue
+    [[ ! -e $service_dir/${service%.service}/.ryoku-disabled ]] || continue
+    runit_host svc --user start "$service" || return
+  done <"$roster"
+}
+
+reload_login_manager() {
+  if [[ $init_system == systemd ]]; then
+    systemctl reload systemd-logind
+  else
+    loginctl reload
+  fi
+}
+
+inhibitor_list() {
+  if [[ $init_system == systemd ]]; then
+    systemd-inhibit "$@"
+  else
+    elogind-inhibit "$@"
+  fi
+}
+
+supervise_restart() {
+  local delay=$1 rc
+  shift
+  while :; do
+    rc=0
+    "$@" || rc=$?
+    (( rc != 0 )) || return 0
+    sleep "$delay"
+  done
+}
 
 reload_wm_config() {
   local rc=0
@@ -67,7 +316,7 @@ reload_wm_config() {
 
 qylock_generation_guard_ready() {
   [[ -r $qylock_generation_guard_ready ]] &&
-    systemctl --user is-active --quiet "$qylock_generation_guard_unit"
+    user_unit_active "$qylock_generation_guard_unit"
 }
 
 hold_qylock_generation_guard() {
@@ -91,15 +340,22 @@ hold_qylock_generation_guard() {
 
 request_qylock_generation_guard() {
   qylock_generation_guard_ready && return 0
-  if ! systemctl --user is-active --quiet "$qylock_generation_guard_unit"; then
+  if ! user_unit_active "$qylock_generation_guard_unit"; then
     rm -f "$qylock_generation_guard_ready"
-    systemctl --user reset-failed "$qylock_generation_guard_unit" >/dev/null 2>&1 || true
-    systemd-run --user --quiet --collect \
-      --unit="$qylock_generation_guard_unit" \
-      --property=Type=exec --property=TimeoutStopSec=5s \
-      "$self_path" generation-guard-hold \
-      "$qylock_launch_lock" "$qylock_generation_lock" \
-      "$qylock_generation_guard_ready"
+    user_unit_reset_failed "$qylock_generation_guard_unit" >/dev/null 2>&1 || true
+    if [[ $init_system == systemd ]]; then
+      systemd-run --user --quiet --collect \
+        --unit="$qylock_generation_guard_unit" \
+        --property=Type=exec --property=TimeoutStopSec=5s \
+        "$self_path" generation-guard-hold \
+        "$qylock_launch_lock" "$qylock_generation_lock" \
+        "$qylock_generation_guard_ready"
+    else
+      runit_transient_start "$qylock_generation_guard_unit" -- \
+        "$self_path" generation-guard-hold \
+        "$qylock_launch_lock" "$qylock_generation_lock" \
+        "$qylock_generation_guard_ready"
+    fi
   fi
 }
 
@@ -107,7 +363,7 @@ ensure_qylock_generation_guard() {
   local state waited=0
   request_qylock_generation_guard
   while ! qylock_generation_guard_ready; do
-    state="$(systemctl --user is-active "$qylock_generation_guard_unit" 2>/dev/null || true)"
+    state="$(user_unit_state "$qylock_generation_guard_unit" 2>/dev/null || true)"
     case "$state" in
       active|activating)
         # Bounded: the guard only takes two flocks, so 30 s of not-ready means
@@ -137,8 +393,8 @@ with_qylock_mutation_guard() {
 }
 
 release_qylock_generation_guard_unlocked() {
-  if systemctl --user is-active --quiet "$qylock_generation_guard_unit"; then
-    systemctl --user stop "$qylock_generation_guard_unit"
+  if user_unit_active "$qylock_generation_guard_unit"; then
+    user_unit_stop "$qylock_generation_guard_unit"
   fi
   rm -f "$qylock_generation_guard_ready"
 }
@@ -149,7 +405,7 @@ release_qylock_generation_guard() {
 
 qylock_launch_guard_is_ready() {
   [[ -r $qylock_launch_guard_ready ]] &&
-    systemctl --user is-active --quiet "$qylock_launch_guard_unit"
+    user_unit_active "$qylock_launch_guard_unit"
 }
 
 hold_qylock_launch_guard() {
@@ -168,14 +424,20 @@ hold_qylock_launch_guard() {
 
 request_qylock_launch_guard() {
   qylock_launch_guard_is_ready && return 0
-  if ! systemctl --user is-active --quiet "$qylock_launch_guard_unit"; then
+  if ! user_unit_active "$qylock_launch_guard_unit"; then
     rm -f "$qylock_launch_guard_ready"
-    systemctl --user reset-failed "$qylock_launch_guard_unit" >/dev/null 2>&1 || true
-    systemd-run --user --quiet --collect \
-      --unit="$qylock_launch_guard_unit" \
-      --property=Type=exec --property=TimeoutStopSec=5s \
-      "$self_path" launch-guard-hold \
-      "$qylock_launch_lock" "$qylock_launch_guard_ready"
+    user_unit_reset_failed "$qylock_launch_guard_unit" >/dev/null 2>&1 || true
+    if [[ $init_system == systemd ]]; then
+      systemd-run --user --quiet --collect \
+        --unit="$qylock_launch_guard_unit" \
+        --property=Type=exec --property=TimeoutStopSec=5s \
+        "$self_path" launch-guard-hold \
+        "$qylock_launch_lock" "$qylock_launch_guard_ready"
+    else
+      runit_transient_start "$qylock_launch_guard_unit" -- \
+        "$self_path" launch-guard-hold \
+        "$qylock_launch_lock" "$qylock_launch_guard_ready"
+    fi
   fi
 }
 
@@ -189,7 +451,7 @@ ensure_qylock_launch_guard() {
   qylock_generation_guard_ready && return 0
   request_qylock_launch_guard
   while ! qylock_launch_guard_is_ready; do
-    state="$(systemctl --user is-active "$qylock_launch_guard_unit" 2>/dev/null || true)"
+    state="$(user_unit_state "$qylock_launch_guard_unit" 2>/dev/null || true)"
     case "$state" in
       active|activating)
         (( ++waited >= 300 )) && {
@@ -206,8 +468,8 @@ ensure_qylock_launch_guard() {
 }
 
 release_qylock_launch_guard_unlocked() {
-  if systemctl --user is-active --quiet "$qylock_launch_guard_unit"; then
-    systemctl --user stop "$qylock_launch_guard_unit"
+  if user_unit_active "$qylock_launch_guard_unit"; then
+    user_unit_stop "$qylock_launch_guard_unit"
   fi
   rm -f "$qylock_launch_guard_ready"
 }
@@ -240,16 +502,26 @@ wait_lock_clients() {
   done
 }
 
+retire_qylock_waiter() {
+  user_unit_stop "$qylock_cutover_wait_unit" >/dev/null 2>&1 || true
+  user_unit_reset_failed "$qylock_cutover_wait_unit" >/dev/null 2>&1 || true
+}
+
 schedule_qylock_cutover() {
-  local unit=ryoku-qylock-cutover-wait.service
-  if systemctl --user is-active --quiet "$unit"; then
-    return 0
+  local waiter=$self_path
+  # A package transaction removes its /run executor after the user cutover
+  # returns. The deferred unit must therefore enter through the installed path,
+  # which remains valid for its retries after the transaction has finished.
+  [[ -x $installed_helper ]] && waiter=$installed_helper
+  retire_qylock_waiter
+  if [[ $init_system == systemd ]]; then
+    systemd-run --user --quiet --collect --unit="$qylock_cutover_wait_unit" \
+      --property=Type=exec --property=TimeoutStopSec=5s \
+      --property=Restart=on-failure --property=RestartSec=2s \
+      "$waiter" wait-qylock
+  else
+    runit_transient_start "$qylock_cutover_wait_unit" -- "$waiter" wait-qylock
   fi
-  systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
-  systemd-run --user --quiet --collect --unit="$unit" \
-    --property=Type=exec --property=TimeoutStopSec=5s \
-    --property=Restart=on-failure --property=RestartSec=2s \
-    "$self_path" wait-qylock
 }
 
 wait_qylock_cutover() {
@@ -295,22 +567,34 @@ stage_qylock_for_session_start() {
     RYOKU_QYLOCK_GENERATION_GUARDED=1 "$qylock_installer"
 }
 stop_guard() {
-  systemctl stop "$guard_unit"
+  if [[ $init_system == systemd ]]; then
+    systemctl stop "$guard_unit"
+  else
+    runit_transient_stop "$guard_unit"
+  fi
 }
 
 start_guard() {
   local inhibitors
-  if ! systemctl is-active --quiet "$guard_unit"; then
-    systemctl reset-failed "$guard_unit" >/dev/null 2>&1 || true
-    systemd-run --quiet --collect --unit="$guard_unit" \
-      --property=Type=exec --property=TimeoutStopSec=5s \
-      /usr/bin/systemd-inhibit --what=sleep --mode=block \
+  if [[ $init_system == systemd ]]; then
+    if ! systemctl is-active --quiet "$guard_unit"; then
+      systemctl reset-failed "$guard_unit" >/dev/null 2>&1 || true
+      systemd-run --quiet --collect --unit="$guard_unit" \
+        --property=Type=exec --property=TimeoutStopSec=5s \
+        /usr/bin/systemd-inhibit --what=sleep --mode=block \
+        --who=ryoku-package-cutover \
+        --why="keep sessions awake while packaged suspend owners are replaced" \
+        /usr/bin/sleep infinity
+    fi
+  elif ! runit_transient_active "$guard_unit"; then
+    runit_transient_start "$guard_unit" -- \
+      elogind-inhibit --what=sleep --mode=block \
       --who=ryoku-package-cutover \
       --why="keep sessions awake while packaged suspend owners are replaced" \
       /usr/bin/sleep infinity
   fi
   for _ in {1..60}; do
-    inhibitors="$(systemd-inhibit --list --no-pager 2>/dev/null || true)"
+    inhibitors="$(inhibitor_list --list --no-pager 2>/dev/null || true)"
     if [[ $inhibitors == *ryoku-package-cutover* &&
           $inhibitors == *sleep* && $inhibitors == *block* ]]; then
       return 0
@@ -321,35 +605,67 @@ start_guard() {
   log "could not acquire the durable package cutover sleep inhibitor" >&2
   return 1
 }
+
 start_user_guard() {
-  local json uid
-  for command in systemd-inhibit jq systemctl systemd-run; do
-    command -v "$command" >/dev/null 2>&1 || {
-      log "$command is required for the session sleep guard" >&2
+  local json uid inhibitors who inhibitor_uid what rest
+  if [[ $init_system == systemd ]]; then
+    for command in systemd-inhibit jq systemctl systemd-run; do
+      command -v "$command" >/dev/null 2>&1 || {
+        log "$command is required for the session sleep guard" >&2
+        return 1
+      }
+    done
+    if ! systemctl --user is-active --quiet "$guard_unit"; then
+      systemctl --user reset-failed "$guard_unit" >/dev/null 2>&1 || true
+      systemd-run --user --quiet --collect --unit="$guard_unit" \
+        --property=Type=exec --property=TimeoutStopSec=5s \
+        /usr/bin/systemd-inhibit --what=sleep --mode=block \
+        --who=ryoku-session-cutover \
+        --why="keep the desktop awake until its lock and lid owners are ready" \
+        /usr/bin/sleep infinity
+    fi
+    uid="$(id -u)"
+    for _ in {1..60}; do
+      json="$(systemd-inhibit --list --json=short 2>/dev/null || true)"
+      if jq -e --argjson uid "$uid" \
+        'any(.[]; .uid == $uid and .who == "ryoku-session-cutover"
+          and .mode == "block" and ((.what | split(":")) | index("sleep")))' \
+        >/dev/null 2>&1 <<<"$json"; then
+        return 0
+      fi
+      inhibitors="$(systemd-inhibit --list --no-legend --no-pager 2>/dev/null || true)"
+      while read -r who inhibitor_uid _ _ _ what rest; do
+        if [[ $who == ryoku-session-cutover && $inhibitor_uid == "$uid" &&
+              :$what: == *:sleep:* && $rest =~ (^|[[:space:]])block$ ]]; then
+          return 0
+        fi
+      done <<<"$inhibitors"
+      sleep 0.05
+    done
+    systemctl --user stop "$guard_unit" >/dev/null 2>&1 || true
+  else
+    command -v elogind-inhibit >/dev/null 2>&1 || {
+      log "elogind-inhibit is required for the session sleep guard" >&2
       return 1
     }
-  done
-  if ! systemctl --user is-active --quiet "$guard_unit"; then
-    systemctl --user reset-failed "$guard_unit" >/dev/null 2>&1 || true
-    systemd-run --user --quiet --collect --unit="$guard_unit" \
-      --property=Type=exec --property=TimeoutStopSec=5s \
-      /usr/bin/systemd-inhibit --what=sleep --mode=block \
-      --who=ryoku-session-cutover \
-      --why="keep the desktop awake until its lock and lid owners are ready" \
-      /usr/bin/sleep infinity
-  fi
-  uid="$(id -u)"
-  for _ in {1..60}; do
-    json="$(systemd-inhibit --list --json=short 2>/dev/null || true)"
-    if jq -e --argjson uid "$uid" \
-      'any(.[]; .uid == $uid and .who == "ryoku-session-cutover"
-        and .mode == "block" and ((.what | split(":")) | index("sleep")))' \
-      >/dev/null <<<"$json"; then
-      return 0
+    if ! runit_transient_active "$guard_unit"; then
+      runit_transient_start "$guard_unit" -- \
+        elogind-inhibit --what=sleep --mode=block \
+        --who=ryoku-session-cutover \
+        --why="keep the desktop awake until its lock and lid owners are ready" \
+        /usr/bin/sleep infinity
     fi
-    sleep 0.05
-  done
-  systemctl --user stop "$guard_unit" >/dev/null 2>&1 || true
+    for _ in {1..60}; do
+      inhibitors="$(elogind-inhibit --list --no-pager 2>/dev/null || true)"
+      if runit_transient_active "$guard_unit" &&
+         [[ $inhibitors == *ryoku-session-cutover* &&
+            $inhibitors == *sleep* && $inhibitors == *block* ]]; then
+        return 0
+      fi
+      sleep 0.05
+    done
+    runit_transient_stop "$guard_unit" >/dev/null 2>&1 || true
+  fi
   log "could not acquire the durable session startup sleep inhibitor" >&2
   return 1
 }
@@ -381,7 +697,7 @@ session_scope_display() {
   local sid=$1 proc_root=${RYOKU_PROC_ROOT:-/proc}
   local scope cgroup pid proc_uid cmdline entry key value proc_sid display self_uid
   scope="$(session_property "$sid" Scope)" || return 1
-  cgroup="$(systemctl show "$scope" -p ControlGroup --value 2>/dev/null)" || return 1
+  cgroup="$(scope_cgroup "$scope" 2>/dev/null)" || return 1
   [[ $cgroup == /* && $cgroup != *..* &&
      -r "$cgroup_root$cgroup/cgroup.procs" ]] || return 1
   self_uid="$(id -u)"
@@ -391,7 +707,8 @@ session_scope_display() {
     proc_uid="$(awk '/^Uid:/ { print $2; exit }' "$proc_root/$pid/status" 2>/dev/null || true)"
     [[ $proc_uid == "$self_uid" ]] || continue
     cmdline="$(cat "$proc_root/$pid/cmdline" 2>/dev/null | tr '\0' ' ' 2>/dev/null || true)"
-    [[ $cmdline == *Xwayland* || $cmdline == *Xorg* ]] || continue
+    cmdline=${cmdline,,}
+    [[ $cmdline == *xwayland* || $cmdline == *xorg* ]] || continue
     proc_sid="" display=""
     while IFS= read -r -d '' entry; do
       key=${entry%%=*}
@@ -408,8 +725,91 @@ session_scope_display() {
   return 1
 }
 
+# niri and uwsm keep the compositor tree in the user manager rather than the
+# login1 scope. Accept its X server only with an exact session id, or with the
+# same compositor name when this user has one unambiguous graphical session.
+session_user_display() {
+  local sid=$1 provider=$2 proc_root=${RYOKU_PROC_ROOT:-/proc}
+  local self_uid proc pid proc_uid cmdline entry key value
+  local proc_sid desktop wayland_display display
+  self_uid="$(id -u)"
+  for proc in "$proc_root"/[0-9]*; do
+    pid=${proc##*/}
+    [[ $pid =~ ^[0-9]+$ && -r $proc/status && -r $proc/environ ]] || continue
+    proc_uid="$(awk '/^Uid:/ { print $2; exit }' "$proc/status" 2>/dev/null || true)"
+    [[ $proc_uid == "$self_uid" ]] || continue
+    cmdline="$(cat "$proc/cmdline" 2>/dev/null | tr '\0' ' ' 2>/dev/null || true)"
+    cmdline=${cmdline,,}
+    [[ $cmdline == *xwayland* || $cmdline == *xorg* ]] || continue
+    proc_sid="" desktop="" wayland_display="" display=""
+    while IFS= read -r -d '' entry; do
+      key=${entry%%=*}
+      value=${entry#*=}
+      case "$key" in
+        XDG_SESSION_ID) proc_sid=$value ;;
+        XDG_CURRENT_DESKTOP) desktop=${value,,} ;;
+        WAYLAND_DISPLAY) wayland_display=$value ;;
+        DISPLAY) display=$value ;;
+      esac
+    done < <(cat "$proc/environ" 2>/dev/null || true)
+    [[ -n $display ]] || continue
+    if [[ $proc_sid == "$sid" ]]; then
+      printf '%s\n' "$display"
+      return 0
+    fi
+    [[ -z $proc_sid && -n $wayland_display && $desktop == *"$provider"* ]] || continue
+    single_user_session "$sid" || continue
+    printf '%s\n' "$display"
+    return 0
+  done
+  return 1
+}
+
 session_environment_path() {
   printf '%s/ryoku-session.%s.environment\n' "${XDG_RUNTIME_DIR:-/tmp}" "$1"
+}
+
+# The user manager can be the only surviving publisher on niri-session: the
+# compositor itself starts before WAYLAND_DISPLAY exists and the login1 scope
+# never receives it. The manager belongs to the whole user, so use its display
+# only when login1 proves there is exactly one graphical Ryoku session. Opaque
+# provider handles are deliberately omitted; they may name a dead compositor
+# instance and bind_user_environment clears them before services restart.
+discover_session_environment_from_manager() {
+  local sid=$1 session_type=$2 provider=$3 path=$4
+  local listing entry key value tmp
+  local -a keys=(
+    XDG_SESSION_ID XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP
+    XDG_SEAT XDG_VTNR WAYLAND_DISPLAY DISPLAY
+  )
+  local -A found=()
+  [[ $init_system == systemd && $session_type == wayland ]] || return 1
+  single_user_session "$sid" || return 1
+  listing="$(systemctl --user show-environment 2>/dev/null)" || return 1
+  while IFS= read -r entry; do
+    key=${entry%%=*}
+    value=${entry#*=}
+    case "$key" in
+      XDG_SESSION_ID|XDG_SESSION_TYPE|XDG_CURRENT_DESKTOP|XDG_SESSION_DESKTOP|\
+      XDG_SEAT|XDG_VTNR|WAYLAND_DISPLAY|DISPLAY)
+        found[$key]=$value
+        ;;
+    esac
+  done <<<"$listing"
+  [[ -n ${found[WAYLAND_DISPLAY]:-} ]] || return 1
+  found[XDG_SESSION_ID]=$sid
+  found[XDG_SESSION_TYPE]=$session_type
+  found[XDG_CURRENT_DESKTOP]=$provider
+  found[XDG_SESSION_DESKTOP]=$provider
+  tmp="$path.$$"
+  (
+    umask 077
+    for key in "${keys[@]}"; do
+      [[ -v found[$key] ]] && printf '%s=%s\0' "$key" "${found[$key]}"
+    done
+    printf 'RYOKU_WM=%s\0' "$provider"
+  ) >"$tmp"
+  mv -f "$tmp" "$path"
 }
 
 # Resolve compositor IPC from a process inside the selected login1 scope rather
@@ -417,15 +817,21 @@ session_environment_path() {
 # same-UID session after a switch.
 discover_session_environment() {
   local sid=$1 scope cgroup session_type desktop provider provider_bin pid path
-  scope="$(session_property "$sid" Scope)" || return 1
+  scope="$(session_property "$sid" Scope 2>/dev/null || true)"
   session_type="$(session_property "$sid" Type)" || return 1
-  desktop="$(session_property "$sid" Desktop)" || return 1
+  desktop="$(session_property "$sid" Desktop 2>/dev/null || true)"
+  if [[ -z $desktop && ${XDG_SESSION_ID:-} == "$sid" ]]; then
+    desktop=${XDG_CURRENT_DESKTOP:-${XDG_SESSION_DESKTOP:-}}
+  fi
   provider=${desktop,,}
+  # login1 may qualify the name with its stack ("Wayfire:wlroots"); only the
+  # first component names the provider, the split detect.go already does.
+  provider=${provider%%:*}
   [[ $provider =~ ^[a-z0-9-]+$ ]] || return 1
   provider_bin="$provider_root/ryoku-wm-$provider"
   [[ -x $provider_bin ]] || return 1
   path="$(session_environment_path "$sid")"
-  cgroup="$(systemctl show "$scope" -p ControlGroup --value 2>/dev/null)" || return 1
+  cgroup="$(scope_cgroup "$scope" 2>/dev/null)" || cgroup=""
   if [[ $cgroup == /* && $cgroup != *..* &&
         -r "$cgroup_root$cgroup/cgroup.procs" ]]; then
     for pid in $(< "$cgroup_root$cgroup/cgroup.procs"); do
@@ -438,11 +844,12 @@ discover_session_environment() {
   # the user manager (niri.service, ryoku-shell.service), so the login1 scope
   # holds only sddm-helper, the login shell, niri-session and the
   # `systemctl --user start` that launched it -- none carrying WAYLAND_DISPLAY.
-  # When the scope yields no Wayland client, resolve from the user's own
-  # processes instead. Hyprland keeps its compositor in the scope, matches
-  # above, and never reaches this fallback.
+  # Prefer a matching user process. If none retains the display, the manager is
+  # safe only while this is the user's sole graphical Ryoku session.
   discover_session_environment_from_user \
-    "$sid" "$session_type" "$provider" "$provider_bin" "$path"
+    "$sid" "$session_type" "$provider" "$provider_bin" "$path" ||
+    discover_session_environment_from_manager \
+      "$sid" "$session_type" "$provider" "$path"
 }
 
 # Inspect one process and, when it is a Wayland client of the requested login1
@@ -457,7 +864,7 @@ write_session_environment_from_pid() {
   local sid=$1 session_type=$2 provider=$3 provider_bin=$4 pid=$5 path=$6
   local allow_missing_sid=${7:-0}
   local proc_root=${RYOKU_PROC_ROOT:-/proc}
-  local entry key value tmp display_from_scope
+  local entry key value tmp display_from_session
   local -a keys=(
     XDG_SESSION_ID XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP
     XDG_SEAT XDG_VTNR WAYLAND_DISPLAY DISPLAY
@@ -482,12 +889,14 @@ write_session_environment_from_pid() {
   [[ $session_type == wayland && -n ${found[WAYLAND_DISPLAY]:-} ]] || return 1
   # Xwayland starts lazily with the first X client, so a compositor child
   # snapshotted before that moment carries no DISPLAY while the session still
-  # has a live X server. Resolve it from the session's own X server process
-  # instead of leaving the key absent, or the manager bind that replays this
-  # file would strip a DISPLAY the compositor bootstrap had already pushed.
+  # has a live X server. Resolve it from that server whether the compositor
+  # lives in the login1 scope or the user manager.
   if [[ -z ${found[DISPLAY]:-} ]]; then
-    display_from_scope="$(session_scope_display "$sid" 2>/dev/null || true)"
-    [[ -n $display_from_scope ]] && found[DISPLAY]=$display_from_scope
+    display_from_session="$(session_scope_display "$sid" 2>/dev/null || true)"
+    if [[ -z $display_from_session ]]; then
+      display_from_session="$(session_user_display "$sid" "$provider" 2>/dev/null || true)"
+    fi
+    [[ -n $display_from_session ]] && found[DISPLAY]=$display_from_session
   fi
   tmp="$path.$$"
   if ! (
@@ -589,6 +998,31 @@ single_user_session() {
   [[ $count == 1 ]]
 }
 
+session_environment_has_display() {
+  local path=$1 entry
+  [[ -r $path ]] || return 1
+  while IFS= read -r -d '' entry; do
+    [[ $entry == DISPLAY=?* ]] && return 0
+  done <"$path"
+  return 1
+}
+
+wait_for_session_display() {
+  local sid=$1 path=$2 attempt
+  # The X server is forked within a second of the compositor starting; the cap
+  # only bounds a session that runs without one.
+  local tries=${RYOKU_SESSION_DISPLAY_TRIES:-25}
+  [[ $tries =~ ^[0-9]+$ ]] || tries=25
+  (( tries > 75 )) && tries=75
+  session_environment_has_display "$path" && return 0
+  for ((attempt = 0; attempt < tries; attempt++)); do
+    sleep 0.2
+    discover_session_environment "$sid" >/dev/null 2>&1 || true
+    session_environment_has_display "$path" && return 0
+  done
+  return 1
+}
+
 bind_session_environment() {
   local sid=$1 path entry key value session_type seen_sid="" wayland_display=""
   local -a assignments=()
@@ -597,6 +1031,10 @@ bind_session_environment() {
     log "cannot resolve compositor environment for login1 session $sid" >&2
     return 1
   }
+  # The compositor starts its login command before its X server has necessarily
+  # created a socket. Keep the service start behind that bounded race so the
+  # shell inherits DISPLAY once, rather than restarting it after login.
+  wait_for_session_display "$sid" "$path" || true
   while IFS= read -r -d '' entry; do
     key=${entry%%=*}
     value=${entry#*=}
@@ -638,8 +1076,7 @@ bind_session_environment() {
       [[ $entry =~ ^[A-Z][A-Z0-9_]*$ ]] && session_clear+=("$entry")
     done < <(ryoku wm handles 2>/dev/null || true)
   fi
-  systemctl --user unset-environment "${session_clear[@]}" >/dev/null
-  systemctl --user set-environment "${assignments[@]}"
+  bind_user_environment
 }
 
 session_users() {
@@ -673,6 +1110,7 @@ session_users() {
       rc=$?; (( rc == 3 )) && continue; return 1
     fi
     provider=${desktop,,}
+    provider=${provider%%:*}
     [[ $provider =~ ^[a-z0-9-]+$ ]] || continue
     [[ -x $provider_root/ryoku-wm-$provider ]] || continue
 
@@ -772,6 +1210,7 @@ current_user_graphical_sessions() {
     if value="$(session_property "$sid" Desktop)"; then desktop=$value
     else rc=$?; (( rc == 3 )) && continue; return 1; fi
     provider=${desktop,,}
+    provider=${provider%%:*}
     [[ $provider =~ ^[a-z0-9-]+$ && -x $provider_root/ryoku-wm-$provider ]] || continue
     if value="$(session_property "$sid" User)"; then uid=$value
     else rc=$?; (( rc == 3 )) && continue; return 1; fi
@@ -788,8 +1227,8 @@ current_user_graphical_sessions() {
 retire_proof_backed_unlock_guard() {
   local sid=$1 unit
   unit="ryoku-qylock-unlock-guard-$sid.service"
-  systemctl --user stop "$unit" >/dev/null 2>&1 || true
-  if systemctl --user is-active --quiet "$unit"; then
+  user_unit_stop "$unit" >/dev/null 2>&1 || true
+  if user_unit_active "$unit"; then
     log "could not retire proof-backed unlock guard for login1 session $sid" >&2
     return 1
   fi
@@ -848,19 +1287,33 @@ secure_session_direct() {
     return 1
   }
   username=${USER:-$(id -un)}
-  escaped_sid="$(systemd-escape -- "$sid")"
+  escaped_sid="$(escape_unit_component "$sid")"
   unit="ryoku-session-lock-$escaped_sid-$BASHPID.service"
-  if ! systemd-run --user --quiet --collect --unit="$unit" \
-      --property=Type=exec --property=TimeoutStopSec=5s \
-      /usr/bin/env -i \
-      "HOME=${HOME:-}" "USER=$username" "LOGNAME=${LOGNAME:-$username}" \
-      "SHELL=${SHELL:-/bin/bash}" "PATH=${PATH:-/usr/bin}" \
-      "LANG=${LANG:-C.UTF-8}" "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp}" \
-      "DBUS_SESSION_BUS_ADDRESS=unix:path=${XDG_RUNTIME_DIR:-/tmp}/bus" \
-      QT_QPA_PLATFORM=wayland "RYOKU_QYLOCK_LOCK_SCRIPT=$lock_script" \
-      "${assignments[@]}" "$lock_launcher"; then
-    log "could not start qylock for login1 session $sid" >&2
-    return 1
+  if [[ $init_system == systemd ]]; then
+    if ! systemd-run --user --quiet --collect --unit="$unit" \
+        --property=Type=exec --property=TimeoutStopSec=5s \
+        /usr/bin/env -i \
+        "HOME=${HOME:-}" "USER=$username" "LOGNAME=${LOGNAME:-$username}" \
+        "SHELL=${SHELL:-/bin/bash}" "PATH=${PATH:-/usr/bin}" \
+        "LANG=${LANG:-C.UTF-8}" "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp}" \
+        "DBUS_SESSION_BUS_ADDRESS=unix:path=${XDG_RUNTIME_DIR:-/tmp}/bus" \
+        QT_QPA_PLATFORM=wayland "RYOKU_QYLOCK_LOCK_SCRIPT=$lock_script" \
+        "${assignments[@]}" "$lock_launcher"; then
+      log "could not start qylock for login1 session $sid" >&2
+      return 1
+    fi
+  else
+    if ! runit_transient_start "$unit" -- \
+        /usr/bin/env -i \
+        "HOME=${HOME:-}" "USER=$username" "LOGNAME=${LOGNAME:-$username}" \
+        "SHELL=${SHELL:-/bin/bash}" "PATH=${PATH:-/usr/bin}" \
+        "LANG=${LANG:-C.UTF-8}" "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp}" \
+        "DBUS_SESSION_BUS_ADDRESS=unix:path=${XDG_RUNTIME_DIR:-/tmp}/bus" \
+        QT_QPA_PLATFORM=wayland "RYOKU_QYLOCK_LOCK_SCRIPT=$lock_script" \
+        "${assignments[@]}" "$lock_launcher"; then
+      log "could not start qylock for login1 session $sid" >&2
+      return 1
+    fi
   fi
   for ((attempt = 0; attempt < 150; attempt++)); do
     if "$proof_helper" status "$sid" >/dev/null 2>&1; then
@@ -914,8 +1367,8 @@ session_lock_pids() {
 cleanup_removed_session_locks() {
   local sid=$1 escaped_sid pid
   local -a pids=()
-  escaped_sid="$(systemd-escape -- "$sid")"
-  systemctl --user stop "ryoku-session-lock-$escaped_sid-*.service" \
+  escaped_sid="$(escape_unit_component "$sid")"
+  user_unit_stop "ryoku-session-lock-$escaped_sid-*.service" \
     "ryoku-qylock-unlock-guard-$sid.service" >/dev/null 2>&1 || true
   mapfile -t pids < <(session_lock_pids "$sid")
   ((${#pids[@]} == 0)) || kill -TERM "${pids[@]}" 2>/dev/null || true
@@ -986,7 +1439,7 @@ bind_or_secure_sessions() {
   fi
   release_qylock_generation_guard
   secure_all_sessions
-  systemctl --user stop "$session_target" "$session_guard_pattern" >/dev/null 2>&1 || true
+  stop_session_and_guards >/dev/null 2>&1 || true
   rm -f "$session_marker"
 }
 
@@ -1004,22 +1457,27 @@ current_active_user_session() {
 schedule_session_rebind() {
   local sid=$1 watcher=$2 unit
   unit="ryoku-session-rebind@$sid.service"
-  if systemctl --user is-active --quiet "$unit"; then
+  if user_unit_active "$unit"; then
     return 0
   fi
-  systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
-  systemd-run --user --quiet --collect --unit="$unit" \
-    --property=Type=exec --property=TimeoutStopSec=10s \
-    --property=Restart=on-failure --property=RestartSec=1s \
-    --property=StartLimitIntervalSec=0 \
-    "$watcher" session-start "$sid"
+  user_unit_reset_failed "$unit" >/dev/null 2>&1 || true
+  if [[ $init_system == systemd ]]; then
+    systemd-run --user --quiet --collect --unit="$unit" \
+      --property=Type=exec --property=TimeoutStopSec=10s \
+      --property=Restart=on-failure --property=RestartSec=1s \
+      --property=StartLimitIntervalSec=0 \
+      "$watcher" session-start "$sid"
+  else
+    runit_transient_start "$unit" -- \
+      "$self_path" supervise-restart 1 "$watcher" session-start "$sid"
+  fi
 }
 
 start_session_observer() {
   local sid=$1 unit watcher ready_path attempt
   unit="ryoku-session-observer@$sid.service"
   ready_path="$(session_observer_ready_path "$sid")"
-  if systemctl --user is-active --quiet "$unit" &&
+  if user_unit_active "$unit" &&
      [[ $(cat "$ready_path" 2>/dev/null || true) == "$sid" ]]; then
     return 0
   fi
@@ -1029,21 +1487,26 @@ start_session_observer() {
     watcher=$installed_helper
   fi
   rm -f "$ready_path"
-  systemctl --user stop "$unit" >/dev/null 2>&1 || true
-  systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
-  systemd-run --user --quiet --collect --unit="$unit" \
-    --property=Type=exec --property=TimeoutStopSec=5s \
-    --property=Restart=on-failure --property=RestartSec=1s \
-    --property=StartLimitIntervalSec=0 \
-    "$watcher" watch-session "$sid" unbound
+  user_unit_stop "$unit" >/dev/null 2>&1 || true
+  user_unit_reset_failed "$unit" >/dev/null 2>&1 || true
+  if [[ $init_system == systemd ]]; then
+    systemd-run --user --quiet --collect --unit="$unit" \
+      --property=Type=exec --property=TimeoutStopSec=5s \
+      --property=Restart=on-failure --property=RestartSec=1s \
+      --property=StartLimitIntervalSec=0 \
+      "$watcher" watch-session "$sid" unbound
+  else
+    runit_transient_start "$unit" -- \
+      "$self_path" supervise-restart 1 "$watcher" watch-session "$sid" unbound
+  fi
   for ((attempt = 0; attempt < ${RYOKU_SESSION_READY_TRIES:-100}; attempt++)); do
     if [[ $(cat "$ready_path" 2>/dev/null || true) == "$sid" ]] &&
-       systemctl --user is-active --quiet "$unit"; then
+       user_unit_active "$unit"; then
       return 0
     fi
     sleep 0.05
   done
-  systemctl --user stop "$unit" >/dev/null 2>&1 || true
+  user_unit_stop "$unit" >/dev/null 2>&1 || true
   rm -f "$ready_path"
   log "inactive login1 session observer did not acknowledge its subscription" >&2
   return 1
@@ -1054,16 +1517,21 @@ prepare_package() {
   local sessions tmp
   install -Dm755 "$self_path" "$runtime_helper"
   rm -f "$cutover_marker"
-  if [[ ! -d /run/systemd/system ]]; then
-    (umask 077; : >"$runtime_sessions")
-    return 0
+  if [[ $init_system == systemd ]]; then
+    for command in systemd-inhibit systemctl systemd-run pgrep; do
+      command -v "$command" >/dev/null 2>&1 || {
+        log "$command is required for pretransaction sleep protection" >&2
+        return 1
+      }
+    done
+  else
+    for command in elogind-inhibit loginctl pgrep; do
+      command -v "$command" >/dev/null 2>&1 || {
+        log "$command is required for pretransaction sleep protection" >&2
+        return 1
+      }
+    done
   fi
-  for command in systemd-inhibit systemctl systemd-run pgrep; do
-    command -v "$command" >/dev/null 2>&1 || {
-      log "$command is required for pretransaction sleep protection" >&2
-      return 1
-    }
-  done
   if ! start_guard; then
     log "cannot acquire pretransaction sleep protection" >&2
     return 1
@@ -1078,23 +1546,59 @@ prepare_package() {
 }
 
 run_user_cutover() {
-  local user=$1 uid=$2 sid=$3 unit
+  local user=$1 uid=$2 sid=$3 unit home passwd gid manager
   unit="ryoku-power-cutover-$uid"
-  systemd-run --quiet --wait --collect --user --machine="$user@" \
-    --setenv="XDG_SESSION_ID=$sid" \
-    --property=Type=oneshot --property=TimeoutStartSec=90s \
-    --property=RuntimeMaxSec=90s --unit="$unit" "$self_path" user
+  if [[ $init_system == systemd ]]; then
+    manager="$("$host_bin" pkgmgr)" || return 1
+    if [[ $manager != dnf ]]; then
+      systemd-run --quiet --wait --collect --user --machine="$user@" \
+        --setenv="XDG_SESSION_ID=$sid" \
+        --property=Type=oneshot --property=TimeoutStartSec=90s \
+        --property=RuntimeMaxSec=90s --unit="$unit" "$self_path" user
+      return
+    fi
+    passwd="$(getent passwd "$uid")" || return 1
+    gid="$(cut -d: -f4 <<<"$passwd")"
+    home="$(cut -d: -f6 <<<"$passwd")"
+    [[ -n $gid && -n $home ]] || return 1
+    # Fedora RPM scriptlets have no session environment and their machined
+    # user@ transport can reset. Launch with explicit credentials and runtime.
+    systemd-run --quiet --wait --collect --uid="$uid" --gid="$gid" \
+      --setenv="HOME=$home" --setenv="USER=$user" --setenv="LOGNAME=$user" \
+      --setenv="XDG_RUNTIME_DIR=$runtime_root/$uid" \
+      --setenv="DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime_root/$uid/bus" \
+      --setenv="XDG_SESSION_ID=$sid" \
+      --property=Type=oneshot --property=TimeoutStartSec=90s \
+      --property=RuntimeMaxSec=90s --unit="$unit" "$self_path" user
+    return
+  fi
+  home="$(getent passwd "$uid" | cut -d: -f6)"
+  [[ -n $home ]] || return 1
+  runuser -u "$user" -- env \
+    "HOME=$home" "USER=$user" "LOGNAME=$user" \
+    "XDG_RUNTIME_DIR=$runtime_root/$uid" \
+    "TURNSTILE_ENV_DIR=$home/.config/service-env" \
+    "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime_root/$uid/bus" \
+    "XDG_SESSION_ID=$sid" "$self_path" user
 }
 
 root_cutover() {
   (( EUID == 0 )) || { log "package cutover must run as root" >&2; return 1; }
-  [[ -d /run/systemd/system ]] || return 0
-  for command in systemd-inhibit loginctl getent systemctl systemd-run flock pgrep; do
-    command -v "$command" >/dev/null 2>&1 || {
-      log "$command is required for the package cutover" >&2
-      return 1
-    }
-  done
+  if [[ $init_system == systemd ]]; then
+    for command in systemd-inhibit loginctl getent systemctl systemd-run flock pgrep; do
+      command -v "$command" >/dev/null 2>&1 || {
+        log "$command is required for the package cutover" >&2
+        return 1
+      }
+    done
+  else
+    for command in elogind-inhibit loginctl getent runuser flock pgrep; do
+      command -v "$command" >/dev/null 2>&1 || {
+        log "$command is required for the package cutover" >&2
+        return 1
+      }
+    done
+  fi
 
   exec 9>/run/lock/ryoku-power-cutover.lock
   flock 9
@@ -1103,12 +1607,16 @@ root_cutover() {
     return 1
   fi
   trap 'exit 130' INT TERM
-  if ! systemctl reload systemd-logind; then
-    log "cannot reload systemd-logind during package cutover" >&2
+  if ! reload_login_manager; then
+    if [[ $init_system == systemd ]]; then
+      log "cannot reload systemd-logind during package cutover" >&2
+    else
+      log "cannot reload elogind during package cutover" >&2
+    fi
     return 1
   fi
 
-  local sessions user uid sid failed=0
+  local sessions user uid sid message failed=0
   if ! target_policy_present && [[ -r $runtime_sessions ]]; then
     sessions="$(<"$runtime_sessions")"
   elif ! sessions="$(package_session_users)"; then
@@ -1121,7 +1629,9 @@ root_cutover() {
       continue
     fi
     if ! run_user_cutover "$user" "$uid" "$sid"; then
-      log "session cutover failed for $user" >&2
+      message="session cutover failed for $user (uid $uid, session $sid)"
+      log "$message" >&2
+      logger -t ryoku-power-cutover "$message" >/dev/null 2>&1 || true
       failed=1
     fi
   done <<<"$sessions"
@@ -1145,19 +1655,62 @@ root_cutover() {
   fi
 }
 
+package_transaction_busy() {
+  local manager=$1 proc comm lock
+  case "$manager" in
+    pacman)
+      [[ -e ${RYOKU_PACMAN_DB_LOCK:-/var/lib/pacman/db.lck} ]]
+      ;;
+    xbps)
+      lock=${RYOKU_XBPS_DB_LOCK:-/var/db/xbps/lock}
+      [[ -e $lock ]] || return 1
+      # XBPS keeps this inode after a transaction and protects it with flock,
+      # so existence alone would make every deferred cutover wait forever.
+      ! flock -n "$lock" true
+      ;;
+    dnf)
+      for proc in "${RYOKU_PROC_ROOT:-/proc}"/[0-9]*; do
+        [[ -r $proc/comm ]] || continue
+        read -r comm <"$proc/comm" || continue
+        case "$comm" in dnf|dnf5|rpm) return 0 ;; esac
+      done
+      return 1
+      ;;
+  esac
+}
+
+wait_for_package_transaction() {
+  local manager=$1
+  local attempts=${RYOKU_PACKAGE_WAIT_ATTEMPTS:-1200}
+  local delay=${RYOKU_PACKAGE_WAIT_DELAY:-0.5}
+  for (( i=0; i<attempts; i++ )); do
+    package_transaction_busy "$manager" || return 0
+    sleep "$delay"
+  done
+  log "$manager transaction did not release its package database" >&2
+  return 1
+}
+
+finish_deferred_cutover() {
+  local manager=$1
+  wait_for_package_transaction "$manager"
+  if [[ ! -e $cutover_marker ]]; then
+    root_cutover
+  fi
+}
+
 deferred_cutover() {
   (( EUID == 0 )) || { log "deferred cutover must run as root" >&2; return 1; }
-  for _ in {1..1200}; do
-    if [[ ! -e /var/lib/pacman/db.lck ]]; then
-      if [[ ! -e $cutover_marker ]]; then
-        root_cutover
-      fi
-      return
-    fi
-    sleep 0.5
-  done
-  log "pacman transaction did not release its database lock" >&2
-  return 1
+  local manager
+  manager="$("$host_bin" pkgmgr)" || {
+    log "cannot identify the package manager for deferred cutover" >&2
+    return 1
+  }
+  case "$manager" in pacman|dnf|xbps) ;; *)
+    log "unsupported package manager for deferred cutover: $manager" >&2
+    return 1
+  esac
+  finish_deferred_cutover "$manager"
 }
 
 process_alive() {
@@ -1202,11 +1755,43 @@ stop_pids() {
   return 1
 }
 
+# Fedora 44 ships systemd 259, whose systemd-inhibit has no --json; there, as
+# under elogind, login1 is asked over D-Bus instead.
+inhibitor_list_has_json() {
+  [[ $init_system == systemd && "$("$host_bin" pkgmgr 2>/dev/null)" != dnf ]]
+}
+
+login1_block_inhibitor_pids() {
+  local uid=$1 who=$2 what=$3 json
+  command -v busctl >/dev/null 2>&1 || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  json="$(busctl --json=short call \
+    org.freedesktop.login1 /org/freedesktop/login1 \
+    org.freedesktop.login1.Manager ListInhibitors 2>/dev/null)" || return 1
+  jq -r --argjson uid "$uid" --arg who "$who" --arg what "$what" \
+    '.data[0][] | select(.[4] == $uid and .[1] == $who and .[3] == "block"
+      and ((.[0] | split(":")) | index($what))) | .[5]' <<<"$json"
+}
+
+login1_inhibitor_owned() {
+  local pid=$1 uid=$2 who=$3 what=$4 owner json
+  if inhibitor_list_has_json; then
+    json="$(systemd-inhibit --list --json=short 2>/dev/null || true)"
+    [[ $json == *"\"pid\":$pid"* && $json == *"\"uid\":$uid"* &&
+       $json == *"\"who\":\"$who\""* ]]
+    return
+  fi
+  while read -r owner; do
+    [[ $owner == "$pid" ]] && return 0
+  done < <(login1_block_inhibitor_pids "$uid" "$who" "$what")
+  return 1
+}
+
 stop_clamshell_owner() {
   if command -v ryoku-clamshell >/dev/null 2>&1 && ryoku-clamshell stop; then
     return 0
   fi
-  local uid pid state json
+  local uid pid state
   local -a pids=()
   uid=$(id -u)
   mapfile -t pids < <(pgrep -u "$uid" -f \
@@ -1220,9 +1805,7 @@ stop_clamshell_owner() {
   if [[ -r $state ]]; then
     read -r pid <"$state" || return 1
     if [[ $pid =~ ^[0-9]+$ ]] && process_alive "$pid"; then
-      json="$(systemd-inhibit --list --json=short 2>/dev/null || true)"
-      if [[ $json != *"\"pid\":$pid"* || $json != *"\"uid\":$uid"* ||
-            $json != *'"who":"ryoku-clamshell"'* ]]; then
+      if ! login1_inhibitor_owned "$pid" "$uid" ryoku-clamshell handle-lid-switch; then
         log "cannot verify the recorded lid inhibitor" >&2
         return 1
       fi
@@ -1250,7 +1833,7 @@ stop_idle_owner() {
 }
 
 stop_shell_owner() {
-  systemctl --user stop ryoku-shell.service 2>/dev/null || true
+  user_unit_stop ryoku-shell.service 2>/dev/null || true
   if command -v ryoku-shell >/dev/null 2>&1; then
     ryoku-shell quit >/dev/null 2>&1 || true
   fi
@@ -1314,12 +1897,21 @@ start_session_lifecycle() {
     log "cannot identify the graphical login1 session" >&2
     return 1
   }
-  for command in flock systemctl systemd-run loginctl dbus-monitor; do
-    command -v "$command" >/dev/null 2>&1 || {
-      log "$command is required to bind Ryoku services to the login session" >&2
-      return 1
-    }
-  done
+  if [[ $init_system == systemd ]]; then
+    for command in flock systemctl systemd-run loginctl dbus-monitor; do
+      command -v "$command" >/dev/null 2>&1 || {
+        log "$command is required to bind Ryoku services to the login session" >&2
+        return 1
+      }
+    done
+  else
+    for command in flock loginctl dbus-monitor; do
+      command -v "$command" >/dev/null 2>&1 || {
+        log "$command is required to bind Ryoku services to the login session" >&2
+        return 1
+      }
+    done
+  fi
 
   exec 7>"$session_lock"
   flock 7
@@ -1336,8 +1928,8 @@ start_session_lifecycle() {
   secure_unbound_sessions "$sid"
   secure_previous_session "$sid"
   bind_session_environment "$sid"
-  systemctl --user stop "$session_target" >/dev/null 2>&1 || true
-  systemctl --user stop "$session_guard_pattern" >/dev/null 2>&1 || true
+  stop_session_services >/dev/null 2>&1 || true
+  user_unit_stop "$session_guard_pattern" >/dev/null 2>&1 || true
   tmp="$session_marker.$$"
   (umask 077; printf '%s\n' "$sid" >"$tmp")
   mv -f "$tmp" "$session_marker"
@@ -1350,31 +1942,37 @@ start_session_lifecycle() {
   unit="ryoku-session-guard@$sid.service"
   ready_path="$(session_ready_path "$sid")"
   rm -f "$ready_path"
-  systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
-  if ! systemd-run --user --quiet --collect --unit="$unit" \
-      --property=Type=exec --property=TimeoutStopSec=5s \
-      --property=Restart=on-failure --property=RestartSec=100ms \
-      --property=StartLimitIntervalSec=0 \
-      "$watcher" watch-session "$sid"; then
+  user_unit_reset_failed "$unit" >/dev/null 2>&1 || true
+  if [[ $init_system == systemd ]]; then
+    if ! systemd-run --user --quiet --collect --unit="$unit" \
+        --property=Type=exec --property=TimeoutStopSec=5s \
+        --property=Restart=on-failure --property=RestartSec=100ms \
+        --property=StartLimitIntervalSec=0 \
+        "$watcher" watch-session "$sid"; then
+      rm -f "$session_marker" "$ready_path"
+      return 1
+    fi
+  elif ! runit_transient_start "$unit" -- \
+      "$self_path" supervise-restart 0.1 "$watcher" watch-session "$sid"; then
     rm -f "$session_marker" "$ready_path"
     return 1
   fi
   for ((attempt = 0; attempt < ${RYOKU_SESSION_READY_TRIES:-100}; attempt++)); do
     if [[ $(cat "$ready_path" 2>/dev/null || true) == "$sid" ]] &&
-       systemctl --user is-active --quiet "$unit"; then
+       user_unit_active "$unit"; then
       break
     fi
     sleep 0.05
   done
   if [[ $(cat "$ready_path" 2>/dev/null || true) != "$sid" ]] ||
-     ! systemctl --user is-active --quiet "$unit"; then
-    systemctl --user stop "$unit" >/dev/null 2>&1 || true
+     ! user_unit_active "$unit"; then
+    user_unit_stop "$unit" >/dev/null 2>&1 || true
     rm -f "$session_marker" "$ready_path"
     log "login1 session watcher did not acknowledge its subscription" >&2
     return 1
   fi
-  if ! systemctl --user start "$session_target"; then
-    systemctl --user stop "$unit" >/dev/null 2>&1 || true
+  if ! start_session_services; then
+    user_unit_stop "$unit" >/dev/null 2>&1 || true
     rm -f "$session_marker" "$ready_path"
     return 1
   fi
@@ -1541,15 +2139,15 @@ watch_session() (
     rm -f "$(session_environment_path "$sid")"
     return 0
   fi
-  if ! systemctl --user stop "$session_target"; then
-    log "could not stop the session target for removed login1 session $sid" >&2
+  if ! stop_session_services || ! stop_graphical_session_targets; then
+    log "could not stop the session targets for removed login1 session $sid" >&2
     return 1
   fi
   if ! cleanup_removed_session_locks "$sid"; then
     return 1
   fi
-  if systemctl --user is-active --quiet "$guard_unit" &&
-     ! systemctl --user stop "$guard_unit"; then
+  if user_unit_active "$guard_unit" &&
+     ! user_unit_stop "$guard_unit"; then
     log "could not release the failed session cutover guard at logout" >&2
     return 1
   fi
@@ -1568,12 +2166,17 @@ start_fallback_shell() {
     log "cannot start fallback shell without qylock generation activation" >&2
     return 1
   fi
-  systemctl --user stop "$unit" >/dev/null 2>&1 || true
-  systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
-  systemd-run --user --quiet --collect --unit="$unit" \
-    --property=Type=exec --property=KillMode=process \
-    --property=Restart=on-failure --property=RestartSec=1s \
-    --property=PartOf=ryoku-session.target "$shell" daemon
+  user_unit_stop "$unit" >/dev/null 2>&1 || true
+  user_unit_reset_failed "$unit" >/dev/null 2>&1 || true
+  if [[ $init_system == systemd ]]; then
+    systemd-run --user --quiet --collect --unit="$unit" \
+      --property=Type=exec --property=KillMode=process \
+      --property=Restart=on-failure --property=RestartSec=1s \
+      --property=PartOf=ryoku-session.target "$shell" daemon
+  else
+    runit_transient_start "$unit" -- \
+      "$self_path" supervise-restart 1 "$shell" daemon
+  fi
 }
 
 restart_shell_owner() {
@@ -1584,9 +2187,9 @@ restart_shell_owner() {
   # claim turns this into a fast no-op. Headless (a TTY recovery) it exits
   # immediately.
   ryoku-reload-cover begin >/dev/null 2>&1 || true
-  systemctl --user restart ryoku-shell.service || rc=$?
+  user_unit_restart ryoku-shell.service || rc=$?
   (( rc == 0 )) && return 0
-  if systemctl --user cat ryoku-shell.service >/dev/null 2>&1; then
+  if user_unit_known ryoku-shell.service; then
     log "ryoku-shell.service failed; refusing to bypass its activation checks" >&2
     return "$rc"
   fi
@@ -1594,17 +2197,29 @@ restart_shell_owner() {
 }
 
 legacy_clamshell_inhibitor_owned() {
-  local unit=$1 uid cgroup json pid
+  local unit=$1 uid cgroup json pid state
   local -a pids=()
   uid=$(id -u)
+  if [[ $init_system == runit ]]; then
+    state="${XDG_RUNTIME_DIR:-/tmp}/ryoku-clamshell-$uid.inhibitor"
+    [[ -r $state ]] || return 1
+    read -r pid <"$state" || return 1
+    [[ $pid =~ ^[0-9]+$ ]] || return 1
+    login1_inhibitor_owned "$pid" "$uid" ryoku-clamshell handle-lid-switch
+    return
+  fi
   cgroup="$(systemctl --user show "$unit" -p ControlGroup --value 2>/dev/null)" || return 1
   [[ -n $cgroup ]] || return 1
-  json="$(systemd-inhibit --list --json=short 2>/dev/null)" || return 1
-  mapfile -t pids < <(jq -r --argjson uid "$uid" '
-    .[] | select(.uid == $uid and .who == "ryoku-clamshell"
-      and .mode == "block"
-      and ((.what | split(":")) | index("handle-lid-switch"))) | .pid
-  ' <<<"$json")
+  if inhibitor_list_has_json; then
+    json="$(systemd-inhibit --list --json=short 2>/dev/null)" || return 1
+    mapfile -t pids < <(jq -r --argjson uid "$uid" '
+      .[] | select(.uid == $uid and .who == "ryoku-clamshell"
+        and .mode == "block"
+        and ((.what | split(":")) | index("handle-lid-switch"))) | .pid
+    ' <<<"$json")
+  else
+    mapfile -t pids < <(login1_block_inhibitor_pids "$uid" ryoku-clamshell handle-lid-switch)
+  fi
   for pid in "${pids[@]}"; do
     [[ $pid =~ ^[0-9]+$ && -r /proc/$pid/cgroup ]] || continue
     grep -Fq "$cgroup" "/proc/$pid/cgroup" && return 0
@@ -1631,21 +2246,26 @@ start_target_clamshell() {
       return 1
     fi
   fi
-  if systemctl --user cat "$unit" >/dev/null 2>&1; then
-    systemctl --user stop ryoku-clamshell-cutover.service >/dev/null 2>&1 || true
-    systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
-    systemctl --user restart "$unit"
+  if user_unit_known "$unit"; then
+    user_unit_stop ryoku-clamshell-cutover.service >/dev/null 2>&1 || true
+    user_unit_reset_failed "$unit" >/dev/null 2>&1 || true
+    user_unit_restart "$unit"
   else
     unit=ryoku-clamshell-cutover.service
-    systemctl --user stop "$unit" >/dev/null 2>&1 || true
-    systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
-    systemd-run --user --quiet --collect --unit="$unit" \
-      --property=Type=exec --property=PartOf=ryoku-session.target \
-      "$clamshell" daemon
+    user_unit_stop "$unit" >/dev/null 2>&1 || true
+    user_unit_reset_failed "$unit" >/dev/null 2>&1 || true
+    if [[ $init_system == systemd ]]; then
+      systemd-run --user --quiet --collect --unit="$unit" \
+        --property=Type=exec --property=PartOf=ryoku-session.target \
+        "$clamshell" daemon
+    else
+      runit_transient_start "$unit" -- \
+        "$self_path" supervise-restart 1 "$clamshell" daemon
+    fi
   fi
   for _ in {1..40}; do
     status="$("$clamshell" status 2>/dev/null || true)"
-    if systemctl --user is-active --quiet "$unit"; then
+    if user_unit_active "$unit"; then
       if grep -qxF 'owner-monitor=ready' <<<"$status" &&
          grep -qxF 'session=inactive' <<<"$status" &&
          grep -qxF 'inhibitor=none' <<<"$status"; then
@@ -1666,7 +2286,7 @@ start_target_clamshell() {
     fi
     sleep 0.05
   done
-  systemctl --user stop "$unit" >/dev/null 2>&1 || true
+  user_unit_stop "$unit" >/dev/null 2>&1 || true
   log "target clamshell daemon did not acquire its lid inhibitor" >&2
   return 1
 }
@@ -1674,17 +2294,22 @@ start_target_clamshell() {
 start_target_idle() {
   local idle status unit=ryoku-idle.service
   idle="$(command -v ryoku-idle)"
-  if systemctl --user cat "$unit" >/dev/null 2>&1; then
-    systemctl --user stop ryoku-idle-cutover.service >/dev/null 2>&1 || true
-    systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
-    systemctl --user restart "$unit"
+  if user_unit_known "$unit"; then
+    user_unit_stop ryoku-idle-cutover.service >/dev/null 2>&1 || true
+    user_unit_reset_failed "$unit" >/dev/null 2>&1 || true
+    user_unit_restart "$unit"
   else
     unit=ryoku-idle-cutover.service
-    systemctl --user stop "$unit" >/dev/null 2>&1 || true
-    systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
-    systemd-run --user --quiet --collect --unit="$unit" \
-      --property=Type=exec --property=PartOf=ryoku-session.target \
-      "$idle" start
+    user_unit_stop "$unit" >/dev/null 2>&1 || true
+    user_unit_reset_failed "$unit" >/dev/null 2>&1 || true
+    if [[ $init_system == systemd ]]; then
+      systemd-run --user --quiet --collect --unit="$unit" \
+        --property=Type=exec --property=PartOf=ryoku-session.target \
+        "$idle" start
+    else
+      runit_transient_start "$unit" -- \
+        "$self_path" supervise-restart 1 "$idle" start
+    fi
   fi
   for _ in {1..40}; do
     status="$("$idle" status 2>/dev/null || true)"
@@ -1693,12 +2318,12 @@ start_target_idle() {
     fi
     if grep -qxF 'idle=active' <<<"$status" &&
        grep -qxF 'running=yes' <<<"$status" &&
-       systemctl --user is-active --quiet "$unit"; then
+       user_unit_active "$unit"; then
       return 0
     fi
     sleep 0.05
   done
-  systemctl --user stop "$unit" >/dev/null 2>&1 || true
+  user_unit_stop "$unit" >/dev/null 2>&1 || true
   log "target idle policy did not start its hypridle owner" >&2
   return 1
 }
@@ -1709,23 +2334,32 @@ start_target_session() {
     log "ryoku-shell is required to activate the target power policy" >&2
     return 1
   fi
-  for command in ryoku ryoku-idle systemctl systemd-run; do
-    command -v "$command" >/dev/null 2>&1 || {
-      log "$command is required to activate the target session" >&2
-      return 1
-    }
-  done
+  if [[ $init_system == systemd ]]; then
+    for command in ryoku ryoku-idle systemctl systemd-run; do
+      command -v "$command" >/dev/null 2>&1 || {
+        log "$command is required to activate the target session" >&2
+        return 1
+      }
+    done
+  else
+    for command in ryoku ryoku-idle; do
+      command -v "$command" >/dev/null 2>&1 || {
+        log "$command is required to activate the target session" >&2
+        return 1
+      }
+    done
+  fi
 
   if [[ -x $qylock_installer ]]; then
     RYOKU_QYLOCK_USER_ONLY=1 RYOKU_QYLOCK_MODE=stage \
       RYOKU_QYLOCK_GENERATION_GUARDED=1 "$qylock_installer"
   fi
   ryoku materialize
-  systemctl --user daemon-reload
+  user_daemon_reload
   start_session_lifecycle
   start_target_idle
   reload_wm_config
-  restart_shell_owner
+  restart_shell_owner || return
 
   local ready=ping
   [[ -x $installed_helper ]] && ready=sleep-ready
@@ -1735,7 +2369,7 @@ start_target_session() {
       # The wallpaper is cosmetic: a start-limit-hit here used to abort the
       # cutover through errexit before its guards were released, leaving a
       # durable sleep block behind that denied every later suspend (#282).
-      systemctl --user restart ryogami.service >/dev/null 2>&1 ||
+      user_unit_restart ryogami.service >/dev/null 2>&1 ||
         log "ryogami did not restart; the wallpaper waits for the next login"
       return 0
     fi
@@ -1773,12 +2407,16 @@ start_login_session() {
           release_user_guard
         fi' EXIT
   start_user_guard
+  # A retired package executor may still be named by an older transient waiter.
+  # This login performs the same generation handoff itself, so the waiter is
+  # redundant and must not keep restarting against a removed path.
+  retire_qylock_waiter
   if ! qylock_stage_matches_installer; then
     ensure_qylock_generation_guard
     quiesce_shell_for_generation
     stage_qylock_for_session_start
   fi
-  systemctl --user daemon-reload
+  user_daemon_reload
   activity="$(session_property "$sid" Active)" || return 1
   if [[ $activity != yes ]]; then
     release_qylock_generation_guard
@@ -1788,7 +2426,7 @@ start_login_session() {
   fi
   start_session_lifecycle "$sid"
   reload_wm_config
-  systemctl --user reset-failed \
+  user_unit_reset_failed \
     ryoku-shell.service ryogami.service ryoku-idle.service \
     ryoku-clamshell.service >/dev/null 2>&1 || true
   restart_shell_owner
@@ -1803,7 +2441,7 @@ start_login_session() {
   fi
   start_target_idle
   start_target_clamshell sleep-ready
-  systemctl --user restart ryogami.service
+  user_unit_restart ryogami.service
   if ! session_still_open "$sid"; then
     log "login1 session closed before startup protection could be released" >&2
     return 1
@@ -1812,8 +2450,8 @@ start_login_session() {
 }
 
 release_user_guard() {
-  if systemctl --user is-active --quiet "$guard_unit"; then
-    systemctl --user stop "$guard_unit"
+  if user_unit_active "$guard_unit"; then
+    user_unit_stop "$guard_unit"
   fi
 }
 
@@ -1836,12 +2474,21 @@ user_guard_session_closing() {
 user_cutover() {
   (( EUID != 0 )) || { log "session cutover must run as the graphical user" >&2; return 1; }
   local selected_sid=""
-  for command in systemctl systemd-run pgrep systemd-inhibit flock grep jq; do
-    command -v "$command" >/dev/null 2>&1 || {
-      log "$command is required for the session cutover" >&2
-      return 1
-    }
-  done
+  if [[ $init_system == systemd ]]; then
+    for command in systemctl systemd-run pgrep systemd-inhibit flock grep jq; do
+      command -v "$command" >/dev/null 2>&1 || {
+        log "$command is required for the session cutover" >&2
+        return 1
+      }
+    done
+  else
+    for command in elogind-inhibit pgrep flock grep; do
+      command -v "$command" >/dev/null 2>&1 || {
+        log "$command is required for the session cutover" >&2
+        return 1
+      }
+    done
+  fi
   exec 8>"${XDG_RUNTIME_DIR:-/tmp}/ryoku-power-cutover.lock"
   flock 8
   # Any unexpected failure (errexit, a killed unit) must not strand the
@@ -1889,8 +2536,8 @@ user_cutover() {
         RYOKU_QYLOCK_GENERATION_GUARDED=1 "$qylock_installer"
     fi
     ryoku materialize
-    systemctl --user daemon-reload
-    systemctl --user stop "$session_target" "$session_guard_pattern" >/dev/null 2>&1 || true
+    user_daemon_reload
+    stop_session_and_guards >/dev/null 2>&1 || true
     rm -f "$session_marker"
     release_qylock_generation_guard
     secure_all_sessions
@@ -1929,18 +2576,20 @@ if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
     prepare-package) prepare_package ;;
     package)
       # The staged copy in /run is the pre-upgrade code the transaction started
-      # under, so a live session is cut over by the logic it began with. On the
-      # transaction that FIRST installs this hook pair the staging
-      # PreTransaction hook is not on disk yet, /run/ryoku-power-cutover never
-      # appears, and execv-ing it fails the hook (#272): fall back to the
-      # just-installed binary, which is the same code staging would copy.
-      # RYOKU_CUTOVER_STAGED stops a staged copy of THIS code from exec-ing
-      # itself; an older staged copy ignores the variable and runs its own
-      # root_cutover, so every old/new combination terminates.
-      if [[ -z ${RYOKU_CUTOVER_STAGED:-} && -x /run/ryoku-power-cutover ]]; then
-        RYOKU_CUTOVER_STAGED=1 exec /run/ryoku-power-cutover package
+      # under. Run it as a child so the installed wrapper can remove even an old
+      # staged helper after success or failure. A staged helper also owns an EXIT
+      # cleanup for removal transactions that no longer have an installed copy.
+      # RYOKU_CUTOVER_STAGED explicitly selects installed recovery logic instead;
+      # its EXIT cleanup retires leftovers from builds that leaked the stage.
+      if [[ -n ${RYOKU_CUTOVER_STAGED:-} ]]; then
+        trap 'rm -f -- "$runtime_helper"' EXIT
+        root_cutover
+      elif [[ -x $runtime_helper ]]; then
+        trap 'rm -f -- "$runtime_helper"' EXIT
+        RYOKU_CUTOVER_STAGED=1 "$runtime_helper" package
+      else
+        root_cutover
       fi
-      root_cutover
       ;;
     package-deferred) deferred_cutover ;;
     user) user_cutover ;;
@@ -1966,6 +2615,7 @@ if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
     session-check) session_still_open "${2:-}" ;;
     supports-session-watch) : ;;
     watch-session) watch_session "${2:-}" "${3:-}" ;;
+    supervise-restart) supervise_restart "${2:?}" "${@:3}" ;;
     *)
       printf 'usage: ryoku-power-cutover <prepare-package|package|package-deferred|user|wait-qylock|wait-lock-clients|generation-guard-start|generation-guard-ready|generation-guard-stop|launch-guard-start|launch-guard-ready|launch-guard-stop|qylock-guards-stop|shell-quiesce|session-start|session-bind|session-check|watch-session>\n' >&2
       exit 2

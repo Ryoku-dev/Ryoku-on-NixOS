@@ -29,16 +29,37 @@ def center_crop(img, target_w, target_h):
     y2 = y1 + target_h
     return img[y1:y2, x1:x2]
 
+def center_on_black(img, target_w, target_h):
+    """The picture centred on a black screen, cut where it overflows (fit's and center's bars)."""
+    img = center_crop(img, target_w, target_h)
+    h, w = img.shape[:2]
+    out = np.zeros((target_h, target_w) + img.shape[2:], dtype=img.dtype)
+    x, y = (target_w - w) // 2, (target_h - h) // 2
+    out[y:y + h, x:x + w] = img
+    return out
+
 def _read_screen_image(image_path, flags, screen_width, screen_height, screen_mode):
+    """The wallpaper as the screen shows it in each scaling mode (Wallpapers.fillMode)."""
     img = cv2.imread(image_path, flags)
     if img is None:
         return None
     orig_h, orig_w = img.shape[:2]
+    if screen_mode == "stretch":
+        return cv2.resize(img, (screen_width, screen_height), interpolation=cv2.INTER_AREA)
+    if screen_mode == "center":
+        return center_on_black(img, screen_width, screen_height)
+    if screen_mode == "tile":
+        # Qt tiles from a centred copy (Image.Tile with the default centre alignment).
+        reps_y, reps_x = -(-screen_height // orig_h) + 2, -(-screen_width // orig_w) + 2
+        tiled = np.tile(img, (reps_y, reps_x) + (1,) * (img.ndim - 2))
+        x = (orig_w - ((screen_width - orig_w) // 2) % orig_w) % orig_w
+        y = (orig_h - ((screen_height - orig_h) // 2) % orig_h) % orig_h
+        return tiled[y:y + screen_height, x:x + screen_width]
     scale_w = screen_width / orig_w
     scale_h = screen_height / orig_h
-    scale = max(scale_w, scale_h) if screen_mode == "fill" else min(scale_w, scale_h)
-    img = cv2.resize(img, (int(orig_w * scale), int(orig_h * scale)), interpolation=cv2.INTER_LANCZOS4)
-    return center_crop(img, screen_width, screen_height)
+    scale = min(scale_w, scale_h) if screen_mode == "fit" else max(scale_w, scale_h)
+    img = cv2.resize(img, (max(1, int(orig_w * scale)), max(1, int(orig_h * scale))), interpolation=cv2.INTER_LANCZOS4)
+    return center_on_black(img, screen_width, screen_height) if screen_mode == "fit" else center_crop(img, screen_width, screen_height)
 
 def load_screen_image(image_path, screen_width=None, screen_height=None, screen_mode="fill", grayscale=False):
     """Wallpaper scaled and cropped to the screen, cached per file revision and screen geometry."""
@@ -379,7 +400,7 @@ def main():
     parser.add_argument("--screen-width", type=int, default=1920, help="Screen width for wallpaper scaling")
     parser.add_argument("--screen-height", type=int, default=1080, help="Screen height for wallpaper scaling")
     parser.add_argument("--stride", type=int, default=10, help="Step size for sliding window (higher is faster, less precise)")
-    parser.add_argument("--screen-mode", choices=["fill", "fit"], default="fill", help="Wallpaper scaling mode: 'fill' (default) or 'fit'")
+    parser.add_argument("--screen-mode", choices=["fill", "fit", "stretch", "center", "tile"], default="fill", help="Wallpaper scaling mode as the desktop draws it (span is fill on the whole canvas)")
     parser.add_argument("--verbose", action="store_true", help="Print verbose output")
     parser.add_argument("-l", "--largest-region", action="store_true", help="Find the largest region under the variance threshold and output its center")
     parser.add_argument("-t", "--variance-threshold", type=float, default=1000.0, help="Variance threshold for largest region mode")

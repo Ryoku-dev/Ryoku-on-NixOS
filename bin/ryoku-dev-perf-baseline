@@ -1,0 +1,845 @@
+#!/usr/bin/env bash
+#
+# ryoku-dev-perf-baseline: measure what the running Ryoku desktop costs.
+#
+# Samples every process the desktop owns for one window (default 60 s) and
+# prints, per process and per group: proportional memory (PSS), CPU, wakeups,
+# GPU time and VRAM. Alongside it records the machine's power and GPU readings
+# (RAPL package energy, the amdgpu PPT sensor, nvidia-smi) and the power
+# profile. It asks the compositor nothing, so it reads the same on every
+# compositor. It measures whatever state the desktop is in, so set the scenario
+# up first (bar style, music, open surfaces).
+#
+#   ryoku-dev-perf-baseline [--window 60] [--settle 0] [--restart]
+#                           [--frames|--surfaces] [--startup] [--spawns]
+#                           [--label NAME] [--json OUT]
+#   ryoku-dev-perf-baseline --compare BEFORE.json AFTER.json
+#
+# --restart   restart ryoku-shell first, then wait --settle seconds (default 120)
+# --frames    restart the shell with QSG_RENDER_TIMING=1 and count rendered
+#             frames per shell window (the timing log costs CPU itself, so the
+#             CPU numbers of a --frames run are not comparable; run it apart)
+# --surfaces  restart the shell with WAYLAND_DEBUG=client and count commits per
+#             layer surface by namespace (ryoku-bar, ryoku-widgets, ...): which
+#             surface keeps the compositor busy. Same caveat as --frames
+# --startup   time a shell restart until its configuration has loaded
+# --spawns    count process launches (exec) per owner through ftrace (needs sudo)
+#
+# Tooling is excluded: anything under herdr, omp or this script. RSS is never
+# summed (shared Qt and driver pages would count once per process); totals are
+# PSS. See docs/performance.md for the scenarios and the recorded numbers.
+exec python3 - "$0" "$@" <<'PY'
+import argparse
+import glob
+import json
+import os
+import re
+import shutil
+import statistics
+import subprocess
+import sys
+import threading
+import time
+
+HZ = os.sysconf("SC_CLK_TCK")
+UID = os.getuid()
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{UID}"
+SHELL_LOG = os.path.expanduser("~/.local/state/ryoku/surfaces/shell.log")
+
+BASE_GROUPS = [
+    "shell-ui", "shell-daemon", "shell-helpers", "visualizer-capture",
+    "wm-provider", "wallpaper", "compositor", "session-daemons", "system-daemons",
+]
+# Root-owned services the base system ships; everything else outside the user's
+# own processes is the machine's business, not the desktop's.
+SYSTEM_UNITS = ("limine-snapper-sync.service",)
+OPTIN_GROUPS = ["dictation", "phone", "rashin", "prowl", "cobalt", "hub"]
+PLATFORM = {
+    "pipewire", "wireplumber", "pipewire-pulse", "xdg-desktop-portal",
+    "xdg-desktop-portal-gnome", "xdg-desktop-portal-gtk", "xdg-document-portal",
+    "xdg-permission-store", "gvfsd", "gvfsd-fuse", "gvfsd-metadata",
+    "dbus-broker", "dbus-broker-launch", "at-spi-bus-launcher", "at-spi2-registryd",
+    "dconf-service", "gnome-keyring-daemon", "systemd",
+}
+
+
+def read(path, default=""):
+    try:
+        with open(path, errors="replace") as f:
+            return f.read()
+    except OSError:
+        return default
+
+
+def stat_of(pid):
+    s = read(f"/proc/{pid}/stat")
+    if not s:
+        return None
+    rest = s[s.rindex(")") + 2:].split()
+    return {"ppid": int(rest[1]), "ticks": int(rest[11]) + int(rest[12]),
+            "threads": int(rest[17]), "start": int(rest[19])}
+
+
+def comm_of(pid):
+    return read(f"/proc/{pid}/comm").strip()
+
+
+def cmdline_of(pid):
+    return read(f"/proc/{pid}/cmdline").replace("\0", " ").strip()
+
+
+def unit_of(pid):
+    cg = read(f"/proc/{pid}/cgroup").strip().split("::")[-1]
+    return cg.rstrip("/").split("/")[-1] if cg else ""
+
+
+def owner_of(pid):
+    try:
+        return os.stat(f"/proc/{pid}").st_uid
+    except OSError:
+        return -1
+
+
+def tasks_of(pid):
+    out = {}
+    for t in glob.glob(f"/proc/{pid}/task/*"):
+        tid = t.rsplit("/", 1)[1]
+        s = read(f"{t}/stat")
+        if not s:
+            continue
+        name = s[s.index("(") + 1:s.rindex(")")]
+        rest = s[s.rindex(")") + 2:].split()
+        st = read(f"{t}/status")
+        vol = re.search(r"^voluntary_ctxt_switches:\s+(\d+)", st, re.M)
+        inv = re.search(r"^nonvoluntary_ctxt_switches:\s+(\d+)", st, re.M)
+        out[tid] = {"name": name, "ticks": int(rest[11]) + int(rest[12]),
+                    "ctx": (int(vol.group(1)) if vol else 0) + (int(inv.group(1)) if inv else 0)}
+    return out
+
+
+def memory_of(pid):
+    roll = read(f"/proc/{pid}/smaps_rollup")
+    if not roll:
+        try:
+            roll = subprocess.run(["sudo", "-n", "cat", f"/proc/{pid}/smaps_rollup"],
+                                  capture_output=True, text=True, timeout=3).stdout
+        except (OSError, subprocess.SubprocessError):
+            roll = ""
+    if not roll:
+        return None
+
+    def kb(key):
+        m = re.search(rf"^{key}:\s+(\d+) kB", roll, re.M)
+        return int(m.group(1)) / 1024 if m else 0.0
+
+    return {"pss": kb("Pss"), "pss_anon": kb("Pss_Anon"), "pss_file": kb("Pss_File"),
+            "pss_shmem": kb("Pss_Shmem"), "rss": kb("Rss"), "swap_pss": kb("SwapPss"),
+            "private": kb("Private_Clean") + kb("Private_Dirty")}
+
+
+def drm_of(pid):
+    """Per-process DRM fdinfo (amdgpu, i915, xe, nouveau): engine ns and memory."""
+    clients = {}
+    for fd in glob.glob(f"/proc/{pid}/fdinfo/*"):
+        info = read(fd)
+        if "drm-client-id" not in info:
+            continue
+        cid = re.search(r"^drm-client-id:\s+(\d+)", info, re.M)
+        pdev = re.search(r"^drm-pdev:\s+(\S+)", info, re.M)
+        key = (pdev.group(1) if pdev else "?", cid.group(1) if cid else fd)
+        engine = sum(int(v) for v in re.findall(r"^drm-engine-[\w-]+:\s+(\d+) ns", info, re.M))
+        mem = {}
+        for kind, val, unit in re.findall(r"^drm-(?:total-|resident-)?memory-(\w+):\s+(\d+)\s*(KiB|MiB|kB)?", info, re.M):
+            mb = int(val) / (1 if unit == "MiB" else 1024)
+            mem[kind] = max(mem.get(kind, 0.0), mb)
+        clients[key] = {"engine_ns": engine, "mem": mem}
+    return clients
+
+
+def docker_names():
+    if not shutil.which("docker"):
+        return {}
+    try:
+        out = subprocess.run(["docker", "ps", "--no-trunc", "--format", "{{.ID}} {{.Names}}"],
+                             capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    return dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
+
+
+def classify(procs):
+    """Assign every process a group; tooling (herdr/omp/this script) is excluded."""
+    me = os.getpid()
+    parent = {pid: p["ppid"] for pid, p in procs.items()}
+    roots = set()
+    for pid, p in procs.items():
+        if p["comm"] in ("herdr", "omp") or p["cmd"].startswith(("/home/", "herdr", "omp")) and \
+                re.search(r"(^|/)(herdr|omp)( |$)", p["cmd"].split(" ")[0] + " "):
+            roots.add(pid)
+    roots.add(me)
+    docker = docker_names()
+
+    def under(pid, targets):
+        seen = 0
+        while pid in parent and seen < 64:
+            if pid in targets:
+                return True
+            pid = parent[pid]
+            seen += 1
+        return False
+
+    rashin = {pid for pid, p in procs.items() if p["unit"] == "ryoku-rashin.service"}
+    for pid, p in procs.items():
+        cmd, comm, unit = p["cmd"], p["comm"], p["unit"]
+        g = None
+        if under(pid, roots):
+            g = "tooling"
+        elif unit.startswith("docker-") and unit.endswith(".scope"):
+            name = docker.get(unit[len("docker-"):-len(".scope")], "")
+            g = "cobalt" if name == "ryoku-cobalt" else "other"
+        elif cmd.startswith("ryoku-wm-") or "/ryoku-wm-" in cmd.split(" ")[0]:
+            g = "wm-provider"
+        elif "wavecap.py" in cmd or comm == "pw-record":
+            g = "visualizer-capture"
+        elif "/modules/phone/" in cmd or comm in ("adb", "kdeconnectd", "scrcpy") or unit.startswith("app-org.kde.kdeconnect"):
+            g = "phone"
+        elif unit == "ryoku-rashin.service" or under(pid, rashin) or "ryoku-rashin" in cmd.split(" ")[0]:
+            g = "rashin"
+        elif unit == "ryoku-prowl.service":
+            g = "prowl"
+        elif unit == "ryoku-shell.service":
+            if comm in ("qs", "quickshell"):
+                g = "hub" if " -c hub" in cmd else "shell-ui" if " -c shell" in cmd or cmd.endswith("shell") else "shell-helpers"
+            elif comm == "ryoku-shell":
+                g = "shell-daemon"
+            else:
+                g = "shell-helpers"
+        elif unit == "ryogami.service":
+            g = "wallpaper"
+        elif p.get("system"):
+            g = "system-daemons"
+        elif unit in ("niri.service",) or comm in ("niri", "Hyprland", "Xwayland", "xwayland-satell") or cmd.split(" ")[0].endswith(("Hyprland", "/niri")):
+            g = "compositor"
+        elif unit.startswith("ryoku-") or unit.startswith("app-limine") or comm in ("limine-snapper-", "ryoku-clamshell"):
+            g = "session-daemons"
+        elif unit == "voxtype.service":
+            g = "dictation"
+        elif comm in PLATFORM or unit.split("@")[0] in ("pipewire.service", "wireplumber.service", "pipewire-pulse.service"):
+            g = "platform"
+        else:
+            g = "other"
+        p["group"] = g
+
+
+def snapshot():
+    procs = {}
+    for d in os.listdir("/proc"):
+        if not d.isdigit():
+            continue
+        pid = int(d)
+        system = False
+        if owner_of(pid) != UID:
+            unit = unit_of(pid)
+            # docker containers run as other users but Ryoku owns ryoku-cobalt;
+            # the base system's own root services count as the desktop's too
+            system = unit.startswith("ryoku-") or unit in SYSTEM_UNITS
+            if not (unit.startswith("docker-") or system):
+                continue
+        st = stat_of(pid)
+        if not st:
+            continue
+        procs[pid] = {"ppid": st["ppid"], "start": st["start"], "comm": comm_of(pid),
+                      "cmd": cmdline_of(pid), "unit": unit_of(pid), "system": system}
+    classify(procs)
+    for pid, p in procs.items():
+        if p["group"] == "tooling":
+            # thread ids only, so a launch from a tooling thread stays tooling
+            try:
+                p["threads_only"] = [int(t) for t in os.listdir(f"/proc/{pid}/task")]
+            except OSError:
+                p["threads_only"] = []
+            continue
+        p["tasks"] = tasks_of(pid)
+        p["drm"] = drm_of(pid)
+    return procs
+
+
+def sudo_read(path):
+    try:
+        out = subprocess.run(["sudo", "-n", "cat", path], capture_output=True, text=True, timeout=3)
+        return int(out.stdout.strip()) if out.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def rapl_domains():
+    doms = {}
+    for d in sorted(glob.glob("/sys/class/powercap/intel-rapl:*")):
+        name = read(f"{d}/name").strip()
+        if name:
+            doms[os.path.basename(d)] = name
+    return doms
+
+
+def hwmon(name):
+    for h in glob.glob("/sys/class/hwmon/hwmon*"):
+        if read(f"{h}/name").strip() == name:
+            return h
+    return None
+
+
+class Sampler(threading.Thread):
+    """1 Hz sampler for sensors that only expose an instantaneous value."""
+
+    def __init__(self, seconds):
+        super().__init__(daemon=True)
+        self.seconds = seconds
+        self.ppt, self.tctl, self.bat = [], [], []
+        self.amd = hwmon("amdgpu")
+        self.k10 = hwmon("k10temp")
+        self.stop = threading.Event()
+
+    def run(self):
+        end = time.monotonic() + self.seconds
+        while not self.stop.is_set() and time.monotonic() < end:
+            if self.amd:
+                v = read(f"{self.amd}/power1_average") or read(f"{self.amd}/power1_input")
+                if v.strip():
+                    self.ppt.append(int(v) / 1e6)
+            if self.k10:
+                v = read(f"{self.k10}/temp1_input")
+                if v.strip():
+                    self.tctl.append(int(v) / 1000)
+            if read("/sys/class/power_supply/BAT0/status").strip() == "Discharging":
+                v = read("/sys/class/power_supply/BAT0/power_now")
+                if v.strip():
+                    self.bat.append(int(v) / 1e6)
+            self.stop.wait(1.0)
+
+
+def nvidia_start(seconds):
+    if not shutil.which("nvidia-smi"):
+        return None, None
+    q = subprocess.Popen(["nvidia-smi", "--query-gpu=power.draw,pstate,utilization.gpu,memory.used,clocks.gr,temperature.gpu",
+                          "--format=csv,noheader,nounits", "-lms", "1000"],
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    pm = subprocess.Popen(["nvidia-smi", "pmon", "-s", "um", "-d", "1", "-c", str(max(1, int(seconds)))],
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    return q, pm
+
+
+def nvidia_finish(q, pm):
+    if not q:
+        return None, {}
+    q.terminate()
+    rows = []
+    for line in (q.communicate(timeout=10)[0] or "").splitlines():
+        parts = [x.strip() for x in line.split(",")]
+        if len(parts) == 6:
+            try:
+                rows.append({"power": float(parts[0]), "pstate": parts[1], "util": float(parts[2]),
+                             "mem": float(parts[3]), "clock": float(parts[4]), "temp": float(parts[5])})
+            except ValueError:
+                pass
+    try:
+        out = pm.communicate(timeout=15)[0] or ""
+    except subprocess.TimeoutExpired:
+        pm.kill()
+        out = pm.communicate()[0] or ""
+    per = {}
+    cols = []
+    for line in out.splitlines():
+        if line.startswith("# gpu"):
+            cols = line[1:].split()
+            continue
+        if line.startswith("#") or not cols:
+            continue
+        vals = line.split()
+        if len(vals) < len(cols) - 1:
+            continue
+        rec = dict(zip(cols, vals))
+        try:
+            pid = int(rec.get("pid", "-1"))
+        except ValueError:
+            continue
+        num = lambda k: float(rec[k]) if rec.get(k, "-") not in ("-", "") else 0.0
+        e = per.setdefault(pid, {"sm": [], "fb": 0.0})
+        e["sm"].append(num("sm"))
+        e["fb"] = max(e["fb"], num("fb"))
+    gpu = None
+    if rows:
+        states = {}
+        for r in rows:
+            states[r["pstate"]] = states.get(r["pstate"], 0) + 1
+        gpu = {"power_w": statistics.mean(r["power"] for r in rows),
+               "util_pct": statistics.mean(r["util"] for r in rows),
+               "vram_mb": statistics.mean(r["mem"] for r in rows),
+               "clock_mhz": statistics.mean(r["clock"] for r in rows),
+               "temp_c": statistics.mean(r["temp"] for r in rows),
+               "pstates": states, "samples": len(rows)}
+    return gpu, {pid: {"sm_pct": statistics.mean(v["sm"]) if v["sm"] else 0.0, "vram_mb": v["fb"]}
+                 for pid, v in per.items()}
+
+
+def proc_stat_totals():
+    s = read("/proc/stat")
+    cpu = [int(x) for x in s.splitlines()[0].split()[1:]]
+    idle = cpu[3] + cpu[4]
+    ctxt = int(re.search(r"^ctxt (\d+)", s, re.M).group(1))
+    intr = int(re.search(r"^intr (\d+)", s, re.M).group(1))
+    return {"total": sum(cpu[:8]), "idle": idle, "ctxt": ctxt, "intr": intr}
+
+
+def power_profile():
+    """The active power-profiles-daemon profile; it changes clocks and the
+    shell's own eye-candy policy, so runs are only comparable at one profile."""
+    if not shutil.which("powerprofilesctl"):
+        return None
+    try:
+        out = subprocess.run(["powerprofilesctl", "get"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None
+
+
+def restart_shell(env_set=None, env_unset=None):
+    if env_set:
+        subprocess.run(["systemctl", "--user", "set-environment"] + [f"{k}={v}" for k, v in env_set.items()], check=False)
+    if env_unset:
+        subprocess.run(["systemctl", "--user", "unset-environment"] + list(env_unset), check=False)
+    subprocess.run(["systemctl", "--user", "restart", "ryoku-shell.service"], check=False)
+
+
+class SpawnTrace:
+    """Process launches during the window, from the sched fork/exec tracepoints."""
+
+    def __init__(self):
+        self.dir = f"/sys/kernel/tracing/instances/ryoku-perf-{os.getpid()}"
+        self.ok = False
+
+    def _sudo(self, *args, data=None):
+        return subprocess.run(["sudo", "-n"] + list(args), input=data, capture_output=True, text=True, timeout=20)
+
+    def _write(self, name, value):
+        self._sudo("tee", f"{self.dir}/{name}", data=value + "\n")
+
+    def start(self):
+        if self._sudo("mkdir", self.dir).returncode != 0:
+            return
+        self._write("buffer_size_kb", "16384")
+        for ev in ("sched_process_fork", "sched_process_exec"):
+            self._write(f"events/sched/{ev}/enable", "1")
+        self._write("tracing_on", "1")
+        self.ok = True
+
+    def finish(self, procs, dt):
+        if not self.ok:
+            return None
+        self._write("tracing_on", "0")
+        text = self._sudo("cat", f"{self.dir}/trace").stdout
+        for ev in ("sched_process_fork", "sched_process_exec"):
+            self._write(f"events/sched/{ev}/enable", "0")
+        self._sudo("rmdir", self.dir)
+        parent, execs = {}, []
+        for line in text.splitlines():
+            m = re.search(r"sched_process_fork: comm=(.*?) pid=(\d+) child_comm=.*? child_pid=(\d+)", line)
+            if m:
+                parent[int(m.group(3))] = int(m.group(2))
+                continue
+            m = re.search(r"sched_process_exec: filename=(\S+) pid=(\d+)", line)
+            if m:
+                execs.append((int(m.group(2)), m.group(1)))
+        by_group, by_cmd = {}, {}
+        # fork events name the forking thread; map every thread to its process
+        owner_of_tid = {}
+        for pid, p in procs.items():
+            owner_of_tid[pid] = p
+            for tid in list(p.get("tasks", {})) + p.get("threads_only", []):
+                owner_of_tid[int(tid)] = p
+        for pid, filename in execs:
+            p, owner, hops = pid, None, 0
+            while p and hops < 32:
+                if p in owner_of_tid:
+                    owner = owner_of_tid[p]
+                    break
+                p = parent.get(p)
+                hops += 1
+            group = owner["group"] if owner else "other"
+            if group == "tooling":
+                continue
+            who = owner["comm"] if owner else "?"
+            by_group[group] = by_group.get(group, 0) + 1
+            key = f"{group}: {who} -> {os.path.basename(filename)}"
+            by_cmd[key] = by_cmd.get(key, 0) + 1
+        per_min = 60.0 / dt
+        return {"per_min": {g: round(n * per_min, 1) for g, n in sorted(by_group.items(), key=lambda x: -x[1])},
+                "top": [(k, round(n * per_min, 1)) for k, n in sorted(by_cmd.items(), key=lambda x: -x[1])[:15]]}
+
+
+def measure(window, frames_from=None, spawns=False, commits_from=None):
+    before = snapshot()
+    sys0 = proc_stat_totals()
+    doms = rapl_domains()
+    rapl0 = {d: sudo_read(f"/sys/class/powercap/{d}/energy_uj") for d in doms}
+    log0 = os.path.getsize(SHELL_LOG) if (frames_from or commits_from) and os.path.exists(SHELL_LOG) else None
+    trace = SpawnTrace() if spawns else None
+    if trace:
+        trace.start()
+    sampler = Sampler(window)
+    sampler.start()
+    q, pm = nvidia_start(window)
+    t0, wall0 = time.monotonic(), time.time()
+    time.sleep(window)
+    dt, wall1 = time.monotonic() - t0, time.time()
+    spawned = trace.finish(before, dt) if trace else None
+    after = snapshot()
+    sys1 = proc_stat_totals()
+    rapl1 = {d: sudo_read(f"/sys/class/powercap/{d}/energy_uj") for d in doms}
+    sampler.stop.set()
+    sampler.join(2)
+    gpu, pmon = nvidia_finish(q, pm)
+
+    rows = []
+    for pid, p in after.items():
+        if p["group"] == "tooling":
+            continue
+        b = before.get(pid)
+        if not b or b["start"] != p["start"] or "tasks" not in b:
+            continue
+        ticks = sum(t["ticks"] for t in p["tasks"].values()) - sum(t["ticks"] for tid, t in b["tasks"].items() if tid in p["tasks"])
+        ctx = sum(t["ctx"] for tid, t in p["tasks"].items() if tid in b["tasks"]) - sum(t["ctx"] for tid, t in b["tasks"].items() if tid in p["tasks"])
+        threads = []
+        for tid, t in p["tasks"].items():
+            if tid in b["tasks"]:
+                threads.append((t["ticks"] - b["tasks"][tid]["ticks"], t["name"]))
+        threads.sort(reverse=True)
+        engine = 0
+        vram = gtt = 0.0
+        for key, c in p["drm"].items():
+            if key in b["drm"]:
+                engine += c["engine_ns"] - b["drm"][key]["engine_ns"]
+            vram += c["mem"].get("vram", 0.0)
+            gtt += c["mem"].get("gtt", 0.0)
+        mem = memory_of(pid) or {}
+        nv = pmon.get(pid, {})
+        rows.append({
+            "pid": pid, "group": p["group"], "comm": p["comm"], "cmd": p["cmd"][:120], "unit": p["unit"],
+            "cpu_pct": 100.0 * ticks / HZ / dt, "wakeups_s": ctx / dt, "threads": len(p["tasks"]),
+            "top_threads": [(n, round(100.0 * tk / HZ / dt, 2)) for tk, n in threads[:6] if tk > 0],
+            "gpu_pct": (nv.get("sm_pct", 0.0)) + 100.0 * engine / 1e9 / dt,
+            "vram_mb": nv.get("vram_mb", 0.0) + vram, "gtt_mb": gtt, **mem,
+        })
+
+    cpu_total = sys1["total"] - sys0["total"]
+    busy = cpu_total - (sys1["idle"] - sys0["idle"])
+    power = {}
+    for d, name in doms.items():
+        if rapl0.get(d) is not None and rapl1.get(d) is not None:
+            delta = rapl1[d] - rapl0[d]
+            if delta < 0:
+                delta += int(read(f"/sys/class/powercap/{d}/max_energy_range_uj") or 0)
+            power[f"rapl_{name}_w"] = delta / 1e6 / dt
+    if sampler.ppt:
+        power["amdgpu_ppt_w"] = statistics.mean(sampler.ppt)
+    if sampler.bat:
+        power["battery_w"] = statistics.mean(sampler.bat)
+    if gpu:
+        power["nvidia_w"] = gpu["power_w"]
+    system = {
+        "window_s": dt, "cpu_busy_cores": busy / cpu_total * os.cpu_count() if cpu_total else 0.0,
+        "ctxt_s": (sys1["ctxt"] - sys0["ctxt"]) / dt, "intr_s": (sys1["intr"] - sys0["intr"]) / dt,
+        "tctl_c": statistics.mean(sampler.tctl) if sampler.tctl else None,
+        "power": power, "nvidia": gpu, "profile": power_profile(),
+    }
+    if log0 is not None and frames_from:
+        system["frames"] = count_frames(log0, dt)
+    if log0 is not None and commits_from:
+        time.sleep(3)  # let the window's last lines drain from the log pipe
+        system["commits"] = count_commits(log0, dt, wall0, wall1)
+    if spawned is not None:
+        system["spawns"] = spawned
+    return rows, system
+
+
+def count_frames(offset, dt):
+    with open(SHELL_LOG, "rb") as f:
+        head = f.read(offset).decode(errors="replace")
+        data = f.read().decode(errors="replace")
+    # The render-loop debug category names each window with its geometry when
+    # it is exposed or resized; the last one seen is the window's size.
+    size = {}
+    for line in (head + data).splitlines():
+        m = re.search(r"Window\((0x[0-9a-f]+)\b.*?geometry=-?\d+,-?\d+ (\d+x\d+)", line)
+        if m:
+            size[m.group(1)] = m.group(2)
+    per = {}
+    render_ms = {}
+    for line in data.splitlines():
+        m = re.search(r"\[window (0x[0-9a-f]+)\]", line)
+        if not m or "syncAndRender" not in line:
+            continue
+        if "frame rendered" in line:
+            per[m.group(1)] = per.get(m.group(1), 0) + 1
+            t = re.search(r"in (\d+)ms", line)
+            if t:
+                render_ms.setdefault(m.group(1), []).append(int(t.group(1)))
+    windows = sorted(((w, n / dt, statistics.mean(render_ms.get(w, [0]))) for w, n in per.items()),
+                     key=lambda x: -x[1])
+    return {"total_fps": sum(x[1] for x in windows), "windows": [
+        {"window": w, "size": size.get(w, "?"), "fps": round(f, 2), "mean_frame_ms": round(ms, 2)}
+        for w, f, ms in windows]}
+
+
+def count_commits(offset, dt, wall0, wall1):
+    """Commits per shell layer surface, named by its layer-shell namespace.
+    Object ids are reused after a surface dies, so the log is replayed in order
+    and each commit is charged to the namespace its id carried at that moment.
+    The log reaches the file through a pipe, so lines from before the window
+    can land after the offset; libwayland's UTC stamps bound the count."""
+    bind = re.compile(r'get_layer_surface\(new id \S+, wl_surface[#@](\d+), [^,]*, \d+, "([^"]*)"\)')
+    request = re.compile(r'-> wl_surface[#@](\d+)\.(attach|commit)\(')
+    stamp = re.compile(r'^\[(\d\d):(\d\d):(\d\d\.\d+)\]')
+    lo, hi = wall0 % 86400, wall1 % 86400
+    names, frames, other, attached = {}, {}, {}, set()
+    with open(SHELL_LOG, "rb") as f:
+        head = f.read(offset).decode(errors="replace")
+        data = f.read().decode(errors="replace")
+    for m in bind.finditer(head):
+        names[m.group(1)] = m.group(2)
+    for line in data.splitlines():
+        m = bind.search(line)
+        if m:
+            names[m.group(1)] = m.group(2)
+            continue
+        m = request.search(line)
+        if not m:
+            continue
+        sid = m.group(1)
+        if m.group(2) == "attach":
+            attached.add(sid)
+            continue
+        # A commit after an attach presents a new frame; one without carries only
+        # state (an input region, a configure ack).
+        presented = sid in attached
+        attached.discard(sid)
+        t = stamp.match(line)
+        if t:
+            s = int(t.group(1)) * 3600 + int(t.group(2)) * 60 + float(t.group(3))
+            inside = lo <= s <= hi if lo <= hi else (s >= lo or s <= hi)
+            if not inside:
+                continue
+        name = names.get(sid, "other")
+        bucket = frames if presented else other
+        bucket[name] = bucket.get(name, 0) + 1
+    rows = sorted(((n, frames.get(n, 0) / dt, other.get(n, 0) / dt) for n in set(frames) | set(other)),
+                  key=lambda x: -(x[1] + x[2]))
+    return {"total_commits_s": sum(f + o for _, f, o in rows),
+            "total_frames_s": sum(f for _, f, _ in rows),
+            "surfaces": [{"namespace": n, "commits_s": round(f + o, 2), "frames_s": round(f, 2)}
+                         for n, f, o in rows]}
+
+
+def shell_pids():
+    pids = set()
+    for d in os.listdir("/proc"):
+        if d.isdigit() and comm_of(d) == "qs" and cmdline_of(d).endswith("-c shell"):
+            pids.add(int(d))
+    return pids
+
+
+def startup():
+    """Restart the shell; time the new process and its configuration load."""
+    old = shell_pids()
+    wall0 = time.time()
+    t0 = time.monotonic()
+    restart_shell()
+    spawned = loaded = None
+    while time.monotonic() - t0 < 60 and loaded is None:
+        now = time.monotonic() - t0
+        if spawned is None and shell_pids() - old:
+            spawned = now
+        if spawned is not None:
+            try:
+                fresh = os.path.getmtime(SHELL_LOG) >= wall0
+            except OSError:
+                fresh = False
+            if fresh and "Configuration Loaded" in read(SHELL_LOG):
+                loaded = now
+        time.sleep(0.02)
+    return {"spawned_s": spawned, "config_loaded_s": loaded}
+
+
+def summarize(rows):
+    groups = {}
+    for r in rows:
+        g = groups.setdefault(r["group"], {"procs": 0, "pss": 0.0, "private": 0.0, "swap_pss": 0.0,
+                                           "cpu_pct": 0.0, "wakeups_s": 0.0, "gpu_pct": 0.0, "vram_mb": 0.0})
+        g["procs"] += 1
+        for k in ("pss", "private", "swap_pss", "cpu_pct", "wakeups_s", "gpu_pct", "vram_mb"):
+            g[k] += r.get(k, 0.0) or 0.0
+    return groups
+
+
+def total(groups, names):
+    t = {"procs": 0, "pss": 0.0, "private": 0.0, "swap_pss": 0.0, "cpu_pct": 0.0, "wakeups_s": 0.0, "gpu_pct": 0.0, "vram_mb": 0.0}
+    for n in names:
+        for k in t:
+            t[k] += groups.get(n, {}).get(k, 0)
+    return t
+
+
+def fmt_group_table(groups):
+    out = ["| group | procs | PSS MB | private MB | swap MB | CPU % | wakeups/s | GPU % | VRAM MB |",
+           "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+
+    def line(name, g):
+        return (f"| {name} | {g['procs']} | {g['pss']:.1f} | {g['private']:.1f} | {g['swap_pss']:.1f} | "
+                f"{g['cpu_pct']:.2f} | {g['wakeups_s']:.0f} | {g['gpu_pct']:.1f} | {g['vram_mb']:.0f} |")
+
+    for n in BASE_GROUPS:
+        if n in groups:
+            out.append(line(n, groups[n]))
+    out.append(line("**base desktop total**", total(groups, BASE_GROUPS)))
+    for n in OPTIN_GROUPS:
+        if n in groups:
+            out.append(line(f"opt-in: {n}", groups[n]))
+    if "platform" in groups:
+        out.append(line("platform (pipewire, portals, dbus)", groups["platform"]))
+    if "other" in groups:
+        out.append(line("other (not counted)", groups["other"]))
+    return "\n".join(out)
+
+
+def report(res):
+    rows, system = res["rows"], res["system"]
+    groups = summarize(rows)
+    print(f"## {res['label']}  ({res['when']}, window {system['window_s']:.0f} s)\n")
+    print(fmt_group_table(groups))
+    print("\n| process | group | PSS MB | anon MB | CPU % | wakeups/s | GPU % | VRAM MB | busiest threads |")
+    print("|---|---|---:|---:|---:|---:|---:|---:|---|")
+    for r in sorted(rows, key=lambda r: -(r.get("pss", 0))):
+        if r["group"] in ("other", "platform"):
+            continue
+        thr = ", ".join(f"{n} {c}" for n, c in r["top_threads"][:3])
+        print(f"| {r['cmd'][:48]} | {r['group']} | {r.get('pss', 0):.1f} | {r.get('pss_anon', 0):.1f} | {r['cpu_pct']:.2f} | "
+              f"{r['wakeups_s']:.0f} | {r['gpu_pct']:.1f} | {r['vram_mb']:.0f} | {thr} |")
+    print("\n### Machine")
+    p = system["power"]
+    for k, v in p.items():
+        print(f"- {k}: {v:.2f}")
+    print(f"- cpu busy (all processes): {system['cpu_busy_cores']:.3f} cores; context switches {system['ctxt_s']:.0f}/s; interrupts {system['intr_s']:.0f}/s")
+    if system.get("profile"):
+        print(f"- power profile: {system['profile']}")
+    if system.get("tctl_c"):
+        print(f"- CPU Tctl: {system['tctl_c']:.1f} C")
+    nv = system.get("nvidia")
+    if nv:
+        print(f"- nvidia: {nv['power_w']:.2f} W, util {nv['util_pct']:.1f} %, {nv['vram_mb']:.0f} MiB used, "
+              f"{nv['clock_mhz']:.0f} MHz, {nv['temp_c']:.0f} C, pstates {nv['pstates']}")
+    fr = system.get("frames")
+    if fr:
+        print(f"- shell frames: {fr['total_fps']:.1f} fps across {len(fr['windows'])} windows; "
+              + ", ".join(f"{w['fps']} ({w.get('size', '?')})" for w in fr["windows"][:10]))
+    cm = system.get("commits")
+    if cm:
+        print(f"- shell surface commits: {cm['total_commits_s']:.1f}/s, {cm.get('total_frames_s', 0):.1f} presenting a frame; "
+              + ", ".join(f"{s['namespace']} {s['commits_s']} ({s.get('frames_s', s['commits_s'])} frames)"
+                          for s in cm["surfaces"][:10]))
+    sp = system.get("spawns")
+    if sp:
+        print("- process launches per minute: " + ", ".join(f"{g} {n}" for g, n in sp["per_min"].items()))
+        for key, n in sp["top"]:
+            print(f"  - {n}/min  {key}")
+    if res.get("startup"):
+        st = res["startup"]
+        fmt = lambda v: f"{v:.2f} s" if v is not None else "n/a"
+        print(f"- shell restart: process {fmt(st['spawned_s'])}, config loaded {fmt(st['config_loaded_s'])}")
+
+
+def compare(a_path, b_path):
+    a, b = json.load(open(a_path)), json.load(open(b_path))
+    ga, gb = summarize(a["rows"]), summarize(b["rows"])
+    print(f"## {a['label']} -> {b['label']}\n")
+    pa_, pb_ = a["system"].get("profile"), b["system"].get("profile")
+    if pa_ != pb_:
+        print(f"WARNING: power profiles differ ({pa_} vs {pb_}); power and CPU are not comparable\n")
+    print("| group | PSS MB | CPU % | wakeups/s | GPU % | VRAM MB |")
+    print("|---|---:|---:|---:|---:|---:|")
+    names = BASE_GROUPS + ["__base"] + OPTIN_GROUPS
+    for n in names:
+        if n == "__base":
+            x, y, label = total(ga, BASE_GROUPS), total(gb, BASE_GROUPS), "**base desktop total**"
+        elif n in ga or n in gb:
+            x, y, label = ga.get(n, total({}, [])), gb.get(n, total({}, [])), n
+        else:
+            continue
+        cell = lambda k, f: f"{x[k]:{f}} -> {y[k]:{f}}"
+        print(f"| {label} | {cell('pss', '.0f')} | {cell('cpu_pct', '.2f')} | {cell('wakeups_s', '.0f')} | "
+              f"{cell('gpu_pct', '.1f')} | {cell('vram_mb', '.0f')} |")
+    pa, pb = a["system"]["power"], b["system"]["power"]
+    for k in sorted(set(pa) | set(pb)):
+        print(f"- {k}: {pa.get(k, float('nan')):.2f} -> {pb.get(k, float('nan')):.2f} W")
+    na, nb = a["system"].get("nvidia"), b["system"].get("nvidia")
+    if na and nb:
+        print(f"- nvidia util: {na['util_pct']:.1f} -> {nb['util_pct']:.1f} %; pstates {na['pstates']} -> {nb['pstates']}")
+    fa, fb = a["system"].get("frames"), b["system"].get("frames")
+    if fa and fb:
+        print(f"- shell frames: {fa['total_fps']:.1f} -> {fb['total_fps']:.1f} fps")
+    sa, sb = a["system"].get("spawns"), b["system"].get("spawns")
+    if sa and sb:
+        tot = lambda s: sum(v for g, v in s["per_min"].items() if g in BASE_GROUPS)
+        print(f"- base desktop process launches: {tot(sa):.1f} -> {tot(sb):.1f} per minute")
+    ca, cb = a["system"].get("commits"), b["system"].get("commits")
+    if ca and cb:
+        print(f"- shell surface frames: {ca.get('total_frames_s', 0):.1f} -> {cb.get('total_frames_s', 0):.1f} per second")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="ryoku-dev-perf-baseline")
+    ap.add_argument("--window", type=float, default=60)
+    ap.add_argument("--settle", type=float, default=None)
+    ap.add_argument("--restart", action="store_true")
+    ap.add_argument("--frames", action="store_true")
+    ap.add_argument("--surfaces", action="store_true")
+    ap.add_argument("--startup", action="store_true")
+    ap.add_argument("--spawns", action="store_true")
+    ap.add_argument("--label", default="desktop")
+    ap.add_argument("--json")
+    ap.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"))
+    args = ap.parse_args(sys.argv[2:])
+    if args.compare:
+        compare(*args.compare)
+        return
+    res = {"label": args.label, "when": time.strftime("%Y-%m-%d %H:%M:%S")}
+    if args.startup:
+        res["startup"] = startup()
+    if args.frames and args.surfaces:
+        ap.error("--frames and --surfaces each restart the shell with a debug log; run them apart")
+    if args.frames:
+        restart_shell(env_set={"QSG_RENDER_TIMING": "1",
+                               "QT_LOGGING_RULES": "qt.scenegraph.renderloop.debug=true"})
+    elif args.surfaces:
+        restart_shell(env_set={"WAYLAND_DEBUG": "client"})
+    elif args.restart:
+        restart_shell()
+    debug = args.frames or args.surfaces
+    settle = args.settle if args.settle is not None else (120 if (args.restart or debug or args.startup) else 0)
+    if settle:
+        time.sleep(settle)
+    try:
+        rows, system = measure(args.window, frames_from=args.frames, spawns=args.spawns,
+                               commits_from=args.surfaces)
+    finally:
+        if args.frames:
+            restart_shell(env_unset=["QSG_RENDER_TIMING", "QT_LOGGING_RULES"])
+        elif args.surfaces:
+            restart_shell(env_unset=["WAYLAND_DEBUG"])
+    res["rows"], res["system"] = rows, system
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump(res, f, indent=1)
+    report(res)
+
+
+main()
+PY

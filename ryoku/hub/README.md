@@ -60,10 +60,11 @@ changing a page's look.
 
 ## Sections
 
-- **General** holds language and regional formats, location, fonts, sounds, and
-  the installed icon-theme picker. The icon choice is stored outside the
-  shipped config, applied to GNOME settings plus GTK 3/4, qt6ct and KDE config,
-  and re-projected after an update refreshes those files.
+- **General** holds language and regional formats, location, fonts, sounds, the
+  installed icon-theme picker, and local user accounts. Its Users tab reads the
+  host account capability, keeps standard accounts read-only, and sends
+  administrator changes through `pkexec ryoku-host users`; passwords travel on
+  stdin, never in process arguments.
 - **Displays** detect every connected monitor and arrange them on a drag canvas
   (edges snap), with per-monitor resolution, refresh, scale, Ryoku interface
   scale, bar and desktop-widget visibility, rotation, adaptive sync, mirroring,

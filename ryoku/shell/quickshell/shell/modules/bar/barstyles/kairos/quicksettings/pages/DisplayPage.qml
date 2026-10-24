@@ -29,10 +29,12 @@ Column {
     property var mons: []
     property bool loading: true
     property bool failed: false
-    property var ddcPct: ({})
+    readonly property var ddcPct: page.host ? page.host.ddcBrightness : ({})
     property string expanded: ""
     property var ddcQueue: []
     property string ddcBus: ""
+    property bool initialized: false
+    readonly property int ddcCacheMs: 10000
 
     readonly property var scaleTargets: [1, 1.25, 1.5, 1.75, 2]
 
@@ -74,6 +76,36 @@ Column {
             if (mons[i] && mons[i].label === name) return mons[i].bus;
         return "";
     }
+    function cacheDdc(bus, pct) {
+        if (!page.host || bus === "")
+            return;
+        var next = Object.assign({}, page.host.ddcBrightness || {});
+        var updated = Object.assign({}, page.host.ddcBrightnessAt || {});
+        next[bus] = pct;
+        updated[bus] = Date.now();
+        page.host.ddcBrightness = next;
+        page.host.ddcBrightnessAt = updated;
+    }
+    function cacheMonitors(monitors) {
+        if (!page.host)
+            return;
+        page.host.monitorSnapshot = monitors;
+        page.host.monitorSnapshotValid = true;
+    }
+    function initialize() {
+        if (page.initialized || !page.host)
+            return;
+        page.initialized = true;
+        if (page.host.monitorSnapshotValid) {
+            page.mons = page.host.monitorSnapshot || [];
+            page.loading = false;
+            page.failed = false;
+            page.queueDdcReads();
+            return;
+        }
+        listProc.command = page.monitorCmd(["list"]);
+        listProc.running = true;
+    }
     function brightOf(m) {
         if (page.isInternal(m.name))
             return Devices.backlightAvailable ? Devices.backlightPct / 100 : 0.5;
@@ -89,18 +121,21 @@ Column {
         }
         var bus = page.ddcBusFor(m.name);
         if (bus === "") return;
-        var next = Object.assign({}, page.ddcPct);
-        next[bus] = pct;
-        page.ddcPct = next;
+        page.cacheDdc(bus, pct);
         Devices.setBrightness(bus, pct);
     }
     function queueDdcReads() {
         var q = [];
+        var now = Date.now();
+        var updated = page.host ? (page.host.ddcBrightnessAt || {}) : {};
         for (var i = 0; i < page.mons.length; i++) {
             var m = page.mons[i];
             if (page.isInternal(m.name)) continue;
             var bus = page.ddcBusFor(m.name);
-            if (bus !== "" && page.ddcPct[bus] === undefined) q.push(bus);
+            var fresh = bus !== "" && page.ddcPct[bus] !== undefined
+                && now - Number(updated[bus] || 0) < page.ddcCacheMs;
+            if (bus !== "" && !fresh && q.indexOf(bus) < 0)
+                q.push(bus);
         }
         page.ddcQueue = q;
         Qt.callLater(page.runDdc);
@@ -128,6 +163,8 @@ Column {
         return out;
     }
     function apply() {
+        if (page.host)
+            page.host.monitorSnapshotValid = false;
         applyProc.command = page.monitorCmd(["apply", JSON.stringify(page.specsAll())]);
         applyProc.running = false;
         applyProc.running = true;
@@ -165,6 +202,7 @@ Column {
             try { parsed = JSON.parse(listOut.text); } catch (e) { parsed = null; }
             if (parsed instanceof Array) {
                 page.mons = parsed;
+                page.cacheMonitors(parsed);
                 page.failed = false;
             } else {
                 page.failed = true;
@@ -185,11 +223,8 @@ Column {
         onExited: {
             var bus = page.ddcBus;
             var v = Devices.parseBrightness(ddcOut.text || "");
-            if (bus !== "" && v >= 0) {
-                var next = Object.assign({}, page.ddcPct);
-                next[bus] = v;
-                page.ddcPct = next;
-            }
+            if (bus !== "" && v >= 0)
+                page.cacheDdc(bus, v);
             page.ddcQueue = page.ddcQueue.slice(1);
             Qt.callLater(page.runDdc);
         }
@@ -204,15 +239,11 @@ Column {
     }
     Connections {
         target: Devices
-        function onDdcMonitorsChanged() { page.queueDdcReads(); }
+        function onDdcMonitorsChanged() { Qt.callLater(page.queueDdcReads); }
     }
 
-    Component.onCompleted: {
-        Devices.startProbes(page);
-        listProc.command = page.monitorCmd(["list"]);
-        listProc.running = true;
-    }
-    Component.onDestruction: Devices.stopProbes(page)
+    onHostChanged: page.initialize()
+    Component.onCompleted: page.initialize()
 
     Item {
         width: parent.width

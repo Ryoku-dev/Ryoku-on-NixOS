@@ -37,9 +37,16 @@ source "$SCRIPT_DIR/ryoku-gpu-detect"
 GPU_CONF_DEFAULT="${RYOKU_GPU_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/gpu.lua}"
 # the niri drop-in we write to (included by niri's config.kdl).
 NIRI_CONF_DEFAULT="${RYOKU_GPU_NIRI_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/niri/gpu.kdl}"
-# udev rule destination and its source (rule shipped next to this script).
+# udev rule destination and source. In a checkout the rule lives beside this
+# script; packages put the script on PATH and the rule in udev's vendor dir.
 UDEV_RULE="${RYOKU_GPU_UDEV_RULE:-/etc/udev/rules.d/90-ryoku-gpu.rules}"
-RULE_SRC="${RYOKU_GPU_RULE_SRC:-$SCRIPT_DIR/90-ryoku-gpu.rules}"
+if [[ -n ${RYOKU_GPU_RULE_SRC:-} ]]; then
+  RULE_SRC=$RYOKU_GPU_RULE_SRC
+elif [[ -f $SCRIPT_DIR/90-ryoku-gpu.rules ]]; then
+  RULE_SRC=$SCRIPT_DIR/90-ryoku-gpu.rules
+else
+  RULE_SRC=/usr/lib/udev/rules.d/90-ryoku-gpu.rules
+fi
 
 # ── AQ_DRM_DEVICES value assembly ─────────────────────────────────────────────
 

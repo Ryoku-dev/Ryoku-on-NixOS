@@ -576,11 +576,10 @@ Item {
                         }
 
                         // Dual-image crossfade & scale morph
-                        Image {
+                        StyledImage {
                             id: artImgA
                             anchors.fill: parent
                             fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
                             cache: true
                             antialiasing: true
                             scale: root.artScaleA
@@ -592,11 +591,10 @@ Item {
                             }
                         }
 
-                        Image {
+                        StyledImage {
                             id: artImgB
                             anchors.fill: parent
                             fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
                             cache: true
                             antialiasing: true
                             scale: root.artScaleB
@@ -881,11 +879,10 @@ Item {
                         visible: !vertArtImg.visible || vertArtImg.opacity < 0.05
                     }
 
-                    Image {
+                    StyledImage {
                         id: vertArtImg
                         anchors.fill: parent
                         fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
                         cache: true
                         antialiasing: true
                         source: root.effectiveArtSource

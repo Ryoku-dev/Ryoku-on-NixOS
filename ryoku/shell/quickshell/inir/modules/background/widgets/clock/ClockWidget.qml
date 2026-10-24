@@ -291,8 +291,8 @@ AbstractBackgroundWidget {
             root._digitalRegionBrightness, 1.0);
     }
     readonly property color _inkBackdrop: root._digitalCard ? root.widgetPlateColor
-        : root._digitalHasBrightness ? root._digitalRegionBg
-        : Appearance.colors.colLayer0
+        : root.debugRegionActive ? root._digitalRegionBg
+        : root.accentBackdrop
     readonly property color _digitalBackdrop: root.adaptDigitalToWallpaper
         ? root._inkBackdrop : Appearance.colors.colLayer0
     // Digital text may switch between generated tokens for contrast, but never

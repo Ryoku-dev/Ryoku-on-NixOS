@@ -2,7 +2,68 @@
 
 ## Unreleased
 
+### Added
+- **The Arch, CachyOS and Void ISOs have one edition-appropriate Gaming
+  question.** It sits after Rashin, defaults to No, and is absent on Fedora.
+  Arch offers the network-only, x86-64-v3 **Gaming with CachyOS** set and
+  continues installation if it cannot download. CachyOS keeps Steam and its
+  gaming meta-package from the image; Void keeps Steam and its 32-bit graphics
+  baseline from the image (`installerplan/components.tsv`, `tui/main.go`,
+  `backend/lib/cachyos.sh`).
+- **The installers ask which apps to keep.** The Arch, CachyOS and Void ISOs
+  pick a file manager (Nautilus recommended), ask about Rashin with a short
+  note that its Hermes agent installs at the first login, and list Ryotunes,
+  Ryoport and RyoManager with the other apps and terminal tools. Anything left
+  out is recorded so updates do not bring it back
+  (`installerplan/components.tsv`, `tui/main.go`, `backend/lib/deploy.sh`).
+
 ### Fixed
+- **Reboot now works on the Void ISO.** The done screen's Reboot now and Power
+  off ran `systemctl`, which the Void live medium does not have, so the
+  installer dropped to a shell instead. They run plain `reboot` and `poweroff`
+  now, which systemd and runit both provide (`tui/system.go`).
+- **Rashin is a real choice on Void.** The Void ISO showed Rashin as included
+  and its backend ignored a No, because the Void desktop package required it.
+  The question works the same on every edition now: No leaves `ryoku-rashin`
+  out and records it so updates do not bring it back
+  (`installerplan/components.tsv`, `backend/lib/choices.sh`,
+  `../void/iso/backend/ryoku-install`).
+- **The install-steps rail fits a short console.** With the new questions the
+  step list outgrew an 80x24 console, and the clamp cut off the header and the
+  step's title. The rail now scrolls around the current step and counts the
+  steps above and below it, and answered yes/no steps read "yes" or "no"
+  instead of 1 or 0 (`tui/main.go`).
+- **The Void live medium can join Wi-Fi.** Its NetworkManager drop-in pinned
+  iwd while nothing started iwd, so the installer never saw a network. The live
+  image now supervises `iwd` (`void/iso/post-setup.sh`), the drop-in carries the
+  same name as the Arch medium's (`wifi-backend.conf`) so the TUI reads the
+  backend it pins, and the TUI's wpa_supplicant fallback drives the live
+  supplicants through `sv` under runit instead of `systemctl`
+  (`installation/tui/system.go`).
+- **The CachyOS edition's disk layout starts from CachyOS's sizes.** It
+  defaulted to the Arch edition's 1 GiB ESP and 16 GiB swap; it now starts at a
+  4 GiB ESP and no swap partition, as CachyOS's installer does for Limine
+  (`cachyos-settings` brings zram swap). The Zen browser hint on that edition
+  names the CachyOS repo it installs from instead of the AUR.
+- **The encryption step says what it does.** It no longer mentions a retired
+  "-luks host variant"; the passphrase is asked at every boot.
+- **Installer product choices no longer drift between editions or entry
+  points.** Browser, login-shell and compositor order, labels, defaults,
+  package stacks and fresh/existing shell policies now come from one shared
+  manifest. Void and Fedora availability and refusal reasons come directly
+  from their package translation tables.
+- **The Void installer now accepts legacy BIOS whole-disk installs.** Its
+  hardware card explains the destructive whole-disk requirement, the strategy
+  picker leaves alongside visible but disabled because it needs UEFI and GPT,
+  and Review names the detected firmware mode. Arch and CachyOS remain
+  UEFI-only.
+- **The Void welcome notice matches the packages that ship.** It no longer
+  reports gpk or the Ryoku Oh My Zsh theme as unavailable, identifies the
+  remaining repository gaps, and marks the edition as experimental. Wayfire is
+  also marked experimental in the window-manager picker.
+- **Void installs now include the snapshot safety net.** The snapshot layout is
+  offered and enabled by default, and the completion card points to Limine
+  rollback just like Arch.
 - **A second disk shows its partitions and its free space.** The alongside probe
   returned before reporting anything when the target disk was not GPT or had no
   EFI System Partition, and the free-region math read `firstlba`/`lastlba`, which
@@ -11,8 +72,32 @@
   readable disk now reports its sector size and free regions before the verdict
   gate, MBR free space is computed from the device size, and a non-GPT disk says
   its space is listed but needs GPT (`backend/lib/disk.sh`, `tui/system.go`).
+- **The Discord logo renders in the live installer.** It now uses the Material
+  Design Discord glyph included in the installer's Nerd Font.
 
 ### Added
+- **The installer can be told not to install a browser.** The browser step gains
+  a None option beside Firefox, Chromium and Zen, for a machine that brings its
+  own. Nothing is installed, no default handler is set and the desktop browser
+  role is left unset, so whatever you install afterwards can claim both.
+- **Rashin is a choice in Apps & tools.** The Arch and CachyOS installers list
+  Rashin (the AI agent, its window and the bar's AI usage pill) as a row
+  ticked by default. Unticking it leaves `ryoku-rashin` out of the install and
+  records the choice, so `ryoku doctor` never adds it later. The offline ISO
+  bakes `ryoku-rashin` so a ticked offline install still gets it. The Void
+  installer does not offer the row because its desktop package still requires
+  Rashin.
+- **The Void installer explains the edition before setup begins.** A short card
+  covers niri-only support, unavailable apps, and using `ryoku update --system`
+  because XBPS has no transaction hooks.
+- **Ryoku now builds a native Void live ISO and installer.** The image carries
+  an offline XBPS repository and a Void backend for the target-specific steps,
+  while reusing the neutral disk, filesystem, network, and preflight libraries
+  from the Arch installer.
+- **The shared ISO wizard now follows the live image's package variant.** The
+  welcome card names the Void image, niri remains the installable window
+  manager, choices stay within the XBPS package table, and AUR controls are
+  omitted without changing the Arch flow (`tui/{main,apps,system}.go`).
 - **Pick a window manager, browser, login shell, and optional apps in the
   installer.** Four steps between graphics mode and disk setup choose the
   desktop provider, exactly one browser, exactly one account shell, and the

@@ -41,6 +41,29 @@ func TestParkDue(t *testing.T) {
 	}
 }
 
+func TestNextPaletteParkWait(t *testing.T) {
+	now := time.Unix(1000, 0)
+	grace := 60 * time.Second
+	cases := []struct {
+		name     string
+		hidden   map[string]time.Time
+		eligible map[string]bool
+		want     time.Duration
+	}{
+		{"nothing hidden reconciles slowly", nil, nil, paletteReconcileWait},
+		{"ineligible hidden palette is ignored", map[string]time.Time{"launcher": now.Add(-time.Hour)}, nil, paletteReconcileWait},
+		{"next deadline is exact", map[string]time.Time{"launcher": now.Add(-20 * time.Second)}, map[string]bool{"launcher": true}, 40 * time.Second},
+		{"overdue returns immediately", map[string]time.Time{"overview": now.Add(-grace)}, map[string]bool{"overview": true}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := nextPaletteParkWait(tc.hidden, tc.eligible, grace, now); got != tc.want {
+				t.Fatalf("nextPaletteParkWait = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSetPaletteVisible(t *testing.T) {
 	d := &daemon{hiddenSince: map[string]time.Time{}}
 

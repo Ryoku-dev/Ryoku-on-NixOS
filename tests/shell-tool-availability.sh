@@ -73,7 +73,7 @@ declare -A need=(
   # it, 7c20f7dd; awww was retired with 25a57f57).
   [wallpaper-daemon]=ryogami
   [palette]=matugen
-  [clipboard-history]=cliphist
+  [clipboard-history]=ryoku-shell
   [color-picker]=hyprpicker
   [music-visualizer]=cava
   [led-color]=openrgb
@@ -90,6 +90,11 @@ declare -A need=(
   [night-light-niri]=wlsunset
   [voice-type]=wtype
   [voice-stt]=voxtype-bin
+  # key sounds on niri: the Hub's Window Manager page installs
+  # ryoku-keysounds-niri on demand (the samples come from
+  # ryoku-keysounds-profiles), so neither is a default install but both must
+  # exist in the [ryoku] repo for the button to work.
+  [key-sounds]=ryoku-keysounds-niri
   [media-control]=playerctl
   # the launcher's "@" live radio: mpv plays, mpv-mpris puts it on the players
   # bus (without it every now-playing surface goes blind to the broadcast),

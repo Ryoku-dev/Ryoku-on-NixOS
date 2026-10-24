@@ -117,7 +117,7 @@ UtilityTile {
     function execute(id, alt) {
         switch (id) {
         case "screenSnip":
-            Spawn.run(["sh", "-c", "flock -n -o /tmp/ryoshot.lock qs -c ryoshot"]);
+            Spawn.run(["ryoku-cmd-ryoshot"]);
             break;
         case "screenRecord":
             if (tile.recording)

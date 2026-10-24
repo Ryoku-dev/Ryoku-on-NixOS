@@ -40,13 +40,14 @@ Item {
         radius: thumb.radius
         color: "transparent"
 
-        Image {
+        StyledImage {
             id: picture
             anchors.fill: parent
             source: thumb.image && thumb.path ? UtilityFiles.fileUri(thumb.path) : ""
-            sourceSize: Qt.size(Math.ceil(thumb.width * Math.max(1.5, thumb.renderScale * 1.25)), Math.ceil(thumb.height * Math.max(1.5, thumb.renderScale * 1.25)))
+            sourceSize: Qt.size(
+                Math.ceil(thumb.width * Math.max(1.5, thumb.renderScale * 1.25)),
+                Math.ceil(thumb.height * Math.max(1.5, thumb.renderScale * 1.25)))
             fillMode: Image.PreserveAspectCrop
-            asynchronous: true
             cache: false
             smooth: true
         }

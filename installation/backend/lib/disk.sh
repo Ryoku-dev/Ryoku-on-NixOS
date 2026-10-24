@@ -220,6 +220,8 @@ ryoku_wipe_signatures() {
 ryoku_partition_whole() {
   local disk=$RYOKU_DISK
   local esp_end=$(( 1 + RYOKU_ESP_GIB * 1024 ))   # MiB: 1 MiB align gap + the ESP
+  local bios_mib=${RYOKU_BIOS_BOOT_MIB:-0}
+  local root_partnum=2
 
   # destructive-wipe guard: refuse to zap a disk that already holds partitions
   # (e.g. a Windows install) unless the caller has explicitly acked. the TUI
@@ -234,7 +236,11 @@ ryoku_partition_whole() {
     die 'refusing to wipe %s: it already holds partitions and RYOKU_WIPE_CONFIRMED is not set. Pick '\''alongside'\'' to keep them, or set RYOKU_WIPE_CONFIRMED=1 to wipe explicitly.' "$disk"
   fi
 
-  log 'partitioning %s (whole disk, GPT: %sGiB ESP + root)' "$disk" "${RYOKU_ESP_GIB}"
+  if (( bios_mib > 0 )); then
+    log 'partitioning %s (whole disk, GPT: %sGiB ESP + %sMiB BIOS boot + root)' "$disk" "${RYOKU_ESP_GIB}" "$bios_mib"
+  else
+    log 'partitioning %s (whole disk, GPT: %sGiB ESP + root)' "$disk" "${RYOKU_ESP_GIB}"
+  fi
 
   # free the disk before touching it: on the live medium the target may be held
   # by an auto-mounted partition (udisks), leftover state from a previous run,
@@ -249,18 +255,29 @@ ryoku_partition_whole() {
   run_sh 'udevadm settle 2>/dev/null || true'
   ryoku_wipe_signatures "$disk"
 
-  # fresh GPT: partition 1 = ESP (EF00 == GPT 'esp' flag), partition 2 = root.
+  # fresh GPT: partition 1 = ESP. BIOS-capable callers reserve partition 2 for
+  # Limine's GPT BIOS stage and place root at 3; Arch's default remains root=2.
   run parted --script "$disk" mklabel gpt
   run parted --script "$disk" mkpart ESP fat32 1MiB "${esp_end}MiB"
   run parted --script "$disk" set 1 esp on
-  run parted --script "$disk" mkpart root "${esp_end}MiB" 100%
+  if (( bios_mib > 0 )); then
+    local bios_end=$(( esp_end + bios_mib ))
+    run parted --script "$disk" mkpart BIOSBOOT "${esp_end}MiB" "${bios_end}MiB"
+    run parted --script "$disk" set 2 bios_grub on
+    run parted --script "$disk" mkpart root "${bios_end}MiB" 100%
+    root_partnum=3
+    RYOKU_BIOS_PART=$(part_dev "$disk" 2)
+    export RYOKU_BIOS_PART
+  else
+    run parted --script "$disk" mkpart root "${esp_end}MiB" 100%
+  fi
 
   # let the kernel re-read the new table before touching the partitions.
   run partprobe "$disk"
   run_sh 'udevadm settle || true'
 
   ESP_DEV=$(part_dev "$disk" 1)
-  ROOT_PART=$(part_dev "$disk" 2)
+  ROOT_PART=$(part_dev "$disk" "$root_partnum")
 
   # a fresh GPT can lay these partitions over an older layout, so a stale sig
   # (old LUKS2 header, previous btrfs) can still sit at the start of each. the
@@ -268,6 +285,7 @@ ryoku_partition_whole() {
   # partitions directly. otherwise blkid reports the old type (e.g. crypto_LUKS)
   # and the later mount fails with "unknown filesystem type".
   run wipefs --all "$ESP_DEV"
+  (( bios_mib == 0 )) || run wipefs --all "$RYOKU_BIOS_PART"
   run wipefs --all "$ROOT_PART"
   log 'ESP=%s root partition=%s' "$ESP_DEV" "$ROOT_PART"
 }
@@ -863,6 +881,38 @@ ryoku_part_label() {
   printf '%s' "$lbl"
 }
 
+# ryoku_ntfs_info_state <ntfsresize --info output>: clean, dirty, or unknown.
+# dirty wins over a resize line on purpose: a volume that is hibernated or
+# scheduled for a check must never be shrunk or repartitioned around, whatever
+# else the probe happens to print.
+ryoku_ntfs_info_state() {
+  if grep -qiE 'scheduled for check|volume is dirty|unsafe state|hibernat' <<<"$1"; then
+    printf 'dirty'
+  elif grep -q 'You might resize at' <<<"$1"; then
+    printf 'clean'
+  else
+    printf 'unknown'
+  fi
+}
+
+# ryoku_dirty_ntfs_on <disk>: every NTFS partition on the disk whose volume is
+# hibernated or dirty, one device per line, read-only. Windows Fast Startup and
+# hybrid shutdown leave a volume in this state, and writing a partition table
+# under one is what invites Windows Startup Repair to "fix" the disk on its next
+# boot -- a repair that has deleted fresh Linux partitions outright.
+ryoku_dirty_ntfs_on() {
+  local disk=$1 p fstype info
+  command -v ntfsresize >/dev/null 2>&1 || return 0
+  while IFS= read -r p; do
+    [[ -n $p ]] || continue
+    fstype=$(blkid -o value -s TYPE "$p" 2>/dev/null || true)
+    [[ $fstype == ntfs ]] || continue
+    info=$(ntfsresize --info "$p" 2>&1 || true)
+    [[ $(ryoku_ntfs_info_state "$info") == dirty ]] && printf '%s\n' "$p"
+  done < <(ryoku_partitions "$disk")
+  return 0
+}
+
 # ryoku_part_shrink_info <partdev> <fstype> <sizeMiB>: judge ONE partition's
 # shrinkability, strictly read-only, and print "<usedMiB> <minMiB> <shrinkable> <reason...>".
 # usedMiB/minMiB are -1 when unknown or not shrinkable. the resize probe and the
@@ -872,24 +922,29 @@ ryoku_part_shrink_info() {
   local used=-1 min=-1 shrink=no reason
   case $fstype in
     ntfs)
-      if ! command -v ntfsresize >/dev/null 2>&1; then
-        reason="ntfsresize (ntfsprogs) not installed"
-      else
-        local info min_bytes margin
-        info=$(ntfsresize --info "$dev" 2>&1 || true)
-        if grep -q 'You might resize at' <<<"$info"; then
+      local info state min_bytes margin
+      info=$(ntfsresize --info "$dev" 2>&1 || true)
+      state=$(ryoku_ntfs_info_state "$info")
+      case $state in
+        clean)
           min_bytes=$(grep -o 'You might resize at [0-9]\+ bytes' <<<"$info" | grep -o '[0-9]\+' | head -n1)
           [[ -n $min_bytes ]] || min_bytes=0
           used=$(( (min_bytes + 1048575) / 1048576 ))
           margin=$(( size_mib / 10 )); (( margin < 1024 )) && margin=1024
           min=$(( used + margin ))
           if (( min < size_mib )); then shrink=yes; reason="clean NTFS"; else reason="NTFS already at its minimum size"; fi
-        elif grep -qiE 'scheduled for check|volume is dirty|unsafe state|hibernat' <<<"$info"; then
+          ;;
+        dirty)
           reason="NTFS is dirty (hibernated or Fast Startup): boot Windows, disable Fast Startup, full shutdown"
-        else
-          reason="NTFS could not be probed (ntfsresize --info failed)"
-        fi
-      fi
+          ;;
+        *)
+          if command -v ntfsresize >/dev/null 2>&1; then
+            reason="NTFS could not be probed (ntfsresize --info failed)"
+          else
+            reason="ntfsresize (ntfsprogs) not installed"
+          fi
+          ;;
+      esac
       ;;
     ext4|ext3|ext2)
       local state bs blkcount freeblk mblocks

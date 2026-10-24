@@ -238,6 +238,55 @@ echo '{"monitors":[{"id":"Other|Mon|0","output":"DP-9","mode":"highrr","position
 runA autoscale >/dev/null
 eDP | grep -q 'scale = 2.5' || fail "autoscale recalled a non-matching applied layout"
 
+# --- all enabled outputs unplugged: bring a connected panel back -------------
+# The saved preference keeps the laptop panel off while HDMI is present. Login
+# or hot-unplug with only the panel connected must temporarily enable that panel,
+# then restore the off preference when HDMI returns.
+cat >"$tmp/dock-both.json" <<'JSON'
+[
+  {"name":"eDP-1","make":"Acme","model":"Panel","serial":"P1","width":2560,"height":1600,"refreshRate":165.0,"x":0,"y":0,"scale":1.6,"transform":0,"vrr":false,"disabled":false,"focused":false,"availableModes":["2560x1600@165.000Hz"]},
+  {"name":"HDMI-A-1","make":"Acme","model":"Desk","serial":"D1","width":2560,"height":1440,"refreshRate":144.0,"x":1600,"y":0,"scale":1.0,"transform":0,"vrr":false,"disabled":false,"focused":true,"availableModes":["2560x1440@144.000Hz"]}
+]
+JSON
+cat >"$tmp/dock-panel.json" <<'JSON'
+[
+  {"name":"eDP-1","make":"Acme","model":"Panel","serial":"P1","width":2560,"height":1600,"refreshRate":165.0,"x":0,"y":0,"scale":1.6,"transform":0,"vrr":false,"disabled":false,"focused":true,"availableModes":["2560x1600@165.000Hz"]}
+]
+JSON
+dock_applied="$tmp/dock-applied.json"
+dock_layout='[
+  {"id":"Acme|Panel|P1","output":"eDP-1","mode":"2560x1600@165","position":"0x0","scale":1.6,"transform":0,"vrr":0,"mirror":"none","disabled":true},
+  {"id":"Acme|Desk|D1","output":"HDMI-A-1","mode":"2560x1440@144","position":"1600x0","scale":1,"transform":0,"vrr":0,"mirror":"none","disabled":false}
+]'
+runD() {
+  local fixture="$1"
+  shift
+  RYOKU_MONITOR_JSON="$fixture" RYOKU_MONITORS_CONF="$conf" \
+    RYOKU_MONITORS_DIR="$tmp/none-dock" RYOKU_MONITORS_APPLIED="$dock_applied" "$mon" "$@"
+}
+
+runD "$tmp/dock-both.json" apply "$dock_layout" >/dev/null
+eDP | grep -qF 'disabled = true' || fail "connected HDMI did not keep the panel disabled"
+runD "$tmp/dock-panel.json" autoscale >/dev/null
+eDP | grep -qF 'mode = "2560x1600@165"' || fail "undocked fallback lost the panel mode"
+eDP | grep -qF 'disabled = true' && fail "undocked fallback left every connected output disabled"
+jq -e '.monitors[] | select(.output == "eDP-1") | .disabled == true' "$dock_applied" >/dev/null \
+  || fail "fallback overwrote the saved panel-off preference"
+runD "$tmp/dock-both.json" autoscale >/dev/null
+eDP | grep -qF 'disabled = true' || fail "reconnected HDMI did not restore the panel-off preference"
+# Booted undocked: the disabled panel reports 0x0 and Hyprland adds its FALLBACK
+# placeholder. The placeholder is not a display, so the saved layout still
+# governs and the panel comes back instead of a black screen.
+cat >"$tmp/dock-boot.json" <<'JSON'
+[
+  {"name":"eDP-1","make":"Acme","model":"Panel","serial":"P1","width":0,"height":0,"refreshRate":0,"x":0,"y":0,"scale":1.0,"transform":0,"vrr":false,"disabled":true,"focused":false,"availableModes":["2560x1600@165.000Hz"]},
+  {"name":"FALLBACK","make":"","model":"","serial":"","width":1920,"height":1080,"refreshRate":60.0,"x":0,"y":0,"scale":1.0,"transform":0,"vrr":false,"disabled":false,"focused":true,"availableModes":[]}
+]
+JSON
+runD "$tmp/dock-boot.json" autoscale >/dev/null
+eDP | grep -qF 'mode = "2560x1600@165"' || fail "booting undocked left the panel off behind the FALLBACK output"
+grep -qF '"FALLBACK"' "$conf" && fail "the FALLBACK placeholder was written into monitors.lua"
+
 # --- settle: recover a display a degraded link left below its resolution -------
 # settle re-asserts each output's intended mode from monitors.lua; --check reports
 # drift (exit 1) and changes nothing -- the read-only signal `ryoku doctor` uses.

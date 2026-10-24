@@ -97,7 +97,26 @@ Item {
             mediaUntil = Date.now() + 60000;
         else
             mediaUntil = 0;
+        scheduleExpiry();
     }
+
+    function scheduleExpiry() {
+        const current = Date.now();
+        root.nowMs = current;
+        let next = 0;
+        const noticeEnd = root.newestArrival + 4000;
+        if (!Notifs.dnd && root.newestArrival > 0 && noticeEnd > current)
+            next = noticeEnd;
+        if (!Media.playing && Media.present && root.mediaUntil > current
+                && (next === 0 || root.mediaUntil < next))
+            next = root.mediaUntil;
+        expiryTimer.stop();
+        if (next > 0) {
+            expiryTimer.interval = Math.max(1, Math.ceil(next - current));
+            expiryTimer.start();
+        }
+    }
+
 
     function recompose() {
         if (displayState.length === 0 || K.Style.still) {
@@ -135,9 +154,11 @@ Item {
     }
     onVisibleChanged: syncAudioClaim()
     onNoticeVersionChanged: {
+        scheduleExpiry();
         if (newestArrival > 0 && !Notifs.dnd && displayState === "notice")
             recompose();
     }
+
 
     Component.onCompleted: {
         armMedia();
@@ -164,13 +185,18 @@ Item {
             root.armMedia();
         }
     }
+    Connections {
+        target: Notifs
+        function onDndChanged() { root.scheduleExpiry(); }
+    }
+
 
     Timer {
-        interval: 250
-        repeat: true
-        running: root.visible && (root.mediaRecent || root.noticeFresh)
-        onTriggered: root.nowMs = Date.now()
+        id: expiryTimer
+        repeat: false
+        onTriggered: root.scheduleExpiry()
     }
+
 
     SequentialAnimation {
         id: recomposeAnimation

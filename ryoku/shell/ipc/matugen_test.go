@@ -821,6 +821,11 @@ esac`
 	if err := os.MkdirAll(ryoku, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	bridgeConfig := filepath.Join(ryoku, "palette-bridge", "matugen.toml")
+	if err := os.MkdirAll(filepath.Dir(bridgeConfig), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, bridgeConfig, "[config]\n")
 	darkWall := filepath.Join(home, "dark-wall.png")
 	lightWall := filepath.Join(home, "light-wall.png")
 	writeSolidPNG(t, darkWall, 12)
@@ -866,6 +871,11 @@ esac`
 		}
 		if !strings.Contains(string(logged), c.wantArgs) {
 			t.Errorf("%s: argv log missing expected image call\n want line: %s\n got:\n%s", c.name, c.wantArgs, logged)
+		}
+		carrierPath := filepath.Join(home, ".cache", "ryoku", "matugen-carrier.json")
+		activeBridgeConfig := filepath.Join(home, ".cache", "ryoku", "active-matugen.toml")
+		if want := "-c " + activeBridgeConfig + " json " + carrierPath; !strings.Contains(string(logged), want) {
+			t.Errorf("%s: supplemental integration render missing\n want line: %s\n got:\n%s", c.name, want, logged)
 		}
 
 		var pal map[string]string

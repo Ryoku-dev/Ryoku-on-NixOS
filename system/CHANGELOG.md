@@ -1,6 +1,90 @@
 # Changelog: system/
 
 ## Unreleased
+- **User changes have a narrow administrator authorization.** `pkexec` selects
+  `dev.ryoku.users.manage` only when `/usr/bin/ryoku-host` receives `users` as
+  its first argument, keeps a successful administrator authentication for the
+  session, and leaves every later argument to the helper's typed validation
+  (`policy/dev.ryoku.users.policy`, `policy/54-ryoku-users.rules`).
+
+- **A failed display wake no longer leaves the displays marked off.** When
+  every `ryoku-idle output-on` retry failed, its generation file stayed
+  behind, and the shell's new presence topic reads that file as "displays
+  off" and pauses its readouts. Exhausted retries now clear their own
+  generation, while a newer output-off still wins
+  (`hardware/power/ryoku-idle`, `tests/idle-policy.sh`).
+
+- **The lid daemon sleeps between events.** `ryoku-clamshell daemon` woke
+  every second to check whether its hardware, lid and login1 monitors were
+  still alive. Each monitor now announces its own exit into the daemon's
+  event pipe, so the main loop blocks for a minute at a time and keeps the
+  owner monitor's 3 s grace as a deadline only while that monitor is down; a
+  monitor killed without a chance to announce is still noticed within the
+  minute (`hardware/power/ryoku-clamshell`, `tests/clamshell-policy.sh`).
+
+- **The lid daemon stops forking while it waits.** `ryoku-clamshell daemon`
+  checked its helpers with `awk` twice a second (about 120 launches a minute
+  on a laptop doing nothing) and read its state files with `cat`, `tr`, `id`
+  and `readlink`. Those reads are bash builtins now, so an idle daemon launches
+  nothing; the lid policy is unchanged (`hardware/power/ryoku-clamshell`,
+  `tests/clamshell-policy.sh`).
+
+- **One Bluetooth codec watcher per login.** `ryoku-bt-audio watch` takes a
+  per-user lock, so a compositor reload or a switch no longer leaves a second
+  `pactl subscribe` behind (`hardware/audio/ryoku-bt-audio`).
+
+- **Logging out fully releases the graphical session.** When login1 removes the
+  desktop session, the power lifecycle now stops its graphical session targets
+  as well as Ryoku's services, so the next desktop can start cleanly.
+
+- **Authorization rules survive desktop package upgrades.** Arch, Fedora, and
+  Void ask the running polkit daemon for a full rules reload only after their
+  package transaction has finished writing Ryoku's rules, without restarting
+  the daemon or disconnecting the desktop authentication agent.
+
+- **Service activation now comes from one manifest.** Arch, Fedora, and Void
+  package hooks reconcile the same system service policy, while doctor
+  reconciles each user's session roster without reviving services they disabled.
+  A new systemd unit and runit service become active on update after one
+  `system/services/manifest.tsv` row.
+
+- **System package actions now work on Fedora.** The package helpers and
+  Ryostore route installs, removals, availability checks, and native advice
+  through the DNF host seam instead of assuming pacman. The Fedora installer
+  uses the shared hardware and session helpers, switches GDM to SDDM, and keeps
+  NVIDIA on nouveau in this release.
+- **Void and Fedora share one package-lane resolver.**
+  `system/packages/resolve` reads either edition's translation table for the
+  desktop, development, hardware, session, and compositor lanes.
+
+- **Package cutover waits for the native transaction.** The deferred live
+  session cutover now waits for DNF or RPM work and the XBPS lock as well as
+  pacman's database lock.
+
+- **The system helpers ask the host instead of assuming systemd and pacman.**
+  DNS, the network kill switch, the Wi-Fi backend and region, Docker, the audio
+  restart, 32-bit GPU libraries and the AMD, Intel, Vulkan and NVIDIA driver
+  steps now go through `ryoku-host`, so they behave the same on Void's runit
+  and xbps as on Arch. Arch runs the same commands as before. On Void, NVIDIA
+  installs the generation-correct nonfree branch, matching headers and optional
+  32-bit libraries, then enables early KMS only after the module exists. A
+  pre-initramfs kernel hook restores nouveau automatically when a later DKMS
+  build fails.
+
+- **Void exposes system service health to the desktop doctor.** Its package
+  grants wheel users one passwordless, fixed-argument read-only
+  `ryoku-host svc --system failed` query; every other root action keeps the
+  existing sudo policy.
+
+- **Void keeps live sessions safe through package cutovers and kernel updates.**
+  Runit sessions now use `ryoku-host` transient guards and elogind inhibitors
+  while sleep, lid, lock, and wallpaper owners are replaced. The packaged Void
+  kernel hook also rebuilds the Limine menu after dracut creates or removes an
+  initramfs, so regular `ryoku update` deliveries keep installed systems current.
+
+- **Idle works on Void.** `ryoku-idle` drives swayidle when hypridle is not
+  installed, with the same lock, screen-off and suspend timers, so Void (which
+  packages swayidle, not hypridle) dims, locks and sleeps like Arch.
 
 - **The package power cutover only touches sessions Ryoku runs in.** The
   `ryoku-desktop` hook used to pick up any Wayland session whose compositor has

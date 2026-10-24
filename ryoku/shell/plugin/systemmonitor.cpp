@@ -487,6 +487,33 @@ TemperatureSensor discoverGpuTemperature(const QString& devicePath) {
     }
     return fallback;
 }
+QString discoverHwmonMetric(const QString& devicePath, const QStringList& names) {
+    const QDir hwmon(devicePath + QStringLiteral("/hwmon"));
+    const QFileInfoList devices = hwmon.entryInfoList(QStringList{QStringLiteral("hwmon*")},
+                                                      QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QFileInfo& device : devices) {
+        for (const QString& name : names) {
+            const QString path = device.absoluteFilePath() + '/' + name;
+            if (QFileInfo::exists(path))
+                return path;
+        }
+    }
+    return {};
+}
+
+QString discoverFanPath() {
+    const QDir hwmon(QStringLiteral("/sys/class/hwmon"));
+    const QFileInfoList devices = hwmon.entryInfoList(QStringList{QStringLiteral("hwmon*")},
+                                                      QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QFileInfo& device : devices) {
+        const QString path = device.absoluteFilePath() + QStringLiteral("/fan1_input");
+        quint64 rpm = 0;
+        if (readUnsignedFile(path, rpm))
+            return path;
+    }
+    return {};
+}
+
 
 bool readTemperature(const TemperatureSensor& sensor, double& celsius) {
     if (sensor.inputPath.isEmpty())
@@ -610,6 +637,7 @@ struct GpuReading {
     double percent = 0.0;
     double temperature = 0.0;
     double memoryUsedGiB = 0.0;
+    double powerWatts = 0.0;
     double memoryTotalGiB = 0.0;
     bool available = false;
     bool temperatureAvailable = false;
@@ -639,10 +667,14 @@ public:
                     nvidiaMayBeProbed = false;
             }
         }
+        m_devicePath = best.devicePath;
+        m_selectedDriver = best.driver;
 
         NvmlChoice nvml;
-        if (hasNvidia && nvidiaMayBeProbed && !cancelled())
+        if (hasNvidia && nvidiaMayBeProbed && !cancelled()) {
+            m_nvmlAttempted = true;
             nvml = startNvml();
+        }
         if (nvml.valid) {
             GpuCandidate nvmlCandidate;
             nvmlCandidate.driver = QStringLiteral("nvidia");
@@ -663,17 +695,38 @@ public:
         m_utilizationPath = best.utilizationPath;
         m_memoryUsedPath = best.devicePath + QStringLiteral("/mem_info_vram_used");
         m_memoryTotalPath = best.devicePath + QStringLiteral("/mem_info_vram_total");
-        if (!runtimeSuspended(m_runtimeStatusPath))
+        if (!runtimeSuspended(m_runtimeStatusPath)) {
             m_temperature = discoverGpuTemperature(best.devicePath);
+            m_powerPath = discoverHwmonMetric(
+                best.devicePath, {QStringLiteral("power1_average"), QStringLiteral("power1_input")});
+        }
         m_name = best.name;
         return m_name;
     }
 
-    GpuReading sample() {
+    GpuReading sample(bool includePower) {
         GpuReading reading;
         if (m_backend == Backend::Sysfs) {
             if (runtimeSuspended(m_runtimeStatusPath))
                 return reading;
+            if (m_selectedDriver == QStringLiteral("nvidia") && !m_nvmlAttempted) {
+                m_nvmlAttempted = true;
+                const NvmlChoice nvml = startNvml();
+                if (nvml.valid) {
+                    m_backend = Backend::Nvml;
+                    m_nvmlDevice = nvml.device;
+                    m_name = nvml.name;
+                    return sample(includePower);
+                }
+                stopNvml();
+                m_backend = Backend::Sysfs;
+            }
+            if (m_temperature.inputPath.isEmpty())
+                m_temperature = discoverGpuTemperature(m_devicePath);
+            if (includePower && m_powerPath.isEmpty()) {
+                m_powerPath = discoverHwmonMetric(
+                    m_devicePath, {QStringLiteral("power1_average"), QStringLiteral("power1_input")});
+            }
             if (!m_utilizationPath.isEmpty()) {
                 bool ok = false;
                 const double value = readSmallFile(m_utilizationPath).trimmed().toDouble(&ok);
@@ -689,6 +742,11 @@ public:
                 reading.memoryUsedGiB = static_cast<double>(std::min(used, total)) / BytesPerGiB;
                 reading.memoryTotalGiB = static_cast<double>(total) / BytesPerGiB;
                 reading.memoryAvailable = true;
+            }
+            if (includePower) {
+                quint64 microwatts = 0;
+                if (readUnsignedFile(m_powerPath, microwatts))
+                    reading.powerWatts = static_cast<double>(microwatts) / 1000000.0;
             }
             return reading;
         }
@@ -715,6 +773,11 @@ public:
             reading.memoryTotalGiB = static_cast<double>(memory.total) / BytesPerGiB;
             reading.memoryAvailable = true;
         }
+        if (includePower) {
+            unsigned int powerMilliwatts = 0;
+            if (m_getPowerUsage && m_getPowerUsage(m_nvmlDevice, &powerMilliwatts) == NvmlSuccess)
+                reading.powerWatts = static_cast<double>(powerMilliwatts) / 1000.0;
+        }
         return reading;
     }
 
@@ -728,6 +791,7 @@ private:
     using GetName = NvmlReturn (*)(NvmlDevice, char*, unsigned int);
     using GetMemory = NvmlReturn (*)(NvmlDevice, NvmlMemory*);
     using GetTemperature = NvmlReturn (*)(NvmlDevice, unsigned int, unsigned int*);
+    using GetPowerUsage = NvmlReturn (*)(NvmlDevice, unsigned int*);
 
     struct NvmlChoice {
         NvmlDevice device = nullptr;
@@ -759,6 +823,7 @@ private:
         m_getName = resolve<GetName>("nvmlDeviceGetName");
         m_getMemory = resolve<GetMemory>("nvmlDeviceGetMemoryInfo");
         m_getTemperature = resolve<GetTemperature>("nvmlDeviceGetTemperature");
+        m_getPowerUsage = resolve<GetPowerUsage>("nvmlDeviceGetPowerUsage");
         if (!m_init || !m_shutdown || !m_getCount || !m_getHandle || !m_getUtilization || m_init() != NvmlSuccess) {
             stopNvml();
             return {};
@@ -802,16 +867,20 @@ private:
         m_getName = nullptr;
         m_getMemory = nullptr;
         m_getTemperature = nullptr;
+        m_getPowerUsage = nullptr;
         if (m_nvml.isLoaded())
             m_nvml.unload();
     }
 
     Backend m_backend = Backend::None;
     QString m_name;
+    QString m_devicePath;
+    QString m_selectedDriver;
     QString m_utilizationPath;
     QString m_runtimeStatusPath;
     QString m_memoryUsedPath;
     QString m_memoryTotalPath;
+    QString m_powerPath;
     QStringList m_nvidiaRuntimePaths;
     TemperatureSensor m_temperature;
     QLibrary m_nvml;
@@ -823,8 +892,10 @@ private:
     GetUtilization m_getUtilization = nullptr;
     GetName m_getName = nullptr;
     GetMemory m_getMemory = nullptr;
+    GetPowerUsage m_getPowerUsage = nullptr;
     GetTemperature m_getTemperature = nullptr;
     bool m_nvmlInitialized = false;
+    bool m_nvmlAttempted = false;
 };
 
 struct NetworkCounters {
@@ -850,6 +921,10 @@ bool ignoredNetworkInterface(const QString& name) {
 // second: live without the jitter of a quarter-second window.
 class NetworkSampler {
 public:
+    NetworkSampler(int windowSamples, bool includeVirtual)
+        : m_windowSamples(std::max(1, windowSamples))
+        , m_includeVirtual(includeVirtual) {}
+
     NetworkReading sample(qint64 monotonicMs) {
         QFile file(QStringLiteral("/proc/net/dev"));
         if (!file.open(QIODevice::ReadOnly)) {
@@ -865,8 +940,10 @@ public:
             if (colon < 0)
                 continue;
             const QString name = QString::fromLatin1(line.first(colon)).trimmed();
-            if (name.isEmpty() || ignoredNetworkInterface(name))
+            if (name.isEmpty() || name == QStringLiteral("lo")
+                || (!m_includeVirtual && ignoredNetworkInterface(name))) {
                 continue;
+            }
             const QList<QByteArray> fields = line.sliced(colon + 1).simplified().split(' ');
             if (fields.size() < 16)
                 continue;
@@ -912,7 +989,7 @@ public:
             }
         }
         m_window.append(std::move(current));
-        while (m_window.size() > SystemMonitor::RateWindowSamples + 1)
+        while (m_window.size() > m_windowSamples + 1)
             m_window.removeFirst();
         return reading;
     }
@@ -924,6 +1001,8 @@ private:
     };
 
     QVector<Snapshot> m_window;
+    int m_windowSamples = 1;
+    bool m_includeVirtual = false;
 };
 
 bool ignoredBlockDevice(const QString& name) {
@@ -939,7 +1018,8 @@ struct DiskReading {
 
 class DiskSampler {
 public:
-    DiskSampler() {
+    explicit DiskSampler(int windowSamples)
+        : m_windowSamples(std::max(1, windowSamples)) {
         const QDir blocks(QStringLiteral("/sys/block"));
         const QFileInfoList entries = blocks.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
         for (const QFileInfo& entry : entries) {
@@ -1008,7 +1088,7 @@ public:
             }
         }
         m_window.append(std::move(current));
-        while (m_window.size() > SystemMonitor::RateWindowSamples + 1)
+        while (m_window.size() > m_windowSamples + 1)
             m_window.removeFirst();
         return reading;
     }
@@ -1026,6 +1106,7 @@ private:
 
     QHash<QString, quint64> m_blockSizes;
     QVector<Snapshot> m_window;
+    int m_windowSamples = 1;
 };
 
 struct BatterySensor {
@@ -1088,6 +1169,55 @@ void SystemMonitor::setActive(bool active) {
     m_workerWake.notify_all();
 }
 
+void SystemMonitor::setSamplePeriodMs(int periodMs) {
+    periodMs = std::clamp(periodMs, 100, 60000);
+    if (m_samplePeriodMs.load(std::memory_order_relaxed) == periodMs)
+        return;
+
+    m_samplePeriodMs.store(periodMs, std::memory_order_relaxed);
+    m_generation.fetch_add(1, std::memory_order_relaxed);
+    clearValues();
+    emit samplesChanged();
+    emit samplePeriodMsChanged();
+    m_workerWake.notify_all();
+}
+
+void SystemMonitor::setHistoryLimit(int limit) {
+    limit = std::clamp(limit, 0, 4096);
+    if (m_historyLimit == limit)
+        return;
+    m_historyLimit = limit;
+    const auto trim = [limit](QVariantList& history) {
+        while (history.size() > limit)
+            history.removeFirst();
+    };
+    trim(m_cpuHistory);
+    trim(m_networkRxHistory);
+    trim(m_networkTxHistory);
+    emit historyLimitChanged();
+    emit samplesChanged();
+}
+
+void SystemMonitor::appendHistory(QVariantList& history, double value) {
+    if (m_historyLimit <= 0)
+        return;
+    history.append(QVariant::fromValue(value));
+    while (history.size() > m_historyLimit)
+        history.removeFirst();
+}
+
+void SystemMonitor::setIncludeVirtualNetwork(bool include) {
+    if (m_includeVirtualNetwork.load(std::memory_order_relaxed) == include)
+        return;
+    m_includeVirtualNetwork.store(include, std::memory_order_relaxed);
+    m_generation.fetch_add(1, std::memory_order_relaxed);
+    clearValues();
+    emit samplesChanged();
+    emit includeVirtualNetworkChanged();
+    m_workerWake.notify_all();
+}
+
+
 void SystemMonitor::clearValues() {
     m_cpuPercent = 0.0;
     m_memoryPercent = 0.0;
@@ -1095,6 +1225,8 @@ void SystemMonitor::clearValues() {
     m_cpuAvailable = false;
     m_memoryAvailable = false;
     m_gpuAvailable = false;
+    m_gpuPowerWatts = 0.0;
+    m_fanRpm = 0.0;
     m_cpuName.clear();
     m_gpuName.clear();
     m_userName.clear();
@@ -1151,14 +1283,18 @@ void SystemMonitor::startWorker() {
                 return stop.stop_requested() || !m_workerActive.load(std::memory_order_acquire)
                     || generation != m_generation.load(std::memory_order_relaxed);
             };
+            const int periodMs = m_samplePeriodMs.load(std::memory_order_relaxed);
+            const int rateWindowSamples = std::max(1, (1000 + periodMs - 1) / periodMs);
+            const bool includeVirtualNetwork = m_includeVirtualNetwork.load(std::memory_order_relaxed);
 
             const QVector<HwmonTemperature> hwmonTemperatures = discoverHwmonTemperatures();
             const TemperatureSensor cpuTemperature = discoverCpuTemperature(hwmonTemperatures);
             const TemperatureSensor storageTemperature = discoverStorageTemperature(hwmonTemperatures);
             const QVector<FrequencySource> frequencySources = discoverFrequencySources();
             const BatterySensor batterySensor = discoverBattery();
-            DiskSampler disk;
-            NetworkSampler network;
+            const QString fanPath = discoverFanPath();
+            DiskSampler disk(rateWindowSamples);
+            NetworkSampler network(rateWindowSamples, includeVirtualNetwork);
             GpuSampler gpu;
             if (cancelled())
                 continue;
@@ -1185,6 +1321,8 @@ void SystemMonitor::startWorker() {
                 bool cpuTempAvailable = false;
                 double storageTemp = 0.0;
                 bool storageTempAvailable = false;
+                double gpuPowerWatts = 0.0;
+                double fanRpm = 0.0;
                 BatteryReading battery;
                 LoadReading load;
                 StorageReading storage;
@@ -1218,7 +1356,7 @@ void SystemMonitor::startWorker() {
                 }
                 result.coreCount = cpu.cores.size();
                 cpuWindow.append(std::move(cpu));
-                while (cpuWindow.size() > RateWindowSamples + 1)
+                while (cpuWindow.size() > rateWindowSamples + 1)
                     cpuWindow.removeFirst();
                 result.cpuFrequencyGhz = readMeanFrequencyGhz(frequencySources);
 
@@ -1230,13 +1368,16 @@ void SystemMonitor::startWorker() {
                 result.swapTotalGiB = memory.swapTotalGiB;
                 result.memoryAvailable = memory.available;
 
-                if (tick % RateWindowSamples == 0) {
+                const bool refreshSlow = tick % rateWindowSamples == 0;
+                if (refreshSlow) {
                     slow.load = readLoad();
                     slow.cpuTempAvailable = readTemperature(cpuTemperature, slow.cpuTemp);
                     slow.storageTempAvailable = readTemperature(storageTemperature, slow.storageTemp);
                     slow.battery = readBattery(batterySensor);
                     slow.uptimeSeconds = readUptimeSeconds();
                     slow.storage = readRootStorage();
+                    quint64 fanRpm = 0;
+                    slow.fanRpm = readUnsignedFile(fanPath, fanRpm) ? static_cast<double>(fanRpm) : 0.0;
                 }
                 ++tick;
                 result.loadAverage = slow.load.average;
@@ -1253,7 +1394,7 @@ void SystemMonitor::startWorker() {
                 result.storageUsedGiB = slow.storage.usedGiB;
                 result.storageTotalGiB = slow.storage.totalGiB;
 
-                const GpuReading gpuReading = gpu.sample();
+                const GpuReading gpuReading = gpu.sample(refreshSlow);
                 result.gpuPercent = gpuReading.percent;
                 result.gpuAvailable = gpuReading.available;
                 result.gpuTemp = gpuReading.temperature;
@@ -1261,6 +1402,10 @@ void SystemMonitor::startWorker() {
                 result.gpuMemoryUsedGiB = gpuReading.memoryUsedGiB;
                 result.gpuMemoryTotalGiB = gpuReading.memoryTotalGiB;
                 result.gpuMemoryAvailable = gpuReading.memoryAvailable;
+                if (refreshSlow)
+                    slow.gpuPowerWatts = gpuReading.powerWatts;
+                result.gpuPowerWatts = slow.gpuPowerWatts;
+                result.fanRpm = slow.fanRpm;
 
                 const NetworkReading networkReading = network.sample(result.monotonicMs);
                 result.networkRxBytesPerSec = networkReading.receivedPerSecond;
@@ -1278,10 +1423,10 @@ void SystemMonitor::startWorker() {
                         this, [this, generation, result] { applySample(generation, result); }, Qt::QueuedConnection);
                 }
 
-                nextSample += std::chrono::milliseconds(SamplePeriodMs);
+                nextSample += std::chrono::milliseconds(periodMs);
                 const auto finished = Clock::now();
                 if (nextSample <= finished)
-                    nextSample = finished + std::chrono::milliseconds(SamplePeriodMs);
+                    nextSample = finished + std::chrono::milliseconds(periodMs);
                 std::unique_lock sampleLock(m_workerMutex);
                 m_workerWake.wait_until(sampleLock, stop, nextSample, [this, generation] {
                     return !m_workerActive.load(std::memory_order_acquire)
@@ -1321,6 +1466,8 @@ void SystemMonitor::applySample(quint64 generation, const SampleResult& result) 
     m_cpuAvailable = result.cpuAvailable;
     m_memoryAvailable = result.memoryAvailable;
     m_gpuAvailable = result.gpuAvailable;
+    m_gpuPowerWatts = result.gpuPowerWatts;
+    m_fanRpm = result.fanRpm;
     m_uptimeSeconds = result.uptimeSeconds;
     m_memoryUsedGiB = result.memoryUsedGiB;
     m_memoryTotalGiB = result.memoryTotalGiB;
@@ -1349,6 +1496,12 @@ void SystemMonitor::applySample(quint64 generation, const SampleResult& result) 
     m_networkRxBytesPerSec = result.networkRxBytesPerSec;
     m_networkTxBytesPerSec = result.networkTxBytesPerSec;
     m_networkAvailable = result.networkAvailable;
+    if (result.cpuAvailable)
+        appendHistory(m_cpuHistory, result.cpuPercent / 100.0);
+    if (result.networkAvailable) {
+        appendHistory(m_networkRxHistory, result.networkRxBytesPerSec);
+        appendHistory(m_networkTxHistory, result.networkTxBytesPerSec);
+    }
     m_networkInterface = result.networkInterface;
     m_diskReadBytesPerSec = result.diskReadBytesPerSec;
     m_diskWriteBytesPerSec = result.diskWriteBytesPerSec;

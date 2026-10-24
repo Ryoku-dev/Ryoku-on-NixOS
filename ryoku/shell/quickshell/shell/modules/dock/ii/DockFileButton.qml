@@ -299,15 +299,14 @@ DockButton {
                 maskSource: iconMask
             }
 
-            Image {
+            StyledImage {
                 id: thumbnailImage
                 anchors.fill: parent
                 visible: root.isImage
                 source: root.isImage ? ("file://" + root.filePath) : ""
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
-                cache: true
                 sourceSize: Qt.size(root.buttonSize * 2, root.buttonSize * 2)
+                fillMode: Image.PreserveAspectCrop
+                cache: true
 
                 layer.enabled: true
                 layer.effect: OpacityMask {

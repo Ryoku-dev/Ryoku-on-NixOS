@@ -149,34 +149,102 @@ Singleton {
     function _run() {
         if (!root._pending)
             return;
-        // Save to the Screenshots folder for file / both, or whenever beautify
-        // needs a real file to hand off; a pure clipboard shot writes a throwaway.
+        var pending = root._pending;
+        root._pending = null;
         var saveToFolder = root._save !== "clipboard" || root._beautify;
         root._outPath = saveToFolder
             ? (root.shotsDir + "/" + root._stamp() + "_screenshot.png")
             : "/tmp/ryoku-shot-clipboard.png";
-        // Detached so wl-copy's clipboard daemon outlives this call: a managed
-        // Process reaps its child tree on exit, which kills that daemon and the
-        // selection vanishes even though grim's file is written. grim, the
-        // clipboard write, the shutter cue, the toast and the beautify hand-off all
-        // run in one detached shell. A failed grim is silent (matches the
-        // reference). $1 flag, $2 value, $3 out, $4 mode, $5 clip, $6 beautify.
-        var script = [
-            'FLAG="$1"; VAL="$2"; OUT="$3"; MODE="$4"; CLIP="$5"; BEAUTIFY="$6"',
-            'mkdir -p "$(dirname "$OUT")" 2>/dev/null || true',
-            'if [ -n "$FLAG" ]; then grim "$FLAG" "$VAL" "$OUT"; else grim "$OUT"; fi || exit 0',
-            '[ -n "$CLIP" ] && ryoku-shell clip-copy image/png "$OUT"',
-            'ryoku-shell sound shutter >/dev/null 2>&1 || true',
-            'case "$MODE" in',
-            'clipboard) notify-send -a ryoku "Screenshot copied to clipboard" >/dev/null 2>&1 || true ;;',
-            'file) notify-send -a ryoku "Screenshot saved" "Saved to $OUT" >/dev/null 2>&1 || true ;;',
-            '*) notify-send -a ryoku "Screenshot saved & copied" "Saved to $OUT" >/dev/null 2>&1 || true ;;',
-            'esac',
-            '[ -n "$BEAUTIFY" ] && RYOSHOT_OPEN="$OUT" flock -n -o /tmp/ryoshot.lock qs -c ryoshot >/dev/null 2>&1 || true'
-        ].join("\n");
-        Spawn.run(["sh", "-c", script, "sh",
-            root._pending.flag, root._pending.val, root._outPath, root._save,
-            (root._save === "both" || root._save === "clipboard") ? "1" : "",
-            root._beautify ? "1" : ""]);
+        captureProc.mode = root._save;
+        captureProc.outputPath = root._outPath;
+        captureProc.savedPath = saveToFolder ? root._outPath : "";
+        captureProc.beautify = root._beautify;
+        captureProc.copyWanted = root._save === "both" || root._save === "clipboard";
+        captureProc.command = ["sh", "-c",
+            "mkdir -p \"$(dirname \"$3\")\" 2>/dev/null || true; "
+                + "if [ -n \"$1\" ]; then exec ryoku-cmd-grim \"$1\" \"$2\" \"$3\"; else exec ryoku-cmd-grim \"$3\"; fi",
+            "sh", pending.flag, pending.val, root._outPath];
+        captureProc.running = true;
+    }
+
+    function _notify(title, body) {
+        Spawn.run(body.length > 0
+            ? ["notify-send", "-a", "ryoku", title, body]
+            : ["notify-send", "-a", "ryoku", title]);
+    }
+
+    function _finishCapture(mode, outputPath, savedPath, beautify, copied, detail) {
+        Spawn.run(["ryoku-shell", "sound", "shutter"]);
+        if (!copied) {
+            var reason = String(detail || "").trim();
+            if (reason.length === 0) reason = I18n.tr("Clipboard command failed");
+            if (savedPath.length > 0)
+                root._notify(I18n.tr("Screenshot saved, but not copied"),
+                    I18n.tr("Saved to %1. %2").arg(savedPath).arg(reason));
+            else
+                root._notify(I18n.tr("Could not copy to clipboard"), reason);
+        } else if (mode === "clipboard") {
+            root._notify(I18n.tr("Screenshot copied to clipboard"), "");
+        } else if (mode === "file") {
+            root._notify(I18n.tr("Screenshot saved"),
+                I18n.tr("Saved to %1").arg(outputPath));
+        } else {
+            root._notify(I18n.tr("Screenshot saved & copied"),
+                I18n.tr("Saved to %1").arg(outputPath));
+        }
+        if (beautify)
+            Spawn.run(["env", "RYOSHOT_OPEN=" + outputPath, "ryoku-cmd-ryoshot"]);
+    }
+
+    Process {
+        id: captureProc
+        environment: Spawn.env
+        property string mode: ""
+        property string outputPath: ""
+        property string savedPath: ""
+        property bool beautify: false
+        property bool copyWanted: false
+
+        onExited: (code) => {
+            if (code !== 0)
+                return;
+            if (copyWanted)
+                captureClipCopy.start(outputPath, mode, savedPath, beautify);
+            else
+                root._finishCapture(mode, outputPath, savedPath, beautify, true, "");
+        }
+    }
+
+    Process {
+        id: captureClipCopy
+        environment: Spawn.env
+        property string mode: ""
+        property string outputPath: ""
+        property string savedPath: ""
+        property bool beautify: false
+        stderr: StdioCollector { id: captureClipCopyErr; waitForEnd: true }
+
+        function start(path, mode_, savedPath_, beautify_) {
+            mode = mode_;
+            outputPath = path;
+            savedPath = savedPath_;
+            beautify = beautify_;
+            command = ["ryoku-shell", "clip-copy", "image/png", path];
+            running = true;
+        }
+
+        onExited: (code) => {
+            var finishedMode = mode;
+            var finishedPath = outputPath;
+            var finishedSavedPath = savedPath;
+            var finishedBeautify = beautify;
+            var detail = captureClipCopyErr.text.trim();
+            mode = "";
+            outputPath = "";
+            savedPath = "";
+            beautify = false;
+            root._finishCapture(finishedMode, finishedPath, finishedSavedPath,
+                finishedBeautify, code === 0, detail);
+        }
     }
 }

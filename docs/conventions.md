@@ -44,6 +44,22 @@ same variables from its own environment at startup, in its module's
 `crashenv.go`. Three programs, three modules, one rule: the process that spawns
 `qs` owns the hygiene, so no call site has to remember it.
 
+## An image never decodes at its own size
+
+An `Image` that sets `sourceSize` from its `width` must get that width from
+somewhere other than the image: anchors, an explicit size, or a layout slot
+that keeps it while it loads. With no outside size, `width` is the decoded
+width, so `sourceSize: width * devicePixelRatio` asks for a bigger image on
+every load at a fractional scale. A dock scoreboard did that with two team
+logos and took the shell to 40 GiB in a minute. Use `StyledImage` (ii dock and
+stage), which keeps its last request while the image sizes itself and caps it
+at the window; anything else follows the same rule.
+
+The `ryoku-shell` daemon is the backstop (`ipc/memwatch.go`): a supervised `qs`
+whose resident plus swapped memory passes a quarter of RAM (never less than
+3 GiB) is killed and respawned with a growing delay, and the daemon logs why to
+the journal.
+
 ## System logic is a named helper
 
 Anything with real shell logic is a `ryoku-<thing>` script in

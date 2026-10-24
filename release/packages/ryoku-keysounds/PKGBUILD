@@ -2,8 +2,7 @@
 #
 # ryoku-keysounds: Ryoku's own Hyprland compositor plugin, a keyboard sound on
 # every key press (ryoku/hyprland/plugins/keysounds). Installed as keysounds.so
-# under /usr/lib/hyprland/plugins/ with the sample profiles under
-# /usr/share/ryoku/keysounds/, loaded by the Hub's generated settings.lua
+# under /usr/lib/hyprland/plugins/, loaded by the Hub's generated settings.lua
 # (Plugins page, Key sounds) via hl.plugin.load.
 #
 # Hyprland plugins are ABI-locked to the compositor. This one lives in the
@@ -14,23 +13,20 @@
 # so a box without a checkout can rebuild it for a newer Hyprland
 # (`ryoku-hub desktop plugins rebuild keysounds`).
 #
-# The sample profiles are real switch recordings cut from the MIT-licensed
-# Mechvibes packs (github.com/hainguyents13/mechvibes, src/audio), fetched here
-# as a pinned git source and cut by ryoku-keysounds-import (ryoku-desktop ships
-# that tool too, for a user's own packs). The plugin itself builds from the
-# in-repo source; the Makefile pins the same Mechvibes commit for a build that
-# has no makepkg.
+# The sample profiles and the importer are their own package now
+# (ryoku-keysounds-profiles), shared with niri's key-sounds engine: one copy of
+# /usr/share/ryoku/keysounds serves both, and installing both variants never
+# conflicts. The plugin reads them at runtime from that path.
 pkgname=ryoku-keysounds
 pkgver=${RYOKU_PKGVER:-0.1.0}
 pkgrel=1
 pkgdesc="Hyprland plugin: a keyboard sound on every key press, real switch recordings"
 arch=('x86_64')
 url="https://ryoku.dev"
-license=('GPL-3.0-or-later' 'MIT')
-depends=('hyprland' 'libcanberra')
-makedepends=('hyprland' 'pkgconf' 'make' 'gcc' 'git' 'python' 'ffmpeg' 'pixman' 'libdrm')
-source=("mechvibes::git+https://github.com/hainguyents13/mechvibes.git#commit=326252a13e7bef4f1c35d08ef0189b5af6f8ba02")
-sha256sums=('SKIP')
+license=('GPL-3.0-or-later')
+depends=('hyprland' 'libcanberra' "ryoku-keysounds-profiles=$pkgver")
+makedepends=('hyprland' 'pkgconf' 'make' 'gcc' 'libcanberra' 'pixman' 'libdrm')
+source=()
 
 _repo="$startdir/../../.."
 _src="$_repo/ryoku/hyprland/plugins/keysounds"
@@ -48,22 +44,19 @@ _abi() {
 }
 
 build() {
-  # build a copy so the checkout stays clean
+  # build a copy so the checkout stays clean; the samples are already installed
+  # by ryoku-keysounds-profiles, so only the .so is built here.
   rm -rf "$srcdir/keysounds"
   cp -a "$_src" "$srcdir/keysounds"
-  make -C "$srcdir/keysounds" all \
-    MECHVIBES="$srcdir/mechvibes" \
-    IMPORTER="$_repo/ryoku/hyprland/scripts/ryoku-keysounds-import"
+  make -C "$srcdir/keysounds" keysounds.so
 }
 
 package() {
   install -Dm755 "$srcdir/keysounds/keysounds.so" "$pkgdir/usr/lib/hyprland/plugins/keysounds.so"
   _abi | install -Dm644 /dev/stdin "$pkgdir/usr/lib/hyprland/plugins/keysounds.abi"
-  install -d "$pkgdir/usr/share/ryoku/keysounds"
-  cp -a "$srcdir/keysounds/sounds/." "$pkgdir/usr/share/ryoku/keysounds/"
-  install -Dm644 "$srcdir/mechvibes/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.mechvibes"
-  # the recipe, for a rebuild on a box with no checkout
+  # the recipe, for a rebuild on a box with no checkout. profiles.txt stays with
+  # the shared samples package, so `make keysounds.so` is the shipped recipe.
   install -d "$pkgdir/usr/share/ryoku/hypr-plugins/keysounds"
   install -Dm644 -t "$pkgdir/usr/share/ryoku/hypr-plugins/keysounds" \
-    "$_src/main.cpp" "$_src/Makefile" "$_src/hyprpm.toml" "$_src/profiles.txt" "$_src/README.md"
+    "$_src/main.cpp" "$_src/Makefile" "$_src/hyprpm.toml" "$_src/README.md"
 }

@@ -12,7 +12,7 @@ QtObject {
     readonly property var dock: ({
         enable: Ryoku.Dock.cfg("enabled", false) && Ryoku.Dock.design === "shima",
         position: Ryoku.Dock.cfg("edge", "auto"),
-        autoHide: Ryoku.Dock.cfg("autohide", true),
+        autoHide: Ryoku.Dock.cfg("autohide", false),
         iconSize: Ryoku.Dock.cfg("size", 44),
         magnification: Ryoku.Dock.cfg("magnify", true),
         notch: Ryoku.Dock.designCfg("shima", "notch", true),

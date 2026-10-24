@@ -37,12 +37,11 @@ helps when you want to change something.
 | Super+Shift+S | Screenshot and recording action bar |
 | Super+L | Lockscreen |
 | Alt+Space | Rashin bar |
-| Super+K | Keybind cheatsheet |
+| Super+K | Kit: keys, commands, phone, developer tools, and typing test |
 
 The keybind editor in Ryoku Hub is the source to use when a chord should change.
-The cheatsheet is the quickest way to discover the rest. Provider-specific
-shortcuts get their own section without making the shell depend on that
-provider.
+Kit is the quickest way to discover the rest: Keys, Commands, Phone, Dev tools,
+and Typing test share the same search field.
 
 ## Settings have clear homes
 

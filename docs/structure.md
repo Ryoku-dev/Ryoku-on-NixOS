@@ -19,21 +19,22 @@ truth for the live desktop.
   (LazyVim), `yazi/`, `starship/`, `nautilus/`, `npm/` (`npmrc`), `pip/`
   (`pip.conf`), `hyprland-preview-share-picker/` (the screen-share source
   chooser xdph launches). `mimeapps.list` sets the default apps and ships to
-  `/usr/share/applications/mimeapps.list`, the lowest XDG layer, so a user's own
-  `~/.config/mimeapps.list` (what "Set as default" writes) always wins;
+  `/usr/local/share/applications/mimeapps.list`, the site layer: below a user's
+  own `~/.config/mimeapps.list` (what "Set as default" writes), which always
+  wins, and above the distro's, which no Ryoku package should fight over.
   `chromium-flags.conf` pins Chromium's keyring and Wayland backend.
 - `hyprland/` the Hyprland config, authored in **Lua**. `hyprland.lua` is the
   entry point and `require`s each module. `keyboard.lua`, `gpu.lua`,
   `monitors.lua` are hardware-managed seeds, and `monitors_user.lua.example` shows
   how to hand-pin a display that autoscale must leave alone. `modules/` is one concern per file
   (`env`, `input`, `displays`, `decoration`, `animations`, `binds`, `ryoshot`,
-  `window_rules`, `fullscreen`, `autostart`). `scripts/` holds the leaf shell helpers the UI
-  calls directly: the `ryoku-cmd-*` screen tools (lens, OCR, color, QR, webcam
-  mirror, screen record, night light, caffeine) plus the stash sidebar's
-  download, compress, and install helpers and `ryoku-sysinfo`. `hypridle.conf`
-  is the idle daemon's native config. `plugins/` holds the one compositor
-  plugin Ryoku authors, `keysounds` (C++ against the Hyprland plugin API, with
-  its `hyprpm.toml` recipe and the sample generator; see
+  `window_rules`, `fullscreen`, `autostart`). `scripts/` holds Hyprland's own
+  leaf helpers, the ones bound to the compositor: `ryoku-monitor` (output
+  arrangement) and `ryoku-workspace`. The neutral screen and UI helpers the
+  shell drives by bare name (the `ryoku-cmd-*` tools, `ryoku-sysinfo`, the
+  recorder chain) moved to the shell tree, so every compositor ships them.
+  `plugins/` holds the one compositor plugin Ryoku authors, `keysounds` (C++
+  against the Hyprland plugin API, with its `hyprpm.toml` recipe; see
   `docs/hyprland-plugins.md`); it ships as a package, not with the config. The
   rest of the directory deploys to `~/.config/hypr/`.
 - `niri/` the niri config, authored in **KDL**. `config.kdl` is the entry point
@@ -45,6 +46,13 @@ truth for the live desktop.
   `modules/` and no `scripts/`, since the neutral settings come from the store
   and the keybind helpers are shell verbs. It deploys to `~/.config/niri/`.
   See `docs/compositors.md`.
+- `keysounds/` the key-press sounds both compositors share: `profiles.txt`
+  (the Mechvibes packs the eleven shipped profiles are cut from) and
+  `ryoku-keysounds-import`, the tool a user runs on any pack from mechvibes.com.
+  `main.rs` is the standalone engine niri runs in place of Hyprland's plugin: it
+  reads the keyboard from evdev and plays through libcanberra, no crates. The
+  Hyprland plugin reads the same samples; `usage.md` is the user's guide. See
+  `docs/hyprland-plugins.md`.
 - `lockscreen/` `qylock/` (the lock theme and its quickshell lockscreen),
   `install-qylock`, and `sddm/` (the greeter setup).
 - `shell/` the desktop shell subsystem: `quickshell/` (the QML UI. Every surface
@@ -88,10 +96,11 @@ truth for the live desktop.
   primitives, and the wallpaper palette. It also hosts the desktop spectrum
   renderer, so the wallpaper and the Hub preview draw one geometry:
   `SpectrumField.qml` with the analytic `shaders/spectrum.frag(.qsb)` pass draws
-  every look, `Singletons/VizStyles.qml` is the single catalogue of the eleven
+  the boxed looks, `AuraField.qml` with `shaders/aura.frag(.qsb)` draws the edge
+  field, `Singletons/VizStyles.qml` is the single catalogue of the twelve
   looks, and `lib/spectrum.js` (with `spectrum.test.mjs` beside it) is the pure
   band math, `lib/place.js` (with `place.test.mjs`) the placement math for a box that turns
-  and leans.
+  and leans, `lib/aura.js` (with `aura.test.mjs`) the sector folding for the field.
   Installs to `/usr/lib/qt6/qml/Ryoku/Ui`.
 - `i18n/` the translation catalog and the three runtimes that read it. English
   source strings are the keys, so a developer only ever writes English and a
@@ -104,22 +113,23 @@ truth for the live desktop.
   QML AST wrapper. Installs to `/usr/share/ryoku/i18n`, which the QML singleton
   (`ui/Singletons/I18n.qml`), the Go runtime and the installer's shell
   (`installation/backend/lib/i18n.sh`) all read. See `docs/i18n.md`.
-- `cli/` the user-facing control CLI, one Go program (`ryoku`): `update`,
-  `rollback`, `snapshots`, `status`, `materialize` (lay the base configs into
-  `~/.config`), and `reload`. It orchestrates pacman, yay, and snapper; it does
-  not reimplement them. `main.go` is a thin dispatcher over the concerns under
-  `internal/`: `updater` (update, status, rollback, channel, run-state,
-  materialize, version), `doctor` (the convergent reconcilers, report, and
-  `--explain`), and `sys` (the shared exec/package/path/terminal primitives,
-  defined once). Per-command reference, user- vs developer-facing, in
-  `docs/cli.md`.
+- `cli/` the user-facing control CLI and the host seam. `ryoku` provides
+  `update`, `rollback`, `snapshots`, `status`, `materialize`, and `reload`;
+  `main.go` is a thin dispatcher over `internal/updater`, `internal/doctor`, and
+  the shared primitives in `internal/sys`. `cmd/ryoku-host` builds
+  `/usr/bin/ryoku-host`, the one runtime boundary for init-system and package
+  manager operations. Its implementation in `internal/host` selects systemd or
+  runit and pacman, XBPS, or DNF, so scripts, daemons, QML, and other Go modules
+  do not grow host checks. Per-command reference, user- vs developer-facing, is
+  in `docs/cli.md`.
 - `hub/` Ryoku Settings, the central control-center GUI (`Super + ,`): `backend/`
   (`ryoku-hub`, the Go data plane that reads the keybind legend from the live
   Hyprland config, generates the `settings.lua` overlay (in `user_edits`) from JSON, and
-  persists hub state as TOML; it also speaks the OpenRGB SDK, so the Lighting tab
-  drives keyboards and mice per device) and `quickshell/` (the native Qt6/QML app,
+  persists hub state as TOML; it also speaks the OpenRGB SDK (protocol 5 and 6),
+  so the wallpaper picker's Lighting settings drive keyboards and mice per
+  device) and `quickshell/` (the native Qt6/QML app,
   a `FloatingWindow` with a grouped nav rail and global fuzzy search, with live
-  editors for displays, appearance, device lighting, lockscreen, animations,
+  editors for displays, lockscreen, animations,
   input, keybinds, window and layer
   rules, autostart, environment, the shell, and the desktop widgets). The product is "Ryoku Settings"; the binary and
   config keep the internal `hub` name. Deployed to `~/.config/quickshell/hub`;
@@ -142,16 +152,18 @@ truth for the live desktop.
   See `docs/rashin.md` and `docs/rashin-terminal.md`.
 - `assets/` `brand/` the 力 logo and icons and Rashin's seal (`rashin-mark*.svg`,
   `rashin-lockup.svg`; the app icon and the console favicon link to them),
-  `wallpapers/` the shipped wallpaper
-  set (installs to `~/Pictures/Wallpapers`), and `ryodecors/` the decor art the
-  `Decor`/`Placard` components render (installs to `~/Pictures/ryodecors`, kept
-  current by `ryoku doctor`; bake more with `bin/art/ryodither`).
+  `wallpapers/` the shipped wallpaper set (installs to `Wallpapers/` under the
+  configured Pictures folder), and `ryodecors/` the decor art the
+  `Decor`/`Placard` components render (installs to the Pictures folder's
+  `ryodecors/`, kept current by `ryoku doctor`; bake more with
+  `bin/art/ryodither`).
 
 ## `system/` the machine
 
 System-level definition installed into the target.
 
 - `boot/` the boot chain: `limine/`, `mkinitcpio/`, `plymouth/`.
+- `boot/limine/50-ryoku-limine` rebuilds Void's Limine menu after a kernel or initramfs change.
 - `hardware/` hardware policy and helper scripts (shipped to `/usr/bin` by
   `ryoku-desktop`): `gpu/` (`ryoku-gpu`, `ryoku-gpu-detect`, `ryoku-gpu-mux`,
   udev rule), `display/` (`ryoku-monitor`), `audio/` (`ryoku-mic`, the mic-gain
@@ -160,6 +172,7 @@ System-level definition installed into the target.
   the shared laptop detector; `ryoku-idle`, the laptop-gated `hypridle` launcher;
   `ryoku-power`, the battery charge ceiling and PCIe link power). What actually
   moves power draw and temperature, measured, is in `docs/power.md`.
+- `hardware/drivers/nvidia-xbps.sh` and `hardware/drivers/15-ryoku-nvidia` select Void's generation-correct NVIDIA package and keep nouveau available when DKMS fails.
 - `containers/` the container runtime policy behind the stash Cobalt engine:
   `ryoku-docker` (the one privileged door, shipped to `/usr/bin`) and its polkit
   rule. Its own directory rather than a corner of `hardware/`, because a
@@ -173,7 +186,11 @@ System-level definition installed into the target.
   wrappers (repo, AUR, remove, multilib), and `ryoku-cmd-present`.
 - `packages/` the package sets: `base.packages` (every machine, pacstrapped),
   `hardware.packages` (per-profile microcode and GPU drivers), `dev.packages`
-  (language toolchains, pacstrapped), `aur.packages` (built post-install).
+  (language toolchains, pacstrapped), `aur.packages` (built post-install), and
+  `resolve`, the shared lane resolver used by Void and Fedora.
+- `services/manifest.tsv` is the activation source for systemd and runit. It
+  records each service's scope, lifecycle, two implementations, and the rule
+  that keeps an explicit user disable intact.
 
 ## `installation/` the build
 
@@ -198,19 +215,18 @@ System-level definition installed into the target.
 
 ## The distribution model
 
-- The desktop ships as signed pacman packages from the `[ryoku]` repository
-  (`release/packages/`). `ryoku-desktop` is the umbrella: it version-pins the
-  monorepo components (`ryoku-shell`, `ryoku-hub`, `ryoku-rashin`, `ryoku-blobs`,
-  `ryoku`, and the Hyprland plugins `hypr-dynamic-cursors`,
-  `ryoku-hypr-plugins`, `hyprglass`, `imgborders`, `ryoku-keysounds`) and also depends on
-  `ryoku-keyring` and the `gpk` package manager, and lays the base config under
-  `/usr/share/ryoku/config`.
-- The installer adds the `[ryoku]` repo, imports the keyring, and installs
-  `ryoku-desktop`; per-user config is then copied into `~/.config` by
+- The desktop ships as signed native packages. Arch and CachyOS use pacman
+  packages from `release/packages/`, Void uses XBPS templates under
+  `void/packages/srcpkgs/`, and Fedora uses RPM specs under
+  `fedora/packages/rpm/`. `ryoku-desktop` is the umbrella in each edition and
+  pulls in the desktop components and the selected compositor.
+- Each installer configures the edition's signed repository and installs the
+  desktop package set. Per-user config is then copied into `~/.config` by
   `ryoku materialize`, which clobbers Ryoku-owned files and prunes dropped ones
   but never touches user files.
 - It only ever flows **repo to system**. A change starts in the repo, is built
-  into a package, and is installed; nothing is harvested back from a live machine.
+  into a package, and is installed; nothing is harvested back from a live
+  machine.
 
 ## Shared, not duplicated
 
@@ -218,12 +234,16 @@ When two subsystems need the same thing, it lives once and both reference it:
 `ryoku-hw-laptop` is the single laptop/desktop detector used by both GPU policy
 and the idle policy. Reuse the helper; never re-implement its logic.
 
-## No `ryoku-shell-installer/`
+## `ryoku-shell-installer/` the no-ISO installer
 
-Upstream's no-ISO installer converts an existing Arch, Fedora or Void machine
-through a curl-able bootstrap. NixOS installs through `nix/installer`, and the
-installer's tests read the Fedora and Void package tables the port leaves out,
-so the port does not carry it.
+The standalone way into an existing system: a curl-able `install.sh` bootstrap
+plus the `ryoku-shell-install` Go TUI. Arch, Void, and Fedora install from their
+signed native Ryoku repositories; Debian remains the source-build path. The
+installer backs up config with a generated `restore.sh`, migrates rival shells
+and daemons, installs the desktop set, wires SDDM and qylock, and runs `ryoku
+materialize`. After it runs once the machine updates through `ryoku update` like
+any other. The binary and its checksum are committed so raw.githubusercontent.com
+serves them with no release infrastructure.
 
 ## `release/` packaging
 
@@ -232,7 +252,10 @@ so the port does not carry it.
   - built from the checked-out monorepo: the components (`ryoku-shell`,
     `ryoku-hub`, `ryoku-rashin`, `ryoku`, `ryoku-blobs`,
     `ryotunes`, `ryogami` the wallpaper daemon), the `ryoku-desktop` umbrella,
-    `ryoku-keyring`, and the `gpk` package manager.
+    `ryoku-keyring`, the `gpk` package manager, and the on-demand key sounds:
+    `ryoku-keysounds-profiles` (the samples and the importer, shared) and
+    `ryoku-keysounds-niri` (niri's standalone engine, installed from the Hub's
+    Window Manager page, never by default).
   - Hyprland plugins: `hypr-dynamic-cursors`, `ryoku-hypr-plugins`, `hyprglass`,
     `imgborders`, `ryoku-keysounds`; each lays an `.abi` receipt beside its
     `.so` (see `docs/hyprland-plugins.md`).
@@ -251,15 +274,97 @@ so the port does not carry it.
 - `repo/` builds the signed `[ryoku]` repo from those PKGBUILDs: `build-repo.sh`
   runs `makepkg`, signs every artifact with the release key, and `repo-add`s the
   signed `ryoku.db` into `out/`, laid out exactly as the public mirror serves it.
+  Publishing keeps moving stable and testing heads, freezes tagged releases and
+  tested unstable builds, then rebuilds their ledgers with
+  `bin/ryoku-release-ledger`.
+- `r2-retention/` is the scheduled Cloudflare Worker for the shared `ryoku-iso`
+  bucket. Its planner keeps ten stable releases and unstable builds per package
+  edition and Fedora release. For editions that publish images, it keeps ten
+  ISOs per variant and channel. It removes incomplete frozen uploads after 48
+  hours and preserves moving heads, current pointers, and protected objects.
+
+## `void/` the Void Linux port
+
+The x86_64 glibc Void edition, with XBPS package translation and runit plus
+Turnstile init integration. `void/README.md` is the index.
+
+- `packages/` translates the shared package closure without copying it:
+  `translations.tsv` maps package names and lanes, and `sets/` holds Void-only
+  additions. The shared `system/packages/resolve` emits the selected XBPS
+  names.
+- `packages/srcpkgs/` holds the Ryoku XBPS templates.
+  `ryoku-keyring/files/` contains the committed public-key plist shipped to
+  trust the signed repository.
+- `packages/repo/` builds, signs, and indexes the XBPS repository.
+- `iso/` builds the Void live ISO; `iso/backend/` owns the Void install steps
+  and reuses the neutral libraries in `installation/backend/lib/`.
+- `.github/workflows/publish-repo-void.yml` publishes the testing and stable
+  XBPS repositories. `.github/workflows/build-iso-void.yml` builds the Void ISO.
+- `init/` is the systemd-to-runit translation. `translations.tsv` is the
+  completeness map enforced by `tests/void-init.sh`; `system/` and `user/`
+  hold runit service directories, `env/` handles the Turnstile environment,
+  `lib/wait-for` supplies bounded dependency waits, and `session/session-start`
+  starts the login session from the per-user roster that `ryoku-host` derives
+  from `system/services/manifest.tsv`.
+
+Runtime code does not import this directory. It invokes `/usr/bin/ryoku-host`,
+built from `ryoku/cli/cmd/ryoku-host` with the backends in
+`ryoku/cli/internal/host`.
+
+## `fedora/` the Fedora port
+
+The mutable Fedora 44 and 45 `x86_64` editions, with DNF package translation,
+systemd, and either Hyprland or niri. Workstation, KDE Plasma, Server, and spins
+are supported; Atomic and other rpm-ostree systems are refused.
+`fedora/README.md` is the index.
+
+- `releases` lists the Fedora releases the publish workflow builds and uploads
+  to `stable/fedora/releases`.
+- `packages/translations.tsv` maps the shared Arch package catalogue and lanes
+  to Fedora names and explains each unavailable package.
+- `packages/coprs.tsv` names the package-restricted COPR repositories used only
+  for the Hyprland stack, starship, lazygit, and yazi pieces Fedora lacks.
+- `packages/rpm/` holds the Ryoku-tree and upstream RPM specs. `sources/`
+  contains checksum manifests, `fetch/` contains verified source hooks, and
+  `prepare-srpms.sh` vendors Go and Cargo dependencies for offline rebuilds.
+  The repository build can reuse an identical trusted upstream RPM already
+  published for the same Fedora release.
+- `system/` holds the Fedora-only boot and dnf pieces. `boot/` has the Ryoku
+  GRUB theme and what the **Ryoku snapshots** submenu needs: the `grub.d`
+  snippet and its helper, the dracut module for snapshot boots, the snapper
+  plugin and the menu units. `snapshots/` has the libdnf5 hook that takes a
+  snapshot pair around every dnf transaction.
+- `.github/workflows/publish-repo-fedora.yml` builds and install-tests every
+  supported Fedora release, then publishes moving stable and testing heads,
+  frozen releases and unstable builds, and their ledgers below
+  `stable/fedora/<N>/`.
+
+Fedora is installed by the shell installer onto an existing supported Fedora
+system. It leaves NVIDIA on nouveau, keeps GRUB, and provides Ryoku snapshots
+with a snapshot boot submenu in GRUB. Wayfire is unavailable because Fedora ships
+0.10.1 and Ryoku requires 0.11. Package rollback and the boot guard use DNF
+downgrades.
 
 ## Tooling
 
 - `bin/` repo tooling: the release version helpers (`ryoku-release-version`,
-  `ryoku-release-bump`), the CI/hook checks (`ryoku-dev-scan-slop`,
-  `ryoku-dev-audit-shell-binds`), and `art/` for art authoring (`ryodither` bakes
-  an image or gif into a 1-bit bone-on-transparent decor; `tiling-demos`
-  generates the Appearance tiling-layout preview loops).
+  `ryoku-release-bump`), the CI and hook checks
+  (`ryoku-dev-scan-slop`, `ryoku-dev-audit-shell-binds`), the
+  `ryoku-edition-parity` package coverage gate, the delivery gates the
+  workflows share (`ryoku-ci-gate` waits for every required check on a commit;
+  `ryoku-channel-status` and `ryoku-checked-pointer` write a channel's
+  `status.json` and the testing `checked.json`), `ryoku-track` (the source
+  lane behind `ryoku track unstable`), `ryoku-dev-perf-baseline` (what the
+  running desktop costs in memory, CPU, wakeups, GPU and power, per process and
+  per surface; see `docs/performance.md`), and `art/` for art authoring
+  (`ryodither` bakes an image or gif into a 1-bit bone-on-transparent decor;
+  `tiling-demos` generates the Appearance tiling-layout preview loops).
 - `tests/` standalone CI check scripts (install chroot-safety, shell tool
   availability).
 - `.github/` the workflows and issue/PR templates; `.githooks/` the commit gates.
-- `VERSION` the base semver; `.woke.yml` the inclusive-language config.
+  `testing-gate.yml` runs on every `unstable-dev` push and advances the source
+  lane; the three `publish-repo*.yml` publishers run the same gate before they
+  upload; `i18n.yml` runs only by hand. `docs/updates.md`, "Publishing", has the
+  channel layout they write.
+- `VERSION` the base semver; `.woke.yml` the inclusive-language config;
+  `.rashin-reviewer.yaml` the pre-commit review gate's settings.

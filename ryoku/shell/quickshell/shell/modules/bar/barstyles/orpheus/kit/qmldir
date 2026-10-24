@@ -1,4 +1,5 @@
 singleton Style Style.qml
+singleton MotionClock MotionClock.qml
 Label Label.qml
 Glyph Glyph.qml
 Press Press.qml

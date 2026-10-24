@@ -191,8 +191,8 @@ desktop_exec_target() {
 }
 
 desktop_points_to_payload() {
-  local desktop="$1" payload="$2" key value target
-  for key in Exec TryExec; do
+  local desktop="$1" payload="$2" keys="${3:-Exec TryExec}" key value target
+  for key in $keys; do
     value=$(desktop_get "$desktop" "$key")
     [ -n "$value" ] || continue
     target=$(desktop_exec_target "$value")
@@ -258,19 +258,23 @@ has_linked_desktop() {
   return 1
 }
 
+# An entry that runs the payload names it before one that only gates on it
+# through TryExec, whatever order the locale sorts the files in.
 name_for_payload() {
-  local payload="$1" fallback="$2" desktop name
+  local payload="$1" fallback="$2" desktop name keys
   shopt -s nullglob
-  for desktop in "$APPDIR"/*.desktop; do
-    [ -f "$desktop" ] || continue
-    if desktop_points_to_payload "$desktop" "$payload"; then
-      name=$(desktop_get "$desktop" Name)
-      if [ -n "$name" ]; then
-        shopt -u nullglob
-        printf '%s' "$name"
-        return
+  for keys in Exec TryExec; do
+    for desktop in "$APPDIR"/*.desktop; do
+      [ -f "$desktop" ] || continue
+      if desktop_points_to_payload "$desktop" "$payload" "$keys"; then
+        name=$(desktop_get "$desktop" Name)
+        if [ -n "$name" ]; then
+          shopt -u nullglob
+          printf '%s' "$name"
+          return
+        fi
       fi
-    fi
+    done
   done
   shopt -u nullglob
   printf '%s' "$fallback"

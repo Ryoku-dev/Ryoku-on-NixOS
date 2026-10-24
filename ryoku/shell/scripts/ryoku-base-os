@@ -28,6 +28,11 @@ id=$(unquote "$id")
 id_like=$(unquote "$id_like")
 name=$(unquote "$name")
 
+if [ "$id" = cachyos ]; then
+  printf 'CachyOS\n'
+  exit 0
+fi
+
 if [ "$id" = arch ]; then
   printf 'Arch\n'
   exit 0

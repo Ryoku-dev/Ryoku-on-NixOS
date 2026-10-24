@@ -5,16 +5,19 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/ryoku-zen-profiles.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT
 mkdir -p "$test_root/bin"
-for tool in ryoku ryogami; do
+for tool in ryogami matugen; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$test_root/bin/$tool"
   chmod +x "$test_root/bin/$tool"
 done
 
 for scenario in relative absolute install-relative install-absolute crlf quoted fallback running override; do
   config="$test_root/$scenario/config"
+  data="$test_root/$scenario/data"
+  cache="$test_root/$scenario/cache"
   zen="$config/zen"
   profile="$zen/default.profile"
-  mkdir -p "$zen" "$config/matugen"
+  mkdir -p "$zen" "$config/matugen" "$cache/ryoku"
+  printf '{}\n' > "$cache/ryoku/matugen-carrier.json"
   printf '[config]\n' > "$config/matugen/apps.toml"
   override=
   case "$scenario" in
@@ -56,8 +59,9 @@ for scenario in relative absolute install-relative install-absolute crlf quoted 
       ;;
   esac
   mkdir -p "$profile"
-  XDG_CONFIG_HOME="$config" XDG_STATE_HOME="$test_root/$scenario/state" \
-    ZEN_PROFILE_ROOT="$override" PATH="$test_root/bin:$PATH" \
+  XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" XDG_CACHE_HOME="$cache" \
+    XDG_STATE_HOME="$test_root/$scenario/state" ZEN_PROFILE_ROOT="$override" \
+    PATH="$test_root/bin:$PATH" \
     "$project_root/install-integrations.sh" --zen > "$test_root/$scenario/output" 2>&1 || {
       cat "$test_root/$scenario/output" >&2
       printf 'FAIL: Zen profile selection: %s\n' "$scenario" >&2
@@ -65,14 +69,14 @@ for scenario in relative absolute install-relative install-absolute crlf quoted 
     }
   grep -Fxq '@import "ryoku-colors.css";' "$profile/chrome/userChrome.css"
   expected_output="output_path = $(jq -Rn --arg path "$profile/chrome/ryoku-colors.css" '$path')"
-  grep -Fxq "$expected_output" "$config/ryoku/user_edits/matugen/apps.toml"
+  grep -Fxq "$expected_output" "$config/ryoku/palette-bridge/matugen.toml"
   [[ ! -e "$zen/ignored.profile/chrome/userChrome.css" ]]
 done
 
 # An explicit missing profile must fail rather than silently modifying a default.
-if XDG_CONFIG_HOME="$config" XDG_STATE_HOME="$test_root/missing-state" \
-  ZEN_PROFILE_ROOT="$test_root/nonexistent" PATH="$test_root/bin:$PATH" \
-  "$project_root/install-integrations.sh" --zen > /dev/null 2>&1; then
+if XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" XDG_CACHE_HOME="$cache" \
+  XDG_STATE_HOME="$test_root/missing-state" ZEN_PROFILE_ROOT="$test_root/nonexistent" \
+  PATH="$test_root/bin:$PATH" "$project_root/install-integrations.sh" --zen > /dev/null 2>&1; then
   printf 'FAIL: missing explicit Zen profile was accepted\n' >&2
   exit 1
 fi
@@ -81,10 +85,12 @@ fi
 for flatpak_root in .var/app/app.zen_browser.zen/.zen .var/app/app.zen_browser.zen/config/zen; do
   home="$test_root/flatpak-${flatpak_root//\//-}"
   zen="$home/$flatpak_root"
-  mkdir -p "$zen/flat.default" "$home/.config/matugen"
+  mkdir -p "$zen/flat.default" "$home/.config/matugen" "$home/cache/ryoku"
+  printf '{}\n' > "$home/cache/ryoku/matugen-carrier.json"
   printf '[config]\n' > "$home/.config/matugen/apps.toml"
   printf '[Profile0]\nPath=flat.default\nIsRelative=1\nDefault=1\n' > "$zen/profiles.ini"
-  HOME="$home" XDG_CONFIG_HOME="$home/.config" XDG_STATE_HOME="$home/state" \
+  HOME="$home" XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/data" \
+    XDG_CACHE_HOME="$home/cache" XDG_STATE_HOME="$home/state" \
     PATH="$test_root/bin:$PATH" "$project_root/install-integrations.sh" --zen > "$home/output" 2>&1 || {
       cat "$home/output" >&2
       printf 'FAIL: Flathub Zen profile: %s\n' "$flatpak_root" >&2
@@ -92,6 +98,6 @@ for flatpak_root in .var/app/app.zen_browser.zen/.zen .var/app/app.zen_browser.z
     }
   grep -Fxq '@import "ryoku-colors.css";' "$zen/flat.default/chrome/userChrome.css"
   grep -Fxq "output_path = \"~/$flatpak_root/flat.default/chrome/ryoku-colors.css\"" \
-    "$home/.config/ryoku/user_edits/matugen/apps.toml"
+    "$home/.config/ryoku/palette-bridge/matugen.toml"
 done
 printf 'PASS: Zen profile defaults, absolute paths, and explicit/running precedence\n'

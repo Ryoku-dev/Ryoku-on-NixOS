@@ -54,6 +54,12 @@ Item {
         return compactRate(StatsFeed.downBps);
     }
 
+    function widestFor(id) {
+        if (id === "temp") return "88°";
+        if (id === "net") return "88.8K/s";
+        return "88%";
+    }
+
     function compactRate(value) {
         const rate = Math.max(0, Number(value) || 0);
         if (rate >= 1048576)
@@ -107,6 +113,8 @@ Item {
             model: root.visibleItems
 
             delegate: Row {
+                id: reading
+
                 required property string modelData
                 required property int index
 
@@ -114,16 +122,29 @@ Item {
 
                 K.Glyph {
                     anchors.verticalCenter: parent.verticalCenter
-                    name: root.iconFor(parent.modelData)
+                    name: root.iconFor(reading.modelData)
                     size: Math.max(12, Math.round(14 * K.Style.scale))
                     tone: "dim"
                 }
 
+                // A reading holds the width of its widest usual value, so a
+                // number gaining a digit never resizes the drop: every resize
+                // springs the whole bar body for a second.
                 K.Label {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: root.valueFor(parent.modelData)
+                    width: Math.max(implicitWidth, widest.implicitWidth)
+                    horizontalAlignment: Text.AlignRight
+                    text: root.valueFor(reading.modelData)
                     role: "barSub"
                     tone: "dim"
+                    numeric: true
+                }
+
+                K.Label {
+                    id: widest
+                    visible: false
+                    text: root.widestFor(reading.modelData)
+                    role: "barSub"
                     numeric: true
                 }
             }

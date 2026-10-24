@@ -20,6 +20,8 @@ Scope {
     property bool _keepAlive: false
 
     signal closeRequested()
+    signal closed()
+
 
     function normalizedPage(value) {
         if (value === "general")
@@ -165,9 +167,11 @@ Scope {
                     root._keepAlive = true;
                     surface.showSheet();
                 } else {
+                    root.closed();
                     root._keepAlive = false;
                 }
             }
+
 
             screen: root.targetScreen
             visible: true

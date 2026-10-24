@@ -11,6 +11,7 @@ import inir.modules.common
 import inir.modules.common.functions
 import inir.modules.common.models
 import inir.modules.common.widgets
+import inir.modules.iris.dock
 import inir.modules.iris.frame
 import inir.modules.iris.style
 import inir.modules.iris.components
@@ -46,15 +47,16 @@ Item {
             held = Math.max(held, IrisFrame.band + IrisFrame.dockBand + IrisFrame.dockMargin)
         return held - IrisFrame.band + IrisFrame.musicReach(edge) + Math.round(12 * IrisStyle.density)
     }
-    readonly property bool mathQuery: /[0-9]/.test(LauncherSearch.query)
+    readonly property string settled: LauncherSearch.settledQuery
+    readonly property bool mathQuery: /[0-9]/.test(root.settled)
     readonly property var launcherResults: (LauncherSearch.results ?? [])
         .filter(entry => String(entry?.name ?? "").length > 0
             && (root.mathQuery || entry?.type !== Translation.tr("Math")))
-    // A plain query also reaches iRiS's switches, actions and options (IrisSearch): a strong one leads when no
-    // app name starts with what was typed, the rest follow the apps; the calculator, command and web come last.
+    // A plain query also reaches Shima's switches, actions and options (IrisSearch): a strong one leads when no
+    // word of the first app's name starts with what was typed; calculator, command and web results come last.
     readonly property bool plainQuery: {
         const prefix = Config.options?.search?.prefix ?? ({})
-        const q = LauncherSearch.query
+        const q = root.settled
         return q.trim().length > 0 && ![prefix.clipboard ?? ";", prefix.emojis ?? ":", prefix.math ?? "=", prefix.shellCommand ?? "$",
             prefix.webSearch ?? "?", prefix.action ?? "/", prefix.app ?? ">"].some(key => String(key).length > 0 && q.startsWith(key))
     }
@@ -68,17 +70,19 @@ Item {
                 : entry.kind === "switch" ? Translation.tr("Switch") : entry.pick ? Translation.tr("Apply") : Translation.tr("Run"),
             isOn: typeof entry.isOn === "function" ? entry.isOn : null, pick: entry.pick, keepOpen: entry.keepOpen, execute: entry.run, fuzzy: true }
     }
+    readonly property var irisHits: root.plainQuery ? IrisSearch.search(root.settled).filter(hit => hit.score >= 0.7) : []
     readonly property var blendedResults: {
         if (!root.plainQuery) return root.launcherResults
-        const hits = IrisSearch.search(LauncherSearch.query).filter(hit => hit.score >= 0.7)
+        const hits = root.irisHits
         const acts = hits.filter(hit => hit.entry.kind !== "setting" && hit.entry.kind !== "section").slice(0, 4)
         const opens = hits.filter(hit => hit.entry.kind === "setting" || hit.entry.kind === "section").slice(0, 3)
         // Apps keep the lead, but three of them are enough to leave room for what the query also names.
         const allApps = root.launcherResults.filter(entry => entry?.type === Translation.tr("App"))
         const apps = hits.length > 0 ? allApps.slice(0, 3) : allApps
         const rest = root.launcherResults.filter(entry => entry?.type !== Translation.tr("App"))
-        const typed = IrisSearch.fold(LauncherSearch.query).trim()
-        const appLeads = apps.length > 0 && IrisSearch.fold(apps[0].name).startsWith(typed)
+        const typed = IrisSearch.tokens(root.settled).join(" ")
+        const appLeads = apps.length > 0 && typed.length > 0
+            && (" " + IrisSearch.tokens(apps[0].name).join(" ")).includes(" " + typed)
         const best = acts.concat(opens).sort((a, b) => b.score - a.score)[0] ?? null
         if (best && best.score >= 0.9 && !appLeads) {
             const others = acts.concat(opens).filter(hit => hit !== best)
@@ -94,6 +98,7 @@ Item {
     // scroll or step past its end, through the whole history.
     property int clipboardExtra: 0
     readonly property int clipboardTotal: root.clipboardMode ? root.launcherResults.length : 0
+    readonly property int clipboardHistoryTotal: Cliphist.entries.length
     function loadMoreClipboard(): void {
         if (root.clipboardMode && root.searchResults.length < root.clipboardTotal) root.clipboardExtra += root.resultLimit
     }
@@ -101,7 +106,7 @@ Item {
     // "/" lists what iRiS can flip, apply or run from here, grouped by area; typed words narrow it the forgiving
     // way IrisSearch matches. A switch stays open to show its new state; the rest run and close.
     readonly property string actionPrefix: Config.options?.search?.prefix?.action ?? "/"
-    readonly property bool actionMode: LauncherSearch.query.startsWith(root.actionPrefix)
+    readonly property bool actionMode: root.settled.startsWith(root.actionPrefix)
     // One header per area: areas follow their best row, rows keep their rank inside the area.
     function byArea(entries: var): var {
         const order = [], groups = ({})
@@ -114,7 +119,7 @@ Item {
     }
     readonly property var actionResults: {
         if (!root.actionMode) return []
-        const query = LauncherSearch.query.slice(root.actionPrefix.length).trim()
+        const query = root.settled.slice(root.actionPrefix.length).trim()
         if (query.length > 0) return root.byArea(IrisSearch.search(query).map(hit => hit.entry)).map(entry => root.rowOf(entry))
         // Nothing typed: the everyday switches first, then everything else by area. While widgets are being
         // arranged, the widgets lead: that is what "/" was asked for there.
@@ -135,9 +140,9 @@ Item {
     readonly property bool joinsEdge: root.fromIsland && IrisFrame.notch
     readonly property bool joinsFrame: root.joinsEdge && IrisFrame.framed
 
-    readonly property bool browsing: LauncherSearch.query.length === 0
+    readonly property bool browsing: root.settled.length === 0
     readonly property var suggestions: {
-        return (TaskbarApps.apps ?? []).filter(app => app.appId !== "SEPARATOR").slice(0, 8).map(app => {
+        return IrisDockOrder.entries.filter(app => app.appId !== "SEPARATOR").slice(0, 8).map(app => {
             const entry = AppSearch.lookupDesktopEntry(app.appId)
             const windows = app.toplevels ?? []
             return {
@@ -158,9 +163,20 @@ Item {
         })
     }
     readonly property var visibleResults: root.browsing ? root.suggestions : root.searchResults
+    readonly property var keyedResults: {
+        const seen = ({})
+        const single = [Translation.tr("Math"), Translation.tr("Command"), Translation.tr("Web")]
+        return (root.browsing ? [] : root.searchResults).map(entry => {
+            const type = String(entry?.type ?? "")
+            let key = single.includes(type) ? type
+                : type + "|" + String(entry?.rawValue ?? entry?.id ?? (String(entry?.name ?? "") + "|" + String(entry?.comment ?? "")))
+            seen[key] = (seen[key] ?? 0) + 1
+            if (seen[key] > 1) key += "#" + seen[key]
+            return Object.assign({}, entry, { rowKey: key })
+        })
+    }
     readonly property string clipboardPrefix: Config.options?.search?.prefix?.clipboard ?? ";"
-    readonly property bool clipboardMode: LauncherSearch.query.startsWith(root.clipboardPrefix)
-    onClipboardModeChanged: if (root.clipboardMode) Cliphist.refresh()
+    readonly property bool clipboardMode: root.settled.startsWith(root.clipboardPrefix)
     property int selectedIndex: 0
     property bool pointerSelectionArmed: false
     property point lastPointerPosition: Qt.point(-1, -1)
@@ -190,12 +206,38 @@ Item {
         Qt.callLater(() => content.item?.focusInput())
     }
 
-    function takeRequestedQuery(): void {
-        if (GlobalStates.irisSpotlightQuery.length === 0) return
-        LauncherSearch.query = GlobalStates.irisSpotlightQuery
-        GlobalStates.irisSpotlightQuery = ""
+    function scheduleRequestedQuery(): void {
+        requestedQueryDelivery.restart()
     }
-    Component.onCompleted: if (root.here && GlobalStates.searchOpen) { root.takeRequestedQuery(); root.focusInput() }
+
+    function deliverRequestedQuery(): void {
+        if (!root.here || !GlobalStates.searchOpen || !root.visible
+                || !content.item?.queryReady)
+            return
+        const requested = String(GlobalStates.irisSpotlightQuery ?? "")
+        if (requested.length === 0) {
+            root.focusInput()
+            return
+        }
+        LauncherSearch.query = requested
+        Qt.callLater(() => {
+            if (!root.here || !GlobalStates.searchOpen || !root.visible
+                    || LauncherSearch.query !== requested)
+                return
+            if (GlobalStates.irisSpotlightQuery === requested)
+                GlobalStates.irisSpotlightQuery = ""
+            root.focusInput()
+        })
+    }
+
+    Timer {
+        id: requestedQueryDelivery
+        interval: 0
+        onTriggered: root.deliverRequestedQuery()
+    }
+
+    Component.onCompleted: root.scheduleRequestedQuery()
+    onHereChanged: if (root.here && GlobalStates.searchOpen) root.scheduleRequestedQuery()
 
     Connections {
         target: GlobalStates
@@ -203,12 +245,19 @@ Item {
             if (!GlobalStates.searchOpen || !root.here) return
             root.selectedIndex = 0
             root.disarmPointerSelection(true)
-            root.takeRequestedQuery()
-            root.focusInput()
+            root.scheduleRequestedQuery()
+        }
+        function onIrisSpotlightQueryChanged(): void {
+            if (GlobalStates.irisSpotlightQuery.length > 0
+                    && GlobalStates.searchOpen && root.here)
+                root.scheduleRequestedQuery()
         }
     }
 
-    onVisibleChanged: if (!visible) LauncherSearch.query = ""
+    onVisibleChanged: {
+        if (visible) root.scheduleRequestedQuery()
+        else LauncherSearch.query = ""
+    }
 
     Connections {
         target: LauncherSearch
@@ -278,6 +327,7 @@ Item {
         anchors.fill: parent
         focus: true
         sourceComponent: spotlightComponent
+        onLoaded: root.scheduleRequestedQuery()
     }
 
     Component {
@@ -288,6 +338,7 @@ Item {
             readonly property alias progress: surface.progress
             readonly property alias armed: surface.armed
             readonly property Item surfaceItem: surface
+            readonly property bool queryReady: surface.open && surface.settled
             readonly property real d: IrisStyle.density
             property bool confirmWipe: false
             function focusInput(): void { input.forceActiveFocus() }
@@ -302,7 +353,7 @@ Item {
                 return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
             }
             function emphasised(name: string): string {
-                const query = LauncherSearch.query.trim()
+                const query = root.settled.trim()
                 const at = query.length > 0 ? name.toLowerCase().indexOf(query.toLowerCase()) : -1
                 const dim = IrisStyle.textSecondary
                 if (at < 0) return stage.escapeHtml(name)
@@ -323,7 +374,12 @@ Item {
                 return type.length > 0 ? type : Translation.tr("Other")
             }
             function sectionAt(index: int): string {
-                if (root.clipboardMode) return Translation.tr("Clipboard history · %1").arg(root.clipboardTotal)
+                if (root.clipboardMode) {
+                    const entry = root.visibleResults[index]?.rawValue
+                    return entry?.pinnedOnly === true
+                        ? Translation.tr("Pinned")
+                        : Translation.tr("Clipboard history · %1").arg(root.clipboardHistoryTotal)
+                }
                 return index === 0 ? Translation.tr("Top hit") : stage.sectionOf(root.visibleResults[index])
             }
             function kindTint(type: string): color {
@@ -398,7 +454,10 @@ Item {
                 }
                 height: Math.min(body.implicitHeight, Math.max(Math.round(160 * stage.d), surface.room))
                 onClosed: LauncherSearch.query = ""
-                onSettledChanged: if (surface.settled && surface.open) stage.focusInput()
+                onSettledChanged: if (surface.settled && surface.open) {
+                    root.scheduleRequestedQuery()
+                    stage.focusInput()
+                }
                 Behavior on height {
                     enabled: surface.settled
                     NumberAnimation { duration: IrisStyle.duration(150); easing.type: Easing.BezierSpline; easing.bezierCurve: IrisStyle.morphCurve }
@@ -705,7 +764,7 @@ Item {
                         id: results
                         Layout.row: body.fieldLast ? 0 : 3
                         Layout.fillWidth: true
-                        visible: !root.browsing && LauncherSearch.query.length > 0
+                        visible: !root.browsing
                         implicitHeight: resultColumn.implicitHeight + 16 * stage.d
                         Layout.fillHeight: true
                         Layout.minimumHeight: Math.min(results.implicitHeight, Math.round(96 * stage.d))
@@ -770,15 +829,23 @@ Item {
 
                                 Repeater {
                                     id: resultRepeater
-                                    model: root.browsing ? [] : root.visibleResults
+                                    model: ScriptModel {
+                                        objectProp: "rowKey"
+                                        values: root.keyedResults
+                                    }
                                     Column {
                                         id: result
                                         required property var modelData
                                         required property int index
                                         readonly property bool topHit: result.index === 0 && !root.clipboardMode
                                         readonly property bool mathHit: result.topHit && result.modelData?.type === Translation.tr("Math")
+                                        readonly property var clipEntry: root.clipboardMode ? result.modelData?.rawValue : null
                                         readonly property bool clipImage: root.clipboardMode
-                                            && Cliphist.entryIsImage(String(result.modelData?.rawValue ?? ""))
+                                            && Cliphist.entryIsImage(result.clipEntry)
+                                        readonly property string pinnedText: root.clipboardMode
+                                            ? Cliphist.pinnedTextFor(result.clipEntry) : ""
+                                        readonly property bool pinnable: root.clipboardMode
+                                            && Cliphist.isPinnable(result.clipEntry)
                                         readonly property bool selected: root.selectedIndex === result.index
                                         readonly property var mark: root.clipboardMode
                                             ? stage.clipMark(String(result.modelData?.name ?? ""))
@@ -806,7 +873,9 @@ Item {
                                                 font.weight: IrisStyle.weight(Font.DemiBold)
                                             }
                                             IrisButton {
-                                                visible: root.clipboardMode && result.index === 0
+                                                visible: root.clipboardMode && result.clipEntry?.pinnedOnly !== true
+                                                    && (result.index === 0
+                                                        || root.visibleResults[result.index - 1]?.rawValue?.pinnedOnly === true)
                                                 anchors.right: parent.right
                                                 anchors.rightMargin: 12 * stage.d
                                                 anchors.bottom: parent.bottom
@@ -870,12 +939,20 @@ Item {
                                                             id: thumbLoader
                                                             anchors.centerIn: parent
                                                             active: result.clipImage
-                                                            sourceComponent: CliphistImage {
-                                                                entry: String(result.modelData?.rawValue ?? "")
-                                                                maxWidth: lead.width - Math.round(4 * stage.d)
-                                                                maxHeight: lead.height - Math.round(4 * stage.d)
-                                                                color: "transparent"
-                                                                radius: IrisStyle.radiusChip
+                                                            sourceComponent: StyledImage {
+                                                                readonly property int imageWidth: Number(result.clipEntry?.thumbW ?? 0)
+                                                                readonly property int imageHeight: Number(result.clipEntry?.thumbH ?? 0)
+                                                                readonly property real thumbScale: imageWidth > 0 && imageHeight > 0
+                                                                    ? Math.min((lead.width - Math.round(4 * stage.d)) / imageWidth,
+                                                                        (lead.height - Math.round(4 * stage.d)) / imageHeight, 1)
+                                                                    : 0
+                                                                width: imageWidth * thumbScale
+                                                                height: imageHeight * thumbScale
+                                                                source: result.clipEntry?.thumb ? "file://" + String(result.clipEntry.thumb) : ""
+                                                                sourceSize: Qt.size(Math.ceil(width), Math.ceil(height))
+                                                                fillMode: Image.PreserveAspectFit
+                                                                antialiasing: true
+                                                                asynchronous: true
                                                             }
                                                         }
                                                         MaterialSymbol {
@@ -955,7 +1032,7 @@ Item {
                                                     IrisText {
                                                         Layout.fillWidth: true
                                                         visible: (result.topHit || root.actionMode || Boolean(result.modelData?.fuzzy)) && text.length > 0
-                                                        text: result.mathHit ? LauncherSearch.query
+                                                        text: result.mathHit ? root.settled
                                                             : result.modelData?.comment || result.modelData?.genericName || result.modelData?.type || ""
                                                         color: IrisStyle.subtext
                                                         font.pixelSize: IrisStyle.typeMeta
@@ -965,11 +1042,28 @@ Item {
 
                                                 IrisText {
                                                     visible: text.length > 0
-                                                    text: result.clipImage && thumbLoader.item
-                                                        ? thumbLoader.item.imageWidth + " × " + thumbLoader.item.imageHeight : ""
+                                                    text: result.clipImage && result.clipEntry?.w > 0 && result.clipEntry?.h > 0
+                                                        ? result.clipEntry.w + " × " + result.clipEntry.h : ""
                                                     color: IrisStyle.textTertiary
                                                     font.pixelSize: IrisStyle.typeMeta
                                                     font.features: { "tnum": 1 }
+                                                }
+                                                IrisIconButton {
+                                                    visible: root.clipboardMode && (result.selected || row.containsMouse)
+                                                        && (result.pinnable || result.pinnedText.length > 0)
+                                                    Layout.preferredWidth: Math.round(26 * stage.d)
+                                                    Layout.preferredHeight: Math.round(26 * stage.d)
+                                                    materialIcon: "keep"
+                                                    selected: result.pinnedText.length > 0
+                                                    iconSize: Math.round(16 * stage.d)
+                                                    Accessible.name: result.pinnedText.length > 0
+                                                        ? Translation.tr("Unpin") : Translation.tr("Pin")
+                                                    onClicked: {
+                                                        if (result.pinnedText.length > 0)
+                                                            Cliphist.unpin(result.pinnedText)
+                                                        else
+                                                            Cliphist.pinEntry(result.clipEntry)
+                                                    }
                                                 }
                                                 IrisIconButton {
                                                     visible: root.clipboardMode && (result.selected || row.containsMouse)
@@ -977,9 +1071,10 @@ Item {
                                                     Layout.preferredHeight: Math.round(26 * stage.d)
                                                     materialIcon: "delete"
                                                     iconSize: Math.round(16 * stage.d)
-                                                    Accessible.name: Translation.tr("Delete from history")
+                                                    Accessible.name: result.clipEntry?.pinnedOnly === true
+                                                        ? Translation.tr("Remove pin") : Translation.tr("Delete from history")
                                                     onClicked: {
-                                                        Cliphist.deleteEntry(String(result.modelData?.rawValue ?? ""))
+                                                        Cliphist.deleteEntry(result.clipEntry)
                                                         root.selectedIndex = Math.max(0, Math.min(root.selectedIndex, root.visibleResults.length - 2))
                                                     }
                                                 }

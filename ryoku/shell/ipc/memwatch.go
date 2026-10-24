@@ -10,16 +10,15 @@ import (
 	"time"
 )
 
-// A healthy surface holds about a gigabyte. A runaway one (a dock image that
-// decoded itself bigger on every load) reached 40 GiB in under a minute, and the
-// kernel's OOM killer only acted after swap was full and the whole machine,
-// network included, had stalled for minutes. The daemon ends that at the
-// surface: past the ceiling it kills the qs process and respawns it. That leak
-// grew by up to 2.5 GiB a second, so the poll stays at one second to keep the
-// overshoot small on an 8 GiB machine; one /proc read per surface is free.
+// A healthy surface holds about a gigabyte. A runaway one once reached 40 GiB
+// in under a minute and stalled the whole machine. Observed growth pulls the
+// next sample closer, and every wait is also capped by the headroom a known
+// 2.5 GiB/s leak could consume so a flat sample never creates a blind window.
 const (
-	memoryPollInterval = time.Second
-	memoryCeilingFloor = 3 << 30
+	memoryNearInterval              = time.Second
+	memoryIdleInterval              = 15 * time.Second
+	memoryCeilingFloor              = 3 << 30
+	memoryWorstGrowthBytesPerSecond = uint64(5 << 29)
 )
 
 // memoryCeiling is how much RAM plus swap one supervised qs process may hold:
@@ -64,39 +63,113 @@ func systemMemory() uint64 {
 // processMemory is resident plus swapped-out memory: a leak that is being
 // pushed to swap is still a leak, and swap is where the machine stalls.
 func processMemory(status string) (uint64, bool) {
-	rss, ok := readKBField(strings.NewReader(status), "VmRSS")
-	if !ok {
+	return processMemoryReader(strings.NewReader(status))
+}
+
+func processMemoryReader(r io.Reader) (uint64, bool) {
+	sc := bufio.NewScanner(r)
+	var rss, swap uint64
+	var haveRSS, haveSwap bool
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "VmRSS:"):
+			rss, haveRSS = parseStatusKB(line[len("VmRSS:"):])
+		case strings.HasPrefix(line, "VmSwap:"):
+			swap, haveSwap = parseStatusKB(line[len("VmSwap:"):])
+		}
+		if haveRSS && haveSwap {
+			break
+		}
+	}
+	return rss + swap, haveRSS
+}
+
+func parseStatusKB(value string) (uint64, bool) {
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
 		return 0, false
 	}
-	swap, _ := readKBField(strings.NewReader(status), "VmSwap")
-	return rss + swap, true
+	kb, err := strconv.ParseUint(fields[0], 10, 64)
+	return kb << 10, err == nil
 }
 
 func readProcessMemory(pid int) (uint64, bool) {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")
+	f, err := os.Open("/proc/" + strconv.Itoa(pid) + "/status")
 	if err != nil {
 		return 0, false
 	}
-	return processMemory(string(b))
+	defer f.Close()
+	return processMemoryReader(f)
+}
+
+// memorySampleInterval uses the smaller of the observed time-to-ceiling
+// estimate and the worst leak rate the guard has seen in production.
+func memorySampleInterval(limit, previous, current uint64, elapsed time.Duration) time.Duration {
+	if current >= limit {
+		return memoryNearInterval
+	}
+	headroom := limit - current
+	next := time.Duration(float64(headroom) /
+		float64(memoryWorstGrowthBytesPerSecond) * float64(time.Second))
+	if elapsed > 0 && current > previous {
+		growth := current - previous
+		observed := time.Duration(float64(elapsed) * float64(headroom) / float64(growth) / 4)
+		if observed < next {
+			next = observed
+		}
+	}
+	if next < memoryNearInterval {
+		return memoryNearInterval
+	}
+	if next > memoryIdleInterval {
+		return memoryIdleInterval
+	}
+	return next
 }
 
 // watchMemory samples the process until exited closes. The first sample over
 // limit kills it and returns what it held; a process that exits on its own
-// returns 0.
-func watchMemory(exited <-chan struct{}, limit uint64, interval time.Duration,
+// returns 0. maxInterval is injectable so the loop stays fast in tests.
+func watchMemory(exited <-chan struct{}, limit uint64, maxInterval time.Duration,
 	sample func() (uint64, bool), kill func()) uint64 {
-	tick := time.NewTicker(interval)
-	defer tick.Stop()
+	var previous uint64
+	var sampledAt time.Time
+	wait := time.Duration(0)
 	for {
-		select {
-		case <-exited:
-			return 0
-		case <-tick.C:
-			used, ok := sample()
-			if ok && used > limit {
-				kill()
-				return used
+		if wait > 0 {
+			timer := time.NewTimer(wait)
+			select {
+			case <-exited:
+				timer.Stop()
+				return 0
+			case <-timer.C:
 			}
+		} else {
+			select {
+			case <-exited:
+				return 0
+			default:
+			}
+		}
+
+		now := time.Now()
+		used, ok := sample()
+		if ok && used > limit {
+			kill()
+			return used
+		}
+		if !ok {
+			wait = memoryNearInterval
+		} else if sampledAt.IsZero() {
+			previous, sampledAt = used, now
+			wait = memoryNearInterval
+		} else {
+			wait = memorySampleInterval(limit, previous, used, now.Sub(sampledAt))
+			previous, sampledAt = used, now
+		}
+		if maxInterval > 0 && wait > maxInterval {
+			wait = maxInterval
 		}
 	}
 }
@@ -105,7 +178,7 @@ func watchMemory(exited <-chan struct{}, limit uint64, interval time.Duration,
 // it held when killed, or 0, once the process is gone. SIGKILL, not SIGTERM: a
 // process deep in swap can take minutes to reach its signal handler.
 func watchSurfaceMemory(pid int, limit uint64, exited <-chan struct{}, result chan<- uint64) {
-	result <- watchMemory(exited, limit, memoryPollInterval,
+	result <- watchMemory(exited, limit, memoryIdleInterval,
 		func() (uint64, bool) { return readProcessMemory(pid) },
 		func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
 }

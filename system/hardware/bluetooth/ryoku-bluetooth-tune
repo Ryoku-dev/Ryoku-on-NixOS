@@ -17,7 +17,7 @@
 #   [General] FastConnectable=true     quick reconnect after sleep/idle
 #   [General] JustWorksRepairing=always re-pair survives keys dropped over suspend
 #   [General] MultiProfile=multiple    combo peripherals bring up every profile
-#   [Policy]  AutoEnable=true          Bluetooth powers on by default
+#   [Policy]  AutoEnable=true          fresh installs power Bluetooth on by default
 #
 # idempotent (a re-run that changes nothing exits 0 without a write); dry-run via
 # RYOKU_DRYRUN=1 (or --dry-run) prints the would-be file instead of writing.

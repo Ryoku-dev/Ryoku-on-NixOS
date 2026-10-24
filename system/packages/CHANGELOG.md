@@ -2,7 +2,32 @@
 
 ## Unreleased
 
+### Changed
+- `cachyos.packages`: **the CachyOS edition now carries CachyOS's current
+  defaults and identity.** `shelly`, `lsb-release`, and `cachyos-hello` join
+  the kernel pair, repositories, hooks, `chwd`, tuning, schedulers, and desktop
+  tools. Ryoku suppresses CachyOS Welcome's autostart but keeps it in the
+  launcher. Steam and `cachyos-gaming-meta` now follow the installer's
+  default-off Gaming choice instead of landing on every CachyOS install.
+
 ### Added
+- `base.packages`: **khal, vdirsyncer and translate-shell.** The dock's
+  calendar reads and syncs calendars through khal and vdirsyncer, and the
+  translator desktop widget runs translate-shell; existing boxes receive them
+  on their next update.
+- `phone.packages`: **the phone feature's packages, installed on demand.** The
+  Hub's Phone switch installs and removes this set; nothing in it joins a
+  default install.
+- `cachyos.packages`: **a CachyOS install carries what CachyOS's own installer
+  lays.** `linux-cachyos-lts` and its headers (the fallback kernel, in place of
+  stock `linux`), `cachyos-rate-mirrors`, `yay`, `cachyos-hooks`, `chwd`,
+  `cachyos-kernel-manager`, `cachyos-packageinstaller` and `btrfs-assistant`.
+  `zlib-ng-compat` and `lib32-zlib-ng-compat` are named because CachyOS marks
+  them as replacing zlib: pacman resolves a dependency by name, so without them
+  the install got plain zlib and the first update asked to swap it.
+- `cachyos.replaces`: **new.** The `base.packages` and `aur.packages` names the
+  CachyOS layer replaces (`linux`, `yay-bin`), left out of pacstrap, the AUR
+  step and the offline bake.
 - `base.packages`: **new installs choose one browser and one login-shell stack.**
   Firefox and Fish are recommended, with Chromium or Zen and Bash or Zsh
   available in the installers. The unchosen packages are filtered before
@@ -250,6 +275,9 @@
   pacman transactions, wired to the snapper `root` config by the installer.
 
 ### Changed
+- `base.packages`: **cliphist is no longer installed.** Ryoku keeps clipboard
+  history in its own daemon, and the last UIs that read cliphist now read
+  that; existing boxes keep the package until it is removed as an orphan.
 - `aur.packages`: drop `phonto` and `mpvpaper`. The shell's live (video)
   wallpaper backend is now `ryoku-livewall`, which ships in the `ryoku-shell`
   package from the `[ryoku]` repo, so no AUR video daemon is needed. Both old

@@ -98,12 +98,10 @@ Item {
         : (root.buttonSize + root.dotMarginV * 2)
     readonly property real previewSlots: Math.max(2, Math.min(6, Config.options?.dock?.livePreviewSlots ?? 2))
     readonly property real iconSize: Math.min(root.buttonSize * 0.72, root.slotHeight - root.dotMarginV * 2)
-    // The compositor frame is intentionally captured above display size so
-    // the small dock surface stays readable after the requested crop/zoom.
-    readonly property real previewZoom: 1.55
-    // A 5x target made every live frame much larger than the dock surface.
-    // Keep one device-pixel minimum while capping the compositor workload.
-    readonly property real captureResolutionScale: Math.min(2.0, Math.max(1.0, root.screen?.devicePixelRatio ?? 1.0))
+    // A dock thumbnail is captured at its requested logical size. Scaling it
+    // again by the output DPR only creates a larger compositor stream that the
+    // same small card immediately downsamples.
+    readonly property real captureResolutionScale: 1.0
     readonly property real overlayInset: Math.max(3, Math.round(root.dotMarginV * 0.45))
     readonly property real widgetRadius: (Config.options?.dock?.widgetRadius ?? -1) >= 0
         ? Config.options.dock.widgetRadius
@@ -156,7 +154,10 @@ Item {
             captureTeardownTimer.restart();
     }
 
-    readonly property bool shouldReleaseImmediately: GlobalStates.screenLocked
+    readonly property bool shouldReleaseImmediately: !root.dockRevealed
+        || !root.dockWindowVisible
+        || !root.widgetActuallyVisible
+        || GlobalStates.screenLocked
         || !(Config.options?.dock?.enableLivePreviewWidget ?? false)
         || root.selectedToplevel === null
         || !(root.screenName && !((GlobalStates.oledSaverMonitors ?? []).includes(root.screenName)))

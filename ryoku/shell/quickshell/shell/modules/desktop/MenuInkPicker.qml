@@ -18,6 +18,7 @@ Item {
     // read(key, fallbackHex) -> "#RRGGBB"; write(key, hex) -> void.
     property var readColor: null
     property var writeColor: null
+    property bool showHexEntry: true
 
     property int index: 0
     readonly property var role: (pick.roles && pick.roles.length > index) ? pick.roles[index] : null
@@ -193,6 +194,7 @@ Item {
 
         // hex readout / entry for the current role.
         Rectangle {
+            visible: pick.showHexEntry
             width: parent.width
             height: Theme.ctlH
             radius: Theme.menuTileRadius

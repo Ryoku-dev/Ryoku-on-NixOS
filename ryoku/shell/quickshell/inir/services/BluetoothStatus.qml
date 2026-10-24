@@ -41,6 +41,16 @@ Singleton {
         }
     }
 
+    function setEnabled(on: bool): void {
+        if (!Bluetooth.defaultAdapter)
+            return;
+        Quickshell.execDetached(["ryoku-bluetooth-power", on ? "on" : "off"]);
+    }
+
+    function toggle(): void {
+        root.setEnabled(!root.enabled);
+    }
+
     // Material Symbol icon for the currently-active device, or generic bluetooth
     // states when no device is connected. Uses BluetoothDevice.icon (XDG icon
     // name like "audio-headset", "input-keyboard") to pick a device-specific

@@ -104,3 +104,102 @@ func TestSecondOpenDuringVisibleColdStartDoesNotQueueToggle(t *testing.T) {
 		t.Fatalf("visible cold start delivered %d redundant toggle events", delivered)
 	}
 }
+
+func TestPickerParkDue(t *testing.T) {
+	now := time.Unix(1000, 0)
+	const grace = 60 * time.Second
+	tests := []struct {
+		name           string
+		hidden, busy   bool
+		grace, elapsed time.Duration
+		want           bool
+	}{
+		{name: "sixty seconds hidden and idle", hidden: true, grace: grace, elapsed: grace, want: true},
+		{name: "always resident", hidden: true, grace: 0, elapsed: 24 * time.Hour},
+		{name: "visible", grace: grace, elapsed: grace},
+		{name: "busy", hidden: true, busy: true, grace: grace, elapsed: grace},
+		{name: "within grace", hidden: true, grace: grace, elapsed: grace - time.Millisecond},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := pickerParkDue(now.Add(-tc.elapsed), tc.hidden, tc.busy, tc.grace, now)
+			if got != tc.want {
+				t.Fatalf("pickerParkDue() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPickerIdleGraceReadsRyogamiSetting(t *testing.T) {
+	d := newSettingsDaemon(t)
+	if got := d.pickerIdleGrace(); got != 60*time.Second {
+		t.Fatalf("default grace = %s, want 1m", got)
+	}
+	d.ui = &managedProcess{parkWake: make(chan struct{}, 1)}
+	if err := d.setSetting(pickerReleaseSetting, float64(0)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-d.ui.parkWake:
+	default:
+		t.Fatal("grace change did not wake the park timer")
+	}
+	if got := d.pickerIdleGrace(); got != 0 {
+		t.Fatalf("stored zero grace = %s, want disabled parking", got)
+	}
+	if err := d.setSetting(pickerReleaseSetting, float64(600)); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.pickerIdleGrace(); got != 10*time.Minute {
+		t.Fatalf("stored grace = %s, want 10m", got)
+	}
+}
+
+func TestEnsureWaitsForStoppingPickerBeforeColdStart(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("RYOGAMI_HEADLESS", "")
+
+	oldDone := make(chan struct{})
+	started := make(chan struct{}, 1)
+	m := &managedProcess{
+		cmd:      &exec.Cmd{},
+		done:     oldDone,
+		stopping: true,
+		qml:      "/tmp/ryogami-stop-start-order-test.qml",
+		command: func(string, ...string) *exec.Cmd {
+			started <- struct{}{}
+			return exec.Command("sleep", "30")
+		},
+	}
+	t.Cleanup(m.kill)
+
+	ensured := make(chan bool, 1)
+	go func() { ensured <- m.ensure() }()
+
+	select {
+	case <-started:
+		t.Fatal("replacement picker started before the stopping picker exited")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	m.mu.Lock()
+	m.cmd = nil
+	m.done = nil
+	m.stopping = false
+	close(oldDone)
+	m.mu.Unlock()
+
+	select {
+	case ready := <-ensured:
+		if ready {
+			t.Fatal("cold-started picker reported ready before subscribing")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ensure did not resume after the old picker exited")
+	}
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("replacement picker did not start after the old picker exited")
+	}
+}

@@ -12,19 +12,19 @@ import shell.modules.phone as Phone
 //            first, kept until dismissed or closed by its sender.
 //   popups   the transient popup list: newest first (insert at 0), gated by DND,
 //            dedup-then-front by id, each with its own display timer.
-// Urgency only picks the arrival cue (chime): no styling, no ordering, no
-// timeout weighting, exactly as upstream. DND is shell-owned (bound from
-// Flags.dnd in shell.qml) and suppresses popups and their cue; history still
-// fills.
+// Critical notifications persist until dismissed. Other urgency levels only pick
+// the arrival cue; DND is shell-owned (bound from Flags.dnd in shell.qml) and
+// suppresses popups and their cue while history still fills.
 Singleton {
     id: root
 
     // Shell-owned Do Not Disturb; gates popups only.
     property bool dnd: false
 
-    // popup_duration: the reference wayle builder default. Quickshell's server
-    // carries no popup timer, so the shell owns it.
-    readonly property int popupDuration: 5000
+    // popup_duration: the reference wayle builder default unless the active
+    // bar style supplies its own fallback.
+    readonly property int popupDuration: Config.styleNotificationMs > 0
+        ? Config.styleNotificationMs : 5000
 
 
     // Arrival wall-clock per id, for newest-first ordering and expiry math.
@@ -78,13 +78,23 @@ Singleton {
     // can drive it.
     property var popups: []
 
-    // Popup timer rule (contract 07 sec 8): expire_timeout -1 (server default)
-    // -> popupDuration; 0 -> never (persist); n>0 -> min(popupDuration, n).
+    // Popup timer rule (contract 07 sec 8): critical or expire_timeout 0 persists;
+    // -1 uses popupDuration; n>0 uses min(popupDuration, n).
     function popupTtl(n) {
+        if (n.urgency === NotificationUrgency.Critical) return -1;
         var et = n.expireTimeout;
         if (et === 0) return -1;
         if (et < 0) return root.popupDuration;
         return Math.min(root.popupDuration, et);
+    }
+
+    function cancelPopupTimeout(id) {
+        if (root.popupExpireAt[id] === undefined)
+            return;
+        var e = Object.assign({}, root.popupExpireAt);
+        delete e[id];
+        root.popupExpireAt = e;
+        root.schedulePopupReap();
     }
 
     // Two popups are the same alert when their app, summary and body match; a

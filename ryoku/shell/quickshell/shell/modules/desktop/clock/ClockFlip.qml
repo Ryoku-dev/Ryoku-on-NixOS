@@ -19,7 +19,7 @@ Item {
     readonly property color inkDim:  Theme.inkDimOn2(face.underL, face.inkColorA)
     readonly property color inkSoft: Theme.inkSoftOn2(face.underL, face.inkColorA)
 
-    readonly property var t: Clk.parts(Now.date, Config.clock24h)
+    readonly property var t: Clk.parts(Now.secondDate, Config.clock24h)
     readonly property color accent: Clk.pickAccent(Config.clockAccent, Theme.accentOn2(face.underL, face.inkColorA), Theme.brand, face.ink)
     property real s: 1
     readonly property real ch: Math.round(104 * s)
@@ -90,16 +90,21 @@ Item {
         FlipDigit { value: face.hh.charAt(1) }
 
         Text {
+            id: colon
             anchors.verticalCenter: parent.verticalCenter
             text: ":"
             color: face.accent
             font.family: Theme.mono
             font.pixelSize: Math.round(face.ch * 0.5)
             font.weight: Font.Bold
-            SequentialAnimation on opacity {
-                loops: Animation.Infinite
-                NumberAnimation { from: 1; to: 0.3; duration: 620; easing.type: Easing.InOutSine }
-                NumberAnimation { from: 0.3; to: 1; duration: 620; easing.type: Easing.InOutSine }
+            SequentialAnimation {
+                id: colonPulse
+                NumberAnimation { target: colon; property: "opacity"; from: 1; to: 0.3; duration: 310; easing.type: Easing.InOutSine }
+                NumberAnimation { target: colon; property: "opacity"; from: 0.3; to: 1; duration: 310; easing.type: Easing.InOutSine }
+            }
+            Connections {
+                target: Now
+                function onDateChanged() { colonPulse.restart(); }
             }
         }
 

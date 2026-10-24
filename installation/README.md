@@ -106,7 +106,7 @@ End to end, USB stick to first login:
    never drops mid-install; the serial console stays a plain root shell.
 4. **ryoku-tui.** The terminal runs the installer. It collects keyboard, locale,
    time zone, network, hardware profile, graphics mode, window manager, one
-   browser (Firefox recommended, then Chromium or Zen), one login shell (Fish
+   browser (Firefox recommended, then Chromium, Zen, or none), one login shell (Fish
    recommended, then Zsh or Bash), the keep/remove checklist over optional apps,
    target disk, disk strategy, layout, user, and encryption, and refuses to
    proceed past its safety gates (BIOS, Secure Boot, live-medium exclusion,

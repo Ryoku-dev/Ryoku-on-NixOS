@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -20,6 +21,11 @@ const workshopAppID = "431960"
 
 // Matches the renderer's cap on preset dependency chains.
 const maxPresetDepth = 32
+
+const (
+	workshopWatchDebounce        = time.Second
+	workshopFallbackPollInterval = 30 * time.Second
+)
 
 type workshopFetchError struct {
 	status  string
@@ -41,12 +47,32 @@ type workshopLib struct {
 	libMu    sync.Mutex
 	libStamp string
 	libDirs  []string
+	rewatch  chan struct{}
 }
 
 func newWorkshopLib(d *daemon) *workshopLib {
-	w := &workshopLib{d: d, props: newWePropStore(d)}
+	w := &workshopLib{d: d, props: newWePropStore(d), rewatch: make(chan struct{}, 1)}
 	weScanHook = w.scanEntries
 	return w
+}
+
+func (w *workshopLib) requestRewatch() {
+	select {
+	case w.rewatch <- struct{}{}:
+	default:
+	}
+}
+
+func init() {
+	watchSetting("paths.", func(d *daemon, key string, _ interface{}) {
+		if d.workshop == nil {
+			return
+		}
+		switch key {
+		case "paths.steam", "paths.steamWorkshop":
+			d.workshop.requestRewatch()
+		}
+	})
 }
 
 func wkString(v interface{}) string {
@@ -553,24 +579,312 @@ func (w *workshopLib) workshopSignature() string {
 	return strings.Join(parts, "|")
 }
 
-// Steam writes an item through many temporary files, so a slow poll sees only settled downloads.
+type workshopWatch struct {
+	fd     int
+	root   string
+	wds    map[int32]string
+	byPath map[string]int32
+}
+
+func openWorkshopWatch(root string) (*workshopWatch, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	fd, err := syscall.InotifyInit1(syscall.IN_CLOEXEC)
+	if err != nil {
+		return nil, err
+	}
+	watch := &workshopWatch{
+		fd:     fd,
+		root:   filepath.Clean(root),
+		wds:    map[int32]string{},
+		byPath: map[string]int32{},
+	}
+	base, rootExists, err := nearestWorkshopAncestor(watch.root)
+	if err != nil {
+		syscall.Close(fd)
+		return nil, err
+	}
+	if err := watch.add(base); err != nil {
+		syscall.Close(fd)
+		return nil, err
+	}
+	if !rootExists {
+		return watch, nil
+	}
+	entries, err := os.ReadDir(watch.root)
+	if err != nil {
+		syscall.Close(fd)
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			_ = watch.add(filepath.Join(watch.root, entry.Name()))
+		}
+	}
+	return watch, nil
+}
+
+func nearestWorkshopAncestor(root string) (string, bool, error) {
+	path := root
+	for {
+		st, err := os.Stat(path)
+		if err == nil {
+			if !st.IsDir() {
+				return "", false, fmt.Errorf("%s is not a directory", path)
+			}
+			return path, path == root, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", false, err
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return "", false, err
+		}
+		path = parent
+	}
+}
+
+func (w *workshopWatch) add(path string) error {
+	path = filepath.Clean(path)
+	if _, ok := w.byPath[path]; ok {
+		return nil
+	}
+	mask := uint32(syscall.IN_CREATE | syscall.IN_CLOSE_WRITE | syscall.IN_DELETE |
+		syscall.IN_MOVED_TO | syscall.IN_MOVED_FROM | syscall.IN_DELETE_SELF | syscall.IN_MOVE_SELF)
+	wd, err := syscall.InotifyAddWatch(w.fd, path, mask)
+	if err != nil {
+		return err
+	}
+	w.wds[int32(wd)] = path
+	w.byPath[path] = int32(wd)
+	return nil
+}
+
+func (w *workshopWatch) remove(path string) {
+	path = filepath.Clean(path)
+	wd, ok := w.byPath[path]
+	if !ok {
+		return
+	}
+	_, _ = syscall.InotifyRmWatch(w.fd, uint32(wd))
+	delete(w.byPath, path)
+	delete(w.wds, wd)
+}
+
+func (w *workshopWatch) close() {
+	_ = syscall.Close(w.fd)
+}
+
+func (w *workshopWatch) rootPresent() bool {
+	st, err := os.Stat(w.root)
+	return err == nil && st.IsDir()
+}
+
+func workshopPathLeadsToRoot(path, root string) bool {
+	path = filepath.Clean(path)
+	return path == root || strings.HasPrefix(root, path+string(filepath.Separator))
+}
+
+type workshopWatchRead struct {
+	events []inotifyEvent
+	err    error
+}
+
+func runWorkshopWatch(w *workshopWatch, debounce time.Duration, initial bool, rewatch <-chan struct{}, changed func()) (bool, error) {
+	var timer *time.Timer
+	schedule := func() {
+		if timer == nil {
+			timer = time.AfterFunc(debounce, changed)
+			return
+		}
+		timer.Stop()
+		timer.Reset(debounce)
+	}
+	if initial {
+		schedule()
+	}
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+
+	reads := make(chan workshopWatchRead, 1)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		buf := make([]byte, 64*1024)
+		for {
+			n, err := syscall.Read(w.fd, buf)
+			if err == syscall.EINTR {
+				continue
+			}
+			read := workshopWatchRead{err: err}
+			if err == nil {
+				read.events = parseInotifyEvents(buf[:n])
+			}
+			select {
+			case reads <- read:
+			case <-done:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case <-rewatch:
+			return true, nil
+		case read := <-reads:
+			if read.err != nil {
+				return false, read.err
+			}
+			for _, ev := range read.events {
+				if ev.mask&syscall.IN_Q_OVERFLOW != 0 {
+					return true, nil
+				}
+				parent, ok := w.wds[ev.wd]
+				if !ok {
+					continue
+				}
+				if ev.mask&(syscall.IN_DELETE_SELF|syscall.IN_MOVE_SELF|syscall.IN_IGNORED) != 0 {
+					delete(w.byPath, parent)
+					delete(w.wds, ev.wd)
+					if parent == w.root || workshopPathLeadsToRoot(parent, w.root) {
+						return true, nil
+					}
+					schedule()
+					continue
+				}
+				child := filepath.Join(parent, ev.name)
+				if parent != w.root {
+					if !w.rootPresent() {
+						if ev.mask&syscall.IN_ISDIR != 0 &&
+							ev.mask&(syscall.IN_CREATE|syscall.IN_MOVED_TO) != 0 &&
+							workshopPathLeadsToRoot(child, w.root) {
+							return true, nil
+						}
+						continue
+					}
+					if workshopPathLeadsToRoot(parent, w.root) {
+						return true, nil
+					}
+				}
+				if parent == w.root && ev.mask&syscall.IN_ISDIR != 0 {
+					switch {
+					case ev.mask&(syscall.IN_CREATE|syscall.IN_MOVED_TO) != 0:
+						_ = w.add(child)
+					case ev.mask&(syscall.IN_DELETE|syscall.IN_MOVED_FROM) != 0:
+						w.remove(child)
+					}
+				}
+				if parent == w.root || filepath.Dir(parent) == w.root {
+					schedule()
+				}
+			}
+		}
+	}
+}
+
 func (w *workshopLib) watch() {
 	if !w.d.featureSteam() {
 		return
 	}
 	last := w.workshopSignature()
+	watchedRoot := ""
+	pathDirty := false
+	var stateMu sync.Mutex
+	changed := func() {
+		if !w.d.featureSteam() {
+			return
+		}
+		resolved, err := filepath.Abs(w.workshopDir())
+		if err == nil {
+			stateMu.Lock()
+			pathChanged := watchedRoot != "" && filepath.Clean(resolved) != watchedRoot
+			stateMu.Unlock()
+			if pathChanged {
+				w.requestRewatch()
+				return
+			}
+		}
+		sig := w.workshopSignature()
+		stateMu.Lock()
+		force := pathDirty
+		pathDirty = false
+		if sig == last && !force {
+			stateMu.Unlock()
+			return
+		}
+		last = sig
+		stateMu.Unlock()
+		w.d.rescan(false)
+		w.d.broadcast("ryogami.workshop.changed", map[string]interface{}{})
+	}
+	initial := false
+	fallbackLogged := false
 	for {
-		time.Sleep(3 * time.Second)
+		watcher, err := openWorkshopWatch(w.workshopDir())
+		if err != nil {
+			if !fallbackLogged {
+				fmt.Fprintf(os.Stderr, "ryogami: workshop watch unavailable, polling every %s: %v\n", workshopFallbackPollInterval, err)
+				fallbackLogged = true
+			}
+			w.pollWorkshop(&last, &stateMu, changed)
+			initial = true
+			continue
+		}
+		fallbackLogged = false
+		current := w.workshopSignature()
+		stateMu.Lock()
+		if watchedRoot != "" && watchedRoot != watcher.root {
+			pathDirty = true
+			initial = true
+		}
+		watchedRoot = watcher.root
+		if current != last {
+			initial = true
+		}
+		stateMu.Unlock()
+		rebuild, err := runWorkshopWatch(watcher, workshopWatchDebounce, initial, w.rewatch, changed)
+		watcher.close()
+		if err != nil {
+			if !fallbackLogged {
+				fmt.Fprintf(os.Stderr, "ryogami: workshop watch unavailable, polling every %s: %v\n", workshopFallbackPollInterval, err)
+				fallbackLogged = true
+			}
+			w.pollWorkshop(&last, &stateMu, changed)
+			initial = true
+			continue
+		}
+		initial = rebuild
+	}
+}
+
+func (w *workshopLib) pollWorkshop(last *string, stateMu *sync.Mutex, changed func()) {
+	ticker := time.NewTicker(workshopFallbackPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-w.rewatch:
+			return
+		case <-ticker.C:
+		}
 		if !w.d.featureSteam() {
 			continue
 		}
-		sig := w.workshopSignature()
-		if sig == last {
-			continue
+		stateMu.Lock()
+		before := *last
+		stateMu.Unlock()
+		if w.workshopSignature() != before {
+			changed()
 		}
-		last = sig
-		w.d.rescan(false)
-		w.d.broadcast("ryogami.workshop.changed", map[string]interface{}{})
 	}
 }
 
@@ -741,8 +1055,18 @@ func (w *workshopLib) installChain(id string, fetch func(item string) error) err
 
 func reconcileWeItem(weDir, id, actual string) {
 	target := filepath.Join(weDir, id)
-	if _, err := os.Lstat(target); err == nil {
-		return
+	if info, err := os.Lstat(target); err == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
+			return
+		}
+		link, readErr := os.Readlink(target)
+		if readErr == nil && !filepath.IsAbs(link) {
+			link = filepath.Join(filepath.Dir(target), link)
+		}
+		if readErr == nil && dirExists(link) {
+			return
+		}
+		_ = os.Remove(target)
 	}
 	if actual == "" || !dirExists(actual) || actual == target {
 		return

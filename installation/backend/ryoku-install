@@ -23,6 +23,8 @@ LIB_DIR="$BACKEND_DIR/lib"
 
 # shellcheck source=lib/common.sh
 source "$LIB_DIR/common.sh"
+# shellcheck source=lib/choices.sh
+source "$LIB_DIR/choices.sh"
 # shellcheck source=lib/preflight.sh
 source "$LIB_DIR/preflight.sh"
 # shellcheck source=lib/disk.sh
@@ -33,6 +35,8 @@ source "$LIB_DIR/resize.sh"
 source "$LIB_DIR/luks.sh"
 # shellcheck source=lib/filesystem.sh
 source "$LIB_DIR/filesystem.sh"
+# shellcheck source=lib/accounts.sh
+source "$LIB_DIR/accounts.sh"
 # shellcheck source=lib/pacstrap.sh
 source "$LIB_DIR/pacstrap.sh"
 # shellcheck source=lib/mirrors.sh
@@ -115,39 +119,23 @@ export RYOKU_VARIANT
 : "${RYOKU_BROWSER:=}"
 : "${RYOKU_LOGIN_SHELL:=}"
 : "${RYOKU_DROP_PACKAGES:=}"
+: "${RYOKU_FILE_MANAGER:=}"
+: "${RYOKU_RASHIN:=}"
+: "${RYOKU_HIDE_APPS:=}"
+: "${RYOKU_CACHYOS_LAYER:=}"
 export RYOKU_DROP_PACKAGES
-
-case ${RYOKU_BROWSER:-} in
-  '') RYOKU_BROWSER=firefox ;;
-  firefox|chromium|zen) ;;
-  *) die "RYOKU_BROWSER='%s' is not one of the shipped browsers (firefox|chromium|zen)" "$RYOKU_BROWSER" ;;
-esac
-case ${RYOKU_LOGIN_SHELL:-} in
-  '') RYOKU_LOGIN_SHELL=fish ;;
-  fish|zsh|bash) ;;
-  *) die "RYOKU_LOGIN_SHELL='%s' is not one of the shipped login shells (fish|zsh|bash)" "$RYOKU_LOGIN_SHELL" ;;
-esac
-export RYOKU_BROWSER RYOKU_LOGIN_SHELL
-
-append_drop() {
-  local pkg=$1
-  [[ ",${RYOKU_DROP_PACKAGES}," == *,"$pkg,"* ]] \
-    || RYOKU_DROP_PACKAGES="${RYOKU_DROP_PACKAGES:+$RYOKU_DROP_PACKAGES,}$pkg"
-}
-
-case $RYOKU_BROWSER in
-  firefox) browser_drops=(chromium zen-browser-bin) ;;
-  chromium) browser_drops=(firefox zen-browser-bin) ;;
-  zen) browser_drops=(firefox chromium) ;;
-esac
-for pkg in "${browser_drops[@]}"; do append_drop "$pkg"; done
-
-case $RYOKU_LOGIN_SHELL in
-  fish) shell_drops=(zsh zsh-autosuggestions zsh-history-substring-search zsh-syntax-highlighting ryoku-oh-my-zsh blesh) ;;
-  zsh) shell_drops=(fish blesh) ;;
-  bash) shell_drops=(fish zsh zsh-autosuggestions zsh-history-substring-search zsh-syntax-highlighting ryoku-oh-my-zsh) ;;
-esac
-for pkg in "${shell_drops[@]}"; do append_drop "$pkg"; done
+edition=Arch
+[[ $RYOKU_VARIANT != cachyos ]] || edition=CachyOS
+ryoku_choice_apply_fresh "$edition"
+if [[ $RYOKU_CACHYOS_LAYER == 1 && $RYOKU_VARIANT != plain ]]; then
+  log 'CachyOS layer: ignored for the %s install variant' "$RYOKU_VARIANT"
+  RYOKU_CACHYOS_LAYER=0
+fi
+# cachyos: the base.packages names CachyOS replaces (the stock kernel) are
+# dropped like a deselected app, so they never land and updates never add them.
+[[ $RYOKU_VARIANT != cachyos ]] || ryoku_cachyos_drops
+export RYOKU_BROWSER RYOKU_LOGIN_SHELL RYOKU_FILE_MANAGER
+export RYOKU_RASHIN RYOKU_HIDE_APPS RYOKU_CACHYOS_LAYER RYOKU_DROP_PACKAGES
 : "${RYOKU_REBOOT:=}"
 : "${RYOKU_DRYRUN:=}"
 # carve (in-place resize) contract: shrink RYOKU_RESIZE_PART to free
@@ -177,10 +165,11 @@ fi
 # an encrypt request can't wipe + partition + luksFormat only to die at `open`.
 # luks.sh keeps the same check as defense in depth for a direct backend call.
 [[ ${RYOKU_ENCRYPT:-} != 1 || -n $RYOKU_LUKS_PASSPHRASE ]] || die "RYOKU_ENCRYPT=1 but RYOKU_LUKS_PASSPHRASE is unset"
+ryoku_accounts_validate
 
 main() {
   [[ -n $RYOKU_DRYRUN ]] && log "DRY RUN: no disk is touched; commands are printed only"
-  log 'Ryoku install: disk=%s host=%s user=%s profile=%s wm=%s browser=%s shell=%s' "$RYOKU_DISK" "$RYOKU_HOSTNAME" "$RYOKU_USERNAME" "$RYOKU_PROFILE" "$RYOKU_COMPOSITOR" "$RYOKU_BROWSER" "$RYOKU_LOGIN_SHELL"
+  log 'Ryoku install: disk=%s host=%s user=%s profile=%s wm=%s browser=%s shell=%s files=%s rashin=%s hidden=%s cachyos-layer=%s' "$RYOKU_DISK" "$RYOKU_HOSTNAME" "$RYOKU_USERNAME" "$RYOKU_PROFILE" "$RYOKU_COMPOSITOR" "$RYOKU_BROWSER" "$RYOKU_LOGIN_SHELL" "$RYOKU_FILE_MANAGER" "$RYOKU_RASHIN" "${RYOKU_HIDE_APPS:-none}" "$RYOKU_CACHYOS_LAYER"
 
   ryoku_preflight
   # an offline install with no usable baked repo can only fail, and it must fail
@@ -242,6 +231,7 @@ main() {
   # (before chroot_off). online installs build these later in ryoku_aur instead.
   ryoku_offline_aur
   ryoku_offline_chroot_off
+  ryoku_cachyos_layer
 
   step bootloader
   ryoku_bootloader
@@ -249,6 +239,7 @@ main() {
   ryoku_aur || true
   # Point xdg and the desktop role at the installed browser choice.
   ryoku_default_browser
+  ryoku_default_file_manager
 
   # the AUR step may have installed limine-mkinitcpio-hook, whose pacman
   # hooks rebuilt the boot menu as the UKI tree: retire the flat placeholder

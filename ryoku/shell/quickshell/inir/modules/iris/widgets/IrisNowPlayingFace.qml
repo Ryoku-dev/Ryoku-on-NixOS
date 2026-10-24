@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Quickshell.Widgets
+import inir
 import inir.services
 import inir.modules.common
 import inir.modules.common.functions
@@ -82,6 +83,13 @@ IrisWidgetFace {
             enabled: media.effectiveCanGoNext
             opacity: enabled ? 1 : 0.4
             onActivated: media.next()
+        }
+        FaceAction {
+            face: root
+            implicitWidth: transport.disc
+            glyph: "equalizer"
+            name: Translation.tr("Open equalizer")
+            onActivated: GlobalStates.openIrisEqualizer(root.QsWindow?.window?.screen?.name ?? "")
         }
     }
 

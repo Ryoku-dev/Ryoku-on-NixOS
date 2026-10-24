@@ -4,13 +4,9 @@ import stage.services
 import "../wallpaper" as WallpaperMod
 import "Singletons"
 
-// The Parallax backdrop, drawn inside the desktop surface just above the base
-// wallpaper (docs/stage.md): the inpainted background.png sized with the
-// wallpaper's own fit and drifting with the cursor, so it covers the
-// wallpaper's baked subject and can never misalign with ryogami's surface
-// underneath. Only Parallax uses it; Depth has no backdrop. This item also owns
-// the per-monitor cursor poll and shares the smoothed value so every StageLayer
-// on the screen drifts in lockstep.
+// The Stage backdrop, drawn inside the desktop surface just above the base
+// wallpaper: the inpainted background.png behind the cut-outs, a flat plane
+// without a depth map, a depth-displaced 3D scene with one.
 Item {
     id: root
 
@@ -19,21 +15,24 @@ Item {
     readonly property string screenName: root.screen ? root.screen.name : ""
     readonly property var wallpaperGeometry: WallpaperLayout.geometryFor(root.screenName)
     property string wallpaperFit: "Cover"
+    property bool spatialEnabled: true
 
     anchors.fill: parent
 
-    readonly property bool owns: StageBackend.isParallaxFor(root.wallpaperPath)
-    readonly property string url: StageBackend.backgroundUrlFor(root.wallpaperPath)
+    readonly property bool owns: StageBackend.isActiveFor(root.wallpaperPath)
+    readonly property bool parallax: StageBackend.isParallaxFor(root.wallpaperPath)
+    readonly property string url: StageBackend.backdropUrlFor(root.wallpaperPath)
+    readonly property string depthUrl: StageBackend.depthUrlFor(root.wallpaperPath)
+    readonly property bool spatial: root.spatialEnabled && root.url !== "" && root.depthUrl !== ""
     readonly property bool shown: root.owns && root.url !== ""
 
-    property real cursorNX: 0
-    property real cursorNY: 0
-    // The backdrop is the farthest plane, so it drifts the least; Amount scales it.
+    readonly property real cursorNX: StageBackend.cursorNXFor(root.screenName)
+    readonly property real cursorNY: StageBackend.cursorNYFor(root.screenName)
     readonly property real _max: root.width * 0.04
-    // Backdrop drift scales the farthest plane on its own; Follow mouse and
-    // Sensitivity gate and scale the pointer's pull like every layer.
-    readonly property real _gain: Config.followMouse
+    readonly property real _gain: root.parallax && !root.spatial && Config.followMouse
         ? Config.amountFactor * Config.sensitivity * Config.backdrop * 0.25 : 0
+    readonly property real _cameraGain: root.spatial && Config.followMouse
+        ? Config.amountFactor * Config.sensitivity * Config.range : 0
     function offsetX() { return root.cursorNX * root._max * root._gain; }
     function offsetY() { return root.cursorNY * root._max * root._gain; }
 
@@ -80,22 +79,40 @@ Item {
                 opacity: (root.shown && status === Image.Ready) ? 1 : 0
                 Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
             }
+
+            Loader {
+                id: sceneLoader
+                anchors.fill: parent
+                active: root.spatial
+                visible: status === Loader.Ready
+
+                sourceComponent: Component {
+                    StageSpatialScene {
+                        backgroundPath: root.url
+                        depthPath: root.depthUrl
+                        mattePath: StageBackend.layerUrlFor(root.wallpaperPath, 0)
+                        textureSize: Qt.size(root.width, root.height)
+                        stretch: root.wallpaperFit === "Fill"
+                        screenName: root.screenName
+                        pointerX: root.cursorNX
+                        pointerY: root.cursorNY
+                        motionAmount: root._cameraGain
+                    }
+                }
+            }
         }
     }
 
-    // The drift follows the pointer while it is over the desktop surface: an
-    // event, not a poll, so nothing runs while the pointer is over a window.
     HoverHandler {
         enabled: root.owns
         acceptedButtons: Qt.NoButton
         onPointChanged: {
             const m = root.screen;
             if (!m || root.width <= 0 || root.height <= 0) return;
-            const nx = Math.max(-1, Math.min(1, point.position.x / root.width * 2 - 1));
-            const ny = Math.max(-1, Math.min(1, point.position.y / root.height * 2 - 1));
-            root.cursorNX = root.cursorNX + (nx - root.cursorNX) * 0.55;
-            root.cursorNY = root.cursorNY + (ny - root.cursorNY) * 0.55;
-            StageBackend.setCursor(m.name, root.cursorNX, root.cursorNY);
+            StageBackend.setCursor(m.name,
+                point.position.x / root.width * 2 - 1,
+                point.position.y / root.height * 2 - 1);
         }
     }
 }
+

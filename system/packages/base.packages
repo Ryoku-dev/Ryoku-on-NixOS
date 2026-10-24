@@ -132,6 +132,7 @@ qt6-5compat
 qt6-svg
 qt6-multimedia
 qt6-multimedia-ffmpeg
+qt6-quick3d
 gst-plugins-base
 gst-plugins-good
 gst-plugins-bad
@@ -258,7 +259,6 @@ zoxide
 # Ryoku shell (quickshell desktop), its runtime helpers, and the yazi file manager
 quickshell
 cava
-cliphist
 hyprpicker
 imagemagick
 # waifu2x-ncnn-vulkan: GPU AI upscaler behind ryoshot Beautify's HD export and
@@ -279,6 +279,13 @@ xdg-utils
 ffmpeg
 yt-dlp
 desktop-file-utils
+
+# Desktop and dock widgets: khal reads the local CalDAV and ICS calendars and
+# vdirsyncer keeps Google, Outlook and other CalDAV ones in sync; translate-shell
+# backs the translator widget.
+khal
+vdirsyncer
+translate-shell
 
 # Launcher (command palette, Super+Space): qalc backs the calculator (units,
 # currency, %, functions; a Python arithmetic fallback covers a qalc-less box),

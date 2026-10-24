@@ -221,10 +221,10 @@ PanelWindow {
         repeat: false
         onTriggered: {
             if (root.captureMode === "copy")
-                Quickshell.execDetached(["sh", "-c", 'grim -o "$1" - | wl-copy --type image/png', "sh", root.screenName]);
+                Quickshell.execDetached(["sh", "-c", 'ryoku-cmd-grim -o "$1" - | wl-copy --type image/png', "sh", root.screenName]);
             else
                 Quickshell.execDetached(["sh", "-c",
-                    'd="$2/Screenshots"; mkdir -p "$d"; f="$d/Screenshot_$(date +%Y-%m-%d_%H.%M.%S).png"; grim ${1:+-o "$1"} "$f" && wl-copy --type image/png < "$f"',
+                    'd="$2/Screenshots"; mkdir -p "$d"; f="$d/Screenshot_$(date +%Y-%m-%d_%H.%M.%S).png"; ryoku-cmd-grim ${1:+-o "$1"} "$f" && wl-copy --type image/png < "$f"',
                     "sh", root.screenName, FileUtils.trimFileProtocol(Directories.pictures)]);
             captureRestore.restart();
         }

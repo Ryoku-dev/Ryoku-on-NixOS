@@ -20,6 +20,7 @@ import inir.modules.iris.pieces
 import inir.modules.iris.bar.island
 import inir.modules.iris.control
 
+import shell.services as Ryoku
 Item {
     id: root
 
@@ -365,6 +366,10 @@ Item {
     readonly property bool eventsEnabled: root.options?.events ?? true
     property var event: ({ icon: "", tint: IrisStyle.text, title: "", detail: "", value: -1 })
     readonly property bool eventShown: eventTimer.running && !root.expanded && !root.feedback
+    // Battery notices draw the fill level instead of a generic font glyph. Material's "lan" is a network
+    // diagram, while the ethernet-port mark matches the Network bubble.
+    readonly property string eventGlyph: root.event.icon === "lan" ? "settings_ethernet" : root.event.icon
+    readonly property bool eventIsBattery: String(root.event.icon).startsWith("battery") && root.event.value >= 0
     function showEvent(icon: string, tint: color, title: string, detail: string, value: real): void {
         if (!root.eventsEnabled || !eventsWarm.ready || root.expanded || root.fullscreenCovered
             || root.targetScreen?.name !== GlobalStates.focusedScreen?.name) return
@@ -973,6 +978,7 @@ Item {
         else if (kind === "focus") Notifications.silent = !Notifications.silent
         else if (kind === "weather" || kind === "clock") root.openPage("desktop", true, part)
         else if (kind === "tray" || kind === "tools") root.openPage(kind, true, part)
+        else if (kind === "equalizer") GlobalStates.openIrisEqualizer(root.targetScreen?.name ?? "")
         else root.openControlCenterFrom(part)
     }
 
@@ -1315,6 +1321,7 @@ Item {
             const page = GlobalStates.irisIslandPageRequest
             if (page.length === 0 || !root.focusedOutput) return
             GlobalStates.irisIslandPageRequest = ""
+            if (page === "collapse") { root.expanded = false; return }
             root.openPage(page, true, null)
         }
     }
@@ -1921,7 +1928,7 @@ Item {
                     Layout.preferredHeight: root.compactHeight - Math.round(10 * root.d)
                     Layout.preferredWidth: doneLabel.implicitWidth + Math.round(24 * root.d)
                     radius: height / 2
-                    color: compactPress.containsMouse ? Qt.lighter(IrisStyle.accent, 1.08) : IrisStyle.accent
+                    color: compactPress.containsMouse ? IrisStyle.accentHover : IrisStyle.accent
                     Behavior on color { ColorAnimation { duration: IrisStyle.duration(110); easing.type: IrisStyle.feedbackEasing } }
                     IrisText {
                         id: doneLabel
@@ -1944,10 +1951,19 @@ Item {
                     radius: width / 2
                     color: IrisStyle.tintFill(root.event.tint)
                     Glyph {
+                        visible: !root.eventIsBattery
                         anchors.centerIn: parent
-                        text: root.event.icon
+                        text: root.eventGlyph
                         iconSize: 16 * root.d
                         color: root.event.tint
+                    }
+                    IrisBatteryMark {
+                        visible: root.eventIsBattery
+                        anchors.centerIn: parent
+                        markHeight: Math.round(9 * root.d)
+                        level: Math.max(0, root.event.value)
+                        tint: root.event.tint
+                        frame: IrisStyle.trackOf(root.event.tint)
                     }
                 }
                 ColumnLayout {
@@ -2430,6 +2446,68 @@ Item {
                             asynchronous: !mediaPage.current
                             sourceComponent: IslandMediaPage { width: mediaLoader.width; island: root }
                         }
+                        MouseArea {
+                            id: eqDoor
+                            Layout.fillWidth: true
+                            implicitHeight: Math.round(44 * root.d)
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            Accessible.role: Accessible.Button
+                            Accessible.name: Translation.tr("Open equalizer")
+                            onClicked: GlobalStates.openIrisEqualizer(root.targetScreen?.name ?? "")
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: IrisStyle.radiusTile
+                                color: eqDoor.containsMouse ? IrisStyle.fillHover : IrisStyle.fillQuiet
+                                Behavior on color {
+                                    ColorAnimation {
+                                        duration: IrisStyle.duration(120)
+                                        easing.type: IrisStyle.feedbackEasing
+                                    }
+                                }
+                            }
+                            readonly property string detail: !Ryoku.Equalizer.on ? Translation.tr("Off")
+                                : Ryoku.Equalizer.running
+                                    ? Ryoku.Equalizer.presetLabel(Ryoku.Equalizer.preset)
+                                    : Translation.tr("Starting")
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: Math.round(12 * root.d)
+                                anchors.rightMargin: Math.round(10 * root.d)
+                                spacing: Math.round(10 * root.d)
+                                Glyph {
+                                    Layout.alignment: Qt.AlignVCenter
+                                    text: "equalizer"
+                                    iconSize: 20 * root.d
+                                    color: Ryoku.Equalizer.on ? IrisStyle.accent : IrisStyle.text
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 0
+                                    IrisText {
+                                        Layout.fillWidth: true
+                                        text: Translation.tr("Equalizer")
+                                        elide: Text.ElideRight
+                                        font.pixelSize: IrisStyle.typeLabel
+                                        font.weight: IrisStyle.weight(Font.DemiBold)
+                                    }
+                                    IrisText {
+                                        Layout.fillWidth: true
+                                        text: eqDoor.detail
+                                        color: IrisStyle.muted
+                                        elide: Text.ElideRight
+                                        font.pixelSize: IrisStyle.typeFootnote
+                                    }
+                                }
+                                Glyph {
+                                    Layout.alignment: Qt.AlignVCenter
+                                    text: "chevron_right"
+                                    iconSize: 18 * root.d
+                                    color: IrisStyle.textSecondary
+                                }
+                            }
+                        }
                     }
 
                     Page {
@@ -2572,10 +2650,19 @@ Item {
                 radius: width / 2
                 color: IrisStyle.tintFill(root.event.tint)
                 Glyph {
+                    visible: !root.eventIsBattery
                     anchors.centerIn: parent
-                    text: root.event.icon
+                    text: root.eventGlyph
                     iconSize: 16 * root.d
                     color: root.event.tint
+                }
+                IrisBatteryMark {
+                    visible: root.eventIsBattery
+                    anchors.centerIn: parent
+                    markHeight: Math.round(9 * root.d)
+                    level: Math.max(0, root.event.value)
+                    tint: root.event.tint
+                    frame: IrisStyle.trackOf(root.event.tint)
                 }
             }
             ColumnLayout {

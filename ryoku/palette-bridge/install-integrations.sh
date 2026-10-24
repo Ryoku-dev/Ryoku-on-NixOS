@@ -3,16 +3,13 @@ set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}"
-overlay_root="$config_root/ryoku/user_edits/matugen"
-overlay_apps="$overlay_root/apps.toml"
+data_root="${XDG_DATA_HOME:-$HOME/.local/share}"
+bridge_root="$config_root/ryoku/palette-bridge"
+bridge_apps="$bridge_root/matugen.toml"
+bridge_template_root="$data_root/ryoku/palette-bridge/templates"
+legacy_overlay_root="$config_root/ryoku/user_edits/matugen"
+legacy_overlay_apps="$legacy_overlay_root/apps.toml"
 live_apps="$config_root/matugen/apps.toml"
-if [[ "$config_root" == "$HOME/.config" ]]; then
-  # Literal paths written into apps.toml; Matugen expands the tilde.
-  # shellcheck disable=SC2088
-  matugen_template_root='~/.config/matugen/templates'
-else
-  matugen_template_root="$config_root/matugen/templates"
-fi
 want_spotify=false
 want_vesktop=false
 want_zen=false
@@ -25,7 +22,7 @@ usage() {
 
 while (( $# )); do
   case "$1" in
-    --capabilities) printf 'vesktop-preserve-quickcss-v1\n'; exit 0 ;;
+    --capabilities) printf 'palette-bridge-matugen-v2\n'; exit 0 ;;
     --all) want_spotify=true; want_vesktop=true; want_zen=true ;;
     --spotify) want_spotify=true ;;
     --vesktop) want_vesktop=true ;;
@@ -42,7 +39,15 @@ if ! $want_spotify && ! $want_vesktop && ! $want_zen; then
 fi
 
 # Render first so an invalid palette cannot leave partial setup.
+carrier="${XDG_CACHE_HOME:-$HOME/.cache}/ryoku/matugen-carrier.json"
 vesktop_rendered=
+if $want_vesktop || $want_zen; then
+  command -v matugen >/dev/null || { printf 'matugen is required for app integrations\n' >&2; exit 1; }
+  [[ -f "$carrier" ]] || {
+    printf 'Current Ryoku palette not found: %s. Apply a wallpaper or theme first.\n' "$carrier" >&2
+    exit 1
+  }
+fi
 if $want_vesktop; then
   command -v jq >/dev/null || { printf 'jq is required for --vesktop\n' >&2; exit 1; }
   source "$project_root/vesktop/quickcss.sh"
@@ -54,19 +59,14 @@ if $want_vesktop; then
   vesktop_temporary=$(mktemp -d)
   trap 'rm -rf "$vesktop_temporary"' EXIT
   vesktop_rendered="$vesktop_temporary/palette.css"
-  vesktop_render_palette "$project_root/templates/vesktop-colors.css" \
-    "${XDG_CACHE_HOME:-$HOME/.cache}/ryoku/matugen-carrier.json" "$vesktop_rendered"
+  vesktop_render_palette "$project_root/templates/vesktop-colors.css" "$carrier" "$vesktop_rendered"
   vesktop_strip_palette "$vesktop_root/settings/quickCss.css" "$vesktop_temporary/custom.css" 1
 fi
 
-prepare_matugen_overlay() {
-  install -d "$overlay_root/templates"
-  if [[ ! -f "$overlay_apps" ]]; then
-    [[ -f "$live_apps" ]] || {
-      printf 'Matugen apps file not found: %s\n' "$live_apps" >&2
-      exit 1
-    }
-    install -m 0644 "$live_apps" "$overlay_apps"
+prepare_matugen_config() {
+  install -d "$bridge_root" "$bridge_template_root"
+  if [[ ! -f "$bridge_apps" ]]; then
+    printf '[config]\nreload_apps = false\n' > "$bridge_apps"
   fi
 }
 
@@ -82,6 +82,42 @@ record_owned() {
   rm -f "$temporary"
 }
 
+forget_owned() {
+  local integration="$1" path="$2" temporary
+  [[ -f "$ownership_file" ]] || return 0
+  temporary=$(mktemp)
+  awk -F '\t' -v app="$integration" -v path="$path" '!($1 == app && $2 == path)' \
+    "$ownership_file" > "$temporary"
+  install -m 0600 "$temporary" "$ownership_file"
+  rm -f "$temporary"
+}
+
+migrate_legacy_matugen_section() {
+  local section="$1" old_template="$2" temporary base
+  [[ -f "$legacy_overlay_apps" ]] || return 0
+  grep -Fqx "[$section]" "$legacy_overlay_apps" || return 0
+  temporary=$(mktemp)
+  awk -v target="[$section]" '
+    $0 == target { skip=1; next }
+    /^\[/ && skip { skip=0 }
+    !skip { print }
+  ' "$legacy_overlay_apps" > "$temporary"
+  base=/usr/share/ryoku/config/matugen/apps.toml
+  if [[ -f "$project_root/../shell/matugen/apps.toml" ]]; then
+    base="$project_root/../shell/matugen/apps.toml"
+  fi
+  if [[ -f "$base" ]] &&
+      [[ "$(awk 'NF { print }' "$temporary")" == "$(awk 'NF { print }' "$base")" ]]; then
+    rm -f "$legacy_overlay_apps"
+    install -Dm0644 "$base" "$live_apps"
+  else
+    install -m 0644 "$temporary" "$legacy_overlay_apps"
+    install -Dm0644 "$temporary" "$live_apps"
+  fi
+  rm -f "$temporary" "$old_template"
+  forget_owned "${section#templates.}" "$old_template"
+}
+
 set_matugen_section() {
   local section="$1" input_path="$2" output_path="$3" hook="${4:-}" temporary input_value output_value
   command -v jq >/dev/null || { printf 'jq is required to write Matugen integrations\n' >&2; return 1; }
@@ -92,7 +128,7 @@ set_matugen_section() {
     $0 == target { skip=1; next }
     /^\[/ && skip { skip=0 }
     !skip { print }
-  ' "$overlay_apps" > "$temporary"
+  ' "$bridge_apps" > "$temporary"
   {
     printf '\n[%s]\n' "$section"
     printf 'input_path = %s\n' "$input_value"
@@ -101,7 +137,7 @@ set_matugen_section() {
       printf 'post_hook = %s\n' "$(jq -Rn --arg hook "$hook" '$hook')"
     fi
   } >> "$temporary"
-  install -m 0644 "$temporary" "$overlay_apps"
+  install -m 0644 "$temporary" "$bridge_apps"
   rm -f "$temporary"
 }
 
@@ -122,9 +158,12 @@ if $want_vesktop; then
   command -v jq >/dev/null || { printf 'jq is required for --vesktop\n' >&2; exit 1; }
   settings="$vesktop_root/settings/settings.json"
   [[ -f "$settings" ]] || { printf 'Vesktop settings not found: %s\n' "$settings" >&2; exit 1; }
-  prepare_matugen_overlay
-  install -m 0644 "$project_root/templates/vesktop-colors.css" "$overlay_root/templates/vesktop-colors.css"
-  record_owned vesktop "$overlay_root/templates/vesktop-colors.css"
+  prepare_matugen_config
+  legacy_template="$legacy_overlay_root/templates/vesktop-colors.css"
+  migrate_legacy_matugen_section templates.vesktop "$legacy_template"
+  bridge_template="$bridge_template_root/vesktop-colors.css"
+  install -m 0644 "$project_root/templates/vesktop-colors.css" "$bridge_template"
+  record_owned vesktop "$bridge_template"
   merge_root="$state_root/vesktop"
   install -d "$merge_root"
   install -m 0644 "$project_root/vesktop/quickcss.sh" "$merge_root/quickcss.sh"
@@ -133,9 +172,7 @@ if $want_vesktop; then
   record_owned vesktop "$merge_root/palette.css"
   shell_quote() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
   merge_hook="bash $(shell_quote "$merge_root/quickcss.sh") $(shell_quote "$vesktop_root/settings/quickCss.css") $(shell_quote "$merge_root/palette.css")"
-  set_matugen_section templates.vesktop \
-    "$matugen_template_root/vesktop-colors.css" \
-    "$merge_root/palette.css" "$merge_hook"
+  set_matugen_section templates.vesktop "$bridge_template" "$merge_root/palette.css" "$merge_hook"
   # The Ryoku Discord theme (shipped as ryoku-discord.theme.css, or installed by
   # hand as ryoku.theme.css) consumes the same palette roles itself, and
   # stacking Midnight on it changes its layout.
@@ -210,15 +247,19 @@ if $want_zen; then
     printf 'Could not identify a Zen profile; set ZEN_PROFILE_ROOT and retry.\n' >&2
     exit 1
   }
-  prepare_matugen_overlay
-  install -m 0644 "$project_root/templates/zen.css" "$overlay_root/templates/zen.css"
-  record_owned zen "$overlay_root/templates/zen.css"
+  prepare_matugen_config
+  legacy_template="$legacy_overlay_root/templates/zen.css"
+  migrate_legacy_matugen_section templates.zen "$legacy_template"
+  bridge_template="$bridge_template_root/zen.css"
+  install -m 0644 "$project_root/templates/zen.css" "$bridge_template"
+  record_owned zen "$bridge_template"
   if [[ "$profile_root" == "$HOME/"* ]]; then
     profile_output="~${profile_root#"$HOME"}/chrome/ryoku-colors.css"
   else
     profile_output="$profile_root/chrome/ryoku-colors.css"
   fi
-  set_matugen_section templates.zen "$matugen_template_root/zen.css" "$profile_output"
+  set_matugen_section templates.zen "$bridge_template" "$profile_output"
+  record_owned zen "$profile_root/chrome/ryoku-colors.css"
   install -d "$profile_root/chrome"
   user_chrome="$profile_root/chrome/userChrome.css"
   touch "$user_chrome"
@@ -243,8 +284,7 @@ if $want_zen; then
 fi
 
 if $want_vesktop || $want_zen; then
-  command -v ryoku >/dev/null || { printf 'ryoku is required to materialize Matugen overlays\n' >&2; exit 1; }
-  ryoku materialize
+  matugen -c "$bridge_apps" json "$carrier"
   if command -v ryogami >/dev/null; then
     ryogami wallpaper repaint
   fi

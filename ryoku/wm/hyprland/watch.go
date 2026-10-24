@@ -17,18 +17,19 @@ import (
 
 // Two properties must survive any rewrite here:
 //
-// A focus change emits straight from the event line with no compositor query,
-// because the shell daemon resolves a surface target on every keypress from it.
+// A focus change emits straight from the event line without waiting for a
+// compositor query, because the shell daemon resolves a surface target on every
+// keypress from it.
 //
-// Other changes are debounced into a refresh of only the affected sections,
-// so a burst costs one query pass instead of a storm.
+// Other changes are debounced into a refresh of only the affected sections, so
+// a burst costs one query pass instead of a storm.
 
 // Half a 60 Hz frame: folds a burst, never a visible stale beat.
 const resyncDebounce = 8 * time.Millisecond
 
-// Hyprland publishes no native move/resize event. Polling its control socket
-// directly keeps floating geometry current without forking hyprctl four times a
-// second; unchanged frames are suppressed by watchState.publish.
+// Hyprland publishes no native move/resize event. A visible floating window can
+// therefore move without another event, so sample only while one is present.
+// Unchanged frames are suppressed by watchState.publish.
 const geometryPoll = 250 * time.Millisecond
 
 const reconnectBackoff = 500 * time.Millisecond
@@ -76,6 +77,10 @@ func streamWatch(wants func(wm.FrameKind) bool) error {
 }
 
 func consume(conn net.Conn, emit func(wm.Frame), wants func(wm.FrameKind) bool) {
+	consumeWithGeometryPoll(conn, emit, wants, geometryPoll)
+}
+
+func consumeWithGeometryPoll(conn net.Conn, emit func(wm.Frame), wants func(wm.FrameKind) bool, poll time.Duration) {
 	state := newWatchState(emit, wants)
 	state.refresh(refreshAll)
 	emit(wm.Frame{Kind: wm.FrameReady})
@@ -84,13 +89,40 @@ func consume(conn net.Conn, emit func(wm.Frame), wants func(wm.FrameKind) bool) 
 		<-pending.C
 	}
 	defer pending.Stop()
+
 	var geometryTicker *time.Ticker
 	var geometryTick <-chan time.Time
-	if wants(wm.FrameWindows) {
-		geometryTicker = time.NewTicker(geometryPoll)
-		geometryTick = geometryTicker.C
-		defer geometryTicker.Stop()
+	geometryPolling := false
+	setGeometryPolling := func(enabled bool) {
+		if enabled == geometryPolling {
+			return
+		}
+		geometryPolling = enabled
+		if enabled {
+			if geometryTicker == nil {
+				geometryTicker = time.NewTicker(poll)
+			} else {
+				geometryTicker.Reset(poll)
+			}
+			geometryTick = geometryTicker.C
+			return
+		}
+		geometryTicker.Stop()
+		select {
+		case <-geometryTicker.C:
+		default:
+		}
+		geometryTick = nil
 	}
+	defer func() {
+		if geometryTicker != nil {
+			geometryTicker.Stop()
+		}
+	}()
+	updateGeometryPolling := func() {
+		setGeometryPolling(wants(wm.FrameWindows) && visibleFloatingWindow(state))
+	}
+	updateGeometryPolling()
 
 	done := make(chan struct{})
 	defer close(done)
@@ -109,6 +141,7 @@ func consume(conn net.Conn, emit func(wm.Frame), wants func(wm.FrameKind) bool) 
 
 	armed := false
 	var dirty refreshMask
+	geometryDirty := false
 	for {
 		select {
 		case line, ok := <-lines:
@@ -123,8 +156,13 @@ func consume(conn net.Conn, emit func(wm.Frame), wants func(wm.FrameKind) bool) 
 				// keybind would target a dead monitor.
 				state.publish(wm.Frame{Kind: wm.FrameFocus, FocusedOutput: focusedFallback(name)})
 			}
-			dirty |= state.event(line)
-			if dirty == 0 {
+			eventDirty := state.event(line)
+			if refreshGeometryOnEvent(line) {
+				geometryDirty = true
+				eventDirty &^= refreshWindows
+			}
+			dirty |= eventDirty
+			if dirty == 0 && !geometryDirty {
 				continue
 			}
 			if !armed {
@@ -134,11 +172,50 @@ func consume(conn net.Conn, emit func(wm.Frame), wants func(wm.FrameKind) bool) 
 		case <-pending.C:
 			armed = false
 			state.refresh(dirty)
+			if geometryDirty && dirty&refreshWindows == 0 {
+				state.refreshWindowGeometry()
+			}
 			dirty = 0
+			geometryDirty = false
+			updateGeometryPolling()
 		case <-geometryTick:
 			state.refreshWindowGeometry()
+			updateGeometryPolling()
 		}
 	}
+}
+
+func refreshGeometryOnEvent(line string) bool {
+	name, _, ok := strings.Cut(line, ">>")
+	if !ok {
+		return false
+	}
+	switch name {
+	case "activewindow", "activewindowv2", "togglegroup", "moveintogroup", "moveoutofgroup", "pin":
+		return true
+	}
+	return false
+}
+
+func visibleFloatingWindow(state *watchState) bool {
+	for _, window := range state.windows {
+		if !window.Floating {
+			continue
+		}
+		for _, monitor := range state.monitors {
+			if monitorDisabled(monitor) {
+				continue
+			}
+			if window.Workspace == workspaceKey(monitor.ActiveWorkspace.ID, monitor.ActiveWorkspace.Name) {
+				return true
+			}
+			if (monitor.SpecialWorkspace.ID != 0 || monitor.SpecialWorkspace.Name != "") &&
+				window.Workspace == workspaceKey(monitor.SpecialWorkspace.ID, monitor.SpecialWorkspace.Name) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type hyprMonitor struct {
@@ -151,8 +228,8 @@ type hyprMonitor struct {
 	Make          string  `json:"make"`
 	Model         string  `json:"model"`
 	PhysicalWidth int     `json:"physicalWidth"`
-	// Hyprland-git can report disabled=true for a live DPMS-awake output.
-	// Keep the wire field for fixtures, but derive state from its real mode.
+	// Read through monitorDisabled, never on its own: hyprland-git reported it
+	// true for a live DPMS-awake output.
 	Disabled              bool     `json:"disabled"`
 	X                     int      `json:"x"`
 	Y                     int      `json:"y"`
@@ -167,6 +244,25 @@ type hyprMonitor struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	} `json:"activeWorkspace"`
+	SpecialWorkspace struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	} `json:"specialWorkspace"`
+}
+
+// monitorDisabled says whether an output is off. Hyprland's own flag is not
+// enough: hyprland-git reported it true on a plainly active output, focused and
+// holding a workspace. Neither is the size: 0.56 keeps a disabled output's last
+// mode, so a phantom turned off in Displays read as on and the next Apply turned
+// it back on. An output is off when it has no mode, or when Hyprland flags it and
+// it holds no workspace and mirrors nothing (a mirror has no workspace of its
+// own). The same rule lives in ryoku-monitor's monitors_json.
+func monitorDisabled(m hyprMonitor) bool {
+	if m.Width <= 0 || m.Height <= 0 {
+		return true
+	}
+	mirroring := m.MirrorOf != "" && m.MirrorOf != "none"
+	return m.Disabled && m.ActiveWorkspace.ID == 0 && m.ActiveWorkspace.Name == "" && !mirroring
 }
 
 // Read once per resync and threaded through, so workspaces and windows do not
@@ -199,7 +295,7 @@ func monitorOutputs(mons []hyprMonitor, full bool) []wm.Output {
 			Make:            m.Make,
 			Model:           m.Model,
 			PhysicalWidth:   m.PhysicalWidth,
-			Disabled:        m.Width <= 0 || m.Height <= 0,
+			Disabled:        monitorDisabled(m),
 			X:               m.X,
 			Y:               m.Y,
 		}

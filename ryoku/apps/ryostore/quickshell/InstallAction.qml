@@ -12,6 +12,11 @@ Item {
     property bool installed: false
     property bool reducedMotion: false
     property real progressPosition: 0.5
+    property real progressDone: 0
+    property real progressTotal: 0
+    readonly property bool determinate: busy && progressTotal > 0
+    readonly property real progressFraction: determinate
+            ? Math.max(0, Math.min(1, progressDone / progressTotal)) : 0
 
     signal act()
 
@@ -60,12 +65,16 @@ Item {
         visible: root.busy
 
         Rectangle {
-            width: Math.max(Tokens.s5, parent.width * 0.28)
+            width: root.determinate
+                    ? parent.width * root.progressFraction
+                    : Math.max(Tokens.s5, parent.width * 0.28)
             height: Tokens.border * 2
             y: parent.height - height
-            x: root.reducedMotion
-               ? (parent.width - width) / 2
-               : root.progressPosition * (parent.width + width) - width
+            x: root.determinate
+               ? 0
+               : (root.reducedMotion
+                  ? (parent.width - width) / 2
+                  : root.progressPosition * (parent.width + width) - width)
             color: root.primary ? Tokens.inkOnBone : Tokens.bone
         }
     }
@@ -79,7 +88,7 @@ Item {
         duration: Tokens.swap
         easing.type: Tokens.ease
         loops: Animation.Infinite
-        running: root.busy && !root.reducedMotion && root.visible
+        running: root.busy && !root.determinate && !root.reducedMotion && root.visible
     }
 
     SequentialAnimation {

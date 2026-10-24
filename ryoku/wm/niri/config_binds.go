@@ -197,12 +197,18 @@ func shippedBinds() map[string]niriBind {
 		"shell.visualizerPlace":   {action: spawnArgs("ryoku-shell", "visualizer-place")},
 		"shell.voice":             {action: spawnArgs("ryoku-shell", "voice")},
 		"shell.settings":          {action: spawnArgs("ryoku-shell", "hub", "open")},
+<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
 		"shell.screenshot":        {action: spawnSh(screenshotLaunchCommand(""))},
 		// Hyprland gives ryoshot three entry points, so niri gets the same three:
 		// without Print the key a user reaches for does nothing, and monitor mode
 		// would otherwise only be reachable by cycling inside the tool.
 		"shell.screenshotPrint":   {action: spawnSh(screenshotLaunchCommand(""))},
 		"shell.screenshotMonitor": {action: spawnSh(screenshotLaunchCommand("monitor"))},
+=======
+		"shell.screenshot":        {action: spawnSh(wm.QmlEnv + " ryoku-cmd-ryoshot")},
+		"shell.screenshotPrint":   {action: spawnSh(wm.QmlEnv + " ryoku-cmd-ryoshot")},
+		"shell.screenshotMonitor": {action: spawnSh(wm.QmlEnv + " RYOSHOT_MODE=monitor ryoku-cmd-ryoshot")},
+>>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
 		"shell.colorPicker":       {action: spawnArgs("hyprpicker", "-a")},
 		"shell.restartAudio":      {action: spawnArgs("ryoku-restart-audio")},
 		"shell.inhibitShortcuts":  {action: "toggle-keyboard-shortcuts-inhibit"},

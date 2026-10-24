@@ -2,10 +2,10 @@
 
 ## Supported versions
 
-Ryoku is a rolling Arch Linux distribution under active development. Security
-fixes target the current development branch and the latest release. Always
-reproduce a report against an up-to-date checkout or the most recent ISO before
-filing.
+Ryoku is a rolling Linux distribution built on Arch Linux and under active
+development. Security fixes target the current development branch and the
+latest release. Always reproduce a report against an up-to-date checkout or the
+most recent ISO before filing.
 
 ## Reporting a vulnerability
 
@@ -13,7 +13,7 @@ Please report security issues privately. Do not open a public issue, pull
 request, or discussion for a vulnerability.
 
 - Preferred: open a private report through GitHub at
-  [Security > Report a vulnerability](https://github.com/ryoku-dev/ryoku-arch/security/advisories/new).
+  [Security > Report a vulnerability](https://github.com/ryoku-dev/ryoku/security/advisories/new).
 - Alternative: contact the maintainer privately at
   [github.com/neur0map](https://github.com/neur0map).
 

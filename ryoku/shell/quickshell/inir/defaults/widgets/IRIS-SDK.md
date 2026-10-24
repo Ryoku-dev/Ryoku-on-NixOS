@@ -1,20 +1,13 @@
 # Shima Module SDK
 
 Shima bar modules use the existing CustomWidgets registry. There is no second plugin format or
-scanner. A widget may provide its normal desktop component, an Shima compact component, or both.
+scanner. A widget may provide its normal desktop component, a Shima compact component, or both.
 
 ## Create a module
 
-```bash
-inir customWidgets create my-widget
-```
-
-The generated manifest includes an `iris` block and the scaffold includes `IrisCompact.qml`.
-Reload after editing:
-
-```bash
-inir customWidgets reload
-```
+Copy `defaults/widgets/example-widget/` into `~/.config/inir/widgets/<name>/`, then add the `iris`
+manifest block and compact component described below. CustomWidgets watches the directory and
+reloads installed widgets after edits.
 
 Turn it on in **Shima Settings > Island > Desktop page > Your modules** (the row shows up once a module is installed; search for "modules"). It
 lands in the Modules block of the Island's Desktop page. Material's Settings has the same switch
@@ -46,9 +39,9 @@ writes it for you; no other registration is needed.
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import qs.services
-import qs.modules.iris.style
-import qs.modules.iris.components
+import inir.services
+import inir.modules.iris.style
+import inir.modules.iris.components
 
 Item {
     property string irisSlot: ""
@@ -92,7 +85,7 @@ Looks that fit: a group is a fill (`IrisStyle.fillQuiet`), not a bordered box; a
 state in its fill and ink, not in a badge next to it; colour means something (accent for on or
 selected, identity hues for a fixed meaning), never decoration.
 
-Normal iNiR services remain available through `import inir.services`, but a compact module should
+Normal Shima services remain available through `import inir.services`, but a compact module should
 import only what it actually needs. Avoid pulling in media visualizers, preview services or
 background processes for a value that is not continuously visible.
 
@@ -107,3 +100,7 @@ background processes for a value that is not continuously visible.
 - Keep presentation in Shima tokens rather than hard-coded theme colors.
 
 For full desktop-widget APIs and the broader service/component catalog, see `WIDGET-SDK.md`.
+
+Based on iNiR by snowarch (https://github.com/snowarch/inir)
+
+See [NOTICE](../../NOTICE) for upstream attribution and additional terms.

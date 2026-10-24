@@ -66,6 +66,8 @@ public:
     float spanEnd() const { return m_spanEnd; }
     const std::array<float, 64>& waveHeights() const { return m_heights; }
 
+    bool activePhysics() const { return m_active; }
+    bool takeVisualChange();
 signals:
     void levelsChanged();
     void pointsChanged();
@@ -81,7 +83,6 @@ signals:
 
 protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
-    void updatePolish() override;
     void updatePhysics() override;
     void registerWithGroup() override;
     void unregisterFromGroup() override;
@@ -96,6 +97,7 @@ private:
     std::array<float, 64> m_targets{};
     std::array<float, 64> m_heights{};
     std::array<float, 64> m_velocities{};
+    std::array<int, 64> m_quantizedHeights{};
     QElapsedTimer m_elapsed;
     int m_points = 24;
     int m_count = 24;
@@ -110,5 +112,6 @@ private:
     bool m_mirror = true;
     bool m_stepped = false;
     bool m_active = false;
+    bool m_visualChanged = false;
     bool m_moving = false;
 };

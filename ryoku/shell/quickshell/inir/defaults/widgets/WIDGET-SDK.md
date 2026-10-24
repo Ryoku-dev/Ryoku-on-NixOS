@@ -1,7 +1,7 @@
-# iNiR Widget SDK
+# Shima Widget SDK
 
-Custom desktop widgets that run on the iNiR shell. Full QML access to 100+ services,
-190+ UI components, and the entire Appearance token system.
+Custom desktop widgets that run in Shima. They have full QML access to the services,
+UI components, and Appearance tokens shipped with the shell.
 
 Widgets live in `~/.config/inir/widgets/<name>/` and are loaded automatically.
 
@@ -10,13 +10,8 @@ Widgets may also expose a compact Shima module, which sits on the Island's Deskt
 
 ## Quick Start
 
-```bash
-inir customWidgets create my-widget    # generates scaffold
-# edit ~/.config/inir/widgets/my-widget/MyWidget.qml
-inir customWidgets reload              # hot-reload without restart
-```
-
-Or copy the reference widget from `defaults/widgets/example-widget/`.
+Create `~/.config/inir/widgets/my-widget/` and copy the reference files from
+`defaults/widgets/example-widget/`, then edit the manifest and QML for the new widget.
 
 ## File Structure
 
@@ -530,5 +525,9 @@ editPopoverContent: Component {
 - For ResourceUsage, call `ensureRunning()` or the data will be stale/zero
 - Use `FadeLoader { shown: condition }` for smooth show/hide of optional sections
 - The widget runs in the same QML engine as the shell, same trust model as a shell extension
-- Test with `inir customWidgets reload` (no restart needed)
-- Check for errors: `inir logs | grep -i error`
+- Structural changes can be picked up with `ryoku-shell reload`
+- Watch the shell log for QML errors while developing
+
+Based on iNiR by snowarch (https://github.com/snowarch/inir)
+
+See [NOTICE](../../NOTICE) for upstream attribution and additional terms.

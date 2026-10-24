@@ -8,10 +8,10 @@ import "Singletons"
 // music playing" signal and a rotation. Nothing here knows what a look looks
 // like.
 //
-// One Timer drives it at the configured rate rather than vsync, halved while
-// idle and stopped on silence, since redrawing 165 times a second over a still
-// picture costs a laptop real battery. The adaptive tier lowers that rate under
-// sustained overrun; it sheds no effects, every look being one pass now.
+// One Timer drives it at the configured rate rather than vsync. On silence it
+// briefly eases into the chosen rest shape, then stops and leaves that shape
+// still. The adaptive tier lowers the live rate under sustained overrun without
+// shedding effects.
 Item {
     id: motion
 
@@ -53,17 +53,17 @@ Item {
         return motion.govTier === 1 ? Math.min(Config.fps, 30) : Math.min(Config.fps, 24);
     }
 
-    readonly property bool sounding: Spectrum.energy > 0.04 || motion.activity > 0.02
-    // Idle wave and spin are explicit visual choices. Only the hard performance
-    // tiers override them; plain audio-idle merely stops the analyser.
+    readonly property bool sourceSounding: Spectrum.energy > 0.04
+        || (motion.scope && !Waveform.silent)
+    readonly property bool sounding: motion.sourceSounding || motion.activity > 0.02
     readonly property bool hardFrozen: Performance.visualizerHardFrozen
     readonly property bool wantIdleWave: motion.cfg.idleWave && !motion.hardFrozen
     readonly property bool wantSpin: motion.cfg.spin > 0 && !motion.hardFrozen
     readonly property bool wantPeaks: motion.cfg.peaks
         && (motion.style === "bars" || motion.style === "segments")
-    readonly property bool animating: motion.sounding || motion.wantIdleWave
-        || motion.maxLevel > 0.004 || (motion.scope && Waveform.samples.length > 0)
-        || motion.wantSpin
+    property bool idleSettled: false
+    readonly property bool animating: motion.sourceSounding || motion.activity > 0.02
+        || (motion.wantIdleWave ? !motion.idleSettled : motion.maxLevel > 0.004)
 
     function rawLevel(i) {
         var l = Spectrum.levels;
@@ -78,7 +78,7 @@ Item {
 
     Timer {
         id: ticker
-        interval: Math.round(1000 / (motion.sounding ? motion.fps : Math.max(20, motion.fps / 2)))
+        interval: Math.round(1000 / (motion.sourceSounding ? motion.fps : Math.max(20, motion.fps / 2)))
         running: motion.active && Config.enabled && motion.animating
         repeat: true
         property real last: 0
@@ -118,14 +118,14 @@ Item {
     }
 
     function tick(dt) {
-        // activity rises fast on the first beat and releases slowly, so a gap
-        // between tracks does not flicker the spectrum off.
-        var goal = Spectrum.energy > 0.04 ? 1 : 0;
+        var goal = motion.sourceSounding ? 1 : 0;
+        if (goal > 0)
+            motion.idleSettled = false;
         motion.activity += (goal - motion.activity)
             * (1 - Math.exp(-dt / (goal > motion.activity ? 0.05 : 1.1)));
-        if (motion.wantIdleWave)
+        if (motion.wantIdleWave && motion.sourceSounding)
             motion.idlePhase += dt * (Math.PI * 2 / 6);
-        if (motion.wantSpin)
+        if (motion.wantSpin && motion.sourceSounding)
             motion.spinDeg = (motion.spinDeg + dt * motion.cfg.spin) % 360;
 
         if (motion.scope) {
@@ -141,10 +141,12 @@ Item {
         var attack = 0.035 + 0.02 * motion.cfg.smoothing;
         var out = new Array(n);
         var mx = 0;
+        var maxDelta = 0;
         for (var i = 0; i < n; i++) {
             var target = motion.activity * motion.rawLevel(i) + idleAmt * motion.idleLevel(i);
             var cur = (prev && i < prev.length) ? prev[i] : 0;
             out[i] = SpectrumMath.ease(cur, target, dt, attack, decay);
+            maxDelta = Math.max(maxDelta, Math.abs(out[i] - target));
             if (out[i] > mx)
                 mx = out[i];
         }
@@ -162,6 +164,16 @@ Item {
         } else if (motion.peaks.length) {
             motion.peaks = [];
         }
+
+        if (!motion.sourceSounding && motion.activity < 0.003
+                && motion.wantIdleWave && maxDelta < 0.0005) {
+            var rest = new Array(n);
+            for (var r = 0; r < n; r++)
+                rest[r] = motion.idleLevel(r);
+            motion.levels = rest;
+            motion.peaks = [];
+            motion.idleSettled = true;
+        }
     }
 
     // The scope carries the real playback waveform, folded down to the band
@@ -172,15 +184,24 @@ Item {
     // listening volume, since the samples are a few percent of full scale.
     property real scopePeak: 0.15
 
+    // The scope rests on its centre line, 0.5 per band. An empty array reads as
+    // 0 in every slot, the bottom of the trace, and the shader draws that as a
+    // full-height zig-zag until music plays (a reload in silence never ticks).
+    function restScope() {
+        var flat = new Array(motion.bands);
+        for (var f = 0; f < motion.bands; f++)
+            flat[f] = 0.5;
+        motion.levels = flat;
+        motion.maxLevel = 0;
+    }
+
     function stepScope(dt) {
         var wav = Waveform.samples;
         var n = motion.bands;
-        if (!wav || wav.length < 2) {
-            var flat = new Array(n);
-            for (var f = 0; f < n; f++)
-                flat[f] = 0.5;
-            motion.levels = flat;
-            motion.maxLevel = 0;
+        if (!wav || wav.length < 2 || Waveform.silent) {
+            motion.restScope();
+            if (!motion.sourceSounding && motion.activity < 0.003)
+                motion.idleSettled = true;
             return;
         }
         var folded = SpectrumMath.resample(wav, n);
@@ -208,7 +229,10 @@ Item {
     onHardFrozenChanged: if (motion.hardFrozen) {
         motion.activity = 0;
         motion.maxLevel = 0;
-        motion.levels = [];
+        if (motion.scope)
+            motion.restScope();
+        else
+            motion.levels = [];
         motion.peaks = [];
     }
 
@@ -220,9 +244,15 @@ Item {
             motion.peaks = [];
     }
     onBandsChanged: {
-        motion.levels = [];
+        if (motion.scope)
+            motion.restScope();
+        else
+            motion.levels = [];
         motion.peaks = [];
     }
+    onScopeChanged: if (motion.scope && !motion.animating) motion.restScope()
+    Component.onCompleted: if (motion.scope) motion.restScope()
+    onWantIdleWaveChanged: motion.idleSettled = false
 
     // Turning the governor off must not leave a stale cap latched: re-enabling
     // adaptive quality starts clean at the full frame rate.

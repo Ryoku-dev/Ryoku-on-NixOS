@@ -8,8 +8,8 @@ default, and roughly how much disk it all takes.
 
 If you just want the short version: it's about **90 packages** from the Arch
 repos, **~20 first-party Ryoku packages** from the `[ryoku]` repo, a handful of
-developer toolchains, a small AUR set built after install, and (on the CachyOS
-image) the CachyOS performance layer. All told, a fresh box lands at roughly
+developer toolchains, a small AUR set built after install, and, on the CachyOS
+image, the CachyOS system layer. All told, a fresh box lands at roughly
 **13–15 GiB** on disk.
 
 ## How the default set is assembled
@@ -40,19 +40,22 @@ this page is the readable tour.
 
 ## The Ryoku desktop itself
 
-These are Ryoku's own packages, built from this monorepo and served from the
-`[ryoku]` repo. The `ryoku-desktop` umbrella version-pins them all so a partial
-upgrade never leaves the shell QML running against a stale plugin.
+These are Ryoku's own packages and default applications, served from the
+`[ryoku]` repo. Most build from this monorepo; pinned upstream apps such as
+RyoManager follow the same signed update path. The `ryoku-desktop` umbrella
+version-pins the desktop components so a partial upgrade never leaves the shell
+QML running against a stale plugin.
 
 | Package | What it is |
 |---|---|
 | `ryoku-shell` | The Quickshell desktop: bar, pill, launcher, overview, wallpaper, visualizer, ryoshot capture, and the lock screen |
 | `ryoku-hub` | Ryoku Settings, the control center (Appearance, Animations, Displays, Connections, GPU, Keybinds, and the rest) |
 | `ryoku` | The `ryoku` CLI: `update`, `doctor`, `materialize`, rollback, snapshots |
-| `ryoku-rashin` | The system-map vault that keeps a live map of where everything lives |
+| `ryoku-rashin` | Rashin, the AI agent: the system-map vault, Ask, the Rashin window and the bar's AI usage pill. Installed by default but optional: untick it in the installer's Apps & tools, or remove it later, and Ryoku does not put it back |
 | `ryoku-blobs` | The shared `Ryoku.Blobs` QML plugin |
 | `gpk` | GlazePKG, the RyokuArch package manager |
 | `ryogami` | The wallpaper daemon the shell drives: static, live, and shader transitions |
+| `ryomanager` | RyoManager, the system monitor and process manager. It is selected by default in the installer and can be removed without doctor putting it back |
 | `ryostore` | RyoStore: the catalogue of rices, bundles, and bar styles |
 | `ryowalls` | The wallpaper browser, preview, and AI enhancer |
 | `ryovm` | The virtual-machine manager |
@@ -65,6 +68,10 @@ upgrade never leaves the shell QML running against a stale plugin.
 
 `ryoshot` (the screenshot studio) and the launcher live inside `ryoku-shell`.
 
+The desktop package also includes two ready-to-apply rices: **Default** and
+**NOC**. Each carries its own wallpaper, preview, shell look, and Fastfetch
+style.
+
 ## Core system and boot
 
 The bones. Kernel, initramfs, the encrypted-Btrfs boot chain, and snapshots.
@@ -72,7 +79,7 @@ The bones. Kernel, initramfs, the encrypted-Btrfs boot chain, and snapshots.
 | Package | Role |
 |---|---|
 | `base`, `base-devel` | The core system and build tools |
-| `linux`, `linux-firmware`, `linux-headers` | The stock kernel (a reliable fallback), firmware, and headers for DKMS |
+| `linux`, `linux-firmware`, `linux-headers` | The Arch edition's stock kernel, firmware, and DKMS headers; it remains the fallback when Gaming with CachyOS is selected |
 | `rust` | Shipped in the base set because several AUR dependencies are Rust programs; every box can always build them |
 | `dkms`, `mkinitcpio` | Out-of-tree kernel modules; the initramfs generator |
 | `sudo` | Privilege escalation |
@@ -132,7 +139,7 @@ The small daemons and utilities the desktop leans on every session.
 
 | Package | Role |
 |---|---|
-| `firefox` / `chromium` / Zen (`zen-browser-bin`) | The web browser: the installer picks exactly one of the three, with Firefox recommended |
+| `firefox` / `chromium` / Zen (`zen-browser-bin`) | The web browser: the installer picks exactly one of the three, with Firefox recommended, or none at all |
 | `kitty` | The default terminal |
 | `mpv`, `mpv-mpris` | The media player, wired onto the players bus |
 | `nautilus`, `nautilus-python` | The file manager and its "Install / Compress / Send with Ryoku" right-click actions |
@@ -179,11 +186,10 @@ Tools the desktop, the pill, and the capture stack shell out to by name.
 |---|---|
 | `quickshell` | The framework the whole shell UI runs on |
 | `cava` | The audio visualizer |
-| `cliphist` | Clipboard history |
 | `hyprpicker` | The color picker |
 | `imagemagick` | Image processing |
 | `waifu2x-ncnn-vulkan` | The GPU AI upscaler behind ryoshot's HD export and ryowalls' Enhance |
-| `openrgb` | Per-device keyboard and mouse lighting, configurable from Settings > Appearance > Lighting |
+| `openrgb` | Per-device keyboard, mouse, RAM and motherboard lighting that follows the wallpaper palette, configurable from the wallpaper picker (Super + W) > Settings > Lighting |
 | `asusctl` | Native built-in Aura keyboard lighting on supported ASUS laptops; selected by hardware rather than installed everywhere |
 | `ddcutil` | External-monitor brightness over DDC/CI (the pill's DISPLAY faders) |
 | `ffmpeg`, `yt-dlp` | Media transcode and download; also the launcher's live-radio play path |
@@ -223,23 +229,56 @@ Every Ryoku machine is dev-ready the moment it boots.
 | `mangohud` | The FPS and frametime overlay |
 | `qemu-desktop`, `edk2-ovmf`, `virglrenderer` | The base VM stack: QEMU, UEFI firmware, and host-GL acceleration |
 
+The installer has one Gaming question after Rashin and before Apps & tools. It
+defaults to No and follows the edition:
+
+- **Arch, Gaming with CachyOS:** requires a network and x86-64-v3 CPU. It adds
+  the CachyOS kernel and headers, tuning, Ananicy rules, sched-ext schedulers,
+  Steam, Proton-CachyOS SLR, Wine-CachyOS, `umu-launcher`, `winetricks`, and
+  `protontricks`. The CachyOS kernel becomes the default, with Arch as the
+  fallback when its NVIDIA module is usable. The same set is available later as
+  RyoStore's **CachyOS Gaming** bundle.
+- **CachyOS, Gaming:** keeps `steam` and `cachyos-gaming-meta` from the offline
+  image. The edition already has the CachyOS kernel and tuning.
+- **Void, Gaming:** keeps Steam and the 32-bit graphics baseline from the
+  offline image. Its hardware lane adds the matching 32-bit Vulkan driver or
+  NVIDIA libraries. Steam uses its own Proton.
+
 The heavier passthrough VM pieces (`libvirt`, `looking-glass`, `swtpm`,
 `quickemu`, and so on) are installed on demand from Ryoku Settings, not by
 default.
 
 ## The CachyOS layer (CachyOS image only)
 
-Install from the CachyOS ISO and a Ryoku box *is* a CachyOS box: these are
-pacstrapped on top of everything above.
+The CachyOS ISO boots a CachyOS live system and installs a CachyOS target with
+the Ryoku desktop on top. The generic `[cachyos]` repository is above Arch's
+repositories, CachyOS's branding script sets `/etc/os-release` during setup, and
+`ryoku-base-os` and the Hub report CachyOS from the first boot.
 
 | Package | Role |
 |---|---|
-| `linux-cachyos`, `linux-cachyos-headers` | The CachyOS-optimized kernel (booted by default) and its headers |
-| `cachyos-settings` | The performance tuning (sysctl, udev, modprobe, systemd) |
-| `ananicy-cpp`, `cachyos-ananicy-rules` | The auto-nice daemon that keeps the compositor responsive under load |
-| `scx-scheds` | The sched-ext userspace schedulers |
-| `proton-cachyos-slr` | The CachyOS-tuned Proton build for Steam and Lutris |
-| `cachyos-keyring`, `cachyos-mirrorlist`, `cachyos-v3-mirrorlist`, `cachyos-v4-mirrorlist` | Trust and mirrors, so the installed system keeps updating from CachyOS |
+| `linux-cachyos`, `linux-cachyos-headers` | The CachyOS kernel, booted by default, and its DKMS headers |
+| `linux-cachyos-lts`, `linux-cachyos-lts-headers` | The CachyOS LTS fallback kernel and headers |
+| `cachyos-settings`, `ananicy-cpp`, `cachyos-ananicy-rules`, `scx-scheds` | CachyOS tuning, process priorities, and sched-ext schedulers |
+| `cachyos-keyring`, `cachyos-mirrorlist`, `cachyos-v3-mirrorlist`, `cachyos-v4-mirrorlist` | Repository trust and mirrors |
+| `cachyos-rate-mirrors` | Ranks the Arch and CachyOS mirrors |
+| `cachyos-hooks`, `chwd` | CachyOS's pacman hooks and hardware tool |
+| `lsb-release` | Standard distribution identity reporting |
+| `shelly` | CachyOS's graphical package manager |
+| `cachyos-hello` | CachyOS Welcome in the launcher; its skel autostart is removed and blocked with `NoExtract`, so Ryoku Welcome remains the only first-login welcome |
+| `cachyos-kernel-manager`, `cachyos-packageinstaller`, `btrfs-assistant` | Kernel, package, and snapshot tools |
+| `yay` | The AUR helper, from `[cachyos]` in place of the AUR's `yay-bin` |
+| `zlib-ng-compat`, `lib32-zlib-ng-compat` | CachyOS's zlib replacements, named up front so the first update has nothing to swap |
+
+Ryoku deliberately leaves out `cachyos-fish-config`,
+`cachyos-zsh-config`, `cachyos-wallpapers`, the CachyOS Plymouth themes,
+`cachyos-snapper-support`, `cachy-update`, and `ufw` because Ryoku owns those
+parts. It uses Shelly instead of `octopi`, already ships `yay` instead of
+`paru`, and leaves GPU selection to Ryoku rather than running
+`chwd --autoconfigure`.
+
+Steam and Proton are not unconditional CachyOS packages. They come from the
+Gaming question, which defaults to No.
 
 ## CPU microcode (per profile)
 
@@ -258,7 +297,8 @@ for the card they detect.
 
 These build in the post-install step. They need a network, so they're
 best-effort: a fresh box comes up fine without them and they arrive on the next
-pass.
+pass. On the CachyOS image, `yay` and the Zen browser come from the CachyOS
+repositories instead.
 
 | Package | Role |
 |---|---|
@@ -297,8 +337,9 @@ So a fresh Ryoku desktop is roughly **13–15 GiB** of real data. The 20 GiB roo
 floor is deliberately roomier than that: the extra headroom is for the AUR
 builds, for Btrfs snapshots, and for the things that download on first launch
 (any Flatpaks you add, a voice model, a game). The CachyOS image sits at the upper
-end of the range, since it carries a second kernel and the Proton build. The
-swapfile is separate and off by default (`RYOKU_SWAP_GIB=0`).
+end of the range because it carries a second kernel and CachyOS's desktop tools.
+Steam, Wine, and Proton add to that only when Gaming is selected. The swapfile is
+separate and off by default (`RYOKU_SWAP_GIB=0`).
 
 These are the repo's own measured figures. If you want an exact byte count for a
 specific profile and variant, resolve the full dependency closure against live

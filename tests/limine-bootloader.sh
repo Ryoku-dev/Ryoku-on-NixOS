@@ -51,6 +51,45 @@ grep -qF 'remember_last_entry: yes' <<<"$out" \
   || fail "branding_only must ship remember_last_entry: yes"
 grep -qE '^/Ryoku Linux' <<<"$out" && fail "branding_only must not carry the placeholder entry"
 
+# --- selected kernel: layer defaults CachyOS and keeps Arch fallback --------
+out="$(RYOKU_VARIANT=plain RYOKU_CACHYOS_LAYER_ACTIVE=1 \
+  RYOKU_CACHYOS_DEFAULT_KERNEL=1 ryoku_boot_limine_conf with_entry)"
+grep -qxF '        | linux-cachyos' <<<"$out" \
+  || fail "layer install did not record linux-cachyos as the default kernel"
+grep -qxF '        |     kernel_path: boot():/vmlinuz-linux-cachyos' <<<"$out" \
+  || fail "layer install did not put linux-cachyos in the default flat entry"
+grep -qxF '        | /Arch Linux (fallback)' <<<"$out" \
+  || fail "layer install did not title the stock-kernel fallback clearly"
+grep -qxF '        |     kernel_path: boot():/vmlinuz-linux' <<<"$out" \
+  || fail "layer install did not retain stock linux as the fallback"
+
+# An NVIDIA module failure leaves the layer installed but keeps stock linux as
+# default. The secondary entry then remains the CachyOS kernel.
+out="$(RYOKU_VARIANT=plain RYOKU_CACHYOS_LAYER_ACTIVE=1 \
+  RYOKU_CACHYOS_DEFAULT_KERNEL=0 ryoku_boot_limine_conf with_entry)"
+grep -qxF '        | linux' <<<"$out" \
+  || fail "NVIDIA fallback did not record stock linux as the default kernel"
+grep -qxF '        |     kernel_path: boot():/vmlinuz-linux' <<<"$out" \
+  || fail "NVIDIA fallback did not boot stock linux first"
+grep -qxF '        | /CachyOS Linux' <<<"$out" \
+  || fail "NVIDIA fallback did not retain the CachyOS kernel as the second entry"
+
+# The full CachyOS edition uses the same selector but has no stock kernel entry.
+out="$(RYOKU_VARIANT=cachyos RYOKU_CACHYOS_LAYER_ACTIVE=0 \
+  RYOKU_CACHYOS_DEFAULT_KERNEL=0 ryoku_boot_limine_conf with_entry)"
+grep -qxF '        | linux-cachyos' <<<"$out" \
+  || fail "CachyOS edition did not record linux-cachyos"
+grep -qxF '        | /Arch Linux (fallback)' <<<"$out" \
+  && fail "CachyOS edition added a stock kernel it does not install"
+
+# The shared-ESP stage-2 seed follows the same default/fallback contract.
+out="$(RYOKU_VARIANT=plain RYOKU_CACHYOS_LAYER_ACTIVE=1 \
+  RYOKU_CACHYOS_DEFAULT_KERNEL=1 ryoku_alongside_conf_text linux none deadbeef)"
+grep -qF 'kernel_path: fslabel(RYOKUBOOT):/vmlinuz-linux-cachyos' <<<"$out" \
+  || fail "alongside layer seed did not boot linux-cachyos first"
+grep -qF '/Arch Linux (fallback)' <<<"$out" \
+  || fail "alongside layer seed omitted the Arch fallback"
+
 # --- install_efi: the tool-refreshed binary path, never limine.efi ---------
 # shellcheck disable=SC2034  # consumed by the sourced ryoku_boot_install_efi
 ESP_DEV=/dev/vda1 RYOKU_DISK=/dev/vda
@@ -103,6 +142,26 @@ grep -qF 'interface_branding: Ryoku Bootloader' "$conf" || fail "promote clobber
 cp "$conf" "$tmp/before.conf"
 ryoku_boot_limine_promote "$conf"
 diff -q "$tmp/before.conf" "$conf" >/dev/null || fail "second promote changed the file"
+
+# The generated hook tree follows the recorded layer default, not entry order.
+conf="$tmp/layer-tree.conf"
+cat >"$conf" <<'EOF'
+timeout: 3
+default_entry: 1
+remember_last_entry: no
+
+/+Ryoku
+//linux
+    protocol: efi
+    path: boot():/EFI/Linux/ryoku_linux.efi
+//linux-cachyos
+    protocol: efi
+    path: boot():/EFI/Linux/ryoku_linux-cachyos.efi
+EOF
+RYOKU_VARIANT=plain RYOKU_CACHYOS_DEFAULT_KERNEL=1 \
+  ryoku_limine_autoboot "$conf"
+grep -qxF 'default_entry: Ryoku/linux-cachyos' "$conf" \
+  || fail "layer default did not repoint the hook tree to linux-cachyos"
 
 # --- repoint: adopted layout keeps every entry, default moves inside -------
 # limine-entry-tool 1.37+ nests the "//<kernel>" entries under the flat

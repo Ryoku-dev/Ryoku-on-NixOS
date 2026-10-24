@@ -25,6 +25,8 @@ Singleton {
     Connections {
         target: CompositorService
         function onSortedToplevelsChanged() { root.scheduleAppsRebuild() }
+        function onWindowOrderChanged() { root.scheduleAppsRebuild() }
+        function onActionReadyChanged() { root.scheduleAppsRebuild() }
     }
 
     Connections {
@@ -75,6 +77,28 @@ Singleton {
         Config.setNestedValue(["dock", "pinnedApps"], next)
     }
 
+    function _providerToplevel(window): var {
+        const handle = window?.toplevel ?? null
+        const id = String(window?.nativeWindowId ?? window?.id ?? "")
+        return {
+            appId: handle?.appId || String(window?.app_id ?? ""),
+            app_id: String(window?.app_id ?? ""),
+            title: handle?.title || String(window?.title ?? ""),
+            activated: window?.is_active === true || handle?.activated === true,
+            minimized: window?.is_minimized === true || handle?.minimized === true,
+            urgent: window?.is_urgent === true || handle?.urgent === true,
+            fullscreen: window?.is_fullscreen === true || handle?.fullscreen === true,
+            maximized: handle?.maximized === true,
+            screens: handle?.screens ?? [],
+            nativeWindowId: id,
+            nativeWorkspaceId: String(window?.workspace_id ?? ""),
+            _sourceKey: "wm:" + id,
+            _sourceToplevel: handle,
+            activate: () => CompositorService.focusWindow(id),
+            close: () => CompositorService.closeWindow(id)
+        }
+    }
+
     function _buildApps(): var {
         var map = new Map();
 
@@ -105,15 +129,12 @@ Singleton {
         const ignoredRegexes = ignoredRegexStrings.concat(systemIgnored)
             .map(pattern => new RegExp(pattern, "i"));
 
-        // Niri's event stream is authoritative. CompositorService enriches
-        // live foreign-toplevel handles with exact Niri ids and drops stale
-        // handles instead of letting ghost apps survive in the taskbar.
-        const sorted = CompositorService.sortedToplevels ?? [];
-        const sourceToplevels = CompositorService.nativeOverview
-            ? sorted
-            : (sorted.length > 0
-                ? sorted
-                : (ToplevelManager.toplevels?.values ?? []));
+        // Provider rows are authoritative and remain actionable without a
+        // foreign-toplevel handle. Protocol rows are startup fallback only.
+        const providerWindows = CompositorService.windows ?? [];
+        const sourceToplevels = CompositorService.actionReady
+            ? providerWindows.map(window => root._providerToplevel(window))
+            : (ToplevelManager.toplevels?.values ?? []);
 
         // Open windows
         for (const toplevel of sourceToplevels) {

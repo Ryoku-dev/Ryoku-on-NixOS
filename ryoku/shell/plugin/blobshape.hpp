@@ -7,6 +7,7 @@
 #include <qvector.h>
 
 class BlobGroup;
+class BlobWave;
 
 class BlobShape : public QQuickItem {
     Q_OBJECT
@@ -64,6 +65,7 @@ protected:
     virtual void registerWithGroup();
     virtual void unregisterFromGroup();
     void updateCenteredDeformMatrix();
+    bool refreshWaveData(BlobWave* const* waves, int count);
 
     BlobGroup* m_group = nullptr;
     qreal m_radius = 0;
@@ -92,4 +94,5 @@ protected:
         { 0, 0, 0, -1 },
     };
     float m_cachedWaveData[4][64] = {};
+    BlobWave* m_cachedWaves[4] = {};
 };

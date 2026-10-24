@@ -7,6 +7,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Bluetooth
 import Quickshell.Networking
+import shell.services
 import "../"
 import "../reusables"
 
@@ -221,7 +222,7 @@ Item {
                         if (window.expectedBtPower === "on") Sounds.playSfx("network/power_on.wav"); else Sounds.playSfx("network/power_off.wav");
                         window.btPendingResetTimer.restart();
                         window.btPower = window.expectedBtPower;
-                        if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = (window.expectedBtPower === "on");
+                        BluetoothPower.setEnabled(window.expectedBtPower === "on");
                     }
                 }
             }

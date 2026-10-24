@@ -82,6 +82,7 @@ Rectangle {
         omarchySort: app.omarchySort
     })
     readonly property var selectedItem: itemForKey(selectedKey, collection)
+    readonly property var busyItem: itemForKey(Store.busyKey, searchableItems)
     readonly property var resolvedDetail: detailItem
             ? itemForKey(StoreLogic.itemKey(detailItem), searchableItems) || detailItem
             : null
@@ -602,6 +603,9 @@ Rectangle {
         previewItem: app.previewItem
         busyKey: Store.busyKey
         installStage: Store.installStage
+        installProgressStage: Store.installProgressStage
+        installProgressDone: Store.installProgressDone
+        installProgressTotal: Store.installProgressTotal
         installErrorKey: Store.installErrorKey
         installError: Store.installError
         positionText: app.positionText
@@ -638,34 +642,61 @@ Rectangle {
         id: actionBar
         objectName: "ryostore-action-bar"
         anchors { left: header.right; right: parent.right; bottom: parent.bottom }
-        height: 42
+        height: 42 + (backgroundProgress.visible
+                ? backgroundProgress.height + Tokens.s4 : 0)
 
-        Rectangle {
-            anchors { left: parent.left; right: parent.right; top: parent.top }
-            height: Tokens.border
-            color: Tokens.line
+        Item {
+            id: actionBarTop
+            width: parent.width
+            height: 42
+
+            Rectangle {
+                anchors { left: parent.left; right: parent.right; top: parent.top }
+                height: Tokens.border
+                color: Tokens.line
+            }
+            Text {
+                anchors { left: parent.left; leftMargin: Tokens.s6; verticalCenter: parent.verticalCenter }
+                text: Store.busyKey !== ""
+                        ? I18n.tr(Store.installStage)
+                        : (Store.offline
+                           ? I18n.tr("OFFLINE · REFRESH TO RETRY")
+                           : (app.view === "library" && app.updateCount > 0
+                              ? I18n.tr("%1 UPDATES READY").arg(app.updateCount)
+                              : I18n.tr("READY")))
+                color: Store.busyKey !== "" || Store.offline || app.updateCount > 0 ? Tokens.ink : Tokens.inkMuted
+                font.family: Tokens.mono
+                font.pixelSize: Tokens.fMicro
+                font.letterSpacing: Tokens.trackLabel
+            }
+            Text {
+                anchors { right: parent.right; rightMargin: Tokens.s6; verticalCenter: parent.verticalCenter }
+                text: I18n.tr("ARROWS BROWSE  /  ENTER OPEN  /  ESC BACK")
+                color: Tokens.inkFaint
+                font.family: Tokens.mono
+                font.pixelSize: Tokens.fTiny
+                font.letterSpacing: Tokens.trackLabel
+            }
         }
-        Text {
-            anchors { left: parent.left; leftMargin: Tokens.s6; verticalCenter: parent.verticalCenter }
-            text: Store.busyKey !== ""
-                    ? I18n.tr(Store.installStage)
-                    : (Store.offline
-                       ? I18n.tr("OFFLINE · REFRESH TO RETRY")
-                       : (app.view === "library" && app.updateCount > 0
-                          ? I18n.tr("%1 UPDATES READY").arg(app.updateCount)
-                          : I18n.tr("READY")))
-            color: Store.busyKey !== "" || Store.offline || app.updateCount > 0 ? Tokens.ink : Tokens.inkMuted
-            font.family: Tokens.mono
-            font.pixelSize: Tokens.fMicro
-            font.letterSpacing: Tokens.trackLabel
-        }
-        Text {
-            anchors { right: parent.right; rightMargin: Tokens.s6; verticalCenter: parent.verticalCenter }
-            text: I18n.tr("ARROWS BROWSE  /  ENTER OPEN  /  ESC BACK")
-            color: Tokens.inkFaint
-            font.family: Tokens.mono
-            font.pixelSize: Tokens.fTiny
-            font.letterSpacing: Tokens.trackLabel
+
+        InstallProgress {
+            id: backgroundProgress
+            objectName: "ryostore-background-install-progress"
+            anchors {
+                left: parent.left
+                leftMargin: Tokens.s6
+                top: actionBarTop.bottom
+                topMargin: Tokens.s2
+                right: parent.right
+                rightMargin: Tokens.s6
+            }
+            stage: Store.installProgressStage
+            done: Store.installProgressDone
+            total: Store.installProgressTotal
+            category: String(app.busyItem && app.busyItem.category || "")
+            active: Store.busyKey !== ""
+                    && (!app.showHero || StoreLogic.itemKey(app.selectedItem) !== Store.busyKey)
+            reducedMotion: app.reducedMotion
         }
     }
 
@@ -804,6 +835,9 @@ Rectangle {
         originRect: app.detailOriginRect
         busyKey: Store.busyKey
         installStage: Store.installStage
+        installProgressStage: Store.installProgressStage
+        installProgressDone: Store.installProgressDone
+        installProgressTotal: Store.installProgressTotal
         installErrorKey: Store.installErrorKey
         installError: Store.installError
         reducedMotion: app.reducedMotion

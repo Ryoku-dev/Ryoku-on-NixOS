@@ -7,6 +7,8 @@ PanelWindow {
     id: picker
 
     property bool shown: false
+    readonly property bool active: picker.shown || picker._showPending
+    readonly property bool busy: Settings.busy || riceShare.busy || riceWorkshop.busy
     property var _screen: null
     property bool _showPending: false
     property int _showRequest: 0
@@ -42,8 +44,8 @@ PanelWindow {
         picker._latchScreen(function() {
             if (request !== picker._showRequest)
                 return
-            picker._showPending = false
             picker.shown = true
+            picker._showPending = false
         })
     }
     function hide() {
@@ -169,8 +171,8 @@ PanelWindow {
         SearchPanel { anchors.fill: parent; state: pickerState }
         HelpOverlay { anchors.fill: parent; state: pickerState }
         ThemeBar { anchors.fill: parent; state: pickerState }
-        RiceWorkshop { anchors.fill: parent; state: pickerState }
-        RiceShare { anchors.fill: parent; state: pickerState }
+        RiceWorkshop { id: riceWorkshop; anchors.fill: parent; state: pickerState }
+        RiceShare { id: riceShare; anchors.fill: parent; state: pickerState }
 
         CardBackPanel { anchors.fill: parent; state: pickerState }
         Multipicker { anchors.fill: parent; state: pickerState }

@@ -76,7 +76,7 @@ case $name in
     ;;
   omarchy-audio-source-switch) direction=${1:-next}; [[ $direction == next ]] && exec omarchy-shell media sourceSwitch; [[ $direction == previous ]] && exec omarchy-shell media sourceSwitchPrevious; exit 2 ;;
   omarchy-bluetooth-power)
-    case ${1:-} in on) rfkill unblock bluetooth; exec bluetoothctl power on;; off) exec rfkill block bluetooth;; toggle) if rfkill list bluetooth | grep -q 'Soft blocked: yes'; then rfkill unblock bluetooth; exec bluetoothctl power on; else exec rfkill block bluetooth; fi;; is-on) bluetoothctl show | grep -q 'Powered: yes';; *) echo 'Usage: omarchy-bluetooth-power <on|off|toggle|is-on>' >&2; exit 2;; esac
+    exec ryoku-bluetooth-power "${1:-}"
     ;;
   omarchy-bluetooth-device) action=${1:-}; address=${2:-}; [[ $action =~ ^(pair|connect|disconnect|forget)$ && $address =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] || { echo 'Usage: omarchy-bluetooth-device <pair|connect|disconnect|forget> <address>' >&2; exit 2; }; [[ $action != forget ]] || action=remove; exec bluetoothctl "$action" "$address" ;;
   omarchy-network-status) nmcli -t -f TYPE,STATE connection show --active | awk -F: '$2=="activated"{print $1; exit}' ;;

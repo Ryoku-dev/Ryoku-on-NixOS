@@ -28,7 +28,7 @@ else
   # slurp nonzero = Esc/cancel. bail quietly.
   geometry="$(slurp 2>/dev/null)" || exit 130
   [[ -n $geometry ]] || exit 0
-  grim -g "$geometry" "$tmp"
+  ryoku-cmd-grim -g "$geometry" "$tmp"
 fi
 
 result="$(zbarimg --raw "$tmp" 2>/dev/null | head -n 1 || true)"

@@ -5,6 +5,7 @@ import Quickshell.Io
 import Quickshell.Bluetooth
 import Quickshell.Networking
 import Quickshell.Services.Pipewire
+import shell.services
 import "../"
 import "../reusables"
 
@@ -384,9 +385,7 @@ Item {
             isActive: view.panel.btRadioEnabled
             onLeftClicked: {
                 Sounds.playSfx("system/quick_click.wav");
-                if (Bluetooth.defaultAdapter) {
-                    Bluetooth.defaultAdapter.enabled = !Bluetooth.defaultAdapter.enabled;
-                }
+                BluetoothPower.toggle();
             }
             onRightClicked: {
                 view.panel.closeAnim.start();
@@ -405,15 +404,14 @@ Item {
                     view.panel.btStateBeforeAirplane = view.panel.btRadioEnabled;
                     view.panel.wifiStateBeforeAirplane = view.panel.wifiRadioEnabled;
                     Networking.wifiEnabled = false;
-                    if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = false;
+                    BluetoothPower.setEnabled(false);
                 } else {
                     let restoreWifi = view.panel.wifiStateBeforeAirplane;
                     let restoreBt = view.panel.btStateBeforeAirplane;
-                    if (!restoreWifi && !restoreBt) {
+                    if (!restoreWifi && !restoreBt)
                         restoreWifi = true;
-                    }
                     Networking.wifiEnabled = restoreWifi;
-                    if (Bluetooth.defaultAdapter) Bluetooth.defaultAdapter.enabled = restoreBt;
+                    BluetoothPower.setEnabled(restoreBt);
                 }
             }
         }

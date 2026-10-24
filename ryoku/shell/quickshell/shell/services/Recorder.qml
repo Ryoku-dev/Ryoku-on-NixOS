@@ -91,7 +91,6 @@ Singleton {
     Component.onCompleted: {
         if (!recPrefsFile.text())
             recPrefsFile.writeAdapter();
-        Qt.callLater(root.refreshStatus);
     }
 
     // Read-only mirror of the daemon-owned recording settings. The daemon is the
@@ -193,12 +192,9 @@ Singleton {
         onFileChanged: reload()
         onLoaded: root.applyStatus()
         onLoadFailed: {
-            // The backend removed its file: the capture is over, whatever the
-            // optimistic state says; the poll confirms.
             root.statusPresent = false;
             if (root.active)
                 root.clearStatus();
-            root.refreshStatus();
         }
     }
 
@@ -303,17 +299,26 @@ Singleton {
     // window passes.
     readonly property int socketWarmupSec: 5
     function refreshStatus() {
-        if (root.available && !poll.running)
+        if (root.available && !poll.running) {
+            poll.launched = false;
             poll.running = true;
+        }
     }
 
     Process {
         id: poll
-        command: ["/bin/sh", "-c",
-            "command -v gsr-cli >/dev/null 2>&1 || exit 127; "
-            + "exec gsr-cli -ipc \"$1\" status",
-            "ryoku-gsr-status",
-            (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ryoku-gsr.sock"]
+        property bool launched: false
+        command: ["gsr-cli", "-ipc",
+            (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ryoku-gsr.sock",
+            "status"]
+        onStarted: poll.launched = true
+        onRunningChanged: {
+            if (!running && !poll.launched && root.available) {
+                root.available = false;
+                if (root.active)
+                    root.clearStatus();
+            }
+        }
         onExited: (exitCode) => {
             if (exitCode === 127) {
                 root.available = false;
@@ -340,15 +345,14 @@ Singleton {
         }
     }
 
-    // Tick the clock and back the status file up with GSR's IPC: every second
-    // while a capture is live, every five idle, in case a backend died without
-    // removing its file. The file watch, not this poll, is what notices a start.
+    // The status file is authoritative for starts and orderly exits. While a
+    // capture is live, IPC also advances the clock and catches an abrupt backend
+    // death; while idle it is only a slow stale-state watchdog.
     Timer {
         id: tick
-        interval: root.anyActive ? 1000 : 5000
+        interval: root.anyActive ? 1000 : 60000
         running: root.available
         repeat: true
-        triggeredOnStart: true
         onTriggered: {
             if (root.anyActive && root.startedAt > 0)
                 root.elapsedSec = Math.max(0, Math.floor(Date.now() / 1000) - root.startedAt);

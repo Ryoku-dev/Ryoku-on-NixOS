@@ -1,6 +1,7 @@
 package sys
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,7 @@ func Xdg(envVar, fallback string) string {
 // ConfigHome is $XDG_CONFIG_HOME (default ~/.config).
 func ConfigHome() string { return Xdg("XDG_CONFIG_HOME", ".config") }
 
+<<<<<<< 6a5536e31e2a47b2a4db955c126eececbad00ee5
 // DataDirs returns XDG data roots in lookup order, including active NixOS
 // profiles when the session does not provide XDG_DATA_DIRS.
 func DataDirs() []string {
@@ -56,6 +58,63 @@ func DataDirs() []string {
 		out = append(out, dir)
 	}
 	return out
+=======
+// PicturesDir is the user's Pictures folder: $XDG_PICTURES_DIR when the session
+// exports it, else the XDG_PICTURES_DIR line of user-dirs.dirs (a terminal or a
+// service that did not inherit the login environment), else ~/Pictures. A
+// localized desktop keeps its pictures in ~/Imágenes, ~/Bilder and so on, and a
+// hardcoded ~/Pictures grows a second, empty folder beside the real one.
+func PicturesDir() string {
+	if d := normalizePicturesDir(os.Getenv("XDG_PICTURES_DIR")); d != "" {
+		return d
+	}
+	if d := userDirsPictures(filepath.Join(ConfigHome(), "user-dirs.dirs")); d != "" {
+		return d
+	}
+	return filepath.Join(Home(), "Pictures")
+}
+
+func normalizePicturesDir(value string) string {
+	v := strings.TrimSpace(value)
+	v = strings.Trim(v, `"'`)
+	switch {
+	case v == "$HOME":
+		v = Home()
+	case strings.HasPrefix(v, "$HOME/"):
+		v = filepath.Join(Home(), strings.TrimPrefix(v, "$HOME/"))
+	}
+	if !filepath.IsAbs(v) {
+		return ""
+	}
+	v = filepath.Clean(v)
+	if v == filepath.Clean(Home()) {
+		return ""
+	}
+	return v
+}
+
+// userDirsPictures reads XDG_PICTURES_DIR from a user-dirs.dirs file, expanding
+// the $HOME the format allows. Anything that is not an absolute path after the
+// expansion is rejected, and "" says the file has no usable answer.
+func userDirsPictures(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	const key = "XDG_PICTURES_DIR="
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if !strings.HasPrefix(line, key) {
+			continue
+		}
+		if v := normalizePicturesDir(strings.TrimPrefix(line, key)); v != "" {
+			return v
+		}
+	}
+	return ""
+>>>>>>> 6f56a35f24a939d4f49b050630416d4af5609e0f
 }
 
 // StateDir is the CLI's state root, $XDG_STATE_HOME/ryoku (default

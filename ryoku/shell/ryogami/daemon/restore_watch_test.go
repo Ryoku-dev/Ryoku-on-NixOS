@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	wm "ryoku-wm"
 )
 
 // restoreDaemon builds a daemon whose cache/config/state all point at temp
@@ -21,6 +23,25 @@ func restoreDaemon(t *testing.T) (*daemon, string) {
 	d := &daemon{surface: newWallSurface()}
 	d.cfg.Paths.Cache = cache
 	return d, cache
+}
+
+func TestRyogamiWatchKindsUsesOneUnionStream(t *testing.T) {
+	got := ryogamiWatchKinds()
+	want := []wm.FrameKind{
+		wm.FrameOutputs,
+		wm.FrameWindows,
+		wm.FrameWorkspaces,
+		wm.FrameFocus,
+		wm.FrameOverview,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("watch kinds = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("watch kind %d = %q, want %q", i, got[i], want[i])
+		}
+	}
 }
 
 // A stored static choice whose file is not present yet must be reported as

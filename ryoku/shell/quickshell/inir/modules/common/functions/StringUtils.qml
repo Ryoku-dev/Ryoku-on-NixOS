@@ -240,45 +240,6 @@ Singleton {
     }
 
     /**
-     * Cleans a cliphist entry by removing leading digits and tab.
-     * @param { string } str
-     * @returns { string }
-     */
-    function cleanCliphistEntry(str: string): string {
-        return str.replace(/^\d+\t/, "");
-    }
-
-    /**
-     * Strips HTML tags from a string, returning plain text content.
-     * Also decodes common HTML entities.
-     */
-    function stripHtmlTags(str: string): string {
-        return str.replace(/<[^>]*>/g, "")
-            .replace(/&nbsp;/gi, " ")
-            .replace(/&amp;/gi, "&")
-            .replace(/&lt;/gi, "<")
-            .replace(/&gt;/gi, ">")
-            .replace(/&quot;/gi, '"')
-            .replace(/&#39;/gi, "'")
-    }
-
-    /**
-     * Turns a cliphist list preview that holds browser markup into readable text.
-     * Returns the input untouched when it is not markup, and "" when the markup
-     * carries no text: cliphist truncates its preview at 100 characters, which
-     * usually cuts the first tag in half, so callers need their own label for the
-     * empty case rather than falling back to raw tags.
-     * @param { string } str
-     * @returns { string }
-     */
-    function cliphistMarkupPreview(str: string): string {
-        if (!/^\s*<(!|\/?[a-zA-Z])/.test(str))
-            return str;
-        const stripped = str.replace(/<!--[\s\S]*?(-->|$)/g, "").replace(/<[^>]*$/, "");
-        return root.stripHtmlTags(stripped).replace(/\s+/g, " ").trim();
-    }
-
-    /**
      * Replaces common invisible Unicode characters for cleaner display.
      */
     function sanitizeDisplayText(str: string): string {

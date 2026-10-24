@@ -86,12 +86,11 @@ Item {
 
     Component {
         id: imageComponent
-        Image {
+        StyledImage {
             id: ghostThumbnail
             anchors.fill: parent
             source: root.fileIsImage ? ("file://" + root.filePath) : ""
             fillMode: Image.PreserveAspectCrop
-            asynchronous: true
             cache: true
 
             layer.enabled: true

@@ -162,7 +162,8 @@ Item {
     // for the pointer, strength units per second for the grow-in.
     property real _pointerVelocity: 0
     property real _strengthVelocity: 0
-    readonly property bool magnificationInteractionActive: enableMagnification
+    readonly property bool magnificationInteractionActive: root.dockWidgetsActive
+        && enableMagnification
         && !DockPresets.magnificationSuspended
         && magnificationHovered
         && !dragging
@@ -236,6 +237,10 @@ Item {
     property real _lensExitProgress: -1
     // Drag targets use baseMetrics, so the visual lens can finish its exit.
     on_LensStrengthTargetChanged: _lensSettled = false
+    onDockWidgetsActiveChanged: {
+        if (!root.dockWidgetsActive)
+            root.resetMagnificationImmediate();
+    }
 
     // Every pointer sample and every layout change the lens reads goes through
     // here; the frame loop itself stops as soon as both channels are at rest.
@@ -258,7 +263,7 @@ Item {
     }
 
     FrameAnimation {
-        running: root.enableMagnification && !root._lensSettled
+        running: root.dockWidgetsActive && root.enableMagnification && !root._lensSettled
         onTriggered: root._stepMagnification(frameTime)
     }
 
@@ -3730,11 +3735,15 @@ Item {
             width: root.isVertical ? root.buttonSlotSize : root.buttonSlotSize * 3
             height: root.isVertical ? root.buttonSlotSize : root.buttonSlotHeight
             readonly property int _index: parent._index
-            DockWeatherWidget {
-                anchors.centerIn: parent
-                isVertical: root.isVertical
-                dockContent: root
-                delegateIndex: weatherItemRoot._index
+            Loader {
+                anchors.fill: parent
+                active: root.dockWidgetsActive
+                sourceComponent: DockWeatherWidget {
+                    anchors.centerIn: parent
+                    isVertical: root.isVertical
+                    dockContent: root
+                    delegateIndex: weatherItemRoot._index
+                }
             }
         }
     }
@@ -3746,11 +3755,15 @@ Item {
             width: root.isVertical ? root.buttonSlotSize : root.buttonSlotSize * 3
             height: root.isVertical ? root.buttonSlotSize : root.buttonSlotHeight
             readonly property int _index: parent._index
-            DockSportsWidget {
-                anchors.centerIn: parent
-                isVertical: root.isVertical
-                dockContent: root
-                delegateIndex: sportsItemRoot._index
+            Loader {
+                anchors.fill: parent
+                active: root.dockWidgetsActive
+                sourceComponent: DockSportsWidget {
+                    anchors.centerIn: parent
+                    isVertical: root.isVertical
+                    dockContent: root
+                    delegateIndex: sportsItemRoot._index
+                }
             }
         }
     }

@@ -11,6 +11,7 @@ Item {
     anchors.fill: parent
 
     readonly property bool shown: root.state ? root.state.riceWorkshopOpen : false
+    readonly property bool busy: filesProc.running
     readonly property var rice: root.state ? root.state.riceEntry : null
 
     readonly property string slug: rice ? String(rice.slug || "") : ""

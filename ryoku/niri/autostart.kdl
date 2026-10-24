@@ -30,7 +30,7 @@ spawn-sh-at-startup "ryoku-host session start xdg-desktop-portal-gnome.service x
 
 // Per-device Bluetooth codec memory: WirePlumber restores a device's profile
 // across reconnects but not its A2DP codec, so reconcile on every card event.
-// A no-op for anyone who never chose a codec.
+// The watcher owns a per-user lock, making repeated autostart harmless.
 spawn-sh-at-startup "command -v ryoku-bt-audio >/dev/null 2>&1 && ryoku-bt-audio watch"
 
 // Record the keyring mode once and seed a blank passwordless default, so no app

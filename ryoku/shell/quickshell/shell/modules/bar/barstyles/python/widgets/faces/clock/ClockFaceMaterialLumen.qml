@@ -45,22 +45,41 @@ Item {
         root.glowSource = source;
     }
 
+    function nextTickMs(d) {
+        if (root.showSeconds)
+            return 100;
+        return Math.max(500, (60 - d.getSeconds()) * 1000 - d.getMilliseconds());
+    }
+
     function glowColor(sourceIdx) {
         return sourceIdx === 2 ? root.secondHandColor : (sourceIdx === 1 ? root.minuteHandColor : root.hourHandColor);
     }
 
     Timer {
-        interval: root.showSeconds ? 40 : 1000
+        id: clockTimer
+        interval: root.nextTickMs(new Date())
         running: root.visible
         repeat: true
-        onTriggered: root.tick()
+        onTriggered: {
+            root.tick();
+            interval = root.nextTickMs(new Date());
+        }
     }
 
     onVisibleChanged: {
-        if (root.visible) root.tick();
+        if (root.visible) {
+            root.tick();
+            clockTimer.interval = root.nextTickMs(new Date());
+            clockTimer.restart();
+        }
     }
 
-    onShowSecondsChanged: root.tick()
+    onShowSecondsChanged: {
+        root.tick();
+        clockTimer.interval = root.nextTickMs(new Date());
+        if (root.visible)
+            clockTimer.restart();
+    }
 
     Component.onCompleted: root.tick()
 

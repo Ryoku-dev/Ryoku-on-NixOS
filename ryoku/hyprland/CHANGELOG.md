@@ -25,6 +25,17 @@
   (`modules/binds.lua`, `modules/ryoshot.lua`).
 
 ### Fixed
+- **A display turned off in Settings stays off.** The Hyprland provider and
+  `ryoku-monitor` both read an output as disabled only when it reported no
+  resolution, but Hyprland 0.56 keeps a disabled output's last mode. A
+  turned-off display, typically an EDID-less phantom such as an idle HDMI port
+  at 1024x768, therefore showed as on again in Displays, the next Apply turned
+  it back on, and every login autoscale wrote it back into monitors.lua
+  enabled. It is now off when Hyprland flags it disabled and it holds no
+  workspace and mirrors nothing. Commands that change the layout also run one
+  at a time, so the autoscale an apply's own hotplug event starts can no longer
+  recall the previous layout over it (`../wm/hyprland/watch.go`,
+  `scripts/ryoku-monitor`, `tests/monitor-persist.sh`).
 - **A custom Settings size is no longer overwritten after open.** The generated
   Settings window module drives both its opening rule and work-area fit hook, so
   custom percentages stay centred while Full page keeps the existing fit

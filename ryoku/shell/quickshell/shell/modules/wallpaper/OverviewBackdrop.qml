@@ -34,10 +34,44 @@ Item {
     property string wallpaperUrl: ""
 
     readonly property bool shown: root.available && OverviewBackdropConfig.enabled
-    // The gaussian pass runs only while the overview is open: that is the only
-    // moment the compositor shows this surface, and a full-screen blur every
-    // frame otherwise taxes recording and gaming for pixels nobody sees.
-    readonly property bool blurWanted: root.overviewOpen && OverviewBackdropConfig.blurEnabled
+    readonly property bool active: root.shown && root.source.length > 0
+    readonly property bool blurWanted: root.active && root.overviewOpen
+        && OverviewBackdropConfig.blurEnabled
+    property bool blurHeld: false
+
+    onBlurWantedChanged: {
+        if (root.blurWanted) {
+            blurRelease.stop();
+            root.blurHeld = true;
+            captureTimer.restart();
+        } else {
+            blurRelease.restart();
+        }
+    }
+
+    Component.onCompleted: {
+        root.blurHeld = root.blurWanted;
+        if (root.blurHeld)
+            captureTimer.restart();
+    }
+
+    Timer {
+        id: blurRelease
+        interval: Motion.reduce ? 0 : Motion.wallpaperFade
+        onTriggered: {
+            if (!root.blurWanted)
+                root.blurHeld = false;
+        }
+    }
+
+    Timer {
+        id: captureTimer
+        interval: 0
+        onTriggered: {
+            if (root.blurHeld && img.status === Image.Ready)
+                blurSource.scheduleUpdate();
+        }
+    }
 
     // Follow the live wallpaper, or paint a per-card backdrop image the user
     // pinned when they turned following off and set one.
@@ -50,9 +84,9 @@ Item {
 
     PanelWindow {
         id: win
-        // Unmapped unless the surface is both possible and wanted, so the
-        // Background layer never carries an idle full-screen wallpaper.
-        visible: root.shown && root.source.length > 0
+        // niri also exposes this backdrop between workspaces and needs it
+        // mapped before the overview opening animation begins.
+        visible: root.active
         screen: root.screen
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
@@ -67,13 +101,13 @@ Item {
             bottom: true
         }
 
-        // Clip the blurred, oversized media back to the exact screen bounds: a
-        // MultiEffect gaussian fades at the item edge (no pixels beyond it), so
-        // the source is grown by blurMax on every side and this parent trims it.
         Item {
             anchors.fill: parent
             clip: true
 
+            // The sharp wallpaper is the workspace-switch backdrop. It is the
+            // only file decode; the overview blur samples it into a reduced
+            // transient texture rather than decoding the file again.
             Image {
                 id: img
                 anchors.fill: parent
@@ -82,41 +116,54 @@ Item {
                 fillMode: Image.PreserveAspectCrop
                 cache: false
                 asynchronous: true
-                // A blurred full-screen copy carries no pixel-level detail, so a
-                // screen-sized decode is plenty.
-                sourceSize.width: win.screen ? win.screen.width : 0
-                sourceSize.height: win.screen ? win.screen.height : 0
-                // The sharp copy shows only while the blur is off (overview
-                // closed, or the user turned blur off); the blurred copy rides
-                // above it once the pass engages.
-                visible: !blurFx.visible
-            }
-
-            // The gaussian pass engages only while the overview is open: that is
-            // the only moment the compositor shows this surface, and a full-screen
-            // blur every frame otherwise taxes recording and gaming for pixels
-            // nobody sees. The node stays mounted so opening the overview eases
-            // the blur in through niri's own animation instead of popping a fresh
-            // render target at the worst instant.
-            MultiEffect {
-                id: blurFx
-                anchors.fill: img
-                source: img
-                // Keep the pass alive through the fade-out so blur eases to zero
-                // rather than snapping when the overview closes.
-                blur: root.blurWanted ? Math.min(1, OverviewBackdropConfig.blur / 100) : 0.0
-                blurMax: 64
-                visible: img.status === Image.Ready && blurFx.blurEnabled
-
-                Behavior on blur {
-                    enabled: !Motion.reduce
-                    NumberAnimation { duration: Motion.wallpaperFade; easing.type: Easing.OutCubic }
+                smooth: true
+                sourceSize.width: Math.max(1, Math.ceil(win.width
+                    * (win.screen ? win.screen.devicePixelRatio : 1)))
+                sourceSize.height: Math.max(1, Math.ceil(win.height
+                    * (win.screen ? win.screen.devicePixelRatio : 1)))
+                onStatusChanged: {
+                    if (status === Image.Ready && root.blurHeld)
+                        captureTimer.restart();
                 }
             }
 
-            // Dimming rides above the blur so the picker's percentage means the
-            // same thing sharp or blurred: 0 leaves the wallpaper alone, 100 is
-            // black.
+            ShaderEffectSource {
+                id: blurSource
+                anchors.fill: img
+                sourceItem: root.blurHeld ? img : null
+                textureSize: Qt.size(
+                    Math.max(1, Math.ceil(img.width
+                        * (win.screen ? win.screen.devicePixelRatio : 1) / 4)),
+                    Math.max(1, Math.ceil(img.height
+                        * (win.screen ? win.screen.devicePixelRatio : 1) / 4)))
+                live: false
+                recursive: false
+                hideSource: false
+                smooth: true
+                visible: false
+            }
+
+            MultiEffect {
+                id: blurFx
+                anchors.fill: img
+                source: blurSource
+                blurEnabled: root.blurHeld
+                blur: root.blurWanted
+                    ? Math.min(1, OverviewBackdropConfig.blur / 100) : 0
+                // The source texture is quarter-linear; 16 samples enlarge to
+                // the previous 64 px visible radius.
+                blurMax: 16
+                visible: img.status === Image.Ready && root.blurHeld
+
+                Behavior on blur {
+                    enabled: !Motion.reduce
+                    NumberAnimation {
+                        duration: Motion.wallpaperFade
+                        easing.type: Easing.OutCubic
+                    }
+                }
+            }
+
             Rectangle {
                 anchors.fill: parent
                 color: "black"

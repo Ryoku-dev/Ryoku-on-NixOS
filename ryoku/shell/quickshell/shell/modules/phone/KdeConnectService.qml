@@ -37,6 +37,7 @@ Singleton {
         root._probeAdbDeviceName()
         root._pickMdnsHost()
         root.refreshRunCommands()
+        root._queueAdbProbe()
     }
 
     property var devices: []
@@ -158,6 +159,17 @@ Singleton {
         }
         return root._resolveWirelessHost(root.activeDeviceId)
     }
+    readonly property string _adbConfigKey: {
+        const c = Config.phone?.scrcpy ?? null
+        return c ? JSON.stringify([
+            c.useWireless === true,
+            c.autoWirelessIp === true,
+            String(c.wirelessIp || ""),
+            String(c.wirelessPort || ""),
+            c.pinAdbPort === true
+        ]) : ""
+    }
+    on_AdbConfigKeyChanged: root._queueAdbProbe()
 
     property var notifications: []
     readonly property int notificationCount: notifications.length
@@ -302,15 +314,15 @@ Singleton {
     // integration without reloading the shell.
     on_EnabledChanged: {
         if (root._enabled) {
-            // Re-enabled: spin the background workers back up.
+            // Re-enabled: spin the event streams and one-shot capability checks back up.
             detectDistroProc.running = true
             checkAvailabilityProc.running = true
             checkScrcpyProc.running = true
             checkAdbProc.running = true
             checkPythonDbusProc.running = true
+            checkScrcpyRunningProc.running = true
         } else {
             monitorProc.running = false
-            cleanupProc.running = false
             ensureDaemonProc.running = false
             checkAvailabilityProc.running = false
             detectDistroProc.running = false
@@ -328,6 +340,7 @@ Singleton {
             adbPinProc.running = false
             trustSettingsProc.running = false
             restartTimer.stop()
+            adbEventProbe.stop()
             adbTargetWatchdog.stop()
             mdnsBrowseRestart.stop()
             mdnsReconnectTimer.stop()
@@ -477,26 +490,15 @@ Singleton {
         }
     }
 
-    Process {
-        id: cleanupProc
-        running: false
-        command: ["pkill", "-f", "kdeconnect/monitor.py"]
-        onExited: (code, status) => {
-            if (!root._enabled) return
-            monitorProc.command = PhoneState.pdeath(["python3", root._scriptPath])
-            monitorProc.running = true
-        }
-    }
-
     function startMonitor() {
-        if (!root._enabled || monitorProc.running || cleanupProc.running) return
-        cleanupProc.running = true
+        if (!root._enabled || monitorProc.running) return
+        monitorProc.running = true
     }
 
     Process {
         id: monitorProc
         running: false
-
+        command: PhoneState.pdeath(["python3", root._scriptPath])
         stdout: SplitParser {
             onRead: line => {
                 if (!line || line.length === 0) return
@@ -554,6 +556,7 @@ Singleton {
         case "ready":
             root.ready = true
             root.lastError = ""
+            root._queueAdbProbe()
             break
         case "fatal":
             root.ready = false
@@ -572,17 +575,21 @@ Singleton {
         case "device_added":
             root._mergeDevice(ev)
             root._sanitiseActiveDevice()
+            root._queueAdbProbe()
             break
         case "device_removed":
             root._removeDevice(ev.id)
             root._sanitiseActiveDevice()
+            root._queueAdbProbe()
             break
         case "device_props":
             root._applyDeviceProps(ev.id, ev.changed ?? {})
+            root._queueAdbProbe()
             break
         case "device_visibility":
             root._patchDevice(ev.id, {"reachable": ev.reachable})
             root._sanitiseActiveDevice()
+            root._queueAdbProbe()
             break
         case "battery":
             root._patchDevice(ev.id, {"charge": ev.charge, "charging": ev.charging})
@@ -1154,18 +1161,24 @@ Singleton {
 
     // ─── ADB reachability + intent dispatch (Phase 4 features) ────
 
-    /**
-     * Checks whether ADB is reachable on the active device. Updates
-     * `adbReachable` asynchronously. Called once on shell boot and
-     * re-checked periodically (every 30s) for sticky state. The cache
-     * avoids spawning `adb get-state` for every quick action.
-     */
+    // KDE Connect and mDNS already publish every reachability/address change.
+    // Coalesce their bursts into one ADB refresh instead of polling forever.
+    function _queueAdbProbe(): void {
+        if (root._enabled)
+            adbEventProbe.restart()
+    }
+
     Timer {
-        id: adbProber
-        interval: 30000
-        repeat: true
-        running: root.ready && root._enabled
-        onTriggered: root._probeAdb()
+        id: adbEventProbe
+        interval: 500
+        repeat: false
+        onTriggered: {
+            if (adbProbeProc.running) {
+                adbEventProbe.restart()
+                return
+            }
+            root._probeAdb()
+        }
     }
 
     Process {
@@ -1349,10 +1362,10 @@ Singleton {
     }
 
     // ─── On-demand ADB target resolution ──────────────────────────
-    // The 30s adbProber keeps state warm, but a wireless-debugging port
-    // can change between two polls. Callers that are about to spawn an
-    // adb/scrcpy command go through withAdbTarget() so the port is
-    // rediscovered at use time instead of read from a stale cache.
+    // The event-driven probe keeps normal state current, but a wireless-debugging
+    // port can change between an event and the command that consumes it. Callers
+    // about to spawn adb/scrcpy go through withAdbTarget() so they resolve again
+    // at use time instead of trusting a stale cache.
 
     property var _adbTargetCallbacks: []
     property bool _adbTargetResolving: false
@@ -1399,9 +1412,15 @@ Singleton {
         && root.adbPresent
     // "iface;proto;name" -> "ip:port" for every resolved IPv4 service.
     property var _mdnsServices: ({})
+    property int _mdnsBrowseRetryMs: 15000
+    property double _mdnsBrowseStartedAtMs: 0
 
     on_MdnsBrowseWantedChanged: {
         mdnsBrowseRestart.stop()
+        if (root._mdnsBrowseWanted) {
+            root._mdnsBrowseRetryMs = 15000
+            root._mdnsBrowseStartedAtMs = 0
+        }
         mdnsBrowseProc.running = root._mdnsBrowseWanted
     }
 
@@ -1416,13 +1435,26 @@ Singleton {
             }
         }
         onRunningChanged: {
-            if (running) return
+            if (running) {
+                root._mdnsBrowseStartedAtMs = Date.now()
+                return
+            }
             root._mdnsServices = ({})
             root._pickMdnsHost()
         }
-        // avahi-daemon restarts or a missing binary end the browse; retry
-        // slowly rather than leaving discovery dead until the next reload.
-        onExited: if (root._mdnsBrowseWanted) mdnsBrowseRestart.restart()
+        // A missing avahi-daemon exits immediately, so repeated wrapper
+        // launches back off rather than waking forever at a fixed interval.
+        onExited: {
+            if (!root._mdnsBrowseWanted) return
+            const wasStable = root._mdnsBrowseStartedAtMs > 0
+                && Date.now() - root._mdnsBrowseStartedAtMs >= 30000
+            if (wasStable) root._mdnsBrowseRetryMs = 15000
+            root._mdnsBrowseStartedAtMs = 0
+            mdnsBrowseRestart.interval = root._mdnsBrowseRetryMs
+            mdnsBrowseRestart.restart()
+            if (!wasStable)
+                root._mdnsBrowseRetryMs = Math.min(root._mdnsBrowseRetryMs * 2, 10 * 60 * 1000)
+        }
     }
 
     Timer {
@@ -2400,8 +2432,9 @@ Singleton {
 
     Timer {
         id: scrcpyStatusTimer
-        interval: 10000
+        interval: 1500
         running: root.ready && root._enabled
+            && (root.scrcpyLaunching || root.scrcpyRunning)
         repeat: true
         triggeredOnStart: true
         onTriggered: {

@@ -1,0 +1,9 @@
+// The argv1 annotation selects this action only for the typed users API; the
+// helper validates every later argument again after crossing the root boundary.
+polkit.addRule(function (action, subject) {
+    if (action.id === "dev.ryoku.users.manage" &&
+        action.lookup("program") === "/usr/bin/ryoku-host" &&
+        subject.local && subject.active) {
+        return polkit.Result.AUTH_ADMIN_KEEP;
+    }
+});

@@ -654,7 +654,7 @@ piece_end
 install -m755 "$here/ryogami/daemon/ryogami" "$bindir/ryogami"
 say "installed $bindir/ryogami"
 
-# The picker entry the daemon spawns; the unit rewrite points RYOGAMI_SHELL_QML here.
+# The daemon finds the picker entry from the session's XDG data home at runtime.
 datadir="${XDG_DATA_HOME:-$HOME/.local/share}"
 nomarchy_source="$datadir/ryoku/nomarchy-package"
 rm -rf "$nomarchy_source"
@@ -740,15 +740,15 @@ done
 # above no longer matches it, so install it by name.
 install -m755 "$here/../../system/extras/ryostore-install" "$bindir/ryostore-install"
 install -m755 "$here/quickshell/plugins/ryoku-plugins-place" "$bindir/ryoku-plugins-place"
-# AI-usage collectors: refresh ~/.cache/{claude,codex,opencode}-usage.json for
-# the qsbar AI pill, driven by the ryoku-ai-usage.timer installed below. The
-# ryoku-rashin package ships them to /usr/bin; the dev loop puts the current
-# copies on PATH.
-for s in "$here/../rashin/usage"/claude-usage "$here/../rashin/usage"/codex-usage \
+# AI-usage guard and collectors: refresh the caches for the qsbar AI pill,
+# driven by the timer installed below. The package ships them to /usr/bin; the
+# dev loop puts the current copies on PATH.
+for s in "$here/../rashin/usage"/ryoku-ai-usage \
+  "$here/../rashin/usage"/claude-usage "$here/../rashin/usage"/codex-usage \
   "$here/../rashin/usage"/opencode-usage; do
   install -m755 "$s" "$bindir/${s##*/}"
 done
-say "installed the AI-usage collectors to $bindir"
+say "installed the AI-usage guard and collectors to $bindir"
 say "installed Ryoku CLI and hardware helpers"
 
 # Privileged network helpers + their polkit rules. A packaged install ships these
@@ -1158,7 +1158,9 @@ install -Dm644 "$here/../niri/niri-portals.conf" "$cfg/xdg-desktop-portal/niri-p
 
 # Seed the decor art beside wallpapers and livewalls. Missing-only keeps local
 # replacements and additions intact across deploys.
-decordir="$HOME/Pictures/ryodecors"
+pictures_dir="${XDG_PICTURES_DIR:-}"
+[[ -n $pictures_dir && ${pictures_dir%/} != "$HOME" ]] || pictures_dir="$HOME/Pictures"
+decordir="${pictures_dir%/}/ryodecors"
 mkdir -p "$decordir"
 for f in "$here/../assets/ryodecors"/*; do
   [[ -e $f ]] || continue
@@ -1385,7 +1387,7 @@ if [ -d /run/systemd/system ]; then
     {
       printf '[Service]\n'
       grep -oE '^Exec[A-Za-z]+=' "$unit" | sort -u
-      grep -E '^Exec[A-Za-z]+=' "$unit" | sed "s|/usr/bin/|$bindir/|"
+      grep -E '^Exec[A-Za-z]+=' "$unit" | sed 's|/usr/bin/|%h/.local/bin/|'
       printf '%s\n' "$@"
     } >"$dir/ryoku-dev-bin.conf"
   }
@@ -1393,8 +1395,8 @@ if [ -d /run/systemd/system ]; then
   dev_bin_dropin ryoku-idle.service
   dev_bin_dropin ryoku-clamshell.service
   dev_bin_dropin ryoku-ai-usage.service
-  # ryogami also reads the staged picker QML.
-  dev_bin_dropin ryogami.service "Environment=RYOGAMI_SHELL_QML=$datadir/ryogami/shell.qml"
+  # Ryogami resolves the staged picker from XDG_DATA_HOME when it starts.
+  dev_bin_dropin ryogami.service
   systemctl --user daemon-reload 2>/dev/null || true
   # daemon-reload only re-reads the unit; it never restarts a running service, so
   # without this the freshly built ryogami binary sits on disk while the old
@@ -1408,7 +1410,9 @@ if [ -d /run/systemd/system ]; then
   # start it now so a converted dev box pairs BLE HID without a relogin.
   systemctl --user enable --now ryoku-bt-agent.service 2>/dev/null || true
 else
-  printf %s "$datadir/ryogami/shell.qml" >"$runit_env_root/RYOGAMI_SHELL_QML"
+  # Older deploys pinned the account's home here. The daemon now derives the
+  # picker entry from the session's XDG data home on every start.
+  rm -f "$runit_env_root/RYOGAMI_SHELL_QML"
 fi
 # pip (PEP 668 --user): Ryoku-owned, so a dev box tracks it the way the package
 # materializes it for an installed one.

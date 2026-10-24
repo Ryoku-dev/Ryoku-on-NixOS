@@ -235,15 +235,6 @@ Singleton {
     }
 
     /**
-     * Cleans a cliphist entry by removing leading digits and tab.
-     * @param { string } str
-     * @returns { string }
-     */
-    function cleanCliphistEntry(str) {
-        return str.replace(/^\d+\t/, "");
-    }
-
-    /**
      * Checks if any substring in the list is contained in the string.
      * @param { string } str
      * @param { string[] } substrings

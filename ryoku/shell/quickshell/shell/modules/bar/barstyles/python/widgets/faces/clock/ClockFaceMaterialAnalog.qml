@@ -83,21 +83,49 @@ Item {
         }
     }
 
+    function nextTickMs(d) {
+        if (root.showSeconds)
+            return Math.max(20, 1000 - d.getMilliseconds());
+        return Math.max(500, (60 - d.getSeconds()) * 1000 - d.getMilliseconds());
+    }
+
     Timer {
         id: clockTimer
-        interval: Math.max(20, 1000 - (new Date()).getMilliseconds())
+        interval: root.nextTickMs(new Date())
         running: root.visible
         repeat: true
         onTriggered: {
             var now = new Date();
             root.currentTime = now;
-            var sec = now.getSeconds();
-            if (sec !== root.lastSecond) {
-                root.lastSecond = sec;
-                root.morphSecond(sec);
+            if (root.showSeconds) {
+                var sec = now.getSeconds();
+                if (sec !== root.lastSecond) {
+                    root.lastSecond = sec;
+                    root.morphSecond(sec);
+                }
             }
-            interval = Math.max(20, 1000 - now.getMilliseconds());
+            interval = root.nextTickMs(now);
         }
+    }
+
+    onVisibleChanged: {
+        if (root.visible) {
+            var now = new Date();
+            root.currentTime = now;
+            clockTimer.interval = root.nextTickMs(now);
+            clockTimer.restart();
+        }
+    }
+
+    onShowSecondsChanged: {
+        var now = new Date();
+        root.currentTime = now;
+        root.lastSecond = now.getSeconds();
+        root.secondHeadAngle = root.lastSecond * 6;
+        root.secondTailAngle = root.secondHeadAngle;
+        clockTimer.interval = root.nextTickMs(now);
+        if (root.visible)
+            clockTimer.restart();
     }
 
     Component.onCompleted: {
