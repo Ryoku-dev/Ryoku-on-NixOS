@@ -19,6 +19,7 @@ pkgs.stdenv.mkDerivation {
     pkgs.qt6.qtbase
     pkgs.qt6.qtdeclarative
     pkgs.qt6.qtmultimedia
+    pkgs.qt6.qtquick3d
     pkgs.qt6.qtshadertools
   ];
 
@@ -31,17 +32,16 @@ pkgs.stdenv.mkDerivation {
 
     mkdir -p "$out/${qmlRoot}/Ryoku"
 
-    cp -a \
-      qml/Ryoku/Blobs \
-      "$out/${qmlRoot}/Ryoku/Blobs"
-
-    rm -f "$out/${qmlRoot}/Ryoku/Blobs/"*.qrc
+    for module in Blobs Spatial3D; do
+      cp -a "qml/Ryoku/$module" "$out/${qmlRoot}/Ryoku/$module"
+      rm -f "$out/${qmlRoot}/Ryoku/$module/"*.qrc
+    done
 
     runHook postInstall
   '';
 
   meta = {
-    description = "Ryoku.Blobs Qt/QML metaball rendering module";
+    description = "Ryoku.Blobs metaball and Ryoku.Spatial3D depth-mesh Qt/QML modules";
     homepage = "https://github.com/Ryoku-dev/ryoku-arch";
     license = pkgs.lib.licenses.gpl3Only;
     platforms = [ "x86_64-linux" ];
