@@ -27,7 +27,7 @@ class QylockPamMaterializationTests(unittest.TestCase):
     def test_fingerprint_service_fails_closed(self):
         service = pam_service(self.source, "ryoku-lock")
         self.assertIn(
-            "${ryokuPam}/lib/security/pam_deny.so",
+            "${qylockPamModules}/pam_deny.so",
             service,
         )
         self.assertIn("account    required", service)
@@ -36,19 +36,19 @@ class QylockPamMaterializationTests(unittest.TestCase):
     def test_password_service_uses_ryoku_pam_modules(self):
         service = pam_service(self.source, "ryoku-lock-pw")
         self.assertIn(
-            "auth       required  ${ryokuPam}/lib/security/pam_unix.so nullok",
+            "auth       required  ${qylockPamModules}/pam_unix.so nullok",
             service,
         )
         self.assertIn(
-            "account    required  ${ryokuPam}/lib/security/pam_unix.so",
+            "account    required  ${qylockPamModules}/pam_unix.so",
             service,
         )
         self.assertIn(
-            "password   required  ${ryokuPam}/lib/security/pam_deny.so",
+            "password   required  ${qylockPamModules}/pam_deny.so",
             service,
         )
         self.assertIn(
-            "session    required  ${ryokuPam}/lib/security/pam_unix.so",
+            "session    required  ${qylockPamModules}/pam_unix.so",
             service,
         )
 
@@ -63,21 +63,22 @@ class QylockPamMaterializationTests(unittest.TestCase):
             self.assertEqual(entries[stack][1], "required")
             self.assertTrue(entries[stack][-1].endswith("pam_deny.so"))
 
-    def test_ryoku_pam_is_quickshells_package_set(self):
-        # the modules are loaded inside ryokuQuickshell; host PAM may be
-        # built against a newer glibc than the one that process runs on
-        self.assertIn("ryokuQuickshell = ryokuNixpkgs.quickshell;", self.source)
-        self.assertIn("ryokuPam = ryokuNixpkgs.pam;", self.source)
-
-    def test_every_pam_module_comes_from_ryoku_pam(self):
+    def test_every_pam_module_uses_ryoku_pam_modules(self):
         for name in ("ryoku-lock", "ryoku-lock-pw", "other"):
             with self.subTest(service=name):
                 for line in pam_service(self.source, name).splitlines():
                     if ".so" in line:
                         self.assertIn(
-                            "${ryokuPam}/lib/security/",
+                            "${qylockPamModules}/",
                             line,
                         )
+
+    def test_pam_modules_come_from_ryoku_package_set(self):
+        self.assertIn(
+            'qylockPamModules = "${ryokuNixpkgs.linux-pam}/lib/security";',
+            self.source,
+        )
+        self.assertNotIn("${config.security.pam.package}", self.source)
 
     def test_materializer_runs_before_lock_runtime_activation(self):
         start = self.source.index(
