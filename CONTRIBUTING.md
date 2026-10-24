@@ -93,6 +93,7 @@ future maintainers understand why the change exists.
 
 User-visible changes keep the existing release trailer format:
 
+<<<<<<< port (unstable-dev)
 ```text
 Note: New: expose stable and unstable update channels
 Note: Fixed: preserve Home Manager-managed config symlinks
@@ -100,6 +101,34 @@ Note: Removed: retire the old update path
 ```
 
 Release automation harvests these lines into the generated notes.
+=======
+A note only reaches a release if its commit reaches the tag intact, so `main`
+takes `unstable-dev` through a merge commit, never a squash, and a release is the
+**Stable Release** workflow run on `main` (`bump_type: none` tags the version
+`main` carries). Never squash-merge into a release branch: squashing collapses
+commits and drops their notes.
+
+Nothing reaches `main` except a release, and only when it is ready: work and
+fixes go to `unstable-dev`. Every push there runs the **Testing gate**, which
+waits for all required checks and then records the commit in
+`channels/testing/checked.json`; testers on `ryoku track unstable` build that
+commit from source on their next `ryoku update`, about six minutes after the
+push. The package publishers run their own gate on the same checks before they
+upload the testing repositories, so a red check never reaches a channel. Wait
+for the Testing gate, not for the publishers. GitHub accepts changes to `main`
+only through a pull request: a release merges `unstable-dev` into `main` with a
+merge commit and then fast-forwards `unstable-dev` to it, and the `pre-push` hook
+refuses any direct push to `main` that does not name itself with
+`RYOKU_RELEASE_PUSH=1`. A `VERSION` bump the workflow commits on `main` is merged
+back into `unstable-dev` before the next release. The sequence is in
+`docs/development.md`, "Branches and pushing".
+
+A release line carries a name (`CODENAME`, its story in `release/names.md`);
+the release is titled with it and a line's first release opens with the story.
+Starting a new line is one commit that changes `CODENAME`, adds the section
+and the line's ASCII mark (`ryoku/cli/internal/updater/art/<name>.txt`),
+before the release that begins it.
+>>>>>>> upstream Ryoku 1.0.4 (debc76f)
 
 ## Pull requests
 

@@ -9,6 +9,30 @@ Three pillars, one job each. Everything else is documentation or tooling.
 The golden rule: **every path has one purpose and appears once.** If you need
 something that already exists, reference it; do not copy it.
 
+## Documentation map
+
+Start with the guide that matches the job:
+
+- **Install and operate:** [without the Ryoku ISO](install-without-iso.md),
+  [hardware requirements](installation-hardware.md), [what is
+  preinstalled](preinstalled.md), [updates and rollback](updates.md), [the
+  `ryoku` command](cli.md), [configuration import](config-import.md) and
+  [kernels and CachyOS gaming](kernels.md).
+- **Understand the desktop:** [what Ryoku is](ryoku.md), [UI and motion
+  rules](ui-ux.md), [bar styles](barstyles.md), [sidebars](sidebars.md),
+  [launcher](launcher.md), [frame](frame.md), [Stage Editor](stage.md),
+  [Ryogami](ryogami.md), [RyoStore](store.md), [profiles](profile.md),
+  [theming](theming.md), [performance](performance.md), [power](power.md) and
+  [plugins](plugins.md).
+- **Work on the repository:** [conventions](conventions.md),
+  [development](development.md), [internationalization](i18n.md),
+  [compositors](compositors.md), [adding a window
+  manager](adding-a-window-manager.md), [Hyprland
+  plugins](hyprland-plugins.md), [Rashin](rashin.md), [Rashin in the
+  terminal](rashin-terminal.md) and [dictation](dictation.md).
+
+The rest of this page maps those guides to the source tree.
+
 ## `ryoku/` the desktop
 
 Deploys into the user's home (`~/.config`, `~/.local/...`) one way. Source of
@@ -353,7 +377,8 @@ downgrades.
   `ryoku-edition-parity` package coverage gate, the delivery gates the
   workflows share (`ryoku-ci-gate` waits for every required check on a commit;
   `ryoku-channel-status` and `ryoku-checked-pointer` write a channel's
-  `status.json` and the testing `checked.json`), `ryoku-track` (the source
+  `status.json` and the testing `checked.json`), `ryoku-discord` (every
+  message CI posts to the Ryoku Discord), `ryoku-track` (the source
   lane behind `ryoku track unstable`), `ryoku-dev-perf-baseline` (what the
   running desktop costs in memory, CPU, wakeups, GPU and power, per process and
   per surface; see `docs/performance.md`), and `art/` for art authoring
