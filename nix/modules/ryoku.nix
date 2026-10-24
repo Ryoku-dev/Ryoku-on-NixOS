@@ -586,6 +586,7 @@ EOF
   qtQmlPath = lib.makeSearchPath "lib/qt-6/qml" [
     ryokuNixpkgs.qt6.qtdeclarative
     ryokuNixpkgs.qt6.qtmultimedia
+    ryokuNixpkgs.qt6.qtquick3d
     ryokuNixpkgs.qt6.qtwayland
     ryokuNixpkgs.qt6.qt5compat
     ryokuNixpkgs.qt6.qtsvg
@@ -783,6 +784,7 @@ EOF
 
     ryokuNixpkgs.qt6.qtdeclarative
     ryokuNixpkgs.qt6.qtmultimedia
+    ryokuNixpkgs.qt6.qtquick3d
     ryokuNixpkgs.qt6.qtwayland
     ryokuNixpkgs.qt6.qt5compat
     ryokuNixpkgs.qt6.qtsvg
@@ -1790,6 +1792,8 @@ in
       browser = if cfg.browser == null then "" else cfg.browser;
       defaultCompositor = if cfg.defaultCompositor == null then "" else cfg.defaultCompositor;
       shell = cfg.shell;
+      # The Hub's account manager stays read-only when NixOS owns the accounts.
+      mutableUsers = config.users.mutableUsers;
       optionalApps = cfg.optionalApps;
       packages = nixIntegrationPackages;
     };

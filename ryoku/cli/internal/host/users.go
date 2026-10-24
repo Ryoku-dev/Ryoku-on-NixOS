@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ryoku-cli/internal/sys"
 	i18n "ryoku-i18n"
 )
 
@@ -121,6 +122,9 @@ func (a *App) Users(args []string) int {
 		if a.cfg.UID != 0 {
 			return a.usersFail(i18n.T("Administrator authentication is required."))
 		}
+		if reason := nixDeclaredUsersReason(); reason != "" {
+			return a.usersFail(reason)
+		}
 	default:
 		return a.usersFail(i18n.T("Unknown users action."))
 	}
@@ -205,6 +209,11 @@ func (a *App) usersCapability() usersCapability {
 			return capability
 		}
 	}
+	if reason := nixDeclaredUsersReason(); reason != "" {
+		capability.Reason = reason
+		capability.Storage = a.userStorageCapabilities()
+		return capability
+	}
 	capability.Supported = true
 	capability.Storage = a.userStorageCapabilities()
 	return capability
@@ -264,7 +273,12 @@ func (a *App) usersAdd(args []string) int {
 			return a.usersFail(err.Error())
 		}
 	}
-	useradd := []string{"--user-group", "--shell", "/bin/bash", "--comment", fullName, "--home-dir", home}
+	useradd := []string{"--user-group", "--comment", fullName, "--home-dir", home}
+	// NixOS has no /bin/bash; its useradd defaults name the configured login
+	// shell through /run/current-system, which survives every rebuild.
+	if !sys.NixBackend() {
+		useradd = append(useradd, "--shell", "/bin/bash")
+	}
 	if storageCaps.Subvolumes {
 		useradd = append(useradd, "--no-create-home")
 	} else {
