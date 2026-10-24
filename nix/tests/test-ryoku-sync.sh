@@ -143,6 +143,10 @@ printf 'upstream workflow base\n' >"$upstream/.github/workflow.yml"
 printf 'base stale installer\n' >"$upstream/installation/stale.txt"
 printf 'base recovery\n' >"$upstream/installation/recovery/keep.txt"
 printf 'base component changelog\n' >"$upstream/component/CHANGELOG.md"
+printf 'old upstream copy\n' >"$upstream/stale-copy.txt"
+printf 'base custom copy\n' >"$upstream/custom-copy.txt"
+commit_all "$upstream" 'feat: initial upstream history'
+printf 'current upstream copy\n' >"$upstream/stale-copy.txt"
 commit_all "$upstream" 'feat: base'
 base=$(git -C "$upstream" rev-parse HEAD)
 
@@ -157,6 +161,8 @@ printf 'fork workflow\n' >"$fork_seed/.github/workflow.yml"
 printf 'fork only\n' >"$fork_seed/fork.txt"
 mkdir -p "$fork_seed/tests"
 printf 'fork-only test helper\n' >"$fork_seed/tests/fork-only-helper.py"
+printf 'old upstream copy\n' >"$fork_seed/stale-copy.txt"
+printf 'fork custom copy\n' >"$fork_seed/custom-copy.txt"
 rm "$fork_seed/remove-me.txt" "$fork_seed/gone/existing.txt"
 commit_all "$fork_seed" 'feat(nix): initial port'
 fork_base=$(git -C "$fork_seed" rev-parse HEAD)
@@ -198,6 +204,10 @@ assert_file_at "$runner" "$clean_sync" tests/fork-only-helper.py 'fork-only test
 assert_absent_at "$runner" "$clean_sync" remove-me.txt
 assert_absent_at "$runner" "$clean_sync" gone/new.txt
 [[ $(<"$output") == *'Conflicts: none'* ]] || fail 'clean sync reported conflicts'
+assert_file_at "$runner" "$clean_sync" stale-copy.txt 'current upstream copy'
+assert_file_at "$runner" "$clean_sync" custom-copy.txt 'fork custom copy'
+[[ $(<"$gh_state/unstable.body") == *'`stale-copy.txt`'* ]] \
+  || fail 'stale-copy refresh missing from pull request body'
 [[ $(<"$gh_state/unstable.body") == *"<!-- ryoku-sync-head: $clean_sync -->"* ]] \
   || fail 'pull request body did not record the bot branch head'
 

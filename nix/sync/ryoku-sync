@@ -268,6 +268,50 @@ is_upstream_wins() {
   done <"$upstream_wins_file"
   return "$result"
 }
+declare -A STALE_COPY_SET=()
+stale_copies=()
+
+collect_stale_copies() {
+  local base=$1 ours_tree=$2 path blob object_type metadata history_path
+  local old_blob new_blob candidate offset
+  local -a changed_paths candidate_paths chunk
+  local -A candidate_blobs=() seen=()
+
+  mapfile -d '' -t changed_paths \
+    < <(git diff-tree --no-commit-id --name-only -r -z "$base" "$ours_tree")
+  for path in "${changed_paths[@]}"; do
+    is_fork_owned "$path" && continue
+    path_exists "$ours_tree" "$path" || continue
+    blob=$(git rev-parse "$ours_tree:$path")
+    object_type=$(git cat-file -t "$blob")
+    [[ $object_type == blob ]] || continue
+    candidate_paths+=("$path")
+    candidate_blobs["$path"]=$blob
+  done
+
+  for ((offset = 0; offset < ${#candidate_paths[@]}; offset += 128)); do
+    chunk=("${candidate_paths[@]:offset:128}")
+    while IFS= read -r -d '' metadata && IFS= read -r -d '' history_path; do
+      metadata=${metadata#:}
+      read -r _ _ old_blob new_blob _ <<<"$metadata"
+      candidate=${candidate_blobs["$history_path"]-}
+      [[ -n $candidate ]] || continue
+      if [[ $candidate == "$old_blob" || $candidate == "$new_blob" ]]; then
+        seen["$history_path"]=1
+      fi
+    done < <(git log --raw -z --no-abbrev --no-renames --format= \
+      "$base" -- "${chunk[@]}")
+  done
+
+  STALE_COPY_SET=()
+  stale_copies=()
+  for path in "${candidate_paths[@]}"; do
+    [[ -n ${seen["$path"]-} ]] || continue
+    STALE_COPY_SET["$path"]=1
+    stale_copies+=("$path")
+  done
+}
+
 
 
 under_removed_directory() {
@@ -334,6 +378,19 @@ build_pr_body() {
     for note in "${notes[@]}"; do
       pr_body+="- $note"$'\n'
     done
+  fi
+  if ((${#stale_copies[@]})); then
+    pr_body+=$'\n### Stale copies refreshed from upstream\n\n'
+    pr_body+="${#stale_copies[@]} paths were reset to their current upstream versions."$'\n'
+    if ((${#stale_copies[@]} > 20)); then
+      pr_body+=$'\n<details>\n<summary>Show paths</summary>\n\n'
+    fi
+    for path in "${stale_copies[@]}"; do
+      pr_body+="- \`$path\`"$'\n'
+    done
+    if ((${#stale_copies[@]} > 20)); then
+      pr_body+=$'\n</details>\n'
+    fi
   fi
   if ((${#conflicts[@]})); then
     pr_body+=$'\nConflicts:\n'
@@ -447,6 +504,8 @@ mapfile -d '' -t merge_records <"$merge_output"
 ((${#merge_records[@]} >= 1)) || die "git merge-tree produced no tree"
 merged_tree=${merge_records[0]}
 initial_conflicts=("${merge_records[@]:1}")
+collect_stale_copies "$merge_base" "$ours"
+
 
 index="$tmp_dir/index"
 rm -f "$index"
@@ -454,10 +513,17 @@ GIT_INDEX_FILE=$index git read-tree "$merged_tree"
 remove_index_paths "$index" "${FORK_OWNED_PATHS[@]}"
 restore_index_paths "$index" "$ours" "${FORK_OWNED_PATHS[@]}"
 set_index_file "$index" "$target" VERSION
+for path in "${stale_copies[@]}"; do
+  set_index_file "$index" "$target" "$path"
+done
+
 
 conflicts=()
 for path in "${initial_conflicts[@]}"; do
   if is_fork_owned "$path" || [[ $path == VERSION ]]; then
+    continue
+  fi
+  if [[ -n ${STALE_COPY_SET["$path"]-} ]]; then
     continue
   fi
   if ! path_exists "$ours" "$path" && path_exists "$merge_base" "$path"; then
@@ -516,6 +582,7 @@ printf 'Target: %s\n' "$target"
 printf 'Tree: %s\n' "$final_tree"
 printf 'Commit: %s\n' "$sync_commit"
 printf 'Changed files: %d\n' "${#changed_paths[@]}"
+printf 'Stale copies refreshed: %d\n' "${#stale_copies[@]}"
 if ((${#conflicts[@]})); then
   printf 'Conflicts (%d):\n' "${#conflicts[@]}"
   printf '  %s\n' "${conflicts[@]}"
