@@ -1,6 +1,7 @@
 [Unit]
 Description=Ryoku Bluetooth pairing agent (BlueZ default agent)
 Documentation=https://github.com/Ryoku-dev/ryoku/issues/308
+ConditionUser=!@system
 # bluetoothd must be up to talk to; the agent is useless without it, and a
 # bluetooth restart drops the registration, so follow it through.
 After=bluetooth.service

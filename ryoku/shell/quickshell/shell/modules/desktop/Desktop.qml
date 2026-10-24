@@ -782,6 +782,7 @@ Scope {
             wallpaperPath: root.wallpaperPath
             wallpaperFit: root.wallpaperFit
             spatialEnabled: root.stageSpatial
+            layered: root.deckFrostBlur > 0.01
             visible: root.stageOn
         }
 

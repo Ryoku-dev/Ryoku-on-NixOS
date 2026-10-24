@@ -280,7 +280,13 @@ if $want_zen; then
   install -m 0644 "$temporary" "$user_js"
   record_owned zen "$user_js"
   rm -f "$temporary"
-  printf 'Installed Zen profile wiring. Sign/install zen-extension separately, then restart Zen once.\n'
+  zen_xpi="$project_root/zen-extension/ryoku-zen-palette-1.0.3.xpi"
+  if [[ -f "$zen_xpi" ]]; then
+    printf 'Installed Zen profile wiring. To add live palette updates, run:\n  zen-browser %q\n' "$zen_xpi"
+    printf 'Approve the add-on in Zen, then restart Zen once.\n'
+  else
+    printf 'Installed Zen profile wiring. Sign and install zen-extension separately, then restart Zen once.\n'
+  fi
 fi
 
 if $want_vesktop || $want_zen; then

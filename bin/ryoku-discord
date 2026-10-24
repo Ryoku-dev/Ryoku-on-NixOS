@@ -1,0 +1,506 @@
+#!/usr/bin/env bash
+# ryoku-discord: build and send the messages Ryoku's CI posts to Discord.
+#
+# Every workflow that talks to the Ryoku Discord goes through this script, so the
+# look, Discord's size limits and the mention rules live in one place.
+#
+#   issue            a new issue (GITHUB_EVENT_PATH)                  -> feed
+#   pull-request     a new, ready or merged pull request (same)       -> feed
+#   commits          --from SHA --to SHA [--branch NAME]              -> feed
+#   unstable         --from SHA --to SHA                              -> updates
+#   release          --tag TAG [--notes-file F --title T --url U]
+#                    [--live EDITIONS]                                -> updates
+#   publish-failed   --edition NAME --channel NAME --sha SHA --run URL [--ref REF]
+#   gate-failed      --sha SHA --run URL [--checks LIST]
+#   iso              --status S --variant V --run URL [--image NAME]
+#                    [--publish true|false] [--stage S] [--ref R] [--tracking ID]
+#
+# The last three go to the CI channel. The webhook comes from DISCORD_WEBHOOK; an
+# empty one skips the message, because forks and mirrors carry no secrets.
+# --dry-run prints the payload instead of sending it. Only the release
+# announcement may ping anyone, and only the role in DISCORD_RELEASE_ROLE_ID.
+
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="${GITHUB_REPOSITORY:-Ryoku-dev/ryoku}"
+server="${GITHUB_SERVER_URL:-https://github.com}"
+repo_base="https://repo.ryoku.dev/stable"
+iso_base="https://iso.ryoku.dev/stable"
+brand="https://raw.githubusercontent.com/$repo/main/ryoku/assets/brand"
+bot_email="41898282+github-actions[bot]@users.noreply.github.com"
+
+die() {
+  printf 'ryoku-discord: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+(($#)) || usage 1
+kind="$1"
+shift
+[[ $kind == -h || $kind == --help ]] && usage 0
+
+dry_run=0
+declare -A opt=()
+while (($#)); do
+  case "$1" in
+    --dry-run) dry_run=1 ;;
+    -h | --help) usage 0 ;;
+    --*)
+      (($# >= 2)) || die "$1 needs a value"
+      opt[${1#--}]="$2"
+      shift
+      ;;
+    *) die "unexpected argument: $1" ;;
+  esac
+  shift
+done
+
+need() { [[ -n ${opt[$1]:-} ]] || die "$kind needs --$1"; }
+
+# Shared jq definitions. cut keeps a string inside a Discord limit; tidy turns
+# untrusted GitHub markdown into a short, safe excerpt (no hidden comments, no
+# images, no masked links that hide where they point, headings Discord would
+# blow up turned to bold, balanced code fences).
+read -r -d '' lib <<'JQ' || true
+def cut($n): if length > $n then .[0:($n - 1)] + "…" else . end;
+def strip: sub("^\\s+"; "") | sub("\\s+$"; "");
+def uncomment: gsub("\r"; "") | gsub("<!--[\\s\\S]*?-->"; "");
+def tidy:
+  uncomment
+  | gsub("<img[^>]*>"; "(image)")
+  | gsub("!\\[[^\\]]*\\]\\([^)]*\\)"; "(image)")
+  | gsub("\\[(?<t>[^\\]\\n]+)\\]\\((?<u>[^)\\s]+)\\)"; "\(.t) (\(.u))")
+  | gsub("(?m)^#{1,6}[ \\t]+(?<h>[^\\n]+?)[ \\t#]*$"; "**\(.h)**")
+  | gsub("(?m)^(_No response_|-{3,}|\\*{3,}|_{3,})[ \\t]*$"; "")
+  | gsub("\n{3,}"; "\n\n")
+  | strip;
+def excerpt($n):
+  (if length <= $n then .
+   else .[0:$n] as $s
+     | ($s | rindex("\n")) as $nl
+     | (if $nl != null and $nl > ($n / 2) then $s[0:$nl] else $s end | strip) + " …"
+   end)
+  | if ([match("```"; "g")] | length) % 2 == 1 then . + "\n```" else . end;
+def sections:
+  . as $t
+  | [match("(?m)^#{2,3}[ \\t]+([^\\n]+)$"; "g")] as $hs
+  | [range(0; $hs | length) as $i
+      | { key: ($hs[$i].captures[0].string | gsub("['’]"; "") | ascii_downcase | gsub("[^a-z0-9]+"; " ") | strip),
+          value: ($t[($hs[$i].offset + $hs[$i].length):(if $i + 1 < ($hs | length) then $hs[$i + 1].offset else ($t | length) end)] | strip) }]
+  | from_entries;
+def sha_link($sha): "[`\($sha[0:7])`](\($server)/\($repo)/commit/\($sha))";
+def fit_embed:
+  (if .title then .title |= cut(256) else . end)
+  | (if .description then .description |= cut(4096) else . end)
+  | (if .author.name then .author.name |= cut(256) else . end)
+  | (if .footer.text then .footer.text |= cut(2048) else . end)
+  | (if .fields then .fields |= (map(select(.value != null and .value != "")) | .[0:25]
+        | map(.name |= cut(256) | .value |= cut(1024))) else . end)
+  | (if (.fields // []) == [] then del(.fields) else . end)
+  | (if .description == "" then del(.description) else . end)
+  | (if .image and .image.url == null then del(.image) else . end);
+def embed_chars:
+  [.title, .description, .author.name, .footer.text, ((.fields // [])[] | .name, .value)]
+  | map(select(. != null) | length) | add // 0;
+def total_chars: [(.embeds // [])[] | embed_chars] | add // 0;
+def shrink:
+  if total_chars <= 6000 then .
+  else (total_chars - 6000 + 2) as $over
+    | ([.embeds | to_entries[] | {k: .key, n: (.value.description // "" | length)}] | max_by(.n)) as $big
+    | if $big.n == 0 then .embeds |= .[0:-1] | shrink
+      else .embeds[$big.k].description |= (.[0:([length - $over, 0] | max)] + "…") | shrink end
+  end;
+def fit:
+  (if .content then .content |= cut(2000) else . end)
+  | .username |= cut(80)
+  | .embeds |= ((. // [])[0:10] | map(fit_embed))
+  | shrink;
+def post($username; $color; $embeds):
+  {username: $username, avatar_url: ($brand + "/logo-mark-v2.png"), allowed_mentions: {parse: []},
+   embeds: ($embeds | map({color: $color} + .))};
+JQ
+
+jqx() {
+  jq --arg server "$server" --arg repo "$repo" --arg brand "$brand" "$@"
+}
+
+# Colours: the brand rust for releases, amber for unstable, then GitHub-ish
+# status colours for the feed and CI.
+accent=13524786
+amber=15105570
+green=3066993
+red=15158332
+grey=10070709
+blurple=5793266
+purple=9001445
+
+send() {
+  local payload="$1"
+  if ((dry_run)); then
+    jq . <<<"$payload"
+    return 0
+  fi
+  if [[ -z ${DISCORD_WEBHOOK:-} ]]; then
+    echo "::notice::no Discord webhook configured for this message; skipped"
+    return 0
+  fi
+  local url="$DISCORD_WEBHOOK" sep='?' attempt code wait body
+  [[ $url == *\?* ]] && sep='&'
+  body="$(mktemp)"
+  for attempt in 1 2 3 4; do
+    code="$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 \
+      -H 'Content-Type: application/json' -X POST \
+      --data-binary @- "${url}${sep}wait=true" <<<"$payload")" || true
+    [[ $code =~ ^[0-9]{3}$ ]] || code=000
+    case "$code" in
+      200 | 204)
+        echo "Discord message sent ($(jq -r '.id // "no id"' "$body" 2>/dev/null || echo ok))."
+        rm -f "$body"
+        return 0
+        ;;
+      429) wait="$(jq -r '.retry_after // 2 | ceil' "$body" 2>/dev/null || echo 2)" ;;
+      000 | 5??) wait=$((attempt * 2)) ;;
+      *)
+        echo "::warning::Discord refused the message (HTTP $code): $(head -c 400 "$body")" >&2
+        rm -f "$body"
+        return 1
+        ;;
+    esac
+    ((wait <= 30)) || wait=30
+    sleep "$wait"
+  done
+  echo "::warning::Discord kept failing (last HTTP $code); message not sent" >&2
+  rm -f "$body"
+  return 1
+}
+
+event() {
+  [[ -n ${GITHUB_EVENT_PATH:-} && -r $GITHUB_EVENT_PATH ]] || die "$kind reads the GitHub event at GITHUB_EVENT_PATH"
+  printf '%s' "$GITHUB_EVENT_PATH"
+}
+
+kind_issue() {
+  jqx --argjson red "$red" --argjson blurple "$blurple" "$lib"'
+    .issue as $i
+    | ($i.body // "" | uncomment) as $raw
+    | ($raw | sections) as $s
+    | ((if $s["whats wrong"] then $s["whats wrong"] elif ($s | length) == 0 then $raw else "" end)
+        | tidy | excerpt(700)) as $desc
+    | ($s["system details"] // "" | tidy | split("\n") | map(strip | select(length > 0)) | .[0:6] | join("\n") | cut(400)) as $system
+    | [$i.labels[]?.name] as $labels
+    | post("Ryoku GitHub"; (if ($labels | index("bug")) then $red else $blurple end); [{
+        author: {name: $i.user.login, url: $i.user.html_url, icon_url: $i.user.avatar_url},
+        title: "#\($i.number) · \($i.title)",
+        url: $i.html_url,
+        description: $desc,
+        fields: [{name: "System", value: $system}, {name: "Labels", value: ($labels | join(", ")), inline: true}],
+        footer: {text: "New issue"},
+        timestamp: $i.created_at }])
+    | fit' "$(event)"
+}
+
+kind_pull_request() {
+  local template=/dev/null
+  [[ -r $here/../.github/PULL_REQUEST_TEMPLATE.md ]] && template="$here/../.github/PULL_REQUEST_TEMPLATE.md"
+  jqx --argjson green "$green" --argjson purple "$purple" --rawfile template "$template" "$lib"'
+    .action as $a
+    | .pull_request as $p
+    | if $p.user.type == "Bot" or ($a == "closed" and ($p.merged | not)) then empty else
+      # lines an author left exactly as the template wrote them say nothing
+      ([$template | uncomment | split("\n")[] | strip | select(length > 0 and (startswith("#") or startswith("-") | not))]) as $boiler
+      | ($p.body // "" | uncomment) as $raw
+      | ($raw | sections) as $s
+      | ((if $s["what changed"] then $s["what changed"] elif ($s | length) == 0 then $raw else "" end)
+          | tidy | split("\n") | map(select((strip) as $l | any($boiler[]; . == $l) | not)) | join("\n") | strip
+          | excerpt(600)) as $desc
+      | (if $p.additions != null then "+\($p.additions) −\($p.deletions) in \($p.changed_files) file\(if $p.changed_files == 1 then "" else "s" end)" else "" end) as $diff
+      | if $a == "closed" then
+          post("Ryoku GitHub"; $purple; [{
+            author: {name: $p.user.login, url: $p.user.html_url, icon_url: $p.user.avatar_url},
+            title: "#\($p.number) · \($p.title)",
+            url: $p.html_url,
+            description: (if $p.base.ref == "unstable-dev"
+              then "Merged. Thanks, **\($p.user.login)**! It is on unstable now and ships with the next release."
+              else "Merged into `\($p.base.ref)`. Thanks, **\($p.user.login)**!" end),
+            fields: [{name: "Changes", value: $diff, inline: true}],
+            footer: {text: "Merged by \($p.merged_by.login // "a maintainer")"},
+            timestamp: ($p.merged_at // $p.closed_at) }])
+        else
+          post("Ryoku GitHub"; $green; [{
+            author: {name: $p.user.login, url: $p.user.html_url, icon_url: $p.user.avatar_url},
+            title: "\(if $p.draft then "Draft · " else "" end)#\($p.number) · \($p.title)",
+            url: $p.html_url,
+            description: $desc,
+            fields: [
+              {name: "Into", value: (if $p.base.ref == "main" then "`main` (pull requests go to `unstable-dev`)" else "`\($p.base.ref)`" end), inline: true},
+              {name: "Changes", value: $diff, inline: true}],
+            footer: {text: (if $a == "ready_for_review" then "Ready for review" elif $a == "reopened" then "Reopened pull request" else "New pull request" end)},
+            timestamp: (if $a == "opened" then $p.created_at else now | todateiso8601 end) }])
+        end
+      | fit
+    end' "$(event)"
+}
+
+kind_commits() {
+  need from
+  need to
+  local from to branch="${opt[branch]:-unstable-dev}"
+  from="$(git rev-parse --verify "${opt[from]}^{commit}")" || die "unknown commit: ${opt[from]}"
+  to="$(git rev-parse --verify "${opt[to]}^{commit}")" || die "unknown commit: ${opt[to]}"
+  # the release bot's version bumps are bookkeeping, not news
+  git log --no-merges --format='%H%x1f%ae%x1f%an%x1f%s' "$from..$to" \
+    | jqx -R -s --arg from "$from" --arg to "$to" --arg branch "$branch" \
+      --arg bot "$bot_email" --argjson amber "$amber" "$lib"'
+      [split("\n")[] | select(length > 0) | split("\u001f")
+        | {sha: .[0], email: .[1], name: .[2], subject: .[3]}
+        | select(.email != $bot)
+        | .subject as $subject
+        | ((.subject | capture("^\\[(?<area>[A-Za-z0-9_-]+)\\]\\s*(?<rest>.*)$")) // {area: "other", rest: $subject}) as $c
+        | . + {area: $c.area, rest: $c.rest}] as $commits
+      | if $commits == [] then empty else
+        ($commits | map(.area) | reduce .[] as $a ([]; if any(.[]; . == $a) then . else . + [$a] end)) as $areas
+        | ([$areas[] as $a | ($commits | map(select(.area == $a))) as $in
+            | "**\($a)** · \($in | length)\n"
+              + ([$in[0:6][] | "• \(.rest | cut(150)) (\(sha_link(.sha)))"] | join("\n"))
+              + (if ($in | length) > 6 then "\n• …and \(($in | length) - 6) more" else "" end)]) as $blocks
+        | (reduce $blocks[] as $b (""; if (length + ($b | length)) > 3700 then . else . + $b + "\n\n" end) | strip) as $desc
+        | ($commits | map(.name) | unique) as $authors
+        | post("Ryoku GitHub"; $amber; [{
+            title: "\($commits | length) new commit\(if ($commits | length) == 1 then "" else "s" end) on \($branch)",
+            url: "\($server)/\($repo)/compare/\($from)...\($to)",
+            description: ($desc + (if ($desc | length) < ($blocks | join("\n\n") | length) then "\n\n…the rest is in the comparison above." else "" end)),
+            fields: [{name: "By", value: (($authors[0:8] | join(", ")) + (if ($authors | length) > 8 then " and \(($authors | length) - 8) more" else "" end))}],
+            footer: {text: "\($branch) · \($to[0:7])"},
+            timestamp: (now | todateiso8601) }])
+        | fit
+      end'
+}
+
+# notes_json turns ryoku-release-notes Markdown into {intro, new, fixed,
+# removed, media}: the story before the first section, the three lists, and the
+# first demo image a New item carries.
+notes_json() {
+  jqx -R -s "$lib"'
+    gsub("\r"; "") | split("\n") as $lines
+    | reduce $lines[] as $l ({section: "intro", intro: [], new: [], fixed: [], removed: [], media: null};
+        if ($l | test("^## ")) and .section == "intro" and .intro == [] then .
+        elif ($l | test("^### ")) then .section = ($l | ltrimstr("### ") | strip | ascii_downcase)
+        elif .section == "intro" then .intro += [$l]
+        elif ($l | test("^- ")) and (.section | IN("new", "fixed", "removed")) then .[.section] += [$l | ltrimstr("- ") | strip]
+        elif ($l | test("^\\s+!\\[[^\\]]*\\]\\(")) and .section == "new" and .media == null then
+          .media = ($l | capture("\\((?<u>https?://[^)]+)\\)").u? // null)
+        else . end)
+    | .intro = (.intro | join("\n") | strip | gsub("(?<!\n)\n(?!\n)"; " ")
+        | if . == "Maintenance and behind-the-scenes improvements." then "" else . end)
+    | del(.section)'
+}
+
+# changes_md renders the three lists inside a character budget, keeping a few
+# of each kind rather than letting New crowd out the fixes.
+read -r -d '' changes_md <<'JQ' || true
+def changes_md($budget; $url):
+  . as $n
+  | [{h: "New", items: $n.new, cap: 10}, {h: "Fixed", items: $n.fixed, cap: 8}, {h: "Removed", items: $n.removed, cap: 4}]
+  | map(select(.items | length > 0)) as $parts
+  | ([$parts[] | .items | length] | add // 0) as $all
+  | (reduce $parts[] as $p ({text: "", shown: 0};
+      .text += (if .text == "" then "" else "\n\n" end) + "**\($p.h)**"
+      | reduce ($p.items[0:$p.cap][] | "\n- " + cut(220)) as $line (.;
+          if (.text | length) + ($line | length) < $budget then .text += $line | .shown += 1 else . end))) as $r
+  | $r.text + (if $r.shown < $all then "\n\n…and \($all - $r.shown) more in the [full notes](\($url))." else "" end);
+JQ
+
+kind_unstable() {
+  need from
+  need to
+  local from to notes version
+  from="$(git rev-parse --verify "${opt[from]}^{commit}")" || die "unknown commit: ${opt[from]}"
+  to="$(git rev-parse --verify "${opt[to]}^{commit}")" || die "unknown commit: ${opt[to]}"
+  notes="$("$here/ryoku-release-notes" "$from" "$to" | notes_json)"
+  version="$(git show "$to:VERSION" 2>/dev/null | tr -d '[:space:]' || true)"
+  jqx --argjson notes "$notes" --arg to "$to" --arg version "$version" \
+    --argjson amber "$amber" "$lib$changes_md"'
+    ($notes.new + $notes.fixed + $notes.removed | length) as $count
+    | if $count == 0 then empty else
+      "\($server)/\($repo)/releases/tag/unstable" as $url
+      | post("Ryoku"; $amber; [{
+          author: {name: "Ryoku unstable", icon_url: ($brand + "/logo-mark-v2.png")},
+          title: "What'"'"'s new on unstable",
+          url: $url,
+          description: ("**\($count) change\(if $count == 1 then "" else "s" end)** landed on unstable since the last roundup.\n\n"
+            + ($notes | changes_md(3200; $url))),
+          fields: [{name: "Try it", value: "Unstable boxes pick these up with `ryoku update`. To follow unstable, run `ryoku track unstable` (it builds from source); `ryoku track stable` takes you back. Everyone else gets them in the next release."}],
+          footer: {text: ("unstable" + (if $version != "" then " · \($version)" else "" end) + " · \($to[0:7])")},
+          image: {url: $notes.media},
+          timestamp: (now | todateiso8601) }])
+      | fit
+    end' <<<'null'
+}
+
+# showroom_image picks one of the README's showroom desktops as the picture for
+# a release without a demo of its own; the same tag always gets the same one.
+showroom_image() {
+  local ref="$1" pick
+  local -a shots=()
+  mapfile -t shots < <(git ls-tree --name-only "$ref" docs/media/showroom/ 2>/dev/null | grep -E '\.(webp|png|jpe?g)$' || true)
+  ((${#shots[@]})) || return 0
+  pick=$(($(cksum <<<"$ref" | cut -d' ' -f1) % ${#shots[@]}))
+  printf 'https://raw.githubusercontent.com/%s/%s/%s' "$repo" "$ref" "${shots[$pick]}"
+}
+
+# live_editions says which editions' stable repositories already serve the tag,
+# read from the release.json each publisher uploads last.
+live_editions() {
+  local tag="$1" live=() pending=() n
+  local -a fedora=()
+  served() { [[ "$(curl -fsS --max-time 10 "$1" 2>/dev/null | jq -r '.release // empty' 2>/dev/null)" == "$tag" ]]; }
+  if served "$repo_base/x86_64/release.json"; then live+=(Arch CachyOS); else pending+=(Arch CachyOS); fi
+  if served "$repo_base/void/x86_64/release.json"; then live+=(Void); else pending+=(Void); fi
+  mapfile -t fedora < <(curl -fsS --max-time 10 "$repo_base/fedora/releases" 2>/dev/null | grep -E '^[0-9]+$' || true)
+  for n in "${fedora[@]}"; do
+    if served "$repo_base/fedora/$n/x86_64/release.json"; then live+=("Fedora $n"); else pending+=("Fedora $n"); fi
+  done
+  jq -n --args '$ARGS.positional' "${live[@]}" | jq -c --argjson pending "$(jq -n --args '$ARGS.positional' "${pending[@]}")" '{live: ., pending: $pending}'
+}
+
+kind_release() {
+  need tag
+  local tag="${opt[tag]}" title="${opt[title]:-}" url="${opt[url]:-}" body editions role="" from name version published=""
+  [[ $tag =~ ^v[0-9] ]] || die "release --tag wants a v* tag, got: $tag"
+  version="${tag#v}"
+  if [[ -n ${opt[notes-file]:-} ]]; then
+    body="$(<"${opt[notes-file]}")"
+  else
+    command -v gh >/dev/null 2>&1 && published="$(gh release view "$tag" -R "$repo" --json name,url,body 2>/dev/null || true)"
+    if [[ -n $published ]]; then
+      body="$(jq -r '.body' <<<"$published")"
+      [[ -n $title ]] || title="$(jq -r '.name // empty' <<<"$published")"
+      [[ -n $url ]] || url="$(jq -r '.url // empty' <<<"$published")"
+    else
+      # no published release yet: build the same notes release-notes.yml would
+      from="$(git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>/dev/null || true)"
+      name="$(git show "$tag:CODENAME" 2>/dev/null | tr -d '[:space:]' || true)"
+      body="$("$here/ryoku-release-notes" "$from" "$tag")"
+      [[ -n $title ]] || title="Ryoku ${name:+$name }$version"
+    fi
+  fi
+  [[ -n $title ]] || title="Ryoku $version"
+  [[ -n $url ]] || url="$server/$repo/releases/tag/$tag"
+
+  if [[ -n ${opt[live]:-} ]]; then
+    editions="$(jq -c -n --arg l "${opt[live]}" '{live: ($l | split(",") | map(select(length > 0))), pending: []}')"
+  else
+    editions="$(live_editions "$tag")"
+  fi
+  [[ ${DISCORD_RELEASE_ROLE_ID:-} =~ ^[0-9]{15,22}$ ]] && role="$DISCORD_RELEASE_ROLE_ID"
+
+  jqx --argjson notes "$(notes_json <<<"$body")" --argjson editions "$editions" \
+    --arg title "$title" --arg url "$url" --arg tag "$tag" --arg role "$role" \
+    --arg showroom "$(showroom_image "$tag")" --argjson accent "$accent" "$lib$changes_md"'
+    ($notes.new | length) as $new | ($notes.fixed | length) as $fixed | ($notes.removed | length) as $removed
+    | ([(if $new > 0 then "\($new) new" else empty end), (if $fixed > 0 then "\($fixed) fixed" else empty end),
+        (if $removed > 0 then "\($removed) removed" else empty end)] | join(" · ")) as $counts
+    | post("Ryoku"; $accent; [
+        { author: {name: "Ryoku", url: "https://ryoku.dev", icon_url: ($brand + "/logo-mark-v2.png")},
+          title: $title,
+          url: $url,
+          description: ([($notes.intro | excerpt(700)), (if $counts != "" then "**\($counts)**" else "" end),
+            "Update from **Ryoku Hub → Updates**, or run `ryoku update`."] | map(select(. != "")) | join("\n\n")),
+          fields: [
+            {name: "Live now", value: ($editions.live | join(" · ")), inline: true},
+            {name: "Still publishing", value: ($editions.pending | join(" · ")), inline: true},
+            {name: "New install", value: "Download the Arch, CachyOS or Void ISO from [ryoku.dev](https://ryoku.dev), or convert an existing Arch, CachyOS, Void or Fedora system with the [one-line installer](https://docs.ryoku.dev/docs/install)."},
+            {name: "NixOS", value: "Arrives once the [Ryoku-on-NixOS](https://github.com/Ryoku-dev/Ryoku-on-NixOS) sync for this release is merged."}],
+          image: {url: ($notes.media // (if $showroom != "" then $showroom else null end))} },
+        { title: "What changed",
+          url: $url,
+          description: ($notes | changes_md(3400; $url)),
+          footer: {text: "力と美のために · \($tag)", icon_url: ($brand + "/logo-mark-v2.png")},
+          timestamp: (now | todateiso8601) }])
+    | if ($notes.new + $notes.fixed + $notes.removed | length) == 0 then .embeds |= .[0:1] else . end
+    | if $role != "" then
+        .content = "<@&\($role)> **\($title) is out.**" | .allowed_mentions = {parse: [], roles: [$role]}
+      else .content = "**\($title) is out.**" end
+    | fit' <<<'null'
+}
+
+kind_publish_failed() {
+  need edition
+  need channel
+  need sha
+  need run
+  jqx -n --arg edition "${opt[edition]}" --arg channel "${opt[channel]}" --arg sha "${opt[sha]}" \
+    --arg ref "${opt[ref]:-}" --arg run "${opt[run]}" --argjson red "$red" "$lib"'
+    post("Ryoku CI"; $red; [{
+      title: "\($edition): \($channel) publish failed",
+      url: $run,
+      description: "\(sha_link($sha))\(if $ref != "" then " on `\($ref)`" else "" end) did not reach the \($channel) channel. Boxes on it stay on the last good build until this is fixed and the publish runs again.",
+      footer: {text: "Open the run for the failing step"},
+      timestamp: (now | todateiso8601) }])
+    | fit'
+}
+
+kind_gate_failed() {
+  need sha
+  need run
+  jqx -n --arg sha "${opt[sha]}" --arg run "${opt[run]}" --arg checks "${opt[checks]:-}" --argjson red "$red" "$lib"'
+    post("Ryoku CI"; $red; [{
+      title: "Testing gate failed",
+      url: $run,
+      description: "\(sha_link($sha)) on `unstable-dev` did not pass its checks. Testers stay on the last commit that passed until it is fixed.",
+      fields: [{name: "Failing checks", value: ($checks | split(",") | map(strip | select(length > 0)) | join("\n"))}],
+      timestamp: (now | todateiso8601) }])
+    | fit'
+}
+
+kind_iso() {
+  need status
+  need variant
+  need run
+  jqx -n --arg status "${opt[status]}" --arg variant "${opt[variant]}" --arg image "${opt[image]:-}" \
+    --arg publish "${opt[publish]:-true}" --arg stage "${opt[stage]:-}" --arg ref "${opt[ref]:-}" \
+    --arg tracking "${opt[tracking]:-}" --arg run "${opt[run]}" --arg iso_base "$iso_base" \
+    --argjson green "$green" --argjson red "$red" --argjson grey "$grey" "$lib"'
+    ({plain: "Arch", arch: "Arch", cachyos: "CachyOS", void: "Void"}[$variant] // $variant) as $edition
+    | ($publish == "true") as $public
+    | (if $status == "success" then (if $public then "\($edition) ISO published" else "\($edition) ISO test build passed" end)
+       elif $status == "failure" then "\($edition) ISO build failed"
+       else "\($edition) ISO build \($status)" end) as $title
+    | post("Ryoku CI"; (if $status == "success" then $green elif $status == "failure" then $red else $grey end); [{
+        title: $title,
+        url: $run,
+        description: (if $status == "success" and $public then "Now the download on [ryoku.dev](https://ryoku.dev)."
+          elif $status == "success" then "Kept as a workflow artifact; nothing was published."
+          else "" end),
+        fields: [
+          {name: "Stage", value: $stage, inline: true},
+          {name: "From", value: (if $ref != "" then "`\($ref)`" else "" end), inline: true},
+          {name: "Tracking", value: $tracking, inline: true},
+          {name: "Image", value: (if $image == "" then "" elif $status == "success" and $public then "[\($image)](\($iso_base)/\($image))" else $image end)}],
+        timestamp: (now | todateiso8601) }])
+    | fit'
+}
+
+case "$kind" in
+  issue) payload="$(kind_issue)" ;;
+  pull-request) payload="$(kind_pull_request)" ;;
+  commits) payload="$(kind_commits)" ;;
+  unstable) payload="$(kind_unstable)" ;;
+  release) payload="$(kind_release)" ;;
+  publish-failed) payload="$(kind_publish_failed)" ;;
+  gate-failed) payload="$(kind_gate_failed)" ;;
+  iso) payload="$(kind_iso)" ;;
+  *) die "unknown message kind: $kind (see --help)" ;;
+esac
+
+if [[ -z $payload ]]; then
+  echo "Nothing to announce for this $kind event."
+  exit 0
+fi
+send "$payload"

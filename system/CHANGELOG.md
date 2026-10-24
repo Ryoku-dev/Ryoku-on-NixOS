@@ -1,6 +1,16 @@
 # Changelog: system/
 
 ## Unreleased
+- **Global user services no longer start in the login greeter.** Every
+  systemd user unit enabled for all accounts rejects system users, so SDDM
+  cannot launch Rashin, take its dashboard port, or start Ryoku's other
+  desktop services before login. The shared unit sources reach Arch,
+  CachyOS, and Fedora 44 and 45 packages.
+- **Palette Bridge starts only when requested.** Its shared service activation
+  policy is on-demand, so installing the runtime does not start or enable it
+  automatically. Existing manual service choices remain untouched by service
+  reconciliation (`services/manifest.tsv`).
+
 - **User changes have a narrow administrator authorization.** `pkexec` selects
   `dev.ryoku.users.manage` only when `/usr/bin/ryoku-host` receives `users` as
   its first argument, keeps a successful administrator authentication for the

@@ -18,6 +18,7 @@ Item {
     property real motionAmount: 0
     property bool stretch: false
     property string screenName: ""
+    property bool layered: false
 
     readonly property real pivotDistance: depthGeometry.valid ? depthGeometry.focusDistance : 0
     function publishPivot() {
@@ -64,7 +65,7 @@ Item {
         camera: sceneCamera
         // The mesh covers the viewport, so MSAA has no silhouette to improve.
         // Inline avoids a full-output intermediate texture and its extra pass.
-        renderMode: View3D.Inline
+        renderMode: root.layered ? View3D.Offscreen : View3D.Inline
         environment: SceneEnvironment {
             backgroundMode: SceneEnvironment.Transparent
             antialiasingMode: SceneEnvironment.NoAA
