@@ -281,6 +281,9 @@ collect_stale_copies() {
   for path in "${changed_paths[@]}"; do
     is_fork_owned "$path" && continue
     path_exists "$ours_tree" "$path" || continue
+    # A file upstream had already dropped by the base is one the port chose to
+    # keep, even when its bytes match an old upstream version.
+    path_exists "$base" "$path" || continue
     blob=$(git rev-parse "$ours_tree:$path")
     object_type=$(git cat-file -t "$blob")
     [[ $object_type == blob ]] || continue
@@ -388,6 +391,19 @@ build_pr_body() {
       pr_body+="- \`$path\`"$'\n'
     done
     if ((${#stale_copies[@]} > 20)); then
+      pr_body+=$'\n</details>\n'
+    fi
+  fi
+  if ((${#removed_paths[@]})); then
+    pr_body+=$'\n### Removed because upstream removed them\n\n'
+    pr_body+="Check that the port does not still need these:"$'\n'
+    if ((${#removed_paths[@]} > 20)); then
+      pr_body+=$'\n<details>\n<summary>Show paths</summary>\n\n'
+    fi
+    for path in "${removed_paths[@]}"; do
+      pr_body+="- \`$path\`"$'\n'
+    done
+    if ((${#removed_paths[@]} > 20)); then
       pr_body+=$'\n</details>\n'
     fi
   fi
@@ -586,6 +602,10 @@ sync_commit=$(printf '%s' "$commit_message" \
     git commit-tree "$final_tree" -p "$parent")
 
 mapfile -d '' -t changed_paths < <(git diff-tree --no-commit-id --name-only -r -z "$parent" "$sync_commit")
+removed_paths=()
+while IFS= read -r -d '' path; do
+  is_upstream_wins "$path" || removed_paths+=("$path")
+done < <(git diff-tree --no-commit-id --name-only --diff-filter=D -r -z "$parent" "$sync_commit")
 collect_notes "$previous_recorded..$target"
 build_pr_body "$previous_recorded" "$target"
 
@@ -594,6 +614,7 @@ printf 'Tree: %s\n' "$final_tree"
 printf 'Commit: %s\n' "$sync_commit"
 printf 'Changed files: %d\n' "${#changed_paths[@]}"
 printf 'Stale copies refreshed: %d\n' "${#stale_copies[@]}"
+printf 'Removed by upstream: %d\n' "${#removed_paths[@]}"
 if ((${#conflicts[@]})); then
   printf 'Conflicts (%d):\n' "${#conflicts[@]}"
   printf '  %s\n' "${conflicts[@]}"

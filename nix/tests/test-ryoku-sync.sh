@@ -145,7 +145,10 @@ printf 'base recovery\n' >"$upstream/installation/recovery/keep.txt"
 printf 'base component changelog\n' >"$upstream/component/CHANGELOG.md"
 printf 'old upstream copy\n' >"$upstream/stale-copy.txt"
 printf 'base custom copy\n' >"$upstream/custom-copy.txt"
+printf 'dropped later by upstream\n' >"$upstream/upstream-drops.txt"
+printf 'retired upstream provider\n' >"$upstream/retired.txt"
 commit_all "$upstream" 'feat: initial upstream history'
+git -C "$upstream" rm -q retired.txt
 printf 'current upstream copy\n' >"$upstream/stale-copy.txt"
 commit_all "$upstream" 'feat: base'
 base=$(git -C "$upstream" rev-parse HEAD)
@@ -163,6 +166,7 @@ mkdir -p "$fork_seed/tests"
 printf 'fork-only test helper\n' >"$fork_seed/tests/fork-only-helper.py"
 printf 'old upstream copy\n' >"$fork_seed/stale-copy.txt"
 printf 'fork custom copy\n' >"$fork_seed/custom-copy.txt"
+printf 'retired upstream provider\n' >"$fork_seed/retired.txt"
 rm "$fork_seed/remove-me.txt" "$fork_seed/gone/existing.txt"
 commit_all "$fork_seed" 'feat(nix): initial port'
 fork_base=$(git -C "$fork_seed" rev-parse HEAD)
@@ -184,6 +188,7 @@ printf 'upstream flake changed\n' >"$upstream/flake.nix"
 printf 'upstream workflow changed\n' >"$upstream/.github/workflow.yml"
 printf 'new in removed directory\n' >"$upstream/gone/new.txt"
 printf 'new elsewhere\n' >"$upstream/elsewhere/new.txt"
+git -C "$upstream" rm -q upstream-drops.txt
 commit_all "$upstream" 'feat: clean upstream changes'
 target_clean=$(git -C "$upstream" rev-parse HEAD)
 write_checked "$target_clean"
@@ -206,8 +211,11 @@ assert_absent_at "$runner" "$clean_sync" gone/new.txt
 [[ $(<"$output") == *'Conflicts: none'* ]] || fail 'clean sync reported conflicts'
 assert_file_at "$runner" "$clean_sync" stale-copy.txt 'current upstream copy'
 assert_file_at "$runner" "$clean_sync" custom-copy.txt 'fork custom copy'
+assert_file_at "$runner" "$clean_sync" retired.txt 'retired upstream provider'
 [[ $(<"$gh_state/unstable.body") == *'`stale-copy.txt`'* ]] \
   || fail 'stale-copy refresh missing from pull request body'
+[[ $(<"$gh_state/unstable.body") == *'Removed because upstream removed them'*'`upstream-drops.txt`'* ]] \
+  || fail 'upstream removal missing from pull request body'
 [[ $(<"$gh_state/unstable.body") == *"<!-- ryoku-sync-head: $clean_sync -->"* ]] \
   || fail 'pull request body did not record the bot branch head'
 
