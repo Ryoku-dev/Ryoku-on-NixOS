@@ -127,7 +127,7 @@ pre/post snapshots when the existing machine already has a btrfs root and
 snapper. The shell installer does not create a snapshot layout or install a
 bootloader on an existing Void system.
 
-See [`../void/README.md`](../void/README.md) for the Void edition's limits,
+See [the upstream Void edition guide](https://github.com/Ryoku-dev/ryoku/blob/main/void/README.md) for the Void edition's limits,
 runit contract and rollback behavior. See [`updates.md`](updates.md) for
 channels and frozen releases.
 
@@ -179,7 +179,7 @@ checks that Ryoku publishes packages for the running Fedora release before it
 asks for sudo. It imports the Ryoku release key, writes the signed RPM
 repository, adds the package-restricted COPRs, installs the chosen compositor
 and configures SDDM. It keeps Fedora's bootloader and leaves NVIDIA on nouveau.
-See [`../fedora/README.md`](../fedora/README.md) for Fedora-specific limits.
+See [the upstream Fedora edition guide](https://github.com/Ryoku-dev/ryoku/blob/main/fedora/README.md) for Fedora-specific limits.
 
 ## NixOS
 
