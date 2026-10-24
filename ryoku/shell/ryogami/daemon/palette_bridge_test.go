@@ -162,3 +162,72 @@ func TestPaletteBridgeAvailabilityRequiresInstalledRuntime(t *testing.T) {
 		t.Fatal("complete palette bridge installation is unavailable")
 	}
 }
+
+func TestPaletteBridgeDiagnosticsWithoutInstalledBridge(t *testing.T) {
+	d := newSettingsDaemon(t)
+	root := t.TempDir()
+	t.Setenv("PATH", root)
+	if err := os.WriteFile(filepath.Join(root, "ryoku-hub"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	availabilityMu.Lock()
+	manager := availability["paletteBridgeManager"]
+	ready := availability["paletteBridge"]
+	availabilityMu.Unlock()
+	if manager == nil || !manager(d) {
+		t.Fatal("bridge diagnostics must remain available when only ryoku-hub is installed")
+	}
+	if ready(d) {
+		t.Fatal("activation must require the bridge package")
+	}
+	if err := os.WriteFile(filepath.Join(root, "ryoku-palette-bridge"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "recipes")
+	if err := os.Mkdir(source, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.persistSetting("paletteBridgeSource", source); err != nil {
+		t.Fatal(err)
+	}
+	if ready(d) {
+		t.Fatal("activation must reject incomplete recipes")
+	}
+	for _, name := range []string{"install.sh", "install-integrations.sh", "remove-integrations.sh"} {
+		if err := os.WriteFile(filepath.Join(source, name), []byte("#!/bin/sh\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !ready(d) {
+		t.Fatal("complete bridge installation must enable activation")
+	}
+	if err := os.Remove(filepath.Join(root, "ryoku-hub")); err != nil {
+		t.Fatal(err)
+	}
+	if manager(d) || ready(d) {
+		t.Fatal("missing manager must disable actions")
+	}
+}
+
+func TestPaletteBridgeStatusExplainsMissingPrerequisites(t *testing.T) {
+	d := newSettingsDaemon(t)
+	root := t.TempDir()
+	t.Setenv("PATH", root)
+	if err := os.WriteFile(filepath.Join(root, "ryoku-hub"), []byte("#!/bin/sh\nprintf '%s' \"$PALETTE_TEST_STATUS\"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ status, want string }{
+		{`{"installed":false,"sourceReady":false,"enabled":false,"active":false,"healthy":false}`, "Install the ryoku-palette-bridge package"},
+		{`{"installed":true,"sourceReady":false,"enabled":false,"active":false,"healthy":false}`, "Clear the integration recipe directory"},
+	} {
+		t.Setenv("PALETTE_TEST_STATUS", tc.status)
+		result, err := d.runAction("PaletteBridgeStatus", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		message := result.(map[string]interface{})["message"].(string)
+		if !strings.Contains(message, tc.want) {
+			t.Fatalf("missing recovery advice: %s", message)
+		}
+	}
+}

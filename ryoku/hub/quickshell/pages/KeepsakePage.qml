@@ -29,7 +29,6 @@ Item {
     readonly property var contributorMessages: [
         { name: "aethctl", role: "Lead Developer", quote: "Does tel aviv finally approve of my larp?", text: "", avatar: "../art/maintainers/aethctl.png", github: "https://github.com/aethctl" },
         { name: "feelyourwarmth", role: "Maintainer", quote: "I didnt do shit to Ryoku, why am I here", text: "", avatar: "../art/maintainers/feelyourwarmth.png", github: "https://github.com/feelyourwarmth" },
-        { name: "PrayToWin", role: "Contributor", quote: "One more PR then im gonna sleep - 4:17 am", text: "", avatar: "../art/maintainers/praytowin.png", github: "https://github.com/eximora-private" },
         { name: "Mo", role: "Tester", quote: "I just clicked things until something broke.", text: "", avatar: "../art/maintainers/mo.png", github: "" }
     ]
 
@@ -44,21 +43,15 @@ Item {
     }
 
     readonly property var earlyAdopters: [
-        { name: "@Prime_79", avatar: "https://cdn.discordapp.com/avatars/1276915638497054793/088a45e42e99e291b3950b5224a5aa58.webp?size=20" },
-        { name: "@ᴘʀᴀʏᴛᴏᴡɪɴ@ɴɪxᴏs", avatar: "https://cdn.discordapp.com/avatars/384291150305034240/7f44ba1995f601d71fda1b8183fb8b19.webp?size=20" },
-        { name: "@bob", avatar: "https://cdn.discordapp.com/avatars/881918099480277002/e81df585edf9150ef415ba7fb863245e.webp?size=20" },
-        { name: "@Mo", avatar: "https://cdn.discordapp.com/avatars/279182706599002114/27080b3a67ff44965a66ae4e2b13a6d6.webp?size=20" },
+        { name: "@Carlos Villanueva", avatar: "https://cdn.discordapp.com/avatars/339856219005124608/45be83891b4337f3dabd2b496cb32814.webp?size=20" },
         { name: "@Daman Weylin", avatar: "https://cdn.discordapp.com/avatars/371131660022054912/3b599df084e5f3d491a30881f7257222.webp?size=20" },
-        { name: "@tiogilito", avatar: "https://cdn.discordapp.com/avatars/487637557048377384/105c6a8a208c3b4d9bb0fb9e52f881e7.webp?size=20" },
         { name: "@Gamegyf", avatar: "https://cdn.discordapp.com/avatars/937008103390597140/b3ed1f3c44380bc1e71cb07d86baa384.webp?size=20" },
-        { name: "@᲼᲼᲼᲼᲼᲼᲼᲼᲼᲼", avatar: "https://cdn.discordapp.com/avatars/946777140542734367/39f0ae13cca203d944c015047e1211c3.webp?size=20" },
-        { name: "@Greed", avatar: "https://cdn.discordapp.com/avatars/1086715305541247036/31995ff51868b7f822ea08b8944734e5.webp?size=20" },
-        { name: "@ZTZ-V1D", avatar: "https://cdn.discordapp.com/avatars/1117047178733572176/12d0ae408975f07952759337557b5ebb.webp?size=20" },
-        { name: "@༺ 𝕺𝖓𝖞𝖝 ༻", avatar: "https://cdn.discordapp.com/avatars/1122092101459517481/7bfe34133cfecfb515354d39f0581f27.webp?size=20" },
+        { name: "@Mo", avatar: "https://cdn.discordapp.com/avatars/279182706599002114/27080b3a67ff44965a66ae4e2b13a6d6.webp?size=20" },
         { name: "@Philia", avatar: "https://cdn.discordapp.com/avatars/1136169063912063017/1064c956223a5e5b4c6714f745df7ac2.webp?size=20" },
+        { name: "@Prime_79", avatar: "https://cdn.discordapp.com/avatars/1276915638497054793/088a45e42e99e291b3950b5224a5aa58.webp?size=20" },
+        { name: "@ZTZ-V1D", avatar: "https://cdn.discordapp.com/avatars/1117047178733572176/12d0ae408975f07952759337557b5ebb.webp?size=20" },
         { name: "@the random", avatar: "https://cdn.discordapp.com/avatars/1208809552301269032/460d0a802864f07fbed38642b8d400cb.webp?size=20" },
-        { name: "@✦ Panicat ✦", avatar: "https://cdn.discordapp.com/avatars/898866287126655006/608288822c8ce5d278ba4a00ca95070d.webp?size=20" },
-        { name: "@feel@nixos", avatar: "https://cdn.discordapp.com/avatars/932355250776571964/82ce06d5e14bd1cc668ca1cf34480dc2.webp?size=20" }
+        { name: "@vxxn", avatar: "https://cdn.discordapp.com/avatars/1465711556607213588/3238ffe6aa00f34e36601af0810f87ae.webp?size=20" }
     ]
 
     property bool firstReveal: true

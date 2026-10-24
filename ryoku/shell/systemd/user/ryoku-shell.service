@@ -1,6 +1,7 @@
 [Unit]
 # the daemon supervises every surface, so it must itself be supervised
 Description=Ryoku shell daemon
+ConditionUser=!@system
 PartOf=ryoku-session.target
 After=ryoku-session.target
 ConditionEnvironment=WAYLAND_DISPLAY

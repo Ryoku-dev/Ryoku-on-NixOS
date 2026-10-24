@@ -67,3 +67,23 @@ func TestEnableMultilibSection(t *testing.T) {
 		}
 	})
 }
+
+func TestSyncMultilibDatabasesSyncsAllRepositories(t *testing.T) {
+	old := runMultilibCommand
+	t.Cleanup(func() { runMultilibCommand = old })
+
+	var argv []string
+	runMultilibCommand = func(name string, args ...string) error {
+		argv = append([]string{name}, args...)
+		return nil
+	}
+	if err := syncMultilibDatabases(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(argv, " "); got != "sudo pacman -Sy" {
+		t.Fatalf("database sync command = %q, want %q", got, "sudo pacman -Sy")
+	}
+	if multilibSyncHint != strings.Join(argv, " ") {
+		t.Fatalf("fix hint %q does not match the working sync command %q", multilibSyncHint, strings.Join(argv, " "))
+	}
+}

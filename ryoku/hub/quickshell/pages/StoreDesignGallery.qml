@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
+import "../barstudio/StoreDesignGalleryModel.js" as GalleryModel
 
 Item {
     id: gallery
@@ -24,63 +25,10 @@ Item {
     signal wear(string designId)
     signal extraAction()
 
-    function shippedCard(entry) {
-        return {
-            id: entry.id,
-            name: entry.name || entry.id,
-            desc: entry.description || entry.desc || "",
-            installed: true,
-            version: "",
-            installedVersion: "",
-            updateAvailable: false,
-            unavailable: false,
-            unavailableEdition: false,
-            unavailableReason: "",
-            requiredWindowManager: "",
-            downloadPaused: false,
-            resourceTier: entry.resourceTier || "",
-            downloadPauseReason: ""
-        };
-    }
-
+    // Bundled styles stay installed even if a stale Store catalogue describes
+    // them as downloadable or unavailable. This includes NixOS-owned Karuma.
     function cardModel() {
-        const out = [];
-        const seen = {};
-
-        const shipped = Array.isArray(gallery.shippedDesigns)
-            ? gallery.shippedDesigns : [];
-
-        for (let i = 0; i < shipped.length; i++) {
-            const card = gallery.shippedCard(shipped[i]);
-
-            if (!card.id || seen[card.id])
-                continue;
-
-            seen[card.id] = true;
-            out.push(card);
-        }
-
-        const catalogue = Array.isArray(gallery.catalogueDesigns)
-            ? gallery.catalogueDesigns : [];
-
-        for (let j = 0; j < catalogue.length; j++) {
-            const item = catalogue[j];
-
-            if (!item.id)
-                continue;
-
-            const existingIndex = out.findIndex(
-                entry => entry.id === item.id
-            );
-
-            if (existingIndex >= 0) {
-                out[existingIndex] = item;
-            } else {
-                out.push(item);
-            }
-        }
-
-        return out;
+        return GalleryModel.cardModel(gallery.shippedDesigns, gallery.catalogueDesigns);
     }
 
     function browse() {

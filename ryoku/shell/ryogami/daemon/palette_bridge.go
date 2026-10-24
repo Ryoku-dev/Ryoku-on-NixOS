@@ -64,7 +64,13 @@ func init() {
 		if err := json.Unmarshal([]byte(out), &status); err != nil || status == nil {
 			return nil, fmt.Errorf("palette bridge: invalid status response")
 		}
-		status["message"] = fmt.Sprintf("Palette bridge: enabled=%v, active=%v, healthy=%v", status["enabled"], status["active"], status["healthy"])
+		message := fmt.Sprintf("Palette bridge: installed=%v, recipes=%v, enabled=%v, active=%v, healthy=%v", status["installed"], status["sourceReady"], status["enabled"], status["active"], status["healthy"])
+		if status["installed"] == false {
+			message += ". Install the ryoku-palette-bridge package, then activate the bridge service."
+		} else if status["sourceReady"] == false {
+			message += ". Clear the integration recipe directory to use packaged recipes, or reinstall ryoku-palette-bridge if packaged files are missing."
+		}
+		status["message"] = message
 		return status, nil
 	})
 	registerAction("PaletteBridgeDoctor", func(d *daemon, _ map[string]interface{}) (interface{}, error) {
@@ -86,6 +92,10 @@ func init() {
 		}
 	}
 
+	registerAvailability("paletteBridgeManager", func(*daemon) bool {
+		_, err := exec.LookPath("ryoku-hub")
+		return err == nil
+	})
 	registerAvailability("paletteBridge", func(d *daemon) bool {
 		if _, err := exec.LookPath("ryoku-hub"); err != nil {
 			return false

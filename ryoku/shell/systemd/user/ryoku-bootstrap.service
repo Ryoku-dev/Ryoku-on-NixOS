@@ -8,6 +8,7 @@
 # pulls it in and orders itself after it, and it is enabled globally as a fallback
 # for sessions that are not a systemd user unit.
 Description=Ryoku configuration bootstrap
+ConditionUser=!@system
 
 # Run when the box has never been materialized, or when the shell tree it needs is
 # missing (the two ways a session comes up bare). One marker keeps it one-shot in

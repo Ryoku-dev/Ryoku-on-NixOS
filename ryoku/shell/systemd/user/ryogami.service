@@ -3,6 +3,7 @@
 # wallpaper topic the shell subscribes to, so it is supervised beside the shell
 # daemon on the same session target.
 Description=Ryogami wallpaper daemon
+ConditionUser=!@system
 PartOf=ryoku-session.target
 After=ryoku-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
