@@ -19,6 +19,7 @@ permissions:
   contents: write
   pull-requests: write
   statuses: write
+  checks: write
 
 jobs:
   select:
@@ -143,22 +144,7 @@ jobs:
 
       - name: Run NixOS checks
         if: steps.result.outputs.eligible == 'true'
-        run: |
-          set -euo pipefail
-          nix build --no-link \
-            .#checks.x86_64-linux.ryoku-cli \
-            .#checks.x86_64-linux.ryoku-hub \
-            .#checks.x86_64-linux.ryoku-desktop-data \
-            .#checks.x86_64-linux.ryoku-bundle \
-            .#checks.x86_64-linux.ryoku-installer-options \
-            .#checks.x86_64-linux.ryoku-installer-transaction \
-            .#checks.x86_64-linux.ryoku-installer-disk-identity \
-            .#checks.x86_64-linux.ryoku-installer-iso \
-            .#checks.x86_64-linux.ryoku-installer-wrapper \
-            .#checks.x86_64-linux.ryoku-session-bootstrap \
-            .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
-            .#checks.x86_64-linux.ryoku-iso-configs
-          nix build --dry-run .#ryoku-iso
+        run: nix/sync/run-checks
 
       - name: Publish check status
         if: always() && steps.result.outputs.eligible == 'true'
