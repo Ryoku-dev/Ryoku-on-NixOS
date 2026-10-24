@@ -1,0 +1,174 @@
+name: Sync Ryoku
+
+on:
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: Ryoku lane to sync
+        required: true
+        default: both
+        type: choice
+        options:
+          - unstable
+          - stable
+          - both
+
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  select:
+    name: Select lanes
+    runs-on: ubuntu-24.04
+    outputs:
+      lanes: ${{ steps.lanes.outputs.lanes }}
+    steps:
+      - name: Select lanes
+        id: lanes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_LANE: ${{ inputs.lane }}
+        run: |
+          if [[ $EVENT_NAME == schedule || $REQUESTED_LANE == both ]]; then
+            echo 'lanes=["unstable","stable"]' >> "$GITHUB_OUTPUT"
+          elif [[ $REQUESTED_LANE == unstable || $REQUESTED_LANE == stable ]]; then
+            printf 'lanes=[\"%s\"]\n' "$REQUESTED_LANE" >> "$GITHUB_OUTPUT"
+          else
+            echo 'invalid lane selection' >&2
+            exit 1
+          fi
+
+  sync:
+    name: Sync ${{ matrix.lane }}
+    needs: select
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ${{ fromJSON(needs.select.outputs.lanes) }}
+    concurrency:
+      group: ryoku-sync-${{ matrix.lane }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync Ryoku
+        id: sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: nix/sync/ryoku-sync --lane "${{ matrix.lane }}"
+
+      - name: Save sync result
+        if: always()
+        env:
+          CREATED: ${{ steps.sync.outputs.created || 'false' }}
+          HEAD_SHA: ${{ steps.sync.outputs.head }}
+          CONFLICTS: ${{ steps.sync.outputs.conflicts || '0' }}
+        run: |
+          jq -n \
+            --arg created "$CREATED" \
+            --arg head "$HEAD_SHA" \
+            --arg conflicts "$CONFLICTS" \
+            '{created: $created, head: $head, conflicts: $conflicts}' \
+            > "sync-${{ matrix.lane }}.json"
+
+      - name: Upload sync result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-${{ matrix.lane }}-result
+          path: sync-${{ matrix.lane }}.json
+          if-no-files-found: error
+
+  checks:
+    name: Check ${{ matrix.lane }} sync
+    needs:
+      - select
+      - sync
+    if: always() && needs.select.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ${{ fromJSON(needs.select.outputs.lanes) }}
+    concurrency:
+      group: ryoku-sync-checks-${{ matrix.lane }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Download sync result
+        uses: actions/download-artifact@v4
+        with:
+          name: sync-${{ matrix.lane }}-result
+
+      - name: Read sync result
+        id: result
+        run: |
+          file="sync-${{ matrix.lane }}.json"
+          created=$(jq -r '.created' "$file")
+          head=$(jq -r '.head' "$file")
+          conflicts=$(jq -r '.conflicts' "$file")
+          eligible=false
+          if [[ $created == true && $conflicts == 0 && -n $head ]]; then
+            eligible=true
+          fi
+          echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout sync commit
+        if: steps.result.outputs.eligible == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.result.outputs.head }}
+          fetch-depth: 0
+
+      - name: Install Nix
+        if: steps.result.outputs.eligible == 'true'
+        uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+
+      - name: Run NixOS checks
+        if: steps.result.outputs.eligible == 'true'
+        run: |
+          set -euo pipefail
+          nix build --no-link \
+            .#checks.x86_64-linux.ryoku-installer-options \
+            .#checks.x86_64-linux.ryoku-installer-transaction \
+            .#checks.x86_64-linux.ryoku-installer-disk-identity \
+            .#checks.x86_64-linux.ryoku-installer-iso \
+            .#checks.x86_64-linux.ryoku-installer-wrapper \
+            .#checks.x86_64-linux.ryoku-session-bootstrap \
+            .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
+            .#checks.x86_64-linux.ryoku-iso-configs
+          nix build --dry-run .#ryoku-iso
+
+      - name: Publish check status
+        if: always() && steps.result.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.result.outputs.head }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          state=success
+          description='Nix checks passed'
+          if [[ $JOB_STATUS != success ]]; then
+            state=failure
+            description='Nix checks failed'
+          fi
+          gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
+            --method POST \
+            -f state="$state" \
+            -f context='ryoku-sync/checks' \
+            -f description="$description" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

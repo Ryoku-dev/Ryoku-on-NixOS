@@ -295,6 +295,27 @@ The same Ryoku desktop can sit on top of two different system-management models:
 The UI and desktop product remain Ryoku; the operating-system integration follows
 the conventions of the host platform.
 
+## Syncing with Ryoku
+
+The sync workflow checks Ryoku's unstable and stable lanes every 20 minutes. It
+opens or updates `sync/unstable` and `sync/stable` pull requests while preserving
+the NixOS-owned flake, workflow and `nix/` files.
+
+For a clean sync, wait for the `ryoku-sync/checks` status and merge the pull
+request normally. For a conflicted sync, check out its `sync/<lane>` branch,
+resolve the marked files, commit the result and push it. The bot will leave a
+branch alone after a maintainer adds a commit.
+
+Run a sync by hand from a checkout with:
+
+```bash
+nix/sync/ryoku-sync --lane unstable
+nix/sync/ryoku-sync --lane stable
+```
+
+Add `--dry-run` to inspect the target, resulting tree, conflicts and pull request
+body without pushing or calling GitHub.
+
 ## Development
 
 From a local checkout:
