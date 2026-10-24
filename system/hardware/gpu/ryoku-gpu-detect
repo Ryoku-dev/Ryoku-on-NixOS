@@ -311,6 +311,7 @@ is_desktop() {
   ! is_laptop
 }
 
+# shellcheck disable=SC2120 # ryoku-gpu passes the pin file; callers here use the default
 gpu_mode_choice() {
   # The graphics mode the user last chose, stamped into the pin file itself by
   # `ryoku-gpu mode` as `-- ryoku-gpu-mode: <m>`, so there is no second state

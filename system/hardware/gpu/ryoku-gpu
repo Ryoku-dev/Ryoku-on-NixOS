@@ -176,15 +176,10 @@ EOF
 write_niri_snippet() {
   # Always written: niri includes this file unconditionally, and a missing
   # include is a hard config error.
-  local dest="${1:-$NIRI_CONF_DEFAULT}"
   analyze
-  _niri_dir="$(dirname "$dest")"
-  if [[ $dest == "-" ]]; then
-    niri_snippet
-    return 0
-  fi
+  _niri_dir="$(dirname "$NIRI_CONF_DEFAULT")"
   mkdir -p "$_niri_dir"
-  niri_snippet >"$dest"
+  niri_snippet >"$NIRI_CONF_DEFAULT"
 }
 
 niri_snippet() {
