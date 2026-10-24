@@ -107,6 +107,8 @@ printf 'fork nix\n' >"$fork_seed/nix/upstream.txt"
 printf 'fork flake\n' >"$fork_seed/flake.nix"
 printf 'fork workflow\n' >"$fork_seed/.github/workflow.yml"
 printf 'fork only\n' >"$fork_seed/fork.txt"
+mkdir -p "$fork_seed/tests"
+printf 'fork-only test helper\n' >"$fork_seed/tests/fork-only-helper.py"
 rm "$fork_seed/remove-me.txt" "$fork_seed/gone/existing.txt"
 commit_all "$fork_seed" 'feat(nix): initial port'
 fork_base=$(git -C "$fork_seed" rev-parse HEAD)
@@ -144,6 +146,7 @@ assert_file_at "$runner" "$clean_sync" flake.nix 'fork flake'
 assert_file_at "$runner" "$clean_sync" .github/workflow.yml 'fork workflow'
 assert_file_at "$runner" "$clean_sync" VERSION '1.1.0'
 assert_file_at "$runner" "$clean_sync" elsewhere/new.txt 'new elsewhere'
+assert_file_at "$runner" "$clean_sync" tests/fork-only-helper.py 'fork-only test helper'
 assert_absent_at "$runner" "$clean_sync" remove-me.txt
 assert_absent_at "$runner" "$clean_sync" gone/new.txt
 [[ $(<"$output") == *'Conflicts: none'* ]] || fail 'clean sync reported conflicts'

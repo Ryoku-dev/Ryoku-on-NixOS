@@ -471,7 +471,8 @@ while IFS= read -r -d '' path; do
 done < <(git diff-tree --no-commit-id --name-only --diff-filter=A -r -z "$merge_base" "$target")
 while IFS= read -r -d '' path; do
   is_fork_owned "$path" && continue
-  if is_upstream_wins "$path" && path_exists "$ours" "$path"; then
+  if is_upstream_wins "$path" && path_exists "$merge_base" "$path" \
+    && path_exists "$ours" "$path"; then
     set_index_file "$index" "$target" "$path"
   fi
 done < <(git diff-tree --no-commit-id --name-only -r -z "$merge_base" "$ours")
