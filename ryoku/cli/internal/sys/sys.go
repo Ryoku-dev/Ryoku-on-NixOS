@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -30,7 +31,23 @@ func RunOut(name string, args ...string) (string, error) {
 }
 
 // Has reports whether name resolves on PATH.
-func Has(name string) bool { _, err := exec.LookPath(name); return err == nil }
+func Has(name string) bool { return FindExecutable(name) != "" }
+
+// FindExecutable resolves a command through PATH first, then through the active
+// profile roots on NixOS. Diagnostics are often launched from terminals or
+// remote shells with a narrower PATH than the graphical generation itself.
+func FindExecutable(name string) string {
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	for _, dir := range ProfileBinDirs() {
+		p := filepath.Join(dir, name)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+			return p
+		}
+	}
+	return ""
+}
 
 // Exists reports whether the path exists.
 func Exists(p string) bool { _, err := os.Stat(p); return err == nil }
@@ -43,8 +60,14 @@ func Exists(p string) bool { _, err := os.Stat(p); return err == nil }
 // already owns.
 func PathPresent(p string) bool { _, err := os.Lstat(p); return err == nil }
 
-// PkgInstalled reports whether a pacman package is installed.
+// PkgInstalled reports whether a package is part of the active platform.
+// NixOS reads the generation manifest emitted by the Ryoku module; Arch asks
+// pacman. This keeps callers from treating a missing pacman binary as a missing
+// package on an otherwise healthy NixOS generation.
 func PkgInstalled(name string) bool {
+	if NixBackend() {
+		return NixPackageInstalled(name)
+	}
 	return exec.Command("pacman", "-Q", name).Run() == nil
 }
 
@@ -56,6 +79,12 @@ func UnitEnabled(unit string) bool {
 
 // InstalledVersion is the installed ryoku-desktop package version, or "".
 func InstalledVersion() string {
+	if NixBackend() {
+		if integration, err := ReadNixIntegration(); err == nil && integration.Version != "" {
+			return integration.Version
+		}
+		return strings.TrimSpace(os.Getenv("RYOKU_NIX_VERSION"))
+	}
 	out, err := RunOut("pacman", "-Q", "ryoku-desktop")
 	if err != nil {
 		return ""

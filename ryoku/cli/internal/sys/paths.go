@@ -59,6 +59,36 @@ func DataDirs() []string {
 	return out
 }
 
+// FindData resolves a packaged data file or directory through the active XDG
+// data roots. On Arch this naturally reaches /usr/share; on NixOS it reaches
+// the current generation and user profiles without hard-coding store hashes.
+func FindData(rel string) string {
+	rel = filepath.Clean(strings.TrimPrefix(rel, "/"))
+	if rel == "." || rel == "" {
+		return ""
+	}
+	for _, root := range DataDirs() {
+		p := filepath.Join(root, rel)
+		if Exists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// ProfileBinDirs lists executable roots exposed by the active profiles.
+func ProfileBinDirs() []string {
+	if !NixBackend() {
+		return []string{"/usr/local/bin", "/usr/bin"}
+	}
+	return []string{
+		"/run/current-system/sw/bin",
+		filepath.Join("/etc/profiles/per-user", os.Getenv("USER"), "bin"),
+		filepath.Join(Home(), ".nix-profile", "bin"),
+		filepath.Join(Home(), ".local", "bin"),
+	}
+}
+
 // PicturesDir is the user's Pictures folder: $XDG_PICTURES_DIR when the session
 // exports it, else the XDG_PICTURES_DIR line of user-dirs.dirs (a terminal or a
 // service that did not inherit the login environment), else ~/Pictures. A
