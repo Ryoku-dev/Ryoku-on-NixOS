@@ -140,7 +140,3 @@ on the simpler format.
 
 For user-visible changes, keep the existing `Note: New|Fixed|Removed: ...`
 release trailer so release automation can harvest the plain-language result.
-
-For a fix every box must take now, a maintainer adds `Urgent: <reason>` in
-their own commit or in the merge commit of a pull request; a pull request's
-own commits never carry one. See [Urgent updates](nixos.md#urgent-updates).

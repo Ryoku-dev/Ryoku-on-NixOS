@@ -19,14 +19,5 @@ var rows = [
             "daily",
             "weekly"
         ]
-    },
-    {
-        "tab": "",
-        "group": "AUTOMATIC CHECKS",
-        "key": "urgentUpdates.enabled",
-        "label": "Urgent alerts",
-        "desc": "A notification that asks to update now when a maintainer marks a fix urgent",
-        "ctl": "sw",
-        "src": "shell.json, urgentUpdates.enabled"
     }
 ];

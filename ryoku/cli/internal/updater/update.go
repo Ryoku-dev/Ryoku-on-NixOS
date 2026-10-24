@@ -2098,27 +2098,11 @@ func rootFree() string {
 }
 
 func Status(args []string) error {
-	jsonOut, urgentOnly := false, false
+	jsonOut := false
 	for _, a := range args {
-		switch a {
-		case "--json":
+		if a == "--json" {
 			jsonOut = true
-		case "--urgent":
-			urgentOnly = true
 		}
-	}
-	if urgentOnly {
-		urgent := urgentStatus()
-		if jsonOut {
-			b, _ := json.Marshal(map[string][]urgentCommit{"urgent": urgent})
-			fmt.Println(string(b))
-			return nil
-		}
-		if len(urgent) == 0 {
-			fmt.Println("urgent:        none")
-		}
-		printUrgent(urgent)
-		return nil
 	}
 	r := buildStatus()
 
@@ -2164,7 +2148,6 @@ func Status(args []string) error {
 		} else {
 			fmt.Println("behind:        up to date")
 		}
-		printUrgent(r.Urgent)
 		fmt.Println("backend:       NixOS")
 		if r.Source != "" {
 			fmt.Printf("source:        %s\n", r.Source)
@@ -2266,16 +2249,6 @@ type statusReport struct {
 	RepositoryNotice string          `json:"repositoryNotice,omitempty"`
 	ChannelBuild     *channelBuild   `json:"channelBuild,omitempty"`
 	ChannelCheck     *checkedPointer `json:"channelCheck,omitempty"`
-	// Urgent lists the commits marked `Urgent:` that the next update brings,
-	// newest first; the shell alerts on them. Only the Nix backend fills it
-	// (nix_urgent.go).
-	Urgent []urgentCommit `json:"urgent,omitempty"`
-}
-
-func printUrgent(urgent []urgentCommit) {
-	for _, u := range urgent {
-		fmt.Printf("urgent:        %s %s\n", u.Commit, u.Reason)
-	}
 }
 
 // withSpace is a release name as a prefix: "Onogoro " or "" when unnamed.

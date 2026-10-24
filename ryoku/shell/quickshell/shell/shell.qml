@@ -71,7 +71,7 @@ ShellRoot {
     // Construct the shared services (ShellState's per-monitor state now, heavier
     // providers as surfaces migrate) at load rather than on the first keybind.
     ServiceLoader {
-        services: [ShellState, ScreenTime, Keypresses, KeyboardLayout, BatteryAlerts, UrgentUpdates]
+        services: [ShellState, ScreenTime, Keypresses, KeyboardLayout, BatteryAlerts]
     }
 
     // The bridge stays resident even when phone support is off so Kit always
