@@ -82,6 +82,20 @@ Item {
         && !!root.modelData
         && root.barScreens[0].name === root.modelData.name
 
+    // Primary-scene IPC handoff from Ryoku Hub > Bar Studio. Only the
+    // selected output registers this target, avoiding duplicate IPC owners.
+    Loader {
+        active: root.isPrimary
+        sourceComponent: Component {
+            Item {
+                IpcHandler {
+                    target: "karuma"
+                    function openSettings(): void { root.hubOpen = true; }
+                }
+            }
+        }
+    }
+
     // ------------------------------------------------------------ audio / power
     readonly property var sink: Pipewire.defaultAudioSink
     readonly property var source: Pipewire.defaultAudioSource

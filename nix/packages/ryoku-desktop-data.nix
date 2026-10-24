@@ -182,6 +182,10 @@ pkgs.stdenv.mkDerivation {
     fi
 
     grep -Fq '{ "id": "karuma", "name": "Karuma"' "$karuma_hub_styles"
+    # Karuma's bundled panel must be reachable from the ordinary Hub.
+    # A gallery-model-only test missed this routing regression in #62.
+    grep -Fq 'OPEN KARUMA SETTINGS' "$cfg/quickshell/hub/pages/BarStudioPage.qml"
+    grep -Fq 'target: "karuma"' "$cfg/quickshell/shell/modules/bar/barstyles/karuma/Scene.qml"
     # NixOS identity is a packaging invariant, not an upstream default. Upstream
     # Hub releases may reintroduce the Arch label during syncs; rewrite it here
     # as a final packaging step and fail the build if the Nix label disappears.
