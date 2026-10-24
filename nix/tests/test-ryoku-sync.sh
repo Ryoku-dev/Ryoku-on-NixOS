@@ -322,7 +322,8 @@ git -C "$runner" switch -q main
 
 body_cap=1800
 RYOKU_SYNC_BODY_CAP=$body_cap run_sync unstable --dry-run
-capped_body=${output#*PR body:$'\n'}
+capped_body=$(<"$output")
+capped_body=${capped_body#*PR body:$'\n'}
 ((${#capped_body} <= body_cap)) || fail 'pull request body exceeded configured cap'
 [[ $capped_body == *'Conflict excerpts omitted'* ]] \
   || fail 'capped pull request body did not omit conflict excerpts'
