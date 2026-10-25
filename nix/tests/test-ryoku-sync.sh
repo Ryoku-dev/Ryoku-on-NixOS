@@ -140,7 +140,8 @@ git -C "$upstream" init -q -b unstable-dev
 git -C "$upstream" config user.name 'Test Maintainer'
 git -C "$upstream" config user.email test@example.com
 mkdir -p "$upstream/nix" "$upstream/.github" "$upstream/gone" "$upstream/elsewhere" \
-  "$upstream/installation/recovery" "$upstream/component"
+  "$upstream/installation/recovery" "$upstream/component" "$upstream/ryoku/rashin/wiki" \
+  "$upstream/retiring"
 printf '1.0.0\n' >"$upstream/VERSION"
 printf 'base\n' >"$upstream/shared.txt"
 printf 'base conflict\n' >"$upstream/conflict.txt"
@@ -156,6 +157,10 @@ printf 'old upstream copy\n' >"$upstream/stale-copy.txt"
 printf 'base custom copy\n' >"$upstream/custom-copy.txt"
 printf 'dropped later by upstream\n' >"$upstream/upstream-drops.txt"
 printf 'retired upstream provider\n' >"$upstream/retired.txt"
+printf 'base guide\n' >"$upstream/guide.md"
+printf 'base wiki\n' >"$upstream/ryoku/rashin/wiki/page.md"
+printf 'retiring docs\n' >"$upstream/retiring/README.md"
+printf 'retiring code\n' >"$upstream/retiring/code.txt"
 commit_all "$upstream" 'feat: initial upstream history'
 git -C "$upstream" rm -q retired.txt
 printf 'current upstream copy\n' >"$upstream/stale-copy.txt"
@@ -198,6 +203,10 @@ printf 'upstream flake changed\n' >"$upstream/flake.nix"
 printf 'upstream workflow changed\n' >"$upstream/.github/workflow.yml"
 printf 'new in removed directory\n' >"$upstream/gone/new.txt"
 printf 'new elsewhere\n' >"$upstream/elsewhere/new.txt"
+printf 'upstream guide\n' >"$upstream/guide.md"
+printf 'new upstream doc\n' >"$upstream/elsewhere/new.md"
+printf 'upstream wiki\n' >"$upstream/ryoku/rashin/wiki/page.md"
+git -C "$upstream" rm -q -r retiring
 git -C "$upstream" rm -q upstream-drops.txt
 commit_all "$upstream" 'feat: clean upstream changes'
 target_clean=$(git -C "$upstream" rev-parse HEAD)
@@ -226,6 +235,17 @@ assert_absent_at "$runner" "$clean_sync" gone/new.txt
 assert_file_at "$runner" "$clean_sync" stale-copy.txt 'current upstream copy'
 assert_file_at "$runner" "$clean_sync" custom-copy.txt 'fork custom copy'
 assert_file_at "$runner" "$clean_sync" retired.txt 'retired upstream provider'
+# Markdown stays the port's copy, except what the packages ship and what goes
+# with a directory upstream removed.
+assert_file_at "$runner" "$clean_sync" guide.md 'base guide'
+assert_absent_at "$runner" "$clean_sync" elsewhere/new.md
+assert_file_at "$runner" "$clean_sync" ryoku/rashin/wiki/page.md 'upstream wiki'
+assert_absent_at "$runner" "$clean_sync" retiring/README.md
+assert_absent_at "$runner" "$clean_sync" retiring/code.txt
+[[ $(<"$gh_state/unstable.body") == *'Left out: 2 upstream changes to paths in `nix/sync/ignore`'* ]] \
+  || fail 'ignored upstream changes missing from pull request body'
+[[ $(<"$gh_state/unstable.body") == *'Removed because upstream removed them'*'`retiring/README.md`'* ]] \
+  || fail 'docs of a removed directory were not removed with it'
 [[ $(<"$gh_state/unstable.body") == *'`stale-copy.txt`'* ]] \
   || fail 'stale-copy refresh missing from pull request body'
 [[ $(<"$gh_state/unstable.body") == *'Removed because upstream removed them'*'`upstream-drops.txt`'* ]] \
@@ -276,7 +296,7 @@ conflict_text=$(git -C "$runner" show "$conflict_sync:conflict.txt")
   || fail 'readable content conflict markers missing'
 [[ $(<"$output") == *'conflict.txt'* ]] || fail 'conflict path not listed'
 assert_file_at "$runner" "$conflict_sync" installation/stale.txt 'upstream stale installer'
-assert_file_at "$runner" "$conflict_sync" component/CHANGELOG.md 'upstream component changelog'
+assert_file_at "$runner" "$conflict_sync" component/CHANGELOG.md 'fork component changelog'
 recovery_text=$(git -C "$runner" show "$conflict_sync:installation/recovery/keep.txt")
 [[ $recovery_text == *'<<<<<<<'* && $recovery_text == *'======='* && $recovery_text == *'>>>>>>>'* ]] \
   || fail 'upstream-wins exception did not stay conflicted'
@@ -285,7 +305,7 @@ recovery_text=$(git -C "$runner" show "$conflict_sync:installation/recovery/keep
 [[ $(<"$output") != *'installation/stale.txt'* ]] \
   || fail 'upstream-wins path remained conflicted'
 [[ $(<"$output") != *'component/CHANGELOG.md'* ]] \
-  || fail 'basename upstream-wins path remained conflicted'
+  || fail 'ignored Markdown path remained conflicted'
 conflict_body=$(<"$gh_state/unstable.body")
 [[ $conflict_body == '**What to do:** 2 files need a decision'* ]] \
   || fail 'conflict pull request body has no maintainer action'
