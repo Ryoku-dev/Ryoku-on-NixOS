@@ -1816,10 +1816,11 @@ PanelWindow {
                     onReleased: barSlot.endDrag()
                     onCanceled: barSlot.cancelDrag()
                 }
-                // drop-target highlight (the group under the cursor, not the source)
+                // The target sits over the real widget island, so its outline
+                // must keep the shell's corner geometry while editing.
                 Rectangle {
                     anchors.fill: parent
-                    radius: barSlot.root.pillRadius
+                    radius: barSlot.shellRadius
                     color: Qt.rgba(barSlot.accent.r, barSlot.accent.g, barSlot.accent.b, 0.18)
                     border.color: barSlot.accent
                     border.width: 2

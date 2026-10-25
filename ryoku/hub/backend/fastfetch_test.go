@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // a representative JSONC config: comments, a $schema URL (whose // must survive
@@ -33,13 +34,27 @@ const sampleFF = `{
   ]
 }`
 
+const sampleWallpaperPalette = `{
+  "primary":"#1f2021",
+  "foreground":"#222324",
+  "onSurface":"#222324",
+  "onSurfaceVariant":"#252627",
+  "outlineVariant":"#2b2c2d",
+  "tertiary":"#2e2f30",
+  "secondary":"#313233",
+  "error":"#343536"
+}`
+
 func loadSample(t *testing.T) ffModel {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(dir, "cache"))
 	t.Setenv("RYOKU_BASE_OS", "Void")
-	if err := os.MkdirAll(filepath.Join(dir, "fastfetch"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{filepath.Join(dir, "fastfetch"), filepath.Join(dir, "cache", "ryoku")} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.WriteFile(filepath.Join(dir, "fastfetch", "config.jsonc"), []byte(sampleFF), 0o644); err != nil {
 		t.Fatal(err)
@@ -337,14 +352,7 @@ func TestWallpaperPaletteBuildsEffectiveConfigWithoutRewritingUserConfig(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	palette := `{
-  "keys": "1;2;3",
-  "title": "4;5;6",
-  "muted": "7;8;9",
-  "section": "10;11;12",
-  "rule": "13;14;15",
-  "percent": { "green": "16;17;18", "yellow": "19;20;21", "red": "22;23;24" }
-}`
+	palette := sampleWallpaperPalette
 	if err := os.WriteFile(fastfetchPalettePath(), []byte(palette), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -355,8 +363,8 @@ func TestWallpaperPaletteBuildsEffectiveConfigWithoutRewritingUserConfig(t *test
 	}
 	text := string(built)
 	for _, want := range []string{
-		"38;2;1;2;3", "38;2;4;5;6", "38;2;7;8;9", "38;2;10;11;12",
-		"38;2;13;14;15", "38;2;16;17;18", "38;2;19;20;21", "38;2;22;23;24",
+		"38;2;31;32;33", "38;2;34;35;36", "38;2;37;38;39",
+		"38;2;43;44;45", "38;2;46;47;48", "38;2;49;50;51", "38;2;52;53;54",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("effective config missing %q:\n%s", want, text)
@@ -373,18 +381,14 @@ func TestWallpaperPaletteBuildsEffectiveConfigWithoutRewritingUserConfig(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(fixed), "38;2;1;2;3") {
+	if strings.Contains(string(fixed), "38;2;31;32;33") {
 		t.Fatal("generated wallpaper colours were serialized into the user config")
 	}
 }
 
 func TestWriteEffectiveFastfetchUsesPersistedPaletteMode(t *testing.T) {
 	loadSample(t)
-	if err := os.WriteFile(fastfetchPalettePath(), []byte(`{
-  "keys":"31;32;33","title":"34;35;36","muted":"37;38;39",
-  "section":"40;41;42","rule":"43;44;45",
-  "percent":{"green":"46;47;48","yellow":"49;50;51","red":"52;53;54"}
-}`), 0o644); err != nil {
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(sampleWallpaperPalette), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := setFastfetchPaletteMode(ffPaletteWallpaper); err != nil {
@@ -400,6 +404,82 @@ func TestWriteEffectiveFastfetchUsesPersistedPaletteMode(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "38;2;31;32;33") {
 		t.Fatalf("effective config did not use persisted wallpaper mode:\n%s", b)
+	}
+}
+
+func TestWallpaperEffectiveUsesLivePaletteAndRecolorRoles(t *testing.T) {
+	loadSample(t)
+	config := `// ryoku:recolor keys=primary title=foreground output=onSurface
+{
+  "logo": {"type":"none"},
+  "display":{"color":{"keys":"38;2;226;52;42","title":"38;2;243;237;225","output":"#cec7c4"}},
+  "modules":[]
+}`
+	if err := os.WriteFile(fastfetchConfigPath(), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	palette := `{
+  "primary":"#f3b7c1","foreground":"#eae0e0","onSurface":"#d0c0b0",
+  "onSurfaceVariant":"#a09080","outlineVariant":"#706050",
+  "tertiary":"#405060","secondary":"#607080","error":"#901020"
+}`
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(palette), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := setFastfetchPaletteMode(ffPaletteWallpaper); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "effective.json")
+	if err := writeEffectiveFastfetch(out); err != nil {
+		t.Fatal(err)
+	}
+	first, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"keys": "38;2;243;183;193"`,
+		`"title": "38;2;234;224;224"`,
+		`"output": "#d0c0b0"`,
+	} {
+		if !strings.Contains(string(first), want) {
+			t.Fatalf("effective config did not resolve %s from the live palette:\n%s", want, first)
+		}
+	}
+	if strings.Contains(string(first), "226;52;42") {
+		t.Fatalf("effective config retained the saved accent:\n%s", first)
+	}
+
+	changed := `{
+  "primary":"#123456","foreground":"#abcdef","onSurface":"#102030",
+  "onSurfaceVariant":"#203040","outlineVariant":"#304050",
+  "tertiary":"#405060","secondary":"#506070","error":"#607080"
+}`
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(changed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	next := time.Now().Add(time.Second)
+	if err := os.Chtimes(fastfetchPalettePath(), next, next); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeEffectiveFastfetch(out); err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"keys": "38;2;18;52;86"`,
+		`"title": "38;2;171;205;239"`,
+		`"output": "#102030"`,
+	} {
+		if !strings.Contains(string(second), want) {
+			t.Fatalf("palette change did not refresh %s:\n%s", want, second)
+		}
+	}
+	if strings.Contains(string(second), "243;183;193") {
+		t.Fatalf("effective config kept the previous wallpaper accent:\n%s", second)
 	}
 }
 
@@ -437,15 +517,11 @@ func TestApplyPaletteToDisplayRecoloursNamedSlots(t *testing.T) {
 
 func TestFastfetchPaletteRejectsOutOfRangeColours(t *testing.T) {
 	loadSample(t)
-	if err := os.WriteFile(fastfetchPalettePath(), []byte(`{
-  "keys":"256;0;0","title":"1;2;3","muted":"1;2;3",
-  "section":"1;2;3","rule":"1;2;3",
-  "percent":{"green":"1;2;3","yellow":"1;2;3","red":"1;2;3"}
-}`), 0o644); err != nil {
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(`{"primary":"not-a-colour"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := loadFastfetchPalette(); err == nil {
-		t.Fatal("out-of-range palette colour was accepted")
+		t.Fatal("invalid palette colour was accepted")
 	}
 }
 
@@ -454,11 +530,7 @@ func TestFastfetchPaletteRejectsOutOfRangeColours(t *testing.T) {
 // rendered a palette (first boot) falls back to the fixed brand palette.
 func TestFastfetchPaletteDefaultsToWallpaperWhenStateAbsent(t *testing.T) {
 	loadSample(t)
-	if err := os.WriteFile(fastfetchPalettePath(), []byte(`{
-  "keys":"1;2;3","title":"4;5;6","muted":"7;8;9",
-  "section":"10;11;12","rule":"13;14;15",
-  "percent":{"green":"16;17;18","yellow":"19;20;21","red":"22;23;24"}
-}`), 0o644); err != nil {
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(sampleWallpaperPalette), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFastfetchPaletteMode(); got != ffPaletteWallpaper {
@@ -478,11 +550,7 @@ func TestFastfetchPaletteFallsBackToFixedWithoutPalette(t *testing.T) {
 // ever choosing a mode.
 func TestWriteEffectiveFastfetchDefaultsToWallpaperWithoutStateFile(t *testing.T) {
 	loadSample(t)
-	if err := os.WriteFile(fastfetchPalettePath(), []byte(`{
-  "keys":"31;32;33","title":"34;35;36","muted":"37;38;39",
-  "section":"40;41;42","rule":"43;44;45",
-  "percent":{"green":"46;47;48","yellow":"49;50;51","red":"52;53;54"}
-}`), 0o644); err != nil {
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(sampleWallpaperPalette), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out := filepath.Join(t.TempDir(), "effective.json")
@@ -525,11 +593,7 @@ func TestWriteEffectiveFastfetchFixedCopiesConfigVerbatim(t *testing.T) {
 // unset visible.
 func TestWriteEffectiveFastfetchRebuildsOnModeTransition(t *testing.T) {
 	loadSample(t)
-	if err := os.WriteFile(fastfetchPalettePath(), []byte(`{
-  "keys":"31;32;33","title":"34;35;36","muted":"37;38;39",
-  "section":"40;41;42","rule":"43;44;45",
-  "percent":{"green":"46;47;48","yellow":"49;50;51","red":"52;53;54"}
-}`), 0o644); err != nil {
+	if err := os.WriteFile(fastfetchPalettePath(), []byte(sampleWallpaperPalette), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out := filepath.Join(t.TempDir(), "effective.json")

@@ -343,7 +343,7 @@
         "desc": "Số lượng không gian làm việc hiển thị",
         "hide_empty": {
           "title": "Ẩn không gian làm việc trống",
-          "desc": "Chỉ hiển thị không gian đang dùng và không gian hiện tại"
+          "desc": "Chỉ hiển thị không gian đang dùng và mọi không gian làm việc cho đến không gian hiện tại"
         },
         "style": {
           "title": "Kiểu",

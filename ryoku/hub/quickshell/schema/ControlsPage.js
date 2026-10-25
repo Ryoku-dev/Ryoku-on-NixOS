@@ -68,7 +68,7 @@ function defaults() {
     var ordered = [];
     for (var i = 0; i < sections.length; ++i)
         ordered.push({ id: sections[i].id, visible: sections[i].visible });
-    return { sections: ordered, hidden: [] };
+    return { position: "top-left", edgeGap: 12, sections: ordered, hidden: [] };
 }
 
 function section(id) {
@@ -111,5 +111,9 @@ function normalize(value) {
             hidden.push(key);
         }
     }
-    return { sections: ordered, hidden: hidden };
+    var position = source.position === "top-right" || source.position === "center"
+        ? source.position : "top-left";
+    var gap = Number(source.edgeGap);
+    var edgeGap = isFinite(gap) ? Math.max(0, Math.min(96, Math.round(gap))) : 12;
+    return { position: position, edgeGap: edgeGap, sections: ordered, hidden: hidden };
 }

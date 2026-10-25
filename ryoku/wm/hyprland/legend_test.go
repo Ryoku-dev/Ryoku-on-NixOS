@@ -1,7 +1,9 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	wm "ryoku-wm"
@@ -10,6 +12,54 @@ import (
 // repoModules is the real shipped module tree, resolved from this test file so a
 // bind removed from ryoku/hyprland/modules/binds.lua is seen by the parity gate.
 func repoModules() string { return filepath.Join("..", "..", "hyprland", "modules") }
+
+// A shortcut-inhibiting VM viewer must leave a route to the desktop controls.
+// Pin the Lua option because the legend parser records chords, not bind flags.
+func TestRecoveryBindsBypassShortcutInhibitor(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(repoModules(), "binds.lua"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+	bindLine := func(chord string) string {
+		t.Helper()
+		start := strings.Index(src, chord)
+		if start < 0 {
+			t.Fatalf("recovery bind %s is missing", chord)
+		}
+		line := src[start:]
+		if end := strings.IndexByte(line, '\n'); end >= 0 {
+			line = line[:end]
+		}
+		return line
+	}
+
+	escape := bindLine(`K(mod .. " + Escape")`)
+	if !strings.Contains(escape, "dont_inhibit = true") {
+		t.Errorf("Escape does not bypass shortcut inhibition: %s", escape)
+	}
+	// Guest shortcuts must keep reaching the guest instead of closing its host viewer.
+	closeWindow := bindLine(`K(mod .. " + Q")`)
+	if strings.Contains(closeWindow, "dont_inhibit = true") {
+		t.Errorf("Q bypasses shortcut inhibition: %s", closeWindow)
+	}
+}
+
+func TestFullscreenFocusRoutesAcrossMonitor(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(repoModules(), "binds.lua"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	if !strings.Contains(body, "movefocus_cycles_fullscreen = true") {
+		t.Error("binds.lua must keep same-workspace focus working from fullscreen windows")
+	}
+	for _, direction := range []string{"left", "right", "up", "down"} {
+		if !strings.Contains(body, `function() focus_direction("`+direction+`") end`) {
+			t.Errorf("fullscreen %s bind does not route through focus_direction", direction)
+		}
+	}
+}
 
 func comboSet(binds []parsedBind) map[string]bool {
 	set := make(map[string]bool, len(binds))
@@ -123,8 +173,8 @@ func TestCatalogueParity(t *testing.T) {
 	if custom != 0 {
 		t.Errorf("custom rows on an empty store = %d, want 0", custom)
 	}
-	if len(rows) < 98 {
-		t.Errorf("legend rows = %d, want >= 98", len(rows))
+	if len(rows) < 99 {
+		t.Errorf("legend rows = %d, want >= 99", len(rows))
 	}
 
 	// Every id named in hyprUnhonored must actually be unhonored, so a stale

@@ -77,6 +77,15 @@
   what the switch itself installed (`internal/host/phone.go`).
 
 ### Fixed
+- **Updates restore the bar and wallpaper after restart failures.** Deliberate
+  shell and wallpaper restarts clear systemd's start-limit counters immediately
+  before restarting, including the required refresh after session-target
+  activation. The target also clears every desktop service counter before its
+  first start. Deferred lockscreen cutovers retire a stale waiter before staging
+  their runtime helper, stop after three runs in ten minutes, and exit cleanly
+  if that helper disappears (`internal/updater/update.go`,
+  `../../system/hardware/power/ryoku-power-cutover`,
+  `../../tests/power-cutover.sh`). Reported and diagnosed by awake-devel.
 - **The first restart after updating from 0.75 boots straight in.** A 0.75
   ISO install remembered the flat `Ryoku Linux` boot entry in Limine's
   `LimineLastBootedEntry` EFI variable; once the update turns that entry into a

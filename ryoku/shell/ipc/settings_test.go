@@ -96,6 +96,41 @@ func TestPhoneDefaultsMatchContract(t *testing.T) {
 	}
 }
 
+func TestDockEdgeGapValidation(t *testing.T) {
+	if got := defaultDock()["edgeGap"]; got != dockEdgeGapDefault {
+		t.Fatalf("default dock.edgeGap = %v, want %d", got, dockEdgeGapDefault)
+	}
+	store := newTestStore(t)
+	if err := store.patch("dock.edgeGap", rm("24")); err != nil {
+		t.Fatal(err)
+	}
+	if got := frameNum(t, store.frameLocked(), "dock.edgeGap"); got != 24 {
+		t.Fatalf("dock.edgeGap = %v, want 24", got)
+	}
+	for _, value := range []string{"-1", "65", "1.5", `"wide"`} {
+		if err := store.patch("dock.edgeGap", rm(value)); err == nil {
+			t.Fatalf("dock.edgeGap accepted %s", value)
+		}
+		if got := frameNum(t, store.frameLocked(), "dock.edgeGap"); got != 24 {
+			t.Fatalf("rejected patch changed dock.edgeGap to %v", got)
+		}
+	}
+	if err := store.patch("dock", rm(`{"edgeGap":65}`)); err == nil {
+		t.Fatal("whole dock patch accepted an out-of-range edge gap")
+	}
+	if got := frameNum(t, store.frameLocked(), "dock.edgeGap"); got != 24 {
+		t.Fatalf("rejected dock object changed dock.edgeGap to %v", got)
+	}
+
+	raw := map[string]any{"dock": map[string]any{"edgeGap": float64(80)}}
+	if err := normalizeDockSettings(raw, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := raw["dock"].(map[string]any)["edgeGap"]; got != dockEdgeGapMax {
+		t.Fatalf("lenient dock.edgeGap = %v, want %d", got, dockEdgeGapMax)
+	}
+}
+
 // TestPatchRejectsInvalidSchemaValues checks bad schema values and retired
 // namespaces are rejected without touching the file. The daemon commits only
 // after a clean validation and persist.
@@ -123,6 +158,9 @@ func TestPatchRejectsInvalidSchemaValues(t *testing.T) {
 		{"bad phone fps", "phone.webcam.fps", `0`, "out of range"},
 		{"bad phone gain", "phone.microphone.micGain", `201`, "out of range"},
 		{"bad phone alarm interval", "phone.alarm.pollMinutes", `0`, "out of range"},
+		{"bad controls position", "controls.position", `"left"`, "is not one of"},
+		{"controls gap too high", "controls.edgeGap", `97`, "out of range"},
+		{"controls gap is null", "controls.edgeGap", `null`, "must be an integer"},
 		{"retired sidebar layout", "sidebars.layout", `"classic"`, "sidebars settings are retired"},
 		{"retired sidebar subtree", "sidebars.left.width", `930`, "sidebars settings are retired"},
 		{"retired sidebar root", "sidebars", `{"layout":"modern"}`, "sidebars settings are retired"},
@@ -623,6 +661,35 @@ func TestControlsNormalization(t *testing.T) {
 	hidden := controls["hidden"].([]any)
 	if len(hidden) != 1 || hidden[0] != "liveGraph" {
 		t.Fatalf("normalized hidden = %v, want [liveGraph]", hidden)
+	}
+
+	if controls["position"] != "top-left" {
+		t.Fatalf("missing controls position = %v, want top-left", controls["position"])
+	}
+	if controls["edgeGap"] != float64(12) {
+		t.Fatalf("missing controls edgeGap = %v, want 12", controls["edgeGap"])
+	}
+}
+
+func TestControlsGeometrySettings(t *testing.T) {
+	s := newTestStore(t)
+	if got := frameGet(t, s.frameLocked(), "controls.position"); got != "top-left" {
+		t.Fatalf("controls.position default = %v, want top-left", got)
+	}
+	if got := frameNum(t, s.frameLocked(), "controls.edgeGap"); got != 12 {
+		t.Fatalf("controls.edgeGap default = %v, want 12", got)
+	}
+	if err := s.patch("controls.position", rm(`"top-right"`)); err != nil {
+		t.Fatalf("patch controls position: %v", err)
+	}
+	if err := s.patch("controls.edgeGap", rm(`0`)); err != nil {
+		t.Fatalf("patch controls edge gap: %v", err)
+	}
+	if got := frameGet(t, s.frameLocked(), "controls.position"); got != "top-right" {
+		t.Fatalf("controls.position = %v, want top-right", got)
+	}
+	if got := frameNum(t, s.frameLocked(), "controls.edgeGap"); got != 0 {
+		t.Fatalf("controls.edgeGap = %v, want 0", got)
 	}
 }
 

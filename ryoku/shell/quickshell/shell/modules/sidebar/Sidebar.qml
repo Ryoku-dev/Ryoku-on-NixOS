@@ -12,7 +12,7 @@ Scope {
     property bool active: false
     readonly property real s: Tokens.uiScaleFor(screen ? screen.name : "")
     readonly property var clearances: SidebarState.railClearances(screen)
-    readonly property real gap: Tokens.s3 * s
+    readonly property real gap: SidebarState.edgeGap * s
     readonly property real screenWidth: screen && screen.width > 0 ? screen.width : 1280
     readonly property real screenHeight: screen && screen.height > 0 ? screen.height : 800
     readonly property real availableWidth: Math.max(1, screenWidth - clearances.left - clearances.right - gap * 2)
@@ -23,8 +23,10 @@ Scope {
     readonly property bool storeRuns: selectedDesign !== Designs.shipped
         && Designs.sidebarReady && storeUrl !== "" && storeUrl !== failedUrl
     readonly property var storeItem: storeLoader.status === Loader.Ready ? storeLoader.item : null
-    readonly property string placement: storeRuns && storeItem
-        ? normalizedPlacement(storeItem.placement) : "top-left"
+    readonly property string storePlacement: storeRuns && storeItem
+        ? normalizedPlacement(storeItem.placement, "") : ""
+    readonly property string placement: storePlacement !== ""
+        ? storePlacement : normalizedPlacement(SidebarState.position, "top-left")
     readonly property bool sidePlacement: placement === "left" || placement === "right"
     readonly property real stockWidth: Math.min(availableWidth, 688 * s)
     readonly property real stockFallbackHeight: (Tokens.s4 * 2 + Tokens.ctlH + Tokens.s1
@@ -54,10 +56,11 @@ Scope {
     readonly property real panelSlideY: sidePlacement ? 0 : -Tokens.s2 * s
     property real reveal: active ? 1 : 0
 
-    function normalizedPlacement(value) {
+    function normalizedPlacement(value, fallback) {
         const candidate = String(value ?? "");
-        return candidate === "top-right" || candidate === "left" || candidate === "right"
-            || candidate === "center" ? candidate : "top-left";
+        return candidate === "top-left" || candidate === "top-right"
+            || candidate === "left" || candidate === "right" || candidate === "center"
+            ? candidate : fallback;
     }
 
     function usableSize(value, fallback) {

@@ -342,7 +342,7 @@
         "desc": "Numero di spazi di lavoro da visualizzare",
         "hide_empty": {
           "title": "Nascondi spazi di lavoro vuoti",
-          "desc": "Mostra solo gli spazi di lavoro occupati e quello attivo"
+          "desc": "Mostra gli spazi di lavoro occupati e tutti gli spazi di lavoro fino a quello attivo"
         },
         "style": {
           "title": "Stile",

@@ -221,6 +221,7 @@ var catalogue = []CatalogBind{
 	{ID: "shell.visualizerPlace", Category: "Shell", Label: "Place the visualiser", Hint: "Drag the ring or orb into place", Chord: "SUPER + ALT + M", Kind: BindShell},
 	{ID: "shell.voice", Category: "Shell", Label: "Voice typing", Hint: "Speech to text; tap again to stop", Chord: "SUPER + grave", Kind: BindShell},
 	{ID: "shell.settings", Category: "Shell", Label: "Ryoku settings", Chord: "SUPER + comma", Kind: BindShell},
+	{ID: "shell.stageEditor", Category: "Shell", Label: "Stage Editor", Hint: "Edit the desktop on the focused screen", Chord: "SUPER + SHIFT + D", Kind: BindShell},
 	{ID: "shell.screenshot", Category: "Shell", Label: "Capture", Hint: "Screenshot and recording", Chord: "SUPER + SHIFT + S", Kind: BindShell},
 	{ID: "shell.screenshotPrint", Category: "Shell", Label: "Screenshot", Chord: "Print", Kind: BindShell},
 	{ID: "shell.screenshotMonitor", Category: "Shell", Label: "Screenshot, whole screen", Chord: "SHIFT + Print", Kind: BindShell},

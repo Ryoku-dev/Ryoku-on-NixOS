@@ -25,6 +25,11 @@
   (`modules/binds.lua`, `modules/ryoshot.lua`).
 
 ### Fixed
+- **Super+Escape always opens Controls while an app holds the keyboard.** The
+  Hyprland bind bypasses keyboard-shortcut inhibition from apps such as VM
+  viewers, leaving Lock, Log out, Restart and Power off reachable without
+  stealing normal guest shortcuts (`modules/binds.lua`,
+  `../wm/hyprland/legend_test.go`).
 - **A display turned off in Settings stays off.** The Hyprland provider and
   `ryoku-monitor` both read an output as disabled only when it reported no
   resolution, but Hyprland 0.56 keeps a disabled output's last mode. A

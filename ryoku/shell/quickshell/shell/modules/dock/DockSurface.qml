@@ -31,7 +31,7 @@ PanelWindow {
 
     // ── sizing ────────────────────────────────────────────────────────────────
     readonly property bool autohide: Dock.cfg("autohide", false)
-    readonly property real edgeGap: 8
+    readonly property real edgeGap: 8 + Math.max(0, Math.min(64, Number(Dock.cfg("edgeGap", 0))))
     readonly property real peek: 3
     readonly property real depth: band.baseSize
     // Inner clearance for a magnified icon to rise into, plus room for the hover
@@ -81,9 +81,10 @@ PanelWindow {
         // The editor is showing this dock's settings page: it holds open.
         if (dock.stageEditing)
             return true;
-        // A fullscreen window on this monitor forces the dock away; only a hover
-        // into the peek strip brings it back over the fullscreen content.
-        if (dock.monFullscreen)
+        // A dock that is deliberately pinned stays put. Fullscreen suppression
+        // only belongs to auto-hide; otherwise stale compositor fullscreen state
+        // can slide the band away while its exclusive zone still reserves space.
+        if (dock.autohide && dock.monFullscreen)
             return dock.pointerInside;
         return !dock.autohide
             || dock.pointerInside

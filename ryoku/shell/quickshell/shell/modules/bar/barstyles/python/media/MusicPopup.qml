@@ -414,6 +414,7 @@ Item {
         command: [
             "bash",
             Caching.payloadDir + "/media/art_fetch.sh",
+            root.targetPlayer ? (root.targetPlayer.busName || root.targetPlayer.identity || "") : "",
             root.targetPlayer ? (root.targetPlayer.trackArtUrl || "") : "",
             root.targetPlayer ? (root.targetPlayer.trackTitle || "") : "",
             root.targetPlayer ? (root.targetPlayer.trackArtist || "") : ""

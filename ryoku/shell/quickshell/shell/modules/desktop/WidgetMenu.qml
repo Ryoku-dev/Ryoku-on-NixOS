@@ -52,11 +52,14 @@ Item {
     readonly property bool isShape: menu.scope === "shape"
     readonly property bool locked: menu.isWidget && !menu.isVisualizer
         ? Config[menu.scope + "Locked"] : false
-    // The stage lift (docs/stage.md): Depth offers this widget a place above
-    // every in-front cut-out; the row only shows while the wall cuts a subject.
-    readonly property bool stageActive: menu.wall !== ""
-        && StageCfg.StageBackend.isActiveFor(menu.wall)
-    readonly property bool lifted: StageCfg.Config.isFront(menu.scope)
+    // Cut modes offer this widget a place above every in-front cut-out. Each
+    // mode owns its own lift list.
+    readonly property string stageMode: menu.wall === "" ? "off"
+        : StageCfg.StageBackend.effectFor(menu.wall)
+    readonly property bool stageActive: menu.stageMode === "depth"
+        || menu.stageMode === "parallax"
+    readonly property bool lifted: StageCfg.Config.isFront(
+        menu.stageMode, menu.scope)
 
     // clock faces persist as <scope>Design; the calendar and the music sheet
     // persist their look as <scope>Style; shape as <scope>Kind.
@@ -385,7 +388,8 @@ Item {
             value: menu.lifted ? I18n.tr("In front") : I18n.tr("Behind")
             on: menu.lifted
             closeOnTrigger: false
-            onTriggered: StageCfg.Config.setFront(menu.scope, !menu.lifted)
+            onTriggered: StageCfg.Config.setFront(
+                menu.stageMode, menu.scope, !menu.lifted)
         }
 
         // ── customize ──────────────────────────────────────────────────

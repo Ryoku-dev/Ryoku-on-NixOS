@@ -112,11 +112,13 @@ func shippedBinds() map[string]niriBind {
 		"column.center":        {action: "center-column"},
 		"window.focusPrevious": {action: "focus-window-previous"},
 
-		// Focus
-		"focus.left":   {action: "focus-column-left"},
-		"focus.right":  {action: "focus-column-right"},
-		"focus.up":     {action: "focus-window-up"},
-		"focus.down":   {action: "focus-window-down"},
+		// Focus. The combined actions behave like the plain directional actions
+		// while a neighbour exists, then carry the same arrow onto the adjacent
+		// monitor instead of stopping at the workspace edge.
+		"focus.left":   {action: "focus-column-or-monitor-left"},
+		"focus.right":  {action: "focus-column-or-monitor-right"},
+		"focus.up":     {action: "focus-window-or-monitor-up"},
+		"focus.down":   {action: "focus-window-or-monitor-down"},
 		"column.first": {action: "focus-column-first"},
 		"column.last":  {action: "focus-column-last"},
 
@@ -197,6 +199,7 @@ func shippedBinds() map[string]niriBind {
 		"shell.visualizerPlace":   {action: spawnArgs("ryoku-shell", "visualizer-place")},
 		"shell.voice":             {action: spawnArgs("ryoku-shell", "voice")},
 		"shell.settings":          {action: spawnArgs("ryoku-shell", "hub", "open")},
+		"shell.stageEditor":       {action: spawnArgs("ryoku-shell", "hub", "open", "widgets")},
 		"shell.screenshot":        {action: spawnSh(screenshotLaunchCommand(""))},
 		// Hyprland gives ryoshot three entry points, so niri gets the same three:
 		// without Print the key a user reaches for does nothing, and monitor mode

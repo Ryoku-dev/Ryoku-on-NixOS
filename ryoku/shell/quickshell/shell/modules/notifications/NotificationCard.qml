@@ -80,14 +80,18 @@ Rectangle {
 
     readonly property bool imagesEnabled: Config.notifications?.show_images === true
     function imageSource(value, themed) {
-        const raw = String(value || "");
+        let raw = String(value || "");
         if (raw.length === 0)
             return "";
+        if (raw.indexOf("image://icon/") === 0) {
+            raw = decodeURIComponent(raw.substring(13));
+            themed = true;
+        }
         if (raw.charAt(0) === "/" || raw.indexOf("file:") === 0)
             return raw.indexOf("file:") === 0 ? raw : "file://" + raw;
         if (raw.indexOf(":") > 0)
             return raw;
-        return themed ? Quickshell.iconPath(raw, true) : raw;
+        return themed ? Icons.path(raw, true) : raw;
     }
     readonly property string notificationImageSource: card.imagesEnabled
         ? card.imageSource(card.n().image, false) : ""
@@ -242,11 +246,15 @@ Rectangle {
             id: thumbnail
             readonly property bool imageReady: notificationImage.status === Image.Ready
             readonly property bool iconReady: appIconImage.status === Image.Ready
+            readonly property bool imageUnavailable: !card.hasNotificationImage
+                || notificationImage.status === Image.Error
+            readonly property bool iconUnavailable: card.appIconSource.length === 0
+                || appIconImage.status === Image.Error
             readonly property bool useImage: card.hasNotificationImage && thumbnail.imageReady
-            readonly property bool useIcon: (!card.hasNotificationImage
-                || notificationImage.status === Image.Error) && thumbnail.iconReady
+            readonly property bool useIcon: thumbnail.imageUnavailable && thumbnail.iconReady
+            readonly property bool useGlyph: thumbnail.imageUnavailable && thumbnail.iconUnavailable
 
-            visible: card.imagesEnabled && (thumbnail.useImage || thumbnail.useIcon)
+            visible: card.imagesEnabled && (thumbnail.useImage || thumbnail.useIcon || thumbnail.useGlyph)
             width: (Theme.iconLg + Theme.paddingLg) * card.us
             height: width
             radius: Theme.radiusWidget * card.us
@@ -272,6 +280,14 @@ Rectangle {
                 asynchronous: true
                 smooth: true
                 visible: thumbnail.useIcon
+            }
+
+            MaterialIcon {
+                anchors.centerIn: parent
+                visible: thumbnail.useGlyph
+                text: card.n().urgency === 2 ? "priority_high" : "notifications"
+                font.pixelSize: Theme.iconLg * card.us
+                color: Theme.onSurfaceVariant
             }
         }
 

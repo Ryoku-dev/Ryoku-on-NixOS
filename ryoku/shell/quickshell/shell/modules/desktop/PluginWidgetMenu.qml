@@ -53,11 +53,14 @@ Item {
     readonly property bool colorAutoOn: menu.vals.colorAuto !== false
     readonly property string colorHex: (typeof menu.vals.color === "string") ? menu.vals.color : ""
     readonly property string colorMode: menu.colorAutoOn ? "auto" : (menu.colorHex.length > 0 ? "custom" : "default")
-    // The stage lift (docs/stage.md): Depth offers this tile a place above
-    // every in-front cut-out; the row only shows while the wall cuts a subject.
-    readonly property bool stageActive: menu.wall !== ""
-        && StageCfg.StageBackend.isActiveFor(menu.wall)
-    readonly property bool lifted: StageCfg.Config.isFront(menu.scope)
+    // Cut modes offer this tile a place above every in-front cut-out. Each
+    // mode owns its own lift list.
+    readonly property string stageMode: menu.wall === "" ? "off"
+        : StageCfg.StageBackend.effectFor(menu.wall)
+    readonly property bool stageActive: menu.stageMode === "depth"
+        || menu.stageMode === "parallax"
+    readonly property bool lifted: StageCfg.Config.isFront(
+        menu.stageMode, menu.scope)
 
     signal hideRequested(string id)
     signal lockToggled(string id)
@@ -148,7 +151,8 @@ Item {
             value: menu.lifted ? I18n.tr("In front") : I18n.tr("Behind")
             on: menu.lifted
             closeOnTrigger: false
-            onTriggered: StageCfg.Config.setFront(menu.scope, !menu.lifted)
+            onTriggered: StageCfg.Config.setFront(
+                menu.stageMode, menu.scope, !menu.lifted)
         }
         MenuRow {
             label: I18n.tr("Hide")

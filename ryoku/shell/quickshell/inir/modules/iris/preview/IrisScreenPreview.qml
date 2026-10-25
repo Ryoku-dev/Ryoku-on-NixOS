@@ -14,6 +14,7 @@ import inir.modules.iris.components
 import inir.modules.iris.pieces
 import inir.modules.iris.bar.island
 import inir.modules.iris.field as Field
+import shell.services as Ryoku
 
 ClippingRectangle {
     id: root
@@ -68,7 +69,9 @@ ClippingRectangle {
 
     readonly property var bar: Config.options?.iris?.bar ?? ({})
     readonly property var bubbles: Config.options?.iris?.bubbles ?? ({})
-    readonly property var dockOptions: Config.options?.iris?.dock ?? ({})
+    readonly property var dockOptions: Object.assign({}, Ryoku.Dock.cfg("shima", {}), {
+        enable: Ryoku.Dock.cfg("enabled", false) && Ryoku.Dock.design === "shima"
+    })
     readonly property bool notch: IrisFrame.notch
     readonly property bool framed: IrisFrame.framed
     readonly property real clockScale: Math.max(0.8, Math.min(1.5, Number(root.bar?.clockScale ?? 100) / 100))

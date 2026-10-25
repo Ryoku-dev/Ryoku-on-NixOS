@@ -1049,7 +1049,7 @@
         "desc": "Liczba wyświetlanych obszarów roboczych",
         "hide_empty": {
           "title": "Ukryj puste obszary robocze",
-          "desc": "Pokaż tylko zajęte obszary robocze oraz aktywny"
+          "desc": "Pokaż zajęte obszary robocze oraz wszystkie obszary robocze aż do aktywnego"
         },
         "style": {
           "title": "Styl",
