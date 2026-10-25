@@ -199,19 +199,13 @@ func shippedBinds() map[string]niriBind {
 		"shell.visualizerPlace":   {action: spawnArgs("ryoku-shell", "visualizer-place")},
 		"shell.voice":             {action: spawnArgs("ryoku-shell", "voice")},
 		"shell.settings":          {action: spawnArgs("ryoku-shell", "hub", "open")},
-<<<<<<< port (unstable-dev)
+		"shell.stageEditor":       {action: spawnArgs("ryoku-shell", "hub", "open", "widgets")},
 		"shell.screenshot":        {action: spawnSh(screenshotLaunchCommand(""))},
 		// Hyprland gives ryoshot three entry points, so niri gets the same three:
 		// without Print the key a user reaches for does nothing, and monitor mode
 		// would otherwise only be reachable by cycling inside the tool.
 		"shell.screenshotPrint":   {action: spawnSh(screenshotLaunchCommand(""))},
 		"shell.screenshotMonitor": {action: spawnSh(screenshotLaunchCommand("monitor"))},
-=======
-		"shell.stageEditor":       {action: spawnArgs("ryoku-shell", "hub", "open", "widgets")},
-		"shell.screenshot":        {action: spawnSh(wm.QmlEnv + " ryoku-cmd-ryoshot")},
-		"shell.screenshotPrint":   {action: spawnSh(wm.QmlEnv + " ryoku-cmd-ryoshot")},
-		"shell.screenshotMonitor": {action: spawnSh(wm.QmlEnv + " RYOSHOT_MODE=monitor ryoku-cmd-ryoshot")},
->>>>>>> upstream Ryoku 1.1.3 (6c8b566)
 		"shell.colorPicker":       {action: spawnArgs("hyprpicker", "-a")},
 		"shell.restartAudio":      {action: spawnArgs("ryoku-restart-audio")},
 		"shell.inhibitShortcuts":  {action: "toggle-keyboard-shortcuts-inhibit"},

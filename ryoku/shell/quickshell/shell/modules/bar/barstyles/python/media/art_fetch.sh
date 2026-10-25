@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 
-<<<<<<< port (unstable-dev)
-source "$(dirname "${BASH_SOURCE[0]}")/../scripts/caching.sh"
-=======
 source "$(dirname "${BASH_SOURCE[0]}")/../scripts/caching.sh" || exit 1
->>>>>>> upstream Ryoku 1.1.3 (6c8b566)
 qs_ensure_cache "music"
 
 TMP_DIR="$QS_RUN_MUSIC/covers"

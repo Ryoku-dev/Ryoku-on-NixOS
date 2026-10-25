@@ -134,7 +134,6 @@ Singleton {
     })
     property var controls: defaultControls
 
-<<<<<<< port (unstable-dev)
     function chromaScale() {
         const cfg = root.chroma || ({});
         const value = Number(cfg.scale);
@@ -221,7 +220,8 @@ Singleton {
             && !(root.python
                 && root.python.general
                 && root.python.general.osd === false);
-=======
+    }
+
     function patchControl(key, value) {
         if (key !== "position" && key !== "edgeGap")
             return;
@@ -234,7 +234,6 @@ Singleton {
             shaderCtl.flushQueued();
         else
             shaderCtl.connected = true;
->>>>>>> upstream Ryoku 1.1.3 (6c8b566)
     }
 
     readonly property var askBubble: {
