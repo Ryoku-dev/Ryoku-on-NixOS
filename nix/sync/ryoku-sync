@@ -17,10 +17,13 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=nix/sync/lib-markers.sh
 source "$script_dir/lib-markers.sh"
 upstream_wins_file="$script_dir/upstream-wins"
-[[ -f $upstream_wins_file ]] || {
-  printf 'ryoku-sync: missing %s\n' "$upstream_wins_file" >&2
-  exit 1
-}
+ignore_file="$script_dir/ignore"
+for rules_file in "$upstream_wins_file" "$ignore_file"; do
+  [[ -f $rules_file ]] || {
+    printf 'ryoku-sync: missing %s\n' "$rules_file" >&2
+    exit 1
+  }
+done
 
 lane=""
 dry_run=0
@@ -255,39 +258,53 @@ is_fork_owned() {
   done
   return 1
 }
-is_upstream_wins() {
-  local path=$1 rule prefix
-  local result=1
+# Rules files read like .gitignore: "dir/" covers everything below it, a rule
+# without "/" matches the file name, any other rule the whole path. Rules are
+# shell globs, "!" re-includes, and the last matching rule wins.
+rules_from() {
+  local rule
   while IFS= read -r rule || [[ -n $rule ]]; do
     rule=${rule%$'\r'}
     rule=${rule#"${rule%%[![:space:]]*}"}
     rule=${rule%"${rule##*[![:space:]]}"}
     [[ -n $rule && $rule != \#* ]] || continue
+    printf '%s\n' "$rule"
+  done <"$1"
+}
 
-    local include=1
+path_matches() {
+  local path=$1 rule include result=1
+  shift
+  for rule in "$@"; do
+    include=1
     if [[ $rule == '!'* ]]; then
       include=0
       rule=${rule#!}
     fi
-
     if [[ $rule == */ ]]; then
-      prefix=${rule%/}
-      if [[ $path != "$prefix" && $path != "$prefix/"* ]]; then
-        continue
-      fi
+      [[ $path == "${rule%/}" || $path == "${rule%/}/"* ]] || continue
     elif [[ $rule != */* ]]; then
-      [[ ${path##*/} == "$rule" ]] || continue
+      # shellcheck disable=SC2053 # rules are globs
+      [[ ${path##*/} == $rule ]] || continue
     else
-      [[ $path == "$rule" ]] || continue
+      # shellcheck disable=SC2053 # rules are globs
+      [[ $path == $rule ]] || continue
     fi
-
-    if ((include)); then
-      result=0
-    else
-      result=1
-    fi
-  done <"$upstream_wins_file"
+    result=$((1 - include))
+  done
   return "$result"
+}
+
+mapfile -t upstream_wins_rules < <(rules_from "$upstream_wins_file")
+mapfile -t ignore_rules < <(rules_from "$ignore_file")
+
+is_upstream_wins() {
+  path_matches "$1" "${upstream_wins_rules[@]}"
+}
+
+# Upstream changes to these never enter a sync: the port keeps its copy.
+is_ignored() {
+  path_matches "$1" "${ignore_rules[@]}"
 }
 declare -A STALE_COPY_SET=()
 stale_copies=()
@@ -302,6 +319,7 @@ collect_stale_copies() {
     < <(git diff-tree --no-commit-id --name-only -r -z "$base" "$ours_tree")
   for path in "${changed_paths[@]}"; do
     is_fork_owned "$path" && continue
+    is_ignored "$path" && continue
     path_exists "$ours_tree" "$path" || continue
     # A file upstream had already dropped by the base is one the port chose to
     # keep, even when its bytes match an old upstream version.
@@ -356,6 +374,13 @@ under_removed_directory() {
     fi
   done
   return 1
+}
+
+# True when the directory holding path existed at base and upstream dropped it.
+upstream_removed_directory() {
+  local path=$1 base=$2 upstream_tree=$3 directory=${1%/*}
+  [[ $directory != "$path" ]] || return 1
+  path_exists "$base" "$directory" && ! path_exists "$upstream_tree" "$directory"
 }
 
 remove_index_paths() {
@@ -567,6 +592,10 @@ build_pr_body_variant() {
       pr_body+="- \`$path\`"$'\n'
     done
   fi
+  if ((${#ignored_paths[@]})); then
+    pr_body+=$'\nLeft out: '
+    pr_body+="${#ignored_paths[@]} upstream changes to paths in \`nix/sync/ignore\` (Markdown docs and changelogs). The port keeps its copies."$'\n'
+  fi
   if ((${#removed_paths[@]})); then
     pr_body+=$'\n### Removed because upstream removed them\n\n'
     pr_body+="Check that the port does not still need these:"$'\n'
@@ -594,7 +623,7 @@ build_pr_body() {
     build_pr_body_variant "$previous" "$target" 0 "$file_limit" 1
   fi
   while ((${#pr_body} >= body_cap)) && ((file_limit > 0)); do
-    ((file_limit -= 1))
+    file_limit=$((file_limit - 1))
     build_pr_body_variant "$previous" "$target" 0 "$file_limit" 1
   done
   ((${#pr_body} < body_cap)) \
@@ -801,7 +830,7 @@ done
 
 conflicts=()
 for path in "${initial_conflicts[@]}"; do
-  if is_fork_owned "$path" || [[ $path == VERSION ]]; then
+  if is_fork_owned "$path" || is_ignored "$path" || [[ $path == VERSION ]]; then
     continue
   fi
   if [[ -n ${STALE_COPY_SET["$path"]-} ]]; then
@@ -832,11 +861,31 @@ while IFS= read -r -d '' path; do
 done < <(git diff-tree --no-commit-id --name-only --diff-filter=A -r -z "$merge_base" "$target")
 while IFS= read -r -d '' path; do
   is_fork_owned "$path" && continue
+  is_ignored "$path" && continue
   if is_upstream_wins "$path" && path_exists "$merge_base" "$path" \
     && path_exists "$ours" "$path"; then
     set_index_file "$index" "$target" "$path"
   fi
 done < <(git diff-tree --no-commit-id --name-only -r -z "$merge_base" "$ours")
+# Paths in nix/sync/ignore keep the port's copy. Only a directory upstream
+# removed takes its ignored files with it, so a retired component leaves no
+# orphan docs behind.
+ignored_paths=()
+while IFS= read -r -d '' path; do
+  is_fork_owned "$path" && continue
+  is_ignored "$path" || continue
+  if ! path_exists "$target" "$path" \
+    && upstream_removed_directory "$path" "$merge_base" "$target"; then
+    remove_index_paths "$index" "$path"
+    continue
+  fi
+  ignored_paths+=("$path")
+  if path_exists "$ours" "$path"; then
+    set_index_file "$index" "$ours" "$path"
+  else
+    remove_index_paths "$index" "$path"
+  fi
+done < <(git diff-tree --no-commit-id --name-only -r -z "$merge_base" "$target")
 
 
 version=$(git show "$target:VERSION")
@@ -882,6 +931,7 @@ printf 'Changed files: %d\n' "${#changed_paths[@]}"
 printf 'Stale copies refreshed: %d\n' "${#stale_copies[@]}"
 printf 'Removed by upstream: %d\n' "${#removed_paths[@]}"
 printf 'Upstream changes to port-owned files: %d\n' "${#owned_upstream_changes[@]}"
+printf 'Left out by nix/sync/ignore: %d\n' "${#ignored_paths[@]}"
 if ((${#conflicts[@]})); then
   printf 'Conflicts (%d):\n' "${#conflicts[@]}"
   printf '  %s\n' "${conflicts[@]}"

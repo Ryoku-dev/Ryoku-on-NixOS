@@ -1,0 +1,8 @@
+# Upstream changes to these paths never enter a sync: the port keeps its own
+# copy, or goes without the file. Rules read like upstream-wins.
+*.md
+# Markdown the Nix packages install, embed or read at runtime.
+!ryoku/rashin/skills/
+!ryoku/rashin/wiki/
+!ryoku/cli/plugin_template/
+!ryoku/hub/backend/assets/
