@@ -8,6 +8,7 @@ import inir.services
 import inir.modules.common.widgets
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 // The stack of a widget in its quick controls. `manage` is the Stack page of a widget that is in one: its pages in
 // order, how they turn and how to split them. `join` is a block of the Arrange page of one that is not: the widgets
@@ -99,7 +100,7 @@ ColumnLayout {
                     }
                     IrisText {
                         Layout.fillWidth: true
-                        text: page.facts.label
+                        text: I18n.tr(page.facts.label)
                         font.pixelSize: IrisStyle.typeLabel
                         font.weight: page.shown ? IrisStyle.weight(Font.DemiBold) : IrisStyle.weight(Font.Normal)
                         elide: Text.ElideRight
@@ -178,7 +179,7 @@ ColumnLayout {
                 required property string modelData
                 readonly property var facts: root.entry(modelData)
                 icon: facts.glyph
-                label: facts.label
+                label: I18n.tr(facts.label)
                 onClicked: DesktopWidgetStacks.merge(root.widget.configEntryName, modelData)
             }
         }

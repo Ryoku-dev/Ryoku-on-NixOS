@@ -1,6 +1,3 @@
-# Ryoku: grant the active-seat user an ACL on a QMK/VIA keyboard's raw HID node
-# so qmk_hid can drive its RGB matrix (theme-following keyboard lighting) without
-# root. ryoku-hw-qmk matches only VIA control interfaces (usage page 0xFF60), so
-# this never opens up unrelated hidraw devices. Numbered before 73-seat-late,
-# which reads the uaccess tag and applies the ACL.
+# Ryoku: give the active seat access to QMK/VIA raw HID; numbered before 73-seat-late, which applies the ACL.
 SUBSYSTEM=="hidraw", PROGRAM="/usr/bin/ryoku-hw-qmk %S%p", TAG+="uaccess"
+ACTION=="add", SUBSYSTEM=="hidraw", PROGRAM="/usr/bin/ryoku-hw-qmk %S%p", RUN+="/usr/bin/ryoku-hw-qmk --hotplug"

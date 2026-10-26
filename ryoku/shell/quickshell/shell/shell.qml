@@ -354,6 +354,7 @@ ShellRoot {
                 property bool showNow: false
                 activeAsync: open || launcherHold.running
                 onItemChanged: if (launcherLoader.item) Qt.callLater(function() { launcherLoader.showNow = launcherLoader.open; })
+                onActiveChanged: if (!active) launcherCollect.restart()
                 onOpenChanged: {
                     if (launcherLoader.open) {
                         if (launcherLoader.item) launcherLoader.showNow = true;
@@ -369,6 +370,11 @@ ShellRoot {
                 }
             }
             Timer { id: launcherHold; interval: 15000 }
+            Timer {
+                id: launcherCollect
+                interval: 1000
+                onTriggered: if (!launcherLoader.active) gc()
+            }
             LazyLoader {
                 id: overviewLoader
                 property bool open: perScreen.st ? perScreen.st.overviewOpen : false

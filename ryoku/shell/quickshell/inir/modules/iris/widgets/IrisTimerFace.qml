@@ -6,6 +6,7 @@ import inir.services
 import inir.modules.common.widgets
 import inir.modules.iris.style
 import inir.modules.iris.bar.island
+import Ryoku.Ui.Singletons
 
 IrisWidgetFace {
     id: root
@@ -113,7 +114,7 @@ IrisWidgetFace {
             face: root
             Layout.fillWidth: true
             glyph: root.lead.glyph
-            text: root.lead.label
+            text: I18n.tr(root.lead.label)
             tint: root.lead.tint
         }
         Item { Layout.fillHeight: true }
@@ -188,7 +189,7 @@ IrisWidgetFace {
                 FaceText {
                     face: root
                     Layout.alignment: Qt.AlignHCenter
-                    text: column.modelData.label
+                    text: I18n.tr(column.modelData.label)
                     color: root.live(column.modelData) ? column.modelData.tint : root.inkTertiary
                     size: 11.5
                     weight: Font.DemiBold

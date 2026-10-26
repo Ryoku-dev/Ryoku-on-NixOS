@@ -550,8 +550,7 @@ wait_qylock_cutover() {
   # Every attempt stops and re-reaches the session target, so a persistent
   # failure must not become a restart loop that burns the desktop (#275):
   # three attempts with backoff, then leave the running session untouched and
-  # say exactly what to run by hand. The transient unit allows only three such
-  # runs in ten minutes, for at most nine cutover attempts.
+  # report the manual retry command; the transient unit caps restart loops.
   while (( ++attempt <= 3 )); do
     rc=0
     RYOKU_QYLOCK_WAITER=1 "$self_path" user || rc=$?
@@ -1887,6 +1886,23 @@ session_observer_ready_path() {
   printf '%s/ryoku-session-observer.%s.ready\n' "${XDG_RUNTIME_DIR:-/tmp}" "$1"
 }
 
+# The login1 object path for a session id, derived the way sd_bus_path_encode
+# does it, so the watcher can subscribe before login1 knows the session: every
+# byte outside [A-Za-z0-9], and a leading digit, becomes _ and two hex digits.
+login1_session_path() {
+  local sid=$1 label="" ch i
+  for ((i = 0; i < ${#sid}; i++)); do
+    ch=${sid:i:1}
+    if [[ $ch == [a-zA-Z] ]] || { [[ $ch == [0-9] ]] && (( i > 0 )); }; then
+      label+=$ch
+    else
+      printf -v ch '_%02x' "'$ch"
+      label+=$ch
+    fi
+  done
+  printf '/org/freedesktop/login1/session/%s\n' "${label:-_}"
+}
+
 secure_previous_session() {
   local next_sid=$1 previous_sid state rc
   previous_sid="$(cat "$session_marker" 2>/dev/null || true)"
@@ -2072,7 +2088,7 @@ watch_session() (
   (( EUID != 0 )) || { log "session watcher must run as the graphical user" >&2; return 1; }
   local sid=${1:-} mode=${2:-bound} current line monitor_pid="" monitor_fd="" ready_path ready_tmp
   local ready=0 removed=0 selected="" active=""
-  local removed_match activity_match
+  local removed_match activity_match props=0
   [[ $sid =~ ^[A-Za-z0-9_.-]+$ ]] || return 2
   [[ $mode == bound || $mode == unbound ]] || return 2
   if [[ $mode == unbound ]]; then
@@ -2094,7 +2110,7 @@ watch_session() (
   trap cleanup_watcher EXIT
   rm -f "$ready_path" "$ready_path".*
   removed_match="type='signal',sender='org.freedesktop.login1',interface='org.freedesktop.login1.Manager',member='SessionRemoved',arg0='$sid'"
-  activity_match="type='signal',sender='org.freedesktop.login1',path_namespace='/org/freedesktop/login1/session',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.freedesktop.login1.Session'"
+  activity_match="type='signal',sender='org.freedesktop.login1',path='$(login1_session_path "$sid")',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.freedesktop.login1.Session'"
   transition_if_needed() {
     if [[ $mode == unbound ]]; then
       active="$(session_property "$sid" Active 2>/dev/null || true)"
@@ -2135,17 +2151,27 @@ watch_session() (
       return 0
     fi
     [[ $mode == unbound ]] || sync_session_activity "$sid" 0
+    # Only this session's PropertiesChanged arrives, and IdleHint or LockedHint
+    # edges are dropped too: the body lines that follow the signal header are
+    # scanned for Active, among the changed or the invalidated properties.
     while IFS= read -r line <&"$monitor_fd"; do
       if [[ $line == *'interface=org.freedesktop.login1.Manager; member=SessionRemoved'* ]]; then
         removed=1
         break
       fi
-      if [[ $line == *'interface=org.freedesktop.DBus.Properties; member=PropertiesChanged'* ]]; then
-        if transition_if_needed; then
-          return 0
-        fi
-        [[ $mode == unbound ]] || sync_session_activity "$sid" 1
+      if [[ $line != [[:space:]]* ]]; then
+        props=0
+        [[ $line == *'interface=org.freedesktop.DBus.Properties; member=PropertiesChanged'* ]] &&
+          props=1
+        continue
       fi
+      (( props == 1 )) &&
+        [[ $line =~ ^[[:space:]]{6}([[:space:]]{3})?string[[:space:]]+\"Active\"[[:space:]]*$ ]] || continue
+      props=0
+      if transition_if_needed; then
+        return 0
+      fi
+      [[ $mode == unbound ]] || sync_session_activity "$sid" 1
     done
     if (( removed == 0 )) && ! loginctl show-session "$sid" >/dev/null 2>&1; then
       removed=1

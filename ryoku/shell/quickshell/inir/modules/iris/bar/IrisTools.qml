@@ -10,6 +10,7 @@ import inir.modules.common.functions
 import inir.modules.common.widgets
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 ColumnLayout {
     id: root
@@ -157,7 +158,7 @@ ColumnLayout {
             id: label
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
-            text: dial.caption
+            text: I18n.tr(dial.caption)
             color: IrisStyle.textSecondary
             font.pixelSize: IrisStyle.typeFootnote
             font.weight: IrisStyle.weight(Font.Medium)

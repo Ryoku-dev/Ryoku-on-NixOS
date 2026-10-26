@@ -4,6 +4,7 @@ import QtQuick
 import inir.modules.common
 import inir.modules.common.widgets
 import inir.modules.common.functions
+import Ryoku.Ui.Singletons
 
 Item {
     id: root
@@ -55,7 +56,7 @@ Item {
                         contentItem: StyledText {
                             id: _boolLabel
                             anchors.centerIn: parent
-                            text: keyDelegate.label
+                            text: I18n.tr(keyDelegate.label)
                             color: boolButton.toggled ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colOnLayer2
                             font.pixelSize: Appearance.font.pixelSize.small
                         }
@@ -65,7 +66,7 @@ Item {
                     StyledText {
                         visible: keyDelegate.cfgType !== "bool"
                         anchors.verticalCenter: parent.verticalCenter
-                        text: keyDelegate.label
+                        text: I18n.tr(keyDelegate.label)
                         color: Appearance.colors.colOnLayer2
                         font.pixelSize: Appearance.font.pixelSize.small
                     }

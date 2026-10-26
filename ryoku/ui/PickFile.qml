@@ -94,9 +94,9 @@ Item {
             onAct: fp.canceled()
         }
 
-        Row {
+        Flow {
             id: fpNav
-            anchors { left: parent.left; top: fpTitle.bottom; leftMargin: Tokens.s5; topMargin: Tokens.s5 }
+            anchors { left: parent.left; right: parent.right; top: fpTitle.bottom; leftMargin: Tokens.s5; rightMargin: Tokens.s5; topMargin: Tokens.s5 }
             spacing: Tokens.s2
             Btn { text: I18n.tr("UP"); onAct: fp.currentFolder = fm.parentFolder }
             Btn { text: I18n.tr("HOME"); onAct: fp.goHome("") }

@@ -1178,10 +1178,11 @@ QSGNode *CardField::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
 {
     auto *node = static_cast<CardRenderNode *>(old);
     if (!node) {
-        node = new CardRenderNode(window());
+        node = new CardRenderNode(window(), m_source ? m_source->cardCount() : 0);
         m_nearTile = node->nearTileSize();
         m_decoder->setTileSizes(m_nearTile, QSize(256, 160));
     }
+    node->reserveCards(m_source ? m_source->cardCount() : 0);
     node->beginFrame();
     for (const QString &key : m_updatedTextureKeys) {
         m_decoder->invalidate(key);

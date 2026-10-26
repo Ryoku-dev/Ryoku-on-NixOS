@@ -679,14 +679,14 @@ func TestControlsGeometrySettings(t *testing.T) {
 	if got := frameNum(t, s.frameLocked(), "controls.edgeGap"); got != 12 {
 		t.Fatalf("controls.edgeGap default = %v, want 12", got)
 	}
-	if err := s.patch("controls.position", rm(`"top-right"`)); err != nil {
+	if err := s.patch("controls.position", rm(`"top-center"`)); err != nil {
 		t.Fatalf("patch controls position: %v", err)
 	}
 	if err := s.patch("controls.edgeGap", rm(`0`)); err != nil {
 		t.Fatalf("patch controls edge gap: %v", err)
 	}
-	if got := frameGet(t, s.frameLocked(), "controls.position"); got != "top-right" {
-		t.Fatalf("controls.position = %v, want top-right", got)
+	if got := frameGet(t, s.frameLocked(), "controls.position"); got != "top-center" {
+		t.Fatalf("controls.position = %v, want top-center", got)
 	}
 	if got := frameNum(t, s.frameLocked(), "controls.edgeGap"); got != 0 {
 		t.Fatalf("controls.edgeGap = %v, want 0", got)

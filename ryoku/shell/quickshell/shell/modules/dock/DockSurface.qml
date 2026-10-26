@@ -55,9 +55,8 @@ PanelWindow {
     visible: Dock.cfg("enabled", false)
     // `screen` is PanelWindow's own property, set per monitor from shell.qml.
     WlrLayershell.namespace: "ryoku-dock"
-    // The editing desktop lifts to Top; the dock rides Overlay so its strip
-    // stays clickable (the chrome's own mask never covers the dock's edge).
-    WlrLayershell.layer: stageEditing ? WlrLayer.Overlay : WlrLayer.Bottom
+    // Staying on one layer avoids remapping the dock when the editor opens.
+    WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: ExclusionMode.Normal
     // A pinned (non-autohide) dock reserves its depth; an autohiding one floats
     // over the desktop and reserves nothing.
@@ -81,9 +80,7 @@ PanelWindow {
         // The editor is showing this dock's settings page: it holds open.
         if (dock.stageEditing)
             return true;
-        // A dock that is deliberately pinned stays put. Fullscreen suppression
-        // only belongs to auto-hide; otherwise stale compositor fullscreen state
-        // can slide the band away while its exclusive zone still reserves space.
+        // Suppress only auto-hide docks; stale fullscreen state would hide pinned docks.
         if (dock.autohide && dock.monFullscreen)
             return dock.pointerInside;
         return !dock.autohide

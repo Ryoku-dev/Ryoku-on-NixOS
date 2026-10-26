@@ -22,14 +22,14 @@ SettingCard {
         if (value === "parallax")
             return I18n.tr("Let cut-out layers drift over an inpainted wallpaper backdrop.");
         if (value === "spatial")
-            return I18n.tr("Turn the wallpaper into a 3D scene with a depth map.");
+            return I18n.tr("Use a depth map to draw the wallpaper as a 3D scene.");
         return I18n.tr("Draw the wallpaper and desktop on one flat plane.");
     }
 
     SettingRow {
         width: parent.width
         label: I18n.tr("Wallpaper depth")
-        desc: I18n.tr("Choose one mode for this wallpaper")
+        desc: I18n.tr("Choose a mode here, then generate it separately")
         block: true
 
         Column {

@@ -85,18 +85,24 @@ Item {
                 id: imgA
                 anchors.fill: parent
                 source: row._thumbA
+                sourceSize: Qt.size(
+                    Math.max(1, Math.ceil(width * Screen.devicePixelRatio)),
+                    Math.max(1, Math.ceil(height * Screen.devicePixelRatio)))
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
-                cache: true
+                cache: false
                 visible: false
             }
             Image {
                 id: imgB
                 anchors.fill: parent
                 source: row._thumbB
+                sourceSize: Qt.size(
+                    Math.max(1, Math.ceil(width * Screen.devicePixelRatio)),
+                    Math.max(1, Math.ceil(height * Screen.devicePixelRatio)))
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
-                cache: true
+                cache: false
                 visible: false
             }
 

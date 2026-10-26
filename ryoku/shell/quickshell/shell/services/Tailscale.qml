@@ -98,7 +98,7 @@ Singleton {
     }
 
     function openAdmin() {
-        Spawn.run(["xdg-open", "https://login.tailscale.com/admin/machines"]);
+        Spawn.runApp(["xdg-open", "https://login.tailscale.com/admin/machines"], { label: "browser" });
     }
 
     function run(command, tag) {

@@ -22,7 +22,6 @@ func (a *App) Session(args []string) int {
 	// These first steps deliberately continue after failure. The session's
 	// original shell chain only gated portal restart on power cutover.
 	_ = a.run("dbus-update-activation-environment", "--systemd", "--all")
-	_ = a.run("systemctl", "--user", "daemon-reload")
 	_ = a.run("ryoku-reload-cover", "begin", "boot")
 	if result := a.run("ryoku-power-cutover", "session-start-logged"); result.Code != 0 {
 		return ExitFailure

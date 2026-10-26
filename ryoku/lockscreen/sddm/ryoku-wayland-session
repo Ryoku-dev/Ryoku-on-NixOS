@@ -9,10 +9,10 @@
 # ("[libseat] Could not take device: Device or resource busy" on /dev/dri/cardN)
 # when the session compositor probes KMS. Aquamarine drops that GPU -- often the
 # iGPU the panels hang off -- and falls back to a headless dGPU: a black screen
-# (issue #174). weston releases its DRM master when its process exits, so waiting
-# for it to be gone before the compositor enumerates cards fixes the handover.
-# Bounded so login never hangs; a plain no-op when no weston is running (a
-# desktop with no hybrid race, or the greeter already gone).
+# (issue #174). Weston releases its DRM master when its process exits; logind
+# also revokes the greeter's device access as soon as the user session becomes
+# foreground. Wait only while neither handoff has happened. The deadline keeps
+# a broken greeter from hanging login.
 set -u
 
 # environment.d is loaded by the user manager, not by the compositor process
@@ -54,6 +54,14 @@ connected_panel_vendor() {
     return 0
   done
   return 1
+}
+session_is_foreground() {
+  local sid="${XDG_SESSION_ID:-}" active=""
+  [[ $sid =~ ^[A-Za-z0-9_.-]+$ ]] || return 1
+  command -v loginctl >/dev/null 2>&1 || return 1
+  active="$(loginctl show-session "$sid" -p Active --value 2>/dev/null)" ||
+    return 1
+  [[ $active == yes ]]
 }
 
 apply_panel_gpu_environment() {
@@ -135,14 +143,20 @@ warn_nvidia_driver_mismatch
 deadline="${RYOKU_SESSION_SETTLE_DEADLINE:-8}"
 start=$SECONDS
 waited=0
+foreground=0
 while pgrep -x weston >/dev/null 2>&1; do
+  if session_is_foreground; then
+    foreground=1
+    break
+  fi
   (( SECONDS - start >= deadline )) && break
   sleep 0.1
   waited=1
 done
-# The DRM master is dropped as weston's fds close on exit; give the kernel a beat
-# to publish that before the compositor enumerates cards.
-(( waited )) && sleep 0.3
+# When Weston exited, give the kernel a beat to publish the DRM-master drop
+# before the compositor enumerates cards. A foreground transition already
+# revoked the greeter's device access and needs no extra settle delay.
+(( waited && ! foreground )) && sleep 0.3
 
 # SDDM discards a Wayland session's stdout but sends stderr to the configured
 # session log. Keep compositor diagnostics together there.

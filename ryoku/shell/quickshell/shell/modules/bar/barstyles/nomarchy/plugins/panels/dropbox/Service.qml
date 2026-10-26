@@ -2,6 +2,7 @@ import QtQuick 6.11
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import Ryoku.Ui.Singletons
 import "Model.js" as Model
 
 Item {
@@ -128,7 +129,7 @@ Item {
 
   function openFile(file) {
     if (!file || !file.path) return
-    Quickshell.execDetached(["uwsm-app", "--", "nautilus", "--select", fileUri(String(file.path))])
+    Spawn.runApp(["nautilus", "--select", fileUri(String(file.path))], { label: "nautilus" })
   }
 
   function fileUri(path) {
@@ -142,7 +143,7 @@ Item {
     var match = String(text || "").match(/https?:\/\/\S+/)
     if (match && match[0]) {
       _loginUrlOpened = true
-      Qt.openUrlExternally(match[0])
+      Spawn.runApp(["xdg-open", match[0]], { label: "browser" })
       actionStatus = "Opened Dropbox login"
       actionStatusTimer.restart()
       return true

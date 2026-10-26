@@ -39,6 +39,11 @@ func (d *daemon) applyWallpaperReasonRecord(reason, wpType, path, mode string, o
 	if !wantedAll && len(outputs) == 0 {
 		return nil
 	}
+	if record {
+		d.previewMu.Lock()
+		defer d.previewMu.Unlock()
+		d.preview = nil
+	}
 	if pickOnly {
 		if !record {
 			return nil
@@ -103,10 +108,18 @@ func (d *daemon) applyWallpaperReasonRecord(reason, wpType, path, mode string, o
 		clipFrame := videoClip{path: clip, mute: clipAudio.mute, volume: clipAudio.volume}
 		d.beginPaint(outputs, path)
 		if len(outputs) == 0 || contains(outputs, "*") {
-			d.surface.show(paint, fit, d.transitionFor(mode), false, true, clipFrame)
+			if reason == "preview" {
+				d.surface.showPreview(paint, fit, d.transitionFor(mode), false, true, clipFrame)
+			} else {
+				d.surface.show(paint, fit, d.transitionFor(mode), false, true, clipFrame)
+			}
 		} else {
 			for _, out := range outputs {
-				d.surface.showOutput(out, paint, fit, d.transitionFor(mode), false, true, clipFrame)
+				if reason == "preview" {
+					d.surface.showOutputPreview(out, paint, fit, d.transitionFor(mode), false, true, clipFrame)
+				} else {
+					d.surface.showOutput(out, paint, fit, d.transitionFor(mode), false, true, clipFrame)
+				}
 			}
 		}
 		d.setCurrent(name)
@@ -137,10 +150,18 @@ func (d *daemon) applyWallpaperReasonRecord(reason, wpType, path, mode string, o
 	}
 	token := d.beginPaint(outputs, path)
 	if len(outputs) == 0 || contains(outputs, "*") {
-		d.surface.show(paint, fit, tr, frameLive, live, videoClip{})
+		if reason == "preview" {
+			d.surface.showPreview(paint, fit, tr, frameLive, live, videoClip{})
+		} else {
+			d.surface.show(paint, fit, tr, frameLive, live, videoClip{})
+		}
 	} else {
 		for _, out := range outputs {
-			d.surface.showOutput(out, paint, fit, tr, frameLive, live, videoClip{})
+			if reason == "preview" {
+				d.surface.showOutputPreview(out, paint, fit, tr, frameLive, live, videoClip{})
+			} else {
+				d.surface.showOutput(out, paint, fit, tr, frameLive, live, videoClip{})
+			}
 		}
 	}
 	if live {
@@ -780,7 +801,7 @@ func (d *daemon) deleteWallpaper(key string) error {
 	return nil
 }
 
-// marshalable sanity check for events carrying Entry values.
+// marshalable quick check for events carrying Entry values.
 var _ = json.Marshal
 
 type paintToken map[string]int64

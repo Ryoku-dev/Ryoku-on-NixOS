@@ -15,7 +15,7 @@ import inir.modules.iris.pieces
 Item {
     id: root
 
-    property int workspaceId: -1
+    property string workspaceId: ""
     property var windows: []
     property string outputName: ""
     property bool active: false
@@ -26,13 +26,13 @@ Item {
     // Show every column, narrowed together to fit, instead of sliding a strip wider than this item.
     property bool fit: false
     // The tile the keyboard is on, ringed in the accent (the focused window is tinted).
-    property int cursorWindowId: -1
+    property string cursorWindowId: ""
     readonly property real d: IrisStyle.density
     readonly property real outputWidth: Math.max(1, Number(WorkspaceService.outputs?.[root.outputName]?.logical?.width ?? 1920))
     readonly property real unit: root.width / root.outputWidth
     readonly property real gap: Math.round(4 * root.d)
     // While a card holds the keyboard nothing is focused for the compositor: the workspace's last focused window stands in.
-    readonly property int lastFocusedId: root.active ? Number(WorkspaceService.workspaces?.[root.workspaceId]?.active_window_id ?? -1) : -1
+    readonly property string lastFocusedId: root.active ? String(WorkspaceService.workspaces?.[root.workspaceId]?.active_window_id ?? "") : ""
 
     readonly property var windowMap: {
         const map = {}
@@ -102,8 +102,8 @@ Item {
         return Math.max(0, Math.min(root.total - root.width, focus.x + focus.w - root.width))
     }
 
-    signal windowActivated(int windowId)
-    signal windowMiddleClicked(int windowId)
+    signal windowActivated(string windowId)
+    signal windowMiddleClicked(string windowId)
 
     clip: true
 

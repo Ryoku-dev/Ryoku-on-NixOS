@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Widgets
+import Ryoku.Ui.Singletons
 import stage.services
 import "./widgets"
 import "."
@@ -51,9 +52,9 @@ DockContextMenuBase {
 
     onActionTriggered: actionId => {
         if (actionId === "open")
-            Qt.openUrlExternally("file://" + root.filePath)
+            Spawn.runApp(["xdg-open", "file://" + root.filePath], { label: "file" })
         else if (actionId === "openContaining")
-            Qt.openUrlExternally("file://" + root.containingDir)
+            Spawn.runApp(["xdg-open", "file://" + root.containingDir], { label: "folder" })
         else if (actionId === "remove")
             TaskbarApps.removePinnedFile(root.filePath)
         root.close()

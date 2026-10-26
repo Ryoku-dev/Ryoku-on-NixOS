@@ -185,7 +185,8 @@ Singleton {
 
     function normalizedPosition(value) {
         const candidate = String(value ?? "");
-        return candidate === "top-right" || candidate === "center" ? candidate : "top-left";
+        return candidate === "top-center" || candidate === "top-right" || candidate === "center"
+            ? candidate : "top-left";
     }
 
     function normalizedEdgeGap(value) {

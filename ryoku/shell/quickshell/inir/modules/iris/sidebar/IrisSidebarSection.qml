@@ -110,7 +110,7 @@ Loader {
                 }
                 IrisText {
                     visible: text.length > 0
-                    text: section.detail
+                    text: RyokuUi.I18n.tr(section.detail)
                     color: IrisStyle.secondaryOf(section.ink)
                     font.family: IrisStyle.fontNumbers
                     font.pixelSize: IrisStyle.typeMeta
@@ -886,7 +886,7 @@ Loader {
                         model: eventSheet.reminders
                         IrisButton {
                             required property var modelData
-                            text: modelData.label
+                            text: RyokuUi.I18n.tr(modelData.label)
                             selected: eventSheet.reminder === modelData.minutes
                             quiet: !selected
                             implicitHeight: Math.round(28 * root.d)
@@ -946,7 +946,7 @@ Loader {
             summary: IrisText {
                 Layout.fillWidth: true
                 text: !Weather.enabled ? Translation.tr("Weather is off")
-                    : weather.hasData ? Weather.data.description + "  ·  " + Translation.tr("Feels like %1").arg(Weather.data.tempFeelsLike)
+                    : weather.hasData ? RyokuUi.I18n.tr(Weather.data.description) + "  ·  " + Translation.tr("Feels like %1").arg(Weather.data.tempFeelsLike)
                     : Translation.tr("Fetching your forecast…")
                 color: IrisStyle.strongOf(weather.ink)
                 font.pixelSize: IrisStyle.typeLabel
@@ -959,7 +959,7 @@ Loader {
                     Layout.fillWidth: true
                     spacing: 0
                     IrisText { text: Weather.data.temp; color: IrisStyle.text; font.family: IrisStyle.fontNumbers; font.pixelSize: 44 * IrisStyle.typeScale; font.weight: IrisStyle.weight(Font.Light) }
-                    IrisText { Layout.fillWidth: true; text: Weather.data.description; color: IrisStyle.textSecondary; font.pixelSize: IrisStyle.typeLabel; wrapMode: Text.WordWrap }
+                    IrisText { Layout.fillWidth: true; text: RyokuUi.I18n.tr(Weather.data.description); color: IrisStyle.textSecondary; font.pixelSize: IrisStyle.typeLabel; wrapMode: Text.WordWrap }
                 }
                 MaterialSymbol { text: Icons.getWeatherIcon(Weather.data.wCode, Weather.isNightNow()) ?? "cloud"; fill: 1; iconSize: 46 * root.d; color: weather.night ? IrisStyle.identity.lavender : IrisStyle.secondaryAccent }
             }
@@ -1268,7 +1268,7 @@ Loader {
                                 font.weight: IrisStyle.weight(Font.Bold)
                             }
                         }
-                        IrisText { Layout.alignment: Qt.AlignHCenter; text: gauge.modelData.label; color: IrisStyle.muted; font.pixelSize: IrisStyle.typeFootnote }
+                        IrisText { Layout.alignment: Qt.AlignHCenter; text: RyokuUi.I18n.tr(gauge.modelData.label); color: IrisStyle.muted; font.pixelSize: IrisStyle.typeFootnote }
                     }
                 }
             }

@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import QtQuick.Effects
 import Quickshell
+import Ryoku.Ui.Singletons
 import "../../"
 import "../../reusables"
 import "../"
@@ -35,7 +36,7 @@ Notification {
         if (p !== "" && (p.startsWith("/") || p.startsWith("file://"))) {
             let filePath = p.startsWith("file://") ? p.replace("file://", "") : p;
             let folderPath = filePath.substring(0, filePath.lastIndexOf('/'));
-            Quickshell.execDetached(["xdg-open", folderPath]);
+            Spawn.runApp(["xdg-open", folderPath], { label: "folder" });
         } else {
             var n = delegateWrapper ? delegateWrapper.realNotif : null;
             if (n && n.actions) {

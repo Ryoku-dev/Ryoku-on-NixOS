@@ -4,9 +4,6 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Global Stage settings on ~/.config/ryoku/stage.json (docs/stage.md). The
-// daemon migrates older files before the shell starts; this adapter owns the v3
-// shape and seeds the same defaults for a new account.
 Singleton {
     id: root
 

@@ -11,16 +11,11 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-// writeStageStub installs a fake ryostage engine (via RYOKU_STAGE_ENGINE) that
-// records every invocation and, for cut/inpaint, writes the requested output.
-// Behaviour is steered per-test through STAGE_STUB_* env vars the daemon
-// inherits when it spawns the child. Returns the call-log path.
 func writeStageStub(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -29,6 +24,15 @@ func writeStageStub(t *testing.T) string {
 	const script = `#!/usr/bin/env bash
 echo "$*" >> "$STAGE_STUB_LOG"
 cmd="${1:-}"; shift || true
+if [[ -n "${STAGE_STUB_IGNORE_TERM:-}" ]]; then trap '' TERM; fi
+if [[ -n "${STAGE_STUB_SLEEP:-}" ]] &&
+   [[ -z "${STAGE_STUB_SLEEP_CMD:-}" || "${STAGE_STUB_SLEEP_CMD}" == "$cmd" ]]; then
+  sleep "$STAGE_STUB_SLEEP" || true
+fi
+if [[ -n "${STAGE_STUB_FAIL_CMD:-}" && "${STAGE_STUB_FAIL_CMD}" == "$cmd" ]]; then
+  echo "${STAGE_STUB_FAIL_LINE:-engine failed}" >&2
+  exit 1
+fi
 case "$cmd" in
   check)
     if [[ -n "${STAGE_STUB_MISSING:-}" ]]; then echo "${STAGE_STUB_CHECK_REASON:-missing}"; exit 1; fi
@@ -37,16 +41,15 @@ case "$cmd" in
     echo '[{"id":"u2netp","tier":"draft","label":"Draft","installed":true}]'; exit 0 ;;
   cut)
     out="$2"
-    if [[ -n "${STAGE_STUB_SLEEP:-}" ]]; then sleep "$STAGE_STUB_SLEEP"; fi
-    if [[ -n "${STAGE_STUB_CUT_FAIL:-}" ]]; then echo "cut failed" >&2; exit 1; fi
+    if [[ -n "${STAGE_STUB_CUT_FAIL:-}" ]]; then echo "${STAGE_STUB_FAIL_LINE:-cut failed}" >&2; exit 1; fi
     mkdir -p "$(dirname "$out")"; printf 'SUBJECTPNG' > "$out"; echo "$out"; exit 0 ;;
   inpaint)
     out="$3"
-    if [[ -n "${STAGE_STUB_INPAINT_FAIL:-}" ]]; then echo "inpaint failed" >&2; exit 1; fi
+    if [[ -n "${STAGE_STUB_INPAINT_FAIL:-}" ]]; then echo "${STAGE_STUB_FAIL_LINE:-inpaint failed}" >&2; exit 1; fi
     mkdir -p "$(dirname "$out")"; printf 'BGPNG' > "$out"; echo "$out"; exit 0 ;;
   depth-check)
-    if [[ -n "${STAGE_STUB_DEPTH:-}" ]]; then echo '{"installed":true}'; exit 0; fi
-    exit 1 ;;
+    if [[ -n "${STAGE_STUB_DEPTH:-}" ]]; then echo available; exit 0; fi
+    echo "model missing"; exit 1 ;;
   depth)
     out="$2"
     mkdir -p "$(dirname "$out")"; printf 'DEPTHPNG' > "$out"; echo "$out"; exit 0 ;;
@@ -96,9 +99,6 @@ func (d *daemon) showWall(pic string) {
 	d.ryoWallMu.Unlock()
 }
 
-// TestStageWallsRoundTrip pins the v3 registry contract: a saved registry loads
-// back identically, including its version, effect and layer flags. Corrupt input
-// still loads with a non-nil map.
 func TestStageWallsRoundTrip(t *testing.T) {
 	home := stageHome(t)
 	wall := filepath.Join(home, "w.png")
@@ -151,88 +151,46 @@ func TestStageWallsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestStageSwitchReusesWithoutGenerating pins the core rule: a wallpaper switch
-// (a plain reconcile, neither force nor gen) reuses an existing cut instantly
-// and never runs the engine -- not even the availability probe.
-func TestStageSwitchReusesWithoutGenerating(t *testing.T) {
+func TestStageSetEffectAndRyogamiWakeAreManualOnly(t *testing.T) {
 	home := stageHome(t)
-	logf := writeStageStub(t)
-	cfg := filepath.Join(home, ".config", "ryoku")
-	if err := os.MkdirAll(cfg, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(cfg, "stage.json"),
-		`{"version":3,"parallax":{"depthBackdrop":false}}`)
-
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
-	subj := stageSubjectOut(wall)
-	bg := stageBackgroundOut(wall)
-	if err := os.MkdirAll(filepath.Dir(subj), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, subj, "SUBJECT")
-	writeFile(t, bg, "BACKGROUND")
-	newer := time.Now().Add(time.Hour)
-	for _, p := range []string{subj, bg} {
-		if err := os.Chtimes(p, newer, newer); err != nil {
-			t.Fatal(err)
-		}
-	}
-	reg := stageWalls{Walls: map[string]stageWall{wall: {Effect: stageEffectParallax}}}
-	if err := saveStageWalls(reg); err != nil {
-		t.Fatal(err)
-	}
-
-	d := &daemon{}
-	d.showWall(wall)
-	d.reconcileStage(false, false)
-
-	if got := countCalls(logf, "cut") + countCalls(logf, "inpaint") + countCalls(logf, "check"); got != 0 {
-		t.Fatalf("a switch made %d engine calls, want 0", got)
-	}
-	frame := d.buildStageFrame()
-	if frame.Walls[wall].Subject != subj {
-		t.Fatalf("reused subject not in frame: %+v", frame.Walls[wall])
-	}
-}
-
-// TestStageSetEffectDepth pins the static cut-out: Depth cuts the subject only,
-// publishes the still layer stack, and never inpaints or builds a depth map.
-func TestStageSetEffectDepth(t *testing.T) {
-	home := stageHome(t)
-	logf := writeStageStub(t)
-
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
+	logFile := writeStageStub(t)
+	wall := filepath.Join(home, "wall.png")
+	writeFile(t, wall, "wall")
 	d := &daemon{stageSig: make(chan struct{}, 1)}
 	d.showWall(wall)
 
-	d.stageSetEffect(stageEffectDepth)
-	d.reconcileStage(d.stageForce.Swap(false), d.stageGen.Swap(false))
+	if got := d.dispatch("stage set-effect parallax"); got != "ok" {
+		t.Fatalf("set-effect = %q", got)
+	}
+	d.reconcileStage()
+	select {
+	case <-d.stageSig:
+	default:
+	}
+	d.consumeRyogamiFrames(strings.NewReader(
+		fmt.Sprintf("{\"default\":{\"path\":%q},\"outputs\":{}}\n", wall)))
+	select {
+	case <-d.stageSig:
+	default:
+		t.Fatal("ryogami frame did not wake the publish worker")
+	}
+	d.reconcileStage()
 
-	if n := countCalls(logf, "cut"); n != 1 {
-		t.Fatalf("the depth enable ran %d cuts, want 1", n)
+	if calls := countCalls(logFile, "check") + countCalls(logFile, "cut") +
+		countCalls(logFile, "inpaint") + countCalls(logFile, "depth"); calls != 0 {
+		t.Fatalf("set-effect or ryogami wake made %d engine calls", calls)
 	}
-	if n := countCalls(logf, "inpaint") + countCalls(logf, "depth"); n != 0 {
-		t.Fatalf("the depth enable ran %d backdrop calls, want 0", n)
+	frame := d.buildStageFrame()
+	if frame.Job != nil || frame.Busy {
+		t.Fatalf("publish-only wake created a job: %+v", frame.Job)
 	}
-	subj := stageSubjectOut(wall)
-	if !isFile(subj) {
-		t.Fatal("the depth enable did not produce subject.png")
-	}
-	wf := d.buildStageFrame().Walls[wall]
-	if wf.Effect != stageEffectDepth || wf.Subject != subj || len(wf.Layers) == 0 {
-		t.Fatalf("frame did not publish the static depth cut: %+v", wf)
-	}
-	if wf.Background != "" || wf.Depth != "" {
-		t.Fatalf("static depth published a backdrop or map: %+v", wf)
+	if got := stageStepStateFor(frame.Walls[wall].Steps, stageStepCut); got != stageStateMissing {
+		t.Fatalf("cut readiness = %q, want missing", got)
 	}
 }
 
 func TestStageDepthPublishesRyogamiPixelLock(t *testing.T) {
 	home := stageHome(t)
-	writeStageStub(t)
 	listener, err := net.Listen("unix", ryogamiSock())
 	if err != nil {
 		t.Fatal(err)
@@ -252,11 +210,19 @@ func TestStageDepthPublishesRyogamiPixelLock(t *testing.T) {
 	}()
 
 	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
+	writeFile(t, wall, "wall")
+	if err := os.MkdirAll(stageWallDir(wall), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, stageSubjectOut(wall), "subject")
+	future := time.Now().Add(time.Minute)
+	if err := os.Chtimes(stageSubjectOut(wall), future, future); err != nil {
+		t.Fatal(err)
+	}
 	d := &daemon{stageSig: make(chan struct{}, 1)}
 	d.showWall(wall)
-	d.stageSetEffect(stageEffectDepth)
-	d.reconcileStage(d.stageForce.Swap(false), d.stageGen.Swap(false))
+	d.stageSetEffect(wall, stageEffectDepth)
+	d.reconcileStage()
 
 	var line string
 	select {
@@ -267,516 +233,80 @@ func TestStageDepthPublishesRyogamiPixelLock(t *testing.T) {
 	if !strings.HasPrefix(line, "depth set ") {
 		t.Fatalf("ryogami command = %q, want depth set", line)
 	}
-	var req struct {
+	var request struct {
 		Source string `json:"source"`
 		Out    string `json:"out"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "depth set ")), &req); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "depth set ")), &request); err != nil {
 		t.Fatal(err)
 	}
-	if req.Source != wall || req.Out != stageSubjectOut(wall) {
-		t.Fatalf("pixel-lock handoff = %+v", req)
+	if request.Source != wall || request.Out != stageSubjectOut(wall) {
+		t.Fatalf("pixel-lock handoff = %+v", request)
 	}
 }
 
-// TestStageSetEffectParallax pins the parallax enable: it runs a cut then an
-// inpaint and publishes both the subject and the recoloured background.
-func TestStageSetEffectParallax(t *testing.T) {
+func TestStageSetEffectValidationAndWallScope(t *testing.T) {
 	home := stageHome(t)
-	logf := writeStageStub(t)
-	cfg := filepath.Join(home, ".config", "ryoku")
-	if err := os.MkdirAll(cfg, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(cfg, "stage.json"),
-		`{"version":3,"parallax":{"depthBackdrop":false}}`)
-
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
+	defaultWall := filepath.Join(home, "default.png")
+	outputWall := filepath.Join(home, "output wall.png")
+	writeFile(t, defaultWall, "default")
+	writeFile(t, outputWall, "output")
 	d := &daemon{stageSig: make(chan struct{}, 1)}
-	d.showWall(wall)
+	d.showWall(defaultWall)
 
-	d.stageSetEffect(stageEffectParallax)
-	d.reconcileStage(d.stageForce.Swap(false), d.stageGen.Swap(false))
-
-	if n := countCalls(logf, "cut"); n != 1 {
-		t.Fatalf("cut called %d times, want 1", n)
+	if got := d.dispatch("stage set-effect spatial -- " + outputWall); got != "ok" {
+		t.Fatalf("scoped set-effect = %q", got)
 	}
-	if n := countCalls(logf, "inpaint"); n != 1 {
-		t.Fatalf("inpaint called %d times, want 1", n)
+	registry := loadStageWalls()
+	if got := registry.Walls[outputWall].Effect; got != stageEffectSpatial {
+		t.Fatalf("output effect = %q, want spatial", got)
 	}
-	subj := stageSubjectOut(wall)
-	bg := stageBackgroundOut(wall)
-	if !isFile(subj) || !isFile(bg) {
-		t.Fatalf("subject=%v background=%v, want both", isFile(subj), isFile(bg))
-	}
-	w := d.buildStageFrame().Walls[wall]
-	if w.Effect != stageEffectParallax || w.Subject != subj || w.Background != bg {
-		t.Fatalf("frame did not publish parallax artifacts: %+v", w)
-	}
-}
-
-func TestStageParallaxDepthBackdropGeneration(t *testing.T) {
-	for _, enabled := range []bool{true, false} {
-		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
-			home := stageHome(t)
-			logf := writeStageStub(t)
-			t.Setenv("STAGE_STUB_DEPTH", "1")
-			cfg := filepath.Join(home, ".config", "ryoku")
-			if err := os.MkdirAll(cfg, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			writeFile(t, filepath.Join(cfg, "stage.json"),
-				fmt.Sprintf(`{"version":3,"parallax":{"depthBackdrop":%t},`+
-					`"spatial":{"model":"small"}}`, enabled))
-			wall := filepath.Join(home, "w.png")
-			writeFile(t, wall, "wp")
-			d := &daemon{stageSig: make(chan struct{}, 1)}
-			d.showWall(wall)
-
-			d.stageSetEffect(stageEffectParallax)
-			d.reconcileStage(d.stageForce.Swap(false), d.stageGen.Swap(false))
-
-			want := 0
-			if enabled {
-				want = 1
-			}
-			if got := countCalls(logf, "depth"); got != want {
-				t.Fatalf("depthBackdrop %v generated %d maps, want %d", enabled, got, want)
-			}
-			if isFile(stageDepthOut(wall)) != enabled {
-				t.Fatalf("depthBackdrop %v left map=%v", enabled, isFile(stageDepthOut(wall)))
-			}
-		})
-	}
-}
-
-func TestStageSetEffectSpatial(t *testing.T) {
-	home := stageHome(t)
-	logf := writeStageStub(t)
-	t.Setenv("STAGE_STUB_DEPTH", "1")
-	cfg := filepath.Join(home, ".config", "ryoku")
-	if err := os.MkdirAll(cfg, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(cfg, "stage.json"),
-		`{"version":3,"spatial":{"model":"base"}}`)
-
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
-	d := &daemon{stageSig: make(chan struct{}, 1)}
-	d.showWall(wall)
-
-	d.stageSetEffect(stageEffectSpatial)
-	d.reconcileStage(d.stageForce.Swap(false), d.stageGen.Swap(false))
-
-	if n := countCalls(logf, "depth"); n != 1 {
-		t.Fatalf("Spatial generated %d depth maps, want 1", n)
-	}
-	if n := countCalls(logf, "cut") + countCalls(logf, "inpaint"); n != 0 {
-		t.Fatalf("Spatial ran %d cut calls, want 0", n)
-	}
-	calls, err := os.ReadFile(logf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(calls), "depth-check --json --model base") ||
-		!strings.Contains(string(calls), "depth "+wall+" "+stageDepthOut(wall)+" --model base") {
-		t.Fatalf("Spatial did not probe and run its selected model: %s", calls)
-	}
-	wf := d.buildStageFrame().Walls[wall]
-	if wf.Effect != stageEffectSpatial || wf.Depth != stageDepthOut(wall) {
-		t.Fatalf("Spatial frame did not publish its depth map: %+v", wf)
-	}
-	if wf.Subject != "" || wf.Background != "" || len(wf.Layers) != 0 {
-		t.Fatalf("Spatial frame published cut artifacts: %+v", wf)
-	}
-}
-
-func TestStageFramePerEffect(t *testing.T) {
-	home := stageHome(t)
-	wall := filepath.Join(home, "wall.png")
-	if err := os.MkdirAll(stageWallDir(wall), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, wall, "WALL")
-	for path, body := range map[string]string{
-		stageSubjectOut(wall):                             "SUBJECT",
-		stageBackgroundOut(wall):                          "BACKGROUND",
-		stageDepthOut(wall):                               "DEPTH",
-		filepath.Join(stageWallDir(wall), "layer-01.png"): "LAYER",
-	} {
-		writeFile(t, path, body)
-	}
-	d := &daemon{}
-	d.showWall(wall)
-	reg := stageWalls{Walls: map[string]stageWall{}}
-
-	check := func(effect stageEffect) stageWallFrame {
-		entry := reg.Walls[wall]
-		entry.Effect = effect
-		reg.Walls[wall] = entry
-		if err := saveStageWalls(reg); err != nil {
-			t.Fatal(err)
-		}
-		return d.buildStageFrame().Walls[wall]
-	}
-	off := check(stageEffectOff)
-	if off.Subject != "" || off.Background != "" || off.Depth != "" || len(off.Layers) != 0 {
-		t.Fatalf("Plain frame published artifacts: %+v", off)
-	}
-	depth := check(stageEffectDepth)
-	if depth.Subject == "" || len(depth.Layers) == 0 || depth.Background != "" || depth.Depth != "" {
-		t.Fatalf("Depth frame = %+v", depth)
-	}
-	parallax := check(stageEffectParallax)
-	if parallax.Subject == "" || parallax.Background == "" || parallax.Depth == "" || len(parallax.Layers) == 0 {
-		t.Fatalf("Parallax frame = %+v", parallax)
-	}
-	spatial := check(stageEffectSpatial)
-	if spatial.Depth == "" || spatial.Subject != "" || spatial.Background != "" || len(spatial.Layers) != 0 {
-		t.Fatalf("Spatial frame = %+v", spatial)
-	}
-
-	cfg := filepath.Join(home, ".config", "ryoku")
-	if err := os.MkdirAll(cfg, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(cfg, "stage.json"),
-		`{"version":3,"parallax":{"depthBackdrop":false}}`)
-	if got := check(stageEffectParallax); got.Depth != "" {
-		t.Fatalf("Parallax published a disabled depth backdrop: %+v", got)
-	}
-}
-
-func TestStageSetEffectValidation(t *testing.T) {
-	home := stageHome(t)
-	wall := filepath.Join(home, "wall.png")
-	writeFile(t, wall, "WALL")
-	d := &daemon{stageSig: make(chan struct{}, 1)}
-	d.showWall(wall)
-
-	if got := d.dispatch("stage set-effect spatial"); got != "ok" {
-		t.Fatalf("set-effect spatial = %q, want ok", got)
-	}
-	if got := loadStageWalls().Walls[wall].Effect; got != stageEffectSpatial {
-		t.Fatalf("saved effect = %q, want spatial", got)
+	if got := registry.Walls[defaultWall].Effect; got != "" {
+		t.Fatalf("default wall changed to %q", got)
 	}
 	const want = "err stage set-effect: expected off|depth|parallax|spatial"
 	if got := d.dispatch("stage set-effect junk"); got != want {
-		t.Fatalf("set-effect junk = %q, want %q", got, want)
+		t.Fatalf("invalid set-effect = %q, want %q", got, want)
 	}
 }
 
-// TestStageEffectSwitchReusesMatchingCut pins shared provenance: Depth and
-// Parallax with identical cut settings reuse one subject across switches.
-func TestStageEffectSwitchReusesMatchingCut(t *testing.T) {
+func TestStageClearKeepsManualLayersAndDepthMap(t *testing.T) {
 	home := stageHome(t)
-	logf := writeStageStub(t)
-	cfg := filepath.Join(home, ".config", "ryoku")
-	if err := os.MkdirAll(cfg, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(cfg, "stage.json"),
-		`{"version":3,"parallax":{"depthBackdrop":false}}`)
-
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
-	d := &daemon{stageSig: make(chan struct{}, 1)}
-	d.showWall(wall)
-
-	apply := func(eff stageEffect) {
-		d.stageSetEffect(eff)
-		d.reconcileStage(d.stageForce.Swap(false), d.stageGen.Swap(false))
-	}
-
-	// First Parallax use: one cut + one inpaint. Switching to Depth adds neither.
-	apply(stageEffectParallax)
-	apply(stageEffectDepth)
-	if n := countCalls(logf, "cut"); n != 1 {
-		t.Fatalf("cut ran %d times across parallax->depth, want exactly 1", n)
-	}
-	if n := countCalls(logf, "inpaint"); n != 1 {
-		t.Fatalf("inpaint ran %d times across parallax->depth, want exactly 1", n)
-	}
-
-	// depth -> parallax -> depth: the subject and backdrop already exist, so the
-	// engine runs nothing new.
-	apply(stageEffectParallax)
-	apply(stageEffectDepth)
-	if n := countCalls(logf, "cut"); n != 1 {
-		t.Fatalf("cut ran %d times after depth->parallax->depth, want still 1", n)
-	}
-	if n := countCalls(logf, "inpaint"); n != 1 {
-		t.Fatalf("inpaint ran %d times after depth->parallax->depth, want still 1", n)
-	}
-}
-
-func TestStageEffectSwitchRecutsDifferentModeSettings(t *testing.T) {
-	home := stageHome(t)
-	logf := writeStageStub(t)
-	cfg := filepath.Join(home, ".config", "ryoku")
-	if err := os.MkdirAll(cfg, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(cfg, "stage.json"), `{
-  "version": 3,
-  "depth": {"cut": {"model": "u2netp", "matting": false}},
-  "parallax": {
-    "cut": {"model": "silueta", "matting": true},
-    "depthBackdrop": false
-  }
-}`)
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
-	d := &daemon{stageSig: make(chan struct{}, 1)}
-	d.showWall(wall)
-
-	apply := func(effect stageEffect) {
-		d.stageSetEffect(effect)
-		d.reconcileStage(d.stageForce.Swap(false), d.stageGen.Swap(false))
-	}
-	apply(stageEffectDepth)
-	apply(stageEffectParallax)
-	apply(stageEffectDepth)
-
-	if n := countCalls(logf, "cut"); n != 3 {
-		t.Fatalf("different per-mode settings ran %d cuts, want 3", n)
-	}
-	b, err := os.ReadFile(logf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), "--model silueta --matting") {
-		t.Fatalf("Parallax did not use its cut provenance: %s", b)
-	}
-	idx := loadStageIndex(wall)
-	if idx.Model != "u2netp" || idx.Matting {
-		t.Fatalf("final Depth provenance = %+v, want u2netp without matting", idx)
-	}
-}
-
-// TestStagePurgedArtifactsRetryOnWake pins the ghost-entry self-heal: a wall
-// left ON whose artifacts vanished is re-cut by a plain wake (no force, no
-// gen), because the registry says the user still wants the scene.
-func TestStagePurgedArtifactsRetryOnWake(t *testing.T) {
-	home := stageHome(t)
-	logf := writeStageStub(t)
-
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
-	reg := stageWalls{Walls: map[string]stageWall{wall: {Effect: stageEffectParallax}}}
-	if err := saveStageWalls(reg); err != nil {
-		t.Fatal(err)
-	}
-
-	d := &daemon{stageSig: make(chan struct{}, 1)}
-	d.showWall(wall)
-	d.reconcileStage(false, false)
-
-	if n := countCalls(logf, "cut"); n != 1 {
-		t.Fatalf("a purged wall on a plain wake ran %d cuts, want the self-heal to run 1", n)
-	}
-	if !isFile(stageSubjectOut(wall)) {
-		t.Fatal("the self-heal did not produce a subject")
-	}
-	if f := d.buildStageFrame(); f.Notice != "" {
-		t.Fatalf("a healed cut still noticed %q, want silence", f.Notice)
-	}
-}
-
-// TestStageBlockedCutNotices pins the loud failure: when the engine cannot cut
-// (the tier's model is missing), the enable still records the effect but the
-// frame carries the helper's reason instead of dying mute, and the next good
-// reconcile clears it.
-func TestStageBlockedCutNotices(t *testing.T) {
-	home := stageHome(t)
-	logf := writeStageStub(t)
-	t.Setenv("STAGE_STUB_MISSING", "1")
-	t.Setenv("STAGE_STUB_CHECK_REASON", "model u2netp missing")
-
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
-	d := &daemon{stageSig: make(chan struct{}, 1)}
-	d.showWall(wall)
-
-	d.stageSetEffect(stageEffectParallax)
-	d.reconcileStage(d.stageForce.Swap(false), d.stageGen.Swap(false))
-
-	if n := countCalls(logf, "cut"); n != 0 {
-		t.Fatalf("an unavailable engine ran %d cuts, want 0", n)
-	}
-	f := d.buildStageFrame()
-	if f.Walls[wall].Effect != stageEffectParallax {
-		t.Fatalf("the enable did not record the effect: %+v", f.Walls[wall])
-	}
-	if f.Notice != "model u2netp missing" {
-		t.Fatalf("notice = %q, want the helper's reason", f.Notice)
-	}
-
-	// The model lands: a retry cuts, and the notice clears.
-	t.Setenv("STAGE_STUB_MISSING", "")
-	d.reconcileStage(true, false)
-	if n := countCalls(logf, "cut"); n != 1 {
-		t.Fatalf("after the model appeared, cut ran %d times, want 1", n)
-	}
-	if f := d.buildStageFrame(); f.Notice != "" {
-		t.Fatalf("notice = %q after a good reconcile, want cleared", f.Notice)
-	}
-}
-
-// TestStageProbeAsksForTheModeModel pins the model-aware guard: Parallax asks
-// for its own cut model rather than Depth's independently selected model.
-func TestStageProbeAsksForTheModeModel(t *testing.T) {
-	home := stageHome(t)
-	logf := writeStageStub(t)
-	cfg := filepath.Join(home, ".config", "ryoku")
-	if err := os.MkdirAll(cfg, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(cfg, "stage.json"),
-		`{"version":3,"depth":{"cut":{"model":"u2netp","matting":false}},`+
-			`"parallax":{"cut":{"model":"birefnet-general-lite","matting":true}}}`)
-
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
-	reg := stageWalls{Walls: map[string]stageWall{wall: {Effect: stageEffectParallax}}}
-	if err := saveStageWalls(reg); err != nil {
-		t.Fatal(err)
-	}
-
-	d := &daemon{stageSig: make(chan struct{}, 1)}
-	d.showWall(wall)
-	d.reconcileStage(false, false)
-
-	b, err := os.ReadFile(logf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), "check birefnet-general-lite") {
-		t.Fatalf("the probe did not ask for Parallax's model, calls:\n%s", b)
-	}
-	if n := countCalls(logf, "cut"); n != 1 {
-		t.Fatalf("a box with the model available ran %d cuts, want 1", n)
-	}
-}
-
-// TestStageClearTakesCutWallOff pins the clear contract: cut artifacts go, the
-// reusable depth map and manual layers stay, and a cut wall records Plain.
-func TestStageClearTakesCutWallOff(t *testing.T) {
-	home := stageHome(t)
-	logf := writeStageStub(t)
-
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
-	d := &daemon{stageSig: make(chan struct{}, 1)}
-	d.showWall(wall)
-	d.stageSetEffect(stageEffectParallax)
-	d.reconcileStage(d.stageForce.Swap(false), d.stageGen.Swap(false))
-	depth := stageDepthOut(wall)
-	manual := filepath.Join(stageWallDir(wall), "layer-01.png")
-	writeFile(t, depth, "DEPTH")
-	writeFile(t, manual, "LAYER")
-	cuts := countCalls(logf, "cut")
-
-	d.stageClear()
-	d.reconcileStage(false, false)
-
-	if isFile(stageSubjectOut(wall)) || isFile(stageBackgroundOut(wall)) || isFile(stageIndexPath(wall)) {
-		t.Fatal("clear left generated cut artifacts behind")
-	}
-	if !isFile(depth) || !isFile(manual) {
-		t.Fatal("clear removed the depth map or a manual layer")
-	}
-	if f := d.buildStageFrame(); f.Walls[wall].Effect != stageEffectOff {
-		t.Fatalf("clear left the cut wall on %+v, want off", f.Walls[wall])
-	}
-	if n := countCalls(logf, "cut"); n != cuts {
-		t.Fatalf("the wake after clear re-cut (%d cuts, was %d), want none", n, cuts)
-	}
-}
-
-func TestStageClearKeepsSpatialSelected(t *testing.T) {
-	home := stageHome(t)
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
+	wall := filepath.Join(home, "wall.png")
+	writeFile(t, wall, "wall")
 	if err := os.MkdirAll(stageWallDir(wall), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, stageSubjectOut(wall), "SUBJECT")
-	writeFile(t, stageBackgroundOut(wall), "BACKGROUND")
-	writeFile(t, stageDepthOut(wall), "DEPTH")
-	writeFile(t, stageIndexPath(wall), `{}`)
+	for path, body := range map[string]string{
+		stageSubjectOut(wall):                             "subject",
+		stageBackgroundOut(wall):                          "background",
+		stageDepthOut(wall):                               "depth",
+		stageIndexPath(wall):                              "{}",
+		filepath.Join(stageWallDir(wall), "layer-01.png"): "manual",
+	} {
+		writeFile(t, path, body)
+	}
 	if err := saveStageWalls(stageWalls{Walls: map[string]stageWall{
-		wall: {Effect: stageEffectSpatial},
+		wall: {Effect: stageEffectParallax},
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	d := &daemon{stageSig: make(chan struct{}, 1)}
-	d.showWall(wall)
+	d.stageClear(wall)
 
-	d.stageClear()
-
-	if effect := loadStageWalls().Walls[wall].Effect; effect != stageEffectSpatial {
-		t.Fatalf("clear changed Spatial to %v", effect)
-	}
-	if !isFile(stageDepthOut(wall)) {
-		t.Fatal("clear removed Spatial's depth map")
-	}
 	if isFile(stageSubjectOut(wall)) || isFile(stageBackgroundOut(wall)) || isFile(stageIndexPath(wall)) {
-		t.Fatal("clear left cut artifacts on Spatial")
+		t.Fatal("clear left generated cut artifacts")
 	}
-}
-
-// TestStageCancelSignalsChild pins cancellation: a cut in flight is killed at
-// its real child PID, so the reconcile returns and no subject is written.
-func TestStageCancelSignalsChild(t *testing.T) {
-	home := stageHome(t)
-	writeStageStub(t)
-	t.Setenv("STAGE_STUB_SLEEP", "5")
-
-	wall := filepath.Join(home, "w.png")
-	writeFile(t, wall, "wp")
-	reg := stageWalls{Walls: map[string]stageWall{wall: {Effect: stageEffectParallax}}}
-	if err := saveStageWalls(reg); err != nil {
-		t.Fatal(err)
+	if !isFile(stageDepthOut(wall)) || !isFile(filepath.Join(stageWallDir(wall), "layer-01.png")) {
+		t.Fatal("clear removed the depth map or a manual layer")
 	}
-
-	d := &daemon{stageSig: make(chan struct{}, 1)}
-	d.showWall(wall)
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		d.reconcileStage(false, true) // gen: runs the (sleeping) cut
-	}()
-
-	// Wait for the child to come up, then cancel it.
-	deadline := time.Now().Add(4 * time.Second)
-	for stageCutPID.Load() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("cut child never started")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	stageCancel()
-
-	select {
-	case <-done:
-	case <-time.After(4 * time.Second):
-		t.Fatal("reconcile did not return after cancel")
-	}
-	if stageCutPID.Load() != 0 {
-		t.Fatalf("cut PID not cleared after cancel: %d", stageCutPID.Load())
-	}
-	if isFile(stageSubjectOut(wall)) {
-		t.Fatal("a cancelled cut still produced a subject")
+	if got := loadStageWalls().Walls[wall].Effect; got != stageEffectOff {
+		t.Fatalf("effect after clear = %q, want off", got)
 	}
 }
 
 func TestStageV3SettingsReaders(t *testing.T) {
 	home := stageHome(t)
-	logf := writeStageStub(t)
 	dir := filepath.Join(home, ".config", "ryoku")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -803,20 +333,6 @@ func TestStageV3SettingsReaders(t *testing.T) {
 	}
 	if stageDepthBackdrop() {
 		t.Fatal("depthBackdrop = true, want false")
-	}
-
-	source := filepath.Join(home, "wall.png")
-	out := filepath.Join(home, "subject.png")
-	writeFile(t, source, "wall")
-	if err := (&daemon{}).engineCut(source, out, depthCut); err != nil {
-		t.Fatal(err)
-	}
-	calls, err := os.ReadFile(logf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(calls), "--model birefnet-portrait --matting") {
-		t.Fatalf("cut did not use the Depth settings: %s", calls)
 	}
 
 	writeFile(t, filepath.Join(dir, "stage.json"),
@@ -901,14 +417,14 @@ func TestStageAddLayerNumbering(t *testing.T) {
 	// A pre-existing layer-03.png: the next add must be layer-04.png (max+1).
 	writeFile(t, filepath.Join(dir, "layer-03.png"), "L3")
 
-	p1, err := d.stageAddLayer(src)
+	p1, err := d.stageAddLayer(wall, src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if filepath.Base(p1) != "layer-04.png" {
 		t.Fatalf("first add = %s, want layer-04.png", filepath.Base(p1))
 	}
-	p2, err := d.stageAddLayer(src)
+	p2, err := d.stageAddLayer(wall, src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -930,7 +446,7 @@ func TestStageRemoveLayerRejectsSubject(t *testing.T) {
 	d := &daemon{stageSig: make(chan struct{}, 1)}
 	d.showWall(wall)
 
-	if err := d.stageRemoveLayer("0"); err == nil {
+	if err := d.stageRemoveLayer(wall, "0"); err == nil {
 		t.Fatal("remove-layer 0 must be rejected: the subject is not removable")
 	}
 
@@ -940,7 +456,7 @@ func TestStageRemoveLayerRejectsSubject(t *testing.T) {
 	}
 	layer := filepath.Join(dir, "layer-01.png")
 	writeFile(t, layer, "L1")
-	if err := d.stageRemoveLayer("1"); err != nil {
+	if err := d.stageRemoveLayer(wall, "1"); err != nil {
 		t.Fatalf("remove-layer 1 (a manual layer) failed: %v", err)
 	}
 	if isFile(layer) {
@@ -948,9 +464,6 @@ func TestStageRemoveLayerRejectsSubject(t *testing.T) {
 	}
 }
 
-// TestStageRegistryMigrationV1toV3 pins the legacy fold and mode split. The
-// v1 static `subject` and `depth` effects stay Depth even when their cut file is
-// missing, while scene order and layer distance still fold into the v3 shape.
 func TestStageRegistryMigrationV1toV3(t *testing.T) {
 	home := stageHome(t)
 	if err := os.MkdirAll(filepath.Join(stateDir(), "ryoku"), 0o755); err != nil {
@@ -1538,9 +1051,44 @@ func TestStageRyogamiFrameWake(t *testing.T) {
 	}
 }
 
-// TestStageLegacyMigrationV3 pins the pre-v1 fold a stable box takes jumping
-// straight to v3. Retired static Depth and Parallax state land in the v3
-// registry, their artifacts move by rename, and the settings split by mode.
+func TestPreviewFrameDoesNotReachCommittedConsumers(t *testing.T) {
+	d := &daemon{stageSig: make(chan struct{}, 1), paintSig: make(chan struct{}, 1)}
+	feed := func(js string) { d.consumeRyogamiFrames(strings.NewReader(js + "\n")) }
+	drain := func(ch chan struct{}) {
+		select {
+		case <-ch:
+		default:
+		}
+	}
+	quiet := func(ch chan struct{}) bool {
+		select {
+		case <-ch:
+			return false
+		default:
+			return true
+		}
+	}
+
+	feed(`{"default":{"path":"/w/base.png"},"outputs":{"DP-1":{"path":"/w/left.png"}}}`)
+	drain(d.stageSig)
+	drain(d.paintSig)
+	feed(`{"default":{"path":"/w/preview.png","preview":true},"outputs":{}}`)
+	if !quiet(d.stageSig) || !quiet(d.paintSig) {
+		t.Fatal("broadcast preview woke a committed wallpaper consumer")
+	}
+	if got := d.currentWall(); got != "/w/base.png" {
+		t.Fatalf("current wall changed to preview %q", got)
+	}
+
+	feed(`{"default":{"path":"/w/base.png"},"outputs":{"DP-1":{"path":"/w/preview.png","preview":true}}}`)
+	if !quiet(d.stageSig) || !quiet(d.paintSig) {
+		t.Fatal("per-output preview woke a committed wallpaper consumer")
+	}
+	if got := d.wallFrame().Outputs["DP-1"].Path; got != "/w/left.png" {
+		t.Fatalf("committed output changed to preview %q", got)
+	}
+}
+
 func TestStageLegacyMigrationV3(t *testing.T) {
 	home := stageHome(t)
 	if err := os.MkdirAll(filepath.Join(stateDir(), "ryoku"), 0o755); err != nil {
@@ -1647,8 +1195,6 @@ func TestStageLegacyMigrationV3(t *testing.T) {
 		t.Fatal("old parallax folder was copied, not moved")
 	}
 
-	// Settings fold: v3 shape, the fine cut copied to both cut modes, and the
-	// static Depth front list carried from depth.json.
 	sb, err := os.ReadFile(filepath.Join(cfg, "stage.json"))
 	if err != nil {
 		t.Fatalf("stage.json not written: %v", err)

@@ -22,6 +22,7 @@ Services:
   svc env [--all | NAME | NAME=VALUE ...]
 
 Process helpers:
+  app [--cwd DIR] [--label DESKTOP_ID] -- ARGV...
   inhibit <systemd-inhibit arguments...>
   transient start <name> [--scope] [--slice S] [--prop KEY=VALUE]... [--env KEY=VALUE]... -- <command> [args...]
   transient stop <name>
@@ -82,7 +83,7 @@ System settings:
   keymap <set|apply> <layout> [variant] [options]
   initramfs rebuild
 
-Exit codes: 0 success/true, 1 failure, 2 usage, 3 false, 4 absent, 5 not provided.
+Exit codes: 0 success/true, 1 failure, 2 usage, 3 false, 4 absent, 5 not provided, 127 command not found.
 `
 
 func (a *App) Execute(args []string) int {
@@ -126,6 +127,8 @@ func (a *App) Execute(args []string) int {
 		return a.Repo(args[1:])
 	case "svc":
 		return a.Service(args[1:])
+	case "app":
+		return a.App(args[1:])
 	case "inhibit":
 		return a.Inhibit(args[1:])
 	case "transient":

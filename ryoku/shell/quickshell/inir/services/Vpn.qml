@@ -151,20 +151,20 @@ Singleton {
     function newProfile(kind: string): void {
         if (!root.canCreate) return
         root.handOff()
-        if (root.hasEditor) Quickshell.execDetached(["nm-connection-editor", "--create", "--type=" + (kind === "vpn" ? "vpn" : "wireguard")])
+        if (root.hasEditor) RyokuUi.Spawn.runApp(["nm-connection-editor", "--create", "--type=" + (kind === "vpn" ? "vpn" : "wireguard")], { label: "nm-connection-editor" })
         else root.inTerminal(["nmtui", "edit"])
     }
     function editProfile(uuid: string): void {
         const entry = root.profiles.find(item => item.uuid === uuid)
         if (!entry || !root.canCreate) return
         root.handOff()
-        if (root.hasEditor) Quickshell.execDetached(["nm-connection-editor", "--edit=" + uuid])
+        if (root.hasEditor) RyokuUi.Spawn.runApp(["nm-connection-editor", "--edit=" + uuid], { label: "nm-connection-editor" })
         else root.inTerminal(["nmtui", "edit", entry.name])
     }
     function inTerminal(command: var): void {
         const configured = String(Config.options?.apps?.terminal ?? "kitty").trim()
         const terminal = /^[A-Za-z0-9._+-]+$/.test(configured) ? configured : "kitty"
-        Quickshell.execDetached(terminal === "wezterm" ? [terminal, "start", "--", ...command] : [terminal, "-e", ...command])
+        RyokuUi.Spawn.runApp(terminal === "wezterm" ? [terminal, "start", "--", ...command] : [terminal, "-e", ...command], { label: terminal })
     }
     // Tailscale's own login: it prints a URL and waits; the URL reaches `status --json` and the browser opens on it.
     function signInTailscale(): void {
@@ -303,7 +303,7 @@ Singleton {
         repeat: true
         onTriggered: tailscaleProc.running = true
     }
-    onTailscaleAuthUrlChanged: if (root.signingIn && root.tailscaleAuthUrl.length > 0) Qt.openUrlExternally(root.tailscaleAuthUrl)
+    onTailscaleAuthUrlChanged: if (root.signingIn && root.tailscaleAuthUrl.length > 0) RyokuUi.Spawn.runApp(["xdg-open", root.tailscaleAuthUrl], { label: "browser" })
 
     Process {
         id: profilesProc

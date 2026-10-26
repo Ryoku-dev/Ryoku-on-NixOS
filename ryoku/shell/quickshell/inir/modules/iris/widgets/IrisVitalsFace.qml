@@ -6,6 +6,7 @@ import inir.services
 import inir.modules.common.functions
 import inir.modules.iris.style
 import inir.modules.iris.bar.island
+import Ryoku.Ui.Singletons
 
 IrisWidgetFace {
     id: root
@@ -185,7 +186,7 @@ IrisWidgetFace {
                 visible: root.widget.showLabels
                 x: dot.width + root.dp(root.small ? 4 : 6)
                 width: load.inline ? Math.max(0, value.x - x - root.dp(4)) : parent.width - x
-                text: load.entry.label
+                text: I18n.tr(load.entry.label)
                 size: root.small ? 9 : root.large ? 13 : 11
                 weight: root.large ? Font.DemiBold : Font.Medium
                 color: root.large ? root.ink : root.inkSecondary
@@ -212,7 +213,7 @@ IrisWidgetFace {
                     face: root
                     visible: root.widget.showLabels
                     width: parent.width
-                    text: heat.expanded ? root.name(heat.modelData) : heat.modelData.label
+                    text: heat.expanded ? root.name(heat.modelData) : I18n.tr(heat.modelData.label)
                     size: root.small ? 9 : 11
                     color: root.inkSecondary
                 }

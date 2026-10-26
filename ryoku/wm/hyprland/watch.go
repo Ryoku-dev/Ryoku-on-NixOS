@@ -4,10 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -268,7 +266,7 @@ func monitorDisabled(m hyprMonitor) bool {
 // Read once per resync and threaded through, so workspaces and windows do not
 // each re-query the monitor list to resolve a name.
 func readMonitors() ([]hyprMonitor, error) {
-	out, err := ctl("monitors", "all", "-j")
+	out, err := query("monitors", "all")
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +372,7 @@ func focusedName(mons []hyprMonitor) string {
 }
 
 func readWorkspaces(mons []hyprMonitor) []wm.Workspace {
-	out, err := ctl("workspaces", "-j")
+	out, err := query("workspaces")
 	if err != nil {
 		return nil
 	}
@@ -431,42 +429,11 @@ type hyprClient struct {
 }
 
 func readWindows(mons []hyprMonitor) []wm.Window {
-	out, err := ctl("clients", "-j")
+	out, err := query("clients")
 	if err != nil {
 		return nil
 	}
 	return decodeWindows(out, mons)
-}
-
-// readWindowsDirect is the geometry poll path. Hyprland's command socket speaks
-// the same JSON query as hyprctl -j clients, without allocating a subprocess.
-func readWindowsDirect(mons []hyprMonitor) []wm.Window {
-	out, err := controlQuery("j/clients")
-	if err != nil {
-		return nil
-	}
-	return decodeWindows(out, mons)
-}
-
-func controlQuery(query string) ([]byte, error) {
-	sig := os.Getenv("HYPRLAND_INSTANCE_SIGNATURE")
-	if sig == "" {
-		return nil, fmt.Errorf("no live Hyprland session")
-	}
-	path := filepath.Join(runDir(), sig, ".socket.sock")
-	conn, err := net.DialTimeout("unix", path, 200*time.Millisecond)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(500 * time.Millisecond))
-	if _, err := io.WriteString(conn, query); err != nil {
-		return nil, err
-	}
-	if unix, ok := conn.(*net.UnixConn); ok {
-		_ = unix.CloseWrite()
-	}
-	return io.ReadAll(conn)
 }
 
 func decodeWindows(raw []byte, mons []hyprMonitor) []wm.Window {
@@ -513,7 +480,7 @@ func decodeWindows(raw []byte, mons []hyprMonitor) []wm.Window {
 // keymap: skip that device, and if none resolves, return "" so the caller keeps
 // the last-good layout instead of a value the compositor never confirmed.
 func readKeyboard() (string, []string) {
-	out, err := ctl("devices", "-j")
+	out, err := query("devices")
 	if err != nil {
 		return "", nil
 	}

@@ -17,6 +17,9 @@ QtObject {
     property int volume: 100
     // The daemon's pause rules freeze the clip in place rather than dropping back to the still.
     property bool paused: false
+    // An uncommitted wall.preview paint: the palette bridge and other readers
+    // must not treat this entry as the committed wallpaper.
+    property bool preview: false
 
     function apply(line: string): bool {
         try {
@@ -36,6 +39,7 @@ QtObject {
             mute = entry.mute !== false;
             volume = (typeof entry.volume === "number") ? entry.volume : 100;
             paused = entry.paused === true;
+            preview = entry.preview === true;
             return true;
         } catch (error) {
             return false;

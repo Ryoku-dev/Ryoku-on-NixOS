@@ -345,16 +345,11 @@ PanelWindow {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         root.cpuVisible = false
-                        btopRunner.running = false
-                        btopRunner.running = true
+                        Spawn.runApp(["bash", "-c", "kitty 'btop'"], { label: "btop" })
                     }
                 }
             }
         }
     }
 
-    Process {
-        id: btopRunner
-        command: ["bash", "-c", "kitty 'btop'"]
-    }
 }

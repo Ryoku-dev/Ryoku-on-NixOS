@@ -227,8 +227,15 @@ Item {
         planProc.running = true;
     }
     function enableInTerminal() {
+<<<<<<< port (unstable-dev)
         Spawn.runApp(["kitty", "--class", "ryoku-gpu", "-e", "sh", "-c",
             "ryoku-hub gpu apply enable; echo; read -n1 -rsp 'Done. Press any key to close…'; echo"]);
+=======
+        if (!pg.ptPackagesLoaded || !pg.ptPackagesAvailable)
+            return;
+        Spawn.runApp(["kitty", "--class", "ryoku-gpu", "-e", "sh", "-c",
+            "ryoku-hub gpu apply enable; echo; read -n1 -rsp 'Done. Press any key to close…'; echo"], { label: "kitty" });
+>>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
         pg.planning = false;
         pg.planText = "";
         pg.enabling = true;

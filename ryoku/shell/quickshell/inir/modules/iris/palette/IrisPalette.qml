@@ -17,6 +17,7 @@ import inir.modules.iris.style
 import inir.modules.iris.components
 import inir.modules.iris.pieces
 import inir.modules.iris.settings
+import Ryoku.Ui.Singletons
 
 // Shima keeps Spotlight in the chassis window so the palette can morph out of
 // its island; standalone launcher hosts render the same body over their own field.
@@ -749,7 +750,7 @@ Item {
                                             Layout.alignment: Qt.AlignVCenter
                                             Layout.fillWidth: true
                                             elide: Text.ElideRight
-                                            text: hint.modelData.label
+                                            text: I18n.tr(hint.modelData.label)
                                             color: hint.buttonHovered ? IrisStyle.text : IrisStyle.subtext
                                             font.pixelSize: IrisStyle.typeMeta
                                             font.weight: IrisStyle.weight(Font.Medium)

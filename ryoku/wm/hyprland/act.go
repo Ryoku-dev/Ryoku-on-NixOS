@@ -360,7 +360,7 @@ func runAct(args []string) error {
 // fall through to launching the app; a found window is always focused, so a
 // partial raise never triggers a duplicate launch.
 func summon(title string) error {
-	raw, err := ctl("clients", "-j")
+	raw, err := query("clients")
 	if err != nil {
 		return err
 	}
@@ -393,7 +393,7 @@ func summon(title string) error {
 	sel := luaStr("address:" + addr)
 	// The active workspace is best effort, matching the script: the window is
 	// only moved when the current workspace reads, then always focused.
-	if raw, err := ctl("activeworkspace", "-j"); err == nil {
+	if raw, err := query("activeworkspace"); err == nil {
 		var ws struct {
 			ID int `json:"id"`
 		}
@@ -519,7 +519,7 @@ func setPads(enable bool) (found bool, err error) {
 // the "touchpad" suffix (asuf1204:00-2808:0201-touchpad), which the
 // trackpoint/mouse half lacks, so the name is the filter.
 func touchpadNames() ([]string, error) {
-	raw, err := ctl("devices", "-j")
+	raw, err := query("devices")
 	if err != nil {
 		return nil, err
 	}
@@ -657,7 +657,7 @@ func placeWindow(args []string) error {
 		return fmt.Errorf("act %s: output %q reported invalid scale %g", wm.ActionWindowPlace, output, target.Scale)
 	}
 
-	raw, err := ctl("clients", "-j")
+	raw, err := query("clients")
 	if err != nil {
 		return fmt.Errorf("act %s: read windows: %w", wm.ActionWindowPlace, err)
 	}

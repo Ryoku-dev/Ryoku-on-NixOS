@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import inir.modules.common.widgets
 import inir.modules.iris.style
+import Ryoku.Ui.Singletons
 
 Rectangle {
     id: root
@@ -37,7 +38,7 @@ Rectangle {
         }
         StyledText {
             anchors.verticalCenter: parent.verticalCenter
-            text: root.label
+            text: I18n.tr(root.label)
             color: root.selected ? IrisStyle.text : IrisStyle.textSecondary
             font.family: IrisStyle.fontMain
             font.pixelSize: IrisStyle.typeLabel

@@ -102,7 +102,7 @@ Item {
         return pg.variantEntry(pg.draft.variant).store ? pg.storeSettings.sections : [];
     }
     function browseStore() {
-        Quickshell.execDetached(["ryostore", "open", "launchers"]);
+        Spawn.runApp(["ryostore", "open", "launchers"], { label: "ryostore" });
     }
     // Settings owns updates (docs/store.md): re-running the install replaces the
     // launcher in place, and the shell swaps the new view in without a reload.

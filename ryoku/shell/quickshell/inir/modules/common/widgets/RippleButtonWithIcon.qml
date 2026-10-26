@@ -3,13 +3,14 @@ import QtQuick.Layouts
 import inir.modules.common
 import inir.modules.common.functions
 import inir.modules.common.widgets
+import Ryoku.Ui.Singletons
 
 RippleButton {
     id: buttonWithIconRoot
     property string nerdIcon  // Manual override (empty = auto from MaterialSymbol)
     property string materialIcon
     property bool materialIconFill: true
-    property string mainText: "Button text"
+    property string mainText: I18n.tr("Button text")
     property color contentColor: Appearance.regaliaEverywhere
         ? (buttonWithIconRoot.toggled ? Appearance.regalia.primaryPlateInk : Appearance.regalia.onColor)
         : Appearance.zzzEverywhere ? Appearance.zzz.onColor

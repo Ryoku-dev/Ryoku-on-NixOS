@@ -51,9 +51,7 @@ Item {
     readonly property bool isDayprogress: menu.scope === "dayprogress"
     readonly property bool isShape: menu.scope === "shape"
     readonly property bool locked: menu.isWidget && !menu.isVisualizer
-        ? Config[menu.scope + "Locked"] : false
-    // Cut modes offer this widget a place above every in-front cut-out. Each
-    // mode owns its own lift list.
+        ? menu.configValue(menu.scope + "Locked") : false
     readonly property string stageMode: menu.wall === "" ? "off"
         : StageCfg.StageBackend.effectFor(menu.wall)
     readonly property bool stageActive: menu.stageMode === "depth"
@@ -67,7 +65,7 @@ Item {
         ? menu.scope + "Style"
         : menu.isShape ? menu.scope + "Kind"
         : menu.scope + "Design"
-    readonly property string curDesign: menu.isWidget ? (Config[menu.designKey] ?? "") : ""
+    readonly property string curDesign: menu.isWidget ? (menu.configValue(menu.designKey) ?? "") : ""
 
     // Vendored face libraries hosted in Ryoku's slot: roster metadata, their
     // upstream/Ryoku skin toggle, and the face-specific preset ladder.
@@ -84,9 +82,9 @@ Item {
     // store); the Style row only exists for the libraries that carry a Ryoku
     // skin: iris and python.
     readonly property bool isRyokuStyle: (menu.isIris || menu.isPython)
-        && Config[menu.scope + "Style"] === "ryoku"
-    readonly property string curIrisSize: menu.isIris ? (Config[menu.scope + "Size"] || menu.irisFace.sizes[0]) : ""
-    readonly property string curPythonVariant: menu.isPython ? (Config[menu.scope + "Variant"] || menu.pythonFace.variants[0]) : ""
+        && menu.configValue(menu.scope + "Style") === "ryoku"
+    readonly property string curIrisSize: menu.isIris ? (menu.configValue(menu.scope + "Size") || menu.irisFace.sizes[0]) : ""
+    readonly property string curPythonVariant: menu.isPython ? (menu.configValue(menu.scope + "Variant") || menu.pythonFace.variants[0]) : ""
     readonly property var facePresets: menu.isIris ? menu.irisFace.sizes
         : menu.isPython ? menu.pythonFace.variants : []
     readonly property string facePresetKey: menu.scope + (menu.isPython ? "Variant" : "Size")
@@ -129,7 +127,7 @@ Item {
 
     // The source menu and resize grip share the same named detents.
     readonly property real curScale: menu.isWidget
-        ? (Config.get(menu.scope + "Scale", menu.monitor) || 1) : 1
+        ? (menu.configValue(menu.scope + "Scale") || 1) : 1
     readonly property real scaleStep: StageFunctions.EditModeLogic.nearestSizeStep(menu.curScale)
     readonly property bool canGrow: StageFunctions.EditModeLogic.steppedScale(menu.curScale, 1) !== null
     readonly property bool canShrink: StageFunctions.EditModeLogic.steppedScale(menu.curScale, -1) !== null
@@ -196,12 +194,13 @@ Item {
     function openFor(widget, x, y, wall) { menu.scope = widget; menu.wall = wall; shell.px = x; shell.py = y; shell.open = true; }
     function close() { shell.open = false; }
     function cap(s) { return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+    function configValue(key) { return Config.get(key, menu.monitor); }
 
     function cycleDesign() {
         const d = menu.designLists[menu.scope];
         if (!d)
             return;
-        Config.set(menu.designKey, d[(d.indexOf(Config[menu.designKey]) + 1) % d.length]);
+        Config.set(menu.designKey, d[(d.indexOf(menu.curDesign) + 1) % d.length]);
     }
     function cycleFacePreset() {
         const presets = menu.facePresets;

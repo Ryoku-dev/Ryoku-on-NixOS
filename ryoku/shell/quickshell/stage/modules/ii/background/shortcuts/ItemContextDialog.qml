@@ -23,6 +23,7 @@ FocusScope {
     property string title: ""
     property string subtitle: ""
     property url iconSource: ""
+    property string iconSymbol: ""
     property point anchorPoint: Qt.point(0, 0)
     property var actions: []
     property Component pageComponent: null
@@ -279,7 +280,15 @@ FocusScope {
                         height: Tokens.s7
                         sourceSize: Qt.size(width, height)
                         source: root.iconSource
+                        visible: root.iconSymbol === ""
                         fillMode: Image.PreserveAspectFit
+                    }
+                    MaterialSymbol {
+                        anchors.centerIn: parent
+                        visible: root.iconSymbol !== ""
+                        text: root.iconSymbol
+                        iconSize: Tokens.s6
+                        color: Tokens.ink
                     }
                 }
                 ColumnLayout {

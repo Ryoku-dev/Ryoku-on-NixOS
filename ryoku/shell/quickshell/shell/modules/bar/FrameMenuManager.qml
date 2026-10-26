@@ -179,6 +179,26 @@ Item {
     // frame's edge/corner scale.
     property real chromeReveal: 0
     readonly property bool anyVisible: root.anyOpen || root.chromeReveal > 0
+    // Whether anything this host draws is on screen, closing animations
+    // included: a menu or surface, the chrome band, a plugin popout, or the
+    // dock's preview and music cards. The overlay unmaps once this drops.
+    readonly property bool anyShowing: {
+        if (root.anyVisible || root.popoutShowing(dockPreviewHost)
+                || root.popoutShowing(musicHoverHost))
+            return true;
+        for (let i = 0; i < menuRepeater.count; ++i) {
+            const fm = menuRepeater.itemAt(i);
+            if (fm && fm.showing)
+                return true;
+        }
+        for (let j = 0; j < pluginPopouts.repeater.count; ++j)
+            if (root.popoutShowing(pluginPopouts.repeater.itemAt(j)))
+                return true;
+        return false;
+    }
+    function popoutShowing(pop) {
+        return !!pop && (pop.heldOpen || pop.prog > 0.004);
+    }
     readonly property bool chromeEntering: !!root.activeMenu
         && !root.chromeSwitchPending && root.waitingChromeId === ""
     Behavior on chromeReveal {

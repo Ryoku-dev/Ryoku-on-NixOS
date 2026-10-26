@@ -544,8 +544,8 @@ Rectangle {
                     // The chip's promise: leave the quick bar and land in the
                     // full app. The same summon the keybind drives: raise the
                     // open window, or flock-guard a cold start.
-                    Quickshell.execDetached(["sh", "-c",
-                        "ryoku-summon Rashin flock -n -o /tmp/rashin-app.lock rashin-app"]);
+                    Spawn.runApp(["sh", "-c",
+                        "ryoku-summon Rashin flock -n -o /tmp/rashin-app.lock rashin-app"], { label: "rashin-app" });
                     root.requestClose();
                 }
                 onRecentLoaded: question => root.query = question

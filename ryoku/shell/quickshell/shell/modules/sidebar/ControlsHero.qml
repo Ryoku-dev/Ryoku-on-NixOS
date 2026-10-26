@@ -28,7 +28,7 @@ Item {
 
     SystemMonitor {
         id: systemMonitor
-        active: root.active && root.hasReadings
+        active: root.active && (root.showIdentity || root.hasReadings)
     }
 
     QtObject {
@@ -37,8 +37,9 @@ Item {
         readonly property color gpu: Tokens.role("tertiary", Tokens.inkMuted)
     }
 
-    implicitHeight: (root.showIdentity ? (Tokens.s7 + Tokens.s3) * s + Tokens.s3 * s : 0)
-        + Tokens.s7 * 3 * s
+    implicitHeight: (root.showIdentity ? (Tokens.s7 + Tokens.s3) * s : 0)
+        + (root.showIdentity && root.hasReadings ? Tokens.s3 * s : 0)
+        + (root.hasReadings ? Tokens.s7 * 3 * s : 0)
     clip: true
 
     function blendColor(from, to, amount): color {
@@ -245,11 +246,12 @@ Item {
 
     Row {
         id: body
+        visible: root.hasReadings
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: root.showIdentity ? identity.bottom : parent.top
-        anchors.topMargin: root.showIdentity ? Tokens.s3 * root.s : 0
-        height: Tokens.s7 * 3 * root.s
+        anchors.topMargin: root.showIdentity && visible ? Tokens.s3 * root.s : 0
+        height: visible ? Tokens.s7 * 3 * root.s : 0
         spacing: Tokens.s4 * root.s
 
         Item {

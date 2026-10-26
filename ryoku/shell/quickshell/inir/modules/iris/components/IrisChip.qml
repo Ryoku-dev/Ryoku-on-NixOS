@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import inir.modules.common.widgets
 import inir.modules.iris.style
+import Ryoku.Ui.Singletons
 
 IrisButton {
     id: chip
@@ -63,7 +64,7 @@ IrisButton {
                 + (chipGlyph.visible ? chipGlyph.implicitWidth + chipRow.spacing : 0)
             width: Math.max(0, Math.min(implicitWidth, chip.labelCap, chip.width - chip.inset * 2 - lead))
             elide: Text.ElideRight
-            text: chip.label
+            text: I18n.tr(chip.label)
             color: chip.foreground
             font.family: chip.labelFamily.length > 0 ? chip.labelFamily : IrisStyle.fontMain
             font.pixelSize: IrisStyle.typeLabel

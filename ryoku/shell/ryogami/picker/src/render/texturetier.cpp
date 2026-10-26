@@ -67,6 +67,20 @@ int TextureTier::acquireTile()
     return victim;
 }
 
+void TextureTier::reserve(int tiles)
+{
+    const int perLayer = tilesPerLayer();
+    const int wanted =
+        std::clamp((std::max(tiles, 1) + perLayer - 1) / perLayer, 1, m_maxLayers);
+    if (wanted <= m_layers)
+        return;
+    const int before = tileCount();
+    m_layers = wanted;
+    m_tiles.resize(size_t(tileCount()));
+    for (int i = tileCount() - 1; i >= before; --i)
+        m_free.push_back(i);
+}
+
 bool TextureTier::admit(TierImage &&image)
 {
     if (image.key.isEmpty() || image.levels.empty() || image.levels.front().isNull()

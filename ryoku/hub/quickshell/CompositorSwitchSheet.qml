@@ -126,7 +126,11 @@ Item {
         var line = "ryoku wm use " + sh.shq(sh.target.name)
             + (removing ? " --remove-previous" : " --keep-previous");
         line += "; echo; read -n1 -rsp " + sh.shq(I18n.tr("Done. Press any key to close.")) + "; echo";
+<<<<<<< port (unstable-dev)
         Spawn.runApp(["kitty", "--class", "ryoku-wm-switch", "-e", "sh", "-c", line]);
+=======
+        Spawn.runApp(["kitty", "--class", "ryoku-wm-switch", "-e", "sh", "-c", line], { label: "kitty" });
+>>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
         sh.close();
     }
     function logOut() { Spawn.run(["ryoku", "wm", "act", "session.exit"]); }

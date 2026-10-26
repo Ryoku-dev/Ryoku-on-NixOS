@@ -333,6 +333,7 @@ func reconcilers() []reconciler {
 		{i18n.T("Vesktop palette preservation"), reconcileVesktopPalette},
 		{i18n.T("Ryoku Discord theme"), reconcileDiscordTheme},
 		{i18n.T("flatpak app channel"), reconcileFlatpakRemote},
+		{i18n.T("Shelly Flatpak support"), reconcileShellyFlatpak},
 		{i18n.T("browser theme host"), reconcileBrowserTheme},
 		{i18n.T("zen browser policy"), reconcileZen},
 		{i18n.T("zen browser animations"), reconcileZenUserChrome},
@@ -367,6 +368,7 @@ func reconcilers() []reconciler {
 		{i18n.T("prowl for rashin"), reconcileProwl},
 		{i18n.T("Prowl gateway for rashin"), reconcileProwlGateway},
 		{i18n.T("recordings directory"), reconcileRecordingsDir},
+		{i18n.T("memory pressure"), reconcileMemoryHealth},
 		{i18n.T("failed services"), reconcileFailedUnits},
 		{i18n.T("btrfs device health"), reconcileBtrfsHealth},
 		{i18n.T("wireless regulatory domain"), reconcileWifiRegdom},
@@ -1790,8 +1792,7 @@ func reconcileShellConfig(checkOnly bool) recResult {
 // reconcileDockStore converges retired dock stores onto shell.json's top-level
 // dock object and removes Stage Editor widget keys retired from its schema. The
 // shell store carries old QS and Python settings plus frame-bar pins; Stage
-// carries the former iRiS pins and Shima appearance. Pins keep source order,
-// current universal values win, and retired keys are removed after merge.
+// keeps its pins below universal values during merge.
 func reconcileDockStore(checkOnly bool) recResult {
 	path := filepath.Join(sys.ConfigHome(), "ryoku", "shell.json")
 	raw, err := os.ReadFile(path)
@@ -4698,13 +4699,13 @@ func reconcileFailedUnits(checkOnly bool) recResult {
 	if initSystem == host.Runit {
 		return reconcileRunitFailures()
 	}
-	// Clear the lingering transient app scopes (safe: the app is already gone)
+	// App-launch failures are transient once the process has exited,
 	// and the TPM units that failed only for want of NvPCRs (reconcile_tpm_nvpcr.go),
 	// then report whatever real failures remain.
 	var reset int
 	if !checkOnly {
 		for _, u := range failedUnits("--user") {
-			if transientAppScope(u) && userUnitLoaded(u) &&
+			if transientAppUnit(u) && userUnitLoaded(u) &&
 				doctorService("--user", "reset-failed", u) == host.ExitOK {
 				reset++
 			}
@@ -4713,16 +4714,12 @@ func reconcileFailedUnits(checkOnly bool) recResult {
 	}
 	var failed []string
 	failed = append(failed, failedUnits()...)
-	for _, u := range failedUnits("--user") {
-		if checkOnly && transientAppScope(u) {
-			failed = append(failed, u+i18n.T(" (user, clearable)"))
-		} else {
-			failed = append(failed, u+i18n.T(" (user)"))
-		}
+	for _, u := range reportableFailedUnits(failedUnits("--user")) {
+		failed = append(failed, u+i18n.T(" (user)"))
 	}
 	if len(failed) == 0 {
 		if reset > 0 {
-			return fixedRes(i18n.T("cleared %d failed unit(s) with nothing left wrong (stale app scopes, TPM NvPCR setup)"), reset)
+			return fixedRes(i18n.T("cleared %d failed unit(s) with nothing left wrong (stale app launch units, TPM NvPCR setup)"), reset)
 		}
 		return okRes(i18n.T("no failed services"))
 	}
@@ -5204,12 +5201,30 @@ func reconcileConflictingRyokuFiles(checkOnly bool) recResult {
 		len(stray), strings.Join(stray, ", "))
 }
 
-// transientAppScope reports whether a --user unit is a transient GUI app-launch
-// scope (app-<id>-<n>.scope). systemd creates one per app launch; it lingers
-// "failed" after the app exits or is killed, and reset-failed clears the dead
-// record. A real .service failure never matches, so it stays reported.
-func transientAppScope(unit string) bool {
-	return strings.HasPrefix(unit, "app-") && strings.HasSuffix(unit, ".scope")
+// Named non-instanced services stay visible as real failures.
+func transientAppUnit(unit string) bool {
+	if !strings.HasPrefix(unit, "app-") {
+		return false
+	}
+	if strings.HasSuffix(unit, ".scope") {
+		return true
+	}
+	name, ok := strings.CutSuffix(unit, ".service")
+	if !ok {
+		return false
+	}
+	at := strings.LastIndexByte(name, '@')
+	return at > len("app-") && at < len(name)-1
+}
+
+func reportableFailedUnits(units []string) []string {
+	reportable := make([]string, 0, len(units))
+	for _, unit := range units {
+		if !transientAppUnit(unit) {
+			reportable = append(reportable, unit)
+		}
+	}
+	return reportable
 }
 
 func userUnitLoaded(unit string) bool {

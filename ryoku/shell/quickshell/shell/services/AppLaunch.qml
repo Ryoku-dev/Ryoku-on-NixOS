@@ -19,6 +19,7 @@ Singleton {
         const target = action || entry;
         if (!target)
             return;
+<<<<<<< port (unstable-dev)
         const argv = entry && entry.runInTerminal ? (target.command || []) : [];
         if (argv.length === 0) {
             Spawn.runApp(target.command, entry ? entry.workingDirectory : "");
@@ -28,5 +29,17 @@ Singleton {
         for (let i = 0; i < argv.length; i++)
             command.push(String(argv[i]));
         Spawn.runApp(command);
+=======
+        const argv = Array.from(target.command || []).map(arg => String(arg));
+        if (argv.length === 0)
+            return;
+        const command = entry && entry.runInTerminal
+            ? ["ryoku-app", "terminal", "--"].concat(argv)
+            : argv;
+        Spawn.runApp(command, {
+            cwd: entry ? entry.workingDirectory : "",
+            label: entry ? entry.id : ""
+        });
+>>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
     }
 }

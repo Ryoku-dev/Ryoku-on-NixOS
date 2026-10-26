@@ -22,7 +22,7 @@ UtilityTile {
         let url = String(site.url).trim();
         if (!/^[a-z][a-z0-9+.-]*:/i.test(url))
             url = "https://" + url;
-        Spawn.run(["xdg-open", url]);
+        Spawn.runApp(["xdg-open", url], { label: "favorite" });
     }
 
     surfaceColor: ClockStyle.colSurfaceHigh

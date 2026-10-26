@@ -77,6 +77,89 @@ func TestVoxtypeMultilingualConfigsUseLanguageAuto(t *testing.T) {
 	}
 }
 
+func TestVoxtypeConfigsLoadWhisperOnDemand(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	p, ok := presetByKey("whisper-fast")
+	if !ok {
+		t.Fatal("missing whisper-fast preset")
+	}
+	if config := buildVoxtypeConfig(p, ""); !strings.Contains(config, "\n[whisper]\non_demand_loading = true\n") {
+		t.Fatalf("config does not enable on-demand loading:\n%s", config)
+	}
+}
+
+func TestVoxtypeEnsureMigratesManagedConfigToOnDemand(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "voxtype"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	p, ok := presetByKey("whisper-fast")
+	if !ok {
+		t.Fatal("missing whisper-fast preset")
+	}
+	config := strings.Replace(buildVoxtypeConfig(p, ""), "on_demand_loading = true\n", "", 1)
+	if err := os.MkdirAll(filepath.Dir(voxtypeConfigPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(voxtypeConfigPath(), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := voxtypeEnsure(); err != nil {
+		t.Fatalf("voxtypeEnsure() error = %v", err)
+	}
+	got, err := os.ReadFile(voxtypeConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(got), "on_demand_loading = true") != 1 {
+		t.Fatalf("migrated config does not contain one on-demand setting:\n%s", got)
+	}
+}
+
+func TestVoxtypeMigrationPreservesUserConfig(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	p, ok := presetByKey("whisper-fast")
+	if !ok {
+		t.Fatal("missing whisper-fast preset")
+	}
+	managedFalse := strings.Replace(buildVoxtypeConfig(p, ""), "on_demand_loading = true", "on_demand_loading = false", 1)
+	tests := []struct {
+		name   string
+		config string
+	}{
+		{name: "explicit managed value", config: managedFalse},
+		{name: "unmanaged config", config: "[whisper]\nmodel = \"base.en\"\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			if err := os.MkdirAll(filepath.Dir(voxtypeConfigPath()), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(voxtypeConfigPath(), []byte(tt.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			changed, err := migrateVoxtypeOnDemandLoading()
+			if err != nil {
+				t.Fatalf("migrateVoxtypeOnDemandLoading() error = %v", err)
+			}
+			if changed {
+				t.Fatal("user config was migrated")
+			}
+			got, err := os.ReadFile(voxtypeConfigPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tt.config {
+				t.Fatalf("config changed:\n%s", got)
+			}
+		})
+	}
+}
+
 func TestVoxtypeEnsureDoesNothingWithoutVoxtype(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", config)

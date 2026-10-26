@@ -21,7 +21,6 @@ Singleton {
     property string installingModel: ""
     property bool removing: false
     property string removingModel: ""
-    // Curated cut catalogue objects: {id,tier,label,size,installed,licence,upstream}.
     property var models: []
     property string progress: ""
 
@@ -45,7 +44,7 @@ Singleton {
         root.spatialInstalledModel = id;
         root.spatialInstalling = true;
         root.spatialProgress = "";
-        spatialInstallProc.command = [root.bin, "depth-install", "--model", id];
+        spatialInstallProc.command = ["setsid", root.bin, "depth-install", "--model", id];
         spatialInstallProc.running = false;
         spatialInstallProc.running = true;
     }
@@ -67,15 +66,35 @@ Singleton {
             ["small", "base", "large"].indexOf(pick) >= 0 ? pick : "small"];
         spatialCheckProc.running = true;
     }
-    function rebuildSpatialMap() { root.call("depth-refresh"); }
+    // Downloads use setsid, so signaling the process group also reaches pip, Python and curl.
+    function stopGroup(proc) {
+        if (proc.running && proc.processId)
+            Quickshell.execDetached(["kill", "-TERM", "--", "-" + proc.processId]);
+        proc.running = false;
+    }
+    function cancelSpatialInstall() {
+        if (!root.spatialInstalling) return;
+        root.stopGroup(spatialInstallProc);
+        root.spatialInstalling = false;
+        root.spatialProgress = "";
+        root.recheckSpatial();
+    }
     function install(model) {
         if (root.installing || !model || model.length === 0) return;
         root.installing = true;
         root.installingModel = model;
         root.progress = "";
-        installProc.command = [root.bin, "install", model];
+        installProc.command = ["setsid", root.bin, "install", model];
         installProc.running = false;
         installProc.running = true;
+    }
+    function cancelInstall() {
+        if (!root.installing) return;
+        root.stopGroup(installProc);
+        root.installing = false;
+        root.installingModel = "";
+        root.progress = "";
+        root.recheck();
     }
     function remove(model) {
         if (root.removing || root.installing || !model || model.length === 0) return;
@@ -103,8 +122,7 @@ Singleton {
         stdout: StdioCollector {
             onStreamFinished: {
                 root.available = ("" + this.text).trim() === "available";
-                // Fetch the static catalogue before anything is installed so
-                // the model tab can offer the first download.
+                // Load the catalogue before any model is installed so the first download is available.
                 modelsProc.running = true;
             }
         }
@@ -171,7 +189,6 @@ Singleton {
         onExited: {
             root.spatialInstalling = false;
             root.recheckSpatial();
-            root.rebuildSpatialMap();
         }
     }
     Process {
@@ -182,24 +199,19 @@ Singleton {
         onExited: {
             root.spatialRemoving = false;
             root.recheckSpatial();
-            root.rebuildSpatialMap();
         }
     }
 
     readonly property string sockPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ryoku-shell.sock"
-    property var frame: ({ current: "", busy: false, stage: "", percent: 0, notice: "", walls: {} })
+    property var frame: ({ current: "", busy: false, job: null, last: null, walls: {} })
 
     readonly property string current: root.frame.current || ""
+    readonly property var job: root.frame.job || null
+    readonly property var last: root.frame.last || null
     readonly property bool busy: root.frame.busy === true
-    readonly property string stage: root.frame.stage || ""
-    readonly property int percent: (typeof root.frame.percent === "number") ? root.frame.percent : 0
-    // Why the last reconcile could not produce a cut ("" when the pipeline is
-    // fine): the daemon names the missing model/runtime instead of dying mute.
-    readonly property string notice: root.frame.notice || ""
     readonly property string effect: root.effectFor(root.current)
 
-    // Optimistic per-layer overlay so a front/depth flip shows instantly instead
-    // of waiting for the intent to round-trip the daemon. Keyed "<path>|<i>".
+    // Key optimistic values by wallpaper so a monitor switch cannot retarget a pending flush.
     property var _opt: ({})
 
     function apply(line) {
@@ -212,10 +224,22 @@ Singleton {
         if (!f || typeof f !== "object") return;
         if (!f.walls) f.walls = {};
         root.frame = f;
+
         const keep = {};
-        const cur = f.current || "";
-        for (const k in root._opt)
-            if (k.indexOf(cur + "|") === 0) keep[k] = root._opt[k];
+        for (const key in root._opt) {
+            const split = key.lastIndexOf("|");
+            if (split < 0) continue;
+            const path = key.slice(0, split);
+            const index = Number(key.slice(split + 1));
+            const wall = f.walls[path];
+            const layer = wall && wall.layers && index >= 0
+                && index < wall.layers.length ? wall.layers[index] : null;
+            const pending = root._opt[key];
+            var confirmed = layer !== null;
+            for (const field in pending)
+                if (!layer || layer[field] !== pending[field]) confirmed = false;
+            if (!confirmed && (!wall || layer || root._pending[key])) keep[key] = pending;
+        }
         root._opt = keep;
     }
 
@@ -306,6 +330,61 @@ Singleton {
 
     // Per-wall lookups (each monitor reads its own wallpaper path).
     function wallOf(path) { return (path && root.frame.walls) ? (root.frame.walls[path] || null) : null; }
+    function jobFor(path) {
+        return root.job && root.job.wall === path ? root.job : null;
+    }
+    function lastFor(path) {
+        return root.last && root.last.wall === path ? root.last : null;
+    }
+    function stepsFor(path) {
+        const wall = root.wallOf(path);
+        return wall && Array.isArray(wall.steps) ? wall.steps : [];
+    }
+    function stepState(path, step) {
+        const steps = root.stepsFor(path);
+        for (var i = 0; i < steps.length; i++)
+            if (steps[i] && steps[i].step === step) return steps[i].state || "";
+        return "";
+    }
+    function sceneUsableFor(path) {
+        const steps = root.stepsFor(path);
+        if (steps.length === 0) return false;
+        for (var i = 0; i < steps.length; i++)
+            if (steps[i].state !== "ready" && steps[i].state !== "outdated") return false;
+        return true;
+    }
+    function needsWorkFor(path) {
+        const steps = root.stepsFor(path);
+        for (var i = 0; i < steps.length; i++)
+            if (steps[i].state !== "ready") return true;
+        return false;
+    }
+
+    function stepLabel(step) {
+        if (step === "cut") return I18n.tr("Cut out the subject");
+        if (step === "fill") return I18n.tr("Fill in behind the subject");
+        if (step === "depth") return I18n.tr("Build the depth map");
+        return "";
+    }
+    function modelLabel(step, id) {
+        if (!id) return "";
+        const model = step === "depth" ? root.spatialModelById(id) : root.modelById(id);
+        return I18n.tr(String(model && (model.label || model.id) || id));
+    }
+    function errorWords(result) {
+        const code = String(result && result.error || "");
+        if (code === "timeout")
+            return I18n.tr("%1 took longer than %2 minutes and was stopped. Try a lighter model.")
+                .arg(result.kind === "layer" ? I18n.tr("Cutting the layer") : root.stepLabel(result.step))
+                .arg(Number(result.limit || 0));
+        if (code === "model-missing")
+            return I18n.tr("The %1 model is not downloaded.")
+                .arg(root.modelLabel(result.step, String(result.model || "")) || I18n.tr("selected"));
+        if (code === "runtime-missing") return I18n.tr("The cut-out runtime is not installed yet.");
+        if (code === "too-large") return I18n.tr("This wallpaper is too large for the depth model.");
+        if (code === "input-missing") return I18n.tr("The picture could not be found.");
+        return I18n.tr("The model stopped with an error.");
+    }
     function effectFor(path) {
         const wall = root.wallOf(path);
         return wall && ["depth", "parallax", "spatial"].indexOf(wall.effect) >= 0
@@ -391,50 +470,67 @@ Singleton {
         return i === 0 ? I18n.tr("Subject") : I18n.tr("Layer %1").arg(i + 1);
     }
 
-    // Verbs (fire-and-forget; the topic republish is the confirmation).
-    function call(verb) {
+    // Topic republish, not process exit, confirms fire-and-forget verbs.
+    function call(verb, args, wall) {
         const cmd = ["ryoku-shell", "stage", verb];
-        for (var i = 1; i < arguments.length; i++) cmd.push("" + arguments[i]);
+        const values = args || [];
+        for (var i = 0; i < values.length; i++) cmd.push("" + values[i]);
+        if (wall) cmd.push("--", "" + wall);
         Quickshell.execDetached(cmd);
     }
-    function setEffect(e) {
+    function setEffect(e, wall) {
         if (["off", "depth", "parallax", "spatial"].indexOf(e) >= 0)
-            root.call("set-effect", e);
+            root.call("set-effect", [e], wall);
     }
-    function refresh() { root.call("refresh"); }
+    function generate(wall) { root.call("generate", [], wall); }
+    function redo(step, wall) {
+        root.call("refresh", step ? [step] : [], wall);
+    }
     function cancel() { root.call("cancel"); }
-    function addLayer(png) { root.call("add-layer", png); }
-    function cutLayer(picture) { root.call("cut-layer", picture); }
-    function removeLayer(index) { root.call("remove-layer", index); }
-    function clear() { root.call("clear"); }
+    function forceCancel() { root.call("cancel", ["--force"]); }
+    function addLayer(png, wall) { root.call("add-layer", [png], wall); }
+    function cutLayer(picture, wall) { root.call("cut-layer", [picture], wall); }
+    function cutRegion(nx, ny, nw, nh, wall) {
+        root.call("cut-region", [nx, ny, nw, nh], wall);
+    }
+    function removeLayer(index, wall) { root.call("remove-layer", [index], wall); }
+    function clear(wall) { root.call("clear", [], wall); }
 
-    // Per-layer edits coalesce: the overlay shows the value now, one settle flush
-    // sends the merged JSON so a drag is one intent.
     property var _pending: ({})
-    function setLayer(i, obj) {
-        const path = root.current;
+    function setLayer(i, obj, wall) {
+        const path = wall;
         if (!path) return;
         const key = path + "|" + i;
         const cur = root._opt[key] || {};
         const merged = {};
-        for (const k in cur) merged[k] = cur[k];
-        for (const k in obj) merged[k] = obj[k];
+        for (const field in cur) merged[field] = cur[field];
+        for (const field in obj) merged[field] = obj[field];
         const opt = {};
-        for (const k in root._opt) opt[k] = root._opt[k];
+        for (const field in root._opt) opt[field] = root._opt[field];
         opt[key] = merged;
         root._opt = opt;
-        root._pending[i] = merged;
+        const pending = {};
+        for (const field in root._pending) pending[field] = root._pending[field];
+        pending[key] = { wall: path, index: i, value: merged };
+        root._pending = pending;
         layerSettle.restart();
     }
-    function setLayerFront(i, front) { root.setLayer(i, { front: front === true }); }
-    function setLayerDepth(i, v) { root.setLayer(i, { depth: Math.max(0, Math.min(1, v)) }); }
+    function setLayerFront(i, front, wall) {
+        root.setLayer(i, { front: front === true }, wall);
+    }
+    function setLayerDepth(i, v, wall) {
+        root.setLayer(i, { depth: Math.max(0, Math.min(1, v)) }, wall);
+    }
     Timer {
         id: layerSettle
         interval: 300
         onTriggered: {
-            for (const i in root._pending)
-                root.call("set-layer", i, JSON.stringify(root._pending[i]));
+            const pending = root._pending;
             root._pending = {};
+            for (const key in pending) {
+                const edit = pending[key];
+                root.call("set-layer", [edit.index, JSON.stringify(edit.value)], edit.wall);
+            }
         }
     }
 

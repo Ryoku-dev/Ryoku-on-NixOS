@@ -18,6 +18,7 @@ import inir.modules.iris.bar
 import inir.modules.iris.bar.island
 import inir.modules.iris.sidebar
 import shell.services as Ryoku
+import Ryoku.Ui.Singletons
 
 Item {
     id: root
@@ -113,7 +114,7 @@ Item {
                 spacing: 0
                 IrisText {
                     Layout.fillWidth: true
-                    text: vpnRow.label
+                    text: I18n.tr(vpnRow.label)
                     elide: Text.ElideRight
                     font.pixelSize: IrisStyle.typeLabel
                     font.weight: vpnRow.on ? Font.DemiBold : Font.Normal
@@ -121,7 +122,7 @@ Item {
                 IrisText {
                     Layout.fillWidth: true
                     visible: vpnRow.detail.length > 0
-                    text: vpnRow.detail
+                    text: I18n.tr(vpnRow.detail)
                     color: IrisStyle.muted
                     elide: Text.ElideRight
                     font.pixelSize: IrisStyle.typeFootnote
@@ -191,7 +192,7 @@ Item {
                 }
                 IrisText {
                     Layout.fillWidth: true
-                    text: door.detail
+                    text: I18n.tr(door.detail)
                     color: IrisStyle.muted
                     elide: Text.ElideRight
                     font.pixelSize: IrisStyle.typeFootnote
@@ -233,7 +234,7 @@ Item {
             anchors.rightMargin: Math.round(8 * root.d)
             spacing: Math.round(8 * root.d)
             IrisText {
-                text: fact.label
+                text: I18n.tr(fact.label)
                 color: IrisStyle.muted
                 font.pixelSize: IrisStyle.typeMeta
             }
@@ -485,7 +486,7 @@ Item {
                     }
                     IrisText {
                         Layout.fillWidth: true
-                        text: vital.modelData.label
+                        text: I18n.tr(vital.modelData.label)
                         elide: Text.ElideRight
                     }
                     Metric {

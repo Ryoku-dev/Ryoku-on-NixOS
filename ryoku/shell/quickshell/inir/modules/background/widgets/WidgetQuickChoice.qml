@@ -6,6 +6,7 @@ import inir.modules.common
 import inir.modules.common.functions
 import inir.modules.common.widgets
 import inir.modules.iris.style
+import Ryoku.Ui.Singletons
 
 // One choice in a widget's quick controls. It sizes from its whole content with equal side padding,
 // and in a grid it takes the cell's width and keeps its icon and label centred together.
@@ -77,7 +78,7 @@ Rectangle {
             visible: root.label.length > 0
             anchors.verticalCenter: parent.verticalCenter
             width: Math.min(Math.ceil(implicitWidth), Math.max(0, content.room - (glyph.visible ? glyph.width + content.spacing : 0)))
-            text: root.label
+            text: I18n.tr(root.label)
             elide: Text.ElideRight
             color: root.danger ? root.dangerInk : root.ink
             font.family: root.iris ? IrisStyle.fontMain : Appearance.font.family.main
@@ -91,7 +92,7 @@ Rectangle {
     // Answered after the tap returns: a pick can rebuild the rows this cell lives in, and a cell
     // destroyed inside its own tap swallows the next click.
     Timer { id: answer; interval: 0; onTriggered: root.clicked() }
-    StyledToolTip { text: root.tooltip; extraVisibleCondition: hover.hovered && root.tooltip.length > 0 }
+    StyledToolTip { text: I18n.tr(root.tooltip); extraVisibleCondition: hover.hovered && root.tooltip.length > 0 }
     Accessible.role: Accessible.RadioButton
     Accessible.name: root.label
     Accessible.checked: root.selected

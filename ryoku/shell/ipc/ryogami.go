@@ -22,16 +22,47 @@ import (
 // ryogamiFrameEntry is the slice of ryogami's wallpaper frame the depth worker
 // needs: the source path and whether a live player owns the slot.
 type ryogamiFrameEntry struct {
-	Path  string `json:"path"`
-	Live  bool   `json:"live"`
-	Video bool   `json:"video"`
-	Depth string `json:"depth"`
+	Path    string `json:"path"`
+	Live    bool   `json:"live"`
+	Video   bool   `json:"video"`
+	Depth   string `json:"depth"`
+	Preview bool   `json:"preview"`
 }
 
 // ryogamiFrame mirrors ryogami's `{default, outputs}` wallpaper topic frame.
 type ryogamiFrame struct {
 	Default ryogamiFrameEntry            `json:"default"`
 	Outputs map[string]ryogamiFrameEntry `json:"outputs"`
+}
+
+func committedWallFrame(previous, next ryogamiFrame) ryogamiFrame {
+	if next.Default.Preview {
+		return previous
+	}
+	committed := next
+	committed.Outputs = make(map[string]ryogamiFrameEntry, len(next.Outputs))
+	for name, entry := range next.Outputs {
+		if entry.Preview {
+			if old, ok := previous.Outputs[name]; ok {
+				committed.Outputs[name] = old
+			}
+			continue
+		}
+		committed.Outputs[name] = entry
+	}
+	return committed
+}
+
+func wallFrameHasPreview(frame ryogamiFrame) bool {
+	if frame.Default.Preview {
+		return true
+	}
+	for _, entry := range frame.Outputs {
+		if entry.Preview {
+			return true
+		}
+	}
+	return false
 }
 
 func ryogamiSock() string {
@@ -153,13 +184,7 @@ func missingDepth(f ryogamiFrame) bool {
 	return false
 }
 
-// consumeRyogamiFrames mirrors ryogami's wallpaper topic into d.ryoWall and
-// wakes the workers: a changed picture reschedules the stage cutout AND the
-// palette pass (the dynamic matugen pipeline follows the wallpaper), while a
-// frame that merely lost its subject fold re-arms the stage worker alone. That
-// worker only reuses or clears on such a wake (it never auto-recuts), so a
-// spurious wake settles immediately: an unchanged publish is suppressed by
-// ryogami's topic and the chain goes quiet.
+// Passive wallpaper frames may republish state but must never start engine work.
 func (d *daemon) consumeRyogamiFrames(r io.Reader) {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
@@ -168,9 +193,11 @@ func (d *daemon) consumeRyogamiFrames(r io.Reader) {
 			continue
 		}
 		d.ryoWallMu.Lock()
-		srcChanged := !sameWallSources(d.ryoWall, f)
-		wakeDepth := srcChanged || missingDepth(f)
-		d.ryoWall = f
+		preview := wallFrameHasPreview(f)
+		committed := committedWallFrame(d.ryoWall, f)
+		srcChanged := !sameWallSources(d.ryoWall, committed)
+		wakeDepth := srcChanged || (!preview && missingDepth(committed))
+		d.ryoWall = committed
 		d.ryoWallMu.Unlock()
 		if wakeDepth {
 			d.scheduleStage()

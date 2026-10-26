@@ -1816,8 +1816,6 @@ PanelWindow {
                     onReleased: barSlot.endDrag()
                     onCanceled: barSlot.cancelDrag()
                 }
-                // The target sits over the real widget island, so its outline
-                // must keep the shell's corner geometry while editing.
                 Rectangle {
                     anchors.fill: parent
                     radius: barSlot.shellRadius
@@ -2005,7 +2003,7 @@ PanelWindow {
             if (stage <= 0) return true
             if (stage === 1) return ["G7", "G9", "G10"].indexOf(gid) < 0         // drop AI · MPRIS · Quick
             if (stage === 2) return ["G4", "G7", "G9", "G10", "G17", "G18"].indexOf(gid) < 0   // also MEM · GPU · HDD
-            return ["G1", "G2", "G6", "G8", "G11", "G14"].indexOf(gid) >= 0      // emergency whitelist
+            return ["G1", "G2", "G6", "G8", "G11", "G14"].indexOf(gid) >= 0      // emergency allowlist
         }
         function sideNaturalWidth(row, stage) {
             var sum = 0, n = 0

@@ -10,12 +10,7 @@ import shell.services as ShellCfg
  * The shared dock store's view for the ii design.
  *
  * The ii dock keeps its knobs in shell.json's `dock` object like every other
- * design: the shared placement keys live at the top of that object and are
- * what the Hub, the CLI and the stage edit pages already read and write; the
- * design's own deep options live beside them under `dock.ii`. A leaf of the
- * generated options tree pulls through here on read and commits back through
- * here on write, so the two stores never disagree and the daemon stays the
- * sole writer.
+ * design so the daemon remains the sole writer.
  */
 Singleton {
     id: root

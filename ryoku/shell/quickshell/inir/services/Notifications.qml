@@ -14,8 +14,6 @@ import shell.services as Ryoku
 Singleton {
     id: root
 
-    readonly property string _appNameListKey: ""
-
     property var list: []
     property var popupList: []
     property int unread: root.popupList.length
@@ -42,37 +40,26 @@ Singleton {
             body: n.body ?? "",
             image: "",
             summary: n.summary ?? "",
-            time: (root._arrive[n.id] ?? Date.now()) / 1000,
+            time: Number(Ryoku.Notifs.arrivalMs[n.id] ?? Date.now()),
             urgency: String(n.urgency ?? "normal")
         };
     }
 
-    property var _arrive: ({})
-
+    // iRiS expects oldest-first groups and reads each tail as the newest notification.
     function _rebuild() {
-        const history = Ryoku.Notifs.history ?? [];
         const popups = Ryoku.Notifs.popups ?? [];
+        const popupIds = {};
+        for (const p of popups)
+            popupIds[p.id] = true;
         const seen = {};
         const out = [];
-        const ids = {};
-        for (const p of popups) {
-            if (seen[p.id])
+        for (const n of popups.concat(Ryoku.Notifs.history ?? [])) {
+            if (seen[n.id])
                 continue;
-            seen[p.id] = true;
-            ids[p.id] = true;
-            if (root._arrive[p.id] === undefined) {
-                const a = Object.assign({}, root._arrive);
-                a[p.id] = Date.now();
-                root._arrive = a;
-            }
-            out.unshift(root._wrap(p, true));
+            seen[n.id] = true;
+            out.push(root._wrap(n, popupIds[n.id] === true));
         }
-        for (const h of history) {
-            if (seen[h.id])
-                continue;
-            seen[h.id] = true;
-            out.push(root._wrap(h, false));
-        }
+        out.sort((a, b) => a.time - b.time);
         root.list = out;
         root.popupList = out.filter(w => w.popup);
         const byId = {}
@@ -95,16 +82,7 @@ Singleton {
         return String(name ?? "").trim().toLowerCase();
     }
 
-    readonly property var appNameList: {
-        root.revision;
-        const keys = Object.keys(root._groups);
-        return keys;
-    }
-
-    property int revision: 0
-
-    readonly property var _groups: {
-        root.revision;
+    readonly property var groupsByAppName: {
         const groups = {};
         for (const w of root.list) {
             const key = root._normalizeAppKey(w.appName);
@@ -121,12 +99,8 @@ Singleton {
         return groups;
     }
 
-    function groupsByAppName(appName) {
-        root.revision;
-        return root._groups[root._normalizeAppKey(appName)] ?? {
-            appName: String(appName ?? ""), notifications: [], unreadCount: 0, latest: null
-        };
-    }
+    readonly property var appNameList: Object.keys(root.groupsByAppName)
+        .sort((a, b) => root.groupsByAppName[b].latest.time - root.groupsByAppName[a].latest.time)
 
     // ---- mutations ----
     function dismissWrapper(w) {
@@ -148,8 +122,8 @@ Singleton {
     }
 
     function discardNotificationsForApp(appName) {
-        const g = root.groupsByAppName(appName);
-        for (const w of g.notifications.slice())
+        const g = root.groupsByAppName[root._normalizeAppKey(appName)];
+        for (const w of (g?.notifications ?? []).slice())
             root.dismissWrapper(w);
     }
 

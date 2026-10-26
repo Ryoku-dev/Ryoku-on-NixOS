@@ -610,11 +610,8 @@ Item {
 
     function createDesktopFolder() {
         const folderId = DesktopShortcuts.newFolder(root.screenName, "");
-        if (folderId) {
+        if (folderId)
             root.desktopAppsDestination = folderId;
-            if (DesktopShortcuts.hidden)
-                DesktopShortcuts.setHidden(false);
-        }
         return folderId;
     }
     function chooseDesktopDestination(key) {

@@ -25,6 +25,9 @@ import "../barstudio/BarStudioModel.js" as Model
 Item {
     id: page
     property var hub
+    property bool subshellsOnly: false
+    readonly property bool showActiveDetails: !page.subshellsOnly
+        || styleGallery.isSubshellStyle(page.activeStyle)
 
     // which rail is on the bench
     property string edge: "left"
@@ -282,14 +285,18 @@ Item {
             }
         }
         Text {
-            text: I18n.tr("Bar Studio")
+            text: page.subshellsOnly ? I18n.tr("Subshells") : I18n.tr("Bar Studio")
             color: Tokens.ink
             font.family: Tokens.display
             font.pixelSize: Tokens.fTitle
         }
+        // One compact legend serves both Subshells and Bar Studio.
         Text {
-            width: Math.min(parent.width, 720)
-            text: I18n.tr("Which bar the desktop draws, and how it looks.")
+            width: parent.width
+            text: (page.subshellsOnly
+                ? I18n.tr("Complete shell experiences with their own panels, docks and tools.")
+                : I18n.tr("Which bar the desktop draws, and how it looks."))
+                + "   |   ▲ = " + I18n.tr("Uses more resources than other options")
             color: Tokens.inkMuted
             font.family: Tokens.ui
             font.pixelSize: Tokens.fBody
@@ -325,12 +332,14 @@ Item {
                 // sits empty.
                 property bool fullWidth: true
                 width: col.colWidth
-                title: I18n.tr("BAR STYLE")
+                title: page.subshellsOnly ? I18n.tr("SUBSHELL") : I18n.tr("BAR STYLE")
 
                 StoreDesignGallery {
                     id: styleGallery
                     width: parent.width
                     category: "barstyles"
+                    onlySubshells: page.subshellsOnly
+                    browseCategory: page.subshellsOnly ? "subshells" : "barstyles"
                     wornId: page.activeStyle
                     shippedDesigns: BarStyles.builtins
                     onWear: designId => page.fedit("barStyle", designId)
@@ -354,7 +363,7 @@ Item {
                         spacing: Tokens.s3
                         Text {
                             width: parent.width
-                            text: I18n.tr("Every bar style shares one dock. Choose its design, behaviour and pinned apps in Stage Editor.")
+                            text: I18n.tr("The shared dock is configured in Stage Editor, regardless of which shell or bar is active.")
                             color: Tokens.inkMuted
                             font.family: Tokens.ui
                             font.pixelSize: Tokens.fBody
@@ -372,7 +381,7 @@ Item {
             SettingCard {
                 id: qsbarSect
                 width: col.colWidth
-                visible: page.activeStyle === "qsbar"
+                visible: page.showActiveDetails && page.activeStyle === "qsbar"
                 title: I18n.tr("QS BAR")
                 kana: "帯"
 
@@ -542,7 +551,7 @@ Item {
             SettingCard {
                 id: irisSect
                 width: col.colWidth
-                visible: page.activeStyle === "iris"
+                visible: page.showActiveDetails && page.activeStyle === "iris"
                 title: I18n.tr("SHIMA")
                 kana: "島"
 
@@ -627,7 +636,7 @@ Item {
             SettingCard {
                 id: pythonSect
                 width: col.colWidth
-                visible: page.activeStyle === "python"
+                visible: page.showActiveDetails && page.activeStyle === "python"
                 title: I18n.tr("PYTHON")
                 kana: "蛇"
 
@@ -658,7 +667,7 @@ Item {
             SettingCard {
                 id: nomarchySect
                 width: col.colWidth
-                visible: page.activeStyle === "nomarchy"
+                visible: page.showActiveDetails && page.activeStyle === "nomarchy"
                 title: I18n.tr("NOMARCHY")
                 kana: "野"
 
@@ -698,7 +707,11 @@ Item {
             SettingCard {
                 id: folderNote
                 width: col.colWidth
+<<<<<<< port (unstable-dev)
                 visible: !page.sumiActive && ["qsbar", "orpheus", "iris", "python", "nomarchy", "karuma"].indexOf(page.activeStyle) === -1
+=======
+                visible: page.showActiveDetails && !page.sumiActive && ["qsbar", "orpheus", "iris", "python", "nomarchy"].indexOf(page.activeStyle) === -1
+>>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
                 title: I18n.tr("LAYOUT")
 
                 Text {
@@ -717,7 +730,7 @@ Item {
             SettingCard {
                 id: obiSect
                 width: col.colWidth
-                visible: page.activeStyle === "obi"
+                visible: page.showActiveDetails && page.activeStyle === "obi"
                 title: I18n.tr("OBI WIDGETS")
 
                 Repeater {
@@ -746,7 +759,7 @@ Item {
             SettingCard {
                 id: nacreSect
                 width: col.colWidth
-                visible: page.activeStyle === "nacre"
+                visible: page.showActiveDetails && page.activeStyle === "nacre"
                 title: I18n.tr("NACRE LAYOUT")
 
                 Item {
@@ -767,7 +780,7 @@ Item {
                 id: frameSect
                 width: col.colWidth
                 title: I18n.tr("FRAME")
-                visible: page.sumiActive
+                visible: page.showActiveDetails && page.sumiActive
 
                 SettingRow {
                     anchors.left: parent.left
@@ -855,7 +868,7 @@ Item {
                 id: railSect
                 width: col.colWidth
                 title: I18n.tr("RAILS")
-                visible: page.sumiActive
+                visible: page.showActiveDetails && page.sumiActive
 
                 Item {
                     width: parent.width
@@ -965,7 +978,7 @@ Item {
                 id: zoneSect
                 width: col.colWidth
                 title: I18n.tr("WIDGETS ON THE %1 RAIL").arg(labels.edge(page.edge).toUpperCase())
-                visible: page.sumiActive
+                visible: page.showActiveDetails && page.sumiActive
 
                 Item {
                     width: parent.width

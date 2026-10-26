@@ -114,6 +114,13 @@ Column {
                 }
 
                 Btn {
+                    visible: root.backend.installing
+                    text: I18n.tr("Cancel download")
+                    compact: true
+                    onAct: root.backend.cancelInstall()
+                }
+
+                Btn {
                     visible: root.selectedInstalled
                     text: root.backend.removingModel === root.selectedId
                         ? I18n.tr("Removing…") : I18n.tr("Remove")
@@ -122,25 +129,18 @@ Column {
                     onAct: root.backend.remove(root.selectedId)
                 }
 
-                Btn {
-                    text: I18n.tr("Re-cut")
-                    compact: true
-                    primary: root.selectedInstalled
-                    armed: root.selectedInstalled && !root.backend.busy
-                        && !root.backend.installing && !root.backend.removing
-                    onAct: root.backend.refresh()
-                }
             }
         }
 
         SettingRow {
-            visible: (root.backend.installing || root.backend.removing)
-                && root.backend.progress !== ""
+            visible: root.backend.installing
+                || (root.backend.removing && root.backend.progress !== "")
             width: parent.width
             divider: true
             label: root.backend.installing
                 ? I18n.tr("Preparing the cut model") : I18n.tr("Removing the cut model")
-            desc: I18n.tr(String(root.backend.progress))
+            desc: root.backend.progress !== ""
+                ? I18n.tr(String(root.backend.progress)) : I18n.tr("Starting download")
         }
 
         SettingRow {

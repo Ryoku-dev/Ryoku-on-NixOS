@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import inir.modules.common.widgets
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 RowLayout {
     id: header
@@ -38,7 +39,7 @@ RowLayout {
         IrisText {
             Layout.fillWidth: true
             visible: text.length > 0
-            text: header.detail
+            text: I18n.tr(header.detail)
             role: IrisText.Meta
             elide: Text.ElideRight
         }

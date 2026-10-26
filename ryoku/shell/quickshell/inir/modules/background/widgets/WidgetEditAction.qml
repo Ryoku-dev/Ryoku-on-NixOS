@@ -7,6 +7,7 @@ import inir.modules.common
 import inir.modules.common.functions
 import inir.modules.common.widgets
 import inir.modules.iris.style
+import Ryoku.Ui.Singletons
 
 IconToolbarButton {
     id: root
@@ -68,7 +69,7 @@ IconToolbarButton {
 
     TextMetrics {
         id: labelMetrics
-        text: root.label
+        text: I18n.tr(root.label)
         font.family: root.iris ? IrisStyle.fontMain : Appearance.font.family.main
         font.pixelSize: Appearance.font.pixelSize.smaller
         font.weight: Appearance.editorialEverywhere ? Appearance.editorial.labelWeight : Font.Medium
@@ -132,7 +133,7 @@ IconToolbarButton {
                 visible: root.showLabel
                 width: Math.ceil(labelMetrics.width)
                 horizontalAlignment: Text.AlignHCenter
-                text: root.label
+                text: I18n.tr(root.label)
                 font.family: root.iris ? IrisStyle.fontMain : Appearance.font.family.main
                 font.pixelSize: Appearance.font.pixelSize.smaller
                 font.weight: Appearance.editorialEverywhere ? Appearance.editorial.labelWeight : Font.Medium
@@ -140,5 +141,5 @@ IconToolbarButton {
             }
         }
     }
-    StyledToolTip { text: root.tooltip; position: root.tooltipPosition }
+    StyledToolTip { text: I18n.tr(root.tooltip); position: root.tooltipPosition }
 }

@@ -21,6 +21,7 @@ import inir.modules.iris.bar.island
 import inir.modules.iris.control
 
 import shell.services as Ryoku
+import Ryoku.Ui.Singletons
 Item {
     id: root
 
@@ -1979,7 +1980,7 @@ Item {
                     IrisText {
                         Layout.fillWidth: true
                         visible: text.length > 0
-                        text: root.event.detail
+                        text: I18n.tr(root.event.detail)
                         color: IrisStyle.muted
                         font.pixelSize: IrisStyle.typeFootnote
                         elide: Text.ElideRight
@@ -2494,7 +2495,7 @@ Item {
                                     }
                                     IrisText {
                                         Layout.fillWidth: true
-                                        text: eqDoor.detail
+                                        text: I18n.tr(eqDoor.detail)
                                         color: IrisStyle.muted
                                         elide: Text.ElideRight
                                         font.pixelSize: IrisStyle.typeFootnote
@@ -2678,7 +2679,7 @@ Item {
                 IrisText {
                     Layout.fillWidth: true
                     visible: text.length > 0
-                    text: root.event.detail
+                    text: I18n.tr(root.event.detail)
                     color: IrisStyle.muted
                     font.pixelSize: IrisStyle.typeFootnote
                     elide: Text.ElideRight

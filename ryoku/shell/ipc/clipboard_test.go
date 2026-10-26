@@ -221,7 +221,7 @@ func TestClipLoadDropsCapLengthImage(t *testing.T) {
 		nextID:   1,
 		entries: []*clipEntry{{
 			ID: 1, Kind: "image", Mime: "image/png", Size: len(data),
-			ThumbPath: thumbPath, hash: hash, data: data,
+			ThumbPath: thumbPath, hash: hash,
 		}},
 	}
 	legacy.writeData(hash, data)
@@ -239,18 +239,17 @@ func TestClipLoadDropsCapLengthImage(t *testing.T) {
 	}
 }
 
-func TestTruncateRunes(t *testing.T) {
-	if got := truncateRunes("héllo", 3); got != "hél" {
-		t.Errorf("truncateRunes(héllo, 3) = %q, want hél", got)
+func TestTruncateBytesRunes(t *testing.T) {
+	if got := truncateBytesRunes([]byte("héllo"), 3); got != "hél" {
+		t.Errorf("truncateBytesRunes(héllo, 3) = %q, want hél", got)
 	}
-	if got := truncateRunes("hi", 5); got != "hi" {
-		t.Errorf("truncateRunes(hi, 5) = %q, want hi", got)
+	if got := truncateBytesRunes([]byte("hi"), 5); got != "hi" {
+		t.Errorf("truncateBytesRunes(hi, 5) = %q, want hi", got)
 	}
 }
 
-// The history survives a daemon restart: ingested entries are written to the
-// state dir and a fresh clipState.load() restores them, order, bytes, image
-// dimensions and nextID.
+// The history survives a daemon restart: a fresh clipState.load() restores its
+// metadata while payload bytes remain in their backing files.
 func TestClipPersistence(t *testing.T) {
 	dir := t.TempDir()
 	dataDir := filepath.Join(dir, "data")
@@ -279,8 +278,8 @@ func TestClipPersistence(t *testing.T) {
 	if s2.entries[0].Preview != "world" {
 		t.Errorf("front after reload = %q, want %q", s2.entries[0].Preview, "world")
 	}
-	if !bytes.Equal(s2.entries[0].data, []byte("world")) {
-		t.Errorf("reloaded front bytes = %q, want %q", s2.entries[0].data, "world")
+	if got, err := os.ReadFile(s2.dataPath(s2.entries[0].hash)); err != nil || !bytes.Equal(got, []byte("world")) {
+		t.Errorf("reloaded front payload = %q, %v; want %q, nil", got, err, "world")
 	}
 	reloadedImage := s2.entries[2]
 	if reloadedImage.W != 1205 || reloadedImage.H != 417 {
@@ -291,6 +290,36 @@ func TestClipPersistence(t *testing.T) {
 	}
 	if s2.nextID != s.nextID {
 		t.Errorf("reloaded nextID = %d, want %d", s2.nextID, s.nextID)
+	}
+}
+
+func TestClipCopyReadsPayloadFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	dataDir := filepath.Join(dir, "data")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	copied := filepath.Join(t.TempDir(), "copied")
+	writeCommandStub(t, bin, "wl-copy", `cat > "$CLIP_COPY_STDIN"`)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CLIP_COPY_STDIN", copied)
+
+	s := &clipState{stateDir: dir, dataDir: dataDir, cacheDir: t.TempDir()}
+	s.ingest("text/plain", []byte("from disk"))
+	s.ingest("text/plain", []byte("newer"))
+	if err := s.copy(1); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(copied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, []byte("from disk")) {
+		t.Errorf("wl-copy received %q, want %q", got, "from disk")
+	}
+	if ids := clipIDs(s); !reflect.DeepEqual(ids, []uint64{1, 2}) {
+		t.Errorf("ids after copy = %v, want [1 2]", ids)
 	}
 }
 
@@ -362,6 +391,63 @@ func TestClipStarToggleAndUnknown(t *testing.T) {
 	}
 	if err := s.star(999, true); err == nil {
 		t.Error("star of an unknown id returned no error")
+	}
+}
+
+func TestClipStarredByteBudget(t *testing.T) {
+	s := &clipState{}
+	s.pushLocked(&clipEntry{hash: 1, Size: 60 << 20})
+	s.pushLocked(&clipEntry{hash: 2, Size: 50 << 20})
+	if err := s.star(1, true); err != nil {
+		t.Fatalf("star first entry: %v", err)
+	}
+	err := s.star(2, true)
+	if err == nil || !strings.Contains(err.Error(), "unstar an item first") {
+		t.Fatalf("star past budget = %v, want a clear limit error", err)
+	}
+	if s.entries[0].Starred {
+		t.Fatal("entry was starred past the byte budget")
+	}
+	if err := s.star(1, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.star(2, true); err != nil {
+		t.Fatalf("star after freeing budget: %v", err)
+	}
+}
+
+func TestClipLoadKeepsNewestStarsWithinBudget(t *testing.T) {
+	dir := t.TempDir()
+	dataDir := filepath.Join(dir, "data")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &clipState{stateDir: dir, dataDir: dataDir}
+	for i := 1; i <= 3; i++ {
+		data := []byte{byte(i)}
+		hash := clipHash(data)
+		s.writeData(hash, data)
+		s.entries = append([]*clipEntry{{
+			ID: uint64(i), Kind: "binary", Mime: "application/octet-stream",
+			Size: 40 << 20, Starred: true, hash: hash, ts: time.Unix(int64(i), 0),
+		}}, s.entries...)
+		s.nextID = uint64(i)
+	}
+	s.persistLocked()
+
+	loaded := &clipState{stateDir: dir, dataDir: dataDir}
+	loaded.load()
+	if len(loaded.entries) != 3 {
+		t.Fatalf("loaded %d entries, want 3", len(loaded.entries))
+	}
+	if !loaded.entries[0].Starred || !loaded.entries[1].Starred || loaded.entries[2].Starred {
+		t.Errorf("starred flags newest-first = [%v %v %v], want [true true false]",
+			loaded.entries[0].Starred, loaded.entries[1].Starred, loaded.entries[2].Starred)
+	}
+	for _, e := range loaded.entries {
+		if _, err := os.Stat(loaded.dataPath(e.hash)); err != nil {
+			t.Errorf("load removed payload for entry %d: %v", e.ID, err)
+		}
 	}
 }
 
@@ -448,6 +534,27 @@ func TestClipOverflowSpareStarred(t *testing.T) {
 		if !present[id] {
 			t.Errorf("overflow evicted starred entry %d with no other unstarred candidate", id)
 		}
+	}
+}
+
+func TestClipEvictionRemovesPayload(t *testing.T) {
+	dir := t.TempDir()
+	dataDir := filepath.Join(dir, "data")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &clipState{stateDir: dir, dataDir: dataDir, cacheDir: t.TempDir()}
+	for i := range clipMaxEntries {
+		s.ingest("text/plain", []byte(fmt.Sprintf("entry-%d", i)))
+	}
+	oldest := s.entries[len(s.entries)-1]
+	oldestPath := s.dataPath(oldest.hash)
+	s.ingest("text/plain", []byte("overflow"))
+	if len(s.entries) != clipMaxEntries {
+		t.Fatalf("entries after overflow = %d, want %d", len(s.entries), clipMaxEntries)
+	}
+	if _, err := os.Stat(oldestPath); !os.IsNotExist(err) {
+		t.Errorf("evicted payload still exists: %v", err)
 	}
 }
 

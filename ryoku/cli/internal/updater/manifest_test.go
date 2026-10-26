@@ -117,9 +117,12 @@ func TestSatisfiedByProvidersKeepsTheBoxsOwnProvider(t *testing.T) {
 	t.Setenv("PATH", bin)
 	m := ryokumanifest.Manifest{Base: []string{"base", "rust", "power-profiles-daemon"}, Dev: []string{"go"}}
 
-	installed := SatisfiedByProviders(m, map[string]bool{"base": true})
+	installed, provided := SatisfiedByProviders(m, map[string]bool{"base": true})
 	if want := map[string]bool{"base": true, "rust": true, "power-profiles-daemon": true}; !reflect.DeepEqual(installed, want) {
 		t.Fatalf("installed = %v, want %v", installed, want)
+	}
+	if want := []string{"power-profiles-daemon", "rust"}; !reflect.DeepEqual(provided, want) {
+		t.Fatalf("provided = %v, want %v", provided, want)
 	}
 	plan := PlanManifest(&m, map[string]bool{"base": true}, &m, installed)
 	if !reflect.DeepEqual(plan.Install, []string{"go"}) {
@@ -127,9 +130,60 @@ func TestSatisfiedByProvidersKeepsTheBoxsOwnProvider(t *testing.T) {
 	}
 
 	writeExec(t, filepath.Join(bin, "pacman"), "#!/bin/sh\nexit 1\n")
-	if got := SatisfiedByProviders(m, map[string]bool{"base": true}); !reflect.DeepEqual(got, map[string]bool{"base": true}) {
-		t.Fatalf("a failed pacman -T widened the set to %v", got)
+	got, provided := SatisfiedByProviders(m, map[string]bool{"base": true})
+	if !reflect.DeepEqual(got, map[string]bool{"base": true}) || len(provided) != 0 {
+		t.Fatalf("a failed pacman -T returned installed=%v provided=%v", got, provided)
 	}
+}
+
+func TestSatisfiedByProvidersUsesAURVariantBase(t *testing.T) {
+	t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
+	old := pacmanUnmet
+	t.Cleanup(func() { pacmanUnmet = old })
+	m := ryokumanifest.Manifest{AUR: []string{"yay-bin"}}
+
+	t.Run("base installed", func(t *testing.T) {
+		pacmanUnmet = func(names []string) (map[string]bool, error) {
+			if want := []string{"yay"}; !reflect.DeepEqual(names, want) {
+				t.Fatalf("pacman -T requirements = %v, want %v", names, want)
+			}
+			return map[string]bool{}, nil
+		}
+		installed, provided := SatisfiedByProviders(m, map[string]bool{"yay": true})
+		if !installed["yay-bin"] || !reflect.DeepEqual(provided, []string{"yay-bin"}) {
+			t.Fatalf("installed=%v provided=%v, want yay-bin provided by yay", installed, provided)
+		}
+		if plan := PlanManifest(&m, map[string]bool{}, &m, installed); len(plan.AUR) != 0 {
+			t.Fatalf("AUR plan = %v, want yay-bin skipped", plan.AUR)
+		}
+	})
+
+	t.Run("nothing installed", func(t *testing.T) {
+		pacmanUnmet = func(names []string) (map[string]bool, error) {
+			return map[string]bool{"yay": true}, nil
+		}
+		installed, provided := SatisfiedByProviders(m, map[string]bool{})
+		if installed["yay-bin"] || len(provided) != 0 {
+			t.Fatalf("installed=%v provided=%v, want yay-bin unresolved", installed, provided)
+		}
+		if plan := PlanManifest(&m, map[string]bool{}, &m, installed); !reflect.DeepEqual(plan.AUR, []string{"yay-bin"}) {
+			t.Fatalf("AUR plan = %v, want [yay-bin]", plan.AUR)
+		}
+	})
+
+	t.Run("variant installed", func(t *testing.T) {
+		pacmanUnmet = func([]string) (map[string]bool, error) {
+			t.Fatal("exact installed variant queried through pacman -T")
+			return nil, nil
+		}
+		installed, provided := SatisfiedByProviders(m, map[string]bool{"yay-bin": true})
+		if !installed["yay-bin"] || len(provided) != 0 {
+			t.Fatalf("installed=%v provided=%v, want exact package kept", installed, provided)
+		}
+		if plan := PlanManifest(&m, map[string]bool{}, &m, installed); len(plan.AUR) != 0 {
+			t.Fatalf("AUR plan = %v, want exact installed package handled normally", plan.AUR)
+		}
+	})
 }
 
 func TestFedoraPackageSetsUseRPMAndDNFUserInstalled(t *testing.T) {

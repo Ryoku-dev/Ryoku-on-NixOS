@@ -14,6 +14,7 @@ import inir.modules.common.widgets.widgetCanvas
 import inir.modules.iris.style
 import inir.modules.iris.widgets
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 AbstractWidget {
     id: root
@@ -1777,7 +1778,7 @@ AbstractWidget {
                                 Layout.fillWidth: true
                                 Layout.preferredWidth: 1
                                 Layout.maximumWidth: Number.POSITIVE_INFINITY
-                                label: modelData.label
+                                label: I18n.tr(modelData.label)
                                 selected: root.widgetPalettePreset === modelData.value
                                 sidePadding: Math.round(12 * semanticQuickRoot.d) + swatches.width + 6
                                 onClicked: root.applyWidgetPalettePreset(modelData.value)

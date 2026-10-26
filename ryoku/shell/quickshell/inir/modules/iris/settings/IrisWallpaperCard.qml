@@ -16,6 +16,7 @@ import inir.modules.iris.components
 import inir.modules.iris.preview
 import inir.modules.iris.style
 import inir.modules.iris.widgets
+import Ryoku.Ui.Singletons
 
 ClippingRectangle {
     id: card
@@ -362,7 +363,7 @@ ClippingRectangle {
             IrisText {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: glass.label.length > 0
-                text: glass.label
+                text: I18n.tr(glass.label)
                 color: IrisStyle.onMedia
                 font.pixelSize: IrisStyle.typeLabel
                 font.weight: IrisStyle.weight(Font.Medium)

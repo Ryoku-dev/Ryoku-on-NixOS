@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// The shell's startup defaults must cover the same capability contract as provider frames.
 func TestQMLEmptyCapsMatchesAllCapabilities(t *testing.T) {
 	path := filepath.Join("..", "ui", "Singletons", "Wm.qml")
 	source, err := os.ReadFile(path)

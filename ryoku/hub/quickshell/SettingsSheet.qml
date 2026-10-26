@@ -227,7 +227,7 @@ Item {
             cmd += " && (command -v " + r.launch + " >/dev/null 2>&1"
                 + " && ! pgrep -x " + r.launch + " >/dev/null 2>&1"
                 + " && setsid " + r.launch + " >/dev/null 2>&1 &)";
-        Spawn.run(["kitty", "--hold", "-e", "sh", "-c", cmd]);
+        Spawn.runApp(["kitty", "--hold", "-e", "sh", "-c", cmd], { label: "kitty" });
     }
 
     // A row's option list. Most rows write theirs in the schema; a row whose
@@ -512,7 +512,11 @@ Item {
                                             onAct: {
                                                 if (srow.r.key === "i18nGenerate")
                                                     Spawn.runApp(["kitty", "--class", "ryoku-i18n", "-e", "sh", "-c",
+<<<<<<< port (unstable-dev)
                                                         "ryoku-i18n llm " + I18n.lang + "; echo; read -n1 -rsp 'Done. Press any key to close…'; echo"]);
+=======
+                                                        "ryoku-i18n llm " + I18n.lang + "; echo; read -n1 -rsp 'Done. Press any key to close…'; echo"], { label: "kitty" });
+>>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
                                             }
                                         }
                                     }

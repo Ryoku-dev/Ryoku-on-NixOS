@@ -61,6 +61,9 @@ case "$package_manager" in
     # from fedora/packages/translations.tsv and the first-party RPM build specs.
     fedora_tools=(
       git golang cmake ninja-build qt6-qtshadertools-devel wayland-devel
+      qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtdeclarative-devel
+      qt6-qtmultimedia-devel qt6-qtquick3d-devel wayland-protocols-devel
+      ffmpeg-free-devel gtk3-devel webkit2gtk4.1-devel
       gcc gcc-c++ make meson pkgconf-pkg-config ryoku-extras vulkan-headers
     )
     command -v ryoku-host >/dev/null 2>&1 || {

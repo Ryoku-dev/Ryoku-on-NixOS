@@ -27,12 +27,7 @@ import (
 // The daemon owns a typed schema for the reference namespaces plus Ryoku's Ask
 // and Controls state. Those are validated: enum membership and integer ranges
 // are rejected, float strength/contrast/opacity values clamp into range, and
-// Controls drops unknown or duplicate layout identifiers. Other top-level keys
-// in the file (the Ryoku-native look knobs frameRadius, frameBars,
-// weatherLocation, language, and the rest) are carried through verbatim as
-// passthrough, except for shared leaves such as dock.edgeGap that need one
-// daemon-enforced contract. Passthrough keeps the daemon the sole writer without
-// forcing it to model settings owned by individual surfaces.
+// Controls drops unknown or duplicate layouts; unowned top-level keys pass through.
 //
 // The frame is the whole file as one JSON object, so a subscriber sees both the
 // validated schema and the passthrough keys and can drop its own file reader.
@@ -86,7 +81,7 @@ var (
 	orientationValues     = []string{"Horizontal", "Vertical"}
 	locQueryTypeValues    = []string{"Coordinates", "City"}
 	controlSectionIDs     = []string{"vitals", "connections", "powerProfile", "media", "levels", "bottomControls"}
-	controlPositionValues = []string{"top-left", "top-right", "center"}
+	controlPositionValues = []string{"top-left", "top-center", "top-right", "center"}
 	controlElementIDs     = []string{
 		"identity", "cpu", "cpuTemperature", "liveGraph", "memory", "gpu", "network", "disk", "battery",
 		"wifi", "bluetooth", "ethernet", "vpn",
@@ -786,9 +781,7 @@ func (c *controlsSettings) normalize(v *validator) {
 	c.Hidden = hidden
 }
 
-// normalizeDockSettings validates the daemon-owned leaves inside the otherwise
-// passthrough dock store. Keeping the rest of the object untouched lets each
-// design retain its own settings while shared geometry gets one contract.
+// Shared dock geometry is validated without discarding design-specific settings.
 func normalizeDockSettings(raw map[string]any, strict bool) error {
 	dock, ok := raw["dock"].(map[string]any)
 	if !ok {
@@ -1234,11 +1227,7 @@ var designTransactionKeys = map[string]string{
 	"sidebar":      "ryoStoreSidebarTransaction",
 }
 
-// patch sets one leaf. Schema paths and selected shared native leaves are
-// validated and clamped; other native passthrough paths are merged without
-// validation. Retired settings namespaces are rejected rather than silently
-// resurrected. The change is persisted before it is committed in memory, so a
-// write failure cannot leave memory and disk disagreeing.
+// Persist first so failed writes cannot leave memory ahead of disk.
 func (s *settingsStore) patch(path string, value json.RawMessage) error {
 	segs, err := splitPath(path)
 	if err != nil {

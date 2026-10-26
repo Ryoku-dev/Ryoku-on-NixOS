@@ -119,7 +119,7 @@ Item {
         const title = succeeded ? I18n.tr("Phone tools are ready") : I18n.tr("Phone setup failed")
         const body = succeeded ? I18n.tr("Connect your phone in Kit to continue") : reason
         Spawn.run(["notify-send", "--app-name=Ryoku Phone", "--icon=smartphone", title, body])
-        Spawn.run(["ryoku-kit", "phone"])
+        Spawn.runApp(["ryoku-kit", "phone"], { label: "ryoku-kit" })
     }
 
     function queueState(): void {

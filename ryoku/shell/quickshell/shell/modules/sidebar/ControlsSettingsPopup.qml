@@ -15,9 +15,14 @@ QQC.Popup {
 
     readonly property bool motionAllowed: !Tokens.reduceMotion && !Motion.reduce
     readonly property var pluginCards: pluginHost.cards()
+    readonly property real preferredWidth: (Tokens.railW + Tokens.s6) * s
+    readonly property real hostWidth: parent && parent.width > 0 ? parent.width : preferredWidth
+    readonly property real hostHeight: parent && parent.height > 0 ? parent.height : implicitHeight
 
-    width: (Tokens.railW + Tokens.s6) * s
-    padding: Tokens.s4 * s
+    width: Math.max(1, Math.min(preferredWidth, hostWidth))
+    implicitHeight: content.implicitHeight + topPadding + bottomPadding
+    height: Math.max(1, Math.min(implicitHeight, hostHeight))
+    padding: Math.min(Tokens.s4 * s, width / 4)
     modal: false
     focus: true
     transformOrigin: Item.BottomRight
@@ -41,9 +46,18 @@ QQC.Popup {
         border.color: Tokens.lineStrong
     }
 
-    contentItem: Column {
-        id: content
-        spacing: Tokens.s2 * root.s
+    contentItem: QQC.ScrollView {
+        id: viewport
+        implicitHeight: content.implicitHeight
+        contentWidth: availableWidth
+        clip: true
+        QQC.ScrollBar.horizontal.policy: QQC.ScrollBar.AlwaysOff
+        QQC.ScrollBar.vertical.policy: QQC.ScrollBar.AsNeeded
+
+        Column {
+            id: content
+            width: viewport.availableWidth
+            spacing: Tokens.s2 * root.s
 
         Text {
             width: parent.width
@@ -88,8 +102,9 @@ QQC.Popup {
         SidebarSegments {
             width: parent.width
             s: root.s
-            options: ["top-left", "top-right", "center"]
-            labels: ({ "top-left": "Top left", "top-right": "Top right", "center": "Center" })
+            options: ["top-left", "top-center", "top-right", "center"]
+            labels: ({ "top-left": "Top left", "top-center": "Top center",
+                "top-right": "Top right", "center": "Center" })
             current: SidebarState.position
             onChose: key => SidebarState.setPosition(key)
         }
@@ -333,6 +348,7 @@ QQC.Popup {
                 HoverHandler { cursorShape: Qt.PointingHandCursor }
             }
         }
+    }
     }
 
     enter: Transition {

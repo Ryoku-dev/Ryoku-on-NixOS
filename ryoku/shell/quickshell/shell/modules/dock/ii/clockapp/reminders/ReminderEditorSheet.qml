@@ -6,6 +6,7 @@ import QtQuick.Layouts
 import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.services
+import Ryoku.Ui.Singletons
 import "../.."
 
 /**
@@ -762,7 +763,7 @@ ClockSheet {
             caption: modelData.kind === "link" ? Translation.tr("Link") : Translation.tr("File")
             value: modelData.kind === "link" ? modelData.url : (modelData.name || modelData.path)
             showChevron: false
-            onTriggered: Qt.openUrlExternally(modelData.kind === "link" ? modelData.url : "file://" + modelData.path)
+            onTriggered: Spawn.runApp(["xdg-open", modelData.kind === "link" ? modelData.url : "file://" + modelData.path], { label: modelData.kind })
 
             ClockIconButton {
                 symbol: "close"

@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import "../../"
 import "../../reusables"
 import "../../reusables/guide"
@@ -811,7 +812,7 @@ Item {
                         onClicked: {
                             let userSoundsPath = Caching.stateDir ? (Caching.stateDir + "/sounds/notifications") : (Caching.home + "/.local/state/serpantinum/sounds/notifications");
                             let escapeBash = function(str) { return String(str).replace(/(["\\$`])/g, '\\$1'); };
-                            Quickshell.execDetached(["bash", "-c", "mkdir -p \"" + escapeBash(userSoundsPath) + "\" && xdg-open \"" + escapeBash(userSoundsPath) + "\""]);
+                            Spawn.runApp(["bash", "-c", "mkdir -p \"" + escapeBash(userSoundsPath) + "\" && exec xdg-open \"" + escapeBash(userSoundsPath) + "\""], { label: "folder" });
                         }
                     }
 

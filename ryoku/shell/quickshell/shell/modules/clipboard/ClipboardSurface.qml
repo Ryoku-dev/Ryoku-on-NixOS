@@ -87,6 +87,44 @@ Scope {
         return hits.map(h => h.entry);
     }
 
+    // 0 = History pane (left), 1 = Starred pane (right)
+    property int activePane: 0
+    readonly property var currentPane: root.activePane === 0 ? historyPane : starredPane
+
+    function togglePane() {
+        root.activePane = root.activePane === 0 ? 1 : 0;
+    }
+
+    function moveSelection(delta) {
+        if (root.currentPane)
+            root.currentPane.moveSelection(delta);
+    }
+
+    function selectHome() {
+        if (root.currentPane)
+            root.currentPane.selectHome();
+    }
+
+    function selectEnd() {
+        if (root.currentPane)
+            root.currentPane.selectEnd();
+    }
+
+    function activateSelected() {
+        if (root.currentPane)
+            root.currentPane.activateSelected();
+    }
+
+    function starSelected() {
+        if (root.currentPane)
+            root.currentPane.starSelected();
+    }
+
+    function deleteSelected() {
+        if (root.currentPane)
+            root.currentPane.deleteSelected();
+    }
+
     readonly property var layout: Config.clipboard || ({})
     readonly property real widthPercent: Math.max(40, Math.min(90, root.layout.widthPercent === undefined ? 65 : Number(root.layout.widthPercent)))
     readonly property real heightPercent: Math.max(24, Math.min(72, root.layout.heightPercent === undefined ? 42 : Number(root.layout.heightPercent)))
@@ -115,41 +153,142 @@ Scope {
         // Escape unwinds the filter before the surface.
         property bool hot: false
         property string query: ""
-        property int selectedIndex: 0
+        property bool active: false
+        property int selectedIndex: -1
+        property string selectedEntryId: ""
         signal queryEdited(string text)
         signal closeRequested()
+        signal paneClicked()
+
+        function syncSelectedEntryId() {
+            selectedEntryId = selectedIndex >= 0 && items && selectedIndex < items.length
+                ? String(items[selectedIndex].id)
+                : "";
+        }
+
+        onSelectedIndexChanged: syncSelectedEntryId()
 
         function moveSelection(delta) {
-            if (pane.items.length === 0)
+            if (!items || items.length === 0) {
+                selectedIndex = -1;
                 return;
-            pane.selectedIndex = Math.max(0, Math.min(pane.items.length - 1, pane.selectedIndex + delta));
-            cards.positionViewAtIndex(pane.selectedIndex, ListView.Contain);
+            }
+            if (selectedIndex < 0) {
+                selectedIndex = delta > 0 ? 0 : items.length - 1;
+            } else {
+                selectedIndex = Math.max(0, Math.min(items.length - 1, selectedIndex + delta));
+            }
+            cards.positionViewAtIndex(selectedIndex, ListView.Contain);
         }
 
-        function activateSelection() {
-            const entry = pane.items[pane.selectedIndex];
-            if (!entry)
+        function selectHome() {
+            if (!items || items.length === 0) {
+                selectedIndex = -1;
                 return;
-            Clipboard.copy(Number(entry.id));
-            pane.closeRequested();
+            }
+            selectedIndex = 0;
+            cards.positionViewAtIndex(0, ListView.Beginning);
         }
 
-        onQueryChanged: pane.selectedIndex = 0
-        onHotChanged: if (pane.hot) pane.selectedIndex = 0
+        function selectEnd() {
+            if (!items || items.length === 0) {
+                selectedIndex = -1;
+                return;
+            }
+            selectedIndex = items.length - 1;
+            cards.positionViewAtIndex(selectedIndex, ListView.End);
+        }
+
+        function selectFirst() {
+            if (!items || items.length === 0) {
+                selectedIndex = -1;
+                return;
+            }
+            selectedIndex = 0;
+            cards.positionViewAtIndex(0, ListView.Beginning);
+        }
+
+        function activateSelected() {
+            if (selectedIndex >= 0 && items && selectedIndex < items.length) {
+                const entry = items[selectedIndex];
+                if (entry && entry.id !== undefined) {
+                    Clipboard.copy(Number(entry.id));
+                    pane.closeRequested();
+                }
+            }
+        }
+
+        function starSelected() {
+            if (selectedIndex >= 0 && items && selectedIndex < items.length) {
+                const entry = items[selectedIndex];
+                if (entry && entry.id !== undefined) {
+                    Clipboard.star(Number(entry.id), !(entry.starred === true));
+                }
+            }
+        }
+
+        function deleteSelected() {
+            if (selectedIndex >= 0 && items && selectedIndex < items.length) {
+                const entry = items[selectedIndex];
+                if (entry && entry.id !== undefined) {
+                    Clipboard.del(Number(entry.id));
+                }
+            }
+        }
+
+        onQueryChanged: {
+            selectedEntryId = "";
+            selectedIndex = items && items.length > 0 ? 0 : -1;
+            syncSelectedEntryId();
+        }
+
         onItemsChanged: {
-            if (pane.items.length === 0)
-                pane.selectedIndex = 0;
-            else
-                pane.selectedIndex = Math.min(pane.selectedIndex, pane.items.length - 1);
+            const previousId = selectedEntryId;
+            let preservedIndex = -1;
+            if (previousId && items) {
+                for (let i = 0; i < items.length; i++) {
+                    if (String(items[i].id) === previousId) {
+                        preservedIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            if (!items || items.length === 0) {
+                selectedIndex = -1;
+            } else if (preservedIndex >= 0) {
+                selectedIndex = preservedIndex;
+            } else if (pane.active) {
+                selectedIndex = selectedIndex < 0
+                    ? 0
+                    : Math.min(selectedIndex, items.length - 1);
+            } else if (selectedIndex >= items.length) {
+                selectedIndex = items.length - 1;
+            }
+
+            syncSelectedEntryId();
+            if (pane.active && selectedIndex >= 0)
+                cards.positionViewAtIndex(selectedIndex, ListView.Contain);
+        }
+
+        onActiveChanged: {
+            if (pane.active) {
+                if (selectedIndex < 0 && items && items.length > 0)
+                    selectedIndex = 0;
+                if (selectedIndex >= 0)
+                    cards.positionViewAtIndex(selectedIndex, ListView.Contain);
+            }
         }
 
         radius: Math.round(root.paneRadius * pane.s)
         color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.35)
         border.width: Theme.borderWidth
-        border.color: Theme.outlineVariant
+        border.color: pane.active ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.5) : Theme.outlineVariant
+        Behavior on border.color { ColorAnimation { duration: Motion.rowFade; easing.type: Motion.easeType; easing.bezierCurve: Motion.easeCurve } }
 
         Item {
             id: hdr
+            TapHandler { onTapped: pane.paneClicked() }
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
@@ -243,27 +382,76 @@ Scope {
                     clip: true
                     verticalAlignment: TextInput.AlignVCenter
                     Keys.priority: Keys.BeforeItem
-                    // onTextChanged, not onTextEdited: the clear button and the
-                    // surface's reset write the text programmatically and the pane
-                    // must follow those too.
-                    onTextChanged: pane.queryEdited(input.text)
-                    Keys.onEscapePressed: (e) => {
-                        if (input.text.length > 0)
-                            input.text = "";
-                        else
-                            pane.closeRequested();
+                    onTextChanged: {
+                        pane.queryEdited(input.text);
+                        if (input.text.length > 0 && root.activePane !== 0)
+                            root.activePane = 0;
+                    }
+                    Keys.onUpPressed: (e) => {
+                        root.moveSelection(-1);
                         e.accepted = true;
                     }
-                    Keys.onPressed: (e) => {
-                        if (e.key === Qt.Key_Up) {
-                            pane.moveSelection(-1);
-                            e.accepted = true;
-                        } else if (e.key === Qt.Key_Down) {
-                            pane.moveSelection(1);
-                            e.accepted = true;
-                        } else if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter) {
-                            pane.activateSelection();
-                            e.accepted = true;
+                    Keys.onDownPressed: (e) => {
+                        root.moveSelection(1);
+                        e.accepted = true;
+                    }
+                    Keys.onReturnPressed: (e) => {
+                        root.activateSelected();
+                        e.accepted = true;
+                    }
+                    Keys.onEnterPressed: (e) => {
+                        root.activateSelected();
+                        e.accepted = true;
+                    }
+                    Keys.onTabPressed: (e) => {
+                        root.togglePane();
+                        e.accepted = true;
+                    }
+                    Keys.onBacktabPressed: (e) => {
+                        root.togglePane();
+                        e.accepted = true;
+                    }
+                    Keys.onEscapePressed: (e) => {
+                        if (root.activePane !== 0) {
+                            root.activePane = 0;
+                        } else if (input.text.length > 0) {
+                            input.text = "";
+                        } else {
+                            pane.closeRequested();
+                        }
+                        e.accepted = true;
+                    }
+                    Keys.onPressed: (event) => {
+                        if (event.key === Qt.Key_PageUp) {
+                            root.moveSelection(-5);
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_PageDown) {
+                            root.moveSelection(5);
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_Home) {
+                            root.selectHome();
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_End) {
+                            root.selectEnd();
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_Delete) {
+                            root.deleteSelected();
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_S && (event.modifiers & (Qt.ControlModifier | Qt.AltModifier))) {
+                            root.starSelected();
+                            event.accepted = true;
+                        } else if ((event.key === Qt.Key_N || event.key === Qt.Key_J) && (event.modifiers & Qt.ControlModifier)) {
+                            root.moveSelection(1);
+                            event.accepted = true;
+                        } else if ((event.key === Qt.Key_P || event.key === Qt.Key_K) && (event.modifiers & Qt.ControlModifier)) {
+                            root.moveSelection(-1);
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_Right && (root.activePane === 0 && (input.cursorPosition === input.text.length || (event.modifiers & Qt.AltModifier)))) {
+                            root.activePane = 1;
+                            event.accepted = true;
+                        } else if (event.key === Qt.Key_Left && (root.activePane === 1 || (event.modifiers & Qt.AltModifier))) {
+                            root.activePane = 0;
+                            event.accepted = true;
                         }
                     }
                 }
@@ -273,6 +461,7 @@ Scope {
                 Connections {
                     target: pane
                     function onQueryChanged() { if (input.text !== pane.query) input.text = pane.query }
+                    function onHotChanged() { if (pane.hot && pane.searchable) Qt.callLater(function() { input.forceActiveFocus(); }) }
                 }
 
                 MaterialIcon {
@@ -363,13 +552,13 @@ Scope {
             visible: pane.items.length > 0
 
             delegate: ClipboardCard {
-                required property int index
                 required property var modelData
+                required property int index
                 width: ListView.view.width
                 s: pane.s
                 radius: Math.round(root.cardRadius * pane.s)
                 entry: modelData
-                selected: pane.searchable && index === pane.selectedIndex
+                selected: pane.active && pane.selectedIndex === index
                 onCopyRequested: {
                     Clipboard.copy(Number(modelData.id));
                     pane.closeRequested();
@@ -437,8 +626,13 @@ Scope {
             rise.stop();
             fall.stop();
             if (shown) {
+                root.activePane = 0;
+                root.query = "";
                 rise.from = win.reveal;
                 rise.start();
+                Qt.callLater(function() {
+                    historyPane.selectFirst();
+                });
             } else {
                 // A reopen always shows the whole history: a filter left behind
                 // would silently hide entries the user came back for.
@@ -558,6 +752,7 @@ Scope {
                         s: win.s
                         glyph: "content_paste"
                         title: I18n.tr("Clipboard")
+                        active: root.activePane === 0
                         searchable: true
                         hot: win.shown && win.isFocused
                         query: root.query
@@ -568,18 +763,22 @@ Scope {
                             ? I18n.tr("Nothing here matches that search.")
                             : I18n.tr("Copy something and it lands here.")
                         onCloseRequested: root.hide()
+                        onPaneClicked: root.activePane = 0
                     }
 
                     Pane {
+                        id: starredPane
                         width: (parent.width - parent.spacing) * 0.4
                         height: parent.height
                         s: win.s
                         glyph: "star"
                         title: I18n.tr("Starred")
+                        active: root.activePane === 1
                         items: root.starredEntries
                         emptyGlyph: "star_outline"
                         emptyText: I18n.tr("Tap the star on an item to keep it here.")
                         onCloseRequested: root.hide()
+                        onPaneClicked: root.activePane = 1
                     }
                 }
             }

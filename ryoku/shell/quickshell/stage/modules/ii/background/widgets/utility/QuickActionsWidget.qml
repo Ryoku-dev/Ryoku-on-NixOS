@@ -34,7 +34,7 @@ AbstractBackgroundWidget {
         "phone": {
             "icon": "smartphone",
             "label": Translation.tr("Phone"),
-            "action": function() { Spawn.run(["ryoku-kit", "phone"]); }
+            "action": function() { Spawn.runApp(["ryoku-kit", "phone"], { label: "ryoku-kit" }); }
         },
         "wallpapers": {
             "icon": "wallpaper",
@@ -54,7 +54,7 @@ AbstractBackgroundWidget {
         "cheatsheet": {
             "icon": "apps",
             "label": Translation.tr("Kit"),
-            "action": function() { Spawn.run(["ryoku-kit"]); }
+            "action": function() { Spawn.runApp(["ryoku-kit"], { label: "ryoku-kit" }); }
         }
     })
 

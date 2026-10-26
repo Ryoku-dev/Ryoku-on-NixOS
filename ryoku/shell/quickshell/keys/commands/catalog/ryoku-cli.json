@@ -3806,8 +3806,22 @@
       "id": "ryoku.ryoku-shell.stage.set-effect",
       "group": "ryoku-look",
       "title": "Set the wallpaper Stage mode",
-      "command": "ryoku-shell stage set-effect <off|depth|parallax|spatial>",
-      "description": "Uses a plain wallpaper, a still cut-out, drifting layers, or a Spatial 3D scene.",
+      "command": "ryoku-shell stage set-effect <off|depth|parallax|spatial> [-- <wall>]",
+      "description": "Records Plain, Depth, Parallax, or Spatial without starting processing.",
+      "tool": "ryoku-shell",
+      "level": "advanced",
+      "compositors": [
+        "hyprland",
+        "niri",
+        "wayfire"
+      ]
+    },
+    {
+      "id": "ryoku.ryoku-shell.stage.generate",
+      "group": "ryoku-look",
+      "title": "Generate wallpaper depth",
+      "command": "ryoku-shell stage generate [-- <wall>]",
+      "description": "Runs only the unfinished processing steps for one wallpaper.",
       "tool": "ryoku-shell",
       "level": "advanced",
       "compositors": [
@@ -3819,9 +3833,9 @@
     {
       "id": "ryoku.ryoku-shell.stage.refresh",
       "group": "ryoku-look",
-      "title": "Regenerate wallpaper layers",
-      "command": "ryoku-shell stage refresh",
-      "description": "Forces the current wallpaper's generated stage layers to be rebuilt.",
+      "title": "Redo wallpaper processing",
+      "command": "ryoku-shell stage refresh [cut|fill|depth] [-- <wall>]",
+      "description": "Reruns every processing step or one selected step for a wallpaper.",
       "tool": "ryoku-shell",
       "level": "advanced",
       "compositors": [
@@ -3834,8 +3848,8 @@
       "id": "ryoku.ryoku-shell.stage.cancel",
       "group": "ryoku-look",
       "title": "Cancel wallpaper processing",
-      "command": "ryoku-shell stage cancel",
-      "description": "Stops the active wallpaper cut or inpaint job.",
+      "command": "ryoku-shell stage cancel [--force]",
+      "description": "Stops the active job gracefully, or ends it immediately with --force.",
       "tool": "ryoku-shell",
       "level": "advanced",
       "compositors": [
@@ -3876,8 +3890,22 @@
       "id": "ryoku.ryoku-shell.stage.cut-layer",
       "group": "ryoku-look",
       "title": "Cut out a wallpaper layer",
-      "command": "ryoku-shell stage cut-layer <path>",
-      "description": "Extracts a foreground layer from the chosen image and adds it to the wallpaper stage.",
+      "command": "ryoku-shell stage cut-layer <path> [-- <wall>]",
+      "description": "Cuts a subject from another picture and adds it as a manual wallpaper layer.",
+      "tool": "ryoku-shell",
+      "level": "advanced",
+      "compositors": [
+        "hyprland",
+        "niri",
+        "wayfire"
+      ]
+    },
+    {
+      "id": "ryoku.ryoku-shell.stage.cut-region",
+      "group": "ryoku-look",
+      "title": "Cut an area from the wallpaper",
+      "command": "ryoku-shell stage cut-region <nx> <ny> <nw> <nh> [-- <wall>]",
+      "description": "Cuts a normalized box from the wallpaper into a full-size manual layer.",
       "tool": "ryoku-shell",
       "level": "advanced",
       "compositors": [
@@ -3890,8 +3918,8 @@
       "id": "ryoku.ryoku-shell.stage.set-layer",
       "group": "ryoku-look",
       "title": "Change a wallpaper layer",
-      "command": "ryoku-shell stage set-layer <index> <json>",
-      "description": "Applies enabled, front, depth, and placement properties to one generated layer.",
+      "command": "ryoku-shell stage set-layer <index> <json> [-- <wall>]",
+      "description": "Changes enabled, front, and depth properties on one wallpaper layer.",
       "tool": "ryoku-shell",
       "level": "advanced",
       "compositors": [
@@ -3904,7 +3932,7 @@
       "id": "ryoku.ryoku-shell.stage.add-layer",
       "group": "ryoku-look",
       "title": "Add a wallpaper layer",
-      "command": "ryoku-shell stage add-layer <path>",
+      "command": "ryoku-shell stage add-layer <path> [-- <wall>]",
       "description": "Adds an existing image as a manual wallpaper layer.",
       "tool": "ryoku-shell",
       "level": "advanced",
@@ -3918,8 +3946,8 @@
       "id": "ryoku.ryoku-shell.stage.remove-layer",
       "group": "ryoku-look",
       "title": "Remove a wallpaper layer",
-      "command": "ryoku-shell stage remove-layer <index>",
-      "description": "Deletes one generated or manual layer from the current wallpaper stage.",
+      "command": "ryoku-shell stage remove-layer <index> [-- <wall>]",
+      "description": "Deletes one manual layer from a wallpaper stage.",
       "tool": "ryoku-shell",
       "level": "advanced",
       "compositors": [
@@ -3933,8 +3961,8 @@
       "id": "ryoku.ryoku-shell.stage.clear",
       "group": "ryoku-look",
       "title": "Clear generated wallpaper layers",
-      "command": "ryoku-shell stage clear",
-      "description": "Deletes the current wallpaper's generated stage artifacts.",
+      "command": "ryoku-shell stage clear [-- <wall>]",
+      "description": "Clears generated cut artifacts while keeping manual layers and the depth map.",
       "tool": "ryoku-shell",
       "level": "advanced",
       "compositors": [

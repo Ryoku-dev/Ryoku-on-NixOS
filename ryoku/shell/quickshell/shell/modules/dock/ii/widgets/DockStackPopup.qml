@@ -53,13 +53,13 @@ DockContextMenuBase {
     onActionTriggered: actionId => {
         root.close();
         if (actionId === "openFolder") {
-            Spawn.run(["xdg-open", root.folderPath]);
+            Spawn.runApp(["xdg-open", root.folderPath], { label: "folder" });
             return;
         }
         const index = parseInt(actionId.substring(5));
         const path = folderModel.get(index, "filePath")
             || (root.folderPath + "/" + (folderModel.get(index, "fileName") || ""));
         if (path)
-            Spawn.run(["xdg-open", path]);
+            Spawn.runApp(["xdg-open", path], { label: "file" });
     }
 }

@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls as QQC
 import Ryoku.Ui.Singletons
 import shell.services
 
@@ -168,9 +169,20 @@ Item {
 
     ControlsSettingsPopup {
         id: settings
-        parent: root
-        x: Math.max(0, root.width - width)
-        y: -height - Tokens.s2 * root.s
+        parent: QQC.Overlay.overlay
+        x: {
+            if (!parent)
+                return 0;
+            const anchor = root.mapToItem(parent, root.width, 0);
+            return Math.max(0, Math.min(parent.width - width, anchor.x - width));
+        }
+        y: {
+            if (!parent)
+                return 0;
+            const anchor = root.mapToItem(parent, root.width, 0);
+            const preferred = anchor.y - height - Tokens.s2 * root.s;
+            return Math.max(0, Math.min(parent.height - height, preferred));
+        }
         s: root.s
         active: root.active
         onOpenExtensions: root.openExtensions()

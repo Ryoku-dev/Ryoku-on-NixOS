@@ -1,27 +1,33 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import Quickshell
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
-import stage.modules.common as StageIsland
 import "Singletons" as StageCfg
 
 Column {
     id: root
 
     required property string mode
+    required property string wall
     property string pickedCut: ""
+    property bool regionPicking: false
     property bool clearArmed: false
+    signal pickRequested(string kind)
 
     width: parent ? parent.width : 0
     spacing: Tokens.s4
 
     readonly property var backend: StageCfg.StageBackend
-    readonly property var provider: StageIsland.Config.widgetProvider
-    readonly property string wall: root.provider && root.provider.wallpaperPath
-        ? root.provider.wallpaperPath : root.backend.current
     readonly property int layerCount: root.backend.layerCountFor(root.wall)
+
+    function acceptPicked(kind, path) {
+        if (kind === "picture") {
+            root.pickedCut = root.pathFromUrl(path);
+        } else if (kind === "png") {
+            root.backend.addLayer(root.pathFromUrl(path), root.wall);
+        }
+    }
 
     function pct(value) {
         return Math.round(Number(value) * 100) + "%";
@@ -30,6 +36,10 @@ Column {
     function pathFromUrl(url) {
         const text = String(url || "");
         return text.indexOf("file://") === 0 ? decodeURIComponent(text.slice(7)) : text;
+    }
+    function fileUrl(path) {
+        const text = String(path || "");
+        return text === "" || text.indexOf("file://") === 0 ? text : "file://" + text;
     }
 
     function leaf(path) {
@@ -45,14 +55,30 @@ Column {
 
         SettingRow {
             width: parent.width
-            label: I18n.tr("Cut a layer from a picture")
-            desc: I18n.tr("Choose a picture, then confirm the cut")
-            controlWidth: chooseCut.implicitWidth
+            label: I18n.tr("Cut from this wallpaper")
+            desc: I18n.tr("Draw a box around something and it becomes its own layer")
+            controlWidth: chooseArea.implicitWidth
             Btn {
-                id: chooseCut
-                text: I18n.tr("Choose")
+                id: chooseArea
+                text: I18n.tr("Choose area")
                 compact: true
-                onAct: cutDialog.open()
+                armed: !root.backend.busy
+                onAct: root.regionPicking = true
+            }
+        }
+
+        SettingRow {
+            width: parent.width
+            divider: true
+            label: I18n.tr("Cut from another picture")
+            desc: I18n.tr("Pick a picture and its subject is cut out")
+            controlWidth: choosePicture.implicitWidth
+            Btn {
+                id: choosePicture
+                text: I18n.tr("Choose picture")
+                compact: true
+                armed: !root.backend.busy
+                onAct: root.pickRequested("picture")
             }
         }
 
@@ -60,14 +86,78 @@ Column {
             width: parent.width
             divider: true
             label: I18n.tr("Add a PNG")
-            desc: I18n.tr("Use an existing transparent cut-out")
+            desc: I18n.tr("Use a transparent cut-out you already have")
             controlWidth: addPng.implicitWidth
             Btn {
                 id: addPng
                 text: I18n.tr("Choose")
                 compact: true
-                onAct: pngDialog.open()
+                armed: !root.backend.busy
+                onAct: root.pickRequested("png")
             }
+        }
+
+        SettingRow {
+            id: busyRow
+            readonly property var job: root.backend.job
+            readonly property bool ownLayer: !!busyRow.job && busyRow.job.kind === "layer"
+                && busyRow.job.wall === root.wall
+            visible: !!busyRow.job
+            width: parent.width
+            divider: true
+            label: busyRow.job && busyRow.job.state === "stopping"
+                ? I18n.tr("Stopping")
+                : busyRow.ownLayer ? I18n.tr("Cutting a new layer") : I18n.tr("Busy with another job")
+            desc: busyRow.ownLayer
+                ? I18n.tr("From %1").arg(busyRow.job.region === true
+                    ? I18n.tr("this wallpaper") : root.leaf(busyRow.job.picture))
+                : I18n.tr("New cuts wait until it finishes or is stopped.")
+            block: true
+
+            Flow {
+                width: parent.width
+                spacing: Tokens.s2
+                Btn {
+                    visible: !!busyRow.job && busyRow.job.state !== "stopping"
+                    text: I18n.tr("Cancel")
+                    compact: true
+                    onAct: root.backend.cancel()
+                }
+                Btn {
+                    text: I18n.tr("Force stop")
+                    compact: true
+                    primary: !!busyRow.job && busyRow.job.state === "stopping"
+                    onAct: root.backend.forceCancel()
+                }
+            }
+        }
+
+        SettingRow {
+            id: layerFailure
+            readonly property var failed: {
+                const result = root.backend.lastFor(root.wall);
+                return result && result.kind === "layer" && result.state === "failed" ? result : null;
+            }
+            visible: layerFailure.failed !== null && !root.backend.busy
+            width: parent.width
+            divider: true
+            label: I18n.tr("Couldn't cut that layer")
+            desc: layerFailure.failed
+                ? root.backend.errorWords(layerFailure.failed)
+                    + (layerFailure.failed.detail ? "\n" + String(layerFailure.failed.detail) : "")
+                : ""
+        }
+    }
+
+    StageRegionPicker {
+        visible: root.regionPicking
+        width: parent.width
+        wallpaperUrl: root.fileUrl(root.wall)
+        interactive: !root.backend.busy
+        onCanceled: root.regionPicking = false
+        onChosen: (nx, ny, nw, nh) => {
+            root.backend.cutRegion(nx, ny, nw, nh, root.wall);
+            root.regionPicking = false;
         }
     }
 
@@ -84,21 +174,38 @@ Column {
             desc: I18n.tr("Selected: %1").arg(root.leaf(root.pickedCut))
             block: true
 
-            Flow {
+            Column {
                 width: parent.width
                 spacing: Tokens.s2
-                Btn {
-                    text: I18n.tr("Cancel")
-                    compact: true
-                    onAct: root.pickedCut = ""
+
+                Image {
+                    width: parent.width
+                    height: Tokens.s7 * 2
+                    source: root.fileUrl(root.pickedCut)
+                    asynchronous: true
+                    cache: false
+                    fillMode: Image.PreserveAspectFit
+                    sourceSize.width: width
+                    sourceSize.height: height
                 }
-                Btn {
-                    text: I18n.tr("Cut")
-                    compact: true
-                    primary: true
-                    onAct: {
-                        root.backend.cutLayer(root.pathFromUrl(root.pickedCut));
-                        root.pickedCut = "";
+
+                Flow {
+                    width: parent.width
+                    spacing: Tokens.s2
+                    Btn {
+                        text: I18n.tr("Cancel")
+                        compact: true
+                        onAct: root.pickedCut = ""
+                    }
+                    Btn {
+                        text: I18n.tr("Cut")
+                        compact: true
+                        primary: true
+                        armed: !root.backend.busy
+                        onAct: {
+                            root.backend.cutLayer(root.pickedCut, root.wall);
+                            root.pickedCut = "";
+                        }
                     }
                 }
             }
@@ -133,7 +240,7 @@ Column {
                 Sw {
                     anchors.right: parent.right
                     on: root.backend.layerEnabled(root.wall, layerCard.index)
-                    onToggled: value => root.backend.setLayer(layerCard.index, { enabled: value })
+                    onToggled: value => root.backend.setLayer(layerCard.index, { enabled: value }, root.wall)
                 }
             }
 
@@ -152,7 +259,7 @@ Column {
                     })
                     current: root.backend.layerFront(root.wall, layerCard.index)
                         ? "front" : "behind"
-                    onChose: value => root.backend.setLayerFront(layerCard.index, value === "front")
+                    onChose: value => root.backend.setLayerFront(layerCard.index, value === "front", root.wall)
                 }
             }
 
@@ -170,7 +277,7 @@ Column {
                     from: 0
                     to: 1
                     value: root.backend.layerDepth(root.wall, layerCard.index)
-                    onModified: value => root.backend.setLayerDepth(layerCard.index, value)
+                    onModified: value => root.backend.setLayerDepth(layerCard.index, value, root.wall)
                 }
             }
 
@@ -185,7 +292,7 @@ Column {
                     id: removeButton
                     text: I18n.tr("Remove")
                     compact: true
-                    onAct: root.backend.removeLayer(layerCard.index)
+                    onAct: root.backend.removeLayer(layerCard.index, root.wall)
                 }
             }
         }
@@ -231,7 +338,7 @@ Column {
                     compact: true
                     primary: true
                     onAct: {
-                        root.backend.clear();
+                        root.backend.clear(root.wall);
                         root.clearArmed = false;
                     }
                 }
@@ -239,25 +346,4 @@ Column {
         }
     }
 
-    FileDialogHost {
-        id: cutDialog
-        currentFolder: "file://" + Quickshell.env("HOME") + "/Pictures"
-        title: I18n.tr("Cut a layer from a picture")
-        nameFilters: [
-            I18n.tr("Pictures (*.png *.jpg *.jpeg *.webp *.bmp)"),
-            I18n.tr("All files (*)")
-        ]
-        onAccepted: root.pickedCut = String(cutDialog.selectedFile)
-    }
-
-    FileDialogHost {
-        id: pngDialog
-        currentFolder: "file://" + Quickshell.env("HOME") + "/Pictures"
-        title: I18n.tr("Add a PNG layer")
-        nameFilters: [
-            I18n.tr("PNG images (*.png)"),
-            I18n.tr("All files (*)")
-        ]
-        onAccepted: root.backend.addLayer(root.pathFromUrl(pngDialog.selectedFile))
-    }
 }

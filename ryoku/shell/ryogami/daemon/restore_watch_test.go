@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	wm "ryoku-wm"
@@ -26,20 +27,53 @@ func restoreDaemon(t *testing.T) (*daemon, string) {
 }
 
 func TestRyogamiWatchKindsUsesOneUnionStream(t *testing.T) {
-	got := ryogamiWatchKinds()
-	want := []wm.FrameKind{
-		wm.FrameOutputs,
-		wm.FrameWindows,
-		wm.FrameWorkspaces,
-		wm.FrameFocus,
-		wm.FrameOverview,
+	for _, tc := range []struct {
+		windows bool
+		want    []wm.FrameKind
+	}{
+		{true, []wm.FrameKind{wm.FrameOutputs, wm.FrameWindows, wm.FrameWorkspaces, wm.FrameFocus, wm.FrameOverview}},
+		{false, []wm.FrameKind{wm.FrameOutputs, wm.FrameWorkspaces, wm.FrameFocus, wm.FrameOverview}},
+	} {
+		if got := ryogamiWatchKinds(tc.windows); !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("watch kinds (windows=%v) = %v, want %v", tc.windows, got, tc.want)
+		}
 	}
-	if len(got) != len(want) {
-		t.Fatalf("watch kinds = %v, want %v", got, want)
+}
+
+// The window list is streamed only for a rule that reads window geometry;
+// process and overview rules never look at it.
+func TestPauseNeedsWindowsOnlyForGeometryRules(t *testing.T) {
+	for _, tc := range []struct {
+		rules pauseRules
+		want  bool
+	}{
+		{pauseRules{}, false},
+		{pauseRules{processEnabled: true, overviewOnly: true, capOverviewState: true}, false},
+		{pauseRules{fullWidth: true, capsKnown: true}, false},
+		{pauseRules{fullWidth: true, capColumnFill: true, capsKnown: true}, true},
+		{pauseRules{fullscreen: true}, true},
+		{pauseRules{maximized: true}, true},
+	} {
+		if got := pauseNeedsWindows(tc.rules); got != tc.want {
+			t.Fatalf("pauseNeedsWindows(%+v) = %v, want %v", tc.rules, got, tc.want)
+		}
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("watch kind %d = %q, want %q", i, got[i], want[i])
+}
+
+// Until the caps probe answers, a full-width rule keeps the window list in the
+// stream; once caps rule column fill out, it is dropped.
+func TestStreamNeedsWindowsWhileCapsUnknown(t *testing.T) {
+	for _, tc := range []struct {
+		rules pauseRules
+		want  bool
+	}{
+		{pauseRules{fullWidth: true}, true},
+		{pauseRules{fullWidth: true, capsKnown: true}, false},
+		{pauseRules{processEnabled: true}, false},
+		{pauseRules{fullscreen: true, capsKnown: true}, true},
+	} {
+		if got := streamNeedsWindows(tc.rules); got != tc.want {
+			t.Fatalf("streamNeedsWindows(%+v) = %v, want %v", tc.rules, got, tc.want)
 		}
 	}
 }

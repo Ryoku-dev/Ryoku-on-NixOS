@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Quickshell
 import stage.modules.common.widgets
 import "../common"
+import shell.services
 
 import ".."
 
@@ -62,7 +63,7 @@ DockContextMenuBase {
         }
 
         const desktopEntry = TaskbarApps.getCachedDesktopEntry(appData.appId ?? "")
-        desktopEntry?.execute()
+        AppLaunch.run(desktopEntry, null)
     }
 
     function removeDraggedApp(appData) {

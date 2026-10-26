@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	wm "ryoku-wm"
@@ -59,32 +60,73 @@ func (d *daemon) restoreFallback() {
 	}
 }
 
-func ryogamiWatchKinds() []wm.FrameKind {
-	return []wm.FrameKind{
-		wm.FrameOutputs,
-		wm.FrameWindows,
-		wm.FrameWorkspaces,
-		wm.FrameFocus,
-		wm.FrameOverview,
+// The window list is the costliest kind to keep current: every title change and
+// move refreshes it. Only the geometry pause rules read it, so the stream
+// carries it only while one of them is on.
+func ryogamiWatchKinds(windows bool) []wm.FrameKind {
+	kinds := []wm.FrameKind{wm.FrameOutputs}
+	if windows {
+		kinds = append(kinds, wm.FrameWindows)
 	}
+	return append(kinds, wm.FrameWorkspaces, wm.FrameFocus, wm.FrameOverview)
+}
+
+// streamNeedsWindows reads unknown caps as possible column fill: a full-width
+// rule whose caps probe failed at stream start keeps the list instead of going
+// blind until the next settings change or reconnect.
+func streamNeedsWindows(r pauseRules) bool {
+	return pauseNeedsWindows(r) || (r.fullWidth && !r.capsKnown)
+}
+
+var wmWatch struct {
+	mu      sync.Mutex
+	windows bool
+	cancel  context.CancelFunc
 }
 
 // watchWindowManager owns Ryogami's single provider stream. Every frame is
 // fanned through the output restore/cache and playback/workspace consumers in
 // provider order; reconnecting keeps the same fixed backoff used by the former
-// window-state watcher.
+// window-state watcher. A stream cancelled by rewatchForPauseRules restarts at
+// once with the new kinds.
 func (d *daemon) watchWindowManager() {
-	kinds := ryogamiWatchKinds()
 	for {
+		ctx, cancel := context.WithCancel(context.Background())
+		wmWatch.mu.Lock()
+		windows := streamNeedsWindows(d.currentPauseRules())
+		wmWatch.windows, wmWatch.cancel = windows, cancel
+		wmWatch.mu.Unlock()
+		if !windows {
+			wmCache.mu.Lock()
+			wmCache.windows = nil
+			wmCache.mu.Unlock()
+		}
+
 		var previousOutputs map[string]bool
-		_ = wmClient.WatchKinds(context.Background(), kinds, func(f wm.Frame) {
+		_ = wmClient.WatchKinds(ctx, ryogamiWatchKinds(windows), func(f wm.Frame) {
 			if f.Kind == wm.FrameOutputs {
 				d.handleOutputFrame(f.Outputs, &previousOutputs)
 			}
 			d.handleWindowStateFrame(f)
 		})
-		time.Sleep(500 * time.Millisecond)
+		rewatch := ctx.Err() != nil
+		cancel()
+		if !rewatch {
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
+}
+
+func (d *daemon) rewatchForPauseRules() {
+	wmWatch.mu.Lock()
+	defer wmWatch.mu.Unlock()
+	if wmWatch.cancel != nil && wmWatch.windows != streamNeedsWindows(d.currentPauseRules()) {
+		wmWatch.cancel()
+	}
+}
+
+func init() {
+	watchSetting("playback.", func(d *daemon, _ string, _ interface{}) { d.rewatchForPauseRules() })
 }
 
 func (d *daemon) handleOutputFrame(frame []wm.Output, previous *map[string]bool) {

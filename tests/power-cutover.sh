@@ -1282,13 +1282,30 @@ sock = socket.socket(socket.AF_UNIX)
 sock.bind(sys.argv[1])
 sock.close()
 PY
+# dbus-monitor's real layout: a header line, then the body indented beneath it.
 cat >"$tmp/watch-bin/dbus-monitor" <<'EOF'
 #!/usr/bin/env bash
-printf 'signal sender=org.freedesktop.DBus; interface=org.freedesktop.DBus; member=NameAcquired\n'
+[[ -z ${DBUS_MATCH_LOG:-} ]] || printf '%s\n' "$@" >>"$DBUS_MATCH_LOG"
+printf 'signal time=1.0 sender=org.freedesktop.DBus -> destination=:1.9 serial=2 path=/org/freedesktop/DBus; interface=org.freedesktop.DBus; member=NameAcquired\n'
+printf '   string ":1.9"\n'
+changed() {
+  printf 'signal time=1.1 sender=:1.3 -> destination=(null destination) serial=40 path=/org/freedesktop/login1/session/_39; interface=org.freedesktop.DBus.Properties; member=PropertiesChanged\n'
+  printf '   string "org.freedesktop.login1.Session"\n   array [\n      dict entry(\n'
+  printf '         string "%s"\n         variant             boolean false\n' "$1"
+  printf '      )\n   ]\n   array [\n   ]\n'
+}
+changed_value() {
+  printf 'signal time=1.1 sender=:1.3 -> destination=(null destination) serial=40 path=/org/freedesktop/login1/session/_39; interface=org.freedesktop.DBus.Properties; member=PropertiesChanged\n'
+  printf '   string "org.freedesktop.login1.Session"\n   array [\n      dict entry(\n         string "Desktop"\n         variant             string "Active"\n      )\n   ]\n   array [\n   ]\n'
+}
 if [[ ${REMOVAL_FIRST:-0} != 1 ]]; then
-  printf 'signal sender=org.freedesktop.login1; interface=org.freedesktop.DBus.Properties; member=PropertiesChanged\n'
+  changed IdleHint
+  changed LockedHint
+  changed_value
+  changed Active
 fi
-printf 'signal sender=org.freedesktop.login1; interface=org.freedesktop.login1.Manager; member=SessionRemoved\n'
+printf 'signal time=1.2 sender=:1.3 -> destination=(null destination) serial=41 path=/org/freedesktop/login1; interface=org.freedesktop.login1.Manager; member=SessionRemoved\n'
+printf '   string "9"\n   object path "/org/freedesktop/login1/session/_39"\n'
 EOF
 cat >"$tmp/watch-bin/loginctl" <<'EOF'
 #!/usr/bin/env bash
@@ -1408,8 +1425,14 @@ rm -f "$tmp/watch-runtime/ryoku-session-guard.9.ready"
 # display manager can start a different desktop without stale session state.
 printf '9\n' >"$tmp/watch-runtime/ryoku-session.id"
 SESSION_WATCH_LOG="$tmp/watch-calls" SESSION_ACTIVITY_LOG="$tmp/activity-calls" \
+  DBUS_MATCH_LOG="$tmp/watch-matches" \
   XDG_RUNTIME_DIR="$tmp/watch-runtime" PATH="$tmp/watch-bin:$PATH" \
   bash -c 'source "$1"; watch_session 9' _ "$helper"
+# login1 encodes a leading digit, so session 9 lives at .../session/_39.
+grep -q "member='PropertiesChanged'" "$tmp/watch-matches" &&
+  grep -qF "path='/org/freedesktop/login1/session/_39'" "$tmp/watch-matches" &&
+  ! grep -q 'path_namespace=' "$tmp/watch-matches" \
+  || fail "session watcher subscribed to other login1 sessions' property changes"
 cat >"$tmp/watch-want" <<'EOF'
 --user stop ryoku-session.target
 --user is-active --quiet graphical-session.target
@@ -1425,8 +1448,10 @@ if ! diff -u "$tmp/watch-want" "$tmp/watch-calls"; then
 fi
 [[ ! -e $tmp/watch-runtime/ryoku-session.id ]] \
   || fail "removed login1 session left its lifecycle marker behind"
+# One at startup and one for the Active edge; the IdleHint and LockedHint
+# edges before it must not each cost a resynchronization.
 [[ $(grep -c '^session-active no$' "$tmp/activity-calls") == 2 ]] \
-  || fail "inactive login1 transition did not release clamshell ownership"
+  || fail "session watcher missed the Active edge or reacted to IdleHint/LockedHint"
 
 : >"$tmp/watch-calls"
 : >"$tmp/activity-calls"

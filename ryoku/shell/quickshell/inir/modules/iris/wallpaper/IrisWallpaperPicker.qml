@@ -16,6 +16,7 @@ import inir.modules.common.widgets
 import inir.modules.iris.frame
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 // The gallery lives in the chassis window of its output, so its body, its content and the Island it grows
 // from are one surface: drawn and moved in the same frame.
@@ -813,7 +814,7 @@ Item {
                                         }
                                         IrisText {
                                             anchors.verticalCenter: parent.verticalCenter
-                                            text: crumb.modelData.label
+                                            text: I18n.tr(crumb.modelData.label)
                                             width: Math.min(implicitWidth, Math.round((crumb.last ? 240 : 140) * root.d))
                                             elide: Text.ElideMiddle
                                             color: crumb.last ? IrisStyle.text : IrisStyle.subtext

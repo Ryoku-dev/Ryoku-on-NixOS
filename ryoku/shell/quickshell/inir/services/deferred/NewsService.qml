@@ -2,6 +2,7 @@ pragma Singleton
 pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
+import Ryoku.Ui.Singletons
 import inir.modules.common
 import inir.services
 import inir
@@ -166,6 +167,6 @@ Singleton {
                 }
             }
         }
-        Qt.openUrlExternally(article.url)
+        Spawn.runApp(["xdg-open", article.url], { label: "browser" })
     }
 }
