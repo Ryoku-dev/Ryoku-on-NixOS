@@ -454,7 +454,11 @@ Item {
                                     fillMode: Image.PreserveAspectCrop
                                 }
                                 HoverHandler { cursorShape: Qt.PointingHandCursor }
+<<<<<<< port (main)
                                 TapHandler { onTapped: Spawn.runApp(["xdg-open", messageImage.modelData]) }
+=======
+                                TapHandler { onTapped: Spawn.runApp(["xdg-open", messageImage.modelData], { label: "image" }) }
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
                             }
                         }
                     }
@@ -507,7 +511,7 @@ Item {
                         selectByMouse: true
                         selectionColor: Tokens.bone
                         selectedTextColor: Tokens.inkOnBone
-                        onLinkActivated: url => Qt.openUrlExternally(url)
+                        onLinkActivated: url => Spawn.runApp(["xdg-open", url], { label: "browser" })
                     }
 
                     Rectangle {

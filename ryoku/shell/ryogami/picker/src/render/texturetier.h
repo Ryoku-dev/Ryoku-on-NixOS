@@ -38,6 +38,7 @@ public:
 
     // False when every tile is pinned by the last two frames.
     bool admit(TierImage &&image);
+    void reserve(int tiles);
     // Evicts one key without disturbing any other resident texture.
     bool invalidate(const QString &key);
 

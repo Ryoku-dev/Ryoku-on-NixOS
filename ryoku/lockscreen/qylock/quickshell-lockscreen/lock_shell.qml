@@ -239,6 +239,8 @@ ShellRoot {
             onLoaded: {
                 if (item.clock24h !== undefined)
                     item.clock24h = Qt.binding(() => TimeFormat.is24h);
+                if (item.clockLocale !== undefined)
+                    item.clockLocale = Qt.binding(() => TimeFormat.locale);
                 item.forceActiveFocus();
             }
             onStatusChanged: {

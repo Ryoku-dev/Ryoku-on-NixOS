@@ -21,6 +21,7 @@ type pauseRules struct {
 	scopeDisplay     bool
 	capOverviewState bool
 	capColumnFill    bool
+	capsKnown        bool
 }
 
 type wmOutputGeom struct{ width, height int }
@@ -68,7 +69,7 @@ func evaluatePause(r pauseRules, s wmSnapshot, running map[string]bool) (bool, [
 	if r.overviewOnly && r.capOverviewState && !s.overviewOpen {
 		reasons = append(reasons, "overview")
 	}
-	if r.fullscreen || r.maximized || (r.fullWidth && r.capColumnFill) {
+	if pauseNeedsWindows(r) {
 		for _, w := range s.windows {
 			if len(s.activeWorkspaces) > 0 && !s.activeWorkspaces[w.workspace] {
 				continue
@@ -93,6 +94,12 @@ func evaluatePause(r pauseRules, s wmSnapshot, running map[string]bool) (bool, [
 		}
 	}
 	return len(reasons) > 0, dedupReasons(reasons)
+}
+
+// pauseNeedsWindows says whether any enabled rule reads window geometry, which
+// decides whether the provider stream carries the window list at all.
+func pauseNeedsWindows(r pauseRules) bool {
+	return r.fullscreen || r.maximized || (r.fullWidth && r.capColumnFill)
 }
 
 func dedupReasons(in []string) []string {
@@ -147,6 +154,7 @@ func (d *daemon) currentPauseRules() pauseRules {
 	if caps, err := wmClient.Caps(); err == nil {
 		r.capOverviewState = caps.Has(wm.CapOverviewState)
 		r.capColumnFill = caps.Has(wm.CapColumnFill)
+		r.capsKnown = true
 	}
 	return r
 }

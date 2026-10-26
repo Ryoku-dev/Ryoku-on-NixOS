@@ -5,6 +5,7 @@ import QtQuick
 import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import inir.services
 import inir.modules.common
 import inir.modules.common.functions
@@ -153,7 +154,7 @@ Singleton {
         writer.exec(["rm", "-f", `${root.folder}/${id}.json`])
     }
     function reveal(): void {
-        Quickshell.execDetached(["bash", "-c", 'mkdir -p "$1" && xdg-open "$1"', "reveal", root.folder])
+        Spawn.runApp(["bash", "-c", 'mkdir -p "$1" && exec xdg-open "$1"', "reveal", root.folder], { label: "folder" })
     }
     function write(theme: var): void { root.writeAll([theme]) }
     function writeAll(themes: var): void {

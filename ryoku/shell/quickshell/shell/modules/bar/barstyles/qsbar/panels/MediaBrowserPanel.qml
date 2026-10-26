@@ -210,7 +210,11 @@ PanelWindow {
         if (!loaded || filtered.length === 0) return
         if (selFilt < 0 || selFilt >= filtered.length) return
         var path = filtered[selFilt].filePath; if (!path) return
+<<<<<<< port (main)
         Spawn.runApp(["xdg-open", path])
+=======
+        Spawn.runApp(["xdg-open", path], { label: "media" })
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
         root.mediaBrowserVisible = false
     }
 

@@ -875,7 +875,7 @@ Item {
                                 visible: !root.searching && root.openGroup.length > 0 && root.advancedPage < 0 && stageAvailable
                                 tint: IrisOptions.groupTints[groupHero.key] ?? root.currentSection.tint
                                 glyph: IrisOptions.groupGlyphs[groupHero.key] ?? root.currentSection.icon
-                                title: groupHero.caption.length > 0 ? groupHero.caption : root.openGroup
+                                title: groupHero.caption.length > 0 ? I18n.tr(groupHero.caption) : root.openGroup
                                 text: Translation.tr(root.currentSection.tip ?? "")
                                 sceneSection: !root.searching && root.openGroup.length > 0 && root.advancedPage < 0 ? root.section : ""
                                 sceneGroup: groupHero.key
@@ -1316,7 +1316,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 horizontalAlignment: Text.AlignRight
                 visible: !groupRow.lone && !groupRow.unfolded
-                text: groupRow.summary
+                text: I18n.tr(groupRow.summary)
                 color: IrisStyle.muted
                 font.pixelSize: IrisStyle.typeLabel
                 elide: Text.ElideRight

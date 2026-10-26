@@ -475,6 +475,9 @@ func (d *daemon) assignWorkspace(p map[string]interface{}) (workspaceWall, error
 	if err != nil {
 		return workspaceWall{}, err
 	}
+	d.previewMu.Lock()
+	defer d.previewMu.Unlock()
+	d.preview = nil
 	wall, err := d.workspaces.assign(target, workspaceWallParam(p, target.Output))
 	if err != nil {
 		return workspaceWall{}, err
@@ -492,6 +495,9 @@ func (d *daemon) unassignWorkspace(p map[string]interface{}) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	d.previewMu.Lock()
+	defer d.previewMu.Unlock()
+	d.preview = nil
 	removed := d.workspaces.unassign(target)
 	if removed {
 		if current, err := d.workspaces.current(target.Output); err == nil && sameWorkspace(current, target) {

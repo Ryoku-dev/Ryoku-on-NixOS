@@ -182,7 +182,11 @@ Item {
         actProc.command = ["ryoku-hub", "desktop", "plugins", "remove", id];
         actProc.running = true;
     }
+<<<<<<< port (main)
     function openDocs(url) { if (url) Spawn.runApp(["xdg-open", url]); }
+=======
+    function openDocs(url) { if (url) Spawn.runApp(["xdg-open", url], { label: "browser" }); }
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
 
     // the backend's verdict on an action, from its JSON on stdout
     function finish(code, out) {

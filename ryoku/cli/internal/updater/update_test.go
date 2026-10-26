@@ -94,6 +94,91 @@ func TestResetFailedUserUnitsSkipsUnloadedUnits(t *testing.T) {
 	}
 }
 
+func TestStartShellClearsStartLimitBeforeRestart(t *testing.T) {
+	t.Setenv("RYOKU_HOST_INIT", "systemd")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "ryoku-shell"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+
+	oldService := service
+	var calls [][]string
+	service = func(args ...string) int {
+		calls = append(calls, append([]string(nil), args...))
+		return host.ExitOK
+	}
+	t.Cleanup(func() { service = oldService })
+
+	if err := startShell(); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"--user", "daemon-reload"},
+		{"--user", "reset-failed", "ryoku-shell.service"},
+		{"--user", "restart", "ryoku-shell"},
+	}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("service calls = %v, want %v", calls, want)
+	}
+}
+
+func TestRestartWallpaperPreservesStoppedFailure(t *testing.T) {
+	t.Setenv("RYOKU_HOST_INIT", "systemd")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "ryogami"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+
+	oldService := service
+	active := false
+	var calls [][]string
+	service = func(args ...string) int {
+		calls = append(calls, append([]string(nil), args...))
+		if len(args) == 3 && args[1] == "is-active" && !active {
+			return host.ExitFalse
+		}
+		return host.ExitOK
+	}
+	t.Cleanup(func() { service = oldService })
+
+	restartWallpaper(false)
+	wantStopped := [][]string{
+		{"--user", "daemon-reload"},
+		{"--user", "is-active", "ryogami.service"},
+		{"--user", "try-restart", "ryogami.service"},
+	}
+	if !reflect.DeepEqual(calls, wantStopped) {
+		t.Fatalf("stopped service calls = %v, want %v", calls, wantStopped)
+	}
+
+	active = true
+	calls = nil
+	restartWallpaper(false)
+	wantActive := [][]string{
+		{"--user", "daemon-reload"},
+		{"--user", "is-active", "ryogami.service"},
+		{"--user", "reset-failed", "ryogami.service"},
+		{"--user", "try-restart", "ryogami.service"},
+	}
+	if !reflect.DeepEqual(calls, wantActive) {
+		t.Fatalf("active service calls = %v, want %v", calls, wantActive)
+	}
+
+	active = false
+	calls = nil
+	restartWallpaper(true)
+	wantForced := [][]string{
+		{"--user", "daemon-reload"},
+		{"--user", "reset-failed", "ryogami.service"},
+		{"--user", "restart", "ryogami.service"},
+	}
+	if !reflect.DeepEqual(calls, wantForced) {
+		t.Fatalf("forced service calls = %v, want %v", calls, wantForced)
+	}
+}
+
 func TestVoidSnapshotHelperUsesPackageAndServiceSeams(t *testing.T) {
 	t.Setenv("RYOKU_HOST_PKGMGR", "xbps")
 	var calls [][]string
@@ -328,6 +413,26 @@ func TestVoidUpdateTransactionsCarryManagedMarker(t *testing.T) {
 	}
 	if got := strings.Join(ryokuMoveArgs(set), " "); got != "env RYOKU_MANAGED_UPDATE=1 xbps-install -Sfy ryoku-desktop ryogami" {
 		t.Fatalf("channel move = %q", got)
+	}
+}
+
+func TestSnapshotSkipMessageDistinguishesNonBtrfsRoot(t *testing.T) {
+	nonBtrfs := snapshotSkipMessage(false, true, false)
+	if !strings.Contains(nonBtrfs, "root filesystem is not btrfs") ||
+		!strings.Contains(nonBtrfs, "unavailable") ||
+		strings.Contains(nonBtrfs, "doctor") {
+		t.Fatalf("non-btrfs note = %q", nonBtrfs)
+	}
+	missingConfig := snapshotSkipMessage(true, true, false)
+	if !strings.Contains(missingConfig, "root config missing") ||
+		!strings.Contains(missingConfig, "ryoku doctor") {
+		t.Fatalf("btrfs missing-config note = %q", missingConfig)
+	}
+	if got := snapshotSkipMessage(true, false, false); !strings.Contains(got, "snapper not installed") {
+		t.Fatalf("missing-snapper note = %q", got)
+	}
+	if got := snapshotSkipMessage(true, true, true); got != "" {
+		t.Fatalf("ready snapshot stack returned note %q", got)
 	}
 }
 

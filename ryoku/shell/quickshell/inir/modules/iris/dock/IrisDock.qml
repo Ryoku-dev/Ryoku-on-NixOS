@@ -44,6 +44,8 @@ Item {
     readonly property bool atRight: root.edge === "right"
     readonly property bool vertical: root.atLeft || root.atRight
     readonly property real thickness: root.iconSize + 10 * root.d
+    readonly property real extraEdgeGap: Math.round(Math.max(0, Math.min(64,
+        Number(Ryoku.Dock.cfg("edgeGap", 0)))) * root.d)
     readonly property int edgeOrigin: root.atTop ? Item.Top : root.atLeft ? Item.Left : root.atRight ? Item.Right : Item.Bottom
     function edgeX(span: real, size: real, margin: real): real {
         return Math.round(root.atLeft ? margin : root.atRight ? span - size - margin : (span - size) / 2)
@@ -240,8 +242,7 @@ Item {
                 WorkspaceService.focusWindow(next.nativeWindowId)
             else next.activate()
         } else {
-            const entry = AppSearch.lookupDesktopEntry(app.appId)
-            if (entry) AppSearch.launchEntry(entry)
+            Ryoku.Dock.activate(app.appId)
             return true
         }
         return false
@@ -311,7 +312,7 @@ Item {
             readonly property real dockHeight: root.iconSize + 18 * root.d
             // Notch: the body rests on the band's inner line and melts into it.
             // Plain: it floats, keeping its own air above the band.
-            readonly property real bodyAir: root.notch ? 0 : 10 * root.d
+            readonly property real bodyAir: (root.notch ? 0 : 10 * root.d) + root.extraEdgeGap
             readonly property real edgeGap: IrisFrame.band + window.bodyAir
             readonly property real headroom: root.magnify ? root.iconSize * root.magnifyGain + 30 * root.d : 30 * root.d
             readonly property string material: {
@@ -362,6 +363,7 @@ Item {
             Connections {
                 target: root
                 function onStageEditingChanged() { window.publishInset() }
+                function onExtraEdgeGapChanged() { window.publishInset() }
                 function onOptionsChanged() { window.publishInset() }
                 function onThicknessChanged() { window.publishInset() }
             }
@@ -470,8 +472,10 @@ Item {
                 return out
             }
             readonly property var bodyShape: {
+                // mapToItem does not track the Stage transform, so depend on animation values explicitly.
                 void (dock.x + dock.y + dock.width + dock.height + dock.radius
                     + window.edgeOffset + window.width + window.height + window.screenOffsetY
+                    + StageEditor.GlobalStates.editProgress + StageEditor.GlobalStates.editDrawerProgress
                     + menu.progress + menu.bodyRect.x + menu.bodyRect.y + menu.bodyRect.width + menu.bodyRect.height)
                 if (dock.opacity <= 0.01) return null
                 let dockHome = null
@@ -535,6 +539,8 @@ Item {
                 StageEditor.GlobalStates.setDockInset(name, "", 0)
                 if (name.length === 0) return
                 const bodies = Object.assign({}, GlobalStates.irisDockBody ?? {})
+                // A replacement may publish first; only clear the body this surface still owns.
+                if (bodies[name] !== window.bodyShape) return
                 bodies[name] = null
                 GlobalStates.irisDockBody = bodies
             }
@@ -719,7 +725,8 @@ Item {
                                 id: appSlot
                                 visible: !entry.separator
                                 slotIndex: entry.index + (root.showLauncher ? 1 : 0)
-                                readonly property var desktopEntry: entry.separator ? null : AppSearch.lookupDesktopEntry(entry.modelData.appId)
+                                readonly property var desktopEntry: entry.separator ? null
+                                    : Ryoku.Dock.entryFor(entry.modelData.appId)
                                 readonly property string appName: appSlot.desktopEntry?.name ?? entry.modelData.appId
                                 readonly property bool running: (entry.app.toplevels?.length ?? 0) > 0
                                 readonly property bool focused: (entry.app.toplevels ?? []).some(t => root.windowWorkspaceMap
@@ -777,8 +784,8 @@ Item {
                                     onHoveredChanged: nameLabel.present(hovered ? appSlot : null, appSlot.appName, entry.app.toplevels?.length ?? 0)
                                     onClicked: appSlot.primary()
                                     middleClickAction: () => {
-                                        const e = AppSearch.lookupDesktopEntry(entry.modelData.appId)
-                                        if (e) AppSearch.launchEntry(e)
+                                        if (appSlot.desktopEntry)
+                                            Ryoku.AppLaunch.run(appSlot.desktopEntry, null)
                                         if (IrisStyle.motionEnabled) launchBounce.restart()
                                     }
                                     altAction: () => {
@@ -1064,7 +1071,7 @@ Item {
                     spacing: 6 * root.d
                     IrisText {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: nameLabel.label
+                        text: Ui.I18n.tr(nameLabel.label)
                         width: Math.min(implicitWidth, Math.round(260 * root.d))
                         elide: Text.ElideRight
                         font.pixelSize: IrisStyle.typeLabel
@@ -1432,7 +1439,7 @@ Item {
                             IrisText {
                                 id: menuRowLabel
                                 Layout.fillWidth: true
-                                text: menuRow.label
+                                text: Ui.I18n.tr(menuRow.label)
                                 elide: Text.ElideRight
                                 color: menuRow.danger ? IrisStyle.danger : IrisStyle.text
                                 font.pixelSize: IrisStyle.typeLabel

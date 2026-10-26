@@ -3,6 +3,7 @@ import stage.services
 import "common"
 import Quickshell
 import "./widgets"
+import shell.services
 import "."
 
 DockContextMenuBase {
@@ -73,9 +74,9 @@ DockContextMenuBase {
     onActionTriggered: actionId => {
         if (actionId.startsWith("desktopAction:")) {
             const action = (root.desktopEntry?.actions ?? [])[parseInt(actionId.substring(14))];
-            action?.execute();
+            AppLaunch.run(root.desktopEntry, action);
         } else if (actionId === "launch") {
-            root.desktopEntry?.execute();
+            AppLaunch.run(root.desktopEntry, null);
         } else if (actionId === "livePreview") {
             Config.options.dock.enableLivePreviewWidget = true;
             DockLivePreviewService.selectApp(root.appToplevel.appId);

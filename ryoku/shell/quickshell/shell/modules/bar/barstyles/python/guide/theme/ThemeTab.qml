@@ -4,6 +4,7 @@ import QtQuick.Controls
 import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import "../../"
 import "../../reusables"
 import "../../reusables/guide"
@@ -210,6 +211,7 @@ Item {
                     let state = JSON.parse(data);
                     let entry = (state.outputs && state.outputs[wallpaperFeed.screenName]) || state.default;
                     if (!entry) return;
+                    if (entry.preview === true) return;
                     let p = entry.path || "";
                     let live = entry.live === true;
                     if (p !== themeTabRoot.currentWallpaperPath || live !== themeTabRoot.wallpaperIsLive) {
@@ -1033,7 +1035,7 @@ Item {
                         onClicked: {
                             if (themeTabRoot.currentWallpaperPath && themeTabRoot.currentWallpaperPath !== "") {
                                 let escapeBash = function(str) { return String(str).replace(/(["\\$`])/g, '\\$1'); };
-                                Quickshell.execDetached(["bash", "-c", "xdg-open \"$(dirname \"" + escapeBash(themeTabRoot.currentWallpaperPath) + "\")\""]);
+                                Spawn.runApp(["bash", "-c", "exec xdg-open \"$(dirname \"" + escapeBash(themeTabRoot.currentWallpaperPath) + "\")\""], { label: "folder" });
                             }
                         }
 

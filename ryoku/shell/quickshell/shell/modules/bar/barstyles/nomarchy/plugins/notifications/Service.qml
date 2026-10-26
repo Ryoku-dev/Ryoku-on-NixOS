@@ -409,7 +409,7 @@ Item {
     // outlives the shell, which installer toasts depend on: they restart it.
     var argv = NotificationLogic.parseExecArgv(entry ? entry.execArgv : "")
     if (argv) {
-      Util.execArgv(argv)
+      Util.execAppArgv(argv)
       dismissPopup(index)
       return
     }

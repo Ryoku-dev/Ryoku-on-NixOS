@@ -96,7 +96,7 @@ Singleton {
         if (data) {
             for (const key in data) {
                 const entry = data[key];
-                const path = FileUtils.trimFileProtocol(String(entry?.path ?? ""));
+                const path = root.expandUserPath(entry?.path);
                 if (path !== "")
                     byPath[path] = entry;
             }
@@ -126,7 +126,7 @@ Singleton {
             const names = Object.keys(root.ryogamiOutputs).sort();
             entry = names.length > 0 ? root.ryogamiOutputs[names[0]] : null;
         }
-        const path = FileUtils.trimFileProtocol(String(entry?.path ?? ""));
+        const path = root.expandUserPath(entry?.path);
         if (path !== "")
             return path;
         const configured = FileUtils.trimFileProtocol(String(Config.wallpaperPath ?? ""));
@@ -136,7 +136,7 @@ Singleton {
 
     function ryogamiThumbnailPath(filePath) {
         const entry = root.ryogamiEntriesByPath[FileUtils.trimFileProtocol(String(filePath ?? ""))];
-        return FileUtils.trimFileProtocol(String(entry?.thumb ?? entry?.thumb_sm ?? ""));
+        return root.expandUserPath(entry?.thumb ?? entry?.thumb_sm);
     }
     function localFileUrl(filePath) {
         const clean = FileUtils.trimFileProtocol(String(filePath ?? ""));

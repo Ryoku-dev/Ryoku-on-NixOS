@@ -6,6 +6,7 @@ import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Pipewire
+import Ryoku.Ui.Singletons
 import stage
 import stage.modules.common
 import "easyEffects/EasyEffectsLogic.js" as Logic
@@ -136,7 +137,7 @@ Singleton {
         root._launchedHere = true;
         startTimeout.restart();
         const args = root.majorVersion >= 8 ? ["--service-mode", "--hide-window"] : ["--gapplication-service"];
-        Quickshell.execDetached(root.isFlatpak ? ["flatpak", "run", root.flatpakId].concat(args) : ["easyeffects"].concat(args));
+        Spawn.runApp(root.isFlatpak ? ["flatpak", "run", root.flatpakId].concat(args) : ["easyeffects"].concat(args), { label: root.isFlatpak ? root.flatpakId : "easyeffects" });
     }
 
     function quit(): void {
@@ -148,11 +149,11 @@ Singleton {
 
     function openNativeWindow(): void {
         if (!root.running) {
-            Quickshell.execDetached(root.isFlatpak ? ["flatpak", "run", root.flatpakId] : ["easyeffects"]);
+            Spawn.runApp(root.isFlatpak ? ["flatpak", "run", root.flatpakId] : ["easyeffects"], { label: root.isFlatpak ? root.flatpakId : "easyeffects" });
             return;
         }
         if (!root._send("show_window"))
-            Quickshell.execDetached(root.isFlatpak ? ["flatpak", "run", root.flatpakId] : ["easyeffects"]);
+            Spawn.runApp(root.isFlatpak ? ["flatpak", "run", root.flatpakId] : ["easyeffects"], { label: root.isFlatpak ? root.flatpakId : "easyeffects" });
     }
 
     function setBypass(on: bool): void {
@@ -757,7 +758,7 @@ Singleton {
 
     function _cli(args: var): void {
         const base = root.isFlatpak ? ["flatpak", "run", root.flatpakId] : ["easyeffects"];
-        Quickshell.execDetached(base.concat(args));
+        Spawn.run(base.concat(args));
     }
 
     // ── Socket ──────────────────────────────────────────────────────────

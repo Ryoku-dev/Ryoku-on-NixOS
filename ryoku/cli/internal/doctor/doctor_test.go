@@ -140,7 +140,7 @@ func TestRecStatusLabels(t *testing.T) {
 func TestGatherReportIncludesFindings(t *testing.T) {
 	fs := []finding{{"swap kept out of snapshots", warnRes("swapfile in @").withFix("ryoku doctor")}}
 	rep := gatherReport(fs)
-	for _, want := range []string{"Ryoku diagnostic report", "swap kept out of snapshots", "swapfile in @", "fix: ryoku doctor", "## system", "## packages"} {
+	for _, want := range []string{"Ryoku diagnostic report", "swap kept out of snapshots", "swapfile in @", "fix: ryoku doctor", "## system", "## memory", "## packages"} {
 		if !strings.Contains(rep, want) {
 			t.Errorf("report missing %q", want)
 		}
@@ -1776,7 +1776,7 @@ func TestMigrateDockStore(t *testing.T) {
 		if err != nil || !changed {
 			t.Fatalf("migrateDockStore: changed=%v err=%v", changed, err)
 		}
-		stageOut, stagePins, stageChanged, err := migrateStageDockStore(stage)
+		stageOut, stagePins, _, stageChanged, err := migrateStageDockStore(stage)
 		if err != nil || !stageChanged {
 			t.Fatalf("migrateStageDockStore: changed=%v err=%v", stageChanged, err)
 		}
@@ -1852,12 +1852,15 @@ func TestMigrateStageDockStoreDropsRetiredEditorKeys(t *testing.T) {
 		"sidebar": {"enableBanner": false}
 	}`)
 
-	out, pins, changed, err := migrateStageDockStore(stage)
+	out, pins, shima, changed, err := migrateStageDockStore(stage)
 	if err != nil || !changed {
 		t.Fatalf("migrateStageDockStore: changed=%v err=%v", changed, err)
 	}
 	if len(pins) != 0 {
 		t.Fatalf("pins = %v, want none", pins)
+	}
+	if len(shima) != 0 {
+		t.Fatalf("Shima settings = %v, want none", shima)
 	}
 	var got map[string]any
 	if err := json.Unmarshal(out, &got); err != nil {
@@ -1889,8 +1892,109 @@ func TestMigrateStageDockStoreDropsRetiredEditorKeys(t *testing.T) {
 	if got["sidebar"].(map[string]any)["enableBanner"] != false {
 		t.Errorf("unrelated sidebar setting was lost: %v", got["sidebar"])
 	}
-	if _, _, again, err := migrateStageDockStore(out); err != nil || again {
+	if _, _, _, again, err := migrateStageDockStore(out); err != nil || again {
 		t.Errorf("re-migrating must be a no-op: changed=%v err=%v", again, err)
+	}
+}
+
+func TestMigrateStageDockStoreMovesShimaStyle(t *testing.T) {
+	stage := []byte(`{
+		"iris": {
+			"dock": {
+				"enable": true,
+				"autoHide": true,
+				"reserveSpace": false,
+				"blur": true,
+				"material": "glass",
+				"notch": false,
+				"iconSize": 52,
+				"magnification": true,
+				"magnifySize": 175,
+				"badges": false,
+				"launcher": false,
+				"revealOnEmpty": false,
+				"position": "left",
+				"shape": "square",
+				"arrange": "opened",
+				"reorder": false
+			}
+		},
+		"other": {"keep": true}
+	}`)
+	shell := []byte(`{
+		"dock": {
+			"enabled": false,
+			"autohide": false,
+			"size": 44,
+			"magnify": true,
+			"edge": "auto",
+			"shima": {
+				"shape": "auto",
+				"notch": true,
+				"material": "inherit",
+				"magnifySize": 150,
+				"launcher": true,
+				"reserveSpace": true,
+				"revealOnEmpty": true,
+				"badges": true
+			}
+		}
+	}`)
+
+	stageOut, pins, legacy, stageChanged, err := migrateStageDockStore(stage)
+	if err != nil || !stageChanged {
+		t.Fatalf("migrateStageDockStore: changed=%v err=%v", stageChanged, err)
+	}
+	if len(pins) != 0 {
+		t.Fatalf("pins = %v, want none", pins)
+	}
+	shellOut, shellChanged, err := mergeLegacyShimaDock(shell, legacy)
+	if err != nil || !shellChanged {
+		t.Fatalf("mergeLegacyShimaDock: changed=%v err=%v", shellChanged, err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(shellOut, &got); err != nil {
+		t.Fatal(err)
+	}
+	dock := got["dock"].(map[string]any)
+	if dock["enabled"] != false || dock["autohide"] != true || dock["size"] != float64(52) ||
+		dock["magnify"] != true || dock["edge"] != "left" {
+		t.Errorf("shared Shima settings did not migrate: %v", dock)
+	}
+	shima := dock["shima"].(map[string]any)
+	for key, want := range map[string]any{
+		"shape": "square", "notch": false, "material": "glass",
+		"magnifySize": float64(175), "launcher": false, "reserveSpace": false,
+		"revealOnEmpty": false, "badges": false, "blur": true,
+	} {
+		if shima[key] != want {
+			t.Errorf("dock.shima.%s = %v, want %v", key, shima[key], want)
+		}
+	}
+
+	var cleaned map[string]any
+	if err := json.Unmarshal(stageOut, &cleaned); err != nil {
+		t.Fatal(err)
+	}
+	remaining := cleaned["iris"].(map[string]any)["dock"].(map[string]any)
+	if len(remaining) != 2 || remaining["arrange"] != "opened" || remaining["reorder"] != false {
+		t.Errorf("live Shima ordering settings were not preserved alone: %v", remaining)
+	}
+	if cleaned["other"].(map[string]any)["keep"] != true {
+		t.Errorf("unrelated Stage setting was lost: %v", cleaned["other"])
+	}
+
+	current, _, err := mergeLegacyShimaDock(
+		[]byte(`{"dock":{"shima":{"material":"solid"}}}`), legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(current, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["dock"].(map[string]any)["shima"].(map[string]any)["material"] != "solid" {
+		t.Errorf("current Shima material was overwritten: %v", got["dock"])
 	}
 }
 
@@ -2734,19 +2838,43 @@ func TestReconcileHyprlandConfigRepairsCorruptKeyboard(t *testing.T) {
 	}
 }
 
-// transientAppScope must match systemd's per-launch GUI scopes (app-*.scope) so
-// doctor auto-clears their lingering failed state, and must never match a real
-// service, which stays reported.
-func TestTransientAppScope(t *testing.T) {
-	for _, u := range []string{"app-discord-155691.scope", "app-firefox-8043.scope", "app-org.foo.Bar-1.scope"} {
-		if !transientAppScope(u) {
-			t.Errorf("transientAppScope(%q) = false, want true", u)
+func TestManifestReportsPackagesSatisfiedByProviders(t *testing.T) {
+	result := withProvidedManifestPackages(okRes("the box matches the manifest"), []string{"yay-bin"})
+	if !strings.Contains(result.detail, "yay-bin") ||
+		!strings.Contains(result.detail, "already provided by installed packages") {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestTransientAppUnitsAreFilteredFromFailedServices(t *testing.T) {
+	transient := []string{
+		"app-discord-155691.scope",
+		"app-firefox-8043.scope",
+		"app-org.foo.Bar-1.scope",
+		"app-filelight@54a2896b4f0e476bb90019b97b02faed.service",
+		"app-org.kde.kate@2d43bb8f.service",
+	}
+	for _, unit := range transient {
+		if !transientAppUnit(unit) {
+			t.Errorf("transientAppUnit(%q) = false, want true", unit)
 		}
 	}
-	for _, u := range []string{"app-daemon.service", "ryoku-shell.service", "session-2.scope", "user@1000.service", "sshd.service"} {
-		if transientAppScope(u) {
-			t.Errorf("transientAppScope(%q) = true, want false", u)
+	real := []string{
+		"app-daemon.service",
+		"app-missing-instance@.service",
+		"ryoku-shell.service",
+		"session-2.scope",
+		"user@1000.service",
+		"sshd.service",
+	}
+	for _, unit := range real {
+		if transientAppUnit(unit) {
+			t.Errorf("transientAppUnit(%q) = true, want false", unit)
 		}
+	}
+	units := append(append([]string{}, transient...), real...)
+	if got := reportableFailedUnits(units); !reflect.DeepEqual(got, real) {
+		t.Fatalf("reportable failed units = %v, want %v", got, real)
 	}
 }
 

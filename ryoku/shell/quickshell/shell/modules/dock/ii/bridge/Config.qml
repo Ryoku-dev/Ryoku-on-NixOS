@@ -94,6 +94,8 @@ Singleton {
         onDockStyleChanged: if (DockStore.commit("dockStyle", dockStyle)) dockStyle = DockStore.rebind("dockStyle", "floating")
         property bool enable: DockStore.pull("enable", false)
         onEnableChanged: if (DockStore.commit("enable", enable)) enable = DockStore.rebind("enable", false)
+        property real edgeGap: DockStore.pull("edgeGap", 0)
+        onEdgeGapChanged: if (DockStore.commit("edgeGap", edgeGap)) edgeGap = DockStore.rebind("edgeGap", 0)
         property bool enableAppGroups: DockStore.pull("enableAppGroups", true)
         onEnableAppGroupsChanged: if (DockStore.commit("enableAppGroups", enableAppGroups)) enableAppGroups = DockStore.rebind("enableAppGroups", true)
         property bool enableAppTooltip: DockStore.pull("enableAppTooltip", false)

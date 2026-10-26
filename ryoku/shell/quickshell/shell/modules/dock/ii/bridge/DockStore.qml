@@ -10,12 +10,7 @@ import shell.services as ShellCfg
  * The shared dock store's view for the ii design.
  *
  * The ii dock keeps its knobs in shell.json's `dock` object like every other
- * design: the four shared keys (enabled, edge, size, pinned) live at the top
- * of that object and are what the Hub, the CLI and the stage edit pages
- * already read and write; the design's own deep options live beside them
- * under `dock.ii`. A leaf of the generated options tree pulls through here on
- * read and commits back through here on write, so the two stores never
- * disagree and the daemon stays the sole writer.
+ * design so the daemon remains the sole writer.
  */
 Singleton {
     id: root
@@ -53,7 +48,8 @@ Singleton {
         "enable": "enabled",
         "position": "edge",
         "height": "size",
-        "enableMagnification": "magnify"
+        "enableMagnification": "magnify",
+        "edgeGap": "edgeGap"
     })
     // Shared keys whose meaning is the opposite of the ii leaf: a dock that
     // hides automatically is one that does not start pinned.
@@ -63,7 +59,8 @@ Singleton {
     // What the shared rows show while a key is unset, so this dock agrees.
     readonly property var sharedFallbacks: ({
         "magnify": true,
-        "autohide": false
+        "autohide": false,
+        "edgeGap": 0
     })
 
     function frame(): var {

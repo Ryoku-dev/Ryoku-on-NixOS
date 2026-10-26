@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Ryoku.Ui.Singletons
 import stage.modules.common.widgets
 import stage.services
 import "../.."
@@ -85,7 +86,7 @@ ClockSettingsSection {
                 variant: "filled"
                 symbol: "open_in_new"
                 label: Translation.tr("Open")
-                onClicked: Qt.openUrlExternally(OutlookService.verificationUri)
+                onClicked: Spawn.runApp(["xdg-open", OutlookService.verificationUri], { label: "browser" })
             }
 
             ClockIconButton {

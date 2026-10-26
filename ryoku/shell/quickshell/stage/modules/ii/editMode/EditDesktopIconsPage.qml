@@ -274,11 +274,8 @@ StyledFlickable {
                         text: Translation.tr("NEW")
                         onAct: {
                             const folderId = DesktopShortcuts.newFolder(root.screenName, "");
-                            if (folderId) {
-                                if (DesktopShortcuts.hidden)
-                                    DesktopShortcuts.setHidden(false);
+                            if (folderId)
                                 root.addAppsToFolder(folderId);
-                            }
                         }
                     }
                 }

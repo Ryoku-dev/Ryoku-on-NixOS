@@ -549,7 +549,7 @@ Singleton {
         const command = root.privateWindowCommand(url);
         if (command.length === 0)
             return false;
-        Spawn.run(command);
+        Spawn.runApp(command, { label: command[0] || "browser" });
         return true;
     }
 

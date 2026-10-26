@@ -79,10 +79,10 @@ Scope {
         exclusionMode: ExclusionMode.Normal
         WlrLayershell.namespace: "ryoku-dock-shima-reserve"
         WlrLayershell.layer: WlrLayer.Bottom
-        exclusiveZone: visible ? dock.thickness : 0
+        exclusiveZone: visible ? dock.thickness + dock.extraEdgeGap : 0
         mask: emptyRegion
-        implicitHeight: dock.vertical ? 0 : dock.thickness
-        implicitWidth: dock.vertical ? dock.thickness : 0
+        implicitHeight: dock.vertical ? 0 : dock.thickness + dock.extraEdgeGap
+        implicitWidth: dock.vertical ? dock.thickness + dock.extraEdgeGap : 0
         anchors {
             left: dock.atLeft || !dock.vertical
             right: dock.atRight || !dock.vertical

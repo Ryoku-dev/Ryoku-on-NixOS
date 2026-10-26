@@ -7,6 +7,7 @@ import Quickshell.Wayland
 import stage.services
 import ".."
 import Ryoku.Ui.Singletons
+import shell.services
 
 // Runtime coordinator for the Dock Live Preview widget. Configuration keeps
 // only the application identity; Toplevel objects are deliberately never
@@ -136,10 +137,13 @@ Singleton {
     }
 
     function launchPreferredApp() {
-        const desktopId = String(root.desktopEntry?.id ?? root.preferredAppId)
-            .trim().replace(/\.desktop$/i, "");
+        if (root.desktopEntry) {
+            AppLaunch.run(root.desktopEntry, null);
+            return;
+        }
+        const desktopId = String(root.preferredAppId).trim().replace(/\.desktop$/i, "");
         if (desktopId.length > 0)
-            Spawn.run(["gtk-launch", desktopId]);
+            Spawn.runApp(["gtk-launch", desktopId], { label: desktopId });
     }
 
     function activate(toplevel) {

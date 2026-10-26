@@ -7,6 +7,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Bluetooth
 import Quickshell.Networking
+import Ryoku.Ui.Singletons
 import "../"
 import "../reusables"
 
@@ -227,6 +228,7 @@ Item {
                 let currentSsid = typeof ssid !== "undefined" ? ssid : "";
                 let currentMac = typeof mac !== "undefined" ? mac : "";
                 let currentIsInfoNode = typeof isInfoNode !== "undefined" ? isInfoNode : false;
+                let currentLaunchApp = typeof launchApp !== "undefined" ? launchApp : false;
 
                 if (currentCmd === "TOGGLE_VIEW") {
                     floatCardDelegateContainer.isCardHovered = false;
@@ -261,6 +263,8 @@ Item {
                             devToForget.forget();
                             window.requestBtRebuild();
                         });
+                    } else if (currentLaunchApp) {
+                        Spawn.runApp(["sh", "-c", currentCmd], { label: "browser" });
                     } else {
                         Quickshell.execDetached(["sh", "-c", currentCmd]);
                     }

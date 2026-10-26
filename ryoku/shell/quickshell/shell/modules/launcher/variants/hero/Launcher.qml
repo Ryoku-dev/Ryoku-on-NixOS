@@ -69,6 +69,37 @@ Item {
         && query.length > 0 && query.charAt(0) === "\\"
     readonly property string askQuestion: askMode
         ? query.slice(1).replace(/^\s+/, "") : ""
+    readonly property var drawer: drawerLoader.item || emptyDrawer
+    onBodyOpenChanged: {
+        if (!bodyOpen && drawerLoader.active)
+            drawerHold.restart();
+    }
+
+    QtObject {
+        id: emptyDrawer
+        readonly property real rawDesiredHeight: 0
+        readonly property real height: 0
+        readonly property real opacity: 0
+        readonly property real actionShelfHeight: 0
+        readonly property string activeCategory: ""
+        readonly property bool askBusy: false
+        readonly property bool askResumeMode: false
+        readonly property bool askAnswerCurrent: false
+        readonly property int askChipCount: 0
+        readonly property string actionVisibleRange: ""
+        readonly property real resultDeckOpacity: 0
+        property bool suppressResultDeckAnimation: false
+        function resetCategory() {}
+        function resetAsk() {}
+        function snapAnimations() {}
+        function hideResultDeckImmediately() {}
+        function revealRank(rank) {}
+        function moveAsk(delta) {}
+        function activateAsk() {}
+        function runAsk() {}
+        function cancelAsk() {}
+        function cycleCategory(delta) {}
+    }
 
     readonly property var activeRoute: {
         if (activeMode === "all")
@@ -1015,40 +1046,52 @@ Item {
         }
     }
 
-    HeroVariant.ResultDrawer {
-        id: drawer
+    Loader {
+        id: drawerLoader
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: hero.bottom
-        s: root.s
-        open: root.shown && root.bodyOpen
-        animationsEnabled: root.transitionAnimationsEnabled
-        frostActive: root.frostActive
-        maxHeight: root.cardGeometry.bodyHeight
-        results: root.results
-        selectedResult: root.selectedResult
-        selectedResultKey: root.selectedResultKey
-        shelfOpen: root.shelfOpen
-        secondaryActions: root.secondaryActions
-        packedLayout: root.packedActionLayout
-        focusedActionId: root.focusedActionId
-        helpMode: root.help
-        askMode: root.askMode
-        answerMode: root.answerMode
-        actionBrowse: root.actionBrowse
-        searching: root.searching
-        emptyText: root.emptyText
-        errorText: root.actionError
-        windowCount: windowRail ? windowRail.windowCount : 0
-        windowFocusActive: root.interactionRegion === "windows"
-        askQuestion: root.askQuestion
+        active: root.bodyOpen || drawerHold.running
+        asynchronous: false
+
+        sourceComponent: Component {
+            HeroVariant.ResultDrawer {
+                s: root.s
+                open: root.shown && root.bodyOpen
+                animationsEnabled: root.transitionAnimationsEnabled
+                frostActive: root.frostActive
+                maxHeight: root.cardGeometry.bodyHeight
+                results: root.results
+                selectedResult: root.selectedResult
+                selectedResultKey: root.selectedResultKey
+                shelfOpen: root.shelfOpen
+                secondaryActions: root.secondaryActions
+                packedLayout: root.packedActionLayout
+                focusedActionId: root.focusedActionId
+                helpMode: root.help
+                askMode: root.askMode
+                answerMode: root.answerMode
+                actionBrowse: root.actionBrowse
+                searching: root.searching
+                emptyText: root.emptyText
+                errorText: root.actionError
+                windowCount: windowRail ? windowRail.windowCount : 0
+                windowFocusActive: root.interactionRegion === "windows"
+                askQuestion: root.askQuestion
                 answer: providerSet.web ? providerSet.web.answer : ({ available: false })
-        onLeadActivated: root.activateCurrent()
-        onResultSelected: (resultKey, rank) => root.selectResult(resultKey, rank)
-        onActionFocusRequested: actionId => root.focusedActionId = actionId
-        onActionExecuteRequested: actionId => root.executeAction(
-            root.currentSecondaryAction(actionId))
-        onAskFinished: root.requestClose()
+                onLeadActivated: root.activateCurrent()
+                onResultSelected: (resultKey, rank) => root.selectResult(resultKey, rank)
+                onActionFocusRequested: actionId => root.focusedActionId = actionId
+                onActionExecuteRequested: actionId => root.executeAction(
+                    root.currentSecondaryAction(actionId))
+                onAskFinished: root.requestClose()
+            }
+        }
+    }
+
+    Timer {
+        id: drawerHold
+        interval: 1000
     }
 
 }

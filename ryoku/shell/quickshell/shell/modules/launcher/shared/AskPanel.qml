@@ -123,11 +123,19 @@ Item {
             root.finished();
             return;
         case "file":
+<<<<<<< port (main)
             Spawn.runApp(["kitty", "-e", "nvim", String(chip.value)]);
             break;
         case "dir":
         case "url":
             Spawn.runApp(["xdg-open", String(chip.value)]);
+=======
+            Spawn.runApp(["kitty", "-e", "nvim", String(chip.value)], { label: "kitty" });
+            break;
+        case "dir":
+        case "url":
+            Spawn.runApp(["xdg-open", String(chip.value)], { label: chip.kind });
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
             break;
         case "chat": {
             const runAgent = busy || needsAgent;
@@ -323,7 +331,11 @@ Item {
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler {
                         onTapped: {
+<<<<<<< port (main)
                             Spawn.runApp(["xdg-open", thumb.modelData]);
+=======
+                            Spawn.runApp(["xdg-open", thumb.modelData], { label: "image" });
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
                             root.finished();
                         }
                     }

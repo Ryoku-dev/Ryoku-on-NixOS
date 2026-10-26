@@ -141,7 +141,7 @@ Item {
     var summon = MenuModel.summonAction(command)
     if (summon && root.shell && root.shell.summon(summon.id, summon.payload)) return
 
-    Util.execDetached(command)
+    Util.execApp(command)
   }
 
   // Menu rows only surface their detail while a search is narrowing them;

@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Fixed
+- **Super+Arrow focus leaves fullscreen windows for another screen.** From a
+  fullscreen or maximized window, an arrow moves to the screen in that direction
+  when one exists; without one, Hyprland still reaches the neighbouring window
+  on the same tape. niri now carries the same arrows across a screen edge, while
+  ordinary tiled-window focus stays unchanged (`hyprland/modules/binds.lua`,
+  `wm/hyprland/legend_test.go`, `wm/niri/config_binds.go`,
+  `wm/niri/config_binds_test.go`).
 - **Palette Bridge settings explain missing prerequisites.** The status action
   remains available without the bridge package and reports missing installation
   or recipes. Disabled setup actions name the packages and recipe setting to

@@ -46,8 +46,12 @@ Rectangle {
     }
 
     function runCommand(argv) {
-        if (argv && argv.length > 0)
-            Quickshell.execDetached(argv)
+        if (!argv || argv.length === 0)
+            return
+        if (["ryostore", "ryoku-kit", "ryoku-app"].includes(argv[0]))
+            Spawn.runApp(argv, { label: argv[0] })
+        else
+            Spawn.run(argv)
     }
 
     function chooseBar(styleId) {

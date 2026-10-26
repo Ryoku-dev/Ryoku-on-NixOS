@@ -42,6 +42,8 @@ RestartSec=2
 # Kill only the daemon on stop, not its cgroup: it reaps its own surfaces, and
 # apps the user launched from the shell must survive a shell reload.
 KillMode=process
+OOMPolicy=continue
+ManagedOOMPreference=avoid
 Slice=session.slice
 
 [Install]

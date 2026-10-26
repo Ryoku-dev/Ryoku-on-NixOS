@@ -330,7 +330,7 @@ AbstractBackgroundWidget {
                             return "volume_up";
                         }
 
-                        onClicked: Spawn.run(["sh", "-c", Config.options.apps.volumeMixer])
+                        onClicked: Spawn.runApp(["sh", "-c", Config.options.apps.volumeMixer], { label: "volume-mixer" })
 
                         contentItem: RowLayout {
                             id: audioPillLayout

@@ -207,7 +207,7 @@ DockButton {
                     stackPopup.open();
                     return;
                 }
-                RyokuUi.Spawn.run(["xdg-open", root.filePath]);
+                RyokuUi.Spawn.runApp(["xdg-open", root.filePath], { label: "file" });
             }
             onCanceled: {
                 root._pressed = false;

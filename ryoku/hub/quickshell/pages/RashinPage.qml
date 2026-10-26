@@ -190,7 +190,11 @@ Item {
         } catch (e) {}
     }
     function runSetup() {
+<<<<<<< port (main)
         Spawn.runApp(["kitty", "--class", "ryoku-rashin-setup", "-e", "ryoku-rashin", "setup"]);
+=======
+        Spawn.runApp(["kitty", "--class", "ryoku-rashin-setup", "-e", "ryoku-rashin", "setup"], { label: "kitty" });
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
     }
     // Open the dashboard the daemon actually serves. If a systemd user unit is
     // installed, it is the sole owner of the daemon. Spawning another `serve`
@@ -201,7 +205,11 @@ Item {
     function openDashboard() {
         var url = "http://127.0.0.1:" + pg.port;
         if (pg.running) {
+<<<<<<< port (main)
             Spawn.runApp(["xdg-open", url]);
+=======
+            Spawn.runApp(["xdg-open", url], { label: "browser" });
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
             return;
         }
         openProc.command = ["sh", "-c",
@@ -209,12 +217,23 @@ Item {
             + "systemctl --user start ryoku-rashin.service >/dev/null 2>&1; "
             + "else ryoku-rashin serve --if-enabled >/dev/null 2>&1 & fi; "
             + "for i in 1 2 3 4 5 6 7 8 9 10; do "
+<<<<<<< port (main)
             + "if ryoku-rashin status --json 2>/dev/null | grep -q '\"running\":true'; then "
             + "xdg-open \"$1\"; exit 0; fi; sleep 0.3; done; exit 1",
             "sh", url];
+=======
+            + "ryoku-rashin status --json 2>/dev/null | grep -q '\"running\":true' && exit 0; sleep 0.3; done; exit 1"];
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
         openProc.running = true;
     }
-    Process { id: openProc; onExited: pg.refresh() }
+    Process {
+        id: openProc
+        onExited: (exitCode, exitStatus) => {
+            if (exitCode === 0)
+                Spawn.runApp(["xdg-open", "http://127.0.0.1:" + pg.port], { label: "browser" });
+            pg.refresh();
+        }
+    }
 
     // the agent surface, refreshed with status. Best effort: a missing binary
     // leaves the sections empty rather than erroring.

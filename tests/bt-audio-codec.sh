@@ -42,8 +42,16 @@ cat >"$tmp/pactl" <<EOF
 set -u
 log="$tmp/calls"
 case "\$1" in
+  subscribe)
+    # Replay EVENTS, where a "pause" line stands for a quiet gap in the stream,
+    # then exit the way pactl does when PipeWire goes away.
+    while IFS= read -r ev; do
+      if [[ \$ev == pause ]]; then sleep 1.5; else printf '%s\n' "\$ev"; fi
+    done <"$tmp/EVENTS"
+    exit 0 ;;
   list)
     if [[ \${2:-} == cards && \${3:-} == short ]]; then
+      echo pass >>"$tmp/passes"
       [[ -e "$tmp/NO_CARD" ]] && exit 0
       printf '43\t$CARD\tmodule-bluez5-device.c\t\n'
       exit 0
@@ -128,6 +136,28 @@ touch "$tmp/NO_CARD"
 "$helper" apply >/dev/null 2>&1 || fail "apply with no connected card should still succeed"
 [[ -z "$("$helper" cards)" ]] || fail "cards should be empty with no device"
 rm -f "$tmp/NO_CARD"
+
+# ---- watch collapses a burst of card events into one pass -------------------
+# One reconnect emits several card events amid stream and sink noise. Each burst
+# must cost one apply pass (each pass lists the cards once), and watch must end
+# when the subscription does rather than hang.
+cat >"$tmp/EVENTS" <<'EV'
+Event 'new' on card #43
+Event 'change' on sink #12
+Event 'change' on card #43
+Event 'new' on sink-input #90
+Event 'change' on card #43
+Event 'change' on card #43
+pause
+Event 'remove' on card #43
+Event 'change' on sink #12
+Event 'new' on card #44
+EV
+: >"$tmp/passes"
+RYOKU_BT_WATCH_LOCK="$tmp/watch.lock" timeout 20 "$helper" watch >/dev/null 2>&1 \
+  || fail "watch should exit cleanly when the subscription ends"
+passes="$(wc -l <"$tmp/passes")"
+[[ $passes -eq 3 ]] || fail "watch should run 3 passes (startup + one per burst), got $passes"
 
 # ---- unknown verbs are refused ---------------------------------------------
 for v in "" bogus --help; do

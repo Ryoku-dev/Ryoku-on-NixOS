@@ -4,6 +4,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import inir.modules.common
 import inir.modules.common.functions
 
@@ -218,7 +219,7 @@ Singleton {
     // Open widget directory in file manager
     function openWidgetDir(widgetId: string): void {
         const dirPath = widgetId ? `${root.widgetsDir}/${widgetId}` : root.widgetsDir;
-        Qt.openUrlExternally("file://" + dirPath);
+        Spawn.runApp(["xdg-open", "file://" + dirPath], { label: "folder" });
     }
 
     // Widget template generator — creates scaffold with all imports, services, and patterns

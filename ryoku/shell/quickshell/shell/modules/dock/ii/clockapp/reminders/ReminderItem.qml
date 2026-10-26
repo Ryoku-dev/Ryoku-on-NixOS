@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import stage.modules.common.functions
 import stage.modules.common.widgets
 import stage.services
+import Ryoku.Ui.Singletons
 import "../.."
 
 /**
@@ -355,7 +356,7 @@ Rectangle {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             enabled: !root.selecting
-                            onClicked: Qt.openUrlExternally("file://" + thumb.modelData.path)
+                            onClicked: Spawn.runApp(["xdg-open", "file://" + thumb.modelData.path], { label: "file" })
                         }
                     }
                 }
@@ -477,7 +478,7 @@ Rectangle {
         colBackground: ColorUtils.applyAlpha(root.colControl, 0.14)
         colBackgroundHover: ColorUtils.applyAlpha(root.colControl, 0.24)
         colRipple: ColorUtils.applyAlpha(root.colControl, 0.32)
-        onClicked: Qt.openUrlExternally(linkChip.attachment.kind === "link" ? linkChip.attachment.url : "file://" + linkChip.attachment.path)
+        onClicked: Spawn.runApp(["xdg-open", linkChip.attachment.kind === "link" ? linkChip.attachment.url : "file://" + linkChip.attachment.path], { label: linkChip.attachment.kind })
 
         contentItem: RowLayout {
             id: linkRow

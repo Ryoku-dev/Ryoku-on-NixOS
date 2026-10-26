@@ -19,7 +19,11 @@ type frameEntry struct {
 	Video     bool   `json:"video,omitempty"`
 	VideoPath string `json:"videoPath,omitempty"`
 	// Paused freezes an in-shell clip in place without reloading the image.
-	Paused     bool        `json:"paused,omitempty"`
+	Paused bool `json:"paused,omitempty"`
+	// Preview marks a paint wall.preview published but the daemon has not
+	// committed: no assignment, count, or applied event backs it, so
+	// downstream readers must not treat the entry as the wallpaper.
+	Preview    bool        `json:"preview,omitempty"`
 	Mute       bool        `json:"mute"`
 	Volume     int         `json:"volume"`
 	Transition interface{} `json:"transition"`
@@ -94,6 +98,14 @@ type videoClip struct {
 // video's still; clip.path, when set, is the in-shell clip (video_engine
 // "in_shell") and carries its audio.
 func (w *wallSurface) show(pic, fit string, tr interface{}, live, isVideo bool, clip videoClip) {
+	w.showEntry(pic, fit, tr, live, isVideo, false, clip)
+}
+
+func (w *wallSurface) showPreview(pic, fit string, tr interface{}, live, isVideo bool, clip videoClip) {
+	w.showEntry(pic, fit, tr, live, isVideo, true, clip)
+}
+
+func (w *wallSurface) showEntry(pic, fit string, tr interface{}, live, isVideo, preview bool, clip videoClip) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.seq++
@@ -101,6 +113,7 @@ func (w *wallSurface) show(pic, fit string, tr interface{}, live, isVideo bool, 
 	w.def.Live = live
 	w.def.Video = isVideo
 	w.def.VideoPath = clip.path
+	w.def.Preview = preview
 	w.def.Mute = clip.mute
 	w.def.Volume = clip.volume
 	w.outputs = map[string]frameEntry{}
@@ -109,6 +122,14 @@ func (w *wallSurface) show(pic, fit string, tr interface{}, live, isVideo bool, 
 
 // showOutput writes one per-output override, leaving the rest intact.
 func (w *wallSurface) showOutput(name, pic, fit string, tr interface{}, live, isVideo bool, clip videoClip) {
+	w.showOutputEntry(name, pic, fit, tr, live, isVideo, false, clip)
+}
+
+func (w *wallSurface) showOutputPreview(name, pic, fit string, tr interface{}, live, isVideo bool, clip videoClip) {
+	w.showOutputEntry(name, pic, fit, tr, live, isVideo, true, clip)
+}
+
+func (w *wallSurface) showOutputEntry(name, pic, fit string, tr interface{}, live, isVideo, preview bool, clip videoClip) {
 	if name == "" {
 		return
 	}
@@ -119,6 +140,7 @@ func (w *wallSurface) showOutput(name, pic, fit string, tr interface{}, live, is
 	e.Live = live
 	e.Video = isVideo
 	e.VideoPath = clip.path
+	e.Preview = preview
 	e.Mute = clip.mute
 	e.Volume = clip.volume
 	w.outputs[name] = e

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // clipboard.go owns the typed clipboard history the daemon streams to QML over
@@ -29,33 +30,28 @@ import (
 // retains every offered type and re-claims the selection when its owner exits.
 
 const (
-	clipMaxEntries     = 100      // history cap; oldest drops when a new entry overflows
-	clipMaxEntryBytes  = 10 << 20 // 10 MiB per history entry; larger selections are not stored
-	clipTextPreviewLen = 200      // text preview length in characters
-	clipThumbnailSize  = 512      // image thumbnail bounding box in pixels
-	clipPersistEnv     = "RYOKU_CLIP_PERSIST"
+	clipMaxEntries      = 100       // history cap; oldest drops when a new entry overflows
+	clipMaxEntryBytes   = 10 << 20  // 10 MiB per history entry; larger selections are not stored
+	clipMaxStarredBytes = 100 << 20 // total disk budget for starred entries
+	clipTextPreviewLen  = 200       // text preview length in characters
+	clipThumbnailSize   = 512       // image thumbnail bounding box in pixels
+	clipPersistEnv      = "RYOKU_CLIP_PERSIST"
 )
 
-// clipEntry is one history item. The exported fields are the QML view; data is
-// the captured bytes kept for re-setting the selection, hash keys the dedup, and
-// ts orders by recency.
 type clipEntry struct {
-	ID        uint64 `json:"id"`
-	Kind      string `json:"kind"` // "text" | "image" | "binary"
-	Mime      string `json:"mime"`
-	Size      int    `json:"size"`
-	Preview   string `json:"preview,omitempty"`
-	ThumbPath string `json:"thumb,omitempty"`
-	ThumbW    int    `json:"thumbW,omitempty"`
-	ThumbH    int    `json:"thumbH,omitempty"`
-	W         int    `json:"w,omitempty"`
-	H         int    `json:"h,omitempty"`
-	Starred   bool   `json:"starred"`
-	hash      uint64
-	ts        time.Time
-	data      []byte
-	// thumbBytes is the size of the generated thumbnail, kept in memory so the
-	// storage report is a sum instead of a filesystem walk.
+	ID         uint64 `json:"id"`
+	Kind       string `json:"kind"` // "text" | "image" | "binary"
+	Mime       string `json:"mime"`
+	Size       int    `json:"size"`
+	Preview    string `json:"preview,omitempty"`
+	ThumbPath  string `json:"thumb,omitempty"`
+	ThumbW     int    `json:"thumbW,omitempty"`
+	ThumbH     int    `json:"thumbH,omitempty"`
+	W          int    `json:"w,omitempty"`
+	H          int    `json:"h,omitempty"`
+	Starred    bool   `json:"starred"`
+	hash       uint64
+	ts         time.Time
 	thumbBytes int
 }
 
@@ -160,6 +156,13 @@ func (s *clipState) dataPath(hash uint64) string {
 	return filepath.Join(s.dataDir, fmt.Sprintf("%016x.bin", hash))
 }
 
+func (s *clipState) openPayload(hash uint64) (*os.File, error) {
+	if s.dataDir == "" {
+		return nil, fmt.Errorf("clipboard payload is not persisted")
+	}
+	return os.Open(s.dataPath(hash))
+}
+
 // persistedClip is the on-disk history: entry metadata plus the next id. Each
 // entry's bytes live beside it in dataDir keyed by hash and its thumbnail stays
 // in the cache dir, so the index stays small and one entry never rewrites another.
@@ -228,9 +231,7 @@ func (s *clipState) persistLocked() {
 	}
 }
 
-// load restores the history from disk on startup: the index in order, each
-// entry's bytes from dataDir, and a thumbnail reference only when its file still
-// exists. Orphan data files a crash may have stranded are swept.
+// load restores metadata without loading payload files.
 func (s *clipState) load() {
 	if s.stateDir == "" {
 		return
@@ -251,24 +252,29 @@ func (s *clipState) load() {
 	}
 	keep := make(map[uint64]bool, len(p.Entries))
 	thumbs := make(map[string]bool, len(p.Entries))
-	droppedCorrupt := false
+	changed := false
+	var starredBytes int64
 	for _, pe := range p.Entries {
-		data, err := os.ReadFile(s.dataPath(pe.Hash))
-		if err != nil || len(data) == 0 {
+		fi, err := os.Stat(s.dataPath(pe.Hash))
+		if err != nil || fi.Size() == 0 {
 			continue
 		}
-		if pe.Kind != "text" && len(data) == clipMaxEntryBytes {
+		if pe.Kind != "text" && fi.Size() == clipMaxEntryBytes {
 			_ = os.Remove(s.dataPath(pe.Hash))
 			if pe.ThumbPath != "" {
 				_ = os.Remove(pe.ThumbPath)
 			}
-			droppedCorrupt = true
+			changed = true
 			continue
 		}
 		e := &clipEntry{
 			ID: pe.ID, Kind: pe.Kind, Mime: pe.Mime, Size: pe.Size, Preview: pe.Preview,
 			ThumbPath: pe.ThumbPath, ThumbW: pe.ThumbW, ThumbH: pe.ThumbH, W: pe.W, H: pe.H,
-			Starred: pe.Starred, hash: pe.Hash, ts: time.Unix(0, pe.TS), data: data, thumbBytes: pe.ThumbBytes,
+			Starred: pe.Starred, hash: pe.Hash, ts: time.Unix(0, pe.TS), thumbBytes: pe.ThumbBytes,
+		}
+		if e.Size <= 0 {
+			e.Size = int(fi.Size())
+			changed = true
 		}
 		if e.ThumbPath != "" {
 			fi, err := os.Stat(e.ThumbPath)
@@ -279,8 +285,15 @@ func (s *clipState) load() {
 					e.Kind = "binary"
 				}
 			} else if e.thumbBytes == 0 {
-				// An index written before the sizes were recorded: measure once.
 				e.thumbBytes = int(fi.Size())
+			}
+		}
+		if e.Starred {
+			if n := starredBytes + e.storedBytes(); n <= clipMaxStarredBytes {
+				starredBytes = n
+			} else {
+				e.Starred = false
+				changed = true
 			}
 		}
 		if e.ID > s.nextID {
@@ -314,7 +327,7 @@ func (s *clipState) load() {
 			}
 		}
 	}
-	if droppedCorrupt {
+	if changed {
 		s.persistLocked()
 	}
 }
@@ -327,14 +340,25 @@ func clipHash(data []byte) uint64 {
 	return h.Sum64()
 }
 
-// truncateRunes cuts a string to at most n characters (not bytes), so a
-// multibyte preview never splits a rune.
-func truncateRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
+func truncateBytesRunes(data []byte, n int) string {
+	if n <= 0 {
+		return ""
 	}
-	return string(r[:n])
+	end := 0
+	for range n {
+		if end == len(data) {
+			return string(data)
+		}
+		_, size := utf8.DecodeRune(data[end:])
+		end += size
+	}
+	if end == len(data) {
+		return string(data)
+	}
+	if utf8.Valid(data[:end]) {
+		return string(data[:end])
+	}
+	return string([]rune(string(data[:end])))
 }
 
 // classifyClip derives an entry's kind and preview from its mime and bytes:
@@ -344,7 +368,7 @@ func truncateRunes(s string, n int) string {
 func classifyClip(mime string, data []byte) (kind, preview string, thumb []byte, thumbW, thumbH, w, h int) {
 	switch {
 	case strings.HasPrefix(mime, "text/"):
-		return "text", truncateRunes(string(data), clipTextPreviewLen), nil, 0, 0, 0, 0
+		return "text", truncateBytesRunes(data, clipTextPreviewLen), nil, 0, 0, 0, 0
 	case strings.HasPrefix(mime, "image/"):
 		if t, tw, th, sw, sh, ok := thumbnailPNG(data, clipThumbnailSize); ok {
 			return "image", "", t, tw, th, sw, sh
@@ -420,7 +444,6 @@ func (s *clipState) buildEntry(mime string, data []byte) *clipEntry {
 		H:       h,
 		hash:    clipHash(data),
 		ts:      time.Now(),
-		data:    data,
 	}
 	if thumb != nil {
 		p := filepath.Join(s.cacheDir, fmt.Sprintf("thumb-%016x.png", e.hash))
@@ -494,9 +517,21 @@ func (s *clipState) promoteLocked(id uint64) *clipEntry {
 	return nil
 }
 
-// star sets an entry's starred flag in place, immediately moving it between the
-// history and Starred panes. A starred entry survives clear and is protected
-// from overflow eviction. Returns an error for an unknown id.
+func (e *clipEntry) storedBytes() int64 {
+	return int64(e.Size) + int64(e.thumbBytes)
+}
+
+func (s *clipState) starredBytesLocked() int64 {
+	var total int64
+	for _, e := range s.entries {
+		if e.Starred {
+			total += e.storedBytes()
+		}
+	}
+	return total
+}
+
+// star sets an entry's starred flag while keeping starred storage bounded.
 func (s *clipState) star(id uint64, starred bool) error {
 	s.mu.Lock()
 	var found *clipEntry
@@ -506,14 +541,17 @@ func (s *clipState) star(id uint64, starred bool) error {
 			break
 		}
 	}
-	if found != nil {
-		found.Starred = starred
-		s.persistLocked()
-	}
-	s.mu.Unlock()
 	if found == nil {
+		s.mu.Unlock()
 		return fmt.Errorf("no clipboard entry %d", id)
 	}
+	if starred && !found.Starred && s.starredBytesLocked()+found.storedBytes() > clipMaxStarredBytes {
+		s.mu.Unlock()
+		return fmt.Errorf("starred clipboard limit reached (%d MiB); unstar an item first", clipMaxStarredBytes>>20)
+	}
+	found.Starred = starred
+	s.persistLocked()
+	s.mu.Unlock()
 	s.publish()
 	return nil
 }
@@ -533,48 +571,67 @@ func (s *clipState) ingest(mime string, data []byte) {
 	s.publish()
 }
 
-// copy re-sets the Wayland selection to an entry and promotes it to the front.
-// There is no synthetic paste: the user pastes normally afterwards. The echoed
-// selection event re-captures identical bytes, which dedup promotes in place, so
-// no duplicate lands.
+// copy re-sets the Wayland selection from its persisted payload and promotes it.
 func (s *clipState) copy(id uint64) error {
 	s.mu.Lock()
-	e := s.promoteLocked(id)
-	var data []byte
-	var mime string
-	if e != nil {
-		data, mime = e.data, e.Mime
-		s.persistLocked()
+	var found *clipEntry
+	for _, e := range s.entries {
+		if e.ID == id {
+			found = e
+			break
+		}
 	}
-	s.mu.Unlock()
-	if e == nil {
+	if found == nil {
+		s.mu.Unlock()
 		return fmt.Errorf("no clipboard entry %d", id)
 	}
+	payload, err := s.openPayload(found.hash)
+	if err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("open clipboard entry %d: %w", id, err)
+	}
+	mime := found.Mime
+	s.promoteLocked(id)
+	s.persistLocked()
+	s.mu.Unlock()
+	defer payload.Close()
+
 	s.publish()
 	cmd := exec.Command("wl-copy", "--type", mime)
-	cmd.Stdin = bytes.NewReader(data)
+	cmd.Stdin = payload
 	return cmd.Run()
 }
 
-// copyFile sets the live Wayland selection from a file and stores the same bytes
-// in history when they fit the entry cap. Run by the persistent daemon (not an
-// ephemeral capture app), so wl-copy's background server outlives the caller and
-// the selection sticks.
+// copyFile streams a file to the selection before adding it to history.
 func (s *clipState) copyFile(mime, path string) error {
-	data, err := os.ReadFile(path)
+	payload, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	if len(data) == 0 {
+	fi, err := payload.Stat()
+	if err != nil {
+		payload.Close()
+		return err
+	}
+	if fi.Size() == 0 {
+		payload.Close()
 		return fmt.Errorf("clip-copy: empty file %s", path)
 	}
 	cmd := exec.Command("wl-copy", "--type", mime)
-	cmd.Stdin = bytes.NewReader(data)
-	if err := cmd.Run(); err != nil {
-		return err
+	cmd.Stdin = payload
+	runErr := cmd.Run()
+	closeErr := payload.Close()
+	if runErr != nil {
+		return runErr
 	}
-	// Ingest directly so the entry lands even if the watcher misses the change.
-	if len(data) <= clipMaxEntryBytes {
+	if closeErr != nil {
+		return closeErr
+	}
+	if fi.Size() <= clipMaxEntryBytes {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
 		s.ingest(mime, data)
 	}
 	return nil
@@ -781,7 +838,7 @@ func (s *clipState) stats() clipStats {
 		st.LastPrune = s.lastPrune.Unix()
 	}
 	for _, e := range s.entries {
-		n := int64(len(e.data)) + int64(e.thumbBytes)
+		n := e.storedBytes()
 		st.Bytes += n
 		if e.Starred {
 			st.Starred++

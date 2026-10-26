@@ -36,12 +36,14 @@ const (
 )
 
 var (
-	ffAnsiRe      = regexp.MustCompile("\x1b\\[[0-9;]*m")
-	ffTanRe       = regexp.MustCompile("\x1b\\[38;2;" + regexp.QuoteMeta(ffTan) + "m(.*?)\x1b\\[0m")
-	ffLabelRe     = regexp.MustCompile("\x1b\\[1;38;2;" + regexp.QuoteMeta(ffBright) + "m(.*?)\x1b\\[0m")
-	ffKeysColor   = regexp.MustCompile(`(?:38;2;)?([0-9]+;[0-9]+;[0-9]+)`)
-	ffRGBTriple   = regexp.MustCompile(`^([0-9]{1,3});([0-9]{1,3});([0-9]{1,3})$`)
-	ffTrueColorRe = regexp.MustCompile("\x1b\\[((?:1;)?)38;2;([0-9]+;[0-9]+;[0-9]+)m")
+	ffAnsiRe        = regexp.MustCompile("\x1b\\[[0-9;]*m")
+	ffTanRe         = regexp.MustCompile("\x1b\\[38;2;" + regexp.QuoteMeta(ffTan) + "m(.*?)\x1b\\[0m")
+	ffLabelRe       = regexp.MustCompile("\x1b\\[1;38;2;" + regexp.QuoteMeta(ffBright) + "m(.*?)\x1b\\[0m")
+	ffKeysColor     = regexp.MustCompile(`(?:38;2;)?([0-9]+;[0-9]+;[0-9]+)`)
+	ffHexColor      = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+	ffTrueColorRe   = regexp.MustCompile("\x1b\\[((?:1;)?)38;2;([0-9]+;[0-9]+;[0-9]+)m")
+	ffRecolorLineRe = regexp.MustCompile(`(?m)^[\t ]*//[\t ]*ryoku:recolor[\t ]+([^\r\n]+)`)
+	ffRecolorPairRe = regexp.MustCompile(`([A-Za-z][A-Za-z0-9_-]*)=([A-Za-z][A-Za-z0-9_-]*)`)
 	// ffSlotTrueColorRe matches a rice's inline fastfetch colour placeholder
 	// "{#38;2;R;G;B}", whose R;G;B is a fixed brand tone baked into the format
 	// (fastfetch resolves it to literal ANSI). The wallpaper pass rewrites the
@@ -71,8 +73,10 @@ func fastfetchDir() string {
 	return filepath.Join(base, "fastfetch")
 }
 
-func fastfetchConfigPath() string  { return filepath.Join(fastfetchDir(), "config.jsonc") }
-func fastfetchPalettePath() string { return filepath.Join(fastfetchDir(), "ryoku-colors.json") }
+func fastfetchConfigPath() string { return filepath.Join(fastfetchDir(), "config.jsonc") }
+func fastfetchPalettePath() string {
+	return filepath.Join(cacheHome(), "ryoku", "colors.json")
+}
 func fastfetchPaletteStatePath() string {
 	return filepath.Join(filepath.Dir(fastfetchDir()), "ryoku", "fastfetch.json")
 }
@@ -175,16 +179,17 @@ type ffModel struct {
 }
 
 type ffPalette struct {
-	Keys    string `json:"keys"`
-	Title   string `json:"title"`
-	Muted   string `json:"muted"`
-	Section string `json:"section"`
-	Rule    string `json:"rule"`
+	Keys    string
+	Title   string
+	Muted   string
+	Section string
+	Rule    string
 	Percent struct {
-		Green  string `json:"green"`
-		Yellow string `json:"yellow"`
-		Red    string `json:"red"`
-	} `json:"percent"`
+		Green  string
+		Yellow string
+		Red    string
+	}
+	Roles map[string]string
 }
 
 type ffPaletteState struct {
@@ -226,18 +231,14 @@ func setFastfetchPaletteMode(mode string) error {
 	return atomicWrite(fastfetchPaletteStatePath(), append(b, '\n'), 0o644)
 }
 
-func validFFRGB(value string) bool {
-	match := ffRGBTriple.FindStringSubmatch(value)
-	if match == nil {
-		return false
+func ffHexRGB(value string) (string, bool) {
+	if !ffHexColor.MatchString(value) {
+		return "", false
 	}
-	for _, part := range match[1:] {
-		n, err := strconv.Atoi(part)
-		if err != nil || n > 255 {
-			return false
-		}
-	}
-	return true
+	r, _ := strconv.ParseUint(value[1:3], 16, 8)
+	g, _ := strconv.ParseUint(value[3:5], 16, 8)
+	b, _ := strconv.ParseUint(value[5:7], 16, 8)
+	return fmt.Sprintf("%d;%d;%d", r, g, b), true
 }
 
 func loadFastfetchPalette() (ffPalette, error) {
@@ -246,20 +247,48 @@ func loadFastfetchPalette() (ffPalette, error) {
 	if err != nil {
 		return palette, fmt.Errorf("read Fastfetch wallpaper palette: %w", err)
 	}
-	if err := json.Unmarshal(b, &palette); err != nil {
+	var roles map[string]string
+	if err := json.Unmarshal(b, &roles); err != nil {
 		return palette, fmt.Errorf("parse Fastfetch wallpaper palette: %w", err)
 	}
-	values := map[string]string{
-		"keys": palette.Keys, "title": palette.Title, "muted": palette.Muted,
-		"section": palette.Section, "rule": palette.Rule,
-		"percent.green": palette.Percent.Green, "percent.yellow": palette.Percent.Yellow,
-		"percent.red": palette.Percent.Red,
-	}
-	for name, value := range values {
-		if !validFFRGB(value) {
+	for name, value := range roles {
+		if _, ok := ffHexRGB(value); !ok {
 			return ffPalette{}, fmt.Errorf("Fastfetch wallpaper palette has invalid %s colour", name)
 		}
 	}
+	pick := func(names ...string) (string, error) {
+		for _, name := range names {
+			if rgb, ok := ffHexRGB(roles[name]); ok {
+				return rgb, nil
+			}
+		}
+		return "", fmt.Errorf("Fastfetch wallpaper palette is missing %s", names[0])
+	}
+	if palette.Keys, err = pick("primary", "color4", "foreground"); err != nil {
+		return ffPalette{}, err
+	}
+	if palette.Title, err = pick("foreground", "onSurface", "color15", "color7"); err != nil {
+		return ffPalette{}, err
+	}
+	if palette.Muted, err = pick("onSurfaceVariant", "color8", "foreground"); err != nil {
+		return ffPalette{}, err
+	}
+	if palette.Section, err = pick("primary", "color4", "foreground"); err != nil {
+		return ffPalette{}, err
+	}
+	if palette.Rule, err = pick("outlineVariant", "color0", "background"); err != nil {
+		return ffPalette{}, err
+	}
+	if palette.Percent.Green, err = pick("tertiary", "color2", "primary"); err != nil {
+		return ffPalette{}, err
+	}
+	if palette.Percent.Yellow, err = pick("secondary", "color3", "primary"); err != nil {
+		return ffPalette{}, err
+	}
+	if palette.Percent.Red, err = pick("error", "color1", "primary"); err != nil {
+		return ffPalette{}, err
+	}
+	palette.Roles = roles
 	return palette, nil
 }
 
@@ -609,7 +638,45 @@ func ffApplyPaletteToRow(raw json.RawMessage, palette ffPalette) (json.RawMessag
 	return json.Marshal(row)
 }
 
-func ffApplyPaletteToDisplay(display json.RawMessage, palette ffPalette) json.RawMessage {
+func ffRecolorRoles(config []byte) map[string]string {
+	roles := map[string]string{}
+	for _, line := range ffRecolorLineRe.FindAllSubmatch(config, -1) {
+		for _, pair := range ffRecolorPairRe.FindAllSubmatch(line[1], -1) {
+			roles[string(pair[1])] = string(pair[2])
+		}
+	}
+	return roles
+}
+
+func ffPaletteRole(palette ffPalette, name string) (string, string, bool) {
+	normalize := func(value string) string {
+		value = strings.ToLower(value)
+		return strings.NewReplacer("_", "", "-", "").Replace(value)
+	}
+	wanted := normalize(name)
+	for role, hex := range palette.Roles {
+		if normalize(role) != wanted {
+			continue
+		}
+		rgb, ok := ffHexRGB(hex)
+		return hex, rgb, ok
+	}
+	return "", "", false
+}
+
+func ffDisplayRoleValue(current any, hex, rgb string) string {
+	value, _ := current.(string)
+	switch {
+	case strings.HasPrefix(value, "1;38;2;"):
+		return "1;38;2;" + rgb
+	case strings.HasPrefix(value, "38;2;"):
+		return "38;2;" + rgb
+	default:
+		return hex
+	}
+}
+
+func ffApplyPaletteRolesToDisplay(display json.RawMessage, palette ffPalette, recolor map[string]string) (json.RawMessage, error) {
 	display = ffApplyAccentToDisplay(display, palette.Keys)
 	var doc map[string]any
 	if json.Unmarshal(display, &doc) != nil {
@@ -619,14 +686,24 @@ func ffApplyPaletteToDisplay(display json.RawMessage, palette ffPalette) json.Ra
 	// from these named display.color slots (unlike the {#...} format tokens it
 	// strips). Recolour the ones the config sets so the separators and title text
 	// follow the theme; a config without them is left untouched.
-	if color, ok := doc["color"].(map[string]any); ok {
-		if _, ok := color["title"]; ok {
-			color["title"] = "38;2;" + palette.Title
-		}
-		if _, ok := color["separator"]; ok {
-			color["separator"] = "38;2;" + palette.Muted
-		}
+	color, _ := doc["color"].(map[string]any)
+	if color == nil {
+		color = map[string]any{}
 	}
+	if _, ok := color["title"]; ok {
+		color["title"] = "38;2;" + palette.Title
+	}
+	if _, ok := color["separator"]; ok {
+		color["separator"] = "38;2;" + palette.Muted
+	}
+	for field, role := range recolor {
+		hex, rgb, ok := ffPaletteRole(palette, role)
+		if !ok {
+			return nil, fmt.Errorf("Fastfetch recolor role %q is unavailable", role)
+		}
+		color[field] = ffDisplayRoleValue(color[field], hex, rgb)
+	}
+	doc["color"] = color
 	percent, _ := doc["percent"].(map[string]any)
 	if percent == nil {
 		percent = map[string]any{}
@@ -642,12 +719,24 @@ func ffApplyPaletteToDisplay(display json.RawMessage, palette ffPalette) json.Ra
 	doc["percent"] = percent
 	b, err := json.Marshal(doc)
 	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func ffApplyPaletteToDisplay(display json.RawMessage, palette ffPalette) json.RawMessage {
+	applied, err := ffApplyPaletteRolesToDisplay(display, palette, nil)
+	if err != nil {
 		return display
 	}
-	return b
+	return applied
 }
 
 func buildFastfetchEffective(m ffModel) ([]byte, error) {
+	return buildFastfetchEffectiveWithRoles(m, nil)
+}
+
+func buildFastfetchEffectiveWithRoles(m ffModel, recolor map[string]string) ([]byte, error) {
 	if ffPaletteMode(m.Palette) != ffPaletteWallpaper {
 		return buildFastfetch(m)
 	}
@@ -655,10 +744,7 @@ func buildFastfetchEffective(m ffModel) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	accent := m.Accent
-	if !validFFRGB(accent) {
-		accent = ffAccent
-	}
+	accent := palette.Keys
 	var mods []json.RawMessage
 	for _, row := range m.Rows {
 		if !row.Enabled {
@@ -700,9 +786,13 @@ func buildFastfetchEffective(m ffModel) ([]byte, error) {
 		}
 		mods = append(mods, raw)
 	}
+	display, err := ffApplyPaletteRolesToDisplay(m.Display, palette, recolor)
+	if err != nil {
+		return nil, err
+	}
 	out := ffOutConfig{
 		Schema: m.Schema, Logo: ffBuildLogo(m.Logo), Modules: mods,
-		Display: ffApplyPaletteToDisplay(m.Display, palette),
+		Display: display,
 	}
 	b, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
@@ -757,18 +847,17 @@ func effectiveModeMarker(path string) string { return path + ".mode" }
 // always runs this and reads the result, so the wallpaper-by-default decision
 // lives here, not in shell. Fixed mode copies the user's config verbatim (a
 // retint never rewrites their layout or comments); wallpaper mode rebuilds it
-// with the live Material palette swapped in for the fixed brand tones.
 func writeEffectiveFastfetch(path string) error {
 	mode := readFastfetchPaletteMode()
 	if fastfetchEffectiveFresh(path, mode) {
 		return nil
 	}
+	raw, err := os.ReadFile(fastfetchConfigPath())
+	if err != nil {
+		return err
+	}
 	var b []byte
 	if mode != ffPaletteWallpaper {
-		raw, err := os.ReadFile(fastfetchConfigPath())
-		if err != nil {
-			return err
-		}
 		b = raw
 	} else {
 		model, err := loadFastfetch()
@@ -776,7 +865,7 @@ func writeEffectiveFastfetch(path string) error {
 			return err
 		}
 		model.Palette = mode
-		built, err := buildFastfetchEffective(model)
+		built, err := buildFastfetchEffectiveWithRoles(model, ffRecolorRoles(raw))
 		if err != nil {
 			return err
 		}

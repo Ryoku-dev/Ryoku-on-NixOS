@@ -49,8 +49,8 @@ AbstractBackgroundWidget {
 
     // Fixed 3-day data model structure
     readonly property var next3DaysGrouped: {
-        let dummy1 = root.todayDayNum;
-        let dummy2 = root.eventsCount;
+        let trackedDay = root.todayDayNum;
+        let trackedEvents = root.eventsCount;
         let now = root.todayDate;
         if (!now) now = new Date();
 
@@ -166,7 +166,7 @@ AbstractBackgroundWidget {
                                 color: root.expressive ? WidgetColorScheme.colors.colOnPrimary : root.textColorOnBg
                             }
 
-                            onClicked: Spawn.run(["xdg-open", "https://calendar.google.com/calendar/u/0/r"])
+                            onClicked: Spawn.runApp(["xdg-open", "https://calendar.google.com/calendar/u/0/r"], { label: "calendar" })
                         }
                     }
 

@@ -440,8 +440,11 @@ Item {
     }
 
     readonly property bool _sceneOn: slot.spatial && !slot.composing
-    readonly property real _gainRaw: slot.spatial && StageCfg.Config.followMouse
-        ? StageCfg.Config.amountFactor * StageCfg.Config.sensitivity * StageCfg.Config.range : 0
+    readonly property real _gainRaw: slot.spatial
+            && StageCfg.Config.followMouse("spatial")
+        ? StageCfg.Config.amountFactor("spatial")
+            * StageCfg.Config.sensitivity("spatial")
+            * StageCfg.Config.range("spatial") : 0
     property real _gain: slot._gainRaw
     Behavior on _gain { SmoothedAnimation { velocity: 2.5; duration: 200 } }
     readonly property real _pivot: StageCfg.StageBackend.pivotDistanceFor(slot.monitor)
@@ -458,7 +461,7 @@ Item {
     readonly property real _sceneDy: slot._scene ? slot._scene.dy : 0
     readonly property real _sceneScale: slot._scene ? slot._scene.scale : 1
     readonly property real _nearness: Math.max(0, Math.min(1, slot.depthV))
-    readonly property real _shadowAngle: StageCfg.Config.shadowAngle * Math.PI / 180
+    readonly property real _shadowAngle: StageCfg.Config.shadowAngle("spatial") * Math.PI / 180
     readonly property real _shadowSpan: slot._sceneOn ? 4 + 16 * slot._nearness : 6
     transform: [
         Scale {

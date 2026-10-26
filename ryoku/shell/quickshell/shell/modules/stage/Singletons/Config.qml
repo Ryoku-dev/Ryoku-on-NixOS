@@ -4,111 +4,305 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Global Stage settings on ~/.config/ryoku/stage.json (docs/stage.md). Only the
-// look every layer inherits (edge, shadow) and the motion the whole stack shares
-// (amount, idle, music) live here; anything per-wallpaper (effect, per-layer
-// front/depth, cut artifacts) is daemon-owned in the registry and reaches the
-// shell through StageBackend's `stage` topic. `front` is the widget ids the user
-// lifted above the in-front cut-outs -- from the Depth row in a widget's
-// right-click menu, a plugin tile's menu, or the visualiser's edit bar. Watched
-// and self-seeded; drag-y setters coalesce writes through one settle timer,
-// while deliberate segmented picks write eagerly.
 Singleton {
     id: root
 
-    property alias quality: adapter.quality
-    property alias models: adapter.models
-    property alias depthModel: adapter.depthModel
-    property alias edge: adapter.edge
-    property alias shadow: adapter.shadow
-    property alias shadowAngle: adapter.shadowAngle
-    property alias motion: adapter.motion
-    property alias front: adapter.front
-    // Edit-widgets grid: the snap step and whether dragging snaps to it. These
-    // are editor preferences (not a per-widget placement), so they live on
-    // stage.json rather than widgets.json, where the Hub would drop an unknown
-    // key on Save. The desktop editor bar drives them; slots and the drag guides
-    // read them while composing.
     property alias editGridSize: adapter.editGridSize
     property alias editGridSnap: adapter.editGridSnap
+    readonly property var modes: ["off", "depth", "parallax", "spatial"]
 
-    // Motion sub-fields, read directly by the renderer (defaults guard a
-    // half-written file). Amount is a word the UI shows; the renderer needs the
-    // drift/idle multiplier it stands for.
-    readonly property string amount: (root.motion && typeof root.motion.amount === "string") ? root.motion.amount : "normal"
-    readonly property string idle: (root.motion && typeof root.motion.idle === "string") ? root.motion.idle : "none"
-    readonly property bool music: !!(root.motion && root.motion.music === true)
-    // How hard the music pushes (0..1) and how fast idle motion runs (0.25..2).
-    readonly property real musicLevel: (root.motion && typeof root.motion.musicLevel === "number") ? root.motion.musicLevel : 0.6
-    readonly property real speed: (root.motion && typeof root.motion.speed === "number") ? root.motion.speed : 1.0
-    readonly property real amountFactor: root.amount === "subtle" ? 0.5 : root.amount === "strong" ? 1.8 : 1.0
-
-    // Pointer and backdrop controls share the same motion object as idle and
-    // music response. A missing mouse key keeps pointer motion enabled.
-    readonly property bool followMouse: !(root.motion && root.motion.mouse === false)
-    readonly property real sensitivity: (root.motion && typeof root.motion.sensitivity === "number") ? root.motion.sensitivity : 1.0
-    readonly property real range: (root.motion && typeof root.motion.range === "number") ? root.motion.range : 1.0
-    readonly property real backdrop: (root.motion && typeof root.motion.backdrop === "number") ? root.motion.backdrop : 0.0
-
-    // Lift list: the widget ids (built-in, plugin tile or "visualizer") the
-    // user pulled above every in-front cut-out from their Depth row in the
-    // widget's right-click menu or the visualiser's edit bar (docs/stage.md).
-    function isFront(id) {
-        return (adapter.front || []).indexOf(id) >= 0;
+    function cutModel(mode) {
+        if (mode !== "depth" && mode !== "parallax")
+            return "u2netp";
+        const section = adapter[mode] || {};
+        const cut = section.cut || {};
+        const known = ["u2netp", "silueta", "birefnet-general-lite",
+            "birefnet-general", "birefnet-portrait"];
+        return known.indexOf(cut.model) >= 0 ? cut.model : "u2netp";
     }
-    function setFront(id, on) {
-        const cur = (adapter.front || []).slice();
-        const i = cur.indexOf(id);
-        if (on === true && i < 0)
-            cur.push(id);
-        else if (on !== true && i >= 0)
-            cur.splice(i, 1);
+    function cutMatting(mode) {
+        if (mode !== "depth" && mode !== "parallax")
+            return false;
+        const section = adapter[mode] || {};
+        return !!(section.cut && section.cut.matting === true);
+    }
+    function setCutModel(mode, id) {
+        const known = ["u2netp", "silueta", "birefnet-general-lite",
+            "birefnet-general", "birefnet-portrait"];
+        if ((mode !== "depth" && mode !== "parallax") || known.indexOf(id) < 0)
+            return;
+        const src = adapter[mode] || {};
+        const next = {};
+        for (const key in src)
+            next[key] = src[key];
+        const oldCut = src.cut || {};
+        const cut = {};
+        for (const key in oldCut)
+            cut[key] = oldCut[key];
+        cut.model = id;
+        next.cut = cut;
+        adapter[mode] = next;
+        file.writeAdapter();
+    }
+    function setCutMatting(mode, on) {
+        if (mode !== "depth" && mode !== "parallax")
+            return;
+        const src = adapter[mode] || {};
+        const next = {};
+        for (const key in src)
+            next[key] = src[key];
+        const oldCut = src.cut || {};
+        const cut = {};
+        for (const key in oldCut)
+            cut[key] = oldCut[key];
+        cut.matting = on === true;
+        next.cut = cut;
+        adapter[mode] = next;
+        file.writeAdapter();
+    }
+
+    function edge(mode) {
+        if (mode !== "depth" && mode !== "parallax")
+            return 0.15;
+        const section = adapter[mode] || {};
+        return typeof section.edge === "number" ? section.edge : 0.15;
+    }
+    function shadow(mode) {
+        if (mode !== "depth" && mode !== "parallax")
+            return 0;
+        const section = adapter[mode] || {};
+        return typeof section.shadow === "number" ? section.shadow : 0;
+    }
+    function shadowAngle(mode) {
+        if (mode !== "depth" && mode !== "parallax" && mode !== "spatial")
+            return 90;
+        const section = adapter[mode] || {};
+        return typeof section.shadowAngle === "number" ? section.shadowAngle : 90;
+    }
+    function setEdge(mode, v) {
+        if ((mode !== "depth" && mode !== "parallax") || !isFinite(v))
+            return;
+        const src = adapter[mode] || {};
+        const next = {};
+        for (const key in src)
+            next[key] = src[key];
+        next.edge = Math.max(0, Math.min(1, v));
+        adapter[mode] = next;
+        settle.restart();
+    }
+    function setShadow(mode, v) {
+        if ((mode !== "depth" && mode !== "parallax") || !isFinite(v))
+            return;
+        const src = adapter[mode] || {};
+        const next = {};
+        for (const key in src)
+            next[key] = src[key];
+        next.shadow = Math.max(0, Math.min(1, v));
+        adapter[mode] = next;
+        settle.restart();
+    }
+    function setShadowAngle(mode, v) {
+        if ((mode !== "depth" && mode !== "parallax" && mode !== "spatial")
+                || !isFinite(v))
+            return;
+        const src = adapter[mode] || {};
+        const next = {};
+        for (const key in src)
+            next[key] = src[key];
+        next.shadowAngle = Math.round(v);
+        adapter[mode] = next;
+        settle.restart();
+    }
+    function resetLook(mode) {
+        if (mode !== "depth" && mode !== "parallax" && mode !== "spatial")
+            return;
+        const src = adapter[mode] || {};
+        const next = {};
+        for (const key in src)
+            next[key] = src[key];
+        next.shadowAngle = 90;
+        if (mode !== "spatial") {
+            next.edge = 0.15;
+            next.shadow = 0;
+        }
+        adapter[mode] = next;
+        settle.restart();
+    }
+
+    function frontList(mode) {
+        if (mode !== "depth" && mode !== "parallax")
+            return [];
+        const section = adapter[mode] || {};
+        return Array.isArray(section.front) ? section.front : [];
+    }
+    function isFront(mode, id) {
+        return root.frontList(mode).indexOf(id) >= 0;
+    }
+    function setFront(mode, id, on) {
+        if (mode !== "depth" && mode !== "parallax")
+            return;
+        const src = adapter[mode] || {};
+        const next = {};
+        for (const key in src)
+            next[key] = src[key];
+        const front = root.frontList(mode).slice();
+        const index = front.indexOf(id);
+        if (on === true && index < 0)
+            front.push(id);
+        else if (on !== true && index >= 0)
+            front.splice(index, 1);
         else
             return;
-        adapter.front = cur;
+        next.front = front;
+        adapter[mode] = next;
         settle.restart();
     }
 
-    // Quality is a plain tier the daemon maps to model + matting when it cuts;
-    // the UI never names "u2netp" or "alpha matting". Written eagerly because a
-    // tier change is a deliberate act, not a drag.
-    function setQuality(tier) {
-        if (tier !== "draft" && tier !== "standard" && tier !== "fine")
-            return;
-        adapter.quality = tier;
-        file.writeAdapter();
+    function motionOf(mode) {
+        if (mode !== "parallax" && mode !== "spatial")
+            return {};
+        const section = adapter[mode] || {};
+        const src = section.motion || {};
+        const amounts = ["subtle", "normal", "strong"];
+        const out = {
+            amount: amounts.indexOf(src.amount) >= 0 ? src.amount : "normal",
+            mouse: src.mouse !== false,
+            sensitivity: typeof src.sensitivity === "number"
+                ? Math.max(0, Math.min(2, src.sensitivity)) : 1.0,
+            range: typeof src.range === "number"
+                ? Math.max(0, Math.min(2, src.range)) : 1.0
+        };
+        if (mode === "parallax") {
+            const idle = ["none", "float", "breathe", "sway"];
+            out.idle = idle.indexOf(src.idle) >= 0 ? src.idle : "none";
+            out.music = src.music === true;
+            out.musicLevel = typeof src.musicLevel === "number"
+                ? Math.max(0, Math.min(1, src.musicLevel)) : 0.6;
+            out.speed = typeof src.speed === "number"
+                ? Math.max(0.25, Math.min(2, src.speed)) : 1.0;
+            out.backdrop = typeof src.backdrop === "number"
+                ? Math.max(0, Math.min(1, src.backdrop)) : 0.5;
+        }
+        return out;
     }
-    function setModel(tier, model) {
-        if (["draft", "standard", "fine"].indexOf(tier) < 0 || !model)
+    function amountFactor(mode) {
+        const amount = root.motionOf(mode).amount;
+        return amount === "subtle" ? 0.5 : amount === "strong" ? 1.8 : 1.0;
+    }
+    function followMouse(mode) {
+        return root.motionOf(mode).mouse !== false;
+    }
+    function sensitivity(mode) {
+        const value = root.motionOf(mode).sensitivity;
+        return typeof value === "number" ? value : 1.0;
+    }
+    function range(mode) {
+        const value = root.motionOf(mode).range;
+        return typeof value === "number" ? value : 1.0;
+    }
+    function setMotion(mode, key, v) {
+        if (mode !== "parallax" && mode !== "spatial")
             return;
+        const common = ["amount", "mouse", "sensitivity", "range"];
+        const parallax = ["idle", "music", "musicLevel", "speed", "backdrop"];
+        if (common.indexOf(key) < 0
+                && (mode !== "parallax" || parallax.indexOf(key) < 0))
+            return;
+        if (key === "amount" && ["subtle", "normal", "strong"].indexOf(v) < 0)
+            return;
+        if (key === "idle" && ["none", "float", "breathe", "sway"].indexOf(v) < 0)
+            return;
+        if (["sensitivity", "range", "musicLevel", "speed", "backdrop"].indexOf(key) >= 0
+                && !isFinite(v))
+            return;
+        var value = v;
+        if (key === "mouse" || key === "music")
+            value = v === true;
+        else if (key === "sensitivity" || key === "range")
+            value = Math.max(0, Math.min(2, v));
+        else if (key === "musicLevel" || key === "backdrop")
+            value = Math.max(0, Math.min(1, v));
+        else if (key === "speed")
+            value = Math.max(0.25, Math.min(2, v));
+        const section = adapter[mode] || {};
         const next = {};
-        const current = adapter.models || {};
-        for (const key in current)
-            next[key] = current[key];
-        next[tier] = model;
-        adapter.models = next;
-        file.writeAdapter();
+        for (const name in section)
+            next[name] = section[name];
+        const oldMotion = section.motion || {};
+        const motion = {};
+        for (const name in oldMotion)
+            motion[name] = oldMotion[name];
+        motion[key] = value;
+        next.motion = motion;
+        adapter[mode] = next;
+        settle.restart();
     }
-    function setDepthModel(model) {
-        if (["small", "base", "large"].indexOf(model) < 0)
+    function resetMotion(mode) {
+        if (mode !== "parallax" && mode !== "spatial")
             return;
-        adapter.depthModel = model;
-        file.writeAdapter();
+        const section = adapter[mode] || {};
+        const next = {};
+        for (const key in section)
+            next[key] = section[key];
+        next.motion = mode === "parallax"
+            ? ({ amount: "normal", idle: "none", music: false, musicLevel: 0.6,
+                speed: 1.0, mouse: true, sensitivity: 1.0, range: 1.0,
+                backdrop: 0.5 })
+            : ({ amount: "normal", mouse: true, sensitivity: 1.0, range: 1.0 });
+        adapter[mode] = next;
+        settle.restart();
     }
-
-    function setEdge(v) { adapter.edge = Math.max(0, Math.min(1, v)); settle.restart(); }
-    function setShadow(v) { adapter.shadow = Math.max(0, Math.min(1, v)); settle.restart(); }
-    function setShadowAngle(v) { adapter.shadowAngle = Math.round(v); settle.restart(); }
-    function resetLook() {
-        adapter.edge = 0.15;
-        adapter.shadow = 0;
-        adapter.shadowAngle = 90;
-        adapter.motion = ({ amount: "normal", idle: "none", music: false, musicLevel: 0.6, speed: 1.0, mouse: true, sensitivity: 1.0, range: 1.0, backdrop: 0.5 });
+    function applyPreset(name) {
+        const presets = {
+            soft: { amount: "subtle", idle: "float", speed: 0.6, music: false },
+            cinematic: { amount: "normal", idle: "sway", speed: 0.5, music: false },
+            beat: { amount: "strong", idle: "none", speed: 1.0, music: true }
+        };
+        const preset = presets[name];
+        if (!preset)
+            return;
+        const section = adapter.parallax || {};
+        const next = {};
+        for (const key in section)
+            next[key] = section[key];
+        const oldMotion = section.motion || {};
+        const motion = {};
+        for (const key in oldMotion)
+            motion[key] = oldMotion[key];
+        for (const key in preset)
+            motion[key] = preset[key];
+        next.motion = motion;
+        adapter.parallax = next;
         settle.restart();
     }
 
-    // Grid step cycles through a small ladder; snap is a plain toggle. Written
-    // eagerly (a deliberate editor pick, not a drag).
+    readonly property string spatialModel: {
+        const id = adapter.spatial && adapter.spatial.model;
+        return ["small", "base", "large"].indexOf(id) >= 0 ? id : "small";
+    }
+    function setSpatialModel(id) {
+        if (["small", "base", "large"].indexOf(id) < 0)
+            return;
+        const src = adapter.spatial || {};
+        const next = {};
+        for (const key in src)
+            next[key] = src[key];
+        next.model = id;
+        adapter.spatial = next;
+        file.writeAdapter();
+    }
+    readonly property bool depthBackdrop: !adapter.parallax
+        || adapter.parallax.depthBackdrop !== false
+    function setDepthBackdrop(on) {
+        const src = adapter.parallax || {};
+        const next = {};
+        for (const key in src)
+            next[key] = src[key];
+        next.depthBackdrop = on === true;
+        adapter.parallax = next;
+        file.writeAdapter();
+    }
+
     function setEditGridSize(v) {
         const sizes = [16, 32, 48, 64];
         adapter.editGridSize = sizes.indexOf(v) >= 0 ? v : 32;
@@ -118,26 +312,10 @@ Singleton {
         const sizes = [16, 32, 48, 64];
         root.setEditGridSize(sizes[(sizes.indexOf(adapter.editGridSize) + 1) % sizes.length]);
     }
-    function toggleEditGridSnap() { adapter.editGridSnap = !adapter.editGridSnap; file.writeAdapter(); }
-
-    function _setMotion(key, v) {
-        var m = {};
-        var src = adapter.motion || {};
-        for (var k in src)
-            m[k] = src[k];
-        m[key] = v;
-        adapter.motion = m;
-        settle.restart();
+    function toggleEditGridSnap() {
+        adapter.editGridSnap = !adapter.editGridSnap;
+        file.writeAdapter();
     }
-    function setAmount(a) { if (["subtle", "normal", "strong"].indexOf(a) >= 0) root._setMotion("amount", a); }
-    function setIdle(i) { if (["none", "float", "breathe", "sway"].indexOf(i) >= 0) root._setMotion("idle", i); }
-    function setMusic(on) { root._setMotion("music", on === true); }
-    function setMouse(on) { root._setMotion("mouse", on === true); }
-    function setSensitivity(v) { root._setMotion("sensitivity", Math.max(0, Math.min(2, v))); }
-    function setRange(v) { root._setMotion("range", Math.max(0, Math.min(2, v))); }
-    function setBackdrop(v) { root._setMotion("backdrop", Math.max(0, Math.min(1, v))); }
-    function setMusicLevel(v) { root._setMotion("musicLevel", Math.max(0, Math.min(1, v))); }
-    function setSpeed(v) { root._setMotion("speed", Math.max(0.25, Math.min(2, v))); }
 
     Timer {
         id: settle
@@ -147,7 +325,8 @@ Singleton {
 
     FileView {
         id: file
-        path: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/ryoku/stage.json"
+        path: (Quickshell.env("XDG_CONFIG_HOME")
+            || (Quickshell.env("HOME") + "/.config")) + "/ryoku/stage.json"
         blockLoading: true
         watchChanges: true
         printErrors: false
@@ -156,17 +335,36 @@ Singleton {
 
         JsonAdapter {
             id: adapter
-            property string quality: "draft"
-            property var models: ({ draft: "u2netp", standard: "u2netp", fine: "birefnet-general-lite" })
-            // The depth estimator behind the 3D backdrop: small | base | large.
-            property string depthModel: "small"
-            property real edge: 0.15
-            property real shadow: 0.0
-            property int shadowAngle: 90
-            property var motion: ({ amount: "normal", idle: "none", music: false, musicLevel: 0.6, speed: 1.0, mouse: true, sensitivity: 1.0, range: 1.0, backdrop: 0.5 })
-            property var front: []
+            property int version: 3
             property int editGridSize: 32
             property bool editGridSnap: true
+            property var depth: ({
+                cut: { model: "u2netp", matting: false },
+                edge: 0.15,
+                shadow: 0,
+                shadowAngle: 90,
+                front: []
+            })
+            property var parallax: ({
+                cut: { model: "u2netp", matting: false },
+                edge: 0.15,
+                shadow: 0,
+                shadowAngle: 90,
+                front: [],
+                depthBackdrop: true,
+                motion: {
+                    amount: "normal", idle: "none", music: false,
+                    musicLevel: 0.6, speed: 1.0, mouse: true,
+                    sensitivity: 1.0, range: 1.0, backdrop: 0.5
+                }
+            })
+            property var spatial: ({
+                model: "small",
+                shadowAngle: 90,
+                motion: {
+                    amount: "normal", mouse: true, sensitivity: 1.0, range: 1.0
+                }
+            })
         }
     }
 

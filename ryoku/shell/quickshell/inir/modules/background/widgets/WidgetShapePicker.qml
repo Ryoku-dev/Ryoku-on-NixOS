@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Layouts
 import inir.modules.common
 import inir.modules.common.widgets
+import Ryoku.Ui.Singletons
 
 GridLayout {
     id: root
@@ -32,7 +33,7 @@ GridLayout {
                     color: choiceButton.toggled ? Appearance.colors.colOnPrimaryContainer : Appearance.colors.colOnLayer2
                 }
             }
-            StyledToolTip { text: choiceButton.modelData.label }
+            StyledToolTip { text: I18n.tr(choiceButton.modelData.label) }
         }
     }
 }

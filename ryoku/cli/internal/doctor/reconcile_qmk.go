@@ -15,13 +15,12 @@ type qmkStatus struct {
 	installed bool
 }
 
-const qmkPackage = "qmk_hid"
+const qmkPackage = "qmk-hid"
 
 var (
-	readQMKStatus       = probeQMKStatus
-	qmkPackageInstalled = func() bool {
-		return host.Default().Package([]string{"installed", qmkPackage}) == host.ExitOK
-	}
+	readQMKStatus        = probeQMKStatus
+	qmkHardwareSupported = func() bool { return exec.Command("ryoku-hw-qmk").Run() == nil }
+	qmkBinaryInstalled   = func() bool { _, err := exec.LookPath("qmk_hid"); return err == nil }
 	qmkProviderAvailable = func() bool {
 		app := host.Default()
 		manager, err := app.PackageManager()
@@ -48,23 +47,16 @@ var (
 	}
 )
 
-// probeQMKStatus asks the shared hardware detector whether a QMK/VIA keyboard is
-// connected (by its 0xFF60 raw HID interface, so no qmk_hid needed), then checks
-// whether the provider tool is already installed.
 func probeQMKStatus() qmkStatus {
-	st := qmkStatus{supported: exec.Command("ryoku-hw-qmk").Run() == nil}
+	st := qmkStatus{supported: qmkHardwareSupported()}
 	if !st.supported {
 		return st
 	}
-	st.installed = qmkPackageInstalled()
+	st.installed = qmkBinaryInstalled()
 	return st
 }
 
-// reconcileQMK installs qmk_hid when a VIA keyboard is present and leaves every
-// other machine untouched. The uaccess udev rule and the detector ship with the
-// desktop package, so once the tool is in place the shell's lighting provider
-// drives the keyboard as the seat user; a udev reload applies the ACL to a board
-// that was already plugged in when the tool arrived.
+// The udev reload applies the ACL to a board already connected during install.
 func reconcileQMK(checkOnly bool) recResult {
 	if sys.NixBackend() {
 		return okRes("QMK HID support and udev policy are managed declaratively on NixOS")
@@ -83,12 +75,12 @@ func reconcileQMK(checkOnly bool) recResult {
 	}
 	if checkOnly {
 		return wouldRes(i18n.T("QMK/VIA keyboard lighting provider is missing")).
-			withFix(i18n.T("ryoku doctor installs qmk_hid so the keyboard follows the theme"))
+			withFix(i18n.T("ryoku doctor installs qmk-hid so the keyboard follows the theme"))
 	}
 	if err := installQMK(); err != nil {
 		return failRes(i18n.T("could not install the QMK lighting provider: %v"), err).
 			withFix(qmkInstallAdvice())
 	}
 	_ = reloadQMKUdev()
-	return fixedRes(i18n.T("installed qmk_hid; the QMK/VIA keyboard is available in Ryogami lighting settings"))
+	return fixedRes(i18n.T("installed qmk-hid; the QMK/VIA keyboard is available in Ryogami lighting settings"))
 }

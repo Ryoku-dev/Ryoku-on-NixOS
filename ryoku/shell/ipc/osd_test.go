@@ -48,6 +48,7 @@ func TestReadBrightnessFractionIsLinear(t *testing.T) {
 
 func TestBacklightLevelRoundTrip(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 
 	saveBacklight(4200)
 	b, err := os.ReadFile(backlightLevelPath())
@@ -81,6 +82,7 @@ func TestBacklightRestoreIgnoresUnusableState(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 			if c.file != "" {
 				if err := os.MkdirAll(filepath.Dir(backlightLevelPath()), 0o755); err != nil {
 					t.Fatal(err)
@@ -104,6 +106,7 @@ func TestBacklightRestoreIgnoresUnusableState(t *testing.T) {
 
 func TestBacklightRestoreSkipsWhenAlreadyApplied(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	saveBacklight(3000)
 	// The kernel/boot already landed on the saved level: no write, so a device
 	// without a writable brightness node is not fought over.
@@ -114,5 +117,35 @@ func TestBacklightRestoreSkipsWhenAlreadyApplied(t *testing.T) {
 	restoreBacklight(dev, 65535)
 	if got, _ := readSysInt(filepath.Join(dev, "brightness")); got != 3000 {
 		t.Fatalf("brightness = %d, want untouched 3000", got)
+	}
+}
+
+func TestIdleDimDoesNotReplaceOrRestoreSavedBrightness(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	saveBacklight(8000)
+
+	idleDir := filepath.Join(runtimeDir, "ryoku-idle-brightness")
+	if err := os.MkdirAll(idleDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(idleDir, "state"), []byte("intel_backlight\t8000\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dev := fakeBacklight(t, 10000, 2000)
+	restoreBacklight(dev, 10000)
+	if got, _ := readSysInt(filepath.Join(dev, "brightness")); got != 2000 {
+		t.Fatalf("shell restore raised active idle dim to %d, want 2000", got)
+	}
+
+	saveObservedBacklight(2000)
+	b, err := os.ReadFile(backlightLevelPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(b)); got != "8000" {
+		t.Fatalf("idle dim replaced saved user level with %s, want 8000", got)
 	}
 }

@@ -77,9 +77,15 @@ Item {
             return;
         }
         if (kind === "file")
+<<<<<<< port (main)
             Spawn.runApp(["kitty", "-e", "nvim", String(chip.value || "")]);
         else if (kind === "dir" || kind === "url")
             Spawn.runApp(["xdg-open", String(chip.value || "")]);
+=======
+            Spawn.runApp(["kitty", "-e", "nvim", String(chip.value || "")], { label: "kitty" });
+        else if (kind === "dir" || kind === "url")
+            Spawn.runApp(["xdg-open", String(chip.value || "")], { label: kind });
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
         else if (kind === "chat") {
             const run = session.busy || session.needsAgent;
             Needle.handoff(
@@ -257,7 +263,11 @@ Item {
                     clip: true
                     Image { anchors.fill: parent; source: "file://" + imageFrame.modelData; fillMode: Image.PreserveAspectCrop; asynchronous: true }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
+<<<<<<< port (main)
                     TapHandler { onTapped: Spawn.runApp(["xdg-open", imageFrame.modelData]) }
+=======
+                    TapHandler { onTapped: Spawn.runApp(["xdg-open", imageFrame.modelData], { label: "image" }) }
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
                 }
             }
         }

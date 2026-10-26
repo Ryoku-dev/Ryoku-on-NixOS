@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Effects
+import Ryoku.Ui.Singletons
 import shell.services
 import stage.services
 import "../wallpaper" as WallpaperMod
@@ -19,17 +20,19 @@ Item {
     property int layerIndex: 1
     property string screenName: ""
     property string wallPath: ""
+    property string mode: "off"
     property string url: ""
     property string fit: "Cover"
     property real mouseNX: 0
     property real mouseNY: 0
     property real energy: 0
-    property bool motionEnabled: true
     property bool spatial: false
 
     readonly property int i: root.layerIndex - 1
+    readonly property bool motionEnabled: root.mode === "parallax"
+    readonly property var motion: Config.motionOf("parallax")
     readonly property bool layerShown: root.url !== ""
-        && StageBackend.isActiveFor(root.wallPath)
+        && (root.mode === "depth" || root.mode === "parallax")
         && StageBackend.layerEnabled(root.wallPath, root.i)
 
     anchors.fill: parent
@@ -40,10 +43,10 @@ Item {
     readonly property real _depth: StageBackend.layerDepth(root.wallPath, root.i)
     readonly property real _near: 0.35 + (1 - root._depth) * 0.9
     readonly property real _baseMax: root.width * 0.04
-    readonly property real _edge: Config.edge
+    readonly property real _edge: Config.edge(root.mode)
     readonly property var _wallpaperGeometry: WallpaperLayout.geometryFor(root.screenName)
-    readonly property real _shStrength: Config.shadow
-    readonly property real _shAngle: Config.shadowAngle * Math.PI / 180
+    readonly property real _shStrength: Config.shadow(root.mode)
+    readonly property real _shAngle: Config.shadowAngle(root.mode) * Math.PI / 180
 
     function _fillMode(im) {
         switch (root.fit) {
@@ -57,13 +60,15 @@ Item {
 
     // Pointer drift: Follow mouse gates it, Sensitivity scales the pointer's
     // pull, Range scales how far a layer may travel (the Parallax tab's knobs).
-    readonly property real _pointerGain: (root.motionEnabled && Config.followMouse)
-        ? Config.sensitivity * Config.range * Config.amountFactor * root._near : 0
-    // On the spatial stage the cut-outs take a barely visible counter-slide
-    // opposite the flat drift, so the moving cut edge crosses the stationary
-    // desktop cards instead of following them.
-    readonly property real _nearGain: root.spatial && root.motionEnabled && Config.followMouse
-        ? Config.sensitivity * Config.range * Config.amountFactor : 0
+    readonly property real _pointerGain: (root.motionEnabled
+            && Config.followMouse("parallax"))
+        ? Config.sensitivity("parallax") * Config.range("parallax")
+            * Config.amountFactor("parallax") * root._near : 0
+    // Counter-slide parallax cut-outs so their edges move against stationary desktop cards.
+    readonly property real _nearGain: root.spatial && root.motionEnabled
+            && Config.followMouse("parallax")
+        ? Config.sensitivity("parallax") * Config.range("parallax")
+            * Config.amountFactor("parallax") : 0
     function _driftX() { return root.spatial
         ? -root.mouseNX * root.width * 0.005 * root._nearGain
         : root.mouseNX * root._baseMax * root._pointerGain; }
@@ -73,13 +78,14 @@ Item {
 
     // Music lifts near layers more than far ones, so the stack pulses with depth.
     function _musicY() {
-        if (!root.motionEnabled || !Config.music) return 0;
-        return -root.energy * 34 * Config.musicLevel * Config.amountFactor * root._near;
+        if (!root.motionEnabled || root.motion.music !== true) return 0;
+        return -root.energy * 34 * root.motion.musicLevel
+            * Config.amountFactor("parallax") * root._near;
     }
 
-    // Idle life: Float bobs vertically, Breathe scales gently. Both are gated to
-    // Parallax (motionEnabled) and scaled by Amount; Depth stays perfectly still.
-    readonly property bool _idleOn: root.motionEnabled && Config.idle !== "none"
+    // Idle motion is restricted to Parallax; Depth must remain still.
+    readonly property bool _idleOn: root.motionEnabled
+        && root.motion.idle !== "none"
     property real animT: 0
     Timer {
         id: animTick
@@ -88,19 +94,20 @@ Item {
         running: root.layerShown && root._idleOn
         onTriggered: root.animT += 50
     }
-    // Speed scales the clock; Sway rocks the layer a degree or two around its
-    // centre, deeper layers less, so the stack leans rather than spins.
-    readonly property real _phase: root.animT / 1000 * Config.speed
-    readonly property real _idleY: (root._idleOn && Config.idle === "float")
-        ? Math.sin(root._phase * 1.1) * 6 * Config.amountFactor : 0
-    readonly property real _idleScale: (root._idleOn && Config.idle === "breathe")
-        ? 1 + 0.02 * Config.amountFactor * (0.5 + 0.5 * Math.sin(root._phase * 0.9)) : 1
-    readonly property real _idleRot: (root._idleOn && Config.idle === "sway")
-        ? Math.sin(root._phase * 0.7) * 1.6 * Config.amountFactor * root._near : 0
+    readonly property real _phase: root.animT / 1000 * root.motion.speed
+    readonly property real _idleY: (root._idleOn && root.motion.idle === "float")
+        ? Math.sin(root._phase * 1.1) * 6 * Config.amountFactor("parallax") : 0
+    readonly property real _idleScale: (root._idleOn
+            && root.motion.idle === "breathe")
+        ? 1 + 0.02 * Config.amountFactor("parallax")
+            * (0.5 + 0.5 * Math.sin(root._phase * 0.9)) : 1
+    readonly property real _idleRot: (root._idleOn && root.motion.idle === "sway")
+        ? Math.sin(root._phase * 0.7) * 1.6
+            * Config.amountFactor("parallax") * root._near : 0
 
-    // Cutting progress rides the subject itself, not a panel (docs/stage.md):
-    // the subject layer (index 1) dims and a ring with the percent floats over it.
-    readonly property bool _busyHere: root.layerIndex === 1 && StageBackend.busy && root.url !== ""
+    readonly property var _wallJob: StageBackend.jobFor(root.wallPath)
+    readonly property bool _busyHere: root.layerIndex === 1 && root.url !== ""
+        && root._wallJob && root._wallJob.kind === "scene"
 
     Item {
         id: visual
@@ -151,7 +158,6 @@ Item {
         }
     }
 
-    // Progress ring centred on the subject; tap to cancel the cut.
     Item {
         anchors.centerIn: parent
         width: 96
@@ -160,10 +166,17 @@ Item {
         Canvas {
             id: ring
             anchors.fill: parent
-            property int pct: StageBackend.percent
-            onPctChanged: ring.requestPaint()
+            property real phase: 0.12
+            onPhaseChanged: ring.requestPaint()
             onVisibleChanged: ring.requestPaint()
             Component.onCompleted: ring.requestPaint()
+            NumberAnimation on phase {
+                from: 0
+                to: 1
+                duration: 950
+                loops: Animation.Infinite
+                running: ring.visible && !Tokens.reduceMotion
+            }
             onPaint: {
                 const ctx = getContext("2d");
                 const w = width, cx = w / 2, cy = height / 2, r = w / 2 - 6;
@@ -175,18 +188,11 @@ Item {
                 ctx.arc(cx, cy, r, 0, 2 * Math.PI);
                 ctx.stroke();
                 ctx.strokeStyle = Theme.primary;
+                const start = -Math.PI / 2 + 2 * Math.PI * ring.phase;
                 ctx.beginPath();
-                ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * Math.max(0, Math.min(1, ring.pct / 100)));
+                ctx.arc(cx, cy, r, start, start + Math.PI * 0.62);
                 ctx.stroke();
             }
-        }
-        Text {
-            anchors.centerIn: parent
-            text: StageBackend.percent + "%"
-            color: "white"
-            font.family: Theme.fontPrimary
-            font.pixelSize: Theme.fontSm
-            font.weight: Font.DemiBold
         }
         MouseArea {
             anchors.fill: parent

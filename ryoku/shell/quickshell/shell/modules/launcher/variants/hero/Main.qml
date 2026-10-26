@@ -368,8 +368,10 @@ Scope {
         dump.closeTicks = Number(lifecycleState.closeTicks || 0);
         dump.mapped = Boolean(mapped);
         dump.focusHeld = Boolean(lifecycleState.focusHeld);
-        dump.surfaceWidth = mapped ? Math.round(activeSurface.width) : 0;
-        dump.surfaceHeight = mapped ? Math.round(activeSurface.height) : 0;
+        dump.surfaceWidth = mapped
+            ? Math.round(activeSurface.contentSurfaceWidth) : 0;
+        dump.surfaceHeight = mapped
+            ? Math.round(activeSurface.contentSurfaceHeight) : 0;
         dump.screenWidth = mapped
             ? Math.round(activeSurface.modelData.width) : 0;
         dump.screenHeight = mapped
@@ -466,20 +468,6 @@ Scope {
             launcher: root.activeLauncher
             launcherSurface: root.activeSurface
             onReady: surface => root.registerRail(surface)
-        }
-    }
-
-    // One dismiss scrim per screen, mapped only for the screen holding the
-    // active surface: the scrim exists where the launcher holds focus.
-    Variants {
-        model: Screens.uniqueByName(Quickshell.screens)
-
-        HeroVariant.DismissScrim {
-            screenData: modelData
-            surface: root.activeSurface
-                && String(root.activeSurface.surfaceMonitor || "")
-                    === String(modelData.name)
-                ? root.activeSurface : null
         }
     }
 }

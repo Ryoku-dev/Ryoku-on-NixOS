@@ -173,8 +173,13 @@ Provider {
             type: kind || "File",
             score: 0,
             actions: [
+<<<<<<< port (main)
                 { id: "open", name: I18n.tr("Open"), icon: "", execute: function () { Spawn.runApp(["xdg-open", path]); } },
                 { id: "reveal", name: I18n.tr("Reveal"), icon: "", execute: function () { Spawn.runApp(["xdg-open", path.replace(/\/[^/]*$/, "")]); } }
+=======
+                { id: "open", name: I18n.tr("Open"), icon: "", execute: function () { Spawn.runApp(["xdg-open", path], { label: "file" }); } },
+                { id: "reveal", name: I18n.tr("Reveal"), icon: "", execute: function () { Spawn.runApp(["xdg-open", path.replace(/\/[^/]*$/, "")], { label: "folder" }); } }
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
             ]
         };
     }

@@ -238,7 +238,43 @@ Item {
             omarchyListProc.running = true;
     }
     function browseStore() {
+<<<<<<< port (main)
         Spawn.runApp(["ryostore", "open", pg.tab === "Bundles" ? "bundles" : "plugins"]);
+=======
+        Spawn.runApp(["ryostore", "open"], { label: "ryostore" });
+    }
+    function browseOmarchyMarket() {
+        Spawn.runApp(["ryostore", "open", "omarchy-plugins"], { label: "ryostore" });
+    }
+    function requestPluginRemove(id, name) {
+        pg.confirmKind = "plugin";
+        pg.confirmId = id;
+        pg.confirmName = name;
+        pg.confirmRemove = true;
+    }
+    function mutateOmarchy(id, action) {
+        if (!id || pg.omarchyBusyId !== "")
+            return;
+        pg.omarchyBusyId = id;
+        pg.omarchyMutation = action;
+        omarchyMutProc.command = ["omarchy", "plugin", action, id];
+        if (action === "remove")
+            omarchyMutProc.command.push("--yes");
+        omarchyMutProc.running = true;
+    }
+    function requestOmarchyRemove(id, name) {
+        pg.confirmKind = "omarchy";
+        pg.confirmId = id;
+        pg.confirmName = name;
+        pg.confirmRemove = true;
+    }
+    function confirmRemoval() {
+        pg.confirmRemove = false;
+        if (pg.confirmKind === "omarchy")
+            pg.mutateOmarchy(pg.confirmId, "remove");
+        else
+            pg.removePlugin(pg.confirmId);
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
     }
     function removeBundle(id, item) {
         if (!id || bundleMutProc.running)
@@ -248,8 +284,8 @@ Item {
         pg.bundleMutationItem = item || "";
         pg.bundleMutationAction = "remove";
         const scope = item ? ["item", id, item] : ["bundle", id];
-        bundleMutProc.command = ["kitty", "--class", "ryostore", "-e",
-            "ryostore-install", "remove"].concat(scope);
+        bundleMutProc.command = ["ryoku-host", "app", "--label", "ryostore", "--",
+            "kitty", "--class", "ryostore", "-e", "ryostore-install", "remove"].concat(scope);
         bundleMutProc.running = true;
     }
     function repairBundle(id) {
@@ -259,8 +295,8 @@ Item {
         pg.bundleMutationId = id;
         pg.bundleMutationItem = "";
         pg.bundleMutationAction = "repair";
-        bundleMutProc.command = ["kitty", "--class", "ryostore", "-e",
-            "ryostore-install", "install", "bundle", id];
+        bundleMutProc.command = ["ryoku-host", "app", "--label", "ryostore", "--",
+            "kitty", "--class", "ryostore", "-e", "ryostore-install", "install", "bundle", id];
         bundleMutProc.running = true;
     }
     function catalogEntry(id) {

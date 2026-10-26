@@ -16,6 +16,7 @@ import inir.modules.iris.components
 import inir.modules.iris.frame
 import inir.modules.iris.pieces
 import Ryoku.Ui.Singletons as Ui
+import shell.services as Ryoku
 
 Item {
     id: root
@@ -246,7 +247,8 @@ Item {
         if (held && held.edge === IrisFrame.dockEdge && Math.abs(held.lo - lo) < 1 && Math.abs(held.length - length) < 1) return
         root.dockHeld = { edge: IrisFrame.dockEdge, lo: lo, length: length }
     }
-    readonly property bool dockOn: Config.options?.iris?.dock?.enable ?? true
+    readonly property bool dockOn: Ryoku.Dock.cfg("enabled", false)
+        && Ryoku.Dock.design === "shima"
     readonly property string islandSideName: root.island ? String(root.island.edge ?? (root.island.bottomEdge ? "bottom" : "top")) : ""
     function ownerSpan(owner: string, side: string): var {
         const vertical = IrisFrame.vertical(side)

@@ -320,37 +320,58 @@ var (
 // as far as pacman is concerned, but read by name alone those look never
 // delivered, and installing the stock package over the box's own provider
 // conflicts under --noconfirm, so the converge failed the same way on every
-// update. The shell installer drops these the same way before its install.
-// pacman only: `pacman -T` prints the names nothing satisfies, so every other
-// absent name is present. A failed query leaves the set as it was.
-func SatisfiedByProviders(m ryokumanifest.Manifest, installed map[string]bool) map[string]bool {
+// update; AUR variants keep exact installed matches before probing providers.
+func SatisfiedByProviders(m ryokumanifest.Manifest, installed map[string]bool) (map[string]bool, []string) {
 	if updatePackageManager() != host.Pacman {
-		return installed
+		return installed, nil
 	}
-	var absent []string
+	aur := make(map[string]bool, len(m.AUR))
+	for _, name := range m.AUR {
+		aur[name] = true
+	}
+	var absent, requirements []string
 	for n := range manifestNames(m) {
-		if !installed[n] {
-			absent = append(absent, n)
+		if installed[n] {
+			continue
 		}
+		absent = append(absent, n)
 	}
 	if len(absent) == 0 {
-		return installed
+		return installed, nil
 	}
 	sort.Strings(absent)
-	unmet, err := pacmanUnmet(absent)
+	for _, name := range absent {
+		requirement := name
+		if aur[name] {
+			requirement = aurBaseRequirement(name)
+		}
+		requirements = append(requirements, requirement)
+	}
+	unmet, err := pacmanUnmet(requirements)
 	if err != nil {
-		return installed
+		return installed, nil
 	}
 	widened := make(map[string]bool, len(installed)+len(absent))
 	for n := range installed {
 		widened[n] = true
 	}
-	for _, n := range absent {
-		if !unmet[n] {
-			widened[n] = true
+	var provided []string
+	for i, name := range absent {
+		if !unmet[requirements[i]] {
+			widened[name] = true
+			provided = append(provided, name)
 		}
 	}
-	return widened
+	return widened, provided
+}
+
+func aurBaseRequirement(name string) string {
+	for _, suffix := range []string{"-bin", "-git"} {
+		if base := strings.TrimSuffix(name, suffix); base != name && base != "" {
+			return base
+		}
+	}
+	return name
 }
 
 // pacmanUnmet returns the names no installed package satisfies. pacman -T

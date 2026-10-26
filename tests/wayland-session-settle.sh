@@ -7,11 +7,6 @@
 # session environment, a fake session records its argv and environment, and
 # RYOKU_DRI_DIR / RYOKU_DRM_CLASS_DIR provide graphics fixtures.
 #
-# The load-bearing assertions: the wrapper does NOT hand off while weston is
-# still present, always hands off eventually (login never hangs), passes the
-# session arguments through untouched, imports the shared environment, applies
-# NVIDIA hints only when NVIDIA drives the internal panel, and selects llvmpipe
-# only when a DRM card has no render node.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -46,7 +41,14 @@ cat >"$bin/systemctl" <<EOF
 cat "$tmp/manager-env"
 EOF
 chmod +x "$bin/systemctl"
+cat >"$bin/loginctl" <<EOF
+#!/bin/sh
+[ "\$*" = "show-session test-session -p Active --value" ] || exit 1
+cat "$tmp/session-active"
+EOF
+chmod +x "$bin/loginctl"
 export PATH="$bin:$PATH"
+export XDG_SESSION_ID=test-session
 
 # fake session: records its arguments and environment, and exposes controlled
 # stdout, exit, and signal behavior.
@@ -104,14 +106,18 @@ reset() {
   rm -f "$tmp/pgcount" "$tmp/session-ran" "$tmp/session-args" \
     "$tmp/session-env" "$tmp/session-ready" "$tmp/session-signal" \
     "$tmp/logger-log" "$tmp/session-stdout" "$tmp/session-stderr"
+  printf 'no\n' >"$tmp/session-active"
 }
 polls() { cat "$tmp/pgcount" 2>/dev/null || echo 0; }
 env_value() { sed -n "s/^$1=//p" "$tmp/session-env"; }
 
-# ---- greeter still up: wait for it, then hand off with args intact -----------
+drm_single="$tmp/drm-single"
+mkdir -p "$drm_single/card0/device"
+
 reset
 echo 3 >"$tmp/pglimit"   # weston present for the first three polls
-RYOKU_SESSION_SETTLE_DEADLINE=10 "$wrapper" Hyprland --foo
+RYOKU_DRM_CLASS_DIR="$drm_single" RYOKU_SESSION_SETTLE_DEADLINE=10 \
+  "$wrapper" Hyprland --foo
 [[ -e "$tmp/session-ran" ]] || fail "wrapper never handed off to the session"
 [[ "$(cat "$tmp/session-args")" == "Hyprland --foo" ]] \
   || fail "session arguments were not passed through: '$(cat "$tmp/session-args")'"
@@ -133,6 +139,14 @@ echo 0 >"$tmp/pglimit"   # weston already gone
 "$wrapper" Hyprland
 [[ -e "$tmp/session-ran" ]] || fail "wrapper did not hand off when weston was absent"
 (( "$(polls)" == 1 )) || fail "wrapper polled $(polls)x when weston was already gone; expected 1"
+
+reset
+printf 'yes\n' >"$tmp/session-active"
+echo 100000 >"$tmp/pglimit"
+RYOKU_DRM_CLASS_DIR="$drm_single" "$wrapper" Hyprland
+[[ -e "$tmp/session-ran" ]] || fail "active session did not start"
+(( "$(polls)" == 1 )) ||
+  fail "active session kept polling after logind completed the DRM handoff"
 
 # ---- KMS-only card: force Mesa's software GBM path before compositor start ---
 dri_2d="$tmp/dri-2d"

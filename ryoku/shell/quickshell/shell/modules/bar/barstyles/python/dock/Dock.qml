@@ -633,7 +633,7 @@ Variants {
                         || dockContainer.revealProgress > 0.001)
 
                 property var rawBarSettings: {
-                    let dummy = configRevision;
+                    let trackedRevision = configRevision;
                     return (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.bar) ? Config.rawSettings.bar : ({});
                 }
 
@@ -642,7 +642,7 @@ Variants {
                 property real barHeight: (rawBarSettings && rawBarSettings.height !== undefined) ? s(rawBarSettings.height) : s(40)
 
                 property string barStyle: {
-                    let dummy = configRevision;
+                    let trackedRevision = configRevision;
                     if (typeof Config === "undefined" || !Config.rawSettings || !Config.rawSettings.bar) return "modular";
                     let s = Config.rawSettings.bar.style;
                     if (typeof s === "string") return s;
@@ -1437,9 +1437,9 @@ Variants {
                             topRightRadius: dockContainer.topRightCorner
                             bottomLeftRadius: dockContainer.bottomLeftCorner
                             bottomRightRadius: dockContainer.bottomRightCorner
-                            color: ThemeBackend.liquidGlass ? "transparent" : ThemeBackend.base
+                            color: ThemeBackend.liquidGlass ? "transparent" : ThemeBackend.dockLauncherBase
                             border.width: (!ThemeBackend.liquidGlass && (dockWindow.dockFloating || dockWindow.editMode || dockContainer.outerCornerProgress < 0.99)) ? 1 : 0
-                            border.color: (dockWindow.dockFloating || dockWindow.editMode || dockContainer.outerCornerProgress < 0.99) ? Qt.alpha(ThemeBackend.surface1, 0.4 * (1.0 - dockContainer.outerCornerProgress * 0.5)) : "transparent"
+                            border.color: (dockWindow.dockFloating || dockWindow.editMode || dockContainer.outerCornerProgress < 0.99) ? Qt.alpha(ThemeBackend.dockLauncherSurface1, 0.4 * (1.0 - dockContainer.outerCornerProgress * 0.5)) : "transparent"
                             clip: true
 
                         }
@@ -1467,7 +1467,7 @@ Variants {
                             if (dockWindow.dockPosition === "right") return 3.0;
                             return 1.0; // top
                         }
-                        property color color: Qt.alpha(ThemeBackend.base, dockWindow.dockOpacity)
+                        property color color: Qt.alpha(ThemeBackend.dockLauncherBase, dockWindow.dockOpacity)
                         fragmentShader: "file://" + Caching.payloadDir + "/assets/shaders/ui/corner_cutout.frag.qsb"
                     }
 
@@ -1493,7 +1493,7 @@ Variants {
                             if (dockWindow.dockPosition === "right") return 1.0;
                             return 0.0; // top
                         }
-                        property color color: Qt.alpha(ThemeBackend.base, dockWindow.dockOpacity)
+                        property color color: Qt.alpha(ThemeBackend.dockLauncherBase, dockWindow.dockOpacity)
                         fragmentShader: "file://" + Caching.payloadDir + "/assets/shaders/ui/corner_cutout.frag.qsb"
                     }
 
@@ -1580,7 +1580,7 @@ Variants {
                                         property int itemIndex: index
                                         property real popScale: 1.0
                                         property real flashOpacity: 0.0
-                                        property color btnColor: ThemeBackend.surface0
+                                        property color btnColor: ThemeBackend.dockLauncherSurface0
                                         property int cornerRadius: Math.round(dockWindow.s(dockWindow.dockElementSize) * 0.28)
                                         property bool isDropTarget: dockWindow.dropTargetIndex === index && dockWindow.dragSourceIndex !== index
                                         property bool isBeingDragged: btnMa.drag.active
@@ -1675,8 +1675,8 @@ Variants {
                                             anchors.fill: parent
                                             visible: dockButton.isBeingDragged
                                             radius: dockButton.cornerRadius
-                                            color: Qt.alpha(ThemeBackend.surface0, 0.25)
-                                            border.color: Qt.alpha(ThemeBackend.mauve, 0.5)
+                                            color: Qt.alpha(ThemeBackend.dockLauncherSurface0, 0.25)
+                                            border.color: Qt.alpha(ThemeBackend.dockLauncherAccent, 0.5)
                                             border.width: 1
                                         }
 
@@ -1686,7 +1686,7 @@ Variants {
                                             anchors.margins: -dockWindow.s(3)
                                             radius: dockButton.cornerRadius + dockWindow.s(3)
                                             color: "transparent"
-                                            border.color: ThemeBackend.mauve
+                                            border.color: ThemeBackend.dockLauncherAccent
                                             border.width: 2
                                             visible: dockButton.isDropTarget
                                             opacity: dockButton.isDropTarget ? 1.0 : 0.0
@@ -1802,7 +1802,7 @@ Variants {
                                                     visible: !appIcon.visible
                                                     name: "view-app-grid"
                                                     size: dockWindow.s(Math.round(dockWindow.dockElementSize * 0.52))
-                                                    color: ThemeBackend.text
+                                                    color: ThemeBackend.dockLauncherText
                                                 }
 
                                                 Rectangle {
@@ -1853,7 +1853,7 @@ Variants {
                                                     radius: width / 2
                                                     color: "transparent"
                                                     border.width: 1
-                                                    border.color: ThemeBackend.overlay0
+                                                    border.color: ThemeBackend.dockLauncherSubtext0
                                                 }
 
                                                 Rectangle {
@@ -1863,7 +1863,7 @@ Variants {
                                                     width: dockWindow.isVertical ? dockWindow.s(3.5) : dockWindow.s(14)
                                                     height: dockWindow.isVertical ? dockWindow.s(14) : dockWindow.s(3.5)
                                                     radius: dockWindow.s(2)
-                                                    color: ThemeBackend.mauve
+                                                    color: ThemeBackend.dockLauncherAccent
 
                                                     Behavior on width {
                                                         enabled: dockWindow.visualContentActive
@@ -1887,7 +1887,7 @@ Variants {
                                                             width: dockWindow.s(3.5)
                                                             height: dockWindow.s(3.5)
                                                             radius: width / 2
-                                                            color: (index === 0 && dockButton.isAppFocused) ? ThemeBackend.mauve : (index === 0 ? ThemeBackend.subtext0 : ThemeBackend.surface2)
+                                                            color: (index === 0 && dockButton.isAppFocused) ? ThemeBackend.dockLauncherAccent : (index === 0 ? ThemeBackend.dockLauncherSubtext0 : ThemeBackend.dockLauncherSurface2)
                                                         }
                                                     }
                                                 }
@@ -1904,7 +1904,7 @@ Variants {
                                                             width: dockWindow.s(3.5)
                                                             height: dockWindow.s(3.5)
                                                             radius: width / 2
-                                                            color: (index === 0 && dockButton.isAppFocused) ? ThemeBackend.mauve : (index === 0 ? ThemeBackend.subtext0 : ThemeBackend.surface2)
+                                                            color: (index === 0 && dockButton.isAppFocused) ? ThemeBackend.dockLauncherAccent : (index === 0 ? ThemeBackend.dockLauncherSubtext0 : ThemeBackend.dockLauncherSurface2)
                                                         }
                                                     }
                                                 }
@@ -2098,7 +2098,7 @@ Variants {
                                         width: dockWindow.isVertical ? Math.round(dockWindow.s(dockWindow.dockElementSize) * 0.5) : 1
                                         height: dockWindow.isVertical ? 1 : Math.round(dockWindow.s(dockWindow.dockElementSize) * 0.5)
                                         radius: 1
-                                        color: Qt.alpha(ThemeBackend.surface2, 0.7)
+                                        color: Qt.alpha(ThemeBackend.dockLauncherSurface2, 0.7)
                                     }
                                 }
 
@@ -2117,7 +2117,7 @@ Variants {
                                         property int itemIndex: dockAppsModel.count + 1 + index
                                         property real popScale: 1.0
                                         property real flashOpacity: 0.0
-                                        property color btnColor: ThemeBackend.surface0
+                                        property color btnColor: ThemeBackend.dockLauncherSurface0
                                         property int cornerRadius: Math.round(dockWindow.s(dockWindow.dockElementSize) * 0.28)
                                         property int btnSize: dockWindow.s(dockWindow.dockElementSize)
 
@@ -2274,7 +2274,7 @@ Variants {
                                                     font.family: ThemeBackend.fontFamily
                                                     font.pixelSize: dockWindow.s(Math.round(dockWindow.dockElementSize * 0.42))
                                                     font.weight: Font.Bold
-                                                    color: ThemeBackend.text
+                                                    color: ThemeBackend.dockLauncherText
                                                 }
 
                                                 Rectangle {
@@ -2320,7 +2320,7 @@ Variants {
                                                     radius: width / 2
                                                     color: "transparent"
                                                     border.width: 1
-                                                    border.color: ThemeBackend.overlay0
+                                                    border.color: ThemeBackend.dockLauncherSubtext0
                                                 }
 
                                                 Rectangle {
@@ -2330,7 +2330,7 @@ Variants {
                                                     width: dockWindow.isVertical ? dockWindow.s(3.5) : dockWindow.s(14)
                                                     height: dockWindow.isVertical ? dockWindow.s(14) : dockWindow.s(3.5)
                                                     radius: dockWindow.s(2)
-                                                    color: ThemeBackend.mauve
+                                                    color: ThemeBackend.dockLauncherAccent
                                                 }
 
                                                 Row {
@@ -2345,7 +2345,7 @@ Variants {
                                                             width: dockWindow.s(3.5)
                                                             height: dockWindow.s(3.5)
                                                             radius: width / 2
-                                                            color: (index === 0 && runningDockButton.isAppFocused) ? ThemeBackend.mauve : (index === 0 ? ThemeBackend.subtext0 : ThemeBackend.surface2)
+                                                            color: (index === 0 && runningDockButton.isAppFocused) ? ThemeBackend.dockLauncherAccent : (index === 0 ? ThemeBackend.dockLauncherSubtext0 : ThemeBackend.dockLauncherSurface2)
                                                         }
                                                     }
                                                 }
@@ -2362,7 +2362,7 @@ Variants {
                                                             width: dockWindow.s(3.5)
                                                             height: dockWindow.s(3.5)
                                                             radius: width / 2
-                                                            color: (index === 0 && runningDockButton.isAppFocused) ? ThemeBackend.mauve : (index === 0 ? ThemeBackend.subtext0 : ThemeBackend.surface2)
+                                                            color: (index === 0 && runningDockButton.isAppFocused) ? ThemeBackend.dockLauncherAccent : (index === 0 ? ThemeBackend.dockLauncherSubtext0 : ThemeBackend.dockLauncherSurface2)
                                                         }
                                                     }
                                                 }
@@ -2517,9 +2517,9 @@ Variants {
                     Rectangle {
                         anchors.fill: parent
                         radius: ThemeBackend.borderRadius <= 16 ? ThemeBackend.borderRadius * 1.5 : 24
-                        color: Qt.alpha(ThemeBackend.base, ThemeBackend.elementOpacity)
+                        color: Qt.alpha(ThemeBackend.dockLauncherBase, ThemeBackend.elementOpacity)
                         border.width: ThemeBackend.liquidGlass ? 0 : 1
-                        border.color: Qt.alpha(ThemeBackend.surface1, 0.45)
+                        border.color: Qt.alpha(ThemeBackend.dockLauncherSurface1, 0.45)
                         clip: true
 
                         WallpaperBlur {
@@ -2549,12 +2549,12 @@ Variants {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: dockWindow.s(34)
                                     placeholderText: I18n.t("guide.dock.picker.search", "Search apps...")
-                                    baseColor: ThemeBackend.surface0
+                                    baseColor: ThemeBackend.dockLauncherSurface0
                                     bgOpacity: ThemeBackend.glassActive ? 0.0 : 1.0
-                                    accentColor: ThemeBackend.mauve
-                                    textColor: ThemeBackend.text
-                                    subTextColor: ThemeBackend.subtext0
-                                    borderColor: Qt.alpha(ThemeBackend.surface2, 0.6)
+                                    accentColor: ThemeBackend.dockLauncherAccent
+                                    textColor: ThemeBackend.dockLauncherText
+                                    subTextColor: ThemeBackend.dockLauncherSubtext0
+                                    borderColor: Qt.alpha(ThemeBackend.dockLauncherSurface2, 0.6)
                                     cornerRadius: ThemeBackend.borderRadius
                                     fontPixelSize: dockWindow.s(11)
                                     showClearButton: true
@@ -2576,8 +2576,8 @@ Variants {
                                     maxWidth: dockWindow.s(70)
                                     cornerRadius: ThemeBackend.borderRadius
                                     buttonText: I18n.t("guide.dock.picker.done", "Done")
-                                    accentColor: ThemeBackend.mauve
-                                    textColor: ThemeBackend.liquidGlass ? ThemeBackend.text : ThemeBackend.crust
+                                    accentColor: ThemeBackend.dockLauncherAccent
+                                    textColor: ThemeBackend.liquidGlass ? ThemeBackend.dockLauncherText : ThemeBackend.dockLauncherOnAccent
                                     textFontSize: dockWindow.s(11)
                                     onClicked: {
                                         dockWindow.setEditMode(false);
@@ -2593,7 +2593,7 @@ Variants {
                                    ? (pickerSearchRow.y - dockWindow.s(10) - height)
                                    : (pickerSearchRow.y + pickerSearchRow.height + dockWindow.s(10))
                                 height: 1
-                                color: Qt.alpha(ThemeBackend.surface1, 0.3)
+                                color: Qt.alpha(ThemeBackend.dockLauncherSurface1, 0.3)
                             }
 
                             Item {
@@ -2623,7 +2623,7 @@ Variants {
                                         targetWidth: pickerList.hoverItem ? pickerList.hoverItem.width : 0
                                         targetHeight: pickerList.hoverItem ? pickerList.hoverItem.height : 0
                                         radius: ThemeBackend.borderRadius
-                                        tintColor: ThemeBackend.surface0
+                                        tintColor: ThemeBackend.dockLauncherSurface0
                                         tintAmount: 0.3
                                         shadow: 0
                                         restPress: 0.2
@@ -2638,7 +2638,7 @@ Variants {
                                         contentItem: Rectangle {
                                             implicitWidth: dockWindow.s(4)
                                             radius: dockWindow.s(2)
-                                            color: ThemeBackend.surface2
+                                            color: ThemeBackend.dockLauncherSurface2
                                         }
                                     }
 
@@ -2664,9 +2664,9 @@ Variants {
                                             if (pickerList.hoverItem === pickerDelegate) pickerList.hoverItem = null;
                                         }
 
-                                        readonly property color contentOnAdded: pickerRowGlass.active ? ThemeBackend.text : ThemeBackend.crust
+                                        readonly property color contentOnAdded: pickerRowGlass.active ? ThemeBackend.dockLauncherText : ThemeBackend.dockLauncherOnAccent
 
-                                        color: pickerRowGlass.active ? "transparent" : (isAdded ? ThemeBackend.mauve : ((pickerMa.containsMouse && !pickerLens.glassActive) ? Qt.alpha(ThemeBackend.surface1, 0.4) : Qt.alpha(ThemeBackend.surface0, 0.25)))
+                                        color: pickerRowGlass.active ? "transparent" : (isAdded ? ThemeBackend.dockLauncherAccent : ((pickerMa.containsMouse && !pickerLens.glassActive) ? Qt.alpha(ThemeBackend.dockLauncherSurface1, 0.4) : Qt.alpha(ThemeBackend.dockLauncherSurface0, 0.25)))
                                         border.width: 0
 
                                         Behavior on color {
@@ -2680,7 +2680,7 @@ Variants {
                                             radius: parent.radius
                                             allowed: pickerDelegate.isAdded || (pickerMa.containsMouse && !pickerLens.glassActive)
                                             forceClear: pickerDelegate.isAdded
-                                            tintColor: pickerDelegate.isAdded ? ThemeBackend.text : ThemeBackend.surface0
+                                            tintColor: pickerDelegate.isAdded ? ThemeBackend.dockLauncherText : ThemeBackend.dockLauncherSurface0
                                             tintAmount: pickerDelegate.isAdded ? 0.1 : 0.3
                                             tintStrength: pickerDelegate.isAdded ? 1.0 : 0.5
                                             press: pickerMa.pressed ? 0.8 : (pickerDelegate.isAdded ? 0.6 : 0.2)
@@ -2697,7 +2697,7 @@ Variants {
                                                 implicitHeight: dockWindow.s(28)
                                                 Layout.alignment: Qt.AlignVCenter
                                                 radius: Math.round(dockWindow.s(28) * 0.28)
-                                                color: pickerIconGlass.active ? "transparent" : (pickerDelegate.isAdded ? Qt.tint(ThemeBackend.surface0, Qt.rgba(ThemeBackend.mauve.r, ThemeBackend.mauve.g, ThemeBackend.mauve.b, 0.2)) : ThemeBackend.surface0)
+                                                color: pickerIconGlass.active ? "transparent" : (pickerDelegate.isAdded ? Qt.tint(ThemeBackend.dockLauncherSurface0, Qt.rgba(ThemeBackend.dockLauncherAccent.r, ThemeBackend.dockLauncherAccent.g, ThemeBackend.dockLauncherAccent.b, 0.2)) : ThemeBackend.dockLauncherSurface0)
                                                 clip: true
 
                                                 GlassFill {
@@ -2705,7 +2705,7 @@ Variants {
                                                     anchors.fill: parent
                                                     radius: parent.radius
                                                     forceClear: pickerDelegate.isAdded
-                                                    tintColor: pickerDelegate.isAdded ? ThemeBackend.text : ThemeBackend.surface2
+                                                    tintColor: pickerDelegate.isAdded ? ThemeBackend.dockLauncherText : ThemeBackend.dockLauncherSurface2
                                                     tintAmount: pickerDelegate.isAdded ? 0.1 : 0.3
                                                 }
 
@@ -2743,7 +2743,7 @@ Variants {
                                                     font.family: ThemeBackend.fontFamily
                                                     font.pixelSize: dockWindow.s(12)
                                                     font.bold: true
-                                                    color: pickerDelegate.isAdded ? (pickerRowGlass.active ? ThemeBackend.text : ThemeBackend.mauve) : ThemeBackend.text
+                                                    color: pickerDelegate.isAdded ? (pickerRowGlass.active ? ThemeBackend.dockLauncherText : ThemeBackend.dockLauncherAccent) : ThemeBackend.dockLauncherText
                                                 }
                                             }
 
@@ -2757,7 +2757,7 @@ Variants {
                                                     font.family: ThemeBackend.fontFamily
                                                     font.pixelSize: dockWindow.s(11)
                                                     font.weight: pickerDelegate.isAdded ? Font.Bold : Font.Medium
-                                                    color: pickerDelegate.isAdded ? pickerDelegate.contentOnAdded : ThemeBackend.text
+                                                    color: pickerDelegate.isAdded ? pickerDelegate.contentOnAdded : ThemeBackend.dockLauncherText
                                                     elide: Text.ElideRight
                                                     Layout.fillWidth: true
                                                     Behavior on color {
@@ -2770,7 +2770,7 @@ Variants {
                                                     text: pickerDelegate.resolvedItem.comment || pickerDelegate.resolvedItem.id || ""
                                                     font.family: ThemeBackend.fontFamily
                                                     font.pixelSize: dockWindow.s(9)
-                                                    color: pickerDelegate.isAdded ? pickerDelegate.contentOnAdded : ThemeBackend.subtext0
+                                                    color: pickerDelegate.isAdded ? pickerDelegate.contentOnAdded : ThemeBackend.dockLauncherSubtext0
                                                     opacity: pickerDelegate.isAdded ? 0.9 : 0.85
                                                     elide: Text.ElideRight
                                                     Layout.fillWidth: true
@@ -2809,7 +2809,7 @@ Variants {
                                             text: I18n.t("guide.dock.picker.empty", "No matching applications")
                                             font.family: ThemeBackend.fontFamily
                                             font.pixelSize: dockWindow.s(11)
-                                            color: ThemeBackend.subtext0
+                                            color: ThemeBackend.dockLauncherSubtext0
                                         }
                                     }
                                 }

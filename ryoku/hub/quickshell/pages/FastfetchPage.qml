@@ -97,7 +97,7 @@ Item {
     // file the Hub writes on Save so hand-edits and the GUI share one source.
     readonly property string configPath: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/fastfetch/config.jsonc"
     function browseFastfetch() {
-        Quickshell.execDetached(["ryostore", "open", "fastfetch"]);
+        Spawn.runApp(["ryostore", "open", "fastfetch"], { label: "ryostore" });
     }
 
     // info modules the Add menu offers, beyond the brand lines already present.
@@ -509,10 +509,17 @@ Item {
         var s = pg.model.logo.source;
         if (!s || s.length === 0)
             return;
+<<<<<<< port (main)
         Spawn.runApp(["kitty", "-e", "nvim", s]);
     }
     function previewInTerminal() { Spawn.runApp(["kitty", "-e", "sh", "-c", "ryoku-fastfetch; read -n1"]); }
     function openConfig() { Spawn.runApp(["kitty", "-e", "nvim", "-O", pg.configPath]); }
+=======
+        Spawn.runApp(["kitty", "-e", "nvim", s], { label: "kitty" });
+    }
+    function previewInTerminal() { Spawn.runApp(["kitty", "-e", "sh", "-c", "ryoku-fastfetch; read -n1"], { label: "kitty" }); }
+    function openConfig() { Spawn.runApp(["kitty", "-e", "nvim", "-O", pg.configPath], { label: "kitty" }); }
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)
 
     // ---- emblem dither + imported-emblem removal ----------------------------
     // the 1-bit bake toggles through the backend so it can read/write the sibling

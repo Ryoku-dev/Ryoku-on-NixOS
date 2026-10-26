@@ -311,7 +311,7 @@ Item {
             return;
         pg.skError = I18n.tr("Finish security-key setup in the terminal window, then return here.");
         pg.skEnrollPolls = 0;
-        Quickshell.execDetached(["sh", "-c", "exec \"${TERMINAL:-kitty}\" --class=dev.ryoku.passkey -e sh -c 'ryoku security-key enroll; printf \"\\n── press enter to close ──\\n\"; read _'"]);
+        Spawn.runApp(["sh", "-c", "exec \"${TERMINAL:-kitty}\" --class=dev.ryoku.passkey -e sh -c 'ryoku security-key enroll; printf \"\\n── press enter to close ──\\n\"; read _'"], { label: "terminal" });
         skEnrollRefresh.restart();
     }
     function skremove(id) {
@@ -528,7 +528,7 @@ Item {
     }
 
     function browseStore() {
-        Quickshell.execDetached(["ryostore", "open", "lockscreens"]);
+        Spawn.runApp(["ryostore", "open", "lockscreens"], { label: "ryostore" });
     }
     function reload() {
         pg.loading = pg.skins.length === 0;
@@ -545,7 +545,7 @@ Item {
         actProc.running = true;
     }
     function preview(slug) {
-        Spawn.run([pg.lockLauncher, slug]);
+        Spawn.runApp([pg.lockLauncher, slug], { label: "lockscreen-preview" });
     }
 
     // live filter: name, theme, slug, tags and copy all match the rail query.

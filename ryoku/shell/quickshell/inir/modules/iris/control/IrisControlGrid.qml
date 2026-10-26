@@ -16,6 +16,7 @@ import inir.modules.iris.components
 import inir.modules.iris.pieces
 import inir.modules.iris.style
 import shell.services as Ryoku
+import Ryoku.Ui.Singletons
 
 Item {
     id: root
@@ -408,7 +409,7 @@ Item {
         // A connection's name when it says something: a cable's is NetworkManager's generic "Wired connection 1",
         // so a wired network reads Ethernet.
         readonly property string caption: ctl.moduleId === "network" && Network.ethernet && !Network.wifi ? Translation.tr("Ethernet")
-            : ["network", "bluetooth", "vpn", "hotspot"].includes(ctl.moduleId) && ctl.lit && ctl.detail.length > 0 ? ctl.detail : ctl.label
+            : ["network", "bluetooth", "vpn", "hotspot"].includes(ctl.moduleId) && ctl.lit && ctl.detail.length > 0 ? I18n.tr(ctl.detail) : I18n.tr(ctl.label)
         function activate(): void {
             if (!ctl.ready || root.editing) return
             if (ctl.moduleId === "devices") { root.picker = root.picker === "devices" ? "" : "devices"; return }
@@ -481,7 +482,7 @@ Item {
             anchors.bottom: parent.bottom
             anchors.bottomMargin: Math.round(2 * root.d)
             width: Math.min(implicitWidth, face.width - 4 * root.d)
-            text: faceState.caption
+            text: I18n.tr(faceState.caption)
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
             color: faceState.ready ? IrisStyle.subtext : IrisStyle.textTertiary
@@ -528,7 +529,7 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.maximumWidth: face.width - Math.round(8 * root.d)
                 visible: IrisControlOptions.labelled
-                text: faceState.label
+                text: I18n.tr(faceState.label)
                 horizontalAlignment: Text.AlignHCenter
                 fontSizeMode: Text.HorizontalFit
                 minimumPixelSize: Math.round(8 * IrisStyle.typeScale)
@@ -556,7 +557,7 @@ Item {
                 spacing: 0
                 IrisText {
                     Layout.fillWidth: true
-                    text: faceState.label
+                    text: I18n.tr(faceState.label)
                     elide: Text.ElideRight
                     color: faceState.ready ? IrisStyle.text : IrisStyle.textTertiary
                     font.pixelSize: IrisStyle.typeLabel
@@ -565,7 +566,7 @@ Item {
                 IrisText {
                     Layout.fillWidth: true
                     visible: text.length > 0
-                    text: faceState.ready ? faceState.detail : Translation.tr("Unavailable")
+                    text: faceState.ready ? I18n.tr(faceState.detail) : Translation.tr("Unavailable")
                     // A device or network name fits by one step of the ladder before it elides, as the 1×1 names do.
                     fontSizeMode: Text.HorizontalFit
                     minimumPixelSize: IrisStyle.typeCaption
@@ -635,7 +636,7 @@ Item {
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.bottom: parent.bottom
                             width: Math.min(implicitWidth, platterSlot.width - 4 * root.d)
-                            text: slotControl.caption
+                            text: I18n.tr(slotControl.caption)
                             horizontalAlignment: Text.AlignHCenter
                             fontSizeMode: Text.HorizontalFit
                             minimumPixelSize: IrisStyle.typeCaption

@@ -585,10 +585,10 @@ Singleton {
         if (!filePath) return;
 
         if (identifier === "__qs_open_file") {
-            Quickshell.execDetached(["bash", "-c", 'xdg-open "$1"', "_", filePath]);
+            Spawn.runApp(["xdg-open", filePath], { label: "file" });
         } else if (identifier === "__qs_open_folder") {
             var dirPath = filePath.replace(/\/[^\/]*$/, "");
-            Quickshell.execDetached(["bash", "-c", 'xdg-open "$1"', "_", dirPath]);
+            Spawn.runApp(["xdg-open", dirPath], { label: "folder" });
         } else if (identifier === "__qs_delete_file") {
             Quickshell.execDetached(["bash", "-c", 'rm -f "$1"', "_", filePath]);
         } else if (identifier === "__qs_copy_file") {

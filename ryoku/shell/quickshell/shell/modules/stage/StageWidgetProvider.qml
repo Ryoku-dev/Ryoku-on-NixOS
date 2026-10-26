@@ -107,7 +107,7 @@ Scope {
             "label": I18n.tr("Depth"),
             "icon": "layers",
             "tooltip": I18n.tr("Cut the wallpaper into layers and lift widgets between them"),
-            "intro": I18n.tr("Cut the wallpaper's subject out so widgets can sit behind it, and choose how the layers look and move."),
+            "intro": I18n.tr("Give the wallpaper depth: cut its subject out so widgets sit behind it, let layers drift, or turn it into a 3D scene."),
             "page": depthPage
         }
     ]

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -82,15 +81,21 @@ func (s *clipState) restoreSelection() {
 	recorded, _ := os.ReadFile(path)
 	s.mu.Lock()
 	var mime string
-	var data []byte
+	var hash uint64
+	var haveEntry bool
 	if len(s.entries) > 0 {
-		mime, data = s.entries[0].Mime, s.entries[0].data
+		mime, hash = s.entries[0].Mime, s.entries[0].hash
+		haveEntry = s.entries[0].Size > 0
 	}
 	s.mu.Unlock()
-	if shouldRestoreSelection(string(recorded), current, len(data) > 0, selectionEmpty) {
-		cmd := exec.Command("wl-copy", "--type", mime)
-		cmd.Stdin = bytes.NewReader(data)
-		_ = cmd.Run()
+	if shouldRestoreSelection(string(recorded), current, haveEntry, selectionEmpty) {
+		payload, err := s.openPayload(hash)
+		if err == nil {
+			cmd := exec.Command("wl-copy", "--type", mime)
+			cmd.Stdin = payload
+			_ = cmd.Run()
+			_ = payload.Close()
+		}
 	}
 	_ = os.WriteFile(path, []byte(current), 0o600)
 }

@@ -120,6 +120,8 @@ Singleton {
     property alias phone: adapter.phone
     readonly property var normalizedNacre: NacreConfig.normalize(nacre)
     readonly property var defaultControls: ({
+        "position": "top-left",
+        "edgeGap": 12,
         "sections": [
             { "id": "vitals", "visible": true },
             { "id": "connections", "visible": true },
@@ -218,6 +220,20 @@ Singleton {
             && !(root.python
                 && root.python.general
                 && root.python.general.osd === false);
+    }
+
+    function patchControl(key, value) {
+        if (key !== "position" && key !== "edgeGap")
+            return;
+        const next = Object.assign({}, root.controls);
+        next[key] = value;
+        root.controls = next;
+        shaderCtl.queued += "call settings.patch "
+            + JSON.stringify({ path: "controls." + key, value: value }) + "\n";
+        if (shaderCtl.connected)
+            shaderCtl.flushQueued();
+        else
+            shaderCtl.connected = true;
     }
 
     readonly property var askBubble: {
@@ -418,6 +434,7 @@ Singleton {
                 "enabled": false,
                 "design": "ryoku",
                 "edge": "auto",
+                "edgeGap": 0,
                 "autohide": false,
                 "size": 44,
                 "pinned": [],

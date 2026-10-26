@@ -113,16 +113,16 @@ type daemon struct {
 	sup          map[string]bool      // components that already have a supervisor goroutine
 	proc         map[string]*exec.Cmd // current live process per component
 	paintSig     chan struct{}        // coalescing wake for the palette/border worker
-	stageSig     chan struct{}        // coalescing wake for the unified stage worker
-	stageForce   atomic.Bool          // a pending forced regenerate (effect/quality change, refresh, re-cut)
-	stageGen     atomic.Bool          // a pending enable: reuse an existing cut, else generate
-	stageBusy    atomic.Bool          // a cut/inpaint is in flight (for the status/topic)
-	stageNotice  atomic.Value         // why the last reconcile could not produce a cut ("" when fine)
-	ledsSig      chan struct{}        // coalescing wake for the OpenRGB worker
-	widgetSig    chan struct{}        // coalescing wake for the widget-occupancy gate
-	guardKick    chan struct{}        // coalescing wake for the qylock fallback-guard watcher
-	parkSig      chan struct{}        // coalescing wake for palette idle deadlines and saver changes
-	sunSig       chan struct{}        // wakes the sun-mode worker on knob/window changes
+	stageSig     chan struct{}        // coalescing wake for the Stage publish worker
+	stageJobMu   sync.Mutex
+	stageJob     *stageJobRun
+	stageLast    *stageJobResult
+	stageJobNext int64
+	ledsSig      chan struct{} // coalescing wake for the OpenRGB worker
+	widgetSig    chan struct{} // coalescing wake for the widget-occupancy gate
+	guardKick    chan struct{} // coalescing wake for the qylock fallback-guard watcher
+	parkSig      chan struct{} // coalescing wake for palette idle deadlines and saver changes
+	sunSig       chan struct{} // wakes the sun-mode worker on knob/window changes
 	quit         chan struct{}
 	closed       bool
 	ln           net.Listener
@@ -1505,56 +1505,76 @@ func (d *daemon) dispatch(line string) string {
 		}
 		return "err hub: expected open [section] or close"
 	case "stage":
-		// One verb surface for Ryostage (docs/stage.md): set-effect records the
-		// three-way effect per wallpaper; set-layer applies a layer's arrangement
-		// flags (enabled/front/depth); add-layer / cut-layer / remove-layer manage
-		// the manual layers; refresh forces a re-cut; depth-refresh rebuilds only
-		// the 3D depth map; depth-sample reads one depth value for the widget
-		// depth-pick; cancel kills a running engine child; clear drops the
-		// current wall's generated artifacts; status snapshots the topic; models
-		// proxies the engine catalogue. QML normally subscribes to the `stage`
-		// topic; these verbs carry intent the other way.
-		if len(args) == 0 {
+		stageLine, wall, scoped := splitStageWall(line)
+		stageFields := strings.Fields(stageLine)
+		if len(stageFields) < 2 {
 			return "err stage: expected a verb"
 		}
-		// Trailing path / json arguments may contain spaces, so recover them from
-		// the raw line by fixed-field split instead of the whitespace args, which
-		// would truncate at the first space.
+		args = stageFields[1:]
+		if !scoped {
+			wall = d.currentWall()
+		}
 		switch args[0] {
 		case "set-effect":
-			if len(args) < 2 {
-				return "err stage set-effect: expected off|depth|parallax"
+			if len(args) != 2 {
+				return "err stage set-effect: expected off|depth|parallax|spatial"
 			}
-			eff := stageEffect(args[1])
-			if eff != stageEffectOff && eff != stageEffectDepth && eff != stageEffectParallax {
-				return "err stage set-effect: expected off|depth|parallax"
+			effect := stageEffect(args[1])
+			if effect != stageEffectOff && effect != stageEffectDepth &&
+				effect != stageEffectParallax && effect != stageEffectSpatial {
+				return "err stage set-effect: expected off|depth|parallax|spatial"
 			}
-			d.stageSetEffect(eff)
+			d.stageSetEffect(wall, effect)
 			return "ok"
+		case "generate":
+			if len(args) != 1 {
+				return "err stage generate: takes no arguments"
+			}
+			reply, err := d.stageGenerate(wall)
+			if err != nil {
+				return "err stage generate: " + err.Error()
+			}
+			return reply
 		case "refresh":
-			d.stageForce.Store(true)
-			d.scheduleStage()
+			if len(args) > 2 {
+				return "err stage refresh: expected [cut|fill|depth]"
+			}
+			var step stageStep
+			if len(args) == 2 {
+				step = stageStep(args[1])
+				if step != stageStepCut && step != stageStepFill && step != stageStepDepth {
+					return "err stage refresh: expected [cut|fill|depth]"
+				}
+			}
+			if err := d.stageRefresh(wall, step); err != nil {
+				return "err stage refresh: " + err.Error()
+			}
 			return "ok"
 		case "depth-refresh":
-			d.stageDepthRefresh()
+			if len(args) != 1 {
+				return "err stage depth-refresh: takes no arguments"
+			}
+			if err := d.stageRefresh(wall, stageStepDepth); err != nil {
+				return "err stage depth-refresh: " + err.Error()
+			}
 			return "ok"
 		case "depth-sample":
-			// <wall> <nx> <ny> <width> <height> <fit>: one depth value for the
-			// widget depth-pick. The wall path may carry spaces, so it is the
-			// join of the fields between the verb and the fixed numeric tail.
 			if len(args) < 7 {
 				return "err stage depth-sample: expected <wall> <nx> <ny> <width> <height> <fit>"
 			}
-			val, err := d.stageDepthSampleCall(
+			value, err := d.stageDepthSampleCall(
 				strings.Join(args[1:len(args)-5], " "),
 				args[len(args)-5], args[len(args)-4], args[len(args)-3],
 				args[len(args)-2], args[len(args)-1])
 			if err != nil {
 				return "err stage depth-sample: " + err.Error()
 			}
-			return "ok " + val
+			return "ok " + value
 		case "cancel":
-			stageCancel()
+			if len(args) > 2 || (len(args) == 2 && args[1] != "--force") {
+				return "err stage cancel: expected [--force]"
+			}
+			d.stageCancel(len(args) == 2)
 			return "ok"
 		case "status":
 			return d.stageStatusJSON()
@@ -1564,16 +1584,31 @@ func (d *daemon) dispatch(line string) string {
 			if len(args) < 2 {
 				return "err stage cut-layer: expected a path"
 			}
-			path, err := d.stageCutLayer(restField(line, 3))
-			if err != nil {
+			if err := d.stageCutLayer(wall, restField(stageLine, 3)); err != nil {
 				return "err stage cut-layer: " + err.Error()
 			}
-			return "ok " + path
+			return "ok"
+		case "cut-region":
+			if len(args) != 5 {
+				return "err stage cut-region: expected <nx> <ny> <nw> <nh>"
+			}
+			var region [4]float64
+			for i, value := range args[1:] {
+				parsed, err := strconv.ParseFloat(value, 64)
+				if err != nil {
+					return "err stage cut-region: expected <nx> <ny> <nw> <nh>"
+				}
+				region[i] = parsed
+			}
+			if err := d.stageCutRegion(wall, region); err != nil {
+				return "err stage cut-region: " + err.Error()
+			}
+			return "ok"
 		case "set-layer":
 			if len(args) < 3 {
 				return "err stage set-layer: expected <index> <json>"
 			}
-			if err := d.stageSetLayer(args[1], restField(line, 4)); err != nil {
+			if err := d.stageSetLayer(wall, args[1], restField(stageLine, 4)); err != nil {
 				return "err stage set-layer: " + err.Error()
 			}
 			return "ok"
@@ -1581,21 +1616,24 @@ func (d *daemon) dispatch(line string) string {
 			if len(args) < 2 {
 				return "err stage add-layer: expected a path"
 			}
-			path, err := d.stageAddLayer(restField(line, 3))
+			path, err := d.stageAddLayer(wall, restField(stageLine, 3))
 			if err != nil {
 				return "err stage add-layer: " + err.Error()
 			}
 			return "ok " + path
 		case "remove-layer":
-			if len(args) < 2 {
+			if len(args) != 2 {
 				return "err stage remove-layer: expected an index"
 			}
-			if err := d.stageRemoveLayer(args[1]); err != nil {
+			if err := d.stageRemoveLayer(wall, args[1]); err != nil {
 				return "err stage remove-layer: " + err.Error()
 			}
 			return "ok"
 		case "clear":
-			d.stageClear()
+			if len(args) != 1 {
+				return "err stage clear: takes no arguments"
+			}
+			d.stageClear(wall)
 			return "ok"
 		}
 		return "err stage: unknown verb " + args[0]

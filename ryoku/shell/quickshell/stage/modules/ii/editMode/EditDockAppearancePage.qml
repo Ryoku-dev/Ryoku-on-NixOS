@@ -110,6 +110,21 @@ StyledFlickable {
             Layout.fillWidth: true
             first: false
             last: false
+            symbol: "vertical_align_center"
+            title: Translation.tr("Edge gap")
+            subtitle: Translation.tr("Extra space from the screen edge")
+            trailingKind: "stepper"
+            valueText: Math.round(Number(root.cfg("edgeGap", 0))) + " px"
+            stepDownEnabled: Number(root.cfg("edgeGap", 0)) > 0
+            stepUpEnabled: Number(root.cfg("edgeGap", 0)) < 64
+            onStepDown: root.setCfg("edgeGap", Math.max(0, Number(root.cfg("edgeGap", 0)) - 1))
+            onStepUp: root.setCfg("edgeGap", Math.min(64, Number(root.cfg("edgeGap", 0)) + 1))
+        }
+
+        EditPanelRow {
+            Layout.fillWidth: true
+            first: false
+            last: false
             symbol: "visibility_off"
             title: Translation.tr("Automatically hide")
             trailingKind: "switch"

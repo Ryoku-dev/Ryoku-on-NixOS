@@ -590,7 +590,7 @@ ShellRoot {
     }
 
     function openScreenshotsFolder() {
-        Quickshell.execDetached(["xdg-open", root.saveRoot]);
+        Spawn.runApp(["xdg-open", root.saveRoot], { label: "screenshots" });
     }
 
     // grim's -g and GSR's -region both take layout (logical) coordinates, the
@@ -1278,7 +1278,7 @@ ShellRoot {
             console.log("ryoshot: search upload exit " + code + " url=" + JSON.stringify(url));
             if (code === 0 && url.indexOf("http") === 0) {
                 root.exported = true;
-                Quickshell.execDetached(["xdg-open", searchProc.engine + url]);
+                Spawn.runApp(["xdg-open", searchProc.engine + url], { label: "browser" });
             } else {
                 root.notifySend(I18n.tr("Image search failed"), I18n.tr("Could not upload the image"));
             }

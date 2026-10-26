@@ -3,8 +3,6 @@ package main
 import (
 	"io"
 	"net"
-	"os"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,17 +12,20 @@ import (
 
 func TestGeometryPollFollowsVisibleFloatingWindow(t *testing.T) {
 	var clients atomic.Value
-	var ctlCalls atomic.Int64
 	clients.Store([]byte(`[{"address":"0xa","class":"kitty","monitor":0,"floating":false,"at":[0,0],"size":[800,600],"workspace":{"id":1,"name":"1"},"focusHistoryID":0}]`))
+	queries := make(chan struct{}, 64)
 
 	restore := stubCtl(t, func(args ...string) ([]byte, error) {
-		ctlCalls.Add(1)
 		switch args[0] {
 		case "monitors":
 			return []byte(`[{"id":0,"name":"DP-1","width":1920,"height":1080,"activeWorkspace":{"id":1,"name":"1"},"specialWorkspace":{"id":0,"name":""}}]`), nil
 		case "workspaces":
 			return []byte(`[{"id":1,"name":"1","monitor":"DP-1","windows":1}]`), nil
 		case "clients":
+			select {
+			case queries <- struct{}{}:
+			default:
+			}
 			return clients.Load().([]byte), nil
 		case "devices":
 			return []byte(`{"keyboards":[]}`), nil
@@ -35,7 +36,6 @@ func TestGeometryPollFollowsVisibleFloatingWindow(t *testing.T) {
 	})
 	defer restore()
 
-	queries := fakeGeometrySocket(t, &clients)
 	frames := make(chan wm.Frame, 32)
 	provider, events := net.Pipe()
 	defer events.Close()
@@ -43,19 +43,17 @@ func TestGeometryPollFollowsVisibleFloatingWindow(t *testing.T) {
 
 	waitWindowFloating(t, frames, false)
 	waitFrameKind(t, frames, wm.FrameReady)
-	ctlCalls.Store(0)
+	drainGeometryQueries(queries)
 	assertNoGeometryQuery(t, queries, 50*time.Millisecond)
 
 	writeWatchEvent(t, events, "activewindowv2>>a\n")
 	awaitGeometryQuery(t, queries)
-	if got := ctlCalls.Load(); got != 0 {
-		t.Fatalf("focus event made %d hyprctl queries", got)
-	}
 	assertNoGeometryQuery(t, queries, 50*time.Millisecond)
 
 	clients.Store([]byte(`[{"address":"0xa","class":"kitty","monitor":0,"floating":true,"at":[20,30],"size":[800,600],"workspace":{"id":1,"name":"1"},"focusHistoryID":0}]`))
 	writeWatchEvent(t, events, "changefloatingmode>>a,1\n")
 	waitWindowFloating(t, frames, true)
+	drainGeometryQueries(queries)
 	awaitGeometryQuery(t, queries)
 
 	clients.Store([]byte(`[{"address":"0xa","class":"kitty","monitor":0,"floating":false,"at":[20,30],"size":[800,600],"workspace":{"id":1,"name":"1"},"focusHistoryID":0}]`))
@@ -68,36 +66,8 @@ func TestGeometryPollFollowsVisibleFloatingWindow(t *testing.T) {
 	clients.Store([]byte(`[{"address":"0xa","class":"kitty","monitor":0,"floating":true,"at":[40,50],"size":[800,600],"workspace":{"id":1,"name":"1"},"focusHistoryID":0}]`))
 	writeWatchEvent(t, events, "changefloatingmode>>a,1\n")
 	waitWindowFloating(t, frames, true)
+	drainGeometryQueries(queries)
 	awaitGeometryQuery(t, queries)
-}
-
-func fakeGeometrySocket(t *testing.T, clients *atomic.Value) <-chan struct{} {
-	t.Helper()
-	dir := filepath.Join(t.TempDir(), "hypr", "test")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("XDG_RUNTIME_DIR", filepath.Dir(filepath.Dir(dir)))
-	listener, err := net.Listen("unix", filepath.Join(dir, ".socket.sock"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = listener.Close() })
-
-	queries := make(chan struct{}, 32)
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			_, _ = io.ReadAll(conn)
-			_, _ = conn.Write(clients.Load().([]byte))
-			_ = conn.Close()
-			queries <- struct{}{}
-		}
-	}()
-	return queries
 }
 
 func writeWatchEvent(t *testing.T, conn net.Conn, event string) {

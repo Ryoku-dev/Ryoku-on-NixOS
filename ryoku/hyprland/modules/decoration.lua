@@ -109,6 +109,14 @@ hl.layer_rule({
   match   = { namespace = "^ryoku-notifications$" },
   no_anim = true,
 })
+-- Outside Sumi the frame overlay maps only while a menu or popout shows, and
+-- each of those melts in and out in QML; a layer animation on the full-output
+-- surface would move the whole overlay on top of it.
+hl.layer_rule({
+  name    = "ryoku-frame-noanim",
+  match   = { namespace = "^ryoku-frame$" },
+  no_anim = true,
+})
 -- ignore_alpha keeps the frost inside the card: the launcher's surface reserves
 -- margin for its shadow and a gap between the search row and the list, and
 -- without this the compositor blurs that whole transparent rectangle, which

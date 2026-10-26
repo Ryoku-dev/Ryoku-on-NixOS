@@ -1,6 +1,6 @@
 # Sidebar module
 
-Controls is the compact top-left panel shared by every bar style and compositor.
+Controls is the compact panel shared by every bar style and compositor.
 
 - `Sidebar.qml` owns placement, the content window, and click-away input.
 - `SidebarFrame.qml` and `SidebarChrome.qml` provide the shared surface and header.
@@ -18,7 +18,9 @@ Controls is the compact top-left panel shared by every bar style and compositor.
   built-in detail pages.
 - `ExtensionsBoard.qml` uses `SidebarCardHost.qml` for installed plugins;
   `SidebarPlugins.qml` discovers and orders them while the panel is open.
-- `shell/services/SidebarState.qml` owns per-display Controls state and routing.
+- `shell/services/SidebarState.qml` owns per-display Controls state and routing,
+  normalises its saved layout, position, and edge gap, and keeps its motion
+  preference.
 
 Capture is a separate surface under `shell/modules/capture/`; Ask and its desktop
 bubble are under `shell/modules/ask/`. Do not route either back through Controls.

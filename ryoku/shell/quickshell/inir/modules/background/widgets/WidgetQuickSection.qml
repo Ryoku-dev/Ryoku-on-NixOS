@@ -6,6 +6,7 @@ import inir
 import inir.modules.common
 import inir.modules.common.widgets
 import inir.modules.iris.style
+import Ryoku.Ui.Singletons
 
 // A titled group inside a widget's quick controls: one quiet caption, then its controls.
 ColumnLayout {
@@ -39,7 +40,7 @@ ColumnLayout {
         }
         StyledText {
             visible: root.detail.length > 0
-            text: root.detail
+            text: I18n.tr(root.detail)
             color: root.iris ? IrisStyle.textTertiary : Appearance.colors.colSubtext
             font.family: root.iris ? IrisStyle.fontNumbers : Appearance.font.family.numbers
             font.features: ({ "tnum": 1 })

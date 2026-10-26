@@ -6,6 +6,7 @@ import inir.modules.common.functions
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import inir.services
 
 Singleton {
@@ -185,7 +186,7 @@ Singleton {
             execute: () => {
                 const searchQuery = StringUtils.cleanPrefix(q, webPrefix)
                 const baseUrl = Config.options?.search?.engineBaseUrl ?? "https://www.google.com/search?q="
-                Qt.openUrlExternally(baseUrl + encodeURIComponent(searchQuery))
+                Spawn.runApp(["xdg-open", baseUrl + encodeURIComponent(searchQuery)], { label: "browser" })
             }
         })
 

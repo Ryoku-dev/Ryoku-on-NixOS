@@ -6,14 +6,12 @@ import (
 	"os/exec"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/godbus/dbus/v5"
 )
 
 var phoneDeviceID = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
-var phoneBattery = regexp.MustCompile(`([0-9]{1,3})\s*%`)
 
 type hubPhoneStatus struct {
 	Manager       string           `json:"manager"`
@@ -122,11 +120,7 @@ func readHubPhoneStatus() (hubPhoneStatus, error) {
 }
 
 func listHubPhoneDevices() ([]hubPhoneDevice, error) {
-	devices, err := listHubPhoneDevicesDBus()
-	if err == nil {
-		return devices, nil
-	}
-	return listHubPhoneDevicesCLI()
+	return listHubPhoneDevicesDBus()
 }
 
 func listHubPhoneDevicesDBus() ([]hubPhoneDevice, error) {
@@ -142,6 +136,13 @@ func listHubPhoneDevicesDBus() ([]hubPhoneDevice, error) {
 		return nil, err
 	}
 	defer conn.Close()
+	var owned bool
+	if err := conn.BusObject().Call("org.freedesktop.DBus.NameHasOwner", 0, service).Store(&owned); err != nil {
+		return nil, err
+	}
+	if !owned {
+		return []hubPhoneDevice{}, nil
+	}
 
 	var ids []string
 	if err := conn.Object(service, daemonPath).Call(daemonIface+".devices", 0).Store(&ids); err != nil {
@@ -231,6 +232,7 @@ func sortHubPhoneDevices(devices []hubPhoneDevice) {
 		return strings.ToLower(devices[i].Name) < strings.ToLower(devices[j].Name)
 	})
 }
+<<<<<<< port (main)
 
 func listHubPhoneDevicesCLI() ([]hubPhoneDevice, error) {
 	if _, err := exec.LookPath("kdeconnect-cli"); err != nil {
@@ -296,3 +298,5 @@ func runNixPhoneSwitch(action string) error {
 	}
 	return nil
 }
+=======
+>>>>>>> upstream Ryoku 1.0.4 (ad2d365)

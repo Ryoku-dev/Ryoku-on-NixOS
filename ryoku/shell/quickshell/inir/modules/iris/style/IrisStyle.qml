@@ -303,7 +303,7 @@ QtObject {
         return Qt.hsla(base.hslHue, Math.min(1, base.hslSaturation * 0.9), root.light ? Math.max(0, base.hslLightness - step) : Math.min(1, base.hslLightness + step), 1)
     }
     readonly property color surfaceHighOpaque: root.ryokuFrontend ? Tokens.paperLift : (root.plainBlack ? root.toned(root.light ? (root.ink ? "#cec9bc" : "#f2f2f7") : "#1c1c1e") : root.raise(root.surfaceOpaque, 0.1))
-    readonly property color surfaceHighestOpaque: root.ryokuFrontend ? ColorUtils.mix(Tokens.paper, Tokens.ink, 0.08) : (root.plainBlack ? root.toned(root.light ? (root.ink ? "#c2bdb0" : "#e5e5ea") : "#2c2c2e") : root.raise(root.surfaceOpaque, 0.17))
+    readonly property color surfaceHighestOpaque: root.ryokuFrontend ? ColorUtils.mix(Tokens.ink, Tokens.paper, 0.08) : (root.plainBlack ? root.toned(root.light ? (root.ink ? "#c2bdb0" : "#e5e5ea") : "#2c2c2e") : root.raise(root.surfaceOpaque, 0.17))
     readonly property real tintAmount: root.ryokuFrontend ? 0 : Math.max(0, Math.min(1, Number(root.appearance?.tint ?? 0) / 100))
     readonly property color tintSeed: root.legibleAccent(Appearance.wallpaperDominantColor, root.accent)
     function tinted(base: color, strength: real): color {

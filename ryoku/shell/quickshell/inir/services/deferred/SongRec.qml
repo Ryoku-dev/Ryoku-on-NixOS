@@ -5,6 +5,7 @@ import inir.modules.common
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import inir.services
 
 Singleton {
@@ -75,7 +76,7 @@ Singleton {
                 musicReconizedProc.running = true
             } else {
                 Quickshell.execDetached(["/usr/bin/notify-send", Translation.tr("Music Recognized"), root.recognizedTrack.title + " - " + root.recognizedTrack.subtitle, "-a", "Shell"])
-                Qt.openUrlExternally(root.recognizedTrack.url);
+                Spawn.runApp(["xdg-open", root.recognizedTrack.url], { label: "browser" });
             }
         } catch(e) {
             Quickshell.execDetached(["/usr/bin/notify-send", Translation.tr("Couldn't recognize music"), Translation.tr("Perhaps what you're listening to is too niche"), "-a", "Shell"])
@@ -117,9 +118,9 @@ Singleton {
             onStreamFinished: {
                 if (this.text === "") return
                 if (this.text == 0) {
-                    Qt.openUrlExternally(root.recognizedTrack.url);
+                    Spawn.runApp(["xdg-open", root.recognizedTrack.url], { label: "browser" });
                 } else {
-                    Qt.openUrlExternally("https://www.youtube.com/results?search_query=" + root.recognizedTrack.title + " - " + root.recognizedTrack.subtitle);
+                    Spawn.runApp(["xdg-open", "https://www.youtube.com/results?search_query=" + root.recognizedTrack.title + " - " + root.recognizedTrack.subtitle], { label: "browser" });
                 }
             }
         }

@@ -61,7 +61,7 @@ Item {
     K.Press {
         id: press
         radius: K.Style.radius
-        onClicked: Spawn.run(["ryoku-kit", "phone"])
+        onClicked: Spawn.runApp(["ryoku-kit", "phone"], { label: "ryoku-kit" })
     }
 
     K.Hint {
