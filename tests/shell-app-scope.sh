@@ -6,11 +6,19 @@ spawn="$root/ryoku/ui/Singletons/Spawn.qml"
 app="$root/ryoku/shell/quickshell/shell/services/AppLaunch.qml"
 module="$root/nix/modules/ryoku.nix"
 
-grep -Fq 'Quickshell.env("RYOKU_SYSTEMD_RUN")' "$spawn"
-grep -Fq '"--scope"' "$spawn"
-grep -Fq '"--slice=app.slice"' "$spawn"
-grep -Fq 'function runApp(command' "$spawn"
-[ "$(grep -Fc 'Spawn.runApp(' "$app")" -eq 2 ]
+host_app="$root/ryoku/cli/internal/host/app.go"
+# Modern upstream owns app scoping via ryoku-host app.
+grep -Fq 'function runApp(argv, opts)' "$spawn"
+grep -Fq 'const command = ["ryoku-host", "app"];' "$spawn"
+grep -Fq 'spawn.run(command);' "$spawn"
+grep -Fq 'func (a *App) App(args []string) int {' "$host_app"
+grep -Fq '"--scope"' "$host_app"
+grep -Fq '"--slice=app.slice"' "$host_app"
+grep -Fq '"--collect"' "$host_app"
+grep -Fq 'scrubAppEnvironment()' "$host_app"
+[ "$(grep -Fc 'Spawn.runApp(' "$app")" -eq 1 ]
+grep -Fq 'cwd: entry ? entry.workingDirectory' "$app"
+grep -Fq 'label: entry ? entry.id' "$app"
 
 python3 - "$module" <<'EOFTEST'
 from pathlib import Path
