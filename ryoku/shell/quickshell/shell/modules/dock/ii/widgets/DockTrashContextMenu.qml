@@ -39,7 +39,7 @@ DockContextMenuBase {
 
     onActionTriggered: actionId => {
         if (actionId === "open")
-            RyokuUi.Spawn.run(["xdg-open", "trash:///"]);
+            RyokuUi.Spawn.runApp(["xdg-open", "trash:///"], { label: "trash" });
         else if (actionId === "empty" && root.anchorItem && root.anchorItem.dockContent)
             root.anchorItem.dockContent.emptyTrash();
         root.close();

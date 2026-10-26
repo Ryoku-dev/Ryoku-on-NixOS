@@ -7,6 +7,7 @@ import inir.modules.common
 import inir.modules.common.widgets
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 ColumnLayout {
     id: root
@@ -45,7 +46,7 @@ ColumnLayout {
                 id: tagChip
                 required property var modelData
                 required property int index
-                label: tagChip.modelData.label
+                label: I18n.tr(tagChip.modelData.label)
                 selected: root.picker.discovery === tagChip.index && root.picker.series === null
                     && root.picker.query.length === 0
                 quiet: !tagChip.selected

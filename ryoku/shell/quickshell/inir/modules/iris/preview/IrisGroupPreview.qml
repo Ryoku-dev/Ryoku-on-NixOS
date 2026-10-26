@@ -221,7 +221,7 @@ ClippingRectangle {
             MaterialSymbol { anchors.centerIn: parent; text: row2.glyph; iconSize: Math.round(16 * root.d); color: row2.lit ? IrisStyle.inkOnAccent : IrisStyle.text }
         }
         IrisText { Layout.fillWidth: true; text: row2.title; font.weight: row2.lit ? Font.DemiBold : Font.Normal; elide: Text.ElideRight }
-        IrisText { text: row2.detail; color: IrisStyle.muted; font.pixelSize: IrisStyle.typeMeta }
+        IrisText { text: RyokuUi.I18n.tr(row2.detail); color: IrisStyle.muted; font.pixelSize: IrisStyle.typeMeta }
     }
 
     component Level: Rectangle {
@@ -286,7 +286,7 @@ ClippingRectangle {
             Layout.fillWidth: true
             spacing: Math.round(1 * root.d)
             IrisText { Layout.fillWidth: true; text: blockRow.title; font.weight: IrisStyle.weight(Font.DemiBold); elide: Text.ElideRight }
-            IrisText { Layout.fillWidth: true; text: blockRow.detail; color: IrisStyle.muted; font.pixelSize: IrisStyle.typeMeta; elide: Text.ElideRight }
+            IrisText { Layout.fillWidth: true; text: RyokuUi.I18n.tr(blockRow.detail); color: IrisStyle.muted; font.pixelSize: IrisStyle.typeMeta; elide: Text.ElideRight }
         }
     }
 

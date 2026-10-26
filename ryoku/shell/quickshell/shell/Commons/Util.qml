@@ -1,6 +1,7 @@
 pragma Singleton
 import Quickshell
 import QtQuick 6.11
+import Ryoku.Ui.Singletons
 
 // Shared utility helpers used across plugins. Pure functions only — no
 // state. Anything stateful belongs on Color, Style, or a service.
@@ -65,6 +66,14 @@ QtObject {
   // xdg-open) need. Prefer this over execDetached for anything built from input.
   function execArgv(argv) {
     Quickshell.execDetached(["bash", "-lc", 'exec "$@"', "bash"].concat(argv))
+  }
+
+  function execApp(command, label) {
+    Spawn.runApp(["bash", "-lc", command], { label: label || "app" })
+  }
+
+  function execAppArgv(argv, label) {
+    Spawn.runApp(["bash", "-lc", 'exec "$@"', "bash"].concat(argv), { label: label || argv[0] || "app" })
   }
 
   function isPlainObject(value) {

@@ -371,9 +371,9 @@ Singleton {
     function refreshClaudeSignIn(): void {
         const terminal = String((Config.options.apps && Config.options.apps.terminal) || "kitty -1");
         const terminalArgs = terminal.trim().split(/\s+/).filter(argument => argument.length > 0);
-        Spawn.run(terminalArgs.concat([
+        Spawn.runApp(terminalArgs.concat([
             "-e", "bash", Directories.scriptPath + "/ai/claude_signin_refresh.sh"
-        ]));
+        ]), { label: terminalArgs[0] || "terminal" });
         root.claudeSignInPending = true;
         credentialsPoll.ticks = 0;
         credentialsPoll.baseline = "";

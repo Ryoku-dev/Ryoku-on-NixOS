@@ -2045,6 +2045,24 @@
       "level": "internal"
     },
     {
+      "id": "ryoku.ryoku-idle.brightness-dim",
+      "group": "ryoku-internal",
+      "title": "Dim idle display",
+      "command": "ryoku-idle brightness-dim",
+      "description": "Lowers the panel to at most 20% and records its exact pre-idle level once.",
+      "tool": "ryoku-idle",
+      "level": "internal"
+    },
+    {
+      "id": "ryoku.ryoku-idle.brightness-restore",
+      "group": "ryoku-internal",
+      "title": "Restore idle brightness",
+      "command": "ryoku-idle brightness-restore",
+      "description": "Restores the exact panel level saved by the active idle-dim transaction.",
+      "tool": "ryoku-idle",
+      "level": "internal"
+    },
+    {
       "id": "ryoku.ryoku-idle.output-off",
       "group": "ryoku-internal",
       "title": "Turn idle displays off",

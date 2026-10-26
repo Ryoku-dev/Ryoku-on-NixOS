@@ -65,8 +65,16 @@ PanelWindow {
         compressedHeroHeight: 126 * s
     })
     readonly property real maxDrawerHeight: surfaceBudget.maxDrawerHeight
-    readonly property real actualCardCapacity: Math.max(
-        0, height - shadowPadTop - shadowPadBottom)
+    readonly property real contentSurfaceWidth:
+        cardWidth + shadowPadX * 2
+    readonly property real contentSurfaceHeight:
+        Math.max(0, lifecycleState.outerHeight)
+            + shadowPadTop + shadowPadBottom
+    readonly property real contentSurfaceX:
+        Math.round((width - contentSurfaceWidth) / 2)
+    readonly property real contentSurfaceY: stableTopMargin
+    readonly property real actualCardCapacity:
+        Math.max(0, contentSurfaceHeight - shadowPadTop - shadowPadBottom)
     readonly property bool frostActive: localFrost.frozenReady
         && lifecycleState.capture === Lifecycle.CAPTURE.READY
     readonly property var frostPlan: Lifecycle.frostPresentation({
@@ -99,17 +107,12 @@ PanelWindow {
     visible: mapWanted
     color: "transparent"
     surfaceFormat.opaque: false
-    implicitWidth: Math.ceil(cardWidth + shadowPadX * 2)
-    implicitHeight: Math.ceil(
-        Math.max(0, lifecycleState.outerHeight)
-            + shadowPadTop + shadowPadBottom)
+    anchors { top: true; bottom: true; left: true; right: true }
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "launcher"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
-    anchors { top: true }
-    margins.top: stableTopMargin
-    mask: inputEnabled ? cardInputRegion : emptyInputRegion
+    mask: inputEnabled ? fullInputRegion : emptyInputRegion
 
     function emitLifecycle(type, details, generation) {
         var event = {};
@@ -366,13 +369,6 @@ PanelWindow {
         }
     }
 
-    onLifecycleStateChanged: scheduleSync()
-    onHeightChanged: {
-        var heightGeneration = lifecycleState.generation;
-        Qt.callLater(function () {
-            win.observeActualGeometry(heightGeneration);
-        });
-    }
     onInvocationSurfaceChanged: {
         if (invocationSurface)
             scheduleSync();
@@ -398,20 +394,24 @@ PanelWindow {
     }
 
     Region {
-        id: cardInputRegion
-        item: visibleCardBounds
-        topLeftRadius: Math.round(win.longRadius * win.visualScale)
-        topRightRadius: Math.round(win.shortRadius * win.visualScale)
-        bottomLeftRadius: Math.round(win.shortRadius * win.visualScale)
-        bottomRightRadius: Math.round(win.longRadius * win.visualScale)
+        id: fullInputRegion
+        width: win.width
+        height: win.height
     }
 
-    Item {
-        id: visibleCardBounds
-        x: win.shadowPadX + win.cardWidth * (1 - win.visualScale) / 2
-        y: win.shadowPadTop + win.visualOffsetY
-        width: win.cardWidth * win.visualScale
-        height: win.presentedHeight * win.visualScale
+    MouseArea {
+        anchors.fill: parent
+        enabled: win.inputEnabled
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        onPressed: {
+            if (win.lifecycleState.phase === Lifecycle.PHASES.CLOSING)
+                return;
+            const generation = win.lifecycleState.generation;
+            const monitor = win.surfaceMonitor;
+            Qt.callLater(function () {
+                win.requestClose(generation, monitor);
+            });
+        }
     }
 
     // Capture lives outside the zero-opacity visual subtree so the scheduled
@@ -449,13 +449,19 @@ PanelWindow {
 
     Item {
         id: visualGroup
-        x: win.shadowPadX
-        y: win.shadowPadTop + win.visualOffsetY
+        x: win.contentSurfaceX + win.shadowPadX
+        y: win.contentSurfaceY + win.shadowPadTop + win.visualOffsetY
         width: win.cardWidth
         height: win.presentedHeight
         opacity: win.visualOpacity
         scale: win.visualScale
         transformOrigin: Item.Top
+
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+            onPressed: event => event.accepted = true
+        }
 
         RectangularShadow {
             width: visualGroup.width
@@ -527,8 +533,8 @@ PanelWindow {
                 lifecycleOuterHeight: win.lifecycleState.outerHeight
                 workAreaWidth: win.surfaceBudget.workAreaWidth
                 workAreaHeight: win.surfaceBudget.workAreaHeight
-                reportedSurfaceWidth: win.width
-                reportedSurfaceHeight: win.height
+                reportedSurfaceWidth: win.contentSurfaceWidth
+                reportedSurfaceHeight: win.contentSurfaceHeight
                 frostActive: win.frostActive
                 windowRail: win.windowRail
                 onRequestClose: win.requestClose(
@@ -564,14 +570,6 @@ PanelWindow {
             win.requestClose(generation, win.surfaceMonitor);
         }
     }
-
-    // The dismiss scrim lives as a top-level sibling surface (DismissScrim,
-    // driven from Main.qml): a layer surface nested inside this one is the
-    // lifecycle quickshell faults on under a compositor with no focus-grab
-    // protocol. This surface only exposes when it wants the scrim and the
-    // generation an outside press must close.
-    readonly property bool dismissWanted: !focusGrab.available && focusGrab.active
-    readonly property int dismissGeneration: focusGrab.generation
 
     FrameAnimation {
         id: lifecycleFrame

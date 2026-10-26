@@ -111,8 +111,8 @@ function normalize(value) {
             hidden.push(key);
         }
     }
-    var position = source.position === "top-right" || source.position === "center"
-        ? source.position : "top-left";
+    var position = source.position === "top-center" || source.position === "top-right"
+        || source.position === "center" ? source.position : "top-left";
     var gap = Number(source.edgeGap);
     var edgeGap = isFinite(gap) ? Math.max(0, Math.min(96, Math.round(gap))) : 12;
     return { position: position, edgeGap: edgeGap, sections: ordered, hidden: hidden };

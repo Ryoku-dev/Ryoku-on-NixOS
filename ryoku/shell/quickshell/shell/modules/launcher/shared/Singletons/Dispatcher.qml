@@ -27,6 +27,31 @@ Singleton {
         root.prefixes = p;
         root.notifyAsync();
     }
+    function unregister(provider) {
+        var id = provider ? String(provider.providerId || "") : "";
+        if (!id || root.registry[id] !== provider)
+            return;
+
+        var registry = {};
+        for (var key in root.registry)
+            if (key !== id)
+                registry[key] = root.registry[key];
+        root.registry = registry;
+
+        var nextPrefixes = {};
+        for (var prefix in root.prefixes)
+            if (root.prefixes[prefix] !== id)
+                nextPrefixes[prefix] = root.prefixes[prefix];
+        root.prefixes = nextPrefixes;
+
+        var busy = {};
+        for (var busyId in root.busyProviders)
+            if (busyId !== id)
+                busy[busyId] = root.busyProviders[busyId];
+        root.busyProviders = busy;
+        root.busyRevision++;
+        root.notifyAsync();
+    }
 
     // The provider a prefixed query targets, or "" for the default fan-out.
     function route(text) {

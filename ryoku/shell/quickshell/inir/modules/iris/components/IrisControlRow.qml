@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Layouts
 import inir.modules.common.widgets
 import inir.modules.iris.style
+import Ryoku.Ui.Singletons
 
 // One row of a Control Center expansion: glyph, name, a quiet detail and a switch. Tapping anywhere toggles.
 Item {
@@ -52,14 +53,14 @@ Item {
             spacing: 0
             IrisText {
                 Layout.fillWidth: true
-                text: row.label
+                text: I18n.tr(row.label)
                 font.pixelSize: IrisStyle.typeLabel
                 elide: Text.ElideRight
             }
             IrisText {
                 Layout.fillWidth: true
                 visible: text.length > 0
-                text: row.detail
+                text: I18n.tr(row.detail)
                 role: IrisText.Meta
                 elide: Text.ElideRight
             }

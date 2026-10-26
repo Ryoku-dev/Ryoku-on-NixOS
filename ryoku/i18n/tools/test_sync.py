@@ -20,6 +20,24 @@ class CopyDetectionTest(unittest.TestCase):
         self.assertFalse(sync._copy("%s"))
         self.assertFalse(sync._copy("%02d"))
 
+    def test_placeholder_tokens_survive_translation_roundtrip(self):
+        protected, tokens = sync.shield("%1m %2s left")
+        self.assertEqual(protected, "__RYOKU_PH_0__m __RYOKU_PH_1__s left")
+        self.assertEqual(sync.unshield("queda __RYOKU_PH_0__m __RYOKU_PH_1__s", tokens),
+                         "queda %1m %2s")
+
+
+
+class ShimaExtractionTest(unittest.TestCase):
+    def test_translation_bridge_call_is_catalogued(self):
+        calls = sync.TR_CALL.findall('text: Translation.tr("Dock settings")')
+        self.assertEqual([body for _, body in calls], ["Dock settings"])
+
+    def test_dynamic_model_copy_is_catalogued(self):
+        fields = sync.QML_MODEL_FIELD.findall(
+            '{ label: "Pieces", description: "Choose what Shima shows." }')
+        self.assertEqual(fields, ["Pieces", "Choose what Shima shows."])
+
 
 class LLMUnavailableTest(unittest.TestCase):
     def test_cmd_sync_returns_three_without_writing_catalog(self):

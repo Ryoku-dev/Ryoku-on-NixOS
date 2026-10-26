@@ -112,9 +112,6 @@ func shippedBinds() map[string]niriBind {
 		"column.center":        {action: "center-column"},
 		"window.focusPrevious": {action: "focus-window-previous"},
 
-		// Focus. The combined actions behave like the plain directional actions
-		// while a neighbour exists, then carry the same arrow onto the adjacent
-		// monitor instead of stopping at the workspace edge.
 		"focus.left":   {action: "focus-column-or-monitor-left"},
 		"focus.right":  {action: "focus-column-or-monitor-right"},
 		"focus.up":     {action: "focus-window-or-monitor-up"},

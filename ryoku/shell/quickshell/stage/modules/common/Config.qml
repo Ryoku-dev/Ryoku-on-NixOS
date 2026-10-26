@@ -587,8 +587,7 @@ Singleton {
 
     function _assignIncoming(target, key, next) {
         const current = target[key];
-        // Unknown keys have no adapter destination; the merged writer keeps
-        // them in the file while this staged apply skips them.
+        // Skip unknown adapter keys; the merged writer preserves them on disk.
         if (current === undefined || next === null || next === undefined)
             return;
         if (typeof next === "object" && !Array.isArray(next)) {
@@ -649,10 +648,7 @@ Singleton {
         }
     }
 
-    // If `onLoadFailed(FileNotFound)` fires, do not immediately seed defaults.
-    // During an update, hot reload, or restart the file can be briefly
-    // inaccessible. Retry after the grace period and create it only when it is
-    // still genuinely missing.
+    // Delay default creation because updates and hot reloads can briefly hide the file.
     Timer {
         id: missingFileRetryTimer
         interval: root.missingFileRetryInterval
@@ -1189,7 +1185,6 @@ Singleton {
     // because the in-memory adapter holds nothing but QML defaults, and the
     // broken file on disk is the only remaining source of truth.
     property bool configMalformed: false
-    // Drives ConfigHealthBanner: "ok" | "malformed" | "recovered" | "migrated" | "repaired" | "reset"
     property string configHealthState: "ok"
     property list<string> configHealthKeys: []
     property var _loggedUnknownKeySets: ({})
@@ -1234,8 +1229,7 @@ Singleton {
             if (nestedSchema && nestedDeclared) {
                 merged[key] = root.mergeDeclaredValues(rawValue, declaredValue, schemaValue);
             } else {
-                // Arrays and empty schema objects are values, not schemas for
-                // their contents, just as collectUnknownKeys treats them.
+                // Arrays and empty schema objects are values, matching collectUnknownKeys.
                 merged[key] = root.snapshotDefaults(declaredValue);
             }
         }
@@ -1968,8 +1962,7 @@ Singleton {
     function typesConflict(rawValue, qmlValue) {
         if (rawValue === null || rawValue === undefined)
             return false;
-        // Unknown keys have no counterpart to conflict with. The merged writer
-        // preserves them for doctor to reconcile.
+        // Unknown keys cannot conflict with an adapter type and remain for doctor reconciliation.
         if (qmlValue === undefined || qmlValue === null)
             return false;
 
@@ -2157,11 +2150,7 @@ Singleton {
         }
     }
 
-    // JsonAdapter has no property to bind an unrecognized key to, so it cannot
-    // expose that value to QML. The writer merges declared adapter values over
-    // the raw file instead of serializing the adapter alone, preserving unknown
-    // paths until doctor can retire or migrate them. This pass only identifies
-    // those paths for the shell log.
+    // JsonAdapter cannot bind unknown keys; writeMergedConfig preserves them for doctor.
     function collectUnknownKeys(rawObject, defaultObject, prefix, unknown) {
         for (const key in rawObject) {
             const path = prefix ? `${prefix}.${key}` : key;
@@ -2248,8 +2237,6 @@ Singleton {
         root.repairEnumViolations(raw, repaired);
 
         if (!migrated && repaired.length === 0) {
-            // Preserve the existing recovery copy behavior even though merged
-            // saves now keep these keys in the primary file too.
             if (unknown.length > 0) {
                 root.configRepaired = true;
                 Quickshell.execDetached(["cp", "--", root.filePath, `${root.filePath}.bak`]);
@@ -2258,7 +2245,7 @@ Singleton {
         }
 
         root.configRepaired = true;
-        // Keep a copy before healing so a mistaken reset remains recoverable.
+        // Back up before healing so an incorrect reset is recoverable.
         if (repaired.length > 0 || unknown.length > 0)
             Quickshell.execDetached(["cp", "--", root.filePath, `${root.filePath}.bak`]);
 
@@ -2326,7 +2313,6 @@ Singleton {
         root.notifyConfigHealth("reset", []);
     }
 
-    // Single point where config health changes reach the user.
     function notifyConfigHealth(state, keys) {
         root.configHealthState = state;
         root.configHealthKeys = keys;
@@ -6543,7 +6529,7 @@ Singleton {
             property JsonObject tray: JsonObject {
                 property bool monochromeIcons: true
                 property bool showItemId: false
-                property bool invertPinnedItems: false // Makes the below a whitelist for the tray and blacklist for the pinned area
+                property bool invertPinnedItems: false // Makes the below an allowlist for the tray and blocklist for the pinned area
                 property list<var> pinnedItems: ["Fcitx"]
                 property bool filterPassive: false
             }

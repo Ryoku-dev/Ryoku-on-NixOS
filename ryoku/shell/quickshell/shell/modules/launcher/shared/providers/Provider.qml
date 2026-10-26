@@ -1,4 +1,5 @@
 import QtQuick
+import "../Singletons"
 
 // Base contract every launcher provider implements. A provider answers a query
 // with result rows; the dispatcher routes a prefixed query to the matching
@@ -34,4 +35,6 @@ Item {
     function query(text) {
         return [];
     }
+
+    Component.onDestruction: Dispatcher.unregister(provider)
 }

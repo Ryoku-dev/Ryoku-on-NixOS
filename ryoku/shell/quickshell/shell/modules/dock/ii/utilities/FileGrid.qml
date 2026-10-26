@@ -88,7 +88,7 @@ GridLayout {
                 anchors.fill: parent
                 paths: [card.path]
                 dragIcon: UtilityFiles.isImage(card.path) ? "image-x-generic" : "text-x-generic"
-                onClicked: Spawn.run(["xdg-open", card.path])
+                onClicked: Spawn.runApp(["xdg-open", card.path], { label: "file" })
                 onDragFinished: action => grid.dragged(card.path, action)
             }
 

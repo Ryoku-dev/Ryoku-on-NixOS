@@ -73,9 +73,9 @@ UtilityTile {
     ]
     function menuAction(actionId) {
         if (actionId === "openFolder")
-            Spawn.run(["xdg-open", tile.folder]);
+            Spawn.runApp(["xdg-open", tile.folder], { label: "folder" });
         else if (actionId === "openLatest" && tile.latest)
-            Spawn.run(["xdg-open", tile.latest.path]);
+            Spawn.runApp(["xdg-open", tile.latest.path], { label: "file" });
     }
 
     // ── Square ──────────────────────────────────────────────────────────

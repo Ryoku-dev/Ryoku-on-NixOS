@@ -626,7 +626,7 @@ Singleton {
     // Fetch processes — one per label
     Process {
         id: authProcess
-        command: ["python3", Directories.stageScriptPath + "/email/oauth_server.py"]
+        command: ["ryoku-host", "app", "--label", "gmail-oauth", "--", "python3", Directories.stageScriptPath + "/email/oauth_server.py"]
         stdout: SplitParser {
             onRead: line => {
                 const marker = "RYOKU_GMAIL_AUTH:";

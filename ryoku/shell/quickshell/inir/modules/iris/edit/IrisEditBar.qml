@@ -14,6 +14,7 @@ import inir.modules.iris.settings
 import inir.modules.iris.style
 import inir.modules.iris.components
 import inir.modules.iris.field as Field
+import Ryoku.Ui.Singletons
 
 // Customize iRiS on the shell itself. The Island grows an edit capsule (Themes, Look, Pieces, undo, redo,
 // Done); each tool is a sheet grown from the capsule; touching anything on screen grows its inspector out
@@ -586,7 +587,7 @@ Item {
                 color: chip.on ? IrisStyle.accent : IrisStyle.text
             }
             IrisText {
-                text: chip.label
+                text: I18n.tr(chip.label)
                 color: chip.on ? IrisStyle.accent : IrisStyle.text
                 font.pixelSize: IrisStyle.typeLabel
                 font.weight: IrisStyle.weight(chip.on ? Font.DemiBold : Font.Medium)

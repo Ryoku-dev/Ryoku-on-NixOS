@@ -191,7 +191,7 @@ PanelWindow {
                 MouseArea {
                     id: btopMa
                     anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                    onClicked: { root.batteryVisible = false; btopRunner.running = false; btopRunner.running = true }
+                    onClicked: { root.batteryVisible = false; Spawn.runApp(["bash", "-c", "kitty 'btop'"], { label: "btop" }) }
                 }
             }
         }
@@ -227,5 +227,4 @@ PanelWindow {
         onTriggered: batPanel.refreshBatteryData()
     }
 
-    Process { id: btopRunner; command: ["bash", "-c", "kitty 'btop'"] }
 }

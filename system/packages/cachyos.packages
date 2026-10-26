@@ -41,10 +41,13 @@ lib32-zlib-ng-compat
 cachyos-hooks
 chwd
 
-# Vanilla CachyOS identity and desktop tools. cachyos-hello stays available from
-# the launcher, but its first-login autostart is suppressed by cachyos.sh.
+# Vanilla CachyOS identity and desktop tools. Shelly's Flatpak support is a
+# separately packaged backend; without it the Flatpak pages are visible but
+# every Flatpak operation fails. cachyos-hello stays available from the launcher,
+# but its first-login autostart is suppressed by cachyos.sh.
 lsb-release
 shelly
+shelly-flatpak-backend
 cachyos-hello
 
 # The CachyOS performance layer: sysctl, udev, modprobe, and systemd tuning that
@@ -77,6 +80,8 @@ steam
 cachyos-gaming-meta
 
 # Deliberate differences from vanilla CachyOS:
+# shelly-flatpak-backend: Ryoku enables Shelly's Flatpak pages; vanilla leaves
+# the split backend optional.
 # cachyos-fish-config and cachyos-zsh-config: Ryoku owns shell configuration.
 # cachyos-wallpapers and CachyOS Plymouth themes: Ryoku owns system branding.
 # cachyos-snapper-support: Ryoku owns Snapper and limine-snapper-sync.

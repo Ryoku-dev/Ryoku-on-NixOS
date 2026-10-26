@@ -187,6 +187,11 @@ func gatherReport(findings []finding) string {
 	packageManager, packageErr := doctorPackageManager()
 	initSystem, initErr := doctorInitSystem()
 
+	section("memory")
+	for _, memoryLine := range memoryReportLines(gatherMemoryDiagnostics(initSystem, doctorMemoryPaths)) {
+		line("%s", memoryLine)
+	}
+
 	section("ryoku")
 	cmd("ryoku", "status")
 	line("state dir:\n%s", captureOut("ls", "-la", filepath.Join(sys.Xdg("XDG_STATE_HOME", ".local/state"), "ryoku")))

@@ -90,7 +90,7 @@ Provider {
                 icon: "",
                 execute: function () {
                     var url = String(entry.url || "").replace(/\{query\}/g, encodeURIComponent(text));
-                    Qt.openUrlExternally(url);
+                    Spawn.runApp(["xdg-open", url], { label: "browser" });
                 }
             }]
         };

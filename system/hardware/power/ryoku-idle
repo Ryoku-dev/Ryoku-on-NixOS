@@ -13,6 +13,9 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 IDLE_CONF="${RYOKU_HYPRIDLE_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/ryoku/hypridle.conf}"
 PROC_DIR="${RYOKU_PROC_DIR:-/proc}"
 OUTPUT_STATE_DIR="${RYOKU_IDLE_OUTPUT_STATE_DIR:-${XDG_RUNTIME_DIR:-/tmp}/ryoku-idle-output}"
+BRIGHTNESS_STATE_DIR="${RYOKU_IDLE_BRIGHTNESS_STATE_DIR:-${XDG_RUNTIME_DIR:-/tmp}/ryoku-idle-brightness}"
+BRIGHTNESS_STATE="$BRIGHTNESS_STATE_DIR/state"
+BRIGHTNESS_LOCK="$BRIGHTNESS_STATE_DIR/lock"
 WM_CALL_TIMEOUT="${RYOKU_WM_CALL_TIMEOUT:-2s}"
 OUTPUT_ON_RETRIES="${RYOKU_OUTPUT_ON_RETRIES:-20}"
 OUTPUT_ON_RETRY_DELAY="${RYOKU_OUTPUT_ON_RETRY_DELAY:-0.1}"
@@ -159,6 +162,64 @@ idle_daemon() {
 # when ryoku-power is unreachable.
 idle_policy() { ryoku_power idle get 2>/dev/null || true; }
 
+backlight_device() {
+  local device=""
+  if command -v ryoku-hw-backlight >/dev/null 2>&1; then
+    device="$(ryoku-hw-backlight 2>/dev/null || true)"
+  fi
+  if [[ -z $device ]]; then
+    IFS=, read -r device _ < <(brightnessctl --class=backlight --machine-readable 2>/dev/null || true)
+  fi
+  [[ -n $device ]] || return 1
+  printf '%s\n' "$device"
+}
+
+# Use a relative decrease so a panel already below 20% is never brightened.
+brightness_dim() (
+  local device current maximum target delta tmp
+  mkdir -p "$BRIGHTNESS_STATE_DIR"
+  chmod 700 "$BRIGHTNESS_STATE_DIR"
+  exec 9>"$BRIGHTNESS_LOCK"
+  flock 9
+  [[ ! -e $BRIGHTNESS_STATE ]] || return 0
+
+  device="$(backlight_device)" || return 0
+  current="$(brightnessctl --device="$device" get 2>/dev/null || true)"
+  maximum="$(brightnessctl --device="$device" max 2>/dev/null || true)"
+  [[ $current =~ ^[0-9]+$ && $maximum =~ ^[1-9][0-9]*$ ]] || return 1
+
+  tmp="$BRIGHTNESS_STATE.$$"
+  (umask 077; printf '%s\t%s\n' "$device" "$current" >"$tmp")
+  mv -f "$tmp" "$BRIGHTNESS_STATE"
+
+  target=$((maximum * 20 / 100))
+  (( target > 0 )) || target=1
+  if (( current > target )); then
+    delta=$((current - target))
+    if ! brightnessctl --quiet --min-value=0 --device="$device" set "${delta}-"; then
+      rm -f "$BRIGHTNESS_STATE"
+      return 1
+    fi
+  fi
+)
+
+# One state marker makes concurrent listener dim/restore hooks a single transaction.
+brightness_restore() (
+  local device level extra
+  mkdir -p "$BRIGHTNESS_STATE_DIR"
+  chmod 700 "$BRIGHTNESS_STATE_DIR"
+  exec 9>"$BRIGHTNESS_LOCK"
+  flock 9
+  [[ -r $BRIGHTNESS_STATE ]] || return 0
+  read -r device level extra <"$BRIGHTNESS_STATE" || true
+  if [[ -z ${device:-} || ! ${level:-} =~ ^[0-9]+$ || -n ${extra:-} ]]; then
+    rm -f "$BRIGHTNESS_STATE"
+    return 0
+  fi
+  brightnessctl --quiet --min-value=0 --device="$device" set "$level"
+  rm -f "$BRIGHTNESS_STATE"
+)
+
 # idle is active when it is enabled AND this host should run it: a laptop always,
 # a desktop only when the user opted in with onDesktops.
 idle_active() {
@@ -220,8 +281,8 @@ render() {
     printf '}\n'
     if [[ $active == true ]]; then
       # Dim the backlight.
-      emit_listener "$b_dim"  on-battery 'brightnessctl -s set 20%' 'brightnessctl -r'
-      emit_listener "$a_dim"  on-ac      'brightnessctl -s set 20%' 'brightnessctl -r'
+      emit_listener "$b_dim"  on-battery 'ryoku-idle brightness-dim' 'ryoku-idle brightness-restore'
+      emit_listener "$a_dim"  on-ac      'ryoku-idle brightness-dim' 'ryoku-idle brightness-restore'
       # Lock the session.
       emit_listener "$b_lock" on-battery 'ryoku-shell lock'
       emit_listener "$a_lock" on-ac      'ryoku-shell lock'
@@ -287,6 +348,7 @@ render_swayidle_args() {
 # process that still has the pre-upgrade direct-suspend hooks mapped remains
 # alive.
 stop_idle_daemon() {
+  brightness_restore
   local pids
   for _generation in 1 2; do
     pids="$(idle_daemon_pids)"
@@ -360,9 +422,9 @@ apply_policy() {
 
 usage() {
   cat <<'USAGE'
-Usage: ryoku-idle [start|stop|apply|render|status|is-laptop|on-battery|on-ac|output-off|output-on]
+Usage: ryoku-idle [start|stop|apply|render|status|is-laptop|on-battery|on-ac|brightness-dim|brightness-restore|output-off|output-on]
 
-start      render the policy, then launch hypridle or swayidle when idle is active
+start      restore an interrupted dim, render policy, then launch the idle daemon
 stop       stop every current-user idle daemon process and verify it is gone
 apply      render the policy and restart the idle daemon if it is running
 render     render the hypridle config from power.json without touching the daemon
@@ -370,6 +432,8 @@ status     print device class, daemon availability/running state, idle state, co
 is-laptop  return ryoku-hw-laptop's laptop detection status
 on-battery return 0 on battery, 1 on AC (gates the battery idle timeouts)
 on-ac      return 0 on AC, 1 on battery (gates the AC idle timeouts)
+brightness-dim lower the panel to 20% only when its current level is higher
+brightness-restore restore the exact raw panel level saved by brightness-dim
 output-off mark a new idle-display generation and turn outputs off
 output-on  retry output wake for the current generation; a newer off cancels it
 
@@ -383,6 +447,7 @@ Env:
   RYOKU_POWER_SUPPLY_DIR=/path/to/power_supply
   RYOKU_PROC_DIR=/path/to/proc
   RYOKU_IDLE_OUTPUT_STATE_DIR=/path/to/runtime/state
+  RYOKU_IDLE_BRIGHTNESS_STATE_DIR=/path/to/runtime/state
   RYOKU_WM_CALL_TIMEOUT=2s
   RYOKU_OUTPUT_ON_RETRIES=20
   RYOKU_OUTPUT_ON_RETRY_DELAY=0.1
@@ -393,6 +458,7 @@ USAGE
 cmd="${1:-start}"
 case "$cmd" in
   start)
+    brightness_restore
     render
     if ! idle_active; then
       [[ ${RYOKU_IDLE_VERBOSE:-0} == 1 ]] && printf 'ryoku-idle: idle policy inactive (disabled, or a desktop without onDesktops)\n'
@@ -418,6 +484,12 @@ case "$cmd" in
     ;;
   apply)
     apply_policy
+    ;;
+  brightness-dim)
+    brightness_dim
+    ;;
+  brightness-restore)
+    brightness_restore
     ;;
   render)
     render

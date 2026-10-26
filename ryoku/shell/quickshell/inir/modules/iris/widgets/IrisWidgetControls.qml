@@ -11,6 +11,7 @@ import inir.modules.common.functions
 import inir.modules.common.widgets
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 ColumnLayout {
     id: root
@@ -112,7 +113,7 @@ ColumnLayout {
             anchors.leftMargin: Math.round(10 * IrisStyle.density)
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: action.label
+            text: I18n.tr(action.label)
             color: action.ink
             font.pixelSize: IrisStyle.typeLabel
             elide: Text.ElideRight
@@ -252,7 +253,7 @@ ColumnLayout {
 
                 Caption {
                     visible: option.choice
-                    text: option.modelData.label
+                    text: I18n.tr(option.modelData.label)
                 }
                 RowLayout {
                     visible: option.choice
@@ -264,7 +265,7 @@ ColumnLayout {
                             required property var modelData
                             Layout.fillWidth: true
                             icon: modelData.icon ?? ""
-                            label: modelData.label
+                            label: I18n.tr(modelData.label)
                             selected: option.value === modelData.value
                             onClicked: option.store(modelData.value)
                         }
@@ -293,7 +294,7 @@ ColumnLayout {
                         anchors.right: optionSwitch.left
                         anchors.rightMargin: Math.round(10 * root.d)
                         anchors.verticalCenter: parent.verticalCenter
-                        text: option.modelData.label
+                        text: I18n.tr(option.modelData.label)
                         font.pixelSize: IrisStyle.typeLabel
                         elide: Text.ElideRight
                     }
@@ -355,7 +356,7 @@ ColumnLayout {
                         required property var modelData
                         Layout.fillWidth: true
                         icon: modelData.icon
-                        label: modelData.label
+                        label: I18n.tr(modelData.label)
                         selected: root.widget.widgetDesign === modelData.value
                         onClicked: root.widget.pickDesign(modelData.value)
                     }
@@ -458,7 +459,7 @@ ColumnLayout {
                         IrisText {
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
-                            text: swatch.modelData.label
+                            text: I18n.tr(swatch.modelData.label)
                             color: swatch.chosen ? IrisStyle.text : IrisStyle.textSecondary
                             font.pixelSize: IrisStyle.typeMeta
                             font.weight: swatch.chosen ? Font.DemiBold : Font.Normal

@@ -151,8 +151,11 @@ Singleton {
     }
 
     function focusChanged() {
+        const next = Wm.focusedWindow ? Wm.focusedWindow.appId : "";
+        if (next === root.focusedClass)
+            return;
         root.bankFocused();
-        root.focusedClass = Wm.focusedWindow ? Wm.focusedWindow.appId : "";
+        root.focusedClass = next;
         root.focusSinceMs = Date.now();
     }
 

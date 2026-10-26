@@ -1077,9 +1077,7 @@ Scope {
                     islandShapes: islandLoader.item?.fieldShapes ?? []
                 }
 
-                // The universal per-output host in shell.qml owns the selected
-                // dock. Its body arrives through GlobalStates; this null loader
-                // keeps the chassis's optional interaction hooks uncomplicated.
+                // Keep the inert loader because the Iris chassis expects optional dock-loader hooks.
                 Loader {
                     id: dockLoader
                     active: false

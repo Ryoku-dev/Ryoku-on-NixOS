@@ -96,7 +96,7 @@ UtilityTile {
             Spawn.run(["ryoku-shell", "clip-copy", UtilityFiles.imageMime(tile.latest.path), tile.latest.path]);
     }
     function openFolder() {
-        Spawn.run(["xdg-open", tile.folder]);
+        Spawn.runApp(["xdg-open", tile.folder], { label: "screenshots" });
     }
     function menuAction(actionId) {
         if (actionId === "take")

@@ -2,11 +2,7 @@
 // The pill grows from the resting island to the full panel, so the shortcut reads
 // as the island opening; the head is the clock, then the search row and the apps.
 //
-// The window itself never resizes -- it maps at the launcher's full size and the
-// pill inside it grows -- so the compositor sees one buffer size for the whole
-// morph. Input is masked to the pill, not the window, so the desktop around the
-// island stays clickable; that leaves Escape (or Super+Space again) as the way
-// out, since there is no click-outside backdrop to press.
+// The window maps at full size so the pill can morph without buffer resizes.
 
 //@ pragma UseQApplication
 
@@ -68,8 +64,6 @@ Scope {
     readonly property int listY: 126
     readonly property int listH: root.visibleRows * root.rowH
     readonly property int panelH: root.listY + root.listH + 24
-    readonly property int windowW: root.panelW + 2 * (Island.shadowBleed + 30)
-    readonly property int windowH: Island.topGap + root.panelH + Island.shadowBleed + 30
 
     readonly property color fill: Theme.shadow
     readonly property color ink: Theme.ink(fill, 7)
@@ -142,9 +136,7 @@ Scope {
             WlrLayershell.namespace: "launcher"
             WlrLayershell.keyboardFocus:
                 root.openRequested ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-            anchors { top: true }
-            implicitWidth: root.windowW
-            implicitHeight: root.windowH
+            anchors { top: true; bottom: true; left: true; right: true }
 
             // The morph starts only once the surface is on screen: a Behavior
             // started at the state flip would run its course while the window is
@@ -167,12 +159,11 @@ Scope {
                 Island.restHeight / 2
                     + (root.clockCentreY - Island.restHeight / 2) * p
 
-            mask: Region {
-                x: Math.round((win.width
-                    - (root.openRequested ? root.panelW : win.startWidth)) / 2)
-                y: Island.topGap
-                width: root.openRequested ? root.panelW : win.startWidth
-                height: root.openRequested ? root.panelH : Island.restHeight
+            MouseArea {
+                anchors.fill: parent
+                enabled: root.openRequested
+                acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                onPressed: Qt.callLater(root.hide)
             }
 
             RectangularShadow {
@@ -198,6 +189,11 @@ Scope {
                 // Everything below the clock is laid out for the open panel; the
                 // clip is what makes it arrive as the island grows.
                 clip: true
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                    onPressed: event => event.accepted = true
+                }
 
                 Bar.Clock { id: clock }
 

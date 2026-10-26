@@ -53,8 +53,6 @@ Item {
     readonly property bool colorAutoOn: menu.vals.colorAuto !== false
     readonly property string colorHex: (typeof menu.vals.color === "string") ? menu.vals.color : ""
     readonly property string colorMode: menu.colorAutoOn ? "auto" : (menu.colorHex.length > 0 ? "custom" : "default")
-    // Cut modes offer this tile a place above every in-front cut-out. Each
-    // mode owns its own lift list.
     readonly property string stageMode: menu.wall === "" ? "off"
         : StageCfg.StageBackend.effectFor(menu.wall)
     readonly property bool stageActive: menu.stageMode === "depth"

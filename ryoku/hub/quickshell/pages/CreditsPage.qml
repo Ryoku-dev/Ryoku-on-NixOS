@@ -270,7 +270,7 @@ Item {
                                     font.pixelSize: Tokens.fSmall
                                     font.underline: crewHov.hovered
                                     HoverHandler { id: crewHov; cursorShape: Qt.PointingHandCursor }
-                                    TapHandler { onTapped: Qt.openUrlExternally(modelData.url) }
+                                    TapHandler { onTapped: Spawn.runApp(["xdg-open", modelData.url], { label: "browser" }) }
                                 }
                                 Text {
                                     visible: index < pg.testers.length - 1
@@ -351,7 +351,7 @@ Item {
         height: Tokens.rowH
 
         HoverHandler { id: hov; enabled: cr.linked; cursorShape: Qt.PointingHandCursor }
-        TapHandler { enabled: cr.linked; onTapped: Qt.openUrlExternally(cr.url) }
+        TapHandler { enabled: cr.linked; onTapped: Spawn.runApp(["xdg-open", cr.url], { label: "browser" }) }
 
         Rectangle {
             anchors.fill: parent

@@ -10,6 +10,7 @@ import inir.modules.common.widgets
 import inir.modules.common.functions
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 Item {
     id: root
@@ -468,7 +469,7 @@ Item {
                             required property var modelData
                             width: irisFilterSwitch.width / 4 - Math.round(1.5 * IrisStyle.density)
                             height: parent.height
-                            text: modelData.label
+                            text: I18n.tr(modelData.label)
                             selected: root.filterMode === modelData.key
                             quiet: !selected
                             buttonRadius: height / 2
@@ -495,7 +496,7 @@ Item {
                         id: filterButton
                         required property var modelData
                         buttonIcon: modelData.icon
-                        buttonText: modelData.label
+                        buttonText: I18n.tr(modelData.label)
                         leftmost: true
                         rightmost: true
                         toggled: root.filterMode === modelData.key

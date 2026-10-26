@@ -2,6 +2,7 @@ import QtQuick
 
 import stage.modules.common.functions
 import stage.modules.ii.editMode
+import shell.services
 import "./widgets"
 import "."
 
@@ -276,12 +277,12 @@ DockButton {
                 }
                 if (event.button === Qt.MiddleButton) {
                     root.playLaunchAnimation();
-                    root.desktopEntry?.execute();
+                    AppLaunch.run(root.desktopEntry, null);
                     return;
                 }
                 if (!appToplevel || appToplevel.toplevels.length === 0) {
                     root.playLaunchAnimation();
-                    root.desktopEntry?.execute();
+                    AppLaunch.run(root.desktopEntry, null);
                     return;
                 }
                 lastFocused = (lastFocused + 1) % appToplevel.toplevels.length;

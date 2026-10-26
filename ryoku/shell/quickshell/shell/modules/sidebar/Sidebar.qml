@@ -44,10 +44,12 @@ Scope {
     readonly property real roomY: clearances.top + gap
     readonly property real panelX: placement === "top-right" || placement === "right"
         ? roomX + availableWidth - wantedWidth
-        : placement === "center" ? roomX + (availableWidth - wantedWidth) / 2 : roomX
+        : placement === "top-center" || placement === "center"
+            ? roomX + (availableWidth - wantedWidth) / 2 : roomX
     readonly property real panelY: placement === "center"
         ? roomY + (availableHeight - wantedHeight) / 2 : roomY
     readonly property int panelTransformOrigin: placement === "top-right" ? Item.TopRight
+        : placement === "top-center" ? Item.Top
         : placement === "left" ? Item.Left
         : placement === "right" ? Item.Right
         : placement === "center" ? Item.Center : Item.TopLeft
@@ -58,8 +60,9 @@ Scope {
 
     function normalizedPlacement(value, fallback) {
         const candidate = String(value ?? "");
-        return candidate === "top-left" || candidate === "top-right"
-            || candidate === "left" || candidate === "right" || candidate === "center"
+        return candidate === "top-left" || candidate === "top-center"
+            || candidate === "top-right" || candidate === "left"
+            || candidate === "right" || candidate === "center"
             ? candidate : fallback;
     }
 

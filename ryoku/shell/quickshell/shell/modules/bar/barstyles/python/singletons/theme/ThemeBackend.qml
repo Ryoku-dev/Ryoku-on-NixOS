@@ -2,6 +2,7 @@ pragma Singleton
 import QtQuick
 import shell.services
 import "../../"
+import Ryoku.Ui.Singletons as Ui
 
 Item {
     id: root
@@ -34,6 +35,26 @@ Item {
     readonly property bool glassActive: blurBackground && elementOpacity < 0.999
 
     readonly property var palette: (overrides && overrides.colors) ? overrides.colors : ({})
+    readonly property string dockLauncherColorMode: {
+        const mode = overrides.dockLauncherColorMode;
+        return mode === "accent" || mode === "custom" ? mode : "bar";
+    }
+    readonly property string dockLauncherCustomColor: {
+        const value = overrides.dockLauncherCustomColor;
+        return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value)
+            ? value : Ui.Tokens.paper.toString();
+    }
+    readonly property color dockLauncherBase: dockLauncherColorMode === "accent"
+        ? Ui.Tokens.sun
+        : (dockLauncherColorMode === "custom" ? dockLauncherCustomColor : Ui.Tokens.paper)
+    readonly property color dockLauncherText: Theme.inkOn(dockLauncherBase, Ui.Tokens.ink, 4.5)
+    readonly property color dockLauncherSubtext0: Theme.inkOn(dockLauncherBase, Ui.Tokens.inkDim, 4.5)
+    readonly property color dockLauncherSurface0: dockLauncherColorMode === "bar"
+        ? Ui.Tokens.paperLift : mix(dockLauncherBase, dockLauncherText, 0.10)
+    readonly property color dockLauncherSurface1: mix(dockLauncherBase, dockLauncherText, 0.18)
+    readonly property color dockLauncherSurface2: mix(dockLauncherBase, dockLauncherText, 0.28)
+    readonly property color dockLauncherAccent: Theme.inkOn(dockLauncherBase, Ui.Tokens.sun, 3.0)
+    readonly property color dockLauncherOnAccent: Theme.inkOn(dockLauncherAccent, dockLauncherText, 4.5)
 
     function mix(a, b, t) {
         return Qt.rgba(a.r + (b.r - a.r) * t,

@@ -371,7 +371,7 @@ Item {
             id: tapOpen
             onTapped: {
                 const cmd = (root.musicApp && root.musicApp.length > 0) ? root.musicApp : "ryotunes";
-                Quickshell.execDetached(["sh", "-c", cmd]);
+                Spawn.runApp(["sh", "-c", cmd], { label: cmd.split(/\s+/)[0] || "music" });
             }
         }
     }

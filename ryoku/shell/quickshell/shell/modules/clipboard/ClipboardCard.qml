@@ -54,13 +54,30 @@ Rectangle {
     layer.enabled: card.isImage
     layer.smooth: true
     color: card.selected
-        ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.18)
+        ? Theme.surfaceContainerHighest
         : (hover.hovered ? Theme.surfaceContainerHigh : Theme.surfaceContainer)
-    border.width: card.selected ? Math.max(3, Theme.borderWidth) : Theme.borderWidth
-    border.color: (card.starred || card.selected) ? Theme.primary : Theme.outlineVariant
+    border.width: card.selected ? Math.max(2, Math.round(2 * card.s)) : Theme.borderWidth
+    border.color: card.selected
+        ? Theme.primary
+        : (card.starred ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.6) : Theme.outlineVariant)
 
     Behavior on color { ColorAnimation { duration: Motion.rowFade; easing.type: Motion.easeType; easing.bezierCurve: Motion.easeCurve } }
     Behavior on border.color { ColorAnimation { duration: Motion.rowFade; easing.type: Motion.easeType; easing.bezierCurve: Motion.easeCurve } }
+    Behavior on border.width { NumberAnimation { duration: Motion.rowFade; easing.type: Motion.easeStandard } }
+
+    // Left selection accent indicator
+    Rectangle {
+        id: selIndicator
+        z: 4
+        anchors.left: parent.left
+        anchors.leftMargin: Math.round(4 * card.s)
+        anchors.verticalCenter: parent.verticalCenter
+        width: Math.round(3 * card.s)
+        height: Math.round(parent.height * 0.45)
+        radius: width / 2
+        color: Theme.primary
+        visible: card.selected
+    }
 
     // Whole-card hover, passive so it stays true while the pointer is over the
     // corner controls (a child MouseArea would otherwise steal it and flicker).
@@ -85,7 +102,7 @@ Rectangle {
         anchors.margins: Theme.borderWidth
         height: Math.round(48 * card.s)
         visible: card.isImage
-        opacity: (hover.hovered || card.starred) ? 1 : 0
+        opacity: (hover.hovered || card.starred || card.selected) ? 1 : 0
         gradient: Gradient {
             GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.5) }
             GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.0) }
@@ -104,6 +121,7 @@ Rectangle {
         // Keep the multi-line preview clear of the corner star.
         anchors.rightMargin: card.pad + Math.round(24 * card.s)
         spacing: Math.round(4 * card.s)
+        z: 1
 
         // Meta line: "#id" for text, the mime for binary.
         Text {
@@ -162,12 +180,12 @@ Rectangle {
         spacing: Math.round(2 * card.s)
         z: 3
 
-        // Delete: subtle, hover-only, never competes with the star.
+        // Delete: subtle, hover-only or selected, never competes with the star.
         Rectangle {
             width: Math.round(24 * card.s)
             height: width
             radius: width / 2
-            visible: hover.hovered
+            visible: hover.hovered || card.selected
             color: delArea.containsMouse
                 ? Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.16)
                 : "transparent"
@@ -179,7 +197,7 @@ Rectangle {
                 font.pixelSize: Math.round(Theme.iconSm * card.s * 0.9)
                 color: delArea.containsMouse
                     ? Theme.error
-                    : Qt.rgba(card.controlInk.r, card.controlInk.g, card.controlInk.b, 0.6)
+                    : Qt.rgba(card.controlInk.r, card.controlInk.g, card.controlInk.b, card.selected ? 0.7 : 0.6)
             }
 
             MouseArea {
@@ -191,13 +209,13 @@ Rectangle {
             }
         }
 
-        // Star: shown on hover or whenever the entry is starred. Filled + accent
+        // Star: shown on hover, whenever the entry is starred, or on selection. Filled + accent
         // while starred; clicking it toggles state without copying.
         Rectangle {
             width: Math.round(26 * card.s)
             height: width
             radius: width / 2
-            visible: hover.hovered || card.starred
+            visible: hover.hovered || card.starred || card.selected
             color: card.starred
                 ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.20)
                 : (starArea.containsMouse

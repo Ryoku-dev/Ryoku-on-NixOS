@@ -93,8 +93,6 @@ Scope {
             dockWidth: fullDockW,
             dockHeight: fullDockH,
             dockThickness: opts.isVertical ? fullDockW : fullDockH,
-            // What windows keep clear of. Keep each style's existing reserve,
-            // then add the user's shared clearance outside the visible tray.
             unmagnifiedThickness: (opts.isVertical ? baseContentW + (isFullWidth ? 0 : crossPad) : baseContentH + (isFullWidth ? 0 : crossPad)) + edgeGap,
             surfaceMargin: floatingPad + edgeGap,
             // Main-axis room the tray keeps from the window edge for its shadow.

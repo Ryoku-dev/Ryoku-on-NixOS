@@ -213,14 +213,13 @@ func TestRunitSupervisedTransientLifecycle(t *testing.T) {
 }
 
 func TestSessionStartChainAndFailureSemantics(t *testing.T) {
-	runner := &fakeRunner{results: []Result{{Code: 1}, {Code: 1}, {Code: 1}, {}, {}}}
+	runner := &fakeRunner{results: []Result{{Code: 1}, {Code: 1}, {}, {}}}
 	app, _, _ := testApp(runner, map[string]string{"RYOKU_HOST_INIT": "systemd"})
 	if code := app.Session([]string{"start", "xdg-desktop-portal-gtk.service"}); code != ExitOK {
 		t.Fatal(code)
 	}
 	want := []string{
 		"dbus-update-activation-environment --systemd --all",
-		"systemctl --user daemon-reload",
 		"ryoku-reload-cover begin boot",
 		"ryoku-power-cutover session-start-logged",
 		"systemctl --user try-restart xdg-desktop-portal.service xdg-desktop-portal-gtk.service",
@@ -230,13 +229,12 @@ func TestSessionStartChainAndFailureSemantics(t *testing.T) {
 			t.Fatalf("call %d = %q", index, got)
 		}
 	}
-
-	runner = &fakeRunner{results: []Result{{}, {}, {}, {Code: 1}}}
+	runner = &fakeRunner{results: []Result{{}, {}, {Code: 1}}}
 	app, _, _ = testApp(runner, map[string]string{"RYOKU_HOST_INIT": "systemd"})
 	if code := app.Session([]string{"start"}); code != ExitFailure {
 		t.Fatalf("cutover exit = %d", code)
 	}
-	if len(runner.commands) != 4 {
+	if len(runner.commands) != 3 {
 		t.Fatalf("portal restart ran after failed cutover")
 	}
 }

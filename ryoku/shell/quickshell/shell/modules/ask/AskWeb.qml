@@ -88,7 +88,7 @@ Item {
                 }
             }
             HoverHandler { enabled: String(provider.answer.url || "").length > 0; cursorShape: Qt.PointingHandCursor }
-            TapHandler { enabled: String(provider.answer.url || "").length > 0; onTapped: Qt.openUrlExternally(provider.answer.url) }
+            TapHandler { enabled: String(provider.answer.url || "").length > 0; onTapped: Spawn.runApp(["xdg-open", provider.answer.url], { label: "browser" }) }
         }
 
         Text {

@@ -394,7 +394,7 @@ Item {
     function rollback() {
         if (!pg.snapshotsSupported || pg.snapshot === "")
             return;
-        Spawn.runApp(["kitty", "--class=dev.ryoku.update", "-e", "sh", "-c", "ryoku rollback \"$1\"; printf '\\npress enter to close '; read -r _", "sh", pg.snapshot]);
+        Spawn.runApp(["kitty", "--class=dev.ryoku.update", "-e", "sh", "-c", "ryoku rollback \"$1\"; printf '\\npress enter to close '; read -r _", "sh", pg.snapshot], { label: "kitty" });
         pg.dismiss();
     }
 
@@ -695,7 +695,7 @@ Item {
                                 var run = Updates.buildState === "building" || Updates.buildState === "failed"
                                     ? Updates.buildRun : Updates.checkRun;
                                 if (run !== "")
-                                    Qt.openUrlExternally(run);
+                                    Spawn.runApp(["xdg-open", run], { label: "browser" });
                             }
 
                             Text {

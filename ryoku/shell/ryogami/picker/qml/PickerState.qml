@@ -64,6 +64,9 @@ QtObject {
     readonly property string hoverKey: (state.field && state.view && state.field.hoveredIndex >= 0)
         ? (state.view.get(state.field.hoveredIndex).key || "")
         : ""
+    readonly property string hoverType: (state.field && state.view && state.field.hoveredIndex >= 0)
+        ? (state.view.get(state.field.hoveredIndex).type || "static")
+        : ""
 
     signal toastRequested(string message, string kind)
     signal hideRequested()
@@ -75,6 +78,17 @@ QtObject {
     property SettingValue _livePreview: SettingValue { key: "selector.livePreview" }
     property SettingValue _shellHover: SettingValue { key: "shell.hoverPreview" }
     property SettingValue _barAlwaysVisible: SettingValue { key: "general.filterBarAlwaysVisible" }
+
+    property Connections _livePreviewConn: Connections {
+        target: state._livePreview
+        function onValueChanged() {
+            if (state._bool(state._livePreview))
+                return
+            state._hoverDwell.stop()
+            Theme.previewPalette = null
+            Daemon.call("wall.preview.clear", {})
+        }
+    }
 
     function _bool(sv) { return sv && sv.value === true }
 
@@ -232,6 +246,7 @@ QtObject {
         onTriggered: state._pushHover()
     }
     onHoverKeyChanged: if (state._hoverActive) state._hoverDwell.restart()
+    onHoverTypeChanged: if (state._hoverActive) state._hoverDwell.restart()
 
     // Accepts either chrome role names or the desktop's material names.
     function _chromePalette(p) {
@@ -260,8 +275,15 @@ QtObject {
                         return
                     Theme.previewPalette = (!error && result) ? state._chromePalette(result) : null
                 })
+                // The desktop previews the hovered still beside its palette;
+                // a video or a scene has no still for the daemon to paint.
+                if (state.hoverType === "static")
+                    Daemon.call("wall.preview", { key: key })
+                else
+                    Daemon.call("wall.preview.clear", {})
             } else {
                 Theme.previewPalette = null
+                Daemon.call("wall.preview.clear", {})
             }
         }
         if (state._bool(state._shellHover))
@@ -276,6 +298,7 @@ QtObject {
             state._hoverDwell.stop()
             if (Theme.previewPalette)
                 Theme.previewPalette = null
+            Daemon.call("wall.preview.clear", {})
             if (state._bool(state._shellHover))
                 Daemon.call("palette.hover", ({}))
             Settings.flush()

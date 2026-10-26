@@ -11,6 +11,7 @@ import inir.modules.common.functions
 import inir.modules.common.models
 import inir.services
 import inir.modules.mediaControls.components
+import Ryoku.Ui.Singletons
 
 /**
  * AlbumArtPlayer - Artwork-focused design with large cover art
@@ -118,7 +119,7 @@ Item {
         ZzzTechFrame {
             anchors.fill: parent
             visible: Appearance.zzzEverywhere
-            label: "NOW PLAYING"
+            label: I18n.tr("NOW PLAYING")
             index: "ART"
             accentColor: effectiveColors?.colPrimary ?? Appearance.zzz.accent
             margin: 12

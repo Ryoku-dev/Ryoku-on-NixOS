@@ -119,7 +119,7 @@ Item {
             readonly property bool isActive: root.activeIds[wsName] === true
 
             // Up to maxIcons unique app ids for windows on this workspace.
-            readonly property var classes: {
+            readonly property var _liveClasses: {
                 const wins = Wm.windows;
                 const out = [];
                 const seen = {};
@@ -137,6 +137,17 @@ Item {
                 }
                 return out;
             }
+
+            // Wm.windows rebuilds on any title change anywhere; swapping in an
+            // equal array would still tear down and rebuild the icon Repeaters.
+            property var classes: []
+            function _adoptClasses() {
+                const next = pill._liveClasses;
+                if (next.join("\u0000") !== pill.classes.join("\u0000"))
+                    pill.classes = next;
+            }
+            on_LiveClassesChanged: pill._adoptClasses()
+            Component.onCompleted: pill._adoptClasses()
 
             readonly property bool hasIcons: classes.length > 0
 

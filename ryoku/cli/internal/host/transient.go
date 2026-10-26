@@ -120,7 +120,18 @@ func (a *App) startSystemdTransient(name string, opts transientOptions) int {
 			return ExitFailure
 		}
 	}
-	return commandExit(a.run("systemd-run", args...))
+	return commandExit(a.runSystemd(false, args...))
+}
+
+func (a *App) runSystemd(replace bool, args ...string) Result {
+	return a.cfg.Runner.Run(Command{
+		Name:    "systemd-run",
+		Args:    args,
+		Stdin:   a.cfg.Stdin,
+		Stdout:  a.cfg.Stdout,
+		Stderr:  a.cfg.Stderr,
+		Replace: replace,
+	})
 }
 
 func (a *App) systemdTransientState(verb, name string) int {

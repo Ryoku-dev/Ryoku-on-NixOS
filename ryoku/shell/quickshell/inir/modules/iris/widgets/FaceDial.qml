@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Shapes
 import inir.modules.iris.style
+import Ryoku.Ui.Singletons
 
 Item {
     id: root
@@ -98,7 +99,7 @@ Item {
         visible: root.caption.length > 0
         anchors.horizontalCenter: parent.horizontalCenter
         y: Math.round(root.cy + root.r * 0.3)
-        text: root.caption
+        text: I18n.tr(root.caption)
         color: IrisStyle.secondaryOf(root.ink)
         font.family: root.face.fontMain
         font.pixelSize: Math.max(8, Math.round(root.r * 0.16))

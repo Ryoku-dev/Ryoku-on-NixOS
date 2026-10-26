@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import stage.modules.common
 import stage.modules.common.widgets
 import stage.services
@@ -35,7 +36,7 @@ ColumnLayout {
     })))
 
     function browseStore() {
-        Quickshell.execDetached(["ryostore", "open", "docks"]);
+        Spawn.runApp(["ryostore", "open", "docks"], { label: "ryostore" });
     }
     // Re-running the install replaces the dock in place, and the shell swaps
     // the new view in without a reload.

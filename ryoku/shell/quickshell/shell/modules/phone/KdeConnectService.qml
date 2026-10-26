@@ -383,7 +383,10 @@ Singleton {
         id: ensureDaemonProc
         running: false
         command: ["bash", "-c",
-            "busctl --user --timeout=2 call org.kde.kdeconnect /modules/kdeconnect org.freedesktop.DBus.Peer Ping >/dev/null 2>&1 "
+            "busctl --user --timeout=2 call org.freedesktop.DBus /org/freedesktop/DBus "
+            + "org.freedesktop.DBus NameHasOwner s org.kde.kdeconnect 2>/dev/null | grep -q true "
+            + "&& busctl --user --timeout=2 call org.kde.kdeconnect /modules/kdeconnect "
+            + "org.freedesktop.DBus.Peer Ping >/dev/null 2>&1 "
             + "|| { D=$(command -v kdeconnectd); [ -n \"$D\" ] || D=/usr/lib/kdeconnectd; "
             + "[ -x \"$D\" ] && \"$D\" >/dev/null 2>&1 & }"]
         onExited: if (root._enabled) root.startMonitor()
@@ -1744,7 +1747,7 @@ Singleton {
         repeat: false
         onTriggered: {
             if (!devId) return
-            Quickshell.execDetached([
+            Spawn.runApp([
                 "bash", "-c",
                 "QDBUS=$(command -v qdbus-qt6 || command -v qdbus6 || command -v qdbus); "
                 + "MOUNT=$($QDBUS org.kde.kdeconnect /modules/kdeconnect/devices/"
@@ -1756,16 +1759,12 @@ Singleton {
                 + "if [ -n \"$MOUNT\" ]; then "
                 + "  TARGET=\"$MOUNT\"; "
                 + "  if [ -d \"$MOUNT/storage/emulated/0\" ]; then TARGET=\"$MOUNT/storage/emulated/0\"; fi; "
-                // gio open respects the system's default file manager via
-                // GVFS mimetype associations — unlike xdg-open which can
-                // route to the browser if inode/directory is misassociated.
                 + "  if command -v gio >/dev/null 2>&1; then "
-                + "    gio open \"$TARGET\" >/dev/null 2>&1 & exit 0; "
+                + "    exec gio open \"$TARGET\"; "
                 + "  fi; "
-                // Fall back to xdg-open if gio is unavailable.
-                + "  xdg-open \"$TARGET\" >/dev/null 2>&1 & "
+                + "  exec xdg-open \"$TARGET\"; "
                 + "fi"
-            ])
+            ], { label: "phone-files" })
         }
     }
 
@@ -2179,10 +2178,10 @@ Singleton {
 
         if (showTerminal) {
             const shellCmd = fullScrcpyCmd + " || { echo ''; echo 'scrcpy exited with error.'; echo 'Press Enter to close...'; read -r; }"
-            Quickshell.execDetached([
+            Spawn.runApp([
                 "bash", "-c",
-                terminal + " -e sh -c " + root._shellQuote(shellCmd) + " &"
-            ])
+                "exec " + terminal + " -e sh -c " + root._shellQuote(shellCmd)
+            ], { label: "scrcpy" })
         } else {
             // Capture stderr so the notify-send shows the REAL error instead
             // of a generic "Failed to start" message. The previous generic
@@ -2191,10 +2190,10 @@ Singleton {
             // Enhanced: also check adb devices when stderr is empty, so the
             // user gets a human-readable hint instead of "unknown error".
             const shellCmd = "ERRFILE=$(mktemp); (" + fullScrcpyCmd + ") 2>\"$ERRFILE\" || { ERR=$(head -5 \"$ERRFILE\"); if [ -z \"$ERR\" ]; then ADB_DEVICES=$(adb devices 2>/dev/null | grep -v 'List of devices' | grep -v '^$' | wc -l); if [ \"$ADB_DEVICES\" = \"0\" ]; then HINT='No device detected via ADB.\nConnect via USB (USB debugging) or configure\nwireless debugging in Phone → scrcpy settings.'; else HINT='scrcpy exited but ADB is connected.\nCheck that the phone screen is unlocked and\nthe ADB authorization is accepted.'; fi; notify-send 'scrcpy Mirror' \"$HINT\" -i smartphone; else notify-send 'scrcpy Mirror' \"scrcpy failed:\n${ERR}\" -i smartphone; fi; }; rm -f \"$ERRFILE\""
-            Quickshell.execDetached([
+            Spawn.runApp([
                 "bash", "-c",
-                shellCmd + " &"
-            ])
+                shellCmd
+            ], { label: "scrcpy" })
         }
     }
 

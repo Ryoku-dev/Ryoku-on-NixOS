@@ -10,7 +10,7 @@ Preview {
     property string wallpaperUrl: ""
     property string subjectUrl: ""
     property string mode: ""
-    property string state: ""
+    property string statusText: ""
     property bool busy: false
 
     label: I18n.tr("WALLPAPER SCENE")
@@ -82,7 +82,7 @@ Preview {
             }
             Text {
                 width: parent.width
-                text: hero.state
+                text: hero.statusText
                 color: Tokens.inkMuted
                 font.family: Tokens.ui
                 font.pixelSize: Tokens.fSmall

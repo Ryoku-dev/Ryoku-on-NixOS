@@ -847,7 +847,6 @@ func effectiveModeMarker(path string) string { return path + ".mode" }
 // always runs this and reads the result, so the wallpaper-by-default decision
 // lives here, not in shell. Fixed mode copies the user's config verbatim (a
 // retint never rewrites their layout or comments); wallpaper mode rebuilds it
-// from the live shared palette and applies any ryoku:recolor role mappings.
 func writeEffectiveFastfetch(path string) error {
 	mode := readFastfetchPaletteMode()
 	if fastfetchEffectiveFresh(path, mode) {

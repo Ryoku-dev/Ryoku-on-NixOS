@@ -18,5 +18,7 @@ StageCameraTab StageCameraTab.qml
 StageCutModelTab StageCutModelTab.qml
 StageSpatialModelTab StageSpatialModelTab.qml
 StageDepthHero StageDepthHero.qml
+StageSceneCard StageSceneCard.qml
+StageRegionPicker StageRegionPicker.qml
 StageWidgetPage StageWidgetPage.qml
 StageDepthPick StageDepthPick.qml

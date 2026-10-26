@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import Ryoku.Ui.Singletons
 import "../../../reusables"
 import "../../../"
 
@@ -696,7 +697,7 @@ Item {
 
                     onClicked: {
                         if (root.username !== "") {
-                            Quickshell.execDetached(["xdg-open", "https://github.com/" + root.username]);
+                            Spawn.runApp(["xdg-open", "https://github.com/" + root.username], { label: "browser" });
                         }
                     }
                 }

@@ -37,6 +37,7 @@ Item {
             "rices": "飯",
             "colorschemes": "色",
             "themes": "色",
+            "subshells": "殻",
             "barstyles": "棒",
             "docks": "台",
             "launchers": "起",

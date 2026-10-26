@@ -6,6 +6,7 @@ import Quickshell.Io
 import Quickshell.Networking
 import qs.Ui
 import qs.Commons
+import Ryoku.Ui.Singletons
 import "Model.js" as Model
 
 Panel {
@@ -537,7 +538,7 @@ Panel {
     if (!hasCaptivePortal) return
     // Explicit user action only. argv (not a shell string), and a fixed HTTP
     // URL: let the browser handle the redirect without trusting portal input.
-    Quickshell.execDetached(["omarchy-launch-browser", Model.captivePortalUrl])
+    Spawn.runApp(["omarchy-launch-browser", Model.captivePortalUrl], { label: "browser" })
     close()
   }
 

@@ -506,7 +506,7 @@ Item {
                                 armed: pg.statusReady && !pg.busy
                                 opacity: pg.statusReady ? (armed ? 1 : 0.5) : 0
                                 text: pg.primaryDevice ? I18n.tr("Open Phone") : I18n.tr("Set up your phone")
-                                onAct: Spawn.run(["ryoku-kit", "phone"])
+                                onAct: Spawn.runApp(["ryoku-kit", "phone"], { label: "ryoku-kit" })
                             }
                         }
                     }

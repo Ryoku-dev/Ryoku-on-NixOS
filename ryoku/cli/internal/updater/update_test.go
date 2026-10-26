@@ -416,6 +416,26 @@ func TestVoidUpdateTransactionsCarryManagedMarker(t *testing.T) {
 	}
 }
 
+func TestSnapshotSkipMessageDistinguishesNonBtrfsRoot(t *testing.T) {
+	nonBtrfs := snapshotSkipMessage(false, true, false)
+	if !strings.Contains(nonBtrfs, "root filesystem is not btrfs") ||
+		!strings.Contains(nonBtrfs, "unavailable") ||
+		strings.Contains(nonBtrfs, "doctor") {
+		t.Fatalf("non-btrfs note = %q", nonBtrfs)
+	}
+	missingConfig := snapshotSkipMessage(true, true, false)
+	if !strings.Contains(missingConfig, "root config missing") ||
+		!strings.Contains(missingConfig, "ryoku doctor") {
+		t.Fatalf("btrfs missing-config note = %q", missingConfig)
+	}
+	if got := snapshotSkipMessage(true, false, false); !strings.Contains(got, "snapper not installed") {
+		t.Fatalf("missing-snapper note = %q", got)
+	}
+	if got := snapshotSkipMessage(true, true, true); got != "" {
+		t.Fatalf("ready snapshot stack returned note %q", got)
+	}
+}
+
 func TestPrimeSudoSkipsValidationWhenNonInteractiveSudoWorks(t *testing.T) {
 	t.Setenv("RYOKU_UPDATE_UI", "")
 	oldRun, oldTTY := primeSudoRun, primeSudoTTY

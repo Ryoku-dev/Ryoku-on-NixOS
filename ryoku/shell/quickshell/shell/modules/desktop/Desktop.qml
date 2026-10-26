@@ -70,9 +70,7 @@ Scope {
     property bool wallpaperLive: false
 
     // Stage z-ordering (docs/stage.md): behind-layers sit below the widgets
-    // (z 2), in-front layers above them (z 4), and a widget lifted for this
-    // cut mode rises above even the in-front layers (z 5). Video and live walls
-    // stay flat because the daemon does not build artifacts for them.
+    // while front layers and explicit lifts sit above; video and live walls have no artifacts.
     readonly property string stageMode: (root.videoUrl === "" && !root.wallpaperLive)
         ? StageCfg.StageBackend.effectFor(root.wallpaperPath) : "off"
     readonly property bool stageOn: root.stageMode !== "off"
@@ -148,6 +146,17 @@ Scope {
         || root.wallpaperLive || root.hostsVisualizer
     readonly property real deckFrostBlur: (Performance.blurDisabled
         || root.deckFrostHasMotion) ? 0 : Math.min(1, root.deckFrost)
+    // Once the glass has shown, its layer stays while the glass is possible, so
+    // a workspace switch moves only `blur` instead of rebuilding a full-output
+    // FBO.
+    readonly property bool deckFrostGlassPossible: root.deckFrostEnabled
+        && !root.gokkoActive && !root.stageComposing && !root.stageEditing
+        && !Performance.blurDisabled && !root.deckFrostHasMotion
+    property bool deckFrostLayered: false
+    onDeckFrostBlurChanged: if (root.deckFrostGlassPossible && root.deckFrostBlur > 0.01)
+        root.deckFrostLayered = true
+    onDeckFrostGlassPossibleChanged: if (!root.deckFrostGlassPossible) root.deckFrostLayered = false
+    Component.onCompleted: root.deckFrostLayered = root.deckFrostBlur > 0.01
     readonly property real deckFrostFloor: Math.max(0, Math.min(0.6,
         root.deckFrost - 1))
     readonly property rect deckFocusRect: {
@@ -360,7 +369,7 @@ Scope {
             return;
         Qt.callLater(() => {
             if (desktopIcons.item)
-                desktopIcons.item.openFolder(folderId, true);
+                desktopIcons.item.openContext(folderId, x, y, "rename");
         });
     }
     // Outside Edit Mode Customize keeps its lightweight floating sheet. Inside
@@ -724,11 +733,11 @@ Scope {
 
             // The frost's glass: the wallpaper and the widgets under the scrim
             // blur together while a window owns the workspace, scaled by the
-            // same depth. The layer only exists while the frost is up, so a
-            // bare desktop pays no texture or blur pass.
-            layer.enabled: root.deckFrostBlur > 0.01
+            // same depth. Until the glass first shows, a bare desktop pays no
+            // texture or blur pass.
+            layer.enabled: root.deckFrostLayered && root.deckFrostGlassPossible
             layer.effect: MultiEffect {
-                blurEnabled: root.deckFrostBlur > 0.01
+                blurEnabled: true
                 blur: root.deckFrostBlur
                 blurMax: 24
                 autoPaddingEnabled: false
@@ -782,14 +791,12 @@ Scope {
             wallpaperPath: root.wallpaperPath
             wallpaperFit: root.wallpaperFit
             spatialEnabled: root.stageSpatial
-            layered: root.deckFrostBlur > 0.01
+            layered: root.deckFrostLayered && root.deckFrostGlassPossible
             visible: root.stageOn
         }
 
         // While the stage is on (or the Stage Editor frames this monitor), the
-        // visualizer lives inside this surface. In a cut mode it sits behind
-        // every cut-out unless that mode's Front list lifts it. Spatial and
-        // plain walls have no Front list.
+        // visualizer shares this surface so Stage cut-outs can layer around it.
         Item {
             id: vizHost
             z: root.stageCut

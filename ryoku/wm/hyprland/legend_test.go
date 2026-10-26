@@ -13,8 +13,7 @@ import (
 // bind removed from ryoku/hyprland/modules/binds.lua is seen by the parity gate.
 func repoModules() string { return filepath.Join("..", "..", "hyprland", "modules") }
 
-// A shortcut-inhibiting VM viewer must leave a route to the desktop controls.
-// Pin the Lua option because the legend parser records chords, not bind flags.
+// The legend parser records chords, so pin shortcut-inhibitor flags in Lua.
 func TestRecoveryBindsBypassShortcutInhibitor(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join(repoModules(), "binds.lua"))
 	if err != nil {
@@ -38,7 +37,6 @@ func TestRecoveryBindsBypassShortcutInhibitor(t *testing.T) {
 	if !strings.Contains(escape, "dont_inhibit = true") {
 		t.Errorf("Escape does not bypass shortcut inhibition: %s", escape)
 	}
-	// Guest shortcuts must keep reaching the guest instead of closing its host viewer.
 	closeWindow := bindLine(`K(mod .. " + Q")`)
 	if strings.Contains(closeWindow, "dont_inhibit = true") {
 		t.Errorf("Q bypasses shortcut inhibition: %s", closeWindow)

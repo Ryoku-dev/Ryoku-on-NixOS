@@ -140,20 +140,15 @@ pkgs.stdenv.mkDerivation {
       exit 1
     fi
 
-    # iNiR's shared app launcher is written for FHS distributions and uses
-    # absolute /usr/bin paths. NixOS intentionally has no /usr/bin/bash,
-    # systemd-run or gtk-launch. Patch only the packaged payload so Shima and
-    # Spotlight keep upstream's launch semantics with generation-owned tools.
+    # Upstream now routes iNiR application launches through ryoku-host app.
+    # Normalize only the remaining FHS shell, desktop launcher and test
+    # paths in the packaged payload. The guard below rejects regressions.
     shell_exec="$cfg/quickshell/inir/modules/common/functions/ShellExec.qml"
     substituteInPlace "$shell_exec" \
       --replace-fail '"/usr/bin/fish"' '"${pkgs.fish}/bin/fish"' \
       --replace-fail '"/usr/bin/bash"' '"${pkgs.bash}/bin/bash"' \
-      --replace-fail '"/usr/bin/systemd-run"' '"${pkgs.systemd}/bin/systemd-run"' \
       --replace-fail '"/usr/bin/gtk-launch"' '"${pkgs.gtk3}/bin/gtk-launch"' \
-      --replace-fail '["/usr/bin/test",' '["${pkgs.coreutils}/bin/test",' \
-      --replace-fail '[ -x /usr/bin/systemctl ]' '[ -x ${pkgs.systemd}/bin/systemctl ]' \
-      --replace-fail '[ -x /usr/bin/timeout ]' '[ -x ${pkgs.coreutils}/bin/timeout ]' \
-      --replace-fail '/usr/bin/timeout 3s /usr/bin/systemctl' '${pkgs.coreutils}/bin/timeout 3s ${pkgs.systemd}/bin/systemctl'
+      --replace-fail '["/usr/bin/test",' '["${pkgs.coreutils}/bin/test",'
 
     if grep -Eq '/usr/bin/(bash|fish|systemd-run|systemctl|timeout|gtk-launch|test)' "$shell_exec"; then
       echo "Ryoku Nix launcher guard: FHS executable path survived ShellExec packaging" >&2

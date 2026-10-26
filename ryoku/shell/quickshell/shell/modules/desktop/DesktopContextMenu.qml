@@ -5,6 +5,7 @@ import Ryoku.Ui.Singletons
 import shell.services as Services
 import "../stage/Singletons" as StageCfg
 import inir
+import "Singletons"
 
 // The system desktop right-click menu: right-clicking bare wallpaper on any bar
 // style opens this. It carries the iRiS desktop menu's structure -- a quick row
@@ -78,6 +79,9 @@ Item {
         Quickshell.execDetached(["ryoku-shell", "reload"]);
         menu.close();
     }
+    function confirmSessionAction(action) {
+        Services.ShellState.askSessionAction(action, menu.activeMonitor());
+    }
 
     // iRiS-only conveniences, reachable from the desktop menu on the iris bar
     // style. Studio is the live appearance editor; Edit iRiS arranges the bar in
@@ -101,6 +105,7 @@ Item {
 
     DesktopMenu {
         id: shell
+        cardWidth: powerActions.implicitWidth + Theme.s4 * 2
         title: I18n.tr("Desktop")
         gloss: "卓上"
 
@@ -125,5 +130,16 @@ Item {
         MenuSection {}
         MenuRow { icon: "settings"; label: I18n.tr("Settings"); accent: true; closeOnTrigger: false; onTriggered: menu.openSettings() }
         MenuRow { icon: "refresh"; label: I18n.tr("Reload shell"); closeOnTrigger: false; onTriggered: menu.refreshShell() }
+
+        MenuSection {}
+        MenuQuick {
+            id: powerActions
+            columns: 3
+            items: [
+                { icon: "logout", label: I18n.tr("Log out"), action: () => menu.confirmSessionAction("logout") },
+                { icon: "restart_alt", label: I18n.tr("Reboot"), action: () => menu.confirmSessionAction("reboot") },
+                { icon: "power_settings_new", label: I18n.tr("Power off"), action: () => menu.confirmSessionAction("shutdown") }
+            ]
+        }
     }
 }

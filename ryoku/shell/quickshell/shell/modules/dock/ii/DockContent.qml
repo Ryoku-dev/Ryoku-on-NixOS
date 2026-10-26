@@ -3587,7 +3587,7 @@ Item {
                     if (actionItemRoot._itemData.actionId === "pin")
                         root.togglePinRequested();
                     else if (actionItemRoot._itemData.actionId === "trash")
-                        RyokuUi.Spawn.run(["xdg-open", "trash:///"]);
+                        RyokuUi.Spawn.runApp(["xdg-open", "trash:///"], { label: "trash" });
                     else if (actionItemRoot._itemData.actionId === "overview")
                         GlobalStates.toggleOverview();
                 }

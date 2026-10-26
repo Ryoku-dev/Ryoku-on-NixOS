@@ -165,7 +165,7 @@ Singleton {
     }
 
     function openFile(path) {
-        Spawn.runApp(["xdg-open", path]);
+        Spawn.runApp(["xdg-open", path], { label: "file" });
     }
 
     function removeFile(path) {

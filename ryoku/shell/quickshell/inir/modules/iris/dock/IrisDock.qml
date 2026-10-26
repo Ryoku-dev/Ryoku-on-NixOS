@@ -472,9 +472,7 @@ Item {
                 return out
             }
             readonly property var bodyShape: {
-                // mapToItem does not expose the Stage matrix as a QML dependency.
-                // Follow the frame animation so the published body settles back
-                // on the screen instead of keeping its last editor-card position.
+                // mapToItem does not track the Stage transform, so depend on animation values explicitly.
                 void (dock.x + dock.y + dock.width + dock.height + dock.radius
                     + window.edgeOffset + window.width + window.height + window.screenOffsetY
                     + StageEditor.GlobalStates.editProgress + StageEditor.GlobalStates.editDrawerProgress
@@ -541,8 +539,7 @@ Item {
                 StageEditor.GlobalStates.setDockInset(name, "", 0)
                 if (name.length === 0) return
                 const bodies = Object.assign({}, GlobalStates.irisDockBody ?? {})
-                // An asynchronous design change can finish the replacement
-                // before this surface is destroyed. Do not erase its body.
+                // A replacement may publish first; only clear the body this surface still owns.
                 if (bodies[name] !== window.bodyShape) return
                 bodies[name] = null
                 GlobalStates.irisDockBody = bodies
@@ -1074,7 +1071,7 @@ Item {
                     spacing: 6 * root.d
                     IrisText {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: nameLabel.label
+                        text: Ui.I18n.tr(nameLabel.label)
                         width: Math.min(implicitWidth, Math.round(260 * root.d))
                         elide: Text.ElideRight
                         font.pixelSize: IrisStyle.typeLabel
@@ -1442,7 +1439,7 @@ Item {
                             IrisText {
                                 id: menuRowLabel
                                 Layout.fillWidth: true
-                                text: menuRow.label
+                                text: Ui.I18n.tr(menuRow.label)
                                 elide: Text.ElideRight
                                 color: menuRow.danger ? IrisStyle.danger : IrisStyle.text
                                 font.pixelSize: IrisStyle.typeLabel

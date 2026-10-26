@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
+import Ryoku.Ui.Singletons
 import inir
 import inir.services
 import inir.modules.common
@@ -38,9 +39,9 @@ Singleton {
         { id: "colorPicker", group: 1, label: Translation.tr("Pick a colour"), glyph: "colorize", tint: "orange",
             run: screen => Quickshell.execDetached(["ryoku-cmd-color-picker"]) },
         { id: "terminal", group: 1, label: Translation.tr("Terminal"), glyph: "terminal", tint: "gray",
-            run: screen => Quickshell.execDetached(["ryoku-app", "terminal"]) },
+            run: screen => Spawn.runApp(["ryoku-app", "terminal"], { label: "terminal" }) },
         { id: "files", group: 1, label: Translation.tr("Files"), glyph: "folder", tint: "sky",
-            run: screen => Quickshell.execDetached(["xdg-open", Quickshell.env("HOME") ?? "/"]) },
+            run: screen => Spawn.runApp(["xdg-open", Quickshell.env("HOME") ?? "/"], { label: "files" }) },
         { id: "settings", group: 2, label: Translation.tr("Settings"), glyph: "settings", tint: "gray",
             run: screen => GlobalStates.openSettings() },
         { id: "restart", group: 2, label: Translation.tr("Restart shell"), glyph: "restart_alt", tint: "gray",

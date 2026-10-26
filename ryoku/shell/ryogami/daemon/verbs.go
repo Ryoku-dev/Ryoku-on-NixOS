@@ -58,6 +58,20 @@ func (d *daemon) wallpaperVerb(line string) string {
 			return "err wallpaper: " + err.Error()
 		}
 		return "ok"
+	case "preview":
+		path := strings.TrimSpace(strings.TrimPrefix(rest, mode))
+		if path == "" {
+			return "err wallpaper: preview requires a path"
+		}
+		if err := d.previewWallpaper(path, outputs); err != nil {
+			return "err wallpaper: " + err.Error()
+		}
+		return "ok"
+	case "preview-clear":
+		if err := d.clearPreview(); err != nil {
+			return "err wallpaper: " + err.Error()
+		}
+		return "ok"
 	case "random":
 		if pick := d.pickRandom(nil, false); pick != "" {
 			if workspace {

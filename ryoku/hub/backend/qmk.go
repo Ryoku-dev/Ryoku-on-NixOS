@@ -1,52 +1,49 @@
 package main
 
-// qmk.go: the QMK/VIA keyboard lighting provider. One concern: driving the RGB
-// matrix of a VIA-enabled QMK keyboard (Framework Laptop 16, custom mechanical
-// boards) through the `qmk_hid` tool, so a board OpenRGB cannot reach and asusd
-// does not own still follows the desktop accent.
-//
-// Unlike OpenRGB (rich per-LED SDK) and Aura (asusd D-Bus), qmk_hid is a small
-// CLI over hidraw. It exposes a solid-colour matrix effect by hue/saturation,
-// which is exactly what a theme-follow needs; per-key painting and the board's
-// firmware effect list (which effects are compiled in varies per keymap) are out
-// of scope, so this provider offers one honest mode: Static, accent-driven.
-//
-// No `--save`: writing the colour to EEPROM on every theme change would wear the
-// chip, and Ryoku re-applies on login (autostart) and on resume (hypridle), so
-// the live colour is restored each session without persisting it.
+// Standard VIA boards use qmk_hid; Vial boards use VialRGB over raw HID.
 
 import (
+	"errors"
 	"fmt"
 	"math"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
 	qmkProvider          = "qmk"
-	qmkEffectStatic      = 1 // RGB_MATRIX_SOLID_COLOR (QMK firmware enum; qmk_hid --rgb-effect 1)
+	qmkEffectStatic      = 1
 	qmkNoDeviceMarker    = "No device found"
 	qmkDefaultDeviceName = "QMK keyboard"
+	vialPayloadSize      = 32
+	vialWireSize         = vialPayloadSize + 1
+	vialSolidMode        = 2
 )
 
-// Seams so the provider is unit-testable without a keyboard or the tool.
 var (
 	qmkLookPath = func() bool { _, err := exec.LookPath("qmk_hid"); return err == nil }
 	qmkList     = func() (string, error) {
 		out, err := exec.Command("qmk_hid", "--list").CombinedOutput()
 		return string(out), err
 	}
-	qmkRun = func(args ...string) error { return exec.Command("qmk_hid", args...).Run() }
+	qmkRun             = func(args ...string) error { return exec.Command("qmk_hid", args...).Run() }
+	qmkVialDevicePaths = findVialHIDPaths
+	qmkSysfsRoot       = "/sys"
+	qmkDeviceRoot      = "/dev"
 )
 
-func qmkInstalled() bool { return qmkLookPath() }
+func qmkInstalled() bool { return qmkLookPath() || len(qmkVialDevicePaths()) > 0 }
 
-// qmkDevicePresent asks qmk_hid what is connected. The tool prints "No device
-// found" and exits 0 when nothing matches, so absence is a clean signal rather
-// than an error; a permission or enumeration failure is also treated as absent.
 func qmkDevicePresent() bool {
-	if !qmkInstalled() {
+	if len(qmkVialDevicePaths()) > 0 {
+		return true
+	}
+	if !qmkLookPath() {
 		return false
 	}
 	out, err := qmkList()
@@ -54,14 +51,10 @@ func qmkDevicePresent() bool {
 		return false
 	}
 	trimmed := strings.TrimSpace(out)
-	if trimmed == "" || strings.Contains(out, qmkNoDeviceMarker) {
-		return false
-	}
-	return true
+	return trimmed != "" && !strings.Contains(out, qmkNoDeviceMarker)
 }
 
-// readQMKDevices presents a connected VIA keyboard as one device with a single
-// Static mode. It never touches the board on an ordinary state read; enumeration
+// readQMKDevices never touches the board on an ordinary state read; enumeration
 // only runs from a scan or an apply, exactly like the other providers.
 func readQMKDevices() ([]orgbDevice, error) {
 	if !qmkDevicePresent() {
@@ -83,6 +76,10 @@ func qmkDeviceView() orgbDevice {
 		ColorMode: 2, // MODE_COLORS_MODE_SPECIFIC
 		Colors:    []uint32{0xFFFFFF},
 	}
+	location := "qmk_hid"
+	if len(qmkVialDevicePaths()) > 0 {
+		location = "VialRGB"
+	}
 	return orgbDevice{
 		Provider:    qmkProvider,
 		Type:        "Keyboard",
@@ -90,16 +87,12 @@ func qmkDeviceView() orgbDevice {
 		Vendor:      "QMK",
 		Description: "QMK/VIA keyboard",
 		Serial:      qmkProvider + ":keyboard",
-		Location:    "qmk_hid",
+		Location:    location,
 		ActiveMode:  0,
 		Modes:       []orgbMode{static},
 	}
 }
 
-// qmkApply drives the board: the mode already carries the tuned colour and any
-// user brightness, so this converts that colour to the hue/saturation the VIA
-// protocol wants and fires one write. Brightness is a percentage (0-100) as
-// qmk_hid expects; a device-own brightness (-1) means full.
 func qmkApply(mode orgbMode, brightness int) error {
 	hue, sat := 0, 0
 	if len(mode.Colors) > 0 {
@@ -110,6 +103,16 @@ func qmkApply(mode orgbMode, brightness int) error {
 	bri := 100
 	if brightness >= 0 {
 		bri = clampPercent(brightness)
+	}
+
+	if paths := qmkVialDevicePaths(); len(paths) > 0 {
+		var errs []error
+		for _, path := range paths {
+			if err := qmkWriteVial(path, byte(hue), byte(sat), bri); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
 	}
 	return qmkWrite(int(mode.Value), hue, sat, bri)
 }
@@ -122,6 +125,133 @@ func qmkWrite(effect, hue, sat, bri int) error {
 		"--rgb-brightness", strconv.Itoa(bri),
 	); err != nil {
 		return fmt.Errorf("qmk_hid: %w", err)
+	}
+	return nil
+}
+
+func findVialHIDPaths() []string {
+	entries, _ := filepath.Glob(filepath.Join(qmkSysfsRoot, "class", "hidraw", "hidraw*"))
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		uevent, err := os.ReadFile(filepath.Join(entry, "device", "uevent"))
+		if err != nil || !strings.HasPrefix(hidUeventValue(uevent, "HID_UNIQ"), "vial:") {
+			continue
+		}
+		descriptor, err := os.ReadFile(filepath.Join(entry, "device", "report_descriptor"))
+		if err != nil || !isVialRawInterface(descriptor) {
+			continue
+		}
+		paths = append(paths, filepath.Join(qmkDeviceRoot, filepath.Base(entry)))
+	}
+	return paths
+}
+
+func hidUeventValue(data []byte, key string) string {
+	prefix := key + "="
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimPrefix(line, prefix)
+		}
+	}
+	return ""
+}
+
+func isVialRawInterface(descriptor []byte) bool {
+	var page, usagePage, usage uint32
+	var haveUsage bool
+	for i := 0; i < len(descriptor); {
+		prefix := descriptor[i]
+		if prefix == 0xfe {
+			if i+2 >= len(descriptor) {
+				return false
+			}
+			i += 3 + int(descriptor[i+1])
+			continue
+		}
+		size := int(prefix & 3)
+		if size == 3 {
+			size = 4
+		}
+		if i+1+size > len(descriptor) {
+			return false
+		}
+		var value uint32
+		for j := range size {
+			value |= uint32(descriptor[i+1+j]) << (8 * j)
+		}
+		itemType, tag := (prefix>>2)&3, prefix>>4
+		switch {
+		case itemType == 1 && tag == 0:
+			page = value
+		case itemType == 2 && tag == 0:
+			usagePage, usage = page, value
+			if size == 4 && value > 0xffff {
+				usagePage, usage = value>>16, value&0xffff
+			}
+			haveUsage = true
+		case itemType == 0 && tag == 10:
+			if haveUsage && usagePage == 0xff60 && usage == 0x61 {
+				return true
+			}
+			haveUsage = false
+		case itemType == 0:
+			haveUsage = false
+		}
+		i += 1 + size
+	}
+	return false
+}
+
+func qmkWriteVial(path string, hue, saturation byte, brightness int) error {
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	defer file.Close()
+	if err := unix.SetNonblock(int(file.Fd()), true); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+
+	var info [vialPayloadSize]byte
+	info[0], info[1] = 0x08, 0x40
+	if err := writeVialReport(file, info[:]); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	ready, err := unix.Poll([]unix.PollFd{{Fd: int32(file.Fd()), Events: unix.POLLIN}}, 500)
+	if err != nil || ready == 0 {
+		if err == nil {
+			err = errors.New("VialRGB info timed out")
+		}
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	n, err := unix.Read(int(file.Fd()), info[:])
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if n < 5 || info[0] != 0x08 || info[1] != 0x40 || info[4] == 0 {
+		return fmt.Errorf("%s: invalid VialRGB info response", path)
+	}
+
+	value := byte((clampPercent(brightness)*int(info[4]) + 50) / 100)
+	var report [vialPayloadSize]byte
+	report[0], report[1] = 0x07, 0x41
+	report[2], report[3] = byte(vialSolidMode), byte(vialSolidMode>>8)
+	report[4], report[5], report[6], report[7] = 0, hue, saturation, value
+	if err := writeVialReport(file, report[:]); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return nil
+}
+
+func writeVialReport(file *os.File, report []byte) error {
+	var wire [vialWireSize]byte
+	copy(wire[1:], report)
+	n, err := file.Write(wire[:])
+	if err != nil {
+		return err
+	}
+	if n != len(wire) {
+		return fmt.Errorf("short VialRGB write: %d of %d bytes", n, len(wire))
 	}
 	return nil
 }

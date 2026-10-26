@@ -6,6 +6,7 @@ import Quickshell.Io
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
 import "../barstudio/StoreDesignGalleryModel.js" as GalleryModel
+import "../barstudio/Subshells.js" as Subshells
 
 Item {
     id: gallery
@@ -13,6 +14,11 @@ Item {
     required property string category
     required property string wornId
     required property var shippedDesigns
+    property bool onlySubshells: false
+    property string browseCategory: gallery.category
+    function isSubshellStyle(id) {
+        return Subshells.isStyle(id);
+    }
     property var catalogueDesigns: []
     readonly property string cardObjectPrefix: gallery.category === "barstyles"
         ? "bar-style-" : "store-design-" + gallery.category + "-"
@@ -28,11 +34,13 @@ Item {
     // Bundled styles stay installed even if a stale Store catalogue describes
     // them as downloadable or unavailable. This includes NixOS-owned Karuma.
     function cardModel() {
-        return GalleryModel.galleryCards(gallery.category, gallery.shippedDesigns, gallery.catalogueDesigns);
+        return Subshells.visibleStyles(
+            GalleryModel.galleryCards(gallery.category, gallery.shippedDesigns, gallery.catalogueDesigns),
+            gallery.onlySubshells);
     }
 
     function browse() {
-        Quickshell.execDetached(["ryostore", "open", gallery.category]);
+        Spawn.runApp(["ryostore", "open", gallery.browseCategory], { label: "ryostore" });
     }
 
     function updateDesign(id) {
@@ -110,9 +118,8 @@ Item {
             width: parent.width
             spacing: Tokens.s2
             readonly property int perRow: Math.max(2, Math.floor((width + Tokens.s2) / 210))
-            readonly property bool hasResourceWarnings: gallery.designs.some(
-                design => design.resourceTier === "heavy")
-            readonly property int tileH: hasResourceWarnings ? 88 : 64
+            // Warning markers fit the card corner, so every tile can be compact.
+            readonly property int tileH: 64
             readonly property int rowCount: Math.max(1, Math.ceil(cardRepeater.count / perRow))
             height: rowCount * tileH + (rowCount - 1) * spacing
 
@@ -130,6 +137,11 @@ Item {
                         && designCard.modelData.version.length > 0
                         && !designCard.modelData.unavailable && !designCard.modelData.downloadPaused
                     readonly property bool heavy: designCard.modelData.resourceTier === "heavy"
+                        || (gallery.category === "barstyles"
+                            && ["ricelin", "sukunabikona"].indexOf(
+                                String(designCard.modelData.id || "")) !== -1)
+                    readonly property bool subshell: gallery.category === "barstyles"
+                        && gallery.isSubshellStyle(designCard.modelData.id)
                     readonly property string subText: {
                         if (designCard.updatable) {
                             const current = designCard.modelData.installedVersion.length > 0
@@ -161,6 +173,42 @@ Item {
                     border.color: designCard.worn ? Tokens.bone : Tokens.line
                     objectName: gallery.cardObjectPrefix + designCard.modelData.id
 
+                    Rectangle {
+                        id: resourceMark
+                        visible: designCard.heavy
+                        width: 18
+                        height: 18
+                        radius: 3
+                        color: designCard.worn ? Tokens.inkOnBone : "transparent"
+                        anchors.top: parent.top
+                        anchors.right: parent.right
+                        anchors.topMargin: Tokens.s2
+                        anchors.rightMargin: Tokens.s2
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "▲"
+                            color: Tokens.bone
+                            font.family: Tokens.mono
+                            font.pixelSize: 10
+                            font.weight: Font.DemiBold
+                        }
+                    }
+
+                    Text {
+                        id: subshellMark
+                        visible: designCard.subshell
+                        text: I18n.tr("SUBSHELL")
+                        color: designCard.worn ? Tokens.inkOnBoneDim : Tokens.inkFaint
+                        font.family: Tokens.mono
+                        font.pixelSize: Tokens.fMicro
+                        font.weight: Font.Medium
+                        font.letterSpacing: Tokens.trackLabel
+                        anchors.verticalCenter: resourceMark.verticalCenter
+                        anchors.right: resourceMark.visible ? resourceMark.left : parent.right
+                        anchors.rightMargin: resourceMark.visible ? Tokens.s1 : Tokens.s2
+                    }
+
                     MouseArea {
                         id: cardMouse
                         anchors.fill: parent
@@ -173,7 +221,9 @@ Item {
                     Column {
                         anchors {
                             left: parent.left
-                            right: updateButton.visible ? updateButton.left : parent.right
+                            right: updateButton.visible ? updateButton.left
+                                : (subshellMark.visible ? subshellMark.left
+                                    : (resourceMark.visible ? resourceMark.left : parent.right))
                             margins: Tokens.s3
                             rightMargin: updateButton.visible ? Tokens.s2 : Tokens.s3
                             verticalCenter: parent.verticalCenter
@@ -195,31 +245,6 @@ Item {
                             font.family: Tokens.ui
                             font.pixelSize: Tokens.fTiny
                             elide: Text.ElideRight
-                        }
-                        Row {
-                            width: parent.width
-                            spacing: Tokens.s2
-                            visible: designCard.heavy
-
-                            Text {
-                                text: "▲"
-                                color: Tokens.alert
-                                font.family: Tokens.mono
-                                font.pixelSize: Tokens.fMicro
-                            }
-                            Text {
-                                width: Math.max(0, parent.width - x)
-                                text: I18n.tr("May need more CPU, GPU and memory.")
-                                color: designCard.worn ? Tokens.inkOnBoneDim : Tokens.inkFaint
-                                font.family: Tokens.mono
-                                font.pixelSize: Tokens.fMicro
-                                font.weight: Font.Medium
-                                font.letterSpacing: Tokens.trackMark
-                                font.capitalization: Font.AllUppercase
-                                wrapMode: Text.WordWrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                            }
                         }
                     }
 

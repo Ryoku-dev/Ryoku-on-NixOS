@@ -221,9 +221,6 @@ func (a *App) pacman(args []string) int {
 			if helper == "" {
 				return ExitAbsent
 			}
-			// makepkg refuses to run as root, and the doctor's manifest step
-			// arrives here through sudo. Build as the invoking user, who owns
-			// the helper's cache; the helper escalates just the pacman step.
 			if a.cfg.UID == 0 {
 				if run := a.dropForAUR(helper, installArgs); len(run) > 0 {
 					return commandExit(a.run(run[0], run[1:]...))

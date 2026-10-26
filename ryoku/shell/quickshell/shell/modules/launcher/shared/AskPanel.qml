@@ -123,11 +123,11 @@ Item {
             root.finished();
             return;
         case "file":
-            Spawn.runApp(["kitty", "-e", "nvim", String(chip.value)]);
+            Spawn.runApp(["kitty", "-e", "nvim", String(chip.value)], { label: "kitty" });
             break;
         case "dir":
         case "url":
-            Spawn.runApp(["xdg-open", String(chip.value)]);
+            Spawn.runApp(["xdg-open", String(chip.value)], { label: chip.kind });
             break;
         case "chat": {
             const runAgent = busy || needsAgent;
@@ -323,7 +323,7 @@ Item {
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler {
                         onTapped: {
-                            Spawn.runApp(["xdg-open", thumb.modelData]);
+                            Spawn.runApp(["xdg-open", thumb.modelData], { label: "image" });
                             root.finished();
                         }
                     }

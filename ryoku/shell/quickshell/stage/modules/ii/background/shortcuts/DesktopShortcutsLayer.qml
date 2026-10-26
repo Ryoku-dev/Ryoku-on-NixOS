@@ -913,6 +913,13 @@ Item {
                                 }
                             }
                         }
+                        MaterialSymbol {
+                            anchors.centerIn: parent
+                            visible: (tile.entry.apps ?? []).length === 0
+                            text: "folder"
+                            iconSize: root.iconSize * 0.62
+                            color: Tokens.inkDim
+                        }
                     }
                 }
             }

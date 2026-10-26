@@ -100,7 +100,7 @@ Item {
     function run(entry) {
         if (!entry)
             return;
-        Spawn.run(["ryoku-app", "terminal", "--", "/usr/bin/bash", "-lc", entry.command]);
+        Spawn.runApp(["ryoku-app", "terminal", "--", "/usr/bin/bash", "-lc", entry.command], { label: "terminal" });
         root.requestClose();
     }
 

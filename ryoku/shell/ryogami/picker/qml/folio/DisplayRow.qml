@@ -83,9 +83,12 @@ Item {
                         Image {
                             anchors.fill: parent
                             source: outCard._preview
+                            sourceSize: Qt.size(
+                                Math.max(1, Math.ceil(width * Screen.devicePixelRatio)),
+                                Math.max(1, Math.ceil(height * Screen.devicePixelRatio)))
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
-                            cache: true
+                            cache: false
                             visible: source != ""
                         }
                         Text {

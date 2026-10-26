@@ -54,7 +54,7 @@ Rectangle {
                 const copy = {};
                 Object.keys(item).forEach(key => copy[key] = item[key]);
                 const category = Store.category(item.category);
-                copy.categoryName = category ? category.name : item.category;
+                copy.categoryName = StoreLogic.categoryName(item, category);
                 copy.searchIndex = StoreLogic.searchText(copy);
                 return copy;
             })
@@ -63,7 +63,7 @@ Rectangle {
     // categories because they install into different folders, but the header
     // shows one plate and the subtab strip switches between them.
     readonly property var decorFamily: ["decors", "launcher-images", "fastfetch-emblems"]
-    readonly property var navigationCategories: StoreLogic.sortCategories(Store.categories)
+    readonly property var navigationCategories: StoreLogic.barCategories(Store.categories, Store.items)
             .filter(category => Number(category.count || 0) > 0
                     && app.decorFamily.indexOf(String(category.id || "")) <= 0
                     && (String(category.id || "") !== "omarchy-plugins" || app.nomarchyActive))
@@ -101,7 +101,9 @@ Rectangle {
         pluginFilter,
         omarchySort
     ].join("|")
-    readonly property var currentCategory: categoryID !== "" ? Store.category(categoryID) : null
+    readonly property var currentCategory: categoryID === "subshells"
+        ? app.navigationCategories.find(category => category.id === "subshells")
+        : (categoryID !== "" ? Store.category(categoryID) : null)
     readonly property string pageTitle: searchOpen ? I18n.tr("Search")
             : (view === "library" ? I18n.tr("Library")
                : (currentCategory ? I18n.tr(String(currentCategory.name || currentCategory.id))
@@ -216,7 +218,7 @@ Rectangle {
     }
 
     function validRoute(route) {
-        if (route === "discover" || route === "library")
+        if (route === "discover" || route === "library" || route === "subshells")
             return true;
         if (route === "omarchy-plugins" && !app.nomarchyActive)
             return false;

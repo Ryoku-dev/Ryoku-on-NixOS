@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """AST-based i18n wrapper for Ryoku QML (tree-sitter-qmljs).
 
-Wraps user-facing string literals in I18n.tr(...) so a page translates. Works on
-the QML AST, not regex:
+Wraps user-facing string literals and data-model display fields in I18n.tr(...)
+so a page translates. Works on the QML AST, not regex:
   - only UI-text properties (text, label, desc, title, placeholder, ...);
-  - the value may be a plain literal, or a string INSIDE a ternary's branches or
-    a `+` concatenation (the ternary CONDITION is never touched, so comparison
-    literals are safe);
+  - the value may be a literal or a display member inside a ternary branch or
+    `+` concatenation (the condition is never touched, so comparisons are safe);
   - brand kana (力, 描画) and lone glyphs (●, ✓, →) are skipped by their DECODED
     content, so `"\\u75be\\u98a8"` escapes are caught too;
   - a literal that is also compared elsewhere in the file (`x === "Apps"`) is
     skipped, so display/value coupling (tabs, chips) is never broken;
-  - already-wrapped strings are inside a call, so a rerun is idempotent.
+  - already-wrapped strings are inside a call, so a rerun is idempotent;
+  - an existing aliased Ryoku singleton import is reused.
 
   python3 wrap.py --dry-run <files...>
   python3 wrap.py <files...>
@@ -81,12 +81,13 @@ def is_brand(s):
 # name, a key's engraving, and a unit or column head whose "translation" would
 # be wrong in every locale. Kept in step with sync.py's VERBATIM, which stops
 # the same strings reaching the catalog from Go and shell.
-VERBATIM = {"RYOKU", "Ryoku", "ryoku", "Super", "SUPER", "Shift", "Ctrl", "Alt",
-            "Meta", "Hyper", "Enter", "Esc", "Tab", "Fn", "AM", "PM",
-            "GB", "MB", "KB", "TB", "KiB", "MiB", "GiB", "Hz", "kHz", "MHz",
-            "GHz", "ms", "px", "dpi", "fps", "W", "mW", "V", "mV",
-            "RX", "TX", "IP", "OS", "WM", "FG", "WE", "CPU", "GPU", "RAM",
-            "\u00b0C", "\u00b0F", "CR", "CW", "P1", "P2"}
+VERBATIM = {"RYOKU", "Ryoku", "ryoku", "Shima", "Tailscale", "Inter",
+            "Inter Display", "Super", "SUPER", "Shift", "Ctrl", "Alt", "Meta",
+            "Hyper", "Enter", "Esc", "Tab", "Fn", "AM", "PM", "Aa", "Aa.",
+            "Aa 0123", "Abc", "MON  09", "GB", "MB", "KB", "TB", "KiB",
+            "MiB", "GiB", "Hz", "kHz", "MHz", "GHz", "ms", "px", "dpi", "fps",
+            "W", "mW", "V", "mV", "RX", "TX", "IP", "OS", "WM", "FG", "WE",
+            "CPU", "GPU", "RAM", "\u00b0C", "\u00b0F", "CR", "CW", "P1", "P2"}
 # a Material Symbols / Nerd Font icon name sits in a Text.text like copy does.
 ICON_NAME = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
 
@@ -99,7 +100,7 @@ def looks_non_ui(s):
         return True                                   # an axis mark or a keycap
     if t in VERBATIM:
         return True
-    if t.startswith("#") or t.startswith("/") or "://" in t:
+    if t.startswith(("#", "/", "~/", "<")) or t.endswith(">") or "://" in t:
         return True
     if t.startswith("qrc") or t.endswith(".qml") or t.endswith(".js"):
         return True
@@ -162,12 +163,14 @@ def strings_in(node):
     return []
 
 
-DISP_FIELDS = {"label", "desc"}          # X.label / X.desc are display copy
+DISP_FIELDS = {
+    "label", "desc", "description", "detail", "tooltip", "caption", "heading",
+    "placeholder", "message", "note", "summary", "blurb", "eyebrow", "subtitle",
+}
 
 
 def members_in(node):
-    """member accesses to a display field (X.label), in the value / ternary
-    branches / `+` concatenation. Never recurses into a member or a call."""
+    """Member accesses to display copy in values, ternaries and concatenation."""
     if node.type == "member_expression":
         prop = None
         for c in node.children:
@@ -231,8 +234,19 @@ def collect(src, text):
     return hits
 
 
+SINGLETON_IMPORT = re.compile(
+    r"(?m)^\s*import\s+Ryoku\.Ui\.Singletons(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$")
+
+
+def translation_call(text):
+    match = SINGLETON_IMPORT.search(text)
+    if not match or not match.group(1):
+        return "I18n.tr"
+    return match.group(1) + ".I18n.tr"
+
+
 def has_import(text):
-    return "Ryoku.Ui.Singletons" in text
+    return SINGLETON_IMPORT.search(text) is not None
 
 
 def add_import(text):
@@ -255,9 +269,10 @@ def process(path, dry):
         if len(hits) > 10:
             print(f"    ... and {len(hits) - 10} more")
         return len(hits)
+    call = translation_call(text).encode()
     out = raw
     for start, end, _, _ in sorted(hits, key=lambda h: h[0], reverse=True):
-        out = out[:start] + b"I18n.tr(" + out[start:end] + b")" + out[end:]
+        out = out[:start] + call + b"(" + out[start:end] + b")" + out[end:]
     txt = out.decode()
     if not has_import(txt):
         txt = add_import(txt)

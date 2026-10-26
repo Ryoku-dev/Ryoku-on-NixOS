@@ -12,6 +12,7 @@ Item {
     id: page
 
     property string tab: ""
+    property string pickKind: ""
 
     readonly property var backend: StageCfg.StageBackend
     readonly property var cfg: StageCfg.Config
@@ -69,20 +70,13 @@ Item {
         page.tab = page.firstTabForMode(page.mode);
     }
 
-    function statusLine() {
-        if (page.video)
-            return I18n.tr("Not available for video wallpapers");
-        if (page.backend.busy) {
-            if (page.mode === "spatial" || page.backend.stage === "depth")
-                return I18n.tr("Building the depth map");
-            return I18n.tr("Cutting the subject %1%").arg(page.backend.percent);
-        }
-        if ((page.mode === "depth" || page.mode === "parallax")
-                && !page.backend.cutModelInstalled(page.cfg.cutModel(page.mode)))
-            return I18n.tr("Pick a model in the Model tab");
-        if (page.mode === "spatial" && !page.backend.spatialInstalled)
-            return I18n.tr("Pick a model in the Model tab");
-        return I18n.tr("Ready");
+    function openPicker(kind) {
+        page.pickKind = kind;
+        filePicker.title = kind === "png"
+            ? I18n.tr("Add a PNG layer") : I18n.tr("Cut a layer from another picture");
+        filePicker.fileFilters = kind === "png"
+            ? ["*.png"] : ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp"];
+        filePicker.open();
     }
 
     onModeChanged: page.resetTab()
@@ -113,8 +107,9 @@ Item {
                         && page.layerCount > 0
                     ? page.backend.layerUrlFor(page.wall, 0) : ""
                 mode: page.modeName(page.mode)
-                state: page.statusLine()
-                busy: page.backend.busy
+                statusText: page.video
+                    ? I18n.tr("Not available for video wallpapers") : sceneCard.headline
+                busy: page.backend.job !== null
             }
 
             StageModePicker {
@@ -123,8 +118,15 @@ Item {
                 interactive: !page.video
                 onChose: value => {
                     if (!page.video)
-                        page.backend.setEffect(value);
+                        page.backend.setEffect(value, page.wall);
                 }
+            }
+            StageSceneCard {
+                id: sceneCard
+                visible: page.mode !== "off" && !page.video
+                width: parent.width
+                wall: page.wall
+                mode: page.mode
             }
 
             Chips {
@@ -179,10 +181,13 @@ Item {
             }
 
             StageLayersTab {
+                id: layersTab
                 visible: (page.mode === "depth" || page.mode === "parallax")
                     && page.tab === "layers"
                 width: parent.width
                 mode: page.mode
+                wall: page.wall
+                onPickRequested: kind => page.openPicker(kind)
             }
 
             StageFrontTab {
@@ -209,6 +214,20 @@ Item {
                 visible: page.mode === "spatial" && page.tab === "model"
                 width: parent.width
             }
+        }
+    }
+
+    PickFile {
+        id: filePicker
+        title: I18n.tr("Choose a picture")
+        onPicked: path => {
+            layersTab.acceptPicked(page.pickKind, path);
+            filePicker.active = false;
+            page.pickKind = "";
+        }
+        onCanceled: {
+            filePicker.active = false;
+            page.pickKind = "";
         }
     }
 }

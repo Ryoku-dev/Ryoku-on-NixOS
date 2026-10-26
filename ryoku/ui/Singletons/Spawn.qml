@@ -2,19 +2,7 @@ pragma Singleton
 
 import Quickshell
 
-// Start a child process without handing it Quickshell's crash-recovery handle.
-//
-// A Quickshell instance that has crashed once carries __QUICKSHELL_CRASH_INFO_FD
-// in its environment, naming an inherited memfd that records the config it came
-// back from. Upstream reads that variable before it parses any argument
-// (checkCrashRelaunch, src/launch/main.cpp), so `qs -c ryowalls` started from the
-// desktop ignored `-c ryowalls` and relaunched the desktop instead: opening an app
-// from the launcher drew a second bar and a second dock over the first, and the
-// frame rate paid for both. The memfd is dup'd without CLOEXEC upstream, so the
-// variable is the only half we can take away, and taking it away is enough.
-//
-// Everything that can end up running Quickshell goes through here: an app, a
-// desktop entry, a terminal, a `qs` call, or a shell line that runs one.
+// Detached children must not inherit Quickshell's crash-recovery handles.
 Singleton {
     id: spawn
 
@@ -71,15 +59,18 @@ Singleton {
         Quickshell.execDetached(ctx);
     }
 
-    // runApp() is specifically for user-facing applications. Shell-owned
-    // helpers, capture processes and Ryoku surfaces must continue using run().
-    function runApp(command, workingDirectory) {
-        if (!command || command.length === 0)
+    function runApp(argv, opts) {
+        if (!argv || argv.length === 0)
             return;
-
-        spawn.run(
-            spawn.appCommand(command),
-            workingDirectory || ""
-        );
+        const options = opts || {};
+        const command = ["ryoku-host", "app"];
+        if (options.cwd)
+            command.push("--cwd", String(options.cwd));
+        if (options.label)
+            command.push("--label", String(options.label));
+        command.push("--");
+        for (let i = 0; i < argv.length; i++)
+            command.push(String(argv[i]));
+        spawn.run(command);
     }
 }

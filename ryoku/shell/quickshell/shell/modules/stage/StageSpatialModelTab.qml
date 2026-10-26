@@ -118,6 +118,13 @@ Column {
                 }
 
                 Btn {
+                    visible: root.backend.spatialInstalling
+                    text: I18n.tr("Cancel download")
+                    compact: true
+                    onAct: root.backend.cancelSpatialInstall()
+                }
+
+                Btn {
                     visible: root.selectedInstalled
                     text: root.backend.spatialRemoving
                         ? I18n.tr("Removing…") : I18n.tr("Remove")
@@ -126,20 +133,13 @@ Column {
                     onAct: root.backend.removeSpatialModel(root.selectedId)
                 }
 
-                Btn {
-                    text: I18n.tr("Rebuild depth map")
-                    compact: true
-                    primary: root.selectedInstalled
-                    armed: root.selectedInstalled && !root.backend.busy
-                        && !root.backend.spatialInstalling && !root.backend.spatialRemoving
-                    onAct: root.backend.rebuildSpatialMap()
-                }
             }
         }
 
         SettingRow {
-            visible: (root.backend.spatialChecking || root.backend.spatialInstalling
-                || root.backend.spatialRemoving) && root.backend.spatialProgress !== ""
+            visible: root.backend.spatialInstalling
+                || ((root.backend.spatialChecking || root.backend.spatialRemoving)
+                    && root.backend.spatialProgress !== "")
             width: parent.width
             divider: true
             label: root.backend.spatialRemoving
@@ -147,7 +147,8 @@ Column {
                 : root.backend.spatialInstalling
                     ? I18n.tr("Preparing the spatial model")
                     : I18n.tr("Checking the spatial model")
-            desc: I18n.tr(String(root.backend.spatialProgress))
+            desc: root.backend.spatialProgress !== ""
+                ? I18n.tr(String(root.backend.spatialProgress)) : I18n.tr("Starting download")
         }
     }
 }

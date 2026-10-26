@@ -10,6 +10,7 @@ import inir.modules.common.widgets
 import inir.modules.background.widgets
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 ColumnLayout {
     id: root
@@ -94,7 +95,7 @@ ColumnLayout {
                     anchors.topMargin: Math.round(6 * root.d)
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
-                    text: entry.modelData.label
+                    text: I18n.tr(entry.modelData.label)
                     color: entry.on ? IrisStyle.text : IrisStyle.subtext
                     font.pixelSize: IrisStyle.typeMeta
                     elide: Text.ElideRight

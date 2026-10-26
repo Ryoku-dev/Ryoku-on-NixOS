@@ -6,6 +6,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Pipewire
+import Ryoku.Ui.Singletons
 import inir.services
 
 /**
@@ -141,9 +142,9 @@ Singleton {
 
     function openWindow(): void {
         if (root.nativeInstalled) {
-            Quickshell.execDetached(["easyeffects"])
+            Spawn.runApp(["easyeffects"], { label: "easyeffects" })
         } else if (root.available) {
-            Quickshell.execDetached(["flatpak", "run", "com.github.wwmm.easyeffects"])
+            Spawn.runApp(["flatpak", "run", "com.github.wwmm.easyeffects"], { label: "com.github.wwmm.easyeffects" })
         }
     }
 
@@ -177,9 +178,9 @@ Singleton {
         if (!root.available) return
         root.active = true
         if (root.nativeInstalled) {
-            Quickshell.execDetached(["easyeffects", "--service-mode"])
+            Spawn.runApp(["easyeffects", "--service-mode"], { label: "easyeffects" })
         } else {
-            Quickshell.execDetached(["flatpak", "run", "com.github.wwmm.easyeffects", "--service-mode"])
+            Spawn.runApp(["flatpak", "run", "com.github.wwmm.easyeffects", "--service-mode"], { label: "com.github.wwmm.easyeffects" })
         }
         refreshStateTimer.restart()
     }

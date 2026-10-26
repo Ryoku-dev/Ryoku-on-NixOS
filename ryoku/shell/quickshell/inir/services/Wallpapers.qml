@@ -518,9 +518,25 @@ Singleton {
         Quickshell.execDetached(command)
     }
 
-    // Ryoku has no in-shell preview backend; the picker keeps its live-preview
-    // affordance but nothing paints until Apply reaches the daemon.
-    function previewWallpaper(path: string, monitorName: string): void {}
-    function cancelWallpaperPreview(): void {}
-    function clearWallpaperPreview(): void {}
+    // Preview rides ryogami's wall.preview: the daemon paints the still
+    // without recording it, and preview-clear repaints the committed
+    // wallpaper, so closing the picker restores what was there.
+    function previewWallpaper(path: string, monitorName: string): void {
+        const clean = FileUtils.trimFileProtocol(String(path ?? ""))
+        if (!clean)
+            return
+        const command = ["ryogami", "wallpaper", "preview", clean]
+        const monitor = String(monitorName ?? "")
+        if (monitor.length > 0)
+            command.push("--screen", monitor)
+        Quickshell.execDetached(command)
+    }
+
+    function cancelWallpaperPreview(): void {
+        Quickshell.execDetached(["ryogami", "wallpaper", "preview-clear"])
+    }
+
+    function clearWallpaperPreview(): void {
+        Quickshell.execDetached(["ryogami", "wallpaper", "preview-clear"])
+    }
 }

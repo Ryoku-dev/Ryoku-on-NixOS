@@ -454,7 +454,7 @@ Item {
                                     fillMode: Image.PreserveAspectCrop
                                 }
                                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-                                TapHandler { onTapped: Spawn.runApp(["xdg-open", messageImage.modelData]) }
+                                TapHandler { onTapped: Spawn.runApp(["xdg-open", messageImage.modelData], { label: "image" }) }
                             }
                         }
                     }
@@ -507,7 +507,7 @@ Item {
                         selectByMouse: true
                         selectionColor: Tokens.bone
                         selectedTextColor: Tokens.inkOnBone
-                        onLinkActivated: url => Qt.openUrlExternally(url)
+                        onLinkActivated: url => Spawn.runApp(["xdg-open", url], { label: "browser" })
                     }
 
                     Rectangle {
