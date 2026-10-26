@@ -2,6 +2,7 @@ import QtQuick 6.11
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import Ryoku.Ui.Singletons
 import "Model.js" as Model
 
 Item {
@@ -373,7 +374,7 @@ Item {
       _loginUrlOpened = true
       _loginInProgress = false
       loginTimeoutTimer.stop()
-      Quickshell.execDetached(["omarchy-launch-browser", url])
+      Spawn.runApp(["omarchy-launch-browser", url], { label: "browser" })
       return true
     }
     return false

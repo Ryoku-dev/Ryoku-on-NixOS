@@ -36,6 +36,11 @@ type daemon struct {
 	currentMu sync.Mutex
 	current   string // basename of the last applied wallpaper
 
+	// The one live wall preview (preview.go): a paint the picker has not
+	// committed, held apart from the applied state it must never touch.
+	previewMu sync.Mutex
+	preview   *previewState
+
 	restoreMu sync.Mutex // serializes restoreOutputs: startup, retry, output-added, manual
 
 	random    *randomRotation

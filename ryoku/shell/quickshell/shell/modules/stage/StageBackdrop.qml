@@ -20,20 +20,22 @@ Item {
 
     anchors.fill: parent
 
-    readonly property bool owns: StageBackend.isActiveFor(root.wallpaperPath)
-    readonly property bool parallax: StageBackend.isParallaxFor(root.wallpaperPath)
+    readonly property string mode: StageBackend.effectFor(root.wallpaperPath)
+    readonly property bool owns: root.mode !== "off"
+    readonly property bool parallax: root.mode === "parallax"
     readonly property string url: StageBackend.backdropUrlFor(root.wallpaperPath)
     readonly property string depthUrl: StageBackend.depthUrlFor(root.wallpaperPath)
-    readonly property bool spatial: root.spatialEnabled && root.url !== "" && root.depthUrl !== ""
+    readonly property bool spatial: root.spatialEnabled && root.url !== ""
+        && root.depthUrl !== ""
     readonly property bool shown: root.owns && root.url !== ""
 
     readonly property real cursorNX: StageBackend.cursorNXFor(root.screenName)
     readonly property real cursorNY: StageBackend.cursorNYFor(root.screenName)
     readonly property real _max: root.width * 0.04
-    readonly property real _gain: root.parallax && !root.spatial && Config.followMouse
-        ? Config.amountFactor * Config.sensitivity * Config.backdrop * 0.25 : 0
-    readonly property real _cameraGain: root.spatial && Config.followMouse
-        ? Config.amountFactor * Config.sensitivity * Config.range : 0
+    readonly property real _gain: root.parallax && !root.spatial
+            && Config.followMouse("parallax")
+        ? Config.amountFactor("parallax") * Config.sensitivity("parallax")
+            * Config.motionOf("parallax").backdrop * 0.25 : 0
     function offsetX() { return root.cursorNX * root._max * root._gain; }
     function offsetY() { return root.cursorNY * root._max * root._gain; }
 
@@ -91,14 +93,15 @@ Item {
                     StageSpatialScene {
                         backgroundPath: root.url
                         depthPath: root.depthUrl
-                        mattePath: StageBackend.layerUrlFor(root.wallpaperPath, 0)
+                        mattePath: root.mode === "parallax"
+                            ? StageBackend.layerUrlFor(root.wallpaperPath, 0) : ""
                         textureSize: Qt.size(root.width, root.height)
                         stretch: root.wallpaperFit === "Fill"
                         screenName: root.screenName
                         layered: root.layered
                         pointerX: root.cursorNX
                         pointerY: root.cursorNY
-                        motionAmount: root._cameraGain
+                        mode: root.mode
                     }
                 }
             }

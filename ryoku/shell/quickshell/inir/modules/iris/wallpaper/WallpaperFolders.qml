@@ -8,6 +8,7 @@ import inir.modules.common
 import inir.modules.common.widgets
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 ColumnLayout {
     id: root
@@ -49,7 +50,7 @@ ColumnLayout {
                 required property var modelData
                 y: Math.round(((parent?.height ?? height) - height) / 2)
                 glyph: place.modelData.glyph
-                label: place.modelData.label
+                label: I18n.tr(place.modelData.label)
                 selected: root.picker.folderPath === place.modelData.path
                 onClicked: root.picker.openFolder(place.modelData.path)
             }

@@ -29,13 +29,15 @@ struct SandyPass;
 class CardRenderNode : public QSGRenderNode
 {
 public:
-    explicit CardRenderNode(QQuickWindow *window, QSize nearLayer = QSize(1024, 576));
+    explicit CardRenderNode(QQuickWindow *window, int expectedCards,
+                            QSize nearLayer = QSize(1024, 576));
     ~CardRenderNode() override;
 
     // Sync-time API: the GUI thread is blocked while these run.
     TextureTier &nearTier() { return m_near; }
     TextureTier &farTier() { return m_far; }
     QSize nearTileSize() const { return m_near.tileSize(); }
+    void reserveCards(int count) { m_far.reserve(count); }
     void beginFrame();
     void invalidateTexture(const QString &key);
     void setInstances(std::vector<CardInstance> &&instances);

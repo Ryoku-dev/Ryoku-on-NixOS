@@ -77,9 +77,9 @@ Item {
             return;
         }
         if (kind === "file")
-            Spawn.runApp(["kitty", "-e", "nvim", String(chip.value || "")]);
+            Spawn.runApp(["kitty", "-e", "nvim", String(chip.value || "")], { label: "kitty" });
         else if (kind === "dir" || kind === "url")
-            Spawn.runApp(["xdg-open", String(chip.value || "")]);
+            Spawn.runApp(["xdg-open", String(chip.value || "")], { label: kind });
         else if (kind === "chat") {
             const run = session.busy || session.needsAgent;
             Needle.handoff(
@@ -257,7 +257,7 @@ Item {
                     clip: true
                     Image { anchors.fill: parent; source: "file://" + imageFrame.modelData; fillMode: Image.PreserveAspectCrop; asynchronous: true }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: Spawn.runApp(["xdg-open", imageFrame.modelData]) }
+                    TapHandler { onTapped: Spawn.runApp(["xdg-open", imageFrame.modelData], { label: "image" }) }
                 }
             }
         }

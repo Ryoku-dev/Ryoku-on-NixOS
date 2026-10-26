@@ -23,10 +23,15 @@ Item {
     readonly property bool lockedValue: page.plugin
         ? page.pluginValue("locked", false) === true
         : WidgetStore.Config.get(page.target + "Locked", StageCfg.StageSession.monitor) === true
-    readonly property bool depthAvailable: page.provider
-        && page.provider.wallpaperPath !== ""
-        && StageCfg.StageBackend.isActiveFor(page.provider.wallpaperPath)
-    readonly property bool inFront: StageCfg.Config.isFront(page.target)
+    readonly property string wall: page.provider
+        ? page.provider.wallpaperPath : ""
+    readonly property string stageMode: wall === "" ? "off"
+        : StageCfg.StageBackend.effectFor(wall)
+    readonly property bool frontAvailable: page.stageMode === "depth"
+        || page.stageMode === "parallax"
+    readonly property string frontId: page.plugin ? page.target.slice(7) : page.target
+    readonly property bool inFront: StageCfg.Config.isFront(
+        page.stageMode, page.frontId)
 
     property string scaleTarget: ""
     property real scaleBefore: 1
@@ -42,7 +47,7 @@ Item {
         ? page.depthAfter
         : (page.plugin ? Number(page.pluginValue("depth", 0.5))
         : WidgetStore.Config.widgetDepth(page.target, StageCfg.StageSession.monitor))
-    readonly property bool depthPickable: page.depthAvailable && page.provider
+    readonly property bool depthPickable: page.provider
         && StageCfg.StageBackend.spatialFor(page.provider.wallpaperPath)
 
 
@@ -164,14 +169,15 @@ Item {
     }
 
     function setDepth(front) {
-        const id = page.target;
-        const before = StageCfg.Config.isFront(id);
+        const id = page.frontId;
+        const mode = page.stageMode;
+        const before = StageCfg.Config.isFront(mode, id);
         if (before === front)
             return;
-        StageCfg.Config.setFront(id, front);
+        StageCfg.Config.setFront(mode, id, front);
         GlobalStates.editHistoryPush({
-            undo: () => StageCfg.Config.setFront(id, before),
-            redo: () => StageCfg.Config.setFront(id, front)
+            undo: () => StageCfg.Config.setFront(mode, id, before),
+            redo: () => StageCfg.Config.setFront(mode, id, front)
         });
     }
 
@@ -367,7 +373,7 @@ Item {
                 }
 
                 SettingRow {
-                    visible: page.depthAvailable
+                    visible: page.frontAvailable
                     width: parent.width
                     divider: true
                     label: I18n.tr("Stack")

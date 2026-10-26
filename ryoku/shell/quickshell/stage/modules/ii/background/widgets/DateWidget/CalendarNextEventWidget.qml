@@ -345,7 +345,7 @@ AbstractBackgroundWidget {
                     color: WidgetColorScheme.colors.colOnTertiaryContainer
                 }
 
-                onClicked: Spawn.run(["xdg-open", "https://calendar.google.com/calendar/u/0/r/eventedit"])
+                onClicked: Spawn.runApp(["xdg-open", "https://calendar.google.com/calendar/u/0/r/eventedit"], { label: "calendar" })
             }
         }
 

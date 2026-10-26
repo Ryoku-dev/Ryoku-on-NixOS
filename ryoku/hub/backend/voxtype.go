@@ -23,7 +23,10 @@ import (
 //	ryoku-hub voxtype download <key>  download a preset's model (streams progress)
 //	ryoku-hub voxtype rmmodel <key>   delete a preset's downloaded model
 
-const voxtypePackage = "voxtype-bin"
+const (
+	voxtypePackage             = "voxtype-bin"
+	voxtypeManagedConfigMarker = "# Ryoku dictation config for Voxtype. Managed by Ryoku Settings > Dictation"
+)
 
 // voxtypePreset is one dictation option the page offers. Lower-case fields map
 // it to config.toml and the model store; exported ones drive the UI.
@@ -229,15 +232,26 @@ func voxtypeEnsure() error {
 	if !onPath("voxtype") {
 		return nil
 	}
+	migrated := false
 	if _, err := os.Stat(voxtypeConfigPath()); err != nil {
 		p, _ := presetByKey("whisper-fast")
 		if err := atomicWrite(voxtypeConfigPath(), []byte(buildVoxtypeConfig(p, "")), 0o600); err != nil {
 			return err
 		}
+	} else {
+		var err error
+		migrated, err = migrateVoxtypeOnDemandLoading()
+		if err != nil {
+			return err
+		}
 	}
 	ensureVoxtypeUnit()
 	if voxtypeServiceEnabled() {
-		_ = userService("start", "voxtype")
+		action := "start"
+		if migrated {
+			action = "restart"
+		}
+		_ = userService(action, "voxtype")
 	}
 	return nil
 }
@@ -316,7 +330,7 @@ func voxtypeRmModel(key string) error {
 // the keys are released well before Voxtype types.
 func buildVoxtypeConfig(p voxtypePreset, openaiKey string) string {
 	var b strings.Builder
-	b.WriteString("# Ryoku dictation config for Voxtype. Managed by Ryoku Settings > Dictation\n")
+	b.WriteString(voxtypeManagedConfigMarker + "\n")
 	b.WriteString("# (ryoku-hub voxtype); hand edits are overwritten when you change it there.\n")
 	b.WriteString("# The shell owns Super+` and the pill mic-wave, so the built-in hotkey is off.\n")
 	fmt.Fprintf(&b, "# ryoku-preset: %s\n\n", p.Key)
@@ -327,7 +341,7 @@ func buildVoxtypeConfig(p voxtypePreset, openaiKey string) string {
 		duration = 120
 	}
 	fmt.Fprintf(&b, "[audio]\ndevice = \"default\"\nsample_rate = 16000\nmax_duration_secs = %d\npause_media = true\n\n", duration)
-	b.WriteString("[whisper]\n")
+	b.WriteString("[whisper]\non_demand_loading = true\n")
 	if p.Key == reduxPresetKey {
 		b.WriteString("mode = \"cli\"\n")
 		fmt.Fprintf(&b, "whisper_cli_path = %q\nmodel = %q\nlanguage = \"auto\"\ntranslate = false\n", reduxAdapterPath(), reduxModelPath())
@@ -355,6 +369,53 @@ func buildVoxtypeConfig(p voxtypePreset, openaiKey string) string {
 	// not ship gtk4-layer-shell, which the OSD would need).
 	b.WriteString("[osd]\nenabled = false\n")
 	return b.String()
+}
+
+func migrateVoxtypeOnDemandLoading() (bool, error) {
+	path := voxtypeConfigPath()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	text := string(b)
+	if !strings.Contains(text, voxtypeManagedConfigMarker) ||
+		!strings.Contains(text, "# ryoku-preset:") ||
+		hasVoxtypeOnDemandSetting(text) {
+		return false, nil
+	}
+	const header = "[whisper]\n"
+	if !strings.Contains(text, header) {
+		return false, nil
+	}
+	text = strings.Replace(text, header, header+"on_demand_loading = true\n", 1)
+	if err := atomicWrite(path, []byte(text), 0o600); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func hasVoxtypeOnDemandSetting(configText string) bool {
+	section := ""
+	for _, line := range strings.Split(configText, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "["), "]"))
+			continue
+		}
+		key, _, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if (section == "whisper" && key == "on_demand_loading") ||
+			(section == "" && key == "whisper.on_demand_loading") {
+			return true
+		}
+	}
+	return false
 }
 
 // --- small helpers -------------------------------------------------------

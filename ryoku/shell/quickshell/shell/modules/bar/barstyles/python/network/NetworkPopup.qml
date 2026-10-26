@@ -1079,7 +1079,7 @@ Item {
                     nodes.push({ id: "sec_" + i, name: obj.security || I18n.t("network.status.open") || "Open", icon: "󰦝", action: "", isInfoNode: true, isActionable: false, parentIndex: cIndex });
                     if (obj.ip) nodes.push({ id: "ip_" + i, name: obj.ip, icon: "󰩟", action: "", isInfoNode: true, isActionable: true, cmdStr: "printf '%s' " + window.shEsc(obj.ip) + " | wl-copy", parentIndex: cIndex });
                     if (obj.freq) nodes.push({ id: "freq_" + i, name: obj.freq, icon: "󰖧", action: "", isInfoNode: true, isActionable: false, parentIndex: cIndex });
-                    if (window.connectivityState === "portal") nodes.push({ id: "action_portal", name: I18n.t("network.actions.sign_in") || "Sign in", icon: "󰖟", action: "", isInfoNode: true, isActionable: true, cmdStr: "command -v xdg-open >/dev/null 2>&1 && xdg-open " + window.shEsc(window.portalProbeUrl), parentIndex: cIndex });
+                    if (window.connectivityState === "portal") nodes.push({ id: "action_portal", name: I18n.t("network.actions.sign_in") || "Sign in", icon: "󰖟", action: "", isInfoNode: true, isActionable: true, launchApp: true, cmdStr: "command -v xdg-open >/dev/null 2>&1 && exec xdg-open " + window.shEsc(window.portalProbeUrl), parentIndex: cIndex });
                 } else if (obj.mac) {
                     nodes.push({ id: "bat_" + obj.mac, name: (obj.battery || "0") + "%", icon: "󰥉", action: "", isInfoNode: true, isActionable: false, parentIndex: cIndex });
                     if (obj.profile) {

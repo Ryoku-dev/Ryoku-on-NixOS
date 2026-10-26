@@ -342,7 +342,7 @@ Singleton {
     }
 
     function openStateDir() {
-        Spawn.run(["xdg-open", root.stateDir]);
+        Spawn.runApp(["xdg-open", root.stateDir], { label: "app-stats" });
     }
 
     /// What the install screen is answering: is there a binary to run, and can this

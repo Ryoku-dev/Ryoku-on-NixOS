@@ -343,7 +343,7 @@
         "desc": "Número de workspaces a exibir",
         "hide_empty": {
           "title": "Ocultar áreas de trabalho vazias",
-          "desc": "Mostrar apenas as áreas ocupadas e a ativa"
+          "desc": "Mostrar as áreas ocupadas e todas as áreas de trabalho até à ativa"
         },
         "style": {
           "title": "Estilo",

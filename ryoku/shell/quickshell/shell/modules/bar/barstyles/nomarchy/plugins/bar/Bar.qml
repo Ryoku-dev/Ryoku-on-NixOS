@@ -863,7 +863,7 @@ Item {
   function run(command) {
     if (!command) return
 
-    Util.execDetached(command)
+    Util.execApp(command)
   }
 
   function toggleTransparency() {

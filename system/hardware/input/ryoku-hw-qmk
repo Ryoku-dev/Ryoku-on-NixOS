@@ -1,26 +1,61 @@
 #!/usr/bin/env bash
-# Detect QMK/VIA keyboards by their raw HID control interface, which declares
-# HID usage page 0xFF60. This is the vendor-agnostic signal (Framework 16 and
-# custom mechanical boards alike), so it does not need qmk_hid installed and does
-# not hardcode a vendor/product list.
-#
-#   no argument         exit 0 if any connected hidraw exposes the VIA usage
-#                       page, else 1. `ryoku doctor` uses this to decide whether
-#                       to install qmk_hid.
-#   <hidraw syspath>    exit 0 if THAT device exposes it. The udev rule passes a
-#                       device path here so uaccess is granted to VIA keyboards
-#                       only, not to every hidraw node.
+# Detect QMK/VIA keyboards by the raw HID usage page 0xFF60 and usage 0x61.
 set -euo pipefail
 
 sysfs="${RYOKU_QMK_SYSFS:-/sys}"
 
-# A HID report descriptor encodes Usage Page 0xFF60 as the three bytes
-# 06 60 ff (Usage Page item, 16-bit data, little-endian).
 has_via_usage() {
-	local desc="$1/device/report_descriptor"
+	local desc="$1/device/report_descriptor" hex
 	[[ -r $desc ]] || return 1
-	od -An -tx1 "$desc" 2>/dev/null | tr -s ' \n' ' ' | grep -qE '(^| )06 60 ff( |$)'
+	hex=$(od -An -tx1 "$desc" 2>/dev/null | tr -s ' \n' ' ') || return 1
+	[[ " $hex " =~ " 06 60 ff 09 61 " || " $hex " =~ " 06 60 ff 0a 61 00 " ]]
 }
+
+session_value() {
+	local value
+	value=$(loginctl show-session "$1" -p "$2" 2>/dev/null) || return 1
+	printf '%s\n' "${value#*=}"
+}
+
+apply_for_active_users() {
+	command -v loginctl >/dev/null 2>&1 || return 0
+	command -v runuser >/dev/null 2>&1 || return 0
+	command -v ryoku-hub >/dev/null 2>&1 || return 0
+	local session uid user _ entry home active remote class seen=" "
+	while read -r session uid user _; do
+		[[ -n $session && -n $uid && $seen != *" $uid "* ]] || continue
+		active=$(session_value "$session" Active) || continue
+		remote=$(session_value "$session" Remote) || continue
+		class=$(session_value "$session" Class) || continue
+		[[ $active == yes && $remote == no && $class == user ]] || continue
+		entry=$(getent passwd "$uid") || continue
+		IFS=: read -r _ _ _ _ _ home _ <<<"$entry"
+		[[ -n $home && -d /run/user/"$uid" ]] || continue
+		seen+="$uid "
+		flock -n "/run/ryoku-qmk-hotplug-$uid.lock" \
+			runuser -u "$user" -- env \
+				HOME="$home" USER="$user" LOGNAME="$user" \
+				XDG_RUNTIME_DIR="/run/user/$uid" \
+				DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+				ryoku-hub lighting apply >/dev/null 2>&1 || true
+	done < <(loginctl list-sessions --no-legend 2>/dev/null)
+}
+
+if [[ ${1:-} == --hotplug-apply ]]; then
+	sleep 1
+	apply_for_active_users
+	exit 0
+fi
+
+# udev kills what its RUN programs leave behind, so hand the apply to a detached job.
+if [[ ${1:-} == --hotplug ]]; then
+	if [[ -d /run/systemd/system ]] && command -v systemd-run >/dev/null 2>&1; then
+		systemd-run --no-block --collect --quiet "$0" --hotplug-apply || true
+	else
+		setsid -f "$0" --hotplug-apply </dev/null >/dev/null 2>&1 || true
+	fi
+	exit 0
+fi
 
 if [[ $# -ge 1 ]]; then
 	if has_via_usage "$1"; then exit 0; fi

@@ -344,7 +344,7 @@
         "desc": "Número de espacios de trabajo a mostrar",
         "hide_empty": {
           "title": "Ocultar escritorios vacíos",
-          "desc": "Mostrar solo los escritorios ocupados y el activo"
+          "desc": "Mostrar los escritorios ocupados y todos los escritorios hasta el activo"
         },
         "style": {
           "title": "Estilo",

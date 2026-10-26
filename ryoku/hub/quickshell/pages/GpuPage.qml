@@ -227,8 +227,10 @@ Item {
         planProc.running = true;
     }
     function enableInTerminal() {
+        if (!pg.ptPackagesLoaded || !pg.ptPackagesAvailable)
+            return;
         Spawn.runApp(["kitty", "--class", "ryoku-gpu", "-e", "sh", "-c",
-            "ryoku-hub gpu apply enable; echo; read -n1 -rsp 'Done. Press any key to close…'; echo"]);
+            "ryoku-hub gpu apply enable; echo; read -n1 -rsp 'Done. Press any key to close…'; echo"], { label: "kitty" });
         pg.planning = false;
         pg.planText = "";
         pg.enabling = true;

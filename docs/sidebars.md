@@ -83,6 +83,12 @@ open panel on every display, and is used the next time it opens. Hidden blocks
 are not instantiated, so their panel-owned probes, processes, watches, and
 animations do not continue in the background.
 
+The gear in Controls also saves where the panel opens and how far it sits from
+the screen edge. **Top left** keeps the shipped placement, **Top right** mirrors
+it, and **Center** centres the panel in both directions. **Edge gap** accepts 0
+to 96 pixels and starts at 12, matching the earlier fixed spacing. These choices
+live beside the panel arrangement in `shell.json` under `controls`.
+
 Controls remains a global shell surface. The same arrangement is used by every
 bar style and every supported compositor.
 
@@ -92,7 +98,8 @@ Sidebar designs from RyoStore change the panel content without taking over the
 surface. The shell keeps the window, focus, click-away area, Escape handling,
 open and close motion, and per-display state. A design receives the screen,
 scale, active state, and available room; it may choose a supported placement
-and implicit size, and may ask the host to close it.
+and implicit size, and may ask the host to close it. A design that declares a
+placement takes precedence over the saved Controls position.
 
 Pick the design in **Ryoku Hub > Settings > Overlays**. Design authors can use
 the stock blocks with `import shell.modules.sidebar as Kit`, including the
@@ -194,7 +201,7 @@ Controls components live under
 
 | File | Responsibility |
 |---|---|
-| `Sidebar.qml` | Top-left placement, focus, input region, and click-away dismissal |
+| `Sidebar.qml` | Saved placement, focus, input region, and click-away dismissal |
 | `SidebarFrame.qml`, `SidebarChrome.qml` | Shared surface, header, and board routing |
 | `ControlsBoard.qml` | Persisted section order, visibility, and lazy block loading |
 | `ControlsHero.qml`, `Vital*.qml` | Native activity graphs and individual system readings |

@@ -3,6 +3,64 @@
 ## Unreleased
 
 ### Fixed
+- **Bar controls start with a complete compositor capability set.** Every
+  capability is now false until the provider's first frame arrives, so QS Bar
+  and the other styles hide unavailable controls cleanly instead of binding an
+  undefined value during first paint (`../ui/Singletons/Wm.qml`).
+- **Python media widgets load album covers again.** The artwork helper now
+  loads the cache initializer from the port's scripts directory and stops if
+  initialization cannot be loaded, instead of attempting to write under `/covers`.
+- **Python's Pacman workspaces respect Hide empty workspaces.** Empty inactive
+  slots collapse and Pacman stays aligned with the active workspace in either
+  orientation. The workspace filter retains all slots through the active
+  workspace, plus any occupied workspaces after it.
+- **Python's equalizer initializes its runtime state in the correct directory.**
+  The helper loads the port's cache initializer beside the media directory and
+  exits if it cannot be loaded, instead of writing state at the filesystem root.
+- **Shima's universal dock keeps its notch, launches every pinned app and
+  stays mapped after Stage Editor closes.** Its separately hosted surface now
+  feeds the dock body into Shima's chassis, uses the universal desktop-entry
+  resolver and launch helper, and republishes the body throughout the Stage
+  frame transition without an old asynchronous surface clearing its replacement
+  (`quickshell/inir/modules/iris/`).
+- **A pinned Ryoku dock stays visible after fullscreen and display changes.**
+  Fullscreen state now suppresses only an auto-hiding dock, so stale
+  compositor state cannot slide a pinned dock off-screen while leaving its
+  window reservation behind (`quickshell/shell/modules/dock/DockSurface.qml`).
+- **Shima keeps custom dock styling from before the universal dock.** Doctor
+  moves non-default Shima shape, material, sizing and visibility values from
+  the retired Stage store into the universal dock store without replacing
+  newer Stage Editor choices (`../cli/internal/doctor/`).
+- **Docks can leave extra room at the screen edge.** Stage Editor now has one
+  shared Edge gap control for the Ryoku, ii and Shima designs, moving the dock,
+  its window reservation and the editor inset together without changing the
+  existing spacing at zero (`ipc/`, `quickshell/{shell,inir,stage}/`).
+- **Stage saves leave newer and retired settings intact for doctor.** The
+  Stage Editor now overlays its declared values onto the raw settings file
+  instead of serializing only the QML schema, so an update cannot erase keys
+  before doctor migrates or retires them. Unknown paths are logged once per
+  distinct set instead of raising a desktop warning
+  (`quickshell/stage/modules/common/Config.qml`).
+- **Missing notification icons use a built-in mark.** The standard and
+  Nomarchy cards, plus Shima's shared notification icon, resolve icon-theme
+  hints without routing a missing name to Qt's checkerboard placeholder, then
+  draw their own glyph when no image resolves
+  (`quickshell/{shell/modules/notifications,inir/modules/common/widgets,shell/modules/bar/barstyles/nomarchy/plugins/notifications}/`).
+- **QS Bar's identity island stays rounded while the bar is edited.** Its
+  drag-target outline now follows the bar shell's corner radius instead of
+  replacing the chosen curve with a fixed pill radius
+  (`quickshell/shell/modules/bar/barstyles/qsbar/BarSlot.qml`).
+- **Depth cuts the wallpaper's subject out again, and the 3D scene is its own
+  Spatial mode.** 1.0 turned Depth into the Depth Anything 3D scene and dropped
+  the still cut-out that let widgets sit behind the wallpaper's subject. The
+  Stage Editor's Depth page now has four modes: Plain, Depth (the subject cut
+  out over the still wallpaper), Parallax (cut-out layers that drift) and
+  Spatial (the 3D scene). Each mode has its own settings tabs and a Model tab,
+  with the cut-out models for Depth and Parallax and Depth Anything V2 for
+  Spatial. Settings move over on their own: walls that only had a cut go back
+  to Depth, walls with a depth map become Spatial, and each mode keeps the
+  model, look and motion it had (`ipc/stage.go`,
+  `quickshell/shell/modules/stage/`, `quickshell/shell/modules/desktop/`).
 - **The quick-launch defaults name Default Apps roles, not fixed programs.**
   The Files, Terminal, Browser and Code slots carried over from the iNiR port
   now run `ryoku-app files|terminal|browser|editor`, so anything that reads
@@ -61,6 +119,17 @@
   (`quickshell/shell/modules/{desktop,stage}/`).
 
 ### Added
+- **Controls can open at the top left, top right, or centre of a display.**
+  Its gear popup now saves the panel position and its gap from the screen edge
+  in `shell.json`, while store designs that declare their own placement keep
+  control of placement. The click-away area follows the panel in every position
+  (`ipc/settings.go`, `quickshell/shell/{modules/sidebar,services/}`).
+- **Super+Shift+D opens the Stage Editor on the focused screen.** The shortcut
+  joins the shared, rebindable key catalogue and opens the Widgets catalogue, so
+  it appears in Kit and works through every window-manager provider. The same
+  route is discoverable in Kit's command catalogue
+  (`../wm/binds.go`, `../wm/*/config_binds.go`,
+  `../hyprland/modules/binds.lua`, `quickshell/keys/commands/catalog/ryoku-cli.json`).
 - **The desktop stage is one feature now: Plain, Depth or Parallax, with a
   3D depth mesh.** Depth renders the wallpaper as a depth-displaced mesh
   that follows the pointer and needs no cut; Parallax keeps the drifting

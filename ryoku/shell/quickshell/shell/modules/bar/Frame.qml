@@ -243,6 +243,9 @@ Scope {
         onMonFullscreenChanged: if (monFullscreen) frameMenus.closeAll()
 
         screen: root.modelData
+        // Sumi paints its rails here; other styles only host menus and popouts,
+        // so the full-output surface maps only while one of them is showing.
+        visible: root.sumiActive || frameMenus.anyShowing
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.layer: WlrLayer.Top
@@ -372,19 +375,23 @@ Scope {
 
             // The animated menu extension is a simple scene-graph primitive;
             // changing its rect stays smooth while the frame path remains static.
-            Rectangle {
-                x: frameMenus.chromePanel.x
-                y: frameMenus.chromePanel.y
-                width: frameMenus.chromePanel.w
-                height: frameMenus.chromePanel.h
-                radius: Math.min(Config.frameCorner, width / 2, height / 2)
-                color: Theme.surface
-                border.width: Theme.borderWidth
-                border.color: Theme.outline
-                opacity: Theme.windowOpacity * (frameMenus.chromeSide ? frameMenus.chromeOpacity : 1)
-                visible: !overlay.monFullscreen
-                    && root.barEnabled && Config.frameEnabled && root.sumiActive
-                    && width > 0 && height > 0
+            // Loaded only under Sumi: hidden but alive, the rails still rebuild
+            // on every window change.
+            Loader {
+                active: root.sumiActive && root.barEnabled
+                sourceComponent: Rectangle {
+                    x: frameMenus.chromePanel.x
+                    y: frameMenus.chromePanel.y
+                    width: frameMenus.chromePanel.w
+                    height: frameMenus.chromePanel.h
+                    radius: Math.min(Config.frameCorner, width / 2, height / 2)
+                    color: Theme.surface
+                    border.width: Theme.borderWidth
+                    border.color: Theme.outline
+                    opacity: Theme.windowOpacity * (frameMenus.chromeSide ? frameMenus.chromeOpacity : 1)
+                    visible: !overlay.monFullscreen && Config.frameEnabled
+                        && width > 0 && height > 0
+                }
             }
 
             StageFramedLayer {
@@ -397,46 +404,49 @@ Scope {
                 screenHeight: overlay.screen?.height ?? 1080
             }
 
-            FrameChrome {
+            Loader {
                 parent: frameLayer.rest
-                // The painted frame band: per-edge thickness = that edge's reserve
-                // (bar band + border), the 2px outline stroked just inside the hole
-                // edge, inner corners arced at radiusWindow.
                 anchors.fill: parent
-                // No sumiActive arm: this item's own visible below requires it, so
-                // the band is never painted without it and a fallback thickness
-                // would describe a frame nobody sees. The reserves at the top of
-                // the file are the opposite case and keep theirs, because an
-                // exclusive zone is claimed whether or not anything is drawn.
-                reserveTop: root.edgeDrawReserve("top")
-                reserveBottom: root.edgeDrawReserve("bottom")
-                reserveLeft: root.edgeDrawReserve("left")
-                reserveRight: root.edgeDrawReserve("right")
-                holeRadius: Config.frameCorner
-                surface: Theme.surface
-                outline: Theme.outline
-                strokeWidth: Theme.borderWidth
-                opacity: Theme.windowOpacity
-                visible: !overlay.monFullscreen
-                    && root.barEnabled && Config.frameEnabled && root.sumiActive
-            }
+                active: root.sumiActive && root.barEnabled
+                sourceComponent: Item {
+                    FrameChrome {
+                        // The painted frame band: per-edge thickness = that edge's reserve
+                        // (bar band + border), the 2px outline stroked just inside the hole
+                        // edge, inner corners arced at radiusWindow.
+                        anchors.fill: parent
+                        // No sumiActive arm: the Loader above requires it, so the
+                        // band is never painted without it and a fallback thickness
+                        // would describe a frame nobody sees. The reserves at the top of
+                        // the file are the opposite case and keep theirs, because an
+                        // exclusive zone is claimed whether or not anything is drawn.
+                        reserveTop: root.edgeDrawReserve("top")
+                        reserveBottom: root.edgeDrawReserve("bottom")
+                        reserveLeft: root.edgeDrawReserve("left")
+                        reserveRight: root.edgeDrawReserve("right")
+                        holeRadius: Config.frameCorner
+                        surface: Theme.surface
+                        outline: Theme.outline
+                        strokeWidth: Theme.borderWidth
+                        opacity: Theme.windowOpacity
+                        visible: !overlay.monFullscreen && Config.frameEnabled
+                    }
 
-            Bar {
-                id: frameRails
-                parent: frameLayer.rest
-                anchors.fill: parent
-                z: 1
-                visible: !overlay.monFullscreen && root.barEnabled && root.sumiActive
-                // The bar content scales by this monitor's uiScale and the reserve
-                // (edgeReserve) scales its band by the same factor, so the drawn
-                // bar and its reserved exclusive-zone thickness stay matched.
-                railScale: root.uiScale
-                revealState: overlay.edgeReveal
-                frameBars: overlay.frameBars
-                style: ({ group: blobGroup })
-                onMenuRequested: (id, ownerRect) => frameMenus.openSurface(id, ownerRect, "")
-                onSurfaceRequested: (id, ownerRect) => frameMenus.openSurface(id, ownerRect, "")
-                onActionRequested: id => root.runBarAction(id)
+                    Bar {
+                        anchors.fill: parent
+                        z: 1
+                        visible: !overlay.monFullscreen
+                        // The bar content scales by this monitor's uiScale and the reserve
+                        // (edgeReserve) scales its band by the same factor, so the drawn
+                        // bar and its reserved exclusive-zone thickness stay matched.
+                        railScale: root.uiScale
+                        revealState: overlay.edgeReveal
+                        frameBars: overlay.frameBars
+                        style: ({ group: blobGroup })
+                        onMenuRequested: (id, ownerRect) => frameMenus.openSurface(id, ownerRect, "")
+                        onSurfaceRequested: (id, ownerRect) => frameMenus.openSurface(id, ownerRect, "")
+                        onActionRequested: id => root.runBarAction(id)
+                    }
+                }
             }
 
             // per-monitor frame menu manager: a bar widget asks for a menu via

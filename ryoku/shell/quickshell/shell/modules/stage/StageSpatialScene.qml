@@ -15,10 +15,16 @@ Item {
     property size textureSize: Qt.size(Math.max(1, width), Math.max(1, height))
     property real pointerX: 0
     property real pointerY: 0
-    property real motionAmount: 0
+    property string mode: "spatial"
     property bool stretch: false
     property string screenName: ""
     property bool layered: false
+    readonly property string motionMode: root.mode === "parallax"
+        ? "parallax" : "spatial"
+    readonly property var motion: Config.motionOf(root.motionMode)
+    readonly property real motionAmount: root.motion.mouse !== false
+        ? Config.amountFactor(root.motionMode) * root.motion.sensitivity
+            * root.motion.range : 0
 
     readonly property real pivotDistance: depthGeometry.valid ? depthGeometry.focusDistance : 0
     function publishPivot() {

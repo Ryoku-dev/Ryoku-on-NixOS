@@ -341,7 +341,7 @@
         "desc": "Göstəriləcək iş sahələrinin sayı",
         "hide_empty": {
           "title": "Boş iş sahələrini gizlət",
-          "desc": "Yalnız dolu və aktiv iş sahələrini göstər"
+          "desc": "Dolu iş sahələrini və aktiv iş sahəsinə qədər bütün iş sahələrini göstər"
         },
         "style": {
           "title": "Stil",

@@ -53,6 +53,9 @@ Item {
     property real bodyReveal: root.menuOpen && (!root.retainBody || root.bodyReady) ? 1 : 0
     Behavior on bodyReveal { NumberAnimation { duration: Motion.crossfade; easing.type: Motion.crossfadeCurve } }
     readonly property bool effectiveOpen: root.menuOpen || root.bodyReveal > 0.004
+    // Anything of this record still on screen, closing melt included.
+    readonly property bool showing: root.isMenu ? root.effectiveOpen
+        : !!(surfaceHost.item && surfaceHost.item.effectiveOpen)
     readonly property bool retainBody: root.isMenu && root.fillsBand
     readonly property bool bodyReady: menuBody.status === Loader.Ready
         && !!(menuBody.item && menuBody.item.ready)

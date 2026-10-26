@@ -62,9 +62,9 @@ AbstractBackgroundWidget {
             if (AtAGlanceService.player)
                 AtAGlanceService.player.togglePlaying();
         } else if (serviceName === "calendar") {
-            Spawn.run(["xdg-open", "https://calendar.google.com/calendar/u/0/r"]);
+            Spawn.runApp(["xdg-open", "https://calendar.google.com/calendar/u/0/r"], { label: "calendar" });
         } else if (serviceName === "email") {
-            Spawn.run(["xdg-open", "https://mail.google.com/mail/u/0/#inbox"]);
+            Spawn.runApp(["xdg-open", "https://mail.google.com/mail/u/0/#inbox"], { label: "mail" });
         } else if (serviceName === "todo") {
             Spawn.run(["ryoku-shell", "quicksettings"]);
         } else if (serviceName === "fallback") {

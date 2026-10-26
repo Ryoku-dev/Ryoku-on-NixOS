@@ -73,9 +73,9 @@ AbstractBackgroundWidget {
         } else if (key === "wallpapers") {
             Spawn.run(["ryogami", "wallpaper", "ui"]);
         } else if (key === "phone") {
-            Spawn.run(["ryoku-kit", "phone"]);
+            Spawn.runApp(["ryoku-kit", "phone"], { label: "ryoku-kit" });
         } else if (key === "cheatsheet") {
-            Spawn.run(["ryoku-kit"]);
+            Spawn.runApp(["ryoku-kit"], { label: "ryoku-kit" });
         } else if (key === "clipboard") {
             Spawn.run(["ryoku-shell", "clipboard"]);
         } else if (key === "color_picker") {

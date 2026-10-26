@@ -22,7 +22,47 @@ Singleton {
     property var _v: null
 
     property bool _ready: false
-    property var _caps: ({})
+    readonly property var emptyCaps: ({
+        workspaces: false,
+        specialWorkspace: false,
+        workspaceMoveToOutput: false,
+        windowWorkspaceMap: false,
+        workspaceFullscreenState: false,
+        windowGeometry: false,
+        focusHistory: false,
+        windowRules: false,
+        layerRules: false,
+        submap: false,
+        globalShortcuts: false,
+        focusGrab: false,
+        workspaceSlideStyle: false,
+        screenShader: false,
+        plugins: false,
+        liveConfigEval: false,
+        configReload: false,
+        animations: false,
+        cursorSet: false,
+        nativeOverview: false,
+        overviewBackdrop: false,
+        overviewState: false,
+        outputPower: false,
+        keyboardLayoutSwitch: false,
+        monitorConfig: false,
+        outputMirror: false,
+        outputHdr: false,
+        windowFloat: false,
+        tiledLayout: false,
+        columnFill: false,
+        deckLayout: false,
+        sessionExit: false,
+        nightLight: false,
+        touchpadToggle: false,
+        paletteBorder: false,
+        persistentScreenCapture: false,
+        keyboardGrabSharesPointer: false,
+        systemLidEdgeSource: false
+    })
+    property var _caps: root.emptyCaps
     property string _workspaceModel: "fixed"
     property string _provider: ""
     property var _configFiles: []
@@ -221,7 +261,7 @@ Singleton {
     // The foreign-toplevel activated flag marks the focused window on every
     // compositor; focusOrder is only meaningful where caps.focusHistory is set,
     // so it is the fallback.
-    readonly property var focusedWindow: {
+    readonly property var _focusedCandidate: {
         const list = root.windows;
         for (let i = 0; i < list.length; i++)
             if (list[i].toplevel && list[i].toplevel.activated)
@@ -231,6 +271,35 @@ Singleton {
                 return list[i];
         return null;
     }
+
+    // windows rebuilds every object on any title change, so the focused one is
+    // only replaced when one of its own fields moved; otherwise an unrelated
+    // window retitling would fire every onFocusedWindowChanged listener.
+    property var _focusedWindow: null
+    readonly property var focusedWindow: root._focusedWindow
+
+    function _sameWindow(a, b) {
+        if (a === b)
+            return true;
+        if (!a || !b)
+            return false;
+        const keys = Object.keys(a);
+        if (keys.length !== Object.keys(b).length)
+            return false;
+        for (let i = 0; i < keys.length; i++)
+            if (a[keys[i]] !== b[keys[i]])
+                return false;
+        return true;
+    }
+
+    function _adoptFocused() {
+        const next = root._focusedCandidate;
+        if (!root._sameWindow(root._focusedWindow, next))
+            root._focusedWindow = next;
+    }
+
+    on_FocusedCandidateChanged: root._adoptFocused()
+    Component.onCompleted: root._adoptFocused()
 
     function windowsOnWorkspace(key) {
         const workspace = root._wsId(key);
@@ -359,7 +428,7 @@ Singleton {
             if (!v) {
                 root._v = null;
                 root._ready = frame.ready === true;
-                root._caps = frame.caps || ({});
+                root._caps = frame.caps || root.emptyCaps;
                 root._workspaceModel = frame.workspaceModel || "fixed";
                 root._provider = frame.provider || "";
                 root._configFiles = frame.configFiles || [];
@@ -374,7 +443,7 @@ Singleton {
             }
             if (root._newer(v, "ready")) {
                 root._ready = frame.ready === true;
-                root._caps = frame.caps || ({});
+                root._caps = frame.caps || root.emptyCaps;
                 root._workspaceModel = frame.workspaceModel || "fixed";
                 root._provider = frame.provider || "";
                 root._configFiles = frame.configFiles || [];

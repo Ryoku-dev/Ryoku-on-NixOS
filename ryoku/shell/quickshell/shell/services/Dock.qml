@@ -20,6 +20,7 @@ Singleton {
     // folders), published by that design's host while it is up; null
     // otherwise.
     property var designActions: null
+    property int configRevision: 0
 
     // Icon resolution is not reactive on its own: iconFor() reads the desktop DB and
     // the icon theme through plain function calls, so a binding that resolves before
@@ -227,6 +228,7 @@ Singleton {
     readonly property bool storeDesign: !root.builtinDesigns.includes(root.design)
 
     function cfg(key, fallback) {
+        void root.configRevision;
         const d = Config.dock;
         if (d && d[key] !== undefined && d[key] !== null)
             return d[key];
@@ -240,6 +242,7 @@ Singleton {
     }
     function writeCfg(next) {
         Config.dock = next;
+        root.configRevision++;
         cfgCtl.queued += "call settings.patch " + JSON.stringify({ path: "dock", value: next }) + "\n";
         if (cfgCtl.connected)
             cfgCtl.flushQueued();

@@ -16,23 +16,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync/atomic"
-	"syscall"
 	"time"
 )
-
-// Ryostage v2 (docs/stage.md): the desktop as a stage. One worker, one registry,
-// one topic. Depth is the stage with a single still layer in front of the
-// widgets; Parallax is the same stack with drift and a recoloured backdrop.
-// There is no "mode", no per-layer look knobs and no scene order: a wall is one
-// effect and one layer stack, layers[0] is always the cut subject, and every
-// idea (edge, shadow, quality, motion) lives once in stage.json. Both effects
-// share the ryostage cut-out engine, the per-wall registry, and the artifact
-// tree under ~/Pictures/Stage. Generation is slow, so it runs on a coalescing
-// worker off the wallpaper hot path; the finished subject is folded into
-// ryogami's wallpaper frame under the unchanged `depth` wire for pixel-lock
-// (Depth only), and the full editor state rides the `stage` topic QML renders
-// from.
 
 type stageEffect string
 
@@ -40,6 +25,7 @@ const (
 	stageEffectOff      stageEffect = "off"
 	stageEffectDepth    stageEffect = "depth"
 	stageEffectParallax stageEffect = "parallax"
+	stageEffectSpatial  stageEffect = "spatial"
 )
 
 // stageLayer is one entry in a wall's layer stack. layers[0] is always the cut
@@ -65,23 +51,20 @@ type stageWall struct {
 	Layers []stageLayer `json:"layers,omitempty"`
 }
 
-// stageWalls is the daemon-owned registry at ~/.local/state/ryoku/stage-walls.json.
-// `current` mirrors the wallpaper on screen now so the shell can key its lookup.
 type stageWalls struct {
+	Version int                  `json:"version"`
 	Current string               `json:"current"`
 	Walls   map[string]stageWall `json:"walls"`
 }
 
-// stageIndex records what produced a wall's subject.png, so a returning
-// wallpaper reuses its cut instantly (mtime) while a quality change re-cuts.
 type stageIndex struct {
-	Source  string `json:"source"`
-	Model   string `json:"model"`
-	Matting bool   `json:"matting"`
+	Source     string `json:"source"`
+	Model      string `json:"model,omitempty"`
+	Matting    bool   `json:"matting,omitempty"`
+	DepthModel string `json:"depthModel,omitempty"`
 }
 
-// stageQuality is the model+matting pair a quality tier resolves to.
-type stageQuality struct {
+type stageCut struct {
 	model   string
 	matting bool
 }
@@ -97,34 +80,25 @@ type stageTarget struct {
 	source string
 }
 
-// stageWallFrame and stageFrame are the `stage` topic shape QML binds to
-// (per-wallpaper keyed so each monitor reads its own entry). busy/stage/percent
-// are global to the single worker; everything else is per wall. `rev` is the max
-// mtime across the wall's artifacts so the shell can cache-bust every PNG url
-// (subject, background and each layer) with one revision.
 type stageWallFrame struct {
-	Effect     stageEffect  `json:"effect"`
-	Subject    string       `json:"subject"`
-	Background string       `json:"background"`
-	Depth      string       `json:"depth"`
-	Rev        int64        `json:"rev"`
-	Layers     []stageLayer `json:"layers"`
+	Effect     stageEffect      `json:"effect"`
+	Subject    string           `json:"subject"`
+	Background string           `json:"background"`
+	Depth      string           `json:"depth"`
+	Rev        int64            `json:"rev"`
+	Layers     []stageLayer     `json:"layers"`
+	Steps      []stageStepFrame `json:"steps"`
 }
 
 type stageFrame struct {
 	Current string                    `json:"current"`
 	Busy    bool                      `json:"busy"`
-	Stage   string                    `json:"stage"`
-	Percent int                       `json:"percent"`
-	Notice  string                    `json:"notice,omitempty"`
+	Job     *stageJobFrame            `json:"job"`
+	Last    *stageJobResult           `json:"last"`
 	Walls   map[string]stageWallFrame `json:"walls"`
 }
 
 var manualLayerRe = regexp.MustCompile(`^layer-(\d{2,})\.png$`)
-
-// stageCutPID holds the running engine child's real PID (not the daemon's) so
-// `stage cancel` can signal its process group; reset to 0 once it exits.
-var stageCutPID atomic.Int32
 
 func logStage(what string, err error) {
 	if err != nil {
@@ -151,7 +125,6 @@ func stageBackgroundOut(source string) string {
 }
 func stageDepthOut(source string) string  { return filepath.Join(stageWallDir(source), "depth.png") }
 func stageIndexPath(source string) string { return filepath.Join(stageWallDir(source), ".index.json") }
-func stageProgressPath() string           { return filepath.Join(stateDir(), "ryoku", "stage", "progress") }
 
 // --- shared fs helpers -----------------------------------------------------
 
@@ -236,6 +209,9 @@ func loadStageWalls() stageWalls {
 }
 
 func saveStageWalls(w stageWalls) error {
+	if w.Version == 0 {
+		w.Version = 3
+	}
 	if w.Walls == nil {
 		w.Walls = map[string]stageWall{}
 	}
@@ -250,50 +226,70 @@ func loadStageIndex(source string) stageIndex {
 	return idx
 }
 
-func saveStageIndex(source string, idx stageIndex) {
-	if err := writeJSONFileAtomic(stageIndexPath(source), idx); err != nil {
-		logStage("save index", err)
-	}
-}
-
 // --- settings --------------------------------------------------------------
 
-// stageConfig reads the shell-owned quality tier and its per-tier model choices
-// from stage.json. Everything else in the file is rendered by the shell.
-func stageConfig() stageQuality {
-	models := defaultStageModels()
-	def := stageQualityFor("draft", models)
+func validStageCutModel(id string) bool {
+	switch id {
+	case "u2netp", "silueta", "birefnet-general-lite", "birefnet-general", "birefnet-portrait":
+		return true
+	}
+	return false
+}
+
+// Unknown models use the default so stale settings cannot disable cutting.
+func stageCutFor(mode stageEffect) stageCut {
+	cut := stageCut{model: "u2netp"}
+	if mode != stageEffectDepth && mode != stageEffectParallax {
+		return cut
+	}
 	dir := ryokuConfigDir()
 	if dir == "" {
-		return def
+		return cut
 	}
 	b, err := os.ReadFile(filepath.Join(dir, "stage.json"))
 	if err != nil {
-		return def
+		return cut
 	}
 	var m struct {
-		Quality string      `json:"quality"`
-		Models  stageModels `json:"models"`
+		Depth struct {
+			Cut struct {
+				Model   string `json:"model"`
+				Matting bool   `json:"matting"`
+			} `json:"cut"`
+		} `json:"depth"`
+		Parallax struct {
+			Cut struct {
+				Model   string `json:"model"`
+				Matting bool   `json:"matting"`
+			} `json:"cut"`
+		} `json:"parallax"`
 	}
 	if json.Unmarshal(b, &m) != nil {
-		return def
+		return cut
 	}
-	return stageQualityFor(m.Quality, m.Models)
+	selected := m.Depth.Cut
+	if mode == stageEffectParallax {
+		selected = m.Parallax.Cut
+	}
+	if validStageCutModel(selected.Model) {
+		cut.model = selected.Model
+	}
+	cut.matting = selected.Matting
+	return cut
 }
 
-// stageDepthModel reads the depth estimator the user picked in the Stage tab
-// (stage.json `depthModel`): small | base | large. Unknown values fall back to
-// small rather than disabling the 3D backdropper.
-func stageDepthModel() string {
+func stageSpatialModel() string {
 	id := "small"
 	if dir := ryokuConfigDir(); dir != "" {
 		b, err := os.ReadFile(filepath.Join(dir, "stage.json"))
 		if err == nil {
 			var m struct {
-				DepthModel string `json:"depthModel"`
+				Spatial struct {
+					Model string `json:"model"`
+				} `json:"spatial"`
 			}
-			if json.Unmarshal(b, &m) == nil && m.DepthModel != "" {
-				id = m.DepthModel
+			if json.Unmarshal(b, &m) == nil && m.Spatial.Model != "" {
+				id = m.Spatial.Model
 			}
 		}
 	}
@@ -305,38 +301,25 @@ func stageDepthModel() string {
 	}
 }
 
-func defaultStageModels() stageModels {
-	return stageModels{
-		Draft:    "u2netp",
-		Standard: "u2netp",
-		Fine:     "birefnet-general-lite",
+// Missing settings keep the depth backdrop enabled.
+func stageDepthBackdrop() bool {
+	dir := ryokuConfigDir()
+	if dir == "" {
+		return true
 	}
-}
-
-// stageQualityFor keeps each tier's matting contract while allowing its model
-// to be replaced by a model selected from the engine catalogue.
-func stageQualityFor(tier string, models stageModels) stageQuality {
-	defaults := defaultStageModels()
-	var model string
-	var matting bool
-	switch tier {
-	case "standard":
-		model, matting = models.Standard, true
-		if model == "" {
-			model = defaults.Standard
-		}
-	case "fine":
-		model, matting = models.Fine, true
-		if model == "" {
-			model = defaults.Fine
-		}
-	default:
-		model = models.Draft
-		if model == "" {
-			model = defaults.Draft
-		}
+	b, err := os.ReadFile(filepath.Join(dir, "stage.json"))
+	if err != nil {
+		return true
 	}
-	return stageQuality{model: model, matting: matting}
+	var m struct {
+		Parallax struct {
+			DepthBackdrop *bool `json:"depthBackdrop"`
+		} `json:"parallax"`
+	}
+	if json.Unmarshal(b, &m) != nil || m.Parallax.DepthBackdrop == nil {
+		return true
+	}
+	return *m.Parallax.DepthBackdrop
 }
 
 // --- engine ----------------------------------------------------------------
@@ -357,34 +340,6 @@ func stageEngineBin() string {
 	return "ryostage"
 }
 
-// stageEngineProbe asks the helper whether it can cut with `model` right now,
-// on a deadline so a hung helper never wedges the worker. It returns the
-// helper's one-line reason ("runtime missing", "model u2netp missing") so a
-// blocked pipeline can name itself instead of dying mute.
-func stageEngineProbe(model string) (bool, string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, stageEngineBin(), "check", model)
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		return true, ""
-	}
-	if reason := strings.TrimSpace(string(out)); reason != "" {
-		return false, reason
-	}
-	return false, "engine unavailable"
-}
-
-// stageDepthProbe reports whether the runtime and the configured depth model
-// are installed (ryostage decides "installed" itself via --json). The daemon
-// never downloads it; the Stage tab owns that choice.
-func stageDepthProbe() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	return exec.CommandContext(ctx, stageEngineBin(), "depth-check", "--json",
-		"--model", stageDepthModel()).Run() == nil
-}
-
 // stageModelsJSON passes the curated catalogue through to the shell.
 func stageModelsJSON() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -394,144 +349,6 @@ func stageModelsJSON() string {
 		return "err stage models: " + err.Error()
 	}
 	return strings.TrimSpace(string(out))
-}
-
-// runEngine runs one engine subcommand bounded and cancellable. The child is its
-// own process group so `stage cancel` (and a deadline) can signal the whole
-// tree (bash + python), not just the leader. stderr is drained so a chatty
-// helper cannot block on a full pipe.
-func (d *daemon) runEngine(timeout time.Duration, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, stageEngineBin(), args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = io.Copy(io.Discard, stderr)
-	}()
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	stageCutPID.Store(int32(cmd.Process.Pid))
-	werr := cmd.Wait()
-	stageCutPID.Store(0)
-	<-done
-	return werr
-}
-
-// stageCancel kills the running engine child's process group.
-func stageCancel() {
-	pid := int(stageCutPID.Load())
-	if pid <= 0 {
-		return
-	}
-	_ = syscall.Kill(-pid, syscall.SIGKILL)
-}
-
-// --- progress --------------------------------------------------------------
-
-func resetStageProgress() {
-	p := stageProgressPath()
-	_ = os.MkdirAll(filepath.Dir(p), 0o755)
-	_ = os.WriteFile(p, nil, 0o644)
-}
-
-func writeStageProgress(rec map[string]any) {
-	p := stageProgressPath()
-	_ = os.MkdirAll(filepath.Dir(p), 0o755)
-	b, err := json.Marshal(rec)
-	if err != nil {
-		return
-	}
-	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.Write(append(b, '\n'))
-}
-
-func readLastStagePhase() string {
-	b, err := os.ReadFile(stageProgressPath())
-	if err != nil {
-		return ""
-	}
-	phase := ""
-	for _, line := range strings.Split(string(b), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || !strings.HasPrefix(line, "{") {
-			continue
-		}
-		var rec map[string]any
-		if json.Unmarshal([]byte(line), &rec) != nil {
-			continue
-		}
-		if p, ok := rec["phase"].(string); ok {
-			phase = p
-		}
-	}
-	return phase
-}
-
-// readLastStageError returns the error the last failed engine phase recorded
-// ("" when the last phase was not an error), so a blocked cut can name the
-// real failure instead of pointing at the log.
-func readLastStageError() string {
-	b, err := os.ReadFile(stageProgressPath())
-	if err != nil {
-		return ""
-	}
-	phase, msg := "", ""
-	for _, line := range strings.Split(string(b), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || !strings.HasPrefix(line, "{") {
-			continue
-		}
-		var rec map[string]any
-		if json.Unmarshal([]byte(line), &rec) != nil {
-			continue
-		}
-		phase, _ = rec["phase"].(string)
-		msg, _ = rec["error"].(string)
-	}
-	if phase == "error" {
-		return msg
-	}
-	return ""
-}
-
-// --- reuse rules -----------------------------------------------------------
-
-// subjectFresh reports whether a generated artifact is no older than its source,
-// so a returning wallpaper reuses it but an edited image regenerates.
-func subjectFresh(source, out string) bool {
-	ot := fileModTime(out)
-	return ot > 0 && ot >= fileModTime(source)
-}
-
-func backgroundFresh(source, out string) bool { return subjectFresh(source, out) }
-func depthFresh(source, out string) bool      { return subjectFresh(source, out) }
-
-// subjectMatches is the stricter generate-time check: fresh AND cut with the
-// requested model+matting, so an enable skips a redundant re-cut but a quality
-// change (whose model+matting no longer match the index) re-cuts.
-func (d *daemon) subjectMatches(source, out string, q stageQuality) bool {
-	if !subjectFresh(source, out) {
-		return false
-	}
-	idx := loadStageIndex(source)
-	return idx.Source == source && idx.Model == q.model && idx.Matting == q.matting
 }
 
 // --- layers ----------------------------------------------------------------
@@ -630,7 +447,7 @@ func (d *daemon) scheduleStage() {
 
 func (d *daemon) stageWorker() {
 	for range d.stageSig {
-		d.reconcileStage(d.stageForce.Swap(false), d.stageGen.Swap(false))
+		d.reconcileStage()
 	}
 }
 
@@ -650,229 +467,50 @@ func (d *daemon) stageTargets() []stageTarget {
 	return out
 }
 
-// reconcileStage resolves every on-screen wallpaper's stage from the registry.
-// A plain wake (neither force nor gen) reuses artifacts and never runs the
-// engine, so a switch reuses a stage instantly but never auto-generates; gen
-// (an enable) reuses when present and only generates what is missing; force (a
-// quality change, refresh, or manual re-cut) regenerates. The finished subject
-// is folded to ryogami under the `depth` wire for the Depth effect only;
-// Parallax renders from the topic and clears the fold so the backdrop covers the
-// wallpaper's own subject. A failure leaves the effect off with a logged reason
-// and is never fatal.
-func (d *daemon) reconcileStage(force, gen bool) {
+// Passive wakes republish state but never start engine work.
+func (d *daemon) reconcileStage() {
 	wall := d.currentWall()
 	reg := loadStageWalls()
-	if reg.Current != wall {
-		reg.Current = wall
-		if err := saveStageWalls(reg); err != nil {
-			logStage("save current", err)
-		}
-	}
-	q := stageConfig()
-	// Probe the engine only when some wall can actually need a cut, and ask
-	// about the model the configured tier uses: a box that installed the fine
-	// tier must not read as "engine missing" just because the draft model is
-	// absent, and a box that cannot cut must say why.
-	probed, available := false, false
-	reason := ""
-	probe := func() bool {
-		if !probed {
-			available, reason = stageEngineProbe(q.model)
-			probed = true
-		}
-		return available
-	}
-	probedDepth, depthAvailable := false, false
-	probeDepth := func() bool {
-		if !probedDepth {
-			depthAvailable = stageDepthProbe()
-			probedDepth = true
-		}
-		return depthAvailable
-	}
-	notice := ""
-	dirty := false
-	for _, t := range d.stageTargets() {
-		e := reg.Walls[t.source]
-		effect := e.Effect
-		if effect == "" || effect == stageEffectOff {
-			continue
-		}
-		cutNeeded := effect == stageEffectParallax
-		missing := false
-		if cutNeeded {
-			missing = !subjectFresh(t.source, stageSubjectOut(t.source))
-			if !missing {
-				missing = !backgroundFresh(t.source, stageBackgroundOut(t.source))
+	dirty := reg.Current != wall
+	reg.Current = wall
+	targets := d.stageTargets()
+	desired := map[string]stageTarget{}
+	for _, target := range targets {
+		entry := reg.Walls[target.source]
+		if entry.Effect == stageEffectDepth || entry.Effect == stageEffectParallax {
+			before, _ := json.Marshal(entry.Layers)
+			entry.Layers = d.deriveLayers(target.source, entry.Layers)
+			after, _ := json.Marshal(entry.Layers)
+			if !bytes.Equal(before, after) {
+				dirty = true
 			}
+			reg.Walls[target.source] = entry
 		}
-		genHere := gen || force || missing
-		avail := false
-		if genHere && cutNeeded {
-			avail = probe()
-		}
-		prevBytes, _ := json.Marshal(e)
-		subjectExists := d.ensureArtifacts(t.source, q, effect, force, genHere, avail, probeDepth)
-		if cutNeeded && !subjectExists && notice == "" {
-			switch {
-			case genHere && !avail:
-				notice = reason
-			case genHere && avail:
-				if cutErr := readLastStageError(); cutErr != "" {
-					notice = cutErr
-				} else {
-					notice = "the last cut failed"
-				}
-			}
-		}
-		e.Layers = d.deriveLayers(t.source, e.Layers)
-		reg.Walls[t.source] = e
-		if newBytes, _ := json.Marshal(e); !bytes.Equal(prevBytes, newBytes) {
-			dirty = true
+		if entry.Effect == stageEffectDepth &&
+			stageStepUsable(stageStepStateFor(stageStepsForWall(target.source, entry.Effect), stageStepCut)) {
+			desired[target.slot] = target
 		}
 	}
-	d.depthClear()
+	frame := d.wallFrame()
+	clear := frame.Default.Depth != "" && desired[""].source == ""
+	for slot, entry := range frame.Outputs {
+		if entry.Depth != "" && desired[slot].source == "" {
+			clear = true
+			break
+		}
+	}
+	if clear {
+		d.depthClear()
+	}
+	for _, target := range desired {
+		d.depthPublish(target.slot, target.source, stageSubjectOut(target.source))
+	}
 	if dirty {
 		if err := saveStageWalls(reg); err != nil {
 			logStage("save walls", err)
 		}
 	}
-	d.stageNotice.Store(notice)
-	d.stageBusy.Store(false)
 	d.publishStage()
-}
-
-// ensureArtifacts brings one wall's artifacts in line with its effect, running
-// the engine only when a generation is warranted and the runtime is available,
-// and returns whether a fresh subject exists. Parallax needs the cut and the
-// inpainted background (the 3D scene textures the mesh with it when a depth map
-// is also installed); the depth effect needs only the depth map, because it
-// textures the mesh with the original wallpaper and can run with no cut
-// engine at all. The depth map is generated only when its model is installed. A cut
-// failure returns no subject and is logged, never fatal.
-func (d *daemon) ensureArtifacts(source string, q stageQuality, eff stageEffect, force, gen, available bool, depthProbe func() bool) bool {
-	subj := stageSubjectOut(source)
-	bg := stageBackgroundOut(source)
-	depth := stageDepthOut(source)
-	subjectExists := false
-	didCut := false
-	didInpaint := false
-	cutNeeded := eff == stageEffectParallax
-
-	if cutNeeded {
-		if force || (gen && !d.subjectMatches(source, subj, q)) {
-			if available {
-				if err := d.runCut(source, subj, q); err != nil {
-					logStage("cut "+stageStem(source), err)
-					return false
-				}
-				saveStageIndex(source, stageIndex{Source: source, Model: q.model, Matting: q.matting})
-				subjectExists, didCut = true, true
-			} else {
-				subjectExists = subjectFresh(source, subj)
-			}
-		} else {
-			subjectExists = subjectFresh(source, subj)
-		}
-	}
-
-	if cutNeeded && subjectExists && (didCut || force || !backgroundFresh(source, bg)) && available {
-		if !didCut {
-			resetStageProgress()
-		}
-		if err := d.runInpaint(source, subj, bg); err != nil {
-			logStage("inpaint "+stageStem(source), err)
-		} else {
-			didInpaint = true
-		}
-	}
-
-	if eff == stageEffectDepth {
-		if (gen || force) && depthProbe() && (force || !depthFresh(source, depth)) {
-			if err := d.runDepth(source, depth); err != nil {
-				logStage("depth "+stageStem(source), err)
-			}
-		}
-	} else if subjectExists && isFile(bg) && (gen || force || didCut || didInpaint) {
-		if depthProbe() && (force || didCut || didInpaint || !depthFresh(source, depth)) {
-			if !didCut && !didInpaint {
-				resetStageProgress()
-			}
-			if err := d.runDepth(source, depth); err != nil {
-				logStage("depth "+stageStem(source), err)
-			}
-		}
-	}
-
-	if didCut {
-		writeStageProgress(map[string]any{"phase": "done"})
-	}
-	return subjectExists
-}
-
-// engineCut writes a subject/layer cut as an alpha-matted PNG, never leaving a
-// partial file on failure.
-func (d *daemon) engineCut(source, out string, q stageQuality) error {
-	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-		return err
-	}
-	args := []string{"cut", source, out, "--model", q.model}
-	if q.matting {
-		args = append(args, "--matting")
-	}
-	if err := d.runEngine(5*time.Minute, args...); err != nil {
-		return err
-	}
-	if !isFile(out) {
-		return fmt.Errorf("cut png missing")
-	}
-	return nil
-}
-
-// runCut writes the wallpaper's subject, framing the engine call with progress
-// and the busy flag for the topic (cleared by reconcileStage).
-func (d *daemon) runCut(source, out string, q stageQuality) error {
-	resetStageProgress()
-	d.stageBusy.Store(true)
-	writeStageProgress(map[string]any{"phase": "cut", "model": q.model})
-	d.publishStage()
-	if err := d.engineCut(source, out, q); err != nil {
-		writeStageProgress(map[string]any{"phase": "error", "error": err.Error()})
-		return err
-	}
-	return nil
-}
-
-// runInpaint fills the subject's hole with the surrounding colour (the parallax
-// backdrop).
-func (d *daemon) runInpaint(source, subj, bg string) error {
-	d.stageBusy.Store(true)
-	writeStageProgress(map[string]any{"phase": "inpaint"})
-	d.publishStage()
-	if err := d.runEngine(2*time.Minute, "inpaint", source, subj, bg); err != nil {
-		writeStageProgress(map[string]any{"phase": "error", "error": err.Error(), "warning": "inpaint failed"})
-		return err
-	}
-	return nil
-}
-
-// runDepth builds the optional 16-bit depth map for the 3D backdrop. The model
-// is a separate explicit install; the daemon only calls this after probing it.
-func (d *daemon) runDepth(source, out string) error {
-	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-		return err
-	}
-	d.stageBusy.Store(true)
-	writeStageProgress(map[string]any{"phase": "depth"})
-	d.publishStage()
-	if err := d.runEngine(2*time.Minute, "depth", source, out, "--model", stageDepthModel()); err != nil {
-		writeStageProgress(map[string]any{"phase": "error", "error": err.Error(), "warning": "depth failed"})
-		return err
-	}
-	if !isFile(out) {
-		return fmt.Errorf("depth png missing")
-	}
-	return nil
 }
 
 // stageDepthSample reads one bilinear depth sample from a wall's depth.png for
@@ -943,85 +581,80 @@ func (d *daemon) stageDepthSampleCall(wall, xs, ys, ws, hs, fit string) (string,
 
 // --- topic -----------------------------------------------------------------
 
-// buildStageFrame assembles the `stage` topic frame: one entry per on-screen
-// wallpaper (plus the current), keyed by path, so each monitor reads its own.
 func (d *daemon) buildStageFrame() stageFrame {
 	reg := loadStageWalls()
 	cur := d.currentWall()
-	busy := d.stageBusy.Load()
-	stageStr, percent := "", 0
-	if busy {
-		switch readLastStagePhase() {
-		case "cut":
-			stageStr, percent = "cut", 40
-		case "inpaint":
-			stageStr, percent = "inpaint", 80
-		case "depth":
-			stageStr, percent = "depth", 90
-		default:
-			stageStr, percent = "", 5
-		}
-	}
+	job, last := d.stageJobSnapshot()
 	paths := map[string]bool{}
 	if cur != "" {
 		paths[cur] = true
 	}
-	for _, t := range d.stageTargets() {
-		paths[t.source] = true
+	for _, target := range d.stageTargets() {
+		paths[target.source] = true
+	}
+	if job != nil {
+		paths[job.Wall] = true
+	}
+	if last != nil {
+		paths[last.Wall] = true
 	}
 	walls := map[string]stageWallFrame{}
-	for p := range paths {
-		e := reg.Walls[p]
-		effect := e.Effect
+	depthBackdrop := stageDepthBackdrop()
+	for path := range paths {
+		entry := reg.Walls[path]
+		effect := entry.Effect
 		if effect == "" {
 			effect = stageEffectOff
 		}
-		wf := stageWallFrame{Effect: effect, Layers: []stageLayer{}}
-		if effect != stageEffectOff {
-			rev := int64(0)
-			if effect == stageEffectParallax {
-				layers := d.deriveLayers(p, e.Layers)
-				wf.Layers = layers
-				if subj := stageSubjectOut(p); subjectFresh(p, subj) {
-					wf.Subject = subj
-				}
-				for _, l := range layers {
-					if r := fileModTime(l.Out); r > rev {
-						rev = r
-					}
-				}
-			}
-			if bg := stageBackgroundOut(p); isFile(bg) {
-				wf.Background = bg
-				if r := fileModTime(bg); r > rev {
-					rev = r
-				}
-			} else if effect == stageEffectDepth {
-				wf.Background = p
-				if r := fileModTime(p); r > rev {
-					rev = r
-				}
-			}
-			if depth := stageDepthOut(p); isFile(depth) {
-				wf.Depth = depth
-				if r := fileModTime(depth); r > rev {
-					rev = r
-				}
-			}
-			wf.Rev = rev
+		steps := stageStepsForWall(path, effect)
+		wf := stageWallFrame{
+			Effect: effect,
+			Layers: []stageLayer{},
+			Steps:  steps,
 		}
-		walls[p] = wf
+		if effect == stageEffectDepth || effect == stageEffectParallax {
+			wf.Layers = d.deriveLayers(path, entry.Layers)
+		}
+		cutUsable := stageStepUsable(stageStepStateFor(steps, stageStepCut))
+		fillReady := stageStepStateFor(steps, stageStepFill) == stageStateReady
+		depthUsable := stageStepUsable(stageStepStateFor(steps, stageStepDepth))
+		switch effect {
+		case stageEffectDepth:
+			if cutUsable {
+				wf.Subject = stageSubjectOut(path)
+			}
+		case stageEffectParallax:
+			if cutUsable && fillReady {
+				wf.Subject = stageSubjectOut(path)
+				wf.Background = stageBackgroundOut(path)
+				if depthBackdrop && depthUsable {
+					wf.Depth = stageDepthOut(path)
+				}
+			}
+		case stageEffectSpatial:
+			if depthUsable {
+				wf.Depth = stageDepthOut(path)
+			}
+		}
+		for _, artifact := range [3]string{wf.Subject, wf.Background, wf.Depth} {
+			if rev := fileModTime(artifact); rev > wf.Rev {
+				wf.Rev = rev
+			}
+		}
+		for _, layer := range wf.Layers {
+			if rev := fileModTime(layer.Out); rev > wf.Rev {
+				wf.Rev = rev
+			}
+		}
+		walls[path] = wf
 	}
-	return stageFrame{Current: cur, Busy: busy, Stage: stageStr, Percent: percent, Notice: d.stageNoticeText(), Walls: walls}
-}
-
-// stageNoticeText reads the last blocked-cut reason; a daemon that never
-// reconciled (or a bare test struct) reads as fine.
-func (d *daemon) stageNoticeText() string {
-	if v, ok := d.stageNotice.Load().(string); ok {
-		return v
+	return stageFrame{
+		Current: cur,
+		Busy:    job != nil,
+		Job:     job,
+		Last:    last,
+		Walls:   walls,
 	}
-	return ""
 }
 
 func (d *daemon) publishStage() {
@@ -1051,45 +684,25 @@ func restField(line string, n int) string {
 	return ""
 }
 
-// stageDepthRefresh drops the current wall's depth map and lets the next
-// reconcile rebuild it if the depth model is installed. It never re-cuts the
-// subject or the backdrop, so enabling 3D after the model download is cheap.
-func (d *daemon) stageDepthRefresh() {
-	wall := d.currentWall()
-	if wall == "" {
-		return
+func splitStageWall(line string) (string, string, bool) {
+	parts := strings.SplitN(line, " -- ", 2)
+	if len(parts) == 1 {
+		return line, "", false
 	}
-	_ = os.Remove(stageDepthOut(wall))
-	d.stageGen.Store(true)
-	d.scheduleStage()
-	d.publishStage()
+	return parts[0], strings.TrimSpace(parts[1]), true
 }
 
-// stageSetEffect records the three-way effect for the current wallpaper and
-// schedules a reconcile. Enabling never re-cuts: it reuses a saved cut when one
-// exists and only generates what is missing, so switching Depth<->Parallax is
-// instant. Off clears the ryogami overlay but keeps the layer arrangement for a
-// later re-enable. The write is synchronous so the shell's control reflects at
-// once.
-func (d *daemon) stageSetEffect(eff stageEffect) {
-	wall := d.currentWall()
+func (d *daemon) stageSetEffect(wall string, effect stageEffect) {
 	if wall == "" {
 		return
 	}
 	reg := loadStageWalls()
-	e := reg.Walls[wall]
-	e.Effect = eff
-	reg.Walls[wall] = e
-	reg.Current = wall
+	entry := reg.Walls[wall]
+	entry.Effect = effect
+	reg.Walls[wall] = entry
 	if err := saveStageWalls(reg); err != nil {
 		logStage("set-effect save", err)
 	}
-	if eff == stageEffectOff {
-		d.depthClear()
-		d.publishStage()
-		return
-	}
-	d.stageGen.Store(true)
 	d.scheduleStage()
 	d.publishStage()
 }
@@ -1098,8 +711,7 @@ func (d *daemon) stageSetEffect(eff stageEffect) {
 // layer (0-based, index 0 is the subject). Only those keys are accepted;
 // identity (out/label) is the daemon's. The layer stack is re-derived first so a
 // set that races an enable still lands on the right slot.
-func (d *daemon) stageSetLayer(indexArg, body string) error {
-	wall := d.currentWall()
+func (d *daemon) stageSetLayer(wall, indexArg, body string) error {
 	if wall == "" {
 		return fmt.Errorf("no active wallpaper")
 	}
@@ -1131,7 +743,6 @@ func (d *daemon) stageSetLayer(indexArg, body string) error {
 		e.Layers[index].Depth = *patch.Depth
 	}
 	reg.Walls[wall] = e
-	reg.Current = wall
 	if err := saveStageWalls(reg); err != nil {
 		return err
 	}
@@ -1141,8 +752,7 @@ func (d *daemon) stageSetLayer(indexArg, body string) error {
 
 // stageAddLayer copies a ready PNG into the wall's folder as the next numbered
 // manual layer and re-derives; no re-cut of the auto subject.
-func (d *daemon) stageAddLayer(src string) (string, error) {
-	wall := d.currentWall()
+func (d *daemon) stageAddLayer(wall, src string) (string, error) {
 	if wall == "" {
 		return "", fmt.Errorf("no active wallpaper")
 	}
@@ -1165,49 +775,10 @@ func (d *daemon) stageAddLayer(src string) (string, error) {
 	return dst, nil
 }
 
-// stageCutLayer runs the engine on another picture and adds the alpha-matted
-// result as the next manual layer. The cut runs in the background so the verb
-// returns at once; progress rides the topic and a reconcile re-derives on done.
-func (d *daemon) stageCutLayer(src string) (string, error) {
-	wall := d.currentWall()
-	if wall == "" {
-		return "", fmt.Errorf("no active wallpaper")
-	}
-	if src == "" {
-		return "", fmt.Errorf("empty source path")
-	}
-	st, err := os.Stat(src)
-	if err != nil || st.IsDir() {
-		return "", fmt.Errorf("source not a file: %s", src)
-	}
-	dir := stageWallDir(wall)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	dst := filepath.Join(dir, fmt.Sprintf("layer-%02d.png", nextManualIndex(dir)))
-	q := stageConfig()
-	go func() {
-		d.stageBusy.Store(true)
-		resetStageProgress()
-		writeStageProgress(map[string]any{"phase": "cut", "model": q.model})
-		d.publishStage()
-		if err := d.engineCut(src, dst, q); err != nil {
-			writeStageProgress(map[string]any{"phase": "error", "error": err.Error()})
-			logStage("cut-layer "+stageStem(wall), err)
-		} else {
-			writeStageProgress(map[string]any{"phase": "done"})
-		}
-		d.stageBusy.Store(false)
-		d.scheduleStage()
-	}()
-	return dst, nil
-}
-
 // stageRemoveLayer deletes a manual layer by its 0-based stack index. Index 0 is
 // the subject and can never be removed; the resolved path is guarded to a
 // layer-NN.png inside the wall's own folder.
-func (d *daemon) stageRemoveLayer(indexArg string) error {
-	wall := d.currentWall()
+func (d *daemon) stageRemoveLayer(wall, indexArg string) error {
 	if wall == "" {
 		return fmt.Errorf("no active wallpaper")
 	}
@@ -1236,38 +807,30 @@ func (d *daemon) stageRemoveLayer(indexArg string) error {
 	return nil
 }
 
-// stageClear removes the current wall's generated artifacts (subject, backdrop,
-// depth, index), keeps manual layers, and records the wall as off: the registry is the
-// user's intent, and a cleared cut-out is an intent to stop showing the scene
-// (an on-wall with purged files is the ghost state the self-heal would
-// immediately re-cut). The reconcile then clears the overlay and re-derives.
-func (d *daemon) stageClear() {
-	wall := d.currentWall()
+// Clearing a cut preserves manual layers and the reusable depth map.
+func (d *daemon) stageClear(wall string) {
 	if wall == "" {
 		return
 	}
+	d.stageForceCancelWall(wall)
 	dir := stageWallDir(wall)
-	for _, n := range []string{"subject.png", "background.png", "depth.png", ".index.json"} {
-		_ = os.Remove(filepath.Join(dir, n))
+	for _, name := range []string{"subject.png", "background.png", ".index.json"} {
+		_ = os.Remove(filepath.Join(dir, name))
 	}
 	reg := loadStageWalls()
-	e := reg.Walls[wall]
-	e.Effect = stageEffectOff
-	reg.Walls[wall] = e
+	entry := reg.Walls[wall]
+	if entry.Effect == stageEffectDepth || entry.Effect == stageEffectParallax {
+		entry.Effect = stageEffectOff
+	}
+	reg.Walls[wall] = entry
 	if err := saveStageWalls(reg); err != nil {
 		logStage("clear save", err)
 	}
-	d.publishStage()
 	d.scheduleStage()
+	d.publishStage()
 }
 
 // --- migration -------------------------------------------------------------
-
-// The v1 Ryostage (the merged knob-pile that landed and was rejected) is folded
-// into v2 once, gated by a marker. The registry loses mode/scene and every
-// per-layer look knob; stage.json loses feather/lift/preset and the motion
-// sub-knobs. Read the v1 shapes raw so the retired fields survive long enough to
-// reduce into the v2 flags before being dropped.
 
 type stageWallV1 struct {
 	Effect string           `json:"effect"`
@@ -1277,6 +840,7 @@ type stageWallV1 struct {
 }
 
 type stageWallsV1 struct {
+	Version int                    `json:"version"`
 	Current string                 `json:"current"`
 	Walls   map[string]stageWallV1 `json:"walls"`
 }
@@ -1285,34 +849,56 @@ func stageMigrationMarker() string {
 	return filepath.Join(stateDir(), "ryoku", "migrations", "ryostage-v2-safe-fold")
 }
 
+func stageV3MigrationMarker() string {
+	return filepath.Join(stateDir(), "ryoku", "migrations", "ryostage-v3-modes")
+}
+
 func oldStageMigrationMarker() string {
 	return filepath.Join(stateDir(), "ryoku", "migrations", "ryostage-v2")
 }
 
-// migrateStage repeats the v2 fold under a corrective marker. The first v2
-// marker could be written before settings persisted and prevented later legacy
-// files from being folded; every operation here is convergent, so existing
-// installations can safely run it once more.
+// Write migration markers last so interrupted folds retry safely.
 func migrateStage() {
-	marker := stageMigrationMarker()
+	foldedLegacy := false
+	if marker := stageMigrationMarker(); !isFile(marker) {
+		folded, err := migrateStageRegistry()
+		if err != nil {
+			logStage("migrate registry v2", err)
+			return
+		}
+		foldedLegacy = folded
+		if err := migrateStageSettings(); err != nil {
+			logStage("migrate settings v2", err)
+			return
+		}
+		if err := writeStageMigrationMarker(marker, "ryostage v2 safe fold complete\n"); err != nil {
+			logStage("migrate marker v2", err)
+			return
+		}
+	}
+
+	marker := stageV3MigrationMarker()
 	if isFile(marker) {
 		return
 	}
-	if err := migrateStageRegistry(); err != nil {
-		logStage("migrate registry", err)
+	if err := migrateStageRegistryV3(foldedLegacy); err != nil {
+		logStage("migrate registry v3", err)
 		return
 	}
-	if err := migrateStageSettings(); err != nil {
-		logStage("migrate settings", err)
+	if err := migrateStageSettingsV3(); err != nil {
+		logStage("migrate settings v3", err)
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
-		logStage("migrate marker dir", err)
-		return
+	if err := writeStageMigrationMarker(marker, "ryostage v3 mode split complete\n"); err != nil {
+		logStage("migrate marker v3", err)
 	}
-	if err := os.WriteFile(marker, []byte("ryostage v2 safe fold complete\n"), 0o644); err != nil {
-		logStage("migrate marker", err)
+}
+
+func writeStageMigrationMarker(path, body string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
+	return os.WriteFile(path, []byte(body), 0o644)
 }
 
 // migrateStageRegistry converges the pre-v1 (retired Depth/Parallax) state and a
@@ -1321,25 +907,64 @@ func migrateStage() {
 // v1 gets its whole Depth/Parallax arrangement, while a testing box's own v1
 // entries win -- moving artifacts by rename; then every v1-shaped entry is
 // normalised to v2. A missing v1 registry (a stable box) is just an empty base.
-func migrateStageRegistry() error {
+func migrateStageRegistry() (bool, error) {
 	var raw stageWallsV1
 	if b, err := os.ReadFile(stageWallsPath()); err == nil {
 		if err := json.Unmarshal(b, &raw); err != nil {
-			return fmt.Errorf("decode %s: %w", stageWallsPath(), err)
+			return false, fmt.Errorf("decode %s: %w", stageWallsPath(), err)
+		}
+		if raw.Version >= 2 {
+			return false, nil
 		}
 	} else if !os.IsNotExist(err) {
-		return err
+		return false, err
 	}
 	claimed := map[string]bool{}
 	for path := range raw.Walls {
 		claimed[path] = true
 	}
-	out := stageWalls{Current: raw.Current, Walls: map[string]stageWall{}}
+	out := stageWalls{Version: 2, Current: raw.Current, Walls: map[string]stageWall{}}
 	migrateLegacyRegistry(&out, claimed)
 	for path, w := range raw.Walls {
 		out.Walls[path] = foldStageWallV1(path, w)
 	}
-	return saveStageWalls(out)
+	return true, writeJSONFileAtomic(stageWallsPath(), out)
+}
+
+// Artifact presence disambiguates the old depth wire during migration.
+func migrateStageRegistryV3(foldedLegacy bool) error {
+	b, err := os.ReadFile(stageWallsPath())
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return fmt.Errorf("decode %s: %w", stageWallsPath(), err)
+	}
+	if stageSettingsVersion(raw) >= 3 {
+		return nil
+	}
+	if walls, ok := raw["walls"].(map[string]any); ok && !foldedLegacy {
+		for path, value := range walls {
+			wall, ok := value.(map[string]any)
+			if !ok || wall["effect"] != string(stageEffectDepth) {
+				continue
+			}
+			switch {
+			case isFile(stageDepthOut(path)):
+				wall["effect"] = string(stageEffectSpatial)
+			case isFile(stageSubjectOut(path)):
+				wall["effect"] = string(stageEffectDepth)
+			default:
+				wall["effect"] = string(stageEffectSpatial)
+			}
+		}
+	}
+	raw["version"] = 3
+	return writeJSONFileAtomic(stageWallsPath(), raw)
 }
 
 // Legacy on-disk formats (retired Depth and Parallax), read once to fold to v2.
@@ -1683,6 +1308,35 @@ func stageMotionAmount(motion map[string]any) string {
 	return "normal"
 }
 
+func defaultStageModels() stageModels {
+	return stageModels{
+		Draft:    "u2netp",
+		Standard: "u2netp",
+		Fine:     "birefnet-general-lite",
+	}
+}
+
+func legacyStageCutFor(tier string, models stageModels) stageCut {
+	defaults := defaultStageModels()
+	switch tier {
+	case "standard":
+		if models.Standard == "" {
+			models.Standard = defaults.Standard
+		}
+		return stageCut{model: models.Standard, matting: true}
+	case "fine":
+		if models.Fine == "" {
+			models.Fine = defaults.Fine
+		}
+		return stageCut{model: models.Fine, matting: true}
+	default:
+		if models.Draft == "" {
+			models.Draft = defaults.Draft
+		}
+		return stageCut{model: models.Draft}
+	}
+}
+
 // migrateStageSettings folds the shell-owned stage.json to v2. An existing v1
 // file is rewritten in place; an already-v2 file is left byte-for-byte alone.
 // A malformed source is never replaced, and the caller cannot commit the
@@ -1697,6 +1351,9 @@ func migrateStageSettings() error {
 		var m map[string]any
 		if err := json.Unmarshal(b, &m); err != nil {
 			return fmt.Errorf("decode %s: %w", path, err)
+		}
+		if stageSettingsVersion(m) >= 3 {
+			return nil
 		}
 		motion, _ := m["motion"].(map[string]any)
 		if !stageSettingsIsV1(m, motion) {
@@ -1721,6 +1378,99 @@ func migrateStageSettings() error {
 		return nil
 	}
 	return writeJSONFileAtomic(path, settingsToV2(legacy))
+}
+
+func migrateStageSettingsV3() error {
+	dir := ryokuConfigDir()
+	if dir == "" {
+		return nil
+	}
+	path := filepath.Join(dir, "stage.json")
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return fmt.Errorf("decode %s: %w", path, err)
+	}
+	if stageSettingsVersion(m) >= 3 {
+		return nil
+	}
+	return writeJSONFileAtomic(path, settingsToV3(m))
+}
+
+func stageSettingsVersion(m map[string]any) int {
+	if version, ok := m["version"].(float64); ok {
+		return int(version)
+	}
+	return 0
+}
+
+// Preserve unknown keys so migration cannot discard newer editor settings.
+func settingsToV3(m map[string]any) map[string]any {
+	out := make(map[string]any, len(m)+1)
+	for key, value := range m {
+		out[key] = value
+	}
+
+	models := defaultStageModels()
+	if values, ok := m["models"].(map[string]any); ok {
+		models.Draft = firstString(values["draft"], models.Draft)
+		models.Standard = firstString(values["standard"], models.Standard)
+		models.Fine = firstString(values["fine"], models.Fine)
+	}
+	cut := legacyStageCutFor(firstString(m["quality"], "draft"), models)
+	cutSettings := func() map[string]any {
+		return map[string]any{"model": cut.model, "matting": cut.matting}
+	}
+	front := firstList(m["front"])
+	depthFront := append([]any{}, front...)
+	parallaxFront := append([]any{}, front...)
+	edge := firstNumber(m["edge"], 0.15)
+	shadow := firstNumber(m["shadow"], 0)
+	shadowAngle := firstNumber(m["shadowAngle"], 90)
+
+	oldMotion, _ := m["motion"].(map[string]any)
+	parallaxMotion := make(map[string]any, len(oldMotion))
+	for key, value := range oldMotion {
+		parallaxMotion[key] = value
+	}
+	spatialMotion := map[string]any{
+		"amount":      firstString(mapValue(oldMotion, "amount"), "normal"),
+		"mouse":       true,
+		"sensitivity": firstNumber(mapValue(oldMotion, "sensitivity"), 1),
+		"range":       firstNumber(mapValue(oldMotion, "range"), 1),
+	}
+	if mouse, ok := mapValue(oldMotion, "mouse").(bool); ok {
+		spatialMotion["mouse"] = mouse
+	}
+
+	out["version"] = 3
+	out["depth"] = map[string]any{
+		"cut": cutSettings(), "edge": edge, "shadow": shadow,
+		"shadowAngle": shadowAngle, "front": depthFront,
+	}
+	out["parallax"] = map[string]any{
+		"cut": cutSettings(), "edge": edge, "shadow": shadow,
+		"shadowAngle": shadowAngle, "front": parallaxFront,
+		"depthBackdrop": true, "motion": parallaxMotion,
+	}
+	out["spatial"] = map[string]any{
+		"model":       firstString(m["depthModel"], "small"),
+		"shadowAngle": shadowAngle,
+		"motion":      spatialMotion,
+	}
+	for _, key := range []string{
+		"quality", "models", "depthModel", "edge", "shadow", "shadowAngle",
+		"motion", "front",
+	} {
+		delete(out, key)
+	}
+	return out
 }
 
 // settingsToV2 changes only the retired slots it understands. Starting from a
@@ -2011,11 +1761,14 @@ func firstList(v any) []any {
 	return []any{}
 }
 
-// startStage registers the topic, runs the one-time migration, publishes the
-// first frame, and starts the coalescing worker.
 func (d *daemon) startStage() {
+	removeStageJobDirs()
+	killStrayStageEngines()
 	d.registerTopic("stage")
 	migrateStage()
 	d.publishStage()
 	go d.stageWorker()
+	if dir := ryokuConfigDir(); dir != "" {
+		go d.watchFile(filepath.Join(dir, "stage.json"), d.scheduleStage)
+	}
 }

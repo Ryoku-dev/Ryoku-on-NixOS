@@ -341,7 +341,7 @@ Panel {
 
   function reopenSignIn() {
     if (addUrl === "") return
-    Util.execArgv(addPrivate ? ["omarchy-launch-browser", "--private", addUrl] : ["omarchy-launch-browser", addUrl])
+    Util.execAppArgv(addPrivate ? ["omarchy-launch-browser", "--private", addUrl] : ["omarchy-launch-browser", addUrl], "browser")
   }
 
   // Ryoku Ask owns prompt entry. The usage panel does not duplicate its

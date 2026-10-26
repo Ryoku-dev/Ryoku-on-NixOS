@@ -90,6 +90,7 @@ Item {
     }
     function close() { if (!insp.embedded) insp.open = false; }
     function cap(s) { return (s && s.length > 0) ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+    function configValue(key) { return Config.get(key, Config.writeMonitor); }
 
     // ── widget identity: glyph, name and kanji seal for the title row ──────
     readonly property var irisFace: IrisRoster.byPrefix(insp.scope)
@@ -100,7 +101,7 @@ Item {
     readonly property bool isIi: insp.iiFace !== null
     // An ii face draws its own card, so its slot plate is off by default and
     // the plate's shape rows only matter once one is chosen.
-    readonly property bool iiPlate: insp.isIi && (Config[insp.scope + "Bg"] || "none") !== "none"
+    readonly property bool iiPlate: insp.isIi && (insp.configValue(insp.scope + "Bg") || "none") !== "none"
     readonly property var hostedFace: insp.isIris ? insp.irisFace
         : insp.isPython ? insp.pythonFace : insp.iiFace
     readonly property bool isCanvas: insp.isIris && insp.irisFace.kind === "canvas"
@@ -132,9 +133,9 @@ Item {
     // Look tab (which writes widgets.json) would edit keys nothing reads; its
     // tabs come entirely from its options panel.
     readonly property bool isVisualizer: insp.scope === "visualizer"
-    readonly property bool isRyokuStyle: (insp.isIris || insp.isPython) && Config[insp.scope + "Style"] === "ryoku"
-    readonly property string curIrisSize: insp.isIris ? (Config[insp.scope + "Size"] || insp.irisFace.sizes[0]) : ""
-    readonly property string curPythonVariant: insp.isPython ? (Config[insp.scope + "Variant"] || insp.pythonFace.variants[0]) : ""
+    readonly property bool isRyokuStyle: (insp.isIris || insp.isPython) && insp.configValue(insp.scope + "Style") === "ryoku"
+    readonly property string curIrisSize: insp.isIris ? (insp.configValue(insp.scope + "Size") || insp.irisFace.sizes[0]) : ""
+    readonly property string curPythonVariant: insp.isPython ? (insp.configValue(insp.scope + "Variant") || insp.pythonFace.variants[0]) : ""
 
     readonly property var designLists: ({
         clock: ["digital", "minimal", "grand", "column", "outline", "banner", "analog", "flip", "rings", "bighour", "metal", "goodnight"],
@@ -147,18 +148,18 @@ Item {
     })
     readonly property string designKey: insp.isCalendar || insp.isMusic || insp.isAio || insp.isDayprogress
         ? insp.scope + "Style" : insp.isShape ? insp.scope + "Kind" : insp.scope + "Design"
-    readonly property string curDesign: Config[insp.designKey] ?? ""
+    readonly property string curDesign: insp.configValue(insp.designKey) ?? ""
     readonly property bool hasDesign: !insp.isIris && !insp.isPython && (insp.designLists[insp.scope] !== undefined)
 
-    readonly property string curColor: Config[insp.scope + "Color"] || ""
-    readonly property bool curGradient: Config[insp.scope + "Gradient"] === true
+    readonly property string curColor: insp.configValue(insp.scope + "Color") || ""
+    readonly property bool curGradient: insp.configValue(insp.scope + "Gradient") === true
     readonly property string colorMode: insp.curColor === "" ? "auto" : (insp.curGradient ? "gradient" : "solid")
 
     function cycleDesign() {
         const d = insp.designLists[insp.scope];
         if (!d)
             return;
-        Config.set(insp.designKey, d[(d.indexOf(Config[insp.designKey]) + 1) % d.length]);
+        Config.set(insp.designKey, d[(d.indexOf(insp.curDesign) + 1) % d.length]);
     }
     function cycleIrisSize() {
         const s = insp.irisFace.sizes;
@@ -185,7 +186,7 @@ Item {
         if (insp.curColor === "")
             Config.set(insp.scope + "Color", insp.hexOf(Scheme.accent));
         if (m === "gradient") {
-            if ((Config[insp.scope + "Color2"] || "") === "")
+            if ((insp.configValue(insp.scope + "Color2") || "") === "")
                 Config.set(insp.scope + "Color2", insp.hexOf(Qt.lighter(Scheme.accent, 1.5)));
             Config.set(insp.scope + "Gradient", true);
         } else {
@@ -201,7 +202,7 @@ Item {
     }
     function cycleVideo() {
         const d = ["off", "canvas", "custom"];
-        Config.set("musicVideo", d[(d.indexOf(Config.musicVideo) + 1) % d.length]);
+        Config.set("musicVideo", d[(d.indexOf(insp.configValue("musicVideo")) + 1) % d.length]);
     }
 
     readonly property var iiWidgetOptions: StageCommon.Config.options.background.widgets
@@ -633,15 +634,15 @@ Item {
                     MenuRow {
                         visible: insp.isMusic
                         label: I18n.tr("Backdrop")
-                        value: insp.videoLabel(Config.musicVideo)
-                        on: Config.musicVideo !== "off"
+                        value: insp.videoLabel(insp.configValue("musicVideo"))
+                        on: insp.configValue("musicVideo") !== "off"
                         closeOnTrigger: false
                         onTriggered: insp.cycleVideo()
                     }
                     MenuRow {
                         visible: insp.isMusic
                         label: I18n.tr("Video / GIF…")
-                        value: insp.videoName(Config.musicVideoFile)
+                        value: insp.videoName(insp.configValue("musicVideoFile"))
                         closeOnTrigger: false
                         onTriggered: videoPicker.open = true
                     }
@@ -658,38 +659,38 @@ Item {
                         MenuChip {
                             visible: insp.isClock
                             width: toggleGrid.cw; height: Theme.ctlH
-                            label: I18n.tr("Date"); selected: Config.dateShow
+                            label: I18n.tr("Date"); selected: insp.configValue("dateShow") === true
                             onClicked: Config.toggle("dateShow")
                         }
                         MenuChip {
                             visible: insp.isDayprogress
                             width: toggleGrid.cw; height: Theme.ctlH
-                            label: I18n.tr("Date"); selected: Config.dayprogressShowDate
+                            label: I18n.tr("Date"); selected: insp.configValue("dayprogressShowDate") === true
                             onClicked: Config.toggle("dayprogressShowDate")
                         }
                         MenuChip {
                             visible: insp.isShape
                             width: toggleGrid.cw; height: Theme.ctlH
-                            label: I18n.tr("Outline"); selected: Config.shapeOutline
+                            label: I18n.tr("Outline"); selected: insp.configValue("shapeOutline") === true
                             onClicked: Config.toggle("shapeOutline")
                         }
                         MenuChip {
                             visible: insp.isMusic
                             width: toggleGrid.cw; height: Theme.ctlH
-                            label: I18n.tr("Lyrics"); selected: Config.musicLyrics
+                            label: I18n.tr("Lyrics"); selected: insp.configValue("musicLyrics") === true
                             onClicked: Config.toggle("musicLyrics")
                         }
                         MenuChip {
                             visible: insp.isMusic
                             width: toggleGrid.cw; height: Theme.ctlH
-                            label: I18n.tr("Waveform"); selected: Config.musicViz === "wave"
-                            onClicked: Config.set("musicViz", Config.musicViz === "wave" ? "bars" : "wave")
+                            label: I18n.tr("Waveform"); selected: insp.configValue("musicViz") === "wave"
+                            onClicked: Config.set("musicViz", insp.configValue("musicViz") === "wave" ? "bars" : "wave")
                         }
                         MenuChip {
                             visible: insp.isMusic
                             width: toggleGrid.cw; height: Theme.ctlH
-                            label: I18n.tr("Tall canvas"); selected: Config.musicShape === "tall"
-                            onClicked: Config.set("musicShape", Config.musicShape === "tall" ? "wide" : "tall")
+                            label: I18n.tr("Tall canvas"); selected: insp.configValue("musicShape") === "tall"
+                            onClicked: Config.set("musicShape", insp.configValue("musicShape") === "tall" ? "wide" : "tall")
                         }
                     }
 
@@ -763,7 +764,7 @@ Item {
                         label: I18n.tr("Size")
                         from: 0.5; to: 2.5; step: 0.02
                         // Size is kept per desktop, like the writes below.
-                        value: Config.get(insp.scope + "Scale", Config.writeMonitor) || 1
+                        value: insp.configValue(insp.scope + "Scale") || 1
                         valueText: Math.round(sizeSlider.value * 100) + "%"
                         onMoved: (v) => Config.setLive(insp.scope + "Scale", v)
                         onReleased: (v) => Config.set(insp.scope + "Scale", v)
@@ -772,7 +773,7 @@ Item {
                         id: opacitySlider
                         label: I18n.tr("Opacity")
                         from: 0.2; to: 1.0; step: 0.01
-                        value: Config[insp.scope + "Opacity"]
+                        value: insp.configValue(insp.scope + "Opacity")
                         valueText: Math.round(opacitySlider.value * 100) + "%"
                         onMoved: (v) => Config.setLive(insp.scope + "Opacity", v)
                         onReleased: (v) => Config.set(insp.scope + "Opacity", v)
@@ -786,12 +787,12 @@ Item {
                     MenuRow {
                         visible: insp.isIi || insp.isRyokuStyle
                         label: I18n.tr("Background")
-                        value: insp.cap(Config[insp.scope + "Bg"] || (insp.isIi ? "none" : "card"))
+                        value: insp.cap(insp.configValue(insp.scope + "Bg") || (insp.isIi ? "none" : "card"))
                         closeOnTrigger: false
                         onTriggered: {
                             const fallback = insp.isIi ? "none" : "card";
                             const choices = insp.isIi ? ["none", "card", "glass"] : ["card", "glass", "none"];
-                            const current = Config[insp.scope + "Bg"] || fallback;
+                            const current = insp.configValue(insp.scope + "Bg") || fallback;
                             Config.set(insp.scope + "Bg", choices[(choices.indexOf(current) + 1) % choices.length]);
                         }
                     }
@@ -800,7 +801,7 @@ Item {
                         visible: insp.iiPlate || insp.isIris || (insp.isPython && insp.isRyokuStyle)
                         label: I18n.tr("Corner radius")
                         from: 0; to: 120; step: 1
-                        value: Config[insp.scope + "Radius"] >= 0 ? Config[insp.scope + "Radius"] : Theme.radius
+                        value: insp.configValue(insp.scope + "Radius") >= 0 ? insp.configValue(insp.scope + "Radius") : Theme.radius
                         valueText: Math.round(radiusSlider.value)
                         onMoved: (v) => Config.setLive(insp.scope + "Radius", Math.round(v))
                         onReleased: (v) => Config.set(insp.scope + "Radius", Math.round(v))
@@ -810,7 +811,7 @@ Item {
                         visible: insp.iiPlate || insp.isIris || (insp.isPython && insp.isRyokuStyle)
                         label: I18n.tr("Padding")
                         from: 0; to: 48; step: 1
-                        value: Config[insp.scope + "Pad"] >= 0 ? Config[insp.scope + "Pad"] : 0
+                        value: insp.configValue(insp.scope + "Pad") >= 0 ? insp.configValue(insp.scope + "Pad") : 0
                         valueText: Math.round(padSlider.value)
                         onMoved: (v) => Config.setLive(insp.scope + "Pad", Math.round(v))
                         onReleased: (v) => Config.set(insp.scope + "Pad", Math.round(v))
@@ -820,7 +821,7 @@ Item {
                         visible: insp.iiPlate || insp.isRyokuStyle
                         label: I18n.tr("Border width")
                         from: 0; to: 4; step: 0.5
-                        value: Config[insp.scope + "Border"] >= 0 ? Config[insp.scope + "Border"] : 1
+                        value: insp.configValue(insp.scope + "Border") >= 0 ? insp.configValue(insp.scope + "Border") : 1
                         valueText: borderSlider.value.toFixed(1)
                         onMoved: (v) => Config.setLive(insp.scope + "Border", v)
                         onReleased: (v) => Config.set(insp.scope + "Border", v)
@@ -830,7 +831,7 @@ Item {
                         visible: insp.iiPlate || insp.isRyokuStyle
                         label: I18n.tr("Border opacity")
                         from: 0; to: 1; step: 0.01
-                        value: Config[insp.scope + "BorderOpacity"] >= 0 ? Config[insp.scope + "BorderOpacity"] : 0.16
+                        value: insp.configValue(insp.scope + "BorderOpacity") >= 0 ? insp.configValue(insp.scope + "BorderOpacity") : 0.16
                         valueText: Math.round(borderOpSlider.value * 100) + "%"
                         onMoved: (v) => Config.setLive(insp.scope + "BorderOpacity", v)
                         onReleased: (v) => Config.set(insp.scope + "BorderOpacity", v)
@@ -840,7 +841,7 @@ Item {
                         visible: insp.iiPlate || insp.isRyokuStyle
                         label: I18n.tr("Backing opacity")
                         from: 0; to: 1; step: 0.01
-                        value: Config[insp.scope + "BackingOpacity"] >= 0 ? Config[insp.scope + "BackingOpacity"] : 0.5
+                        value: insp.configValue(insp.scope + "BackingOpacity") >= 0 ? insp.configValue(insp.scope + "BackingOpacity") : 0.5
                         valueText: Math.round(backingOpSlider.value * 100) + "%"
                         onMoved: (v) => Config.setLive(insp.scope + "BackingOpacity", v)
                         onReleased: (v) => Config.set(insp.scope + "BackingOpacity", v)

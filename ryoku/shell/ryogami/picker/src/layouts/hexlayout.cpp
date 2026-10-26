@@ -510,13 +510,14 @@ void HexLayout::build(const LayoutContext &ctx, std::vector<CardVisual> &out)
         float scx, scy, sscale;
         p.stage.transform(dcx, dcy, cx, cy, vw, vh, scx, scy, sscale);
         const float scale = hexScale(col, scx, fadeZone, vw, colMs);
+        // Keep zero-scale edge columns ticking so they can grow into view.
+        if (firstCol < 0)
+            firstCol = col;
+        lastCol = col;
         if (scale <= 0.01f)
             continue;
         float curve, odd;
         hexOffsets(col, rawX, cx, curve, odd);
-        if (firstCol < 0)
-            firstCol = col;
-        lastCol = col;
         for (int row = 0; row < rows; ++row) {
             const int idx = col * rows + row;
             if (idx >= count)

@@ -343,7 +343,7 @@
         "desc": "Jumlah ruang kerja yang akan ditampilkan",
         "hide_empty": {
           "title": "Sembunyikan ruang kerja kosong",
-          "desc": "Hanya tampilkan ruang kerja yang terisi dan yang sedang aktif"
+          "desc": "Tampilkan ruang kerja yang terisi dan semua ruang kerja hingga yang sedang aktif"
         },
         "style": {
           "title": "Gaya",

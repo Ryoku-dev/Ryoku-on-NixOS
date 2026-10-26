@@ -1416,6 +1416,13 @@ func resetFailedUserUnits(units ...string) {
 	}
 }
 
+func resetUserUnitStartLimits(units ...string) {
+	if updateInitSystem() != host.Systemd || len(units) == 0 {
+		return
+	}
+	_ = service(append([]string{"--user", "reset-failed"}, units...)...)
+}
+
 // activatePowerPolicy starts both policy owners as session services only after
 // the new shell can serve its secure suspend transaction.
 func activatePowerPolicy() error {
@@ -2646,19 +2653,33 @@ func procStartTime(pid int) string {
 	return ""
 }
 
+func snapshotSkipMessage(rootBtrfs, snapperInstalled, rootConfig bool) string {
+	switch {
+	case !rootBtrfs:
+		return fmt.Sprintf(
+			i18n.T("note: %s"),
+			i18n.T("root filesystem is not btrfs; snapshot and rollback are unavailable on this machine"),
+		)
+	case !snapperInstalled:
+		return i18n.T("note: snapper not installed; skipping pre-update snapshot")
+	case !rootConfig:
+		return i18n.T("note: snapshot skipped, snapper root config missing; run 'ryoku doctor' to enable snapshots")
+	default:
+		return ""
+	}
+}
+
 func snapperPre(desc string) string {
 	if supported, reason := snapshotCapability(); !supported {
 		fmt.Fprintln(os.Stderr, "warning: "+reason)
 		return ""
 	}
-	if !sys.Has("snapper") {
-		fmt.Fprintln(os.Stderr, i18n.T("note: snapper not installed; skipping pre-update snapshot"))
-		return ""
-	}
-	// no root config -> the create below fails with an opaque
-	// "config 'root' does not exist". point the user at the fix.
-	if !sys.Exists("/etc/snapper/configs/root") {
-		fmt.Fprintln(os.Stderr, i18n.T("note: snapshot skipped, snapper root config missing; run 'ryoku doctor' to enable snapshots"))
+	if note := snapshotSkipMessage(
+		sys.IsBtrfs("/"),
+		sys.Has("snapper"),
+		sys.Exists("/etc/snapper/configs/root"),
+	); note != "" {
+		fmt.Fprintln(os.Stderr, note)
 		return ""
 	}
 	out, err := sys.RunOut("sudo", "snapper", "-c", snapperConfig, "create",
@@ -2824,6 +2845,7 @@ func startShell() error {
 		return nil
 	}
 	_ = service("--user", "daemon-reload")
+	resetUserUnitStartLimits("ryoku-shell.service")
 	switch code := service("--user", "restart", "ryoku-shell"); code {
 	case host.ExitOK:
 		return nil
@@ -3011,8 +3033,11 @@ func restartWallpaper(forceStart bool) {
 	_ = service("--user", "daemon-reload")
 	verb := "try-restart"
 	if forceStart {
-		resetFailedUserUnits("ryogami.service")
+		resetUserUnitStartLimits("ryogami.service")
 		verb = "restart"
+	} else if updateInitSystem() == host.Systemd &&
+		service("--user", "is-active", "ryogami.service") == host.ExitOK {
+		resetUserUnitStartLimits("ryogami.service")
 	}
 	if service("--user", verb, "ryogami.service") == host.ExitOK {
 		return

@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import shell.services
+import Ryoku.Ui.Singletons
 import "../kit" as K
 
 K.Sheet {
@@ -411,7 +412,7 @@ K.Sheet {
                     icon: "monitoring"
                     variant: "outline"
                     onClicked: {
-                        Quickshell.execDetached(["ryoku-app", "terminal", "--", "btop"]);
+                        Spawn.runApp(["ryoku-app", "terminal", "--", "btop"], { label: "btop" });
                         root.scene.closeCard();
                     }
                 }

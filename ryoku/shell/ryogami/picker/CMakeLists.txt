@@ -23,7 +23,9 @@ file(GLOB_RECURSE picker_sources CONFIGURE_DEPENDS
     src/*.cpp src/*.h)
 set(picker_test_sources
     "src/tests/cardinstancesanitize_test.cpp"
-    "src/tests/previewyuv_test.cpp")
+    "src/tests/hexlayout_test.cpp"
+    "src/tests/previewyuv_test.cpp"
+    "src/tests/thumbdecoder_test.cpp")
 list(REMOVE_ITEM picker_sources ${picker_test_sources})
 file(GLOB_RECURSE picker_qml CONFIGURE_DEPENDS
     RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -93,6 +95,20 @@ if(RYOGAMI_PICKER_TESTS)
         src/render/previewyuv.cpp)
     target_link_libraries(ryogami-previewyuv-test PRIVATE Qt6::Gui)
     add_test(NAME ryogami-previewyuv COMMAND ryogami-previewyuv-test)
+    add_executable(ryogami-hexlayout-test
+        src/tests/hexlayout_test.cpp
+        src/layouts/hexlayout.cpp
+        src/layouts/geometry.cpp)
+    target_include_directories(ryogami-hexlayout-test PRIVATE src/layouts src/render src/scene)
+    target_link_libraries(ryogami-hexlayout-test PRIVATE Qt6::Gui)
+    add_test(NAME ryogami-hexlayout COMMAND ryogami-hexlayout-test)
+    add_executable(ryogami-thumbdecoder-test
+        src/tests/thumbdecoder_test.cpp
+        src/render/thumbdecoder.cpp
+        src/render/thumbdecoder.h)
+    target_include_directories(ryogami-thumbdecoder-test PRIVATE src/render)
+    target_link_libraries(ryogami-thumbdecoder-test PRIVATE Qt6::Gui)
+    add_test(NAME ryogami-thumbdecoder COMMAND ryogami-thumbdecoder-test)
 endif()
 
 # Relocatable: the plugin finds its backing library through an $ORIGIN rpath.

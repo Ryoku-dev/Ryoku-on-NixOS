@@ -29,11 +29,11 @@ which the client loads as its "System" theme.
 
 Fastfetch and Starship keep layout separate from generated colour.
 
-- Matugen writes `~/.config/fastfetch/ryoku-colors.json`. In **Follow
-  wallpaper** mode, `ryoku-fastfetch` asks the Hub backend for a cached effective
-  config with the generated title, label, section, rule and percentage colours
-  overlaid. `config.jsonc` remains the user's file and is never rewritten by a
-  wallpaper change. **Fixed** mode reads it directly.
+- In **Follow wallpaper** mode, `ryoku-fastfetch` asks the Hub backend for a
+  cached effective config built from `~/.cache/ryoku/colors.json`, the same
+  committed palette the shell reads. Named `ryoku:recolor` roles are resolved
+  from that file on each refresh. `config.jsonc` remains the user's file and is
+  never rewritten by a wallpaper change. **Fixed** mode reads it directly.
 - Matugen writes `~/.config/starship/ryoku-colors.toml`. The selected preset
   stays under `~/.config/starship/layouts/`, while
   `~/.config/starship.toml` is the active, atomically composed config. Fixed mode

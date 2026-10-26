@@ -1,0 +1,2 @@
+# The group 60-ryoku-i2c.rules hands /dev/i2c-* to, for DDC/CI brightness.
+g i2c - -

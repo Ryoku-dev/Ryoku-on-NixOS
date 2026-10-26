@@ -71,13 +71,13 @@ func (s *watchState) refresh(dirty refreshMask) {
 	}
 }
 
-// Hyprland has no move/resize event. The watch loop samples the native control
-// socket and this path publishes only when geometry actually changed.
+// Hyprland has no move/resize event. The watch loop samples the client list and
+// this path publishes only when geometry actually changed.
 func (s *watchState) refreshWindowGeometry() {
 	if !s.wants(wm.FrameWindows) || s.monitors == nil {
 		return
 	}
-	if windows := readWindowsDirect(s.monitors); windows != nil {
+	if windows := readWindows(s.monitors); windows != nil {
 		s.windows = windows
 		s.publish(wm.Frame{Kind: wm.FrameWindows, Windows: windows})
 	}

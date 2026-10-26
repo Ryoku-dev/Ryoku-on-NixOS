@@ -354,6 +354,7 @@ ShellRoot {
                 property bool showNow: false
                 activeAsync: open || launcherHold.running
                 onItemChanged: if (launcherLoader.item) Qt.callLater(function() { launcherLoader.showNow = launcherLoader.open; })
+                onActiveChanged: if (!active) launcherCollect.restart()
                 onOpenChanged: {
                     if (launcherLoader.open) {
                         if (launcherLoader.item) launcherLoader.showNow = true;
@@ -369,6 +370,11 @@ ShellRoot {
                 }
             }
             Timer { id: launcherHold; interval: 15000 }
+            Timer {
+                id: launcherCollect
+                interval: 1000
+                onTriggered: if (!launcherLoader.active) gc()
+            }
             LazyLoader {
                 id: overviewLoader
                 property bool open: perScreen.st ? perScreen.st.overviewOpen : false
@@ -943,76 +949,54 @@ ShellRoot {
     // service. The Hub never becomes a second writer for stage.json.
     IpcHandler {
         target: "stage-settings"
-        function setQuality(value: string): string {
-            if (["draft", "standard", "fine"].indexOf(value) < 0)
-                return "Quality must be draft, standard or fine";
-            StageCfg.Config.setQuality(value);
+        function setCutModel(mode: string, id: string): string {
+            StageCfg.Config.setCutModel(mode, id);
             return "ok";
         }
-        function setEdge(value: real): string {
-            if (!isFinite(value) || value < 0 || value > 1)
-                return "Edge softness must be between 0 and 1";
-            StageCfg.Config.setEdge(value);
+        function setCutMatting(mode: string, value: bool): string {
+            StageCfg.Config.setCutMatting(mode, value);
             return "ok";
         }
-        function setShadow(value: real): string {
-            if (!isFinite(value) || value < 0 || value > 1)
-                return "Shadow must be between 0 and 1";
-            StageCfg.Config.setShadow(value);
+        function setEdge(mode: string, value: real): string {
+            StageCfg.Config.setEdge(mode, value);
             return "ok";
         }
-        function setShadowAngle(value: real): string {
-            if (!isFinite(value) || value < 0 || value > 360)
-                return "Shadow angle must be between 0 and 360";
-            StageCfg.Config.setShadowAngle(value);
+        function setShadow(mode: string, value: real): string {
+            StageCfg.Config.setShadow(mode, value);
             return "ok";
         }
-        function resetLook(): string { StageCfg.Config.resetLook(); return "ok"; }
-        function setAmount(value: string): string {
-            if (["subtle", "normal", "strong"].indexOf(value) < 0)
-                return "Amount must be subtle, normal or strong";
-            StageCfg.Config.setAmount(value);
+        function setShadowAngle(mode: string, value: real): string {
+            StageCfg.Config.setShadowAngle(mode, value);
             return "ok";
         }
-        function setIdle(value: string): string {
-            if (["none", "float", "breathe", "sway"].indexOf(value) < 0)
-                return "Idle motion must be none, float, breathe or sway";
-            StageCfg.Config.setIdle(value);
+        function resetLook(mode: string): string {
+            StageCfg.Config.resetLook(mode);
             return "ok";
         }
-        function setMusic(value: bool): string { StageCfg.Config.setMusic(value); return "ok"; }
-        function setMouse(value: bool): string { StageCfg.Config.setMouse(value); return "ok"; }
-        function setSpeed(value: real): string {
-            if (!isFinite(value) || value < 0.25 || value > 2)
-                return "Idle speed must be between 0.25 and 2";
-            StageCfg.Config.setSpeed(value);
+        function setMotion(mode: string, key: string, value: var): string {
+            StageCfg.Config.setMotion(mode, key, value);
             return "ok";
         }
-        function setMusicLevel(value: real): string {
-            if (!isFinite(value) || value < 0 || value > 1)
-                return "Music intensity must be between 0 and 1";
-            StageCfg.Config.setMusicLevel(value);
+        function resetMotion(mode: string): string {
+            StageCfg.Config.resetMotion(mode);
             return "ok";
         }
-        function setSensitivity(value: real): string {
-            if (!isFinite(value) || value < 0 || value > 2)
-                return "Pointer sensitivity must be between 0 and 2";
-            StageCfg.Config.setSensitivity(value);
+        function applyPreset(name: string): string {
+            StageCfg.Config.applyPreset(name);
             return "ok";
         }
-        function setRange(value: real): string {
-            if (!isFinite(value) || value < 0 || value > 2)
-                return "Pointer range must be between 0 and 2";
-            StageCfg.Config.setRange(value);
+        function setSpatialModel(id: string): string {
+            StageCfg.Config.setSpatialModel(id);
             return "ok";
         }
-        function setBackdrop(value: real): string {
-            if (!isFinite(value) || value < 0 || value > 1)
-                return "Backdrop drift must be between 0 and 1";
-            StageCfg.Config.setBackdrop(value);
+        function setDepthBackdrop(value: bool): string {
+            StageCfg.Config.setDepthBackdrop(value);
             return "ok";
         }
-        function setVisualizerFront(value: bool): string { StageCfg.Config.setFront("visualizer", value); return "ok"; }
+        function setVisualizerFront(mode: string, value: bool): string {
+            StageCfg.Config.setFront(mode, "visualizer", value);
+            return "ok";
+        }
     }
 
     // Enter or leave the desktop-widget editor without the right-click menu, so

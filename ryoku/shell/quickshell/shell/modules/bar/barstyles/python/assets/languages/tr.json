@@ -343,7 +343,7 @@
         "desc": "Görüntülenecek çalışma alanı sayısı",
         "hide_empty": {
           "title": "Boş çalışma alanlarını gizle",
-          "desc": "Yalnızca dolu olan çalışma alanlarını ve etkin olanı gösterin"
+          "desc": "Dolu olan çalışma alanlarını ve etkin olana kadar tüm çalışma alanlarını gösterin"
         },
         "style": {
           "title": "Stil",

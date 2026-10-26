@@ -207,14 +207,7 @@ Scope {
             WlrLayershell.layer: WlrLayer.Overlay
             WlrLayershell.namespace: "launcher"
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
-            anchors { top: true }
-            // the surface slides off the top edge; nothing is left behind to frost
-            margins.top: root.openRequested ? root.restY : -(win.implicitHeight + 8)
-            Behavior on margins.top {
-                NumberAnimation { duration: root.pushMs; easing.type: root.pushCurve }
-            }
-            implicitWidth: root.panelW
-            implicitHeight: root.barH + 10 + root.maxPanelH
+            anchors { top: true; bottom: true; left: true; right: true }
 
             // keeps the surface mapped for the length of the slide-out
             property real p: root.openRequested ? 1 : 0
@@ -222,12 +215,29 @@ Scope {
                 NumberAnimation { duration: root.pushMs; easing.type: root.pushCurve }
             }
 
-            Item {
+            MouseArea {
                 anchors.fill: parent
+                enabled: root.openRequested
+                acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                onPressed: Qt.callLater(root.hide)
+            }
+
+            Item {
+                width: root.panelW
+                height: root.barH + 10 + root.maxPanelH
+                x: Math.round((win.width - width) / 2)
+                y: root.openRequested ? root.restY : -(height + 8)
+                Behavior on y {
+                    NumberAnimation {
+                        duration: root.pushMs
+                        easing.type: root.pushCurve
+                    }
+                }
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: root.hide()
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                    onPressed: event => event.accepted = true
                 }
 
                 // ── search row ──────────────────────────────────────────────

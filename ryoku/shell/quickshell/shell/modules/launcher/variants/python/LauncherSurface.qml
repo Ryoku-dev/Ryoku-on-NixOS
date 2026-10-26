@@ -223,7 +223,7 @@ PanelWindow {
     })
 
     property var rawLauncherSettings: {
-        let dummy = configRevision;
+        let trackedRevision = configRevision;
         if (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.launcher) {
             return Config.rawSettings.launcher;
         }
@@ -251,12 +251,12 @@ PanelWindow {
     }
 
     property var rawBarSettings: {
-        let dummy = configRevision;
+        let trackedRevision = configRevision;
         return (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.bar) ? Config.rawSettings.bar : ({});
     }
 
     property string barStyle: {
-        let dummy = configRevision;
+        let trackedRevision = configRevision;
         if (typeof Config === "undefined" || !Config.rawSettings || !Config.rawSettings.bar) return "modular";
         let s = Config.rawSettings.bar.style;
         if (typeof s === "string") return s;
@@ -268,13 +268,13 @@ PanelWindow {
     }
 
     property string barPosition: {
-        let dummy = configRevision;
+        let trackedRevision = configRevision;
         if (typeof Config === "undefined" || !Config.rawSettings || !Config.rawSettings.bar) return "top";
         return Config.rawSettings.bar.position || "top";
     }
 
     property real barOpacity: {
-        let dummy = configRevision;
+        let trackedRevision = configRevision;
         if (!rawBarSettings || rawBarSettings.opacity === undefined) return 1.0;
         let op = Number(rawBarSettings.opacity);
         return op > 1.0 ? (op / 100.0) : op;
@@ -314,7 +314,7 @@ PanelWindow {
     readonly property bool isBarEffectivelyHidden: barAutohide || isFullscreenActive
 
     property real barHeight: {
-        let dummy = configRevision;
+        let trackedRevision = configRevision;
         return (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.bar && Config.rawSettings.bar.height) ? s(Config.rawSettings.bar.height) : s(40);
     }
 
@@ -927,7 +927,7 @@ PanelWindow {
                 + "else\n"
                 + "  xdg-open \"$(dirname \"$p\")\" >/dev/null 2>&1 &\n"
                 + "fi";
-            Quickshell.execDetached(["bash", "-c", script, "_", item.filePath]);
+            Spawn.runApp(["bash", "-c", script, "_", item.filePath], { label: "file" });
             closeLauncher();
             return;
         }
@@ -936,14 +936,14 @@ PanelWindow {
             if (item.command && item.command.trim().length > 0) {
                 let term = launcherWindow.terminalCommand ? launcherWindow.terminalCommand.trim() : "";
                 let fullCmd = term !== "" ? (term + " " + item.command) : item.command;
-                Quickshell.execDetached(["bash", "-c", fullCmd]);
+                Spawn.runApp(["bash", "-c", fullCmd], { label: term.split(/\s+/)[0] || "terminal" });
             }
             closeLauncher();
             return;
         }
 
         if (item.isCalc) {
-            Quickshell.execDetached(["wl-copy", "--", item.calcResult]);
+            Spawn.run(["wl-copy", "--", item.calcResult]);
             closeLauncher();
             return;
         }
@@ -958,7 +958,7 @@ PanelWindow {
 
     function launchWidget(widgetName, widgetTarget) {
         // The python stage router (also handles wallpaper/launcher hand-offs).
-        Quickshell.execDetached(["bash", Caching.scriptsPath + "/qs_manager.sh", "open", widgetTarget]);
+        Spawn.run(["bash", Caching.scriptsPath + "/qs_manager.sh", "open", widgetTarget]);
         closeLauncher();
     }
 
@@ -968,7 +968,7 @@ PanelWindow {
             AppLaunch.run(entry, null);
         }
         if (Caching.qsDir) {
-            Quickshell.execDetached(["python3", Qt.resolvedUrl("app_rank.py").toString().replace("file://", ""), "--log-launch", "--name", appName]);
+            Spawn.run(["python3", Qt.resolvedUrl("app_rank.py").toString().replace("file://", ""), "--log-launch", "--name", appName]);
         }
         closeLauncher();
     }
@@ -1083,7 +1083,7 @@ PanelWindow {
             height: container.dynamicCornerRadius
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
-                fillColor: ThemeBackend.base
+                fillColor: ThemeBackend.dockLauncherBase
                 strokeColor: "transparent"
                 startX: 0
                 startY: 0
@@ -1107,7 +1107,7 @@ PanelWindow {
             height: container.dynamicCornerRadius
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
-                fillColor: ThemeBackend.base
+                fillColor: ThemeBackend.dockLauncherBase
                 strokeColor: "transparent"
                 startX: container.dynamicCornerRadius
                 startY: 0
@@ -1131,7 +1131,7 @@ PanelWindow {
             height: container.dynamicCornerRadius
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
-                fillColor: ThemeBackend.base
+                fillColor: ThemeBackend.dockLauncherBase
                 strokeColor: "transparent"
                 startX: 0
                 startY: container.dynamicCornerRadius
@@ -1155,7 +1155,7 @@ PanelWindow {
             height: container.dynamicCornerRadius
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
-                fillColor: ThemeBackend.base
+                fillColor: ThemeBackend.dockLauncherBase
                 strokeColor: "transparent"
                 startX: container.dynamicCornerRadius
                 startY: container.dynamicCornerRadius
@@ -1179,7 +1179,7 @@ PanelWindow {
             height: container.dynamicCornerRadius
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
-                fillColor: ThemeBackend.base
+                fillColor: ThemeBackend.dockLauncherBase
                 strokeColor: "transparent"
                 startX: 0
                 startY: 0
@@ -1203,7 +1203,7 @@ PanelWindow {
             height: container.dynamicCornerRadius
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
-                fillColor: ThemeBackend.base
+                fillColor: ThemeBackend.dockLauncherBase
                 strokeColor: "transparent"
                 startX: 0
                 startY: container.dynamicCornerRadius
@@ -1227,7 +1227,7 @@ PanelWindow {
             height: container.dynamicCornerRadius
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
-                fillColor: ThemeBackend.base
+                fillColor: ThemeBackend.dockLauncherBase
                 strokeColor: "transparent"
                 startX: container.dynamicCornerRadius
                 startY: 0
@@ -1251,7 +1251,7 @@ PanelWindow {
             height: container.dynamicCornerRadius
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
-                fillColor: ThemeBackend.base
+                fillColor: ThemeBackend.dockLauncherBase
                 strokeColor: "transparent"
                 startX: container.dynamicCornerRadius
                 startY: container.dynamicCornerRadius
@@ -1271,9 +1271,9 @@ PanelWindow {
             id: bgCard
             anchors.fill: parent
             radius: container.dynamicCornerRadius
-            color: ThemeBackend.base
+            color: ThemeBackend.dockLauncherBase
             border.width: 0
-            border.color: launcherWindow.isCentered ? Qt.alpha(ThemeBackend.surface2, 0.6) : "transparent"
+            border.color: launcherWindow.isCentered ? Qt.alpha(ThemeBackend.dockLauncherSurface2, 0.6) : "transparent"
             clip: true
 
             Rectangle {
@@ -1282,7 +1282,7 @@ PanelWindow {
                 y: 0
                 width: container.dynamicCornerRadius
                 height: container.dynamicCornerRadius
-                color: ThemeBackend.base
+                color: ThemeBackend.dockLauncherBase
             }
 
             Rectangle {
@@ -1291,7 +1291,7 @@ PanelWindow {
                 y: 0
                 width: container.dynamicCornerRadius
                 height: container.dynamicCornerRadius
-                color: ThemeBackend.base
+                color: ThemeBackend.dockLauncherBase
             }
 
             Rectangle {
@@ -1300,7 +1300,7 @@ PanelWindow {
                 y: parent.height - container.dynamicCornerRadius
                 width: container.dynamicCornerRadius
                 height: container.dynamicCornerRadius
-                color: ThemeBackend.base
+                color: ThemeBackend.dockLauncherBase
             }
 
             Rectangle {
@@ -1309,7 +1309,7 @@ PanelWindow {
                 y: parent.height - container.dynamicCornerRadius
                 width: container.dynamicCornerRadius
                 height: container.dynamicCornerRadius
-                color: ThemeBackend.base
+                color: ThemeBackend.dockLauncherBase
             }
 
             Rectangle {
@@ -1318,7 +1318,7 @@ PanelWindow {
                 y: 0
                 width: container.dynamicCornerRadius
                 height: container.dynamicCornerRadius
-                color: ThemeBackend.base
+                color: ThemeBackend.dockLauncherBase
             }
 
             Rectangle {
@@ -1327,7 +1327,7 @@ PanelWindow {
                 y: parent.height - container.dynamicCornerRadius
                 width: container.dynamicCornerRadius
                 height: container.dynamicCornerRadius
-                color: ThemeBackend.base
+                color: ThemeBackend.dockLauncherBase
             }
 
             Rectangle {
@@ -1336,7 +1336,7 @@ PanelWindow {
                 y: 0
                 width: container.dynamicCornerRadius
                 height: container.dynamicCornerRadius
-                color: ThemeBackend.base
+                color: ThemeBackend.dockLauncherBase
             }
 
             Rectangle {
@@ -1345,7 +1345,7 @@ PanelWindow {
                 y: parent.height - container.dynamicCornerRadius
                 width: container.dynamicCornerRadius
                 height: container.dynamicCornerRadius
-                color: ThemeBackend.base
+                color: ThemeBackend.dockLauncherBase
             }
 
             Item {
@@ -1366,11 +1366,11 @@ PanelWindow {
                     y: contentContainer.isSearchAtBottom ? Math.max(0, parent.height - height) : 0
                     height: launcherWindow.s(36)
 
-                    baseColor: ThemeBackend.surface0
-                    accentColor: ThemeBackend.mauve
-                    textColor: ThemeBackend.text
-                    subTextColor: ThemeBackend.subtext0
-                    borderColor: Qt.alpha(ThemeBackend.surface2, 0.6)
+                    baseColor: ThemeBackend.dockLauncherSurface0
+                    accentColor: ThemeBackend.dockLauncherAccent
+                    textColor: ThemeBackend.dockLauncherText
+                    subTextColor: ThemeBackend.dockLauncherSubtext0
+                    borderColor: Qt.alpha(ThemeBackend.dockLauncherSurface2, 0.6)
                     cornerRadius: ThemeBackend.borderRadius
                     fontPixelSize: launcherWindow.s(12)
                     charSpacing: 1
@@ -1445,10 +1445,10 @@ PanelWindow {
                     height: launcherWindow.s(28)
                     cornerRadius: ThemeBackend.borderRadius
                     fontPixelSize: launcherWindow.s(11)
-                    baseColor: ThemeBackend.surface0
-                    accentColor: ThemeBackend.mauve
-                    textColor: ThemeBackend.text
-                    activeTextColor: ThemeBackend.crust
+                    baseColor: ThemeBackend.dockLauncherSurface0
+                    accentColor: ThemeBackend.dockLauncherAccent
+                    textColor: ThemeBackend.dockLauncherText
+                    activeTextColor: ThemeBackend.dockLauncherOnAccent
                     options: [launcherWindow.tabAppsTitle, launcherWindow.tabFilesTitle]
                     currentIndex: launcherWindow.currentTabIndex
                     onValueChanged: function(index, value) {
@@ -1567,7 +1567,7 @@ PanelWindow {
                             width: appList.width
                             height: launcherWindow.s(44)
                             radius: ThemeBackend.borderRadius
-                            color: ThemeBackend.mauve
+                            color: ThemeBackend.dockLauncherAccent
 
                             property real targetY: (appList.currentIndex >= 0 && appModel.count > 0)
                                                    ? appList.getItemY(appList.currentIndex)
@@ -1611,7 +1611,7 @@ PanelWindow {
                                 Rectangle {
                                     anchors.fill: parent
                                     radius: ThemeBackend.borderRadius
-                                    color: ThemeBackend.surface0
+                                    color: ThemeBackend.dockLauncherSurface0
                                     opacity: ma.containsMouse && !delegateRoot.isSelected ? 0.45 : 0
                                     Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutSine } }
                                 }
@@ -1647,7 +1647,7 @@ PanelWindow {
                                         Rectangle {
                                             anchors.fill: parent
                                             radius: parent.boxRadius
-                                            color: delegateRoot.isSelected ? Qt.tint(ThemeBackend.surface2, Qt.rgba(ThemeBackend.mauve.r, ThemeBackend.mauve.g, ThemeBackend.mauve.b, 0.2)) : ThemeBackend.surface2
+                                            color: delegateRoot.isSelected ? Qt.tint(ThemeBackend.dockLauncherSurface2, Qt.rgba(ThemeBackend.dockLauncherAccent.r, ThemeBackend.dockLauncherAccent.g, ThemeBackend.dockLauncherAccent.b, 0.2)) : ThemeBackend.dockLauncherSurface2
 
                                             Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
                                         }
@@ -1711,7 +1711,7 @@ PanelWindow {
                                                 }
                                                 font.family: ThemeBackend.fontFamily
                                                 font.pixelSize: launcherWindow.s(16)
-                                                color: delegateRoot.isSelected ? ThemeBackend.mauve : ThemeBackend.subtext0
+                                                color: delegateRoot.isSelected ? ThemeBackend.dockLauncherAccent : ThemeBackend.dockLauncherSubtext0
                                                 verticalAlignment: Text.AlignVCenter
                                                 horizontalAlignment: Text.AlignHCenter
 
@@ -1732,7 +1732,7 @@ PanelWindow {
                                             font.family: ThemeBackend.fontFamily
                                             font.pixelSize: launcherWindow.s(12)
                                             font.weight: delegateRoot.isSelected ? Font.Bold : Font.Medium
-                                            color: delegateRoot.isSelected ? ThemeBackend.crust : ThemeBackend.text
+                                            color: delegateRoot.isSelected ? ThemeBackend.dockLauncherOnAccent : ThemeBackend.dockLauncherText
                                             elide: Text.ElideRight
                                             verticalAlignment: Text.AlignVCenter
 
@@ -1747,7 +1747,7 @@ PanelWindow {
                                             font.family: ThemeBackend.fontFamily
                                             font.pixelSize: launcherWindow.s(10)
                                             font.weight: Font.Normal
-                                            color: delegateRoot.isSelected ? ThemeBackend.crust : ThemeBackend.subtext0
+                                            color: delegateRoot.isSelected ? ThemeBackend.dockLauncherOnAccent : ThemeBackend.dockLauncherSubtext0
                                             opacity: delegateRoot.isSelected ? 0.9 : 0.85
                                             elide: Text.ElideRight
                                             verticalAlignment: Text.AlignVCenter

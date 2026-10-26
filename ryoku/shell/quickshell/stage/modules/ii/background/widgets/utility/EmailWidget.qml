@@ -30,7 +30,7 @@ AbstractBackgroundWidget {
         if (EmailService.checkingCredentials || EmailService.authenticating)
             return;
         if (!EmailService.credentialsConfigured) {
-            Spawn.run(["xdg-open", "https://console.cloud.google.com/apis/credentials"]);
+            Spawn.runApp(["xdg-open", "https://console.cloud.google.com/apis/credentials"], { label: "browser" });
             return;
         }
         EmailService.startOAuth();
@@ -134,7 +134,7 @@ AbstractBackgroundWidget {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: Spawn.run(["xdg-open", "https://mail.google.com/mail/u/0/#inbox"])
+                            onClicked: Spawn.runApp(["xdg-open", "https://mail.google.com/mail/u/0/#inbox"], { label: "mail" })
                         }
                     }
                 }
@@ -273,7 +273,7 @@ AbstractBackgroundWidget {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: Spawn.run(["xdg-open", "https://mail.google.com/mail/u/0/#inbox"])
+                            onClicked: Spawn.runApp(["xdg-open", "https://mail.google.com/mail/u/0/#inbox"], { label: "mail" })
                         }
                     }
                     TouchpadScrollHandler {

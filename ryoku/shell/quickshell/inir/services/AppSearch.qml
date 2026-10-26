@@ -420,17 +420,6 @@ Singleton {
         // same launch environment, transient-scope lifetime and Path= handling.
         const command = Array.from(entry.command ?? rawEntry?.command ?? []).map(arg => String(arg ?? "")).filter(arg => arg.length > 0)
         if (command.length > 0) {
-            if (entry.runInTerminal ?? rawEntry?.runInTerminal ?? false) {
-                const terminal = String(Config.options?.apps?.terminal ?? "kitty").trim() || "kitty"
-                const quotedCommand = command.map(arg => `'${StringUtils.shellSingleQuoteEscape(arg)}'`).join(" ")
-                if (terminal === "wezterm") {
-                    ShellExec.execCmd(`${terminal} start --always-new-process -- ${quotedCommand}`, workingDirectory)
-                } else {
-                    ShellExec.execCmd(`${terminal} -e ${quotedCommand}`, workingDirectory)
-                }
-                return true
-            }
-
             const executable = command[0].split("/").pop().toLowerCase()
             const isVentoyGui = executable === "ventoygui" || executable.startsWith("ventoygui.")
             const hasVentoyFrontend = command.slice(1).some(arg => /^--(gtk[234]|qt[456])$/.test(arg.toLowerCase()))
@@ -440,8 +429,11 @@ Singleton {
             const launchCommand = (executable === "gparted" || isVentoyGui)
                 ? [Directories.payloadPath("scripts/launch-privileged-gui.sh"), ...graphicalCommand]
                 : graphicalCommand
-            ShellExec.execDetachedArgs(launchCommand,
-                displayName.length > 0 ? `Launch ${displayName}` : "",
+            ShellExec.execDetachedArgs(
+                (entry.runInTerminal ?? rawEntry?.runInTerminal ?? false)
+                    ? ["ryoku-app", "terminal", "--", ...launchCommand]
+                    : launchCommand,
+                desktopId.length > 0 ? desktopId : displayName,
                 workingDirectory)
             return true
         }
@@ -454,11 +446,6 @@ Singleton {
                 displayName.length > 0 ? `Launch ${displayName}` : "")
         }
 
-        // Non-desktop search providers can still expose their own callback.
-        if (typeof entry.execute === "function") {
-            entry.execute()
-            return true
-        }
 
         return false
     }
@@ -468,10 +455,10 @@ Singleton {
 
         const command = Array.from(action.command ?? []).map(arg => String(arg ?? "")).filter(arg => arg.length > 0)
         if (command.length > 0) {
-            const actionName = String(action.name ?? entry.name ?? "").trim()
             const workingDirectory = String(entry.workingDirectory ?? "").trim()
-            ShellExec.execDetachedArgs(command,
-                actionName.length > 0 ? `Launch ${actionName}` : "",
+            ShellExec.execDetachedArgs(
+                entry.runInTerminal ? ["ryoku-app", "terminal", "--", ...command] : command,
+                String(entry.id ?? action.name ?? entry.name ?? "").trim(),
                 workingDirectory)
             return true
         }

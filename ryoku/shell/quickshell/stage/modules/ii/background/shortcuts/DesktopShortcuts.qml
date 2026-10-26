@@ -7,6 +7,8 @@ import Quickshell.Io
 import stage.services
 import stage.modules.common
 import stage.modules.ii.editMode
+import Ryoku.Ui.Singletons
+import shell.services
 
 Singleton {
     id: root
@@ -625,7 +627,11 @@ Singleton {
         const id = root.uniqueFolderId(items);
         const folder = { id: id, type: "group", name: root.nextFolderName(items, name),
             icon: "folder", apps: [], x: point.x, y: point.y, addedAt: Date.now() };
-        return root.save(screenName, items.concat([folder])) ? id : "";
+        if (!root.save(screenName, items.concat([folder])))
+            return "";
+        if (root.hidden)
+            root.setHidden(false);
+        return id;
     }
     function addToFolder(screenName, folderId, entries) {
         const items = root.itemsFor(screenName);
@@ -1097,14 +1103,13 @@ Singleton {
     }
 
     function launch(entry) {
-        // Files, folders and URLs go through the desktop's default handler.
-        // Only dropped .desktop files use Gio's desktop-entry launcher.
-        if ((entry.type === "directory" || entry.type === "file" || entry.type === "url") && entry.path)
-            Quickshell.execDetached(["xdg-open", entry.path]);
-        else if (entry.path)
-            Quickshell.execDetached(["gio", "launch", entry.path]);
-        else
-            TaskbarApps.getCachedDesktopEntry(entry.id)?.execute();
+        if ((entry.type === "directory" || entry.type === "file" || entry.type === "url") && entry.path) {
+            Spawn.runApp(["xdg-open", entry.path], { label: entry.type });
+        } else if (entry.path) {
+            Spawn.runApp(["gio", "launch", entry.path], { label: entry.id });
+        } else {
+            AppLaunch.run(TaskbarApps.getCachedDesktopEntry(entry.id), null);
+        }
         Qt.callLater(() => root.countLaunch(entry.id));
     }
     // "Most used" is fed here: the entry, wherever it lives - loose on any

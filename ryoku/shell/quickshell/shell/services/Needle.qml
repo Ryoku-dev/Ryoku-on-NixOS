@@ -115,7 +115,7 @@ Singleton {
     }
 
     function openInTerminal() {
-        Quickshell.execDetached(["ryoku-rashin", "terminal", "--lane", "ryoku"]);
+        Spawn.runApp(["ryoku-rashin", "terminal", "--lane", "ryoku"], { label: "rashin" });
     }
 
     function setModel(id) {

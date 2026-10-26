@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
+import Ryoku.Ui.Singletons
 import "AppSearch.js" as AppSearch
 
 // Shared desktop-application library: the sorted entry list with hidden-entry
@@ -78,11 +79,8 @@ Item {
     var id = String(desktopId || "")
     if (!id) return
     root.beginLaunchFeedback(name)
-    // Start gtk-launch inside a scope under app-graphical.slice so apps do not
-    // inherit wayland-wm@.service. Keeping gtk-launch as the desktop-entry
-    // resolver supports IDs with spaces and entries that UWSM rejects.
-    // Keep the .desktop suffix or ids like org.telegram.desktop won't resolve.
-    Util.execDetached("uwsm-app -- gtk-launch " + Util.shellQuote(id + ".desktop"))
+    var desktopFile = id.slice(-8) === ".desktop" ? id : id + ".desktop"
+    Spawn.runApp(["gtk-launch", desktopFile], { label: id })
   }
 
   function remove(desktopId, name) {

@@ -4,6 +4,21 @@ import "fmt"
 
 const daemonVersion = "0.3.0"
 
+func focusedOutputName() string {
+	wmCache.mu.Lock()
+	name := wmCache.focusedOutput
+	wmCache.mu.Unlock()
+	if name != "" {
+		return name
+	}
+	for _, output := range outputs.list() {
+		if output.Focused {
+			return output.Name
+		}
+	}
+	return ""
+}
+
 // dispatchRequest routes one JSON-RPC request. The method set and response
 // shapes are the wire contract the picker parses.
 func (d *daemon) dispatchRequest(req *request) response {
@@ -18,14 +33,7 @@ func (d *daemon) dispatchRequest(req *request) response {
 	// wm.focusedOutput: the picker opens on the display in use, which no Wayland
 	// protocol reports to a client.
 	case "wm.focusedOutput":
-		name := ""
-		for _, o := range outputs.list() {
-			if o.Focused {
-				name = o.Name
-				break
-			}
-		}
-		return ok(req.ID, map[string]interface{}{"name": name})
+		return ok(req.ID, map[string]interface{}{"name": focusedOutputName()})
 
 	case "state.get":
 		if v, okKey := d.store.stateGet(strParam(p, "key", "")); okKey {
@@ -78,6 +86,35 @@ func (d *daemon) dispatchRequest(req *request) response {
 			return errResp(req.ID, 1, fmt.Sprintf("unsupported type: %s", wpType))
 		}
 		return ok(req.ID, map[string]interface{}{"applied": d.currentName()})
+
+	case "wall.preview":
+		outputs := strsParam(p, "outputs")
+		if screen := strParam(p, "screen", ""); screen != "" {
+			outputs = []string{screen}
+		}
+		// The path wins when both are given; a caller holding only a
+		// catalog key (the folio picker works in keys) names the entry
+		// instead, and the daemon resolves it through the store.
+		if path := strParam(p, "path", ""); path != "" {
+			if err := d.previewWallpaper(path, outputs); err != nil {
+				return errResp(req.ID, 4, err.Error())
+			}
+			return ok(req.ID, map[string]interface{}{"previewing": path})
+		}
+		key := strParam(p, "key", "")
+		if key == "" {
+			return errResp(req.ID, 1, "missing 'path' parameter")
+		}
+		if err := d.previewWallpaperKey(key, outputs); err != nil {
+			return errResp(req.ID, 4, err.Error())
+		}
+		return ok(req.ID, map[string]interface{}{"previewing": key})
+
+	case "wall.preview.clear":
+		if err := d.clearPreview(); err != nil {
+			return errResp(req.ID, 4, err.Error())
+		}
+		return ok(req.ID, map[string]interface{}{"ok": true})
 
 	case "wall.assign":
 		wall, err := d.assignWorkspace(p)

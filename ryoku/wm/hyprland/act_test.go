@@ -538,14 +538,17 @@ func TestWindowPlaceRejectsInvalidOutputScaleBeforeMutation(t *testing.T) {
 // checks before dispatching.
 func stubCtl(t *testing.T, fn func(...string) ([]byte, error)) func() {
 	t.Helper()
-	prevCtl := ctl
+	prevCtl, prevQuery := ctl, query
 	prevSig := os.Getenv("HYPRLAND_INSTANCE_SIGNATURE")
 	prevAlive := aliveCheck
 	ctl = fn
+	// Reads answer through the same stub with hyprctl's -j argv, so one fake
+	// serves both paths.
+	query = func(args ...string) ([]byte, error) { return fn(append(args, "-j")...) }
 	aliveCheck = func(string) bool { return true }
 	os.Setenv("HYPRLAND_INSTANCE_SIGNATURE", "test")
 	return func() {
-		ctl = prevCtl
+		ctl, query = prevCtl, prevQuery
 		aliveCheck = prevAlive
 		os.Setenv("HYPRLAND_INSTANCE_SIGNATURE", prevSig)
 	}

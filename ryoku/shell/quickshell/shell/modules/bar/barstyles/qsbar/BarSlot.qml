@@ -1816,10 +1816,9 @@ PanelWindow {
                     onReleased: barSlot.endDrag()
                     onCanceled: barSlot.cancelDrag()
                 }
-                // drop-target highlight (the group under the cursor, not the source)
                 Rectangle {
                     anchors.fill: parent
-                    radius: barSlot.root.pillRadius
+                    radius: barSlot.shellRadius
                     color: Qt.rgba(barSlot.accent.r, barSlot.accent.g, barSlot.accent.b, 0.18)
                     border.color: barSlot.accent
                     border.width: 2
@@ -2004,7 +2003,7 @@ PanelWindow {
             if (stage <= 0) return true
             if (stage === 1) return ["G7", "G9", "G10"].indexOf(gid) < 0         // drop AI · MPRIS · Quick
             if (stage === 2) return ["G4", "G7", "G9", "G10", "G17", "G18"].indexOf(gid) < 0   // also MEM · GPU · HDD
-            return ["G1", "G2", "G6", "G8", "G11", "G14"].indexOf(gid) >= 0      // emergency whitelist
+            return ["G1", "G2", "G6", "G8", "G11", "G14"].indexOf(gid) >= 0      // emergency allowlist
         }
         function sideNaturalWidth(row, stage) {
             var sum = 0, n = 0

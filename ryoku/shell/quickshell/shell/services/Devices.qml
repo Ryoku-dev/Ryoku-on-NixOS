@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Ryoku.Ui.Singletons
+import "lib/displays.js" as Displays
 
 // owns screen vibrance (nvibrant) + external monitor brightness (ddcutil) for
 // the mixer. persisted vibrance % = source of truth: loaded and pushed once at
@@ -26,6 +27,9 @@ Singleton {
     // session stalling, so it runs once per connector set and only when sysfs
     // says an external display is attached.
     property bool displaysProbed: false
+    // A connector change that landed mid-probe: the running answer is stale.
+    property bool probeStale: false
+    property string connectorKey: ""
 
     // load saved vibrance % and apply once -> tint survives reboot. singletons
     // init lazily, so something at startup has to actually touch this for the
@@ -81,9 +85,23 @@ Singleton {
     }
 
     // A connector coming or going is the one event that changes the answer.
+    // Nobody watching means the next open probes; nothing walks i2c meanwhile.
     function invalidateDisplays() {
+        if (connectorProbe.running || ddcDetect.running) {
+            root.probeStale = true;
+            return;
+        }
         root.displaysProbed = false;
-        root.probeDisplays();
+        if (root.probesWanted)
+            root.probeDisplays();
+    }
+
+    function finishProbe() {
+        root.displaysProbed = true;
+        if (root.probeStale) {
+            root.probeStale = false;
+            Qt.callLater(root.invalidateDisplays);
+        }
     }
 
     function detect() {
@@ -150,7 +168,7 @@ Singleton {
                     return;
                 }
                 root.ddcMonitors = [];
-                root.displaysProbed = true;
+                root.finishProbe();
             }
         }
     }
@@ -161,7 +179,7 @@ Singleton {
         running: false
         // Answered on exit, not on the last byte: a missing ddcutil or a refused
         // bus must still count, or every open asks again.
-        onExited: root.displaysProbed = true
+        onExited: root.finishProbe()
         stdout: StdioCollector {
             onStreamFinished: {
                 var mons = [];
@@ -198,6 +216,10 @@ Singleton {
     Connections {
         target: Wm
         function onOutputsChanged() {
+            var key = Displays.connectorSignature(Wm.outputs);
+            if (key === root.connectorKey)
+                return;
+            root.connectorKey = key;
             Qt.callLater(root.invalidateDisplays);
         }
     }

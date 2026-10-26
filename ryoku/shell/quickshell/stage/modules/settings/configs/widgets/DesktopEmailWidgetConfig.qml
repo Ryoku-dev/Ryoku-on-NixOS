@@ -164,7 +164,7 @@ ContentPage {
                     }
                 }
 
-                onClicked: Spawn.run(["xdg-open", "https://console.cloud.google.com/apis/credentials"])
+                onClicked: Spawn.runApp(["xdg-open", "https://console.cloud.google.com/apis/credentials"], { label: "browser" })
             }
 
             ConfigTextField {

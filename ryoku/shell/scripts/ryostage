@@ -198,7 +198,7 @@ cmd_models() {
 }
 
 cmd_cut() {
-    local in="" out="" model="$default_model" matting=0
+    local in="" out="" model="$default_model" matting=0 region=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
         -m | --model)
@@ -208,6 +208,14 @@ cmd_cut() {
         --matting | --alpha-matting)
             matting=1
             shift
+            ;;
+        --region)
+            [[ $# -ge 2 ]] || {
+                printf 'ryostage: --region needs nx,ny,nw,nh\n' >&2
+                return 2
+            }
+            region="$2"
+            shift 2
             ;;
         --)
             shift
@@ -233,7 +241,7 @@ cmd_cut() {
     }
 
     if [[ -z $in || -z $out ]]; then
-        printf 'usage: ryostage cut <in> <out.png> [--model <id>] [--matting]\n' >&2
+        printf 'usage: ryostage cut <in> <out.png> [--model <id>] [--matting] [--region nx,ny,nw,nh]\n' >&2
         return 2
     fi
     [[ -f "$in" ]] || {
@@ -254,25 +262,56 @@ cmd_cut() {
     mkdir -p "$(dirname -- "$out")"
     local tmp
     tmp="$(mktemp "${out}.XXXXXX")"
-    if "$PY" - "$in" "$tmp" "$model" "$matting" <<'PY'
+    local status=0
+    if "$PY" - "$in" "$tmp" "$model" "$matting" "$region" <<'PY'
+import io
+import math
 import sys
+
+from PIL import Image
 from rembg import new_session, remove
+
 inp, out, model = sys.argv[1], sys.argv[2], sys.argv[3]
 matting = sys.argv[4] == "1"
+region = sys.argv[5]
 try:
     session = new_session(model, providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
-except TypeError:  # rembg too old for providers=
+except TypeError:
     session = new_session(model)
-with open(inp, "rb") as f:
-    data = f.read()
 kw = dict(session=session)
 if matting:
-    # Alpha matting refines the silhouette (hair, fur, soft edges) at some cost
-    # in time; the thresholds are rembg's, tuned for a clean foreground.
     kw.update(alpha_matting=True, alpha_matting_foreground_threshold=240,
               alpha_matting_background_threshold=10, alpha_matting_erode_size=10)
-with open(out, "wb") as f:
-    f.write(remove(data, **kw))
+
+if not region:
+    with open(inp, "rb") as source:
+        result = remove(source.read(), **kw)
+    with open(out, "wb") as target:
+        target.write(result)
+else:
+    try:
+        nx, ny, nw, nh = (float(value) for value in region.split(","))
+    except (TypeError, ValueError):
+        raise SystemExit("region must be nx,ny,nw,nh")
+    if not all(math.isfinite(value) for value in (nx, ny, nw, nh)):
+        raise SystemExit("region values must be finite")
+    nx = max(0.0, min(0.98, nx))
+    ny = max(0.0, min(0.98, ny))
+    nw = max(0.02, min(nw, 1.0 - nx))
+    nh = max(0.02, min(nh, 1.0 - ny))
+    image = Image.open(inp).convert("RGBA")
+    width, height = image.size
+    left = max(0, min(width - 1, int(math.floor(nx * width))))
+    top = max(0, min(height - 1, int(math.floor(ny * height))))
+    right = max(left + 1, min(width, int(math.ceil((nx + nw) * width))))
+    bottom = max(top + 1, min(height, int(math.ceil((ny + nh) * height))))
+    crop = image.crop((left, top, right, bottom))
+    encoded = io.BytesIO()
+    crop.save(encoded, "PNG")
+    cut = Image.open(io.BytesIO(remove(encoded.getvalue(), **kw))).convert("RGBA")
+    canvas = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    canvas.alpha_composite(cut, (left, top))
+    canvas.save(out, "PNG")
 PY
     then
         if [[ -s "$tmp" ]]; then
@@ -280,18 +319,20 @@ PY
             printf '%s\n' "$out"
             return 0
         fi
+    else
+        status=$?
     fi
     rm -f "$tmp"
-    printf 'ryostage: cut failed\n' >&2
+    if ((status != 0)); then
+        return "$status"
+    fi
+    printf 'ryostage: cut produced no output\n' >&2
     return 1
 }
 
-# Hole recolouring: takes the original wallpaper + the subject cutout's alpha
-# channel as the hole mask and writes an RGB PNG whose hole pixels carry the
-# mean colour of the surrounding background ring (the "recoloured background").
-# No AI here: one dilate + one mean over the ring, so the pass is a couple of
-# seconds and fully deterministic; the parallax surface renders this as its
-# base and the drifted subject reveals the backdrop, not its own silhouette.
+# Hole recolouring: takes the original wallpaper and the subject cutout's alpha
+# channel as the hole mask. The bounded iterative fill runs only on the hole;
+# pixels outside it retain the established parallax backdrop treatment.
 cmd_inpaint() {
     local in="" mask="" out=""
     while [[ $# -gt 0 ]]; do
@@ -331,39 +372,55 @@ cmd_inpaint() {
     mkdir -p "$(dirname -- "$out")"
     local tmp
     tmp="$(mktemp "${out}.XXXXXX")"
+    local status=0
     if "$PY" - "$in" "$mask" "$tmp" <<'PY'
-# The Parallax backdrop: the wallpaper with the subject's hole filled from its
-# surroundings, then softened as the far plane. The fill grows inward by
-# normalized convolution (a Gaussian of the known colour over a Gaussian of the
-# known mask), so the hole takes the colours and gradients around it instead of
-# one flat plate, and a drifting subject never reveals its own silhouette. The
-# hole is the matte grown outward first, so no subject pixel seeds the fill.
-# Half resolution keeps it at a few seconds for a 4K wallpaper; the result is
-# blurred anyway, so nothing is lost.
+# The fill runs on a bounded working image, then only its filled colour is
+# composited into the existing half-size base. The base, final upscale, blur and
+# dim stay unchanged, so pixels away from the hole retain the established look.
 import sys
+
 import numpy as np
 from PIL import Image, ImageFilter
 from scipy import ndimage
 
 image_path, mask_path, out_path = sys.argv[1:4]
-
 img_full = Image.open(image_path).convert("RGB")
 mask_rgba = Image.open(mask_path).convert("RGBA")
-W, H = img_full.size
-scale = 2 if max(W, H) > 1600 else 1
-size = (max(1, W // scale), max(1, H // scale))
-img = np.asarray(img_full.resize(size, Image.BILINEAR), dtype=np.float32) / 255.0
-alpha = np.asarray(mask_rgba.resize(size, Image.BILINEAR), dtype=np.uint8)[..., 3]
+width, height = img_full.size
+base_scale = 2 if max(width, height) > 1600 else 1
+base_size = (max(1, width // base_scale), max(1, height // base_scale))
+img = np.asarray(img_full.resize(base_size, Image.BILINEAR), dtype=np.float32) / 255.0
+alpha = np.asarray(mask_rgba.resize(base_size, Image.BILINEAR), dtype=np.uint8)[..., 3]
 
 hole = ndimage.binary_fill_holes(alpha > 8)
 hole = ndimage.binary_closing(hole, iterations=4)
 hole = ndimage.binary_dilation(hole, iterations=6)
 
-known = (~hole).astype(np.float32)
-col = img * known[..., None]
-sigma = 8.0
+work_scale = max(1.0, max(base_size) / 1280.0)
+work_size = (
+    max(1, int(round(base_size[0] / work_scale))),
+    max(1, int(round(base_size[1] / work_scale))),
+)
+if work_size == base_size:
+    work_img = img
+    work_hole = hole
+else:
+    work_img = np.asarray(
+        Image.fromarray(np.clip(img * 255.0, 0, 255).astype(np.uint8)).resize(
+            work_size, Image.BILINEAR
+        ),
+        dtype=np.float32,
+    ) / 255.0
+    work_hole = np.asarray(
+        Image.fromarray(hole.astype(np.uint8) * 255).resize(work_size, Image.BILINEAR),
+        dtype=np.uint8,
+    ) > 127
+
+known = (~work_hole).astype(np.float32)
+col = work_img * known[..., None]
+sigma = max(1.0, 8.0 / work_scale)
 for _ in range(80):
-    num = np.stack([ndimage.gaussian_filter(col[..., c], sigma=sigma) for c in range(3)], -1)
+    num = np.stack([ndimage.gaussian_filter(col[..., channel], sigma=sigma) for channel in range(3)], -1)
     den = ndimage.gaussian_filter(known, sigma=sigma)
     reach = den > 0.05
     fill = num / np.maximum(den, 0.05)[..., None]
@@ -375,15 +432,17 @@ for _ in range(80):
     if known.min() > 0.5:
         break
 if known.min() < 0.5:
-    # A hole the fill could not reach (a subject covering the whole frame):
-    # the mean of everything known, never a hard default.
-    mean = (img * known[..., None]).sum((0, 1)) / max(1.0, known.sum())
+    mean = (work_img * known[..., None]).sum((0, 1)) / max(1.0, known.sum())
     col = np.where((known < 0.5)[..., None], mean, col)
 
-res = np.where(hole[..., None], col, img)
+filled = Image.fromarray(np.clip(col * 255.0, 0, 255).astype(np.uint8))
+if work_size != base_size:
+    filled = filled.resize(base_size, Image.BILINEAR)
+filled_pixels = np.asarray(filled, dtype=np.float32) / 255.0
+res = np.where(hole[..., None], filled_pixels, img)
 out = Image.fromarray(np.clip(res * 255.0, 0, 255).astype(np.uint8))
-if scale != 1:
-    out = out.resize((W, H), Image.BILINEAR)
+if base_scale != 1:
+    out = out.resize((width, height), Image.BILINEAR)
 out = out.filter(ImageFilter.GaussianBlur(4))
 out = Image.fromarray((np.asarray(out, dtype=np.float32) * 0.90).astype(np.uint8))
 out.save(out_path, "PNG")
@@ -394,9 +453,14 @@ PY
             printf '%s\n' "$out"
             return 0
         fi
+    else
+        status=$?
     fi
     rm -f "$tmp"
-    printf 'ryostage: inpaint failed\n' >&2
+    if ((status != 0)); then
+        return "$status"
+    fi
+    printf 'ryostage: inpaint produced no output\n' >&2
     return 1
 }
 

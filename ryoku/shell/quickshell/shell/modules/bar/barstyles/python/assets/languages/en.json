@@ -345,7 +345,7 @@
         "desc": "Number of workspaces to display",
         "hide_empty": {
           "title": "Hide empty workspaces",
-          "desc": "Show only occupied workspaces and the active one"
+          "desc": "Show occupied workspaces and every workspace up to the active one"
         },
         "style": {
           "title": "Style",

@@ -99,9 +99,9 @@ func eventSocketPath() string {
 	return candidates[0]
 }
 
-// ctl is the single choke point for every compositor call, so the isolation gate
-// has one line to allow. A var so tests can pin the emitted argv without a live
-// compositor.
+// ctl is the single choke point for every compositor command, so the isolation
+// gate has one line to allow; state reads go through query instead. A var so
+// tests can pin the emitted argv without a live compositor.
 var ctl = runCtl
 
 func runCtl(args ...string) ([]byte, error) {

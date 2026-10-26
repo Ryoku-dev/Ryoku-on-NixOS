@@ -61,7 +61,7 @@ UtilityTile {
         : Translation.tr("Disk usage")
 
     function activate() {
-        Spawn.run(["xdg-open", tile.mount]);
+        Spawn.runApp(["xdg-open", tile.mount], { label: "disk" });
         return true;
     }
 

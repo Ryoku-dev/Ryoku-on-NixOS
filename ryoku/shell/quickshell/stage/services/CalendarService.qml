@@ -556,7 +556,7 @@ Singleton {
     Process {
         id: vdirsyncerReauthProcess
 
-        command: ["python3", root.vdirsyncerReauthPath]
+        command: ["ryoku-host", "app", "--label", "calendar-oauth", "--", "python3", root.vdirsyncerReauthPath]
         running: false
         property string responseText: ""
 

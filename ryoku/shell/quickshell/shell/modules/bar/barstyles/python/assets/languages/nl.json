@@ -343,7 +343,7 @@
         "desc": "Aantal weer te geven werkbladen",
         "hide_empty": {
           "title": "Lege werkbladen verbergen",
-          "desc": "Alleen bezette werkbladen en het actieve werkblad tonen"
+          "desc": "Alleen bezette werkbladen en alle werkbladen tot en met het actieve werkblad tonen"
         },
         "style": {
           "title": "Stijl",

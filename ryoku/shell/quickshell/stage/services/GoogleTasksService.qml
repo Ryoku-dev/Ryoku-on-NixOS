@@ -63,6 +63,7 @@ Singleton {
         root.lastErrorCode = "";
         root.lastErrorMessage = "";
         oauthProcess.command = [
+            "ryoku-host", "app", "--label", "google-tasks-oauth", "--",
             "python3",
             root.scriptPath + "/google/oauth.py",
             "--scope",
@@ -561,7 +562,7 @@ Singleton {
 
     Process {
         id: oauthProcess
-        command: ["python3", root.scriptPath + "/google/oauth.py"]
+        command: ["ryoku-host", "app", "--label", "google-tasks-oauth", "--", "python3", root.scriptPath + "/google/oauth.py"]
         stdout: StdioCollector {
             onStreamFinished: {
                 root.authenticating = false;

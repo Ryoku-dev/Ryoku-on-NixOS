@@ -23,6 +23,7 @@ Item {
 
     readonly property bool on: StageSession.depthPick !== ""
         && StageSession.onMonitor(pick.monitor)
+        && StageBackend.spatialFor(pick.wallPath)
     property point cursor: Qt.point(-1, -1)
     property real sample: -1
 

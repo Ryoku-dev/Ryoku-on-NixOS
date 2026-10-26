@@ -88,6 +88,7 @@ RTL = {l["code"] for l in LANGS if l.get("dir") == "rtl"}
 # desktop; the Go and shell roots are the two installers and the CLI, which
 # speak the same catalog through ryoku/i18n/i18n.go and ryoku/i18n/i18n.sh.
 QML_ROOT = os.path.join(REPO, "ryoku")
+SHIMA_ROOT = os.path.join(QML_ROOT, "shell", "quickshell", "inir")
 SCHEMA_DIR = os.path.join(REPO, "ryoku", "hub", "quickshell", "schema")
 GO_ROOTS = [os.path.join(REPO, p) for p in
             ("installation/tui", "ryoku-shell-installer", "ryoku/cli",
@@ -95,9 +96,10 @@ GO_ROOTS = [os.path.join(REPO, p) for p in
 SH_ROOTS = [os.path.join(REPO, p) for p in
             ("installation/backend", "ryoku-shell-installer")]
 
-# QML/JS: I18n.tr("..."). qsTr("...") is Qt's marker, which Quickshell has no
-# loader for; it is matched too so a stray one still reaches the catalog.
-TR_CALL = re.compile(r"""(?:I18n\.tr|qsTr)\(\s*(["'])((?:\\.|(?!\1).)*)\1""")
+# QML/JS: the shared I18n lookup, Shima's Translation bridge and Qt's qsTr
+# marker. Quickshell has no qsTr loader, but matching it still keeps a stray
+# marker in the catalog.
+TR_CALL = re.compile(r"""(?:I18n\.tr|Translation\.tr|qsTr)\(\s*(["'])((?:\\.|(?!\1).)*)\1""")
 # Go: i18n.T("..."), i18n.Tf("...", a, b) and the bare T/Tf a program dot-imports.
 GO_CALL = re.compile(r'\b(?:i18n\.)?Tf?\(\s*"((?:\\.|[^"\\])*)"')
 # shell: the installer's own helpers. log/die take the message as their first
@@ -108,8 +110,6 @@ SH_CALL = re.compile(
     r"""(?:^|[|(&;`$]|\s)(?:tf?|log|die)\s+(["'])((?:\\.|(?!\1).)*)\1""", re.M)
 SCHEMA_FIELD = re.compile(r'"(?:tab|label|desc|group)"\s*:\s*"((?:\\.|[^"\\])*)"')
 
-# shield %1..%9 as private-use codepoints so the translator leaves them intact.
-PU_BASE = 0xE000
 
 
 def _unescape(lit):
@@ -140,6 +140,12 @@ PAGE_OPTS = re.compile(r'\boptions\s*:\s*\[([^\]]*)\]', re.S)   # inline page op
 STR_LIT = re.compile(r'"((?:\\.|[^"\\])*)"')
 # data-model display fields, key quoted ("label":) or not (label:).
 MODEL_LABEL = re.compile(r'\b(?:label|name|desc|altLabel)"?\s*:\s*"((?:\\.|[^"\\])*)"')
+# Shima data tables are translated where their values are rendered, so their
+# English literals have no direct tr() call for the extractor to see.
+QML_MODEL_FIELD = re.compile(
+    r'\b(?:label|description|desc|group|title|subtitle|tip|detail|button|placeholder|'
+    r'zeroLabel|emptyText|caption|heading|message|note|summary|blurb|eyebrow)\s*:\s*'
+    r'"((?:\\.|[^"\\])*)"')
 
 
 def _shebang(path):
@@ -185,14 +191,20 @@ def extract_keys():
                 continue
             # vendored Qt imports are symlinks into /usr/lib/qt6; on a runner
             # without Qt they dangle, so skip anything that won't open.
+            path = os.path.join(root, f)
             try:
-                text = open(os.path.join(root, f), encoding="utf-8", errors="ignore").read()
+                text = open(path, encoding="utf-8", errors="ignore").read()
             except OSError:
                 continue
             for _, body in TR_CALL.findall(text):
                 s = _unescape(body).strip()
                 if s:
                     keys.add(s)          # explicit tr() calls are always kept
+            if os.path.commonpath((path, SHIMA_ROOT)) == SHIMA_ROOT:
+                for body in QML_MODEL_FIELD.findall(text):
+                    s = _unescape(body).strip()
+                    if s and not _noise(s) and not _brand(s):
+                        keys.add(s)
     if os.path.isdir(SCHEMA_DIR):
         for f in os.listdir(SCHEMA_DIR):
             if not f.endswith(".js"):
@@ -325,22 +337,19 @@ def _ph(s):
 
 
 def shield(s):
-    """Swap each placeholder for a private-use codepoint, so a machine
-    translator moves it around as an opaque glyph instead of translating it."""
+    """Swap placeholders for stable ASCII tokens before machine translation."""
     toks = []
 
     def take(m):
         toks.append(m.group(0))
-        return chr(PU_BASE + len(toks) - 1)
+        return f"__RYOKU_PH_{len(toks) - 1}__"
     return PLACEHOLDER.sub(take, s), toks
 
 
 def unshield(s, toks):
-    out = []
-    for c in s:
-        i = ord(c) - PU_BASE
-        out.append(toks[i] if 0 <= i < len(toks) else c)
-    return "".join(out)
+    for i, token in enumerate(toks):
+        s = s.replace(f"__RYOKU_PH_{i}__", token)
+    return s
 
 
 def _sanitize(s):

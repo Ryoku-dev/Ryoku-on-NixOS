@@ -9,7 +9,16 @@ StageEditorHost StageEditorHost.qml
 StageWidgetProvider StageWidgetProvider.qml
 StageVisualizerPage StageVisualizerPage.qml
 StageDepthPage StageDepthPage.qml
-StageDepthOptions StageDepthOptions.qml
+StageModePicker StageModePicker.qml
+StageLookTab StageLookTab.qml
+StageLayersTab StageLayersTab.qml
+StageMotionTab StageMotionTab.qml
+StageFrontTab StageFrontTab.qml
+StageCameraTab StageCameraTab.qml
+StageCutModelTab StageCutModelTab.qml
+StageSpatialModelTab StageSpatialModelTab.qml
 StageDepthHero StageDepthHero.qml
+StageSceneCard StageSceneCard.qml
+StageRegionPicker StageRegionPicker.qml
 StageWidgetPage StageWidgetPage.qml
 StageDepthPick StageDepthPick.qml

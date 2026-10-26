@@ -9,6 +9,7 @@ import inir.modules.common
 import inir.modules.common.widgets
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 IrisWidgetFace {
     id: root
@@ -61,7 +62,7 @@ IrisWidgetFace {
             anchors.topMargin: root.dp(5)
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
-            text: toggle.label
+            text: I18n.tr(toggle.label)
             color: toggle.on ? root.ink : root.inkSecondary
             size: 11
         }

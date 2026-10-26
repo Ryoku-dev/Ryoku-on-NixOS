@@ -137,7 +137,8 @@ void ThumbDecoder::request(const QString &key, const QString &path, const QStrin
     int generation;
     {
         QMutexLocker lock(&m_mutex);
-        if (!wantedLocked(key) || m_inflight.contains(token))
+        m_wanted.insert(key);
+        if (m_inflight.contains(token))
             return;
         m_inflight.insert(token);
         requestId = ++m_nextRequest;

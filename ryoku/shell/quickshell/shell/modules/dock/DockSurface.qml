@@ -31,7 +31,7 @@ PanelWindow {
 
     // ── sizing ────────────────────────────────────────────────────────────────
     readonly property bool autohide: Dock.cfg("autohide", false)
-    readonly property real edgeGap: 8
+    readonly property real edgeGap: 8 + Math.max(0, Math.min(64, Number(Dock.cfg("edgeGap", 0))))
     readonly property real peek: 3
     readonly property real depth: band.baseSize
     // Inner clearance for a magnified icon to rise into, plus room for the hover
@@ -55,9 +55,8 @@ PanelWindow {
     visible: Dock.cfg("enabled", false)
     // `screen` is PanelWindow's own property, set per monitor from shell.qml.
     WlrLayershell.namespace: "ryoku-dock"
-    // The editing desktop lifts to Top; the dock rides Overlay so its strip
-    // stays clickable (the chrome's own mask never covers the dock's edge).
-    WlrLayershell.layer: stageEditing ? WlrLayer.Overlay : WlrLayer.Bottom
+    // Staying on one layer avoids remapping the dock when the editor opens.
+    WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: ExclusionMode.Normal
     // A pinned (non-autohide) dock reserves its depth; an autohiding one floats
     // over the desktop and reserves nothing.
@@ -81,9 +80,8 @@ PanelWindow {
         // The editor is showing this dock's settings page: it holds open.
         if (dock.stageEditing)
             return true;
-        // A fullscreen window on this monitor forces the dock away; only a hover
-        // into the peek strip brings it back over the fullscreen content.
-        if (dock.monFullscreen)
+        // Suppress only auto-hide docks; stale fullscreen state would hide pinned docks.
+        if (dock.autohide && dock.monFullscreen)
             return dock.pointerInside;
         return !dock.autohide
             || dock.pointerInside

@@ -434,9 +434,8 @@ Singleton {
         root.blockWrites = false;
         if (!root.ready)
             return;
-        configFileView.writeAdapter();
-        root._adapterMatchesDisk();
-        LocalPreferences.syncFromConfig();
+        if (root.writeMergedConfig())
+            LocalPreferences.syncFromConfig();
     }
 
     Timer {
@@ -534,6 +533,9 @@ Singleton {
             const migrated = root.migrateRaw(raw);
             root.repairTypeConflicts(raw, root.options, root.defaultOptions, "", repaired);
             root.repairEnumViolations(raw, repaired);
+            const unknown = [];
+            root.collectUnknownKeys(raw, root.defaultOptions, "", unknown);
+            root.logUnknownKeys(unknown);
             if (migrated || repaired.length > 0)
                 root._incomingNeedsSave = true;
         }
@@ -585,7 +587,7 @@ Singleton {
 
     function _assignIncoming(target, key, next) {
         const current = target[key];
-        // Unknown keys are dropped, nulls skipped — as the adapter does.
+        // Skip unknown adapter keys; the merged writer preserves them on disk.
         if (current === undefined || next === null || next === undefined)
             return;
         if (typeof next === "object" && !Array.isArray(next)) {
@@ -641,18 +643,12 @@ Singleton {
                 fileWriteTimer.restart();
                 return;
             }
-            configFileView.writeAdapter();
-            root._adapterMatchesDisk();
-            LocalPreferences.syncFromConfig();
+            if (root.writeMergedConfig())
+                LocalPreferences.syncFromConfig();
         }
     }
 
-    // If `onLoadFailed(FileNotFound)` fires, do NOT immediately call
-    // `writeAdapter()` — during a git pull, hot-reload, or PC restart the file
-    // can be briefly inaccessible and the QML defaults would clobber the user's
-    // real config.json. Instead, retry `reload()` after the grace period; only
-    // if the file is still genuinely missing after the singleton has been alive
-    // for a while do we create defaults.
+    // Delay default creation because updates and hot reloads can briefly hide the file.
     Timer {
         id: missingFileRetryTimer
         interval: root.missingFileRetryInterval
@@ -1189,9 +1185,9 @@ Singleton {
     // because the in-memory adapter holds nothing but QML defaults, and the
     // broken file on disk is the only remaining source of truth.
     property bool configMalformed: false
-    // Drives ConfigHealthBanner: "ok" | "malformed" | "recovered" | "migrated" | "repaired" | "unknownKeys" | "reset"
     property string configHealthState: "ok"
     property list<string> configHealthKeys: []
+    property var _loggedUnknownKeySets: ({})
 
     function snapshotDefaults(source) {
         if (source === null || typeof source !== "object")
@@ -1213,6 +1209,56 @@ Singleton {
             copy[key] = root.snapshotDefaults(value);
         }
         return copy;
+    }
+
+    function mergeDeclaredValues(rawObject, declaredObject, schemaObject) {
+        const raw = rawObject !== null && typeof rawObject === "object" && !Array.isArray(rawObject)
+            ? rawObject : ({});
+        let merged = root.snapshotDefaults(raw);
+        for (const key in schemaObject) {
+            const schemaValue = schemaObject[key];
+            const declaredValue = declaredObject[key];
+            const rawValue = raw[key];
+            const nestedSchema = schemaValue !== null
+                && typeof schemaValue === "object"
+                && !root.isArrayLike(schemaValue)
+                && Object.keys(schemaValue).length > 0;
+            const nestedDeclared = declaredValue !== null
+                && typeof declaredValue === "object"
+                && !root.isArrayLike(declaredValue);
+            if (nestedSchema && nestedDeclared) {
+                merged[key] = root.mergeDeclaredValues(rawValue, declaredValue, schemaValue);
+            } else {
+                // Arrays and empty schema objects are values, matching collectUnknownKeys.
+                merged[key] = root.snapshotDefaults(declaredValue);
+            }
+        }
+        return merged;
+    }
+
+    function writeMergedConfig(seedDefaults = false) {
+        const declared = root.snapshotDefaults(root.options);
+        let payloadObject = declared;
+        if (!seedDefaults) {
+            const sourceText = root._stagedTextCurrent ? root._stagedText : configFileView.text();
+            let raw;
+            try {
+                raw = JSON.parse(sourceText);
+            } catch (e) {
+                root.handleMalformedConfig(e);
+                return false;
+            }
+            if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+                root.handleMalformedConfig({
+                    message: `top-level value is ${Array.isArray(raw) ? "an array" : typeof raw}, expected an object`
+                });
+                return false;
+            }
+            payloadObject = root.mergeDeclaredValues(raw, declared, root.defaultOptions);
+        }
+        configFileView.setText(JSON.stringify(payloadObject, null, 2));
+        root._adapterMatchesDisk();
+        return true;
     }
 
     // A config written before versioning existed has no `configVersion` key, so
@@ -1916,8 +1962,7 @@ Singleton {
     function typesConflict(rawValue, qmlValue) {
         if (rawValue === null || rawValue === undefined)
             return false;
-        // Unknown keys have no counterpart to conflict with. JsonAdapter drops
-        // them on the next write anyway.
+        // Unknown keys cannot conflict with an adapter type and remain for doctor reconciliation.
         if (qmlValue === undefined || qmlValue === null)
             return false;
 
@@ -2105,14 +2150,7 @@ Singleton {
         }
     }
 
-    // JsonAdapter has no property to bind an unrecognized key to, so it
-    // ignores the key on read and omits it on the next write (serializeRec
-    // builds a fresh object from declared properties only). A typo'd key —
-    // "sidebar.postion" — therefore does nothing, warns about nothing, and
-    // then quietly disappears, which is the single most common "why is my
-    // setting not applying" case. Nothing here deletes anything: the drop is
-    // already the runtime's behaviour. This only finds them so they can be
-    // reported while the file still contains them.
+    // JsonAdapter cannot bind unknown keys; writeMergedConfig preserves them for doctor.
     function collectUnknownKeys(rawObject, defaultObject, prefix, unknown) {
         for (const key in rawObject) {
             const path = prefix ? `${prefix}.${key}` : key;
@@ -2133,6 +2171,17 @@ Singleton {
                 continue;
             root.collectUnknownKeys(rawValue, defaultValue, path, unknown);
         }
+    }
+
+    function logUnknownKeys(unknown) {
+        if (unknown.length === 0)
+            return;
+        const ordered = unknown.slice().sort();
+        const signature = ordered.join("\n");
+        if (root._loggedUnknownKeySets[signature])
+            return;
+        root._loggedUnknownKeySets[signature] = true;
+        console.warn(`[Config] Preserving ${ordered.length} unrecognized key(s): ${ordered.join(", ")}`);
     }
 
     // Returns true when the file needed rewriting. Repair runs at most once per
@@ -2172,7 +2221,14 @@ Singleton {
         }
         root.recoverFromMalformedConfig();
 
-        if (root.configRepaired || root.defaultOptions === null)
+        if (root.defaultOptions === null)
+            return false;
+
+        let unknown = [];
+        root.collectUnknownKeys(raw, root.defaultOptions, "", unknown);
+        root.logUnknownKeys(unknown);
+
+        if (root.configRepaired)
             return false;
 
         const migrated = root.migrateRaw(raw);
@@ -2180,27 +2236,16 @@ Singleton {
         root.repairTypeConflicts(raw, root.options, root.defaultOptions, "", repaired);
         root.repairEnumViolations(raw, repaired);
 
-        let unknown = [];
-        root.collectUnknownKeys(raw, root.defaultOptions, "", unknown);
-        if (unknown.length > 0)
-            console.warn(`[Config] Ignoring ${unknown.length} unrecognized key(s), which the next save will drop: ${unknown.join(", ")}`);
-
         if (!migrated && repaired.length === 0) {
-            // Unknown keys alone never justify a rewrite — they're dropped by
-            // the next write regardless. Back the file up so the discarded
-            // lines survive somewhere, then just report them.
             if (unknown.length > 0) {
                 root.configRepaired = true;
                 Quickshell.execDetached(["cp", "--", root.filePath, `${root.filePath}.bak`]);
-                root.notifyConfigHealth("unknownKeys", unknown);
             }
             return false;
         }
 
         root.configRepaired = true;
-        // Keep a copy before healing — the reset values are the only record of
-        // what the user had, and a wrong guess here should be recoverable.
-        // Unknown keys ride along: this same write is what erases them.
+        // Back up before healing so an incorrect reset is recoverable.
         if (repaired.length > 0 || unknown.length > 0)
             Quickshell.execDetached(["cp", "--", root.filePath, `${root.filePath}.bak`]);
 
@@ -2268,8 +2313,6 @@ Singleton {
         root.notifyConfigHealth("reset", []);
     }
 
-    // Single point where config health changes reach the user: updates the
-    // state ConfigHealthBanner binds to and fires a desktop notification.
     function notifyConfigHealth(state, keys) {
         root.configHealthState = state;
         root.configHealthKeys = keys;
@@ -2278,7 +2321,6 @@ Singleton {
             "recovered": ["Config file fixed", `${Directories.shellConfigName} is valid again — settings will save normally.`],
             "migrated": ["Config updated", "Some settings were migrated to a newer format."],
             "repaired": ["Config values reset", `${keys.length} setting${keys.length === 1 ? "" : "s"} had an invalid value and ${keys.length === 1 ? "was" : "were"} reset to default.`],
-            "unknownKeys": ["Unrecognized settings", `${keys.length} entr${keys.length === 1 ? "y" : "ies"} in ${Directories.shellConfigName} ${keys.length === 1 ? "isn't" : "aren't"} recognized and will be removed on the next save.`],
             "reset": ["Config reset to defaults", `${Directories.shellConfigName} was replaced with default settings.`]
         }[state];
         if (!copy)
@@ -2338,7 +2380,7 @@ Singleton {
                 // Stamp the schema version so a brand-new file is not mistaken
                 // for a pre-versioning one and re-migrated on next start.
                 root.options.configVersion = root.currentConfigVersion;
-                writeAdapter();
+                root.writeMergedConfig(true);
                 // Mark ready so subsequent user-triggered writes go through
                 // (fileWriteTimer guards on `root.ready`).
                 root.ready = true;
@@ -6487,7 +6529,7 @@ Singleton {
             property JsonObject tray: JsonObject {
                 property bool monochromeIcons: true
                 property bool showItemId: false
-                property bool invertPinnedItems: false // Makes the below a whitelist for the tray and blacklist for the pinned area
+                property bool invertPinnedItems: false // Makes the below an allowlist for the tray and blocklist for the pinned area
                 property list<var> pinnedItems: ["Fcitx"]
                 property bool filterPassive: false
             }

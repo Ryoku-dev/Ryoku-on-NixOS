@@ -7,6 +7,7 @@ import inir.modules.common.functions
 import inir.modules.common.widgets
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 // An on/off option in a widget's quick controls: a row with its glyph, its name and a switch. The
 // whole row toggles. A choice between values is WidgetQuickChoices, never a lit capsule.
@@ -53,7 +54,7 @@ Rectangle {
         anchors.right: switchSlot.left
         anchors.rightMargin: Math.round(8 * root.d)
         anchors.verticalCenter: parent.verticalCenter
-        text: root.label
+        text: I18n.tr(root.label)
         elide: Text.ElideRight
         color: root.iris ? IrisStyle.text : Appearance.colors.colOnLayer2
         font.family: root.iris ? IrisStyle.fontMain : Appearance.font.family.main

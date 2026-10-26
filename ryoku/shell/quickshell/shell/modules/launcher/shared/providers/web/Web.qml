@@ -52,7 +52,7 @@ Provider {
                 id: "search",
                 name: I18n.tr("Search"),
                 icon: "",
-                execute: function () { Qt.openUrlExternally(Engines.buildUrl(text, "g")); }
+                execute: function () { Spawn.runApp(["xdg-open", Engines.buildUrl(text, "g")], { label: "browser" }); }
             }]
         };
     }

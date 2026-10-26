@@ -5,6 +5,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Mpris
+import Ryoku.Ui.Singletons
 import inir
 import inir.modules.common
 import inir.services.deferred
@@ -1379,7 +1380,7 @@ Singleton {
     }
     
     function openYtMusicInBrowser(): void {
-        Qt.openUrlExternally("https://music.youtube.com")
+        Spawn.runApp(["xdg-open", "https://music.youtube.com"], { label: "browser" })
     }
     
     function retryConnection(): void {

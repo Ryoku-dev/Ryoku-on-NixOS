@@ -13,6 +13,7 @@ import inir.modules.common.functions
 import inir.modules.common.widgets
 import inir.modules.iris.style
 import inir.modules.iris.components
+import Ryoku.Ui.Singletons
 
 Variants {
     id: root
@@ -258,7 +259,7 @@ Variants {
                                     anchors.top: disc.bottom
                                     anchors.topMargin: 10 * stage.d
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    text: action.armed ? Translation.tr("Confirm") : action.modelData.label
+                                    text: action.armed ? Translation.tr("Confirm") : I18n.tr(action.modelData.label)
                                     color: action.armed ? IrisStyle.dangerOnMedia : IrisStyle.onMedia
                                     font.pixelSize: IrisStyle.typeLabel
                                     font.weight: IrisStyle.weight(Font.Medium)

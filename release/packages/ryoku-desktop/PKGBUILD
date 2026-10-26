@@ -265,7 +265,7 @@ optdepends=(
   'freerdp: RDP berths in ryoport'
   'tigervnc: VNC berths in ryoport'
   'asusctl: ASUS laptop Aura keyboard lighting'
-  'qmk_hid: QMK/VIA keyboard lighting (Framework 16, custom boards)'
+  'qmk-hid: QMK/VIA keyboard lighting (Framework 16, custom boards)'
 )
 install="$pkgname.install"
 source=()

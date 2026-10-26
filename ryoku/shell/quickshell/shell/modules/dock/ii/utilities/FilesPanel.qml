@@ -43,7 +43,7 @@ ColumnLayout {
         onClicked: {
             const folder = panel.tile?.folder ?? "";
             if (folder.length > 0)
-                Spawn.run(["xdg-open", folder]);
+                Spawn.runApp(["xdg-open", folder], { label: "folder" });
             panel.host?.closePanel();
         }
     }

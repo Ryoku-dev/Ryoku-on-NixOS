@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
+import Ryoku.Ui.Singletons
 import "../"
 import "../reusables"
 
@@ -203,7 +204,7 @@ Item {
                             accentColor: ThemeBackend.surface0
                             textColor: ThemeBackend.text
 
-                            onTriggered: Quickshell.execDetached(["xdg-open", "https://github.com/Ryoku-dev/ryoku/blob/main/CHANGELOG.md"])
+                            onTriggered: Spawn.runApp(["xdg-open", "https://github.com/Ryoku-dev/ryoku/blob/main/CHANGELOG.md"], { label: "browser" })
                         }
 
                         FillButton {
@@ -414,7 +415,7 @@ Item {
                     accentColor: ThemeBackend.surface0
                     textColor: ThemeBackend.text
 
-                    onTriggered: Quickshell.execDetached(["xdg-open", "https://github.com/ilyamiro/serpantinum"])
+                    onTriggered: Spawn.runApp(["xdg-open", "https://github.com/ilyamiro/serpantinum"], { label: "browser" })
                 }
             }
         }

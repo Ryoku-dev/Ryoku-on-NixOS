@@ -343,7 +343,7 @@
         "desc": "Nombre d'espaces de travail à afficher",
         "hide_empty": {
           "title": "Masquer les espaces de travail vides",
-          "desc": "Afficher uniquement les espaces de travail occupés et celui actif"
+          "desc": "Afficher les espaces de travail occupés et tous les espaces de travail jusqu'à celui actif"
         },
         "style": {
           "title": "Style",

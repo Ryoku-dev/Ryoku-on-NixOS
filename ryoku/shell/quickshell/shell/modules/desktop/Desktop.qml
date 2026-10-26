@@ -70,20 +70,20 @@ Scope {
     property bool wallpaperLive: false
 
     // Stage z-ordering (docs/stage.md): behind-layers sit below the widgets
-    // (z 2), in-front layers above them (z 4), and a widget the user lifted
-    // (Config.front) rises above even the in-front layers (z 5). Gated off for
-    // video/live walls, which the daemon skips.
-    readonly property bool stageOn: StageCfg.StageBackend.isActiveFor(root.wallpaperPath)
-        && root.videoUrl === "" && !root.wallpaperLive
-    readonly property bool stageParallax: StageCfg.StageBackend.isParallaxFor(root.wallpaperPath)
-        && root.videoUrl === "" && !root.wallpaperLive
+    // while front layers and explicit lifts sit above; video and live walls have no artifacts.
+    readonly property string stageMode: (root.videoUrl === "" && !root.wallpaperLive)
+        ? StageCfg.StageBackend.effectFor(root.wallpaperPath) : "off"
+    readonly property bool stageOn: root.stageMode !== "off"
+    readonly property bool stageCut: root.stageMode === "depth"
+        || root.stageMode === "parallax"
     readonly property bool stageSpatial: root.stageOn
         && (root.wallpaperFit === "Cover" || root.wallpaperFit === "Fill")
         && StageCfg.StageBackend.spatialFor(root.wallpaperPath)
     function widgetZ(id) {
         if (!root.stageOn)
             return 0;
-        return (StageCfg.Config.isFront(id) ? 5 : 3) + root.widgetDepth(id) * 0.01;
+        return (StageCfg.Config.isFront(root.stageMode, id) ? 5 : 3)
+            + root.widgetDepth(id) * 0.01;
     }
     function widgetDepth(id) {
         return Config.widgetDepth(id, root.monitorName);
@@ -146,6 +146,17 @@ Scope {
         || root.wallpaperLive || root.hostsVisualizer
     readonly property real deckFrostBlur: (Performance.blurDisabled
         || root.deckFrostHasMotion) ? 0 : Math.min(1, root.deckFrost)
+    // Once the glass has shown, its layer stays while the glass is possible, so
+    // a workspace switch moves only `blur` instead of rebuilding a full-output
+    // FBO.
+    readonly property bool deckFrostGlassPossible: root.deckFrostEnabled
+        && !root.gokkoActive && !root.stageComposing && !root.stageEditing
+        && !Performance.blurDisabled && !root.deckFrostHasMotion
+    property bool deckFrostLayered: false
+    onDeckFrostBlurChanged: if (root.deckFrostGlassPossible && root.deckFrostBlur > 0.01)
+        root.deckFrostLayered = true
+    onDeckFrostGlassPossibleChanged: if (!root.deckFrostGlassPossible) root.deckFrostLayered = false
+    Component.onCompleted: root.deckFrostLayered = root.deckFrostBlur > 0.01
     readonly property real deckFrostFloor: Math.max(0, Math.min(0.6,
         root.deckFrost - 1))
     readonly property rect deckFocusRect: {
@@ -358,7 +369,7 @@ Scope {
             return;
         Qt.callLater(() => {
             if (desktopIcons.item)
-                desktopIcons.item.openFolder(folderId, true);
+                desktopIcons.item.openContext(folderId, x, y, "rename");
         });
     }
     // Outside Edit Mode Customize keeps its lightweight floating sheet. Inside
@@ -722,11 +733,11 @@ Scope {
 
             // The frost's glass: the wallpaper and the widgets under the scrim
             // blur together while a window owns the workspace, scaled by the
-            // same depth. The layer only exists while the frost is up, so a
-            // bare desktop pays no texture or blur pass.
-            layer.enabled: root.deckFrostBlur > 0.01
+            // same depth. Until the glass first shows, a bare desktop pays no
+            // texture or blur pass.
+            layer.enabled: root.deckFrostLayered && root.deckFrostGlassPossible
             layer.effect: MultiEffect {
-                blurEnabled: root.deckFrostBlur > 0.01
+                blurEnabled: true
                 blur: root.deckFrostBlur
                 blurMax: 24
                 autoPaddingEnabled: false
@@ -780,20 +791,16 @@ Scope {
             wallpaperPath: root.wallpaperPath
             wallpaperFit: root.wallpaperFit
             spatialEnabled: root.stageSpatial
-            layered: root.deckFrostBlur > 0.01
+            layered: root.deckFrostLayered && root.deckFrostGlassPossible
             visible: root.stageOn
         }
 
         // While the stage is on (or the Stage Editor frames this monitor), the
-        // visualizer lives inside this surface. By default it sits behind every
-        // cut-out (above the backdrop, below every layer and widget); the Depth
-        // row lifts it above the in-front layers, the way a lifted built-in
-        // widget rises to z 5. Its own surface (a sibling window that can never
-        // interleave with the subject) is suppressed meanwhile; Above windows
-        // outside the editor keep that surface (docs/stage.md).
+        // visualizer shares this surface so Stage cut-outs can layer around it.
         Item {
             id: vizHost
-            z: StageCfg.Config.isFront("visualizer") ? 5 : 1.5
+            z: root.stageCut
+                && StageCfg.Config.isFront(root.stageMode, "visualizer") ? 5 : 1.5
             anchors.fill: parent
             visible: root.hostsVisualizer
             opacity: 1 - 0.75 * root.stageFramingDim
@@ -1738,19 +1745,20 @@ Scope {
         // backdrop); Parallax adds drift. Gated off for video/live walls.
         Repeater {
             id: stageLayers
-            model: root.stageOn ? StageCfg.StageBackend.layerCountFor(root.wallpaperPath) : 0
+            model: root.stageCut
+                ? StageCfg.StageBackend.layerCountFor(root.wallpaperPath) : 0
             delegate: StageLayer {
                 required property int index
                 layerIndex: index + 1
                 screenName: root.monitorName
                 wallPath: root.wallpaperPath
+                mode: root.stageMode
                 url: StageCfg.StageBackend.layerUrlFor(root.wallpaperPath, index)
                 fit: root.wallpaperFit
                 z: StageCfg.StageBackend.layerFront(root.wallpaperPath, index) ? 4 : 2
                 mouseNX: StageCfg.StageBackend.cursorNXFor(root.screen.name)
                 mouseNY: StageCfg.StageBackend.cursorNYFor(root.screen.name)
                 energy: VizCfg.Spectrum.energy
-                motionEnabled: root.stageParallax
                 spatial: root.stageSpatial
             }
         }

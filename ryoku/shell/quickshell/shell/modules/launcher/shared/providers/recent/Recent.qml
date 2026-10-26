@@ -145,13 +145,13 @@ Provider {
                     id: "open",
                     name: I18n.tr("Open"),
                     icon: "",
-                    execute: function () { Qt.openUrlExternally(uri); }
+                    execute: function () { Spawn.runApp(["xdg-open", uri], { label: "recent" }); }
                 },
                 {
                     id: "reveal",
                     name: I18n.tr("Reveal"),
                     icon: "",
-                    execute: function () { Qt.openUrlExternally(folder); }
+                    execute: function () { Spawn.runApp(["xdg-open", folder], { label: "folder" }); }
                 }
             ]
         };

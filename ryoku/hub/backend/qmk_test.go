@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -30,6 +32,7 @@ func TestRGBToHSV255MatchesColorsys(t *testing.T) {
 }
 
 func TestQmkDevicePresent(t *testing.T) {
+	stubNoVial(t)
 	defer restoreQmkSeams(qmkLookPath, qmkList, qmkRun)
 	qmkLookPath = func() bool { return true }
 
@@ -59,6 +62,7 @@ func TestQmkDevicePresent(t *testing.T) {
 }
 
 func TestReadQMKDevicesAbsentIsQuiet(t *testing.T) {
+	stubNoVial(t)
 	defer restoreQmkSeams(qmkLookPath, qmkList, qmkRun)
 	qmkLookPath = func() bool { return false }
 	devices, err := readQMKDevices()
@@ -71,6 +75,7 @@ func TestReadQMKDevicesAbsentIsQuiet(t *testing.T) {
 }
 
 func TestQmkDeviceIdentityAndRouting(t *testing.T) {
+	stubNoVial(t)
 	d := qmkDeviceView()
 	if d.Provider != qmkProvider || d.Type != "Keyboard" {
 		t.Fatalf("device = %+v", d)
@@ -90,6 +95,7 @@ func TestQmkDeviceIdentityAndRouting(t *testing.T) {
 // applyOne must drive a QMK device through qmk_hid without an OpenRGB connection,
 // converting the accent to the hue/saturation the VIA protocol wants.
 func TestApplyOneRoutesQMKToHidWrite(t *testing.T) {
+	stubNoVial(t)
 	defer restoreQmkSeams(qmkLookPath, qmkList, qmkRun)
 	var got []string
 	qmkRun = func(args ...string) error { got = args; return nil }
@@ -107,6 +113,7 @@ func TestApplyOneRoutesQMKToHidWrite(t *testing.T) {
 }
 
 func TestQmkApplyHonoursBrightness(t *testing.T) {
+	stubNoVial(t)
 	defer restoreQmkSeams(qmkLookPath, qmkList, qmkRun)
 	var got []string
 	qmkRun = func(args ...string) error { got = args; return nil }
@@ -121,8 +128,82 @@ func TestQmkApplyHonoursBrightness(t *testing.T) {
 	}
 }
 
+func TestQmkApplyWritesExactVialRGBReports(t *testing.T) {
+	oldPaths, oldRun := qmkVialDevicePaths, qmkRun
+	t.Cleanup(func() { qmkVialDevicePaths, qmkRun = oldPaths, oldRun })
+
+	path := filepath.Join(t.TempDir(), "hidraw0")
+	fixture := make([]byte, vialWireSize+vialPayloadSize)
+	fixture[vialWireSize], fixture[vialWireSize+1], fixture[vialWireSize+4] = 0x08, 0x40, 200
+	if err := os.WriteFile(path, fixture, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	qmkVialDevicePaths = func() []string { return []string{path} }
+	qmkRun = func(...string) error {
+		t.Fatal("Vial board fell through to qmk_hid")
+		return nil
+	}
+
+	mode := orgbMode{Name: "Static", Value: qmkEffectStatic, Colors: []uint32{0x00FF00}}
+	if err := qmkApply(mode, 50); err != nil {
+		t.Fatalf("qmkApply: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSize := vialWireSize*2 + vialPayloadSize
+	if len(got) != wantSize {
+		t.Fatalf("fake hidraw size = %d, want %d", len(got), wantSize)
+	}
+	var wantInfo [vialWireSize]byte
+	wantInfo[1], wantInfo[2] = 0x08, 0x40
+	var wantSet [vialWireSize]byte
+	wantSet[1], wantSet[2], wantSet[3] = 0x07, 0x41, 0x02
+	wantSet[6], wantSet[7], wantSet[8] = 85, 255, 100
+	if !reflect.DeepEqual(got[:vialWireSize], wantInfo[:]) {
+		t.Fatalf("VialRGB info report = %v, want %v", got[:vialWireSize], wantInfo)
+	}
+	setOffset := vialWireSize + vialPayloadSize
+	if !reflect.DeepEqual(got[setOffset:], wantSet[:]) {
+		t.Fatalf("VialRGB set report = %v, want %v", got[setOffset:], wantSet)
+	}
+}
+
+func TestFindVialHIDPathsRequiresSerialAndRawUsage(t *testing.T) {
+	oldSysfs, oldDevices := qmkSysfsRoot, qmkDeviceRoot
+	t.Cleanup(func() { qmkSysfsRoot, qmkDeviceRoot = oldSysfs, oldDevices })
+	root := t.TempDir()
+	qmkSysfsRoot = filepath.Join(root, "sys")
+	qmkDeviceRoot = filepath.Join(root, "dev")
+
+	makeDevice := func(name, serial string, descriptor []byte) {
+		t.Helper()
+		device := filepath.Join(qmkSysfsRoot, "class", "hidraw", name, "device")
+		if err := os.MkdirAll(device, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(device, "uevent"), []byte("HID_UNIQ="+serial+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(device, "report_descriptor"), descriptor, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw := []byte{0x06, 0x60, 0xff, 0x09, 0x61, 0xa1, 0x01, 0xc0}
+	makeDevice("hidraw0", "vial:f64c2b3c", raw)
+	makeDevice("hidraw1", "ordinary", raw)
+	makeDevice("hidraw2", "vial:not-raw", []byte{0x05, 0x01, 0x09, 0x06, 0xa1, 0x01, 0xc0})
+
+	want := []string{filepath.Join(qmkDeviceRoot, "hidraw0")}
+	if got := findVialHIDPaths(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Vial hidraw paths = %v, want %v", got, want)
+	}
+}
+
 // A QMK keyboard coexists with the other providers' devices in one report.
 func TestQmkKeyboardJoinsLightingDevices(t *testing.T) {
+	stubNoVial(t)
 	mb := orgbDevice{Name: "Desktop", Type: "Motherboard", Serial: "mb"}
 	live := append(combineLightingDevices([]orgbDevice{mb}, nil), qmkDeviceView())
 	if len(live) != 2 {
@@ -131,6 +212,13 @@ func TestQmkKeyboardJoinsLightingDevices(t *testing.T) {
 	if live[1].Provider != qmkProvider || live[1].Type != "Keyboard" {
 		t.Fatalf("devices = %+v", live)
 	}
+}
+
+func stubNoVial(t *testing.T) {
+	t.Helper()
+	old := qmkVialDevicePaths
+	qmkVialDevicePaths = func() []string { return nil }
+	t.Cleanup(func() { qmkVialDevicePaths = old })
 }
 
 func restoreQmkSeams(look func() bool, list func() (string, error), run func(...string) error) {

@@ -8,6 +8,7 @@ import inir.modules.common
 import inir.modules.common.models.quickToggles
 import inir.modules.common.widgets
 import inir.modules.iris.style
+import Ryoku.Ui.Singletons
 
 // The Control Center's Display expansion: this screen's brightness, Night Light with its warmth and schedule,
 // dark mode and soft flashes.
@@ -48,7 +49,7 @@ ColumnLayout {
         }
         IrisText {
             Layout.preferredWidth: Math.round(78 * root.d)
-            text: level.label
+            text: I18n.tr(level.label)
             font.pixelSize: IrisStyle.typeLabel
             elide: Text.ElideRight
         }
