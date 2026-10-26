@@ -5,11 +5,8 @@ import Quickshell
 import Quickshell.Io
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
-<<<<<<< port (unstable-dev)
 import "../barstudio/StoreDesignGalleryModel.js" as GalleryModel
-=======
 import "../barstudio/Subshells.js" as Subshells
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
 
 Item {
     id: gallery
@@ -37,29 +34,9 @@ Item {
     // Bundled styles stay installed even if a stale Store catalogue describes
     // them as downloadable or unavailable. This includes NixOS-owned Karuma.
     function cardModel() {
-<<<<<<< port (unstable-dev)
-        return GalleryModel.galleryCards(gallery.category, gallery.shippedDesigns, gallery.catalogueDesigns);
-=======
-        const out = [];
-        const seen = {};
-        const shipped = Array.isArray(gallery.shippedDesigns) ? gallery.shippedDesigns : [];
-        for (let i = 0; i < shipped.length; i++) {
-            const card = gallery.shippedCard(shipped[i]);
-            if (!card.id || seen[card.id])
-                continue;
-            seen[card.id] = true;
-            out.push(card);
-        }
-        const catalogue = Array.isArray(gallery.catalogueDesigns) ? gallery.catalogueDesigns : [];
-        for (let j = 0; j < catalogue.length; j++) {
-            const item = catalogue[j];
-            if (!item.id || seen[item.id])
-                continue;
-            seen[item.id] = true;
-            out.push(item);
-        }
-        return Subshells.visibleStyles(out, gallery.onlySubshells);
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+        return Subshells.visibleStyles(
+            GalleryModel.galleryCards(gallery.category, gallery.shippedDesigns, gallery.catalogueDesigns),
+            gallery.onlySubshells);
     }
 
     function browse() {

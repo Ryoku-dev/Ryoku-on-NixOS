@@ -190,11 +190,7 @@ Item {
         } catch (e) {}
     }
     function runSetup() {
-<<<<<<< port (unstable-dev)
-        Spawn.runApp(["kitty", "--class", "ryoku-rashin-setup", "-e", "ryoku-rashin", "setup"]);
-=======
         Spawn.runApp(["kitty", "--class", "ryoku-rashin-setup", "-e", "ryoku-rashin", "setup"], { label: "kitty" });
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
     }
     // Open the dashboard the daemon actually serves. If a systemd user unit is
     // installed, it is the sole owner of the daemon. Spawning another `serve`
@@ -205,11 +201,7 @@ Item {
     function openDashboard() {
         var url = "http://127.0.0.1:" + pg.port;
         if (pg.running) {
-<<<<<<< port (unstable-dev)
-            Spawn.runApp(["xdg-open", url]);
-=======
             Spawn.runApp(["xdg-open", url], { label: "browser" });
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
             return;
         }
         openProc.command = ["sh", "-c",
@@ -217,13 +209,7 @@ Item {
             + "systemctl --user start ryoku-rashin.service >/dev/null 2>&1; "
             + "else ryoku-rashin serve --if-enabled >/dev/null 2>&1 & fi; "
             + "for i in 1 2 3 4 5 6 7 8 9 10; do "
-<<<<<<< port (unstable-dev)
-            + "if ryoku-rashin status --json 2>/dev/null | grep -q '\"running\":true'; then "
-            + "xdg-open \"$1\"; exit 0; fi; sleep 0.3; done; exit 1",
-            "sh", url];
-=======
             + "ryoku-rashin status --json 2>/dev/null | grep -q '\"running\":true' && exit 0; sleep 0.3; done; exit 1"];
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
         openProc.running = true;
     }
     Process {

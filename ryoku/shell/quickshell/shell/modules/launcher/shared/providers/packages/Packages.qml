@@ -163,11 +163,7 @@ Provider {
                 icon: "",
                 execute: function () {
                     var gpkOp = op === "remove" ? "remove" : "install";
-<<<<<<< port (unstable-dev)
-                    Spawn.runApp([packages.terminal, "-e", "gpk", gpkOp, pkg.name]);
-=======
                     Spawn.runApp([packages.terminal, "-e", "gpk", gpkOp, pkg.name], { label: packages.terminal });
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
                     // the install/remove will change what a re-search should
                     // show; drop the cached rows so the next query refetches.
                     packages.invalidateSearch();

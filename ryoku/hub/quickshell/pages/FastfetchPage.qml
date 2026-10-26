@@ -509,17 +509,10 @@ Item {
         var s = pg.model.logo.source;
         if (!s || s.length === 0)
             return;
-<<<<<<< port (unstable-dev)
-        Spawn.runApp(["kitty", "-e", "nvim", s]);
-    }
-    function previewInTerminal() { Spawn.runApp(["kitty", "-e", "sh", "-c", "ryoku-fastfetch; read -n1"]); }
-    function openConfig() { Spawn.runApp(["kitty", "-e", "nvim", "-O", pg.configPath]); }
-=======
         Spawn.runApp(["kitty", "-e", "nvim", s], { label: "kitty" });
     }
     function previewInTerminal() { Spawn.runApp(["kitty", "-e", "sh", "-c", "ryoku-fastfetch; read -n1"], { label: "kitty" }); }
     function openConfig() { Spawn.runApp(["kitty", "-e", "nvim", "-O", pg.configPath], { label: "kitty" }); }
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
 
     // ---- emblem dither + imported-emblem removal ----------------------------
     // the 1-bit bake toggles through the backend so it can read/write the sibling

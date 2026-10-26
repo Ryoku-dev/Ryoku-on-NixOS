@@ -454,11 +454,7 @@ Item {
                                     fillMode: Image.PreserveAspectCrop
                                 }
                                 HoverHandler { cursorShape: Qt.PointingHandCursor }
-<<<<<<< port (unstable-dev)
-                                TapHandler { onTapped: Spawn.runApp(["xdg-open", messageImage.modelData]) }
-=======
                                 TapHandler { onTapped: Spawn.runApp(["xdg-open", messageImage.modelData], { label: "image" }) }
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
                             }
                         }
                     }

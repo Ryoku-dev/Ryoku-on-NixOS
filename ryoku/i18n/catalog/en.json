@@ -15,11 +15,8 @@
   "%1 (+WG)": "%1 (+WG)",
   "%1 (driver not loaded)": "%1 (driver not loaded)",
   "%1 (restart to use it)": "%1 (restart to use it)",
-<<<<<<< port (unstable-dev)
-=======
   "%1 (this one)": "%1 (this one)",
   "%1 / %2 GB": "%1 / %2 GB",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "%1 / %2 GiB": "%1 / %2 GiB",
   "%1 / %2 SELECTED": "%1 / %2 SELECTED",
   "%1 / %2 resolved": "%1 / %2 resolved",
@@ -104,14 +101,11 @@
   "%1 decors": "%1 decors",
   "%1 devices connected": "%1 devices connected",
   "%1 devices connected · %2 following the palette": "%1 devices connected · %2 following the palette",
-<<<<<<< port (unstable-dev)
-=======
   "%1 didn't answer. It may be down; try again in a while.": "%1 didn't answer. It may be down; try again in a while.",
   "%1 didn't open": "%1 didn't open",
   "%1 disconnected": "%1 disconnected",
   "%1 done today": "%1 done today",
   "%1 early": "%1 early",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "%1 events": "%1 events",
   "%1 failed its checks. Update stays on the last checked commit.": "%1 failed its checks. Update stays on the last checked commit.",
   "%1 failed services": "%1 failed services",
@@ -121,15 +115,12 @@
   "%1 files waiting · pick a device": "%1 files waiting · pick a device",
   "%1 finger enrolled": "%1 finger enrolled",
   "%1 fingers enrolled": "%1 fingers enrolled",
-<<<<<<< port (unstable-dev)
-=======
   "%1 finished": "%1 finished",
   "%1 focus sessions today": "%1 focus sessions today",
   "%1 for today": "%1 for today",
   "%1 found. Rescan after plugging something in.": "%1 found. Rescan after plugging something in.",
   "%1 free · %2": "%1 free · %2",
   "%1 glasses": "%1 glasses",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "%1 grains/frame  ·  %2": "%1 grains/frame  ·  %2",
   "%1 h %2 min": "%1 h %2 min",
   "%1 has printed nothing and used no CPU. It may be waiting on something that will not come.": "%1 has printed nothing and used no CPU. It may be waiting on something that will not come.",
@@ -151,10 +142,7 @@
   "%1 is ready": "%1 is ready",
   "%1 is set aside": "%1 is set aside",
   "%1 is still being checked. Update deploys the last checked commit.": "%1 is still being checked. Update deploys the last checked commit.",
-<<<<<<< port (unstable-dev)
-=======
   "%1 is temporarily unavailable (HTTP %2).": "%1 is temporarily unavailable (HTTP %2).",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "%1 is the default microphone": "%1 is the default microphone",
   "%1 is the default output": "%1 is the default output",
   "%1 is tuning in": "%1 is tuning in",
@@ -207,11 +195,8 @@
   "%1 picks what to resume": "%1 picks what to resume",
   "%1 pieces": "%1 pieces",
   "%1 pieces built in %2": "%1 pieces built in %2",
-<<<<<<< port (unstable-dev)
-=======
   "%1 pieces on screen. Tap one to add it or take it away; carry it on screen to place it.": "%1 pieces on screen. Tap one to add it or take it away; carry it on screen to place it.",
   "%1 pinned": "%1 pinned",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "%1 placed": "%1 placed",
   "%1 playing": "%1 playing",
   "%1 playing · %2 with audio": "%1 playing · %2 with audio",
@@ -359,12 +344,9 @@
   "%s config materialized in ~/.config/%s": "%s config materialized in ~/.config/%s",
   "%s could not be installed": "%s could not be installed",
   "%s diagnostic report written to %s": "%s diagnostic report written to %s",
-<<<<<<< port (unstable-dev)
-=======
   "%s does not list the root config (timers and hooks will skip it)": "%s does not list the root config (timers and hooks will skip it)",
   "%s edition package table is missing: %s": "%s edition package table is missing: %s",
   "%s exceeds the supported byte count": "%s exceeds the supported byte count",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "%s failed its checks (%s); staying on the last checked commit %s": "%s failed its checks (%s); staying on the last checked commit %s",
   "%s has no %s anchor to wire pam_gnome_keyring after": "%s has no %s anchor to wire pam_gnome_keyring after",
   "%s has no [multilib] stanza to enable; add it by hand": "%s has no [multilib] stanza to enable; add it by hand",
@@ -405,12 +387,9 @@
   "%s stay removed (you deleted them; Ryoku does not put them back)": "%s stay removed (you deleted them; Ryoku does not put them back)",
   "%s stays installed and selectable at login": "%s stays installed and selectable at login",
   "%s stays installed; pick it from the session menu at the login screen anytime": "%s stays installed; pick it from the session menu at the login screen anytime",
-<<<<<<< port (unstable-dev)
-=======
   "%s stops layering the palette bridge's Midnight under the Ryoku Discord theme": "%s stops layering the palette bridge's Midnight under the Ryoku Discord theme",
   "%s switches to the Ryoku Discord theme when it next starts": "%s switches to the Ryoku Discord theme when it next starts",
   "%s unavailable: %s": "%s unavailable: %s",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "%s was unmounted for a repair and would not mount again; run `sudo fsck.fat -a %s` and `sudo mount %s`": "%s was unmounted for a repair and would not mount again; run `sudo fsck.fat -a %s` and `sudo mount %s`",
   "%s wayland session registered": "%s wayland session registered",
   "%s would get the Ryoku Discord theme in its own folder": "%s would get the Ryoku Discord theme in its own folder",
@@ -609,16 +588,13 @@
   "3. Reboot into the restored system. The one it replaced is kept for two weeks.": "3. Reboot into the restored system. The one it replaced is kept for two weeks.",
   "3. Reboot.": "3. Reboot.",
   "3. check:   ryoku plugin validate %s": "3. check:   ryoku plugin validate %s",
-<<<<<<< port (unstable-dev)
-  "30 seconds": "30 seconds",
-=======
   "30 DAYS": "30 DAYS",
   "30 min": "30 min",
+  "30 seconds": "30 seconds",
   "3D backdrop": "3D backdrop",
   "3rd": "3rd",
   "3x1 Full": "3x1 Full",
   "4 Devices": "4 Devices",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "4 MP+": "4 MP+",
   "4 spaces": "4 spaces",
   "4. install: ryoku plugin add %s --bar --yes": "4. install: ryoku plugin add %s --bar --yes",
@@ -658,20 +634,14 @@
   "<dynamic:": "<dynamic:",
   "<dynamic>": "<dynamic>",
   "<selected monitor name> (dynamic; fallback \\\"DISPLAY\\\")": "<selected monitor name> (dynamic; fallback \\\"DISPLAY\\\")",
-<<<<<<< port (unstable-dev)
-=======
   "==> Already pinned to unstable build %s; moving the Ryoku set to what it serves. `ryoku track unstable` follows unstable builds again.": "==> Already pinned to unstable build %s; moving the Ryoku set to what it serves. `ryoku track unstable` follows unstable builds again.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "==> Already pinned to unstable build %s; moving the Ryoku set to what it serves. `ryoku track unstable` switches to the source checkout.": "==> Already pinned to unstable build %s; moving the Ryoku set to what it serves. `ryoku track unstable` switches to the source checkout.",
   "==> Already tracking %s; moving the Ryoku set to what it serves": "==> Already tracking %s; moving the Ryoku set to what it serves",
   "==> Moving the Ryoku set to release %s": "==> Moving the Ryoku set to release %s",
   "==> Moving the Ryoku set to unstable build %s": "==> Moving the Ryoku set to unstable build %s",
   "==> Now tracking stable packages: named releases as they are published.": "==> Now tracking stable packages: named releases as they are published.",
   "==> Pinned to release %s. `ryoku update` keeps this release; `ryoku track stable` follows releases again.": "==> Pinned to release %s. `ryoku update` keeps this release; `ryoku track stable` follows releases again.",
-<<<<<<< port (unstable-dev)
-=======
   "==> Pinned to unstable build %s. `ryoku update` keeps this build; `ryoku track unstable` follows unstable builds again.": "==> Pinned to unstable build %s. `ryoku update` keeps this build; `ryoku track unstable` follows unstable builds again.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "==> Pinned to unstable build %s. `ryoku update` keeps this build; `ryoku track unstable` switches to the source checkout.": "==> Pinned to unstable build %s. `ryoku update` keeps this build; `ryoku track unstable` switches to the source checkout.",
   "==> Retired the source checkout as the update source; the ~/ryoku-arch clone stays on disk but no longer drives updates.": "==> Retired the source checkout as the update source; the ~/ryoku-arch clone stays on disk but no longer drives updates.",
   "==> Unstable is now the source checkout; `ryoku track unstable` switches this box to it. `ryoku track stable` returns to stable packages.": "==> Unstable is now the source checkout; `ryoku track unstable` switches this box to it. `ryoku track stable` returns to stable packages.",
@@ -692,27 +662,20 @@
   "A LITTLE EVERY DAY": "A LITTLE EVERY DAY",
   "A Material Symbol by name, or any picture in assets/icons; black-and-white ones take the theme's colours": "A Material Symbol by name, or any picture in assets/icons; black-and-white ones take the theme's colours",
   "A NAME=value exported into your session at login.": "A NAME=value exported into your session at login.",
-<<<<<<< port (unstable-dev)
-=======
   "A Pixel Watch-inspired concentric dial clock with modular complications and interactive customization.": "A Pixel Watch-inspired concentric dial clock with modular complications and interactive customization.",
   "A Ryoku effect is drawn live, so there is nothing to store in the device. One of its own effects can be saved, if it offers that.": "A Ryoku effect is drawn live, so there is nothing to store in the device. One of its own effects can be saved, if it offers that.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "A Ryoku tool's own JSON/TOML state under ~/.config/ryoku, each with one\nwriter. Change them through their GUI or command, never by hand:": "A Ryoku tool's own JSON/TOML state under ~/.config/ryoku, each with one\nwriter. Change them through their GUI or command, never by hand:",
   "A Ryoku tool's store. Change it through its Ryoku Hub page or the owning command, not by hand.": "A Ryoku tool's store. Change it through its Ryoku Hub page or the owning command, not by hand.",
   "A Scallop clock face with outer 5-minute step numbers, inner 1-12 hour numbers, and a center date badge.": "A Scallop clock face with outer 5-minute step numbers, inner 1-12 hour numbers, and a center date badge.",
   "A Standard account cannot request the Administrator permission.": "A Standard account cannot request the Administrator permission.",
   "A Strong alert nobody answers turns into a notification": "A Strong alert nobody answers turns into a notification",
   "A bar plugin from a git repo or Ryostore lands here.": "A bar plugin from a git repo or Ryostore lands here.",
-<<<<<<< port (unstable-dev)
-  "A build for %1 is in progress (%2 min). Updates are held until it finishes.": "A build for %1 is in progress (%2 min). Updates are held until it finishes.",
-=======
   "A beautiful analog clock with Material You shapes and customization.": "A beautiful analog clock with Material You shapes and customization.",
   "A beautiful analog clock with tick marks and capsule hands.": "A beautiful analog clock with tick marks and capsule hands.",
   "A bit cloudy": "A bit cloudy",
   "A bubble floats over the desktop": "A bubble floats over the desktop",
   "A build for %1 is in progress (%2 min). Updates are held until it finishes.": "A build for %1 is in progress (%2 min). Updates are held until it finishes.",
   "A card that floats out of the bubble, or the Island's player page. Cluster composition only.": "A card that floats out of the bubble, or the Island's player page. Cluster composition only.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "A caret under the clock opens the system tray.": "A caret under the clock opens the system tray.",
   "A centred popout has no hover edge: open it with its keybind, or with ryoku-shell plugin <id>. It shares the middle of the screen with the sidebars (Super+Escape and Super+S), and the shell shows one surface at a time, so they take turns instead of overlapping.": "A centred popout has no hover edge: open it with its keybind, or with ryoku-shell plugin <id>. It shares the middle of the screen with the sidebars (Super+Escape and Super+S), and the shell shows one surface at a time, so they take turns instead of overlapping.",
   "A changing edit": "A changing edit",
@@ -747,13 +710,9 @@
   "A horizontal swipe slides to the next workspace.": "A horizontal swipe slides to the next workspace.",
   "A key is saved. Enter a new one to replace it.": "A key is saved. Enter a new one to replace it.",
   "A laptop or render-only dGPU has no display outputs, so the guest also needs a virtual-display driver for Looking Glass to have a frame to capture.": "A laptop or render-only dGPU has no display outputs, so the guest also needs a virtual-display driver for Looking Glass to have a frame to capture.",
-<<<<<<< port (unstable-dev)
-  "A liquid bar that moves with your music.": "A liquid bar that moves with your music.",
-=======
   "A limit is enforced only when this home supports filesystem quotas.": "A limit is enforced only when this home supports filesystem quotas.",
   "A liquid bar that moves with your music.": "A liquid bar that moves with your music.",
   "A little room to breathe": "A little room to breathe",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "A live specimen - cracked, shot on black.": "A live specimen - cracked, shot on black.",
   "A local Lens model pack available to Describe search.": "A local Lens model pack available to Describe search.",
   "A local account named %s already exists.": "A local account named %s already exists.",
@@ -778,16 +737,13 @@
   "A phone": "A phone",
   "A phone setup action is already running": "A phone setup action is already running",
   "A preset stays selected only while all of its values still match": "A preset stays selected only while all of its values still match",
-<<<<<<< port (unstable-dev)
-  "A rebuild can install a new kernel while the old kernel is still running.": "A rebuild can install a new kernel while the old kernel is still running.",
-=======
   "A prismatic lens, burnt corner, grain-gradient orbs, or a beam under a stroke of light.": "A prismatic lens, burnt corner, grain-gradient orbs, or a beam under a stroke of light.",
+  "A rebuild can install a new kernel while the old kernel is still running.": "A rebuild can install a new kernel while the old kernel is still running.",
   "A ringing alarm stops on its own after this long": "A ringing alarm stops on its own after this long",
   "A running window, mirrored on the dock": "A running window, mirrored on the dock",
   "A sample of your frame's music response": "A sample of your frame's music response",
   "A separate Ryoku account": "A separate Ryoku account",
   "A setting belongs here when a Shima surface puts its data on screen.": "A setting belongs here when a Shima surface puts its data on screen.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "A short effect on the focused window": "A short effect on the focused window",
   "A short wave hanging from the bar's edge, lit where it meets it": "A short wave hanging from the bar's edge, lit where it meets it",
   "A short, memorable name": "A short, memorable name",
@@ -1086,13 +1042,10 @@
   "Admin prompts": "Admin prompts",
   "Administrator": "Administrator",
   "Administrator access": "Administrator access",
-<<<<<<< port (unstable-dev)
-=======
   "Administrator account": "Administrator account",
   "Administrator authentication is required.": "Administrator authentication is required.",
   "Administrators can add people and manage roles, permissions, passwords and storage.": "Administrators can add people and manage roles, permissions, passwords and storage.",
   "Administrators use sudo for system changes.": "Administrators use sudo for system changes.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Adopt only the hardware Ryoku should control, then choose its effect, colours and live behaviour.": "Adopt only the hardware Ryoku should control, then choose its effect, colours and live behaviour.",
   "Advanced": "Advanced",
   "Advanced %s → %s (v%s %s)": "Advanced %s → %s (v%s %s)",
@@ -1189,11 +1142,8 @@
   "Allow static wallpapers in the random pool.": "Allow static wallpapers in the random pool.",
   "Allow video wallpapers in the random pool.": "Allow video wallpapers in the random pool.",
   "Almost done": "Almost done",
-<<<<<<< port (unstable-dev)
-=======
   "Along the edge": "Along the edge",
   "Alongside installs need UEFI and GPT.": "Alongside installs need UEFI and GPT.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Alphabetical index": "Alphabetical index",
   "Already on the latest %s (v%s, %s)": "Already on the latest %s (v%s, %s)",
   "Already on the latest checked %s commit (v%s, %s)": "Already on the latest checked %s commit (v%s, %s)",
@@ -2138,11 +2088,8 @@
   "Changes the active profile now.": "Changes the active profile now.",
   "Changing models switches to a separate index. Search becomes available when the background index task finishes.": "Changing models switches to a separate index. Search becomes available when the background index task finishes.",
   "Channel history diverged; reconciling %s onto its checked target": "Channel history diverged; reconciling %s onto its checked target",
-<<<<<<< port (unstable-dev)
-=======
   "Channel history diverged; reconciling %s onto origin/%s": "Channel history diverged; reconciling %s onto origin/%s",
   "Character": "Character",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Character columns the art spans": "Character columns the art spans",
   "Character sets corners, fills and contrast at once; the rows below fine-tune it.": "Character sets corners, fills and contrast at once; the rows below fine-tune it.",
   "Characters per second while a key is held.": "Characters per second while a key is held.",
@@ -2186,23 +2133,16 @@
   "Checking bundle components…": "Checking bundle components…",
   "Checking installed components": "Checking installed components",
   "Checking lighting support…": "Checking lighting support…",
-<<<<<<< port (unstable-dev)
-  "Checking saved and connected lighting devices…": "Checking saved and connected lighting devices…",
-=======
   "Checking phone support...": "Checking phone support...",
   "Checking saved and connected lighting devices…": "Checking saved and connected lighting devices…",
   "Checking the cut-out model catalogue": "Checking the cut-out model catalogue",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Checking the model catalogue": "Checking the model catalogue",
   "Checking the spatial model": "Checking the spatial model",
   "Checking...": "Checking...",
   "Checking…": "Checking…",
-<<<<<<< port (unstable-dev)
-=======
   "Checklist": "Checklist",
   "Checklist %1/%2": "Checklist %1/%2",
   "Checklists": "Checklists",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Checks for unstable-dev at %s are still running (%s)": "Checks for unstable-dev at %s are still running (%s)",
   "Choose": "Choose",
   "Choose Depth or Parallax, or add a PNG, to build the layer stack.": "Choose Depth or Parallax, or add a PNG, to build the layer stack.",
@@ -2284,14 +2224,10 @@
   "Choose video or GIF": "Choose video or GIF",
   "Choose wallpaper": "Choose wallpaper",
   "Choose what Super+Escape shows. Drag the miniature blocks into order, then refine the selected block.": "Choose what Super+Escape shows. Drag the miniature blocks into order, then refine the selected block.",
-<<<<<<< port (unstable-dev)
-  "Choose when Ryoku may reach lighting hardware, see the live Matugen accent, and detect connected devices.": "Choose when Ryoku may reach lighting hardware, see the live Matugen accent, and detect connected devices.",
-=======
   "Choose what the phone does when an app closes.": "Choose what the phone does when an app closes.",
   "Choose what to watch": "Choose what to watch",
   "Choose when Ryoku may reach lighting hardware, see the live Matugen accent, and detect connected devices.": "Choose when Ryoku may reach lighting hardware, see the live Matugen accent, and detect connected devices.",
   "Choose when icon names appear": "Choose when icon names appear",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Choose where enrolled passkeys are accepted and how they authenticate.": "Choose where enrolled passkeys are accepted and how they authenticate.",
   "Choose where new wallpapers can be found and downloaded.": "Choose where new wallpapers can be found and downloaded.",
   "Choose where this playlist runs. Selecting every display creates one shared assignment.": "Choose where this playlist runs. Selecting every display creates one shared assignment.",
@@ -2448,10 +2384,7 @@
   "Codec": "Codec",
   "Collapse": "Collapse",
   "Collapse %1": "Collapse %1",
-<<<<<<< port (unstable-dev)
-=======
   "Collapse island": "Collapse island",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Collect filter changes and send one search when you press Apply or Enter. When off, nearby filter changes are combined and searched automatically.": "Collect filter changes and send one search when you press Apply or Enter. When off, nearby filter changes are combined and searched automatically.",
   "Collecting…": "Collecting…",
   "Collection": "Collection",
@@ -2594,14 +2527,10 @@
   "Connect your phone in Kit to continue": "Connect your phone in Kit to continue",
   "Connect your phone with USB debugging first": "Connect your phone with USB debugging first",
   "Connected": "Connected",
-<<<<<<< port (unstable-dev)
-  "Connected and saved devices, including devices that are currently unplugged.": "Connected and saved devices, including devices that are currently unplugged.",
-=======
   "Connected Devices Battery List (1x1)": "Connected Devices Battery List (1x1)",
   "Connected Devices Battery List (2x1)": "Connected Devices Battery List (2x1)",
   "Connected and saved devices, including devices that are currently unplugged.": "Connected and saved devices, including devices that are currently unplugged.",
   "Connected devices": "Connected devices",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Connected display count is": "Connected display count is",
   "Connected to %1": "Connected to %1",
   "Connected to %1 · %2%": "Connected to %1 · %2%",
@@ -2741,16 +2670,12 @@
   "Could not fetch the OS catalogue": "Could not fetch the OS catalogue",
   "Could not find %1 again": "Could not find %1 again",
   "Could not forget network": "Could not forget network",
-<<<<<<< port (unstable-dev)
-  "Could not load today's games": "Could not load today's games",
-=======
   "Could not import desktop shortcut": "Could not import desktop shortcut",
   "Could not load account permissions.": "Could not load account permissions.",
   "Could not load today's games": "Could not load today's games",
   "Could not load user accounts.": "Could not load user accounts.",
   "Could not open %1 - ADB unreachable": "Could not open %1 - ADB unreachable",
   "Could not read phone support on this system.": "Could not read phone support on this system.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Could not read that region": "Could not read that region",
   "Could not read the OS catalogue": "Could not read the OS catalogue",
   "Could not read the apply result.": "Could not read the apply result.",
@@ -2849,11 +2774,8 @@
   "Create from the catalogue or import an installer ISO, then launch and operate the VM from this plate.": "Create from the catalogue or import an installer ISO, then launch and operate the VM from this plate.",
   "Create one below to begin.": "Create one below to begin.",
   "Create rule": "Create rule",
-<<<<<<< port (unstable-dev)
-  "Create useful aliases": "Create useful aliases",
-=======
   "Create the home storage: %v": "Create the home storage: %v",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "Create useful aliases": "Create useful aliases",
   "Creating %1": "Creating %1",
   "Creating filesystems and btrfs subvolumes": "Creating filesystems and btrfs subvolumes",
   "Credential %1": "Credential %1",
@@ -2947,11 +2869,8 @@
   "Cylinder": "Cylinder",
   "Cylinder radius": "Cylinder radius",
   "DAVID": "DAVID",
-<<<<<<< port (unstable-dev)
   "DECLARATIVE FIRST": "DECLARATIVE FIRST",
-=======
   "DECLINE": "DECLINE",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "DEFAULT": "DEFAULT",
   "DEGRADED": "DEGRADED",
   "DELETE": "DELETE",
@@ -3015,13 +2934,10 @@
   "DRIVES: %1": "DRIVES: %1",
   "DROP WIDGET": "DROP WIDGET",
   "DRY RUN: no disk is touched; commands are printed only": "DRY RUN: no disk is touched; commands are printed only",
-<<<<<<< port (unstable-dev)
-  "DRYRUN: allow x86_64_v3, enable [multilib], add [cachyos-v3]/[cachyos-core-v3]/[cachyos-extra-v3]/[cachyos] above [core], populate the cachyos keyring in the target": "DRYRUN: allow x86_64_v3, enable [multilib], add [cachyos-v3]/[cachyos-core-v3]/[cachyos-extra-v3]/[cachyos] above [core], populate the cachyos keyring in the target",
-=======
   "DRYRUN: $RYOKU_TARGET_CHROOT /mnt runuser -u $u -- env HOME=/home/$u ryoku materialize": "DRYRUN: $RYOKU_TARGET_CHROOT /mnt runuser -u $u -- env HOME=/home/$u ryoku materialize",
   "DRYRUN: $RYOKU_TARGET_CHROOT /mnt runuser -u $u -- env HOME=/home/$u ryoku-gpu mode $mapped (writes /home/$u/.config/$RYOKU_COMPOSITOR_CONFIG_DIR/$RYOKU_COMPOSITOR_GPU_PIN)": "DRYRUN: $RYOKU_TARGET_CHROOT /mnt runuser -u $u -- env HOME=/home/$u ryoku-gpu mode $mapped (writes /home/$u/.config/$RYOKU_COMPOSITOR_CONFIG_DIR/$RYOKU_COMPOSITOR_GPU_PIN)",
   "DRYRUN: %s %s": "DRYRUN: %s %s",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "DRYRUN: allow x86_64_v3, enable [multilib], add [cachyos-v3]/[cachyos-core-v3]/[cachyos-extra-v3]/[cachyos] above [core], populate the cachyos keyring in the target": "DRYRUN: allow x86_64_v3, enable [multilib], add [cachyos-v3]/[cachyos-core-v3]/[cachyos-extra-v3]/[cachyos] above [core], populate the cachyos keyring in the target",
   "DRYRUN: append %s to %s": "DRYRUN: append %s to %s",
   "DRYRUN: arch-chroot /mnt pacman -Sy --noprogressbar": "DRYRUN: arch-chroot /mnt pacman -Sy --noprogressbar",
   "DRYRUN: arch-chroot /mnt runuser -u $u -- env HOME=/home/$u ryoku materialize": "DRYRUN: arch-chroot /mnt runuser -u $u -- env HOME=/home/$u ryoku materialize",
@@ -3030,14 +2946,11 @@
   "DRYRUN: back up %s": "DRYRUN: back up %s",
   "DRYRUN: bootstrap yay, install boot-critical (%s) first under per-package timeouts, then the rest of %s best-effort under a global timeout, as %s": "DRYRUN: bootstrap yay, install boot-critical (%s) first under per-package timeouts, then the rest of %s best-effort under a global timeout, as %s",
   "DRYRUN: build and install yay-bin": "DRYRUN: build and install yay-bin",
-<<<<<<< port (unstable-dev)
-=======
   "DRYRUN: check the target CPU for x86-64-v3 and the CachyOS mirror for reachability, enable [cachyos-v3], [cachyos], and multilib with the shipped helpers, then run pacman -Syu for %s": "DRYRUN: check the target CPU for x86-64-v3 and the CachyOS mirror for reachability, enable [cachyos-v3], [cachyos], and multilib with the shipped helpers, then run pacman -Syu for %s",
   "DRYRUN: fc-cache -f": "DRYRUN: fc-cache -f",
   "DRYRUN: feed every installed usr/lib/modules/<ver>/vmlinuz with a pkgbase to /usr/share/libalpm/scripts/mkinitcpio install so /boot kernel images and presets match the upgraded modules": "DRYRUN: feed every installed usr/lib/modules/<ver>/vmlinuz with a pkgbase to /usr/share/libalpm/scripts/mkinitcpio install so /boot kernel images and presets match the upgraded modules",
   "DRYRUN: fetch and verify %s from %s": "DRYRUN: fetch and verify %s from %s",
   "DRYRUN: hide the neovim package launcher for %s (ryoku-nvim.desktop replaces it)": "DRYRUN: hide the neovim package launcher for %s (ryoku-nvim.desktop replaces it)",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "DRYRUN: if /mnt is a leftover mount from a prior attempt, would swapoff /mnt/swap/swapfile, umount -R /mnt, and close a stale /dev/mapper/root": "DRYRUN: if /mnt is a leftover mount from a prior attempt, would swapoff /mnt/swap/swapfile, umount -R /mnt, and close a stale /dev/mapper/root",
   "DRYRUN: install the bundled AUR toolset from the baked [offline] repo (best-effort)": "DRYRUN: install the bundled AUR toolset from the baked [offline] repo (best-effort)",
   "DRYRUN: install the second-stage limine at /boot/ryoku-limine.efi + seed /boot/limine.conf (branding, fslabel(RYOKUBOOT) kernels, guid() existing-OS chainload), mount the existing OS's ESP at /mnt/efi, tar it to /var/backups/ryoku/, drop the STATIC stage-1 hop at /efi/EFI/ryoku/{BOOTX64.EFI,limine.conf} (timeout 0, efi_chainload -> fslabel(RYOKUBOOT):/ryoku-limine.efi), seed /etc/kernel/cmdline + a /efi fstab line + the ryoku-limine-stage.hook that refreshes both stage loaders on limine upgrades, and register 'Ryoku' first in BootOrder; other vendors' dirs (e.g. /EFI/Microsoft) untouched": "DRYRUN: install the second-stage limine at /boot/ryoku-limine.efi + seed /boot/limine.conf (branding, fslabel(RYOKUBOOT) kernels, guid() existing-OS chainload), mount the existing OS's ESP at /mnt/efi, tar it to /var/backups/ryoku/, drop the STATIC stage-1 hop at /efi/EFI/ryoku/{BOOTX64.EFI,limine.conf} (timeout 0, efi_chainload -> fslabel(RYOKUBOOT):/ryoku-limine.efi), seed /etc/kernel/cmdline + a /efi fstab line + the ryoku-limine-stage.hook that refreshes both stage loaders on limine upgrades, and register 'Ryoku' first in BootOrder; other vendors' dirs (e.g. /EFI/Microsoft) untouched",
@@ -3053,12 +2966,9 @@
   "DRYRUN: run /usr/share/libalpm/scripts/cachyos-branding in the target": "DRYRUN: run /usr/share/libalpm/scripts/cachyos-branding in the target",
   "DRYRUN: seed $store -> desktop.input.kbLayout=$xkbl kbVariant=$xkbv": "DRYRUN: seed $store -> desktop.input.kbLayout=$xkbl kbVariant=$xkbv",
   "DRYRUN: seed %s -> ~/%s": "DRYRUN: seed %s -> ~/%s",
-<<<<<<< port (unstable-dev)
-=======
   "DRYRUN: seed XBPS key plists from %s into %s": "DRYRUN: seed XBPS key plists from %s into %s",
   "DRYRUN: seed keyboard layout %q variant %q options %q from %s into %s": "DRYRUN: seed keyboard layout %q variant %q options %q from %s into %s",
   "DRYRUN: select CPU-compatible CachyOS repos, enable [multilib], populate the cachyos keyring in the target": "DRYRUN: select CPU-compatible CachyOS repos, enable [multilib], populate the cachyos keyring in the target",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "DRYRUN: set %s as the default browser for http, https and html": "DRYRUN: set %s as the default browser for http, https and html",
   "DRYRUN: set %s as the default file manager (inode/directory + desktop.apps.files) for %s if installed": "DRYRUN: set %s as the default file manager (inode/directory + desktop.apps.files) for %s if installed",
   "DRYRUN: set %s as the default web browser (xdg + desktop.apps.browser) for %s if installed": "DRYRUN: set %s as the default web browser (xdg + desktop.apps.browser) for %s if installed",
@@ -3240,11 +3150,8 @@
   "Details": "Details",
   "Detect automatically": "Detect automatically",
   "Detect devices": "Detect devices",
-<<<<<<< port (unstable-dev)
-=======
   "Detect language": "Detect language",
   "Detected": "Detected",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Detected hardware": "Detected hardware",
   "Detecting devices… the first OpenRGB start can take up to a minute.": "Detecting devices… the first OpenRGB start can take up to a minute.",
   "Detecting displays…": "Detecting displays…",
@@ -3253,10 +3160,6 @@
   "Dev": "Dev",
   "Developer toolchains": "Developer toolchains",
   "Device": "Device",
-<<<<<<< port (unstable-dev)
-  "Device effects": "Device effects",
-  "Devices": "Devices",
-=======
   "Device default": "Device default",
   "Device effects": "Device effects",
   "Devices": "Devices",
@@ -3275,7 +3178,6 @@
   "Dial Rings Margin Offset (%)": "Dial Rings Margin Offset (%)",
   "Dial style": "Dial style",
   "Dials, scales and ruled lists": "Dials, scales and ruled lists",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Diamond": "Diamond",
   "Dictate": "Dictate",
   "Dictation": "Dictation",
@@ -3299,8 +3201,6 @@
   "Dim surface": "Dim surface",
   "Dim words outside the active one.": "Dim words outside the active one.",
   "Dim, lock, blank and suspend the machine when it sits idle.": "Dim, lock, blank and suspend the machine when it sits idle.",
-<<<<<<< port (unstable-dev)
-=======
   "Dimensions & reservation": "Dimensions & reservation",
   "Dimming": "Dimming",
   "Dims a screen that turns white on you.": "Dims a screen that turns white on you.",
@@ -3308,7 +3208,6 @@
   "Dims the effect Ryoku draws.": "Dims the effect Ryoku draws.",
   "Dims the screen when a mostly white window suddenly fills it.": "Dims the screen when a mostly white window suddenly fills it.",
   "Direct": "Direct",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Direct-GPU virtual machines": "Direct-GPU virtual machines",
   "Direction": "Direction",
   "Direction around the screen": "Direction around the screen",
@@ -3466,10 +3365,7 @@
   "Drag it towards a corner": "Drag it towards a corner",
   "Drag the look on the desktop to move it, its corner to size it and the dot to turn it, or set it by number below.": "Drag the look on the desktop to move it, its corner to size it and the dot to turn it, or set it by number below.",
   "Drag the ring for hue and the square for saturation and brightness.": "Drag the ring for hue and the square for saturation and brightness.",
-<<<<<<< port (unstable-dev)
-=======
   "Drag the two handles. The curve becomes Custom.": "Drag the two handles. The curve becomes Custom.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Drag the widgets around on the bar itself.": "Drag the widgets around on the bar itself.",
   "Drag to move · Wheel or pinch to zoom · Double-click to reset": "Drag to move · Wheel or pinch to zoom · Double-click to reset",
   "Drag to move · drop on a side edge to stand it up": "Drag to move · drop on a side edge to stand it up",
@@ -3492,8 +3388,6 @@
   "Draw the shadow with hard edges instead of a soft falloff": "Draw the shadow with hard edges instead of a soft falloff",
   "Draw the wallpaper and desktop on one flat plane.": "Draw the wallpaper and desktop on one flat plane.",
   "Draw this cut-out in the scene": "Draw this cut-out in the scene",
-<<<<<<< port (unstable-dev)
-=======
   "Draw touch points on the mirrored screen.": "Draw touch points on the mirrored screen.",
   "Drawing": "Drawing",
   "Drawing copied — paste it anywhere.": "Drawing copied — paste it anywhere.",
@@ -3503,7 +3397,6 @@
   "Drawings belong to": "Drawings belong to",
   "Drawings on %1 workspaces": "Drawings on %1 workspaces",
   "Drawings travel with their workspace when you switch": "Drawings travel with their workspace when you switch",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Drawn live by Ryoku in the device's per-key mode. These effects need Ryoku running.": "Drawn live by Ryoku in the device's per-key mode. These effects need Ryoku running.",
   "Draws the emblem as 1-bit stipple": "Draws the emblem as 1-bit stipple",
   "Draws the mouse pointer into the video.": "Draws the mouse pointer into the video.",
@@ -3658,14 +3551,11 @@
   "Edit desktop widgets": "Edit desktop widgets",
   "Edit dock": "Edit dock",
   "Edit each interface colour on a colour wheel and check the result in a live preview. Saved palettes join the Theme list above.": "Edit each interface colour on a colour wheel and check the result in a live preview. Saved palettes join the Theme list above.",
-<<<<<<< port (unstable-dev)
-  "Edit flake.nix when adding or changing inputs and modules. Let Nix update flake.lock rather than hand-editing lock JSON. For a single input, target that input by name instead of updating everything.": "Edit flake.nix when adding or changing inputs and modules. Let Nix update flake.lock rather than hand-editing lock JSON. For a single input, target that input by name instead of updating everything.",
-  "Edit flakes": "Edit flakes",
-=======
   "Edit effects": "Edit effects",
   "Edit effects and Bypass. Off, the card is only to look at.": "Edit effects and Bypass. Off, the card is only to look at.",
   "Edit favorites": "Edit favorites",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "Edit flake.nix when adding or changing inputs and modules. Let Nix update flake.lock rather than hand-editing lock JSON. For a single input, target that input by name instead of updating everything.": "Edit flake.nix when adding or changing inputs and modules. Let Nix update flake.lock rather than hand-editing lock JSON. For a single input, target that input by name instead of updating everything.",
+  "Edit flakes": "Edit flakes",
   "Edit it in place. Ryoku seeds it once on a fresh install and never overwrites it again.": "Edit it in place. Ryoku seeds it once on a fresh install and never overwrites it again.",
   "Edit reminder": "Edit reminder",
   "Edit the full colour scheme, preview the Wall interface, and save both variants.": "Edit the full colour scheme, preview the Wall interface, and save both variants.",
@@ -3944,14 +3834,11 @@
   "Every file this touches is copied into ~/.config/ryoku/import-backups first, so the whole import can be undone from the next step.": "Every file this touches is copied into ~/.config/ryoku/import-backups first, so the whole import can be undone from the next step.",
   "Every hour": "Every hour",
   "Every key, or only shortcuts.": "Every key, or only shortcuts.",
-<<<<<<< port (unstable-dev)
-  "Every successful rebuild gives you a recovery point.": "Every successful rebuild gives you a recovery point.",
-  "Everyday NixOS": "Everyday NixOS",
-=======
   "Every minute": "Every minute",
   "Every month": "Every month",
   "Every palette, with previews; app icon theme": "Every palette, with previews; app icon theme",
   "Every radius in the family; nested corners keep stepping down.": "Every radius in the family; nested corners keep stepping down.",
+  "Every successful rebuild gives you a recovery point.": "Every successful rebuild gives you a recovery point.",
   "Every surface, this panel included": "Every surface, this panel included",
   "Every week": "Every week",
   "Every weight in Shima one step lighter or firmer.": "Every weight in Shima one step lighter or firmer.",
@@ -3959,8 +3846,8 @@
   "Every widget reads as if the wallpaper under it were bright and busy: a deeper veil on glass and a backing plate under Transparent, even where it is not needed.": "Every widget reads as if the wallpaper under it were bright and busy: a deeper veil on glass and a backing plate under Transparent, even where it is not needed.",
   "Every widget's own options": "Every widget's own options",
   "Every year": "Every year",
+  "Everyday NixOS": "Everyday NixOS",
   "Everything": "Everything",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Everything after this applies to it.": "Everything after this applies to it.",
   "Everything draws flat. Pick Depth, Parallax or Spatial to give this wallpaper depth.": "Everything draws flat. Pick Depth, Parallax or Spatial to give this wallpaper depth.",
   "Everything is back": "Everything is back",
@@ -4117,13 +4004,10 @@
   "Favourites": "Favourites",
   "Favourites only": "Favourites only",
   "Feather the boundary between a cut-out and its backdrop": "Feather the boundary between a cut-out and its backdrop",
-<<<<<<< port (unstable-dev)
-=======
   "Fedora": "Fedora",
   "Fedora VERSION_ID is missing from %s": "Fedora VERSION_ID is missing from %s",
   "Fedora keeps NVIDIA on nouveau in this release; no proprietary driver changes are made.": "Fedora keeps NVIDIA on nouveau in this release; no proprietary driver changes are made.",
   "Fedora keeps Nouveau active for NVIDIA graphics in this release; proprietary driver installation is a manual step": "Fedora keeps Nouveau active for NVIDIA graphics in this release; proprietary driver installation is a manual step",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Fedora keeps Nouveau active for this Kepler GPU; proprietary NVIDIA driver changes are left to the user": "Fedora keeps Nouveau active for this Kepler GPU; proprietary NVIDIA driver changes are left to the user",
   "Fedora release": "Fedora release",
   "Fedora release checks are not applicable on this host": "Fedora release checks are not applicable on this host",
@@ -4187,12 +4071,9 @@
   "Filters": "Filters",
   "Filter…": "Filter…",
   "Final colour in the field ramp": "Final colour in the field ramp",
-<<<<<<< port (unstable-dev)
-  "Find a package": "Find a package",
-=======
   "Finalizing backup…": "Finalizing backup…",
+  "Find a package": "Find a package",
   "Find address automatically": "Find address automatically",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Find apps": "Find apps",
   "Find apps and files.": "Find apps and files.",
   "Find the environment.systemPackages block used by your configuration and add the package name inside it. On Musubi, prefer this declarative route over nix-env so the package remains reproducible and survives clean rebuilds.": "Find the environment.systemPackages block used by your configuration and add the package name inside it. On Musubi, prefer this declarative route over nix-env so the package remains reproducible and survives clean rebuilds.",
@@ -4232,10 +4113,7 @@
   "Firefox": "Firefox",
   "Firewall repair required before this machine is safe.": "Firewall repair required before this machine is safe.",
   "Firmware": "Firmware",
-<<<<<<< port (unstable-dev)
-=======
   "First Quarter": "First Quarter",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "First build on this box: every piece compiles from scratch, which takes a few minutes. Later updates reuse the build caches and take a fraction of that.": "First build on this box: every piece compiles from scratch, which takes a few minutes. Later updates reuse the build caches and take a fraction of that.",
   "First reminder to plug in. Must be above the critical percentage.": "First reminder to plug in. Must be above the critical percentage.",
   "First run only. The image is a few hundred megabytes.": "First run only. The image is a few hundred megabytes.",
@@ -4311,12 +4189,9 @@
   "Folder of images or videos": "Folder of images or videos",
   "Folder path": "Folder path",
   "Folders": "Folders",
-<<<<<<< port (unstable-dev)
-  "Follow global": "Follow global",
-=======
   "Follow %1": "Follow %1",
   "Follow active window": "Follow active window",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "Follow global": "Follow global",
   "Follow on every device": "Follow on every device",
   "Follow pointer": "Follow pointer",
   "Follow the active window": "Follow the active window",
@@ -4324,21 +4199,15 @@
   "Follow the power profile": "Follow the power profile",
   "Follow the wallpaper": "Follow the wallpaper",
   "Follow the wallpaper and theme palette on supported lighting hardware.": "Follow the wallpaper and theme palette on supported lighting hardware.",
-<<<<<<< port (unstable-dev)
-=======
   "Follow the wallpaper palette in dark": "Follow the wallpaper palette in dark",
   "Follow the wallpaper palette in light": "Follow the wallpaper palette in light",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Follow the wallpaper you apply. Turn off to choose a separate backdrop below.": "Follow the wallpaper you apply. Turn off to choose a separate backdrop below.",
   "Follow these three steps once, then your phone stays close at hand.": "Follow these three steps once, then your phone stays close at hand.",
   "Follow wallpaper": "Follow wallpaper",
   "Follow wallpaper & theme": "Follow wallpaper & theme",
   "Follow wallpaper recolours from each applied wallpaper. Fixed palette uses one chosen palette. Keep current colours leaves the theme alone.": "Follow wallpaper recolours from each applied wallpaper. Fixed palette uses one chosen palette. Keep current colours leaves the theme alone.",
-<<<<<<< port (unstable-dev)
-=======
   "Follows every new wallpaper": "Follows every new wallpaper",
   "Follows the desktop accent, so the device retints with the wallpaper. Now: %1": "Follows the desktop accent, so the device retints with the wallpaper. Now: %1",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Font": "Font",
   "Font Size": "Font Size",
   "Font roundness": "Font roundness",
@@ -4570,10 +4439,7 @@
   "GitHub": "GitHub",
   "GitHub username": "GitHub username",
   "Give it a shortcut again": "Give it a shortcut again",
-<<<<<<< port (unstable-dev)
-=======
   "Give it this screen's position and zoom": "Give it this screen's position and zoom",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Give one VM control of a discrete GPU and view it through Looking Glass.": "Give one VM control of a discrete GPU and view it through Looking Glass.",
   "Give one widget its own accent.": "Give one widget its own accent.",
   "Give the rule a short name so it is easy to recognise in the priority list.": "Give the rule a short name so it is easy to recognise in the priority list.",
@@ -4679,11 +4545,8 @@
   "Guided zen": "Guided zen",
   "Guys": "Guys",
   "H.264 plays anywhere; HEVC and AV1 are smaller but need a newer GPU.": "H.264 plays anywhere; HEVC and AV1 are smaller but need a newer GPU.",
-<<<<<<< port (unstable-dev)
-=======
   "H:%1  L:%2": "H:%1  L:%2",
   "HAND BACK": "HAND BACK",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "HARBOUR LOG": "HARBOUR LOG",
   "HAWK": "HAWK",
   "HD ×2 (AI upscale)": "HD ×2 (AI upscale)",
@@ -4714,13 +4577,9 @@
   "Hallucination": "Hallucination",
   "Hand back": "Hand back",
   "Hand back every device": "Hand back every device",
-<<<<<<< port (unstable-dev)
-  "Handing it back restores %1.": "Handing it back restores %1.",
-=======
   "Handing a device to Ryoku lets its provider talk to it. Hardware that keeps profiles in its own memory can be left showing Ryoku's look after you hand it back; Ryoku restores the effect it found, but only the device's own software can rebuild a profile you overwrote with Save to device.": "Handing a device to Ryoku lets its provider talk to it. Hardware that keeps profiles in its own memory can be left showing Ryoku's look after you hand it back; Ryoku restores the effect it found, but only the device's own software can rebuild a profile you overwrote with Save to device.",
   "Handing it back restores %1.": "Handing it back restores %1.",
   "Handle": "Handle",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Hanging strips": "Hanging strips",
   "Hangs from the Island as a panel": "Hangs from the Island as a panel",
   "Hardware": "Hardware",
@@ -4728,10 +4587,8 @@
   "Hardware mode supports layouts and shortcuts.": "Hardware mode supports layouts and shortcuts.",
   "Hardware profile": "Hardware profile",
   "Has not run yet.": "Has not run yet.",
-<<<<<<< port (unstable-dev)
-  "Haze behind open windows; 0 turns it off": "Haze behind open windows; 0 turns it off",
-=======
   "Hazardous": "Hazardous",
+  "Haze behind open windows; 0 turns it off": "Haze behind open windows; 0 turns it off",
   "Header": "Header",
   "Header blur": "Header blur",
   "Header fade": "Header fade",
@@ -4741,7 +4598,6 @@
   "Headlines": "Headlines",
   "Headlines didn't load (´・ω・`)": "Headlines didn't load (´・ω・`)",
   "Headphone Cookie widget disabled": "Headphone Cookie widget disabled",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Headphones": "Headphones",
   "Headphones or speakers take over the sound.": "Headphones or speakers take over the sound.",
   "Headphones, keyboards, controllers.": "Headphones, keyboards, controllers.",
@@ -5018,12 +4874,9 @@
   "How visible the hero image is; 0 hides it completely": "How visible the hero image is; 0 hides it completely",
   "How what plays is drawn on the resting Island, its player page and the Visualizer bubble.": "How what plays is drawn on the resting Island, its player page and the Visualizer bubble.",
   "How wide grains spiral around their ribbon.": "How wide grains spiral around their ribbon.",
-<<<<<<< port (unstable-dev)
-=======
   "How wide the open Island is. The activity page keeps its proportion.": "How wide the open Island is. The activity page keeps its proportion.",
   "How wide the shoulders are where the Island turns into its edge.": "How wide the shoulders are where the Island turns into its edge.",
   "How windows look and behave here. Changes apply at your next login.": "How windows look and behave here. Changes apply at your next login.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "How windows look and behave here. Save applies changes now.": "How windows look and behave here. Save applies changes now.",
   "How windows take focus as the pointer moves.": "How windows take focus as the pointer moves.",
   "How your folders line up in the gallery.": "How your folders line up in the gallery.",
@@ -5037,12 +4890,9 @@
   "Hybrid (recommended)": "Hybrid (recommended)",
   "Hybrid GPU (iGPU + NVIDIA) detected.": "Hybrid GPU (iGPU + NVIDIA) detected.",
   "Hybrid keeps the built-in GPU primary for battery; apps can still use %1 on demand.": "Hybrid keeps the built-in GPU primary for battery; apps can still use %1 on demand.",
-<<<<<<< port (unstable-dev)
-=======
   "Hydration": "Hydration",
   "Hyphens": "Hyphens",
   "Hyprland": "Hyprland",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Hyprland compositor plugins": "Hyprland compositor plugins",
   "Hyprland config integrity": "Hyprland config integrity",
   "Hyprland config loads cleanly": "Hyprland config loads cleanly",
@@ -5109,12 +4959,9 @@
   "Idle timeouts": "Idle timeouts",
   "Idle wave": "Idle wave",
   "If": "If",
-<<<<<<< port (unstable-dev)
   "If a change belongs to the system, describe it in Nix and rebuild it. That is the rule that keeps Musubi reproducible instead of slowly turning into an imperative mystery box.": "If a change belongs to the system, describe it in Nix and rebuild it. That is the rule that keeps Musubi reproducible instead of slowly turning into an imperative mystery box.",
   "If the configured kernel changed, reboot before diagnosing a kernel-module or NVIDIA library mismatch. The first command shows the running kernel; the second points at the kernel selected by the active generation.": "If the configured kernel changed, reboot before diagnosing a kernel-module or NVIDIA library mismatch. The first command shows the running kernel; the second points at the kernel selected by the active generation.",
-=======
   "If the download fails, setup goes on; add it later": "If the download fails, setup goes on; add it later",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Ignite": "Ignite",
   "Ignore alpha": "Ignore alpha",
   "Ignore app request": "Ignore app request",
@@ -5355,9 +5202,6 @@
   "KANSHA": "KANSHA",
   "KATANA": "KATANA",
   "KB/s": "KB/s",
-<<<<<<< port (unstable-dev)
-  "KDE's login screen settings own SDDM here; toggle on to let the Ryoku theme outrank kde_settings.conf": "KDE's login screen settings own SDDM here; toggle on to let the Ryoku theme outrank kde_settings.conf",
-=======
   "KDE Bluetooth": "KDE Bluetooth",
   "KDE Connect is not installed — phone integration requires it": "KDE Connect is not installed — phone integration requires it",
   "KDE Connect is not running": "KDE Connect is not running",
@@ -5369,7 +5213,7 @@
   "KDE Users": "KDE Users",
   "KDE file manager": "KDE file manager",
   "KDE's file manager.": "KDE's file manager.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "KDE's login screen settings own SDDM here; toggle on to let the Ryoku theme outrank kde_settings.conf": "KDE's login screen settings own SDDM here; toggle on to let the Ryoku theme outrank kde_settings.conf",
   "KEEP": "KEEP",
   "KEEP WAITING": "KEEP WAITING",
   "KERNEL": "KERNEL",
@@ -5437,11 +5281,8 @@
   "Keep tiled windows clear while this panel is kept open. Turn this off to let the panel overlay them.": "Keep tiled windows clear while this panel is kept open. Turn this off to let the panel overlay them.",
   "Keep type, folder, colour, sort, and favourite filters after the picker closes. A remembered folder overrides the default above.": "Keep type, folder, colour, sort, and favourite filters after the picker closes. A remembered folder overrides the default above.",
   "Keeping %s: switch back with no download, at the cost of %d packages (%s) staying on disk.": "Keeping %s: switch back with no download, at the cost of %d packages (%s) staying on disk.",
-<<<<<<< port (unstable-dev)
-  "Keeps a recently closed picker warm for faster reopen. A short delay avoids hidden picker work becoming permanent idle overhead; Always is an explicit opt-in.": "Keeps a recently closed picker warm for faster reopen. A short delay avoids hidden picker work becoming permanent idle overhead; Always is an explicit opt-in.",
-=======
   "Keeping the desktop that is running; nothing was deployed": "Keeping the desktop that is running; nothing was deployed",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "Keeps a recently closed picker warm for faster reopen. A short delay avoids hidden picker work becoming permanent idle overhead; Always is an explicit opt-in.": "Keeps a recently closed picker warm for faster reopen. A short delay avoids hidden picker work becoming permanent idle overhead; Always is an explicit opt-in.",
   "Keeps the NVIDIA driver loaded": "Keeps the NVIDIA driver loaded",
   "Keeps the dock on screen": "Keeps the dock on screen",
   "Keeps the screen from sleeping.": "Keeps the screen from sleeping.",
@@ -5450,12 +5291,9 @@
   "Kept in the middle of the edge while there is room.": "Kept in the middle of the edge while there is room.",
   "Kept open": "Kept open",
   "Kernel": "Kernel",
-<<<<<<< port (unstable-dev)
   "Kernel and driver updates": "Kernel and driver updates",
-=======
   "Kernels on /boot are not part of the snapshot and stay as they are.": "Kernels on /boot are not part of the snapshot and stay as they are.",
   "Key sound": "Key sound",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Key sounds": "Key sounds",
   "Keybinds": "Keybinds",
   "Keybinds, rules and supported settings become Ryoku settings; anything without a typed mapping stays in the provider's user include.": "Keybinds, rules and supported settings become Ryoku settings; anything without a typed mapping stays in the provider's user include.",
@@ -5468,11 +5306,8 @@
   "Keyboard mode": "Keyboard mode",
   "Keyboard shortcuts": "Keyboard shortcuts",
   "Keyboard, pointer and touchpad, and key repeat.": "Keyboard, pointer and touchpad, and key repeat.",
-<<<<<<< port (unstable-dev)
-=======
   "Keyboard, while drawing": "Keyboard, while drawing",
   "Keyboards, mice and other RGB hardware, through OpenRGB and native laptop providers. While this is off Ryoku never looks for a device and never writes to one, so hardware driven by its own software or a switch on the board is left alone. Turn it on and hand over the devices you want Ryoku to light, one at a time.": "Keyboards, mice and other RGB hardware, through OpenRGB and native laptop providers. While this is off Ryoku never looks for a device and never writes to one, so hardware driven by its own software or a switch on the board is left alone. Turn it on and hand over the devices you want Ryoku to light, one at a time.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Keycap style": "Keycap style",
   "Keyframe interval": "Keyframe interval",
   "Keyring": "Keyring",
@@ -5542,10 +5377,8 @@
   "Landscape": "Landscape",
   "Language": "Language",
   "Language & formats. Sets i18n.defaultLocale.": "Language & formats. Sets i18n.defaultLocale.",
-<<<<<<< port (unstable-dev)
-  "Language, regional formats, location and fonts.": "Language, regional formats, location and fonts.",
-=======
   "Language pack unavailable; using English.": "Language pack unavailable; using English.",
+  "Language, regional formats, location and fonts.": "Language, regional formats, location and fonts.",
   "Language, regional formats, location and the system font.": "Language, regional formats, location and the system font.",
   "Language, regional formats, people, fonts, icons, window blur and sounds.": "Language, regional formats, people, fonts, icons, window blur and sounds.",
   "Lap": "Lap",
@@ -5554,7 +5387,6 @@
   "Laps": "Laps",
   "Laptop Battery": "Laptop Battery",
   "Large": "Large",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Large Turbo": "Large Turbo",
   "Large images | God tier quality, no NSFW.": "Large images | God tier quality, no NSFW.",
   "Larger renders everything bigger, with less room": "Larger renders everything bigger, with less room",
@@ -5629,12 +5461,9 @@
   "Leaves the desktop entirely": "Leaves the desktop entirely",
   "Ledger": "Ledger",
   "Left": "Left",
-<<<<<<< port (unstable-dev)
-=======
   "Left Complication": "Left Complication",
   "Left and right": "Left and right",
   "Left off, Ryoku never writes to it: its own software, onboard profile or hardware switch stays in charge.": "Left off, Ryoku never writes to it: its own software, onboard profile or hardware switch stays in charge.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Left, right and wheel only; nothing here to rebind.": "Left, right and wheel only; nothing here to rebind.",
   "Left-handed": "Left-handed",
   "Left-handed buttons": "Left-handed buttons",
@@ -5703,11 +5532,8 @@
   "Lighting devices": "Lighting devices",
   "Lighting is off. Ryoku does not scan or write to RGB hardware while it is off.": "Lighting is off. Ryoku does not scan or write to RGB hardware while it is off.",
   "Lighting is on. Detect devices to look for connected hardware.": "Lighting is on. Detect devices to look for connected hardware.",
-<<<<<<< port (unstable-dev)
-=======
   "Lightweight for clean silhouettes": "Lightweight for clean silhouettes",
   "Lilac": "Lilac",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Limine config has no default_entry setting": "Limine config has no default_entry setting",
   "Limit": "Limit",
   "Limit animation frames per second without changing wallpaper playback. Leave empty or enter 0 for each display's refresh rate.": "Limit animation frames per second without changing wallpaper playback. Leave empty or enter 0 for each display's refresh rate.",
@@ -5734,12 +5560,9 @@
   "Linux": "Linux",
   "Liquid": "Liquid",
   "List": "List",
-<<<<<<< port (unstable-dev)
   "List generations to see what is installed. If a newly activated generation causes trouble, switch back to the previous generation or select an older generation from the boot menu.": "List generations to see what is installed. If a newly activated generation causes trouble, switch back to the previous generation or select an older generation from the boot menu.",
-=======
   "Listed before the other categories": "Listed before the other categories",
   "Listed first in every section and in search, marked with a star.": "Listed first in every section and in search, marked with a star.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Listening at the lock screen": "Listening at the lock screen",
   "Listening at the lock screen · currently switched off": "Listening at the lock screen · currently switched off",
   "Listening...": "Listening...",
@@ -5765,10 +5588,7 @@
   "Live scores of the teams you follow": "Live scores of the teams you follow",
   "Live wallpaper": "Live wallpaper",
   "Live wallpaper applied.": "Live wallpaper applied.",
-<<<<<<< port (unstable-dev)
-=======
   "Live wallpaper downloads": "Live wallpaper downloads",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Live wallpaper quality": "Live wallpaper quality",
   "Live wallpapers": "Live wallpapers",
   "Live wallpapers play a muted preview while chosen or hovered in the gallery. Only one plays at a time.": "Live wallpapers play a muted preview while chosen or hovered in the gallery. Only one plays at a time.",
@@ -5803,8 +5623,6 @@
   "Local indexing": "Local indexing",
   "Local machines and remote systems, read as one operating fleet.": "Local machines and remote systems, read as one operating fleet.",
   "Local tasks": "Local tasks",
-<<<<<<< port (unstable-dev)
-=======
   "LocalSend Active": "LocalSend Active",
   "LocalSend Error": "LocalSend Error",
   "LocalSend is not installed.": "LocalSend is not installed.",
@@ -5813,7 +5631,6 @@
   "LocalSend: File Received": "LocalSend: File Received",
   "LocalSend: Incoming Transfer": "LocalSend: Incoming Transfer",
   "LocalSend: Text Received": "LocalSend: Text Received",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Locale (e.g. US, US-CA)": "Locale (e.g. US, US-CA)",
   "Locating…": "Locating…",
   "Location": "Location",
@@ -6233,11 +6050,8 @@
   "Move every icon to its nearest clear grid cell": "Move every icon to its nearest clear grid cell",
   "Move focus between windows and columns": "Move focus between windows and columns",
   "Move focus, windows and workspaces between screens": "Move focus, windows and workspaces between screens",
-<<<<<<< port (unstable-dev)
-  "Move nixpkgs without unexpectedly moving every flake input.": "Move nixpkgs without unexpectedly moving every flake input.",
-=======
   "Move later": "Move later",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "Move nixpkgs without unexpectedly moving every flake input.": "Move nixpkgs without unexpectedly moving every flake input.",
   "Move right to make the selected field shape bend more strongly.": "Move right to make the selected field shape bend more strongly.",
   "Move selection to screen": "Move selection to screen",
   "Move shortcuts": "Move shortcuts",
@@ -6497,14 +6311,11 @@
   "Night Light now": "Night Light now",
   "Night Light | Right-click to configure": "Night Light | Right-click to configure",
   "Night light": "Night light",
-<<<<<<< port (unstable-dev)
-  "NixOS information": "NixOS information",
-=======
   "Nights": "Nights",
   "Nine": "Nine",
   "Nineteen": "Nineteen",
   "NixOS": "NixOS",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "NixOS information": "NixOS information",
   "NixOS is not supported yet; use the flake instead": "NixOS is not supported yet; use the flake instead",
   "No": "No",
   "No Android apps are available yet. Refresh after your phone is connected.": "No Android apps are available yet. Refresh after your phone is connected.",
@@ -6637,14 +6448,10 @@
   "No internet connection": "No internet connection",
   "No internet connection, and this image has no offline package set. Go back to the Network step to connect.": "No internet connection, and this image has no offline package set. Go back to the Network step to connect.",
   "No keybind conflicts. Your binds layer in cleanly.": "No keybind conflicts. Your binds layer in cleanly.",
-<<<<<<< port (unstable-dev)
-  "No lighting device answered. OpenRGB reaches USB keyboards, mice and headsets plus SMBus RAM and motherboard lighting; Ryoku already loads i2c-dev. Supported ASUS laptop keyboards use asusd, and QMK/VIA boards use qmk_hid. Reconnect the device, then choose Detect devices in RGB lighting.": "No lighting device answered. OpenRGB reaches USB keyboards, mice and headsets plus SMBus RAM and motherboard lighting; Ryoku already loads i2c-dev. Supported ASUS laptop keyboards use asusd, and QMK/VIA boards use qmk_hid. Reconnect the device, then choose Detect devices in RGB lighting.",
-=======
   "No laps recorded yet": "No laps recorded yet",
   "No lighting device answered. OpenRGB reaches USB keyboards, mice and headsets plus SMBus RAM and motherboard lighting; Ryoku already loads i2c-dev. Supported ASUS laptop keyboards use asusd, and QMK/VIA boards use qmk_hid. Reconnect the device, then choose Detect devices in RGB lighting.": "No lighting device answered. OpenRGB reaches USB keyboards, mice and headsets plus SMBus RAM and motherboard lighting; Ryoku already loads i2c-dev. Supported ASUS laptop keyboards use asusd, and QMK/VIA boards use qmk_hid. Reconnect the device, then choose Detect devices in RGB lighting.",
   "No lighting device answered. OpenRGB reaches USB keyboards, mice and headsets; supported ASUS laptops use asusd for their built-in Aura controller. Motherboard and memory lighting still needs the i2c-dev module loaded, which Ryoku leaves to you.": "No lighting device answered. OpenRGB reaches USB keyboards, mice and headsets; supported ASUS laptops use asusd for their built-in Aura controller. Motherboard and memory lighting still needs the i2c-dev module loaded, which Ryoku leaves to you.",
   "No limit": "No limit",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "No lock skins installed yet. Get some from Ryoku Store.": "No lock skins installed yet. Get some from Ryoku Store.",
   "No locked widgets on this display": "No locked widgets on this display",
   "No lyrics for this track": "No lyrics for this track",
@@ -6735,12 +6542,9 @@
   "No source picker": "No source picker",
   "No stream found for this episode": "No stream found for this episode",
   "No supported apps detected. Use Find apps after installing one.": "No supported apps detected. Use Find apps after installing one.",
-<<<<<<< port (unstable-dev)
-=======
   "No supported browser profile was found.": "No supported browser profile was found.",
   "No supported images were dropped": "No supported images were dropped",
   "No supported lighting provider is installed, so no device can be reached.": "No supported lighting provider is installed, so no device can be reached.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "No supported media or folders here": "No supported media or folders here",
   "No synced lyrics": "No synced lyrics",
   "No synced lyrics for this track": "No synced lyrics for this track",
@@ -7012,16 +6816,12 @@
   "Occupied workspaces": "Occupied workspaces",
   "Off": "Off",
   "Off cuts straight to the new wallpaper.": "Off cuts straight to the new wallpaper.",
-<<<<<<< port (unstable-dev)
-  "Off leaves its onboard profile, hardware switch or other lighting software in charge.": "Off leaves its onboard profile, hardware switch or other lighting software in charge.",
-=======
   "Off here, but Lume frost is on for the %1 scheme, so surfaces are frost anyway.": "Off here, but Lume frost is on for the %1 scheme, so surfaces are frost anyway.",
   "Off keeps swimsuits, lingerie and fan service out of online results. Explicit art never shows.": "Off keeps swimsuits, lingerie and fan service out of online results. Explicit art never shows.",
   "Off leaves its onboard profile, hardware switch or other lighting software in charge.": "Off leaves its onboard profile, hardware switch or other lighting software in charge.",
   "Off shows a name in the header while you point at it.": "Off shows a name in the header while you point at it.",
   "Off the bar": "Off the bar",
   "Off the edge": "Off the edge",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Off turns the display dark; takes effect only when you Apply": "Off turns the display dark; takes effect only when you Apply",
   "Off uses straight corners for every Wall card.": "Off uses straight corners for every Wall card.",
   "Off · switch on to start it with the desktop": "Off · switch on to start it with the desktop",
@@ -7037,10 +6837,7 @@
   "Office": "Office",
   "Offline": "Offline",
   "Offline cards are saved devices, not false detections. Their choices stay ready for the next time they connect.": "Offline cards are saved devices, not false detections. Their choices stay ready for the next time they connect.",
-<<<<<<< port (unstable-dev)
-=======
   "Offline · %1": "Offline · %1",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Offline · starts with Rashin": "Offline · starts with Rashin",
   "Offsets": "Offsets",
   "Oh My Zsh": "Oh My Zsh",
@@ -7054,11 +6851,8 @@
   "On": "On",
   "On AC": "On AC",
   "On AC · Full": "On AC · Full",
-<<<<<<< port (unstable-dev)
   "On a normal GitHub flake input this advances only the Ryoku input and rebuilds. On a clean local Git checkout, Musubi can fast-forward the checkout, refresh its local flake hash and rebuild. A dirty or diverged checkout is refused so development work is never overwritten.": "On a normal GitHub flake input this advances only the Ryoku input and rebuilds. On a clean local Git checkout, Musubi can fast-forward the checkout, refresh its local flake hash and rebuild. A dirty or diverged checkout is refused so development work is never overwritten.",
-=======
   "On a schedule": "On a schedule",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "On a terminal: make the window bigger.": "On a terminal: make the window bigger.",
   "On a third": "On a third",
   "On an agent Rashin doesn't wire for you? Point it at these yourself, or copy the ready-made instructions and paste them into its config.": "On an agent Rashin doesn't wire for you? Point it at these yourself, or copy the ready-made instructions and paste them into its config.",
@@ -7103,11 +6897,6 @@
   "One": "One",
   "One Piece": "One Piece",
   "One app's own look. Anything left on Inherit follows the global.": "One app's own look. Anything left on Inherit follows the global.",
-<<<<<<< port (unstable-dev)
-  "One click adopts the device, picks a colour-capable mode and starts following the palette. Turning it off hands the device back.": "One click adopts the device, picks a colour-capable mode and starts following the palette. Turning it off hands the device back.",
-  "One continuous plate": "One continuous plate",
-  "One finger clicks left, two right, three middle.": "One finger clicks left, two right, three middle.",
-=======
   "One black band on every edge, with the screen's corners turned inward. Windows and the Island sit inside it.": "One black band on every edge, with the screen's corners turned inward. Windows and the Island sit inside it.",
   "One click adopts the device, picks a colour-capable mode and starts following the palette. Turning it off hands the device back.": "One click adopts the device, picks a colour-capable mode and starts following the palette. Turning it off hands the device back.",
   "One continuous plate": "One continuous plate",
@@ -7121,7 +6910,6 @@
   "Online order": "Online order",
   "Online sources": "Online sources",
   "Online · %1%": "Online · %1%",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Only %dG free; alongside needs %dG (a %dG root plus a %dG boot partition). Shrink an existing partition first, or press esc and choose 'Erase whole disk'.": "Only %dG free; alongside needs %dG (a %dG root plus a %dG boot partition). Shrink an existing partition first, or press esc and choose 'Erase whole disk'.",
   "Only matters on a machine with a battery.": "Only matters on a machine with a battery.",
   "Only needed when steamcmd is used for browsing. The Steam client method browses through the running client without a key.": "Only needed when steamcmd is used for browsing. The Steam client method browses through the running client without a key.",
@@ -7190,16 +6978,13 @@
   "Open it from the player, a bubble or Control Center; these rows only change what the panel shows.": "Open it from the player, a bubble or Control Center; these rows only change what the panel shows.",
   "Open its card": "Open its card",
   "Open maximised apps as a windowed tile inside your gaps": "Open maximised apps as a windowed tile inside your gaps",
-<<<<<<< port (unstable-dev)
-  "Open only what you need. Every command is safe to copy and uses the detected flake target where possible.": "Open only what you need. Every command is safe to copy and uses the detected flake target where possible.",
-=======
   "Open mirror": "Open mirror",
   "Open network portal": "Open network portal",
   "Open newest file": "Open newest file",
   "Open notifications": "Open notifications",
   "Open now": "Open now",
   "Open on": "Open on",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "Open only what you need. Every command is safe to copy and uses the detected flake target where possible.": "Open only what you need. Every command is safe to copy and uses the detected flake target where possible.",
   "Open or WEP profile": "Open or WEP profile",
   "Open or close": "Open or close",
   "Open over the desktop": "Open over the desktop",
@@ -7238,9 +7023,6 @@
   "OpenAI API key": "OpenAI API key",
   "OpenAI Codex": "OpenAI Codex",
   "OpenCode": "OpenCode",
-<<<<<<< port (unstable-dev)
-  "OpenRGB is not installed. Run ryoku doctor, or open Ryoku Hub > Updates, to install the default app set.": "OpenRGB is not installed. Run ryoku doctor, or open Ryoku Hub > Updates, to install the default app set.",
-=======
   "OpenCode Go": "OpenCode Go",
   "OpenRGB is not installed. Run ryoku doctor, or open Ryoku Hub > Updates, to install the default app set.": "OpenRGB is not installed. Run ryoku doctor, or open Ryoku Hub > Updates, to install the default app set.",
   "OpenRouter": "OpenRouter",
@@ -7248,7 +7030,6 @@
   "OpenVPN and WireGuard profiles you add in NetworkManager show up here too.": "OpenVPN and WireGuard profiles you add in NetworkManager show up here too.",
   "OpenVPN files need NetworkManager's OpenVPN plugin (networkmanager-openvpn or NetworkManager-openvpn).": "OpenVPN files need NetworkManager's OpenVPN plugin (networkmanager-openvpn or NetworkManager-openvpn).",
   "Opened %1 on phone": "Opened %1 on phone",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Opening %1 in Looking Glass": "Opening %1 in Looking Glass",
   "Opening %1…": "Opening %1…",
   "Opening bodies": "Opening bodies",
@@ -7447,15 +7228,12 @@
   "Padding, gaps and control sizes.": "Padding, gaps and control sizes.",
   "Page": "Page",
   "Page %1 of %2": "Page %1 of %2",
-<<<<<<< port (unstable-dev)
-=======
   "Page buttons": "Page buttons",
   "Page over the screen": "Page over the screen",
   "Page titles and card heads.": "Page titles and card heads.",
   "Page width": "Page width",
   "Pages": "Pages",
   "Painted by Ryoku on this device's per-key mode, so they work whatever its firmware supports. They need Ryoku running.": "Painted by Ryoku on this device's per-key mode, so they work whatever its firmware supports. They need Ryoku running.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Pair": "Pair",
   "Paired": "Paired",
   "Paired Devices": "Paired Devices",
@@ -8141,12 +7919,9 @@
   "RYOKU RENDERS ON": "RYOKU RENDERS ON",
   "RYOKU · %1 · KERNEL %2 · SHOT ON BLACK": "RYOKU · %1 · KERNEL %2 · SHOT ON BLACK",
   "RYOKU-": "RYOKU-",
-<<<<<<< port (unstable-dev)
-  "RYOKU_BROWSER='%s' is not one of the shipped browsers (firefox|chromium|zen)": "RYOKU_BROWSER='%s' is not one of the shipped browsers (firefox|chromium|zen)",
-=======
   "RYOKU_BROWSER='%s' is not one of the shipped browsers (%s)": "RYOKU_BROWSER='%s' is not one of the shipped browsers (%s)",
+  "RYOKU_BROWSER='%s' is not one of the shipped browsers (firefox|chromium|zen)": "RYOKU_BROWSER='%s' is not one of the shipped browsers (firefox|chromium|zen)",
   "RYOKU_CACHYOS_LAYER must be 0 or 1 (got '%s')": "RYOKU_CACHYOS_LAYER must be 0 or 1 (got '%s')",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "RYOKU_COMPOSITOR is required (which window manager to install)": "RYOKU_COMPOSITOR is required (which window manager to install)",
   "RYOKU_COMPOSITOR_CONFIG_DIR is required: the TUI derives it from wm.ConfigDir, so an empty value means '$RYOKU_COMPOSITOR' is not a known compositor. Refusing rather than seeding an unseeded desktop.": "RYOKU_COMPOSITOR_CONFIG_DIR is required: the TUI derives it from wm.ConfigDir, so an empty value means '$RYOKU_COMPOSITOR' is not a known compositor. Refusing rather than seeding an unseeded desktop.",
   "RYOKU_DISK is required": "RYOKU_DISK is required",
@@ -8154,14 +7929,11 @@
   "RYOKU_DISK_STRATEGY=": "RYOKU_DISK_STRATEGY=",
   "RYOKU_ENCRYPT=1 but RYOKU_LUKS_PASSPHRASE is unset": "RYOKU_ENCRYPT=1 but RYOKU_LUKS_PASSPHRASE is unset",
   "RYOKU_ESP_MODE must be auto, shared, or dedicated (got": "RYOKU_ESP_MODE must be auto, shared, or dedicated (got",
-<<<<<<< port (unstable-dev)
-  "RYOKU_LOGIN_SHELL='%s' is not one of the shipped login shells (fish|zsh|bash)": "RYOKU_LOGIN_SHELL='%s' is not one of the shipped login shells (fish|zsh|bash)",
-=======
   "RYOKU_FILE_MANAGER='%s' is not one of the shipped file managers (%s)": "RYOKU_FILE_MANAGER='%s' is not one of the shipped file managers (%s)",
   "RYOKU_HIDE_APPS contains invalid desktop id '%s' (use plain *.desktop file names)": "RYOKU_HIDE_APPS contains invalid desktop id '%s' (use plain *.desktop file names)",
   "RYOKU_HIDE_APPS must be a comma list of plain *.desktop file names": "RYOKU_HIDE_APPS must be a comma list of plain *.desktop file names",
   "RYOKU_LOGIN_SHELL='%s' is not one of the shipped login shells (%s)": "RYOKU_LOGIN_SHELL='%s' is not one of the shipped login shells (%s)",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "RYOKU_LOGIN_SHELL='%s' is not one of the shipped login shells (fish|zsh|bash)": "RYOKU_LOGIN_SHELL='%s' is not one of the shipped login shells (fish|zsh|bash)",
   "RYOKU_PASSWORD_HASH is required": "RYOKU_PASSWORD_HASH is required",
   "RYOKU_RASHIN must be 0 or 1 (got '%s')": "RYOKU_RASHIN must be 0 or 1 (got '%s')",
   "RYOKU_RESIZE_PART is set but strategy is": "RYOKU_RESIZE_PART is set but strategy is",
@@ -8260,11 +8032,8 @@
   "Reboot to land in the Ryoku greeter and your new session.": "Reboot to land in the Ryoku greeter and your new session.",
   "Reboot to move the display.": "Reboot to move the display.",
   "Reboot, enter firmware setup, disable CSM / Legacy boot and": "Reboot, enter firmware setup, disable CSM / Legacy boot and",
-<<<<<<< port (unstable-dev)
   "Rebuild safely": "Rebuild safely",
-=======
   "Receiving file...": "Receiving file...",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Recent": "Recent",
   "Recent asks": "Recent asks",
   "Recent downloads": "Recent downloads",
@@ -8429,11 +8198,8 @@
   "Remove this reference from the model list. The model files and built index are kept.": "Remove this reference from the model list. The model files and built index are kept.",
   "Remove this resolution preset.": "Remove this resolution preset.",
   "Remove this shortcut": "Remove this shortcut",
-<<<<<<< port (unstable-dev)
-=======
   "Remove widget": "Remove widget",
   "Removed": "Removed",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Removed %1": "Removed %1",
   "Removed %1 and deleted its disk": "Removed %1 and deleted its disk",
   "Removed %s: reclaimed %d packages (%s).": "Removed %s: reclaimed %d packages (%s).",
@@ -8480,12 +8246,9 @@
   "Required for USB connection, quick actions (screenshot, power button) and opening apps from notifications.": "Required for USB connection, quick actions (screenshot, power button) and opening apps from notifications.",
   "Required rows back a desktop feature and cannot be removed.": "Required rows back a desktop feature and cannot be removed.",
   "Rescan devices": "Rescan devices",
-<<<<<<< port (unstable-dev)
-=======
   "Reserve room for windows": "Reserve room for windows",
   "Reserve screen space": "Reserve screen space",
   "Reserve space for windows": "Reserve space for windows",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Reset": "Reset",
   "Reset %1": "Reset %1",
   "Reset ALL user edits under %s to Ryoku defaults?": "Reset ALL user edits under %s to Ryoku defaults?",
@@ -8647,12 +8410,9 @@
   "Rotating gradient border": "Rotating gradient border",
   "Rotation": "Rotation",
   "Rotation speed": "Rotation speed",
-<<<<<<< port (unstable-dev)
-  "Round Chroma's module surfaces.": "Round Chroma's module surfaces.",
-=======
   "Round": "Round",
+  "Round Chroma's module surfaces.": "Round Chroma's module surfaces.",
   "Round album cover": "Round album cover",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Round corners": "Round corners",
   "Round draws each switch as a disc with its name under it; Tiles are rounded squares.": "Round draws each switch as a disc with its name under it; Tiles are rounded squares.",
   "Round the card corners. Cards further out round a little less.": "Round the card corners. Cards further out round a little less.",
@@ -8694,10 +8454,7 @@
   "Rules stay saved, but none of them will run.": "Rules stay saved, but none of them will run.",
   "Run": "Run",
   "Run by the device itself, so they keep going when Ryoku closes.": "Run by the device itself, so they keep going when Ryoku closes.",
-<<<<<<< port (unstable-dev)
-=======
   "Run by the device itself, so they keep going with Ryoku closed. An effect that does nothing is its firmware; a Ryoku effect above will work instead.": "Run by the device itself, so they keep going with Ryoku closed. An effect that does nothing is its firmware; a Ryoku effect above will work instead.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Run command": "Run command",
   "Run custom output": "Run custom output",
   "Run every time": "Run every time",
@@ -8739,10 +8496,7 @@
   "Ryoku channel move": "Ryoku channel move",
   "Ryoku console boot entries no package keeps up to date": "Ryoku console boot entries no package keeps up to date",
   "Ryoku controls this device": "Ryoku controls this device",
-<<<<<<< port (unstable-dev)
-=======
   "Ryoku design": "Ryoku design",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Ryoku desktop variants are not available in this distribution's repository for %s; those login sessions will be bare": "Ryoku desktop variants are not available in this distribution's repository for %s; those login sessions will be bare",
   "Ryoku diagnostic report": "Ryoku diagnostic report",
   "Ryoku does not manage this path.": "Ryoku does not manage this path.",
@@ -8761,13 +8515,7 @@
   "Ryoku maintainer - Neur0map": "Ryoku maintainer - Neur0map",
   "Ryoku needs at least %d × %d; this console is %d × %d.": "Ryoku needs at least %d × %d; this console is %d × %d.",
   "Ryoku needs your password to take a snapshot and install packages.": "Ryoku needs your password to take a snapshot and install packages.",
-<<<<<<< port (unstable-dev)
   "Ryoku needs your password to update the flake and switch the new NixOS generation.": "Ryoku needs your password to update the flake and switch the new NixOS generation.",
-  "Ryoku plays videos with its own GPU player by default. The in-shell engine keeps audio inside the desktop.": "Ryoku plays videos with its own GPU player by default. The in-shell engine keeps audio inside the desktop.",
-  "Ryoku publishes packages for Fedora %s": "Ryoku publishes packages for Fedora %s",
-  "Ryoku shell": "Ryoku shell",
-  "Ryoku shell installer": "Ryoku shell installer",
-=======
   "Ryoku notification": "Ryoku notification",
   "Ryoku on Fedora (experimental edition)": "Ryoku on Fedora (experimental edition)",
   "Ryoku on Void": "Ryoku on Void",
@@ -8781,7 +8529,6 @@
   "Ryoku shell installer": "Ryoku shell installer",
   "Ryoku ships %d browsers on this edition; pick the one you want, or none.": "Ryoku ships %d browsers on this edition; pick the one you want, or none.",
   "Ryoku ships %d browsers on this edition; pick the one you want.": "Ryoku ships %d browsers on this edition; pick the one you want.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Ryoku ships this and overwrites it on every update. Fork it into the overlay at %s to keep a change; `ryoku reset %s` undoes the fork.": "Ryoku ships this and overwrites it on every update. Fork it into the overlay at %s to keep a change; `ryoku reset %s` undoes the fork.",
   "Ryoku ships this and overwrites it on every update. Put your change in %s instead; Ryoku reads it but never overwrites it.": "Ryoku ships this and overwrites it on every update. Put your change in %s instead; Ryoku reads it but never overwrites it.",
   "Ryoku ships this and overwrites it on every update. The shell tree cannot be forked (a fork breaks the shell); change it through ryoku-shell, Ryoku Hub, or a plugin (`ryoku plugin`).": "Ryoku ships this and overwrites it on every update. The shell tree cannot be forked (a fork breaks the shell); change it through ryoku-shell, Ryoku Hub, or a plugin (`ryoku plugin`).",
@@ -8986,11 +8733,8 @@
   "Save the selected display's resolution and scale under a name, then pick it from the Resolution list.": "Save the selected display's resolution and scale under a name, then pick it from the Resolution list.",
   "Save this desktop as a rice": "Save this desktop as a rice",
   "Save this layout under a name so it returns when you plug the same displays in again.": "Save this layout under a name so it returns when you plug the same displays in again.",
-<<<<<<< port (unstable-dev)
-=======
   "Save this screen's drawing to Notes": "Save this screen's drawing to Notes",
   "Save to Notes": "Save to Notes",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Save to device": "Save to device",
   "Saved": "Saved",
   "Saved %1": "Saved %1",
@@ -9024,13 +8768,10 @@
   "Saving...": "Saving...",
   "Saving…": "Saving…",
   "Scale": "Scale",
-<<<<<<< port (unstable-dev)
-  "Scale Chroma without changing the display scale.": "Scale Chroma without changing the display scale.",
-=======
   "Scale & Appearance": "Scale & Appearance",
   "Scale & Size": "Scale & Size",
+  "Scale Chroma without changing the display scale.": "Scale Chroma without changing the display scale.",
   "Scale icons and their spacing together": "Scale icons and their spacing together",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Scale of the drop shadow, 1 matches the window": "Scale of the drop shadow, 1 matches the window",
   "Scale reduction per card away from the centre, from 0 to 1. Zero keeps their sizes equal.": "Scale reduction per card away from the centre, from 0 to 1. Zero keeps their sizes equal.",
   "Scale the bar without changing display scaling.": "Scale the bar without changing display scaling.",
@@ -9166,12 +8907,9 @@
   "Search installed fonts": "Search installed fonts",
   "Search instant images": "Search instant images",
   "Search line": "Search line",
-<<<<<<< port (unstable-dev)
-  "Search nixpkgs before editing your package list.": "Search nixpkgs before editing your package list.",
-=======
   "Search live wallpapers": "Search live wallpapers",
   "Search mode shortcuts": "Search mode shortcuts",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "Search nixpkgs before editing your package list.": "Search nixpkgs before editing your package list.",
   "Search offline": "Search offline",
   "Search only when I press Apply": "Search only when I press Apply",
   "Search panel": "Search panel",
@@ -9479,16 +9217,11 @@
   "Shortcuts": "Shortcuts",
   "Shortcuts, commands, your phone and quick tools.": "Shortcuts, commands, your phone and quick tools.",
   "Shortcuts, not default apps": "Shortcuts, not default apps",
-<<<<<<< port (unstable-dev)
   "Shorten the commands you use every day.": "Shorten the commands you use every day.",
-=======
   "Shorter durations feel snappier; the curve stays the same.": "Shorter durations feel snappier; the curve stays the same.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Shot": "Shot",
   "Shoulders": "Shoulders",
   "Show": "Show",
-<<<<<<< port (unstable-dev)
-=======
   "Show 'TIME' Top Header": "Show 'TIME' Top Header",
   "Show 24h Progress Arc": "Show 24h Progress Arc",
   "Show AM/PM Chip (12-Hour Mode)": "Show AM/PM Chip (12-Hour Mode)",
@@ -9500,7 +9233,6 @@
   "Show Battery Status": "Show Battery Status",
   "Show Bedtime Icon": "Show Bedtime Icon",
   "Show Bezel Ring": "Show Bezel Ring",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Show Bing Daily in the download source picker.": "Show Bing Daily in the download source picker.",
   "Show Caption or Badge": "Show Caption or Badge",
   "Show Charging Icon": "Show Charging Icon",
@@ -9534,8 +9266,6 @@
   "Show YouTube in the download source picker.": "Show YouTube in the download source picker.",
   "Show a folder dropdown when the wallpaper folder contains subfolders.": "Show a folder dropdown when the wallpaper folder contains subfolders.",
   "Show above lock": "Show above lock",
-<<<<<<< port (unstable-dev)
-=======
   "Show active workspace indicator": "Show active workspace indicator",
   "Show add event button": "Show add event button",
   "Show addresses": "Show addresses",
@@ -9545,7 +9275,6 @@
   "Show app drawer button": "Show app drawer button",
   "Show app icons": "Show app icons",
   "Show artist": "Show artist",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Show as": "Show as",
   "Show audio device pill": "Show audio device pill",
   "Show background": "Show background",
@@ -9635,13 +9364,10 @@
   "Show webcam": "Show webcam",
   "Show whether the bridge service is enabled, active, and responding.": "Show whether the bridge service is enabled, active, and responding.",
   "Show whole": "Show whole",
-<<<<<<< port (unstable-dev)
-  "Show workspace numbers, names or compact dots.": "Show workspace numbers, names or compact dots.",
-=======
   "Show window count dots": "Show window count dots",
   "Show windows": "Show windows",
   "Show workspace arrows": "Show workspace arrows",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "Show workspace numbers, names or compact dots.": "Show workspace numbers, names or compact dots.",
   "Show/hide filter bar": "Show/hide filter bar",
   "Show/hide hidden folders": "Show/hide hidden folders",
   "Showcase": "Showcase",
@@ -9833,11 +9559,8 @@
   "Space": "Space",
   "Space Grotesk": "Space Grotesk",
   "Space Grotesk 14": "Space Grotesk 14",
-<<<<<<< port (unstable-dev)
-  "Space between Chroma modules.": "Space between Chroma modules.",
-=======
   "Space around what the resting Island shows.": "Space around what the resting Island shows.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "Space between Chroma modules.": "Space between Chroma modules.",
   "Space between neighbouring tiled windows": "Space between neighbouring tiled windows",
   "Space between windows and the screen edge": "Space between windows and the screen edge",
   "Space for Ryoku": "Space for Ryoku",
@@ -9899,13 +9622,10 @@
   "Stacks gather loose files automatically.": "Stacks gather loose files automatically.",
   "Stacks gather loose folders automatically.": "Stacks gather loose folders automatically.",
   "Stage Editor": "Stage Editor",
-<<<<<<< port (unstable-dev)
-  "Stage Editor and ii dock (GPL-3.0)": "Stage Editor and ii dock (GPL-3.0)",
-=======
   "Stage Editor (GPL-3.0)": "Stage Editor (GPL-3.0)",
+  "Stage Editor and ii dock (GPL-3.0)": "Stage Editor and ii dock (GPL-3.0)",
   "Stage Editor, ii dock, Kit, Phone (GPL-3.0)": "Stage Editor, ii dock, Kit, Phone (GPL-3.0)",
   "Stage and dock settings use their current stores": "Stage and dock settings use their current stores",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Stage captured — lift and touch again": "Stage captured — lift and touch again",
   "Stage editor": "Stage editor",
   "Stagger when different parts of the old image leave. Higher values keep later regions in place longer.": "Stagger when different parts of the old image leave. Higher values keep later regions in place longer.",
@@ -10031,11 +9751,8 @@
   "Storage limit is too large.": "Storage limit is too large.",
   "Storage limits must be whole bytes, or 0 for no limit.": "Storage limits must be whole bytes, or 0 for no limit.",
   "Storage path": "Storage path",
-<<<<<<< port (unstable-dev)
-=======
   "Store aggregate scores locally, never typed text.": "Store aggregate scores locally, never typed text.",
   "Store this look in the device so it holds with Ryoku closed. It replaces what is in the device's active profile slot.": "Store this look in the device so it holds with Ryoku closed. It replaces what is in the device's active profile slot.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Stormy": "Stormy",
   "Story": "Story",
   "Straight": "Straight",
@@ -10524,11 +10241,8 @@
   "The full-colour wallpaper bar.": "The full-colour wallpaper bar.",
   "The furthest the camera can travel": "The furthest the camera can travel",
   "The furthest the cut-outs can travel": "The furthest the cut-outs can travel",
-<<<<<<< port (unstable-dev)
-=======
   "The glanced detail: timers, badges and activity rings.": "The glanced detail: timers, badges and activity rings.",
   "The glyph, name and figure at the top of the sound and microphone cards.": "The glyph, name and figure at the top of the sound and microphone cards.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "The graphics driver was updated from %s to %s; restart the computer before logging out, or the next login opens on a black screen.": "The graphics driver was updated from %s to %s; restart the computer before logging out, or the next login opens on a black screen.",
   "The halo's tint, picked here, not taken from the theme": "The halo's tint, picked here, not taken from the theme",
   "The health check found issues after this update.": "The health check found issues after this update.",
@@ -10547,8 +10261,6 @@
   "The keys that matter": "The keys that matter",
   "The last build for %1 failed. Updating takes the previous good build.": "The last build for %1 failed. Updating takes the previous good build.",
   "The last build of %s failed for %s (%s); this update takes the previous good build": "The last build of %s failed for %s (%s); this update takes the previous good build",
-<<<<<<< port (unstable-dev)
-=======
   "The last screen showing the colour wallpaper. Take the colours from another screen first.": "The last screen showing the colour wallpaper. Take the colours from another screen first.",
   "The latest, under the grid.": "The latest, under the grid.",
   "The left side panel": "The left side panel",
@@ -10556,7 +10268,6 @@
   "The line around each widget. Auto follows the shell's outline on Glass, Solid and Tinted and leaves Transparent bare. While arranging it always shows.": "The line around each widget. Auto follows the shell's outline on Glass, Solid and Tinted and leaves Transparent bare. While arranging it always shows.",
   "The lines speed up and swell with the beat of what is playing. Off, they only drift slowly.": "The lines speed up and swell with the beat of what is playing. Off, they only drift slowly.",
   "The link you are on as a signal arc; its card holds the networks.": "The link you are on as a signal arc; its card holds the networks.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "The live Material palette colours the title, labels, sections, rules and percentage gauges. Your fixed accent stays saved underneath.": "The live Material palette colours the title, labels, sections, rules and percentage gauges. Your fixed accent stays saved underneath.",
   "The live appearance editor": "The live appearance editor",
   "The live scenes and miniatures in Settings and Customize. Off, none of them is built, which saves memory and a little work while you browse.": "The live scenes and miniatures in Settings and Customize. Off, none of them is built, which saves memory and a little work while you browse.",
@@ -10572,11 +10283,8 @@
   "The model stopped with an error.": "The model stopped with an error.",
   "The monochrome painted frame.": "The monochrome painted frame.",
   "The monospace face used by terminals and code.": "The monospace face used by terminals and code.",
-<<<<<<< port (unstable-dev)
-=======
   "The moon on the Do Not Disturb bubble. Silenced is shown by the filled disc behind it, so the glyph stays yours.": "The moon on the Do Not Disturb bubble. Silenced is shown by the filled disc behind it, so the glyph stays yours.",
   "The most one change can raise the volume.": "The most one change can raise the volume.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "The mouse remapper refused the change.": "The mouse remapper refused the change.",
   "The name nearby devices see": "The name nearby devices see",
   "The native watcher is active again; a full scan is still running before the library is current.": "The native watcher is active again; a full scan is still running before the library is current.",
@@ -10617,11 +10325,8 @@
   "The popular one | Best quantity, but quality can vary wildly": "The popular one | Best quantity, but quality can vary wildly",
   "The preset could not be applied.": "The preset could not be applied.",
   "The preview failed.": "The preview failed.",
-<<<<<<< port (unstable-dev)
-=======
   "The previous config is still in use": "The previous config is still in use",
   "The profile of every bubble, bar and satellite. Squircles and squares read like app tiles.": "The profile of every bubble, bar and satellite. Squircles and squares read like app tiles.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "The proportional face used by the shell and apps.": "The proportional face used by the shell and apps.",
   "The radio is off at the hardware level (rfkill); the toggle unblocks it.": "The radio is off at the hardware level (rfkill); the toggle unblocks it.",
   "The readout's lines: reorder, rename, remove": "The readout's lines: reorder, rename, remove",
@@ -10735,15 +10440,12 @@
   "Thin": "Thin",
   "Thin Ring": "Thin Ring",
   "Thinking…": "Thinking…",
-<<<<<<< port (unstable-dev)
-=======
   "Thinner": "Thinner",
   "Thirteen": "Thirteen",
   "Thirty": "Thirty",
   "This Void edition is experimental.": "This Void edition is experimental.",
   "This account does not use a managed home folder.": "This account does not use a managed home folder.",
   "This account's home is not a Btrfs subvolume.": "This account's home is not a Btrfs subvolume.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "This add-on has no configurable settings.": "This add-on has no configurable settings.",
   "This block has no smaller parts.": "This block has no smaller parts.",
   "This cloud engine needs an API key. It is stored locally in your Voxtype config.": "This cloud engine needs an API key. It is stored locally in your Voxtype config.",
@@ -11041,13 +10743,9 @@
   "Turn every sound below on or off at once. Apps and media are not affected.": "Turn every sound below on or off at once. Apps and media are not affected.",
   "Turn it off later on the Rashin page": "Turn it off later on the Rashin page",
   "Turn it on to search wallpapers by describing them. Tag search stays available either way.": "Turn it on to search wallpapers by describing them. Tag search stays available either way.",
-<<<<<<< port (unstable-dev)
-  "Turn lighting on in RGB lighting before adopting or changing a device.": "Turn lighting on in RGB lighting before adopting or changing a device.",
-=======
   "Turn left": "Turn left",
   "Turn lighting on in RGB lighting before adopting or changing a device.": "Turn lighting on in RGB lighting before adopting or changing a device.",
   "Turn off": "Turn off",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Turn off %1": "Turn off %1",
   "Turn off stacks": "Turn off stacks",
   "Turn off to skip the thumbnail effect and reveal the back directly.": "Turn off to skip the thumbnail effect and reveal the back directly.",
@@ -11277,10 +10975,7 @@
   "Updated %1": "Updated %1",
   "Updates": "Updates",
   "Updates are held until the channel build finishes.": "Updates are held until the channel build finishes.",
-<<<<<<< port (unstable-dev)
-=======
   "Updating": "Updating",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Updating %d Ryoku package(s); %d already newer than the repository serves stay as they are": "Updating %d Ryoku package(s); %d already newer than the repository serves stay as they are",
   "Updating %d Ryoku package(s); the base system stays as it is": "Updating %d Ryoku package(s); the base system stays as it is",
   "Updating %d system package(s) (%s, kernel included)": "Updating %d system package(s) (%s, kernel included)",
@@ -11305,12 +11000,9 @@
   "Uptime": "Uptime",
   "Urgent notification": "Urgent notification",
   "Urgent reminder to plug in. Must be below the warning percentage.": "Urgent reminder to plug in. Must be below the warning percentage.",
-<<<<<<< port (unstable-dev)
   "Usage: ryoku <command>\n\n  update         update Ryoku packages/channel commits, redeploy and reload\n  update --system  the same, plus the host distribution package upgrade\n  update --wait  wait for an in-progress channel build/source check\n  update --force update despite an in-progress build/source check\n  update -v      stream full raw update output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   NixOS: stable|unstable; packages: stable|unstable|v<tag>; --source builds a checkout\n  rollback       list releases/snapshots; --to <tag> moves back to a release; [id] guides snapshot restore\n  snapshots      list snapper snapshots\n  status         show channel, installed/latest version, pending changes and snapshots\n  version        print version/commit information (--pretty, --branch)\n  materialize    compose the Ryoku base config into ~/.config while preserving overrides\n  reset [path]   drop a user_edits override (no path: all, -y skips confirmation)\n  owner <path>   classify config ownership (--json, --map)\n  reload         restart the shell and reload the compositor\n  wm <cmd>       provider-backed window-manager controls\n  host <cmd>     internal host abstraction used by scripts and the Hub\n  bind <cmd>     set/reset/list keybindings\n  bar <cmd>      add/remove/move/show/hide/list/configure bar modules\n  deploy         DEV ONLY: deploy from a repository checkout\n  recovery       last-resort reset/redeploy recovery path\n  doctor         converge system/config drift (--check, --explain)\n  verify         report whether this box matches its configured release/channel\n  debug          print a shareable diagnostic bundle\n  keyring        show or configure GNOME keyring sign-in unlock\n  security-key   enroll and wire a FIDO2/U2F security key for PAM\n  import <path>  import existing config with conflict resolution (--undo)\n  plugin <cmd>   create/validate/add/remove/share shell plugins\n  help           show this help": "Usage: ryoku <command>\n\n  update         update Ryoku packages/channel commits, redeploy and reload\n  update --system  the same, plus the host distribution package upgrade\n  update --wait  wait for an in-progress channel build/source check\n  update --force update despite an in-progress build/source check\n  update -v      stream full raw update output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   NixOS: stable|unstable; packages: stable|unstable|v<tag>; --source builds a checkout\n  rollback       list releases/snapshots; --to <tag> moves back to a release; [id] guides snapshot restore\n  snapshots      list snapper snapshots\n  status         show channel, installed/latest version, pending changes and snapshots\n  version        print version/commit information (--pretty, --branch)\n  materialize    compose the Ryoku base config into ~/.config while preserving overrides\n  reset [path]   drop a user_edits override (no path: all, -y skips confirmation)\n  owner <path>   classify config ownership (--json, --map)\n  reload         restart the shell and reload the compositor\n  wm <cmd>       provider-backed window-manager controls\n  host <cmd>     internal host abstraction used by scripts and the Hub\n  bind <cmd>     set/reset/list keybindings\n  bar <cmd>      add/remove/move/show/hide/list/configure bar modules\n  deploy         DEV ONLY: deploy from a repository checkout\n  recovery       last-resort reset/redeploy recovery path\n  doctor         converge system/config drift (--check, --explain)\n  verify         report whether this box matches its configured release/channel\n  debug          print a shareable diagnostic bundle\n  keyring        show or configure GNOME keyring sign-in unlock\n  security-key   enroll and wire a FIDO2/U2F security key for PAM\n  import <path>  import existing config with conflict resolution (--undo)\n  plugin <cmd>   create/validate/add/remove/share shell plugins\n  help           show this help",
-=======
   "Usage: ryoku <command>\n\n  update         update the Ryoku packages (or channel commits), redeploy, reload\n  update --system  the same, plus your distribution's package upgrade\n  update --wait wait for a channel build or source check to finish\n  update --force  update despite an in-progress build or source check\n  update -v      the same, streaming the full raw output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   packages: stable|unstable|v<tag>; add --source to build from a checkout\n  rollback       list releases and snapshots; --to <tag> moves back to a release; [id] guides a snapshot restore\n  status         show channel, installed/latest version, pending changes, snapshot count\n  version        <version> [<commit>]; --pretty -> <version> · <commit>, --branch -> channel\n  owner          <path>... [--json] | --map: classify config ownership\n  materialize    (internal) compose immutable base + user_edits into ~/.config\n  doctor         converge drift (--check reports only; --explain shows every reconciler)\n  wm             list|status|caps|config|act ... (provider-backed window-manager seam)\n  host           internal host abstraction used by scripts and the Hub\n  bind            set|reset <action> <chord>; list [--json]\n  plugin          new|validate|add|remove|share ...\n  bar             add|remove|move|show|hide|list|settings|position|form ...\n  help           show this help": "Usage: ryoku <command>\n\n  update         update the Ryoku packages (or channel commits), redeploy, reload\n  update --system  the same, plus your distribution's package upgrade\n  update --wait wait for a channel build or source check to finish\n  update --force  update despite an in-progress build or source check\n  update -v      the same, streaming the full raw output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   packages: stable|unstable|v<tag>; add --source to build from a checkout\n  rollback       list releases and snapshots; --to <tag> moves back to a release; [id] guides a snapshot restore\n  status         show channel, installed/latest version, pending changes, snapshot count\n  version        <version> [<commit>]; --pretty -> <version> · <commit>, --branch -> channel\n  owner          <path>... [--json] | --map: classify config ownership\n  materialize    (internal) compose immutable base + user_edits into ~/.config\n  doctor         converge drift (--check reports only; --explain shows every reconciler)\n  wm             list|status|caps|config|act ... (provider-backed window-manager seam)\n  host           internal host abstraction used by scripts and the Hub\n  bind            set|reset <action> <chord>; list [--json]\n  plugin          new|validate|add|remove|share ...\n  bar             add|remove|move|show|hide|list|settings|position|form ...\n  help           show this help",
   "Usage: ryoku <command>\n\n  update         update the Ryoku packages (or channel commits), redeploy, reload\n  update --system  the same, plus your distribution's package upgrade\n  update -v      the same, streaming the full raw output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   packages: stable|unstable|v<tag>; add --source to build from a checkout\n  rollback       list releases and snapshots; --to <tag> moves back to a release; [id] guides a snapshot restore\n  status         show channel, installed/latest version, pending changes, snapshot count\n  version        <version> [<commit>]; --pretty -> <version> · <commit>, --branch -> channel\n  owner          <path>... [--json] | --map: classify config ownership\n  materialize    (internal) compose immutable base + user_edits into ~/.config\n  doctor         converge drift (--check reports only; --explain shows every reconciler)\n  wm             list|status|caps|config|act ... (provider-backed window-manager seam)\n  host           internal host abstraction used by scripts and the Hub\n  bind            set|reset <action> <chord>; list [--json]\n  plugin          new|validate|add|remove|share ...\n  bar             add|remove|move|show|hide|list|settings|position|form ...\n  help           show this help": "Usage: ryoku <command>\n\n  update         update the Ryoku packages (or channel commits), redeploy, reload\n  update --system  the same, plus your distribution's package upgrade\n  update -v      the same, streaming the full raw output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   packages: stable|unstable|v<tag>; add --source to build from a checkout\n  rollback       list releases and snapshots; --to <tag> moves back to a release; [id] guides a snapshot restore\n  status         show channel, installed/latest version, pending changes, snapshot count\n  version        <version> [<commit>]; --pretty -> <version> · <commit>, --branch -> channel\n  owner          <path>... [--json] | --map: classify config ownership\n  materialize    (internal) compose immutable base + user_edits into ~/.config\n  doctor         converge drift (--check reports only; --explain shows every reconciler)\n  wm             list|status|caps|config|act ... (provider-backed window-manager seam)\n  host           internal host abstraction used by scripts and the Hub\n  bind            set|reset <action> <chord>; list [--json]\n  plugin          new|validate|add|remove|share ...\n  bar             add|remove|move|show|hide|list|settings|position|form ...\n  help           show this help",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Usage: ryoku debug   # print a shareable diagnostic bundle for bug reports": "Usage: ryoku debug   # print a shareable diagnostic bundle for bug reports",
   "Usage: ryoku doctor [--check] [--verbose] [--report [file]] [--explain]\n\n  (no args)        check, and apply the safe automatic fixes\n  --check, -n      report what is wrong without changing anything\n  --verbose, -v    also list the checks that passed and advisory notes\n  --report [file]  write a shareable diagnostic report for the maintainers\n                   (default: %s)\n  --explain        ask your cloud model (Groq/OpenRouter) to reason over the report\n  --json           emit findings as JSON (read-only; powers the Hub System Check)": "Usage: ryoku doctor [--check] [--verbose] [--report [file]] [--explain]\n\n  (no args)        check, and apply the safe automatic fixes\n  --check, -n      report what is wrong without changing anything\n  --verbose, -v    also list the checks that passed and advisory notes\n  --report [file]  write a shareable diagnostic report for the maintainers\n                   (default: %s)\n  --explain        ask your cloud model (Groq/OpenRouter) to reason over the report\n  --json           emit findings as JSON (read-only; powers the Hub System Check)",
   "Usage: ryoku import <path> [flags]\n\n  <path>              a config folder, a dropped ~/.config, or a dotfiles tree\n  --url <git-url>     clone a dotfiles repo instead of reading a local path\n  --keep mine|ryoku   how to settle every keybind clash (default: mine)\n  --undo [<ts>]       roll back the last import, or the one stamped <ts>\n\nHeadless: scan, resolve all conflicts to one side, apply, print the change set.\nThe Hub's Import page is the interactive path for reviewing clash by clash.": "Usage: ryoku import <path> [flags]\n\n  <path>              a config folder, a dropped ~/.config, or a dotfiles tree\n  --url <git-url>     clone a dotfiles repo instead of reading a local path\n  --keep mine|ryoku   how to settle every keybind clash (default: mine)\n  --undo [<ts>]       roll back the last import, or the one stamped <ts>\n\nHeadless: scan, resolve all conflicts to one side, apply, print the change set.\nThe Hub's Import page is the interactive path for reviewing clash by clash.",
@@ -11343,13 +11035,10 @@
   "Use Matugen for wallpaper colours. Turning this off uses built-in Iris.": "Use Matugen for wallpaper colours. Turning this off uses built-in Iris.",
   "Use Organic visualizer": "Use Organic visualizer",
   "Use Parallax": "Use Parallax",
-<<<<<<< port (unstable-dev)
   "Use Ryoku's Nix updater for the Ryoku input itself.": "Use Ryoku's Nix updater for the Ryoku input itself.",
-=======
   "Use To-Do context": "Use To-Do context",
   "Use a Material Symbol name or an SVG/distro name from the icons folder.": "Use a Material Symbol name or an SVG/distro name from the icons folder.",
   "Use a Material Symbol name, distro, or an SVG name from the icons folder.": "Use a Material Symbol name, distro, or an SVG name from the icons folder.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Use a clock time, sunrise, sunset, or add an offset such as sunset-30 or sunrise+45.": "Use a clock time, sunrise, sunset, or add an offset such as sunset-30 or sunrise+45.",
   "Use a dedicated Android display for apps.": "Use a dedicated Android display for apps.",
   "Use a depth map to draw the wallpaper as a 3D scene.": "Use a depth map to draw the wallpaper as a 3D scene.",
@@ -11375,13 +11064,10 @@
   "Use groups only when one rule needs a mix of all/any logic.": "Use groups only when one rule needs a mix of all/any logic.",
   "Use media context": "Use media context",
   "Use mine": "Use mine",
-<<<<<<< port (unstable-dev)
-  "Use nix search to find the exact nixpkgs attribute. Once you know the package name, add it to the appropriate package list and rebuild.": "Use nix search to find the exact nixpkgs attribute. Once you know the package name, add it to the appropriate package list and rebuild.",
-  "Use passkey for": "Use passkey for",
-=======
   "Use names for calls, messages and search.": "Use names for calls, messages and search.",
   "Use neutral Spotify styling": "Use neutral Spotify styling",
   "Use neutral text instead of wallpaper text colours.": "Use neutral text instead of wallpaper text colours.",
+  "Use nix search to find the exact nixpkgs attribute. Once you know the package name, add it to the appropriate package list and rebuild.": "Use nix search to find the exact nixpkgs attribute. Once you know the package name, add it to the appropriate package list and rebuild.",
   "Use on every widget": "Use on every widget",
   "Use output as input": "Use output as input",
   "Use passkey for": "Use passkey for",
@@ -11397,7 +11083,6 @@
   "Use the wallpaper accent on links, saved-track hearts, and selection indicators. Turn off for neutral highlights.": "Use the wallpaper accent on links, saved-track hearts, and selection indicators. Turn off for neutral highlights.",
   "Use the wallpaper accent on playback progress. Turn off for neutral progress bars.": "Use the wallpaper accent on playback progress. Turn off for neutral progress bars.",
   "Use the wallpaper accent on primary and playback buttons. Turn off for neutral buttons.": "Use the wallpaper accent on primary and playback buttons. Turn off for neutral buttons.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Use the wallpaper's accent": "Use the wallpaper's accent",
   "Use the whole disk": "Use the whole disk",
   "Use this": "Use this",
@@ -11638,14 +11323,11 @@
   "Waiting for samples": "Waiting for samples",
   "Waiting for the %s channel build of %s to finish (%s)": "Waiting for the %s channel build of %s to finish (%s)",
   "Waiting for the Matugen palette": "Waiting for the Matugen palette",
-<<<<<<< port (unstable-dev)
-=======
   "Waiting for the model to stop. Force stop ends it right away.": "Waiting for the model to stop. Force stop ends it right away.",
   "Waiting for the phone to be unlocked…": "Waiting for the phone to be unlocked…",
   "Waiting for the phone to reconnect…": "Waiting for the phone to reconnect…",
   "Waiting for your phone...": "Waiting for your phone...",
   "Wake from suspend": "Wake from suspend",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Wake host": "Wake host",
   "Wakes a sleeping computer for Medium and Strong reminders": "Wakes a sleeping computer for Medium and Strong reminders",
   "Wakes a sleeping computer shortly before the next alarm": "Wakes a sleeping computer shortly before the next alarm",
@@ -11739,8 +11421,6 @@
   "Wave opacity": "Wave opacity",
   "Waveform": "Waveform",
   "Waves": "Waves",
-<<<<<<< port (unstable-dev)
-=======
   "Waxing Crescent": "Waxing Crescent",
   "Waxing Gibbous": "Waxing Gibbous",
   "Wayfire": "Wayfire",
@@ -11750,7 +11430,6 @@
   "WearOS Clock (Watch)": "WearOS Clock (Watch)",
   "WearOS Clock Options": "WearOS Clock Options",
   "WearOS Clock disabled": "WearOS Clock disabled",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Weather": "Weather",
   "Weather Card 1x1": "Weather Card 1x1",
   "Weather Card 1x1 Options": "Weather Card 1x1 Options",
@@ -11984,11 +11663,8 @@
   "Windows enables a TPM and fetches the VirtIO driver CD, attached so setup sees the disk. Secure Boot stays off (Arch ships no MS-key firmware). Grab the ISO from microsoft.com/software-download.": "Windows enables a TPM and fetches the VirtIO driver CD, attached so setup sees the disk. Secure Boot stays off (Arch ships no MS-key firmware). Grab the ISO from microsoft.com/software-download.",
   "Windows end above the Island": "Windows end above the Island",
   "Windows gets a VirtIO driver CD attached so setup sees the disk and the network. Fetch the install ISO from microsoft.com/software-download.": "Windows gets a VirtIO driver CD attached so setup sees the disk and the network. Fetch the install ISO from microsoft.com/software-download.",
-<<<<<<< port (unstable-dev)
-=======
   "Windows keep clear of the bubbles resting on an edge. Everything that takes room is together in Windows, Room for Shima.": "Windows keep clear of the bubbles resting on an edge. Everything that takes room is together in Windows, Room for Shima.",
   "Windows on %s is hibernated or was left by Fast Startup (%s). Installing beside a dirty NTFS volume lets Windows Startup Repair rewrite the partition table on its next boot, which can delete the partitions Ryoku is about to create. Boot Windows, turn off Fast Startup (Power Options > Choose what the power buttons do), shut down fully, then retry. RYOKU_ALLOW_DIRTY_NTFS=1 installs anyway, at your risk.": "Windows on %s is hibernated or was left by Fast Startup (%s). Installing beside a dirty NTFS volume lets Windows Startup Repair rewrite the partition table on its next boot, which can delete the partitions Ryoku is about to create. Boot Windows, turn off Fast Startup (Power Options > Choose what the power buttons do), shut down fully, then retry. RYOKU_ALLOW_DIRTY_NTFS=1 installs anyway, at your risk.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Windows remote desktop": "Windows remote desktop",
   "Windows run under the Dock": "Windows run under the Dock",
   "Windows run under the Island": "Windows run under the Island",
@@ -12065,12 +11741,9 @@
   "X-ray": "X-ray",
   "X-ray (blur shows the wallpaper)": "X-ray (blur shows the wallpaper)",
   "X11 keyboard layout: %s%s": "X11 keyboard layout: %s%s",
-<<<<<<< port (unstable-dev)
-=======
   "XBPS has no update hooks; this keeps updates snapshotted.": "XBPS has no update hooks; this keeps updates snapshotted.",
   "XPG PRIMER": "XPG PRIMER",
   "Xfce's lightweight file manager.": "Xfce's lightweight file manager.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "YOU": "YOU",
   "YOUR AGENTS": "YOUR AGENTS",
   "YOUR IMAGE": "YOUR IMAGE",
@@ -12107,10 +11780,7 @@
   "Your Pexels API key. Photographer credit is shown automatically as Pexels requires.": "Your Pexels API key. Photographer credit is shown automatically as Pexels requires.",
   "Your Unsplash application Access Key. Photographer credit and the required download ping are handled automatically.": "Your Unsplash application Access Key. Photographer credit and the required download ping are handled automatically.",
   "Your bar": "Your bar",
-<<<<<<< port (unstable-dev)
-=======
   "Your bar, right now": "Your bar, right now",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Your choices survive updates, shell reloads and reboots. Turning this off hands every adopted device back.": "Your choices survive updates, shell reloads and reboots. Turning this off hands every adopted device back.",
   "Your coding agents, wired to one shared map of the machine.": "Your coding agents, wired to one shared map of the machine.",
   "Your config is in": "Your config is in",
@@ -12129,12 +11799,9 @@
   "Your own override file. Ryoku reads it but never ships or overwrites it, so this is where a tweak belongs.": "Your own override file. Ryoku reads it but never ships or overwrites it, so this is where a tweak belongs.",
   "Your paired phone's screen, a click away": "Your paired phone's screen, a click away",
   "Your password": "Your password",
-<<<<<<< port (unstable-dev)
-=======
   "Your picks are kept in ~/.config/ryoku/lighting.json: an update, a shell restart or a reboot leaves them exactly as they are.": "Your picks are kept in ~/.config/ryoku/lighting.json: an update, a shell restart or a reboot leaves them exactly as they are.",
   "Your place is saved as you watch": "Your place is saved as you watch",
   "Your quote": "Your quote",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "Your screen runs on %1. Switch to Hybrid GPU mode in the BIOS (look for GPU Mode, MUX, or Hybrid/Optimus) and reboot, so the built-in GPU drives the display and the discrete GPU is free.": "Your screen runs on %1. Switch to Hybrid GPU mode in the BIOS (look for GPU Mode, MUX, or Hybrid/Optimus) and reboot, so the built-in GPU drives the display and the discrete GPU is free.",
   "Your sites": "Your sites",
   "Your to-do list, a click from done": "Your to-do list, a click from done",
@@ -12270,27 +11937,20 @@
   "alongside region: sectors %s-%s (%sGiB); boot %s-%s, root %s-%s": "alongside region: sectors %s-%s (%sGiB); boot %s-%s, root %s-%s",
   "alongside · btrfs %dsv": "alongside · btrfs %dsv",
   "already on %s; nothing to move, `ryoku update` keeps it current": "already on %s; nothing to move, `ryoku update` keeps it current",
-<<<<<<< port (unstable-dev)
-  "already pinned to unstable build %s; nothing to move, `ryoku track unstable` switches to the source checkout": "already pinned to unstable build %s; nothing to move, `ryoku track unstable` switches to the source checkout",
-  "an SDDM drop-in still selects greeter theme %s; check /etc/sddm.conf.d": "an SDDM drop-in still selects greeter theme %s; check /etc/sddm.conf.d",
-=======
   "already on unstable (the channel `ryoku track unstable-dev` used to select); nothing to move, `ryoku update` keeps it current": "already on unstable (the channel `ryoku track unstable-dev` used to select); nothing to move, `ryoku update` keeps it current",
   "already pinned to unstable build %s; nothing to move, `ryoku track unstable` follows unstable builds again": "already pinned to unstable build %s; nothing to move, `ryoku track unstable` follows unstable builds again",
   "already pinned to unstable build %s; nothing to move, `ryoku track unstable` switches to the source checkout": "already pinned to unstable build %s; nothing to move, `ryoku track unstable` switches to the source checkout",
   "already provided by installed packages: %s": "already provided by installed packages: %s",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "an SDDM drop-in still selects greeter theme %s; check /etc/sddm.conf.d": "an SDDM drop-in still selects greeter theme %s; check /etc/sddm.conf.d",
   "an older one": "an older one",
   "an update cutover is running; its sleep guard is live": "an update cutover is running; its sleep guard is live",
   "an update is running; run-state is live": "an update is running; run-state is live",
   "and": "and",
-<<<<<<< port (unstable-dev)
   "and start a new shell. These examples are generated from this machine's detected flake target, so they do not assume the host is named nixos.": "and start a new shell. These examples are generated from this machine's detected flake target, so they do not assume the host is named nixos.",
-=======
   "android-tools (adb)": "android-tools (adb)",
   "ani-cli stopped": "ani-cli stopped",
   "animations": "animations",
   "another model": "another model",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "another ryoku update is already running; wait for it to finish": "another ryoku update is already running; wait for it to finish",
   "app": "app",
   "append a [multilib] section with Include = /etc/pacman.d/mirrorlist": "append a [multilib] section with Include = /etc/pacman.d/mirrorlist",
@@ -12304,10 +11964,7 @@
   "ask": "ask",
   "ask the Rashin agent (one terse answer)": "ask the Rashin agent (one terse answer)",
   "asusctl was removed by hand; leaving the Aura keyboard unmanaged": "asusctl was removed by hand; leaving the Aura keyboard unmanaged",
-<<<<<<< port (unstable-dev)
-=======
   "asusd is installed but not running, so the Aura keyboard is absent from Appearance": "asusd is installed but not running, so the Aura keyboard is absent from Appearance",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "asusd is installed but not running, so the Aura keyboard is absent from Ryogami lighting settings": "asusd is installed but not running, so the Aura keyboard is absent from Ryogami lighting settings",
   "at least": "at least",
   "at most": "at most",
@@ -12421,12 +12078,9 @@
   "browser role: desktop.apps.browser -> %s": "browser role: desktop.apps.browser -> %s",
   "browser role: skip (could not merge %s)": "browser role: skip (could not merge %s)",
   "browser theme host": "browser theme host",
-<<<<<<< port (unstable-dev)
-  "browser to install: firefox, chromium or zen": "browser to install: firefox, chromium or zen",
-=======
   "browser to install": "browser to install",
+  "browser to install: firefox, chromium or zen": "browser to install: firefox, chromium or zen",
   "btop": "btop",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "btrfs could not shrink %s to %s MiB: allocated chunks likely sit past the target. In a live session run": "btrfs could not shrink %s to %s MiB: allocated chunks likely sit past the target. In a live session run",
   "btrfs device error counters clean": "btrfs device error counters clean",
   "btrfs device health": "btrfs device health",
@@ -12487,10 +12141,7 @@
   "cannot switch to %s yet: %s is unavailable on this host": "cannot switch to %s yet: %s is unavailable on this host",
   "cannot switch to %s: %s": "cannot switch to %s: %s",
   "cannot verify installed kernel metadata for %s; its module tree is incomplete": "cannot verify installed kernel metadata for %s; its module tree is incomplete",
-<<<<<<< port (unstable-dev)
-=======
   "cannot verify installed kernel metadata: incomplete module tree(s) under %s: %s": "cannot verify installed kernel metadata: incomplete module tree(s) under %s: %s",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "caps:escape": "caps:escape",
   "caps:none": "caps:none",
   "caps:swapescape": "caps:swapescape",
@@ -12535,10 +12186,7 @@
   "check `btrfs filesystem usage /`; may need `btrfs balance` or more free space": "check `btrfs filesystem usage /`; may need `btrfs balance` or more free space",
   "check sudo access, then re-run ryoku doctor": "check sudo access, then re-run ryoku doctor",
   "check the ESP and rerun ryoku doctor": "check the ESP and rerun ryoku doctor",
-<<<<<<< port (unstable-dev)
-=======
   "check the ESP and rerun sudo ryoku doctor": "check the ESP and rerun sudo ryoku doctor",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "check_box_outline_blank": "check_box_outline_blank",
   "checked:       tip %s failed its checks (%s)": "checked:       tip %s failed its checks (%s)",
   "checked:       tip %s is being checked (%s)": "checked:       tip %s is being checked (%s)",
@@ -12750,10 +12398,7 @@
   "could not reconcile Nomarchy commands: %v": "could not reconcile Nomarchy commands: %v",
   "could not reconcile system-wide service activation: %v": "could not reconcile system-wide service activation: %v",
   "could not reconcile user service activation (exit %d)": "could not reconcile user service activation (exit %d)",
-<<<<<<< port (unstable-dev)
-=======
   "could not record %s: %v": "could not record %s: %v",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "could not record the clickfinger migration: %v": "could not record the clickfinger migration: %v",
   "could not record the keyring mode: %v": "could not record the keyring mode: %v",
   "could not record the launcher local-frost migration: %v": "could not record the launcher local-frost migration: %v",
@@ -12889,10 +12534,7 @@
   "default file manager: warning, could not set %s for %s (continuing)": "default file manager: warning, could not set %s for %s (continuing)",
   "default sink %s not listed": "default sink %s not listed",
   "defaulted the bar to Orpheus / reduced any Sumi frame to left-only": "defaulted the bar to Orpheus / reduced any Sumi frame to left-only",
-<<<<<<< port (unstable-dev)
-=======
   "defaulted the bar to qsbar / reduced any Sumi frame to left-only": "defaulted the bar to qsbar / reduced any Sumi frame to left-only",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "deferring the initramfs build to the bootloader step: masking %s": "deferring the initramfs build to the bootloader step: masking %s",
   "deg": "deg",
   "degraded": "degraded",
@@ -12968,11 +12610,8 @@
   "drivers: WARNING, the %s driver install timed out (>15m) or failed and was skipped; the desktop will run on the integrated GPU. Run": "drivers: WARNING, the %s driver install timed out (>15m) or failed and was skipped; the desktop will run on the integrated GPU. Run",
   "drivers: ryoku-hw-backlight-fix failed; continuing (set the backlight kernel param after first boot)": "drivers: ryoku-hw-backlight-fix failed; continuing (set the backlight kernel param after first boot)",
   "drop an image here": "drop an image here",
-<<<<<<< port (unstable-dev)
-=======
   "drop the /.snapshots line from /etc/fstab and run `sudo umount /.snapshots`; ryoku doctor then moves it to its own top-level subvolume": "drop the /.snapshots line from /etc/fstab and run `sudo umount /.snapshots`; ryoku doctor then moves it to its own top-level subvolume",
   "drop the Ryoku XBPS repository override %s?": "drop the Ryoku XBPS repository override %s?",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "drop the [ryoku] repository from /etc/pacman.conf?": "drop the [ryoku] repository from /etc/pacman.conf?",
   "dropped %d default(s) copied from Ryoku's map; the apps you picked yourself are untouched": "dropped %d default(s) copied from Ryoku's map; the apps you picked yourself are untouched",
   "dropped the [omarchy] repository (original at /etc/pacman.conf.pre-ryoku)": "dropped the [omarchy] repository (original at /etc/pacman.conf.pre-ryoku)",
@@ -13243,9 +12882,6 @@
   "hyprpm": "hyprpm",
   "iGPU + dGPU for VM": "iGPU + dGPU for VM",
   "iGPU display · dGPU on-demand": "iGPU display · dGPU on-demand",
-<<<<<<< port (unstable-dev)
-  "iRiS owns the entire desktop. Change the global style first.": "iRiS owns the entire desktop. Change the global style first.",
-=======
   "iNiR": "iNiR",
   "iNiR · snowarch": "iNiR · snowarch",
   "iNstrument": "iNstrument",
@@ -13253,7 +12889,7 @@
   "iOS Clock Options": "iOS Clock Options",
   "iOS Clock Settings": "iOS Clock Settings",
   "iOS Clock disabled": "iOS Clock disabled",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "iRiS owns the entire desktop. Change the global style first.": "iRiS owns the entire desktop. Change the global style first.",
   "id %q must be lowercase letters, digits and dashes, not starting with a dash": "id %q must be lowercase letters, digits and dashes, not starting with a dash",
   "idleinhibit": "idleinhibit",
   "if a boot or wake ever lands on a black panel: `ryoku-gpu disable` clears the pin (Hyprland then picks the iGPU itself); `ryoku-gpu persist` restores the pin": "if a boot or wake ever lands on a black panel: `ryoku-gpu disable` clears the pin (Hyprland then picks the iGPU itself); `ryoku-gpu persist` restores the pin",
@@ -13264,11 +12900,8 @@
   "image": "image",
   "immediate": "immediate",
   "import needs a path or --url <git-url>": "import needs a path or --url <git-url>",
-<<<<<<< port (unstable-dev)
-=======
   "import release key: %w: %s": "import release key: %w: %s",
   "imported the Ryoku release key into the rpm keyring": "imported the Ryoku release key into the rpm keyring",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "importing the Ryoku release key into the target keyring": "importing the Ryoku release key into the target keyring",
   "imports Ryoku.Ui internals; only Ryoku.PluginKit is allowed (R4)": "imports Ryoku.Ui internals; only Ryoku.PluginKit is allowed (R4)",
   "imports shell internals; only Ryoku.PluginKit is allowed (R4)": "imports shell internals; only Ryoku.PluginKit is allowed (R4)",
@@ -13303,10 +12936,7 @@
   "install failed: %s": "install failed: %s",
   "install into free space (new ESP)": "install into free space (new ESP)",
   "install limine-mkinitcpio-hook, then ryoku doctor": "install limine-mkinitcpio-hook, then ryoku doctor",
-<<<<<<< port (unstable-dev)
-=======
   "install limine-mkinitcpio-hook, then sudo ryoku doctor": "install limine-mkinitcpio-hook, then sudo ryoku doctor",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "install log:": "install log:",
   "install steps": "install steps",
   "install that desktop's package, then run `ryoku doctor` again": "install that desktop's package, then run `ryoku doctor` again",
@@ -13317,19 +12947,13 @@
   "installed %s (delete any of them and Ryoku will not reinstall it)": "installed %s (delete any of them and Ryoku will not reinstall it)",
   "installed %s but could not lay its config down (%v); run `ryoku materialize` before logging out": "installed %s but could not lay its config down (%v); run `ryoku materialize` before logging out",
   "installed %s; %s did not land": "installed %s; %s did not land",
-<<<<<<< port (unstable-dev)
-=======
   "installed Shelly's Flatpak backend; its Flatpak searches and installs now work": "installed Shelly's Flatpak backend; its Flatpak searches and installs now work",
   "installed asusctl and started asusd; the ASUS Aura keyboard is available in Appearance": "installed asusctl and started asusd; the ASUS Aura keyboard is available in Appearance",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "installed asusctl and started asusd; the ASUS Aura keyboard is available in Ryogami lighting settings": "installed asusctl and started asusd; the ASUS Aura keyboard is available in Ryogami lighting settings",
   "installed browser animations for Zen profile: %s": "installed browser animations for Zen profile: %s",
   "installed limine-mkinitcpio-hook": "installed limine-mkinitcpio-hook",
   "installed plugin %q: %w": "installed plugin %q: %w",
-<<<<<<< port (unstable-dev)
-=======
   "installed qmk-hid; the QMK/VIA keyboard is available in Appearance": "installed qmk-hid; the QMK/VIA keyboard is available in Appearance",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "installed qmk_hid; the QMK/VIA keyboard is available in Ryogami lighting settings": "installed qmk_hid; the QMK/VIA keyboard is available in Ryogami lighting settings",
   "installed the %s desktop variant; log into it before the retired compositor is removed": "installed the %s desktop variant; log into it before the retired compositor is removed",
   "installed the Material Symbols font, but fontconfig cannot see it": "installed the Material Symbols font, but fontconfig cannot see it",
@@ -13352,12 +12976,9 @@
   "interface language is the catalog code %s": "interface language is the catalog code %s",
   "internet radio · 24/7 live": "internet radio · 24/7 live",
   "internet radio · fallback station": "internet radio · fallback station",
-<<<<<<< port (unstable-dev)
-=======
   "invalid RYOKU_RPM_KEY_URL %q: expected an HTTPS URL": "invalid RYOKU_RPM_KEY_URL %q: expected an HTTPS URL",
   "invalid RYOKU_RPM_REPO %q: expected a URL or absolute path": "invalid RYOKU_RPM_REPO %q: expected a URL or absolute path",
   "invalid account name: %s": "invalid account name: %s",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "invalid activation %q for %s": "invalid activation %q for %s",
   "invalid runit service %q": "invalid runit service %q",
   "invalid scope %q for %s": "invalid scope %q for %s",
@@ -13367,11 +12988,8 @@
   "is connected": "is connected",
   "issue": "issue",
   "issues": "issues",
-<<<<<<< port (unstable-dev)
-=======
   "items on list": "items on list",
   "its own effect": "its own effect",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "iw is not installed, so the wireless regulatory domain cannot be read": "iw is not installed, so the wireless regulatory domain cannot be read",
   "iwd": "iwd",
   "just now": "just now",
@@ -13452,11 +13070,8 @@
   "launcher local-frost default already reconciled": "launcher local-frost default already reconciled",
   "launcher.json cannot be safely migrated (%v); it was left untouched": "launcher.json cannot be safely migrated (%v); it was left untouched",
   "launcher.json still uses the retired 12 px global-blur default": "launcher.json still uses the retired 12 px global-blur default",
-<<<<<<< port (unstable-dev)
-=======
   "launchers list these apps twice: %s": "launchers list these apps twice: %s",
   "lay the %s config dir: %w": "lay the %s config dir: %w",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "layout": "layout",
   "leaked update sleep guard": "leaked update sleep guard",
   "leave blank to keep the current password": "leave blank to keep the current password",
@@ -13528,11 +13143,8 @@
   "login keyring is password-protected; it will unlock silently at next login only if that password is your login password (re-run with --convert to change it, or --reset to start fresh)": "login keyring is password-protected; it will unlock silently at next login only if that password is your login password (re-run with --convert to change it, or --reset to start fresh)",
   "login keyring re-keyed to the supplied password": "login keyring re-keyed to the supplied password",
   "login screen cursor": "login screen cursor",
-<<<<<<< port (unstable-dev)
-=======
   "login shell": "login shell",
   "login shell %s is missing from the target": "login shell %s is missing from the target",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "login shell %s is missing from the target; refusing to create %s with an unusable shell": "login shell %s is missing from the target; refusing to create %s with an unusable shell",
   "login shell is %q on both the account and the session override": "login shell is %q on both the account and the session override",
   "login shell source": "login shell source",
@@ -13669,12 +13281,9 @@
   "new 2 GiB EFI partition + root created in the free space; existing partitions are untouched": "new 2 GiB EFI partition + root created in the free space; existing partitions are untouched",
   "next": "next",
   "nginx, postgresql (probe reports each)": "nginx, postgresql (probe reports each)",
-<<<<<<< port (unstable-dev)
-=======
   "nights on time": "nights on time",
   "nights on time in a row": "nights on time in a row",
   "niri": "niri",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "niri config does not load and re-applying the settings failed: %v": "niri config does not load and re-applying the settings failed: %v",
   "niri config does not load: %s": "niri config does not load: %s",
   "niri config integrity": "niri config integrity",
@@ -13697,10 +13306,7 @@
   "no Hyprland config present": "no Hyprland config present",
   "no Hyprland session": "no Hyprland session",
   "no Kepler NVIDIA GPU detected": "no Kepler NVIDIA GPU detected",
-<<<<<<< port (unstable-dev)
-=======
   "no NVIDIA GPU detected": "no NVIDIA GPU detected",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "no NVIDIA kernel module is loaded": "no NVIDIA kernel module is loaded",
   "no NVIDIA-first render pin over a non-NVIDIA panel": "no NVIDIA-first render pin over a non-NVIDIA panel",
   "no Obsidian vaults registered yet": "no Obsidian vaults registered yet",
@@ -14236,11 +13842,8 @@
   "recolor templates + animation presets": "recolor templates + animation presets",
   "recommended": "recommended",
   "reconcile %s to its checked target failed: %w": "reconcile %s to its checked target failed: %w",
-<<<<<<< port (unstable-dev)
-=======
   "reconcile to origin/%s failed: %w": "reconcile to origin/%s failed: %w",
   "reconciled user and system-wide services from the activation manifest": "reconciled user and system-wide services from the activation manifest",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "reconciled user services from the activation manifest": "reconciled user services from the activation manifest",
   "record": "record",
   "record existing user service choices: %v": "record existing user service choices: %v",
@@ -14319,13 +13922,9 @@
   "render pin puts NVIDIA first while the panel is driven by %s (reverse PRIME); on some kernels the session's first cross-GPU commit fails once and the panel stays black until reboot (#270)": "render pin puts NVIDIA first while the panel is driven by %s (reverse PRIME); on some kernels the session's first cross-GPU commit fails once and the panel stays black until reboot (#270)",
   "render pin vs panel driver": "render pin vs panel driver",
   "repair %s (`pacman-conf` parses it), then run `ryoku doctor`": "repair %s (`pacman-conf` parses it), then run `ryoku doctor`",
-<<<<<<< port (unstable-dev)
   "repair default keyring: %w": "repair default keyring: %w",
   "repair desktop.input.clickfinger, then run `ryoku doctor`": "repair desktop.input.clickfinger, then run `ryoku doctor`",
   "repair keyring mode: %w": "repair keyring mode: %w",
-=======
-  "repair desktop.input.clickfinger, then run `ryoku doctor`": "repair desktop.input.clickfinger, then run `ryoku doctor`",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "repair the bgBlur value, then run `ryoku doctor`": "repair the bgBlur value, then run `ryoku doctor`",
   "repair the volume from a live session if it stays read-only": "repair the volume from a live session if it stays read-only",
   "repaired Ryotunes runtime state": "repaired Ryotunes runtime state",
@@ -14357,10 +13956,7 @@
   "resolved %d safe .pacnew (identical to the live config, only the [ryoku] repo addition, a re-commented locale.gen, or a config never edited on this box)": "resolved %d safe .pacnew (identical to the live config, only the [ryoku] repo addition, a re-commented locale.gen, or a config never edited on this box)",
   "resolves to %s": "resolves to %s",
   "restart the computer": "restart the computer",
-<<<<<<< port (unstable-dev)
   "restarted Ryogami": "restarted Ryogami",
-=======
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "restarted the audio services but PipeWire still is not responding": "restarted the audio services but PipeWire still is not responding",
   "restarted the audio stack; PipeWire is responding again": "restarted the audio stack; PipeWire is responding again",
   "restarted the outdated shell daemon but it did not come back": "restarted the outdated shell daemon but it did not come back",
@@ -14389,11 +13985,8 @@
   "retired Omarchy's pacman guard hook, which aborts every -Syu (moved to %s)": "retired Omarchy's pacman guard hook, which aborts every -Syu (moved to %s)",
   "retired Shima battery warning thresholds": "retired Shima battery warning thresholds",
   "retired Shima frame music key": "retired Shima frame music key",
-<<<<<<< port (unstable-dev)
-=======
   "retired Stage Editor or dock settings still exist": "retired Stage Editor or dock settings still exist",
   "retired app package checks are not available on this host": "retired app package checks are not available on this host",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "retired app packages": "retired app packages",
   "retired app packages are managed declaratively on NixOS": "retired app packages are managed declaratively on NixOS",
   "retired compositor": "retired compositor",
@@ -14438,13 +14031,10 @@
   "root snapshots not configured, nothing to prune": "root snapshots not configured, nothing to prune",
   "round": "round",
   "route the panel to the iGPU: set the BIOS GPU/MUX mode to Hybrid and reboot": "route the panel to the iGPU: set the BIOS GPU/MUX mode to Hybrid and reboot",
-<<<<<<< port (unstable-dev)
-=======
   "rpm does not trust the Ryoku release key, so Ryoku packages fail their signature check": "rpm does not trust the Ryoku release key, so Ryoku packages fail their signature check",
   "rpm no longer trusts the revoked Ryoku release keys: %s": "rpm no longer trusts the revoked Ryoku release keys: %s",
   "rpm still trusts revoked Ryoku release keys: %s": "rpm still trusts revoked Ryoku release keys: %s",
   "rpm-ostree systems are not supported; use a mutable Fedora Workstation or Server install": "rpm-ostree systems are not supported; use a mutable Fedora Workstation or Server install",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "run": "run",
   "run %s by hand to see why": "run %s by hand to see why",
   "run %s?": "run %s?",
@@ -14495,13 +14085,9 @@
   "ryoku boot-menu runs as root (sudo ryoku boot-menu %s)": "ryoku boot-menu runs as root (sudo ryoku boot-menu %s)",
   "ryoku channel pin": "ryoku channel pin",
   "ryoku channel: pinned to release %s (packages); `ryoku track stable` follows releases again": "ryoku channel: pinned to release %s (packages); `ryoku track stable` follows releases again",
-<<<<<<< port (unstable-dev)
-  "ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` switches to the unstable-dev source checkout": "ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` switches to the unstable-dev source checkout",
-=======
   "ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` follows unstable builds again": "ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` follows unstable builds again",
   "ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` switches to the unstable-dev source checkout": "ryoku channel: pinned to unstable build %s (packages); `ryoku track unstable` switches to the unstable-dev source checkout",
   "ryoku channel: stable packages (named releases); `ryoku track unstable` follows the unstable channel": "ryoku channel: stable packages (named releases); `ryoku track unstable` follows the unstable channel",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "ryoku channel: stable packages (named releases); `ryoku track unstable` follows unstable-dev from source": "ryoku channel: stable packages (named releases); `ryoku track unstable` follows unstable-dev from source",
   "ryoku channel: unstable packages (rebuilt on every push); `ryoku track stable` returns to stable releases": "ryoku channel: unstable packages (rebuilt on every push); `ryoku track stable` returns to stable releases",
   "ryoku doctor": "ryoku doctor",
@@ -14520,10 +14106,7 @@
   "ryoku doctor (deletes them in batches, then runs snapper cleanup number)": "ryoku doctor (deletes them in batches, then runs snapper cleanup number)",
   "ryoku doctor (enables snapper-cleanup.timer)": "ryoku doctor (enables snapper-cleanup.timer)",
   "ryoku doctor (moves it into its own btrfs subvolume)": "ryoku doctor (moves it into its own btrfs subvolume)",
-<<<<<<< port (unstable-dev)
-=======
   "ryoku doctor (moves it to its own top-level btrfs subvolume)": "ryoku doctor (moves it to its own top-level btrfs subvolume)",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "ryoku doctor (or the next ryoku update)": "ryoku doctor (or the next ryoku update)",
   "ryoku doctor (re-asserts each display's intended mode)": "ryoku doctor (re-asserts each display's intended mode)",
   "ryoku doctor (removes them and turns the timer back on)": "ryoku doctor (removes them and turns the timer back on)",
@@ -14536,10 +14119,7 @@
   "ryoku doctor changes it to the 2 px card-local frost default": "ryoku doctor changes it to the 2 px card-local frost default",
   "ryoku doctor clears it back to the text seal": "ryoku doctor clears it back to the text seal",
   "ryoku doctor converges it to the Orpheus default in place": "ryoku doctor converges it to the Orpheus default in place",
-<<<<<<< port (unstable-dev)
-=======
   "ryoku doctor converges it to the qsbar default in place": "ryoku doctor converges it to the qsbar default in place",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "ryoku doctor creates the limine snapshot-sync defaults": "ryoku doctor creates the limine snapshot-sync defaults",
   "ryoku doctor drops it": "ryoku doctor drops it",
   "ryoku doctor drops the pin so the network roams again": "ryoku doctor drops the pin so the network roams again",
@@ -14555,13 +14135,9 @@
   "ryoku doctor installs limine-mkinitcpio-hook and promotes the menu to the /+Ryoku UKI tree": "ryoku doctor installs limine-mkinitcpio-hook and promotes the menu to the /+Ryoku UKI tree",
   "ryoku doctor installs pam-fprint-grosshack (AUR)": "ryoku doctor installs pam-fprint-grosshack (AUR)",
   "ryoku doctor installs pam-fprint-grosshack from the configured Fedora repositories": "ryoku doctor installs pam-fprint-grosshack from the configured Fedora repositories",
-<<<<<<< port (unstable-dev)
-  "ryoku doctor installs qmk_hid so the keyboard follows the theme": "ryoku doctor installs qmk_hid so the keyboard follows the theme",
-=======
   "ryoku doctor installs qmk-hid so the keyboard follows the theme": "ryoku doctor installs qmk-hid so the keyboard follows the theme",
   "ryoku doctor installs qmk_hid so the keyboard follows the theme": "ryoku doctor installs qmk_hid so the keyboard follows the theme",
   "ryoku doctor installs shelly-flatpak-backend": "ryoku doctor installs shelly-flatpak-backend",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "ryoku doctor installs the repository build, which is rebuilt with Qt": "ryoku doctor installs the repository build, which is rebuilt with Qt",
   "ryoku doctor matches the Nomarchy command surface to the selected bar style": "ryoku doctor matches the Nomarchy command surface to the selected bar style",
   "ryoku doctor merges them into shell.json and removes the retired keys": "ryoku doctor merges them into shell.json and removes the retired keys",
@@ -14637,24 +14213,18 @@
   "ryoku-desktop is installed but the signed Ryoku RPM repository and its release key %s are missing; updates will not arrive": "ryoku-desktop is installed but the signed Ryoku RPM repository and its release key %s are missing; updates will not arrive",
   "ryoku-desktop is installed but the signed Ryoku RPM repository is not configured; updates will not arrive": "ryoku-desktop is installed but the signed Ryoku RPM repository is not configured; updates will not arrive",
   "ryoku-desktop package installed": "ryoku-desktop package installed",
-<<<<<<< port (unstable-dev)
-=======
   "ryoku-desktop-%s installed through RPM": "ryoku-desktop-%s installed through RPM",
   "ryoku-desktop-niri installed through XBPS": "ryoku-desktop-niri installed through XBPS",
   "ryoku-discord": "ryoku-discord",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "ryoku-gpu check-pin answered %q, which this ryoku version does not understand; update ryoku or run `ryoku-gpu status`": "ryoku-gpu check-pin answered %q, which this ryoku version does not understand; update ryoku or run `ryoku-gpu status`",
   "ryoku-gpu is not available to audit the render pin (%v)": "ryoku-gpu is not available to audit the render pin (%v)",
   "ryoku-host svc --user enable %s": "ryoku-host svc --user enable %s",
   "ryoku-host svc reconcile --user": "ryoku-host svc reconcile --user",
   "ryoku-hub, the settings backend": "ryoku-hub, the settings backend",
   "ryoku-keyring already installed, key trust in place": "ryoku-keyring already installed, key trust in place",
-<<<<<<< port (unstable-dev)
-=======
   "ryoku-keyring and the Ryoku release key %s are missing, so the Ryoku RPM repository cannot be read": "ryoku-keyring and the Ryoku release key %s are missing, so the Ryoku RPM repository cannot be read",
   "ryoku-keyring installed through XBPS": "ryoku-keyring installed through XBPS",
   "ryoku-keyring is installed and rpm trusts the Ryoku release key": "ryoku-keyring is installed and rpm trusts the Ryoku release key",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "ryoku-keyring is missing, so the Ryoku XBPS repository cannot be trusted; updates will fail signature checks": "ryoku-keyring is missing, so the Ryoku XBPS repository cannot be trusted; updates will fail signature checks",
   "ryoku-keyring is missing, so the [ryoku] repo cannot be trusted; updates will fail signature checks": "ryoku-keyring is missing, so the [ryoku] repo cannot be trusted; updates will fail signature checks",
   "ryoku-keyring is not installed, so a new Ryoku release key cannot reach this machine": "ryoku-keyring is not installed, so a new Ryoku release key cannot reach this machine",
@@ -14662,10 +14232,7 @@
   "ryoku-keyring package installed": "ryoku-keyring package installed",
   "ryoku-monitor not installed": "ryoku-monitor not installed",
   "ryoku-pkg-aur-add limine-mkinitcpio-hook, then ryoku doctor": "ryoku-pkg-aur-add limine-mkinitcpio-hook, then ryoku doctor",
-<<<<<<< port (unstable-dev)
-=======
   "ryoku-pkg-aur-add limine-mkinitcpio-hook, then sudo ryoku doctor": "ryoku-pkg-aur-add limine-mkinitcpio-hook, then sudo ryoku doctor",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "ryoku-pkg-aur-add pam-fprint-grosshack, then ryoku doctor": "ryoku-pkg-aur-add pam-fprint-grosshack, then ryoku doctor",
   "ryoku-rashin not installed": "ryoku-rashin not installed",
   "ryoku-rashin, the agent daemon": "ryoku-rashin, the agent daemon",
@@ -14907,11 +14474,8 @@
   "start": "start",
   "start it in a terminal to see why: `ryoku-shell daemon`": "start it in a terminal to see why: `ryoku-shell daemon`",
   "start it with `ryoku-shell daemon` (Hyprland autostarts it at login)": "start it with `ryoku-shell daemon` (Hyprland autostarts it at login)",
-<<<<<<< port (unstable-dev)
   "started Ryogami": "started Ryogami",
-=======
   "started asusd; the ASUS Aura keyboard is available in Appearance": "started asusd; the ASUS Aura keyboard is available in Appearance",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "started asusd; the ASUS Aura keyboard is available in Ryogami lighting settings": "started asusd; the ASUS Aura keyboard is available in Ryogami lighting settings",
   "started fresh: blank %q keyring, old one backed up": "started fresh: blank %q keyring, old one backed up",
   "started ryoku-shell daemon but it did not come up": "started ryoku-shell daemon but it did not come up",
@@ -14928,11 +14492,8 @@
   "stop": "stop",
   "stopped": "stopped",
   "stopped %d duplicate desktop instance(s); pid %d keeps the desktop": "stopped %d duplicate desktop instance(s); pid %d keeps the desktop",
-<<<<<<< port (unstable-dev)
-  "stopped awww-daemon": "stopped awww-daemon",
-=======
   "stopped at %1": "stopped at %1",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
+  "stopped awww-daemon": "stopped awww-daemon",
   "stopped the overlay from overriding your live %s": "stopped the overlay from overriding your live %s",
   "stopped the retired awww-daemon": "stopped the retired awww-daemon",
   "stopped while building %1": "stopped while building %1",
@@ -14962,10 +14523,7 @@
   "sudo limine-mkinitcpio  (or: sudo mkinitcpio -P)": "sudo limine-mkinitcpio  (or: sudo mkinitcpio -P)",
   "sudo limine-mkinitcpio || sudo mkinitcpio -P": "sudo limine-mkinitcpio || sudo mkinitcpio -P",
   "sudo limine-update, then ryoku doctor": "sudo limine-update, then ryoku doctor",
-<<<<<<< port (unstable-dev)
-=======
   "sudo limine-update, then sudo ryoku doctor": "sudo limine-update, then sudo ryoku doctor",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "sudo may ask for your password again below": "sudo may ask for your password again below",
   "sudo pacman -S --needed base-devel cmake git, then Settings > Plugins > Rebuild": "sudo pacman -S --needed base-devel cmake git, then Settings > Plugins > Rebuild",
   "sudo pacman -S quickshell takes the repository build, which is rebuilt with Qt": "sudo pacman -S quickshell takes the repository build, which is rebuilt with Qt",
@@ -14973,11 +14531,8 @@
   "sudo pacman -Syu (the renderer and Qt are from different updates)": "sudo pacman -Syu (the renderer and Qt are from different updates)",
   "sudo pacman -Syu brings Qt up to date, then the shell loads again": "sudo pacman -Syu brings Qt up to date, then the shell loads again",
   "sudo pacman -Syu quickshell": "sudo pacman -Syu quickshell",
-<<<<<<< port (unstable-dev)
-=======
   "sudo rm -f %s/*%s.conf": "sudo rm -f %s/*%s.conf",
   "sudo ryoku doctor (or the next ryoku update)": "sudo ryoku doctor (or the next ryoku update)",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "sudo ryoku-host svc --system enable %s": "sudo ryoku-host svc --system enable %s",
   "sudo ryoku-host svc --system enable --now %s": "sudo ryoku-host svc --system enable --now %s",
   "sudo ryoku-host svc --system enable ryoku-boot-guard.service && sudo install -d -m 0755 /var/lib/ryoku && sudo install -d -m 1777 /var/lib/ryoku/boot": "sudo ryoku-host svc --system enable ryoku-boot-guard.service && sudo install -d -m 0755 /var/lib/ryoku && sudo install -d -m 1777 /var/lib/ryoku/boot",
@@ -15141,13 +14696,10 @@
   "the discrete GPU does not drive the panel yet has never runtime-suspended, with the card open in %s": "the discrete GPU does not drive the panel yet has never runtime-suspended, with the card open in %s",
   "the discrete GPU does not drive the panel yet has never runtime-suspended: the driver reports runtime D3 %q": "the discrete GPU does not drive the panel yet has never runtime-suspended: the driver reports runtime D3 %q",
   "the discrete GPU drives the panel but can still runtime-suspend, so it is not pinned awake": "the discrete GPU drives the panel but can still runtime-suspend, so it is not pinned awake",
-<<<<<<< port (unstable-dev)
-=======
   "the discrete GPU is driving %s and drawing %.1f W; it cannot runtime-suspend while that display is attached": "the discrete GPU is driving %s and drawing %.1f W; it cannot runtime-suspend while that display is attached",
   "the discrete GPU is driving %s and drawing %.1f W; it cannot runtime-suspend while those displays are attached": "the discrete GPU is driving %s and drawing %.1f W; it cannot runtime-suspend while those displays are attached",
   "the discrete GPU is driving %s; it cannot runtime-suspend while that display is attached": "the discrete GPU is driving %s; it cannot runtime-suspend while that display is attached",
   "the discrete GPU is driving %s; it cannot runtime-suspend while those displays are attached": "the discrete GPU is driving %s; it cannot runtime-suspend while those displays are attached",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "the effect Ryoku found": "the effect Ryoku found",
   "the flathub remote is configured": "the flathub remote is configured",
   "the flathub remote is missing": "the flathub remote is missing",
@@ -15178,10 +14730,7 @@
   "the legacy Tape lockscreen needs migration and no lockscreen bundle is available": "the legacy Tape lockscreen needs migration and no lockscreen bundle is available",
   "the legacy Tape lockscreen needs one-time Store migration": "the legacy Tape lockscreen needs one-time Store migration",
   "the live Arch image now, and this installer turns it into": "the live Arch image now, and this installer turns it into",
-<<<<<<< port (unstable-dev)
-=======
   "the live Void image now, and this installer turns it into": "the live Void image now, and this installer turns it into",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "the loaded and installed NVIDIA driver versions match (%s)": "the loaded and installed NVIDIA driver versions match (%s)",
   "the mixer the bar's audio button opens": "the mixer the bar's audio button opens",
   "the nested gaming micro-compositor": "the nested gaming micro-compositor",
@@ -15263,12 +14812,9 @@
   "this box builds from a source checkout of %s; releases apply to packaged installs.": "this box builds from a source checkout of %s; releases apply to packaged installs.",
   "this box is the machine the release describes": "this box is the machine the release describes",
   "this desktop": "this desktop",
-<<<<<<< port (unstable-dev)
-  "this installer needs systemd (Artix and other non-systemd inits are not supported)": "this installer needs systemd (Artix and other non-systemd inits are not supported)",
-=======
   "this edition. Everything is on this image,": "this edition. Everything is on this image,",
+  "this installer needs systemd (Artix and other non-systemd inits are not supported)": "this installer needs systemd (Artix and other non-systemd inits are not supported)",
   "this installer needs systemd on Arch, Debian and Fedora; Void uses runit": "this installer needs systemd on Arch, Debian and Fedora; Void uses runit",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "this is an offline install (RYOKU_ONLINE=0) but RYOKU_OFFLINE_REPO is unset, so there is nothing to install from. Boot an ISO that bakes the offline repo, or connect to a network and install online.": "this is an offline install (RYOKU_ONLINE=0) but RYOKU_OFFLINE_REPO is unset, so there is nothing to install from. Boot an ISO that bakes the offline repo, or connect to a network and install online.",
   "this is not a snapshot boot: reboot, open Ryoku snapshots in the boot menu, pick the snapshot, then run this again": "this is not a snapshot boot: reboot, open Ryoku snapshots in the boot menu, pick the snapshot, then run this again",
   "this machine has no QMK/VIA keyboard for lighting": "this machine has no QMK/VIA keyboard for lighting",
@@ -15276,12 +14822,9 @@
   "this machine has no wireless device": "this machine has no wireless device",
   "this run's backup:": "this run's backup:",
   "this step failed %d times; fix the cause or roll back": "this step failed %d times; fix the cause or roll back",
-<<<<<<< port (unstable-dev)
   "this system does not boot with systemd (Artix or another init detected); Ryoku needs systemd and cannot install here": "this system does not boot with systemd (Artix or another init detected); Ryoku needs systemd and cannot install here",
-=======
   "this wallpaper": "this wallpaper",
   "three boots failed after the update, so the next boot opens pre-update snapshot %s read-only. If it works, `sudo ryoku boot-menu restore` there keeps it.": "three boots failed after the update, so the next boot opens pre-update snapshot %s read-only. If it works, `sudo ryoku boot-menu restore` there keeps it.",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "three rows stay visible and the shelf scrolls": "three rows stay visible and the shelf scrolls",
   "through": "through",
   "thumb": "thumb",
@@ -15369,13 +14912,10 @@
   "unstable now follows the source checkout; `ryoku track unstable` switches this box to it": "unstable now follows the source checkout; `ryoku track unstable` switches this box to it",
   "unstable now follows the source checkout; ryoku track unstable switches this box to it": "unstable now follows the source checkout; ryoku track unstable switches this box to it",
   "unstable-dev moved to %s %d min ago; its checks are still running (%s). Deploying the last checked commit %s": "unstable-dev moved to %s %d min ago; its checks are still running (%s). Deploying the last checked commit %s",
-<<<<<<< port (unstable-dev)
   "unsupported distribution: Ryoku installs on Arch-based and Debian-based systems": "unsupported distribution: Ryoku installs on Arch-based and Debian-based systems",
-=======
   "unsupported distribution: Ryoku installs on Arch-based, Debian-based, Void and Fedora systems": "unsupported distribution: Ryoku installs on Arch-based, Debian-based, Void and Fedora systems",
   "unsupported init: Arch, Debian and Fedora installs need systemd; Void installs need runit": "unsupported init: Arch, Debian and Fedora installs need systemd; Void installs need runit",
   "until %1": "until %1",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "until you suspend it in Windows (or boot Windows via the firmware menu);": "until you suspend it in Windows (or boot Windows via the firmware menu);",
   "up": "up",
   "update": "update",
@@ -15409,10 +14949,7 @@
   "usage: ryoku security-key remove <id|all>": "usage: ryoku security-key remove <id|all>",
   "usage: ryoku security-key set <sudo|polkit|login> <on|off>|mode <either|mfa>|touch-required <on|off>|pin-verification <on|off>|user-verification <on|off>": "usage: ryoku security-key set <sudo|polkit|login> <on|off>|mode <either|mfa>|touch-required <on|off>|pin-verification <on|off>|user-verification <on|off>",
   "usage: ryoku security-key status [--json]": "usage: ryoku security-key status [--json]",
-<<<<<<< port (unstable-dev)
-=======
   "usage: ryoku track <stable|unstable|v<release-or-build>>": "usage: ryoku track <stable|unstable|v<release-or-build>>",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "usage: ryoku track unstable": "usage: ryoku track unstable",
   "usage: ryoku-install probe alongside <disk>": "usage: ryoku-install probe alongside <disk>",
   "usage: ryoku-install probe resize <disk>": "usage: ryoku-install probe resize <disk>",
@@ -15435,12 +14972,9 @@
   "users list does not accept arguments.": "users list does not accept arguments.",
   "uses %q; a plugin must never escalate privilege (R6)": "uses %q; a plugin must never escalate privilege (R6)",
   "using payload checkout %s": "using payload checkout %s",
-<<<<<<< port (unstable-dev)
-=======
   "using the stable Ryoku XBPS repository; ryoku-keyring will install its system default": "using the stable Ryoku XBPS repository; ryoku-keyring will install its system default",
   "v4 · random": "v4 · random",
   "v7 · time-ordered": "v7 · time-ordered",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "value (e.g. 1)": "value (e.g. 1)",
   "vdirsyncer exited with code %1.": "vdirsyncer exited with code %1.",
   "vdirsyncer sync returned an unreadable response.": "vdirsyncer sync returned an unreadable response.",
@@ -15485,11 +15019,8 @@
   "warning: could not restore the shell sleep guard: %v": "warning: could not restore the shell sleep guard: %v",
   "warning: could not rewrite /etc/pacman.conf": "warning: could not rewrite /etc/pacman.conf",
   "warning: could not set %s as the default browser (continuing)": "warning: could not set %s as the default browser (continuing)",
-<<<<<<< port (unstable-dev)
-=======
   "warning: could not set %s as the default file manager (continuing)": "warning: could not set %s as the default file manager (continuing)",
   "warning: could not stop %s; it is disabled for the next boot": "warning: could not stop %s; it is disabled for the next boot",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "warning: could not update browser role in %s (invalid JSON)": "warning: could not update browser role in %s (invalid JSON)",
   "warning: could not update browser role in %s: %s": "warning: could not update browser role in %s: %s",
   "warning: could not update file manager role in %s: %s": "warning: could not update file manager role in %s: %s",
@@ -15617,11 +15148,8 @@
   "· ID %1": "· ID %1",
   "· INSTALLED": "· INSTALLED",
   "· Load %1": "· Load %1",
-<<<<<<< port (unstable-dev)
   "· NIXOS / MUSUBI": "· NIXOS / MUSUBI",
-=======
   "· NOT ON THIS SYSTEM": "· NOT ON THIS SYSTEM",
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
   "· TAB": "· TAB",
   "· VIEW DIFF": "· VIEW DIFF",
   "· bare metal": "· bare metal",

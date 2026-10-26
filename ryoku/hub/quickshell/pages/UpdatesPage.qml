@@ -394,11 +394,7 @@ Item {
     function rollback() {
         if (!pg.snapshotsSupported || pg.snapshot === "")
             return;
-<<<<<<< port (unstable-dev)
-        Spawn.runApp(["kitty", "--class=dev.ryoku.update", "-e", "sh", "-c", "ryoku rollback \"$1\"; printf '\\npress enter to close '; read -r _", "sh", pg.snapshot]);
-=======
         Spawn.runApp(["kitty", "--class=dev.ryoku.update", "-e", "sh", "-c", "ryoku rollback \"$1\"; printf '\\npress enter to close '; read -r _", "sh", pg.snapshot], { label: "kitty" });
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
         pg.dismiss();
     }
 

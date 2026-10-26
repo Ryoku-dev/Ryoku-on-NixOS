@@ -232,64 +232,6 @@ func sortHubPhoneDevices(devices []hubPhoneDevice) {
 		return strings.ToLower(devices[i].Name) < strings.ToLower(devices[j].Name)
 	})
 }
-<<<<<<< port (unstable-dev)
-
-func listHubPhoneDevicesCLI() ([]hubPhoneDevice, error) {
-	if _, err := exec.LookPath("kdeconnect-cli"); err != nil {
-		return []hubPhoneDevice{}, nil
-	}
-	paired, pairedErr := phoneDeviceIDs("--list-devices")
-	available, availableErr := phoneDeviceIDs("--list-available")
-	if pairedErr != nil && availableErr != nil {
-		return nil, fmt.Errorf("could not list KDE Connect devices")
-	}
-	ids := map[string]*hubPhoneDevice{}
-	for _, id := range paired {
-		ids[id] = &hubPhoneDevice{ID: id, Name: id, Paired: true, Battery: -1}
-	}
-	for _, id := range available {
-		device := ids[id]
-		if device == nil {
-			device = &hubPhoneDevice{ID: id, Name: id, Battery: -1}
-			ids[id] = device
-		}
-		device.Reachable = true
-	}
-	devices := make([]hubPhoneDevice, 0, len(ids))
-	for _, device := range ids {
-		if out, err := exec.Command("kdeconnect-cli", "--device", device.ID, "--name").Output(); err == nil {
-			if name := strings.TrimSpace(string(out)); name != "" {
-				device.Name = name
-			}
-		}
-		if device.Reachable {
-			if out, err := exec.Command("kdeconnect-cli", "--device", device.ID, "--battery").CombinedOutput(); err == nil {
-				if match := phoneBattery.FindStringSubmatch(string(out)); len(match) == 2 {
-					if value, parseErr := strconv.Atoi(match[1]); parseErr == nil && value <= 100 {
-						device.Battery = value
-					}
-				}
-			}
-		}
-		devices = append(devices, *device)
-	}
-	sortHubPhoneDevices(devices)
-	return devices, nil
-}
-
-func phoneDeviceIDs(flag string) ([]string, error) {
-	out, err := exec.Command("kdeconnect-cli", flag, "--id-only").CombinedOutput()
-	if err != nil {
-		return nil, err
-	}
-	var ids []string
-	for _, id := range strings.Fields(string(out)) {
-		if phoneDeviceID.MatchString(id) {
-			ids = append(ids, id)
-		}
-	}
-	return ids, nil
-}
 
 func runNixPhoneSwitch(action string) error {
 	out, err := exec.Command("ryoku-host", "phone", action).CombinedOutput()
@@ -298,5 +240,3 @@ func runNixPhoneSwitch(action string) error {
 	}
 	return nil
 }
-=======
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)

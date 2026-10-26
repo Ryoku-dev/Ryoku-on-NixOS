@@ -473,11 +473,7 @@ Item {
             }
         }
         HoverHandler { id: rtHov; cursorShape: Qt.PointingHandCursor }
-<<<<<<< port (unstable-dev)
-        TapHandler { id: rtTap; onTapped: if (rt.dir) Spawn.runApp(["nautilus", rt.dir]) }
-=======
         TapHandler { id: rtTap; onTapped: if (rt.dir) Spawn.runApp(["nautilus", rt.dir], { label: "nautilus" }) }
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
         scale: rtTap.pressed ? 1.0 : (rtHov.hovered ? 1.03 : 1)
         Behavior on scale { NumberAnimation { duration: Motion.fast } }
     }

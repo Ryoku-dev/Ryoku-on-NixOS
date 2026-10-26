@@ -512,11 +512,7 @@ Item {
                                             onAct: {
                                                 if (srow.r.key === "i18nGenerate")
                                                     Spawn.runApp(["kitty", "--class", "ryoku-i18n", "-e", "sh", "-c",
-<<<<<<< port (unstable-dev)
-                                                        "ryoku-i18n llm " + I18n.lang + "; echo; read -n1 -rsp 'Done. Press any key to close…'; echo"]);
-=======
                                                         "ryoku-i18n llm " + I18n.lang + "; echo; read -n1 -rsp 'Done. Press any key to close…'; echo"], { label: "kitty" });
->>>>>>> upstream Ryoku 1.3.6 (7a51ec1)
                                             }
                                         }
                                     }
