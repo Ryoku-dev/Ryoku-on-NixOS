@@ -157,23 +157,15 @@ Item {
     }
 
     function installVoxtype() {
-<<<<<<< port (main)
-        Spawn.runApp(["kitty", "--hold", "-e", "gpk", "install", "voxtype-bin", "--manager", "aur"]);
-=======
         if (!pg.installAvailable)
             return;
         Spawn.runApp(["kitty", "--hold", "-e", "ryoku-host", "pkg", "install",
             "--aur", "voxtype-bin"], { label: "kitty" });
->>>>>>> upstream Ryoku 1.0.4 (ad2d365)
     }
 
     // Removal stops the user service through the init-neutral host seam, then
     // removes the package through the active package manager.
     function removeVoxtype() {
-<<<<<<< port (main)
-        Spawn.runApp(["kitty", "--hold", "-e", "sh", "-c",
-            "gpk remove voxtype-bin && { systemctl --user disable --now voxtype.service 2>/dev/null; rm -f ~/.config/systemd/user/voxtype.service; systemctl --user daemon-reload 2>/dev/null; }"]);
-=======
         if (!pg.installAvailable)
             return;
         Spawn.runApp(["kitty", "--hold", "-e", "sh", "-c",
@@ -181,7 +173,6 @@ Item {
             + "rm -f \"${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/voxtype.service\"; "
             + "ryoku-host svc --user daemon-reload 2>/dev/null || true; "
             + "sudo ryoku-host pkg remove voxtype-bin"], { label: "kitty" });
->>>>>>> upstream Ryoku 1.0.4 (ad2d365)
     }
 
     // Re-probe when the package terminal closes and the Hub regains focus.

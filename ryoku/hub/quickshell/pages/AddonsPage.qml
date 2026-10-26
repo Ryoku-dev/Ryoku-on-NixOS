@@ -238,10 +238,7 @@ Item {
             omarchyListProc.running = true;
     }
     function browseStore() {
-<<<<<<< port (main)
-        Spawn.runApp(["ryostore", "open", pg.tab === "Bundles" ? "bundles" : "plugins"]);
-=======
-        Spawn.runApp(["ryostore", "open"], { label: "ryostore" });
+        Spawn.runApp(["ryostore", "open", pg.tab === "Bundles" ? "bundles" : "plugins"], { label: "ryostore" });
     }
     function browseOmarchyMarket() {
         Spawn.runApp(["ryostore", "open", "omarchy-plugins"], { label: "ryostore" });
@@ -274,7 +271,6 @@ Item {
             pg.mutateOmarchy(pg.confirmId, "remove");
         else
             pg.removePlugin(pg.confirmId);
->>>>>>> upstream Ryoku 1.0.4 (ad2d365)
     }
     function removeBundle(id, item) {
         if (!id || bundleMutProc.running)

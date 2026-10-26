@@ -59,18 +59,6 @@ Singleton {
         Quickshell.execDetached(ctx);
     }
 
-<<<<<<< port (main)
-    // runApp() is specifically for user-facing applications. Shell-owned
-    // helpers, capture processes and Ryoku surfaces must continue using run().
-    function runApp(command, workingDirectory) {
-        if (!command || command.length === 0)
-            return;
-
-        spawn.run(
-            spawn.appCommand(command),
-            workingDirectory || ""
-        );
-=======
     function runApp(argv, opts) {
         if (!argv || argv.length === 0)
             return;
@@ -84,6 +72,5 @@ Singleton {
         for (let i = 0; i < argv.length; i++)
             command.push(String(argv[i]));
         spawn.run(command);
->>>>>>> upstream Ryoku 1.0.4 (ad2d365)
     }
 }

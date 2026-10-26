@@ -707,11 +707,7 @@ Item {
             SettingCard {
                 id: folderNote
                 width: col.colWidth
-<<<<<<< port (main)
-                visible: !page.sumiActive && ["qsbar", "orpheus", "iris", "python", "nomarchy", "karuma"].indexOf(page.activeStyle) === -1
-=======
-                visible: page.showActiveDetails && !page.sumiActive && ["qsbar", "orpheus", "iris", "python", "nomarchy"].indexOf(page.activeStyle) === -1
->>>>>>> upstream Ryoku 1.0.4 (ad2d365)
+                visible: page.showActiveDetails && !page.sumiActive && ["qsbar", "orpheus", "iris", "python", "nomarchy", "karuma"].indexOf(page.activeStyle) === -1
                 title: I18n.tr("LAYOUT")
 
                 Text {

@@ -180,11 +180,7 @@ PanelWindow {
     function openSelected() {
         if (!loaded || imageArray.length === 0) return
         var path = imageArray[selectedIndex] ? imageArray[selectedIndex].filePath : ""; if (!path) return
-<<<<<<< port (main)
-        Spawn.runApp(["xdg-open", path])
-=======
         Spawn.runApp(["xdg-open", path], { label: "media" })
->>>>>>> upstream Ryoku 1.0.4 (ad2d365)
         root.mediaBrowserVisible = false
     }
 

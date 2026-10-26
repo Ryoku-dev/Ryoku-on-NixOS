@@ -346,11 +346,7 @@ PanelWindow {
         var url = String(selMeta.repo)
             .replace(/^git@github\.com:/, "https://github.com/")
             .replace(/\.git$/, "")
-<<<<<<< port (main)
-        Spawn.runApp(["xdg-open", url])
-=======
         Spawn.runApp(["xdg-open", url], { label: "theme-source" })
->>>>>>> upstream Ryoku 1.0.4 (ad2d365)
     }
 
     // ── bulk meta pre-warm: author/repo/palette for ALL themes in one background

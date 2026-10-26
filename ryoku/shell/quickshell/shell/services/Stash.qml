@@ -165,11 +165,7 @@ Singleton {
     }
 
     function openFile(path) {
-<<<<<<< port (main)
-        Spawn.runApp(["xdg-open", path]);
-=======
         Spawn.runApp(["xdg-open", path], { label: "file" });
->>>>>>> upstream Ryoku 1.0.4 (ad2d365)
     }
 
     function removeFile(path) {
