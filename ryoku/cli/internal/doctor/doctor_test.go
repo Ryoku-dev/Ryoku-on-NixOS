@@ -1634,7 +1634,7 @@ func TestMigrateOrpheusGain(t *testing.T) {
 // and reconcileSumiBar defaults an absent or retired Atoll-era style to
 // "orpheus" (not the old "sumi"). This puts an existing box on the current
 // default bar after an update while explicit Sumi and store choices are kept.
-func TestBarStyleDefaultsToOrpheus(t *testing.T) {
+func TestBarStyleDefaultsToKaruma(t *testing.T) {
 	barStyleOf := func(raw []byte) string {
 		var m map[string]any
 		if err := json.Unmarshal(raw, &m); err != nil {
@@ -1656,9 +1656,9 @@ func TestBarStyleDefaultsToOrpheus(t *testing.T) {
 		{"orpheus kept", `{"barStyle":"orpheus"}`, "orpheus"},
 		{"qsbar kept", `{"barStyle":"qsbar"}`, "qsbar"},
 		{"sumi kept", `{"barStyle":"sumi"}`, "sumi"},
-		{"absent defaults to orpheus", `{"fontScale":1.3}`, "orpheus"},
-		{"retired atoll to orpheus", `{"barStyle":"atoll"}`, "orpheus"},
-		{"retired washi to orpheus", `{"barStyle":"washi"}`, "orpheus"},
+		{"absent defaults to karuma", `{"fontScale":1.3}`, "karuma"},
+		{"retired atoll to karuma", `{"barStyle":"atoll"}`, "karuma"},
+		{"retired washi to karuma", `{"barStyle":"washi"}`, "karuma"},
 	}
 	for _, c := range cases {
 		got, changed, err := migrateSumiBar([]byte(c.in))
