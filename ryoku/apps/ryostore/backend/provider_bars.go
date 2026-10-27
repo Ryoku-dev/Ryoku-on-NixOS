@@ -420,12 +420,12 @@ func writeBarStyleSelection(path, id string) error {
 }
 
 // activeStyle is the style the shell renders: an absent or unreadable
-// selection draws the shipped Orpheus bar, so the catalogue marks that one.
+// selection draws the shipped karuma bar, so the catalogue marks that one.
 func (p barProvider) activeStyle() string {
 	if id := readBarStyleSelection(p.shellConfig); id != "" {
 		return id
 	}
-	return "orpheus"
+	return "karuma"
 }
 
 func readBarStyleSelection(path string) string {

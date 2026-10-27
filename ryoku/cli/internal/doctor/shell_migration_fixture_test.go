@@ -153,8 +153,8 @@ func TestShellMigrationFrom0755Fixture(t *testing.T) {
 	if err := json.Unmarshal(migrated, &current); err != nil {
 		t.Fatalf("migrated shell fixture does not parse: %v", err)
 	}
-	if got := current["barStyle"]; got != "orpheus" {
-		t.Errorf("retired 0.75.5 bar style reached %v, want current default orpheus", got)
+	if got := current["barStyle"]; got != "karuma" {
+		t.Errorf("retired 0.75.5 bar style reached %v, want current default karuma", got)
 	}
 	if got := current["fontScale"]; got != 1.17 {
 		t.Errorf("custom fontScale = %v, want 1.17", got)

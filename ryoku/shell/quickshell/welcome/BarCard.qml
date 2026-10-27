@@ -12,7 +12,7 @@ Rectangle {
     property bool recommended: false
     signal chosen(string styleId)
 
-    height: 116
+    height: 88
     radius: Tokens.radius
     color: selected ? Tokens.bone
         : (tap.pressed ? Tokens.tint16 : (hover.hovered ? Tokens.tint5 : "transparent"))
@@ -67,7 +67,7 @@ Rectangle {
         Text {
             visible: root.recommended
             width: parent.width
-            text: I18n.tr("RYOKU DEFAULT")
+            text: I18n.tr("RYOKU NIX DEFAULT")
             color: root.selected ? Tokens.inkOnBoneDim : Tokens.inkFaint
             font.family: Tokens.mono
             font.pixelSize: Tokens.fTiny

@@ -415,13 +415,14 @@ Singleton {
                 "popup_window_margins": 0,
                 "show_images": false
             })
-            property string barStyle: "orpheus"
+            property string barStyle: "karuma"
             property string launcherTarget: "studio"
             property var obi: ({})
             property var nacre: NacreConfig.defaultConfig()
             property var qsbar: ({})
             property var kairos: ({})
             property var chroma: ({})
+            property var karuma: ({})
             property var orpheus: ({})
             property var python: ({})
             property var nomarchy: ({

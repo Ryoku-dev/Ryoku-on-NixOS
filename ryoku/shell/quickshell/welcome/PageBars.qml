@@ -6,11 +6,12 @@ import Ryoku.Ui.Singletons
 Item {
     id: root
 
-    property string selectedStyle: "orpheus"
+    property string selectedStyle: "karuma"
     signal chose(string styleId)
 
     readonly property var styles: [
-        { id: "orpheus", name: I18n.tr("Orpheus"), description: I18n.tr("A liquid bar that moves with your music."), recommended: true },
+        { id: "karuma", name: I18n.tr("Karuma"), description: I18n.tr("The default Ryoku Nix bar."), recommended: true },
+        { id: "orpheus", name: I18n.tr("Orpheus"), description: I18n.tr("A liquid bar that moves with your music.") },
         { id: "sumi", name: I18n.tr("Sumi"), description: I18n.tr("The monochrome painted frame.") },
         { id: "qsbar", name: I18n.tr("QS Bar"), description: I18n.tr("The full-colour wallpaper bar.") },
         { id: "nomarchy", name: I18n.tr("Nomarchy"), description: I18n.tr("Omarchy's bar with its plugin library.") },
@@ -45,9 +46,10 @@ Item {
             styleName: root.styleName(root.selectedStyle)
         }
 
-        Row {
+        Grid {
             id: selectors
             width: parent.width
+            columns: 4
             spacing: Tokens.s2
 
             Repeater {
@@ -55,7 +57,10 @@ Item {
 
                 BarCard {
                     required property var modelData
-                    width: Math.floor((selectors.width - selectors.spacing * 5) / 6)
+                    width: Math.floor(
+                        (selectors.width - selectors.spacing * (selectors.columns - 1))
+                        / selectors.columns
+                    )
                     styleId: modelData.id
                     name: modelData.name
                     description: modelData.description
