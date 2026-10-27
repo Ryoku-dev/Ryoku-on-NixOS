@@ -1652,6 +1652,7 @@ func TestBarStyleDefaultsToOrpheus(t *testing.T) {
 		t.Errorf("migrateShellConfig dropped the live barStyle: got %q, want qsbar", got)
 	}
 	cases := []struct{ name, in, want string }{
+	  {"karuma kept", `{"barStyle":"karuma"}`, "karuma"},
 		{"orpheus kept", `{"barStyle":"orpheus"}`, "orpheus"},
 		{"qsbar kept", `{"barStyle":"qsbar"}`, "qsbar"},
 		{"sumi kept", `{"barStyle":"sumi"}`, "sumi"},

@@ -73,7 +73,7 @@ Item {
     // The running bar style; an absent key renders the shipped QS Bar, the
     // shell's own default. The frame, rails and zone editors below are Sumi's;
     // a folder style owns its own layout.
-    readonly property string activeStyle: page.fval("barStyle", "orpheus")
+    readonly property string activeStyle: page.fval("barStyle", "karuma")
     readonly property bool sumiActive: page.activeStyle === "sumi"
     readonly property string activeName: {
         const designs = styleGallery.designs || [];

@@ -2541,12 +2541,12 @@ func migrateSumiBar(raw []byte) ([]byte, bool, error) {
 		_ = json.Unmarshal(b, &style)
 	}
 	if _, ok := top["barStyle"]; !ok || retiredBarStyles[style] {
-		next, err := json.Marshal("orpheus")
+		next, err := json.Marshal("karuma")
 		if err != nil {
 			return nil, false, err
 		}
 		top["barStyle"] = next
-		style = "orpheus"
+		style = "karuma"
 		changed = true
 	}
 	// Only the built-in Sumi rail keeps the left-only simplification; every other

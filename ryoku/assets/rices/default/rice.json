@@ -144,7 +144,7 @@
           "y": 0.68
         }
       },
-      "barStyle": "qsbar",
+      "barStyle": "karuma",
       "bars": {
         "bottom_bar": {
           "center_widgets": [],
