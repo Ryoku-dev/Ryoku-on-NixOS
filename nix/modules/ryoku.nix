@@ -1454,6 +1454,9 @@ in
     };
     services.gnome.gnome-keyring.enable = true;
 
+    # Enable GVFS for trash, removable media, MTP devices, and network mounts.
+    services.gvfs.enable = true;
+
     security.rtkit.enable = true;
 
     services.pipewire = {
