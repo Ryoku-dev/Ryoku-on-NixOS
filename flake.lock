@@ -350,7 +350,7 @@
         "ryokuPackagesNixpkgs": "ryokuPackagesNixpkgs",
         "ryokuUpstream": "ryokuUpstream",
         "ryomanagerSrc": "ryomanagerSrc_2",
-        "ryotunesSrc": "ryotunesSrc_2",
+        "ryotunesNix": "ryotunesNix",
         "skwdWall": "skwdWall_2"
       }
     },
@@ -429,24 +429,30 @@
         "type": "github"
       }
     },
-    "ryotunesSrc": {
-      "flake": false,
+    "ryotunesNix": {
+      "inputs": {
+        "nixpkgs": [
+          "ryokuPackagesNixpkgs"
+        ],
+        "ryoku": [
+          "ryokuUpstream"
+        ]
+      },
       "locked": {
-        "lastModified": 1791950985,
-        "narHash": "sha256-pFguZ3ZSQ7DLI9wDukjhUklt54jUOc6mEn5XBVpsolY=",
+        "lastModified": 1793278283,
+        "narHash": "sha256-zZPSSdvfgYkyPXRit2nC/aDyTOns2gloMlxxT9yYFDU=",
         "owner": "Ryoku-dev",
-        "repo": "ryotunes",
-        "rev": "ade86b744651b908f3946b6769853e5084a59ce1",
+        "repo": "RyotunesNix",
+        "rev": "aa17789f20a9830334752ceefaaa538654b1c399",
         "type": "github"
       },
       "original": {
         "owner": "Ryoku-dev",
-        "repo": "ryotunes",
-        "rev": "ade86b744651b908f3946b6769853e5084a59ce1",
+        "repo": "RyotunesNix",
         "type": "github"
       }
     },
-    "ryotunesSrc_2": {
+    "ryotunesSrc": {
       "flake": false,
       "locked": {
         "lastModified": 1791950985,
