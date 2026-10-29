@@ -9,7 +9,24 @@ pkgs.buildGoModule rec {
 
   src = ryomanagerSrc;
 
-  vendorHash = "sha256-wmLUsQlA705xwX1WAgmsA4pQiAqA3Esa/0EoB8GASbo=";
+  vendorHash = "sha256-HOfeloECZ4bWUmKDwCUjnXFtmf6MyflELEhjZ4BScNQ=";
+
+  # buildGoModule's default vendoring (`go mod vendor`) has to successfully
+  # *load* every package in the main module to know which deps are
+  # directly used. Loading main.go here fails: its `go:embed
+  # all:frontend/dist` has nothing to embed (npm hasn't run), and the
+  # vendoring derivation never gets gtk3/webkitgtk (only `buildInputs` on
+  # the main derivation, not propagated to the separate goModules FOD) for
+  # wails' cgo-based webview package. Either failure silently drops
+  # main.go and its real imports (echo, wails, mattn/*, ...) from
+  # consideration, leaving vendor/modules.txt empty even though go.mod
+  # correctly lists them as required -- exactly the
+  # "explicitly required in go.mod, but not marked as explicit in
+  # vendor/modules.txt" error. proxyVendor sidesteps all of this: instead
+  # of scanning imports, it mirrors every module in go.sum into a local
+  # GOPROXY cache, so the real build resolves modules normally (-mod=mod)
+  # instead of being checked against a vendor snapshot.
+  proxyVendor = true;
 
   npmRoot = "frontend";
   npmDeps = pkgs.fetchNpmDeps {
