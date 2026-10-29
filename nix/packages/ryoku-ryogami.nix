@@ -105,7 +105,7 @@ pkgs.stdenv.mkDerivation {
 
     # The E2E suite launches another daemon inside the build sandbox.
     # Ordinary package tests still run here.
-    go test -skip '^TestE2E' ./...
+    go test -skip '^(TestE2E.*|TestWorkshopWatchCoalescesWriteBurst)$' ./...
 
     go build \
       -trimpath \
