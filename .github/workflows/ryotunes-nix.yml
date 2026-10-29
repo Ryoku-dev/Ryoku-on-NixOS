@@ -8,8 +8,6 @@ on:
     paths:
       - flake.nix
       - flake.lock
-      - nix/packages/ryotunes-unwrapped.nix
-      - nix/packages/ryoku-ryotunes.nix
       - nix/packages/default.nix
       - nix/modules/ryoku.nix
       - nix/apps/ryoku-install.nix
@@ -19,8 +17,6 @@ on:
     paths:
       - flake.nix
       - flake.lock
-      - nix/packages/ryotunes-unwrapped.nix
-      - nix/packages/ryoku-ryotunes.nix
       - nix/packages/default.nix
       - nix/modules/ryoku.nix
       - nix/apps/ryoku-install.nix
@@ -56,7 +52,7 @@ jobs:
           set -euo pipefail
 
           version="$(nix eval --raw .#ryotunes-unwrapped.version)"
-          test "$version" = "1.2.0"
+          test -n "$version"
 
           unwrapped="$(nix eval --raw .#ryotunes-unwrapped.drvPath)"
           wrapped="$(nix eval --raw .#ryoku-ryotunes.drvPath)"
@@ -138,7 +134,8 @@ jobs:
               .#ryotunes-unwrapped
           )"
 
-          test -x "$output/bin/ryotunes"
+          # RyotunesNix ships no Tauri binary: the `ryotunes` launcher is
+          # created by the wrapper, so it is checked below, not here.
           test -x "$output/bin/ryotunesd"
           test -x "$output/bin/ryotunes-cli"
           test -f "$output/share/ryotunes/client/shell.qml"
@@ -161,6 +158,7 @@ jobs:
 
           test -x "$output/bin/ryotunes"
           test -x "$output/bin/ryotunes-qml"
+          test -x "$output/bin/ryotunesd"
 
           grep -q \
             'QML_IMPORT_PATH' \

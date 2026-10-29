@@ -208,6 +208,20 @@ func TestSystemdManifestFreshUserEnablesWithoutWayland(t *testing.T) {
 	}
 }
 
+func TestSystemdManifestBaselineWithoutSessionRowsSettles(t *testing.T) {
+	fixture := newSystemdManifestFixture(t,
+		"shell\tuser\tsession-global\tshell.service\t-\tnone\n", nil)
+	touchFixture(t, filepath.Join(fixture.state, "ryoku", "welcome-seen"))
+	touchFixture(t, filepath.Join(fixture.userUnits, "shell.service"))
+
+	if code := fixture.app.Service([]string{"reconcile", "--user"}); code != ExitOK {
+		t.Fatalf("user reconcile exit = %d", code)
+	}
+	if code := fixture.app.Service([]string{"reconcile", "--user", "--check"}); code != ExitOK {
+		t.Fatalf("check after a clean reconcile exit = %d", code)
+	}
+}
+
 func TestSystemdManifestExistingBaselineEnablesLaterRows(t *testing.T) {
 	fixture := newSystemdManifestFixture(t, "idle\tuser\tsession\tidle.service\t-\tpreserve\n", nil)
 	touchFixture(t, filepath.Join(fixture.state, "ryoku", "welcome-seen"))

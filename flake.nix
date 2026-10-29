@@ -48,15 +48,17 @@
       flake = false;
     };
 
-    # Native Ryotunes 1.2.0, pinned to its release commit.
-    # Keep this pinned to the exact upstream release commit.
-    ryotunesSrc = {
-      url = "github:Ryoku-dev/ryotunes/ade86b744651b908f3946b6769853e5084a59ce1";
-      flake = false;
+    # Ryotunes now comes from its own flake (RyotunesNix). It owns the Rust
+    # build, the Quickshell client and the wrapper; Ryoku only supplies the
+    # locked nixpkgs and its own QML modules. flake.lock pins the revision.
+    ryotunesNix = {
+      url = "github:Ryoku-dev/RyotunesNix";
+      inputs.nixpkgs.follows = "ryokuPackagesNixpkgs";
+      inputs.ryoku.follows = "ryokuUpstream";
     };
   };
 
-  outputs = { self, ryokuUpstream, nixpkgs, ryokuPackagesNixpkgs, glazepkg, hermesAgent, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ryomanagerSrc, ryotunesSrc, ... }:
+  outputs = { self, ryokuUpstream, nixpkgs, ryokuPackagesNixpkgs, glazepkg, hermesAgent, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ryomanagerSrc, ryotunesNix, ... }:
     let
       version =
         builtins.replaceStrings
@@ -93,7 +95,7 @@
           bibataMaterialSrc
           imgbordersSrc
           ryomanagerSrc
-          ryotunesSrc
+          ryotunesNix
           skwdPaper
           version
           ;

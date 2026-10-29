@@ -369,6 +369,7 @@ PanelWindow {
         }
     }
 
+    onLifecycleStateChanged: scheduleSync()
     onInvocationSurfaceChanged: {
         if (invocationSurface)
             scheduleSync();

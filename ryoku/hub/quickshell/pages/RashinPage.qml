@@ -293,7 +293,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Tokens.s2
             Text {
-                text: hd.kanji; color: Tokens.alert; font.family: Tokens.jp
+                text: UiPreferences.text(hd.kanji, ""); color: Tokens.alert; font.family: Tokens.jp
                 font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
             }
             Text {
@@ -335,7 +335,7 @@ Item {
                     font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter
                 }
                 Text {
-                    text: fc.kanji; color: Tokens.inkDim; font.family: Tokens.jp
+                    text: UiPreferences.text(fc.kanji, ""); color: Tokens.inkDim; font.family: Tokens.jp
                     font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter
                 }
             }
@@ -554,6 +554,7 @@ Item {
                         spacing: Tokens.s2
                         Text {
                             text: "羅針"; color: Tokens.alert; font.family: Tokens.jp; font.pixelSize: 13
+                            visible: UiPreferences.showJapaneseGloss
                             anchors.verticalCenter: parent.verticalCenter
                         }
                         Text {
@@ -601,7 +602,7 @@ Item {
                         spacing: 6
                         Row {
                             spacing: Tokens.s2
-                            Text { text: "羅針"; color: Tokens.ink; font.family: Tokens.jp; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
+                            Text { visible: UiPreferences.showJapaneseGloss; text: "羅針"; color: Tokens.ink; font.family: Tokens.jp; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
                             Text {
                                 text: I18n.tr("RASHIN"); color: Tokens.ink; font.family: Tokens.display
                                 font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
@@ -643,7 +644,7 @@ Item {
                         spacing: 6
                         Row {
                             spacing: Tokens.s2
-                            Text { text: "徘徊"; color: Tokens.alert; font.family: Tokens.jp; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                            Text { visible: UiPreferences.showJapaneseGloss; text: "徘徊"; color: Tokens.alert; font.family: Tokens.jp; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
                             Text {
                                 text: I18n.tr("PROWL GATEWAY"); color: Tokens.ink; font.family: Tokens.display
                                 font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter
