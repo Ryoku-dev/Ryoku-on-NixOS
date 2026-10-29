@@ -1,13 +1,6 @@
 package main
 
-// The ryoku-livewall pipeline: a video wallpaper plays through the in-repo C
-// player (ryoku/shell/livewall), which software-decodes a pre-transcoded clip
-// into wl_shm buffers on a wlr background surface. It maps no GPU/EGL driver,
-// so it holds ~40-60 MB RSS on any vendor, where mpv/mpvpaper (a client GL
-// pipeline) cost 300-700 MB, leak per loop, and on a hybrid layout dropped
-// frames wholesale. The daemon transcodes each clip once to the panel's
-// logical width on the strongest GPU (NVENC, else VA-API on AMD; a supported
-// CPU H.264 encoder otherwise) and caches it, so steady playback stays cheap.
+// Ryogami-live starts from the source, then reuses a capped cache on later plays.
 
 import (
 	"context"
@@ -21,6 +14,13 @@ import (
 )
 
 const liveDaemon = "ryogami-live"
+
+type liveTranscodeFunc func(context.Context, transcodeSpec) error
+
+var liveTranscodeGate = make(chan struct{}, 1)
+
+// liveTranscodeSettle keeps the cache encode from competing with the reveal it follows.
+var liveTranscodeSettle = 15 * time.Second
 
 func init() {
 	guardApply(func(d *daemon, req *applyRequest) error {
@@ -141,46 +141,71 @@ func liveFps(tier string, src liveShape) string {
 	return strconv.Itoa(int(fps + 0.5))
 }
 
-// liveDirect reports whether livewall can decode the source as-is: already
-// H.264 8-bit within the width and rate budget, so a transcode would only
-// re-encode what the player affords anyway.
-func liveDirect(src liveShape, capW int, fps string) bool {
+func liveCacheUnneeded(src liveShape, capW int, fps string) bool {
 	target, _ := strconv.ParseFloat(fps, 64)
 	return src.codec == "h264" && src.pixFmt == "yuv420p" &&
 		src.width > 0 && src.width <= capW &&
 		src.fps > 0 && src.fps <= target+6
 }
 
-// livewallSource is the cached clip livewall decodes, transcoded once per clip,
-// cap width, rate and encoder rev (keyed by mtime, so an edited file re-encodes)
-// on the strongest GPU (transcode.go). B-frames are off: they buy compression
-// this cache does not need, and each one the decoder holds for reordering is a
-// full frame of RAM charged against livewall's budget.
-// "" if every encoder fails, so the caller keeps the clip's still frame.
-func livewallSource(pic string, src liveShape, capW int, fps string) string {
+func livewallCachePath(pic string, src liveShape, capW int, fps string) string {
+	if liveCacheUnneeded(src, capW, fps) {
+		return ""
+	}
 	st, err := os.Stat(pic)
 	if err != nil {
 		return ""
 	}
-	if liveDirect(src, capW, fps) {
-		return pic
-	}
-	dir := livewallCacheDir()
 	name := strings.TrimSuffix(filepath.Base(pic), filepath.Ext(pic))
-	cap := strconv.Itoa(capW)
-	out := filepath.Join(dir, name+"-"+strconv.FormatInt(st.ModTime().Unix(), 10)+"-"+cap+"-"+fps+"-r"+liveEncRev+".mp4")
+	return filepath.Join(livewallCacheDir(), name+"-"+strconv.FormatInt(st.ModTime().Unix(), 10)+
+		"-"+strconv.Itoa(capW)+"-"+fps+"-r"+liveEncRev+".mp4")
+}
+
+func livewallSource(pic string, src liveShape, capW int, fps string) string {
+	if _, err := os.Stat(pic); err != nil {
+		return ""
+	}
+	cache := livewallCachePath(pic, src, capW, fps)
+	if cache != "" && fileExists(cache) {
+		return cache
+	}
+	return pic
+}
+
+func cacheLivewallSource(ctx context.Context, pic string, src liveShape, capW int, fps string, transcode liveTranscodeFunc) string {
+	if ctx.Err() != nil {
+		return ""
+	}
+	out := livewallCachePath(pic, src, capW, fps)
+	if out == "" || fileExists(out) {
+		return out
+	}
+	select {
+	case <-time.After(liveTranscodeSettle):
+	case <-ctx.Done():
+		return ""
+	}
+	select {
+	case liveTranscodeGate <- struct{}{}:
+		defer func() { <-liveTranscodeGate }()
+	case <-ctx.Done():
+		return ""
+	}
+	if ctx.Err() != nil {
+		return ""
+	}
 	if fileExists(out) {
 		return out
 	}
-	if os.MkdirAll(dir, 0o755) != nil {
+	if os.MkdirAll(filepath.Dir(out), 0o755) != nil {
 		return ""
 	}
-	// pid-unique tmp: two rapid sets of the same clip transcode concurrently
-	// (the generation guard drops the launch, not the encode); a shared tmp
-	// would interleave both writers into a corrupt cached video.
 	tmp := out + ".tmp." + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano(), 10) + ".mp4"
 	rate, _ := strconv.Atoi(fps)
-	if transcodeH264(context.Background(), transcodeSpec{src: pic, dst: tmp, fps: rate, maxWidth: capW, qp: 20, crf: 18}) != nil {
+	err := transcode(ctx, transcodeSpec{
+		src: pic, dst: tmp, fps: rate, maxWidth: capW, qp: 20, crf: 18, idle: true,
+	})
+	if err != nil || ctx.Err() != nil {
 		_ = os.Remove(tmp)
 		return ""
 	}

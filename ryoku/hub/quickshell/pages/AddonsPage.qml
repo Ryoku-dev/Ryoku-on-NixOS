@@ -198,7 +198,7 @@ Item {
         case "bundles-read": pg.loadBundles(); break;
         case "bundle-status": pg.loadBundleStatus(pg.errorTarget); break;
         case "bundle-remove": pg.removeBundle(pg.errorTarget, pg.errorItem); break;
-        case "bundle-repair": pg.repairBundle(pg.errorTarget); break;
+        case "bundle-install": pg.installBundle(pg.errorTarget); break;
         case "plugin-install": pg.install(pg.errorTarget); break;
         case "plugin-remove":
             pg.busyId = pg.errorTarget;
@@ -238,7 +238,14 @@ Item {
             omarchyListProc.running = true;
     }
     function browseStore() {
+<<<<<<< port (unstable-dev)
         Spawn.runApp(["ryostore", "open", pg.tab === "Bundles" ? "bundles" : "plugins"], { label: "ryostore" });
+=======
+        Spawn.runApp(["ryostore", "open", "discover"], { label: "ryostore" });
+    }
+    function browseBundles() {
+        Spawn.runApp(["ryostore", "open", "bundles"], { label: "ryostore" });
+>>>>>>> upstream Ryoku 1.7.3 (4042923)
     }
     function browseOmarchyMarket() {
         Spawn.runApp(["ryostore", "open", "omarchy-plugins"], { label: "ryostore" });
@@ -284,13 +291,13 @@ Item {
             "kitty", "--class", "ryostore", "-e", "ryostore-install", "remove"].concat(scope);
         bundleMutProc.running = true;
     }
-    function repairBundle(id) {
+    function installBundle(id) {
         if (!id || bundleMutProc.running)
             return;
         pg.bundleBusyId = id;
         pg.bundleMutationId = id;
         pg.bundleMutationItem = "";
-        pg.bundleMutationAction = "repair";
+        pg.bundleMutationAction = "install";
         bundleMutProc.command = ["ryoku-host", "app", "--label", "ryostore", "--",
             "kitty", "--class", "ryostore", "-e", "ryostore-install", "install", "bundle", id];
         bundleMutProc.running = true;
@@ -739,13 +746,13 @@ Item {
             const id = pg.bundleMutationId;
             const item = pg.bundleMutationItem;
             const action = pg.bundleMutationAction;
-            const retry = action === "repair" ? "bundle-repair" : "bundle-remove";
+            const retry = action === "install" ? "bundle-install" : "bundle-remove";
             pg.bundleBusyId = "";
             if (code !== 0) {
                 pg.showError(retry,
                     pg.compactError(bundleMutErr.text,
-                        action === "repair"
-                            ? I18n.tr("Couldn't repair bundle (exit %1).")
+                        action === "install"
+                            ? I18n.tr("Couldn't install bundle (exit %1).")
                             : I18n.tr("Couldn't remove bundle content (exit %1)."),
                         code),
                     bundleMutProc.command, id, item);
@@ -834,7 +841,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
             }
             Text {
-                text: "力"; color: Tokens.ink; font.family: Tokens.jp
+                text: UiPreferences.brandMark("力"); color: Tokens.ink; font.family: Tokens.jp
                 font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter
             }
             Text {
@@ -863,7 +870,7 @@ Item {
         }
         Text {
             width: Math.min(parent.width, 720)
-            text: I18n.tr("Shell add-ons and bundles you've installed.")
+            text: I18n.tr("Shell add-ons and bundles with parts already on this computer.")
             color: Tokens.inkMuted
             font.family: Tokens.ui
             font.pixelSize: Tokens.fBody
@@ -1076,10 +1083,12 @@ Item {
 
                     AddonSectionHeader {
                         width: parent.width
-                        title: I18n.tr("BUNDLES")
+                        title: I18n.tr("BUNDLES WITH INSTALLED PARTS")
                         countText: (pg.bundles.length === 1
                             ? I18n.tr("%1 BUNDLE") : I18n.tr("%1 BUNDLES"))
                             .arg(pg.bundles.length)
+                        actionText: I18n.tr("BROWSE BUNDLES")
+                        onActionRequested: pg.browseBundles()
                         onRefreshRequested: pg.loadBundles()
                     }
 
@@ -1097,7 +1106,7 @@ Item {
                                 bundle: installedBundleCard.modelData
                                 busy: pg.bundleBusyId === installedBundleCard.modelData.id
                                 onOpenRequested: pg.openBundle(installedBundleCard.modelData)
-                                onRepairRequested: pg.repairBundle(installedBundleCard.modelData.id)
+                                onInstallRequested: pg.installBundle(installedBundleCard.modelData.id)
                                 onRemoveRequested: pg.removeBundle(installedBundleCard.modelData.id, "")
                             }
                         }
@@ -2088,7 +2097,7 @@ Item {
         loading: pg.bundleSheetLoading
         busy: pg.bundleBusyId === pg.bundleSheetId
         onDismissed: pg.bundleSheetOpen = false
-        onRepairRequested: pg.repairBundle(pg.bundleSheetId)
+        onInstallRequested: pg.installBundle(pg.bundleSheetId)
         onRemoveRequested: pg.removeBundle(pg.bundleSheetId, "")
     }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -36,30 +37,53 @@ func TestLiveFps(t *testing.T) {
 	}
 }
 
-func TestLiveDirect(t *testing.T) {
+func TestLiveCacheUnneeded(t *testing.T) {
 	fits := liveShape{codec: "h264", pixFmt: "yuv420p", width: 1920, fps: 30}
-	if !liveDirect(fits, 2048, "30") {
-		t.Fatal("a fitting h264 clip must play directly")
+	if !liveCacheUnneeded(fits, 2048, "30") {
+		t.Fatal("a fitting h264 clip should bypass the cache")
 	}
 	hevc := fits
 	hevc.codec = "hevc"
-	if liveDirect(hevc, 2048, "30") {
-		t.Fatal("hevc must transcode")
+	if liveCacheUnneeded(hevc, 2048, "30") {
+		t.Fatal("hevc should prefer an existing cache")
 	}
 	tenBit := fits
 	tenBit.pixFmt = "yuv420p10le"
-	if liveDirect(tenBit, 2048, "30") {
-		t.Fatal("10-bit must transcode")
+	if liveCacheUnneeded(tenBit, 2048, "30") {
+		t.Fatal("10-bit should prefer an existing cache")
 	}
 	wide := fits
 	wide.width = 3840
-	if liveDirect(wide, 2048, "30") {
-		t.Fatal("a 4K clip must downscale")
+	if liveCacheUnneeded(wide, 2048, "30") {
+		t.Fatal("a 4K clip should prefer an existing downscaled cache")
 	}
 	fast := fits
 	fast.fps = 60
-	if liveDirect(fast, 2048, "30") {
-		t.Fatal("a 60fps clip must transcode to a 30fps budget")
+	if liveCacheUnneeded(fast, 2048, "30") {
+		t.Fatal("a 60fps clip should prefer an existing capped cache")
+	}
+}
+
+func TestLivewallSourceStartsFromOriginalUntilCacheExists(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	src := filepath.Join(t.TempDir(), "four-k.mp4")
+	if err := os.WriteFile(src, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shape := liveShape{codec: "h264", pixFmt: "yuv420p", width: 3840, fps: 30}
+	if got := livewallSource(src, shape, 1920, "30"); got != src {
+		t.Fatalf("source = %q, want original %q", got, src)
+	}
+	out := livewallCachePath(src, shape, 1920, "30")
+	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(out, []byte("cache"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := livewallSource(src, shape, 1920, "30"); got != out {
+		t.Fatalf("source = %q, want cache %q", got, out)
 	}
 }
 
@@ -74,10 +98,13 @@ func TestLiveFit(t *testing.T) {
 	}
 }
 
-// fakeLiveTools installs stub ryogami-live / ffprobe binaries on PATH and seeds
-// the output cache with two monitors. The player records its argv to marker;
-// ffprobe reports a small direct-playable h264 clip so Play never transcodes.
 func fakeLiveTools(t *testing.T, marker string, exitFast bool) {
+	t.Helper()
+	fakeLiveToolsShape(t, marker, exitFast,
+		"codec_name=h264\npix_fmt=yuv420p\nwidth=1280\nr_frame_rate=30/1\n")
+}
+
+func fakeLiveToolsShape(t *testing.T, marker string, exitFast bool, shape string) {
 	t.Helper()
 	dir := t.TempDir()
 	player := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + marker + "\n"
@@ -92,7 +119,8 @@ func fakeLiveTools(t *testing.T, marker string, exitFast bool) {
 		}
 	}
 	write("ryogami-live", player)
-	write("ffprobe", "#!/bin/sh\nprintf 'codec_name=h264\\npix_fmt=yuv420p\\nwidth=1280\\nr_frame_rate=30/1\\n'\n")
+	write("ffprobe", "#!/bin/sh\nprintf '"+shape+"'\n")
+	write("pkill", "#!/bin/sh\nexit 0\n")
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	seedOutputs(t, []wm.Output{
@@ -152,6 +180,99 @@ func clip(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func TestVideoPlayStartsBeforeUncachedTranscode(t *testing.T) {
+	noTranscodeSettle(t)
+	marker := filepath.Join(t.TempDir(), "argv")
+	fakeLiveToolsShape(t, marker, false,
+		"codec_name=h264\npix_fmt=yuv420p\nwidth=3840\nr_frame_rate=30/1\n")
+	p := newVideoPlayer()
+	defer p.Stop()
+	src := clip(t)
+	started := make(chan transcodeSpec, 1)
+	release := make(chan struct{})
+	p.transcode = func(ctx context.Context, spec transcodeSpec) error {
+		started <- spec
+		select {
+		case <-release:
+			return os.WriteFile(spec.dst, []byte("cache"), 0o644)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	p.Play([]string{"DP-1"}, src, "fill", "medium", nil)
+	if !waitFor(t, func() bool { return len(readMarker(t, marker)) == 1 }) {
+		t.Fatal("player waited for the transcode")
+	}
+	if got := readMarker(t, marker)[0]; !strings.HasPrefix(got, src+" ") {
+		t.Fatalf("first player used %q, want source %q", got, src)
+	}
+	var spec transcodeSpec
+	select {
+	case spec = <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("background transcode did not start")
+	}
+	if !spec.idle {
+		t.Fatal("background transcode was not low priority")
+	}
+	cache := livewallCachePath(src,
+		liveShape{codec: "h264", pixFmt: "yuv420p", width: 3840, fps: 30}, 2560, "30")
+	if fileExists(cache) {
+		t.Fatal("cache appeared before the transcode completed")
+	}
+	close(release)
+	if !waitFor(t, func() bool { return fileExists(cache) }) {
+		t.Fatal("completed transcode did not populate the cache")
+	}
+}
+
+func TestVideoPlaySupersedesUncachedTranscode(t *testing.T) {
+	noTranscodeSettle(t)
+	marker := filepath.Join(t.TempDir(), "argv")
+	fakeLiveToolsShape(t, marker, false,
+		"codec_name=h264\npix_fmt=yuv420p\nwidth=3840\nr_frame_rate=30/1\n")
+	p := newVideoPlayer()
+	defer p.Stop()
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("video"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	p.transcode = func(ctx context.Context, spec transcodeSpec) error {
+		if spec.src != first {
+			return os.WriteFile(spec.dst, []byte("cache"), 0o644)
+		}
+		close(started)
+		<-ctx.Done()
+		close(cancelled)
+		return ctx.Err()
+	}
+
+	p.Play([]string{"DP-1"}, first, "fill", "medium", nil)
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("first transcode did not start")
+	}
+	p.Play([]string{"DP-1"}, second, "fill", "medium", nil)
+	select {
+	case <-cancelled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("superseded transcode was not cancelled")
+	}
+	cache := livewallCachePath(first,
+		liveShape{codec: "h264", pixFmt: "yuv420p", width: 3840, fps: 30}, 2560, "30")
+	if fileExists(cache) {
+		t.Fatal("cancelled transcode populated the cache")
+	}
 }
 
 func TestVideoPlayExplicitOutputs(t *testing.T) {
@@ -328,4 +449,10 @@ func TestVideoReadyHandshake(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("player death never brought the still back")
 	}
+}
+
+func noTranscodeSettle(t *testing.T) {
+	old := liveTranscodeSettle
+	liveTranscodeSettle = 0
+	t.Cleanup(func() { liveTranscodeSettle = old })
 }

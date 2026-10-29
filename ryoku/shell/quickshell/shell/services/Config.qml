@@ -17,6 +17,8 @@ import "lib/displaybar.js" as DisplayBar
 // per-monitor scale `s` where they're read.
 Singleton {
     id: root
+    signal settingsLoaded()
+
 
     // frame = the painted border band. Its enable, opacity, band thickness and
     // corner radius are live knobs; the rail geometry lives in frameBars.
@@ -56,6 +58,7 @@ Singleton {
     property alias batteryAlerts: adapter.batteryAlerts
     property alias barStyle: adapter.barStyle
     property alias notifications: adapter.notifications
+    readonly property var sounds: adapter.sounds
 
     // obi: per-widget visibility for the Obi bar style, edited in Bar Studio.
     // A map of widgetId -> bool; an absent key reads as shown, so the bar is
@@ -388,7 +391,10 @@ Singleton {
         printErrors: false
         atomicWrites: true
         onFileChanged: reload()
-        onLoaded: root.refreshThemePalette()
+        onLoaded: {
+            root.refreshThemePalette();
+            root.settingsLoaded();
+        }
 
         JsonAdapter {
             id: adapter
@@ -415,7 +421,12 @@ Singleton {
                 "popup_window_margins": 0,
                 "show_images": false
             })
+<<<<<<< port (unstable-dev)
             property string barStyle: "karuma"
+=======
+            property var sounds: ({})
+            property string barStyle: "orpheus"
+>>>>>>> upstream Ryoku 1.7.3 (4042923)
             property string launcherTarget: "studio"
             property var obi: ({})
             property var nacre: NacreConfig.defaultConfig()
@@ -437,6 +448,7 @@ Singleton {
                 "edge": "auto",
                 "edgeGap": 0,
                 "autohide": false,
+                "revealOnEmpty": true,
                 "size": 44,
                 "pinned": [],
                 "magnify": true,

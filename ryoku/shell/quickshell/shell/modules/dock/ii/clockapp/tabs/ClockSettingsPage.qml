@@ -7,6 +7,7 @@ import stage.services
 import shell.modules.phone
 import "../reminders"
 import "../.."
+import Ryoku.Ui.Singletons as RyokuUi
 
 /**
  * Every clock option in one place: the app, alarms, the bar popup, world clocks, timers
@@ -51,6 +52,7 @@ Rectangle {
 
     function setTimeFormat(value: string): void {
         Config.options.time.format = value;
+        RyokuUi.TimeFormat.set24h(RyokuUi.TimeFormat.is24HourPattern(value));
     }
 
     function minutesLabel(value: int): string {

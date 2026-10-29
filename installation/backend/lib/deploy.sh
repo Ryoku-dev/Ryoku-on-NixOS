@@ -117,6 +117,24 @@ ryoku_repo_keyring() {
   run rm -f "$kd/ryoku.gpg" "$kd/ryoku-trusted" "$kd/ryoku-revoked"
 }
 
+# Print the installed packages for which [ryoku] serves a newer build. The
+# qualified targets bypass pacman's first-repository rule without downgrading a
+# package when an official or CachyOS repository has moved ahead.
+ryoku_newer_repo_targets() {
+  local installed_out served_out repo name version comparison
+  local -A installed=()
+  installed_out=$(arch-chroot /mnt pacman -Q --noconfirm) || return
+  served_out=$(arch-chroot /mnt pacman -Sl --noconfirm ryoku) || return
+  while read -r name version _; do
+    [[ -n $name && -n $version ]] && installed["$name"]=$version
+  done <<<"$installed_out"
+  while read -r repo name version _; do
+    [[ $repo == ryoku && -n ${installed[$name]:-} ]] || continue
+    comparison=$(arch-chroot /mnt vercmp "$version" "${installed[$name]}") || return
+    (( comparison > 0 )) && printf 'ryoku/%s\n' "$name"
+  done <<<"$served_out"
+}
+
 # packages: pacman -S the desktop set from [ryoku] inside the chroot. The
 # umbrella version-pins every monorepo component; hardware-only providers are
 # added from the live machine's detector. Lends the live resolv.conf for DNS
@@ -159,6 +177,7 @@ ryoku_deploy_packages() {
     else
       log "DRYRUN: arch-chroot /mnt pacman -Sy --noprogressbar"
       log "DRYRUN: arch-chroot /mnt pacman -S --noconfirm --needed --noprogressbar ${pkgs[*]} (one retry on a network flake)"
+      log "DRYRUN: after installation, align installed packages that [ryoku] serves at a newer version"
       log "DRYRUN: would warn if $RYOKU_REPO/.payload version differs from pacman -Si ryoku-desktop"
     fi
     return 0
@@ -206,6 +225,21 @@ ryoku_deploy_packages() {
     fi
   else
     rc=1
+  fi
+  if (( rc == 0 )); then
+    case ${RYOKU_VARIANT:-} in
+      plain | cachyos)
+        local target_output
+        local -a align_targets=()
+        if ! target_output=$(ryoku_newer_repo_targets); then
+          rc=1
+        elif [[ -n $target_output ]]; then
+          mapfile -t align_targets <<<"$target_output"
+          log 'aligning newer [ryoku] package overrides: %s' "${align_targets[*]}"
+          arch-chroot /mnt pacman -S --noconfirm --needed --noprogressbar "${align_targets[@]}" || rc=$?
+        fi
+        ;;
+    esac
   fi
 
   if (( made_resolv == 1 )); then
@@ -482,10 +516,13 @@ ryoku_deploy_qylock() {
   log "deploying qylock bundle + SDDM clockwork theme"
   deploy_dir "$RYOKU_REPO/ryoku/lockscreen/qylock" /mnt/usr/share/ryoku/qylock
 
-  # stage the two installers in the chroot, run, drop.
+  # stage the two installers in the chroot, run, drop. mkarchiso copies the
+  # payload with --no-preserve=mode, so every script the bundle executes
+  # directly needs its bit back here.
   run cp "$RYOKU_REPO/ryoku/lockscreen/sddm/setup" /mnt/root/ryoku-sddm-setup
   run cp "$RYOKU_REPO/ryoku/lockscreen/install-qylock" /mnt/root/ryoku-install-qylock
-  run chmod 755 /mnt/root/ryoku-sddm-setup /mnt/root/ryoku-install-qylock
+  run chmod 755 /mnt/root/ryoku-sddm-setup /mnt/root/ryoku-install-qylock \
+    /mnt/usr/share/ryoku/qylock/sddm-host/install-greeter-theme
   local env="RYOKU_QYLOCK_BUNDLE=/usr/share/ryoku/qylock RYOKU_QYLOCK_MODE=live SUDO_USER=$RYOKU_USERNAME RYOKU_DRYRUN=${RYOKU_DRYRUN:-}"
   # shellcheck disable=SC2086  # env assignments are intentionally word-split
   run "$RYOKU_TARGET_CHROOT" /mnt env $env /root/ryoku-sddm-setup

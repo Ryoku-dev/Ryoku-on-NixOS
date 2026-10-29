@@ -97,7 +97,6 @@ Item {
     }
 
     function hideResultDeckImmediately() {
-        resultDeckFade.stop();
         suppressResultDeckAnimation = true;
         resultDeck.opacity = 0;
     }
