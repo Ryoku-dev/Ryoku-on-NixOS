@@ -238,14 +238,10 @@ Item {
             omarchyListProc.running = true;
     }
     function browseStore() {
-<<<<<<< port (unstable-dev)
-        Spawn.runApp(["ryostore", "open", pg.tab === "Bundles" ? "bundles" : "plugins"], { label: "ryostore" });
-=======
-        Spawn.runApp(["ryostore", "open", "discover"], { label: "ryostore" });
+        Spawn.runApp(["ryostore", "open", pg.tab === "Bundles" ? "bundles" : "discover"], { label: "ryostore" });
     }
     function browseBundles() {
         Spawn.runApp(["ryostore", "open", "bundles"], { label: "ryostore" });
->>>>>>> upstream Ryoku 1.7.3 (4042923)
     }
     function browseOmarchyMarket() {
         Spawn.runApp(["ryostore", "open", "omarchy-plugins"], { label: "ryostore" });

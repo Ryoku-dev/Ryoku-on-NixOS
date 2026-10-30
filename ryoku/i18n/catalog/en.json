@@ -1314,10 +1314,7 @@
   "Ask routes": "Ask routes",
   "Ask something": "Ask something",
   "Ask the needle anything. ENTER sends; \\resume recalls recent asks.": "Ask the needle anything. ENTER sends; \\resume recalls recent asks.",
-<<<<<<< port (unstable-dev)
   "Asks": "Asks",
-=======
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "Asks geoclue instead of guessing from your connection. Off unless you want it.": "Asks geoclue instead of guessing from your connection. Off unless you want it.",
   "Assistant Icon": "Assistant Icon",
   "At": "At",
@@ -2915,17 +2912,12 @@
   "DRYRUN: $RYOKU_TARGET_CHROOT /mnt runuser -u $u -- env HOME=/home/$u ryoku materialize": "DRYRUN: $RYOKU_TARGET_CHROOT /mnt runuser -u $u -- env HOME=/home/$u ryoku materialize",
   "DRYRUN: $RYOKU_TARGET_CHROOT /mnt runuser -u $u -- env HOME=/home/$u ryoku-gpu mode $mapped (writes /home/$u/.config/$RYOKU_COMPOSITOR_CONFIG_DIR/$RYOKU_COMPOSITOR_GPU_PIN)": "DRYRUN: $RYOKU_TARGET_CHROOT /mnt runuser -u $u -- env HOME=/home/$u ryoku-gpu mode $mapped (writes /home/$u/.config/$RYOKU_COMPOSITOR_CONFIG_DIR/$RYOKU_COMPOSITOR_GPU_PIN)",
   "DRYRUN: %s %s": "DRYRUN: %s %s",
-<<<<<<< port (unstable-dev)
+  "DRYRUN: after installation, align installed packages that [ryoku] serves at a newer version": "DRYRUN: after installation, align installed packages that [ryoku] serves at a newer version",
   "DRYRUN: allow x86_64_v3, enable [multilib], add [cachyos-v3]/[cachyos-core-v3]/[cachyos-extra-v3]/[cachyos] above [core], populate the cachyos keyring in the target": "DRYRUN: allow x86_64_v3, enable [multilib], add [cachyos-v3]/[cachyos-core-v3]/[cachyos-extra-v3]/[cachyos] above [core], populate the cachyos keyring in the target",
   "DRYRUN: append %s to %s": "DRYRUN: append %s to %s",
   "DRYRUN: arch-chroot /mnt pacman -Sy --noprogressbar": "DRYRUN: arch-chroot /mnt pacman -Sy --noprogressbar",
   "DRYRUN: arch-chroot /mnt runuser -u $u -- env HOME=/home/$u ryoku materialize": "DRYRUN: arch-chroot /mnt runuser -u $u -- env HOME=/home/$u ryoku materialize",
   "DRYRUN: arch-chroot /mnt runuser -u $u -- env HOME=/home/$u ryoku-gpu mode $mapped (writes /home/$u/.config/$RYOKU_COMPOSITOR_CONFIG_DIR/$RYOKU_COMPOSITOR_GPU_PIN)": "DRYRUN: arch-chroot /mnt runuser -u $u -- env HOME=/home/$u ryoku-gpu mode $mapped (writes /home/$u/.config/$RYOKU_COMPOSITOR_CONFIG_DIR/$RYOKU_COMPOSITOR_GPU_PIN)",
-=======
-  "DRYRUN: after installation, align installed packages that [ryoku] serves at a newer version": "DRYRUN: after installation, align installed packages that [ryoku] serves at a newer version",
-  "DRYRUN: append %s to %s": "DRYRUN: append %s to %s",
-  "DRYRUN: arch-chroot /mnt pacman -Sy --noprogressbar": "DRYRUN: arch-chroot /mnt pacman -Sy --noprogressbar",
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "DRYRUN: arch-chroot /mnt systemctl enable limine-snapper-sync.service": "DRYRUN: arch-chroot /mnt systemctl enable limine-snapper-sync.service",
   "DRYRUN: back up %s": "DRYRUN: back up %s",
   "DRYRUN: bootstrap yay, install boot-critical (%s) first under per-package timeouts, then the rest of %s best-effort under a global timeout, as %s": "DRYRUN: bootstrap yay, install boot-critical (%s) first under per-package timeouts, then the rest of %s best-effort under a global timeout, as %s",
@@ -3911,10 +3903,7 @@
   "FIRST RUN": "FIRST RUN",
   "FIT": "FIT",
   "FIX WITH AI": "FIX WITH AI",
-<<<<<<< port (unstable-dev)
-=======
   "FLATHUB %1": "FLATHUB %1",
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "FLEET": "FLEET",
   "FOCUS": "FOCUS",
   "FOCUS FLASH": "FOCUS FLASH",
@@ -5105,13 +5094,10 @@
   "Installing…": "Installing…",
   "Installs Steam and CachyOS's gaming packages:": "Installs Steam and CachyOS's gaming packages:",
   "Installs Steam with 32-bit graphics support.": "Installs Steam with 32-bit graphics support.",
-<<<<<<< port (unstable-dev)
   "Installs the -luks host variant.": "Installs the -luks host variant.",
-=======
   "Installs the Hyprland Ryoku desktop variant.": "Installs the Hyprland Ryoku desktop variant.",
   "Installs the experimental Wayfire Ryoku desktop variant.": "Installs the experimental Wayfire Ryoku desktop variant.",
   "Installs the niri Ryoku desktop variant.": "Installs the niri Ryoku desktop variant.",
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "Instance": "Instance",
   "Instances": "Instances",
   "Instant answer": "Instant answer",
@@ -5363,11 +5349,8 @@
   "Language": "Language",
   "Language & formats. Sets i18n.defaultLocale.": "Language & formats. Sets i18n.defaultLocale.",
   "Language pack unavailable; using English.": "Language pack unavailable; using English.",
-<<<<<<< port (unstable-dev)
   "Language, regional formats, location and fonts.": "Language, regional formats, location and fonts.",
   "Language, regional formats, location and the system font.": "Language, regional formats, location and the system font.",
-=======
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "Language, regional formats, people, fonts, icons, window blur and sounds.": "Language, regional formats, people, fonts, icons, window blur and sounds.",
   "Lap": "Lap",
   "Lap %1": "Lap %1",
@@ -8461,11 +8444,8 @@
   "Ryoku desktop variants are not available in this distribution's repository for %s; those login sessions will be bare": "Ryoku desktop variants are not available in this distribution's repository for %s; those login sessions will be bare",
   "Ryoku diagnostic report": "Ryoku diagnostic report",
   "Ryoku does not manage this path.": "Ryoku does not manage this path.",
-<<<<<<< port (unstable-dev)
-=======
   "Ryoku does not publish packages for Fedora %s yet. Supported releases could not be read from %s: %v": "Ryoku does not publish packages for Fedora %s yet. Supported releases could not be read from %s: %v",
   "Ryoku does not publish packages for Fedora %s yet. Supported: %s.": "Ryoku does not publish packages for Fedora %s yet. Supported: %s.",
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "Ryoku greeter theme selected past KDE's kde_settings.conf drop-in": "Ryoku greeter theme selected past KDE's kde_settings.conf drop-in",
   "Ryoku has not published Fedora %s yet; Ryoku packages stay at their current version until it does": "Ryoku has not published Fedora %s yet; Ryoku packages stay at their current version until it does",
   "Ryoku in a single pass. Nothing is written until you": "Ryoku in a single pass. Nothing is written until you",
@@ -8531,10 +8511,7 @@
   "SCALE": "SCALE",
   "SCAN %1": "SCAN %1",
   "SCAN DENIED ✦ TYPE YOUR KEY": "SCAN DENIED ✦ TYPE YOUR KEY",
-<<<<<<< port (unstable-dev)
   "SCENE": "SCENE",
-=======
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "SCREEN MIRRORING": "SCREEN MIRRORING",
   "SCREEN PICKER": "SCREEN PICKER",
   "SCREENSHOT": "SCREENSHOT",
@@ -9589,11 +9566,8 @@
   "Stacks gather loose files automatically.": "Stacks gather loose files automatically.",
   "Stacks gather loose folders automatically.": "Stacks gather loose folders automatically.",
   "Stage Editor": "Stage Editor",
-<<<<<<< port (unstable-dev)
   "Stage Editor (GPL-3.0)": "Stage Editor (GPL-3.0)",
   "Stage Editor and ii dock (GPL-3.0)": "Stage Editor and ii dock (GPL-3.0)",
-=======
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "Stage Editor, ii dock, Kit, Phone (GPL-3.0)": "Stage Editor, ii dock, Kit, Phone (GPL-3.0)",
   "Stage and dock settings use their current stores": "Stage and dock settings use their current stores",
   "Stage captured — lift and touch again": "Stage captured — lift and touch again",
@@ -10727,10 +10701,7 @@
   "Turn the adapter on to see nearby and paired devices.": "Turn the adapter on to see nearby and paired devices.",
   "Turn the dock on to choose its utility tiles and folders.": "Turn the dock on to choose its utility tiles and folders.",
   "Turn the touchpad off, the way the FN touchpad key does.": "Turn the touchpad off, the way the FN touchpad key does.",
-<<<<<<< port (unstable-dev)
   "Turn your configuration into a new NixOS generation.": "Turn your configuration into a new NixOS generation.",
-=======
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "Turns every effect switch here on at once": "Turns every effect switch here on at once",
   "Turns every effect switch here on at once.": "Turns every effect switch here on at once.",
   "Turns glass, blur and heavy wallpaper effects off everywhere.": "Turns glass, blur and heavy wallpaper effects off everywhere.",
@@ -10997,11 +10968,8 @@
   "Use Material Symbol for outer icon": "Use Material Symbol for outer icon",
   "Use Matugen for wallpaper colours. Turning this off uses built-in Iris.": "Use Matugen for wallpaper colours. Turning this off uses built-in Iris.",
   "Use Organic visualizer": "Use Organic visualizer",
-<<<<<<< port (unstable-dev)
   "Use Parallax": "Use Parallax",
   "Use Ryoku's Nix updater for the Ryoku input itself.": "Use Ryoku's Nix updater for the Ryoku input itself.",
-=======
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "Use To-Do context": "Use To-Do context",
   "Use a Material Symbol name or an SVG/distro name from the icons folder.": "Use a Material Symbol name or an SVG/distro name from the icons folder.",
   "Use a Material Symbol name, distro, or an SVG name from the icons folder.": "Use a Material Symbol name, distro, or an SVG name from the icons folder.",
@@ -12063,11 +12031,8 @@
   "cachyos: suppressing CachyOS Welcome autostart": "cachyos: suppressing CachyOS Welcome autostart",
   "cachyos: the target pacman does not resolve Architecture = auto to %s; naming it explicitly": "cachyos: the target pacman does not resolve Architecture = auto to %s; naming it explicitly",
   "cachyos: trusted the CachyOS signing key via the installed keyring": "cachyos: trusted the CachyOS signing key via the installed keyring",
-<<<<<<< port (unstable-dev)
   "cachyos: warning, could not add the CachyOS repos to %s": "cachyos: warning, could not add the CachyOS repos to %s",
   "cachyos: warning, could not enable [multilib] (lib32 updates will be unavailable)": "cachyos: warning, could not enable [multilib] (lib32 updates will be unavailable)",
-=======
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "caelestia": "caelestia",
   "calculator": "calculator",
   "camera.png": "camera.png",
@@ -14393,11 +14358,8 @@
   "start": "start",
   "start it in a terminal to see why: `ryoku-shell daemon`": "start it in a terminal to see why: `ryoku-shell daemon`",
   "start it with `ryoku-shell daemon` (Hyprland autostarts it at login)": "start it with `ryoku-shell daemon` (Hyprland autostarts it at login)",
-<<<<<<< port (unstable-dev)
   "started Ryogami": "started Ryogami",
   "started asusd; the ASUS Aura keyboard is available in Appearance": "started asusd; the ASUS Aura keyboard is available in Appearance",
-=======
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "started asusd; the ASUS Aura keyboard is available in Ryogami lighting settings": "started asusd; the ASUS Aura keyboard is available in Ryogami lighting settings",
   "started fresh: blank %q keyring, old one backed up": "started fresh: blank %q keyring, old one backed up",
   "started ryoku-shell daemon but it did not come up": "started ryoku-shell daemon but it did not come up",
@@ -14524,12 +14486,9 @@
   "the %s package": "the %s package",
   "the AI usage collector service is off, so the bar AI pill goes stale": "the AI usage collector service is off, so the bar AI pill goes stale",
   "the AI usage collector timer is off, so the bar AI pill goes stale": "the AI usage collector timer is off, so the bar AI pill goes stale",
-<<<<<<< port (unstable-dev)
   "the AI usage timer is not enabled in the active NixOS generation": "the AI usage timer is not enabled in the active NixOS generation",
   "the CPU, GPU, and battery panels' monitor button opens btop in the terminal": "the CPU, GPU, and battery panels' monitor button opens btop in the terminal",
   "the Cobalt engine the file stash downloads through": "the Cobalt engine the file stash downloads through",
-=======
->>>>>>> upstream Ryoku 1.7.3 (4042923)
   "the GPU render pin is a deliberate RYOKU_GPU_FORCE override; kept": "the GPU render pin is a deliberate RYOKU_GPU_FORCE override; kept",
   "the Hyprland GPU render pin matches ryoku-gpu policy": "the Hyprland GPU render pin matches ryoku-gpu policy",
   "the NVIDIA driver reports runtime D3 power management off for this card, so it can never power down. Enable fine-grained control with `NVreg_DynamicPowerManagement=0x02` in a /etc/modprobe.d/nvidia.conf `options nvidia` line, rebuild the initramfs (`sudo mkinitcpio -P`), and reboot.": "the NVIDIA driver reports runtime D3 power management off for this card, so it can never power down. Enable fine-grained control with `NVreg_DynamicPowerManagement=0x02` in a /etc/modprobe.d/nvidia.conf `options nvidia` line, rebuild the initramfs (`sudo mkinitcpio -P`), and reboot.",

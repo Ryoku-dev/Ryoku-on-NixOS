@@ -144,12 +144,8 @@
           "y": 0.68
         }
       },
-<<<<<<< port (unstable-dev)
       "barStyle": "karuma",
-=======
-      "barStyle": "qsbar",
       "showJapaneseGloss": true,
->>>>>>> upstream Ryoku 1.7.3 (4042923)
       "bars": {
         "bottom_bar": {
           "center_widgets": [],

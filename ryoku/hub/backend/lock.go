@@ -418,7 +418,6 @@ func validSlug(slug string) error {
 	return nil
 }
 
-<<<<<<< port (unstable-dev)
 func greeterApplyInvocation(slug string) (string, []string, error) {
 	if helper := strings.TrimSpace(os.Getenv("RYOKU_SDDM_THEME_APPLY")); helper != "" {
 		if !filepath.IsAbs(helper) {
@@ -435,12 +434,6 @@ func greeterApplyInvocation(slug string) (string, []string, error) {
 		return helper, []string{slug}, nil
 	}
 
-=======
-// escalateGreeter re-execs this binary under pkexec to install the skin as the
-// SDDM greeter (it has to write /usr/share/sddm + /etc). pkexec pops the
-// graphical polkit prompt; cancel -> error.
-func escalateGreeter(slug string, clock24h bool) error {
->>>>>>> upstream Ryoku 1.7.3 (4042923)
 	self, err := os.Executable()
 	if err != nil {
 		return "", nil, err
@@ -448,17 +441,16 @@ func escalateGreeter(slug string, clock24h bool) error {
 	return self, []string{"lock", "apply-greeter", slug}, nil
 }
 
-func escalateGreeter(slug string) error {
+func escalateGreeter(slug string, clock24h bool) error {
 	program, args, err := greeterApplyInvocation(slug)
 	if err != nil {
 		return err
 	}
-<<<<<<< port (unstable-dev)
+	if len(args) == 3 && args[0] == "lock" && args[1] == "apply-greeter" {
+		args = append(args, strconv.FormatBool(clock24h))
+	}
 
 	cmd := exec.Command("pkexec", append([]string{program}, args...)...)
-=======
-	cmd := exec.Command("pkexec", self, "lock", "apply-greeter", slug, strconv.FormatBool(clock24h))
->>>>>>> upstream Ryoku 1.7.3 (4042923)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr

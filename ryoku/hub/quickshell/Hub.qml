@@ -613,11 +613,7 @@ Rectangle {
         "weatherLocation": "", "weatherUnit": "auto", "formatLocale": "",
         "general.clock_format_24_h": false,
         "reloadCover": ReloadCoverModel.empty(),
-<<<<<<< port (unstable-dev)
-        "language": "Auto", "barStyle": "karuma", "obi": {}, "nacre": NacreConfig.defaultConfig(), "qsbar": {}, "dock": {},
-=======
-        "language": "Auto", "barStyle": "orpheus", "showJapaneseGloss": true, "obi": {}, "nacre": NacreConfig.defaultConfig(), "qsbar": {}, "dock": {},
->>>>>>> upstream Ryoku 1.7.3 (4042923)
+        "language": "Auto", "barStyle": "karuma", "showJapaneseGloss": true, "obi": {}, "nacre": NacreConfig.defaultConfig(), "qsbar": {}, "dock": {},
         "notifications.show_images": false,
         "deckFrostEnabled": true, "deckFrost": 0.45,
         "clipboard.widthPercent": 65, "clipboard.heightPercent": 42, "clipboard.bottomPercent": 0,
