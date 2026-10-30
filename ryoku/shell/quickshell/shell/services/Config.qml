@@ -421,12 +421,8 @@ Singleton {
                 "popup_window_margins": 0,
                 "show_images": false
             })
-<<<<<<< port (main)
-            property string barStyle: "karuma"
-=======
             property var sounds: ({})
-            property string barStyle: "orpheus"
->>>>>>> upstream Ryoku 1.0.6 (6d573d9)
+            property string barStyle: "karuma"
             property string launcherTarget: "studio"
             property var obi: ({})
             property var nacre: NacreConfig.defaultConfig()
