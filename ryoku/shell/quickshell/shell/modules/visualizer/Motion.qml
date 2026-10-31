@@ -53,7 +53,7 @@ Item {
         return motion.govTier === 1 ? Math.min(Config.fps, 30) : Math.min(Config.fps, 24);
     }
 
-    readonly property bool sourceSounding: Spectrum.energy > 0.04
+    readonly property bool sourceSounding: !Spectrum.silent
         || (motion.scope && !Waveform.silent)
     readonly property bool sounding: motion.sourceSounding || motion.activity > 0.02
     readonly property bool hardFrozen: Performance.visualizerHardFrozen

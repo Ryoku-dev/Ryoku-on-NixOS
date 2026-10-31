@@ -25,10 +25,11 @@ type videoEncoder struct {
 type transcodeSpec struct {
 	src, dst string
 	fps      int
-	maxWidth int  // the clip is scaled down to this, never up
-	qp       int  // constant QP on the GPU encoders
-	crf      int  // libx264 CRF on the CPU
-	audio    bool // keep a stereo AAC track
+	maxWidth int
+	qp       int
+	crf      int
+	audio    bool
+	idle     bool
 }
 
 var (
@@ -132,7 +133,15 @@ func (e videoEncoder) attempts(s transcodeSpec) ([][]string, error) {
 			return nil, err
 		}
 		cpu := run(nil, rate+",scale='"+width+"':-2:flags=bicubic", cpuCodec)
-		runs = append(runs, append([]string{"nice", "-n", "19"}, cpu...))
+		if !s.idle {
+			cpu = append([]string{"nice", "-n", "19"}, cpu...)
+		}
+		runs = append(runs, cpu)
+	}
+	if s.idle {
+		for i := range runs {
+			runs[i] = append([]string{"ionice", "-c", "3", "nice", "-n", "19"}, runs[i]...)
+		}
 	}
 	if len(runs) == 0 {
 		_, err := pickCPUH264Encoder(codecSet{})

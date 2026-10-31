@@ -300,6 +300,9 @@ func (a *App) adoptSystemdUserBaseline(entries []serviceManifestEntry, checkOnly
 	if checkOnly {
 		return true, nil
 	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return false, err
+	}
 	for _, entry := range entries {
 		if entry.Scope != "user" || entry.Activation != "session" {
 			continue

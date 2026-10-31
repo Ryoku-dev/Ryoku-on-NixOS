@@ -18,6 +18,11 @@ Singleton {
                          : (seconds ? "h:mm:ss AP" : "h:mm AP");
     }
 
+    function is24HourPattern(pattern) {
+        const unquoted = String(pattern).replace(/'(?:''|[^'])*'/g, "");
+        return !/(?:AP|ap|A|a)/.test(unquoted);
+    }
+
     // Keep a custom clock's separators, seconds and quoted text; only its hour
     // cycle belongs to the global preference.
     function withHourCycle(pattern) {

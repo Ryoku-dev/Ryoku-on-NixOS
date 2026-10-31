@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Services.UPower
+import Ryoku.Ui.Singletons as RyokuUi
 import "../../"
 import "../../bar"
 import "../../reusables"
@@ -635,8 +636,10 @@ Item {
         Config.setSetting("bar", current);
     }
 
-    function setTimeFormat(fmt) {
+    function setTimeFormat(fmt, updateClock = false) {
         barModulesRoot.timeFormat = fmt;
+        if (updateClock)
+            RyokuUi.TimeFormat.set24h(RyokuUi.TimeFormat.is24HourPattern(fmt));
         let current = Config.getSetting("bar", {});
         if (!current.time) current.time = {};
         current.time.format = fmt;
@@ -1737,7 +1740,7 @@ Item {
                                 barModulesRoot.setTimeFormat(newText);
                             }
                             onAccepted: function(finalText) {
-                                barModulesRoot.setTimeFormat(finalText);
+                                barModulesRoot.setTimeFormat(finalText, true);
                             }
                         }
                     }

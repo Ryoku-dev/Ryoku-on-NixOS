@@ -14,23 +14,19 @@ import (
 	"time"
 )
 
-// videoPlayer drives video wallpapers through ryogami-live, one process per
-// live output. Each process owns its own process group and sequence token, so
-// replacing one workspace's clip cannot stop or revive another output's clip.
-// Play is asynchronous: the one-time transcode runs off the hot path while the
-// shell paints the poster. Each player announces READY after its first frame;
-// the shell yields only the addressed output once every process in that request
-// is ready, and keeps the poster visible if they all exit.
+// videoPlayer drives video wallpapers through one ryogami-live process per output.
 type videoPlayer struct {
-	mu      sync.Mutex
-	gen     int64
-	procs   map[string]*liveProc
-	slotGen map[string]int64
-	log     *os.File
-	path    string
-	outputs []string
-	deaths  map[string]int
-	deathAt map[string]time.Time
+	mu              sync.Mutex
+	gen             int64
+	procs           map[string]*liveProc
+	slotGen         map[string]int64
+	log             *os.File
+	path            string
+	outputs         []string
+	deaths          map[string]int
+	deathAt         map[string]time.Time
+	transcode       liveTranscodeFunc
+	transcodeCancel context.CancelFunc
 }
 
 type playGroup struct {
@@ -53,10 +49,11 @@ type liveProc struct {
 
 func newVideoPlayer() *videoPlayer {
 	return &videoPlayer{
-		procs:   map[string]*liveProc{},
-		slotGen: map[string]int64{},
-		deaths:  map[string]int{},
-		deathAt: map[string]time.Time{},
+		procs:     map[string]*liveProc{},
+		slotGen:   map[string]int64{},
+		deaths:    map[string]int{},
+		deathAt:   map[string]time.Time{},
+		transcode: transcodeH264,
 	}
 }
 
@@ -87,6 +84,11 @@ func (p *videoPlayer) Play(outputs []string, path, fit, tier string, onLive func
 	p.mu.Lock()
 	p.gen++
 	gen := p.gen
+	if p.transcodeCancel != nil {
+		p.transcodeCancel()
+	}
+	transcodeCtx, cancelTranscode := context.WithCancel(context.Background())
+	p.transcodeCancel = cancelTranscode
 	var killed []*liveProc
 	var log *os.File
 	if all {
@@ -123,15 +125,19 @@ func (p *videoPlayer) Play(outputs []string, path, fit, tier string, onLive func
 		fps := liveFps(tier, src)
 		file := livewallSource(path, src, capW, fps)
 		if file == "" {
-			fmt.Fprintf(os.Stderr, "ryogami: transcode failed for %s; keeping the still\n", path)
+			fmt.Fprintf(os.Stderr, "ryogami: source unavailable for %s; keeping the still\n", path)
 			return
 		}
+		cache := livewallCachePath(path, src, capW, fps)
 		p.mu.Lock()
-		defer p.mu.Unlock()
 		for _, output := range targets {
 			if p.slotGen[output] == gen {
 				p.spawnLocked(gen, output, file, capW, fit, group)
 			}
+		}
+		p.mu.Unlock()
+		if cache != "" && file == path {
+			cacheLivewallSource(transcodeCtx, path, src, capW, fps, p.transcode)
 		}
 	}()
 }
@@ -184,6 +190,10 @@ func (p *videoPlayer) StopOutputs(want []string) {
 	p.mu.Lock()
 	p.gen++
 	gen := p.gen
+	if p.transcodeCancel != nil {
+		p.transcodeCancel()
+		p.transcodeCancel = nil
+	}
 	killed := p.takeLocked(want)
 	var log *os.File
 	if all {
@@ -326,13 +336,14 @@ func (p *videoPlayer) scanReady(lp *liveProc, r io.Reader) {
 	}
 }
 
-// Stop invalidates any in-flight transcode, kills every spawned player (whole
-// process group) and, mirroring how process.go clears a stale picker, pkills
-// orphans: livewall from a crashed daemon, mpvpaper from releases that shipped
-// it (an orphan's surface stacks above ours, hiding every later wallpaper).
+// Stop cancels preparation and kills every player process group.
 func (p *videoPlayer) Stop() {
 	p.mu.Lock()
 	p.gen++
+	if p.transcodeCancel != nil {
+		p.transcodeCancel()
+		p.transcodeCancel = nil
+	}
 	killed := p.takeLocked(nil)
 	log := p.log
 	p.log = nil
