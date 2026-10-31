@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-nix build --no-link \
+nix build --print-build-logs --no-link \
   .#checks.x86_64-linux.ryoku-cli \
   .#checks.x86_64-linux.ryoku-hub \
   .#checks.x86_64-linux.ryoku-desktop-data \
