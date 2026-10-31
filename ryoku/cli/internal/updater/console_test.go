@@ -113,10 +113,15 @@ func TestVerdictThresholds(t *testing.T) {
 }
 
 // The watchdog names the work a child is doing, not the wrapper around it, and
-// flags a package manager in the tree.
+// flags a package manager in the tree. The fake package manager is a shell
+// under the name pacman (comm follows the exec'd path's basename) blocked on a
+// read from a pipe the test holds open, so it is alive with no child of its
+// own. A renamed sleep would not do: on uutils coreutils (Ubuntu 26.04
+// runners) sleep is a multicall binary that dispatches on argv[0].
 func TestWatchdogNamesTheWorkInItsTree(t *testing.T) {
 	dir := t.TempDir()
 	pacman := filepath.Join(dir, "pacman")
+<<<<<<< port (main)
 	// Arch's test symlinks /usr/bin/sleep to a file named pacman. NixOS
 	// coreutils is a multicall binary and rejects that argv[0], so keep a real
 	// pacman-named process alive with a tiny script instead. The kernel reports
@@ -125,10 +130,20 @@ func TestWatchdogNamesTheWorkInItsTree(t *testing.T) {
 		t.Skip(err)
 	}
 	cmd := exec.Command(pacman, "5")
+=======
+	if err := os.Symlink("/bin/sh", pacman); err != nil {
+		t.Skip(err)
+	}
+	cmd := exec.Command("sh", "-c", pacman+" -c 'read _' 5")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+>>>>>>> upstream Ryoku 1.0.7 (f7197d7)
 	if err := cmd.Start(); err != nil {
 		t.Skip(err)
 	}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	t.Cleanup(func() { _ = stdin.Close(); _ = cmd.Process.Kill(); _ = cmd.Wait() })
 	deadline := time.Now().Add(2 * time.Second)
 	var ws watchState
 	for time.Now().Before(deadline) {
@@ -138,7 +153,11 @@ func TestWatchdogNamesTheWorkInItsTree(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+<<<<<<< port (main)
 	if !ws.Pkg || !strings.Contains(ws.Current, "pacman 5") {
+=======
+	if !ws.Pkg || !strings.HasPrefix(ws.Current, "pacman ") {
+>>>>>>> upstream Ryoku 1.0.7 (f7197d7)
 		t.Errorf("sample = %+v, want the pacman child named and flagged", ws)
 	}
 	if ws.State != "working" {
