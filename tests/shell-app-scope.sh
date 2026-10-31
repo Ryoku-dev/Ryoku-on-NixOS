@@ -16,7 +16,10 @@ grep -Fq '"--scope"' "$host_app"
 grep -Fq '"--slice=app.slice"' "$host_app"
 grep -Fq '"--collect"' "$host_app"
 grep -Fq 'scrubAppEnvironment()' "$host_app"
-[ "$(grep -Fc 'Spawn.runApp(' "$app")" -eq 1 ]
+count="$(grep -Fc 'Spawn.runApp(' "$app" || true)"
+[ "$count" -eq 2 ]
+grep -Fq 'Spawn.runApp(["gtk-launch", String(entry.id)], { label: entry.id });' "$app"
+grep -Fq 'Spawn.runApp(command, {' "$app"
 grep -Fq 'cwd: entry ? entry.workingDirectory' "$app"
 grep -Fq 'label: entry ? entry.id' "$app"
 

@@ -44,17 +44,18 @@ Item {
     }
     function nameOf(window: var): string {
         const id = String(window?.app_id ?? "")
-        const app = AppSearch.lookupDesktopEntry(id)?.name ?? id
-        if (!root.preferTitles) return app
         const title = String(window?.title ?? "").trim()
-        return title.length > 0 ? title : app
+        const app = String(AppSearch.lookupDesktopEntry(id)?.name ?? id).trim()
+        if (root.preferTitles && title.length > 0) return title
+        if (app.length > 0) return app
+        return title.length > 0 ? title : Translation.tr("Window")
     }
 
     // What decides the shape of the strip: which windows, in which column and row, how wide, who is focused, how wide the item is.
     readonly property string layoutKey: {
         const parts = [Math.round(root.width), root.lastFocusedId, root.fit]
         for (const window of root.windows) {
-            if (window.workspace_id !== root.workspaceId || window.is_floating) continue
+            if (window.workspace_id !== root.workspaceId) continue
             const pos = window.layout?.pos_in_scrolling_layout
             const size = window.layout?.tile_size
             parts.push(window.id + ":" + (Array.isArray(pos) ? pos[0] + "." + pos[1] : "-") + ":" + (Array.isArray(size) ? Math.round(size[0]) : "-")
@@ -66,7 +67,7 @@ Item {
     function rebuild(): void {
         const grouped = {}
         for (const window of root.windows) {
-            if (window.workspace_id !== root.workspaceId || window.is_floating) continue
+            if (window.workspace_id !== root.workspaceId) continue
             const pos = window.layout?.pos_in_scrolling_layout
             const column = Array.isArray(pos) ? Number(pos[0]) : 1
             if (!grouped[column]) grouped[column] = { index: column, width: 0, tiles: [] }

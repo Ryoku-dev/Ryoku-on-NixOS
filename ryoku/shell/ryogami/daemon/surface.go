@@ -105,9 +105,29 @@ func (w *wallSurface) showPreview(pic, fit string, tr interface{}, live, isVideo
 	w.showEntry(pic, fit, tr, live, isVideo, true, clip)
 }
 
+func commitMatchingPreview(e *frameEntry, pic, fit string, live, isVideo, preview bool, clip videoClip) bool {
+	if preview || !e.Preview || e.Path != pic || live || clip.path != "" {
+		return false
+	}
+	e.Fit = fit
+	e.Live = false
+	e.Video = isVideo
+	e.VideoPath = ""
+	e.Preview = false
+	e.Mute = clip.mute
+	e.Volume = clip.volume
+	e.Transition = nil
+	return true
+}
+
 func (w *wallSurface) showEntry(pic, fit string, tr interface{}, live, isVideo, preview bool, clip videoClip) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if commitMatchingPreview(&w.def, pic, fit, live, isVideo, preview, clip) {
+		w.outputs = map[string]frameEntry{}
+		w.publishLocked()
+		return
+	}
 	w.seq++
 	w.def = fresh(w.seq, pic, fit, tr)
 	w.def.Live = live
@@ -135,6 +155,11 @@ func (w *wallSurface) showOutputEntry(name, pic, fit string, tr interface{}, liv
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if current, ok := w.outputs[name]; ok && commitMatchingPreview(&current, pic, fit, live, isVideo, preview, clip) {
+		w.outputs[name] = current
+		w.publishLocked()
+		return
+	}
 	w.seq++
 	e := fresh(w.seq, pic, fit, tr)
 	e.Live = live
@@ -197,6 +222,34 @@ func (w *wallSurface) snapshot() wallFrame {
 		f.Outputs[k] = v
 	}
 	return f
+}
+
+func (w *wallSurface) restorePreview(saved wallFrame, outputs []string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	restore := func(e frameEntry) frameEntry {
+		w.seq++
+		e.Revision = w.seq
+		e.Transition = nil
+		e.Preview = false
+		return e
+	}
+	if len(outputs) == 0 || contains(outputs, "*") {
+		w.def = restore(saved.Default)
+		w.outputs = make(map[string]frameEntry, len(saved.Outputs))
+		for output, entry := range saved.Outputs {
+			w.outputs[output] = restore(entry)
+		}
+	} else {
+		for _, output := range outputs {
+			if entry, ok := saved.Outputs[output]; ok {
+				w.outputs[output] = restore(entry)
+			} else {
+				delete(w.outputs, output)
+			}
+		}
+	}
+	w.publishLocked()
 }
 
 // setDepth publishes a slot's cutout unless a switch mid-generation already

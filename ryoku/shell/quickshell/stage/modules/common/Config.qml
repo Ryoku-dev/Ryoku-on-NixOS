@@ -7,6 +7,7 @@ import stage
 import stage.services
 import stage.modules.common.functions
 import "quickToggles/androidStyle/QuickToggleCatalog.js" as QuickToggleCatalog
+import Ryoku.Ui.Singletons as RyokuUi
 
 Singleton {
     id: root
@@ -33,6 +34,24 @@ Singleton {
     // Increased from 3000 to 5000 to prevent config.json resets during
     // shell hot-reload while Phone services are initializing.
     property int writeGuardDelay: 5000
+
+    function syncClockFormat(): void {
+        if (!root.ready || root.options?.time === undefined)
+            return;
+        const current = String(root.options.time.format ?? "");
+        const lowerMeridiem = current.includes("ap") && !current.includes("AP");
+        const next = RyokuUi.TimeFormat.is24h ? "hh:mm"
+            : (lowerMeridiem ? "h:mm ap" : "h:mm AP");
+        if (current !== next)
+            root.options.time.format = next;
+    }
+
+    Connections {
+        target: RyokuUi.TimeFormat
+        function onIs24hChanged() {
+            root.syncClockFormat();
+        }
+    }
 
     /**
      * What kind of thing a config value is, in the vocabulary the checks below
@@ -2367,6 +2386,7 @@ Singleton {
             // config.json just (re)appeared: take back any protected setting
             // it lost, then refresh the durable mirror.
             LocalPreferences.reconcile();
+            root.syncClockFormat();
         }
         onLoadFailed: error => {
             if (error != FileViewError.FileNotFound) {
@@ -2388,6 +2408,7 @@ Singleton {
                 // seeded — reconcile (restore before pull) so the protected
                 // machine-local settings come back from local-preferences.json.
                 LocalPreferences.reconcile();
+                root.syncClockFormat();
             } else {
                 // Likely transient: schedule a reload. If it succeeds,
                 // `onLoaded` flips `root.ready` and nothing is overwritten. If
@@ -4346,6 +4367,7 @@ Singleton {
                     property bool keepSorted: false // re-sort whenever an icon comes or goes
                     property bool stacks: false // one stack per kind: apps, folders, files
                     property bool hidden: false // a clean desktop; the icons stay stored
+                    property string openOn: "double" // single | double
                     property string labels: "always" // always | hover | never
                     property int labelLines: 1 // 1 | 2
                     property string labelStyle: "auto" // auto | shadow | pill

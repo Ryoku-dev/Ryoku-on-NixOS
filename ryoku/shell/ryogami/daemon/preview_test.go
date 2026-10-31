@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The wall preview, pinned down: a preview is a paint, never an apply. It
@@ -217,10 +219,58 @@ func TestApplySupersedesPreview(t *testing.T) {
 	}
 }
 
+func TestApplyMatchingPreviewDoesNotRestartReveal(t *testing.T) {
+	d := previewTestDaemon(t)
+	preview := previewTestStill(t, d, "preview.png")
+	if err := d.previewWallpaper(preview, nil); err != nil {
+		t.Fatal(err)
+	}
+	before := d.surface.snapshot().Default.Revision
+	if err := d.applyWallpaper("static", preview, "set", nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	frame := d.surface.snapshot().Default
+	if frame.Revision != before {
+		t.Fatalf("matching apply revision=%d, want preview revision %d", frame.Revision, before)
+	}
+	if frame.Preview {
+		t.Fatal("matching apply left the frame flagged as a preview")
+	}
+}
+
 func TestClearPreviewWithoutPreviewIsNoOp(t *testing.T) {
 	d := previewTestDaemon(t)
 	if err := d.clearPreview(); err != nil {
 		t.Fatalf("clear with no live preview: %v", err)
+	}
+}
+
+func TestPreviewOverLiveKeepsRenderer(t *testing.T) {
+	d := previewTestDaemon(t)
+	poster := previewTestStill(t, d, "poster.png")
+	preview := previewTestStill(t, d, "preview.png")
+	player := &liveProc{cmd: &exec.Cmd{}, output: ""}
+	d.video.procs[""] = player
+	d.video.slotGen[""] = 1
+	d.video.path = "clip.mp4"
+	d.video.outputs = []string{"*"}
+	d.surface.show(poster, "Cover", nil, true, true, videoClip{})
+
+	if err := d.previewWallpaper(preview, nil); err != nil {
+		t.Fatal(err)
+	}
+	if d.video.procs[""] != player {
+		t.Fatal("preview stopped the live renderer")
+	}
+	if err := d.clearPreview(); err != nil {
+		t.Fatal(err)
+	}
+	if d.video.procs[""] != player {
+		t.Fatal("clear restarted the live renderer")
+	}
+	frame := d.surface.snapshot().Default
+	if frame.Path != poster || !frame.Live || frame.Preview {
+		t.Fatalf("restored frame=(%q, live=%v, preview=%v)", frame.Path, frame.Live, frame.Preview)
 	}
 }
 
@@ -272,5 +322,96 @@ func TestPreviewByKeyResolvesEntry(t *testing.T) {
 	}
 	if st := d.preview; st == nil || st.path != still {
 		t.Fatalf("preview state=%+v, want it still tracking the keyed still after the rejections", st)
+	}
+}
+
+func TestPreviewPaletteIsIsolatedCachedAndRestored(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	d := previewTestDaemon(t)
+	previewTestStill(t, d, "old.png")
+	wall := previewTestStill(t, d, "new.png")
+	d.store.mutate("new.png", func(e *Entry) { e.Thumb = wall; e.Mtime = 42 })
+	committed := []byte(`{"primary":"#123456"}`)
+	if err := os.MkdirAll(filepath.Dir(themeColorsPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(themeColorsPath(), committed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	previewMu.Lock()
+	oldCache := previewCache
+	previewCache = map[string]cachedPreview{}
+	previewMu.Unlock()
+	oldGenerator := previewColorGenerator
+	t.Cleanup(func() {
+		previewColorGenerator = oldGenerator
+		previewMu.Lock()
+		previewCache = oldCache
+		previewMu.Unlock()
+	})
+	generated := make(chan struct{}, 4)
+	previewColorGenerator = func(string) (map[string]string, error) {
+		generated <- struct{}{}
+		return map[string]string{"primary": "#abcdef", "background": "#222222"}, nil
+	}
+	previewPath := filepath.Join(runtimeDir, "ryoku-wall-preview.json")
+	for range 2 {
+		if err := d.previewWallpaperKey("new.png", nil); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(time.Second)
+		for {
+			b, err := os.ReadFile(previewPath)
+			if err == nil && strings.Contains(string(b), "#abcdef") {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("preview palette did not reach the shell-only runtime file")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if err := d.clearPreview(); err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(previewPath)
+		if err != nil || string(b) != "{}" {
+			t.Fatalf("cancel palette = %s, %v", b, err)
+		}
+		b, err = os.ReadFile(themeColorsPath())
+		if err != nil || string(b) != string(committed) {
+			t.Fatalf("committed palette changed during preview: %s, %v", b, err)
+		}
+	}
+	select {
+	case <-generated:
+	default:
+		t.Fatal("preview did not generate a palette")
+	}
+	select {
+	case <-generated:
+		t.Fatal("repeating a preview generated its palette twice")
+	default:
+	}
+}
+
+func TestClearedPreviewDropsLatePalette(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	d := previewTestDaemon(t)
+	wall := previewTestStill(t, d, "late.png")
+	if err := d.previewWallpaper(wall, nil); err != nil {
+		t.Fatal(err)
+	}
+	state := d.preview
+	epoch := state.epoch
+	if err := d.clearPreview(); err != nil {
+		t.Fatal(err)
+	}
+	d.publishPreviewPalette(state, epoch, wall, map[string]string{"primary": "#abcdef"})
+	b, err := os.ReadFile(filepath.Join(runtimeDir, "ryoku-wall-preview.json"))
+	if err != nil || string(b) != "{}" {
+		t.Fatalf("late palette repainted after cancel: %s, %v", b, err)
 	}
 }

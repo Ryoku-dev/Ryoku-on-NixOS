@@ -144,7 +144,8 @@
           "y": 0.68
         }
       },
-      "barStyle": "qsbar",
+      "barStyle": "karuma",
+      "showJapaneseGloss": true,
       "bars": {
         "bottom_bar": {
           "center_widgets": [],

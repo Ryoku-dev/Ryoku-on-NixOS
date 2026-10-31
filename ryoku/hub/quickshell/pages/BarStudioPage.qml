@@ -73,7 +73,7 @@ Item {
     // The running bar style; an absent key renders the shipped QS Bar, the
     // shell's own default. The frame, rails and zone editors below are Sumi's;
     // a folder style owns its own layout.
-    readonly property string activeStyle: page.fval("barStyle", "orpheus")
+    readonly property string activeStyle: page.fval("barStyle", "karuma")
     readonly property bool sumiActive: page.activeStyle === "sumi"
     readonly property string activeName: {
         const designs = styleGallery.designs || [];
@@ -257,7 +257,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 Rectangle { width: 16; height: 1; color: Tokens.ink; anchors.verticalCenter: parent.verticalCenter }
                 Text {
-                    text: "力"; color: Tokens.ink; font.family: Tokens.jp
+                    text: UiPreferences.brandMark("力"); color: Tokens.ink; font.family: Tokens.jp
                     font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter
                 }
                 Text {

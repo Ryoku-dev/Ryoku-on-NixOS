@@ -57,7 +57,7 @@ Item {
     readonly property real energyRelease: 3.2 * motion.cfg.auraRelease
         / (1 + motion.smooth08 * 0.16)
 
-    readonly property bool sourceSounding: Spectrum.energy > 0.04
+    readonly property bool sourceSounding: !Spectrum.silent
     readonly property bool sounding: motion.sourceSounding || motion.activity > 0.02
     readonly property bool frozen: Performance.visualizerFrozen
     readonly property bool hardFrozen: Performance.visualizerHardFrozen
@@ -117,7 +117,10 @@ Item {
 
         var source = motion.frozen && Spectrum.placementHolds === 0
             ? [] : Spectrum.levels;
-        var shaped = AuraMath.applyProfile(source,
+        var driven = new Array(source.length);
+        for (var s = 0; s < source.length; s++)
+            driven[s] = Math.min(1, Math.pow(Math.max(0, source[s]), 0.72) * motion.cfg.gain);
+        var shaped = AuraMath.applyProfile(driven,
                                            motion.cfg.auraProfile,
                                            motion.cfg.auraAccent);
         var raw = AuraMath.sectors(shaped);

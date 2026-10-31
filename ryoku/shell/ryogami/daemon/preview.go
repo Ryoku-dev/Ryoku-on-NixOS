@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // The wall preview: the picker paints a still it has not committed, so the
@@ -17,9 +19,11 @@ import (
 // given; empty means every output), the still it paints, and the wallpaper
 // name that was current when the preview began, which the clear restores.
 type previewState struct {
-	outputs  []string
-	path     string
-	prevName string
+	outputs   []string
+	path      string
+	prevName  string
+	committed wallFrame
+	epoch     uint64
 }
 
 func mergePreviewOutputs(current, next []string, fresh bool) []string {
@@ -61,16 +65,19 @@ func (d *daemon) previewWallpaper(path string, outputs []string) error {
 	defer d.previewMu.Unlock()
 	fresh := d.preview == nil
 	prevName := ""
+	var committed wallFrame
 	if fresh {
 		prevName = d.currentName()
+		committed = d.surface.snapshot()
 	}
 	if err := d.paintWallpaperReason("preview", "static", path, "set", outputs, nil, nil); err != nil {
 		return err
 	}
 	if fresh {
-		d.preview = &previewState{prevName: prevName}
+		d.preview = &previewState{prevName: prevName, committed: committed}
 	}
 	d.preview.outputs = mergePreviewOutputs(d.preview.outputs, outputs, fresh)
+	d.preview.epoch++
 	d.preview.path = path
 	return nil
 }
@@ -87,7 +94,25 @@ func (d *daemon) previewWallpaperKey(key string, outputs []string) error {
 	if entry.Type != "static" {
 		return fmt.Errorf("unsupported type for preview: %s", entry.Type)
 	}
-	return d.previewWallpaper(entry.Path, outputs)
+	if err := d.previewWallpaper(entry.Path, outputs); err != nil {
+		return err
+	}
+	d.previewMu.Lock()
+	if d.preview == nil || d.preview.path != entry.Path {
+		d.previewMu.Unlock()
+		return nil
+	}
+	epoch := d.preview.epoch
+	state := d.preview
+	d.previewMu.Unlock()
+	go func() {
+		colors, err := d.previewColorsFor(key)
+		if err != nil {
+			return
+		}
+		d.publishPreviewPalette(state, epoch, entry.Path, colors)
+	}()
+	return nil
 }
 
 // clearPreview ends the live preview, repainting the committed wallpaper on
@@ -102,11 +127,36 @@ func (d *daemon) clearPreview() error {
 		return nil
 	}
 	d.preview = nil
-	d.repaintCommitted(st.outputs)
+	writeWallPreviewPalette(nil)
+	d.surface.restorePreview(st.committed, st.outputs)
 	if st.prevName != "" {
 		d.setCurrent(st.prevName)
 	}
 	return nil
+}
+
+func (d *daemon) publishPreviewPalette(state *previewState, epoch uint64, path string, colors map[string]string) {
+	d.previewMu.Lock()
+	defer d.previewMu.Unlock()
+	if d.preview == state && d.preview.epoch == epoch && d.preview.path == path {
+		writeWallPreviewPalette(colors)
+	}
+}
+
+func writeWallPreviewPalette(colors map[string]string) {
+	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if runtimeDir == "" {
+		return
+	}
+	data := []byte("{}")
+	if colors != nil {
+		var err error
+		data, err = json.Marshal(colors)
+		if err != nil {
+			return
+		}
+	}
+	_ = os.WriteFile(filepath.Join(runtimeDir, "ryoku-wall-preview.json"), data, 0o600)
 }
 
 // repaintCommitted repaints the committed wallpaper on the given outputs,

@@ -5,7 +5,7 @@
   bibataMaterialSrc,
   imgbordersSrc,
   ryomanagerSrc,
-  ryotunesSrc,
+  ryotunesNix,
   skwdPaper,
   version,
 }:
@@ -131,12 +131,15 @@ let
       ;
   };
 
-  ryotunesUnwrapped = import ./ryotunes-unwrapped.nix {
-    inherit pkgs ryotunesSrc;
-  };
+  # Ryotunes is built by the RyotunesNix flake, with no local patches.
+  # Its Rust binaries and Quickshell client come from that flake as-is;
+  # only the wrapper is instantiated here so it links against Ryoku's own
+  # QML modules (`qml` below) instead of a second copy from another input.
+  ryotunesUnwrapped =
+    ryotunesNix.packages.${pkgs.stdenv.hostPlatform.system}.ryotunes-unwrapped;
 
-  ryotunes = import ./ryoku-ryotunes.nix {
-    inherit pkgs ryotunesUnwrapped;
+  ryotunes = pkgs.callPackage "${ryotunesNix}/nix/wrapper.nix" {
+    inherit ryotunesUnwrapped;
     ryokuQml = qml;
   };
 

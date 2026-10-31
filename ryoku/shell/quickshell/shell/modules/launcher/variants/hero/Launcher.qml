@@ -73,6 +73,7 @@ Item {
     onBodyOpenChanged: {
         if (!bodyOpen && drawerLoader.active)
             drawerHold.restart();
+        retainInputFocus();
     }
 
     QtObject {
@@ -901,9 +902,8 @@ Item {
             phaseFocusSettler.restart();
         }
     }
-    onBodyOpenChanged: retainInputFocus()
     onReportedSurfaceHeightChanged: retainInputFocus()
-        onShownChanged: {
+    onShownChanged: {
         if (shown) {
             prepareRest();
             focusedWindowAddress = "";
