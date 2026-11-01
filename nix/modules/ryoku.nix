@@ -1,4 +1,4 @@
-{ self, ryokuNixpkgs, ryokuUpstream }:
+{ self, ryokuNixpkgs, ryokuUpstream, ryomarket }:
 
 { config, lib, pkgs, options, ... }:
 
@@ -1065,6 +1065,7 @@ EOF
 in
 {
   imports = [
+    ryomarket.nixosModules.default
     (import ./gpu-passthrough.nix { inherit self; })
     ./release-identity.nix
     ./runtime-state-ownership.nix
@@ -1171,6 +1172,8 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    programs.ryomarket.enable = lib.mkDefault true;
+
     # Nixpkgs wraps gsr-kms-server with the narrow capability upstream expects.
     # Installing gpu-screen-recorder as a plain package leaves that helper
     # unprivileged and forces an authentication prompt for every recording.

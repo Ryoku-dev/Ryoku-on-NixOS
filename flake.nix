@@ -3,6 +3,7 @@
 
   inputs = {
     ryokuUpstream.url = "github:Ryoku-dev/ryoku/unstable-dev";
+    ryomarket.url = "github:aethctl/ryomarket/588ca2c5a6d335fd3d65a109e181b1a8017e9b45";
 
     # Compatibility input for existing consumers which follow their host
     # nixpkgs. Ryoku-owned packages deliberately do not build from this input.
@@ -34,7 +35,7 @@
     };
   };
 
-  outputs = { self, ryokuUpstream, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ... }:
+  outputs = { self, ryokuUpstream, ryomarket, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ... }:
     let
       version =
         builtins.replaceStrings
@@ -111,7 +112,7 @@
 
       ryokuNixosModule =
         import ./nix/modules/ryoku.nix {
-          inherit self ryokuUpstream;
+          inherit self ryokuUpstream ryomarket;
           ryokuNixpkgs = pkgs;
         };
 

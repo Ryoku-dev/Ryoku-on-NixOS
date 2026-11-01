@@ -10,6 +10,33 @@ underneath is managed.
 On NixOS, Ryoku uses Nix packages, NixOS modules and normal NixOS generations
 instead of Pacman, the AUR, mkinitcpio or an Arch-specific boot stack.
 
+## Optional applications
+
+The Ryoku module installs RyoMarket by default. Use it to install Ryotunes,
+RyoManager, RyoStore, RyoMotion, Rashin and Ryoport when needed. The marketplace
+is pinned through this flake's lock file, with its own package set. Its optional
+applications are not added to the base system.
+
+To keep the desktop without the marketplace, set
+`programs.ryomarket.enable = false;`.
+
+Outside a Ryoku installation, run the marketplace directly:
+
+```sh
+nix run github:aethctl/ryomarket
+```
+
+Applications can also be installed directly, for example:
+
+```sh
+nix run github:aethctl/ryomarket#install-ryotunes
+```
+
+Replace `ryotunes` with `ryomanager`, `ryostore`, `ryomotion`, `rashin` or
+`ryoport`. The managed installer provides desktop entries and commands and keeps
+application data when removed. VM permissions, GPU passthrough and application
+accounts remain explicit configuration choices.
+
 ## Requirements
 
 Ryoku on NixOS currently targets:
