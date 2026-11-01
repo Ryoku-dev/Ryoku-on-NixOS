@@ -729,7 +729,6 @@ EOF
     ryokuQylockLock
     ryokuSddmThemeApply
     ryokuSddmTheme
-    ryokuPkgs.gpk
     ryokuSkwdPaper
 
     # ─────────────────────────────────────────────────────────
@@ -1082,6 +1081,15 @@ in
         Preview upstream Ryoku packaging while preserving NixOS-specific
         desktop data, Mango, system services and materialization.
       '';
+    };
+
+    # Kept only so existing /etc/nixos configs that still set
+    # `programs.ryoku.binaryCache.enable` keep evaluating. It does nothing.
+    binaryCache.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      visible = false;
+      description = "Deprecated and ignored. Ryoku no longer configures a binary cache.";
     };
 
     defaultCompositor = lib.mkOption {

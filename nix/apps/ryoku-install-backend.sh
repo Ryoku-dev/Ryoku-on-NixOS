@@ -5,7 +5,6 @@ source_explicit=0
 flake_arg="/etc/nixos"
 assume_yes=0
 dry_run=0
-use_cache=1
 compositor=""
 browser=""
 shell_choice=""
@@ -35,16 +34,6 @@ nvidia_open=true
 target_root="${RYOKU_INSTALL_TARGET_ROOT:-/mnt}"
 iso_work=""
 iso_config_templates="@ISO_CONFIGS@"
-
-# Bootstrap the public cache before the new NixOS generation
-# activates its declarative substituter configuration.
-cache_url="https://ryotunes.cachix.org"
-cache_key="ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs="
-
-bootstrap_cache=(
-  --option extra-substituters "$cache_url"
-  --option extra-trusted-public-keys "$cache_key"
-)
 
 trusted_root_path="@TRUSTED_ROOT_PATH@:/run/current-system/sw/bin:/run/wrappers/bin"
 
@@ -476,8 +465,6 @@ render_iso_target() {
   nix_keyboard="$(nix_quote "$target_keyboard")"
   nix_firmware="$(nix_quote "$firmware")"
   nix_kernel="$(nix_quote "$kernel_choice")"
-  binary_cache_nix=true
-  [ "$use_cache" -eq 1 ] || binary_cache_nix=false
 
   if [ "${#selected_apps[@]}" -gt 0 ]; then
     apps_block="$(printf '    "%s"
@@ -540,7 +527,6 @@ $apps_block
 
   ryokuSource = $nix_ryoku;
   nixpkgsSource = $nix_nixpkgs;
-  binaryCache = ${binary_cache_nix};
 }
 EOF_VALUES
 }
@@ -816,7 +802,6 @@ install_iso() {
     if ! nix build \
       --no-link \
       --no-write-lock-file \
-      "${bootstrap_cache[@]}" \
       "path:$iso_work#nixosConfigurations.$install_host.config.system.modulesTree"
     then
       die "NVIDIA kernel-module preflight failed before disk changes; retry with --kernel default or another NVIDIA-compatible kernel"
@@ -916,8 +901,7 @@ EOF
     --cores "$install_cores" \
     --root "$target_root" \
     --flake "path:$target_root/etc/nixos#$install_host" \
-    --no-root-passwd \
-    "${bootstrap_cache[@]}"
+    --no-root-passwd
 
   echo "@@RYOKU_STEP finalize"
   run_root sync
@@ -959,7 +943,6 @@ Options:
   --gpu VENDORS         auto, none, or comma-separated nvidia,amd,intel
   --firmware MODE       auto, uefi, or bios (default: auto)
   --confirm-disk DEVICE Required with --iso --yes; must exactly match --disk
-  --no-cache            Do not use or configure the Ryotunes Cachix binary cache
   --dry-run             Show proposed changes without writing them
   -y, --yes             Skip non-destructive prompts; disk confirmation still required
   -h, --help            Show this help
@@ -1091,11 +1074,6 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] || die "--confirm-disk requires a value"
       confirm_disk="$2"
       shift 2
-      ;;
-    --no-cache)
-      use_cache=0
-      bootstrap_cache=()
-      shift
       ;;
     --dry-run)
       dry_run=1
@@ -1393,7 +1371,6 @@ cat > "$work_module" <<EOF
 {
   programs.ryoku = {
 enable = true;
-binaryCache.enable = $([ "$use_cache" -eq 1 ] && printf true || printf false);
 defaultCompositor = "$compositor";
 browser = "$browser";
 shell = "$shell_choice";
@@ -1528,8 +1505,7 @@ echo "@@RYOKU_STEP build"
 printf '\nBuilding NixOS generation...\n'
 
 if ! run_root "$nixos_rebuild" build \
-  --flake "path:$flake_root#$host" \
-  "${bootstrap_cache[@]}"
+  --flake "path:$flake_root#$host"
 then
   rollback
   echo "ryoku-install: build failed; files restored" >&2
@@ -1540,8 +1516,7 @@ echo "@@RYOKU_STEP switch"
 printf '\nSwitching generation...\n'
 
 if ! run_root "$nixos_rebuild" switch \
-  --flake "path:$flake_root#$host" \
-  "${bootstrap_cache[@]}"
+  --flake "path:$flake_root#$host"
 then
   rollback
   echo "ryoku-install: switch failed; configuration files restored" >&2
