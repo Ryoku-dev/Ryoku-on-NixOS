@@ -1,4 +1,4 @@
-{ self, ryokuNixpkgs, hermesAgent, ryokuUpstream }:
+{ self, ryokuNixpkgs, ryokuUpstream }:
 
 { config, lib, pkgs, options, ... }:
 
@@ -22,7 +22,6 @@ let
     });
 
   ryokuShell = ryokuPkgs.ryoku-shell;
-  ryokuRashin = ryokuPkgs.ryoku-rashin;
   ryokuBundle = ryokuPkgs.ryoku-bundle;
   ryokuHelpers = ryokuPkgs.ryoku-helpers;
   ryokuSystemBridge = ryokuPkgs.ryoku-nixos-system-bridge;
@@ -1973,38 +1972,6 @@ in
         ExecStart =
           "${pkgs.systemd}/bin/systemctl restart bluetooth.service";
         TimeoutStartSec = 30;
-      };
-    };
-
-    systemd.user.services.ryoku-rashin = {
-      description = "Ryoku Rashin local agent OS daemon and dashboard";
-
-      wantedBy = [
-        "default.target"
-      ];
-
-      path = runtimePackages;
-
-      environment = {
-        RYOKU_RASHIN_SKILLS =
-          "${ryokuRashin}/share/ryoku/skills";
-        RYOKU_UPDATE_BACKEND = "nix";
-      };
-
-      # SDDM's greeter account would otherwise take 127.0.0.1:3600 first and
-      # leave the user's daemon restarting on "address already in use".
-      unitConfig = {
-        StartLimitIntervalSec = 0;
-        ConditionUser = "!@system";
-      };
-
-      serviceConfig = {
-        ExecStart =
-          "${ryokuRashin}/bin/ryoku-rashin serve --if-enabled";
-
-        Restart = "on-failure";
-        RestartSec = 2;
-        NoNewPrivileges = true;
       };
     };
 

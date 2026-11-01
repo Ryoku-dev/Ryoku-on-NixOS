@@ -225,7 +225,6 @@ optdepends=(
   # Rashin is every AI piece of the desktop (the agent, its window, the bar's AI
   # usage collectors). The installer offers it ticked and the doctor delivers it
   # once, so removing it sticks; ryoku-rashin pins itself to this release.
-  "ryoku-rashin=$pkgver: Rashin, the AI agent, its window and the bar's AI usage pill"
   'starship: shell prompt'
   'fastfetch: system summary (launcher, RyoStore covers)'
   'yazi: terminal file manager'
@@ -234,8 +233,6 @@ optdepends=(
   'nautilus-python: Ryoku stash actions in the Nautilus right-click menu'
   'dolphin: file manager the installer can pick instead of Nautilus'
   'thunar: file manager the installer can pick instead of Nautilus'
-  'ryotunes: the Ryoku music app the now-playing widget follows'
-  'ryomanager: RyoManager, the system monitor and task manager'
   'waifu2x-ncnn-vulkan: AI upscale for ryoshot Beautify HD and ryowalls Enhance'
   'pavucontrol: GUI mixer behind the bar Open audio button'
   'songrec: Recognize Music in the launcher'
@@ -291,4 +288,3 @@ package() {
     RYOKU_BUILD_DIR="$srcdir" \
     "$startdir/payload.sh" install "$pkgdir" systemd
 }
-
