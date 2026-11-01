@@ -94,10 +94,6 @@ let
     inherit pkgs src;
   };
 
-  ryovmHelpers = import ./ryoku-ryovm-helpers.nix {
-    inherit pkgs src;
-  };
-
   livewall = import ./ryoku-livewall.nix {
     inherit pkgs src;
   };
@@ -287,7 +283,6 @@ let
       paletteBridge
       prowlAgent
       ryostore
-      ryovmHelpers
       livewall
       ryogami
       skwdPaper
@@ -315,7 +310,6 @@ in
     paletteBridge
     prowlAgent
     ryostore
-    ryovmHelpers
     livewall
     ryogami
     skwdPaper

@@ -104,11 +104,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1790822859,
-        "narHash": "sha256-69xHQhAeMAD2wDXO7T2pcOZIF9Sga2W+JkmY2a11Ops=",
+        "lastModified": 1793341285,
+        "narHash": "sha256-Y1CiZ4SoBUjLQyQM/pY+rS2dXD3CHLPstF0lmOc73D4=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "c59305bab2065cfecc4944690d9eedbb56f3a9fa",
+        "rev": "1c89083e451e891152365b799595cf7790a43325",
         "type": "github"
       },
       "original": {
@@ -204,11 +204,11 @@
         "skwdWall": "skwdWall"
       },
       "locked": {
-        "lastModified": 1792552884,
-        "narHash": "sha256-9ZlL7SdnlCQK72mHD0bd5MwE6TRPLdWX2N6MJkLlouY=",
+        "lastModified": 1793487330,
+        "narHash": "sha256-IYn6zxAdosRjMyKXHlmBzjUvt+bWYlA4tPpTkMQxQNQ=",
         "owner": "Ryoku-dev",
         "repo": "ryoku",
-        "rev": "7beb6552b46d4b0579ab617e79a5c528b93fdb35",
+        "rev": "fb5f2c2c72b8f02c13a5bb6d1790e25b988cb9fb",
         "type": "github"
       },
       "original": {
@@ -276,11 +276,11 @@
         "nixpkgs": "nixpkgs_4"
       },
       "locked": {
-        "lastModified": 1790891305,
-        "narHash": "sha256-VFhWFUmADuG55w5XPRikv0NOzRdid6ECmlEEAxnu50U=",
+        "lastModified": 1792102654,
+        "narHash": "sha256-dNISNxw7+ehLeaA+XBJzUjV24ik6Oibce6C0RxzzZns=",
         "owner": "liixini",
         "repo": "skwd-wall",
-        "rev": "2b85cb2b45a1efb1140280571d522f53a58169d9",
+        "rev": "d9142ad9e23bf33390e3fea38a5ce45a6fc286da",
         "type": "github"
       },
       "original": {

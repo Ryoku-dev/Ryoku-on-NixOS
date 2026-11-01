@@ -210,7 +210,6 @@
         ryoku-hub = ryoku.hub;
         ryoku-palette-bridge = ryoku.paletteBridge;
         ryoku-ryostore = ryoku.ryostore;
-        ryoku-ryovm-helpers = ryoku.ryovmHelpers;
         ryoku-livewall = ryoku.livewall;
         ryoku-ryogami = ryoku.ryogami;
         ryoku-skwd-paper = ryoku.skwdPaper;
@@ -423,7 +422,6 @@
         ryoku-hub = ryoku.hub;
         ryoku-palette-bridge = ryoku.paletteBridge;
         ryoku-ryostore = ryoku.ryostore;
-        ryoku-ryovm-helpers = ryoku.ryovmHelpers;
         ryoku-livewall = ryoku.livewall;
         ryoku-ryogami = ryoku.ryogami;
         ryoku-skwd-paper = ryoku.skwdPaper;
