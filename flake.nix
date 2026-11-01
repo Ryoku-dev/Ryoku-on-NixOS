@@ -3,7 +3,7 @@
 
   inputs = {
     ryokuUpstream.url = "github:Ryoku-dev/ryoku/unstable-dev";
-    ryomarket.url = "github:Ryoku-dev/ryomarket/d6186a4a3d2b3dfd73d4ba397053cfcc62bb0742";
+    ryomarket.url = "github:Ryoku-dev/ryomarket/7ca1aa29283c09af0050492c059364c99ccb517b";
 
     # Compatibility input for existing consumers which follow their host
     # nixpkgs. Ryoku-owned packages deliberately do not build from this input.
