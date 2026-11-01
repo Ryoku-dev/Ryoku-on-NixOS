@@ -384,17 +384,17 @@
         "ryotunes": "ryotunes"
       },
       "locked": {
-        "lastModified": 1793516660,
-        "narHash": "sha256-1Trn3Giw2aVgcNZPDP5jnTX0aRfaPE5wPGhgYR3/y7A=",
-        "owner": "aethctl",
+        "lastModified": 1793517248,
+        "narHash": "sha256-ushE1aYvn2B7r/jTC93yBdfsYSjOejqffrrqCy62ZQE=",
+        "owner": "Ryoku-dev",
         "repo": "ryomarket",
-        "rev": "588ca2c5a6d335fd3d65a109e181b1a8017e9b45",
+        "rev": "d6186a4a3d2b3dfd73d4ba397053cfcc62bb0742",
         "type": "github"
       },
       "original": {
-        "owner": "aethctl",
+        "owner": "Ryoku-dev",
         "repo": "ryomarket",
-        "rev": "588ca2c5a6d335fd3d65a109e181b1a8017e9b45",
+        "rev": "d6186a4a3d2b3dfd73d4ba397053cfcc62bb0742",
         "type": "github"
       }
     },

@@ -23,13 +23,13 @@ To keep the desktop without the marketplace, set
 Outside a Ryoku installation, run the marketplace directly:
 
 ```sh
-nix run github:aethctl/ryomarket
+nix run github:Ryoku-dev/ryomarket
 ```
 
 Applications can also be installed directly, for example:
 
 ```sh
-nix run github:aethctl/ryomarket#install-ryotunes
+nix run github:Ryoku-dev/ryomarket#install-ryotunes
 ```
 
 Replace `ryotunes` with `ryomanager`, `ryostore`, `ryomotion`, `rashin` or
