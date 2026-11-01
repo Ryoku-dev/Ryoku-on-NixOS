@@ -59,7 +59,11 @@ Singleton {
     // one host screen, so it must load even where the user hid the bar. Ricelin
     // is Store-owned but follows the same primary-host contract as Iris/Python.
     function isFrameFamily(id) {
+<<<<<<< port (unstable-dev)
         return id === "iris" || id === "python" || id === "nomarchy" || id === "ricelin" || id === "gokko";
+=======
+        return id === "iris" || id === "python" || id === "nomarchy" || id === "gokko" || id === "caelestia";
+>>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
     }
 
 

@@ -1,22 +1,16 @@
 import QtQuick
 import QtQuick.Window
-import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
-import QtQuick.Shapes
-import Quickshell
-import Quickshell.Io
-import Quickshell.Services.Mpris
 import "../"
 import "../reusables"
-import "../reusables/guide"
-import "../reusables/media"
 
-Item {
-    id: root
+MusicEqualizerState {
+    id: popupRoot
     visible: false
     focus: true
 
+<<<<<<< port (unstable-dev)
     readonly property bool active: root.visible
 
     property bool cavaRegistered: false
@@ -44,6 +38,16 @@ Item {
         let m = Math.floor(sec / 60), s = sec % 60;
         return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
     }
+=======
+    property alias maskRectOuter: borderLayer.maskRectOuter
+    property alias chargeAnim: borderLayer.chargeAnim
+    property alias bottomSectionSwitch: bottomHeader.bottomSectionSwitch
+    property alias balanceSlider: audioView.balanceSlider
+    property alias toAudioAnim: toAudioAnim
+    property alias toEqAnim: toEqAnim
+    property alias toLyricsAnim: toLyricsAnim
+    property alias lyricsPickerPopup: lyricsPickerPopup
+>>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
 
     property var exitCallback: null
 
@@ -73,35 +77,35 @@ Item {
     property bool lyricsSubscribed: false
 
     function updateLyricsSubscription() {
-        let shouldSub = root.active && (bottomSectionSwitch.currentIndex === 2);
+        let shouldSub = popupRoot.active && (bottomSectionSwitch.currentIndex === 2);
         if (shouldSub && !lyricsSubscribed) {
             lyricsSubscribed = true;
-            Lyrics.customPlayer = root.targetPlayer;
+            Lyrics.customPlayer = popupRoot.targetPlayer;
             Lyrics.subscribe();
         } else if (!shouldSub && lyricsSubscribed) {
             lyricsSubscribed = false;
             Lyrics.customPlayer = null;
             Lyrics.unsubscribe();
         } else if (shouldSub && lyricsSubscribed) {
-            Lyrics.customPlayer = root.targetPlayer;
+            Lyrics.customPlayer = popupRoot.targetPlayer;
         }
     }
 
     Shortcut {
         sequence: "Tab"
-        enabled: root.active
+        enabled: popupRoot.active
         onActivated: {
             bottomSectionSwitch.currentIndex = (bottomSectionSwitch.currentIndex + 1) % 3;
-            root.updateLyricsSubscription();
+            popupRoot.updateLyricsSubscription();
         }
     }
 
     Shortcut {
         sequence: "Backtab"
-        enabled: root.active
+        enabled: popupRoot.active
         onActivated: {
             bottomSectionSwitch.currentIndex = (bottomSectionSwitch.currentIndex + 2) % 3;
-            root.updateLyricsSubscription();
+            popupRoot.updateLyricsSubscription();
         }
     }
 
@@ -118,15 +122,15 @@ Item {
             if (lyricsPickerPopup.visible || lyricsPickerPopup.opened) {
                 lyricsPickerPopup.closePicker();
             }
-            if (root.eqData && root.eqData.pending) {
-                root.restoreLastSavedEqualizer();
+            if (popupRoot.eqData && popupRoot.eqData.pending) {
+                popupRoot.restoreLastSavedEqualizer();
             }
         }
     }
 
     Component.onCompleted: {
-        if (root.eqData) {
-            root.savedEqData = Object.assign({}, root.eqData);
+        if (popupRoot.eqData) {
+            popupRoot.savedEqData = Object.assign({}, popupRoot.eqData);
         }
         if (active) {
             forceActiveFocus();
@@ -148,9 +152,9 @@ Item {
     Text {
         id: eqMeasureText
         visible: false
-        text: root.eqData && root.eqData.pending ? (typeof I18n !== "undefined" ? I18n.t("music.eq.apply") : "Apply") : (typeof I18n !== "undefined" ? I18n.t("music.eq.saved") : "Saved")
+        text: popupRoot.eqData && popupRoot.eqData.pending ? (typeof I18n !== "undefined" ? I18n.t("music.eq.apply") : "Apply") : (typeof I18n !== "undefined" ? I18n.t("music.eq.saved") : "Saved")
         font.family: ThemeBackend.fontFamily
-        font.pixelSize: root.s(11.5)
+        font.pixelSize: popupRoot.s(11.5)
         font.bold: true
     }
 
@@ -159,7 +163,7 @@ Item {
         visible: false
         text: typeof I18n !== "undefined" ? I18n.t("music.select_local_file", "Select file") : "Select file"
         font.family: ThemeBackend.fontFamily
-        font.pixelSize: root.s(11.5)
+        font.pixelSize: popupRoot.s(11.5)
         font.bold: true
     }
 
@@ -168,18 +172,18 @@ Item {
         visible: false
         text: typeof I18n !== "undefined" ? I18n.t("music.audio.reset", "Reset") : "Reset"
         font.family: ThemeBackend.fontFamily
-        font.pixelSize: root.s(11.5)
+        font.pixelSize: popupRoot.s(11.5)
         font.bold: true
     }
 
     Text {
         id: testMeasureText
         visible: false
-        text: root.audioTestRunning
+        text: popupRoot.audioTestRunning
             ? (typeof I18n !== "undefined" ? I18n.t("music.audio.stop_test", "Stop") : "Stop")
             : (typeof I18n !== "undefined" ? I18n.t("music.audio.test", "Test") : "Test")
         font.family: ThemeBackend.fontFamily
-        font.pixelSize: root.s(11.5)
+        font.pixelSize: popupRoot.s(11.5)
         font.bold: true
     }
 
@@ -187,10 +191,10 @@ Item {
     property real audioHeaderProgress: 0.0
     property real presetSlideProgress: 0.0
 
-    readonly property real eqActionBtnWidth: Math.max(root.s(68), eqMeasureText.implicitWidth + root.s(26))
-    readonly property real audioActionBtnWidth: Math.max(root.s(84), resetMeasureText.implicitWidth + root.s(46))
-    readonly property real audioTestBtnWidth: Math.max(root.s(64), Math.min(root.s(82), testMeasureText.implicitWidth + root.s(34)))
-    readonly property real lyricsActionBtnWidth: Math.max(root.s(116), lyricsMeasureText.implicitWidth + root.s(44))
+    readonly property real eqActionBtnWidth: Math.max(popupRoot.s(68), eqMeasureText.implicitWidth + popupRoot.s(26))
+    readonly property real audioActionBtnWidth: Math.max(popupRoot.s(84), resetMeasureText.implicitWidth + popupRoot.s(46))
+    readonly property real audioTestBtnWidth: Math.max(popupRoot.s(64), Math.min(popupRoot.s(82), testMeasureText.implicitWidth + popupRoot.s(34)))
+    readonly property real lyricsActionBtnWidth: Math.max(popupRoot.s(116), lyricsMeasureText.implicitWidth + popupRoot.s(44))
     readonly property real actionBtnCurrentWidth: actionBtnMorph <= 1.0
         ? eqActionBtnWidth + (audioActionBtnWidth - eqActionBtnWidth) * actionBtnMorph
         : audioActionBtnWidth + (lyricsActionBtnWidth - audioActionBtnWidth) * (actionBtnMorph - 1.0)
@@ -199,24 +203,24 @@ Item {
         id: toLyricsAnim
         running: false
         NumberAnimation {
-            target: root
+            target: popupRoot
             property: "actionBtnMorph"
             to: 2.0
-            duration: 420
+            duration: 400
             easing.type: Easing.OutCubic
         }
         NumberAnimation {
-            target: root
+            target: popupRoot
             property: "presetSlideProgress"
             to: 1.0
             duration: 400
             easing.type: Easing.OutCubic
         }
         NumberAnimation {
-            target: root
+            target: popupRoot
             property: "audioHeaderProgress"
             to: 0.0
-            duration: 320
+            duration: 250
             easing.type: Easing.OutCubic
         }
     }
@@ -225,24 +229,24 @@ Item {
         id: toAudioAnim
         running: false
         NumberAnimation {
-            target: root
+            target: popupRoot
             property: "actionBtnMorph"
             to: 1.0
-            duration: 420
+            duration: 400
             easing.type: Easing.OutCubic
         }
         NumberAnimation {
-            target: root
+            target: popupRoot
             property: "presetSlideProgress"
             to: 1.0
             duration: 400
             easing.type: Easing.OutCubic
         }
         NumberAnimation {
-            target: root
+            target: popupRoot
             property: "audioHeaderProgress"
             to: 1.0
-            duration: 320
+            duration: 250
             easing.type: Easing.OutCubic
         }
     }
@@ -251,134 +255,25 @@ Item {
         id: toEqAnim
         running: false
         NumberAnimation {
-            target: root
+            target: popupRoot
             property: "actionBtnMorph"
             to: 0.0
-            duration: 420
+            duration: 400
             easing.type: Easing.OutCubic
         }
         NumberAnimation {
-            target: root
+            target: popupRoot
             property: "presetSlideProgress"
             to: 0.0
             duration: 400
             easing.type: Easing.OutCubic
         }
         NumberAnimation {
-            target: root
+            target: popupRoot
             property: "audioHeaderProgress"
             to: 0.0
-            duration: 320
+            duration: 250
             easing.type: Easing.OutCubic
-        }
-    }
-
-    property int barCount: 60
-    property var rawBarLevels: []
-
-    Binding {
-        target: root
-        property: "rawBarLevels"
-        value: Cava.barLevels
-        when: root.active
-    }
-
-    // Sub-bass and kick strength for the glow and the disc bounce
-    property var beat: {
-        let source = rawBarLevels;
-        if (!source || source.length === 0) return { bass: 0.0, kick: 0.0 };
-
-        let subBass = (source[0] || 0.0) * 0.50 + (source[1] || 0.0) * 0.35 + (source[2] || 0.0) * 0.15;
-        let kickPunch = (source[1] || 0.0) * 0.30 + (source[2] || 0.0) * 0.45 + (source[3] || 0.0) * 0.25;
-        let rawKick = Math.max(subBass, kickPunch);
-
-        let kick = rawKick > 0.10 ? Math.min(1.0, Math.pow((rawKick - 0.10) / 0.90, 1.8) * 1.4) : 0.0;
-        let bass = Math.max(0.0, Math.min(1.0, subBass * 0.6 + kickPunch * 0.4));
-
-        return { bass: bass, kick: kick };
-    }
-
-    property real bassLevel: beat.bass
-    property real kickLevel: beat.kick
-
-    property var playerList: {
-        if (!Mpris.players || !Mpris.players.values) return [];
-        let list = [];
-        let vals = Mpris.players.values;
-        for (let i = 0; i < vals.length; i++) {
-            if (vals[i]) list.push(vals[i]);
-        }
-        return list;
-    }
-
-    property var manualPlayer: null
-
-    property var targetPlayer: {
-        if (manualPlayer) {
-            for (let i = 0; i < playerList.length; i++) {
-                if (playerList[i] === manualPlayer) return manualPlayer;
-            }
-        }
-        return MprisController.activePlayer;
-    }
-
-    property bool hasTargetPlayer: targetPlayer !== null
-
-    property var playerOptions: {
-        let list = playerList;
-        let names = [];
-        let counts = {};
-        for (let i = 0; i < list.length; i++) {
-            let base = list[i].identity || list[i].desktopEntry || ("Player " + (i + 1));
-            counts[base] = (counts[base] || 0) + 1;
-        }
-        for (let i = 0; i < list.length; i++) {
-            let p = list[i];
-            let base = p.identity || p.desktopEntry || ("Player " + (i + 1));
-            if (counts[base] > 1 && p.trackTitle) {
-                names.push(base + " (" + p.trackTitle + ")");
-            } else {
-                names.push(base);
-            }
-        }
-        return names;
-    }
-
-    property int currentPlayerIndex: {
-        if (!targetPlayer) return 0;
-        for (let i = 0; i < playerList.length; i++) {
-            if (playerList[i] === targetPlayer) return i;
-        }
-        return 0;
-    }
-
-    function selectPlayerByIndex(idx) {
-        if (idx >= 0 && idx < playerList.length) {
-            manualPlayer = playerList[idx];
-            triggerLocalArtFetch();
-        }
-    }
-
-    property real currentLivePosition: targetPlayer ? targetPlayer.position : 0
-
-    Connections {
-        target: root.targetPlayer
-        function onPositionChanged() {
-            if (!root.active) return;
-            if (root.targetPlayer) root.currentLivePosition = root.targetPlayer.position;
-        }
-        function onPostTrackChanged() {
-            if (!root.active) return;
-            if (root.targetPlayer) root.currentLivePosition = root.targetPlayer.position;
-            root.triggerLocalArtFetch();
-        }
-        function onTrackArtUrlChanged() {
-            if (!root.active) return;
-            root.triggerLocalArtFetch();
-        }
-        function onTrackTitleChanged() {
-            if (!root.active) return;
-            root.triggerLocalArtFetch();
         }
     }
 
@@ -388,6 +283,7 @@ Item {
         updateLyricsSubscription();
     }
 
+<<<<<<< port (unstable-dev)
     Timer {
         interval: 1000
         repeat: true
@@ -539,6 +435,8 @@ Item {
         eqLightningAnim.restart();
     }
 
+=======
+>>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
     property real introMain: 0
     property real introCover: 0
     property real introText: 0
@@ -555,16 +453,16 @@ Item {
         id: audioIntroAnim
         running: false
 
-        NumberAnimation { target: root; property: "audioIntroBalance"; from: 0; to: 1.0; duration: 560; easing.type: Easing.OutQuart }
+        NumberAnimation { target: popupRoot; property: "audioIntroBalance"; from: 0; to: 1.0; duration: 560; easing.type: Easing.OutQuart }
 
         SequentialAnimation {
             PauseAnimation { duration: 70 }
-            NumberAnimation { target: root; property: "audioIntroFlags"; from: 0; to: 1.0; duration: 560; easing.type: Easing.OutQuart }
+            NumberAnimation { target: popupRoot; property: "audioIntroFlags"; from: 0; to: 1.0; duration: 560; easing.type: Easing.OutQuart }
         }
 
         SequentialAnimation {
-            PauseAnimation { duration: 140 }
-            NumberAnimation { target: root; property: "audioIntroDynamics"; from: 0; to: 1.0; duration: 560; easing.type: Easing.OutQuart }
+            PauseAnimation { duration: 150 }
+            NumberAnimation { target: popupRoot; property: "audioIntroDynamics"; from: 0; to: 1.0; duration: 560; easing.type: Easing.OutQuart }
         }
     }
 
@@ -579,41 +477,41 @@ Item {
         id: introAnim
         running: false
 
-        NumberAnimation { target: root; property: "introMain"; from: 0; to: 1.0; duration: 760; easing.type: Easing.OutQuart }
+        NumberAnimation { target: popupRoot; property: "introMain"; from: 0; to: 1.0; duration: 760; easing.type: Easing.OutQuart }
 
         SequentialAnimation {
             PauseAnimation { duration: 70 }
-            NumberAnimation { target: root; property: "introCover"; from: 0; to: 1.0; duration: 810; easing.type: Easing.OutBack; easing.overshoot: 1.0 }
+            NumberAnimation { target: popupRoot; property: "introCover"; from: 0; to: 1.0; duration: 810; easing.type: Easing.OutBack; easing.overshoot: 1.0 }
         }
 
         SequentialAnimation {
             PauseAnimation { duration: 150 }
-            NumberAnimation { target: root; property: "introText"; from: 0; to: 1.0; duration: 760; easing.type: Easing.OutQuart }
+            NumberAnimation { target: popupRoot; property: "introText"; from: 0; to: 1.0; duration: 760; easing.type: Easing.OutQuart }
         }
 
         SequentialAnimation {
             PauseAnimation { duration: 230 }
-            NumberAnimation { target: root; property: "introControls"; from: 0; to: 1.0; duration: 760; easing.type: Easing.OutBack; easing.overshoot: 0.8 }
+            NumberAnimation { target: popupRoot; property: "introControls"; from: 0; to: 1.0; duration: 760; easing.type: Easing.OutBack; easing.overshoot: 0.8 }
         }
 
         SequentialAnimation {
             PauseAnimation { duration: 310 }
-            NumberAnimation { target: root; property: "introSeparator"; from: 0; to: 1.0; duration: 660; easing.type: Easing.OutQuart }
+            NumberAnimation { target: popupRoot; property: "introSeparator"; from: 0; to: 1.0; duration: 660; easing.type: Easing.OutQuart }
         }
 
         SequentialAnimation {
             PauseAnimation { duration: 370 }
-            NumberAnimation { target: root; property: "introEqHeader"; from: 0; to: 1.0; duration: 710; easing.type: Easing.OutQuart }
+            NumberAnimation { target: popupRoot; property: "introEqHeader"; from: 0; to: 1.0; duration: 710; easing.type: Easing.OutQuart }
         }
 
         SequentialAnimation {
             PauseAnimation { duration: 430 }
-            NumberAnimation { target: root; property: "introEqSliders"; from: 0; to: 1.0; duration: 860; easing.type: Easing.OutExpo }
+            NumberAnimation { target: popupRoot; property: "introEqSliders"; from: 0; to: 1.0; duration: 860; easing.type: Easing.OutExpo }
         }
 
         SequentialAnimation {
             PauseAnimation { duration: 550 }
-            NumberAnimation { target: root; property: "introPresets"; from: 0; to: 1.0; duration: 810; easing.type: Easing.OutBack; easing.overshoot: 0.8 }
+            NumberAnimation { target: popupRoot; property: "introPresets"; from: 0; to: 1.0; duration: 810; easing.type: Easing.OutBack; easing.overshoot: 0.8 }
         }
     }
 
@@ -621,35 +519,36 @@ Item {
         id: exitAnim
         running: false
         ParallelAnimation {
-            NumberAnimation { target: root; property: "introPresets"; to: 0.0; duration: 130; easing.type: Easing.InBack }
-            NumberAnimation { target: root; property: "introEqSliders"; to: 0.0; duration: 140; easing.type: Easing.InExpo }
+            NumberAnimation { target: popupRoot; property: "introPresets"; to: 0.0; duration: 130; easing.type: Easing.InBack }
+            NumberAnimation { target: popupRoot; property: "introEqSliders"; to: 0.0; duration: 150; easing.type: Easing.InExpo }
             SequentialAnimation {
                 PauseAnimation { duration: 30 }
-                NumberAnimation { target: root; property: "introEqHeader"; to: 0.0; duration: 130; easing.type: Easing.InCubic }
-                NumberAnimation { target: root; property: "introSeparator"; to: 0.0; duration: 130; easing.type: Easing.InCubic }
+                NumberAnimation { target: popupRoot; property: "introEqHeader"; to: 0.0; duration: 130; easing.type: Easing.InCubic }
+                NumberAnimation { target: popupRoot; property: "introSeparator"; to: 0.0; duration: 130; easing.type: Easing.InCubic }
             }
             SequentialAnimation {
                 PauseAnimation { duration: 50 }
-                NumberAnimation { target: root; property: "introControls"; to: 0.0; duration: 140; easing.type: Easing.InBack }
-                NumberAnimation { target: root; property: "introText"; to: 0.0; duration: 140; easing.type: Easing.InCubic }
-                NumberAnimation { target: root; property: "introCover"; to: 0.0; duration: 150; easing.type: Easing.InBack }
+                NumberAnimation { target: popupRoot; property: "introControls"; to: 0.0; duration: 150; easing.type: Easing.InBack }
+                NumberAnimation { target: popupRoot; property: "introText"; to: 0.0; duration: 150; easing.type: Easing.InCubic }
+                NumberAnimation { target: popupRoot; property: "introCover"; to: 0.0; duration: 150; easing.type: Easing.InBack }
             }
             SequentialAnimation {
                 PauseAnimation { duration: 70 }
-                NumberAnimation { target: root; property: "introMain"; to: 0.0; duration: 170; easing.type: Easing.InQuart }
+                NumberAnimation { target: popupRoot; property: "introMain"; to: 0.0; duration: 170; easing.type: Easing.InQuart }
             }
         }
         ScriptAction {
             script: {
-                if (root.exitCallback) {
-                    let cb = root.exitCallback;
-                    root.exitCallback = null;
+                if (popupRoot.exitCallback) {
+                    let cb = popupRoot.exitCallback;
+                    popupRoot.exitCallback = null;
                     cb();
                 }
             }
         }
     }
 
+<<<<<<< port (unstable-dev)
     property var borderColors: {
         var defaultColors = [ThemeBackend.mauve || "#cba6f7", ThemeBackend.blue || "#89b4fa", ThemeBackend.red || "#f38ba8", ThemeBackend.mauve || "#cba6f7"];
         var gradSource = root.activeGrad || (typeof MprisController !== "undefined" ? MprisController.grad : "");
@@ -830,9 +729,11 @@ Item {
         onExited: eqStateFile.reload()
     }
 
+=======
+>>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
     LyricsPicker {
         id: lyricsPickerPopup
-        targetScreen: (root.Window && root.Window.window) ? root.Window.window.screen : null
+        targetScreen: (popupRoot.Window && popupRoot.Window.window) ? popupRoot.Window.window.screen : null
         onLyricsSelected: function(filePath, fileName) {
             Lyrics.loadLocalLyricsFile(filePath);
         }
@@ -841,6 +742,7 @@ Item {
     Item {
         id: mainWrapper
         anchors.fill: parent
+<<<<<<< port (unstable-dev)
 
         scale: 0.92 + (0.08 * root.introMain)
         opacity: root.introMain
@@ -946,12 +848,22 @@ Item {
                 maskEnabled: true
                 maskSource: maskRectOuter
             }
+=======
+        
+        scale: 0.92 + (0.08 * popupRoot.introMain)
+        opacity: popupRoot.introMain
+        transform: Translate { y: popupRoot.s(12) * (1 - popupRoot.introMain) }
+
+        MusicBorder {
+            id: borderLayer
+            root: popupRoot
+>>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
         }
 
         Rectangle {
             id: innerBg
             anchors.fill: parent
-            anchors.margins: ThemeBackend.liquidGlass ? 0 : root.s(3)
+            anchors.margins: ThemeBackend.liquidGlass ? 0 : popupRoot.s(3)
             color: Qt.alpha(ThemeBackend.base, ThemeBackend.elementOpacity)
             radius: ThemeBackend.borderRadius
 
@@ -979,74 +891,22 @@ Item {
                     maskSource: innerBgMask
                 }
 
-                Item {
-                    id: blurCrossfader
-                    anchors.fill: parent
-                    visible: ThemeBackend.elementOpacity >= 0.999
-                    property string blurUrl: root.activeBlur ? (root.activeBlur.startsWith("file://") || root.activeBlur.startsWith("http") ? root.activeBlur : "file://" + root.activeBlur) : ""
-                    property bool showingA: true
-
-                    Image {
-                        id: blurA
-                        anchors.fill: parent
-                        fillMode: Image.PreserveAspectCrop
-                        opacity: blurCrossfader.showingA && status === Image.Ready && root.hasTargetPlayer ? 0.9 : 0.0
-                        Behavior on opacity { NumberAnimation { duration: 800; easing.type: Easing.InOutQuad } }
-                    }
-
-                    Image {
-                        id: blurB
-                        anchors.fill: parent
-                        fillMode: Image.PreserveAspectCrop
-                        opacity: !blurCrossfader.showingA && status === Image.Ready && root.hasTargetPlayer ? 0.9 : 0.0
-                        Behavior on opacity { NumberAnimation { duration: 800; easing.type: Easing.InOutQuad } }
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        opacity: (root.hasTargetPlayer && root.activeBlur) ? 1.0 : 0.0
-                        gradient: Gradient {
-                            GradientStop { position: 0.0; color: Qt.alpha(ThemeBackend.base, 0.55); Behavior on color { ColorAnimation { duration: 600 } } }
-                            GradientStop { position: 0.5; color: Qt.alpha(ThemeBackend.base, 0.72); Behavior on color { ColorAnimation { duration: 600 } } }
-                            GradientStop { position: 1.0; color: Qt.alpha(ThemeBackend.base, 0.90); Behavior on color { ColorAnimation { duration: 600 } } }
-                        }
-                        Behavior on opacity { NumberAnimation { duration: 800; easing.type: Easing.InOutQuad } }
-                    }
-
-                    onBlurUrlChanged: {
-                        if (!blurUrl) {
-                            blurA.source = "";
-                            blurB.source = "";
-                            return;
-                        }
-                        if (showingA) {
-                            blurB.source = blurUrl;
-                            showingA = false;
-                        } else {
-                            blurA.source = blurUrl;
-                            showingA = true;
-                        }
-                    }
-
-                    Component.onCompleted: {
-                        if (blurUrl) {
-                            blurA.source = blurUrl;
-                            showingA = true;
-                        }
-                    }
+                MusicBlurCrossfader {
+                    root: popupRoot
                 }
             }
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: root.s(18)
+                anchors.margins: popupRoot.s(18)
                 spacing: 0
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: root.s(224)
-                    spacing: root.s(16)
+                    Layout.preferredHeight: popupRoot.s(224)
+                    spacing: popupRoot.s(16)
 
+<<<<<<< port (unstable-dev)
                     Item {
                         id: coverHost
                         Layout.preferredWidth: root.s(224)
@@ -1570,198 +1430,44 @@ Item {
                                 onClicked: if (root.targetPlayer && root.targetPlayer.canGoNext) root.targetPlayer.next()
                             }
                         }
+=======
+                    MusicCover {
+                        root: popupRoot
+                    }
+
+                    MusicTrackControls {
+                        root: popupRoot
+>>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
                     }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: root.s(2)
-                    Layout.topMargin: root.s(16)
-                    Layout.bottomMargin: root.s(16)
+                    Layout.preferredHeight: popupRoot.s(2)
+                    Layout.topMargin: popupRoot.s(16)
+                    Layout.bottomMargin: popupRoot.s(16)
                     color: "#1AFFFFFF"
-                    radius: root.s(1)
+                    radius: popupRoot.s(1)
 
-                    opacity: root.introSeparator
-                    transform: Translate { y: root.s(12) * (1 - root.introSeparator) }
+                    opacity: popupRoot.introSeparator
+                    transform: Translate { y: popupRoot.s(12) * (1 - popupRoot.introSeparator) }
                 }
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: root.s(12)
+                    spacing: popupRoot.s(12)
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        opacity: root.introEqHeader
-                        transform: Translate { y: root.s(12) * (1 - root.introEqHeader) }
-
-                        Switch {
-                            id: bottomSectionSwitch
-                            Layout.preferredHeight: root.s(26)
-                            Layout.preferredWidth: root.s(224)
-                            Layout.minimumWidth: root.s(168)
-                            Layout.maximumWidth: root.s(224)
-                            implicitHeight: root.s(26)
-                            implicitWidth: root.s(224)
-                            options: [
-                                typeof I18n !== "undefined" ? I18n.t("music.equalizer", "Equalizer") : "Equalizer",
-                                typeof I18n !== "undefined" ? I18n.t("music.audio.title", "Audio") : "Audio",
-                                typeof I18n !== "undefined" ? I18n.t("music.lyrics", "Lyrics") : "Lyrics"
-                            ]
-                            currentIndex: 0
-                            accentColor: ThemeBackend.mauve || "#cba6f7"
-                            baseColor: Qt.alpha(ThemeBackend.surface0 || "#313244", ThemeBackend.elementOpacity)
-                            textColor: ThemeBackend.subtext0 || "#a6adc8"
-                            activeTextColor: ThemeBackend.base || "#1e1e2e"
-                            cornerRadius: ThemeBackend.borderRadius
-                            fontPixelSize: root.s(11.5)
-                            onCurrentIndexChanged: {
-                                if (currentIndex !== 1 && root.audioTestRunning) {
-                                    root.toggleAudioTest();
-                                }
-                                root.updateLyricsSubscription();
-                                if (currentIndex === 2) {
-                                    toEqAnim.stop();
-                                    toAudioAnim.stop();
-                                    toLyricsAnim.restart();
-                                    root.restoreLastSavedEqualizer();
-                                } else if (currentIndex === 1) {
-                                    toEqAnim.stop();
-                                    toLyricsAnim.stop();
-                                    toAudioAnim.restart();
-                                    root.playAudioIntro();
-                                    root.restoreLastSavedEqualizer();
-                                } else {
-                                    toLyricsAnim.stop();
-                                    toAudioAnim.stop();
-                                    root.restoreLastSavedEqualizer();
-                                    toEqAnim.restart();
-                                }
-                            }
-                            onValueChanged: (index, val) => {
-                                currentIndex = index;
-                            }
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        ClickButton {
-                            id: audioTestBtn
-                            Layout.preferredHeight: root.s(26)
-                            Layout.preferredWidth: root.audioTestBtnWidth * root.audioHeaderProgress
-                            implicitWidth: Layout.preferredWidth
-                            visible: root.audioHeaderProgress > 0.01
-                            opacity: root.audioHeaderProgress
-                            clip: true
-                            cornerRadius: ThemeBackend.borderRadius
-                            horizontalPadding: root.s(8)
-                            buttonIcon: root.audioTestRunning ? "󰓛" : "󰋋"
-                            buttonText: root.audioTestRunning
-                                ? (typeof I18n !== "undefined" ? I18n.t("music.audio.stop_test", "Stop") : "Stop")
-                                : (typeof I18n !== "undefined" ? I18n.t("music.audio.test", "Test") : "Test")
-                            textFontSize: root.s(11.5)
-                            iconFontSize: root.s(12)
-                            accentColor: root.audioTestRunning
-                                ? (ThemeBackend.mauve || "#cba6f7")
-                                : (ThemeBackend.surface0 || "#313244")
-                            bgOpacity: ThemeBackend.elementOpacity
-                            textColor: root.audioTestRunning
-                                ? (ThemeBackend.base || "#1e1e2e")
-                                : (ThemeBackend.text || "#cdd6f4")
-                            onClicked: root.toggleAudioTest()
-                        }
-
-                        ClickButton {
-                            id: actionBtn
-                            Layout.preferredHeight: root.s(26)
-                            Layout.preferredWidth: root.actionBtnCurrentWidth
-                            implicitWidth: root.actionBtnCurrentWidth
-                            cornerRadius: ThemeBackend.borderRadius
-                            horizontalPadding: root.s(12)
-                            buttonIcon: bottomSectionSwitch.currentIndex === 2
-                                ? "󰈔"
-                                : (bottomSectionSwitch.currentIndex === 1 ? "󰑐" : "")
-                            buttonText: {
-                                if (bottomSectionSwitch.currentIndex === 2) {
-                                    return typeof I18n !== "undefined" ? I18n.t("music.select_local_file", "Select file") : "Select file";
-                                }
-                                if (bottomSectionSwitch.currentIndex === 1) {
-                                    return typeof I18n !== "undefined" ? I18n.t("music.audio.reset", "Reset") : "Reset";
-                                }
-                                return root.eqData && root.eqData.pending ? I18n.t("music.eq.apply") : I18n.t("music.eq.saved");
-                            }
-                            textFontSize: root.s(11.5)
-                            iconFontSize: root.s(13)
-                            accentColor: {
-                                if (bottomSectionSwitch.currentIndex !== 0) {
-                                    return ThemeBackend.surface0 || "#313244";
-                                }
-                                return root.eqData && root.eqData.pending ? (ThemeBackend.mauve || "#cba6f7") : (ThemeBackend.surface0 || "#313244");
-                            }
-                            bgOpacity: ThemeBackend.elementOpacity
-                            textColor: {
-                                if (bottomSectionSwitch.currentIndex !== 0) {
-                                    return ThemeBackend.text || "#cdd6f4";
-                                }
-                                return root.eqData && root.eqData.pending ? (ThemeBackend.base || "#1e1e2e") : (ThemeBackend.text || "#cdd6f4");
-                            }
-                            enabled: bottomSectionSwitch.currentIndex === 2
-                                ? (root.hasTargetPlayer && !Lyrics.loading)
-                                : (bottomSectionSwitch.currentIndex === 1
-                                    ? (Math.abs(balanceSlider.value) >= 0.005 || root.eqData.mono === true || root.eqData.swap === true || String(root.eqData.dynamics || "off") !== "off")
-                                    : true)
-                            opacity: bottomSectionSwitch.currentIndex === 2
-                                ? (root.hasTargetPlayer && !Lyrics.loading ? 1.0 : 0.45)
-                                : (bottomSectionSwitch.currentIndex === 1
-                                    ? (enabled ? 1.0 : 0.45)
-                                    : 1.0)
-                            Behavior on opacity { NumberAnimation { duration: 300 } }
-                            Behavior on accentColor { ColorAnimation { duration: 320 } }
-                            Behavior on textColor { ColorAnimation { duration: 320 } }
-                            onClicked: {
-                                if (bottomSectionSwitch.currentIndex === 2) {
-                                    lyricsPickerPopup.targetScreen = (root.Window && root.Window.window) ? root.Window.window.screen : null;
-                                    lyricsPickerPopup.openPicker();
-                                } else if (bottomSectionSwitch.currentIndex === 1) {
-                                    root.resetAudio();
-                                } else if (root.eqData && root.eqData.pending) {
-                                    var temp = Object.assign({}, root.eqData);
-                                    temp.pending = false;
-                                    root.eqData = temp;
-                                    root.savedEqData = Object.assign({}, temp);
-                                    root.lastEqUpdate = Date.now();
-                                    root.triggerEqLightning();
-                                    root.execCmd(Caching.payloadDir + "/media/equalizer.sh apply");
-                                }
-                            }
-                        }
-
-                        Item {
-                            id: presetTextContainer
-                            Layout.preferredHeight: root.s(26)
-                            Layout.preferredWidth: (presetLabelText.implicitWidth + root.s(12)) * Math.max(0.0, 1.0 - root.presetSlideProgress)
-                            implicitWidth: Layout.preferredWidth
-                            visible: root.presetSlideProgress < 0.99
-                            opacity: Math.max(0.0, 1.0 - root.presetSlideProgress)
-                            clip: true
-
-                            Text {
-                                id: presetLabelText
-                                anchors.verticalCenter: parent.verticalCenter
-                                x: root.s(12) + (root.s(24) * root.presetSlideProgress)
-                                text: root.eqData && root.eqData.preset ? I18n.t("music.presets." + root.eqData.preset.toLowerCase()) : I18n.t("music.presets.flat")
-                                color: ThemeBackend.subtext0 || "#a6adc8"
-                                font.family: ThemeBackend.fontFamily
-                                font.pixelSize: root.s(13)
-                                font.bold: true
-                            }
-                        }
+                    MusicBottomHeader {
+                        id: bottomHeader
+                        root: popupRoot
                     }
 
                     Item {
                         id: bottomViewsContainer
                         Layout.fillWidth: true
-                        Layout.preferredHeight: root.s(235)
+                        Layout.preferredHeight: popupRoot.s(235)
 
+<<<<<<< port (unstable-dev)
                         Item {
                             id: eqView
                             anchors.top: parent.top
@@ -2170,404 +1876,23 @@ Item {
                                     }
                                 }
                             }
+=======
+                        MusicEqView {
+                            root: popupRoot
+>>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
                         }
 
-                        Item {
+                        MusicAudioView {
                             id: audioView
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            width: parent.width
-                            x: {
-                                if (bottomSectionSwitch.currentIndex === 1) return 0;
-                                return bottomSectionSwitch.currentIndex < 1 ? parent.width + root.s(24) : -parent.width - root.s(24);
-                            }
-                            opacity: bottomSectionSwitch.currentIndex === 1 ? 1.0 : 0.0
-                            visible: opacity > 0.0
-                            clip: true
-
-                            Behavior on x { NumberAnimation { duration: 420; easing.type: Easing.OutQuart } }
-                            Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
-
-                            ColumnLayout {
-                                anchors.top: parent.top
-                                anchors.topMargin: root.s(9)
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                spacing: root.s(8)
-
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: root.s(82)
-                                    opacity: root.audioIntroBalance
-                                    transform: Translate { y: root.s(14) * (1 - root.audioIntroBalance) }
-                                    radius: ThemeBackend.borderRadius
-                                    color: balanceCardGlass.active ? "transparent" : Qt.alpha(ThemeBackend.surface0 || "#313244", ThemeBackend.elementOpacity)
-
-                                    GlassFill {
-                                        id: balanceCardGlass
-                                        anchors.fill: parent
-                                        radius: parent.radius
-                                        tintColor: ThemeBackend.surface0
-                                        tintAmount: 0.3
-                                    }
-
-                                    Item {
-                                        id: balanceControl
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.top: parent.top
-                                        anchors.leftMargin: root.s(14)
-                                        anchors.rightMargin: root.s(14)
-                                        anchors.topMargin: root.s(5)
-                                        height: root.s(45)
-                                        opacity: root.eqData.mono === true ? 0.45 : 1.0
-                                        Behavior on opacity { NumberAnimation { duration: 180 } }
-
-                                        Repeater {
-                                            model: 9
-                                            Rectangle {
-                                                required property int index
-                                                x: index * (balanceControl.width - width) / 8
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                width: root.s(index === 4 ? 3 : 2)
-                                                height: root.s(index === 4 ? 33 : (index % 2 === 0 ? 25 : 18))
-                                                radius: width / 2
-                                                color: ThemeBackend.subtext1 || "#bac2de"
-                                                opacity: index === 4 ? 0.7 : 0.32
-                                            }
-                                        }
-
-                                        Slider {
-                                            id: balanceSlider
-                                            anchors.fill: parent
-                                            from: -1.0
-                                            to: 1.0
-                                            stepSize: 0.01
-                                            value: Number(root.eqData.balance || 0)
-                                            hoverEnabled: true
-                                            enabled: root.eqData.mono !== true
-                                            readonly property real trackHeight: root.s(14)
-                                            readonly property real handleSize: root.s(22)
-
-                                        Connections {
-                                            target: root
-                                            function onEqDataChanged() {
-                                                if (!balanceSlider.pressed) {
-                                                    var nextBalance = Number(root.eqData.balance || 0);
-                                                    if (!isNaN(nextBalance)) balanceSlider.value = nextBalance;
-                                                }
-                                            }
-                                        }
-
-                                            onPressedChanged: if (!pressed) root.setBalance(value)
-
-                                            background: Rectangle {
-                                                x: balanceSlider.leftPadding
-                                                y: balanceSlider.topPadding + balanceSlider.availableHeight / 2 - height / 2
-                                                width: balanceSlider.availableWidth
-                                                height: balanceSlider.trackHeight
-                                                radius: height / 2
-                                                color: balanceTrackGlass.active ? "transparent" : Qt.alpha(ThemeBackend.surface2 || "#585b70", ThemeBackend.elementOpacity)
-                                                border.width: 1
-                                                border.color: Qt.rgba(1, 1, 1, 0.06)
-                                                clip: true
-
-                                                GlassFill {
-                                                    id: balanceTrackGlass
-                                                    anchors.fill: parent
-                                                    radius: parent.radius
-                                                    tintColor: ThemeBackend.surface2
-                                                    tintAmount: 0.3
-                                                }
-
-                                                Item {
-                                                    property real handleCenter: balanceSlider.handleSize / 2 + balanceSlider.visualPosition * (parent.width - balanceSlider.handleSize)
-                                                    x: Math.min(parent.width / 2, handleCenter)
-                                                    width: Math.abs(handleCenter - parent.width / 2)
-                                                    height: parent.height
-                                                    clip: true
-                                                    opacity: width > 0.5 ? 1.0 : 0.0
-                                                    Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-
-                                                    GlassFill {
-                                                        id: balanceFillGlass
-                                                        x: balanceFillRect.x
-                                                        width: balanceFillRect.width
-                                                        height: balanceFillRect.height
-                                                        radius: balanceFillRect.radius
-                                                        forceClear: true
-                                                        tintColor: ThemeBackend.mauve
-                                                        tintAmount: 0.6
-                                                        tintStrength: 1.0
-                                                        press: balanceSlider.pressed ? 0.5 : (balanceSlider.hovered ? 0.2 : 0)
-                                                        Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                                                    }
-
-                                                    Rectangle {
-                                                        id: balanceFillRect
-                                                        visible: !balanceFillGlass.active
-                                                        x: balanceSlider.value < 0 ? 0 : -height / 2
-                                                        width: parent.width + height / 2
-                                                        height: parent.height
-                                                        radius: height / 2
-
-                                                        gradient: Gradient {
-                                                            orientation: Gradient.Horizontal
-                                                            GradientStop { position: 0.0; color: balanceSlider.value < 0 ? Qt.lighter(ThemeBackend.mauve || "#cba6f7", 1.10) : (ThemeBackend.mauve || "#cba6f7") }
-                                                            GradientStop { position: 0.5; color: Qt.lighter(ThemeBackend.mauve || "#cba6f7", 1.05) }
-                                                            GradientStop { position: 1.0; color: balanceSlider.value < 0 ? (ThemeBackend.mauve || "#cba6f7") : Qt.lighter(ThemeBackend.mauve || "#cba6f7", 1.10) }
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            handle: Rectangle {
-                                                id: balanceHandle
-                                                x: balanceSlider.leftPadding + balanceSlider.visualPosition * (balanceSlider.availableWidth - width)
-                                                y: balanceSlider.topPadding + balanceSlider.availableHeight / 2 - height / 2
-                                                width: balanceSlider.handleSize
-                                                height: balanceSlider.handleSize
-                                                radius: height / 2
-                                                color: balanceHandleGlass.active ? "transparent" : (balanceSlider.pressed
-                                                    ? Qt.lighter(ThemeBackend.mauve || "#cba6f7", 1.30)
-                                                    : (balanceSlider.hovered ? Qt.lighter(ThemeBackend.mauve || "#cba6f7", 1.15) : (ThemeBackend.mauve || "#cba6f7")))
-
-                                                GlassFill {
-                                                    id: balanceHandleGlass
-                                                    anchors.fill: parent
-                                                    radius: parent.radius
-                                                    tintColor: ThemeBackend.mauve
-                                                    tintAmount: 0.45
-                                                    shadow: 1
-                                                    press: balanceSlider.pressed ? 1 : (balanceSlider.hovered ? 0.3 : 0)
-                                                    Behavior on press { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                                                }
-                                                scale: balanceSlider.pressed ? 1.25 : (balanceSlider.hovered ? 1.12 : 1.0)
-
-                                                Behavior on color { ColorAnimation { duration: 150 } }
-                                                Behavior on width { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                                                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
-                                            }
-                                        }
-                                    }
-
-                                    RowLayout {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.bottom: parent.bottom
-                                        anchors.leftMargin: root.s(14)
-                                        anchors.rightMargin: root.s(14)
-                                        anchors.bottomMargin: root.s(9)
-
-                                        Text {
-                                            text: "L  " + Math.round((balanceSlider.value > 0 ? 1 - balanceSlider.value : 1) * 100) + "%"
-                                            color: ThemeBackend.subtext0 || "#a6adc8"
-                                            font.family: ThemeBackend.fontFamily
-                                            font.pixelSize: root.s(11.5)
-                                            font.bold: true
-                                        }
-
-                                        Item { Layout.fillWidth: true }
-
-                                        Text {
-                                            text: Math.abs(balanceSlider.value) >= 0.995
-                                                ? (balanceSlider.value < 0
-                                                    ? (typeof I18n !== "undefined" ? I18n.t("music.audio.left_only", "Left only") : "Left only")
-                                                    : (typeof I18n !== "undefined" ? I18n.t("music.audio.right_only", "Right only") : "Right only"))
-                                                : (Math.abs(balanceSlider.value) < 0.005
-                                                    ? (typeof I18n !== "undefined" ? I18n.t("music.audio.centered", "Centered") : "Centered")
-                                                    : (Math.abs(balanceSlider.value) < 0.25
-                                                        ? (balanceSlider.value < 0
-                                                            ? (typeof I18n !== "undefined" ? I18n.t("music.audio.left_slightly_favored", "Slightly left favored") : "Slightly left favored")
-                                                            : (typeof I18n !== "undefined" ? I18n.t("music.audio.right_slightly_favored", "Slightly right favored") : "Slightly right favored"))
-                                                        : (balanceSlider.value < 0
-                                                            ? (typeof I18n !== "undefined" ? I18n.t("music.audio.left_favored", "Left favored") : "Left favored")
-                                                            : (typeof I18n !== "undefined" ? I18n.t("music.audio.right_favored", "Right favored") : "Right favored"))))
-                                            color: ThemeBackend.mauve || "#cba6f7"
-                                            font.family: ThemeBackend.fontFamily
-                                            font.pixelSize: root.s(11.5)
-                                            font.bold: true
-                                        }
-
-                                        Item { Layout.fillWidth: true }
-
-                                        Text {
-                                            text: Math.round((balanceSlider.value < 0 ? 1 + balanceSlider.value : 1) * 100) + "%  R"
-                                            color: ThemeBackend.subtext0 || "#a6adc8"
-                                            font.family: ThemeBackend.fontFamily
-                                            font.pixelSize: root.s(11.5)
-                                            font.bold: true
-                                        }
-                                    }
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: root.s(8)
-                                    opacity: root.audioIntroFlags
-                                    transform: Translate { y: root.s(14) * (1 - root.audioIntroFlags) }
-
-                                    Repeater {
-                                        model: [
-                                            { key: "mono", label: typeof I18n !== "undefined" ? I18n.t("music.audio.mono", "Mono audio") : "Mono audio" },
-                                            { key: "swap", label: typeof I18n !== "undefined" ? I18n.t("music.audio.swap", "Swap L/R") : "Swap L/R" }
-                                        ]
-
-                                        delegate: SettingsRow {
-                                            required property var modelData
-                                            Layout.fillWidth: true
-                                            Layout.preferredWidth: 1
-                                            rootObj: root
-                                            baseColor: Qt.alpha(ThemeBackend.surface0 || "#313244", ThemeBackend.elementOpacity)
-                                            title: modelData.label
-                                            titlePixelSize: 12
-                                            titleBold: true
-                                            verticalPadding: root.s(9)
-                                            searchable: false
-
-                                            Toggle {
-                                                id: audioFlagToggle
-                                                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                                                Layout.preferredWidth: root.s(44)
-                                                Layout.preferredHeight: root.s(24)
-                                                horizontalPadding: 0
-                                                checked: root.eqData[modelData.key] === true
-                                                accentColor: ThemeBackend.mauve || "#cba6f7"
-                                                baseColor: Qt.alpha(ThemeBackend.surface2 || "#585b70", ThemeBackend.elementOpacity)
-                                                handleColor: ThemeBackend.base || "#1e1e2e"
-                                                handleOffColor: ThemeBackend.text || "#cdd6f4"
-                                                onToggled: checked => root.setAudioFlag(modelData.key, checked)
-
-                                                Connections {
-                                                    target: root
-                                                    function onEqDataChanged() {
-                                                        audioFlagToggle.checked = root.eqData[modelData.key] === true;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                SettingsRow {
-                                    Layout.fillWidth: true
-                                    rootObj: root
-                                    opacity: root.audioIntroDynamics
-                                    transform: Translate { y: root.s(14) * (1 - root.audioIntroDynamics) }
-                                    baseColor: Qt.alpha(ThemeBackend.surface0 || "#313244", ThemeBackend.elementOpacity)
-                                    title: typeof I18n !== "undefined" ? I18n.t("music.audio.dynamic_range", "Dynamic range") : "Dynamic range"
-                                    titlePixelSize: 12
-                                    titleBold: true
-                                    verticalPadding: root.s(9)
-                                    searchable: false
-
-                                    Switch {
-                                        id: dynamicsSwitch
-                                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                                        Layout.preferredWidth: root.s(210)
-                                        Layout.preferredHeight: root.s(28)
-                                        options: [
-                                            typeof I18n !== "undefined" ? I18n.t("music.audio.off", "Off") : "Off",
-                                            typeof I18n !== "undefined" ? I18n.t("music.audio.balanced", "Balanced") : "Balanced",
-                                            typeof I18n !== "undefined" ? I18n.t("music.audio.night", "Night") : "Night"
-                                        ]
-                                        currentIndex: String(root.eqData.dynamics || "off") === "night" ? 2
-                                            : (String(root.eqData.dynamics || "off") === "balanced" ? 1 : 0)
-                                        accentColor: ThemeBackend.mauve || "#cba6f7"
-                                        baseColor: Qt.alpha(ThemeBackend.surface2 || "#585b70", ThemeBackend.elementOpacity)
-                                        textColor: ThemeBackend.subtext0 || "#a6adc8"
-                                        activeTextColor: ThemeBackend.base || "#1e1e2e"
-                                        cornerRadius: ThemeBackend.borderRadius
-                                        fontPixelSize: root.s(10.5)
-                                        minFontPixelSize: root.s(7)
-                                        onToggled: index => root.setDynamics(index === 2 ? "night" : (index === 1 ? "balanced" : "off"))
-
-                                        Connections {
-                                            target: root
-                                            function onEqDataChanged() {
-                                                var value = String(root.eqData.dynamics || "off");
-                                                dynamicsSwitch.currentIndex = value === "night" ? 2 : (value === "balanced" ? 1 : 0);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            root: popupRoot
                         }
 
-                        Item {
-                            id: lyricsView
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            width: parent.width
-                            x: bottomSectionSwitch.currentIndex === 2 ? 0 : parent.width + root.s(24)
-                            opacity: bottomSectionSwitch.currentIndex === 2 ? 1.0 : 0.0
-                            visible: opacity > 0.0
-                            clip: true
-
-                            Behavior on x { NumberAnimation { duration: 420; easing.type: Easing.OutQuart } }
-                            Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
-
-                            LyricsView {
-                                id: popupLyricsViewport
-                                anchors.fill: parent
-                                visible: Lyrics.hasLyrics
-                                sideMargin: root.s(4)
-                                baseActiveFont: root.s(18)
-                                lineHeight: Math.max(root.s(30), baseActiveFont * 1.4)
-                                lineSpacing: Math.max(root.s(6), baseActiveFont * 0.25)
-                                activeLineColor: ThemeBackend.mauve || root.dynamicTextColor
-                                inactiveLineColor: ThemeBackend.text || "#cdd6f4"
-                                fontFamily: ThemeBackend.fontFamily
-                            }
-
-                            ColumnLayout {
-                                anchors.centerIn: parent
-                                spacing: root.s(6)
-                                visible: !Lyrics.hasLyrics
-                                z: 5
-
-                                Text {
-                                    Layout.alignment: Qt.AlignHCenter
-                                    text: "󰎈"
-                                    font.family: ThemeBackend.iconFont
-                                    font.pixelSize: root.s(28)
-                                    color: root.dynamicTextColor
-                                    opacity: 0.75
-                                }
-
-                                Text {
-                                    Layout.alignment: Qt.AlignHCenter
-                                    text: {
-                                        if (!root.hasTargetPlayer || !root.targetPlayer.trackTitle) return I18n.t("music.nothing_playing");
-                                        if (Lyrics.loading) return I18n.t("music.searching_lyrics");
-                                        return I18n.t("music.no_lyrics");
-                                    }
-                                    font.family: ThemeBackend.fontFamily
-                                    font.weight: Font.DemiBold
-                                    font.pixelSize: root.s(12)
-                                    color: ThemeBackend.subtext0 || "#a6adc8"
-                                }
-                            }
+                        MusicLyricsView {
+                            root: popupRoot
                         }
                     }
                 }
             }
         }
-    }
-
-    component PresetButton : ClickButton {
-        property string name: ""
-        bgOpacity: ThemeBackend.elementOpacity
-        Layout.fillWidth: true
-        Layout.preferredWidth: 1
-        implicitHeight: root.s(28)
-        cornerRadius: ThemeBackend.borderRadius
-        buttonText: I18n.t("music.presets." + name.toLowerCase())
-        textFontSize: root.s(11.5)
-        horizontalPadding: 0
-        property bool isActivePreset: root.eqData && root.eqData.preset === name
-        accentColor: isActivePreset ? (ThemeBackend.mauve || "#cba6f7") : (ThemeBackend.surface0 || "#313244")
-        textColor: isActivePreset ? (ThemeBackend.base || "#1e1e2e") : (ThemeBackend.subtext0 || "#a6adc8")
-        onClicked: root.applyPresetOptimistically(name)
     }
 }
