@@ -1,4 +1,4 @@
-{ self, ryokuNixpkgs, hermesAgent, ryokuUpstream }:
+{ self, ryokuNixpkgs, ryokuUpstream }:
 
 { config, lib, pkgs, options, ... }:
 
@@ -22,7 +22,6 @@ let
     });
 
   ryokuShell = ryokuPkgs.ryoku-shell;
-  ryokuRashin = ryokuPkgs.ryoku-rashin;
   ryokuBundle = ryokuPkgs.ryoku-bundle;
   ryokuHelpers = ryokuPkgs.ryoku-helpers;
   ryokuSystemBridge = ryokuPkgs.ryoku-nixos-system-bridge;
@@ -43,7 +42,6 @@ let
   # attribute even though Ryoku's xdph.conf expects the binary.
   ryokuPreviewSharePicker =
     lib.attrByPath [ "hyprland-preview-share-picker" ] null ryokuNixpkgs;
-  ryokuRyotunes = ryokuPkgs.ryoku-ryotunes;
   ryokuWmHyprland = ryokuPkgs.ryoku-wm-hyprland;
   ryokuWmNiri = ryokuPkgs.ryoku-wm-niri;
   ryokuWmMango = ryokuPkgs.ryoku-wm-mango;
@@ -731,7 +729,6 @@ EOF
     ryokuQylockLock
     ryokuSddmThemeApply
     ryokuSddmTheme
-    ryokuPkgs.gpk
     ryokuSkwdPaper
 
     # ─────────────────────────────────────────────────────────
@@ -1086,14 +1083,13 @@ in
       '';
     };
 
+    # Kept only so existing /etc/nixos configs that still set
+    # `programs.ryoku.binaryCache.enable` keep evaluating. It does nothing.
     binaryCache.enable = lib.mkOption {
       type = lib.types.bool;
       default = true;
-
-      description = ''
-        Use Ryoku's public Ryotunes binary cache to avoid
-        compiling the music application locally.
-      '';
+      visible = false;
+      description = "Deprecated and ignored. Ryoku no longer configures a binary cache.";
     };
 
     defaultCompositor = lib.mkOption {
@@ -1179,18 +1175,6 @@ in
     # Installing gpu-screen-recorder as a plain package leaves that helper
     # unprivileged and forces an authentication prompt for every recording.
     programs.gpu-screen-recorder.enable = true;
-
-    # Public binary cache for independently compiled Ryotunes releases.
-    # Never distribute the private Cachix authentication token.
-    nix.settings = lib.mkIf cfg.binaryCache.enable {
-      substituters = lib.mkAfter [
-        "https://ryotunes.cachix.org"
-      ];
-
-      trusted-public-keys = lib.mkAfter [
-        "ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs="
-      ];
-    };
 
     # apple-cursor is part of Ryoku's cursor catalogue and is unfree in nixpkgs.
     nixpkgs.config.allowUnfreePredicate = lib.mkDefault (
@@ -1976,38 +1960,6 @@ in
       };
     };
 
-    systemd.user.services.ryoku-rashin = {
-      description = "Ryoku Rashin local agent OS daemon and dashboard";
-
-      wantedBy = [
-        "default.target"
-      ];
-
-      path = runtimePackages;
-
-      environment = {
-        RYOKU_RASHIN_SKILLS =
-          "${ryokuRashin}/share/ryoku/skills";
-        RYOKU_UPDATE_BACKEND = "nix";
-      };
-
-      # SDDM's greeter account would otherwise take 127.0.0.1:3600 first and
-      # leave the user's daemon restarting on "address already in use".
-      unitConfig = {
-        StartLimitIntervalSec = 0;
-        ConditionUser = "!@system";
-      };
-
-      serviceConfig = {
-        ExecStart =
-          "${ryokuRashin}/bin/ryoku-rashin serve --if-enabled";
-
-        Restart = "on-failure";
-        RestartSec = 2;
-        NoNewPrivileges = true;
-      };
-    };
-
     # Refresh the AI usage caches consumed by Ryoku's bar.
     #
     # These mirror upstream's ryoku-ai-usage.service/timer, but
@@ -2109,64 +2061,6 @@ in
     #
     # Upstream installs /usr/bin/ryogami and a user unit under
     # /usr/lib/systemd/user. NixOS owns both declaratively.
-    # ─────────────────────────────────────────────────────────
-    # Ryotunes
-    #
-    # Ryotunes 2.5 uses a socket-activated playback daemon and
-    # native Quickshell client. Upstream enables the user socket
-    # through a package preset; NixOS owns both units here.
-    # ─────────────────────────────────────────────────────────
-
-    systemd.user.sockets.ryotunesd = {
-      description = "Ryotunes playback daemon socket";
-
-      wantedBy = [
-        "sockets.target"
-      ];
-
-      unitConfig.ConditionUser = "!@system";
-
-      socketConfig = {
-        ListenStream = "%t/ryotunes/ryotunesd.sock";
-        SocketMode = "0600";
-        DirectoryMode = "0700";
-      };
-    };
-
-    systemd.user.services.ryotunesd = {
-      description = "Ryotunes playback daemon";
-
-      # ryotunesd launches ryotunes-qml by command name. Keep the
-      # Ryotunes package first, then expose the normal Ryoku runtime.
-      path = [ ryokuRyotunes ] ++ runtimePackages;
-
-      # Upstream's daemon launches the native frontend with
-      # Command::new("ryotunes-qml"), and that Quickshell client in turn
-      # launches normal desktop helpers such as sh, ryostore, zenity and
-      # xdg-open.
-      #
-      # Keep Ryotunes itself deterministic and first in PATH, then expose the
-      # active NixOS system profile just like an ordinary graphical session.
-      # This preserves upstream's desktop-command model without baking FHS
-      # paths or mutable tool copies into the package.
-      environment = {
-        RUST_LOG = "warn";
-      };
-
-      after = [
-        "graphical-session.target"
-      ];
-
-      requires = [
-        "ryotunesd.socket"
-      ];
-
-      serviceConfig = {
-        ExecStart = "${ryokuRyotunes}/bin/ryotunesd";
-        Restart = "on-failure";
-        RestartSec = "2s";
-      };
-    };
 
     systemd.user.services.ryogami = {
       description = "Ryogami wallpaper daemon";

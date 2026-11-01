@@ -14,15 +14,6 @@
     ryokuPackagesNixpkgs.url =
       "github:NixOS/nixpkgs/56c02bc00adcf003215cc4bd996d6efaf4cff188";
 
-    glazepkg = {
-      url = "github:neur0map/glazepkg";
-      inputs.nixpkgs.follows = "ryokuPackagesNixpkgs";
-    };
-
-    hermesAgent = {
-      url = "github:NousResearch/hermes-agent";
-    };
-
     skwdWall = {
       url = "github:liixini/skwd-wall/nix";
     };
@@ -41,24 +32,9 @@
       url = "git+https://codeberg.org/zacoons/imgborders.git?ref=master";
       flake = false;
     };
-
-    # RyoManager task manager, pinned to the approved Ryoku UI build.
-    ryomanagerSrc = {
-      url = "github:Ryoku-dev/ryomanager/459c6714e31276f73025369e722cf4ab48eccbc3";
-      flake = false;
-    };
-
-    # Ryotunes now comes from its own flake (RyotunesNix). It owns the Rust
-    # build, the Quickshell client and the wrapper; Ryoku only supplies the
-    # locked nixpkgs and its own QML modules. flake.lock pins the revision.
-    ryotunesNix = {
-      url = "github:Ryoku-dev/RyotunesNix";
-      inputs.nixpkgs.follows = "ryokuPackagesNixpkgs";
-      inputs.ryoku.follows = "ryokuUpstream";
-    };
   };
 
-  outputs = { self, ryokuUpstream, nixpkgs, ryokuPackagesNixpkgs, glazepkg, hermesAgent, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ryomanagerSrc, ryotunesNix, ... }:
+  outputs = { self, ryokuUpstream, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ... }:
     let
       version =
         builtins.replaceStrings
@@ -94,8 +70,6 @@
           hyprglassSrc
           bibataMaterialSrc
           imgbordersSrc
-          ryomanagerSrc
-          ryotunesNix
           skwdPaper
           version
           ;
@@ -137,7 +111,7 @@
 
       ryokuNixosModule =
         import ./nix/modules/ryoku.nix {
-          inherit self hermesAgent ryokuUpstream;
+          inherit self ryokuUpstream;
           ryokuNixpkgs = pkgs;
         };
 
@@ -183,7 +157,6 @@
               browser = "chromium";
               shell = "fish";
               optionalApps = [ "prompt" ];
-              binaryCache = true;
               ryokuSource = "${ryokuRepo}/unstable-dev";
               nixpkgsSource = "github:NixOS/nixpkgs/nixos-unstable";
             };
@@ -236,16 +209,10 @@
         ryoku-nix-update = ryoku.nixUpdate;
         ryoku-hub = ryoku.hub;
         ryoku-palette-bridge = ryoku.paletteBridge;
-        ryoku-rashin = ryoku.rashin;
         ryoku-ryostore = ryoku.ryostore;
-        ryoku-ryomotion = ryoku.ryomotion;
-        ryoku-ryovm-helpers = ryoku.ryovmHelpers;
         ryoku-livewall = ryoku.livewall;
         ryoku-ryogami = ryoku.ryogami;
         ryoku-skwd-paper = ryoku.skwdPaper;
-        ryoku-ryotunes = ryoku.ryotunes;
-        ryomanager = ryoku.ryomanager;
-        ryotunes-unwrapped = ryoku.ryotunesUnwrapped;
         ryoku-keysounds = ryoku.keysounds;
         ryoku-qmk-hid = ryoku.qmkHid;
         ryoku-waifu2x = ryoku.waifu2x;
@@ -277,7 +244,6 @@
 
         ryoku-dev = ryokuDev;
         ryoku-materialize = ryokuMaterialize;
-        gpk = glazepkg.packages.${system}.gpk;
 
         default = ryoku.bundle;
       };
@@ -366,8 +332,6 @@
             grep -Fq 'choose_install_parallelism' "$backend"
             grep -Fq -- '--max-jobs "$install_jobs"' "$backend"
             grep -Fq -- '--cores "$install_cores"' "$backend"
-            grep -Fq -- '--no-cache' "$backend"
-            grep -Fq 'binaryCache = ''${binary_cache_nix};' "$backend"
             touch "$out"
           '';
 
@@ -394,7 +358,6 @@
           in
           assert generic.config.networking.hostName == "ryoku-ci";
           assert generic.config.programs.ryoku.enable;
-          assert generic.config.programs.ryoku.binaryCache.enable;
           assert generic.config.nix.package == nixpkgs.legacyPackages.${system}.nixVersions.latest;
           assert nvidia.config.services.xserver.videoDrivers == [ "nvidia" ];
           assert nvidia.config.hardware.nvidia.modesetting.enable;
@@ -458,15 +421,10 @@
         ryoku-cli = ryoku.cli;
         ryoku-hub = ryoku.hub;
         ryoku-palette-bridge = ryoku.paletteBridge;
-        ryoku-rashin = ryoku.rashin;
         ryoku-ryostore = ryoku.ryostore;
-        ryoku-ryomotion = ryoku.ryomotion;
-        ryoku-ryovm-helpers = ryoku.ryovmHelpers;
         ryoku-livewall = ryoku.livewall;
         ryoku-ryogami = ryoku.ryogami;
         ryoku-skwd-paper = ryoku.skwdPaper;
-        ryoku-ryotunes = ryoku.ryotunes;
-        ryomanager = ryoku.ryomanager;
         ryoku-keysounds = ryoku.keysounds;
         ryoku-qmk-hid = ryoku.qmkHid;
         ryoku-waifu2x = ryoku.waifu2x;

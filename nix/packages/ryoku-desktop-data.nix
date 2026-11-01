@@ -212,6 +212,11 @@ pkgs.stdenv.mkDerivation {
       appname="$(basename "$appdir")"
       has_ui=0
 
+      # RyoVM / Ryoport is optional and no longer part of the base closure.
+      if [ "$appname" = ryovm ]; then
+        continue
+      fi
+
       if [ -d "$appdir/quickshell" ]; then
         has_ui=1
         mkdir -p "$cfg/quickshell/$appname"

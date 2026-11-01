@@ -4,8 +4,6 @@
   hyprglassSrc,
   bibataMaterialSrc,
   imgbordersSrc,
-  ryomanagerSrc,
-  ryotunesNix,
   skwdPaper,
   version,
 }:
@@ -88,23 +86,11 @@ let
     inherit pkgs src;
   };
 
-  rashin = import ./ryoku-rashin.nix {
-    inherit pkgs src desktopData;
-  };
-
   prowlAgent = import ./prowl-agent.nix {
     inherit pkgs;
   };
 
   ryostore = import ./ryoku-ryostore.nix {
-    inherit pkgs src;
-  };
-
-  ryomotion = import ./ryoku-ryomotion.nix {
-    inherit pkgs;
-  };
-
-  ryovmHelpers = import ./ryoku-ryovm-helpers.nix {
     inherit pkgs src;
   };
 
@@ -129,22 +115,6 @@ let
       qmlRoot
       paletteBridge
       ;
-  };
-
-  # Ryotunes is built by the RyotunesNix flake, with no local patches.
-  # Its Rust binaries and Quickshell client come from that flake as-is;
-  # only the wrapper is instantiated here so it links against Ryoku's own
-  # QML modules (`qml` below) instead of a second copy from another input.
-  ryotunesUnwrapped =
-    ryotunesNix.packages.${pkgs.stdenv.hostPlatform.system}.ryotunes-unwrapped;
-
-  ryotunes = pkgs.callPackage "${ryotunesNix}/nix/wrapper.nix" {
-    inherit ryotunesUnwrapped;
-    ryokuQml = qml;
-  };
-
-  ryomanager = import ./ryomanager.nix {
-    inherit pkgs ryomanagerSrc;
   };
 
   keysounds = import ./ryoku-keysounds.nix {
@@ -311,16 +281,11 @@ let
       nixUpdate
       hub
       paletteBridge
-      rashin
       prowlAgent
       ryostore
-      ryomotion
-      ryovmHelpers
       livewall
       ryogami
       skwdPaper
-      ryotunes
-      ryomanager
       qmkHid
       waifu2x
       desktopData
@@ -343,17 +308,11 @@ in
     nixUpdate
     hub
     paletteBridge
-    rashin
     prowlAgent
     ryostore
-    ryomotion
-    ryovmHelpers
     livewall
     ryogami
     skwdPaper
-    ryotunes
-    ryomanager
-    ryotunesUnwrapped
     keysounds
     qmkHid
     waifu2x
