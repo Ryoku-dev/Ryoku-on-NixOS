@@ -41,16 +41,24 @@ local function focus_direction(dir)
     local win = hl.get_active_window()
     local mon = win and win.fullscreen ~= 0 and hl.get_active_monitor() or nil
     if mon then
-        local x = mon.position.x + mon.size.x / 2
-        local y = mon.position.y + mon.size.y / 2
-        if dir == "left" then x = mon.position.x - 1
-        elseif dir == "right" then x = mon.position.x + mon.size.x + 1
-        elseif dir == "up" then y = mon.position.y - 1
-        else y = mon.position.y + mon.size.y + 1 end
-        local next_mon = hl.get_monitor_at(x, y)
-        if next_mon and next_mon.id ~= mon.id then
-            hl.dispatch(hl.dsp.focus({ monitor = dir:sub(1, 1) }))
-            return
+        local position = type(mon.position) == "table" and mon.position or {}
+        local size = type(mon.size) == "table" and mon.size or {}
+        local mon_x = mon.x or position.x
+        local mon_y = mon.y or position.y
+        local mon_width = mon.width or size.width or size.x
+        local mon_height = mon.height or size.height or size.y
+        if mon_x and mon_y and mon_width and mon_height then
+            local x = mon_x + mon_width / 2
+            local y = mon_y + mon_height / 2
+            if dir == "left" then x = mon_x - 1
+            elseif dir == "right" then x = mon_x + mon_width + 1
+            elseif dir == "up" then y = mon_y - 1
+            else y = mon_y + mon_height + 1 end
+            local next_mon = hl.get_monitor_at(x, y)
+            if next_mon and next_mon.id ~= mon.id then
+                hl.dispatch(hl.dsp.focus({ monitor = dir:sub(1, 1) }))
+                return
+            end
         end
     end
     hl.dispatch(hl.dsp.focus({ direction = dir }))
@@ -100,7 +108,7 @@ hl.bind(K(mod .. " + J"),         hl.dsp.exec_cmd("ryotunes"))                  
 hl.bind(K(mod .. " + Space"),     hl.dsp.global("ryoku:launcher"))                 -- open the app launcher
 hl.bind(K("ALT + Space"),         hl.dsp.global("ryoku:ask"))                      -- ask Rashin
 hl.bind(K(mod .. " + ALT + Space"), hl.dsp.exec_cmd("ryoku-summon Rashin flock -n -o /tmp/rashin-app.lock rashin-app")) -- Rashin app: the AI companion window (a second press focuses it)
-hl.bind(K(mod .. " + K"),         hl.dsp.exec_cmd("pkill -x -f 'qs -c keys' 2>/dev/null || flock -n -o /tmp/ryoku-keys.lock qs -c keys")) -- Kit: toggle (press to open, press again to close)
+hl.bind(K(mod .. " + K"),         hl.dsp.exec_cmd("ryoku-shell cheatsheet"))          -- Kit, or the bar style's own cheatsheet
 hl.bind(K(mod .. " + L"),         hl.dsp.exec_cmd("ryoku-shell lock"))             -- lock the screen
 hl.bind(K(mod .. " + Escape"),    hl.dsp.global("ryoku:quicksettings"), { dont_inhibit = true }) -- quick settings: power, logout, restart, shutdown, wifi
 hl.bind(K(mod .. " + W"),         hl.dsp.exec_cmd("ryogami wallpaper ui"))     -- ryogami wallpaper picker (full-screen browser: hero cards, colour filters, effects); the frame-blob menu stays on the bar logo
@@ -113,7 +121,7 @@ hl.bind(K(mod .. " + M"),         hl.dsp.global("ryoku:visualizer"))        -- t
 hl.bind(K(mod .. " + SHIFT + M"), hl.dsp.global("ryoku:visualizer-overlay")) -- raise the visualiser over windows (flip back to desktop)
 hl.bind(K(mod .. " + ALT + M"),   hl.dsp.global("ryoku:visualizer-place"))   -- move the audio visualiser: drag the ring or orb into place
 hl.bind(K(mod .. " + grave"),     hl.dsp.exec_cmd("ryoku-shell voice"))             -- voice typing: speech-to-text with a mic wave (tap again to stop)
-hl.bind(K(mod .. " + comma"),     hl.dsp.exec_cmd("ryoku-shell hub open"))     -- ryoku settings
+hl.bind(K(mod .. " + comma"),     hl.dsp.exec_cmd("ryoku-shell settings"))      -- settings
 hl.bind(K(mod .. " + SHIFT + D"), hl.dsp.exec_cmd("ryoku-shell hub open widgets")) -- Stage Editor: edit the desktop on the focused screen
 hl.bind(K(mod .. " + SHIFT + S"), hl.dsp.exec_cmd("ryoku-cmd-ryoshot")) -- screenshot: capture, annotate and beautify
 hl.bind(K(mod .. " + SHIFT + C"), hl.dsp.exec_cmd("hyprpicker -a"))                 -- pick a color
