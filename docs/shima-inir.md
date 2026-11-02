@@ -91,6 +91,17 @@ not inferred from static QML builds. iNiR's appearance and Liquid Glass presets
 remain configured inside Shima; global compositor configuration and external
 application theming stay owned by Ryoku.
 
+## Ryoku desktop integration
+
+The iRiS desktop surface stays available even if old `enabledPanels` lists
+omit `irisBackground`. With Desktop Widgets enabled it hosts upstream widgets;
+with them disabled the lightweight iRiS background keeps right-click actions.
+
+The desktop menu offers Ryoku Hub, Subshells, Bar Studio and Desktop settings.
+The theme catalogue includes a Ryoku-inspired paper-and-ink preset rendered
+through upstream iNiR styling. It is not yet the exact token-driven visual
+frontend from the old embedded Shima, which remains a separate parity task.
+
 ## Remaining parity work
 
 - SDDM and login-screen themes are deferred to a later milestone. Shima does

@@ -125,4 +125,69 @@ replace("services/PolkitService.qml", "Component.onCompleted: {", "Component.onC
 for name, scope in [("modules/background/Background.qml", "bgRoot.monitorName"), ("modules/waffle/background/WaffleBackground.qml", "panelRoot._monitorName")]:
     replace(name, "id: wallpaperContainer", "id: wallpaperContainer\n                visible: !RyokuHost.liveFor(" + scope + ")")
 
+
+# Keep the desktop canvas and context menu available when a saved upstream
+# enabledPanels list predates the full iNiR desktop integration.
+replace("modules/iris/critical/ShellIrisCriticalPanels.qml",
+        '''    CriticalPanelLoader {
+        identifier: "irisBackground"
+        extraCondition: !(Config.options?.iris?.modules?.desktopWidgets ?? true)
+        component: IrisBackground {}
+    }''',
+        '''    LazyLoader {
+        active: Config.ready && IrisGate.official
+            && !(Config.options?.iris?.modules?.desktopWidgets ?? true)
+        component: IrisBackground {}
+    }''')
+replace("modules/iris/ShellIrisPanelsImpl.qml",
+        '''            && (Config.options?.enabledPanels ?? []).includes("irisBackground")
+            && (Config.options?.iris?.modules?.desktopWidgets ?? true)''',
+        '''            && (Config.options?.iris?.modules?.desktopWidgets ?? true)''')
+
+# The existing iNiR menu remains intact. Native Ryoku controls are appended
+# even when an older user menu selects only the original action IDs.
+replace("modules/iris/background/IrisDesktopActions.qml",
+        '''        return out
+    }
+
+    function run(''',
+        '''        out.push({ type: "separator" })
+        out.push({ id: "ryokuSubshells", text: Translation.tr("Switch Ryoku subshell"),
+            iconName: "swap_horiz", tint: "teal",
+            action: () => Quickshell.execDetached(["ryoku-shell", "hub", "open", "subshells"]) })
+        out.push({ id: "ryokuBarStudio", text: Translation.tr("Ryoku Bar Studio"),
+            iconName: "view_carousel", tint: "blue",
+            action: () => Quickshell.execDetached(["ryoku-shell", "hub", "open", "bar-studio"]) })
+        out.push({ id: "ryokuDesktop", text: Translation.tr("Ryoku desktop settings"),
+            iconName: "desktop_windows", tint: "gray",
+            action: () => Quickshell.execDetached(["ryoku-shell", "hub", "open", "desktop"]) })
+        out.push({ id: "ryokuHub", text: Translation.tr("Ryoku Hub"),
+            iconName: "dashboard_customize", tint: "gray",
+            action: () => Quickshell.execDetached(["ryoku-shell", "hub", "open"]) })
+        return out
+    }
+
+    function run(''')
+
+replace("modules/iris/settings/IrisThemes.qml",
+        '    readonly property var curated: [',
+        '''    readonly property var curated: [
+        { id: "ryoku", name: "Ryoku", author: "Ryoku", tags: ["paper", "ink", "system"],
+            description: "Ryoku's paper-and-ink palette adapted to Shima's upstream iRiS renderer.",
+            values: root.values({ "iris.appearance.scheme": "ink", "iris.appearance.preset": "crisp",
+                "theme.surface": "black", "theme.fill": 105, "theme.lines": 120,
+                "theme.rim": true, "theme.rimTint": "neutral", "theme.shadow": 35,
+                "theme.glow": 0, "glass.mode": "off", "iris.appearance.aura": "off",
+                "iris.appearance.accent": "wallpaper", "iris.appearance.highlight": "accent",
+                "iris.appearance.morph": "glide",
+                "iris.appearance.fontFamily": "Inter", "iris.appearance.titleFontFamily": "Inter Display",
+                "iris.appearance.numbersFontFamily": "JetBrains Mono",
+                "iris.bar.layout": "full", "iris.bar.composition": "unified",
+                "iris.bar.notch": false, "iris.bar.height": 40,
+                "iris.controlCenter.controls": "tiles", "iris.controlCenter.sliders": "neutral",
+                "iris.widgets.design": "iris", "iris.widgets.material": "solid",
+                "iris.widgets.radius": 12, "iris.widgets.tint": "system",
+                "iris.dock.material": "solid", "iris.dock.notch": false,
+                "iris.dock.magnification": false }) },''')
+
 (root / "modules/lock/Lock.qml").write_text(Path(sys.argv[5]).read_text())

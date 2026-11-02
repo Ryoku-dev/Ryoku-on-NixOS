@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--widgets", action="store_true")
     parser.add_argument("--config-file", type=Path, help="Copy Shima settings into the isolated home")
     parser.add_argument("--startup-only", action="store_true")
+    parser.add_argument("--verify-desktop", action="store_true")
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -44,6 +45,7 @@ exec dbus-run-session -- niri -c /mnt/niri.kdl -- /mnt/probe.sh
     env["WAYLAND_DISPLAY"] = str(Path(env["XDG_RUNTIME_DIR"])/env["WAYLAND_DISPLAY"])
     env["SHIMA_TEST_WIDGETS"] = "1" if args.widgets else "0"
     env["SHIMA_STARTUP_ONLY"] = "1" if args.startup_only else "0"
+    env["SHIMA_VERIFY_DESKTOP"] = "1" if args.verify_desktop else "0"
     env["QT_QPA_PLATFORM"] = "wayland"
     env["DBUS_SYSTEM_BUS_ADDRESS"] = "unix:path=/no-host-system-bus"
     env["XDG_CONFIG_HOME"] = str(Path.home()/".config/shima-probe-config")

@@ -49,6 +49,30 @@ class ShimaAppearanceTests(unittest.TestCase):
                     "iris.surround.musicAppearance"):
             self.assertIn(key, options)
 
+    def test_ryoku_desktop_actions(self):
+        menu = self.source("modules/iris/background/IrisDesktopActions.qml")
+        for section in ("subshells", "bar-studio", "desktop"):
+            self.assertIn('["ryoku-shell", "hub", "open", "' + section + '"]', menu)
+        self.assertIn('["ryoku-shell", "hub", "open"]', menu)
+        self.assertIn('id: "ryokuSubshells"', menu)
+
+    def test_widget_canvas_and_lightweight_desktop_are_accessible(self):
+        critical = self.source("modules/iris/critical/ShellIrisCriticalPanels.qml")
+        deferred = self.source("modules/iris/ShellIrisPanelsImpl.qml")
+        self.assertIn('component: IrisBackground {}', critical)
+        self.assertNotIn('identifier: "irisBackground"', critical)
+        self.assertIn('component: Background {}', deferred)
+        self.assertNotIn('includes("irisBackground")', deferred)
+        self.assertIn('iris?.modules?.desktopWidgets ?? true', critical)
+        self.assertIn('iris?.modules?.desktopWidgets ?? true', deferred)
+
+    def test_ryoku_theme_preset_preserves_upstream_themes(self):
+        themes = self.source("modules/iris/settings/IrisThemes.qml")
+        self.assertEqual(themes.count('id: "ryoku", name: "Ryoku"'), 1)
+        self.assertIn('"iris.appearance.scheme": "ink"', themes)
+        self.assertIn('id: "liquid-glass"', themes)
+        self.assertIn('id: "iris", name: "iRiS"', themes)
+
     def test_cava_config_uses_pipewire_monitor_and_respects_filter(self):
         original = runtime / "scripts/cava/generate_config.sh"
         self.assertTrue(original.is_file())

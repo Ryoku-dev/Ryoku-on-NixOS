@@ -31,6 +31,15 @@ PY
 
 if [[ "${SHIMA_STARTUP_ONLY:-0}" == 1 ]]; then
     sleep 12
+    if [[ "${SHIMA_VERIFY_DESKTOP:-0}" == 1 ]]; then
+        ryoku-shima ipc call background legibilityState > /mnt/desktop-widget-state.json
+        python3 - <<'PYDESKTOP'
+import json
+from pathlib import Path
+state = json.loads(Path("/mnt/desktop-widget-state.json").read_text())
+assert isinstance(state, list), "Shima desktop widget controller unavailable"
+PYDESKTOP
+    fi
     python3 - <<'PYSHIMA'
 import json, os
 from pathlib import Path
