@@ -14,7 +14,7 @@ test("Bar Studio keeps every bar style", () => {
 
 test("Subshells keeps its focused projection", () => {
     assert.deepEqual(Subshells.visibleStyles(styles, true).map(style => style.id),
-        ["python", "gokko", "tansu", "caelestia"]);
-    assert.equal(Subshells.isStyle("iris"), false);
+        ["iris", "python", "gokko", "tansu", "caelestia"]);
+    assert.equal(Subshells.isStyle("iris"), true);
     assert.equal(Subshells.isStyle("python"), true);
 });

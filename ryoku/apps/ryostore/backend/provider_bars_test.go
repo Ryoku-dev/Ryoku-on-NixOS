@@ -534,6 +534,15 @@ func TestSnapshotStaleBuiltins(t *testing.T) {
 	if !snapshotStaleBuiltins(encode(renamed)) {
 		t.Error("a snapshot naming a built-in differently must be rebuilt")
 	}
+	oldShimaCredits := builtinBarStyles()
+	for i := range oldShimaCredits {
+		if oldShimaCredits[i].ID == "iris" {
+			oldShimaCredits[i].Author = "snowarch"
+		}
+	}
+	if !snapshotStaleBuiltins(encode(oldShimaCredits)) {
+		t.Error("a snapshot with previous Shima credits must be rebuilt")
+	}
 	retiered := builtinBarStyles()
 	for i := range retiered {
 		if retiered[i].ID == "orpheus" {

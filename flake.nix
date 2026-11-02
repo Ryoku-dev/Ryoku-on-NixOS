@@ -15,6 +15,11 @@
     ryokuPackagesNixpkgs.url =
       "github:NixOS/nixpkgs/56c02bc00adcf003215cc4bd996d6efaf4cff188";
 
+    inirSrc = {
+      url = "github:snowarch/iNiR/48cdcecb0f6089cfbb7019054602eab28e154b3b";
+      flake = false;
+    };
+
     skwdWall = {
       url = "github:liixini/skwd-wall/nix";
     };
@@ -35,7 +40,7 @@
     };
   };
 
-  outputs = { self, ryokuUpstream, ryomarket, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ... }:
+  outputs = { self, ryokuUpstream, ryomarket, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, inirSrc, ... }:
     let
       version =
         builtins.replaceStrings
@@ -45,16 +50,7 @@
 
       system = "x86_64-linux";
 
-      quickshellScreencopyFixOverlay = final: prev: {
-        quickshell = prev.quickshell.overrideAttrs (old: {
-          patches = (old.patches or [ ]) ++ [
-            (prev.fetchurl {
-          url = "https://github.com/quickshell-mirror/quickshell/commit/851ab0eac6bdfa9201a1a50e7bc3a6d29af25949.patch";
-          hash = "sha256-g+8NQeFyGK9v76cPM9ogkMSfLH0SGPOyREFkTf6MJ7I=";
-        })
-          ];
-        });
-      };
+      quickshellScreencopyFixOverlay = import ./nix/packages/quickshell-screencopy-overlay.nix;
 
       pkgs = import ryokuPackagesNixpkgs {
         inherit system;
@@ -109,6 +105,8 @@
           ryokuUpstream.packages.${system}.ryoku-desktop
         ];
       };
+
+      ryokuShima = import ./nix/packages/ryoku-shima.nix { inherit pkgs; src = inirSrc; };
 
       ryokuNixosModule =
         import ./nix/modules/ryoku.nix {
@@ -187,6 +185,7 @@
         };
 
       packages.${system} = {
+        ryoku-shima = ryokuShima;
         ryoku-upstream-desktop = ryokuUpstream.packages.${system}.ryoku-desktop;
         ryoku-upstream-nixos-bundle = ryokuUpstreamNixosBundle;
         ryoku-install = ryokuInstall;
@@ -276,6 +275,33 @@
       };
 
       checks.${system} = {
+        ryoku-shima-store-universe = pkgs.runCommand "ryoku-shima-store-universe-check"
+          { nativeBuildInputs = [ pkgs.python3 ]; } ''
+            python3 ${./nix/tests/test-shima-install-source.py} \
+              --project-lock ${./flake.lock} \
+              --install-source ${import ./nix/packages/shima-install-source.nix { inherit pkgs; src = self; }} \
+              --overlay ${./nix/packages/quickshell-screencopy-overlay.nix} \
+              --tokens ${./ryoku/ui/Singletons/Tokens.qml}
+            touch "$out"
+          '';
+
+        ryoku-shima-appearance = pkgs.runCommand "ryoku-shima-appearance-check"
+          { nativeBuildInputs = [ pkgs.python3 pkgs.bash ]; } ''
+            python3 ${./nix/tests/test-shima-appearance.py} --runtime ${ryokuShima}
+            touch "$out"
+          '';
+
+        ryoku-shima-layout = pkgs.runCommand "ryoku-shima-layout" {} ''
+          test -x ${ryokuShima}/bin/ryoku-shima
+          test ! -e ${ryokuShima}/bin/inir
+          test -f ${ryokuShima}/share/quickshell/inir/LICENSE
+          for family in Iris Ii Waffle; do
+            test -f ${ryokuShima}/share/quickshell/inir/Shell''${family}Panels.qml
+          done
+          ${ryokuShima}/bin/ryoku-shima --version | grep -F '2.33.0'
+          touch "$out"
+        '';
+
         ryoku-installer-options = import ./nix/tests/installer-options.nix {
           inherit pkgs;
           module = self.nixosModules.default;

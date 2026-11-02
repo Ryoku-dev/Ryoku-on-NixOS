@@ -153,6 +153,23 @@
         "url": "https://codeberg.org/zacoons/imgborders.git"
       }
     },
+    "inirSrc": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791487322,
+        "narHash": "sha256-+0rQz1y6wAIv1T4xAG3udY6bZSpTZ2nhdS9nzTCijkw=",
+        "owner": "snowarch",
+        "repo": "iNiR",
+        "rev": "48cdcecb0f6089cfbb7019054602eab28e154b3b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "snowarch",
+        "repo": "iNiR",
+        "rev": "48cdcecb0f6089cfbb7019054602eab28e154b3b",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1793341285,
@@ -270,6 +287,7 @@
         "bibataMaterialSrc": "bibataMaterialSrc",
         "hyprglassSrc": "hyprglassSrc",
         "imgbordersSrc": "imgbordersSrc",
+        "inirSrc": "inirSrc",
         "nixpkgs": "nixpkgs",
         "ryokuPackagesNixpkgs": "ryokuPackagesNixpkgs",
         "ryokuUpstream": "ryokuUpstream",
