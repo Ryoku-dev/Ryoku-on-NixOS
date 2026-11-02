@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
@@ -24,5 +25,13 @@ assert f'github:NixOS/nixpkgs/{expected["rev"]}' in source
 assert "overlays = [ (import ./quickshell-screencopy-overlay.nix) ]" in source
 assert (args.install_source / "quickshell-screencopy-overlay.nix").read_bytes() == args.overlay.read_bytes()
 assert (args.install_source / "ryoku/ui/Singletons/Tokens.qml").read_bytes() == args.tokens.read_bytes()
+
+source_package = (args.install_source / "ryoku-shima.nix").read_text()
+required = set(re.findall(r"\$\{\./shima/([A-Za-z0-9_.-]+)\}", source_package))
+assert "ShellBridge.qmlfrag" in required, "Shima bridge is no longer referenced"
+for filename in sorted(required):
+    assert (args.install_source / "shima" / filename).is_file(), (
+        f"Missing packaged Shima source file: {filename}"
+    )
 
 print("RyoStore Shima matches Ryoku's pinned Qt, Quickshell, and live theme tokens.")
