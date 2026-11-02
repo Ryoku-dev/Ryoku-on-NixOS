@@ -280,7 +280,8 @@
             python3 ${./nix/tests/test-shima-install-source.py} \
               --project-lock ${./flake.lock} \
               --install-source ${import ./nix/packages/shima-install-source.nix { inherit pkgs; src = self; }} \
-              --overlay ${./nix/packages/quickshell-screencopy-overlay.nix}
+              --overlay ${./nix/packages/quickshell-screencopy-overlay.nix} \
+              --tokens ${./ryoku/ui/Singletons/Tokens.qml}
             touch "$out"
           '';
 

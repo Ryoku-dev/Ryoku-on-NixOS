@@ -40,6 +40,20 @@ state = json.loads(Path("/mnt/desktop-widget-state.json").read_text())
 assert isinstance(state, list), "Shima desktop widget controller unavailable"
 PYDESKTOP
     fi
+    if [[ "${SHIMA_VERIFY_WAVE:-0}" == 1 ]]; then
+        ryoku-shima ipc call background organicEdgeState > /mnt/dual-wave-state.json
+        python3 - <<'PYWAVE'
+import json
+from pathlib import Path
+state = json.loads(Path("/mnt/dual-wave-state.json").read_text())
+assert isinstance(state, list) and state, "No Organic Edge hosts were created"
+for output in state:
+    assert output["edges"] == ["left", "right"], output
+    assert output["renderAllowed"], output
+    assert output["loaded"], output
+    assert output["audioSubscribed"], output
+PYWAVE
+    fi
     python3 - <<'PYSHIMA'
 import json, os
 from pathlib import Path

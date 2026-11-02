@@ -1,10 +1,10 @@
-{ pkgs, src }:
+{ pkgs, src, ryokuTokens ? ../../ryoku/ui/Singletons/Tokens.qml }:
 let
   upstream = import (src + "/nix/package.nix") { inherit pkgs; };
 in upstream.overrideAttrs (old: {
   pname = "ryoku-shima";
   postPatch = (old.postPatch or "") + ''
-    python3 ${./shima/host-patch.py} . ${./shima/ShellBridge.qml} ${./shima/RyokuHost.qml} ${./shima/PolkitServiceImpl.qml} ${./shima/Lock.qml}
+    python3 ${./shima/host-patch.py} . ${./shima/ShellBridge.qml} ${./shima/RyokuHost.qml} ${./shima/PolkitServiceImpl.qml} ${./shima/Lock.qml} ${ryokuTokens}
   '';
   postInstall = (old.postInstall or "") + ''
     rm "$out/bin/inir"

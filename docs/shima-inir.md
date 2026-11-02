@@ -97,10 +97,22 @@ The iRiS desktop surface stays available even if old `enabledPanels` lists
 omit `irisBackground`. With Desktop Widgets enabled it hosts upstream widgets;
 with them disabled the lightweight iRiS background keeps right-click actions.
 
-The desktop menu offers Ryoku Hub, Subshells, Bar Studio and Desktop settings.
-The theme catalogue includes a Ryoku-inspired paper-and-ink preset rendered
-through upstream iNiR styling. It is not yet the exact token-driven visual
-frontend from the old embedded Shima, which remains a separate parity task.
+The desktop menu offers Ryoku Hub, Subshells, Bar Studio and Desktop settings,
+plus direct iRiS, Material ii and Waffle family switches.
+
+Shima's appearance now has a separate Ryoku/Original iNiR selector. Ryoku mode
+reads the real Ryoku wallpaper and named-theme palette using Ryoku's own Tokens
+singleton and applies paper-and-ink styling to the upstream iRiS surfaces.
+Unlike a theme preset, the frontend choice survives applying Liquid Glass or
+any other iNiR theme. Full legacy Shima component-level visual parity is still
+outstanding.
+
+Frame Music now offers Wave, Frame or Both. Wave edges can be selected
+individually, including both vertical sides. The shared Cava subscriber reads
+the chosen PipeWire monitor independently of MPRIS playback metadata.
+The frame maps low, mid and high frequency energy to different edges rather
+than making every side move with bass alone. Real audio and shader rendering
+still need validation with active playback on physical monitors.
 
 ## Remaining parity work
 

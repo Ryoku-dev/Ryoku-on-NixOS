@@ -29,12 +29,14 @@ let
           packages.x86_64-linux.default = import ./ryoku-shima.nix {
             inherit pkgs;
             src = inirSrc;
+            ryokuTokens = ./ryoku/ui/Singletons/Tokens.qml;
           };
         };
     }
   '';
 in pkgs.runCommand "ryoku-shima-install-source" {} ''
-  mkdir -p "$out/shima"
+  mkdir -p "$out/shima" "$out/ryoku/ui/Singletons"
+  cp ${src}/ryoku/ui/Singletons/Tokens.qml "$out/ryoku/ui/Singletons/Tokens.qml"
   cp ${src}/nix/packages/ryoku-shima.nix "$out/ryoku-shima.nix"
   cp ${src}/nix/packages/quickshell-screencopy-overlay.nix "$out/quickshell-screencopy-overlay.nix"
   cp ${src}/nix/packages/shima/*.py ${src}/nix/packages/shima/*.qml ${src}/nix/packages/shima/NOTICE "$out/shima/"

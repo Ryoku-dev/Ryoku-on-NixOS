@@ -39,6 +39,42 @@ class ShimaAppearanceTests(unittest.TestCase):
         self.assertIn("frameMusic", self.source("modules/iris/settings/IrisOptions.qml"))
         self.assertTrue((runtime / "modules/background/widgets/visualizer/VisualizerWidget.qml").is_file())
 
+    def test_ryoku_frontend_is_orthogonal_to_liquid_glass(self):
+        options = self.source("modules/iris/settings/IrisOptions.qml")
+        themes = self.source("modules/iris/settings/IrisThemes.qml")
+        style = self.source("modules/iris/style/IrisStyle.qml")
+        tokens = self.source("services/RyokuTokens.qml")
+        self.assertIn('path: "iris.appearance.frontend"', options)
+        self.assertIn('value:"ryoku"', options)
+        self.assertIn('value:"inir"', options)
+        self.assertIn('"iris.appearance.frontend"', themes)
+        self.assertIn('RyokuTokens.paper', style)
+        self.assertIn('RyokuTokens.ink', style)
+        self.assertIn('RyokuTokens.bone', style)
+        self.assertIn('/.cache/ryoku/colors.json', tokens)
+        self.assertNotIn('XDG_CACHE_HOME") ||', tokens)
+        self.assertIn('singleton RyokuTokens 1.0', self.source("services/qmldir"))
+
+    def test_frame_and_full_spectrum_edge_wave_can_coexist(self):
+        options = self.source("modules/iris/settings/IrisOptions.qml")
+        frame = self.source("modules/iris/frame/IrisFrame.qml")
+        pulse = self.source("modules/iris/frame/IrisFramePulse.qml")
+        edge = self.source("modules/background/widgets/OrganicEdgeWidget.qml")
+        self.assertIn('value:"both"', options)
+        self.assertIn('path: "background.edgeWidgets.organic.edges"', options)
+        self.assertIn('["frame", "both"].includes', frame)
+        self.assertIn('=== "frame"', edge)
+        self.assertNotIn('MprisController.activePlayer?.isPlaying', pulse)
+        for band in ('lowLevel', 'midLevel', 'highLevel'):
+            self.assertIn(band, pulse)
+        self.assertIn('running: root.active && (cava.audioSignalActive', pulse)
+
+    def test_shima_family_actions_are_accessible(self):
+        menu = self.source("modules/iris/background/IrisDesktopActions.qml")
+        for family in ("iris", "ii", "waffle"):
+            self.assertIn('"panelFamily", "set", "' + family + '"', menu)
+        self.assertIn('id: "shimaAppearance"', menu)
+
     def test_liquid_glass_and_frame_options_remain_available(self):
         themes = self.source("modules/iris/settings/IrisThemes.qml")
         self.assertIn('id: "liquid-glass"', themes)

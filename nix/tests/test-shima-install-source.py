@@ -7,6 +7,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--project-lock", required=True, type=Path)
 parser.add_argument("--install-source", required=True, type=Path)
 parser.add_argument("--overlay", required=True, type=Path)
+parser.add_argument("--tokens", required=True, type=Path)
 args = parser.parse_args()
 
 project = json.loads(args.project_lock.read_text())
@@ -22,5 +23,6 @@ source = (args.install_source / "flake.nix").read_text()
 assert f'github:NixOS/nixpkgs/{expected["rev"]}' in source
 assert "overlays = [ (import ./quickshell-screencopy-overlay.nix) ]" in source
 assert (args.install_source / "quickshell-screencopy-overlay.nix").read_bytes() == args.overlay.read_bytes()
+assert (args.install_source / "ryoku/ui/Singletons/Tokens.qml").read_bytes() == args.tokens.read_bytes()
 
-print("RyoStore Shima matches Ryoku's pinned Qt and Quickshell package universe.")
+print("RyoStore Shima matches Ryoku's pinned Qt, Quickshell, and live theme tokens.")
