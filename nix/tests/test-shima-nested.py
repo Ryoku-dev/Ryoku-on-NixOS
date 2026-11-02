@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import shutil
 
 def main():
     parser = argparse.ArgumentParser()
@@ -15,10 +16,16 @@ def main():
     parser.add_argument("--bwrap", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--widgets", action="store_true")
+    parser.add_argument("--config-file", type=Path, help="Copy Shima settings into the isolated home")
+    parser.add_argument("--startup-only", action="store_true")
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     home = Path(tempfile.mkdtemp(prefix="home-", dir=output))
+    if args.config_file:
+        target = home / ".config/shima-probe-config/ryoku/shima/config.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(args.config_file, target)
     (output/"wallpaper.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><rect width="1920" height="1080" fill="#253b5d"/><circle cx="960" cy="540" r="250" fill="#6d8ca4"/></svg>')
     (output/"probe.sh").write_text((Path(__file__).with_name("shima-nested-probe.sh")).read_text())
     (output/"probe.sh").chmod(0o755)
@@ -36,6 +43,7 @@ exec dbus-run-session -- niri -c /mnt/niri.kdl -- /mnt/probe.sh
     env = os.environ.copy()
     env["WAYLAND_DISPLAY"] = str(Path(env["XDG_RUNTIME_DIR"])/env["WAYLAND_DISPLAY"])
     env["SHIMA_TEST_WIDGETS"] = "1" if args.widgets else "0"
+    env["SHIMA_STARTUP_ONLY"] = "1" if args.startup_only else "0"
     env["QT_QPA_PLATFORM"] = "wayland"
     env["DBUS_SYSTEM_BUS_ADDRESS"] = "unix:path=/no-host-system-bus"
     env["XDG_CONFIG_HOME"] = str(Path.home()/".config/shima-probe-config")

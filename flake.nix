@@ -50,16 +50,7 @@
 
       system = "x86_64-linux";
 
-      quickshellScreencopyFixOverlay = final: prev: {
-        quickshell = prev.quickshell.overrideAttrs (old: {
-          patches = (old.patches or [ ]) ++ [
-            (prev.fetchurl {
-          url = "https://github.com/quickshell-mirror/quickshell/commit/851ab0eac6bdfa9201a1a50e7bc3a6d29af25949.patch";
-          hash = "sha256-g+8NQeFyGK9v76cPM9ogkMSfLH0SGPOyREFkTf6MJ7I=";
-        })
-          ];
-        });
-      };
+      quickshellScreencopyFixOverlay = import ./nix/packages/quickshell-screencopy-overlay.nix;
 
       pkgs = import ryokuPackagesNixpkgs {
         inherit system;
@@ -284,6 +275,15 @@
       };
 
       checks.${system} = {
+        ryoku-shima-store-universe = pkgs.runCommand "ryoku-shima-store-universe-check"
+          { nativeBuildInputs = [ pkgs.python3 ]; } ''
+            python3 ${./nix/tests/test-shima-install-source.py} \
+              --project-lock ${./flake.lock} \
+              --install-source ${import ./nix/packages/shima-install-source.nix { inherit pkgs; src = self; }} \
+              --overlay ${./nix/packages/quickshell-screencopy-overlay.nix}
+            touch "$out"
+          '';
+
         ryoku-shima-appearance = pkgs.runCommand "ryoku-shima-appearance-check"
           { nativeBuildInputs = [ pkgs.python3 pkgs.bash ]; } ''
             python3 ${./nix/tests/test-shima-appearance.py} --runtime ${ryokuShima}

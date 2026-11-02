@@ -29,6 +29,25 @@ for _ in range(200):
 else:raise SystemExit("Shima startup did not acknowledge readiness")
 PY
 
+if [[ "${SHIMA_STARTUP_ONLY:-0}" == 1 ]]; then
+    sleep 12
+    python3 - <<'PYSHIMA'
+import json, os
+from pathlib import Path
+runtime = Path(os.environ["XDG_RUNTIME_DIR"])
+ready = [p for p in runtime.glob("ryoku-shima-ready-*") if p.read_text().strip()]
+assert len(ready) == 1, "Shima did not remain ready after startup"
+pid = int(ready[0].read_text().strip())
+assert Path(f"/proc/{pid}").exists(), "Shima process exited after readiness"
+Path("/mnt/result.json").write_text(json.dumps({"passed": True, "pid": pid, "mode": "startup-only"}))
+PYSHIMA
+    ryoku-shell quit || true
+    wait "$owner" || true
+    niri msg action quit --skip-confirmation || true
+    trap - EXIT
+    exit 0
+fi
+
 if [[ "${SHIMA_TEST_WIDGETS:-0}" == 1 ]]; then
     python3 /mnt/widget-probe.py
 fi

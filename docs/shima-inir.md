@@ -15,7 +15,11 @@ flag or independently enabled service is required. Declarative provisioning is
 also available with `programs.ryoku.shima.enable = true;`.
 
 RyoStore builds a small standalone flake containing the compatibility layer and
-the same locked upstream/nixpkgs revisions. Its source is shipped with RyoStore;
+the same locked iNiR source and **Ryoku-owned package set** (`ryokuPackagesNixpkgs`),
+including the shared Quickshell screencopy compatibility patch. It must not use
+Ryoku's separate `nixpkgs` compatibility input: that previously installed
+Quickshell 0.3.2 / Qt 6.12 rather than the validated Quickshell 0.3.0 / Qt 6.11.1,
+causing a reproducible Qt Quick startup crash. Its source is shipped with RyoStore;
 the iNiR runtime and dependencies enter the user's dedicated Nix profile only
 when installed. A successful build atomically advances that profile. Failed
 builds preserve the installed generation. Updates use the same install action.
@@ -122,11 +126,18 @@ go test -mod=vendor -run Shima ./...
 go test -mod=vendor -race -run Shima ./...
 ```
 
-Build the package and the modified daemon from the repository root:
+Build the package, modified daemon and RyoStore install-source check from
+the repository root:
 
 ```sh
-nix build .#ryoku-shima .#ryoku-shell
+nix build .#ryoku-shima .#ryoku-shell .#checks.x86_64-linux.ryoku-shima-store-universe
 ```
+
+The isolated nested startup probe can optionally copy a Shima configuration into
+its disposable home using `--config-file` and run a short crash check with
+`--startup-only`. The real-config startup, three-panel navigation, settings,
+subshell switching and crash fallback checks pass using the corrected
+RyoStore-built package. Live hardware validation remains outstanding.
 
 Compatibility changes live in `nix/packages/shima`. Patch anchors fail the build
 when upstream changes. Upstream source and notices remain separate from those
