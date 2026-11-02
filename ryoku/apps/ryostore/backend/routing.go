@@ -16,7 +16,7 @@ var storeSections = map[string]struct{}{
 
 func storeSection(section string) bool {
 	_, ok := storeSections[section]
-	return ok
+	return ok && (section != flatpakCategory || !isNixOS())
 }
 
 // settingsSection maps a Store category to the Hub page that applies or manages

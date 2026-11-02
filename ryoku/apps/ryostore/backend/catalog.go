@@ -21,8 +21,12 @@ type Provider interface {
 // appends its provider here; BuildCatalog preserves this order. All providers
 // share one cache so a single probe fetches each source once.
 func providers() []Provider {
+	return providersForOS(isNixOS())
+}
+
+func providersForOS(nixos bool) []Provider {
 	c := newCache()
-	return []Provider{
+	provs := []Provider{
 		newLockProvider(c),
 		newRiceProvider(c),
 		newColorschemeProvider(c),
@@ -37,12 +41,16 @@ func providers() []Provider {
 		newVesktopThemesProvider(c),
 		pluginProvider{cache: c},
 		newOmarchyPluginProvider(),
-		newFlatpakProvider(),
+	}
+	if !nixos {
+		provs = append(provs, newFlatpakProvider())
+	}
+	return append(provs,
 		bundleProvider{cache: c, status: defaultBundleStatus, launch: launchBundleInstall},
 		newDecorProvider(c),
 		newLauncherImageProvider(c),
 		newFastfetchEmblemProvider(c),
-	}
+	)
 }
 
 // owned reports whether the item is present on the machine: fully installed, or

@@ -524,11 +524,11 @@ func TestFlatpakRemoveTargetsTheHoldingInstallation(t *testing.T) {
 }
 
 func TestFlatpakIsRegistered(t *testing.T) {
-	if _, ok := providerFor(providers(), flatpakCategory); !ok {
-		t.Fatal("flatpak provider is not registered")
+	if _, ok := providerFor(providers(), flatpakCategory); ok == isNixOS() {
+		t.Fatal("flatpak provider must be absent only on NixOS")
 	}
-	if !storeSection(flatpakCategory) {
-		t.Fatal("flatpak is not an openable store section")
+	if storeSection(flatpakCategory) == isNixOS() {
+		t.Fatal("flatpak store section must be absent only on NixOS")
 	}
 	if shouldWarmAssets(Item{Category: flatpakCategory}) {
 		t.Fatal("flatpak icons must load lazily, not warm for every listed app")
