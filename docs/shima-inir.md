@@ -27,10 +27,17 @@ The existing Hub selection remains Shima, with the persistent identifier
 
 ## Ownership
 
+Shima is a native Ryoku subshell, **not a replacement for Ryoku**. Ryoku Hub,
+RyoStore, Ryogami and Ryoku's compositor, package and system controls remain
+available. The Shima action catalogue includes a direct Ryoku Hub launcher.
+The complete upstream iNiR desktop surfaces run under Ryoku's existing shell
+selection and lifecycle management, with `iris` as the stable identifier.
+
 Ryoku's Go daemon supervises the visual root. With the optional runtime installed
 and Shima selected on Niri, it starts `ryoku-shima` instead of `qs -c shell`.
-It stops and waits for the outgoing root before starting another. There is no
-independent iNiR service, session entry or autostart file.
+Only the active visual shell root changes. It stops and waits for the outgoing
+root before starting another. There is no independent iNiR service, session
+entry or autostart file.
 
 Readiness is acknowledged by the selected family's critical and deferred root
 loaders. Startup timeout or unexpected exit returns to the previous native style,
@@ -61,10 +68,29 @@ XDG roots at `ryoku/shima`. Immutable or symlink-managed config is refused.
 The global XDG configuration directory is not redirected, so applications
 launched from Shima still find their normal user configuration.
 
+## Widget and appearance migration
+
+RyoStore exposes Shima as the existing `barstyles/iris` product. The full pinned
+iNiR runtime, including its widget manager, iRiS widget faces, Cava visualizers,
+frame pulse, Liquid Glass and other upstream themes, is installed through that
+same entry. No second Shima product or independent widget pack is introduced.
+
+The previous in-tree Shima widget implementation remains a fallback only while
+the upstream runtime undergoes parity testing. Replace those legacy widgets
+rather than offer two competing catalogues when the rollout is approved. The
+existing install receipt and user settings must survive that transition.
+
+iNiR's shared Cava service supplies the widget, player and frame visualizers.
+Ryoku does not start a second competing audio visualizer. Audio-reactive motion
+requires a working PipeWire monitor source and must be validated on hardware,
+not inferred from static QML builds. iNiR's appearance and Liquid Glass presets
+remain configured inside Shima; global compositor configuration and external
+application theming stay owned by Ryoku.
+
 ## Remaining parity work
 
-- Port upstream lock visuals into Ryoku's secure lock owner. The current bridge
-  intentionally uses Ryoku's established lock visuals and authentication.
+- SDDM and login-screen themes are deferred to a later milestone. Shima does
+  not replace Ryoku's greeter, lock screen or authentication ownership.
 - Complete compositor preset/settings ownership and audit every optional
   integration and shortcut, including Ryoku-specific plugin/voice surfaces.
 - Verify external theme/icon changes and restoration; automatic external theme
@@ -89,6 +115,7 @@ Focused checks:
 
 ```sh
 python3 nix/tests/test-shima-runtime.py
+python3 nix/tests/test-shima-appearance.py --runtime /nix/store/...-ryoku-shima-2.33.0
 python3 nix/tests/test-shima-polkit.py --runtime /nix/store/...-ryoku-shima-2.33.0
 cd ryoku/shell/ipc
 go test -mod=vendor -run Shima ./...

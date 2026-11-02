@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--native-root", required=True, type=Path)
     parser.add_argument("--bwrap", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--widgets", action="store_true")
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -21,6 +22,7 @@ def main():
     (output/"wallpaper.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><rect width="1920" height="1080" fill="#253b5d"/><circle cx="960" cy="540" r="250" fill="#6d8ca4"/></svg>')
     (output/"probe.sh").write_text((Path(__file__).with_name("shima-nested-probe.sh")).read_text())
     (output/"probe.sh").chmod(0o755)
+    (output/"widget-probe.py").write_text(Path(__file__).with_name("shima-widget-probe.py").read_text())
     (output/"niri.kdl").write_text("prefer-no-csd\nhotkey-overlay { skip-at-startup; }\n")
     (output/"start.sh").write_text("""#!/usr/bin/env bash
 set -eu
@@ -33,6 +35,7 @@ exec dbus-run-session -- niri -c /mnt/niri.kdl -- /mnt/probe.sh
     (output/"start.sh").chmod(0o755)
     env = os.environ.copy()
     env["WAYLAND_DISPLAY"] = str(Path(env["XDG_RUNTIME_DIR"])/env["WAYLAND_DISPLAY"])
+    env["SHIMA_TEST_WIDGETS"] = "1" if args.widgets else "0"
     env["QT_QPA_PLATFORM"] = "wayland"
     env["DBUS_SYSTEM_BUS_ADDRESS"] = "unix:path=/no-host-system-bus"
     env["XDG_CONFIG_HOME"] = str(Path.home()/".config/shima-probe-config")
@@ -45,7 +48,7 @@ exec dbus-run-session -- niri -c /mnt/niri.kdl -- /mnt/probe.sh
                "--bind", str(home), str(Path.home()),
                "--bind", str(output), "/mnt", "/mnt/start.sh"]
     with (output/"compositor.log").open("w") as out:
-        result = subprocess.run(command, env=env, stdout=out, stderr=subprocess.STDOUT, timeout=150)
+        result = subprocess.run(command, env=env, stdout=out, stderr=subprocess.STDOUT, timeout=600 if args.widgets else 150)
     report = output/"result.json"
     if report.exists():
         data = json.loads(report.read_text())

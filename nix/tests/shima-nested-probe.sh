@@ -29,6 +29,10 @@ for _ in range(200):
 else:raise SystemExit("Shima startup did not acknowledge readiness")
 PY
 
+if [[ "${SHIMA_TEST_WIDGETS:-0}" == 1 ]]; then
+    python3 /mnt/widget-probe.py
+fi
+
 for family in iris ii waffle; do
     ryoku-shima ipc call panelFamily set "$family" >> /mnt/ipc.log 2>&1
     SHIMA_EXPECT_FAMILY="$family" python3 - <<'PY'

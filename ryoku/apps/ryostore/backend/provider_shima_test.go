@@ -90,3 +90,24 @@ func TestShimaUnownedRemovalRejected(t *testing.T) {
 		t.Fatal("unowned removal accepted")
 	}
 }
+
+func TestShimaUsesSingleExistingBarStyleEntry(t *testing.T) {
+	shimaStoreTest(t)
+	items := builtinBarStyles()
+	count := 0
+	for _, item := range items {
+		if item.ID != "iris" {
+			continue
+		}
+		count++
+		if item.Category != "barstyles" || item.Name != "Shima" {
+			t.Fatalf("existing Shima entry was renamed or recategorized: %+v", item)
+		}
+		if item.Installed {
+			t.Fatal("uninstalled optional Shima runtime must not appear installed")
+		}
+	}
+	if count != 1 {
+		t.Fatalf("Shima must be one existing barstyles/iris product, got %d", count)
+	}
+}

@@ -33,8 +33,8 @@ func shimaItem() Item {
 	current, _ := os.ReadFile(filepath.Join(filepath.Dir(shimaProfile()), "source"))
 	return Item{
 		ID: "iris", Category: "barstyles", Name: "Shima",
-		Summary:     "iNiR desktop by snowarch",
-		Description: "The iRiS, Material ii and Waffle panels, settings, widgets and animations, integrated with Ryoku wallpaper and authentication services.",
+		Summary:     "Complete iNiR desktop on Ryoku",
+		Description: "iRiS, Material ii and Waffle, with upstream widgets, audio visualizers, frame effects and Liquid Glass themes. Shima stays inside Ryoku, with Hub, RyoStore, Ryogami and system controls available.",
 		Author:      "snowarch", Upstream: "https://github.com/snowarch/iNiR",
 		Version: "2.33.0", Installed: installed,
 		InstalledVersion: func() string {

@@ -39,6 +39,42 @@ for family, title in [("iris", "Iris"), ("ii", "Ii"), ("waffle", "Waffle")]:
             f'id: ryoku{title}Critical; source: "modules/{family}/critical/Shell{title}CriticalPanels.qml"')
     replace("shell.qml", f'source: "Shell{title}Panels.qml"',
             f'id: ryoku{title}Deferred; source: "Shell{title}Panels.qml"')
+replace("services/GlobalActions.qml",
+        '''            id: "open-task-manager",
+            name: Translation.tr("Task Manager"),
+            description: Translation.tr("Open system monitor"),
+            icon: "monitoring",
+            category: "system",
+            keywords: ["task", "process", "monitor", "cpu", "ram", "htop"],
+            execute: () => {
+                AppLauncher.launch("taskManager")
+            }
+        },
+    ]
+
+    // APPEARANCE''',
+        '''            id: "open-task-manager",
+            name: Translation.tr("Task Manager"),
+            description: Translation.tr("Open system monitor"),
+            icon: "monitoring",
+            category: "system",
+            keywords: ["task", "process", "monitor", "cpu", "ram", "htop"],
+            execute: () => {
+                AppLauncher.launch("taskManager")
+            }
+        },
+        {
+            id: "open-ryoku-hub",
+            name: Translation.tr("Ryoku Hub"),
+            description: Translation.tr("Open Ryoku's system and desktop settings"),
+            icon: "dashboard_customize",
+            category: "system",
+            keywords: ["ryoku", "hub", "system", "settings", "desktop"],
+            execute: () => { Quickshell.execDetached(["ryoku-shell", "hub", "open"]) }
+        },
+    ]
+
+    // APPEARANCE''')
 replace("services/ThemeService.qml",
         "readonly property bool defaultApplyExternal: !isStandaloneSettingsWindow",
         "readonly property bool defaultApplyExternal: false")

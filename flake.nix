@@ -284,6 +284,12 @@
       };
 
       checks.${system} = {
+        ryoku-shima-appearance = pkgs.runCommand "ryoku-shima-appearance-check"
+          { nativeBuildInputs = [ pkgs.python3 pkgs.bash ]; } ''
+            python3 ${./nix/tests/test-shima-appearance.py} --runtime ${ryokuShima}
+            touch "$out"
+          '';
+
         ryoku-shima-layout = pkgs.runCommand "ryoku-shima-layout" {} ''
           test -x ${ryokuShima}/bin/ryoku-shima
           test ! -e ${ryokuShima}/bin/inir
