@@ -4,7 +4,7 @@ let
 in upstream.overrideAttrs (old: {
   pname = "ryoku-shima";
   postPatch = (old.postPatch or "") + ''
-    python3 ${./shima/host-patch.py} . ${./shima/ShellBridge.qml} ${./shima/RyokuHost.qml} ${./shima/PolkitServiceImpl.qml} ${./shima/Lock.qml} ${ryokuTokens}
+    python3 ${./shima/host-patch.py} . ${./shima/ShellBridge.qmlfrag} ${./shima/RyokuHost.qml} ${./shima/PolkitServiceImpl.qml} ${./shima/Lock.qml} ${ryokuTokens}
     python3 ${./shima/appearance-controls.py} .
     python3 ${./shima/visualizer-palette-patch.py} . ${./shima/RyokuVisualizerPalette.qml}
   '';

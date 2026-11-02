@@ -9,7 +9,7 @@ mkdir -p "$XDG_CONFIG_HOME/ryoku"
 printf '{"barStyle":"iris"}\n' > "$XDG_CONFIG_HOME/ryoku/shell.json"
 ryogami daemon > /mnt/ryogami.log 2>&1 &
 wallOwner=$!
-for attempt in $(seq 1 100); do
+for ((attempt = 0; attempt < 100; attempt++)); do
     test -S "$XDG_RUNTIME_DIR/ryogami.sock" && break
     sleep 0.1
 done
