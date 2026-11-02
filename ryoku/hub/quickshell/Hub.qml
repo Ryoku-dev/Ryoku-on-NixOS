@@ -1113,14 +1113,9 @@ Rectangle {
     }
 
     Keys.onEscapePressed: {
-<<<<<<< port (unstable-dev)
         if (hub.keepsakeOpen) { hub.keepsakeOpen = false; return; }
         else if (diffPop.open) diffPop.open = false;
-        else if (hub.query !== "") { hub.query = ""; searchField.clear(); }
-=======
-        if (diffPop.open) diffPop.open = false;
         else if (hub.query !== "") { hub.query = ""; searchField.clear(); hub.searchCursor = 0; }
->>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
         else hub.requestQuit();
     }
     Keys.onPressed: (e) => {

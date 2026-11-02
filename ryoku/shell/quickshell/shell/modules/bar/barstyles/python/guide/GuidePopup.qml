@@ -667,71 +667,7 @@ Item {
         if (introTabs >= 1.0) return 1.0;
         if (introTabs <= 0.0) return 0.0;
         let start = idx * 0.04;
-<<<<<<< port (unstable-dev)
-        let p = Math.min(1.0, Math.max(0.0, (introTabs - start) / 0.28));
-        return p;
-    }
-
-    function gotoTab(tabName, subTabName) {
-        if (tabName === undefined || tabName === null || tabName === "") return;
-        let num = parseInt(tabName);
-        if (!isNaN(num) && num >= 0 && num < tabsModel.length) {
-            currentTab = num;
-            expandedTab = (tabsModel[num].subtabs && tabsModel[num].subtabs.length > 0) ? num : -1;
-            if (subTabName !== undefined && subTabName !== null && subTabName !== "") {
-                let sNum = parseInt(subTabName);
-                currentSubTab = !isNaN(sNum) ? sNum : 0;
-            } else {
-                currentSubTab = 0;
-            }
-            return;
-        }
-        let lower = String(tabName).toLowerCase().replace(/^guide\.tabs\./, "");
-        for (let i = 0; i < tabsModel.length; i++) {
-            let t = tabsModel[i];
-            if ((t.id && t.id.toLowerCase() === lower) ||
-                (t.name && t.name.toLowerCase() === lower) ||
-                (t.key && t.key.toLowerCase() === lower)) {
-                currentTab = i;
-                expandedTab = (t.subtabs && t.subtabs.length > 0) ? i : -1;
-                if (subTabName !== undefined && subTabName !== null && subTabName !== "") {
-                    let sLower = String(subTabName).toLowerCase().replace(/^guide\.tabs\./, "");
-                    let sNum = parseInt(subTabName);
-                    if (!isNaN(sNum) && t.subtabs && sNum >= 0 && sNum < t.subtabs.length) {
-                        currentSubTab = sNum;
-                    } else if (t.subtabs) {
-                        let sIdx = t.subtabs.findIndex(st =>
-                            (st.id && st.id.toLowerCase() === sLower) ||
-                            (st.name && st.name.toLowerCase() === sLower) ||
-                            (st.key && st.key.toLowerCase() === sLower)
-                        );
-                        currentSubTab = sIdx !== -1 ? sIdx : 0;
-                    } else {
-                        currentSubTab = 0;
-                    }
-                } else {
-                    currentSubTab = 0;
-                }
-                return;
-            }
-
-            if (t.subtabs && Array.isArray(t.subtabs)) {
-                let sIdx = t.subtabs.findIndex(st =>
-                    (st.id && st.id.toLowerCase() === lower) ||
-                    (st.name && st.name.toLowerCase() === lower) ||
-                    (st.key && st.key.toLowerCase() === lower)
-                );
-                if (sIdx !== -1) {
-                    currentTab = i;
-                    expandedTab = i;
-                    currentSubTab = sIdx;
-                    return;
-                }
-            }
-        }
-=======
         return Math.min(1.0, Math.max(0.0, (introTabs - start) / 0.28));
->>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
     }
 
     function resetAndPlayIntro() {

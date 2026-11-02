@@ -458,11 +458,7 @@ Item {
     // in the background and returns, and the run reports through the
     // run-state, asking this page for its password and its questions.
     function startUpdate() {
-<<<<<<< port (unstable-dev)
-        if (pg.nixBackend && !Updates.canUpdate)
-=======
-        if (!pg.pendingAction)
->>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
+        if (!pg.pendingAction || (pg.nixBackend && !Updates.canUpdate))
             return;
         pg.starting = true;
         pg.actionError = "";

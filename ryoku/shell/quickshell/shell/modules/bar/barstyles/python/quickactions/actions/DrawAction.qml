@@ -146,13 +146,6 @@ Item {
         var newHistory = root.actionHistory.slice(0, root.historyStep + 1);
         newHistory.push(action);
 
-<<<<<<< port (unstable-dev)
-        if (newHistory.length > root.maxHistory) {
-            newHistory.shift();
-        }
-
-=======
->>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
         root.actionHistory = newHistory;
         root.historyStep = root.actionHistory.length - 1;
         root.lockedCount = Math.max(root.lockedCount, root.actionHistory.length - root.maxHistory);
@@ -963,15 +956,10 @@ Item {
                             height: s(20)
                             radius: width / 2
                             color: modelData
-<<<<<<< port (unstable-dev)
 
                             border.width: root.currentColor.toString() === color.toString() ? s(2) : 0
                             border.color: root.baseTextColor
 
-=======
-                            
-                            
->>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor

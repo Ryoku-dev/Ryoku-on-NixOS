@@ -271,15 +271,9 @@ Item {
         color: glass.active ? "transparent" : root.baseColor
         clip: true
         opacity: root.enabled ? 1.0 : 0.5
-<<<<<<< port (unstable-dev)
-
-        Behavior on color { ColorAnimation { duration: 180 } }
-        Behavior on opacity { NumberAnimation { duration: 180 } }
-=======
         
         Behavior on color { ColorAnimation { duration: 150 } }
         Behavior on opacity { NumberAnimation { duration: 150 } }
->>>>>>> upstream Ryoku 1.8.2 (fb5f2c2)
 
         GlassFill {
             id: glass
