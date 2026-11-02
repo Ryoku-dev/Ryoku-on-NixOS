@@ -108,7 +108,17 @@ any other iNiR theme. Full legacy Shima component-level visual parity is still
 outstanding.
 
 Frame Music now offers Wave, Frame or Both. Wave edges can be selected
-individually, including both vertical sides. The shared Cava subscriber reads
+individually, including both vertical sides. The Wave colours section exposes
+the upstream Organic Edge palette source, movement, custom colours, and a
+shortcut to its full colour picker. The Frame finish offers Pearl, Accent,
+Highlight, Wallpaper and a custom hex colour.
+
+Selecting the Ryoku card in the iRiS theme gallery enables the Ryoku frontend
+without replacing the current iNiR theme. Liquid Glass remains selected and
+can be changed independently. The appearance control persists in Shima's
+schema, and the theme card visibly reflects whether the frontend is active.
+
+The shared Cava subscriber reads
 the chosen PipeWire monitor independently of MPRIS playback metadata.
 The frame maps low, mid and high frequency energy to different edges rather
 than making every side move with bass alone. Real audio and shader rendering

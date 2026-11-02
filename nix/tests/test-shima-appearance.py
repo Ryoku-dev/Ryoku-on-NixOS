@@ -55,6 +55,38 @@ class ShimaAppearanceTests(unittest.TestCase):
         self.assertNotIn('XDG_CACHE_HOME") ||', tokens)
         self.assertIn('singleton RyokuTokens 1.0', self.source("services/qmldir"))
 
+    def test_theme_card_selects_persisted_ryoku_frontend(self):
+        schema = self.source("modules/common/Config.qml")
+        themes = self.source("modules/iris/settings/IrisThemes.qml")
+        card = self.source("modules/iris/edit/IrisThemeCard.qml")
+        bar = self.source("modules/iris/bar/IrisBar.qml")
+        self.assertIn('property string frontend: "inir"', schema)
+        self.assertIn('if (theme.id === "ryoku")', themes)
+        self.assertIn('Config.setNestedValue("iris.appearance.frontend", "ryoku")', themes)
+        self.assertIn('card.theme.id === "ryoku"', card)
+        self.assertIn('IrisStyle.ryokuFrontend', card)
+        self.assertIn('IrisThemes.choose(found)', bar)
+        self.assertIn('ryoku ? RyokuTokens.paper', themes)
+
+    def test_wave_and_frame_colour_editors(self):
+        options = self.source("modules/iris/settings/IrisOptions.qml")
+        schema = self.source("modules/common/Config.qml")
+        frame = self.source("modules/iris/frame/IrisFrame.qml")
+        for key in (
+            "background.edgeWidgets.organic.palette",
+            "background.edgeWidgets.organic.colorMode",
+            "background.edgeWidgets.organic.primaryColor",
+            "background.edgeWidgets.organic.secondaryColor",
+            "background.edgeWidgets.organic.tertiaryColor",
+            "iris.surround.musicCustomColour",
+        ):
+            self.assertIn('path: "' + key + '"', options)
+        self.assertIn("choices: EdgeConfig.palettes.map", options)
+        self.assertIn('Open Organic Edge colours', options)
+        self.assertIn('property string musicCustomColour: "#e6e1da"', schema)
+        self.assertIn('colour === "custom"', frame)
+        self.assertIn('root.surround?.musicCustomColour', frame)
+
     def test_frame_and_full_spectrum_edge_wave_can_coexist(self):
         options = self.source("modules/iris/settings/IrisOptions.qml")
         frame = self.source("modules/iris/frame/IrisFrame.qml")

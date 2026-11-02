@@ -54,6 +54,24 @@ for output in state:
     assert output["audioSubscribed"], output
 PYWAVE
     fi
+    if [[ "${SHIMA_VERIFY_THEME:-0}" == 1 ]]; then
+        ryoku-shima ipc call iris tokens > /mnt/ryoku-before.json
+        ryoku-shima ipc call iris theme apply:ryoku > /mnt/ryoku-theme-action.txt
+        sleep 2
+        ryoku-shima ipc call iris tokens > /mnt/ryoku-after.json
+        python3 - <<'PYRYOKU'
+import json, os
+from pathlib import Path
+config = json.loads((Path(os.environ["XDG_CONFIG_HOME"]) / "ryoku/shima/config.json").read_text())
+before = json.loads(Path("/mnt/ryoku-before.json").read_text())
+after = json.loads(Path("/mnt/ryoku-after.json").read_text())
+assert config["iris"]["appearance"]["frontend"] == "ryoku", config["iris"]["appearance"]
+assert config["iris"]["appearance"]["themeId"] == "liquid-glass"
+assert "Ryoku" in Path("/mnt/ryoku-theme-action.txt").read_text()
+assert before["tokens"]["accent"] != after["tokens"]["accent"], (before["tokens"], after["tokens"])
+assert before["tokens"]["text"] != after["tokens"]["text"], (before["tokens"], after["tokens"])
+PYRYOKU
+    fi
     python3 - <<'PYSHIMA'
 import json, os
 from pathlib import Path
