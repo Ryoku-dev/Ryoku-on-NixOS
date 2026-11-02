@@ -81,11 +81,13 @@ type isoModel struct {
 	passwordField int
 	passwordHash  string
 
-	installing bool
-	installAt  int
-	installLog []string
-	istream    *isoInstallStream
-	done       bool
+	installing     bool
+	installAt      int
+	installLog     []string
+	installLogPath string
+	istream        *isoInstallStream
+	done           bool
+	failed         bool
 }
 
 type isoNetworkMsg struct {
@@ -110,6 +112,7 @@ type isoInstallStream struct {
 	ch       chan tea.Msg
 	cmd      *exec.Cmd
 	procDone chan struct{}
+	logFile  *os.File
 }
 
 func (s *isoInstallStream) wait() tea.Cmd { return func() tea.Msg { return <-s.ch } }
@@ -574,6 +577,12 @@ func isoSanitizeLine(s string) string {
 func (m *isoModel) startInstall() tea.Cmd {
 	stream := &isoInstallStream{ch: make(chan tea.Msg, 128), procDone: make(chan struct{})}
 	m.istream = stream
+	logFile, err := os.CreateTemp(os.TempDir(), "ryoku-iso-install-*.log")
+	if err != nil {
+		return func() tea.Msg { return isoInstallDoneMsg{err: fmt.Errorf("cannot create installer log: %w", err)} }
+	}
+	stream.logFile = logFile
+	m.installLogPath = logFile.Name()
 	cmd := exec.Command(backendPath(), m.backendArgs()...)
 	cmd.Env = os.Environ()
 	if m.picks["configuration"] == "ryoku" && !m.opts.dryRun {
@@ -584,11 +593,16 @@ func (m *isoModel) startInstall() tea.Cmd {
 	cmd.Stdout, cmd.Stderr = pw, pw
 	stream.cmd = cmd
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
+		_ = pw.Close()
+		_ = pr.Close()
 		close(stream.procDone)
 		stream.ch <- isoInstallDoneMsg{err: err}
 		return stream.wait()
 	}
 	go func() {
+		defer pr.Close()
+		defer logFile.Close()
 		done := make(chan error, 1)
 		go func() {
 			done <- cmd.Wait()
@@ -599,6 +613,9 @@ func (m *isoModel) startInstall() tea.Cmd {
 		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
+			if _, err := fmt.Fprintln(logFile, isoSanitizeLine(line)); err != nil {
+				stream.ch <- isoInstallLineMsg("Could not write installer log: " + err.Error())
+			}
 			if id, ok := strings.CutPrefix(line, "@@RYOKU_STEP "); ok {
 				if idx, ok := isoInstallStepIndex(strings.TrimSpace(id)); ok {
 					stream.ch <- isoInstallStepMsg(idx)
@@ -678,13 +695,18 @@ func (m isoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case isoInstallLineMsg:
 		m.installLog = append(m.installLog, string(msg))
+		if len(m.installLog) > 300 {
+			m.installLog = m.installLog[len(m.installLog)-300:]
+		}
 		return m, m.istream.wait()
 	case isoInstallStepMsg:
 		m.installAt = int(msg)
 		return m, m.istream.wait()
 	case isoInstallDoneMsg:
 		m.installing = false
+		m.text["disk-confirm"] = ""
 		m.err = msg.err
+		m.failed = msg.err != nil
 		if msg.err == nil {
 			m.done = true
 			m.installAt = len(isoInstallSteps())
@@ -710,7 +732,7 @@ func (m isoModel) onKey(k string) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	}
-	if m.done {
+	if m.done || m.failed {
 		if k == "enter" || k == "q" || k == "esc" {
 			return m, tea.Quit
 		}
@@ -859,6 +881,7 @@ func (m isoModel) onKey(k string) (tea.Model, tea.Cmd) {
 				m.installing = true
 				m.installAt = 0
 				m.installLog = nil
+				m.failed = false
 				m.err = nil
 				return m, m.startInstall()
 			}
@@ -1119,6 +1142,35 @@ func (m isoModel) installBody() string {
 	return sty().Width(92).Border(border()).BorderForeground(cSub).Padding(1, 2).Render(strings.TrimRight(b.String(), "\n"))
 }
 
+func (m isoModel) failedBody() string {
+	var b strings.Builder
+	b.WriteString(bold(cRed, "Ryoku installation failed") + "\n\n")
+	b.WriteString(fg(cText, fmt.Sprint(m.err)) + "\n\n")
+	steps := isoInstallSteps()
+	if m.installAt >= 0 && m.installAt < len(steps) {
+		b.WriteString(fg(cSub, "Last stage: ") + fg(cText, steps[m.installAt]) + "\n")
+	}
+	if m.installLogPath != "" {
+		b.WriteString(fg(cSub, "Full log: ") + fg(cText, m.installLogPath) + "\n")
+	}
+	b.WriteString("\n" + bold(cYell, "Do not confirm the disk again. The target may already be partitioned.") + "\n")
+	b.WriteString(fg(cSub, "Leave the installer to inspect the log and recover from the live environment.") + "\n")
+	if len(m.installLog) > 0 {
+		b.WriteString("\n" + bold(cText, "Last output") + "\n")
+		log := m.installLog
+		if len(log) > 10 {
+			log = log[len(log)-10:]
+		}
+		for _, line := range log {
+			if len([]rune(line)) > 110 {
+				line = string([]rune(line)[:110]) + "…"
+			}
+			b.WriteString(fg(cSub, line) + "\n")
+		}
+	}
+	return sty().Width(92).Border(border()).BorderForeground(cRed).Padding(1, 2).Render(strings.TrimRight(b.String(), "\n"))
+}
+
 func (m isoModel) wizardBody() string {
 	step := m.current()
 	var body string
@@ -1158,6 +1210,9 @@ func (m isoModel) footer() string {
 	if m.done {
 		return keyHint("enter", "close")
 	}
+	if m.failed {
+		return keyHint("enter", "exit to live shell")
+	}
 	key := m.current().key
 	switch key {
 	case "network":
@@ -1188,6 +1243,8 @@ func (m isoModel) render() string {
 	var body string
 	if m.installing {
 		body = m.installBody()
+	} else if m.failed {
+		body = m.failedBody()
 	} else if m.done {
 		title := "Ryoku is installed"
 		if m.opts.dryRun {

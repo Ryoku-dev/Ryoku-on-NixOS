@@ -686,8 +686,12 @@ install_iso() {
   iso_cleanup() {
     local status=$?
     trap - EXIT INT TERM
-    if findmnt -rn "$target_root" >/dev/null 2>&1; then
-      run_root umount -R "$target_root" >/dev/null 2>&1 || true
+    if findmnt -rn --mountpoint "$target_root" >/dev/null 2>&1; then
+      if ! run_root umount -R "$target_root"; then
+        printf 'ryoku-install: WARNING: could not unmount %s after installation stopped.\n' "$target_root" >&2
+        printf 'ryoku-install: Inspect with findmnt -R %s before manually recovering.\n' "$target_root" >&2
+        [ "$status" -ne 0 ] || status=1
+      fi
     fi
     if [ -n "${iso_work:-}" ]; then
       chmod -R u+w "$iso_work" 2>/dev/null || true
@@ -753,8 +757,8 @@ install_iso() {
     return 0
   fi
 
-  if findmnt -rn "$target_root" >/dev/null 2>&1; then
-    die "$target_root is already mounted; unmount it before installing"
+  if findmnt -rn --mountpoint "$target_root" >/dev/null 2>&1; then
+    die "$target_root is already mounted; an earlier installation may be incomplete. Inspect with findmnt -R $target_root before recovering. The installer will not unmount or erase it automatically"
   fi
 
   # Resolve every flake input before asking to erase the target disk. A missing

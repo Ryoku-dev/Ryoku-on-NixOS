@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -290,5 +292,63 @@ func TestISOInstallStepContractIncludesPreflightValidation(t *testing.T) {
 	}
 	if idx, ok := isoInstallStepIndex("validate"); !ok || idx != 1 {
 		t.Fatalf("validate step index = %d, %v", idx, ok)
+	}
+}
+
+func TestISOBackendFailureKeepsDiagnosticsAndBlocksRetry(t *testing.T) {
+	dir := t.TempDir()
+	backend := filepath.Join(dir, "backend")
+	content := "#!/bin/sh\nprintf '@@RYOKU_STEP install\\n'\nprintf 'nixos-install: simulated build failure\\n'\nexit 42\n"
+	if err := os.WriteFile(backend, []byte(content), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RYOKU_INSTALL_BACKEND", backend)
+	t.Setenv("TMPDIR", dir)
+	o := defaultOptions()
+	o.iso = true
+	m := newISOModel(o)
+	m.w, m.h = 120, 44
+	m.gotoKey("confirm")
+	m.picks["disk"] = "/dev/vda"
+	m.text["disk-confirm"] = "/dev/vda"
+	started, next := m.onKey("enter")
+	m = started.(isoModel)
+	if !m.installing || next == nil {
+		t.Fatal("confirmed install did not start")
+	}
+	for i := 0; i < 15; i++ {
+		model, cmd := m.Update(next())
+		m = model.(isoModel)
+		if !m.installing {
+			break
+		}
+		next = cmd
+		if next == nil {
+			t.Fatal("stream stopped before backend completed")
+		}
+	}
+	if !m.failed || m.done || m.err == nil || m.installing {
+		t.Fatalf("backend failure not retained: failed=%v done=%v installing=%v err=%v", m.failed, m.done, m.installing, m.err)
+	}
+	if m.installAt != 5 || m.installLogPath == "" {
+		t.Fatalf("missing install stage or log: stage=%d path=%q", m.installAt, m.installLogPath)
+	}
+	data, err := os.ReadFile(m.installLogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "simulated build failure") {
+		t.Fatalf("backend output not logged: %q", data)
+	}
+	screen := isoANSI.ReplaceAllString(m.render(), "")
+	if !strings.Contains(screen, "Do not confirm the disk again") || !strings.Contains(screen, "Full log:") || !strings.Contains(screen, "ryoku-") {
+		t.Fatal("failure screen lacks safety guidance or log filename")
+	}
+	for _, key := range []string{"x", "r"} {
+		model, cmd := m.onKey(key)
+		m = model.(isoModel)
+		if cmd != nil || m.installing || !m.failed || m.current().key != "confirm" {
+			t.Fatalf("%s restarted installation or cleared failure", key)
+		}
 	}
 }
