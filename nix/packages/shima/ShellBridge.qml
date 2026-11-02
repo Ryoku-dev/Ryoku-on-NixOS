@@ -18,27 +18,37 @@
             }
         }
     }
+    function ryokuSurfaceHandler(surface: string): var {
+            const family = Config.options?.panelFamily ?? "iris"
+            switch (surface) {
+            case "launcher": case "overview": return ryokuOverview
+            case "clipboard": return ryokuClipboard
+            case "settings": return ryokuSettings
+            case "sidebar-left": case "controls":
+                return family === "waffle" ? ryokuWactionCenter : family === "iris" ? ryokuSidebarRight : ryokuControlPanel
+            case "sidebar-right": case "notifications":
+                return family === "waffle" ? ryokuWnotificationCenter : ryokuSidebarRight
+            case "session": return ryokuSession
+            case "cheatsheet": return ryokuCheatsheet
+            case "tools": return ryokuDashboard
+            case "ask": return ryokuSidebarLeft
+            case "barToggle": return ryokuBar
+            }
+            return null
+        }
     IpcHandler {
         target: "shell"
         function openSurface(mon: string, surface: string): void {
-            switch (surface) {
-            case "launcher": GlobalStates.searchOpen = !GlobalStates.searchOpen; break
-            case "clipboard":
-                LauncherSearch.ensurePrefix(Config.options?.search?.prefix?.clipboard ?? ";")
-                GlobalStates.searchOpen = true
-                break
-            case "overview": GlobalStates.overviewOpen = !GlobalStates.overviewOpen; break
-            case "settings": GlobalStates.openSettings(); break
-            case "controls": GlobalStates.sidebarRightOpen = !GlobalStates.sidebarRightOpen; break
-            case "notifications": GlobalStates.sidebarRightOpen = !GlobalStates.sidebarRightOpen; break
-            case "session": GlobalStates.sessionOpen = !GlobalStates.sessionOpen; break
-            case "cheatsheet": GlobalStates.cheatsheetOpen = !GlobalStates.cheatsheetOpen; break
-            }
+            const handler = root.ryokuSurfaceHandler(surface)
+            if (handler) handler.toggle()
+            else if (surface === "wallpaper") {
+                GlobalStates.wallpaperSelectorTargetMonitor = mon
+                GlobalStates.wallpaperSelectorOpen = !GlobalStates.wallpaperSelectorOpen
+            } else if (surface === "theme") GlobalStates.openSettings()
+            else if (surface === "screenshot") GlobalStates.openRegionScreenshot()
         }
         function closeSurface(mon: string, surface: string): void {
-            GlobalStates.searchOpen = false
-            GlobalStates.overviewOpen = false
-            GlobalStates.sidebarRightOpen = false
-            GlobalStates.sessionOpen = false
+            const handler = root.ryokuSurfaceHandler(surface)
+            if (handler && typeof handler.close === "function") handler.close()
         }
     }

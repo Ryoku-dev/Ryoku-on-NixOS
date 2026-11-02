@@ -8,6 +8,7 @@ pkgs.stdenv.mkDerivation {
 
   nativeBuildInputs = [
     pkgs.go
+    pkgs.makeWrapper
   ];
 
   buildPhase = ''
@@ -33,6 +34,10 @@ pkgs.stdenv.mkDerivation {
     install -Dm755 \
       ryostore \
       "$out/bin/ryostore"
+
+    wrapProgram "$out/bin/ryostore" \
+      --set RYOKU_SHIMA_FLAKE "${import ./shima-install-source.nix { inherit pkgs src; }}" \
+      --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.nixVersions.latest ]}"
 
     runHook postInstall
   '';

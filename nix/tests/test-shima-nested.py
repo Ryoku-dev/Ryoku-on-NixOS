@@ -18,6 +18,7 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     home = Path(tempfile.mkdtemp(prefix="home-", dir=output))
+    (output/"wallpaper.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><rect width="1920" height="1080" fill="#253b5d"/><circle cx="960" cy="540" r="250" fill="#6d8ca4"/></svg>')
     (output/"probe.sh").write_text((Path(__file__).with_name("shima-nested-probe.sh")).read_text())
     (output/"probe.sh").chmod(0o755)
     (output/"niri.kdl").write_text("prefer-no-csd\nhotkey-overlay { skip-at-startup; }\n")

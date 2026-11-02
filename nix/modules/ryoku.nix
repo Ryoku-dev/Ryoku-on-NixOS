@@ -2148,7 +2148,6 @@ in
       path = [ ryokuPrivilegePath ] ++ runtimePackages;
 
       environment = {
-        RYOKU_SHIMA_ENABLE = if cfg.shima.enable then "1" else "0";
 
         RYOKU_DOCKER_HOST_MANAGED = "1";
 

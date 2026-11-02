@@ -111,6 +111,7 @@ type suspendRequest struct {
 type daemon struct {
 	desktopChangeMu sync.Mutex
 	shimaPrevious   string
+	shimaBlocked    bool
 
 	mu           sync.Mutex
 	sup          map[string]bool      // components that already have a supervisor goroutine
@@ -1072,7 +1073,7 @@ func (d *daemon) supervise(name string) {
 		if desktop != nil {
 			go d.watchDesktop(cmd, desktop, exited, 30*time.Second)
 		}
-		if name == "shell" {
+		if name == "shell" && (desktop == nil || !desktop.shima) {
 			// A shell that stays up past its crash window is the desktop coming
 			// back after a boot; record it for the boot guard (ryoku boot-guard),
 			// which reverts an update whose next boots never get here.

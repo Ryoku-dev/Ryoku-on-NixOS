@@ -96,3 +96,13 @@ test("Python panels honour the per-display style selection", () => {
     assert.match(bar, /Shell\.Config\.barStyleFor\(screen\.name\) === "python"/);
     assert.match(bar, /Tokens\.barEnabledFor\(screen\.name\)/);
 });
+
+test("Shima installation and updates are owned by the optional runtime", () => {
+    const qml = fs.readFileSync(new URL("../Singletons/BarStyles.qml", import.meta.url), "utf8");
+    const builtins = JSON.parse(qml.match(/readonly property var builtins:\s*(\[[\s\S]*?\n    \])/)[1]);
+    const missing = model(builtins, [{ id: "iris", name: "Shima", installed: false }]).find(card => card.id === "iris");
+    assert.equal(missing.installed, false);
+    const installed = model(builtins, [{ id: "iris", installed: true, updateAvailable: true }]).find(card => card.id === "iris");
+    assert.equal(installed.installed, true);
+    assert.equal(installed.updateAvailable, true);
+});

@@ -52,3 +52,41 @@ replace("services/TrayService.qml",
 cli = root / "scripts/inir"
 head, rest = cli.read_text().split("\n", 1)
 cli.write_text(head + "\n" + "case \"${1:-}\" in\n    run|start|stop|service|install|uninstall|setup|update)\n        echo \"Shima lifecycle and packages are managed by Ryoku on NixOS.\" >&2\n        exit 2 ;;\n    restart|reload) exec ryoku-shell reload ;;\nesac\n" + rest)
+
+# Reuse upstream family-aware IPC implementations for Ryoku's shortcut bus.
+for target in ["overview", "clipboard", "settings", "sidebarRight", "sidebarLeft", "controlPanel", "dashboard", "wactionCenter", "wnotificationCenter", "session", "cheatsheet", "bar"]:
+    replace("shell.qml", f'target: "{target}"', f'id: ryoku{target[0].upper() + target[1:]}; target: "{target}"')
+
+(root / "services/RyokuHost.qml").write_text(Path(sys.argv[3]).read_text())
+with (root / "services/qmldir").open("a") as out:
+    out.write("\nsingleton RyokuHost 1.0 RyokuHost.qml\n")
+replace("services/Wallpapers.qml", 'function currentMainWallpaperPath(monitorName = ""): string {',
+        'function currentMainWallpaperPath(monitorName = ""): string {\n        if (RyokuHost.ready) return RyokuHost.pathFor(monitorName)')
+replace("modules/background/Background.qml", 'const configuredPath = (_multiMonEnabled && wallpaperData.path)',
+        'const configuredPath = RyokuHost.ready ? RyokuHost.pathFor(monitorName) : (_multiMonEnabled && wallpaperData.path)')
+# External Ryogami video keeps its background surface. The family backgrounds
+# retain widgets, menus and clocks while suppressing their duplicate painter.
+replace("modules/iris/background/IrisBackground.qml", 'id: canvas',
+        'id: canvas\n            visible: !RyokuHost.liveFor(panel.monitorName)')
+replace("modules/iris/background/IrisBackground.qml",
+        'readonly property bool externalWallpaper: AwwwBackend.supportsVisibleMainWallpaper(',
+        'readonly property bool externalWallpaper: RyokuHost.liveFor(panel.monitorName) || AwwwBackend.supportsVisibleMainWallpaper(')
+replace("modules/background/Background.qml", 'readonly property bool externalMainWallpaperActive: bgRoot.externalMainWallpaperEligible',
+        'readonly property bool externalMainWallpaperActive: RyokuHost.liveFor(bgRoot.monitorName) || bgRoot.externalMainWallpaperEligible')
+replace("modules/waffle/background/WaffleBackground.qml", 'readonly property bool externalMainWallpaperActive: panelRoot.externalMainWallpaperEligible',
+        'readonly property bool externalMainWallpaperActive: RyokuHost.liveFor(panelRoot._monitorName) || panelRoot.externalMainWallpaperEligible')
+replace("services/Wallpapers.qml", 'updatePerMonitorConfig(normalizedPath, monitorName)',
+        'updatePerMonitorConfig(normalizedPath, monitorName)\n            Quickshell.execDetached(["ryoku-shima-wallpaper", "--screen", monitorName, normalizedPath])')
+replace("modules/common/functions/Session.qml",
+        'Quickshell.execDetached([Quickshell.shellPath("scripts/inir"), "lock", "activate"]);',
+        'Quickshell.execDetached(["ryoku-shell", "lock"]);')
+replace("modules/common/functions/Session.qml", '_suspendTimer.restart()', 'Quickshell.execDetached(["ryoku-shell", "suspend"])')
+# All CLI lock entry points use Ryoku's session-scoped proof/lock owner.
+replace("scripts/inir", 'case "${1:-}" in', 'case "${1:-}" in\n    lock) exec ryoku-shell lock ;;')
+
+(root / "services/PolkitServiceImpl.qml").write_text(Path(sys.argv[4]).read_text())
+replace("services/PolkitService.qml", "Component.onCompleted: {", "Component.onCompleted: {\n        root._loadImpl(); return;")
+for name, scope in [("modules/background/Background.qml", "bgRoot.monitorName"), ("modules/waffle/background/WaffleBackground.qml", "panelRoot._monitorName")]:
+    replace(name, "id: wallpaperContainer", "id: wallpaperContainer\n                visible: !RyokuHost.liveFor(" + scope + ")")
+
+(root / "modules/lock/Lock.qml").write_text(Path(sys.argv[5]).read_text())

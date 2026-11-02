@@ -34,14 +34,14 @@ func shimaTestLauncher(t *testing.T) string {
 	return path
 }
 
-func TestShimaSelectionRequiresExplicitOptIn(t *testing.T) {
+func TestShimaSelectionUsesInstalledRuntime(t *testing.T) {
 	d := shimaTestDaemon(t, "iris")
 	shimaTestLauncher(t)
 	t.Setenv("RYOKU_SHIMA_ENABLE", "0")
 	if key, _ := d.desktopSelection(); key != "native" {
 		t.Fatal(key)
 	}
-	t.Setenv("RYOKU_SHIMA_ENABLE", "1")
+	t.Setenv("RYOKU_SHIMA_ENABLE", "")
 	if key, _ := d.desktopSelection(); key == "native" {
 		t.Fatal("installed runtime not selected")
 	}
@@ -215,5 +215,40 @@ func TestShimaStaleFailureDoesNotOverwriteNewSelection(t *testing.T) {
 	d.fallbackShima("late exit")
 	if d.settings.raw["barStyle"] != "python" {
 		t.Fatal("stale failure replaced the newer selection")
+	}
+}
+
+func TestShimaBrokenFallbackCannotRestartLoop(t *testing.T) {
+	d := shimaTestDaemon(t, "iris")
+	shimaTestLauncher(t)
+	t.Setenv("RYOKU_SHIMA_ENABLE", "")
+	d.settings.path = "/proc/ryoku-shima-no-config/shell.json"
+	d.fallbackShima("test failure")
+	if key, _ := d.desktopSelection(); key != "native" {
+		t.Fatal("failed persistence permits a restart loop")
+	}
+}
+
+func TestShimaManagedProfileResolvesNewGeneration(t *testing.T) {
+	d := shimaTestDaemon(t, "iris")
+	t.Setenv("RYOKU_SHIMA_ENABLE", "")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("NIRI_SOCKET", "/test/niri.sock")
+	profile := filepath.Join(shimaStateHome(), "ryoku", "subshells", "iris", "profile")
+	os.MkdirAll(filepath.Dir(profile), 0700)
+	generation := func() string {
+		path := t.TempDir()
+		os.Mkdir(filepath.Join(path, "bin"), 0700)
+		os.WriteFile(filepath.Join(path, "bin", "ryoku-shima"), []byte("test"), 0700)
+		return path
+	}
+	first, second := generation(), generation()
+	os.Symlink(first, profile)
+	a, _ := d.desktopSelection()
+	os.Remove(profile)
+	os.Symlink(second, profile)
+	b, _ := d.desktopSelection()
+	if a == b || a != filepath.Join(first, "bin", "ryoku-shima") || b != filepath.Join(second, "bin", "ryoku-shima") {
+		t.Fatalf("generation change not detected: %q %q", a, b)
 	}
 }

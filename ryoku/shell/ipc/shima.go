@@ -13,6 +13,14 @@ import (
 	"time"
 )
 
+func shimaStateHome() string {
+	if path := os.Getenv("XDG_STATE_HOME"); path != "" {
+		return path
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "state")
+}
+
 var activeShimaRoot atomic.Value
 
 type desktopRun struct {
@@ -32,6 +40,9 @@ func (d *daemon) desktopSelection() (string, string) {
 		d.settings.mu.Unlock()
 	}
 	if style != "iris" {
+		d.mu.Lock()
+		d.shimaBlocked = false
+		d.mu.Unlock()
 		if validBarStyleID(style) && style != "" {
 			d.mu.Lock()
 			d.shimaPrevious = style
@@ -39,11 +50,21 @@ func (d *daemon) desktopSelection() (string, string) {
 		}
 		return "native", ""
 	}
-	// Explicit opt-in until the host bridges pass the full parity matrix.
-	if os.Getenv("RYOKU_SHIMA_ENABLE") != "1" || os.Getenv("NIRI_SOCKET") == "" {
+	d.mu.Lock()
+	blocked := d.shimaBlocked
+	d.mu.Unlock()
+	if blocked {
 		return "native", ""
 	}
-	path, err := exec.LookPath("ryoku-shima")
+	// An installed optional runtime is activated through the normal iris selector.
+	if os.Getenv("RYOKU_SHIMA_ENABLE") == "0" || os.Getenv("NIRI_SOCKET") == "" {
+		return "native", ""
+	}
+	path := filepath.Join(shimaStateHome(), "ryoku", "subshells", "iris", "profile", "bin", "ryoku-shima")
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+		path, _ = exec.LookPath("ryoku-shima")
+	}
+	path, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return "native", ""
 	}
@@ -133,6 +154,9 @@ func (d *daemon) watchDesktop(cmd *exec.Cmd, run *desktopRun, exited <-chan stru
 			}
 			if !ready {
 				ready = shimaReady(run.ready, cmd.Process.Pid)
+				if ready {
+					go recordBootOK(exited)
+				}
 				if !ready && time.Now().After(deadline) {
 					run.failed.Store(true)
 					terminateDesktop(cmd, true, exited)
@@ -177,6 +201,7 @@ func (d *daemon) fallbackShima(reason string) {
 	}
 	activeShimaRoot.Store("")
 	d.mu.Lock()
+	d.shimaBlocked = true
 	previous := d.shimaPrevious
 	d.mu.Unlock()
 	if previous == "" || previous == "iris" {

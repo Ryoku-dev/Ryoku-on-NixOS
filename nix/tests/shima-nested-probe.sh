@@ -3,13 +3,20 @@ exec > /mnt/probe.log 2>&1
 set -eu
 ulimit -c 0
 export PATH="$SHIMA_TEST_DAEMON/bin:$SHIMA_TEST_PACKAGE/bin:$PATH"
-export RYOKU_SHIMA_ENABLE=1
+unset RYOKU_SHIMA_ENABLE
 export RYOKU_SHELL_DIR="$SHIMA_TEST_NATIVE_ROOT"
 mkdir -p "$XDG_CONFIG_HOME/ryoku"
 printf '{"barStyle":"iris"}\n' > "$XDG_CONFIG_HOME/ryoku/shell.json"
+ryogami daemon > /mnt/ryogami.log 2>&1 &
+wallOwner=$!
+for attempt in $(seq 1 100); do
+    test -S "$XDG_RUNTIME_DIR/ryogami.sock" && break
+    sleep 0.1
+done
+ryogami wallpaper set /mnt/wallpaper.svg
 ryoku-shell daemon > /mnt/daemon.log 2>&1 &
 owner=$!
-trap 'kill "$owner" 2>/dev/null || true; niri msg action quit --skip-confirmation >/dev/null 2>&1 || true' EXIT
+trap 'kill "$owner" "$wallOwner" 2>/dev/null || true; niri msg action quit --skip-confirmation >/dev/null 2>&1 || true' EXIT
 
 python3 - <<'PY'
 import json,os,time
@@ -35,6 +42,9 @@ for _ in range(200):
 else:raise SystemExit("Panel family was not persisted")
 time.sleep(5)
 PY
+    gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.GetServerInformation >> /mnt/notification-server.log
+    notify-send "Shima $family" "Isolated notification check"
+    gdbus call --session --dest org.kde.StatusNotifierWatcher --object-path /StatusNotifierWatcher --method org.freedesktop.DBus.Properties.Get org.kde.StatusNotifierWatcher IsStatusNotifierHostRegistered >> /mnt/tray-host.log
     niri msg action screenshot-screen --path "/mnt/$family.png" >> /mnt/screenshot.log 2>&1
 done
 
@@ -70,6 +80,8 @@ assert json.loads(path.read_text()).get("barStyle")=="python","Crash fallback di
 PY
 ryoku-shell quit >> /mnt/ipc.log 2>&1
 wait "$owner"
+kill "$wallOwner"
+wait "$wallOwner" || true
 sleep 1
 python3 - <<'PY'
 import json
@@ -84,5 +96,5 @@ for path in Path("/proc").glob("[0-9]*/cmdline"):
 assert not remaining,remaining
 Path("/mnt/result.json").write_text(json.dumps({"passed":True,"families":["iris","ii","waffle"],"switchAway":"python","crashFallback":"python","remainingQuickshellProcesses":remaining}))
 PY
-niri msg action quit --skip-confirmation
+niri msg action quit --skip-confirmation || true
 trap - EXIT

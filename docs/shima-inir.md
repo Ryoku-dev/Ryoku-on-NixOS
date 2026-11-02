@@ -8,17 +8,26 @@ or import upstream's NixOS/Home Manager services.
 
 ## Development status
 
-This is an experimental integration, not a completed parity release. The normal
-built-in `iris` scene remains the default implementation. The replacement runtime
-requires an explicit `programs.ryoku.shima.enable = true;` in a test system.
-Do not enable it in a daily session until the remaining host bridges are finished.
+This is a working feature integration, not a completed parity release. Install or
+update the optional runtime through RyoStore's Shima subshell listing
+(`ryostore install barstyles iris`), then select Shima in Hub. No manual feature
+flag or independently enabled service is required. Declarative provisioning is
+also available with `programs.ryoku.shima.enable = true;`.
+
+RyoStore builds a small standalone flake containing the compatibility layer and
+the same locked upstream/nixpkgs revisions. Its source is shipped with RyoStore;
+the iNiR runtime and dependencies enter the user's dedicated Nix profile only
+when installed. A successful build atomically advances that profile. Failed
+builds preserve the installed generation. Updates use the same install action.
+Removal releases only that profile's generations and returns an active selection
+to Sumi, preserving Shima settings and newer user selections.
 
 The existing Hub selection remains Shima, with the persistent identifier
 `barStyle = "iris"`. Other styles keep their existing behavior.
 
 ## Ownership
 
-Ryoku's Go daemon supervises the visual root. With the experimental option enabled
+Ryoku's Go daemon supervises the visual root. With the optional runtime installed
 and Shima selected on Niri, it starts `ryoku-shima` instead of `qs -c shell`.
 It stops and waits for the outgoing root before starting another. There is no
 independent iNiR service, session entry or autostart file.
@@ -32,8 +41,14 @@ launched with Qt's detached API have their own session.
 Ryoku retains compositor configuration, idle policy, app provisioning, keyring,
 polkit, session security and Ryogami. Upstream's installer, conflict killer,
 desktop autostart and automatic Niri preset activation are not called at startup.
-Wallpaper selection is forwarded to Ryogami. Host ownership bridges are not yet
-complete for every upstream wallpaper mode.
+Wallpaper selection, including per-output applies, is forwarded to Ryogami.
+Shima subscribes to Ryogami's retained wallpaper frame, including external picker
+and workspace changes. The native wallpaper painter exits with the old desktop
+root. Shima preserves upstream rendering for stills and yields its painter while
+a Ryogami external video player owns an output. Upstream's independent lock/PAM
+implementation is replaced by Ryoku lock entry points. Upstream polkit dialog
+visuals consume Ryoku's polkit topic and send responses over its local control
+socket; no second authentication agent is registered.
 
 ## Settings
 
@@ -46,30 +61,35 @@ XDG roots at `ryoku/shima`. Immutable or symlink-managed config is refused.
 The global XDG configuration directory is not redirected, so applications
 launched from Shima still find their normal user configuration.
 
-## Remaining integration work
+## Remaining parity work
 
-- Complete Ryogami's per-output, preview and transition bridge while preserving
-  upstream wallpaper widgets and avoiding a second wallpaper renderer.
-- Bridge upstream lock and polkit visuals to Ryoku's proven session-security
-  protocol. Existing Ryoku lock handling remains authoritative.
-- Complete theme/icon restoration, compositor presets and every Ryoku shortcut.
-- Validate notification/tray ownership with the resident Ryoku daemon.
-- Publish through RyoStore's existing subshell installation workflow. No Store
-  listing should claim complete parity before these checks pass.
-- Exercise multi-monitor hotplug, suspend/resume, session recovery, hardware
-  controls, media and optional account-backed integrations on a test system.
+- Port upstream lock visuals into Ryoku's secure lock owner. The current bridge
+  intentionally uses Ryoku's established lock visuals and authentication.
+- Complete compositor preset/settings ownership and audit every optional
+  integration and shortcut, including Ryoku-specific plugin/voice surfaces.
+- Verify external theme/icon changes and restoration; automatic external theme
+  application is disabled, so choosing Shima does not rewrite global theming.
+- Exercise multi-monitor hotplug, suspend/resume, external video wallpaper,
+  hardware controls, media and optional account-backed integrations on a test
+  system. Nested tests isolate system D-Bus and audio and cannot verify hardware.
 
 ## Validation
 
 The package exports the full upstream iRiS, Material ii and Waffle families.
 Successful package construction or root readiness does not prove every panel's
-functionality. Runtime probes use a nested Niri window, a private D-Bus session,
+functionality. RyoStore install/update and managed profiles have been exercised
+in isolated XDG directories; all three families, settings windows, switching,
+crash recovery and zero remaining Quickshell processes pass nested Niri probes.
+A second nested probe runs a real isolated Ryogami daemon and renders its selected
+wallpaper through the upstream shell. The polkit adapter passes a private fake
+daemon test for prompts, secret transport, retries, echo mode and cancellation. Runtime probes use a nested Niri window, a private D-Bus session,
 an isolated home and an isolated PID namespace. They never switch the live shell.
 
 Focused checks:
 
 ```sh
 python3 nix/tests/test-shima-runtime.py
+python3 nix/tests/test-shima-polkit.py --runtime /nix/store/...-ryoku-shima-2.33.0
 cd ryoku/shell/ipc
 go test -mod=vendor -run Shima ./...
 go test -mod=vendor -race -run Shima ./...
@@ -92,17 +112,24 @@ changes, so the pin can be reviewed and updated without another vendored tree.
   and does not expose the independent upstream lifecycle command.
 - Shima settings tests cover first launch, subsequent launch, copying the legacy
   namespace, and preserving managed config symlinks.
-- Go lifecycle tests cover opt-in, Niri gating, private readiness, timeout,
+- Go lifecycle tests cover installed runtime selection, Niri gating, private readiness, timeout,
   selection changes, fallback, family persistence, stale exits and scoped cleanup.
   The focused suite passes with the race detector. Go vet passes.
-- The Hub Subshells navigation regression tests pass with the existing iris ID.
+- All 14 Hub navigation/gallery tests pass, including optional Shima install state.
+- The complete RyoStore test suite and four Python settings tests pass.
+- Flake evaluation (`nix flake check --no-build`) passes. Targeted layout,
+  bar-style source-integrity, notification-ownership and installer-option checks
+  build successfully. This is not a full build of every flake check.
 - The nested compositor test visibly renders iRiS, Material ii and Waffle.
   It verifies family persistence through the actual modified daemon, opens the
   upstream settings surface, switches back to Python, re-enters Shima, kills its
   root, observes fallback to Python, and finds zero Quickshell processes after
-  the daemon shuts down.
+  the daemon shuts down. Each family answers the notification D-Bus API and
+  reports an active tray host on the private session bus.
 - Nix evaluation confirms Shima is absent from default system packages and present
-  only when its option is enabled. Existing dependency pins are unchanged.
+  only when its option is enabled, or installed into its RyoStore-owned user
+  profile. RyoStore itself closes over the installer source without the runtime.
+  Existing dependency pins are unchanged.
 
 The full Go suite has the same seven reported lock-test failures on both the
 unmodified baseline and this branch. These include FHS assumptions such as
