@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -53,5 +55,40 @@ func TestFlatpakCatalogueIsAbsentOnlyOnNixOS(t *testing.T) {
 		if err := runOpen([]string{flatpakCategory}); err == nil || !strings.Contains(err.Error(), "valid section") {
 			t.Fatalf("NixOS flatpak deep link should be rejected: %v", err)
 		}
+	}
+}
+
+func TestNixOSDoesNotServePreviouslyCachedFlatpakApps(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	stale := Catalog{
+		Categories: []Category{{ID: "barstyles"}, {ID: flatpakCategory}},
+		Items:      []Item{{ID: "org.example.App", Category: flatpakCategory}},
+	}
+	data, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSnapshot(data)
+
+	available := []Provider{fakeProvider{
+		category: Category{ID: "barstyles"},
+		items:    []Item{{ID: "karuma", Category: "barstyles"}},
+	}}
+	if !snapshotProviderMismatch(data, available) {
+		t.Fatal("legacy Flatpak snapshot must be invalidated")
+	}
+
+	var out bytes.Buffer
+	if err := runCatalog(&out, available, nil); err != nil {
+		t.Fatal(err)
+	}
+	var result Catalog
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Categories) != 1 || len(result.Items) != 1 ||
+		result.Categories[0].ID != "barstyles" || result.Items[0].ID != "karuma" {
+		t.Fatalf("stale Flatpak products leaked into catalogue: %+v", result)
 	}
 }
