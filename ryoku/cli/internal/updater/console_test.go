@@ -121,17 +121,11 @@ func TestVerdictThresholds(t *testing.T) {
 func TestWatchdogNamesTheWorkInItsTree(t *testing.T) {
 	dir := t.TempDir()
 	pacman := filepath.Join(dir, "pacman")
-<<<<<<< port (main)
-	// Arch's test symlinks /usr/bin/sleep to a file named pacman. NixOS
-	// coreutils is a multicall binary and rejects that argv[0], so keep a real
-	// pacman-named process alive with a tiny script instead. The kernel reports
-	// the script name as comm, which is exactly what the watchdog classifies.
-	if err := os.WriteFile(pacman, []byte("#!/bin/sh\nsleep \"${1:-5}\"\n"), 0o755); err != nil {
+	shPath, err := exec.LookPath("sh")
+	if err != nil {
 		t.Skip(err)
 	}
-	cmd := exec.Command(pacman, "5")
-=======
-	if err := os.Symlink("/bin/sh", pacman); err != nil {
+	if err := os.Symlink(shPath, pacman); err != nil {
 		t.Skip(err)
 	}
 	cmd := exec.Command("sh", "-c", pacman+" -c 'read _' 5")
@@ -139,7 +133,6 @@ func TestWatchdogNamesTheWorkInItsTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
->>>>>>> upstream Ryoku 1.0.7 (f7197d7)
 	if err := cmd.Start(); err != nil {
 		t.Skip(err)
 	}
@@ -153,11 +146,7 @@ func TestWatchdogNamesTheWorkInItsTree(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-<<<<<<< port (main)
-	if !ws.Pkg || !strings.Contains(ws.Current, "pacman 5") {
-=======
 	if !ws.Pkg || !strings.HasPrefix(ws.Current, "pacman ") {
->>>>>>> upstream Ryoku 1.0.7 (f7197d7)
 		t.Errorf("sample = %+v, want the pacman child named and flagged", ws)
 	}
 	if ws.State != "working" {
