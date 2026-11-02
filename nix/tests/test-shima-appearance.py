@@ -87,6 +87,28 @@ class ShimaAppearanceTests(unittest.TestCase):
         self.assertIn('colour === "custom"', frame)
         self.assertIn('root.surround?.musicCustomColour', frame)
 
+    def test_matugen_cava_visualizers_and_settings_navigation(self):
+        palette = self.source("services/RyokuVisualizerPalette.qml")
+        service = self.source("services/CavaTheme.qml")
+        edge = self.source("modules/background/widgets/OrganicEdgeWidget.qml")
+        edge_options = self.source("modules/background/widgets/OrganicEdgeConfig.js")
+        frame = self.source("modules/iris/frame/IrisFrame.qml")
+        options = self.source("modules/iris/settings/IrisOptions.qml")
+        background = self.source("modules/background/Background.qml")
+        for key in ("/.cache/ryoku/colors.json", "/.config/cava/config"):
+            self.assertIn(key, palette)
+        self.assertEqual(palette.count("watchChanges: true"), 2)
+        self.assertIn("gradient_color_", palette)
+        self.assertIn("RyokuVisualizerPalette.cavaColors", service)
+        self.assertIn("RyokuVisualizerPalette.themeColors", service)
+        self.assertIn('root.palette === "theme" ? RyokuVisualizerPalette.themeColors', edge)
+        self.assertIn('root.palette === "cava" ? RyokuVisualizerPalette.cavaColors', edge)
+        self.assertIn('value: "cava"', edge_options)
+        self.assertIn('colour === "cava"', frame)
+        self.assertIn('colour === "theme"', frame)
+        self.assertIn('"settingsNav", "section", "14", "Organic edge"', options)
+        self.assertIn('function ryokuVisualizerPaletteState()', background)
+
     def test_frame_and_full_spectrum_edge_wave_can_coexist(self):
         options = self.source("modules/iris/settings/IrisOptions.qml")
         frame = self.source("modules/iris/frame/IrisFrame.qml")

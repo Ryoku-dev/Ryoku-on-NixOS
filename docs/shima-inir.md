@@ -111,7 +111,15 @@ Frame Music now offers Wave, Frame or Both. Wave edges can be selected
 individually, including both vertical sides. The Wave colours section exposes
 the upstream Organic Edge palette source, movement, custom colours, and a
 shortcut to its full colour picker. The Frame finish offers Pearl, Accent,
-Highlight, Wallpaper and a custom hex colour.
+Highlight, Wallpaper, Matugen, Cava and a custom hex colour.
+
+The Theme source for Organic Edge reads the generated Ryoku Matugen roles from
+`~/.cache/ryoku/colors.json`. Cava reads the exact gradient from
+`~/.config/cava/config`, which Matugen already generates. The Media Controls
+visualizer's Cava selection uses that gradient as well. Both files are watched
+for updates, including when the wallpaper palette changes. The full colour
+editor opens the existing Widgets > Organic edge page through Shima's IPC
+rather than attempting to navigate inside a separate settings process.
 
 Selecting the Ryoku card in the iRiS theme gallery enables the Ryoku frontend
 without replacing the current iNiR theme. Liquid Glass remains selected and

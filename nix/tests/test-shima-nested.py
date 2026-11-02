@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--verify-desktop", action="store_true")
     parser.add_argument("--verify-wave", action="store_true")
     parser.add_argument("--verify-theme", action="store_true")
+    parser.add_argument("--verify-palette", action="store_true")
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -29,6 +30,13 @@ def main():
         target = home / ".config/shima-probe-config/ryoku/shima/config.json"
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(args.config_file, target)
+    if args.verify_palette:
+        matugen = home / ".cache/ryoku/colors.json"
+        matugen.parent.mkdir(parents=True, exist_ok=True)
+        matugen.write_text('{"primary":"#347acd","secondary":"#a5b6c7","tertiary":"#d2bade"}\n')
+        cava = home / ".config/cava/config"
+        cava.parent.mkdir(parents=True, exist_ok=True)
+        cava.write_text("[color]\nforeground = '#a1b2c3'\ngradient = 1\ngradient_color_1 = '#a1b2c3'\ngradient_color_2 = '#c2d3e4'\n")
     (output/"wallpaper.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><rect width="1920" height="1080" fill="#253b5d"/><circle cx="960" cy="540" r="250" fill="#6d8ca4"/></svg>')
     (output/"probe.sh").write_text((Path(__file__).with_name("shima-nested-probe.sh")).read_text())
     (output/"probe.sh").chmod(0o755)
@@ -50,6 +58,7 @@ exec dbus-run-session -- niri -c /mnt/niri.kdl -- /mnt/probe.sh
     env["SHIMA_VERIFY_DESKTOP"] = "1" if args.verify_desktop else "0"
     env["SHIMA_VERIFY_WAVE"] = "1" if args.verify_wave else "0"
     env["SHIMA_VERIFY_THEME"] = "1" if args.verify_theme else "0"
+    env["SHIMA_VERIFY_PALETTE"] = "1" if args.verify_palette else "0"
     env["QT_QPA_PLATFORM"] = "wayland"
     env["DBUS_SYSTEM_BUS_ADDRESS"] = "unix:path=/no-host-system-bus"
     env["XDG_CONFIG_HOME"] = str(Path.home()/".config/shima-probe-config")

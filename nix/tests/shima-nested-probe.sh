@@ -54,6 +54,34 @@ for output in state:
     assert output["audioSubscribed"], output
 PYWAVE
     fi
+    if [[ "${SHIMA_VERIFY_PALETTE:-0}" == 1 ]]; then
+        ryoku-shima ipc call background ryokuVisualizerPaletteState > /mnt/palette-before.json
+        ryoku-shima ipc call settingsNav section 14 "Organic edge"
+        sleep 2
+        ryoku-shima ipc call settingsNav current > /mnt/palette-settings-page.txt
+        python3 - <<'PAMUTATE'
+from pathlib import Path
+p = Path.home() / ".cache/ryoku/colors.json"
+p.write_text('{"primary":"#123456","secondary":"#789abc","tertiary":"#def012"}\n')
+p = Path.home() / ".config/cava/config"
+p.write_text("[color]\nforeground = '#aabbcc'\ngradient = 1\ngradient_color_1 = '#aabbcc'\ngradient_color_2 = '#ddeeff'\n")
+PAMUTATE
+        sleep 3
+        ryoku-shima ipc call background ryokuVisualizerPaletteState > /mnt/palette-after.json
+        python3 - <<'PAVERIFY'
+import json
+from pathlib import Path
+before = json.loads(Path("/mnt/palette-before.json").read_text())
+after = json.loads(Path("/mnt/palette-after.json").read_text())
+assert before["theme"] == ["#347acd", "#a5b6c7", "#d2bade"], before
+assert before["cava"] == ["#a1b2c3", "#c2d3e4"], before
+assert before["media"][0] == "#a1b2c3" and before["media"][-1] == "#c2d3e4", before
+assert after["theme"] == ["#123456", "#789abc", "#def012"], after
+assert after["cava"] == ["#aabbcc", "#ddeeff"], after
+assert after["media"][0] == "#aabbcc" and after["media"][-1] == "#ddeeff", after
+assert Path("/mnt/palette-settings-page.txt").read_text().strip() == "14"
+PAVERIFY
+    fi
     if [[ "${SHIMA_VERIFY_THEME:-0}" == 1 ]]; then
         ryoku-shima ipc call iris tokens > /mnt/ryoku-before.json
         ryoku-shima ipc call iris theme apply:ryoku > /mnt/ryoku-theme-action.txt
