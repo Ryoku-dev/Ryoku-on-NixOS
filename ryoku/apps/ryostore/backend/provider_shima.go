@@ -31,11 +31,19 @@ func shimaItem() Item {
 		version = filepath.Base(ref)
 	}
 	current, _ := os.ReadFile(filepath.Join(filepath.Dir(shimaProfile()), "source"))
+	preview := os.Getenv("RYOKU_SHIMA_PREVIEW")
+	art := ""
+	if filepath.IsAbs(preview) {
+		if info, err := os.Stat(preview); err == nil && !info.IsDir() {
+			art = "file://" + preview
+		}
+	}
 	return Item{
 		ID: "iris", Category: "barstyles", Name: "Shima",
 		Summary:     "Complete iNiR desktop on Ryoku",
 		Description: "iRiS, Material ii and Waffle, with upstream widgets, audio visualizers, frame effects and Liquid Glass themes. Shima stays inside Ryoku, with Hub, RyoStore, Ryogami and system controls available.",
-		Author:      "snowarch", Upstream: "https://github.com/snowarch/iNiR",
+		Author:      "snowarch & aethctl", Upstream: "https://github.com/snowarch/iNiR",
+		Art:     art,
 		Version: "2.33.0", Installed: installed,
 		InstalledVersion: func() string {
 			if installed {

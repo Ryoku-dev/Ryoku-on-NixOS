@@ -256,7 +256,7 @@ func snapshotStaleBuiltins(data []byte) bool {
 		seen[it.ID] = true
 		if it.Name != want.Name || it.Summary != want.Summary || it.Description != want.Description ||
 			barStyleResourceTier(it) != barStyleResourceTier(want) ||
-			(it.ID == "iris" && (it.Installed != want.Installed || it.UpdateAvailable != want.UpdateAvailable || it.Version != want.Version || it.InstalledVersion != want.InstalledVersion)) {
+			(it.ID == "iris" && (it.Installed != want.Installed || it.UpdateAvailable != want.UpdateAvailable || it.Version != want.Version || it.InstalledVersion != want.InstalledVersion || it.Author != want.Author || it.Art != want.Art)) {
 			return true
 		}
 	}

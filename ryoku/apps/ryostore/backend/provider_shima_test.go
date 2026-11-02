@@ -91,6 +91,33 @@ func TestShimaUnownedRemovalRejected(t *testing.T) {
 	}
 }
 
+func TestShimaPreviewAndContributors(t *testing.T) {
+	shimaStoreTest(t)
+	preview := filepath.Join(t.TempDir(), "shima-preview.webp")
+	if err := os.WriteFile(preview, []byte("preview"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RYOKU_SHIMA_PREVIEW", preview)
+	item := shimaItem()
+	if item.ID != "iris" || item.Name != "Shima" {
+		t.Fatalf("existing Shima listing was replaced: %+v", item)
+	}
+	if item.Author != "snowarch & aethctl" {
+		t.Fatalf("Shima credits omitted original upstream author or Ryoku integrator: %s", item.Author)
+	}
+	if item.Art != "file://"+preview {
+		t.Fatalf("unexpected preview art: %q", item.Art)
+	}
+	if item.Upstream != "https://github.com/snowarch/iNiR" {
+		t.Fatalf("upstream attribution lost: %q", item.Upstream)
+	}
+
+	t.Setenv("RYOKU_SHIMA_PREVIEW", filepath.Join(t.TempDir(), "missing.webp"))
+	if art := shimaItem().Art; art != "" {
+		t.Fatalf("missing preview file should not create a broken image URL: %q", art)
+	}
+}
+
 func TestShimaUsesSingleExistingBarStyleEntry(t *testing.T) {
 	shimaStoreTest(t)
 	items := builtinBarStyles()

@@ -35,7 +35,12 @@ pkgs.stdenv.mkDerivation {
       ryostore \
       "$out/bin/ryostore"
 
+    install -Dm644 \
+      ${./assets/shima-preview.webp} \
+      "$out/share/ryostore/shima-preview.webp"
+
     wrapProgram "$out/bin/ryostore" \
+      --set RYOKU_SHIMA_PREVIEW "$out/share/ryostore/shima-preview.webp" \
       --set RYOKU_SHIMA_FLAKE "${import ./shima-install-source.nix { inherit pkgs src; }}" \
       --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.nixVersions.latest ]}"
 
