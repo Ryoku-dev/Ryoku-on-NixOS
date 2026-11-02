@@ -73,6 +73,16 @@ class ISOInstallerTests(unittest.TestCase):
         )
         self.assertNotIn("pinned-release", output)
 
+    def test_failed_cleanup_reports_mount_problem_without_forced_detach(self):
+        backend = Path(os.environ["RYOKU_INSTALL_BACKEND_SOURCE"]).read_text()
+        cleanup = backend.split("  iso_cleanup() {", 1)[1].split("\n  }", 1)[0]
+        self.assertIn('findmnt -rn --mountpoint "$target_root"', cleanup)
+        self.assertIn('if ! run_root umount -R "$target_root"', cleanup)
+        self.assertIn('WARNING: could not unmount', cleanup)
+        self.assertNotIn('umount -Rl', cleanup)
+        self.assertNotIn('swapoff -a', cleanup)
+        self.assertIn('an earlier installation may be incomplete', backend)
+
     def test_preflight_cleanup_is_armed_before_lock_resolution(self):
         backend = Path(os.environ["RYOKU_INSTALL_BACKEND_SOURCE"]).read_text()
         trap = backend.index("trap iso_cleanup EXIT")
