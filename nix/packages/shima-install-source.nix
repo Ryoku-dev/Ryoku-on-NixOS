@@ -29,7 +29,7 @@ let
 in pkgs.runCommand "ryoku-shima-install-source" {} ''
   mkdir -p "$out/shima"
   cp ${src}/nix/packages/ryoku-shima.nix "$out/ryoku-shima.nix"
-  cp ${src}/nix/packages/shima/* "$out/shima/"
+  cp ${src}/nix/packages/shima/*.py ${src}/nix/packages/shima/*.qml ${src}/nix/packages/shima/NOTICE "$out/shima/"
   cp ${pkgs.writeText "flake.nix" definition} "$out/flake.nix"
   cp ${pkgs.writeText "flake.lock" (builtins.toJSON runtimeLock)} "$out/flake.lock"
 ''
