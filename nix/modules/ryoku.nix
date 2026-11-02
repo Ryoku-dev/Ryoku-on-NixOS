@@ -1075,6 +1075,8 @@ in
   options.programs.ryoku = {
     enable = lib.mkEnableOption "Ryoku desktop";
 
+    shima.enable = lib.mkEnableOption "the experimental complete upstream Shima runtime";
+
     upstreamPackages.enable = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -1664,7 +1666,7 @@ in
     '';
 
     environment.systemPackages =
-      runtimePackages;
+      runtimePackages ++ lib.optional cfg.shima.enable self.packages.${system}.ryoku-shima;
 
 
     # A fresh installer can choose the initial compositor while all three
@@ -1895,7 +1897,8 @@ in
         "ryoku-materialize.service"
       ];
 
-      path = [ ryokuPrivilegePath ] ++ runtimePackages;
+      path = [ ryokuPrivilegePath ] ++ runtimePackages
+        ++ lib.optional cfg.shima.enable self.packages.${system}.ryoku-shima;
 
       unitConfig = {
         ConditionEnvironment = "WAYLAND_DISPLAY";
@@ -2145,6 +2148,7 @@ in
       path = [ ryokuPrivilegePath ] ++ runtimePackages;
 
       environment = {
+        RYOKU_SHIMA_ENABLE = if cfg.shima.enable then "1" else "0";
 
         RYOKU_DOCKER_HOST_MANAGED = "1";
 

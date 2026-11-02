@@ -15,6 +15,11 @@
     ryokuPackagesNixpkgs.url =
       "github:NixOS/nixpkgs/56c02bc00adcf003215cc4bd996d6efaf4cff188";
 
+    inirSrc = {
+      url = "github:snowarch/iNiR/48cdcecb0f6089cfbb7019054602eab28e154b3b";
+      flake = false;
+    };
+
     skwdWall = {
       url = "github:liixini/skwd-wall/nix";
     };
@@ -35,7 +40,7 @@
     };
   };
 
-  outputs = { self, ryokuUpstream, ryomarket, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ... }:
+  outputs = { self, ryokuUpstream, ryomarket, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, inirSrc, ... }:
     let
       version =
         builtins.replaceStrings
@@ -109,6 +114,8 @@
           ryokuUpstream.packages.${system}.ryoku-desktop
         ];
       };
+
+      ryokuShima = import ./nix/packages/ryoku-shima.nix { inherit pkgs; src = inirSrc; };
 
       ryokuNixosModule =
         import ./nix/modules/ryoku.nix {
@@ -187,6 +194,7 @@
         };
 
       packages.${system} = {
+        ryoku-shima = ryokuShima;
         ryoku-upstream-desktop = ryokuUpstream.packages.${system}.ryoku-desktop;
         ryoku-upstream-nixos-bundle = ryokuUpstreamNixosBundle;
         ryoku-install = ryokuInstall;
@@ -276,6 +284,17 @@
       };
 
       checks.${system} = {
+        ryoku-shima-layout = pkgs.runCommand "ryoku-shima-layout" {} ''
+          test -x ${ryokuShima}/bin/ryoku-shima
+          test ! -e ${ryokuShima}/bin/inir
+          test -f ${ryokuShima}/share/quickshell/inir/LICENSE
+          for family in Iris Ii Waffle; do
+            test -f ${ryokuShima}/share/quickshell/inir/Shell''${family}Panels.qml
+          done
+          ${ryokuShima}/bin/ryoku-shima --version | grep -F '2.33.0'
+          touch "$out"
+        '';
+
         ryoku-installer-options = import ./nix/tests/installer-options.nix {
           inherit pkgs;
           module = self.nixosModules.default;
