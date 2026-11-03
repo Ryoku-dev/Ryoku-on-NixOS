@@ -39,7 +39,7 @@ in pkgs.runCommand "ryoku-shima-install-source" {} ''
   cp ${src}/ryoku/ui/Singletons/Tokens.qml "$out/ryoku/ui/Singletons/Tokens.qml"
   cp ${src}/nix/packages/ryoku-shima.nix "$out/ryoku-shima.nix"
   cp ${src}/nix/packages/quickshell-screencopy-overlay.nix "$out/quickshell-screencopy-overlay.nix"
-  cp ${src}/nix/packages/shima/*.py ${src}/nix/packages/shima/*.qml ${src}/nix/packages/shima/*.qmlfrag ${src}/nix/packages/shima/NOTICE "$out/shima/"
+  cp ${src}/nix/packages/shima/*.py ${src}/nix/packages/shima/*.qml ${src}/nix/packages/shima/*.qmlfrag ${src}/nix/packages/shima/*.patch ${src}/nix/packages/shima/NOTICE "$out/shima/"
   cp ${pkgs.writeText "flake.nix" definition} "$out/flake.nix"
   cp ${pkgs.writeText "flake.lock" (builtins.toJSON runtimeLock)} "$out/flake.lock"
 ''

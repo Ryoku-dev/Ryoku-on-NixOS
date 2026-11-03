@@ -123,6 +123,31 @@ class ShimaAppearanceTests(unittest.TestCase):
             self.assertIn(band, pulse)
         self.assertIn('running: root.active && (cava.audioSignalActive', pulse)
 
+    def test_ricelin_shell_and_bar_switcher(self):
+        qml = self.source("modules/pill/PillSettings.qml")
+        self.assertIn('text: Translation.tr("Switch shell & bar")', qml)
+        self.assertIn('root.switcherOpen = !root.switcherOpen', qml)
+        self.assertIn('Quickshell.shellPath("scripts/inir"), "panelFamily", "set", family', qml)
+        self.assertIn('Config.setNestedValue("bar.appearanceStyle", style)', qml)
+        for name in ("iris", "ii", "waffle", "classic", "islands", "scenic", "frame", "m3", "pill"):
+            self.assertIn('id: "' + name + '"', qml)
+
+    def test_overview_uses_ryogami_wallpaper(self):
+        qml = self.source("modules/overview/OverviewNiriWidget.qml")
+        self.assertIn('RyokuHost.ready ? RyokuHost.pathFor(monitor)', qml)
+        self.assertIn('Wallpapers.stillUrlFor(hostPath)', qml)
+        self.assertIn('WallpaperListener.wallpaperUrlForScreen', qml)
+        self.assertIn('source: root.wallpaperPath', qml)
+
+    def test_launcher_is_separate_from_overview(self):
+        qml = self.source("shell.qml")
+        self.assertIn('case "launcher": return ryokuLauncher', qml)
+        self.assertIn('case "overview": return ryokuOverview', qml)
+        self.assertIn('id: ryokuLauncher; target: "launcher"', qml)
+        self.assertIn('GlobalStates.pillSurfaceCommand("open", "launcher")', qml)
+        self.assertIn('GlobalStates.searchOpen = true', qml)
+        self.assertIn('GlobalStates.openOverview("")', qml)
+
     def test_shima_family_actions_are_accessible(self):
         menu = self.source("modules/iris/background/IrisDesktopActions.qml")
         for family in ("iris", "ii", "waffle"):

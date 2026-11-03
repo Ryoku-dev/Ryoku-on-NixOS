@@ -7,6 +7,7 @@ in upstream.overrideAttrs (old: {
     python3 ${./shima/host-patch.py} . ${./shima/ShellBridge.qmlfrag} ${./shima/RyokuHost.qml} ${./shima/PolkitServiceImpl.qml} ${./shima/Lock.qml} ${ryokuTokens}
     python3 ${./shima/appearance-controls.py} .
     python3 ${./shima/visualizer-palette-patch.py} . ${./shima/RyokuVisualizerPalette.qml}
+    patch -p1 --fuzz=0 < ${./shima/interaction-fixes.patch}
   '';
   postInstall = (old.postInstall or "") + ''
     rm "$out/bin/inir"
