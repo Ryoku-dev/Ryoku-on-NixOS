@@ -3,11 +3,13 @@ let
   upstream = import (src + "/nix/package.nix") { inherit pkgs; };
 in upstream.overrideAttrs (old: {
   pname = "ryoku-shima";
+  nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ pkgs.git ];
   postPatch = (old.postPatch or "") + ''
     python3 ${./shima/host-patch.py} . ${./shima/ShellBridge.qmlfrag} ${./shima/RyokuHost.qml} ${./shima/PolkitServiceImpl.qml} ${./shima/Lock.qml} ${ryokuTokens}
     python3 ${./shima/appearance-controls.py} .
     python3 ${./shima/visualizer-palette-patch.py} . ${./shima/RyokuVisualizerPalette.qml}
     patch -p1 --fuzz=0 < ${./shima/interaction-fixes.patch}
+    git apply --unidiff-zero ${../../ryoku/shell/quickshell/inir/patches/shima-overview-terminal.patch}
   '';
   postInstall = (old.postInstall or "") + ''
     rm "$out/bin/inir"

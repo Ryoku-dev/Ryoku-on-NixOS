@@ -9,4 +9,4 @@ git -C "$shima_source" apply --unidiff-zero shima-overview-terminal.patch
 
 It restores the Niri overview wallpaper layer and makes automatic terminal recolouring opt-in. Existing explicitly enabled settings remain respected. The embedded iRiS default is changed separately in `modules/common/IrisDefaults.js`.
 
-The patch is not applied automatically by this repository. The standalone package builder must apply it to its source before installation.
+The Nix `ryoku-shima` derivation applies this patch during `postPatch`, after its existing host, appearance, visualiser and interaction patches. The Nix store retains the patched immutable runtime.
