@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -125,19 +127,6 @@ func TestISODiskAutomationSelectsDirectBackend(t *testing.T) {
 	}
 }
 
-func TestMangoChoiceIsAvailable(t *testing.T) {
-	found := false
-	for _, c := range flow[0].choices {
-		if c.key == "mango" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("MangoWM must remain available in the Ryoku Nix installer")
-	}
-}
-
 func TestISOKernelChoicesMatchBackendContract(t *testing.T) {
 	want := []string{"default", "latest", "zen"}
 	choices := isoChoices("kernel")
@@ -164,7 +153,7 @@ func TestISOBackendArgsAreFullyNonInteractive(t *testing.T) {
 	joined := strings.Join(args, " ")
 	for _, required := range []string{
 		"--iso", "--yes", "--disk /dev/vda", "--confirm-disk /dev/vda",
-		"--filesystem ext4", "--hostname ryoku", "--username ryoku",
+		"--filesystem ext4", "--hostname ryoku", "--username user",
 		"--timezone UTC", "--locale en_US.UTF-8", "--keyboard us",
 		"--kernel default", "--gpu auto", "--firmware auto",
 		"--config-mode ryoku",
@@ -260,7 +249,7 @@ func TestDefaultSourceIsNotForwardedAsExplicitOverride(t *testing.T) {
 func TestISOTextFieldsAcceptQ(t *testing.T) {
 	o := defaultOptions()
 	o.iso = true
-	for _, key := range []string{"hostname", "username", "timezone", "locale", "keyboard", "import-path", "import-host"} {
+	for _, key := range []string{"hostname", "username", "import-path", "import-host"} {
 		m := newISOModel(o)
 		m.gotoKey(key)
 		before := m.text[key]
@@ -283,6 +272,43 @@ func TestISOTextFieldsAcceptQ(t *testing.T) {
 	}
 }
 
+func TestISOTimezonePickerAcceptsQAsSearch(t *testing.T) {
+    o := defaultOptions()
+    o.iso = true
+
+    m := newISOModel(o)
+    m.timezones = []string{
+        "America/Sao_Paulo",
+        "UTC",
+    }
+
+    m.gotoKey("timezone")
+
+    before := m.text["timezone"]
+
+    model, cmd := m.onKey("q")
+    got := model.(isoModel)
+
+    if cmd != nil {
+        t.Fatal("typing q unexpectedly returned a command")
+    }
+
+    if got.timezoneQuery != "q" {
+        t.Fatalf(
+            "q was not entered into timezone search: got %q",
+            got.timezoneQuery,
+        )
+    }
+
+    if got.text["timezone"] != before {
+        t.Fatalf(
+            "search modified selected timezone: before=%q after=%q",
+            before,
+            got.text["timezone"],
+        )
+    }
+}
+
 func TestISOInstallStepContractIncludesPreflightValidation(t *testing.T) {
 	steps := isoInstallSteps()
 	if len(steps) != 7 || steps[0] != "Resolve flake inputs" || steps[1] != "Validate target config" {
@@ -290,5 +316,63 @@ func TestISOInstallStepContractIncludesPreflightValidation(t *testing.T) {
 	}
 	if idx, ok := isoInstallStepIndex("validate"); !ok || idx != 1 {
 		t.Fatalf("validate step index = %d, %v", idx, ok)
+	}
+}
+
+func TestISOBackendFailureKeepsDiagnosticsAndBlocksRetry(t *testing.T) {
+	dir := t.TempDir()
+	backend := filepath.Join(dir, "backend")
+	content := "#!/bin/sh\nprintf '@@RYOKU_STEP install\\n'\nprintf 'nixos-install: simulated build failure\\n'\nexit 42\n"
+	if err := os.WriteFile(backend, []byte(content), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RYOKU_INSTALL_BACKEND", backend)
+	t.Setenv("TMPDIR", dir)
+	o := defaultOptions()
+	o.iso = true
+	m := newISOModel(o)
+	m.w, m.h = 120, 44
+	m.gotoKey("confirm")
+	m.picks["disk"] = "/dev/vda"
+	m.text["disk-confirm"] = "/dev/vda"
+	started, next := m.onKey("enter")
+	m = started.(isoModel)
+	if !m.installing || next == nil {
+		t.Fatal("confirmed install did not start")
+	}
+	for i := 0; i < 15; i++ {
+		model, cmd := m.Update(next())
+		m = model.(isoModel)
+		if !m.installing {
+			break
+		}
+		next = cmd
+		if next == nil {
+			t.Fatal("stream stopped before backend completed")
+		}
+	}
+	if !m.failed || m.done || m.err == nil || m.installing {
+		t.Fatalf("backend failure not retained: failed=%v done=%v installing=%v err=%v", m.failed, m.done, m.installing, m.err)
+	}
+	if m.installAt != 5 || m.installLogPath == "" {
+		t.Fatalf("missing install stage or log: stage=%d path=%q", m.installAt, m.installLogPath)
+	}
+	data, err := os.ReadFile(m.installLogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "simulated build failure") {
+		t.Fatalf("backend output not logged: %q", data)
+	}
+	screen := isoANSI.ReplaceAllString(m.render(), "")
+	if !strings.Contains(screen, "Do not confirm the disk again") || !strings.Contains(screen, "Full log:") || !strings.Contains(screen, "ryoku-") {
+		t.Fatal("failure screen lacks safety guidance or log filename")
+	}
+	for _, key := range []string{"x", "r"} {
+		model, cmd := m.onKey(key)
+		m = model.(isoModel)
+		if cmd != nil || m.installing || !m.failed || m.current().key != "confirm" {
+			t.Fatalf("%s restarted installation or cleared failure", key)
+		}
 	}
 }

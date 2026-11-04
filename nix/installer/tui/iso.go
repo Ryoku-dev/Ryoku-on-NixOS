@@ -32,12 +32,10 @@ var isoFlow = []isoStep{
 	{key: "network", title: "Network", desc: "Ryoku verifies HTTPS access to the Nix binary cache before installation."},
 	{key: "disk", title: "Installation disk", desc: "Choose the whole disk Ryoku will erase and partition."},
 	{key: "filesystem", title: "Filesystem", desc: "Choose the filesystem for the new NixOS root."},
-	{key: "hostname", title: "Hostname", desc: "Name this machine on your local network."},
 	{key: "username", title: "Username", desc: "Create the primary Ryoku user."},
+	{key: "hostname", title: "Hostname", desc: "Name this machine on your local network."},
 	{key: "password", title: "Password", desc: "The plaintext password stays inside this process. Only its yescrypt hash reaches the backend."},
-	{key: "timezone", title: "Timezone", desc: "Use an IANA timezone such as Europe/London or UTC."},
-	{key: "locale", title: "Locale", desc: "Choose the system locale, for example en_GB.UTF-8."},
-	{key: "keyboard", title: "Keyboard", desc: "Choose the XKB keyboard layout, for example gb or us."},
+	{key: "timezone", title: "Timezone", desc: "Search and select your IANA timezone."},
 	{key: "kernel", title: "Kernel", desc: "Choose a kernel policy from the ISO's pinned nixpkgs revision."},
 	{key: "compositor", title: "Window manager", desc: "Choose the Ryoku compositor selected on first boot."},
 	{key: "browser", title: "Web browser", desc: "Choose the declarative browser role."},
@@ -81,11 +79,20 @@ type isoModel struct {
 	passwordField int
 	passwordHash  string
 
-	installing bool
-	installAt  int
-	installLog []string
-	istream    *isoInstallStream
-	done       bool
+	timezones       []string
+	timezoneQuery   string
+	timezoneCursor  int
+	timezoneOffset  int
+	timezoneLoadErr error
+
+	installing     bool
+	installAt      int
+	installLog     []string
+	installLogPath string
+	installError   string
+	istream        *isoInstallStream
+	done           bool
+	failed         bool
 }
 
 type isoNetworkMsg struct {
@@ -102,14 +109,22 @@ type isoPasswordHashMsg struct {
 	hash string
 	err  error
 }
+type isoTimezonesMsg struct {
+    zones []string
+    err   error
+}
 type isoInstallLineMsg string
 type isoInstallStepMsg int
-type isoInstallDoneMsg struct{ err error }
+type isoInstallDoneMsg struct {
+    err    error
+    stderr string
+}
 
 type isoInstallStream struct {
 	ch       chan tea.Msg
 	cmd      *exec.Cmd
 	procDone chan struct{}
+	logFile  *os.File
 }
 
 func (s *isoInstallStream) wait() tea.Cmd { return func() tea.Msg { return <-s.ch } }
@@ -148,8 +163,8 @@ func newISOModel(opts options) isoModel {
 		},
 		keep: keep,
 		text: map[string]string{
+	  	"username":     "user",
 			"hostname":     "ryoku",
-			"username":     "ryoku",
 			"password":     "",
 			"confirm":      "",
 			"timezone":     "UTC",
@@ -163,7 +178,11 @@ func newISOModel(opts options) isoModel {
 }
 
 func (m isoModel) Init() tea.Cmd {
-	return tea.Batch(isoCheckNetworkCmd(), isoLoadDisksCmd())
+    return tea.Batch(
+        isoCheckNetworkCmd(),
+        isoLoadDisksCmd(),
+        isoLoadTimezonesCmd(),
+    )
 }
 
 func isoCheckNetworkCmd() tea.Cmd {
@@ -174,6 +193,17 @@ func isoCheckNetworkCmd() tea.Cmd {
 		}
 		return isoNetworkMsg{online: true}
 	}
+}
+
+func isoLoadTimezonesCmd() tea.Cmd {
+    return func() tea.Msg {
+        zones, err := loadTimezones(os.Getenv("RYOKU_ZONEINFO_DIR"))
+
+        return isoTimezonesMsg{
+            zones: zones,
+            err:   err,
+        }
+    }
 }
 
 func isoConfigureNetworkCmd() tea.Cmd {
@@ -370,7 +400,7 @@ func isoChoices(key string) []choice {
 			{"zen", "Zen", "desktop-focused tuning from linuxPackages_zen"},
 		}
 	case "compositor":
-		return []choice{{"hyprland", "Hyprland", "dynamic tiling · effects · broad ecosystem"}, {"niri", "niri", "scrollable tiling · clean columns"}, {"mango", "MangoWM", "dynamic tiling · lightweight"}}
+		return []choice{{"hyprland", "Hyprland", "dynamic tiling · effects · broad ecosystem"}, {"niri", "niri", "scrollable tiling · clean columns"}}
 	case "browser":
 		return []choice{{"chromium", "Chromium", "Chromium engine · Ryoku NixOS default"}, {"firefox", "Firefox", "Gecko engine · Mozilla browser"}}
 	case "shell":
@@ -571,9 +601,25 @@ func isoSanitizeLine(s string) string {
 	}, s)
 }
 
+func isoSanitizeOutput(output string) string {
+    lines := strings.Split(output, "\n")
+
+    for i := range lines {
+        lines[i] = strings.TrimSpace(isoSanitizeLine(lines[i]))
+    }
+
+    return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
 func (m *isoModel) startInstall() tea.Cmd {
 	stream := &isoInstallStream{ch: make(chan tea.Msg, 128), procDone: make(chan struct{})}
 	m.istream = stream
+	logFile, err := os.CreateTemp(os.TempDir(), "ryoku-iso-install-*.log")
+	if err != nil {
+		return func() tea.Msg { return isoInstallDoneMsg{err: fmt.Errorf("cannot create installer log: %w", err)} }
+	}
+	stream.logFile = logFile
+	m.installLogPath = logFile.Name()
 	cmd := exec.Command(backendPath(), m.backendArgs()...)
 	cmd.Env = os.Environ()
 	if m.picks["configuration"] == "ryoku" && !m.opts.dryRun {
@@ -581,14 +627,21 @@ func (m *isoModel) startInstall() tea.Cmd {
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	pr, pw := io.Pipe()
-	cmd.Stdout, cmd.Stderr = pw, pw
+	var stderr bytes.Buffer
+	cmd.Stdout = pw
+	cmd.Stderr = io.MultiWriter(pw, &stderr)
 	stream.cmd = cmd
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
+		_ = pw.Close()
+		_ = pr.Close()
 		close(stream.procDone)
 		stream.ch <- isoInstallDoneMsg{err: err}
 		return stream.wait()
 	}
 	go func() {
+		defer pr.Close()
+		defer logFile.Close()
 		done := make(chan error, 1)
 		go func() {
 			done <- cmd.Wait()
@@ -599,6 +652,9 @@ func (m *isoModel) startInstall() tea.Cmd {
 		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
+			if _, err := fmt.Fprintln(logFile, isoSanitizeLine(line)); err != nil {
+				stream.ch <- isoInstallLineMsg("Could not write installer log: " + err.Error())
+			}
 			if id, ok := strings.CutPrefix(line, "@@RYOKU_STEP "); ok {
 				if idx, ok := isoInstallStepIndex(strings.TrimSpace(id)); ok {
 					stream.ch <- isoInstallStepMsg(idx)
@@ -613,10 +669,16 @@ func (m *isoModel) startInstall() tea.Cmd {
 			}
 		}
 		if err := scanner.Err(); err != nil {
-			stream.ch <- isoInstallDoneMsg{err: err}
-			return
+      stream.ch <- isoInstallDoneMsg{err: err}
+      return
 		}
-		stream.ch <- isoInstallDoneMsg{err: <-done}
+
+		waitErr := <-done
+
+		stream.ch <- isoInstallDoneMsg{
+      err:    waitErr,
+      stderr: stderr.String(),
+		}
 	}()
 	return stream.wait()
 }
@@ -676,20 +738,41 @@ func (m isoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.next()
 		return m, nil
+	case isoTimezonesMsg:
+    m.timezones = msg.zones
+    m.timezoneLoadErr = msg.err
+    if msg.err == nil {
+        m.timezoneCursor = 0
+        for i, zone := range m.timezones {
+            if zone == m.text["timezone"] {
+                m.timezoneCursor = i
+                break
+            }
+        }
+        m.fixTimezoneScroll()
+    }
+    return m, nil
 	case isoInstallLineMsg:
 		m.installLog = append(m.installLog, string(msg))
+		if len(m.installLog) > 300 {
+			m.installLog = m.installLog[len(m.installLog)-300:]
+		}
 		return m, m.istream.wait()
 	case isoInstallStepMsg:
 		m.installAt = int(msg)
 		return m, m.istream.wait()
 	case isoInstallDoneMsg:
-		m.installing = false
-		m.err = msg.err
-		if msg.err == nil {
-			m.done = true
-			m.installAt = len(isoInstallSteps())
-		}
-		return m, nil
+    m.installing = false
+    m.text["disk-confirm"] = ""
+    m.err = msg.err
+    m.failed = msg.err != nil
+    m.installError = isoSanitizeOutput(msg.stderr)
+    if msg.err == nil {
+        m.done = true
+        m.installError = ""
+        m.installAt = len(isoInstallSteps())
+    }
+    return m, nil
 	case tea.KeyPressMsg:
 		return m.onKey(msg.String())
 	case tea.MouseWheelMsg:
@@ -710,7 +793,7 @@ func (m isoModel) onKey(k string) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	}
-	if m.done {
+	if m.done || m.failed {
 		if k == "enter" || k == "q" || k == "esc" {
 			return m, tea.Quit
 		}
@@ -732,6 +815,13 @@ func (m isoModel) onKey(k string) (tea.Model, tea.Cmd) {
 	}
 	if k == "esc" {
 		m.err = nil
+
+		if m.current().key == "timezone" {
+        m.timezoneQuery = ""
+        m.timezoneCursor = 0
+        m.timezoneOffset = 0
+    }
+
 		m.back()
 		m.setChoiceCursor(m.current().key)
 		return m, nil
@@ -834,7 +924,9 @@ func (m isoModel) onKey(k string) (tea.Model, tea.Cmd) {
 		}
 		m.text[field] = appendInput(m.text[field], k)
 		return m, nil
-	case "hostname", "username", "timezone", "locale", "keyboard", "import-path", "import-host":
+	case "timezone":
+    return m.onTimezoneKey(k)
+	case "hostname", "username", "locale", "keyboard", "import-path", "import-host":
 		if k == "enter" || k == "tab" {
 			if err := m.validateTextStep(key); err != nil {
 				m.err = err
@@ -859,6 +951,8 @@ func (m isoModel) onKey(k string) (tea.Model, tea.Cmd) {
 				m.installing = true
 				m.installAt = 0
 				m.installLog = nil
+				m.installError = ""
+				m.failed = false
 				m.err = nil
 				return m, m.startInstall()
 			}
@@ -997,8 +1091,8 @@ func inputLine(label, value string, active, secret bool) string {
 }
 
 func (m isoModel) passwordBody() string {
-	return inputLine("Password", m.text["password"], m.passwordField == 0, true) + "\n\n" +
-		inputLine("Confirm", m.text["confirm"], m.passwordField == 1, true) + "\n\n" +
+	return inputLine("* Password", m.text["password"], m.passwordField == 0, true) + "\n\n" +
+		inputLine("* Confirm", m.text["confirm"], m.passwordField == 1, true) + "\n\n" +
 		fg(cSub, "Tab switches fields. Enter on Confirm hashes the password with yescrypt.")
 }
 
@@ -1008,6 +1102,173 @@ func (m isoModel) textBody(key string) string {
 		label = "Host"
 	}
 	return inputLine(label, m.text[key], true, false)
+}
+
+
+func (m isoModel) filteredTimezones() []string {
+	return filterTimezones(m.timezones, m.timezoneQuery)
+}
+
+func (m isoModel) timezoneVisibleCount() int {
+	switch {
+	case m.h > 40:
+		return 12
+	case m.h > 32:
+		return 9
+	default:
+		return 6
+	}
+}
+
+func (m *isoModel) fixTimezoneScroll() {
+	matches := m.filteredTimezones()
+
+	if len(matches) == 0 {
+		m.timezoneCursor = 0
+		m.timezoneOffset = 0
+		return
+	}
+
+	visible := m.timezoneVisibleCount()
+	m.timezoneCursor = clamp(m.timezoneCursor, 0, len(matches)-1)
+
+	if m.timezoneCursor < m.timezoneOffset {
+		m.timezoneOffset = m.timezoneCursor
+	}
+
+	if m.timezoneCursor >= m.timezoneOffset+visible {
+		m.timezoneOffset = m.timezoneCursor - visible + 1
+	}
+
+	maxOffset := len(matches) - visible
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+
+	m.timezoneOffset = clamp(m.timezoneOffset, 0, maxOffset)
+}
+
+func (m isoModel) onTimezoneKey(k string) (tea.Model, tea.Cmd) {
+	matches := m.filteredTimezones()
+
+	switch k {
+	case "up":
+		if len(matches) > 0 {
+			m.timezoneCursor = clamp(
+				m.timezoneCursor-1,
+				0,
+				len(matches)-1,
+			)
+		}
+
+	case "down":
+		if len(matches) > 0 {
+			m.timezoneCursor = clamp(
+				m.timezoneCursor+1,
+				0,
+				len(matches)-1,
+			)
+		}
+
+	case "enter", "tab":
+		if len(matches) == 0 {
+			m.err = fmt.Errorf(
+				"no timezones match %q",
+				m.timezoneQuery,
+			)
+			return m, nil
+		}
+
+		m.text["timezone"] = matches[m.timezoneCursor]
+		m.timezoneQuery = ""
+		m.timezoneCursor = 0
+		m.timezoneOffset = 0
+		m.err = nil
+
+		m.next()
+		m.setChoiceCursor(m.current().key)
+
+		return m, nil
+
+	case "backspace":
+		m.timezoneQuery = appendInput(m.timezoneQuery, k)
+		m.timezoneCursor = 0
+		m.timezoneOffset = 0
+		m.err = nil
+
+	default:
+		if value, ok := inputKey(k); ok {
+			m.timezoneQuery += value
+			m.timezoneCursor = 0
+			m.timezoneOffset = 0
+			m.err = nil
+		}
+	}
+
+	m.fixTimezoneScroll()
+
+	return m, nil
+}
+
+func (m isoModel) timezoneBody() string {
+	if m.timezoneLoadErr != nil {
+		return bold(cRed, "Could not load timezone database") +
+			"\n\n" + fg(cSub, m.timezoneLoadErr.Error()) +
+			"\n\n" + fg(cSub, "Check RYOKU_ZONEINFO_DIR and rebuild the installer.")
+	}
+
+	if len(m.timezones) == 0 {
+		return fg(cSub, "Loading timezone database…")
+	}
+
+	matches := m.filteredTimezones()
+
+	var b strings.Builder
+
+	b.WriteString(inputLine(
+		"Search",
+		m.timezoneQuery,
+		true,
+		false,
+	) + "\n")
+
+	b.WriteString(
+		fg(cSub, fmt.Sprintf("%d matching timezones", len(matches))) +
+			"\n\n",
+	)
+
+	if len(matches) == 0 {
+		b.WriteString(bold(cYell, "No matching timezones found."))
+	} else {
+		visible := m.timezoneVisibleCount()
+
+		start := clamp(
+			m.timezoneOffset,
+			0,
+			max(0, len(matches)-visible),
+		)
+
+		end := clamp(start+visible, 0, len(matches))
+
+		for i := start; i < end; i++ {
+			prefix := "  "
+			name := fg(cText, matches[i])
+
+			if i == m.timezoneCursor {
+				prefix = bold(cBrand, "▌ ")
+				name = bold(cText, matches[i])
+			}
+
+			b.WriteString(prefix + name + "\n")
+		}
+	}
+
+	b.WriteString(
+		"\n" + fg(cSub, "Current selection: ") +
+			bold(cText, m.text["timezone"]),
+	)
+
+	return b.String()
 }
 
 func (m isoModel) appsBody() string {
@@ -1119,6 +1380,46 @@ func (m isoModel) installBody() string {
 	return sty().Width(92).Border(border()).BorderForeground(cSub).Padding(1, 2).Render(strings.TrimRight(b.String(), "\n"))
 }
 
+func (m isoModel) failedBody() string {
+	var b strings.Builder
+	b.WriteString(bold(cRed, "Ryoku installation failed") + "\n\n")
+	if m.installError != "" {
+    b.WriteString(bold(cYell, "Backend error output") + "\n")
+
+    errorLines := strings.Split(m.installError, "\n")
+    if len(errorLines) > 8 {
+        errorLines = errorLines[len(errorLines)-8:]
+    }
+
+    b.WriteString(fg(cText, strings.Join(errorLines, "\n")) + "\n\n")
+	} else {
+    b.WriteString(fg(cText, fmt.Sprint(m.err)) + "\n\n")
+	}
+	steps := isoInstallSteps()
+	if m.installAt >= 0 && m.installAt < len(steps) {
+		b.WriteString(fg(cSub, "Last stage: ") + fg(cText, steps[m.installAt]) + "\n")
+	}
+	if m.installLogPath != "" {
+		b.WriteString(fg(cSub, "Full log: ") + fg(cText, m.installLogPath) + "\n")
+	}
+	b.WriteString("\n" + bold(cYell, "Do not confirm the disk again. The target may already be partitioned.") + "\n")
+	b.WriteString(fg(cSub, "Leave the installer to inspect the log and recover from the live environment.") + "\n")
+	if len(m.installLog) > 0 {
+		b.WriteString("\n" + bold(cText, "Last output") + "\n")
+		log := m.installLog
+		if len(log) > 10 {
+			log = log[len(log)-10:]
+		}
+		for _, line := range log {
+			if len([]rune(line)) > 110 {
+				line = string([]rune(line)[:110]) + "…"
+			}
+			b.WriteString(fg(cSub, line) + "\n")
+		}
+	}
+	return sty().Width(92).Border(border()).BorderForeground(cRed).Padding(1, 2).Render(strings.TrimRight(b.String(), "\n"))
+}
+
 func (m isoModel) wizardBody() string {
 	step := m.current()
 	var body string
@@ -1131,8 +1432,10 @@ func (m isoModel) wizardBody() string {
 		body = m.passwordBody()
 	case "apps":
 		body = m.appsBody()
-	case "hostname", "username", "timezone", "locale", "keyboard", "import-path", "import-host":
-		body = m.textBody(step.key)
+	case "timezone":
+    body = m.timezoneBody()
+	case "hostname", "username", "locale", "keyboard", "import-path", "import-host":
+    body = m.textBody(step.key)
 	case "review":
 		body = m.reviewBody()
 	case "confirm":
@@ -1158,6 +1461,9 @@ func (m isoModel) footer() string {
 	if m.done {
 		return keyHint("enter", "close")
 	}
+	if m.failed {
+		return keyHint("enter", "exit to live shell")
+	}
 	key := m.current().key
 	switch key {
 	case "network":
@@ -1169,7 +1475,15 @@ func (m isoModel) footer() string {
 		return keyHint("↑↓", "move") + fg(cDim, "  ·  ") + keyHint("space", "toggle") + fg(cDim, "  ·  ") + keyHint("a/n", "all/none") + fg(cDim, "  ·  ") + keyHint("enter", "next")
 	case "password":
 		return keyHint("tab", "switch field") + fg(cDim, "  ·  ") + keyHint("enter", "continue") + fg(cDim, "  ·  ") + keyHint("esc", "back")
-	case "hostname", "username", "timezone", "locale", "keyboard", "import-path", "import-host", "confirm":
+	case "timezone":
+    return keyHint("type", "search") +
+        fg(cDim, "  ·  ") +
+        keyHint("↑↓", "browse") +
+        fg(cDim, "  ·  ") +
+        keyHint("enter", "select") +
+        fg(cDim, "  ·  ") +
+        keyHint("esc", "back")
+	case "hostname", "username", "locale", "keyboard", "import-path", "import-host", "confirm":
 		return keyHint("enter", "continue") + fg(cDim, "  ·  ") + keyHint("backspace", "edit") + fg(cDim, "  ·  ") + keyHint("esc", "back")
 	case "review":
 		return keyHint("enter", "final confirmation") + fg(cDim, "  ·  ") + keyHint("esc", "back")
@@ -1188,15 +1502,21 @@ func (m isoModel) render() string {
 	var body string
 	if m.installing {
 		body = m.installBody()
+	} else if m.failed {
+		body = m.failedBody()
 	} else if m.done {
 		title := "Ryoku is installed"
 		if m.opts.dryRun {
 			title = "Dry run complete"
 		}
-		body = lipgloss.JoinVertical(lipgloss.Center, logoBlock(), "", bold(cGreen, checkGlyph()+"  "+title), "", fg(cSub, "The installer backend completed successfully."))
+		body = lipgloss.JoinVertical(lipgloss.Center, logoBlock(true), "", bold(cGreen, checkGlyph()+"  "+title), "", fg(cSub, "The installer backend completed successfully."))
 	} else {
-		progress := progressBar(m.idx, len(isoFlow), 30)
-		body = lipgloss.JoinVertical(lipgloss.Left, logoBlock(), "", progress+fg(cDim, fmt.Sprintf("  %d/%d", m.idx+1, len(isoFlow))), "", m.wizardBody())
+		const barW = 30
+		bar := progressBar(m.idx, len(isoFlow), barW)
+		progress := bar + fg(cDim, fmt.Sprintf("  %d/%d", m.idx+1, len(isoFlow)))
+		// Center over the bar itself, not the bar + counter.
+		logo := lipgloss.PlaceHorizontal(barW, lipgloss.Center, logoBlock(true))
+		body = lipgloss.JoinVertical(lipgloss.Left, logo, "", progress, "", m.wizardBody())
 	}
 	placed := lipgloss.Place(m.w, m.h-2, lipgloss.Center, lipgloss.Center, body)
 	return placed + "\n" + lipgloss.PlaceHorizontal(m.w, lipgloss.Center, m.footer())

@@ -21,7 +21,6 @@
   compositor = "hyprland";
   browser = "chromium";
   shell = "fish";
-  binaryCache = true;
   optionalApps = [
     "prompt"
     "fastfetch"

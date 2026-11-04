@@ -140,5 +140,43 @@ in
     };
   };
 
+  programs.zsh = {
+    interactiveShellInit = ''
+      rebuild() {
+        sudo nixos-rebuild switch --flake /etc/nixos#ryoku
+      }
+
+      update() {
+        sudo nix flake update --flake /etc/nixos
+        sudo nixos-rebuild switch --flake /etc/nixos#ryoku
+      }
+
+      clean() {
+        sudo nix-collect-garbage -d
+      }
+
+      nixos() {
+        cd /etc/nixos
+      }
+
+      configuration() {
+        sudo -E nvim /etc/nixos/configuration.nix
+      }
+
+      flake() {
+        sudo -E nvim /etc/nixos/flake.nix
+      }
+
+      pkgs() {
+        sudo -E nvim /etc/nixos/pkgs.nix
+      }
+    '';
+  };
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Extras
+  # ──────────────────────────────────────────────────────────────────────────
+  services.gvfs.enable = true;
+
   system.stateVersion = "26.11";
 }
