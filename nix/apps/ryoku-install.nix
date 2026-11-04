@@ -20,6 +20,7 @@ pkgs.buildGo126Module {
 
     wrapProgram "$out/bin/ryoku-install" \
       --set RYOKU_INSTALL_BACKEND "${backend}/bin/ryoku-install-backend" \
+      --set RYOKU_ZONEINFO_DIR "${pkgs.tzdata}/share/zoneinfo" \
       --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.coreutils pkgs.curl pkgs.networkmanager pkgs.util-linux pkgs.whois ]}"
   '';
 

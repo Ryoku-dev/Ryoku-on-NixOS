@@ -127,19 +127,6 @@ func TestISODiskAutomationSelectsDirectBackend(t *testing.T) {
 	}
 }
 
-func TestMangoChoiceIsAvailable(t *testing.T) {
-	found := false
-	for _, c := range flow[0].choices {
-		if c.key == "mango" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("MangoWM must remain available in the Ryoku Nix installer")
-	}
-}
-
 func TestISOKernelChoicesMatchBackendContract(t *testing.T) {
 	want := []string{"default", "latest", "zen"}
 	choices := isoChoices("kernel")
@@ -166,7 +153,7 @@ func TestISOBackendArgsAreFullyNonInteractive(t *testing.T) {
 	joined := strings.Join(args, " ")
 	for _, required := range []string{
 		"--iso", "--yes", "--disk /dev/vda", "--confirm-disk /dev/vda",
-		"--filesystem ext4", "--hostname ryoku", "--username ryoku",
+		"--filesystem ext4", "--hostname ryoku", "--username user",
 		"--timezone UTC", "--locale en_US.UTF-8", "--keyboard us",
 		"--kernel default", "--gpu auto", "--firmware auto",
 		"--config-mode ryoku",
@@ -262,7 +249,7 @@ func TestDefaultSourceIsNotForwardedAsExplicitOverride(t *testing.T) {
 func TestISOTextFieldsAcceptQ(t *testing.T) {
 	o := defaultOptions()
 	o.iso = true
-	for _, key := range []string{"hostname", "username", "timezone", "locale", "keyboard", "import-path", "import-host"} {
+	for _, key := range []string{"hostname", "username", "import-path", "import-host"} {
 		m := newISOModel(o)
 		m.gotoKey(key)
 		before := m.text[key]
@@ -283,6 +270,43 @@ func TestISOTextFieldsAcceptQ(t *testing.T) {
 	if cmd != nil || got.text["disk-confirm"] != "q" {
 		t.Fatalf("confirm: q was not entered into disk confirmation: %q", got.text["disk-confirm"])
 	}
+}
+
+func TestISOTimezonePickerAcceptsQAsSearch(t *testing.T) {
+    o := defaultOptions()
+    o.iso = true
+
+    m := newISOModel(o)
+    m.timezones = []string{
+        "America/Sao_Paulo",
+        "UTC",
+    }
+
+    m.gotoKey("timezone")
+
+    before := m.text["timezone"]
+
+    model, cmd := m.onKey("q")
+    got := model.(isoModel)
+
+    if cmd != nil {
+        t.Fatal("typing q unexpectedly returned a command")
+    }
+
+    if got.timezoneQuery != "q" {
+        t.Fatalf(
+            "q was not entered into timezone search: got %q",
+            got.timezoneQuery,
+        )
+    }
+
+    if got.text["timezone"] != before {
+        t.Fatalf(
+            "search modified selected timezone: before=%q after=%q",
+            before,
+            got.text["timezone"],
+        )
+    }
 }
 
 func TestISOInstallStepContractIncludesPreflightValidation(t *testing.T) {

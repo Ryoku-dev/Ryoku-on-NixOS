@@ -36,11 +36,37 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-var logo = []string{
-	"█▀▄ █ █ █▀█ █▄▀ █ █",
-	"█▀▄ ▀█▀ █ █ █▀▄ █ █",
-	"▀ ▀ ░█░ ▀▀▀ ▀ ▀ ▀▀▀",
-}
+// var logo = strings.Split(strings.Trim(`
+//       ██
+//   ▄█████████▄
+//      ██    ██   █▀▄ █ █ █▀█ █▄▀ █ █
+//     ██  ▄  ██   █▀▄ ▀█▀ █ █ █▀▄ █ █
+//   ▄█▀    ▀██▀   ▀ ▀  ▀  ▀▀▀ ▀ ▀ ▀▀▀
+// `, "\n"), "\n")
+
+// var logo = strings.Split(strings.Trim(`
+//       ██
+//   ▄█████████▄   █▀▀▄ █   █ ▄▀▀▄ █ ▄▀ █  █
+//      ██    ██   █▄▄▀ ▀▄▄▄▀ █  █ █▀▄  █  █
+//     ██  ▄  ██   █  █   █   █  █ █  █ █  █
+//   ▄█▀    ▀██▀   ▀  ▀   ▀    ▀▀  ▀  ▀  ▀▀
+// `, "\n"), "\n")
+
+// var logo = strings.Split(strings.Trim(`
+//        ██
+//    ▄█████████▄     ▄█████▄ ██   ██  ▄████▄  ██  ▄█▀ ██   ██
+//       ██    ██     ██   ██ ▀██████ ██    ██ ██▄█▀   ██   ██
+//      ██  ▄  ██     ██▀▀██▄     ███ ██    ██ ██ ▀█▄  ██   ██
+//    ▄█▀    ▀██▀     ██   ██ ▀█████▀  ▀████▀  ██  ▀█▄ ▀█████▀
+// `, "\n"), "\n")
+
+var logo = strings.Split(strings.Trim(`
+      ██
+  ▄█████████▄
+     ██     ██
+    ██  ▄   ██
+  ▄█▀    ▀██▀
+`, "\n"), "\n")
 
 var ascii bool
 
@@ -89,7 +115,6 @@ var flow = []step{
 	{key: "compositor", title: "Window manager", desc: "Choose the session Ryoku preselects. All Ryoku providers stay installed.", choices: []choice{
 		{"hyprland", "Hyprland", "dynamic tiling · effects · broad plugin ecosystem"},
 		{"niri", "niri", "scrollable tiling · clean columns · Ryoku-supported"},
-		{"mango", "MangoWM", "dynamic tiling · lightweight · Ryoku Nix supported"},
 	}},
 	{key: "browser", title: "Web browser", desc: "Installed declaratively and used by Ryoku's browser role.", choices: []choice{
 		{"chromium", "Chromium", "Chromium engine · current NixOS default"},
@@ -341,12 +366,42 @@ func progressBar(cur, total, w int) string {
 	return fg(cBrand, strings.Repeat(fullGlyph(), fill)) + fg(cDim, strings.Repeat(emptyGlyph(), w-fill))
 }
 func keyHint(k, d string) string { return bold(cBrand, k) + " " + fg(cSub, d) }
-func logoBlock() string {
+// evenWidth widens the first gap in s when its width is odd. The logo art is an
+// even number of cells wide, so an odd-width label can't be centered under it
+// exactly (it lands half a cell off); an even-width one can.
+func evenWidth(s string) string {
+	if lipgloss.Width(s)%2 == 0 {
+		return s
+	}
+	return strings.Replace(s, " ", "  ", 1)
+}
+func logoBlock(iso bool) string {
+	// Strip the shared leading indent so the visible glyph is what gets centered.
+	indent := -1
+	for _, l := range logo {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		if n := len(l) - len(strings.TrimLeft(l, " ")); indent < 0 || n < indent {
+			indent = n
+		}
+	}
+	if indent < 0 {
+		indent = 0
+	}
 	lines := make([]string, len(logo))
 	for i, l := range logo {
+		if len(l) >= indent {
+			l = l[indent:]
+		}
 		lines[i] = bold(cBrand, l)
 	}
-	return lipgloss.JoinVertical(lipgloss.Center, lines...)
+	art := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	if !iso {
+		return art
+	}
+	tag := fg(cDim, evenWidth("Ryoku NixOS installer"))
+	return lipgloss.JoinVertical(lipgloss.Center, art, "", tag)
 }
 func (m model) rail() string {
 	var lines []string
@@ -532,7 +587,7 @@ func (m model) welcomeBody() string {
 	card := sty().Border(border()).BorderForeground(cSub).Padding(1, 3).Render(
 		bold(cBrand, title) + "\n\n" +
 			fg(cText, line1) + "\n" + fg(cSub, line2) + "\n" + fg(cSub, line3))
-	return lipgloss.JoinVertical(lipgloss.Center, logoBlock(), "", fg(cDim, "NIXOS EDITION"), "", "", card)
+	return lipgloss.JoinVertical(lipgloss.Center, logoBlock(m.opts.iso), "", fg(cDim, evenWidth("NIXOS EDITION")), "", "", card)
 }
 func (m model) render() string {
 	if m.w == 0 {
@@ -547,7 +602,7 @@ func (m model) render() string {
 		body = m.welcomeBody()
 		foot = keyHint("enter", "continue") + fg(cDim, "    ") + keyHint("q", "quit")
 	case "wizard":
-		body = lipgloss.JoinVertical(lipgloss.Left, logoBlock(), "", progressBar(m.idx, len(flow), 28)+fg(cDim, fmt.Sprintf("  %d/%d", m.idx+1, len(flow))), "", m.wizardBody())
+		body = lipgloss.JoinVertical(lipgloss.Left, logoBlock(m.opts.iso), "", progressBar(m.idx, len(flow), 28)+fg(cDim, fmt.Sprintf("  %d/%d", m.idx+1, len(flow))), "", m.wizardBody())
 		if m.cur().key == "apps" {
 			foot = keyHint("↑↓/jk", "move") + fg(cDim, "  ·  ") + keyHint("space", "toggle") + fg(cDim, "  ·  ") + keyHint("a/n", "all/none") + fg(cDim, "  ·  ") + keyHint("enter", "next")
 		} else if m.cur().key == "review" {
@@ -570,10 +625,10 @@ func (m model) render() string {
 		if m.opts.dryRun {
 			title = "Dry run complete"
 		}
-		body = lipgloss.JoinVertical(lipgloss.Center, logoBlock(), "", bold(cGreen, checkGlyph()+"  "+title), "", fg(cSub, "The installer backend completed successfully."))
+		body = lipgloss.JoinVertical(lipgloss.Center, logoBlock(m.opts.iso), "", bold(cGreen, checkGlyph()+"  "+title), "", fg(cSub, "The installer backend completed successfully."))
 		foot = keyHint("enter", "close")
 	case "failed":
-		body = lipgloss.JoinVertical(lipgloss.Center, logoBlock(), "", bold(cRed, "Installation failed"), "", fg(cText, fmt.Sprint(m.err)), "", fg(cSub, "Your installer-managed files are rolled back by the backend on build/switch failure."))
+		body = lipgloss.JoinVertical(lipgloss.Center, logoBlock(m.opts.iso), "", bold(cRed, "Installation failed"), "", fg(cText, fmt.Sprint(m.err)), "", fg(cSub, "Your installer-managed files are rolled back by the backend on build/switch failure."))
 		foot = keyHint("r", "retry") + fg(cDim, "    ") + keyHint("q", "quit")
 	}
 	placed := lipgloss.Place(m.w, m.h-2, lipgloss.Center, lipgloss.Center, body)
