@@ -9,30 +9,49 @@ import QtQuick
 import inir.modules.common.functions
 import inir.services
 import inir.services.network
+import shell.services as Ryoku
 
 /**
- * Network service with nmcli.
+ * Network controls with link state from Ryoku's shared daemon topic.
  */
 Singleton {
     id: root
 
-    property bool wifi: true
-    property bool ethernet: false
+    readonly property bool wifi: simulatedLink.length > 0
+        ? simulatedLink === "wifi"
+        : Ryoku.Network.kind === "wifi"
+    readonly property bool ethernet: simulatedLink.length > 0
+        ? simulatedLink === "ethernet"
+        : Ryoku.Network.kind === "ethernet"
 
-    property bool wifiEnabled: false
+    readonly property bool wifiEnabled: simulatedLink.length > 0
+        ? simulatedLink === "wifi" || simulatedLink === "searching" || simulatedLink === "connecting"
+        : Ryoku.Network.wifiRadio
     property bool wifiScanning: false
     property bool wifiConnecting: connectProc.running
     property WifiAccessPoint wifiConnectTarget
     readonly property list<WifiAccessPoint> wifiNetworks: []
     readonly property WifiAccessPoint active: wifiNetworks.find(n => n.active) ?? null
-    property string wifiStatus: "disconnected"
+    readonly property string wifiStatus: simulatedLink.length > 0
+        ? simulatedLink === "wifi" ? "connected"
+        : simulatedLink === "connecting" ? "connecting"
+        : simulatedLink === "searching" ? "disconnected"
+        : "disabled"
+        : Ryoku.Network.wifiConnectivity === "Connected"
+        ? (Ryoku.Network.connectivity === "limited" ? "limited" : "connected")
+        : Ryoku.Network.wifiConnectivity === "Connecting" ? "connecting"
+        : wifiEnabled ? "disconnected" : "disabled"
 
-    property string networkName: ""
-    property int networkStrength
+    readonly property string networkName: simulatedLink === "wifi" ? "Simulated Wi-Fi"
+        : simulatedLink === "ethernet" ? "Simulated cable"
+        : Ryoku.Network.kind === "wifi" ? Ryoku.Network.activeSsid
+        : Ryoku.Network.kind === "ethernet" ? "Ethernet" : ""
+    property int simulatedStrength: 80
+    readonly property int networkStrength: simulatedLink === "wifi"
+        ? simulatedStrength
+        : Math.round(Ryoku.Network.level * 100)
 
-    // NetworkManager's own check: full | limited | portal | none | unknown. Unknown (no check
-    // configured, NM absent, not read yet) counts as online so nothing is hidden on a guess.
-    property string connectivity: "unknown"
+    readonly property string connectivity: Ryoku.Network.connectivity
     property string simulatedConnectivity: ""
     // `inir network simulateLink "wifi 40"` stands in for NetworkManager's link state (wifi strength, searching,
     // connecting, radio off, cable, no adapter) until `off` or a restart; the probes stop writing while it holds.
@@ -202,32 +221,20 @@ Singleton {
         }
     }
 
-    // Debounce timer for network status updates
-    Timer {
-        id: _updateDebounce
-        interval: 200
-        repeat: false
-        onTriggered: root._doUpdate()
-    }
 
-    // Status update (debounced — nmcli monitor can emit rapid bursts)
     function update() {
-        _updateDebounce.restart();
+        if (root.simulatedLink.length > 0)
+            return;
+        root.networkChanged();
+        if (!getNetworks.running)
+            getNetworks.running = true;
     }
 
     signal networkChanged()
 
-    // Actual update logic
-    function _doUpdate() {
-        if (root.simulatedLink.length > 0)
-            return;
-        root.networkChanged();
-        updateConnectionType.startCheck();
-        wifiStatusProcess.running = true
-        updateNetworkName.running = true;
-        updateNetworkStrength.running = true;
-    }
+    Component.onCompleted: Qt.callLater(() => root.update())
 
+<<<<<<< port (unstable-dev)
     property bool _destroying: false
 
     Component.onCompleted: {
@@ -379,6 +386,15 @@ Singleton {
                     root.wifiEnabled = text.trim() === "enabled";
             }
         }
+=======
+    Connections {
+        target: Ryoku.Network
+        function onConnectionChanged(): void { root.update() }
+        function onWifiChanged(): void { root.update() }
+        function onWiredChanged(): void { root.update() }
+        function onVpnProfilesChanged(): void { root.update() }
+        function onWgTunnelsChanged(): void { root.update() }
+>>>>>>> upstream Ryoku 1.9.4 (8eac7f0)
     }
 
     Process {
@@ -488,13 +504,9 @@ Singleton {
                 return status();
             }
             root.simulatedLink = kind;
-            root.ethernet = kind === "ethernet";
-            root.wifiEnabled = kind === "wifi" || kind === "searching" || kind === "connecting";
-            root.wifiStatus = kind === "wifi" ? "connected" : kind === "connecting" ? "connecting"
-                : kind === "searching" ? "disconnected" : "disabled";
-            root.wifi = kind === "wifi";
-            root.networkStrength = kind === "wifi" ? Math.max(0, Math.min(100, parseInt(words[1] ?? "80") || 0)) : 0;
-            root.networkName = kind === "wifi" ? "Simulated Wi-Fi" : kind === "ethernet" ? "Simulated cable" : "";
+            root.simulatedStrength = kind === "wifi"
+                ? Math.max(0, Math.min(100, parseInt(words[1] ?? "80") || 0))
+                : 0;
             return status();
         }
     }
