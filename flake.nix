@@ -13,7 +13,7 @@
     # host prevents fetchPnpmDeps and other fixed-output builders from changing
     # underneath a Ryoku release when the host updates nixos-unstable.
     ryokuPackagesNixpkgs.url =
-      "github:NixOS/nixpkgs/56c02bc00adcf003215cc4bd996d6efaf4cff188";
+      "github:NixOS/nixpkgs/1c89083e451e891152365b799595cf7790a43325";
 
     inirSrc = {
       url = "github:snowarch/iNiR/48cdcecb0f6089cfbb7019054602eab28e154b3b";
@@ -25,7 +25,7 @@
     };
 
     hyprglassSrc = {
-      url = "github:hyprnux/hyprglass/v0.7.0";
+      url = "github:hyprnux/hyprglass/v1.1.1";
       flake = false;
     };
 
@@ -52,10 +52,27 @@
 
       quickshellScreencopyFixOverlay = import ./nix/packages/quickshell-screencopy-overlay.nix;
 
+      hyprDynamicCursorsOverlay = final: prev: {
+        hyprlandPlugins = prev.hyprlandPlugins // {
+          hypr-dynamic-cursors =
+            prev.hyprlandPlugins.hypr-dynamic-cursors.overrideAttrs (_old: {
+              version = "0-unstable-2026-10-05";
+
+              src = final.fetchFromGitHub {
+                owner = "VirtCode";
+                repo = "hypr-dynamic-cursors";
+                rev = "2a8d0b735328d874a78ca93b2f201649f712a74a";
+                hash = "sha256-PSt/SRtemvsoGYNFJ7YLiXGxT8EJe3AhmGwt5Vt79aA=";
+              };
+            });
+        };
+      };
+
       pkgs = import ryokuPackagesNixpkgs {
         inherit system;
         overlays = [
           quickshellScreencopyFixOverlay
+          hyprDynamicCursorsOverlay
         ];
       };
 
@@ -229,7 +246,7 @@
         # Ryoku owns its compositor ABI. These come from Ryoku's
         # locked nixpkgs rather than the host's package set.
         ryoku-hyprland = pkgs.hyprland.override {
-          makeWrapper = pkgs.makeBinaryWrapper;
+          makeBinaryWrapper = pkgs.makeBinaryWrapper;
         };
         ryoku-xdg-desktop-portal-hyprland = pkgs.xdg-desktop-portal-hyprland;
         ryoku-matugen = pkgs.matugen;

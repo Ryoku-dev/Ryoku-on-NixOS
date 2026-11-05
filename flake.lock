@@ -54,16 +54,16 @@
     "hyprglassSrc": {
       "flake": false,
       "locked": {
-        "lastModified": 1784579282,
-        "narHash": "sha256-x/584kY+XXlU/OWKtZAFo89VtowjLXs1DiP9PC0o0Os=",
+        "lastModified": 1793720499,
+        "narHash": "sha256-cQmVmmdaITss2hO6aidKOtq6GtEe85fmgrPcrn1eIUg=",
         "owner": "hyprnux",
         "repo": "hyprglass",
-        "rev": "5bc835dcc909cef6980291688143048cf16942b5",
+        "rev": "03a57c4451b4abee38feda2ffb725f55ecc0f2fd",
         "type": "github"
       },
       "original": {
         "owner": "hyprnux",
-        "ref": "v0.7.0",
+        "ref": "v1.1.1",
         "repo": "hyprglass",
         "type": "github"
       }
@@ -105,11 +105,11 @@
     "imgbordersSrc": {
       "flake": false,
       "locked": {
-        "lastModified": 1786876215,
-        "narHash": "sha256-O+896T2qrisxiWTotB5HlzKw8XEJqPDTgSUHAAVUD18=",
+        "lastModified": 1793621436,
+        "narHash": "sha256-6OFCgrdrezGxGKBjHy44nZD7bYZkVnUAdjQfqNqDnr8=",
         "ref": "master",
-        "rev": "08be22236144d3c91607bcfa955ed0d457f4f50b",
-        "revCount": 76,
+        "rev": "a4cc5c7f15c98762611e80f4feb8f2e63fed44e2",
+        "revCount": 78,
         "type": "git",
         "url": "https://codeberg.org/zacoons/imgborders.git"
       },
@@ -322,17 +322,17 @@
     },
     "ryokuPackagesNixpkgs": {
       "locked": {
-        "lastModified": 1787498568,
-        "narHash": "sha256-9i/VTdusq/+NM/tz+J1Re+ojkMB8MBf0QshnYfzHz30=",
+        "lastModified": 1793341285,
+        "narHash": "sha256-Y1CiZ4SoBUjLQyQM/pY+rS2dXD3CHLPstF0lmOc73D4=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
+        "rev": "1c89083e451e891152365b799595cf7790a43325",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
+        "rev": "1c89083e451e891152365b799595cf7790a43325",
         "type": "github"
       }
     },
