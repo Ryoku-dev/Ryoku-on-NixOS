@@ -69,10 +69,6 @@ func pamHasKeyring(content, kind string) bool {
 	return kind == "session" && session > 0
 }
 
-<<<<<<< port (unstable-dev)
-// pamPresent reports whether one PAM stack text wires pam_gnome_keyring at all.
-=======
->>>>>>> upstream Ryoku 1.9.4 (8eac7f0)
 func pamPresent(content string) bool {
 	auth, session := pamKeyringCounts(content)
 	return auth > 0 || session > 0
@@ -88,29 +84,31 @@ func pamHasDuplicates(content string) bool {
 	return auth > 1 || session > 1
 }
 
-// pamPresentAt follows auth/session include and substack edges in the same PAM
-// directory. NixOS keeps SDDM deliberately tiny and delegates to the generated
-// login stack, where pam_gnome_keyring actually lives. Looking only at sddm
-// therefore misclassifies a correctly wired NixOS login as "no PAM".
-func pamPresentAt(path string) bool {
-	return pamPresentAtSeen(path, map[string]bool{})
+// pamStackAt is the PAM text one service resolves to: its own file plus every
+// auth/session include and substack it pulls from the same directory, each file
+// once. NixOS keeps SDDM deliberately tiny and delegates to the generated login
+// stack, where pam_gnome_keyring actually lives. Reading sddm alone therefore
+// misclassifies a correctly wired NixOS login as "no PAM".
+func pamStackAt(path string) string {
+	var stack strings.Builder
+	pamStackInto(&stack, path, map[string]bool{})
+	return stack.String()
 }
 
-func pamPresentAtSeen(path string, seen map[string]bool) bool {
+func pamStackInto(stack *strings.Builder, path string, seen map[string]bool) {
 	clean := filepath.Clean(path)
 	if seen[clean] {
-		return false
+		return
 	}
 	seen[clean] = true
 
 	raw, err := os.ReadFile(clean)
 	if err != nil {
-		return false
+		return
 	}
 	content := string(raw)
-	if pamPresent(content) {
-		return true
-	}
+	stack.WriteString(content)
+	stack.WriteString("\n")
 
 	dir := filepath.Dir(clean)
 	for _, line := range strings.Split(content, "\n") {
@@ -119,15 +117,14 @@ func pamPresentAtSeen(path string, seen map[string]bool) bool {
 			(fields[1] != "include" && fields[1] != "substack") {
 			continue
 		}
-		service := fields[2]
-		if filepath.Base(service) != service {
-			continue
-		}
-		if pamPresentAtSeen(filepath.Join(dir, service), seen) {
-			return true
+		if service := fields[2]; filepath.Base(service) == service {
+			pamStackInto(stack, filepath.Join(dir, service), seen)
 		}
 	}
-	return false
+}
+
+func pamPresentAt(path string) bool {
+	return pamPresent(pamStackAt(path))
 }
 
 // insertAfterInclude puts line immediately after the `<kind> include

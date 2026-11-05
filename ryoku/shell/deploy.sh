@@ -776,52 +776,6 @@ if command -v sudo >/dev/null 2>&1; then
   # package's older wrapper and logs in with its startup and failure rules.
   _priv_install "$here/../lockscreen/sddm/ryoku-wayland-session" \
     /usr/share/ryoku/lockscreen/ryoku-wayland-session 755
-<<<<<<< port (unstable-dev)
-=======
-  # The login screen guard: restarts SDDM when it runs with no greeter and no
-  # session. The runit copy lands with the other void/init services below.
-  _priv_install "$here/../lockscreen/sddm/ryoku-greeter-guard" \
-    /usr/share/ryoku/lockscreen/ryoku-greeter-guard 755
-  if [ -d /run/systemd/system ]; then
-    _priv_install "$here/systemd/environment.d/98-ryoku-dbus.conf" \
-      /usr/lib/environment.d/98-ryoku-dbus.conf 644
-    _priv_install "$here/xdg/dbus-1/services/org.freedesktop.secrets.service" \
-      /usr/share/ryoku/xdg/dbus-1/services/org.freedesktop.secrets.service 644
-    _priv_install "$here/../lockscreen/sddm/ryoku-greeter-guard.service" \
-      /usr/lib/systemd/system/ryoku-greeter-guard.service 644
-    sudo systemctl enable --quiet ryoku-greeter-guard.service || true
-  fi
-  # Wayfire composes its whole config from the shipped baseline, so every later
-  # apply (a Hub save, materialize) reads it from the config base the variant
-  # package installs. A checkout box has no variant package: lay the baseline
-  # and the portal routing the doctor reads where the package would.
-  _priv_install "$here/../wayfire/wayfire.ini" \
-    /usr/share/ryoku/config/wayfire/wayfire.ini 644
-  _priv_install "$here/../wayfire/wayfire-portals.conf" \
-    /usr/share/ryoku/config/xdg-desktop-portal/wayfire-portals.conf 644
-  # Wayfire's rounded corners, borders and shadows come from Ryoku's own window
-  # decor plugin, which the variant package builds. A checkout box builds it
-  # here; a failed build leaves square corners, never a stopped deploy.
-  decor_src="$here/../wm/wayfire/decor"
-  decor_build="${XDG_CACHE_HOME:-$HOME/.cache}/ryoku/build/wayfire-decor"
-  if command -v meson >/dev/null 2>&1 && pkg-config --exists wayfire 2>/dev/null; then
-    mkdir -p "$(dirname "$decor_build")"
-    decor_setup=(meson setup --buildtype=release)
-    [[ -d $decor_build/meson-private ]] && decor_setup+=(--reconfigure)
-    if "${decor_setup[@]}" "$decor_build" "$decor_src" >"$decor_build.log" 2>&1 &&
-      meson compile -C "$decor_build" >>"$decor_build.log" 2>&1; then
-      _priv_install "$decor_build/libryoku-decor.so" \
-        /usr/lib/wayfire/libryoku-decor.so 755
-      _priv_install "$decor_src/metadata/ryoku-decor.xml" \
-        /usr/share/wayfire/metadata/ryoku-decor.xml 644
-      say "installed the Wayfire window decor plugin"
-    else
-      say "the Wayfire window decor plugin did not build (see $decor_build.log)" >&2
-    fi
-  else
-    say "skipped the Wayfire window decor plugin (meson or Wayfire's development files missing)"
-  fi
->>>>>>> upstream Ryoku 1.9.4 (8eac7f0)
   _priv_install "$netdir/ryoku-dns" /usr/bin/ryoku-dns 755
   _priv_install "$netdir/50-ryoku-dns.rules" /usr/share/polkit-1/rules.d/50-ryoku-dns.rules 644
   _priv_install "$netdir/ryoku-wifi-powersave" /usr/bin/ryoku-wifi-powersave 755

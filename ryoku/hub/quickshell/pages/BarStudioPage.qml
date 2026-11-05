@@ -421,7 +421,6 @@ Item {
                 }
             }
 
-<<<<<<< port (unstable-dev)
             SettingCard {
                 id: chromaSect
                 width: col.colWidth
@@ -545,7 +544,11 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             on: page.chromaShown(modelData.id)
                             onToggled: value => page.chromaSetWidget(modelData.id, value)
-=======
+                        }
+                    }
+                }
+            }
+
             // ── ORPHEUS: its layout, modules, form and sound live in its own settings
             SettingCard {
                 id: orpheusSect
@@ -573,7 +576,6 @@ Item {
                         Btn {
                             text: I18n.tr("OPEN ORPHEUS SETTINGS")
                             onAct: page.openOrpheusSettings()
->>>>>>> upstream Ryoku 1.9.4 (8eac7f0)
                         }
                     }
                 }

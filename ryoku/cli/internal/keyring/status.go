@@ -85,7 +85,8 @@ func sddmConfRoot() string {
 }
 
 func gatherStatus() Status {
-	pam := pamPresentAt(pamFilePath())
+	stack := pamStackAt(pamFilePath())
+	pam := pamPresent(stack)
 
 	mode, configured := readConfig()
 	source := "configured"
@@ -119,8 +120,8 @@ func gatherStatus() Status {
 		Mode:          mode,
 		ModeSource:    source,
 		PamPresent:    pam,
-		PamWired:      pamWired(string(pamContent)),
-		PamDuplicates: pamHasDuplicates(string(pamContent)),
+		PamWired:      pamWired(stack),
+		PamDuplicates: pamHasDuplicates(stack),
 		Autologin:     autologinConfigured(sddmConfRoot()),
 		DaemonAlive:   daemonAlive(),
 		Keyrings:      kfs,

@@ -1,8 +1,4 @@
-<<<<<<< port (unstable-dev)
-const ids = ["iris", "gokko", "caelestia", "tansu", "python"];
-=======
-const ids = ["gokko", "caelestia", "tansu", "python", "imi"];
->>>>>>> upstream Ryoku 1.9.4 (8eac7f0)
+const ids = ["iris", "gokko", "caelestia", "tansu", "python", "imi"];
 
 function isStyle(id) {
     return ids.indexOf(String(id || "")) >= 0;

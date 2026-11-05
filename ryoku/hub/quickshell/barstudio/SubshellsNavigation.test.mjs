@@ -14,13 +14,8 @@ test("Bar Studio keeps every bar style", () => {
 
 test("Subshells keeps its focused projection", () => {
     assert.deepEqual(Subshells.visibleStyles(styles, true).map(style => style.id),
-<<<<<<< port (unstable-dev)
-        ["iris", "python", "gokko", "tansu", "caelestia"]);
+        ["iris", "python", "gokko", "tansu", "caelestia", "imi"]);
     assert.equal(Subshells.isStyle("iris"), true);
-=======
-        ["python", "gokko", "tansu", "caelestia", "imi"]);
-    assert.equal(Subshells.isStyle("iris"), false);
->>>>>>> upstream Ryoku 1.9.4 (8eac7f0)
     assert.equal(Subshells.isStyle("python"), true);
     assert.equal(Subshells.isStyle("imi"), true);
 });
