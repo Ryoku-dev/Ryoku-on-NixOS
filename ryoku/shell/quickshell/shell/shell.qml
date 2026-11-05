@@ -624,7 +624,7 @@ ShellRoot {
                 st.clipboardOpen = !st.clipboardOpen;
             break;
         case "settings":
-            Quickshell.execDetached(["ryoku-shell", "hub", "open"]);
+            Spawn.run(["ryoku-shell", "hub", "open"]);
             break;
         case "cheatsheet":
             Quickshell.execDetached(["sh", "-c", "pkill -x -f 'qs -c keys' 2>/dev/null || flock -n -o /tmp/ryoku-keys.lock qs -c keys"]);
@@ -890,6 +890,11 @@ ShellRoot {
         // An empty monitor means "wherever focus is": the daemon sends "" when
         // its focused-output cache is cold.
         function openSurface(mon: string, id: string): void {
+            // these keys are Ryoku's under every style, so they skip the bus styles listen on, same as the Hyprland shortcuts
+            if (id === "launcher" || id === "clipboard" || id === "settings") {
+                root.toggleSurface(id);
+                return;
+            }
             if (mon && mon.length > 0)
                 ShellState.requestSurface(id, mon, undefined);
             else

@@ -106,4 +106,9 @@ func TestPamPresentAtFollowsNixOSLoginStack(t *testing.T) {
 	if !pamPresentAt(sddm) {
 		t.Fatal("SDDM must inherit gnome-keyring wiring from the included NixOS login stack")
 	}
+	stack := pamStackAt(sddm)
+	if !pamWired(stack) || pamHasDuplicates(stack) {
+		t.Fatalf("login included twice still wires each module once: wired=%v duplicates=%v",
+			pamWired(stack), pamHasDuplicates(stack))
+	}
 }
