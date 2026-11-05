@@ -37,6 +37,7 @@ func shimaTestLauncher(t *testing.T) string {
 func TestShimaSelectionUsesInstalledRuntime(t *testing.T) {
 	d := shimaTestDaemon(t, "iris")
 	shimaTestLauncher(t)
+<<<<<<< port (unstable-dev)
 	t.Setenv("RYOKU_SHIMA_ENABLE", "0")
 	if key, _ := d.desktopSelection(); key != "native" {
 		t.Fatal(key)
@@ -44,6 +45,15 @@ func TestShimaSelectionUsesInstalledRuntime(t *testing.T) {
 	t.Setenv("RYOKU_SHIMA_ENABLE", "")
 	if key, _ := d.desktopSelection(); key == "native" {
 		t.Fatal("installed runtime not selected")
+=======
+	t.Setenv("RYOKU_SHIMA_UPSTREAM", "0")
+	if key, _ := d.desktopSelection(); key != "native" {
+		t.Fatal(key)
+	}
+	t.Setenv("RYOKU_SHIMA_UPSTREAM", "1")
+	if key, _ := d.desktopSelection(); key == "native" {
+		t.Fatal("enabled runtime not selected")
+>>>>>>> upstream Ryoku 1.8.4 (e11cbfa)
 	}
 	t.Setenv("NIRI_SOCKET", "")
 	if key, _ := d.desktopSelection(); key != "native" {
@@ -54,7 +64,11 @@ func TestShimaSelectionUsesInstalledRuntime(t *testing.T) {
 func TestShimaCommandHasPrivateReadinessAndManagedEnvironment(t *testing.T) {
 	d := shimaTestDaemon(t, "iris")
 	shimaTestLauncher(t)
+<<<<<<< port (unstable-dev)
 	t.Setenv("RYOKU_SHIMA_ENABLE", "1")
+=======
+	t.Setenv("RYOKU_SHIMA_UPSTREAM", "1")
+>>>>>>> upstream Ryoku 1.8.4 (e11cbfa)
 	cmd, run, err := d.desktopCommand()
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +111,11 @@ func TestShimaFallbackPreservesSettingsAndPreviousStyle(t *testing.T) {
 func TestShimaReadinessTimeoutStopsOwnedProcess(t *testing.T) {
 	d := shimaTestDaemon(t, "iris")
 	launcher := shimaTestLauncher(t)
+<<<<<<< port (unstable-dev)
 	t.Setenv("RYOKU_SHIMA_ENABLE", "1")
+=======
+	t.Setenv("RYOKU_SHIMA_UPSTREAM", "1")
+>>>>>>> upstream Ryoku 1.8.4 (e11cbfa)
 	cmd := exec.Command("sleep", "30")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -121,7 +139,11 @@ func TestShimaReadinessTimeoutStopsOwnedProcess(t *testing.T) {
 
 func TestShimaSelectionChangeStopsOldRootBeforeReplacement(t *testing.T) {
 	d := shimaTestDaemon(t, "python")
+<<<<<<< port (unstable-dev)
 	t.Setenv("RYOKU_SHIMA_ENABLE", "0")
+=======
+	t.Setenv("RYOKU_SHIMA_UPSTREAM", "0")
+>>>>>>> upstream Ryoku 1.8.4 (e11cbfa)
 	cmd := exec.Command("sleep", "30")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -221,7 +243,11 @@ func TestShimaStaleFailureDoesNotOverwriteNewSelection(t *testing.T) {
 func TestShimaBrokenFallbackCannotRestartLoop(t *testing.T) {
 	d := shimaTestDaemon(t, "iris")
 	shimaTestLauncher(t)
+<<<<<<< port (unstable-dev)
 	t.Setenv("RYOKU_SHIMA_ENABLE", "")
+=======
+	t.Setenv("RYOKU_SHIMA_UPSTREAM", "")
+>>>>>>> upstream Ryoku 1.8.4 (e11cbfa)
 	d.settings.path = "/proc/ryoku-shima-no-config/shell.json"
 	d.fallbackShima("test failure")
 	if key, _ := d.desktopSelection(); key != "native" {
@@ -229,6 +255,7 @@ func TestShimaBrokenFallbackCannotRestartLoop(t *testing.T) {
 	}
 }
 
+<<<<<<< port (unstable-dev)
 func TestShimaManagedProfileResolvesNewGeneration(t *testing.T) {
 	d := shimaTestDaemon(t, "iris")
 	t.Setenv("RYOKU_SHIMA_ENABLE", "")
@@ -250,5 +277,18 @@ func TestShimaManagedProfileResolvesNewGeneration(t *testing.T) {
 	b, _ := d.desktopSelection()
 	if a == b || a != filepath.Join(first, "bin", "ryoku-shima") || b != filepath.Join(second, "bin", "ryoku-shima") {
 		t.Fatalf("generation change not detected: %q %q", a, b)
+=======
+func TestShimaUpstreamRemainsOptIn(t *testing.T) {
+	d := shimaTestDaemon(t, "iris")
+	shimaTestLauncher(t)
+	t.Setenv("RYOKU_SHIMA_UPSTREAM", "")
+	if key, launcher := d.desktopSelection(); key != "native" || launcher != "" {
+		t.Fatalf("legacy Shima is not the safe default: %q %q", key, launcher)
+	}
+	t.Setenv("RYOKU_SHIMA_UPSTREAM", "1")
+	t.Setenv("NIRI_SOCKET", "")
+	if key, launcher := d.desktopSelection(); key != "native" || launcher != "" {
+		t.Fatalf("non-Niri environment must retain legacy Shima: %q %q", key, launcher)
+>>>>>>> upstream Ryoku 1.8.4 (e11cbfa)
 	}
 }

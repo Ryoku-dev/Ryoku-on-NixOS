@@ -56,6 +56,7 @@ func (d *daemon) desktopSelection() (string, string) {
 	if blocked {
 		return "native", ""
 	}
+<<<<<<< port (unstable-dev)
 	// An installed optional runtime is activated through the normal iris selector.
 	if os.Getenv("RYOKU_SHIMA_ENABLE") == "0" || os.Getenv("NIRI_SOCKET") == "" {
 		return "native", ""
@@ -64,6 +65,20 @@ func (d *daemon) desktopSelection() (string, string) {
 	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
 		path, _ = exec.LookPath("ryoku-shima")
 	}
+=======
+	// Keep the vendored iRiS scene as the default until native Arch sessions
+	// validate the standalone upstream shell. No existing installation changes.
+	if os.Getenv("RYOKU_SHIMA_UPSTREAM") != "1" || os.Getenv("NIRI_SOCKET") == "" {
+		return "native", ""
+	}
+	path := os.Getenv("RYOKU_SHIMA_LAUNCHER")
+	if path == "" {
+		path, _ = exec.LookPath("ryoku-shima")
+	}
+	if path == "" {
+		return "native", ""
+	}
+>>>>>>> upstream Ryoku 1.8.4 (e11cbfa)
 	path, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return "native", ""
