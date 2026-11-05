@@ -91,6 +91,8 @@ pkgs.stdenv.mkDerivation {
 
     mkdir -p "$cfg/quickshell"
     cp -a ryoku/shell/quickshell/. "$cfg/quickshell/"
+    # the pinned Shima overlay feeds the Arch runtime installer; Nix builds Shima from nix/packages/shima
+    rm -rf "$cfg/quickshell/shima-overlay"
 
     # ── Karuma / Nix default bar ──────────────────────────────
 
