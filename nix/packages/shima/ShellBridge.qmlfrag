@@ -39,13 +39,11 @@
     IpcHandler {
         target: "shell"
         function openSurface(mon: string, surface: string): void {
-            const handler = root.ryokuSurfaceHandler(surface)
-            if (handler) handler.toggle()
-            else if (surface === "wallpaper") {
-                GlobalStates.wallpaperSelectorTargetMonitor = mon
-                GlobalStates.wallpaperSelectorOpen = !GlobalStates.wallpaperSelectorOpen
-            } else if (surface === "theme") GlobalStates.openSettings()
-            else if (surface === "screenshot") GlobalStates.openRegionScreenshot()
+            // Ryoku keeps its settings, wallpaper and capture tools under every subshell
+            const ryoku = { settings: ["ryoku-shell", "hub", "open"], wallpaper: ["ryogami", "wallpaper", "ui"], theme: ["ryogami", "wallpaper", "ui"], screenshot: ["ryoku-cmd-ryoshot"] }[surface]
+            const handler = ryoku ? null : root.ryokuSurfaceHandler(surface)
+            if (ryoku) Quickshell.execDetached(ryoku)
+            else if (handler) handler.toggle()
         }
         function closeSurface(mon: string, surface: string): void {
             const handler = root.ryokuSurfaceHandler(surface)
