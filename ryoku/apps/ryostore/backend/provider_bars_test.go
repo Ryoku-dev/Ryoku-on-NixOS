@@ -324,6 +324,11 @@ func TestBarProviderLoadRecoversInterruptedTransaction(t *testing.T) {
 
 func TestBarProviderIgnoresCatalogueDuplicateShima(t *testing.T) {
 	fixture := newBarProviderFixture(t)
+	runtimeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(runtimeDir, "ryoku-shima"), []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", runtimeDir)
 	registryShima := fixture.entry
 	registryShima.ID = "iris"
 	registryShima.Name = "Nonfunctional metadata-only Shima"

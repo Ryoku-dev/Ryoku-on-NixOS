@@ -67,7 +67,6 @@ func (p barProvider) Load(ctx context.Context, refresh bool) ([]Item, SourceStat
 		return nil, state, registryErr
 	}
 	seen := make(map[string]bool, len(entries)+len(items))
-<<<<<<< port (unstable-dev)
 	builtinIndex := make(map[string]int, len(items))
 	for i := range items {
 		seen[items[i].ID] = true
@@ -76,13 +75,6 @@ func (p barProvider) Load(ctx context.Context, refresh bool) ([]Item, SourceStat
 	for _, entry := range entries {
 		if i, builtin := builtinIndex[entry.ID]; builtin {
 			mergeBuiltinBarStylePresentation(&items[i], p.cache.base, entry)
-=======
-	for _, item := range items {
-		seen[item.ID] = true
-	}
-	for _, entry := range entries {
-		if seen[entry.ID] {
->>>>>>> upstream Ryoku 1.8.4 (e11cbfa)
 			continue
 		}
 		item, err := productEntryItem(p.cache.base, "barstyles", entry)
@@ -192,19 +184,6 @@ func builtinBarStyles() []Item {
 		Installed:   true,
 		Metadata:    map[string]any{"scene": "Scene.qml", "core": true, "resourceTier": "light"},
 	}, {
-<<<<<<< port (unstable-dev)
-=======
-		ID: "iris", Category: "barstyles", Name: "Shima",
-		Summary:     "Based on iNiR by snowarch",
-		Author:      "snowarch & aethctl",
-		Upstream:    "https://github.com/snowarch/iNiR",
-		Art:         "https://raw.githubusercontent.com/Ryoku-dev/ryostore/main/barstyles/iris/assets/preview.webp",
-		Description: "An island on any screen edge that grows into whatever you clicked: morphing glass, bubbles, a dock, a studio and its own settings.",
-		Tags:        []string{"island", "frame", "built-in"},
-		Installed:   true,
-		Metadata:    map[string]any{"scene": "Scene.qml", "core": true, "resourceTier": "heavy"},
-	}, {
->>>>>>> upstream Ryoku 1.8.4 (e11cbfa)
 		ID: "python", Category: "barstyles", Name: "Python",
 		Summary:     "Based on Serpantinum by ilyamiro",
 		Description: "Serpantinum's orientation-aware bar, liquid-glass stage, popups, quick actions, dock design, settings guide and desktop face library on Ryoku's shared services.",
