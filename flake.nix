@@ -818,6 +818,14 @@
             touch "$out"
           '';
 
+        ryoku-ci-check-coverage = pkgs.runCommand
+          "ryoku-ci-check-coverage"
+          { nativeBuildInputs = [ pkgs.python3 ]; }
+          ''
+            RYOKU_CI_ROOT=${self} python3 ${./nix/tests/test-ci-check-coverage.py}
+            touch "$out"
+          '';
+
         ryoku-install-parser = pkgs.runCommand
           "ryoku-install-parser-check"
           {
