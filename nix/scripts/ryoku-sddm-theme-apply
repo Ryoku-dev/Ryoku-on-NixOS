@@ -9,8 +9,14 @@ set -euo pipefail
 coreutils=@coreutils@
 findutils=@findutils@
 getent=@getent@
+flock=@flock@
 setpriv=@setpriv@
 state_dir=@stateDir@
+
+# Upper bounds for a skin, enforced while reading it.
+max_files=4096
+max_bytes=$((128 * 1024 * 1024))
+read_timeout=30
 
 die() {
   printf 'ryoku-sddm-theme-apply: %s\n' "$2" >&2
@@ -35,8 +41,9 @@ home="$(printf '%s\n' "$passwd_line" | "$coreutils/cut" -d: -f6)"
 [ -n "$home" ] && [ -n "$gid" ] || die 2 "cannot resolve account for uid $uid"
 
 as_user() {
-  "$setpriv" --reuid "$uid" --regid "$gid" --init-groups \
-    --reset-env --no-new-privs -- "$@"
+  "$coreutils/timeout" "$read_timeout" \
+    "$setpriv" --reuid "$uid" --regid "$gid" --init-groups \
+    --bounding-set -all --inh-caps -all --reset-env --no-new-privs -- "$@"
 }
 
 themes_root="$home/.local/share/qylock/themes"
@@ -51,6 +58,9 @@ esac
 
 state_root="$("$coreutils/dirname" -- "$state_dir")"
 "$coreutils/install" -d -m 0755 "$state_root"
+exec 9>"$state_root/.sddm-theme.lock"
+"$flock" 9
+
 work="$("$coreutils/mktemp" -d "$state_root/.sddm-theme.XXXXXX")"
 trap '"$coreutils/rm" -rf "$work"' EXIT
 "$coreutils/chmod" 0700 "$work"
@@ -59,13 +69,22 @@ trap '"$coreutils/rm" -rf "$work"' EXIT
 # Regular files only: symlinks, devices, FIFOs and sockets are never copied.
 as_user "$findutils/find" "$src_real" -type f -print0 >"$work/list"
 
+files=0
+bytes=0
 while IFS= read -r -d '' path; do
+  files=$((files + 1))
+  [ "$files" -le "$max_files" ] || die 2 "skin has too many files"
   rel="${path#"$src_real"/}"
   case "/$rel/" in
     "/$path/" | */../* | */./* | *//*) die 2 "unexpected path in skin: $path" ;;
   esac
   "$coreutils/mkdir" -p -- "$work/theme/$("$coreutils/dirname" -- "$rel")"
-  as_user "$coreutils/cat" -- "$path" >"$work/theme/$rel"
+  # Read one byte past the remaining budget so an oversized or growing file
+  # is detected instead of silently truncated.
+  as_user "$coreutils/head" -c "$((max_bytes - bytes + 1))" -- "$path" >"$work/theme/$rel"
+  size="$("$coreutils/stat" -c %s -- "$work/theme/$rel")"
+  bytes=$((bytes + size))
+  [ "$bytes" -le "$max_bytes" ] || die 2 "skin is larger than $max_bytes bytes"
 done <"$work/list"
 
 [ -f "$work/theme/Main.qml" ] || die 1 "skin has no Main.qml: $slug"
@@ -73,7 +92,15 @@ done <"$work/list"
 "$findutils/find" "$work/theme" -type d -exec "$coreutils/chmod" 0755 {} +
 "$findutils/find" "$work/theme" -type f -exec "$coreutils/chmod" 0644 {} +
 
-"$coreutils/rm" -rf -- "$state_dir"
-"$coreutils/mv" -T -- "$work/theme" "$state_dir"
+# Keep the previous theme until the new one is in place; restore it on failure.
+if [ -e "$state_dir" ] || [ -L "$state_dir" ]; then
+  "$coreutils/mv" -T -- "$state_dir" "$work/previous"
+  if ! "$coreutils/mv" -T -- "$work/theme" "$state_dir"; then
+    "$coreutils/mv" -T -- "$work/previous" "$state_dir" || true
+    die 1 "could not install the new theme; previous theme kept"
+  fi
+else
+  "$coreutils/mv" -T -- "$work/theme" "$state_dir"
+fi
 
 printf 'Ryoku SDDM theme -> %s\n' "$slug"

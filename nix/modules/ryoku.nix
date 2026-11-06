@@ -384,8 +384,8 @@ EOF
 
   ryokuSddmThemeApply = pkgs.writeShellScriptBin "ryoku-sddm-theme-apply"
     (builtins.replaceStrings
-      [ "#!/usr/bin/env bash\n" "@coreutils@" "@findutils@" "@getent@" "@setpriv@" "@stateDir@" ]
-      [ "" "${pkgs.coreutils}/bin" "${pkgs.findutils}/bin" "${pkgs.getent}/bin/getent"
+      [ "#!/usr/bin/env bash\n" "@coreutils@" "@findutils@" "@getent@" "@flock@" "@setpriv@" "@stateDir@" ]
+      [ "" "${pkgs.coreutils}/bin" "${pkgs.findutils}/bin" "${pkgs.getent}/bin/getent" "${pkgs.util-linux}/bin/flock"
         "${pkgs.util-linux}/bin/setpriv" ryokuSddmStateDir ]
       (builtins.readFile ../scripts/ryoku-sddm-theme-apply));
 
