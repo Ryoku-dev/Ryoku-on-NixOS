@@ -705,13 +705,13 @@
 
             session_module=${./nix/modules/ryoku.nix}
             grep -Fq 'dbus-update-activation-environment --systemd --all' "$session_module"
-            grep -Fq "''${materializer}/bin/ryoku-materialize || true" "$session_module"
+            grep -Fq '    ''${materializeBestEffort}' "$session_module"
             grep -Fq 'systemctl --user restart ryoku-session.target' "$session_module"
 
             niri_module=${./nix/modules/ryoku.nix}
             niri_wrapper="$TMPDIR/niri-session-wrapper-source"
             sed -n '/cat > "$out\/bin\/ryoku-niri-session"/,/chmod 0755/p' "$niri_module" > "$niri_wrapper"
-            grep -Fq "''${materializer}/bin/ryoku-materialize" "$niri_wrapper"
+            grep -Fq "''${materializeBestEffort}" "$niri_wrapper"
             grep -Fq 'exec ''${ryokuNiri}/bin/niri-session' "$niri_wrapper"
             if grep -Fq '[ ! -f "$config_home/niri/config.kdl" ]' "$niri_wrapper"; then
               echo 'Niri session wrapper still conditionally skips generation materialization' >&2
@@ -785,6 +785,10 @@
 
             touch "$out"
           '';
+
+        ryoku-materialize-session = import ./nix/tests/materialize-session.nix {
+          inherit pkgs self;
+        };
 
         ryoku-install-parser = pkgs.runCommand
           "ryoku-install-parser-check"
