@@ -60,12 +60,32 @@ let
       [ "#!/usr/bin/env bash\n" "@materializer@" "@coreutils@" ]
       [ "" "${materialize}/bin/ryoku-materialize" "${pkgs.coreutils}/bin" ]
       (builtins.readFile (self + "/nix/scripts/ryoku-materialize-best-effort")));
+
+  # Stubs for the retry script: the live run clears the marker unless told to
+  # keep failing, and session start / systemctl just record that they ran.
+  stubLive = pkgs.writeShellScript "stub-live" ''
+    [ -z "''${RYOKU_STUB_KEEP_FAILING:-}" ] || exit 0
+    rm -f "$XDG_STATE_HOME/ryoku/nix/materialize-failed"
+    echo live >> "$RYOKU_STUB_LOG"
+  '';
+  stubSessionStart = pkgs.writeShellScript "stub-session-start" ''
+    echo session-start >> "$RYOKU_STUB_LOG"
+  '';
+  stubSystemctl = pkgs.writeShellScript "stub-systemctl" ''
+    [ -n "''${RYOKU_STUB_TARGET_ACTIVE:-}" ]
+  '';
+  retry = pkgs.writeShellScript "ryoku-materialize-retry"
+    (builtins.replaceStrings
+      [ "#!/usr/bin/env bash\n" "@materializeLive@" "@sessionStart@" "@systemctl@" ]
+      [ "" "${stubLive}" "${stubSessionStart}" "${stubSystemctl}" ]
+      (builtins.readFile (self + "/nix/scripts/ryoku-materialize-retry")));
 in
 pkgs.runCommand "ryoku-materialize-session-check"
   { nativeBuildInputs = [ pkgs.coreutils pkgs.findutils pkgs.gnugrep ]; }
   ''
     MATERIALIZE=${materialize}/bin/ryoku-materialize \
     BEST_EFFORT=${bestEffort} \
+    RETRY=${retry} \
       bash ${self + "/nix/tests/test-materialize-session.sh"}
     touch "$out"
   ''

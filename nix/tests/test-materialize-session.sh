@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-: "${MATERIALIZE:?}" "${BEST_EFFORT:?}"
+: "${MATERIALIZE:?}" "${BEST_EFFORT:?}" "${RETRY:?}"
 tmp=$(mktemp -d)
 trap 'chmod -R u+rwX "$tmp"; rm -rf "$tmp"' EXIT
 fail() { printf 'test-materialize-session: FAIL: %s\n' "$*" >&2; exit 1; }
@@ -61,4 +61,29 @@ unset RYOKU_STUB_FAIL
 "$BEST_EFFORT" >/dev/null 2>&1 || fail "recovery run failed"
 [ ! -e "$HOME/$marker" ] || fail "marker not cleared after success"
 [ -f "$XDG_CONFIG_HOME/niri/config.kdl" ] || fail "recovery did not materialize"
+# 7. Recovery of a failed first attempt (no session target yet).
+# Without a marker the retry is a no-op.
+newhome retry-noop
+export RYOKU_STUB_LOG=$HOME/stub.log
+"$RETRY"; [ ! -e "$RYOKU_STUB_LOG" ] || fail "retry ran without a failure marker"
+
+# Fresh home whose first attempt failed: retry recovers and starts the session.
+newhome retry-fresh
+export RYOKU_STUB_LOG=$HOME/stub.log
+RYOKU_STUB_FAIL=1 "$BEST_EFFORT" >/dev/null 2>&1
+[ -s "$HOME/$marker" ] || fail "setup: marker missing"
+RYOKU_STUB_KEEP_FAILING=1 "$RETRY" >/dev/null 2>&1 || fail "retry must not fail while still broken"
+[ -s "$HOME/$marker" ] || fail "marker cleared although still failing"
+[ ! -e "$RYOKU_STUB_LOG" ] || fail "session started although materialization still failing"
+"$RETRY" >/dev/null 2>&1 || fail "retry failed"
+[ ! -e "$HOME/$marker" ] || fail "marker not cleared by successful retry"
+grep -qx session-start "$RYOKU_STUB_LOG" || fail "session not started after recovery"
+
+# Existing session: retry recovers the config but must not restart the session.
+newhome retry-live
+export RYOKU_STUB_LOG=$HOME/stub.log
+RYOKU_STUB_FAIL=1 "$BEST_EFFORT" >/dev/null 2>&1
+RYOKU_STUB_TARGET_ACTIVE=1 "$RETRY" >/dev/null 2>&1 || fail "retry failed (live)"
+[ ! -e "$HOME/$marker" ] || fail "marker not cleared (live)"
+! grep -q session-start "$RYOKU_STUB_LOG" || fail "running session was restarted"
 printf 'test-materialize-session: PASS\n'

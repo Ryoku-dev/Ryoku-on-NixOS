@@ -18,7 +18,7 @@ on:
       - 'nix/tests/test-qylock-pam-materialization.py'
       - 'nix/tests/materialize-session.nix'
       - 'nix/tests/test-materialize-session.sh'
-      - 'nix/scripts/ryoku-materialize-best-effort'
+      - 'nix/scripts/ryoku-materialize-*'
       - 'nix/apps/ryoku-materialize.nix'
       - '.github/workflows/nix-iso.yml'
   pull_request:
@@ -35,7 +35,7 @@ on:
       - 'nix/tests/test-qylock-pam-materialization.py'
       - 'nix/tests/materialize-session.nix'
       - 'nix/tests/test-materialize-session.sh'
-      - 'nix/scripts/ryoku-materialize-best-effort'
+      - 'nix/scripts/ryoku-materialize-*'
       - 'nix/apps/ryoku-materialize.nix'
       - '.github/workflows/nix-iso.yml'
   workflow_dispatch:
