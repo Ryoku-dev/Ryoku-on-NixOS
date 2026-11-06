@@ -1250,9 +1250,13 @@ func (d *daemon) shutdown() {
 	}
 	d.mu.Lock()
 	pids := make([]int, 0, len(d.proc))
+	var groups []int
 	for _, c := range d.proc {
 		if c != nil && c.Process != nil {
 			pids = append(pids, c.Process.Pid)
+			if c.SysProcAttr != nil && c.SysProcAttr.Setpgid {
+				groups = append(groups, c.Process.Pid)
+			}
 		}
 	}
 	d.mu.Unlock()
@@ -1263,6 +1267,11 @@ func (d *daemon) shutdown() {
 	if left := waitGone(pids, 3*time.Second); len(left) > 0 {
 		signalAll(left, syscall.SIGKILL)
 		waitGone(left, time.Second)
+	}
+	// A supervised root's own group (Shima and its watchers) is outside
+	// KillMode=process's reach once this daemon exits.
+	for _, pgid := range groups {
+		stopProcessGroup(pgid, time.Second)
 	}
 }
 

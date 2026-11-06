@@ -325,3 +325,29 @@ func TestStrayScanFindsNativeShellWhileShimaActive(t *testing.T) {
 		t.Fatal("native shell stray missed while Shima is active")
 	}
 }
+
+// Shell watcher children belong to the root's process group. One that ignores
+// SIGTERM must not outlive the root and keep running beside the next one.
+func TestShimaRestoreKillsGroupMembersThatIgnoreTerm(t *testing.T) {
+	d := shimaTestDaemon(t, "iris")
+	cmd := exec.Command("bash", "-c", `(trap "" TERM; exec sleep 30) & exec sleep 30`)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pgid := cmd.Process.Pid
+	t.Cleanup(func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+	time.Sleep(300 * time.Millisecond)
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	_ = cmd.Wait()
+	run := &desktopRun{shima: true, ready: filepath.Join(t.TempDir(), "ready")}
+	run.intentional.Store(true)
+	d.restoreAfterShima(run, cmd)
+	deadline := time.Now().Add(2 * time.Second)
+	for syscall.Kill(-pgid, 0) == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("a root's watcher survived the root")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

@@ -173,8 +173,9 @@ func (d *daemon) restoreAfterShima(run *desktopRun, cmd *exec.Cmd) {
 	}
 	defer os.Remove(run.ready)
 	cleanupShimaWindows(run.root, run.ready)
-	// Process children used for shell watchers must not survive the root.
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	// Process children used for shell watchers must not survive the root, nor
+	// run beside the next one.
+	stopProcessGroup(cmd.Process.Pid, 2*time.Second)
 	select {
 	case <-d.quit:
 		return
@@ -188,6 +189,34 @@ func (d *daemon) restoreAfterShima(run *desktopRun, cmd *exec.Cmd) {
 		return
 	}
 	d.fallbackShima("Shima exited or failed readiness")
+}
+
+// stopProcessGroup asks every process left in pgid to exit and kills what is
+// still there after grace. The leader may already be gone and reaped: its group
+// lives on while any member does.
+func stopProcessGroup(pgid int, grace time.Duration) {
+	if pgid <= 0 {
+		return
+	}
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	if processGroupGone(pgid, grace) {
+		return
+	}
+	_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	processGroupGone(pgid, time.Second)
+}
+
+func processGroupGone(pgid int, wait time.Duration) bool {
+	deadline := time.Now().Add(wait)
+	for {
+		if syscall.Kill(-pgid, 0) == syscall.ESRCH {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func (d *daemon) fallbackShima(reason string) {
