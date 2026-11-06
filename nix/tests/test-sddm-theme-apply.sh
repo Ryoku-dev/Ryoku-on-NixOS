@@ -59,7 +59,7 @@ for bad in escape onlylink nomain missing ../good /abs "" ; do
   if apply "$bad" >/dev/null 2>&1; then fail "slug '$bad' should be rejected"; fi
 done
 [ "$before" = "$(find "$tmp/state/sddm-theme" -type f | sort)" ] || fail "failed apply changed installed theme"
-[ -z "$(ls -A "$tmp/state" | grep -E '^\.sddm-theme\.[A-Za-z0-9]{6}$')" ] || fail "staging dir leaked"
+[ -z "$(find "$tmp/state" -mindepth 1 -maxdepth 1 -name '.sddm-theme.??????' -print -quit)" ] || fail "staging dir leaked"
 if UID_OVERRIDE=0 apply good >/dev/null 2>&1; then fail "root uid accepted"; fi
 if env -u PKEXEC_UID -u SUDO_UID bash "$tmp/apply" good >/dev/null 2>&1; then fail "missing uid accepted"; fi
 
