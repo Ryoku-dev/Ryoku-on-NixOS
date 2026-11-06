@@ -425,6 +425,21 @@
             touch "$out"
           '';
 
+        ryoku-bridge-command-ownership =
+          let
+            host = (mkIsoConfigSystem { }).config;
+          in
+          import ./nix/tests/bridge-command-ownership.nix {
+            inherit pkgs;
+            bridge = ryoku.nixosSystemBridge;
+            helpers = ryoku.helpers;
+            bundle = ryoku.bundle;
+            shell = ryoku.shell;
+            cli = ryoku.cli;
+            systemPackages = host.environment.systemPackages;
+            polkitRules = host.security.polkit.extraConfig;
+          };
+
         ryoku-installer-wrapper = import ./nix/tests/installer-wrapper.nix {
           inherit pkgs;
           installer = ryokuInstall;

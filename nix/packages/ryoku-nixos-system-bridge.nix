@@ -16,6 +16,15 @@ let
 
     pkgs.docker
   ];
+
+  # Privileged commands owned by this bridge. Other Ryoku packages must not
+  # ship executables with these names; ryoku-helpers drops its Arch copies.
+  commands = [
+    "ryoku-dns"
+    "ryoku-wifi-backend"
+    "ryoku-wifi-regdom"
+    "ryoku-docker"
+  ];
 in
 pkgs.stdenvNoCC.mkDerivation {
   pname = "ryoku-nixos-system-bridge";
@@ -25,16 +34,14 @@ pkgs.stdenvNoCC.mkDerivation {
 
   dontBuild = true;
 
+  passthru = { inherit commands; };
+
   installPhase = ''
     runHook preInstall
 
     mkdir -p "$out/bin"
 
-    for helper in \
-      ryoku-dns \
-      ryoku-wifi-backend \
-      ryoku-wifi-regdom \
-      ryoku-docker
+    for helper in ${pkgs.lib.escapeShellArgs commands}
     do
       install -Dm755 \
         "$helper" \

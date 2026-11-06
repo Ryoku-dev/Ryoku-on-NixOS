@@ -1,4 +1,4 @@
-{ pkgs, src }:
+{ pkgs, src, nixosSystemBridge }:
 
 let
   # polkit is a multi-output package:
@@ -28,6 +28,14 @@ pkgs.stdenv.mkDerivation {
       --replace-fail \
         'var polkitHelperPath = "/usr/lib/polkit-1/polkit-agent-helper-1"' \
         'var polkitHelperPath = "${polkitOut}/lib/polkit-1/polkit-agent-helper-1"'
+
+    # /usr/bin/ryoku-dns does not exist on NixOS, and the fallback beside this
+    # binary does not either. Run the bridge's store path, which is the exact
+    # program the NixOS polkit rule authorizes.
+    substituteInPlace network.go \
+      --replace-fail \
+        'var dnsPackagedHelper = "/usr/bin/ryoku-dns"' \
+        'var dnsPackagedHelper = "${nixosSystemBridge}/bin/ryoku-dns"'
   '';
 
   buildPhase = ''

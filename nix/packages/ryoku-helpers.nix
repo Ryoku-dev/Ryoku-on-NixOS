@@ -1,4 +1,4 @@
-{ pkgs, src }:
+{ pkgs, src, bridgeCommands }:
 
 let
   # Ryostage replaces the old separate Depth and Parallax Python runtimes.
@@ -28,6 +28,19 @@ pkgs.stdenvNoCC.mkDerivation {
 
     mkdir -p "$out/bin" "$out/libexec"
 
+    # Commands owned by ryoku-nixos-system-bridge. The upstream copies of these
+    # write mutable /etc state and re-exec pkexec on a path the NixOS polkit
+    # rules do not grant, so they must never shadow the bridge on PATH.
+    bridge_commands=(${pkgs.lib.escapeShellArgs bridgeCommands})
+
+    is_bridge_command() {
+      local name
+      for name in "''${bridge_commands[@]}"; do
+        [ "$name" = "$1" ] && return 0
+      done
+      return 1
+    }
+
     install_helpers() {
       for helper in "$@"; do
         [ -f "$helper" ] || continue
@@ -37,6 +50,8 @@ pkgs.stdenvNoCC.mkDerivation {
             continue
             ;;
         esac
+
+        is_bridge_command "$(basename "$helper")" && continue
 
         install -Dm755 \
           "$helper" \
