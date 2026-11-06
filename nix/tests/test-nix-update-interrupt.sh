@@ -12,8 +12,6 @@ bin="$work/bin"
 old_system="$work/old-system"
 marker="$work/rollback.marker"
 switch_marker="$work/switch.marker"
-materialize_marker="$work/materialize.marker"
-shell_marker="$work/shell.marker"
 mkdir -p "$flake" "$bin" "$old_system/bin"
 bash_bin=$(command -v bash)
 
@@ -121,7 +119,6 @@ import sys
 with open(sys.argv[1], "a") as f:
     f.write("# tracking " + sys.argv[2] + "\n")
 PY
-real_python=$(command -v python3)
 set +e
 PATH="$bin:$PATH" \
    ROLLBACK_MARKER="$marker" \
