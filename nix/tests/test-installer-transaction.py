@@ -58,6 +58,8 @@ class TransactionTests(unittest.TestCase):
                    'if [ "$TEST_FAILURE" = interrupt ]; then kill -TERM "$PPID"; exit 1; fi\n'
                    '[ "$TEST_FAILURE" != "$1" ]\n')
             script("systemctl", "exit 0\n")
+            script("ryoku-materialize", 'echo materialize >> "$TEST_CALLS"\n'
+                   '[ "$TEST_FAILURE" != materialize ]\n')
             backend = re.sub(
                 r"(?ms)^[ \t]*run_root\(\) \{.*?^[ \t]*\}",
                 'run_root() { "$@"; }',
@@ -90,12 +92,29 @@ class TransactionTests(unittest.TestCase):
                 self.assertEqual(after, before, result.stdout + result.stderr)
                 self.assertEqual(calls.read_text().splitlines(), ["validate"])
                 self.assertIn("existing NixOS host does not evaluate", result.stderr)
+            elif failure == "materialize":
+                # The new generation is already live: this is a warning, not a
+                # failed installation, and the configuration must be kept.
+                output = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, output)
+                self.assertIn("@@RYOKU_DONE", result.stdout)
+                self.assertIn("WARNING: ryoku-materialize failed", result.stderr)
+                self.assertIn("ryoku-materialize", result.stderr.split("WARNING", 1)[1])
+                self.assertIn('defaultCompositor = "niri"', (host / "ryoku.nix").read_text())
+                self.assertEqual(calls.read_text().splitlines(),
+                                 ["validate", "lock", "build", "switch", "materialize"])
             elif failure:
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 after = {p.name: p.read_bytes() for p in host.iterdir()}
                 self.assertEqual(after, before, result.stdout + result.stderr)
                 if failure in ("lock", "build"):
                     self.assertNotIn("switch", calls.read_text().splitlines())
+                if failure == "switch":
+                    # A failed activation may already have updated the system
+                    # profile and boot entries: say so and say how to inspect it.
+                    self.assertIn("nixos-rebuild list-generations", result.stderr)
+                    self.assertIn("--rollback", result.stderr)
+                    self.assertIn("configuration files restored", result.stderr)
                 if failure == "nvidia-preflight":
                     self.assertEqual(
                         calls.read_text().splitlines(),
@@ -107,7 +126,7 @@ class TransactionTests(unittest.TestCase):
                     )
             else:
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(calls.read_text().splitlines(), ["validate", "lock", "build", "switch"])
+                self.assertEqual(calls.read_text().splitlines(), ["validate", "lock", "build", "switch", "materialize"])
                 self.assertIn('defaultCompositor = "niri"', (host / "ryoku.nix").read_text())
 
     def test_success(self):
@@ -120,6 +139,11 @@ class TransactionTests(unittest.TestCase):
 
     def test_nvidia_kernel_module_preflight_aborts_before_transaction(self):
         self.run_case("nvidia-preflight", gpu="nvidia")
+
+    def test_materialize_failure_after_switch_is_not_an_install_failure(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                self.run_case("materialize", existing)
 
     def test_failures_restore_new_and_existing_configs(self):
         for failure in ("lock", "build", "switch", "interrupt"):

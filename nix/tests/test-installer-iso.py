@@ -83,6 +83,27 @@ class ISOInstallerTests(unittest.TestCase):
         self.assertNotIn('swapoff -a', cleanup)
         self.assertIn('an earlier installation may be incomplete', backend)
 
+    def test_failure_after_repartitioning_says_the_disk_was_modified(self):
+        backend = Path(os.environ["RYOKU_INSTALL_BACKEND_SOURCE"]).read_text()
+        cleanup = backend.split("  iso_cleanup() {", 1)[1].split("\n  }", 1)[0]
+        self.assertIn('"${disk_modified:-0}" -eq 1', cleanup)
+        self.assertIn("INSTALLATION DID NOT COMPLETE", cleanup)
+        self.assertIn("Do not reboot into it", cleanup)
+        # Never promise to undo disk changes.
+        self.assertNotIn("rollback", cleanup.lower())
+        self.assertNotIn("restore", cleanup.lower())
+        # The flag flips only after the last confirmation and identity
+        # revalidation, immediately before the first destructive command.
+        flag = backend.index("  disk_modified=1\n")
+        self.assertLess(backend.index('revalidate_install_disk "$install_disk"'), flag)
+        self.assertLess(backend.index("Type the exact disk path"), flag)
+        self.assertLess(flag, backend.index('run_root wipefs -af "$install_disk"'))
+        # It is global, not function-local, so the EXIT trap can read it.
+        self.assertNotIn("local disk_modified", backend)
+        # Cleared again on success so a clean finish is never reported as failed.
+        self.assertLess(backend.index('run_root umount -R "$target_root"\n\n  disk_modified=0'),
+                        backend.index('echo "@@RYOKU_DONE"\n  printf \'\\nRyoku installation complete'))
+
     def test_preflight_cleanup_is_armed_before_lock_resolution(self):
         backend = Path(os.environ["RYOKU_INSTALL_BACKEND_SOURCE"]).read_text()
         trap = backend.index("trap iso_cleanup EXIT")
