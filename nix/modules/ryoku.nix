@@ -59,6 +59,49 @@ let
   ryokuMapleMonoNF = ryokuPkgs.ryoku-maple-mono-nf;
   materializer = ryokuPkgs.ryoku-materialize;
 
+  # Session-boundary callers use this wrapper: a failed materialization is
+  # logged and recorded, but never blocks the compositor or session services.
+  materializeBestEffort = pkgs.writeShellScript "ryoku-materialize-best-effort"
+    (builtins.replaceStrings
+      [ "#!/usr/bin/env bash\n" "@materializer@" "@coreutils@" ]
+      [ "" "${materializer}/bin/ryoku-materialize" "${pkgs.coreutils}/bin" ]
+      (builtins.readFile ../scripts/ryoku-materialize-best-effort));
+
+  # Materialize the live session. Hyprland normally watches its config and
+  # reloads on every change, which can expose a partially materialized tree
+  # during `nixos-rebuild switch`. Quiesce autoreload for the transaction, then
+  # reload exactly once. A materialization failure is logged and recorded by
+  # the best-effort wrapper instead of failing the unit.
+  materializeLive = pkgs.writeShellScript "ryoku-materialize-live" ''
+    set -eu
+
+    reload_wm=0
+
+    if command -v ryoku >/dev/null 2>&1 &&
+       ryoku wm act config.autoreload off >/dev/null 2>&1
+    then
+      reload_wm=1
+    fi
+
+    cleanup() {
+      if [ "$reload_wm" -eq 1 ]; then
+        ryoku wm act config.reload config-only >/dev/null 2>&1 || true
+        ryoku wm act config.autoreload on >/dev/null 2>&1 || true
+      fi
+    }
+
+    trap cleanup EXIT
+
+    ${materializeBestEffort}
+  '';
+
+  materializeRetry = pkgs.writeShellScript "ryoku-materialize-retry"
+    (builtins.replaceStrings
+      [ "#!/usr/bin/env bash\n" "@materializeLive@" "@sessionStart@" "@systemctl@" ]
+      [ "" "${materializeLive}" "${ryokuNixSessionStart}/bin/ryoku-nix-session-start"
+        "${pkgs.systemd}/bin/systemctl" ]
+      (builtins.readFile ../scripts/ryoku-materialize-retry));
+
   # The shell, suspend guard and Hub lock preview all enter qylock through this
   # stable launcher. Keep it in the Nix closure instead of assuming the Arch
   # package installed /usr/bin/ryoku-qylock-lock.
@@ -110,7 +153,7 @@ let
     # Older Ryoku releases enabled user units into ~/.config/systemd/user. A
     # dangling user-local .wants link outranks the declarative /etc link, so
     # clean that migration state before systemd resolves the session target.
-    ${materializer}/bin/ryoku-materialize || true
+    ${materializeBestEffort}
     ${pkgs.systemd}/bin/systemctl --user daemon-reload
 
     ${pkgs.systemd}/bin/systemctl --user reset-failed       ryoku-shell.service       ryogami.service       hypridle.service       >/dev/null 2>&1 || true
@@ -133,7 +176,7 @@ let
 #!${pkgs.runtimeShell}
 set -eu
 
-${materializer}/bin/ryoku-materialize
+${materializeBestEffort}
 
 export PATH="${lib.makeBinPath [
   ryokuHyprland
@@ -177,7 +220,8 @@ set -eu
 # config.kdl and autostart.kdl are generation-owned entrypoints. Refresh them
 # before Niri parses either file so a branch/generation switch cannot boot with
 # stale compositor config and deadlock before ryoku-materialize.service starts.
-${materializer}/bin/ryoku-materialize
+# A failed run is logged but must not stop Niri from starting.
+${materializeBestEffort}
 
 export PATH="${lib.makeBinPath [
   ryokuNiri
@@ -219,7 +263,7 @@ set -eu
 config_home="''${XDG_CONFIG_HOME:-$HOME/.config}"
 
 if [ ! -f "$config_home/mango/config.conf" ]; then
-  ${materializer}/bin/ryoku-materialize || true
+  ${materializeBestEffort}
 fi
 
 export XDG_SESSION_TYPE=wayland
@@ -1959,29 +2003,31 @@ in
         # normally watches its config and reloads on every change, which can
         # expose a partially materialized tree during `nixos-rebuild switch`.
         # Quiesce autoreload for the transaction, then reload exactly once.
-        ExecStart = pkgs.writeShellScript "ryoku-materialize-live" ''
-          set -eu
+        ExecStart = materializeLive;
 
-          reload_wm=0
+      };
+    };
 
-          if command -v ryoku >/dev/null 2>&1 &&
-             ryoku wm act config.autoreload off >/dev/null 2>&1
-          then
-            reload_wm=1
-          fi
+    # RemainAfterExit keeps ryoku-materialize.service active after a failed
+    # (but tolerated) run, so nothing would ever retry it. While the failure
+    # marker exists, retry at a bounded pace and start the session if the first
+    # attempt failed before Ryoku's autostart could.
+    systemd.user.paths.ryoku-materialize-retry = {
+      description = "Retry a failed Ryoku materialization";
+      wantedBy = [ "graphical-session.target" ];
+      pathConfig.PathExists = "%S/ryoku/nix/materialize-failed";
+    };
 
-          cleanup() {
-            if [ "$reload_wm" -eq 1 ]; then
-              ryoku wm act config.reload config-only >/dev/null 2>&1 || true
-              ryoku wm act config.autoreload on >/dev/null 2>&1 || true
-            fi
-          }
-
-          trap cleanup EXIT
-
-          ${materializer}/bin/ryoku-materialize
-        '';
-
+    systemd.user.services.ryoku-materialize-retry = {
+      description = "Retry a failed Ryoku materialization";
+      unitConfig = {
+        StartLimitIntervalSec = 3600;
+        StartLimitBurst = 5;
+      };
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStartPre = "${pkgs.coreutils}/bin/sleep 60";
+        ExecStart = materializeRetry;
       };
     };
 

@@ -9,6 +9,7 @@ pkgs.writeShellApplication {
     gnugrep
     jq
     systemd
+    util-linux
     # `ryoku materialize` reapplies the Hub's icon theme through these.
     glib
     ryoku.hub
@@ -25,6 +26,22 @@ pkgs.writeShellApplication {
     backup="$state/backups/$stamp"
 
     mkdir -p "$state"
+
+    # The compositor wrapper, ryoku-nix-session-start and the user service can
+    # all materialize at login. Serialize them: every step below assumes it is
+    # the only writer.
+    exec 9>"$state/materialize.lock"
+    flock 9
+
+    # Replace a file in one rename so an interrupted run never leaves a
+    # truncated config behind.
+    install_atomic() {
+      local src="$1" dest="$2" part
+      mkdir -p -- "''${dest%/*}"
+      part="$dest.ryoku-nix.$$"
+      install -m0644 -- "$src" "$part"
+      mv -f -- "$part" "$dest"
+    }
 
     # ----------------------------------------------------------
     # First deployment backup
@@ -158,10 +175,8 @@ EOF
     #
     # Restore them on every materialization: losing either leaves a currently
     # running niri session alive only until its next restart.
-    install -Dm0644 "$base/niri/config.kdl" \
-      "$config_home/niri/config.kdl"
-    install -Dm0644 "$base/niri/autostart.kdl" \
-      "$config_home/niri/autostart.kdl"
+    install_atomic "$base/niri/config.kdl" "$config_home/niri/config.kdl"
+    install_atomic "$base/niri/autostart.kdl" "$config_home/niri/autostart.kdl"
 
     # Provider-generated effective config must be re-authored from desktop.json
     # on every generation switch. A provider update can change how the same
@@ -232,7 +247,7 @@ EOF
         )"
 
         if [ "$migrated" != "$modules" ]; then
-          tmp="$shell_store.ryoku-nix-tmp"
+          tmp="$shell_store.ryoku-nix.$$"
 
           jq \
             --argjson modules "$migrated" \
@@ -300,11 +315,15 @@ EOF
         find "$module_path" -type d -exec chmod u+w {} +
       fi
 
-      rm -rf -- "''${module_path:?}"
+      # Legacy real directory: it must go before a link can take its name.
+      if [ -d "$module_path" ] && [ ! -L "$module_path" ]; then
+        rm -rf -- "''${module_path:?}"
+      fi
 
-      ln -s \
-        "$qml/Ryoku/$module" \
-        "$module_path"
+      # Swap the link in with one rename so Quickshell never sees the module
+      # missing while a session is already running.
+      ln -sfn "$qml/Ryoku/$module" "$module_path.ryoku-nix.$$"
+      mv -T -- "$module_path.ryoku-nix.$$" "$module_path"
     done
 
     # Hyprland's bundled plugins are immutable generation-owned packages.

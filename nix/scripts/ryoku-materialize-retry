@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Recovery for a failed login-time materialization.
+#
+# ryoku-materialize.service is a oneshot with RemainAfterExit: once it has run
+# it stays "active" and is never started again in the same login, and the
+# best-effort wrapper reports success even when materialization failed. This
+# script is started by a path unit while the failure marker exists. It retries,
+# and when the Ryoku session target never came up (a fresh home whose first
+# attempt failed has no autostart to start it) it brings the session up.
+set -u
+
+materialize_live=@materializeLive@
+session_start=@sessionStart@
+systemctl=@systemctl@
+
+state="${XDG_STATE_HOME:-${HOME:-/}/.local/state}/ryoku/nix"
+marker="$state/materialize-failed"
+
+[ -e "$marker" ] || exit 0
+
+"$materialize_live" || true
+
+if [ -e "$marker" ]; then
+  printf '<4>ryoku-materialize-retry: still failing; will retry (see %s)\n' "$marker" >&2
+  exit 0
+fi
+
+printf 'ryoku-materialize-retry: materialization recovered\n'
+if ! "$systemctl" --user is-active --quiet ryoku-session.target; then
+  exec "$session_start"
+fi
