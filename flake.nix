@@ -642,6 +642,26 @@
             touch "$out"
           '';
 
+        # Interrupted update / channel switch must stop and restore state
+        ryoku-nix-update-interrupt = pkgs.runCommand
+          "ryoku-nix-update-interrupt-check"
+          {
+            nativeBuildInputs = with pkgs; [
+              bash
+              coreutils
+              git
+              gnugrep
+              jq
+              python3
+              util-linux
+            ];
+          }
+          ''
+            RYOKU_NIX_UPDATE_TEST_HELPER=${./nix/scripts/ryoku-nix-update} \
+              bash ${./nix/tests/test-nix-update-interrupt.sh}
+            touch "$out"
+          '';
+
         ryoku-nix-update-refresh = pkgs.runCommand
           "ryoku-nix-update-refresh-check"
           {
