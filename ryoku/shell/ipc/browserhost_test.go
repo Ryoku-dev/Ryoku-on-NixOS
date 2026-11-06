@@ -147,3 +147,109 @@ func TestBrowserHostFallsBackWhenDirectoryMissing(t *testing.T) {
 		t.Fatal("fallback path did not poll")
 	}
 }
+
+func lastBackground(t *testing.T, buf *lockedBuffer) any {
+	t.Helper()
+	frames := buf.frames(t)
+	if len(frames) == 0 {
+		return nil
+	}
+	return frames[len(frames)-1]["colors"].(map[string]any)["background"]
+}
+
+func waitBackground(t *testing.T, buf *lockedBuffer, want string, within time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if lastBackground(t, buf) == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("latest palette is %v, want %s within %v", lastBackground(t, buf), want, within)
+}
+
+func TestBrowserHostDoesNotMissUpdateDuringStartup(t *testing.T) {
+	colors := filepath.Join(t.TempDir(), "colors.json")
+	writeColors(t, colors, "#101010")
+	browserHostBaselineHook = func() { writeColors(t, colors, "#404040") }
+	defer func() { browserHostBaselineHook = nil }()
+
+	out, inW, exited := startHost(t, colors)
+	defer func() { inW.Close(); <-exited }()
+	// Whether the update is read by the initial send or reported by the
+	// watcher, the browser must end up with it.
+	waitBackground(t, out, "#404040", 2*time.Second)
+}
+
+func TestBrowserHostSeesUpdatesSharingAnMtime(t *testing.T) {
+	colors := filepath.Join(t.TempDir(), "colors.json")
+	writeColors(t, colors, "#101010")
+	stamp := time.Now().Add(-time.Hour)
+	os.Chtimes(colors, stamp, stamp)
+
+	out, inW, exited := startHost(t, colors)
+	defer func() { inW.Close(); <-exited }()
+	waitFrames(t, out, 1, 2*time.Second)
+
+	writeColors(t, colors, "#505050") // same size, same forced mtime
+	os.Chtimes(colors, stamp, stamp)
+	waitBackground(t, out, "#505050", 2*time.Second)
+}
+
+func TestBrowserHostSurvivesWatchedDirectoryReplacement(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "cache")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	colors := filepath.Join(dir, "colors.json")
+	writeColors(t, colors, "#101010")
+	out, inW, exited := startHost(t, colors)
+	defer func() { inW.Close(); <-exited }()
+	waitFrames(t, out, 1, 2*time.Second)
+
+	// The watched directory disappears (IN_DELETE_SELF/IN_IGNORED) ...
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	// ... and must not turn the loop into a busy spin while it is gone.
+	before := browserHostFallbackPolls.Load()
+	time.Sleep(3 * browserHostFallbackInterval)
+	if n := browserHostFallbackPolls.Load() - before; n > 6 {
+		t.Fatalf("%d polls in %v while the directory was missing: loop is spinning", n, 3*browserHostFallbackInterval)
+	}
+
+	// Once it comes back with a new palette, updates flow again.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeColors(t, colors, "#606060")
+	waitBackground(t, out, "#606060", 3*time.Second)
+
+	// And the host has returned to event-driven delivery.
+	settled := browserHostFallbackPolls.Load()
+	time.Sleep(3 * browserHostFallbackInterval)
+	if browserHostFallbackPolls.Load() > settled+1 {
+		t.Fatal("host kept polling after the directory was watchable again")
+	}
+	writeColors(t, colors, "#707070")
+	waitBackground(t, out, "#707070", 2*time.Second)
+}
+
+func TestBrowserHostSurvivesDirectoryRenamedAway(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "cache")
+	os.MkdirAll(dir, 0o755)
+	colors := filepath.Join(dir, "colors.json")
+	writeColors(t, colors, "#101010")
+	out, inW, exited := startHost(t, colors)
+	defer func() { inW.Close(); <-exited }()
+	waitFrames(t, out, 1, 2*time.Second)
+
+	if err := os.Rename(dir, filepath.Join(root, "old")); err != nil { // IN_MOVE_SELF
+		t.Fatal(err)
+	}
+	os.MkdirAll(dir, 0o755)
+	writeColors(t, colors, "#808080")
+	waitBackground(t, out, "#808080", 3*time.Second)
+}
