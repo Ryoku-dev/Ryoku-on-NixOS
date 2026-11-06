@@ -351,3 +351,23 @@ func TestShimaRestoreKillsGroupMembersThatIgnoreTerm(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// A panel-family change closes the shell gate and escalates to SIGKILL when the
+// root is slow to stop. That is the daemon's own stop, not a Shima crash, so it
+// must not switch the user to the previous native style.
+func TestShimaFamilyChangeKillIsNotACrash(t *testing.T) {
+	d := shimaTestDaemon(t, "iris")
+	d.shimaPrevious = "python"
+	d.gateWant = map[string]bool{"shell": false}
+	cmd := exec.Command("sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	_ = cmd.Wait()
+	d.restoreAfterShima(&desktopRun{shima: true, ready: filepath.Join(t.TempDir(), "ready")}, cmd)
+	if d.settings.raw["barStyle"] != "iris" || d.shimaBlocked {
+		t.Fatalf("family change treated as a crash: %v", d.settings.raw["barStyle"])
+	}
+}

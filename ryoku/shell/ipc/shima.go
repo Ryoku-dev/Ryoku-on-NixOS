@@ -181,7 +181,9 @@ func (d *daemon) restoreAfterShima(run *desktopRun, cmd *exec.Cmd) {
 		return
 	default:
 	}
-	if run.intentional.Load() {
+	// A closed shell gate is the daemon's own stop (a panel-family change),
+	// which escalates to SIGKILL when the root is slow: not a crash.
+	if run.intentional.Load() || !d.gateAllows("shell") {
 		return
 	}
 	if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok &&
