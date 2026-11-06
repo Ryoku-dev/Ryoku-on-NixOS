@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Runs as root through a passwordless polkit rule. The skin directory lives in
+# the invoking user's home, so every read of it is performed with that user's
+# credentials: a path swapped for a symlink mid-run can then only reveal what
+# the user could already read. Root only ever writes into a private staging
+# directory that it created itself and that never contains a symlink.
+set -euo pipefail
+
+coreutils=@coreutils@
+findutils=@findutils@
+getent=@getent@
+setpriv=@setpriv@
+state_dir=@stateDir@
+
+die() {
+  printf 'ryoku-sddm-theme-apply: %s\n' "$2" >&2
+  exit "$1"
+}
+
+slug="${1:-}"
+case "$slug" in
+  "" | /* | *".."*) die 2 "invalid skin slug: $slug" ;;
+esac
+
+uid="${PKEXEC_UID:-}"
+[ -n "$uid" ] || uid="${SUDO_UID:-}"
+case "$uid" in
+  "" | *[!0-9]*) die 2 "cannot determine invoking user" ;;
+esac
+[ "$uid" != 0 ] || die 2 "refusing root as the theme owner"
+
+passwd_line="$("$getent" passwd "$uid" || true)"
+gid="$(printf '%s\n' "$passwd_line" | "$coreutils/cut" -d: -f4)"
+home="$(printf '%s\n' "$passwd_line" | "$coreutils/cut" -d: -f6)"
+[ -n "$home" ] && [ -n "$gid" ] || die 2 "cannot resolve account for uid $uid"
+
+as_user() {
+  "$setpriv" --reuid "$uid" --regid "$gid" --init-groups \
+    --reset-env --no-new-privs -- "$@"
+}
+
+themes_root="$home/.local/share/qylock/themes"
+themes_real="$(as_user "$coreutils/readlink" -f -- "$themes_root" 2>/dev/null || true)"
+src_real="$(as_user "$coreutils/readlink" -f -- "$themes_root/$slug" 2>/dev/null || true)"
+[ -n "$themes_real" ] && [ -n "$src_real" ] || die 1 "skin is not installed: $slug"
+
+case "$src_real" in
+  "$themes_real"/*) ;;
+  *) die 2 "skin escaped the qylock theme root" ;;
+esac
+
+state_root="$("$coreutils/dirname" -- "$state_dir")"
+"$coreutils/install" -d -m 0755 "$state_root"
+work="$("$coreutils/mktemp" -d "$state_root/.sddm-theme.XXXXXX")"
+trap '"$coreutils/rm" -rf "$work"' EXIT
+"$coreutils/chmod" 0700 "$work"
+"$coreutils/mkdir" "$work/theme"
+
+# Regular files only: symlinks, devices, FIFOs and sockets are never copied.
+as_user "$findutils/find" "$src_real" -type f -print0 >"$work/list"
+
+while IFS= read -r -d '' path; do
+  rel="${path#"$src_real"/}"
+  case "/$rel/" in
+    "/$path/" | */../* | */./* | *//*) die 2 "unexpected path in skin: $path" ;;
+  esac
+  "$coreutils/mkdir" -p -- "$work/theme/$("$coreutils/dirname" -- "$rel")"
+  as_user "$coreutils/cat" -- "$path" >"$work/theme/$rel"
+done <"$work/list"
+
+[ -f "$work/theme/Main.qml" ] || die 1 "skin has no Main.qml: $slug"
+
+"$findutils/find" "$work/theme" -type d -exec "$coreutils/chmod" 0755 {} +
+"$findutils/find" "$work/theme" -type f -exec "$coreutils/chmod" 0644 {} +
+
+"$coreutils/rm" -rf -- "$state_dir"
+"$coreutils/mv" -T -- "$work/theme" "$state_dir"
+
+printf 'Ryoku SDDM theme -> %s\n' "$slug"
