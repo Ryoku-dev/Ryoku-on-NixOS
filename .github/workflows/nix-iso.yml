@@ -20,6 +20,8 @@ on:
       - 'nix/tests/test-materialize-session.sh'
       - 'nix/scripts/ryoku-materialize-*'
       - 'nix/apps/ryoku-materialize.nix'
+      - 'nix/tests/test-sddm-theme-apply.sh'
+      - 'nix/scripts/ryoku-sddm-theme-apply'
       - '.github/workflows/nix-iso.yml'
   pull_request:
     paths:
@@ -37,6 +39,8 @@ on:
       - 'nix/tests/test-materialize-session.sh'
       - 'nix/scripts/ryoku-materialize-*'
       - 'nix/apps/ryoku-materialize.nix'
+      - 'nix/tests/test-sddm-theme-apply.sh'
+      - 'nix/scripts/ryoku-sddm-theme-apply'
       - '.github/workflows/nix-iso.yml'
   workflow_dispatch:
 
@@ -76,6 +80,7 @@ jobs:
             .#checks.x86_64-linux.ryoku-session-bootstrap \
             .#checks.x86_64-linux.ryoku-materialize-session \
             .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
+            .#checks.x86_64-linux.ryoku-sddm-theme-apply \
             .#checks.x86_64-linux.ryoku-iso-configs
 
       - name: Prove ISO derivation evaluates

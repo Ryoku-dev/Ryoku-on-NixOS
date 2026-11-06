@@ -789,6 +789,14 @@
         ryoku-materialize-session = import ./nix/tests/materialize-session.nix {
           inherit pkgs self;
         };
+        ryoku-sddm-theme-apply = pkgs.runCommand
+          "ryoku-sddm-theme-apply-check"
+          { nativeBuildInputs = [ pkgs.coreutils pkgs.findutils ]; }
+          ''
+            RYOKU_PATH=${self} bash ${./nix/tests/test-sddm-theme-apply.sh}
+
+            touch "$out"
+          '';
 
         ryoku-install-parser = pkgs.runCommand
           "ryoku-install-parser-check"

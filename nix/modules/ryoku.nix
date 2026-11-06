@@ -426,89 +426,12 @@ EOF
   # Only the selected theme payload is mutable.
   ryokuSddmStateDir = "/var/lib/ryoku/sddm-theme";
 
-  ryokuSddmThemeApply = pkgs.writeShellScriptBin "ryoku-sddm-theme-apply" ''
-    set -euo pipefail
-
-    slug="''${1:-}"
-
-    case "$slug" in
-      ""|/*|*".."*)
-        printf 'ryoku-sddm-theme-apply: invalid skin slug: %s\n' "$slug" >&2
-        exit 2
-        ;;
-    esac
-
-    uid="''${PKEXEC_UID:-}"
-    if [ -z "$uid" ]; then
-      uid="''${SUDO_UID:-}"
-    fi
-
-    case "$uid" in
-      ""|*[!0-9]*)
-        printf 'ryoku-sddm-theme-apply: cannot determine invoking user\n' >&2
-        exit 2
-        ;;
-    esac
-
-    if [ "$uid" = "0" ]; then
-      printf 'ryoku-sddm-theme-apply: refusing root as the theme owner\n' >&2
-      exit 2
-    fi
-
-    passwd_line="$(${pkgs.getent}/bin/getent passwd "$uid" || true)"
-    home="$(printf '%s\n' "$passwd_line" | ${pkgs.coreutils}/bin/cut -d: -f6)"
-
-    if [ -z "$home" ]; then
-      printf 'ryoku-sddm-theme-apply: cannot resolve home for uid %s\n' "$uid" >&2
-      exit 2
-    fi
-
-    themes_root="$home/.local/share/qylock/themes"
-    src="$themes_root/$slug"
-
-    themes_real="$(${pkgs.coreutils}/bin/readlink -f -- "$themes_root" 2>/dev/null || true)"
-    src_real="$(${pkgs.coreutils}/bin/readlink -f -- "$src" 2>/dev/null || true)"
-
-    if [ -z "$themes_real" ] || [ -z "$src_real" ]; then
-      printf 'ryoku-sddm-theme-apply: skin is not installed: %s\n' "$slug" >&2
-      exit 1
-    fi
-
-    case "$src_real" in
-      "$themes_real"/*)
-        ;;
-      *)
-        printf 'ryoku-sddm-theme-apply: skin escaped the qylock theme root\n' >&2
-        exit 2
-        ;;
-    esac
-
-    if [ ! -f "$src_real/Main.qml" ]; then
-      printf 'ryoku-sddm-theme-apply: skin has no Main.qml: %s\n' "$slug" >&2
-      exit 1
-    fi
-
-    ${pkgs.coreutils}/bin/install -d -m 0755 /var/lib/ryoku
-
-    tmp="$(${pkgs.coreutils}/bin/mktemp -d /var/lib/ryoku/.sddm-theme.XXXXXX)"
-    trap '${pkgs.coreutils}/bin/rm -rf "$tmp"' EXIT
-
-    ${pkgs.coreutils}/bin/cp \
-      -a \
-      --no-preserve=ownership \
-      "$src_real/." \
-      "$tmp/"
-
-    ${pkgs.coreutils}/bin/chown -R root:root "$tmp"
-    ${pkgs.coreutils}/bin/chmod -R a+rX "$tmp"
-
-    ${pkgs.coreutils}/bin/rm -rf /var/lib/ryoku/sddm-theme
-    ${pkgs.coreutils}/bin/mv "$tmp" /var/lib/ryoku/sddm-theme
-
-    trap - EXIT
-
-    printf 'Ryoku SDDM theme -> %s\n' "$slug"
-  '';
+  ryokuSddmThemeApply = pkgs.writeShellScriptBin "ryoku-sddm-theme-apply"
+    (builtins.replaceStrings
+      [ "#!/usr/bin/env bash\n" "@coreutils@" "@findutils@" "@getent@" "@flock@" "@setpriv@" "@stateDir@" ]
+      [ "" "${pkgs.coreutils}/bin" "${pkgs.findutils}/bin" "${pkgs.getent}/bin/getent" "${pkgs.util-linux}/bin/flock"
+        "${pkgs.util-linux}/bin/setpriv" ryokuSddmStateDir ]
+      (builtins.readFile ../scripts/ryoku-sddm-theme-apply));
 
   # The path SDDM sees is immutable, while its payload lives in /var/lib.
   # This keeps services.displayManager.sddm.theme permanently set to "ryoku"

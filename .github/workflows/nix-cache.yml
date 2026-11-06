@@ -48,6 +48,7 @@ jobs:
             .#checks.x86_64-linux.ryoku-session-bootstrap \
             .#checks.x86_64-linux.ryoku-materialize-session \
             .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
+            .#checks.x86_64-linux.ryoku-sddm-theme-apply \
             .#checks.x86_64-linux.ryoku-iso-configs
 
   cache:
