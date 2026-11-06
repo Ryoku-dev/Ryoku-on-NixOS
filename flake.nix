@@ -319,6 +319,19 @@
           touch "$out"
         '';
 
+        # RyoStore builds Shima from the generated install source with a pure
+        # flake evaluation. It must evaluate on its own, to the same derivation
+        # the flake ships.
+        ryoku-subshell-store-source = pkgs.runCommand "ryoku-subshell-store-source-check"
+          { nativeBuildInputs = [ pkgs.python3 pkgs.nix ]; } ''
+            python3 ${./nix/tests/test-subshell-store-source.py} \
+              --install-source ${import ./nix/packages/shima-install-source.nix { inherit pkgs; src = self; }} \
+              --nixpkgs ${ryokuPackagesNixpkgs} \
+              --inir ${inirSrc} \
+              --expected-drv ${builtins.unsafeDiscardStringContext ryokuShima.drvPath}
+            touch "$out"
+          '';
+
         ryoku-installer-options = import ./nix/tests/installer-options.nix {
           inherit pkgs;
           module = self.nixosModules.default;
