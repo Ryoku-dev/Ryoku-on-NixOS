@@ -35,7 +35,7 @@ grep -q autostart "$XDG_CONFIG_HOME/niri/config.kdl" || fail "config.kdl not res
 # 3. Concurrent startup attempts do not collide or corrupt anything.
 newhome concurrent
 pids=()
-for i in 1 2 3 4 5 6 7 8; do "$MATERIALIZE" >/dev/null 2>&1 & pids+=($!); done
+for ((i = 0; i < 8; i++)); do "$MATERIALIZE" >/dev/null 2>&1 & pids+=($!); done
 for p in "${pids[@]}"; do wait "$p" || fail "concurrent run failed"; done
 grep -q autostart "$XDG_CONFIG_HOME/niri/config.kdl" || fail "config.kdl corrupt after concurrent runs"
 [ -L "$HOME/.local/lib/qt6/qml/Ryoku/Ui" ] && [ -d "$HOME/.local/lib/qt6/qml/Ryoku/Ui" ] || fail "qml link broken"
