@@ -332,6 +332,22 @@
             touch "$out"
           '';
 
+        # The Python subshell's weather refresh does not start a refresh chain
+        # while the shell daemon cannot persist the location.
+        ryoku-subshell-python-weather = pkgs.runCommand "ryoku-subshell-python-weather-check"
+          {
+            nativeBuildInputs = with pkgs; [ bash coreutils gnugrep gnused jq procps util-linux ];
+          } ''
+            # The scripts call each other through /usr/bin/env, which the
+            # build sandbox lacks.
+            cp -r ${./ryoku/shell/quickshell/shell/modules/bar/barstyles/python/scripts} scripts
+            chmod -R u+w scripts
+            patchShebangs scripts
+            RYOKU_PYTHON_SCRIPTS="$PWD/scripts" \
+              bash ${./tests/subshell-python-weather-recursion.sh}
+            touch "$out"
+          '';
+
         ryoku-installer-options = import ./nix/tests/installer-options.nix {
           inherit pkgs;
           module = self.nixosModules.default;
