@@ -31,6 +31,9 @@ func shimaTestLauncher(t *testing.T) string {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("NIRI_SOCKET", "/test/niri.sock")
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	// A host with Shima installed has a managed profile under the real state
+	// home, which desktopSelection prefers over PATH.
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	return path
 }
 
