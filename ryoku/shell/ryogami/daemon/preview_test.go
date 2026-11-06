@@ -378,8 +378,12 @@ func TestPreviewPaletteIsIsolatedCachedAndRestored(t *testing.T) {
 		previewMu.Unlock()
 	})
 	generated := make(chan struct{}, 4)
-	previewColorGenerator = func(string) (map[string]string, error) {
-		generated <- struct{}{}
+	previewColorGenerator = func(img string) (map[string]string, error) {
+		// Count only this wallpaper. The generator is a package global, so a
+		// preview goroutine left over from another test can land in this stub.
+		if img == wall {
+			generated <- struct{}{}
+		}
 		return map[string]string{"primary": "#abcdef", "background": "#222222"}, nil
 	}
 	previewPath := filepath.Join(runtimeDir, "ryoku-wall-preview.json")
