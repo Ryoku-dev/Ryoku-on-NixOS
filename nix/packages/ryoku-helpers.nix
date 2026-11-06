@@ -53,6 +53,17 @@ pkgs.stdenvNoCC.mkDerivation {
 
         is_bridge_command "$(basename "$helper")" && continue
 
+        # The Arch Shima launcher, installer and wallpaper hook drive a mutable
+        # runtime under $XDG_DATA_HOME built from the shima-overlay that desktop
+        # data drops. On NixOS the optional ryoku-shima package provides these
+        # commands; shipping the Arch copies would shadow it on PATH and make
+        # RyoStore report Shima as installed when it is not.
+        case "$(basename "$helper")" in
+          ryoku-shima|ryoku-shima-install|ryoku-shima-wallpaper)
+            continue
+            ;;
+        esac
+
         install -Dm755 \
           "$helper" \
           "$out/bin/$(basename "$helper")"
