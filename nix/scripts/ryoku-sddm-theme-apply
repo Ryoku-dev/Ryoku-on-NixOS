@@ -6,6 +6,10 @@
 # directory that it created itself and that never contains a symlink.
 set -euo pipefail
 
+# The reader runs as another user and may not be able to access an inherited
+# working directory (pkexec starts in root's home).
+cd /
+
 coreutils=@coreutils@
 findutils=@findutils@
 getent=@getent@
@@ -92,13 +96,13 @@ done <"$work/list"
 "$findutils/find" "$work/theme" -type d -exec "$coreutils/chmod" 0755 {} +
 "$findutils/find" "$work/theme" -type f -exec "$coreutils/chmod" 0644 {} +
 
-# Keep the previous theme until the new one is in place; restore it on failure.
+# Swap atomically (renameat2 RENAME_EXCHANGE) so SDDM never sees a missing
+# theme, even if this process is killed. The previous theme ends up in the
+# staging directory and is removed with it. Only the very first install has
+# nothing to exchange with.
 if [ -e "$state_dir" ] || [ -L "$state_dir" ]; then
-  "$coreutils/mv" -T -- "$state_dir" "$work/previous"
-  if ! "$coreutils/mv" -T -- "$work/theme" "$state_dir"; then
-    "$coreutils/mv" -T -- "$work/previous" "$state_dir" || true
+  "$coreutils/mv" --exchange -T -- "$work/theme" "$state_dir" ||
     die 1 "could not install the new theme; previous theme kept"
-  fi
 else
   "$coreutils/mv" -T -- "$work/theme" "$state_dir"
 fi

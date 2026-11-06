@@ -63,9 +63,9 @@ done
 if UID_OVERRIDE=0 apply good >/dev/null 2>&1; then fail "root uid accepted"; fi
 if env -u PKEXEC_UID -u SUDO_UID bash "$tmp/apply" good >/dev/null 2>&1; then fail "missing uid accepted"; fi
 
-# Failure while installing must keep the previous theme (injected mv failure).
+# The swap is a single exchange (no window without a theme); failure keeps the previous theme (injected mv failure).
 echo marker > "$tmp/state/sddm-theme/marker"
-sed 's|if ! "$coreutils/mv" -T -- "$work/theme" "$state_dir"; then|if ! false; then|' "$tmp/apply" > "$tmp/apply-failmv"
+sed 's|"$coreutils/mv" --exchange -T|false|' "$tmp/apply" > "$tmp/apply-failmv"
 cmp -s "$tmp/apply" "$tmp/apply-failmv" && fail "fault injection did not apply"
 if PKEXEC_UID=1000 bash "$tmp/apply-failmv" good >/dev/null 2>&1; then fail "apply succeeded despite failed install"; fi
 [ -f "$tmp/state/sddm-theme/marker" ] || fail "previous theme lost on failed install"
@@ -79,6 +79,10 @@ sed 's|^max_bytes=.*|max_bytes=10|' "$tmp/apply" > "$tmp/apply-small"
 head -c 64 /dev/zero > "$themes/good/blob"
 if PKEXEC_UID=1000 bash "$tmp/apply-small" good >/dev/null 2>&1; then fail "byte limit not enforced"; fi
 [ -f "$tmp/state/sddm-theme/marker" ] || fail "previous theme lost after oversized skin"
+
+grep -q 'mv" --exchange -T' "$script" || fail "theme swap is not atomic"
+grep -qx "cd /" "$script" || fail "helper must not keep an inherited working directory"
+! grep -q 'rm -rf -- "\$state_dir"' "$script" || fail "installed theme removed before replacement"
 
 # Every read of the user-controlled tree must be done as the invoking user.
 grep -q "head -c [0-9]* -- $themes/good/Main.qml" "$tmp/as-user.log" || fail "skin read not performed as user"
