@@ -30,7 +30,7 @@ def set_source(text: str, source: str) -> str:
 
     patterns = [
         re.compile(
-            r'(?m)(^[ \t]*inputs\.ryoku\.url[ \t]*=[ \t]*)'
+            r'(?m)(^[ \t]*(?:inputs\.)?ryoku\.url[ \t]*=[ \t]*)'
             r'(?P<value>"(?:\\.|[^"\\])*")([ \t]*;)'
         ),
         re.compile(
