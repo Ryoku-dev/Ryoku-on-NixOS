@@ -34,4 +34,14 @@ for filename in sorted(required):
         f"Missing packaged Shima source file: {filename}"
     )
 
+# The package is copied to the root of the standalone flake, so a parent-relative
+# interpolation would escape it and fail pure evaluation during RyoStore installs.
+escaping = re.findall(r"\$\{(\.\./[^}]*)\}", source_package)
+assert not escaping, f"Shima package reaches outside the install source: {escaping}"
+for relative in sorted(set(re.findall(r"=\s*\./([A-Za-z0-9_./-]+);", source))):
+    assert (args.install_source / relative).is_file(), (
+        f"Standalone Shima flake passes a missing file: {relative}"
+    )
+assert "overviewTerminalPatch = ./" in source, "Overview/terminal patch is not passed"
+
 print("RyoStore Shima matches Ryoku's pinned Qt, Quickshell, and live theme tokens.")

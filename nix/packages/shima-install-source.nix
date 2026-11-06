@@ -30,13 +30,16 @@ let
             inherit pkgs;
             src = inirSrc;
             ryokuTokens = ./ryoku/ui/Singletons/Tokens.qml;
+            overviewTerminalPatch = ./ryoku/shell/quickshell/inir/patches/shima-overview-terminal.patch;
           };
         };
     }
   '';
 in pkgs.runCommand "ryoku-shima-install-source" {} ''
-  mkdir -p "$out/shima" "$out/ryoku/ui/Singletons"
+  mkdir -p "$out/shima" "$out/ryoku/ui/Singletons" "$out/ryoku/shell/quickshell/inir/patches"
   cp ${src}/ryoku/ui/Singletons/Tokens.qml "$out/ryoku/ui/Singletons/Tokens.qml"
+  cp ${src}/ryoku/shell/quickshell/inir/patches/shima-overview-terminal.patch \
+    "$out/ryoku/shell/quickshell/inir/patches/shima-overview-terminal.patch"
   cp ${src}/nix/packages/ryoku-shima.nix "$out/ryoku-shima.nix"
   cp ${src}/nix/packages/quickshell-screencopy-overlay.nix "$out/quickshell-screencopy-overlay.nix"
   cp ${src}/nix/packages/shima/*.py ${src}/nix/packages/shima/*.qml ${src}/nix/packages/shima/*.qmlfrag ${src}/nix/packages/shima/*.patch ${src}/nix/packages/shima/NOTICE "$out/shima/"
