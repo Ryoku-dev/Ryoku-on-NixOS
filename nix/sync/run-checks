@@ -11,6 +11,7 @@ nix build --no-link \
   .#checks.x86_64-linux.ryoku-installer-disk-identity \
   .#checks.x86_64-linux.ryoku-installer-iso \
   .#checks.x86_64-linux.ryoku-installer-wrapper \
+  .#checks.x86_64-linux.ryoku-bridge-command-ownership \
   .#checks.x86_64-linux.ryoku-session-bootstrap \
   .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
   .#checks.x86_64-linux.ryoku-iso-configs

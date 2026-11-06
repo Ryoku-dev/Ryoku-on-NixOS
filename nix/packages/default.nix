@@ -12,7 +12,7 @@ let
   qmlRoot = "lib/qt-6/qml";
 
   shell = import ./ryoku-shell.nix {
-    inherit pkgs src;
+    inherit pkgs src nixosSystemBridge;
   };
 
   desktopData = import ./ryoku-desktop-data.nix {
@@ -71,6 +71,7 @@ let
       version
       desktopData
       paletteBridge
+      nixosSystemBridge
       ;
   };
 
@@ -123,6 +124,7 @@ let
 
   helpers = import ./ryoku-helpers.nix {
     inherit pkgs src;
+    bridgeCommands = nixosSystemBridge.passthru.commands;
   };
 
   hyprglass = import ./ryoku-hyprglass.nix {
@@ -275,7 +277,9 @@ let
       platforms = [ "x86_64-linux" ];
     };
 
+    # The NixOS bridge comes first: it owns its privileged command names.
     paths = [
+      nixosSystemBridge
       shell
       cli
       nixUpdate
@@ -293,7 +297,6 @@ let
       wmNiri
       wmMango
       helpers
-      nixosSystemBridge
       qml
     ];
   };
