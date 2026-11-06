@@ -53,6 +53,11 @@ func qsSelect(name string) []string {
 			return []string{"-p", root}
 		}
 	}
+	return nativeSelect(name)
+}
+
+// nativeSelect is the Ryoku config selector, ignoring a selected Shima root.
+func nativeSelect(name string) []string {
 	if shellDir != "" {
 		return []string{"-p", filepath.Join(shellDir, "quickshell", name)}
 	}

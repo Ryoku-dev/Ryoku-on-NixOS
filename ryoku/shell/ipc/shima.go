@@ -342,6 +342,24 @@ func ownedShimaWindow(argv []string, environ, root, token string) bool {
 	return false
 }
 
+// shimaRootArgv recognises a Shima desktop root, `qs -p <runtime>`, apart from
+// the windows it launches from files inside that runtime.
+func shimaRootArgv(argv []string) bool {
+	if len(argv) < 3 {
+		return false
+	}
+	exe := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(argv[0]), "."), "-wrapped")
+	if exe != "qs" && exe != "quickshell" {
+		return false
+	}
+	for i := 1; i < len(argv)-1; i++ {
+		if argv[i] == "-p" || argv[i] == "--path" {
+			return filepath.Ext(argv[i+1]) != ".qml" && instanceTail(argv[i+2:])
+		}
+	}
+	return false
+}
+
 func cleanupShimaWindows(root, token string) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {

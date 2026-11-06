@@ -255,3 +255,73 @@ func TestShimaManagedProfileResolvesNewGeneration(t *testing.T) {
 		t.Fatalf("generation change not detected: %q %q", a, b)
 	}
 }
+
+// startFakeQs runs a throwaway process whose argv reads as a quickshell
+// instance, so the stray scan can be exercised against a real /proc entry.
+func startFakeQs(t *testing.T, env []string, args ...string) int {
+	t.Helper()
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh not available")
+	}
+	cmd := exec.Command(sh)
+	cmd.Args = append([]string{"qs", "-c", "sleep 30; :"}, args...)
+	cmd.Env = append(os.Environ(), env...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); _ = cmd.Wait() })
+	return cmd.Process.Pid
+}
+
+func waitStray(d *daemon, pid int) bool {
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		for _, p := range d.strayPids() {
+			if p == pid {
+				return true
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
+}
+
+// A daemon that starts after its predecessor was killed (KillMode=process)
+// has not resolved the Shima root yet, so the orphaned root has to be found
+// by its supervision marker or two desktops render at once.
+func TestStrayScanFindsOrphanedShimaRootBeforeSelection(t *testing.T) {
+	activeShimaRoot.Store("")
+	t.Cleanup(func() { activeShimaRoot.Store("") })
+	root := filepath.Join(t.TempDir(), "inir")
+	os.Mkdir(root, 0700)
+	d := &daemon{proc: map[string]*exec.Cmd{}}
+	orphan := startFakeQs(t, []string{"RYOKU_SHIMA_MANAGED=1"}, "-p", root)
+	window := startFakeQs(t, []string{"RYOKU_SHIMA_MANAGED=1"}, "-p", filepath.Join(root, "settings.qml"))
+	foreign := startFakeQs(t, nil, "-p", root)
+	if !waitStray(d, orphan) {
+		t.Fatal("orphaned Shima root not reaped by a fresh daemon")
+	}
+	for _, p := range d.strayPids() {
+		if p == window || p == foreign {
+			t.Fatalf("pid %d is not a supervised root", p)
+		}
+	}
+}
+
+// While Shima is the selected root, a leftover native shell is still a second
+// desktop and must be reaped.
+func TestStrayScanFindsNativeShellWhileShimaActive(t *testing.T) {
+	activeShimaRoot.Store(filepath.Join(t.TempDir(), "inir"))
+	t.Cleanup(func() { activeShimaRoot.Store("") })
+	d := &daemon{proc: map[string]*exec.Cmd{}}
+	sel := []string{"-c", "shell"}
+	if shellDir != "" {
+		sel = []string{"-p", filepath.Join(shellDir, "quickshell", "shell")}
+	}
+	pid := startFakeQs(t, nil, sel...)
+	if !waitStray(d, pid) {
+		t.Fatal("native shell stray missed while Shima is active")
+	}
+}
