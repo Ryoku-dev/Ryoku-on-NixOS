@@ -645,7 +645,7 @@ update_nix() {
     trap - EXIT INT TERM
 
     if ! refresh_runtime "$shell_expected"; then
-        die "NixOS generation switched, but the Ryoku user session did not recover; inspect ryoku-shell.service"
+        die "NixOS generation switched, but the Ryoku user session did not recover; inspect ryoku-materialize.service and ryoku-shell.service"
         return 1
     fi
 
@@ -666,6 +666,15 @@ refresh_runtime() {
 
     if ! systemctl --user restart ryoku-materialize.service >/dev/null 2>&1; then
         printf 'ryoku-nix-update: failed to materialize the active Ryoku generation.\n' >&2
+        return 1
+    fi
+
+    # The unit tolerates a failed run so that login is never blocked, and then
+    # exits 0; the failure is only recorded in a marker. An update must not
+    # report the desktop runtime as refreshed while that marker is present.
+    materialize_marker="${XDG_STATE_HOME:-${HOME:-}/.local/state}/ryoku/nix/materialize-failed"
+    if [ -e "$materialize_marker" ]; then
+        printf 'ryoku-nix-update: failed to materialize the active Ryoku generation (see %s).\n' "$materialize_marker" >&2
         return 1
     fi
 
@@ -808,7 +817,7 @@ track_nix() {
     rm -rf "$work"
 
     if ! refresh_runtime "$shell_expected"; then
-        die "channel switched, but the Ryoku user session did not recover; inspect ryoku-shell.service"
+        die "channel switched, but the Ryoku user session did not recover; inspect ryoku-materialize.service and ryoku-shell.service"
         return 1
     fi
 
