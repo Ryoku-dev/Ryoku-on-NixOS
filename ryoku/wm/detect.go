@@ -413,13 +413,25 @@ func desktopEntryLaunches(body []byte, bin string) bool {
 // from: SDDM's configured SessionDir first, then the XDG data dirs every
 // greeter scans. A var so a test can point the scan at a sandbox tree.
 var sessionEntryDirs = func() []string {
-	dirs := []string{"/usr/local/share/wayland-sessions", "/usr/share/wayland-sessions"}
-	for _, d := range filepath.SplitList(os.Getenv("XDG_DATA_DIRS")) {
-		if d != "" {
-			dirs = append(dirs, filepath.Join(d, "wayland-sessions"))
-		}
-	}
-	return dirs
+    dirs := []string{}
+
+    // Use the actual SDDM session directory configured by NixOS.
+    if d := strings.TrimSpace(os.Getenv("RYOKU_SDDM_SESSION_DIR")); d != "" {
+        dirs = append(dirs, d)
+    }
+
+    dirs = append(dirs,
+        "/usr/local/share/wayland-sessions",
+        "/usr/share/wayland-sessions",
+    )
+
+    for _, d := range filepath.SplitList(os.Getenv("XDG_DATA_DIRS")) {
+        if d != "" {
+            dirs = append(dirs, filepath.Join(d, "wayland-sessions"))
+        }
+    }
+
+    return dirs
 }
 
 // SessionGap names what stops this provider from being entered at the greeter
@@ -429,16 +441,40 @@ var sessionEntryDirs = func() []string {
 // from a checkout has its binary and its config tree but may still have no
 // compositor and no greeter entry, and the promise is then false.
 func SessionGap(name string) string {
-	if _, err := exec.LookPath(compositorBins[name]); err != nil {
-		return "compositor"
-	}
-	entry := name + ".desktop"
-	for _, d := range sessionEntryDirs() {
-		if _, err := os.Stat(filepath.Join(d, entry)); err == nil {
-			return ""
-		}
-	}
-	return "entry"
+    bin := compositorBins[name]
+    if bin == "" {
+        return "compositor"
+    }
+
+    dirs := sessionEntryDirs()
+
+    // NixOS uses Ryoku-specific session wrappers.
+    // Their Nix store closures already contain the compositor,
+    // so it doesn't need to be available through the user's PATH.
+    nixosEntry := "ryoku-" + name + ".desktop"
+
+    for _, dir := range dirs {
+        path := filepath.Join(dir, nixosEntry)
+        if info, err := os.Stat(path); err == nil && !info.IsDir() {
+            return ""
+        }
+    }
+
+    // Standard distribution sessions still require the compositor
+    // executable to be available in PATH.
+    if _, err := exec.LookPath(bin); err != nil {
+        return "compositor"
+    }
+
+    entry := name + ".desktop"
+
+    for _, dir := range dirs {
+        if _, err := os.Stat(filepath.Join(dir, entry)); err == nil {
+            return ""
+        }
+    }
+
+    return "entry"
 }
 
 // SessionReady reports whether picking this provider at the greeter now would
