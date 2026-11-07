@@ -17,6 +17,30 @@ The live image provides:
 Closing the installer returns to the live shell. Run `ryoku-install --iso` to
 open it again.
 
+## Booting
+
+The image boots from a DVD or from a USB stick written with `dd`, in UEFI
+mode (GRUB) or in legacy BIOS mode (isolinux).
+
+- **Disable Secure Boot.** The image's boot loader is unsigned. Firmware that
+  enforces Secure Boot refuses to start it, often with an "Access Denied" boot
+  error and no Ryoku output at all.
+- **Black screen or garbled display:** open **Options** in the boot menu and
+  pick **No modesetting**. The live system and installer are text-only and then
+  run on the firmware framebuffer, or on the 80x25 VGA text console in BIOS
+  mode.
+- **Serial console:** **Options → Serial console=ttyS0,115200n8** adds an
+  auto-logged-in shell on the serial port. The installer starts by itself only
+  on the first local console (tty1); run `ryoku-install --iso` from the serial
+  shell to use it there.
+- **Copy ISO Files to RAM** loads the whole image into memory so the boot
+  medium can be removed. It costs as much RAM as the ISO file is large, on top
+  of what the installation itself needs.
+
+Networking uses NetworkManager with the redistributable firmware set. Wi-Fi
+adapters that need an unfree driver, such as Broadcom `wl`, have no driver in
+the live image; use Ethernet or USB tethering for them.
+
 ## Guided installation
 
 The ISO uses one continuous Bubble Tea wizard for the complete whole-disk flow.
