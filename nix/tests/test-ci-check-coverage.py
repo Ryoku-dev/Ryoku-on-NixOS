@@ -27,6 +27,8 @@ REQUIRED = {
     "ryoku-materialize-session",
     "ryoku-sddm-theme-apply",
     "ryoku-bridge-command-ownership",
+    "ryoku-installer-tui",
+    "ryoku-display-manager",
     "ryoku-session-bootstrap",
     "ryoku-firstboot-session",
     "ryoku-firstboot-greeter-guard",

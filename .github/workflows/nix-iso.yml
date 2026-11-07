@@ -13,6 +13,7 @@ on:
       - 'nix/iso/**'
       - 'nix/iso-configs/**'
       - 'nix/modules/**'
+      - 'nix/tests/display-manager.nix'
       - 'nix/tests/firstboot-*'
       - 'nix/tests/test-firstboot-*'
       - 'ryoku/lockscreen/sddm/ryoku-greeter-guard'
@@ -40,6 +41,7 @@ on:
       - 'nix/iso/**'
       - 'nix/iso-configs/**'
       - 'nix/modules/**'
+      - 'nix/tests/display-manager.nix'
       - 'nix/tests/firstboot-*'
       - 'nix/tests/test-firstboot-*'
       - 'ryoku/lockscreen/sddm/ryoku-greeter-guard'
@@ -89,9 +91,11 @@ jobs:
           nix build --no-link \
             .#checks.x86_64-linux.ryoku-installer-options \
             .#checks.x86_64-linux.ryoku-installer-transaction \
+            .#checks.x86_64-linux.ryoku-installer-tui \
             .#checks.x86_64-linux.ryoku-installer-disk-identity \
             .#checks.x86_64-linux.ryoku-installer-iso \
             .#checks.x86_64-linux.ryoku-installer-wrapper \
+            .#checks.x86_64-linux.ryoku-display-manager \
             .#checks.x86_64-linux.ryoku-bridge-command-ownership \
             .#checks.x86_64-linux.ryoku-session-bootstrap \
             .#checks.x86_64-linux.ryoku-firstboot-session \

@@ -9,9 +9,17 @@ import termios
 import tempfile
 import time
 
-import runpy
-
-flake = runpy.run_path(str(Path(__file__).with_name("test-installer-transaction.py")))["FLAKE"]
+# Self-contained so the check can run from a single store path.
+flake = """{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  outputs = { nixpkgs, ... }: {
+    nixosConfigurations.host = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [ ./configuration.nix ];
+    };
+  };
+}
+"""
 binary = os.environ["RYOKU_INSTALL_TEST_BINARY"]
 
 with tempfile.TemporaryDirectory() as directory:
@@ -37,17 +45,34 @@ with tempfile.TemporaryDirectory() as directory:
                 if b"\x1b[6n" in data:
                     os.write(fd, b"\x1b[1;1R")
 
+    def pump_until(needle, seconds):
+        end = time.monotonic() + seconds
+        while needle not in output and time.monotonic() < end:
+            pump(0.1)
+        return needle in output
+
+    def wait_exit(seconds):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            done, status = os.waitpid(pid, os.WNOHANG)
+            if done:
+                return status
+            pump(0.1)
+        return None
+
     try:
         pump(2)
         for _ in range(6):
             os.write(fd, b"\r")
             pump(0.5)
-        pump(2)
-        assert b"Dry run complete" in output, "Backend dry run did not complete"
+        assert pump_until(b"Dry run complete", 60), "Backend dry run did not complete"
+        # The backend has printed its result, but the TUI reports success only
+        # after it exits and the TUI takes the terminal back. A key pressed
+        # before that screen is up is read while still installing and ignored.
+        assert pump_until(b"completed successfully", 30), "TUI did not show success"
         os.write(fd, b"\r")
-        pump(1)
-        done, status = os.waitpid(pid, os.WNOHANG)
-        assert done, "TUI did not close after success"
+        status = wait_exit(30)
+        assert status is not None, "TUI did not close after success"
         pid = None
         assert os.waitstatus_to_exitcode(status) == 0
         assert (root / "flake.nix").read_text() == flake
