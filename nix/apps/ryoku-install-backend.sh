@@ -541,6 +541,123 @@ $apps_block
 EOF_VALUES
 }
 
+# Every binary cache nixos-install will use has to answer before the disk is
+# erased. Otherwise substitution falls back to building, or fails, halfway
+# through an installation that has already wiped the disk.
+check_substituters() {
+  local url
+  for url in $(nix config show substituters 2>/dev/null || true); do
+    case "$url" in
+      http://*|https://*) ;;
+      *) continue ;;
+    esac
+    if ! curl -fsS --connect-timeout 5 --max-time 10 -o /dev/null "${url%/}/nix-cache-info"; then
+      die "binary cache ${url%/} did not answer. Check the network connection, then retry (in the guided installer: configure the network and start again). No disk changes were made"
+    fi
+  done
+}
+
+# "22.4" "GiB" -> whole MiB, rounded up.
+plan_size_mib() {
+  awk -v n="$1" -v u="$2" 'BEGIN {
+    m = (u == "B") ? 1 / 1048576 : (u == "KiB") ? 1 / 1024 : (u == "MiB") ? 1 : (u == "GiB") ? 1024 : (u == "TiB") ? 1048576 : -1
+    if (m < 0 || n !~ /^[0-9.]+$/) exit 1
+    v = n * m
+    printf "%d\n", (v == int(v)) ? v : int(v) + 1
+  }'
+}
+
+# Ask Nix what installing the target would download and build on an empty
+# disk, before that disk is touched. The live ISO's own store would hide paths
+# the new system still needs, so the plan runs against a throwaway local store
+# holding only the target's derivations. Only narinfo lookups go to the
+# caches; nothing is downloaded or built.
+plan_target_install() {
+  local drv="$1" firmware="$2"
+  local probe plan fetched builds=0 unpacked_mib=0 jobs cores
+  local disk_bytes root_mib usable_mib need_mib build_mib esp_mib
+  local -a heavy=()
+  local name
+
+  printf '\nPlanning the installation (what will be downloaded and built)...\n'
+  probe="$iso_work/plan-store"
+  if ! nix copy --no-check-sigs --derivation --to "local?root=$probe" "$drv" >/dev/null 2>&1 ||
+     ! plan="$(nix build --dry-run --no-link --store "local?root=$probe" "$drv^*" 2>&1)"
+  then
+    chmod -R u+w "$probe" 2>/dev/null || true
+    rm -rf "$probe"
+    die "could not work out what the installation needs to download and build; check the network and retry. No disk changes were made"
+  fi
+  chmod -R u+w "$probe" 2>/dev/null || true
+  rm -rf "$probe"
+
+  builds="$(sed -nE 's/^these ([0-9]+) derivations will be built.*/\1/p; s/^this derivation will be built.*/1/p' <<< "$plan" | head -n 1)"
+  builds="${builds:-0}"
+  fetched="$(sed -nE 's/.*will be fetched \(.* download, ([0-9.]+) ([KMGT]?i?B) unpacked\).*/\1 \2/p' <<< "$plan" | head -n 1)"
+  if [ -n "$fetched" ]; then
+    # shellcheck disable=SC2086 # "<number> <unit>"
+    unpacked_mib="$(plan_size_mib $fetched)" ||
+      die "could not read the download size from the installation plan; no disk changes were made"
+  fi
+
+  # Compiler-heavy packages that are missing from every configured cache.
+  while IFS= read -r name; do
+    heavy+=("$name")
+  done < <(
+    grep -oE '/nix/store/[a-z0-9]{32}-[^ ]+\.drv' <<< "$plan" |
+      sed -E 's|^/nix/store/[a-z0-9]{32}-||; s|\.drv$||' |
+      grep -E '^(hyprland|niri|quickshell|ryoku-mango|xwayland-satellite|chromium|firefox|nodejs|linux|nvidia-x11|waifu2x-ncnn-vulkan|qtwebengine|qtbase|rustc|llvm|gcc)-[0-9][0-9A-Za-z.+]*$' |
+      sort -u
+  )
+
+  read -r jobs cores <<EOF
+$(choose_install_parallelism)
+EOF
+
+  # Everything is unpacked into the target store and stays there, plus the
+  # outputs of local builds (measured about 1.2 GiB for a full source build)
+  # and the build trees of the builds running at the same time.
+  build_mib=0
+  if [ "$builds" -gt 0 ]; then
+    build_mib=2048
+    if [ "${#heavy[@]}" -gt 0 ]; then
+      [ "${#heavy[@]}" -lt "$jobs" ] && jobs="${#heavy[@]}"
+      build_mib=$((build_mib + jobs * 3072))
+    fi
+  fi
+  need_mib=$((unpacked_mib + build_mib + 4096))
+
+  esp_mib=3
+  [ "$firmware" = "uefi" ] && esp_mib=1025
+  if [ -b "$install_disk" ]; then
+    disk_bytes="$(lsblk -bdnro SIZE "$install_disk" 2>/dev/null || true)"
+  else
+    disk_bytes=""
+  fi
+  case "$disk_bytes" in
+    ''|*[!0-9]*) die "could not determine the size of $install_disk" ;;
+  esac
+  root_mib=$((disk_bytes / 1048576 - esp_mib))
+  # ext4 keeps 5% for root; Nix builds run as unprivileged build users.
+  usable_mib=$((root_mib * 95 / 100))
+
+  printf 'Download from binary caches: %s MiB unpacked\n' "$unpacked_mib"
+  printf 'Packages built on this machine: %s\n' "$builds"
+  printf 'Estimated space needed: %s GiB of about %s GiB usable on %s\n' \
+    "$(( (need_mib + 1023) / 1024 ))" "$((usable_mib / 1024))" "$install_disk"
+
+  if [ "${#heavy[@]}" -gt 0 ]; then
+    printf '\nThese large packages are not in any configured binary cache and will be\n'
+    printf 'compiled on this machine during the installation. That can take a long\n'
+    printf 'time on a slow CPU or with little memory:\n'
+    printf '  %s\n' "${heavy[@]}"
+  fi
+
+  if [ "$need_mib" -gt "$usable_mib" ]; then
+    die "$install_disk is too small for this installation: it needs about $(( (need_mib + 1023) / 1024 )) GiB in the root filesystem but only about $((usable_mib / 1024)) GiB would be usable. Use a larger disk or select fewer optional apps. No disk changes were made"
+  fi
+}
+
 install_iso() {
   local firmware password_hash typed
   local root_part boot_part
@@ -804,9 +921,9 @@ install_iso() {
   fi
 
   echo "@@RYOKU_STEP validate"
-  if ! nix eval --raw \
-    "path:$iso_work#nixosConfigurations.$install_host.config.system.build.toplevel.drvPath" \
-    >/dev/null
+  local target_drv
+  if ! target_drv="$(nix eval --raw \
+    "path:$iso_work#nixosConfigurations.$install_host.config.system.build.toplevel.drvPath")"
   then
     die "target NixOS configuration does not evaluate; no disk changes were made"
   fi
@@ -825,6 +942,9 @@ install_iso() {
       die "NVIDIA kernel-module preflight failed before disk changes; retry with --kernel default or another NVIDIA-compatible kernel"
     fi
   fi
+
+  check_substituters
+  plan_target_install "$target_drv" "$firmware"
 
   printf '\n%s\n' "WARNING: ALL DATA ON $install_disk WILL BE PERMANENTLY ERASED."
   if [ "$assume_yes" -eq 1 ]; then

@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -420,6 +421,160 @@ class ISOInstallerTests(unittest.TestCase):
         # CI may reject synthetic /dev/vda at the block-device check before the
         # confirmation branch. The exact-token contract is also source-checked
         # by flake.nix and exercised in the VM install test.
+
+
+GIB = 1024 * 1024 * 1024
+DRV = "/nix/store/" + "a" * 32 + "-nixos-system-ryoku.drv"
+
+
+def plan_text(builds, unpacked):
+    lines = []
+    if builds:
+        lines.append(f"these {len(builds)} derivations will be built:")
+        lines += [f"  /nix/store/{'b' * 32}-{name}.drv" for name in builds]
+    if unpacked:
+        lines.append(f"these 2164 paths will be fetched (7.1 GiB download, {unpacked} unpacked):")
+        lines.append(f"  /nix/store/{'c' * 32}-glibc-2.42")
+    return "\n".join(lines) + "\n"
+
+
+STUBS = {
+    # Only the subcommands the ISO path uses before the disk is erased.
+    "nix": r"""
+case "$1 $2" in
+  "flake lock") exit 0 ;;
+  "eval --raw") printf '%s' "$STUB_DRV" ;;
+  "config show") printf '%s\n' "$STUB_SUBSTITUTERS" ;;
+  "copy --no-check-sigs") exit "${STUB_COPY_RC:-0}" ;;
+  "build --dry-run")
+    printf 'nix %s\n' "$*" >> "$STUB_LOG"
+    cat "$STUB_PLAN"
+    exit "${STUB_PLAN_RC:-0}"
+    ;;
+  *) printf 'unexpected nix %s\n' "$*" >&2; exit 97 ;;
+esac
+""",
+    "curl": r"""
+for arg; do url=$arg; done
+case " $STUB_DOWN " in *" ${url%/nix-cache-info} "*) exit 7 ;; esac
+exit 0
+""",
+    "lsblk": r"""
+case "$*" in
+  *TYPE*) echo disk ;;
+  *RO*) echo 0 ;;
+  *MAJ:MIN*) echo 253:0 ;;
+  *MODEL*) echo 'Test disk' ;;
+  *MOUNTPOINTS*) : ;;
+  *SIZE*) echo "$STUB_DISK_BYTES" ;;
+  *PKNAME*) : ;;
+  *) exit 1 ;;
+esac
+""",
+    "udevadm": "printf 'ID_SERIAL=RYOKUTEST\\n'\n",
+    "findmnt": "exit 1\n",
+    "id": "echo 0\n",
+    # Reaching any of these means the disk would have been modified.
+    "wipefs": 'printf "wipefs %s\\n" "$*" >> "$STUB_LOG"; exit 1\n',
+    "parted": 'printf "parted %s\\n" "$*" >> "$STUB_LOG"; exit 1\n',
+    "sgdisk": 'printf "sgdisk %s\\n" "$*" >> "$STUB_LOG"; exit 1\n',
+}
+
+
+class ISOPreflightPlanTests(unittest.TestCase):
+    """Run the packaged backend's real --iso path (not --dry-run) with every
+    disk/Nix command stubbed, to prove the install plan is checked before the
+    first destructive command."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        stubs = self.tmp / "stubs"
+        stubs.mkdir()
+        bash = shutil.which("bash")
+        for name, body in STUBS.items():
+            path = stubs / name
+            path.write_text(f"#!{bash}\n{body}")
+            path.chmod(0o755)
+        backend = Path(os.environ["RYOKU_INSTALL_TEST_BACKEND"]).read_text()
+        marker = 'export PATH="'
+        self.assertIn(marker, backend)
+        self.script = self.tmp / "backend"
+        self.script.write_text(backend.replace(marker, f'{marker}{stubs}:', 1))
+        self.log = self.tmp / "calls.log"
+        self.log.touch()
+        self.plan = self.tmp / "plan.txt"
+        self.env = dict(
+            os.environ,
+            STUB_LOG=str(self.log),
+            STUB_PLAN=str(self.plan),
+            STUB_DRV=DRV,
+            STUB_SUBSTITUTERS="https://cache.nixos.org/",
+            STUB_DOWN="",
+            STUB_DISK_BYTES=str(40 * GIB),
+            RYOKU_INSTALL_PASSWORD_HASH="$y$j9T$test$test",
+            RYOKU_INSTALL_TARGET_SOURCE="github:Ryoku-dev/Ryoku-on-NixOS/deadbeef",
+            RYOKU_INSTALL_TARGET_ROOT=str(self.tmp / "mnt"),
+            # The sandbox has no block devices; make only the fake disk one.
+            **{"BASH_FUNC_[%%": '() { if [[ $1 == -b && $2 == /dev/fake* ]]; then return 0; fi; builtin [ "$@"; }'},
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def install(self, plan, **env):
+        self.plan.write_text(plan)
+        result = subprocess.run(
+            [shutil.which("bash"), str(self.script),
+             "--iso", "--yes", "--disk", "/dev/fakedisk", "--confirm-disk", "/dev/fakedisk",
+             "--firmware", "uefi", "--gpu", "none", "--apps", "none"],
+            env=dict(self.env, **env), capture_output=True, text=True, timeout=60,
+        )
+        return result.stdout + result.stderr, self.log.read_text()
+
+    def assertDiskUntouched(self, calls, output):
+        for command in ("wipefs", "parted", "sgdisk"):
+            self.assertNotIn(command, calls, output)
+        self.assertIn("No disk changes were made", output)
+
+    def test_plan_that_fits_reaches_the_disk_steps(self):
+        output, calls = self.install(plan_text(["etc", "system-path"], "15.0 GiB"))
+        self.assertIn("nix build --dry-run", calls, output)
+        self.assertIn("wipefs -af /dev/fakedisk", calls, output)
+        self.assertIn("Packages built on this machine: 2", output)
+
+    def test_plan_larger_than_the_disk_is_refused_before_wiping(self):
+        output, calls = self.install(plan_text(["etc"], "35.0 GiB"))
+        self.assertIn("nix build --dry-run", calls, output)
+        self.assertDiskUntouched(calls, output)
+        self.assertIn("/dev/fakedisk is too small for this installation", output)
+
+    def test_unreachable_substituter_is_refused_before_wiping(self):
+        output, calls = self.install(
+            plan_text(["etc"], "15.0 GiB"),
+            STUB_SUBSTITUTERS="https://cache.nixos.org/ https://cache.example.org",
+            STUB_DOWN="https://cache.example.org",
+        )
+        self.assertDiskUntouched(calls, output)
+        self.assertIn("binary cache https://cache.example.org did not answer", output)
+
+    def test_failed_plan_is_refused_before_wiping(self):
+        output, calls = self.install("error: unable to download narinfo\n", STUB_PLAN_RC="1")
+        self.assertDiskUntouched(calls, output)
+        self.assertIn("could not work out what the installation needs", output)
+
+    def test_heavy_local_builds_are_listed_without_a_new_prompt(self):
+        output, calls = self.install(plan_text(
+            ["hyprland-0.57.0", "hyprland-0.57.0_fish-completions", "niri-26.04",
+             "linux-6.18.59-modules-shrunk", "etc"],
+            "15.0 GiB",
+        ))
+        self.assertIn("will be\ncompiled on this machine", output)
+        self.assertIn("  hyprland-0.57.0\n", output)
+        self.assertIn("  niri-26.04\n", output)
+        self.assertNotIn("  hyprland-0.57.0_fish-completions", output)
+        self.assertNotIn("  linux-6.18.59-modules-shrunk", output)
+        # Informational only: the unattended install still proceeds.
+        self.assertIn("wipefs -af /dev/fakedisk", calls, output)
 
 
 if __name__ == "__main__":
