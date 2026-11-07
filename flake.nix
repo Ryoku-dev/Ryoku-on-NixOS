@@ -332,6 +332,34 @@
             touch "$out"
           '';
 
+        # The packaged runtime is the only Shima on a NixOS PATH. The models
+        # mirror system-path (package order, first command wins), restricted
+        # to Ryoku's own packages like ryoku-bridge-command-ownership.
+        ryoku-subshell-nix-ownership =
+          let
+            systemPathModel = name: host: pkgs.buildEnv {
+              inherit name;
+              paths = builtins.filter
+                (pkg: pkgs.lib.hasPrefix "ryoku" (pkgs.lib.getName pkg))
+                host.config.environment.systemPackages;
+              pathsToLink = [ "/bin" ];
+              ignoreCollisions = true;
+            };
+            host = mkIsoConfigSystem { };
+            shimaHost = host.extendModules {
+              modules = [ { programs.ryoku.shima.enable = true; } ];
+            };
+          in
+          pkgs.runCommand "ryoku-subshell-nix-ownership-check"
+            { nativeBuildInputs = [ pkgs.python3 ]; } ''
+              python3 ${./nix/tests/test-subshell-nix-ownership.py} \
+                --shima ${ryokuShima} \
+                --system-path ${systemPathModel "ryoku-shima-system-path-model" shimaHost} \
+                --system-path-without-shima ${systemPathModel "ryoku-system-path-model" host} \
+                --desktop-data ${ryoku.desktopData}
+              touch "$out"
+            '';
+
         # The Python subshell's weather refresh does not start a refresh chain
         # while the shell daemon cannot persist the location.
         ryoku-subshell-python-weather = pkgs.runCommand "ryoku-subshell-python-weather-check"
