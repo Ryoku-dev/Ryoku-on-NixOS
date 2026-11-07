@@ -65,7 +65,7 @@ TUI sends only its yescrypt hash through the backend environment.
 Before partitioning, the user must type the exact target disk path. The backend
 validates the same path again before `wipefs`. Unattended installs require both
 `--disk` and a matching `--confirm-disk`. The installer refuses the disk backing
-the live medium and writable targets smaller than 16 GiB. The live image also
+the live medium and writable targets smaller than 40 GiB. The live image also
 enables compressed zram and automatically limits Nix build parallelism on
 lower-memory machines; 8 GiB RAM is the tested minimum for the default full
 desktop installation.
