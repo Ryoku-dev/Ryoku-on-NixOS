@@ -50,12 +50,12 @@ let
     services.greetd.enable = true;
   };
 
-  mangoDefault = evaluate {
-    programs.ryoku.defaultCompositor = "mango";
+  niriDefault = evaluate {
+    programs.ryoku.defaultCompositor = "niri";
   };
 
   userDefault = evaluate {
-    programs.ryoku.defaultCompositor = "mango";
+    programs.ryoku.defaultCompositor = "hyprland";
     services.displayManager.defaultSession = "niri";
   };
 
@@ -80,7 +80,7 @@ assert !greetd.services.displayManager.sddm.enable;
 
 # The installer-selected compositor beats provider defaults, while an explicit
 # host choice still beats the installer preference.
-assert mangoDefault.services.displayManager.defaultSession == "ryoku-mango";
+assert niriDefault.services.displayManager.defaultSession == "ryoku-niri";
 assert userDefault.services.displayManager.defaultSession == "niri";
 
 # Browser selection is declarative and reaches both PATH and the shell fallback.

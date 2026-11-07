@@ -194,9 +194,6 @@ EOF
     ${ryoku.wmNiri}/bin/ryoku-wm-niri apply \
       "$config_home/ryoku/desktop.json" >/dev/null
 
-    ${ryoku.wmMango}/bin/ryoku-wm-mango apply \
-      "$config_home/ryoku/desktop.json" >/dev/null
-
     # Keep persisted Quick Settings state in step with Ryostage.
     #
     # Older NixOS installs may still carry the retired `depth` and
@@ -273,13 +270,6 @@ EOF
       niri/user.kdl \
       niri/settings.kdl \
       niri/rebinds.kdl \
-      mango/monitors.conf \
-      mango/gpu.conf \
-      mango/keyboard.conf \
-      mango/monitors_user.conf \
-      mango/user.conf \
-      mango/settings.conf \
-      mango/rebinds.conf \
       fastfetch/config.jsonc \
       kitty/current-theme.conf
     do
@@ -467,6 +457,6 @@ EOF
         "$(cat "$state/initial-backup-path")"
     fi
 
-    printf '\nLog out and start a Ryoku session (Hyprland, niri, or MangoWM).\n'
+    printf '\nLog out and start a Ryoku session (Hyprland or niri).\n'
   '';
 }

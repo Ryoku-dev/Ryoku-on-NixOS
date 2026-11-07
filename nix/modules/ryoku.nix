@@ -44,14 +44,12 @@ let
     lib.attrByPath [ "hyprland-preview-share-picker" ] null ryokuNixpkgs;
   ryokuWmHyprland = ryokuPkgs.ryoku-wm-hyprland;
   ryokuWmNiri = ryokuPkgs.ryoku-wm-niri;
-  ryokuWmMango = ryokuPkgs.ryoku-wm-mango;
 
   # Hyprland plugins are ABI-sensitive, so the compositor, portal and
   # plugin bundle must all come from Ryoku's own locked package set.
   ryokuHyprland = ryokuPkgs.ryoku-hyprland;
   ryokuHyprlandPortal = ryokuPkgs.ryoku-xdg-desktop-portal-hyprland;
   ryokuNiri = ryokuPkgs.ryoku-niri;
-  ryokuMango = ryokuPkgs.ryoku-mango;
   ryokuXwaylandSatellite = ryokuPkgs.ryoku-xwayland-satellite;
   ryokuMatugen = ryokuPkgs.ryoku-matugen;
   ryokuHyprPlugins = ryokuPkgs.ryoku-hypr-plugins;
@@ -245,45 +243,6 @@ Comment=Ryoku desktop on the Niri compositor
 Exec=$out/bin/ryoku-niri-session
 Type=Application
 DesktopNames=niri
-EOF
-  '';
-
-  # Mango's stock session starts the compositor directly. Ryoku needs its
-  # writable config tree before Mango reads config.conf, so the greeter entry
-  # closes the first-login gap by materializing once when that entry is absent.
-  ryokuMangoSession = pkgs.runCommand "ryoku-mango-session" {
-    passthru.providedSessions = [ "ryoku-mango" ];
-  } ''
-    mkdir -p "$out/bin" "$out/share/wayland-sessions"
-
-    cat > "$out/bin/ryoku-mango-session" <<'EOF'
-#!${pkgs.runtimeShell}
-set -eu
-
-config_home="''${XDG_CONFIG_HOME:-$HOME/.config}"
-
-if [ ! -f "$config_home/mango/config.conf" ]; then
-  ${materializeBestEffort}
-fi
-
-export XDG_SESSION_TYPE=wayland
-export XDG_CURRENT_DESKTOP=mango
-export XDG_SESSION_DESKTOP=mango
-export DESKTOP_SESSION=ryoku-mango
-
-exec ${ryokuMango}/bin/mango "$@"
-EOF
-
-    chmod 0755 "$out/bin/ryoku-mango-session"
-
-    cat > "$out/share/wayland-sessions/ryoku-mango.desktop" <<'EOF'
-[Desktop Entry]
-Name=Mango (Ryoku)
-Comment=Ryoku desktop on the MangoWM compositor
-Exec=ryoku-mango-session
-Icon=mango
-Type=Application
-DesktopNames=mango;wlroots
 EOF
   '';
 
@@ -584,7 +543,6 @@ EOF
   compositorSession = {
     hyprland = "ryoku-hyprland";
     niri = "ryoku-niri";
-    mango = "ryoku-mango";
   };
 
   optionalAppIds = [
@@ -737,9 +695,7 @@ EOF
     ryokuHyprPlugins
     ryokuWmHyprland
     ryokuWmNiri
-    ryokuWmMango
     ryokuNiri
-    ryokuMango
     ryokuXwaylandSatellite
 
     # ─────────────────────────────────────────────────────────
@@ -1048,7 +1004,7 @@ in
       default = false;
       description = ''
         Preview upstream Ryoku packaging while preserving NixOS-specific
-        desktop data, Mango, system services and materialization.
+        desktop data, system services and materialization.
       '';
     };
 
@@ -1065,7 +1021,6 @@ in
       type = lib.types.nullOr (lib.types.enum [
         "hyprland"
         "niri"
-        "mango"
       ]);
       default = null;
 
@@ -1223,28 +1178,6 @@ in
 
         "org.freedesktop.impl.portal.FileChooser" = [
           "gtk"
-        ];
-      };
-
-      config.mango = {
-        default = [
-          "gtk"
-        ];
-
-        "org.freedesktop.impl.portal.Secret" = [
-          "gnome-keyring"
-        ];
-
-        "org.freedesktop.impl.portal.ScreenCast" = [
-          "wlr"
-        ];
-
-        "org.freedesktop.impl.portal.ScreenShot" = [
-          "wlr"
-        ];
-
-        "org.freedesktop.impl.portal.Inhibit" = [
-          "none"
         ];
       };
     };
@@ -1646,7 +1579,6 @@ in
     services.displayManager.sessionPackages = [
       ryokuHyprlandSession
       ryokuNiriSession
-      ryokuMangoSession
     ];
 
     services.displayManager.sddm = {

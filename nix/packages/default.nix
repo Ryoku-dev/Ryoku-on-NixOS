@@ -29,11 +29,6 @@ let
     provider = "niri";
   };
 
-  wmMango = import ./ryoku-wm-provider.nix {
-    inherit pkgs src;
-    provider = "mango";
-  };
-
   # Niri 26.04 retains layer-shell surfaces when a physical output is
   # removed, so repeated DPMS/hotplug cycles accumulate their buffers.
   # Upstream PR #4485 fixes #1457 by cleaning each output's layer map before
@@ -43,21 +38,6 @@ let
     patches = (old.patches or [ ]) ++ [
       ../patches/niri-output-layer-cleanup.patch
     ];
-  });
-
-  # Ryoku 0.82.2 targets Mango 0.17.4. The package in Ryoku's
-  # deliberately pinned nixpkgs universe is still 0.16.1, so keep
-  # the dependency ABI from that universe while updating the source.
-  ryokuMango = pkgs.mango.overrideAttrs (_old: {
-    pname = "ryoku-mango";
-    version = "0.17.4";
-
-    src = pkgs.fetchFromGitHub {
-      owner = "mangowm";
-      repo = "mango";
-      tag = "0.17.4";
-      sha256 = "1n9mbbf9g2h3lk3h8v084s2drvzq5zc0im5fr6ck5ycpgg0xhf38";
-    };
   });
 
   xwaylandSatellite = import ./xwayland-satellite.nix {
@@ -295,7 +275,6 @@ let
       desktopData
       wmHyprland
       wmNiri
-      wmMango
       helpers
       qml
     ];
@@ -303,7 +282,6 @@ let
 in
 {
   niri = ryokuNiri;
-  mango = ryokuMango;
 
   inherit
     shell
@@ -322,7 +300,6 @@ in
     desktopData
     wmHyprland
     wmNiri
-    wmMango
     helpers
     nixosSystemBridge
     hyprglass

@@ -158,7 +158,7 @@ class ISOInstallerTests(unittest.TestCase):
             "--firmware",
             "uefi",
             "--compositor",
-            "mango",
+            "niri",
             "--browser",
             "firefox",
             "--shell",
@@ -180,7 +180,7 @@ class ISOInstallerTests(unittest.TestCase):
         self.assertIn("Locale     en_GB.UTF-8", output)
         self.assertIn("Keyboard   gb", output)
         self.assertIn("GPU        nvidia,intel", output)
-        self.assertIn("WM         mango", output)
+        self.assertIn("WM         niri", output)
 
         # Release flakes retain updatable branch URLs. The installer pins the
         # tested revisions in flake.lock with --override-input instead.
@@ -212,7 +212,7 @@ class ISOInstallerTests(unittest.TestCase):
         self.assertIn('"intel"', output)
         self.assertIn('nvidiaBranch = "', output)
         self.assertIn('nvidiaOpen = ', output)
-        self.assertIn('compositor = "mango"', output)
+        self.assertIn('compositor = "niri"', output)
         self.assertIn('browser = "firefox"', output)
         self.assertIn('shell = "zsh"', output)
         self.assertIn('"prompt"', output)

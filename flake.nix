@@ -238,9 +238,7 @@
         ryoku-desktop-data = ryoku.desktopData;
         ryoku-wm-hyprland = ryoku.wmHyprland;
         ryoku-wm-niri = ryoku.wmNiri;
-        ryoku-wm-mango = ryoku.wmMango;
         ryoku-niri = ryoku.niri;
-        ryoku-mango = ryoku.mango;
         ryoku-xwayland-satellite = ryoku.xwaylandSatellite;
 
         # Ryoku owns its compositor ABI. These come from Ryoku's
@@ -513,9 +511,7 @@
         ryoku-desktop-data = ryoku.desktopData;
         ryoku-wm-hyprland = ryoku.wmHyprland;
         ryoku-wm-niri = ryoku.wmNiri;
-        ryoku-wm-mango = ryoku.wmMango;
         ryoku-niri = ryoku.niri;
-        ryoku-mango = ryoku.mango;
         ryoku-xwayland-satellite = ryoku.xwaylandSatellite;
         ryoku-helpers = ryoku.helpers;
         ryoku-nixos-system-bridge = ryoku.nixosSystemBridge;
@@ -717,8 +713,7 @@
           }
           ''
             for autostart in ${ryoku.desktopData}/share/ryoku/config/hypr/modules/autostart.lua \
-                             ${ryoku.desktopData}/share/ryoku/config/niri/autostart.kdl \
-                             ${ryoku.desktopData}/share/ryoku/config/mango/autostart.conf
+                             ${ryoku.desktopData}/share/ryoku/config/niri/autostart.kdl
             do
               grep -Fq 'ryoku-nix-session-start' "$autostart"
             done

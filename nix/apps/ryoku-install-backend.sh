@@ -937,7 +937,7 @@ Usage:
 Options:
   --flake PATH[#HOST]   NixOS flake to configure (default: /etc/nixos)
   --source REF          Ryoku flake reference
-  --compositor NAME     Initial compositor: hyprland, niri, or mango
+  --compositor NAME     Initial compositor: hyprland or niri
   --browser NAME        Browser: chromium or firefox
   --shell NAME          Interactive shell: fish or zsh
   --apps CSV            Optional app IDs, comma-separated; use none for empty
@@ -1109,7 +1109,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$compositor" in
-  ""|hyprland|niri|mango) ;;
+  ""|hyprland|niri) ;;
   *)
     echo "ryoku-install: invalid compositor: $compositor" >&2
     exit 2
@@ -1129,12 +1129,10 @@ if [ -z "$compositor" ]; then
     printf '\nInitial compositor\n'
     printf '  1) Hyprland  (Ryoku default)\n'
     printf '  2) niri      (scrollable tiling)\n'
-    printf '  3) MangoWM   (dynamic tiling, Ryoku Nix supported)\n'
     printf 'Choose [1]: '
     read -r answer
     case "$answer" in
       2) compositor="niri" ;;
-      3) compositor="mango" ;;
       ""|1) compositor="hyprland" ;;
       *)
         echo "ryoku-install: invalid compositor selection" >&2

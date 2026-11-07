@@ -5,14 +5,6 @@ for finer detail.
 
 ## Unreleased
 
-### Removed
-- The mango compositor is gone: its provider, config tree, packages,
-  installer choice, deploy steps, tests and docs. Ryoku ships Hyprland and
-  niri. A box that still carries the mango variant is moved onto the variant
-  for its running (or installed) compositor by `ryoku update` and the doctor,
-  which then remove the mango packages, config and provider binary once the
-  user is no longer in a mango session.
-
 ### Fixed
 - Users on filtered networks can route `ryoku update` and pacman through a
   local HTTP proxy without weakening package signature checks.
@@ -146,7 +138,7 @@ for finer detail.
   push covers every script `main` is missing. `docs/development.md`,
   "Branches and pushing", and `CONTRIBUTING.md` carry the procedure.
 - **The installer now asks which window manager, browser, and apps you want.**
-  New ISO installs offer a choice of compositor (Hyprland, niri, MangoWM),
+  New ISO installs offer a choice of compositor (Hyprland, niri),
   exactly one of the three shipped browsers (Zen, Chromium, Firefox), and a
   keep/remove checklist over every optional app and tool; rows that back a
   desktop feature are marked required and refused. Removed apps are recorded
