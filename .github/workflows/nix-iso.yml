@@ -114,3 +114,4 @@ jobs:
         run: |
           set -euo pipefail
           nix build --dry-run --no-link .#ryoku-iso
+          nix eval --raw .#nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage.drvPath >/dev/null

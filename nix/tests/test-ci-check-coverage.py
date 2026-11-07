@@ -76,6 +76,14 @@ class CiCoverageTests(unittest.TestCase):
                            "ryoku/lockscreen/sddm/ryoku-greeter-guard"):
                 self.assertIn(needed, section)
 
+    def test_both_iso_variants_evaluate(self):
+        for path in (".github/workflows/nix-iso.yml", "nix/sync/run-checks"):
+            with self.subTest(path=path):
+                text = (ROOT / path).read_text()
+                self.assertIn("--dry-run", text)
+                self.assertIn(".#ryoku-iso", text)
+                self.assertIn("nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage.drvPath", text)
+
     def test_qml_changes_run_firstboot_checks(self):
         text = (ROOT / FIRSTBOOT_WORKFLOW).read_text()
         self.assertFalse(FIRSTBOOT - listed(text), FIRSTBOOT - listed(text))
