@@ -8,9 +8,9 @@
 +            case "launcher": return ryokuLauncher
 +            case "overview": return ryokuOverview
              case "clipboard": return ryokuClipboard
-             case "settings": return ryokuSettings
              case "sidebar-left": case "controls":
-@@ -849,6 +850,68 @@
+                 return family === "waffle" ? ryokuWactionCenter : family === "iris" ? ryokuSidebarRight : ryokuControlPanel
+@@ -848,6 +849,68 @@
      }
  
      IpcHandler {

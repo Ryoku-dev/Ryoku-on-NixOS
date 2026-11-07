@@ -23,7 +23,6 @@
             switch (surface) {
             case "launcher": case "overview": return ryokuOverview
             case "clipboard": return ryokuClipboard
-            case "settings": return ryokuSettings
             case "sidebar-left": case "controls":
                 return family === "waffle" ? ryokuWactionCenter : family === "iris" ? ryokuSidebarRight : ryokuControlPanel
             case "sidebar-right": case "notifications":
