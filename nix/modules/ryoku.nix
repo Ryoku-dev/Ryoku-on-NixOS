@@ -416,7 +416,9 @@ EOF
 
   ryokuGreeterGuard = pkgs.writeShellApplication {
     name = "ryoku-greeter-guard";
-    runtimeInputs = with pkgs; [ coreutils util-linux ];
+    # dbus-monitor lets the guard wait for login1 session events instead of
+    # scanning /proc on a timer.
+    runtimeInputs = with pkgs; [ coreutils dbus util-linux ];
     text = ''
       export RYOKU_GREETER_GUARD_HOST=${ryokuGreeterGuardHost}/bin/ryoku-greeter-guard-host
       exec ${pkgs.bash}/bin/bash ${../../ryoku/lockscreen/sddm/ryoku-greeter-guard} "$@"

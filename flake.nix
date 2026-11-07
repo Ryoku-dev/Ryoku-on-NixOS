@@ -461,6 +461,18 @@
           config = (mkIsoConfigSystem { }).config;
         };
 
+        # Runs the default install's greeter guard unit as systemd starts it.
+        ryoku-firstboot-greeter-guard =
+          let
+            unit = (mkIsoConfigSystem { }).config.systemd.services.ryoku-greeter-guard;
+          in
+          pkgs.runCommand "ryoku-firstboot-greeter-guard-check" { } ''
+            GUARD=${unit.serviceConfig.ExecStart} \
+            SERVICE_PATH=${unit.environment.PATH} \
+              ${pkgs.bash}/bin/bash ${./nix/tests/test-firstboot-greeter-guard.sh}
+            touch "$out"
+          '';
+
         # Core runtime
         ryoku-shell = ryoku.shell;
 
