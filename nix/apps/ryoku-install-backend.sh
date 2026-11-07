@@ -686,6 +686,10 @@ install_iso() {
   iso_cleanup() {
     local status=$?
     trap - EXIT INT TERM
+    if [ "$status" -ne 0 ] && [ "${disk_modified:-0}" -eq 1 ]; then
+      printf 'ryoku-install: INSTALLATION DID NOT COMPLETE. %s was already repartitioned and is not a bootable system.\n' "$install_disk" >&2
+      printf 'ryoku-install: Do not reboot into it. Fix the error above and run the installer again; the disk contents before this run cannot be recovered by the installer.\n' >&2
+    fi
     if findmnt -rn --mountpoint "$target_root" >/dev/null 2>&1; then
       if ! run_root umount -R "$target_root"; then
         printf 'ryoku-install: WARNING: could not unmount %s after installation stopped.\n' "$target_root" >&2
@@ -834,6 +838,10 @@ install_iso() {
   # never let a reused /dev path point wipefs at a different disk.
   revalidate_install_disk "$install_disk" "$validated_disk_identity"
 
+  # Global on purpose: the EXIT trap reads it after this function's frame.
+  # From here on the disk is no longer in its original state: failures must
+  # say so (see iso_cleanup).
+  disk_modified=1
   echo "@@RYOKU_STEP partition"
   run_root wipefs -af "$install_disk"
   run_root parted -s "$install_disk" mklabel gpt
@@ -911,6 +919,7 @@ EOF
   run_root sync
   run_root umount -R "$target_root"
 
+  disk_modified=0
   trap - EXIT INT TERM
   rm -rf "$iso_work"
   iso_work=""
@@ -1524,13 +1533,25 @@ if ! run_root "$nixos_rebuild" switch \
 then
   rollback
   echo "ryoku-install: switch failed; configuration files restored" >&2
+  # The new generation was built and may already be the system profile and
+  # default boot entry even though activation failed. The files are restored,
+  # so say how to inspect and, if wanted, undo that part.
+  echo "ryoku-install: the failed generation may still be the current profile or boot entry." >&2
+  echo "ryoku-install: inspect with: nixos-rebuild list-generations" >&2
+  echo "ryoku-install: return to the previous generation with: sudo nixos-rebuild switch --rollback" >&2
   exit 1
 fi
 
 transaction_started=0
 echo "@@RYOKU_STEP materialize"
+# The new generation is already live here. A failed user-config refresh is a
+# warning to act on, not a failed installation: the files are kept and the
+# next login (or running ryoku-materialize) retries it.
 if [ -x /run/current-system/sw/bin/ryoku-materialize ]; then
-  /run/current-system/sw/bin/ryoku-materialize
+  if ! /run/current-system/sw/bin/ryoku-materialize; then
+    echo "ryoku-install: WARNING: ryoku-materialize failed after a successful switch." >&2
+    echo "ryoku-install: the system is installed; run ryoku-materialize again from your session to finish." >&2
+  fi
 fi
 
 systemctl --user daemon-reload >/dev/null 2>&1 || true

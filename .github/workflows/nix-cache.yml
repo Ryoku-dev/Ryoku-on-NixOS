@@ -49,6 +49,13 @@ jobs:
             .#checks.x86_64-linux.ryoku-materialize-session \
             .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
             .#checks.x86_64-linux.ryoku-sddm-theme-apply \
+            .#checks.x86_64-linux.ryoku-install-parser \
+            .#checks.x86_64-linux.ryoku-nix-update-lock \
+            .#checks.x86_64-linux.ryoku-nix-update-local-rollback \
+            .#checks.x86_64-linux.ryoku-nix-update-activation-rollback \
+            .#checks.x86_64-linux.ryoku-nix-update-refresh \
+            .#checks.x86_64-linux.ryoku-nix-update-interrupt \
+            .#checks.x86_64-linux.ryoku-ci-check-coverage \
             .#checks.x86_64-linux.ryoku-iso-configs
 
   cache:

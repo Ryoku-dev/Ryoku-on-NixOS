@@ -642,6 +642,26 @@
             touch "$out"
           '';
 
+        # Interrupted update / channel switch must stop and restore state
+        ryoku-nix-update-interrupt = pkgs.runCommand
+          "ryoku-nix-update-interrupt-check"
+          {
+            nativeBuildInputs = with pkgs; [
+              bash
+              coreutils
+              git
+              gnugrep
+              jq
+              python3
+              util-linux
+            ];
+          }
+          ''
+            RYOKU_NIX_UPDATE_TEST_HELPER=${./nix/scripts/ryoku-nix-update} \
+              bash ${./nix/tests/test-nix-update-interrupt.sh}
+            touch "$out"
+          '';
+
         ryoku-nix-update-refresh = pkgs.runCommand
           "ryoku-nix-update-refresh-check"
           {
@@ -795,6 +815,14 @@
           ''
             RYOKU_PATH=${self} bash ${./nix/tests/test-sddm-theme-apply.sh}
 
+            touch "$out"
+          '';
+
+        ryoku-ci-check-coverage = pkgs.runCommand
+          "ryoku-ci-check-coverage"
+          { nativeBuildInputs = [ pkgs.python3 ]; }
+          ''
+            RYOKU_CI_ROOT=${self} python3 ${./nix/tests/test-ci-check-coverage.py}
             touch "$out"
           '';
 

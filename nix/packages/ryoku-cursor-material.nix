@@ -6,6 +6,11 @@ pkgs.stdenvNoCC.mkDerivation {
 
   src = ryokuSrc;
 
+  # The recolour helper only needs python, rsvg-convert and xcursorgen: the
+  # hyprcursor pack is zipped by Bibata's own script. The stock compositor once
+  # sat on its PATH and added ~420 MiB (and a second Hyprland) to the closure.
+  disallowedRequisites = [ pkgs.hyprland ];
+
   nativeBuildInputs = [
     pkgs.makeWrapper
     pkgs.fish
@@ -109,7 +114,6 @@ pkgs.stdenvNoCC.mkDerivation {
         pkgs.python3
         pkgs.librsvg
         pkgs.xcursorgen
-        pkgs.hyprland
       ]}
 
     runHook postInstall
