@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -156,7 +157,7 @@ func newISOModel(opts options) isoModel {
 		picks: map[string]string{
 			"filesystem":    "ext4",
 			"kernel":        "default",
-			"compositor":    "hyprland",
+			"compositor":    "niri",
 			"browser":       "chromium",
 			"shell":         "fish",
 			"configuration": "ryoku",
@@ -185,13 +186,51 @@ func (m isoModel) Init() tea.Cmd {
     )
 }
 
+
 func isoCheckNetworkCmd() tea.Cmd {
 	return func() tea.Msg {
-		cmd := exec.Command("curl", "-fsS", "--connect-timeout", "3", "--max-time", "5", "https://cache.nixos.org/nix-cache-info")
-		if err := cmd.Run(); err != nil {
-			return isoNetworkMsg{online: false, err: err}
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			30*time.Second,
+		)
+		defer cancel()
+
+		var lastErr error
+
+		for {
+			cmd := exec.CommandContext(
+				ctx,
+				"curl",
+				"-fsS",
+				"--connect-timeout", "2",
+				"--max-time", "4",
+				"https://cache.nixos.org/nix-cache-info",
+			)
+
+			if err := cmd.Run(); err == nil {
+				return isoNetworkMsg{online: true}
+			} else {
+				lastErr = err
+			}
+
+			if ctx.Err() != nil {
+				break
+			}
+
+			select {
+			case <-ctx.Done():
+				return isoNetworkMsg{
+					online: false,
+					err:    lastErr,
+				}
+			case <-time.After(3 * time.Second):
+			}
 		}
-		return isoNetworkMsg{online: true}
+
+		return isoNetworkMsg{
+			online: false,
+			err:    lastErr,
+		}
 	}
 }
 
@@ -400,7 +439,7 @@ func isoChoices(key string) []choice {
 			{"zen", "Zen", "desktop-focused tuning from linuxPackages_zen"},
 		}
 	case "compositor":
-		return []choice{{"hyprland", "Hyprland", "dynamic tiling · effects · broad ecosystem"}, {"niri", "niri", "scrollable tiling · clean columns"}}
+		return []choice{{"niri", "niri", "scrollable tiling · clean columns"}, {"hyprland", "Hyprland", "dynamic tiling · effects · broad ecosystem"}}
 	case "browser":
 		return []choice{{"chromium", "Chromium", "Chromium engine · Ryoku NixOS default"}, {"firefox", "Firefox", "Gecko engine · Mozilla browser"}}
 	case "shell":
@@ -830,6 +869,9 @@ func (m isoModel) onKey(k string) (tea.Model, tea.Cmd) {
 	key := m.current().key
 	switch key {
 	case "network":
+    if !m.netChecked {
+      return m, nil
+	  }
 		if m.netOnline {
 			if k == "enter" || k == "tab" {
 				m.next()
@@ -1027,14 +1069,14 @@ func (m isoModel) choiceBody(key string) string {
 
 func (m isoModel) networkBody() string {
 	if !m.netChecked || m.busy {
-		return fg(cSub, "Checking https://cache.nixos.org …")
+		return fg(cSub, "Waiting for network; automatically retrying for up to 30 seconds…")
 	}
 	if m.netOnline {
 		return bold(cGreen, checkGlyph()+"  Connected") + "\n\n" + fg(cSub, "The Nix cache is reachable over HTTPS. Press Enter to continue.")
 	}
 	items := []string{"Configure network", "Retry connection", "Quit installer"}
 	var b strings.Builder
-	b.WriteString(bold(cRed, "No working network connection") + "\n\n")
+	b.WriteString(bold(cRed, "Cannot reach Nix cache over HTTPS") + "\n\n")
 	for i, item := range items {
 		prefix := "  "
 		if i == m.cursor {
