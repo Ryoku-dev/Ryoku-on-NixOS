@@ -459,8 +459,10 @@
           module = self.nixosModules.default;
         };
 
+        # Hosts evaluate the module with their nixpkgs input, whose NixOS
+        # display-manager modules are what Ryoku's defaults interact with.
         ryoku-display-manager = import ./nix/tests/display-manager.nix {
-          inherit pkgs;
+          pkgs = nixpkgs.legacyPackages.${system};
           module = self.nixosModules.default;
         };
 

@@ -13,6 +13,7 @@ on:
       - 'nix/iso/**'
       - 'nix/iso-configs/**'
       - 'nix/modules/ryoku.nix'
+      - 'nix/tests/display-manager.nix'
       - 'nix/tests/installer-*'
       - 'nix/tests/test-installer-*'
       - 'nix/tests/test-qylock-pam-materialization.py'
@@ -37,6 +38,7 @@ on:
       - 'nix/iso/**'
       - 'nix/iso-configs/**'
       - 'nix/modules/ryoku.nix'
+      - 'nix/tests/display-manager.nix'
       - 'nix/tests/installer-*'
       - 'nix/tests/test-installer-*'
       - 'nix/tests/test-qylock-pam-materialization.py'
@@ -87,6 +89,7 @@ jobs:
             .#checks.x86_64-linux.ryoku-installer-disk-identity \
             .#checks.x86_64-linux.ryoku-installer-iso \
             .#checks.x86_64-linux.ryoku-installer-wrapper \
+            .#checks.x86_64-linux.ryoku-display-manager \
             .#checks.x86_64-linux.ryoku-bridge-command-ownership \
             .#checks.x86_64-linux.ryoku-session-bootstrap \
             .#checks.x86_64-linux.ryoku-materialize-session \
