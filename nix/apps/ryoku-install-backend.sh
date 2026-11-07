@@ -1239,6 +1239,28 @@ flake_root="$(readlink -f "$flake_root")"
 flake_file="$flake_root/flake.nix"
 module_file="$flake_root/ryoku.nix"
 
+# Serialize manual integrations before inspecting the global restore record.
+# An atomic root-owned directory also stops simultaneous invocations under
+# different user accounts. A hard crash leaves the lock in place for inspection.
+install_lock_dir="/var/backups/ryoku-nixos/.install-active"
+install_lock_held=0
+release_install_lock() {
+  if [ "$install_lock_held" -eq 1 ]; then
+    if ! run_root rmdir "$install_lock_dir"; then
+      echo "ryoku-install: WARNING: could not release $install_lock_dir" >&2
+    fi
+    install_lock_held=0
+  fi
+}
+if [ "$dry_run" -eq 0 ]; then
+  run_root mkdir -p /var/backups/ryoku-nixos
+  if ! run_root mkdir "$install_lock_dir" 2>/dev/null; then
+    die "another Ryoku installation may be running. Inspect $install_lock_dir before retrying; remove it only if no installer is active"
+  fi
+  install_lock_held=1
+  trap release_install_lock EXIT
+fi
+
 # While this record exists, the files under its root are a mix of the
 # original configuration and an install whose restore failed. The backup it
 # names is the only copy of the originals.
@@ -1409,7 +1431,7 @@ EOF
 
   rm -f "$temp_flake"
   generated_flake=1
-  trap discard_generated_flake EXIT
+  trap 'discard_generated_flake; release_install_lock' EXIT
 
   echo "ryoku-install: created a base flake at $flake_file"
 fi
@@ -1496,7 +1518,7 @@ if [ "$dry_run" -eq 0 ]; then
 fi
 
 work_dir="$(mktemp -d)"
-trap 'rm -rf "$work_dir"; discard_generated_flake' EXIT
+trap 'rm -rf "$work_dir"; discard_generated_flake; release_install_lock' EXIT
 
 work_flake="$work_dir/flake.nix"
 work_module="$work_dir/ryoku.nix"
@@ -1631,6 +1653,7 @@ cleanup() {
     abort_transaction "installation stopped" "files restored"
   fi
   rm -rf "$work_dir"
+  release_install_lock
   exit "$result"
 }
 trap cleanup EXIT

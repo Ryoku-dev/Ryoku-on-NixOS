@@ -405,6 +405,35 @@ class TransactionTests(unittest.TestCase):
                 self.assertIn("--manual-recovery", result.stderr)
                 self.assertNotIn("@@RYOKU_STEP", result.stdout)
 
+    def test_lock_serializes_installs_and_releases_after_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            host = root / "host"
+            host.mkdir()
+            (host / "flake.nix").write_text(FLAKE)
+            (host / "configuration.nix").write_text("{ ... }: {}\n")
+            before = self.snapshot(host)
+            lock = root / "backups" / ".install-active"
+            lock.mkdir(parents=True)
+
+            blocked, calls, _, _ = self.install(root, host)
+            self.assertNotEqual(blocked.returncode, 0)
+            self.assertIn("another Ryoku installation", blocked.stderr)
+            self.assertEqual(calls, [])
+            self.assertEqual(self.snapshot(host), before)
+            self.assertTrue(lock.is_dir())
+
+            lock.rmdir()
+            failed, calls, _, _ = self.install(root, host, "build")
+            self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+            self.assertEqual(calls, ["validate", "lock", "build"])
+            self.assertFalse(lock.exists())
+            self.assertEqual(self.snapshot(host), before)
+
+            succeeded, calls, _, _ = self.install(root, host)
+            self.assertEqual(succeeded.returncode, 0, succeeded.stdout + succeeded.stderr)
+            self.assertFalse(lock.exists())
+
     def test_unresolved_restore_blocks_a_different_flake(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
