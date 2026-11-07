@@ -560,6 +560,8 @@ EOF
     ryokuNixpkgs.qt6.qtsvg
     ryokuNixpkgs.qt6.qtimageformats
     ryokuNixpkgs.kdePackages.kirigami.unwrapped
+    # org.kde.syntaxhighlighting colours code blocks in the Super+S chat.
+    ryokuNixpkgs.kdePackages.syntax-highlighting
   ];
 
 
