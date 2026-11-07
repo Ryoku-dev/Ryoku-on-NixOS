@@ -56,6 +56,7 @@ grep -Fq 'installation disk identity changed before erase' <<< "$out"
 # run out of space in the middle of nixos-install.
 eval "$(grep -E '^min_install_disk_(gib|bytes)=' "$backend")"
 eval "$(extract_function validate_install_disk)"
+# shellcheck disable=SC2034 # Read inside the dynamically extracted function.
 dry_run=0
 readlink() { printf '%s\n' "${@: -1}"; }
 detect_live_disk() { :; }
