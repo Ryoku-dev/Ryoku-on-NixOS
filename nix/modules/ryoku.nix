@@ -1662,6 +1662,8 @@ in
            else [ "services" "xserver" "displayManager" "gdm" "enable" ])
           [ "services" "xserver" "displayManager" "lightdm" "enable" ]
           [ "services" "displayManager" "ly" "enable" ]
+          [ "services" "displayManager" "lemurs" "enable" ]
+          [ "services" "displayManager" "plasma-login-manager" "enable" ]
           [ "services" "displayManager" "cosmic-greeter" "enable" ]
           [ "services" "greetd" "enable" ]
         ])));
