@@ -41,6 +41,7 @@ jobs:
           nix build --no-link \
             .#checks.x86_64-linux.ryoku-installer-options \
             .#checks.x86_64-linux.ryoku-installer-transaction \
+            .#checks.x86_64-linux.ryoku-installer-tui \
             .#checks.x86_64-linux.ryoku-installer-disk-identity \
             .#checks.x86_64-linux.ryoku-installer-iso \
             .#checks.x86_64-linux.ryoku-installer-wrapper \

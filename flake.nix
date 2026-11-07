@@ -332,6 +332,15 @@
             touch "$out"
           '';
 
+        # Verify the packaged installer and backend through a PTY dry run.
+        ryoku-installer-tui = pkgs.runCommand "ryoku-installer-tui-check"
+          { nativeBuildInputs = [ pkgs.python3 ]; }
+          ''
+            RYOKU_INSTALL_TEST_BINARY=${ryokuInstall}/bin/ryoku-install \
+              python3 ${./nix/tests/test-installer-tui.py}
+            touch "$out"
+          '';
+
         ryoku-installer-disk-identity = pkgs.runCommand "ryoku-installer-disk-identity-check"
           {
             nativeBuildInputs = with pkgs; [
