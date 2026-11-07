@@ -360,6 +360,18 @@
               touch "$out"
             '';
 
+        # Every host patch reaches the built runtime, and the injected bridge
+        # routes surfaces to Ryoku's tools the same way as the Arch runtime.
+        ryoku-subshell-runtime = pkgs.runCommand "ryoku-subshell-runtime-check"
+          { nativeBuildInputs = [ pkgs.python3 pkgs.git pkgs.nodejs ]; } ''
+            python3 ${./nix/tests/test-subshell-runtime.py} \
+              --runtime ${ryokuShima} \
+              --patch-dir ${./nix/packages/shima} \
+              --patch-dir ${./ryoku/shell/quickshell/inir/patches} \
+              --arch-overlay-patch ${./ryoku/shell/quickshell/shima-overlay/runtime.patch}
+            touch "$out"
+          '';
+
         # The Python subshell's weather refresh does not start a refresh chain
         # while the shell daemon cannot persist the location.
         ryoku-subshell-python-weather = pkgs.runCommand "ryoku-subshell-python-weather-check"
