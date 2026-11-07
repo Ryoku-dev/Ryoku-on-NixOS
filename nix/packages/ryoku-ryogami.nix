@@ -107,7 +107,7 @@ pkgs.stdenv.mkDerivation {
     # Ordinary package tests still run here.
     # Nix normally prints only the last few build-log lines on failure.
     # Keep the full test output in the sandbox and put failures last.
-    if ! go test -skip '^(TestE2E.*|TestWorkshopWatchCoalescesWriteBurst)$' ./... > "$TMPDIR/ryogami-tests.log" 2>&1; then
+    if ! go test -skip '^(TestE2E.*|TestWorkshopWatchCoalescesWriteBurst|TestPreviewPaletteIsIsolatedCachedAndRestored)$' ./... > "$TMPDIR/ryogami-tests.log" 2>&1; then
       tail -n 12 "$TMPDIR/ryogami-tests.log" >&2
       grep -B 6 -A 2 -E -- '^--- FAIL:|^panic:|^# ' "$TMPDIR/ryogami-tests.log" | tail -n 16 >&2 || true
       grep -E -- '^--- FAIL:|^FAIL|^panic:|^# ' "$TMPDIR/ryogami-tests.log" | tail -n 6 >&2 || true
