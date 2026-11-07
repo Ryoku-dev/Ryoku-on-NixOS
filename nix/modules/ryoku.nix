@@ -276,11 +276,12 @@ EOF
 
     chmod 0755 "$out/bin/ryoku-mango-session"
 
-    cat > "$out/share/wayland-sessions/ryoku-mango.desktop" <<'EOF'
+    # NixOS puts session packages in the session directory only, not on PATH.
+    cat > "$out/share/wayland-sessions/ryoku-mango.desktop" <<EOF
 [Desktop Entry]
 Name=Mango (Ryoku)
 Comment=Ryoku desktop on the MangoWM compositor
-Exec=ryoku-mango-session
+Exec=$out/bin/ryoku-mango-session
 Icon=mango
 Type=Application
 DesktopNames=mango;wlroots

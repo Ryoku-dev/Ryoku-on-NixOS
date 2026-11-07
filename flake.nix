@@ -455,6 +455,12 @@
           module = self.nixosModules.default;
         };
 
+        # The default install's login sessions, read from its evaluated config.
+        ryoku-firstboot-session = import ./nix/tests/firstboot-session.nix {
+          pkgs = nixpkgs.legacyPackages.${system};
+          config = (mkIsoConfigSystem { }).config;
+        };
+
         # Core runtime
         ryoku-shell = ryoku.shell;
 
