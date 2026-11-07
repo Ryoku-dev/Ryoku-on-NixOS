@@ -1009,7 +1009,10 @@ install_iso() {
   run_root mount "$root_part" "$target_root"
   if [ "$firmware" = "uefi" ]; then
     run_root mkdir -p "$target_root/boot"
-    run_root mount "$boot_part" "$target_root/boot"
+    # nixos-generate-config copies these options into hardware-configuration.
+    # The default vfat umask leaves the ESP, and systemd-boot's random seed on
+    # it, world-readable; bootctl reports that as a security hole.
+    run_root mount -o umask=077 "$boot_part" "$target_root/boot"
   fi
 
   echo "@@RYOKU_STEP configuration"

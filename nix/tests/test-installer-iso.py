@@ -461,6 +461,7 @@ exit 0
 """,
     "lsblk": r"""
 case "$*" in
+  *NAME,PARTN*) printf '%s1 1\n%s2 2\n' "${@: -1}" "${@: -1}" ;;
   *TYPE*) echo disk ;;
   *RO*) echo 0 ;;
   *MAJ:MIN*) echo 253:0 ;;
@@ -474,10 +475,16 @@ esac
     "udevadm": "printf 'ID_SERIAL=RYOKUTEST\\n'\n",
     "findmnt": "exit 1\n",
     "id": "echo 0\n",
-    # Reaching any of these means the disk would have been modified.
-    "wipefs": 'printf "wipefs %s\\n" "$*" >> "$STUB_LOG"; exit 1\n',
-    "parted": 'printf "parted %s\\n" "$*" >> "$STUB_LOG"; exit 1\n',
+    # Reaching any of these means the disk would have been modified. They
+    # fail unless a test lets the install continue past the erase.
+    "wipefs": 'printf "wipefs %s\\n" "$*" >> "$STUB_LOG"; exit "${STUB_DISK_RC:-1}"\n',
+    "parted": 'printf "parted %s\\n" "$*" >> "$STUB_LOG"; exit "${STUB_DISK_RC:-1}"\n',
     "sgdisk": 'printf "sgdisk %s\\n" "$*" >> "$STUB_LOG"; exit 1\n',
+    "partprobe": "exit 0\n",
+    "mkfs.ext4": 'printf "mkfs.ext4 %s\\n" "$*" >> "$STUB_LOG"\n',
+    "mkfs.fat": 'printf "mkfs.fat %s\\n" "$*" >> "$STUB_LOG"\n',
+    # Stop at the ESP mount: everything after it needs a real system.
+    "mount": 'printf "mount %s\\n" "$*" >> "$STUB_LOG"; case "${@: -1}" in */boot) exit 1 ;; esac\n',
 }
 
 
@@ -576,6 +583,12 @@ class ISOPreflightPlanTests(unittest.TestCase):
         # Informational only: the unattended install still proceeds.
         self.assertIn("wipefs -af /dev/fakedisk", calls, output)
 
+    def test_esp_is_mounted_private_so_hardware_config_keeps_it_private(self):
+        output, calls = self.install(plan_text(["etc"], "15.0 GiB"), STUB_DISK_RC="0")
+        boot = [line for line in calls.splitlines()
+                if line.startswith("mount ") and line.endswith("/mnt/boot")]
+        self.assertEqual(len(boot), 1, output + calls)
+        self.assertIn("-o umask=077 /dev/fakedisk1 ", boot[0])
 
 if __name__ == "__main__":
     unittest.main()
