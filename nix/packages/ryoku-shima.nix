@@ -1,4 +1,9 @@
-{ pkgs, src, ryokuTokens ? ../../ryoku/ui/Singletons/Tokens.qml }:
+{
+  pkgs,
+  src,
+  ryokuTokens ? ../../ryoku/ui/Singletons/Tokens.qml,
+  overviewTerminalPatch ? ../../ryoku/shell/quickshell/inir/patches/shima-overview-terminal.patch,
+}:
 let
   upstream = import (src + "/nix/package.nix") { inherit pkgs; };
 in upstream.overrideAttrs (old: {
@@ -9,7 +14,7 @@ in upstream.overrideAttrs (old: {
     python3 ${./shima/appearance-controls.py} .
     python3 ${./shima/visualizer-palette-patch.py} . ${./shima/RyokuVisualizerPalette.qml}
     patch -p1 --fuzz=0 < ${./shima/interaction-fixes.patch}
-    git apply --unidiff-zero ${../../ryoku/shell/quickshell/inir/patches/shima-overview-terminal.patch}
+    git apply --unidiff-zero ${overviewTerminalPatch}
   '';
   postInstall = (old.postInstall or "") + ''
     rm "$out/bin/inir"

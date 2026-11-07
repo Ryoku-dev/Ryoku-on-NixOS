@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import re
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import tempfile
 import unittest
@@ -218,6 +220,42 @@ class ShimaAppearanceTests(unittest.TestCase):
                                   env=env, capture_output=True, text=True)
             self.assertEqual(proc.returncode, 3)
             self.assertFalse(blocked.exists())
+
+    def test_app_launches_leave_the_shell_unit(self):
+        exec_qml = self.source("modules/common/functions/ShellExec.qml")
+        self.assertIn('systemdRunPath: Quickshell.env("RYOKU_SYSTEMD_RUN") || "systemd-run"', exec_qml)
+        self.assertIn('qs_bin="${RYOKU_SHIMA_QS:-/usr/bin/qs}"', self.source("scripts/inir"))
+        body = re.search(r"const script = `(.*?)`\n\s*Quickshell\.execDetached\(\[root\.bashPath", exec_qml, re.S)
+        self.assertIsNotNone(body)
+        script = body.group(1).replace("\\$", "$").replace("\\\\", "\\")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bin_path = root / "bin"
+            (root / "run/systemd").mkdir(parents=True)
+            bin_path.mkdir()
+            manager = socket.socket(socket.AF_UNIX)
+            manager.bind(str(root / "run/systemd/private"))
+            log = root / "log"
+            tools = {
+                "systemctl": "printf 'PATH=/session/bin\\n'",
+                "systemd-run": f'echo "scope $*" >> {log}; while [ "$1" != -- ]; do shift; done; shift; exec "$@"',
+                "app": f'echo "app $* PATH=$PATH" >> {log}',
+            }
+            for name, text in tools.items():
+                (bin_path / name).write_text("#!/bin/sh\n" + text + "\n")
+                (bin_path / name).chmod(0o755)
+            env = {"PATH": str(bin_path) + os.pathsep + os.environ["PATH"],
+                   "XDG_RUNTIME_DIR": str(root / "run"), "HOME": str(root)}
+            for runner in ("systemd-run", str(bin_path / "systemd-run")):
+                log.write_text("")
+                subprocess.run(["bash", "-c", script, "inir-scope", runner, "Launch app", "", "app", "--flag"],
+                               env=env, cwd=root, check=True)
+                scope, app = log.read_text().splitlines()
+                self.assertIn("--user", scope)
+                self.assertIn("--scope", scope)
+                self.assertTrue(scope.endswith("-- app --flag"), scope)
+                self.assertTrue(app.startswith("app --flag PATH=/session/bin:"), app)
+            manager.close()
 
 
 if __name__ == "__main__":

@@ -173,14 +173,17 @@ func (d *daemon) restoreAfterShima(run *desktopRun, cmd *exec.Cmd) {
 	}
 	defer os.Remove(run.ready)
 	cleanupShimaWindows(run.root, run.ready)
-	// Process children used for shell watchers must not survive the root.
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	// Process children used for shell watchers must not survive the root, nor
+	// run beside the next one.
+	stopProcessGroup(cmd.Process.Pid, 2*time.Second)
 	select {
 	case <-d.quit:
 		return
 	default:
 	}
-	if run.intentional.Load() {
+	// A closed shell gate is the daemon's own stop (a panel-family change),
+	// which escalates to SIGKILL when the root is slow: not a crash.
+	if run.intentional.Load() || !d.gateAllows("shell") {
 		return
 	}
 	if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok &&
@@ -188,6 +191,34 @@ func (d *daemon) restoreAfterShima(run *desktopRun, cmd *exec.Cmd) {
 		return
 	}
 	d.fallbackShima("Shima exited or failed readiness")
+}
+
+// stopProcessGroup asks every process left in pgid to exit and kills what is
+// still there after grace. The leader may already be gone and reaped: its group
+// lives on while any member does.
+func stopProcessGroup(pgid int, grace time.Duration) {
+	if pgid <= 0 {
+		return
+	}
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	if processGroupGone(pgid, grace) {
+		return
+	}
+	_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	processGroupGone(pgid, time.Second)
+}
+
+func processGroupGone(pgid int, wait time.Duration) bool {
+	deadline := time.Now().Add(wait)
+	for {
+		if syscall.Kill(-pgid, 0) == syscall.ESRCH {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func (d *daemon) fallbackShima(reason string) {
@@ -337,6 +368,24 @@ func ownedShimaWindow(argv []string, environ, root, token string) bool {
 		if argv[i] == "-p" || argv[i] == "--path" {
 			path := filepath.Clean(argv[i+1])
 			return (path == root || strings.HasPrefix(path, root+string(os.PathSeparator))) && instanceTail(argv[i+2:])
+		}
+	}
+	return false
+}
+
+// shimaRootArgv recognises a Shima desktop root, `qs -p <runtime>`, apart from
+// the windows it launches from files inside that runtime.
+func shimaRootArgv(argv []string) bool {
+	if len(argv) < 3 {
+		return false
+	}
+	exe := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(argv[0]), "."), "-wrapped")
+	if exe != "qs" && exe != "quickshell" {
+		return false
+	}
+	for i := 1; i < len(argv)-1; i++ {
+		if argv[i] == "-p" || argv[i] == "--path" {
+			return filepath.Ext(argv[i+1]) != ".qml" && instanceTail(argv[i+2:])
 		}
 	}
 	return false

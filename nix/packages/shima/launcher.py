@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 
 def prepare(config_home, state_home, cache_home):
@@ -58,6 +59,9 @@ def main():
     os.environ["XDG_CACHE_HOME"] = str(cache)
     os.environ["INIR_SYSTEM_RUNTIME_DIR"] = str(runtime)
     os.environ["INIR_RUNTIME_DIR"] = str(runtime)
+    qs = shutil.which("qs")
+    if qs:
+        os.environ["RYOKU_SHIMA_QS"] = qs
     os.execvp("qs", ["qs", "-p", str(runtime)] + args)
 
 if __name__ == "__main__":

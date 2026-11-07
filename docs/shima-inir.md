@@ -47,7 +47,9 @@ Readiness is acknowledged by the selected family's critical and deferred root
 loaders. Startup timeout or unexpected exit returns to the previous native style,
 with QS Bar as the fresh-login fallback. A normal reload does not count as a crash.
 Shell watcher children belong to the supervised process group. Applications
-launched with Qt's detached API have their own session.
+launched with Qt's detached API have their own session, and upstream's launcher
+places them in a transient systemd user scope (Ryoku's `RYOKU_SYSTEMD_RUN` on
+NixOS), so restarting `ryoku-shell.service` does not close them.
 
 Ryoku retains compositor configuration, idle policy, app provisioning, keyring,
 polkit, session security and Ryogami. Upstream's installer, conflict killer,

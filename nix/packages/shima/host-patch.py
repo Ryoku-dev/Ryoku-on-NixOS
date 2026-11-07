@@ -89,6 +89,21 @@ cli = root / "scripts/inir"
 head, rest = cli.read_text().split("\n", 1)
 cli.write_text(head + "\n" + "case \"${1:-}\" in\n    run|start|stop|service|install|uninstall|setup|update)\n        echo \"Shima lifecycle and packages are managed by Ryoku on NixOS.\" >&2\n        exit 2 ;;\n    restart|reload) exec ryoku-shell reload ;;\nesac\n" + rest)
 
+# Upstream's packaged /usr/bin/ strip turns these executable tests into
+# cwd-relative paths, so every launch skipped its transient scope and stayed in
+# ryoku-shell.service, dying whenever that unit restarted.
+replace("modules/common/functions/ShellExec.qml",
+        'readonly property string systemdRunPath: "/usr/bin/systemd-run"',
+        'readonly property string systemdRunPath: Quickshell.env("RYOKU_SYSTEMD_RUN") || "/usr/bin/systemd-run"')
+replace("modules/common/functions/ShellExec.qml",
+        '[ -x /usr/bin/systemctl ] && [ -x /usr/bin/timeout ]; then',
+        'command -v systemctl >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then')
+replace("modules/common/functions/ShellExec.qml",
+        'if [ -x "$systemd_run" ] && [ "$systemd_user_manager_usable" = true ]; then',
+        'if command -v "$systemd_run" >/dev/null 2>&1 && [ "$systemd_user_manager_usable" = true ]; then')
+# Launches take the session PATH first; Shima's own CLI keeps its pinned qs.
+replace("scripts/inir", 'qs_bin="/usr/bin/qs"', 'qs_bin="${RYOKU_SHIMA_QS:-/usr/bin/qs}"')
+
 # Reuse upstream family-aware IPC implementations for Ryoku's shortcut bus.
 for target in ["overview", "clipboard", "settings", "sidebarRight", "sidebarLeft", "controlPanel", "dashboard", "wactionCenter", "wnotificationCenter", "session", "cheatsheet", "bar"]:
     replace("shell.qml", f'target: "{target}"', f'id: ryoku{target[0].upper() + target[1:]}; target: "{target}"')

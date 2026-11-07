@@ -740,6 +740,17 @@ func (d *daemon) strayPids() []int {
 				break
 			}
 		}
+		// The desktop root is the native shell or a supervised Shima root. A
+		// daemon started after a crash has not chosen one yet, so a leftover of
+		// either form is a second desktop whichever this daemon runs.
+		shimaRoot := false
+		if !matches {
+			matches = selectsComponent(argv, nativeSelect("shell"))
+		}
+		if !matches {
+			shimaRoot = shimaRootArgv(argv)
+			matches = shimaRoot
+		}
 		if !matches {
 			continue
 		}
@@ -749,6 +760,9 @@ func (d *daemon) strayPids() []int {
 		}
 		if !sameSessionEnv(string(envRaw), myHome, myCfg) {
 			continue
+		}
+		if shimaRoot && !strings.Contains("\x00"+string(envRaw), "\x00RYOKU_SHIMA_MANAGED=1\x00") {
+			continue // an iNiR the user started themselves, not one we supervised
 		}
 		out = append(out, pid)
 	}
@@ -1236,9 +1250,13 @@ func (d *daemon) shutdown() {
 	}
 	d.mu.Lock()
 	pids := make([]int, 0, len(d.proc))
+	var groups []int
 	for _, c := range d.proc {
 		if c != nil && c.Process != nil {
 			pids = append(pids, c.Process.Pid)
+			if c.SysProcAttr != nil && c.SysProcAttr.Setpgid {
+				groups = append(groups, c.Process.Pid)
+			}
 		}
 	}
 	d.mu.Unlock()
@@ -1249,6 +1267,11 @@ func (d *daemon) shutdown() {
 	if left := waitGone(pids, 3*time.Second); len(left) > 0 {
 		signalAll(left, syscall.SIGKILL)
 		waitGone(left, time.Second)
+	}
+	// A supervised root's own group (Shima and its watchers) is outside
+	// KillMode=process's reach once this daemon exits.
+	for _, pgid := range groups {
+		stopProcessGroup(pgid, time.Second)
 	}
 }
 

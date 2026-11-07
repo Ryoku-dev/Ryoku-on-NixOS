@@ -319,6 +319,75 @@
           touch "$out"
         '';
 
+        # RyoStore builds Shima from the generated install source with a pure
+        # flake evaluation. It must evaluate on its own, to the same derivation
+        # the flake ships.
+        ryoku-subshell-store-source = pkgs.runCommand "ryoku-subshell-store-source-check"
+          { nativeBuildInputs = [ pkgs.python3 pkgs.nix ]; } ''
+            python3 ${./nix/tests/test-subshell-store-source.py} \
+              --install-source ${import ./nix/packages/shima-install-source.nix { inherit pkgs; src = self; }} \
+              --nixpkgs ${ryokuPackagesNixpkgs} \
+              --inir ${inirSrc} \
+              --expected-drv ${builtins.unsafeDiscardStringContext ryokuShima.drvPath}
+            touch "$out"
+          '';
+
+        # The packaged runtime is the only Shima on a NixOS PATH. The models
+        # mirror system-path (package order, first command wins), restricted
+        # to Ryoku's own packages like ryoku-bridge-command-ownership.
+        ryoku-subshell-nix-ownership =
+          let
+            systemPathModel = name: host: pkgs.buildEnv {
+              inherit name;
+              paths = builtins.filter
+                (pkg: pkgs.lib.hasPrefix "ryoku" (pkgs.lib.getName pkg))
+                host.config.environment.systemPackages;
+              pathsToLink = [ "/bin" ];
+              ignoreCollisions = true;
+            };
+            host = mkIsoConfigSystem { };
+            shimaHost = host.extendModules {
+              modules = [ { programs.ryoku.shima.enable = true; } ];
+            };
+          in
+          pkgs.runCommand "ryoku-subshell-nix-ownership-check"
+            { nativeBuildInputs = [ pkgs.python3 ]; } ''
+              python3 ${./nix/tests/test-subshell-nix-ownership.py} \
+                --shima ${ryokuShima} \
+                --system-path ${systemPathModel "ryoku-shima-system-path-model" shimaHost} \
+                --system-path-without-shima ${systemPathModel "ryoku-system-path-model" host} \
+                --desktop-data ${ryoku.desktopData}
+              touch "$out"
+            '';
+
+        # Every host patch reaches the built runtime, and the injected bridge
+        # routes surfaces to Ryoku's tools the same way as the Arch runtime.
+        ryoku-subshell-runtime = pkgs.runCommand "ryoku-subshell-runtime-check"
+          { nativeBuildInputs = [ pkgs.python3 pkgs.git pkgs.nodejs ]; } ''
+            python3 ${./nix/tests/test-subshell-runtime.py} \
+              --runtime ${ryokuShima} \
+              --patch-dir ${./nix/packages/shima} \
+              --patch-dir ${./ryoku/shell/quickshell/inir/patches} \
+              --arch-overlay-patch ${./ryoku/shell/quickshell/shima-overlay/runtime.patch}
+            touch "$out"
+          '';
+
+        # The Python subshell's weather refresh does not start a refresh chain
+        # while the shell daemon cannot persist the location.
+        ryoku-subshell-python-weather = pkgs.runCommand "ryoku-subshell-python-weather-check"
+          {
+            nativeBuildInputs = with pkgs; [ bash coreutils gnugrep gnused jq procps util-linux ];
+          } ''
+            # The scripts call each other through /usr/bin/env, which the
+            # build sandbox lacks.
+            cp -r ${./ryoku/shell/quickshell/shell/modules/bar/barstyles/python/scripts} scripts
+            chmod -R u+w scripts
+            patchShebangs scripts
+            RYOKU_PYTHON_SCRIPTS="$PWD/scripts" \
+              bash ${./tests/subshell-python-weather-recursion.sh}
+            touch "$out"
+          '';
+
         ryoku-installer-options = import ./nix/tests/installer-options.nix {
           inherit pkgs;
           module = self.nixosModules.default;

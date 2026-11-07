@@ -31,6 +31,9 @@ func shimaTestLauncher(t *testing.T) string {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("NIRI_SOCKET", "/test/niri.sock")
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	// A host with Shima installed has a managed profile under the real state
+	// home, which desktopSelection prefers over PATH.
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	return path
 }
 
@@ -250,5 +253,121 @@ func TestShimaManagedProfileResolvesNewGeneration(t *testing.T) {
 	b, _ := d.desktopSelection()
 	if a == b || a != filepath.Join(first, "bin", "ryoku-shima") || b != filepath.Join(second, "bin", "ryoku-shima") {
 		t.Fatalf("generation change not detected: %q %q", a, b)
+	}
+}
+
+// startFakeQs runs a throwaway process whose argv reads as a quickshell
+// instance, so the stray scan can be exercised against a real /proc entry.
+func startFakeQs(t *testing.T, env []string, args ...string) int {
+	t.Helper()
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh not available")
+	}
+	cmd := exec.Command(sh)
+	cmd.Args = append([]string{"qs", "-c", "sleep 30; :"}, args...)
+	cmd.Env = append(os.Environ(), env...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); _ = cmd.Wait() })
+	return cmd.Process.Pid
+}
+
+func waitStray(d *daemon, pid int) bool {
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		for _, p := range d.strayPids() {
+			if p == pid {
+				return true
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
+}
+
+// A daemon that starts after its predecessor was killed (KillMode=process)
+// has not resolved the Shima root yet, so the orphaned root has to be found
+// by its supervision marker or two desktops render at once.
+func TestStrayScanFindsOrphanedShimaRootBeforeSelection(t *testing.T) {
+	activeShimaRoot.Store("")
+	t.Cleanup(func() { activeShimaRoot.Store("") })
+	root := filepath.Join(t.TempDir(), "inir")
+	os.Mkdir(root, 0700)
+	d := &daemon{proc: map[string]*exec.Cmd{}}
+	orphan := startFakeQs(t, []string{"RYOKU_SHIMA_MANAGED=1"}, "-p", root)
+	window := startFakeQs(t, []string{"RYOKU_SHIMA_MANAGED=1"}, "-p", filepath.Join(root, "settings.qml"))
+	foreign := startFakeQs(t, nil, "-p", root)
+	if !waitStray(d, orphan) {
+		t.Fatal("orphaned Shima root not reaped by a fresh daemon")
+	}
+	for _, p := range d.strayPids() {
+		if p == window || p == foreign {
+			t.Fatalf("pid %d is not a supervised root", p)
+		}
+	}
+}
+
+// While Shima is the selected root, a leftover native shell is still a second
+// desktop and must be reaped.
+func TestStrayScanFindsNativeShellWhileShimaActive(t *testing.T) {
+	activeShimaRoot.Store(filepath.Join(t.TempDir(), "inir"))
+	t.Cleanup(func() { activeShimaRoot.Store("") })
+	d := &daemon{proc: map[string]*exec.Cmd{}}
+	sel := []string{"-c", "shell"}
+	if shellDir != "" {
+		sel = []string{"-p", filepath.Join(shellDir, "quickshell", "shell")}
+	}
+	pid := startFakeQs(t, nil, sel...)
+	if !waitStray(d, pid) {
+		t.Fatal("native shell stray missed while Shima is active")
+	}
+}
+
+// Shell watcher children belong to the root's process group. One that ignores
+// SIGTERM must not outlive the root and keep running beside the next one.
+func TestShimaRestoreKillsGroupMembersThatIgnoreTerm(t *testing.T) {
+	d := shimaTestDaemon(t, "iris")
+	cmd := exec.Command("bash", "-c", `(trap "" TERM; exec sleep 30) & exec sleep 30`)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pgid := cmd.Process.Pid
+	t.Cleanup(func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+	time.Sleep(300 * time.Millisecond)
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	_ = cmd.Wait()
+	run := &desktopRun{shima: true, ready: filepath.Join(t.TempDir(), "ready")}
+	run.intentional.Store(true)
+	d.restoreAfterShima(run, cmd)
+	deadline := time.Now().Add(2 * time.Second)
+	for syscall.Kill(-pgid, 0) == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("a root's watcher survived the root")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A panel-family change closes the shell gate and escalates to SIGKILL when the
+// root is slow to stop. That is the daemon's own stop, not a Shima crash, so it
+// must not switch the user to the previous native style.
+func TestShimaFamilyChangeKillIsNotACrash(t *testing.T) {
+	d := shimaTestDaemon(t, "iris")
+	d.shimaPrevious = "python"
+	d.gateWant = map[string]bool{"shell": false}
+	cmd := exec.Command("sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	_ = cmd.Wait()
+	d.restoreAfterShima(&desktopRun{shima: true, ready: filepath.Join(t.TempDir(), "ready")}, cmd)
+	if d.settings.raw["barStyle"] != "iris" || d.shimaBlocked {
+		t.Fatalf("family change treated as a crash: %v", d.settings.raw["barStyle"])
 	}
 }

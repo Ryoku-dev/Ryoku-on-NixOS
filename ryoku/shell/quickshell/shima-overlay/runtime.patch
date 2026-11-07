@@ -354,7 +354,7 @@
 -    readonly property string gtkLaunchPath: "/usr/bin/gtk-launch"
 +    readonly property string fishPath: "fish"
 +    readonly property string bashPath: "bash"
-+    readonly property string systemdRunPath: "systemd-run"
++    readonly property string systemdRunPath: Quickshell.env("RYOKU_SYSTEMD_RUN") || "systemd-run"
 +    readonly property string gtkLaunchPath: "gtk-launch"
  
      // -1 unknown, 0 no, 1 yes
@@ -382,11 +382,20 @@
              if [ -S "\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/systemd/private" ] &&
 -               [ -x /usr/bin/systemctl ] && [ -x /usr/bin/timeout ]; then
 -                manager_env="$(/usr/bin/timeout 3s /usr/bin/systemctl --user show-environment 2>/dev/null)"
-+               [ -x systemctl ] && [ -x timeout ]; then
++               command -v systemctl >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
 +                manager_env="$(timeout 3s systemctl --user show-environment 2>/dev/null)"
                  case $? in 0|124) systemd_user_manager_usable=true ;; esac
              fi
  
+@@ -167,7 +167,7 @@
+                 cd -- "$workdir" || true
+             fi
+ 
+-            if [ -x "$systemd_run" ] && [ "$systemd_user_manager_usable" = true ]; then
++            if command -v "$systemd_run" >/dev/null 2>&1 && [ "$systemd_user_manager_usable" = true ]; then
+                 if [ -n "$desc" ]; then
+                     exec "$systemd_run" --user --quiet --collect --same-dir --scope \
+                         --description="$desc" -- "$@"
 --- a/modules/common/models/quickToggles/ColorPickerToggle.qml
 +++ b/modules/common/models/quickToggles/ColorPickerToggle.qml
 @@ -21,7 +21,7 @@
@@ -2823,10 +2832,11 @@
          _syncToCurrentWallpaper(true)
 --- /dev/null
 +++ b/ryoku-launcher.py
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,68 @@
 +import json
 +import os
 +from pathlib import Path
++import shutil
 +import sys
 +
 +def prepare(config_home, state_home, cache_home):
@@ -2884,6 +2894,9 @@
 +    os.environ["XDG_CACHE_HOME"] = str(cache)
 +    os.environ["INIR_SYSTEM_RUNTIME_DIR"] = str(runtime)
 +    os.environ["INIR_RUNTIME_DIR"] = str(runtime)
++    qs = shutil.which("qs")
++    if qs:
++        os.environ["RYOKU_SHIMA_QS"] = qs
 +    os.execvp("qs", ["qs", "-p", str(runtime)] + args)
 +
 +if __name__ == "__main__":
@@ -3872,7 +3885,7 @@
  import os
 --- a/scripts/inir
 +++ b/scripts/inir
-@@ -1,4 +1,11 @@
+@@ -1,7 +1,14 @@
  #!/usr/bin/env bash
 +case "${1:-}" in
 +    lock) exec ryoku-shell lock ;;
@@ -3883,7 +3896,11 @@
 +esac
  set -euo pipefail
  
- qs_bin="/usr/bin/qs"
+-qs_bin="/usr/bin/qs"
++qs_bin="${RYOKU_SHIMA_QS:-/usr/bin/qs}"
+ user_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/inir"
+ system_config_dir="${INIR_SYSTEM_RUNTIME_DIR:-/usr/local/share/quickshell/inir}"
+ fallback_system_config_dir="${INIR_FALLBACK_SYSTEM_RUNTIME_DIR:-/usr/share/quickshell/inir}"
 @@ -3635,6 +3642,7 @@
  run_bind_command() {
      local mode=preview
