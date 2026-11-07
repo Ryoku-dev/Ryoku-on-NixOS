@@ -52,7 +52,7 @@ fall back to shell prompts halfway through the installation. The wizard covers:
 - hostname, username and a masked/confirmed password;
 - timezone, locale and keyboard layout;
 - kernel policy: NixOS default, latest, or Zen from the pinned nixpkgs;
-- Ryoku compositor: Hyprland, niri, or MangoWM;
+- Ryoku compositor: Hyprland or niri;
 - browser, shell and optional Ryoku apps/tools;
 - generated Ryoku configuration, or advanced input-only import of an existing
   NixOS flake;

@@ -52,11 +52,6 @@ pkgs.stdenv.mkDerivation {
     mkdir -p "$cfg/niri"
     cp -a ryoku/niri/. "$cfg/niri/"
 
-    # ── Mango ─────────────────────────────────────────────────
-
-    mkdir -p "$cfg/mango"
-    cp -a ryoku/mango/. "$cfg/mango/"
-
     # NixOS owns graphical-session lifecycle through its declarative user
     # units. Route every compositor's upstream session handoff through the
     # Nix-native bootstrap instead of package-manager cutover machinery.
@@ -69,12 +64,6 @@ pkgs.stdenv.mkDerivation {
       --replace-fail \
         'ryoku-host session start xdg-desktop-portal-gnome.service xdg-desktop-portal-gtk.service' \
         'ryoku-nix-session-start'
-
-    substituteInPlace "$cfg/mango/autostart.conf" \
-      --replace-fail \
-        'ryoku-power-cutover session-start-logged' \
-        'ryoku-nix-session-start'
-
 
     # ── Shared translation catalog ─────────────────────────────
     #

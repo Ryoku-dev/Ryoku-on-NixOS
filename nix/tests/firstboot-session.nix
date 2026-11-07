@@ -31,7 +31,7 @@ let
   problems =
     lib.concatMap execProblems ryokuSessions
     ++ lib.optional
-      (sessionNames != [ "ryoku-hyprland" "ryoku-niri" "ryoku-mango" ])
+      (sessionNames != [ "ryoku-hyprland" "ryoku-niri" ])
       "Ryoku session entries changed: ${builtins.toJSON sessionNames}"
     ++ lib.optional (!(builtins.elem dm.defaultSession sessionNames))
       "default session ${builtins.toJSON dm.defaultSession} is not a Ryoku session";

@@ -53,7 +53,6 @@ func compositorDiagnosticPackages() []string {
 	byName := map[string][]string{
 		"hyprland": {"hyprland", "xdg-desktop-portal-hyprland"},
 		"niri":     {"niri", "xwayland-satellite", "xdg-desktop-portal-gnome"},
-		"mango":    {"mangowm", "scenefx0.5", "xdg-desktop-portal-wlr", "wlsunset"},
 	}
 	detected := wm.Detect()
 	if detected.Name == "" || !detected.Live {

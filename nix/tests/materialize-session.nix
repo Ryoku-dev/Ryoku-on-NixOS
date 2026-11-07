@@ -10,7 +10,7 @@ let
 
   desktopData = pkgs.runCommand "stub-desktop-data" { } ''
     cfg=$out/share/ryoku/config
-    mkdir -p $cfg/niri $cfg/hypr $cfg/mango $out/share/ryoku/wallpapers
+    mkdir -p $cfg/niri $cfg/hypr $out/share/ryoku/wallpapers
     echo 'include "autostart.kdl"' > $cfg/niri/config.kdl
     echo '// autostart' > $cfg/niri/autostart.kdl
     chmod 0444 $cfg/niri/*
@@ -51,7 +51,6 @@ let
       hub = pkgs.emptyDirectory;
       wmHyprland = wm "ryoku-wm-hyprland";
       wmNiri = wm "ryoku-wm-niri";
-      wmMango = wm "ryoku-wm-mango";
     };
   };
 
