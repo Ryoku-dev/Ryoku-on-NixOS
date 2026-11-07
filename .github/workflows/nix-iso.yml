@@ -12,8 +12,11 @@ on:
       - 'nix/installer/**'
       - 'nix/iso/**'
       - 'nix/iso-configs/**'
-      - 'nix/modules/ryoku.nix'
+      - 'nix/modules/**'
       - 'nix/tests/display-manager.nix'
+      - 'nix/tests/firstboot-*'
+      - 'nix/tests/test-firstboot-*'
+      - 'ryoku/lockscreen/sddm/ryoku-greeter-guard'
       - 'nix/tests/installer-*'
       - 'nix/tests/test-installer-*'
       - 'nix/tests/test-qylock-pam-materialization.py'
@@ -37,8 +40,11 @@ on:
       - 'nix/installer/**'
       - 'nix/iso/**'
       - 'nix/iso-configs/**'
-      - 'nix/modules/ryoku.nix'
+      - 'nix/modules/**'
       - 'nix/tests/display-manager.nix'
+      - 'nix/tests/firstboot-*'
+      - 'nix/tests/test-firstboot-*'
+      - 'ryoku/lockscreen/sddm/ryoku-greeter-guard'
       - 'nix/tests/installer-*'
       - 'nix/tests/test-installer-*'
       - 'nix/tests/test-qylock-pam-materialization.py'
@@ -92,6 +98,9 @@ jobs:
             .#checks.x86_64-linux.ryoku-display-manager \
             .#checks.x86_64-linux.ryoku-bridge-command-ownership \
             .#checks.x86_64-linux.ryoku-session-bootstrap \
+            .#checks.x86_64-linux.ryoku-firstboot-session \
+            .#checks.x86_64-linux.ryoku-firstboot-greeter-guard \
+            .#checks.x86_64-linux.ryoku-firstboot-qml-imports \
             .#checks.x86_64-linux.ryoku-materialize-session \
             .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
             .#checks.x86_64-linux.ryoku-sddm-theme-apply \
@@ -109,3 +118,4 @@ jobs:
         run: |
           set -euo pipefail
           nix build --dry-run --no-link .#ryoku-iso
+          nix eval --raw .#nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage.drvPath >/dev/null

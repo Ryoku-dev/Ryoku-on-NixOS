@@ -466,6 +466,43 @@
           module = self.nixosModules.default;
         };
 
+        # The default install's login sessions, read from its evaluated config.
+        ryoku-firstboot-session = import ./nix/tests/firstboot-session.nix {
+          pkgs = nixpkgs.legacyPackages.${system};
+          config = (mkIsoConfigSystem { }).config;
+        };
+
+        # Runs the default install's greeter guard unit as systemd starts it.
+        ryoku-firstboot-greeter-guard =
+          let
+            unit = (mkIsoConfigSystem { }).config.systemd.services.ryoku-greeter-guard;
+          in
+          pkgs.runCommand "ryoku-firstboot-greeter-guard-check" { } ''
+            GUARD=${unit.serviceConfig.ExecStart} \
+            SERVICE_PATH=${unit.environment.PATH} \
+              ${pkgs.bash}/bin/bash ${./nix/tests/test-firstboot-greeter-guard.sh}
+            touch "$out"
+          '';
+
+        # Third-party QML imports of the shell against the default install's
+        # ryoku-shell.service import path. Ryoku's own QML entries are dropped
+        # from the build inputs so the check needs only the Qt packages.
+        ryoku-firstboot-qml-imports =
+          let
+            qmlPath = (mkIsoConfigSystem { }).config.systemd.user.services.ryoku-shell.environment.QML2_IMPORT_PATH;
+            thirdParty = builtins.appendContext
+              (builtins.unsafeDiscardStringContext qmlPath)
+              (nixpkgs.lib.filterAttrs (drv: _: !(nixpkgs.lib.hasInfix "-ryoku-" drv))
+                (builtins.getContext qmlPath));
+          in
+          pkgs.runCommand "ryoku-firstboot-qml-imports-check"
+            { nativeBuildInputs = [ pkgs.python3 ]; }
+            ''
+              python3 ${./nix/tests/test-firstboot-qml-imports.py} "${thirdParty}" \
+                ${./ryoku/shell/quickshell} ${./ryoku/ui}
+              touch "$out"
+            '';
+
         # Core runtime
         ryoku-shell = ryoku.shell;
 

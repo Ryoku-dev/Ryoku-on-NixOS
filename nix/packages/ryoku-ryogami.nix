@@ -105,9 +105,12 @@ pkgs.stdenv.mkDerivation {
 
     # The E2E suite launches another daemon inside the build sandbox.
     # Ordinary package tests still run here.
-    go test -skip '^(TestE2E.*|TestWorkshopWatchCoalescesWriteBurst)$' ./...
+    # Stay within the cores Nix grants the build (nixos-install passes
+    # --cores 2 on low-memory machines); Go and Ninja otherwise use every CPU.
+    go test -p "$NIX_BUILD_CORES" -skip '^(TestE2E.*|TestWorkshopWatchCoalescesWriteBurst)$' ./...
 
     go build \
+      -p "$NIX_BUILD_CORES" \
       -trimpath \
       -o ryogami \
       .
@@ -126,7 +129,7 @@ pkgs.stdenv.mkDerivation {
       -G Ninja \
       -DCMAKE_BUILD_TYPE=Release
 
-    cmake --build picker-build
+    cmake --build picker-build --parallel "$NIX_BUILD_CORES"
 
     runHook postBuild
   '';

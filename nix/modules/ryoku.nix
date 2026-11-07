@@ -276,11 +276,12 @@ EOF
 
     chmod 0755 "$out/bin/ryoku-mango-session"
 
-    cat > "$out/share/wayland-sessions/ryoku-mango.desktop" <<'EOF'
+    # NixOS puts session packages in the session directory only, not on PATH.
+    cat > "$out/share/wayland-sessions/ryoku-mango.desktop" <<EOF
 [Desktop Entry]
 Name=Mango (Ryoku)
 Comment=Ryoku desktop on the MangoWM compositor
-Exec=ryoku-mango-session
+Exec=$out/bin/ryoku-mango-session
 Icon=mango
 Type=Application
 DesktopNames=mango;wlroots
@@ -415,7 +416,9 @@ EOF
 
   ryokuGreeterGuard = pkgs.writeShellApplication {
     name = "ryoku-greeter-guard";
-    runtimeInputs = with pkgs; [ coreutils util-linux ];
+    # dbus-monitor lets the guard wait for login1 session events instead of
+    # scanning /proc on a timer.
+    runtimeInputs = with pkgs; [ coreutils dbus util-linux ];
     text = ''
       export RYOKU_GREETER_GUARD_HOST=${ryokuGreeterGuardHost}/bin/ryoku-greeter-guard-host
       exec ${pkgs.bash}/bin/bash ${../../ryoku/lockscreen/sddm/ryoku-greeter-guard} "$@"
@@ -557,6 +560,8 @@ EOF
     ryokuNixpkgs.qt6.qtsvg
     ryokuNixpkgs.qt6.qtimageformats
     ryokuNixpkgs.kdePackages.kirigami.unwrapped
+    # org.kde.syntaxhighlighting colours code blocks in the Super+S chat.
+    ryokuNixpkgs.kdePackages.syntax-highlighting
   ];
 
 
