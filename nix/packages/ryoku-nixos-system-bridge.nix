@@ -24,6 +24,7 @@ let
     "ryoku-wifi-backend"
     "ryoku-wifi-regdom"
     "ryoku-docker"
+    "ryoku-sddm-session"
   ];
 in
 pkgs.stdenvNoCC.mkDerivation {

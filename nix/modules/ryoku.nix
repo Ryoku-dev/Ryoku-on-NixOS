@@ -1377,7 +1377,8 @@ in
           if (program === "${ryokuSystemBridge}/bin/ryoku-dns" ||
               program === "${ryokuSystemBridge}/bin/ryoku-wifi-backend" ||
               program === "${ryokuSystemBridge}/bin/ryoku-wifi-regdom" ||
-              program === "${ryokuSystemBridge}/bin/ryoku-docker") {
+              program === "${ryokuSystemBridge}/bin/ryoku-docker" ||
+              program === "${ryokuSystemBridge}/bin/ryoku-sddm-session") {
               return polkit.Result.YES;
           }
       });
@@ -1707,6 +1708,14 @@ in
     # Session scope also covers Hub instances launched directly.
     environment.sessionVariables = {
       RYOKU_NIX_SYSTEM_BRIDGE = "1";
+      RYOKU_SDDM_ENABLED =
+        if config.services.displayManager.sddm.enable then "1" else "0";
+      RYOKU_SDDM_SESSION_HELPER = "${ryokuSystemBridge}/bin/ryoku-sddm-session";
+      RYOKU_SDDM_SESSION_DIR =
+        if config.services.displayManager.sddm.enable then
+          "${config.services.displayManager.sessionData.desktops}/share/wayland-sessions"
+        else
+          "";
       RYOKU_NIX_INTEGRATION = "/etc/ryoku/nix-integration.json";
       RYOKU_DOCKER_HOST_MANAGED = "1";
       RYOKU_DEFAULT_BROWSER = if cfg.browser == null then "" else cfg.browser;
