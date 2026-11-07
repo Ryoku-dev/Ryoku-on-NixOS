@@ -1233,6 +1233,17 @@ flake_root="$(readlink -f "$flake_root")"
 flake_file="$flake_root/flake.nix"
 module_file="$flake_root/ryoku.nix"
 
+# Set when this run created a base flake.nix for a classic /etc/nixos. That
+# file stays only once the install has switched; any earlier exit removes it,
+# because a later plain `nixos-rebuild` would otherwise build from it instead
+# of from the user's channels.
+generated_flake=0
+discard_generated_flake() {
+  [ "$generated_flake" -eq 1 ] || return 0
+  run_root rm -f "$flake_file" ||
+    echo "ryoku-install: could not remove the generated $flake_file; delete it to keep the previous configuration" >&2
+}
+
 if [ ! -f "$flake_file" ]; then
   [ "$flake_root" = "/etc/nixos" ] ||
     die "no flake.nix found at $flake_root"
@@ -1279,6 +1290,8 @@ EOF
   fi
 
   rm -f "$temp_flake"
+  generated_flake=1
+  trap discard_generated_flake EXIT
 
   echo "ryoku-install: created a base flake at $flake_file"
 fi
@@ -1365,7 +1378,7 @@ if [ "$dry_run" -eq 0 ]; then
 fi
 
 work_dir="$(mktemp -d)"
-trap 'rm -rf "$work_dir"' EXIT
+trap 'rm -rf "$work_dir"; discard_generated_flake' EXIT
 
 work_flake="$work_dir/flake.nix"
 work_module="$work_dir/ryoku.nix"
@@ -1470,29 +1483,54 @@ if [ "$had_module" -eq 1 ]; then
   run_root cp -a "$module_file" "$backup_dir/ryoku.nix"
 fi
 
+# Put back every pre-install file. A further Ctrl+C or a closing terminal must
+# not stop this half-way, and one failed copy must not skip the others.
 rollback() {
   transaction_started=0
-  run_root cp -a "$backup_dir/flake.nix" "$flake_file"
+  trap '' INT TERM HUP
+  restore_failed=0
+
+  if [ "$generated_flake" -eq 1 ]; then
+    run_root rm -f "$flake_file" || restore_failed=1
+  else
+    run_root cp -a "$backup_dir/flake.nix" "$flake_file" || restore_failed=1
+  fi
 
   if [ "$had_lock" -eq 1 ]; then
-    run_root cp -a "$backup_dir/flake.lock" "$flake_root/flake.lock"
+    run_root cp -a "$backup_dir/flake.lock" "$flake_root/flake.lock" || restore_failed=1
   else
-    run_root rm -f "$flake_root/flake.lock"
+    run_root rm -f "$flake_root/flake.lock" || restore_failed=1
   fi
 
   if [ "$had_module" -eq 1 ]; then
-    run_root cp -a "$backup_dir/ryoku.nix" "$module_file"
+    run_root cp -a "$backup_dir/ryoku.nix" "$module_file" || restore_failed=1
   else
-    run_root rm -f "$module_file"
+    run_root rm -f "$module_file" || restore_failed=1
+  fi
+
+  if [ "$restore_failed" -ne 0 ]; then
+    echo "ryoku-install: ERROR: could not restore every configuration file in $flake_root" >&2
+    echo "ryoku-install: the original files are in $backup_dir; copy them back before rebuilding" >&2
+    return 1
+  fi
+}
+
+# Roll back, then report the failure without claiming a restore that failed.
+abort_transaction() {
+  if rollback; then
+    echo "ryoku-install: $1; $2" >&2
+  else
+    echo "ryoku-install: $1" >&2
   fi
 }
 
 transaction_started=0
 cleanup() {
   result=$?
-  trap - EXIT INT TERM
+  trap - EXIT
+  trap '' INT TERM HUP
   if [ "$transaction_started" -eq 1 ]; then
-    rollback
+    abort_transaction "installation stopped" "files restored"
   fi
   rm -rf "$work_dir"
   exit "$result"
@@ -1509,8 +1547,7 @@ echo "@@RYOKU_STEP lock"
 printf '\nUpdating flake lock...\n'
 
 if ! run_root nix flake lock "path:$flake_root"; then
-  rollback
-  echo "ryoku-install: flake lock failed; files restored" >&2
+  abort_transaction "flake lock failed" "files restored"
   exit 1
 fi
 
@@ -1520,8 +1557,7 @@ printf '\nBuilding NixOS generation...\n'
 if ! run_root "$nixos_rebuild" build \
   --flake "path:$flake_root#$host"
 then
-  rollback
-  echo "ryoku-install: build failed; files restored" >&2
+  abort_transaction "build failed" "files restored"
   exit 1
 fi
 
@@ -1531,8 +1567,7 @@ printf '\nSwitching generation...\n'
 if ! run_root "$nixos_rebuild" switch \
   --flake "path:$flake_root#$host"
 then
-  rollback
-  echo "ryoku-install: switch failed; configuration files restored" >&2
+  abort_transaction "switch failed" "configuration files restored"
   # The new generation was built and may already be the system profile and
   # default boot entry even though activation failed. The files are restored,
   # so say how to inspect and, if wanted, undo that part.
