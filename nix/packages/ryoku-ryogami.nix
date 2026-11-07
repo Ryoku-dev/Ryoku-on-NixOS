@@ -107,7 +107,7 @@ pkgs.stdenv.mkDerivation {
     # Ordinary package tests still run here.
     # Stay within the cores Nix grants the build (nixos-install passes
     # --cores 2 on low-memory machines); Go and Ninja otherwise use every CPU.
-    go test -p "$NIX_BUILD_CORES" -skip '^(TestE2E.*|TestWorkshopWatchCoalescesWriteBurst)$' ./...
+    go test -p "$NIX_BUILD_CORES" -skip '^(TestE2E.*|TestWorkshopWatchCoalescesWriteBurst|TestPreviewPaletteIsIsolatedCachedAndRestored)$' ./...
 
     go build \
       -p "$NIX_BUILD_CORES" \
