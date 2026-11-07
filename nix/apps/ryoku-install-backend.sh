@@ -5,6 +5,7 @@ source_explicit=0
 flake_arg="/etc/nixos"
 assume_yes=0
 dry_run=0
+manual_recovery=0
 compositor=""
 browser=""
 shell_choice=""
@@ -957,6 +958,7 @@ Options:
   --firmware MODE       auto, uefi, or bios (default: auto)
   --confirm-disk DEVICE Required with --iso --yes; must exactly match --disk
   --dry-run             Show proposed changes without writing them
+  --manual-recovery     Continue after restoring a failed install's backup by hand
   -y, --yes             Skip non-destructive prompts; disk confirmation still required
   -h, --help            Show this help
 EOF
@@ -1090,6 +1092,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --dry-run)
       dry_run=1
+      shift
+      ;;
+    --manual-recovery)
+      manual_recovery=1
       shift
       ;;
     -y|--yes)
@@ -1232,6 +1238,111 @@ esac
 flake_root="$(readlink -f "$flake_root")"
 flake_file="$flake_root/flake.nix"
 module_file="$flake_root/ryoku.nix"
+
+# While this record exists, the files under its root are a mix of the
+# original configuration and an install whose restore failed. The backup it
+# names is the only copy of the originals.
+pending_restore="/var/backups/ryoku-nixos.restore-pending"
+
+record_pending_restore() {
+  local record
+  record="$(mktemp)"
+  printf 'root=%s\nbackup=%s\ngenerated_flake=%s\nhad_lock=%s\nhad_module=%s\n' \
+    "$flake_root" "$backup_dir" "$generated_flake" "$had_lock" "$had_module" > "$record"
+  if ! run_root install -m 0644 "$record" "$pending_restore"; then
+    rm -f "$record"
+    return 1
+  fi
+  rm -f "$record"
+}
+
+# Put back every pre-install file. A further Ctrl+C or a closing terminal must
+# not stop this half-way, and one failed copy must not skip the others. The
+# pending record goes only once every file is back.
+rollback() {
+  transaction_started=0
+  trap '' INT TERM HUP
+  restore_failed=0
+
+  if [ "$generated_flake" -eq 1 ]; then
+    run_root rm -f "$flake_file" || restore_failed=1
+  else
+    run_root cp -a "$backup_dir/flake.nix" "$flake_file" || restore_failed=1
+  fi
+
+  if [ "$had_lock" -eq 1 ]; then
+    run_root cp -a "$backup_dir/flake.lock" "$flake_root/flake.lock" || restore_failed=1
+  else
+    run_root rm -f "$flake_root/flake.lock" || restore_failed=1
+  fi
+
+  if [ "$had_module" -eq 1 ]; then
+    run_root cp -a "$backup_dir/ryoku.nix" "$module_file" || restore_failed=1
+  else
+    run_root rm -f "$module_file" || restore_failed=1
+  fi
+
+  if [ "$restore_failed" -eq 0 ]; then
+    run_root rm -f "$pending_restore" || restore_failed=1
+  fi
+
+  if [ "$restore_failed" -ne 0 ]; then
+    echo "ryoku-install: ERROR: could not restore every configuration file in $flake_root" >&2
+    echo "ryoku-install: the original files are in $backup_dir; copy them back before rebuilding" >&2
+    echo "ryoku-install: running the installer again retries the restore first; if you copy them back yourself, run it with --manual-recovery" >&2
+    return 1
+  fi
+}
+
+# Finish an earlier install's failed restore before reading or backing up
+# anything, unless the user has restored the files by hand and says so. The
+# record is world-readable, so checking for it needs no root.
+if [ -e "$pending_restore" ]; then
+  pending_record="$(run_root cat "$pending_restore")" ||
+    die "could not read $pending_restore"
+  pending_root="" pending_backup="" pending_generated="" pending_lock="" pending_module=""
+  while IFS='=' read -r key value; do
+    case "$key" in
+      root) pending_root="$value" ;;
+      backup) pending_backup="$value" ;;
+      generated_flake) pending_generated="$value" ;;
+      had_lock) pending_lock="$value" ;;
+      had_module) pending_module="$value" ;;
+    esac
+  done <<< "$pending_record"
+
+  if [ "$pending_root" = "$flake_root" ]; then
+    if [ "$manual_recovery" -eq 1 ]; then
+      [ "$dry_run" -eq 0 ] ||
+        die "a previous installation could not restore $flake_root; run without --dry-run to continue"
+      run_root rm -f "$pending_restore" ||
+        die "could not remove $pending_restore"
+      echo "ryoku-install: continuing with $flake_root as restored by hand; the original files remain in $pending_backup"
+    else
+      [ "$dry_run" -eq 0 ] ||
+        die "a previous installation could not restore $flake_root; run without --dry-run to restore it from $pending_backup first"
+      case "$pending_generated$pending_lock$pending_module" in
+        [01][01][01]) ;;
+        *) die "$pending_restore is not a valid restore record; restore $flake_root from $pending_backup by hand, then run with --manual-recovery" ;;
+      esac
+      run_root test -f "$pending_backup/flake.nix" ||
+        die "the backup $pending_backup recorded in $pending_restore is missing; restore $flake_root by hand, then run with --manual-recovery"
+
+      echo "ryoku-install: a previous installation could not restore $flake_root; restoring it from $pending_backup"
+      backup_dir="$pending_backup"
+      generated_flake="$pending_generated"
+      had_lock="$pending_lock"
+      had_module="$pending_module"
+      if ! rollback; then
+        echo "ryoku-install: nothing else was changed" >&2
+        exit 1
+      fi
+      trap - INT TERM HUP
+      generated_flake=0
+      echo "ryoku-install: restored $flake_root from $pending_backup"
+    fi
+  fi
+fi
 
 # Set when this run created a base flake.nix for a classic /etc/nixos. That
 # file stays only once the install has switched; any earlier exit removes it,
@@ -1464,7 +1575,6 @@ fi
 
 echo "@@RYOKU_STEP prepare"
 timestamp="$(date +%Y%m%d-%H%M%S)"
-backup_dir="/var/backups/ryoku-nixos/$timestamp"
 
 had_lock=0
 had_module=0
@@ -1472,7 +1582,17 @@ had_module=0
 [ -f "$flake_root/flake.lock" ] && had_lock=1
 [ -f "$module_file" ] && had_module=1
 
-run_root mkdir -p "$backup_dir"
+# A retry within the same second must not write into an earlier backup,
+# which may hold the only copy of the original files.
+run_root mkdir -p /var/backups/ryoku-nixos
+backup_dir="/var/backups/ryoku-nixos/$timestamp"
+backup_suffix=1
+until run_root mkdir "$backup_dir" 2>/dev/null; do
+  backup_suffix=$((backup_suffix + 1))
+  [ "$backup_suffix" -le 100 ] ||
+    die "could not create a backup directory under /var/backups/ryoku-nixos"
+  backup_dir="/var/backups/ryoku-nixos/$timestamp-$backup_suffix"
+done
 run_root cp -a "$flake_file" "$backup_dir/flake.nix"
 
 if [ "$had_lock" -eq 1 ]; then
@@ -1483,37 +1603,8 @@ if [ "$had_module" -eq 1 ]; then
   run_root cp -a "$module_file" "$backup_dir/ryoku.nix"
 fi
 
-# Put back every pre-install file. A further Ctrl+C or a closing terminal must
-# not stop this half-way, and one failed copy must not skip the others.
-rollback() {
-  transaction_started=0
-  trap '' INT TERM HUP
-  restore_failed=0
-
-  if [ "$generated_flake" -eq 1 ]; then
-    run_root rm -f "$flake_file" || restore_failed=1
-  else
-    run_root cp -a "$backup_dir/flake.nix" "$flake_file" || restore_failed=1
-  fi
-
-  if [ "$had_lock" -eq 1 ]; then
-    run_root cp -a "$backup_dir/flake.lock" "$flake_root/flake.lock" || restore_failed=1
-  else
-    run_root rm -f "$flake_root/flake.lock" || restore_failed=1
-  fi
-
-  if [ "$had_module" -eq 1 ]; then
-    run_root cp -a "$backup_dir/ryoku.nix" "$module_file" || restore_failed=1
-  else
-    run_root rm -f "$module_file" || restore_failed=1
-  fi
-
-  if [ "$restore_failed" -ne 0 ]; then
-    echo "ryoku-install: ERROR: could not restore every configuration file in $flake_root" >&2
-    echo "ryoku-install: the original files are in $backup_dir; copy them back before rebuilding" >&2
-    return 1
-  fi
-}
+record_pending_restore ||
+  die "could not record the backup in $pending_restore; nothing was changed"
 
 # Roll back, then report the failure without claiming a restore that failed.
 abort_transaction() {
@@ -1578,6 +1669,9 @@ then
 fi
 
 transaction_started=0
+if ! run_root rm -f "$pending_restore"; then
+  echo "ryoku-install: WARNING: delete $pending_restore, or the next run will restore the files from before this install" >&2
+fi
 echo "@@RYOKU_STEP materialize"
 # The new generation is already live here. A failed user-config refresh is a
 # warning to act on, not a failed installation: the files are kept and the

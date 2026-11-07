@@ -37,18 +37,20 @@ def default_signals():
 
 class TransactionTests(unittest.TestCase):
     def install(self, root, host, failure="", baseline_valid=True, gpu="none",
-                flake_arg=None, generated_flake=False, restore="", answer=None):
+                flake_arg=None, generated_flake=False, restore="", answer=None,
+                extra_args=()):
         """Run the existing-NixOS install path against fake Nix tools.
 
         Returns (result, calls, rebuild_args, tmpdir). `generated_flake`
         treats `host` as /etc/nixos without a flake.nix; `restore` makes the
         restore copies fail ("fail") or delivers a second Ctrl+C
         ("interrupt") or a closing terminal ("hangup") while they run.
+        Calling it again with the same root retries, as the TUI's "r" does.
         """
         bindir = root / "bin"
-        bindir.mkdir()
+        bindir.mkdir(exist_ok=True)
         tmpdir = root / "tmp"
-        tmpdir.mkdir()
+        tmpdir.mkdir(exist_ok=True)
         backups = root / "backups"
         backend = Path(os.environ["RYOKU_INSTALL_TEST_BACKEND"]).read_text()
         shell = backend.splitlines()[0][2:]
@@ -128,8 +130,8 @@ class TransactionTests(unittest.TestCase):
         test_backend = script("backend", backend.partition("\n")[2])
         calls = root / "calls"
         rebuild_args = root / "rebuild-args"
-        calls.touch()
-        rebuild_args.touch()
+        calls.write_text("")
+        rebuild_args.write_text("")
         env = dict(
             os.environ,
             TMPDIR=str(tmpdir),
@@ -144,7 +146,7 @@ class TransactionTests(unittest.TestCase):
         )
         args = [str(test_backend), "--flake", flake_arg or str(host) + "#host",
                 "--compositor", "niri", "--browser", "firefox",
-                "--shell", "zsh", "--apps", "none", "--gpu", gpu]
+                "--shell", "zsh", "--apps", "none", "--gpu", gpu, *extra_args]
         if answer is None:
             args.append("--yes")
         result = subprocess.run(args, env=env, capture_output=True, text=True,
@@ -338,6 +340,88 @@ class TransactionTests(unittest.TestCase):
             self.assertFalse((host / "ryoku.nix").exists(), output)
             self.assertNotIn("switch", calls)
             self.assertEqual(list(tmpdir.iterdir()), [], output)
+
+    def failed_restore_host(self, root, existing):
+        """A host whose install failed and whose restore failed with it."""
+        host = root / "host"
+        host.mkdir()
+        (host / "flake.nix").write_text(FLAKE)
+        (host / "configuration.nix").write_text("{ ... }: {}\n")
+        if existing:
+            (host / "flake.lock").write_text("old lock\n")
+            (host / "ryoku.nix").write_text("# Managed by ryoku-install.\n{}\n")
+        before = self.snapshot(host)
+        result, _, _, _ = self.install(root, host, "build", restore="fail")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotEqual(self.snapshot(host), before)
+        return host, before
+
+    def test_retry_after_failed_restore_starts_from_the_original(self):
+        # After a failed restore /etc/nixos is a mix of old and new files. A
+        # retry must put the originals back before anything else, not back
+        # up the mix as if it were the user's configuration.
+        for retry, existing in [(r, e) for r in ("build", "") for e in (False, True)]:
+            with (self.subTest(retry=retry or "success", existing=existing),
+                  tempfile.TemporaryDirectory() as directory):
+                root = Path(directory)
+                host, before = self.failed_restore_host(root, existing)
+                original = next((root / "backups").iterdir())
+                result, calls, _, _ = self.install(root, host, retry)
+                output = result.stdout + result.stderr
+                # The first backup is never replaced.
+                self.assertEqual((original / "flake.nix").read_text(), FLAKE, output)
+                if retry:
+                    self.assertEqual(result.returncode, 1, output)
+                    self.assertEqual(self.snapshot(host), before, output)
+                    self.assertIn("files restored", result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, output)
+                    self.assertEqual(calls, ["validate", "lock", "build", "switch", "materialize"])
+                    backup = Path(output.rpartition("Backup: ")[2].strip())
+                    self.assertNotEqual(backup, original, output)
+                    self.assertEqual((backup / "flake.nix").read_text(), FLAKE, output)
+                    # Installed: the next run is an ordinary reinstall.
+                    rerun, _, _, _ = self.install(root, host, "build")
+                    self.assertNotIn("restoring it from", rerun.stdout + rerun.stderr)
+                    self.assertIn("./ryoku.nix", (host / "flake.nix").read_text())
+                self.assertIn("restoring it from " + str(original), output)
+
+    def test_retry_changes_nothing_while_the_originals_cannot_be_restored(self):
+        for existing in (False, True):
+            with (self.subTest(existing=existing),
+                  tempfile.TemporaryDirectory() as directory):
+                root = Path(directory)
+                host, _ = self.failed_restore_host(root, existing)
+                original = next((root / "backups").iterdir())
+                mixed = self.snapshot(host)
+                result, calls, _, _ = self.install(root, host, "", restore="fail")
+                output = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 1, output)
+                self.assertEqual(calls, [], output)
+                self.assertEqual(self.snapshot(host), mixed, output)
+                self.assertEqual([p.name for p in (root / "backups").iterdir()
+                                  if p.is_dir()], [original.name])
+                self.assertIn(str(original), result.stderr)
+                self.assertIn("--manual-recovery", result.stderr)
+                self.assertNotIn("@@RYOKU_STEP", result.stdout)
+
+    def test_manual_recovery_is_an_explicit_choice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            host, before = self.failed_restore_host(root, existing=True)
+            original = next((root / "backups").iterdir())
+            # The user copies the originals back by hand and says so.
+            for name in ("flake.nix", "flake.lock", "ryoku.nix"):
+                shutil.copyfile(original / name, host / name)
+            result, calls, _, _ = self.install(
+                root, host, "build", extra_args=["--manual-recovery"])
+            output = result.stdout + result.stderr
+            self.assertNotIn("restoring it from", output)
+            self.assertIn("build failed", result.stderr)
+            self.assertEqual(calls, ["validate", "lock", "build"])
+            self.assertEqual((original / "flake.nix").read_text(), FLAKE)
+            self.assertEqual({k: v[0] for k, v in self.snapshot(host).items()},
+                             {k: v[0] for k, v in before.items()})
 
     def test_second_ctrl_c_does_not_interrupt_the_restore(self):
         # Ctrl+C during a long build is often pressed twice. The second one
