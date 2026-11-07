@@ -35,6 +35,16 @@ target_root="${RYOKU_INSTALL_TARGET_ROOT:-/mnt}"
 iso_work=""
 iso_config_templates="@ISO_CONFIGS@"
 
+# nixos-install builds into the target store, so the disk must hold the whole
+# fresh closure plus everything Ryoku compiles locally. Measured with a dry
+# run of the generated configuration against an empty store: about 22 GiB is
+# substituted from cache.nixos.org and roughly 700 derivations are built
+# (Ryoku's own package set is not cached), before transient build trees and
+# space for the first update. Smaller disks are wiped and then run out of
+# space in the middle of nixos-install.
+min_install_disk_gib=40
+min_install_disk_bytes=$((min_install_disk_gib * 1024 * 1024 * 1024))
+
 trusted_root_path="@TRUSTED_ROOT_PATH@:/run/current-system/sw/bin:/run/wrappers/bin"
 
 run_root() {
@@ -387,8 +397,8 @@ validate_install_disk() {
 
   size="$(lsblk -bdnro SIZE "$resolved" 2>/dev/null || true)"
   [ -n "$size" ] || die "could not determine the size of $resolved"
-  if [ "$size" -lt $((16 * 1024 * 1024 * 1024)) ]; then
-    die "$resolved is smaller than the 16 GiB minimum"
+  if [ "$size" -lt "$min_install_disk_bytes" ]; then
+    die "$resolved is smaller than the ${min_install_disk_gib} GiB minimum for a Ryoku installation"
   fi
 
   mounts="$(lsblk -nrpo MOUNTPOINTS "$resolved" 2>/dev/null | awk 'NF { print }')"
@@ -416,7 +426,7 @@ choose_install_disk() {
     printf '  %d) %-16s %8s  %s\n' "${#disks[@]}" "$path" "$human" "${model:-Unknown disk}"
   done < <(
     lsblk -J -b -d -o PATH,SIZE,MODEL,TYPE,RO |
-      jq -r '.blockdevices[] | select(.type == "disk" and (.ro == false or .ro == 0) and ((.size | tonumber) >= 17179869184)) | [.path, (.size|tostring), (.model // "")] | @tsv'
+      jq -r --argjson min "$min_install_disk_bytes" '.blockdevices[] | select(.type == "disk" and (.ro == false or .ro == 0) and ((.size | tonumber) >= $min)) | [.path, (.size|tostring), (.model // "")] | @tsv'
   )
 
   [ "${#disks[@]}" -gt 0 ] || die "no writable installation disks found"
