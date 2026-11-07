@@ -1650,7 +1650,11 @@ in
     ];
 
     services.displayManager.sddm = {
-      enable = lib.mkDefault (!(lib.any
+      # Only a host without Xserver is a No Desktop install. With Xserver,
+      # NixOS supplies LightDM unless another login manager is enabled and
+      # derives that default from sddm.enable, so reading lightdm.enable
+      # here would recurse.
+      enable = lib.mkIf (!config.services.xserver.enable) (lib.mkDefault (!(lib.any
         (path: lib.attrByPath path false config)
         [
           (if lib.hasAttrByPath [ "services" "displayManager" "gdm" "enable" ] options
@@ -1660,7 +1664,7 @@ in
           [ "services" "displayManager" "ly" "enable" ]
           [ "services" "displayManager" "cosmic-greeter" "enable" ]
           [ "services" "greetd" "enable" ]
-        ]));
+        ])));
 
       theme = lib.mkIf config.services.displayManager.sddm.enable
         (lib.mkOverride 900 "ryoku");
