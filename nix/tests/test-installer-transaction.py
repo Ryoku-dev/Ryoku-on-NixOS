@@ -405,6 +405,33 @@ class TransactionTests(unittest.TestCase):
                 self.assertIn("--manual-recovery", result.stderr)
                 self.assertNotIn("@@RYOKU_STEP", result.stdout)
 
+    def test_unresolved_restore_blocks_a_different_flake(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            damaged, _ = self.failed_restore_host(root, existing=True)
+            pending = root / "backups.restore-pending"
+            record = pending.read_bytes()
+            original = next((root / "backups").iterdir())
+            other = root / "other-host"
+            other.mkdir()
+            (other / "flake.nix").write_text(FLAKE)
+            (other / "configuration.nix").write_text("{ ... }: {}\n")
+            before = self.snapshot(other)
+
+            for extra_args in ((), ("--manual-recovery",)):
+                with self.subTest(extra_args=extra_args):
+                    result, calls, _, _ = self.install(
+                        root, other, extra_args=extra_args)
+                    output = result.stdout + result.stderr
+                    self.assertEqual(result.returncode, 1, output)
+                    self.assertIn(str(damaged), result.stderr)
+                    self.assertIn(str(original), result.stderr)
+                    self.assertIn(str(other), result.stderr)
+                    self.assertEqual(calls, [], output)
+                    self.assertEqual(self.snapshot(other), before, output)
+                    self.assertEqual(pending.read_bytes(), record, output)
+                    self.assertEqual((original / "flake.nix").read_text(), FLAKE)
+
     def test_manual_recovery_is_an_explicit_choice(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1311,6 +1311,13 @@ if [ -e "$pending_restore" ]; then
     esac
   done <<< "$pending_record"
 
+  # One global recovery record protects the previous installation, even if a
+  # new invocation targets another flake. Never overwrite its only pointer to
+  # the original configuration before that installation has been recovered.
+  if [ "$pending_root" != "$flake_root" ]; then
+    die "a previous installation for ${pending_root:-an unknown flake} needs recovery from $pending_backup; refusing to install into $flake_root until that restore is resolved"
+  fi
+
   if [ "$pending_root" = "$flake_root" ]; then
     if [ "$manual_recovery" -eq 1 ]; then
       [ "$dry_run" -eq 0 ] ||
