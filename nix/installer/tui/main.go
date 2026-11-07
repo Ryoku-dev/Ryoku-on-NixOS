@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 var (
@@ -17,7 +18,13 @@ var (
 	cText  = lipgloss.Color("#eae2d5")
 	cSub   = lipgloss.Color("#8c857a")
 	cDim   = lipgloss.Color("#3a3630")
-	cBrand = lipgloss.Color("#c75d2b")
+	cBrand = lipgloss.Complete(
+    colorprofile.Detect(os.Stdout, os.Environ()),
+	)(
+    lipgloss.Color("3"),       // ANSI
+    lipgloss.Color("202"),     // ANSI256
+    lipgloss.Color("#c75d2b"), // TrueColor
+	)
 	cGreen = lipgloss.Color("#88a57d")
 	cYell  = lipgloss.Color("#c79a5b")
 	cRed   = lipgloss.Color("#b24a38")
@@ -35,30 +42,6 @@ func clamp(v, lo, hi int) int {
 	}
 	return v
 }
-
-// var logo = strings.Split(strings.Trim(`
-//       ██
-//   ▄█████████▄
-//      ██    ██   █▀▄ █ █ █▀█ █▄▀ █ █
-//     ██  ▄  ██   █▀▄ ▀█▀ █ █ █▀▄ █ █
-//   ▄█▀    ▀██▀   ▀ ▀  ▀  ▀▀▀ ▀ ▀ ▀▀▀
-// `, "\n"), "\n")
-
-// var logo = strings.Split(strings.Trim(`
-//       ██
-//   ▄█████████▄   █▀▀▄ █   █ ▄▀▀▄ █ ▄▀ █  █
-//      ██    ██   █▄▄▀ ▀▄▄▄▀ █  █ █▀▄  █  █
-//     ██  ▄  ██   █  █   █   █  █ █  █ █  █
-//   ▄█▀    ▀██▀   ▀  ▀   ▀    ▀▀  ▀  ▀  ▀▀
-// `, "\n"), "\n")
-
-// var logo = strings.Split(strings.Trim(`
-//        ██
-//    ▄█████████▄     ▄█████▄ ██   ██  ▄████▄  ██  ▄█▀ ██   ██
-//       ██    ██     ██   ██ ▀██████ ██    ██ ██▄█▀   ██   ██
-//      ██  ▄  ██     ██▀▀██▄     ███ ██    ██ ██ ▀█▄  ██   ██
-//    ▄█▀    ▀██▀     ██   ██ ▀█████▀  ▀████▀  ██  ▀█▄ ▀█████▀
-// `, "\n"), "\n")
 
 var logo = strings.Split(strings.Trim(`
       ██
@@ -113,8 +96,8 @@ type step struct {
 
 var flow = []step{
 	{key: "compositor", title: "Window manager", desc: "Choose the session Ryoku preselects. All Ryoku providers stay installed.", choices: []choice{
+  	{"niri", "niri", "scrollable tiling · clean columns"},
 		{"hyprland", "Hyprland", "dynamic tiling · effects · broad plugin ecosystem"},
-		{"niri", "niri", "scrollable tiling · clean columns · Ryoku-supported"},
 	}},
 	{key: "browser", title: "Web browser", desc: "Installed declaratively and used by Ryoku's browser role.", choices: []choice{
 		{"chromium", "Chromium", "Chromium engine · current NixOS default"},
@@ -162,7 +145,7 @@ func newModel(opts options) model {
 	for _, a := range optionalApps() {
 		keep[a.ID] = true
 	}
-	return model{state: "welcome", picks: map[string]string{"compositor": "hyprland", "browser": "chromium", "shell": "fish"}, keep: keep, opts: opts}
+	return model{state: "welcome", picks: map[string]string{"compositor": "niri", "browser": "chromium", "shell": "fish"}, keep: keep, opts: opts}
 }
 func (m model) Init() tea.Cmd { return nil }
 

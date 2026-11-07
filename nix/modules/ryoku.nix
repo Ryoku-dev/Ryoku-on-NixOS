@@ -843,7 +843,6 @@ EOF
     ryokuMatugen
     ffmpeg
     openssl
-    nvibrant
     vulkan-tools
     ryokuCursorMaterial
 
