@@ -222,7 +222,7 @@ pkgs.stdenv.mkDerivation {
           -B "$appbuild" \
           -G Ninja \
           -DCMAKE_BUILD_TYPE=Release
-        cmake --build "$appbuild"
+        cmake --build "$appbuild" --parallel "$NIX_BUILD_CORES"
         install -Dm755 \
           "$appbuild/$appname" \
           "$out/bin/$appname"

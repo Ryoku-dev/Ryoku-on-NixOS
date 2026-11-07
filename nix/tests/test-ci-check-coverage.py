@@ -27,7 +27,20 @@ REQUIRED = {
     "ryoku-materialize-session",
     "ryoku-sddm-theme-apply",
     "ryoku-bridge-command-ownership",
+    "ryoku-installer-tui",
+    "ryoku-display-manager",
+    "ryoku-session-bootstrap",
+    "ryoku-firstboot-session",
+    "ryoku-firstboot-greeter-guard",
+    "ryoku-firstboot-qml-imports",
 }
+# Checks a QML-only change must run; nix-iso.yml does not trigger on QML.
+FIRSTBOOT = {
+    "ryoku-firstboot-session",
+    "ryoku-firstboot-greeter-guard",
+    "ryoku-firstboot-qml-imports",
+}
+FIRSTBOOT_WORKFLOW = ".github/workflows/nix-firstboot.yml"
 WORKFLOWS = [".github/workflows/nix-cache.yml", ".github/workflows/nix-iso.yml"]
 
 
@@ -60,8 +73,26 @@ class CiCoverageTests(unittest.TestCase):
         text = (ROOT / ".github/workflows/nix-iso.yml").read_text()
         for section in text.split("pull_request:", 1)[1].split("concurrency:", 1)[0:1]:
             for needed in ("nix/scripts/ryoku-nix-update", "nix/tests/test-nix-update-*",
-                           "nix/scripts/ryoku-sddm-theme-apply", "nix/tests/test-ci-check-coverage.py"):
+                           "nix/scripts/ryoku-sddm-theme-apply", "nix/tests/test-ci-check-coverage.py",
+                           "nix/modules/**", "nix/tests/firstboot-*", "nix/tests/test-firstboot-*",
+                           "ryoku/lockscreen/sddm/ryoku-greeter-guard"):
                 self.assertIn(needed, section)
+
+    def test_both_iso_variants_evaluate(self):
+        for path in (".github/workflows/nix-iso.yml", "nix/sync/run-checks"):
+            with self.subTest(path=path):
+                text = (ROOT / path).read_text()
+                self.assertIn("--dry-run", text)
+                self.assertIn(".#ryoku-iso", text)
+                self.assertIn("nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage.drvPath", text)
+
+    def test_qml_changes_run_firstboot_checks(self):
+        text = (ROOT / FIRSTBOOT_WORKFLOW).read_text()
+        self.assertFalse(FIRSTBOOT - listed(text), FIRSTBOOT - listed(text))
+        self.assertFalse(listed(text) - self.defined, listed(text) - self.defined)
+        section = text.split("pull_request:", 1)[1].split("concurrency:", 1)[0]
+        for needed in ("'**/*.qml'", "'**/qmldir'", "nix/tests/test-firstboot-*"):
+            self.assertIn(needed, section)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ source_explicit=0
 flake_arg="/etc/nixos"
 assume_yes=0
 dry_run=0
+manual_recovery=0
 compositor=""
 browser=""
 shell_choice=""
@@ -34,6 +35,16 @@ nvidia_open=true
 target_root="${RYOKU_INSTALL_TARGET_ROOT:-/mnt}"
 iso_work=""
 iso_config_templates="@ISO_CONFIGS@"
+
+# nixos-install builds into the target store, so the disk must hold the whole
+# fresh closure plus everything Ryoku compiles locally. Measured with a dry
+# run of the generated configuration against an empty store: about 22 GiB is
+# substituted from cache.nixos.org and roughly 700 derivations are built
+# (Ryoku's own package set is not cached), before transient build trees and
+# space for the first update. Smaller disks are wiped and then run out of
+# space in the middle of nixos-install.
+min_install_disk_gib=40
+min_install_disk_bytes=$((min_install_disk_gib * 1024 * 1024 * 1024))
 
 trusted_root_path="@TRUSTED_ROOT_PATH@:/run/current-system/sw/bin:/run/wrappers/bin"
 
@@ -387,8 +398,8 @@ validate_install_disk() {
 
   size="$(lsblk -bdnro SIZE "$resolved" 2>/dev/null || true)"
   [ -n "$size" ] || die "could not determine the size of $resolved"
-  if [ "$size" -lt $((16 * 1024 * 1024 * 1024)) ]; then
-    die "$resolved is smaller than the 16 GiB minimum"
+  if [ "$size" -lt "$min_install_disk_bytes" ]; then
+    die "$resolved is smaller than the ${min_install_disk_gib} GiB minimum for a Ryoku installation"
   fi
 
   mounts="$(lsblk -nrpo MOUNTPOINTS "$resolved" 2>/dev/null | awk 'NF { print }')"
@@ -416,7 +427,7 @@ choose_install_disk() {
     printf '  %d) %-16s %8s  %s\n' "${#disks[@]}" "$path" "$human" "${model:-Unknown disk}"
   done < <(
     lsblk -J -b -d -o PATH,SIZE,MODEL,TYPE,RO |
-      jq -r '.blockdevices[] | select(.type == "disk" and (.ro == false or .ro == 0) and ((.size | tonumber) >= 17179869184)) | [.path, (.size|tostring), (.model // "")] | @tsv'
+      jq -r --argjson min "$min_install_disk_bytes" '.blockdevices[] | select(.type == "disk" and (.ro == false or .ro == 0) and ((.size | tonumber) >= $min)) | [.path, (.size|tostring), (.model // "")] | @tsv'
   )
 
   [ "${#disks[@]}" -gt 0 ] || die "no writable installation disks found"
@@ -529,6 +540,123 @@ $apps_block
   nixpkgsSource = $nix_nixpkgs;
 }
 EOF_VALUES
+}
+
+# Every binary cache nixos-install will use has to answer before the disk is
+# erased. Otherwise substitution falls back to building, or fails, halfway
+# through an installation that has already wiped the disk.
+check_substituters() {
+  local url
+  for url in $(nix config show substituters 2>/dev/null || true); do
+    case "$url" in
+      http://*|https://*) ;;
+      *) continue ;;
+    esac
+    if ! curl -fsS --connect-timeout 5 --max-time 10 -o /dev/null "${url%/}/nix-cache-info"; then
+      die "binary cache ${url%/} did not answer. Check the network connection, then retry (in the guided installer: configure the network and start again). No disk changes were made"
+    fi
+  done
+}
+
+# "22.4" "GiB" -> whole MiB, rounded up.
+plan_size_mib() {
+  awk -v n="$1" -v u="$2" 'BEGIN {
+    m = (u == "B") ? 1 / 1048576 : (u == "KiB") ? 1 / 1024 : (u == "MiB") ? 1 : (u == "GiB") ? 1024 : (u == "TiB") ? 1048576 : -1
+    if (m < 0 || n !~ /^[0-9.]+$/) exit 1
+    v = n * m
+    printf "%d\n", (v == int(v)) ? v : int(v) + 1
+  }'
+}
+
+# Ask Nix what installing the target would download and build on an empty
+# disk, before that disk is touched. The live ISO's own store would hide paths
+# the new system still needs, so the plan runs against a throwaway local store
+# holding only the target's derivations. Only narinfo lookups go to the
+# caches; nothing is downloaded or built.
+plan_target_install() {
+  local drv="$1" firmware="$2"
+  local probe plan fetched builds=0 unpacked_mib=0 jobs cores
+  local disk_bytes root_mib usable_mib need_mib build_mib esp_mib
+  local -a heavy=()
+  local name
+
+  printf '\nPlanning the installation (what will be downloaded and built)...\n'
+  probe="$iso_work/plan-store"
+  if ! nix copy --no-check-sigs --derivation --to "local?root=$probe" "$drv" >/dev/null 2>&1 ||
+     ! plan="$(nix build --dry-run --no-link --store "local?root=$probe" "$drv^*" 2>&1)"
+  then
+    chmod -R u+w "$probe" 2>/dev/null || true
+    rm -rf "$probe"
+    die "could not work out what the installation needs to download and build; check the network and retry. No disk changes were made"
+  fi
+  chmod -R u+w "$probe" 2>/dev/null || true
+  rm -rf "$probe"
+
+  builds="$(sed -nE 's/^these ([0-9]+) derivations will be built.*/\1/p; s/^this derivation will be built.*/1/p' <<< "$plan" | head -n 1)"
+  builds="${builds:-0}"
+  fetched="$(sed -nE 's/.*will be fetched \(.* download, ([0-9.]+) ([KMGT]?i?B) unpacked\).*/\1 \2/p' <<< "$plan" | head -n 1)"
+  if [ -n "$fetched" ]; then
+    # shellcheck disable=SC2086 # "<number> <unit>"
+    unpacked_mib="$(plan_size_mib $fetched)" ||
+      die "could not read the download size from the installation plan; no disk changes were made"
+  fi
+
+  # Compiler-heavy packages that are missing from every configured cache.
+  while IFS= read -r name; do
+    heavy+=("$name")
+  done < <(
+    grep -oE '/nix/store/[a-z0-9]{32}-[^ ]+\.drv' <<< "$plan" |
+      sed -E 's|^/nix/store/[a-z0-9]{32}-||; s|\.drv$||' |
+      grep -E '^(hyprland|niri|quickshell|xwayland-satellite|chromium|firefox|nodejs|linux|nvidia-x11|waifu2x-ncnn-vulkan|qtwebengine|qtbase|rustc|llvm|gcc)-[0-9][0-9A-Za-z.+]*$' |
+      sort -u
+  )
+
+  read -r jobs cores <<EOF
+$(choose_install_parallelism)
+EOF
+
+  # Everything is unpacked into the target store and stays there, plus the
+  # outputs of local builds (measured about 1.2 GiB for a full source build)
+  # and the build trees of the builds running at the same time.
+  build_mib=0
+  if [ "$builds" -gt 0 ]; then
+    build_mib=2048
+    if [ "${#heavy[@]}" -gt 0 ]; then
+      [ "${#heavy[@]}" -lt "$jobs" ] && jobs="${#heavy[@]}"
+      build_mib=$((build_mib + jobs * 3072))
+    fi
+  fi
+  need_mib=$((unpacked_mib + build_mib + 4096))
+
+  esp_mib=3
+  [ "$firmware" = "uefi" ] && esp_mib=1025
+  if [ -b "$install_disk" ]; then
+    disk_bytes="$(lsblk -bdnro SIZE "$install_disk" 2>/dev/null || true)"
+  else
+    disk_bytes=""
+  fi
+  case "$disk_bytes" in
+    ''|*[!0-9]*) die "could not determine the size of $install_disk" ;;
+  esac
+  root_mib=$((disk_bytes / 1048576 - esp_mib))
+  # ext4 keeps 5% for root; Nix builds run as unprivileged build users.
+  usable_mib=$((root_mib * 95 / 100))
+
+  printf 'Download from binary caches: %s MiB unpacked\n' "$unpacked_mib"
+  printf 'Packages built on this machine: %s\n' "$builds"
+  printf 'Estimated space needed: %s GiB of about %s GiB usable on %s\n' \
+    "$(( (need_mib + 1023) / 1024 ))" "$((usable_mib / 1024))" "$install_disk"
+
+  if [ "${#heavy[@]}" -gt 0 ]; then
+    printf '\nThese large packages are not in any configured binary cache and will be\n'
+    printf 'compiled on this machine during the installation. That can take a long\n'
+    printf 'time on a slow CPU or with little memory:\n'
+    printf '  %s\n' "${heavy[@]}"
+  fi
+
+  if [ "$need_mib" -gt "$usable_mib" ]; then
+    die "$install_disk is too small for this installation: it needs about $(( (need_mib + 1023) / 1024 )) GiB in the root filesystem but only about $((usable_mib / 1024)) GiB would be usable. Use a larger disk or select fewer optional apps. No disk changes were made"
+  fi
 }
 
 install_iso() {
@@ -794,9 +922,9 @@ install_iso() {
   fi
 
   echo "@@RYOKU_STEP validate"
-  if ! nix eval --raw \
-    "path:$iso_work#nixosConfigurations.$install_host.config.system.build.toplevel.drvPath" \
-    >/dev/null
+  local target_drv
+  if ! target_drv="$(nix eval --raw \
+    "path:$iso_work#nixosConfigurations.$install_host.config.system.build.toplevel.drvPath")"
   then
     die "target NixOS configuration does not evaluate; no disk changes were made"
   fi
@@ -815,6 +943,9 @@ install_iso() {
       die "NVIDIA kernel-module preflight failed before disk changes; retry with --kernel default or another NVIDIA-compatible kernel"
     fi
   fi
+
+  check_substituters
+  plan_target_install "$target_drv" "$firmware"
 
   printf '\n%s\n' "WARNING: ALL DATA ON $install_disk WILL BE PERMANENTLY ERASED."
   if [ "$assume_yes" -eq 1 ]; then
@@ -879,7 +1010,10 @@ install_iso() {
   run_root mount "$root_part" "$target_root"
   if [ "$firmware" = "uefi" ]; then
     run_root mkdir -p "$target_root/boot"
-    run_root mount "$boot_part" "$target_root/boot"
+    # nixos-generate-config copies these options into hardware-configuration.
+    # The default vfat umask leaves the ESP, and systemd-boot's random seed on
+    # it, world-readable; bootctl reports that as a security hole.
+    run_root mount -o umask=077 "$boot_part" "$target_root/boot"
   fi
 
   echo "@@RYOKU_STEP configuration"
@@ -957,6 +1091,7 @@ Options:
   --firmware MODE       auto, uefi, or bios (default: auto)
   --confirm-disk DEVICE Required with --iso --yes; must exactly match --disk
   --dry-run             Show proposed changes without writing them
+  --manual-recovery     Continue after restoring a failed install's backup by hand
   -y, --yes             Skip non-destructive prompts; disk confirmation still required
   -h, --help            Show this help
 EOF
@@ -1090,6 +1225,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --dry-run)
       dry_run=1
+      shift
+      ;;
+    --manual-recovery)
+      manual_recovery=1
       shift
       ;;
     -y|--yes)
@@ -1231,6 +1370,151 @@ flake_root="$(readlink -f "$flake_root")"
 flake_file="$flake_root/flake.nix"
 module_file="$flake_root/ryoku.nix"
 
+# Serialize manual integrations before inspecting the global restore record.
+# An atomic root-owned directory also stops simultaneous invocations under
+# different user accounts. A hard crash leaves the lock in place for inspection.
+install_lock_dir="/var/backups/ryoku-nixos/.install-active"
+install_lock_held=0
+release_install_lock() {
+  if [ "$install_lock_held" -eq 1 ]; then
+    if ! run_root rmdir "$install_lock_dir"; then
+      echo "ryoku-install: WARNING: could not release $install_lock_dir" >&2
+    fi
+    install_lock_held=0
+  fi
+}
+if [ "$dry_run" -eq 0 ]; then
+  run_root mkdir -p /var/backups/ryoku-nixos
+  if ! run_root mkdir "$install_lock_dir" 2>/dev/null; then
+    die "another Ryoku installation may be running. Inspect $install_lock_dir before retrying; remove it only if no installer is active"
+  fi
+  install_lock_held=1
+  trap release_install_lock EXIT
+fi
+
+# While this record exists, the files under its root are a mix of the
+# original configuration and an install whose restore failed. The backup it
+# names is the only copy of the originals.
+pending_restore="/var/backups/ryoku-nixos.restore-pending"
+
+record_pending_restore() {
+  local record
+  record="$(mktemp)"
+  printf 'root=%s\nbackup=%s\ngenerated_flake=%s\nhad_lock=%s\nhad_module=%s\n' \
+    "$flake_root" "$backup_dir" "$generated_flake" "$had_lock" "$had_module" > "$record"
+  if ! run_root install -m 0644 "$record" "$pending_restore"; then
+    rm -f "$record"
+    return 1
+  fi
+  rm -f "$record"
+}
+
+# Put back every pre-install file. A further Ctrl+C or a closing terminal must
+# not stop this half-way, and one failed copy must not skip the others. The
+# pending record goes only once every file is back.
+rollback() {
+  transaction_started=0
+  trap '' INT TERM HUP
+  restore_failed=0
+
+  if [ "$generated_flake" -eq 1 ]; then
+    run_root rm -f "$flake_file" || restore_failed=1
+  else
+    run_root cp -a "$backup_dir/flake.nix" "$flake_file" || restore_failed=1
+  fi
+
+  if [ "$had_lock" -eq 1 ]; then
+    run_root cp -a "$backup_dir/flake.lock" "$flake_root/flake.lock" || restore_failed=1
+  else
+    run_root rm -f "$flake_root/flake.lock" || restore_failed=1
+  fi
+
+  if [ "$had_module" -eq 1 ]; then
+    run_root cp -a "$backup_dir/ryoku.nix" "$module_file" || restore_failed=1
+  else
+    run_root rm -f "$module_file" || restore_failed=1
+  fi
+
+  if [ "$restore_failed" -eq 0 ]; then
+    run_root rm -f "$pending_restore" || restore_failed=1
+  fi
+
+  if [ "$restore_failed" -ne 0 ]; then
+    echo "ryoku-install: ERROR: could not restore every configuration file in $flake_root" >&2
+    echo "ryoku-install: the original files are in $backup_dir; copy them back before rebuilding" >&2
+    echo "ryoku-install: running the installer again retries the restore first; if you copy them back yourself, run it with --manual-recovery" >&2
+    return 1
+  fi
+}
+
+# Finish an earlier install's failed restore before reading or backing up
+# anything, unless the user has restored the files by hand and says so. The
+# record is world-readable, so checking for it needs no root.
+if [ -e "$pending_restore" ]; then
+  pending_record="$(run_root cat "$pending_restore")" ||
+    die "could not read $pending_restore"
+  pending_root="" pending_backup="" pending_generated="" pending_lock="" pending_module=""
+  while IFS='=' read -r key value; do
+    case "$key" in
+      root) pending_root="$value" ;;
+      backup) pending_backup="$value" ;;
+      generated_flake) pending_generated="$value" ;;
+      had_lock) pending_lock="$value" ;;
+      had_module) pending_module="$value" ;;
+    esac
+  done <<< "$pending_record"
+
+  # One global recovery record protects the previous installation, even if a
+  # new invocation targets another flake. Never overwrite its only pointer to
+  # the original configuration before that installation has been recovered.
+  if [ "$pending_root" != "$flake_root" ]; then
+    die "a previous installation for ${pending_root:-an unknown flake} needs recovery from $pending_backup; refusing to install into $flake_root until that restore is resolved"
+  fi
+
+  if [ "$pending_root" = "$flake_root" ]; then
+    if [ "$manual_recovery" -eq 1 ]; then
+      [ "$dry_run" -eq 0 ] ||
+        die "a previous installation could not restore $flake_root; run without --dry-run to continue"
+      run_root rm -f "$pending_restore" ||
+        die "could not remove $pending_restore"
+      echo "ryoku-install: continuing with $flake_root as restored by hand; the original files remain in $pending_backup"
+    else
+      [ "$dry_run" -eq 0 ] ||
+        die "a previous installation could not restore $flake_root; run without --dry-run to restore it from $pending_backup first"
+      case "$pending_generated$pending_lock$pending_module" in
+        [01][01][01]) ;;
+        *) die "$pending_restore is not a valid restore record; restore $flake_root from $pending_backup by hand, then run with --manual-recovery" ;;
+      esac
+      run_root test -f "$pending_backup/flake.nix" ||
+        die "the backup $pending_backup recorded in $pending_restore is missing; restore $flake_root by hand, then run with --manual-recovery"
+
+      echo "ryoku-install: a previous installation could not restore $flake_root; restoring it from $pending_backup"
+      backup_dir="$pending_backup"
+      generated_flake="$pending_generated"
+      had_lock="$pending_lock"
+      had_module="$pending_module"
+      if ! rollback; then
+        echo "ryoku-install: nothing else was changed" >&2
+        exit 1
+      fi
+      trap - INT TERM HUP
+      generated_flake=0
+      echo "ryoku-install: restored $flake_root from $pending_backup"
+    fi
+  fi
+fi
+
+# Set when this run created a base flake.nix for a classic /etc/nixos. That
+# file stays only once the install has switched; any earlier exit removes it,
+# because a later plain `nixos-rebuild` would otherwise build from it instead
+# of from the user's channels.
+generated_flake=0
+discard_generated_flake() {
+  [ "$generated_flake" -eq 1 ] || return 0
+  run_root rm -f "$flake_file" ||
+    echo "ryoku-install: could not remove the generated $flake_file; delete it to keep the previous configuration" >&2
+}
+
 if [ ! -f "$flake_file" ]; then
   [ "$flake_root" = "/etc/nixos" ] ||
     die "no flake.nix found at $flake_root"
@@ -1277,6 +1561,8 @@ EOF
   fi
 
   rm -f "$temp_flake"
+  generated_flake=1
+  trap 'discard_generated_flake; release_install_lock' EXIT
 
   echo "ryoku-install: created a base flake at $flake_file"
 fi
@@ -1363,7 +1649,7 @@ if [ "$dry_run" -eq 0 ]; then
 fi
 
 work_dir="$(mktemp -d)"
-trap 'rm -rf "$work_dir"' EXIT
+trap 'rm -rf "$work_dir"; discard_generated_flake; release_install_lock' EXIT
 
 work_flake="$work_dir/flake.nix"
 work_module="$work_dir/ryoku.nix"
@@ -1449,7 +1735,6 @@ fi
 
 echo "@@RYOKU_STEP prepare"
 timestamp="$(date +%Y%m%d-%H%M%S)"
-backup_dir="/var/backups/ryoku-nixos/$timestamp"
 
 had_lock=0
 had_module=0
@@ -1457,7 +1742,17 @@ had_module=0
 [ -f "$flake_root/flake.lock" ] && had_lock=1
 [ -f "$module_file" ] && had_module=1
 
-run_root mkdir -p "$backup_dir"
+# A retry within the same second must not write into an earlier backup,
+# which may hold the only copy of the original files.
+run_root mkdir -p /var/backups/ryoku-nixos
+backup_dir="/var/backups/ryoku-nixos/$timestamp"
+backup_suffix=1
+until run_root mkdir "$backup_dir" 2>/dev/null; do
+  backup_suffix=$((backup_suffix + 1))
+  [ "$backup_suffix" -le 100 ] ||
+    die "could not create a backup directory under /var/backups/ryoku-nixos"
+  backup_dir="/var/backups/ryoku-nixos/$timestamp-$backup_suffix"
+done
 run_root cp -a "$flake_file" "$backup_dir/flake.nix"
 
 if [ "$had_lock" -eq 1 ]; then
@@ -1468,31 +1763,28 @@ if [ "$had_module" -eq 1 ]; then
   run_root cp -a "$module_file" "$backup_dir/ryoku.nix"
 fi
 
-rollback() {
-  transaction_started=0
-  run_root cp -a "$backup_dir/flake.nix" "$flake_file"
+record_pending_restore ||
+  die "could not record the backup in $pending_restore; nothing was changed"
 
-  if [ "$had_lock" -eq 1 ]; then
-    run_root cp -a "$backup_dir/flake.lock" "$flake_root/flake.lock"
+# Roll back, then report the failure without claiming a restore that failed.
+abort_transaction() {
+  if rollback; then
+    echo "ryoku-install: $1; $2" >&2
   else
-    run_root rm -f "$flake_root/flake.lock"
-  fi
-
-  if [ "$had_module" -eq 1 ]; then
-    run_root cp -a "$backup_dir/ryoku.nix" "$module_file"
-  else
-    run_root rm -f "$module_file"
+    echo "ryoku-install: $1" >&2
   fi
 }
 
 transaction_started=0
 cleanup() {
   result=$?
-  trap - EXIT INT TERM
+  trap - EXIT
+  trap '' INT TERM HUP
   if [ "$transaction_started" -eq 1 ]; then
-    rollback
+    abort_transaction "installation stopped" "files restored"
   fi
   rm -rf "$work_dir"
+  release_install_lock
   exit "$result"
 }
 trap cleanup EXIT
@@ -1507,8 +1799,7 @@ echo "@@RYOKU_STEP lock"
 printf '\nUpdating flake lock...\n'
 
 if ! run_root nix flake lock "path:$flake_root"; then
-  rollback
-  echo "ryoku-install: flake lock failed; files restored" >&2
+  abort_transaction "flake lock failed" "files restored"
   exit 1
 fi
 
@@ -1518,8 +1809,7 @@ printf '\nBuilding NixOS generation...\n'
 if ! run_root "$nixos_rebuild" build \
   --flake "path:$flake_root#$host"
 then
-  rollback
-  echo "ryoku-install: build failed; files restored" >&2
+  abort_transaction "build failed" "files restored"
   exit 1
 fi
 
@@ -1529,8 +1819,7 @@ printf '\nSwitching generation...\n'
 if ! run_root "$nixos_rebuild" switch \
   --flake "path:$flake_root#$host"
 then
-  rollback
-  echo "ryoku-install: switch failed; configuration files restored" >&2
+  abort_transaction "switch failed" "configuration files restored"
   # The new generation was built and may already be the system profile and
   # default boot entry even though activation failed. The files are restored,
   # so say how to inspect and, if wanted, undo that part.
@@ -1541,6 +1830,9 @@ then
 fi
 
 transaction_started=0
+if ! run_root rm -f "$pending_restore"; then
+  echo "ryoku-install: WARNING: delete $pending_restore, or the next run will restore the files from before this install" >&2
+fi
 echo "@@RYOKU_STEP materialize"
 # The new generation is already live here. A failed user-config refresh is a
 # warning to act on, not a failed installation: the files are kept and the

@@ -374,7 +374,7 @@ EOF
 
   ryokuGreeterGuard = pkgs.writeShellApplication {
     name = "ryoku-greeter-guard";
-    runtimeInputs = with pkgs; [ coreutils util-linux ];
+    runtimeInputs = with pkgs; [ coreutils dbus util-linux ];
     text = ''
       export RYOKU_GREETER_GUARD_HOST=${ryokuGreeterGuardHost}/bin/ryoku-greeter-guard-host
       exec ${pkgs.bash}/bin/bash ${../../ryoku/lockscreen/sddm/ryoku-greeter-guard} "$@"
@@ -516,6 +516,7 @@ EOF
     ryokuNixpkgs.qt6.qtsvg
     ryokuNixpkgs.qt6.qtimageformats
     ryokuNixpkgs.kdePackages.kirigami.unwrapped
+    ryokuNixpkgs.kdePackages.syntax-highlighting
   ];
 
 
@@ -1582,7 +1583,11 @@ in
     ];
 
     services.displayManager.sddm = {
-      enable = lib.mkDefault (!(lib.any
+      # Only a host without Xserver is a No Desktop install. With Xserver,
+      # NixOS supplies LightDM unless another login manager is enabled and
+      # derives that default from sddm.enable, so reading lightdm.enable
+      # here would recurse.
+      enable = lib.mkIf (!config.services.xserver.enable) (lib.mkDefault (!(lib.any
         (path: lib.attrByPath path false config)
         [
           (if lib.hasAttrByPath [ "services" "displayManager" "gdm" "enable" ] options
@@ -1590,9 +1595,11 @@ in
            else [ "services" "xserver" "displayManager" "gdm" "enable" ])
           [ "services" "xserver" "displayManager" "lightdm" "enable" ]
           [ "services" "displayManager" "ly" "enable" ]
+          [ "services" "displayManager" "lemurs" "enable" ]
+          [ "services" "displayManager" "plasma-login-manager" "enable" ]
           [ "services" "displayManager" "cosmic-greeter" "enable" ]
           [ "services" "greetd" "enable" ]
-        ]));
+        ])));
 
       theme = lib.mkIf config.services.displayManager.sddm.enable
         (lib.mkOverride 900 "ryoku");
