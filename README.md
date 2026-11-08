@@ -365,3 +365,5 @@ Full attribution is available in [`NOTICE`](NOTICE).
 **Power in the system. Beauty in the surface.**
 
 </div>
+
+<!-- PR workflow smoke test. No runtime changes. -->
