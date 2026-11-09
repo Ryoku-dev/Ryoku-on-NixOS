@@ -721,6 +721,15 @@ verify_hyperion_tester() {
         fi
     done
 
+    # Explicit repository collaborators can be approved without joining
+    # the Ryoku organization. GitHub enforces this permission server-side.
+    permission="$(gh api "repos/Ryoku-dev/Ryoku-on-NixOS/collaborators/$login/permission" --jq .permission 2>/dev/null)" || permission=""
+    case "$permission" in
+        read|triage|write|maintain|admin)
+            return 0
+            ;;
+    esac
+
     die "this GitHub account is not an approved Ryoku Hyperion tester"
 }
 
