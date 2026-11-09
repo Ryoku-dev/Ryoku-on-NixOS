@@ -3,6 +3,7 @@
 {
   pkgs,
   hyperionRyoku,
+  hyperionRyotunes,
   hyperionPackages,
   bridges,
   fullBundle,
@@ -38,7 +39,12 @@ let
   bridgeCount = lib.length bridges;
   niriPaths = niriBundle.paths;
   niriComponents = lib.drop bridgeCount niriPaths;
+  fullComponents = lib.drop bridgeCount fullBundle.paths;
   upstreamPaths = hyperionRyoku.bundle.paths;
+  without = drop: lib.filter (p: !(lib.elem (out p) (outs drop)));
+
+  # Upstream's bundle with Ryotunes 1.2.0 replaced by the release Arch ships.
+  expectedFull = without [ hyperionRyoku.ryotunes ] upstreamPaths ++ [ hyperionRyotunes ];
 
   # Core shell, CLI, Hub, Ryogami, Niri and every v2 app.
   required = with hyperionRyoku; [
@@ -58,7 +64,6 @@ let
     ryoport
     livewall
     skwdPaper
-    ryotunes
     ryomanager
     qmkHid
     waifu2x
@@ -70,17 +75,21 @@ assert lib.assertMsg (mismatched == [ ])
 
 # The NixOS bridges come first in both bundles.
 assert outs (lib.take bridgeCount niriPaths) == outs bridges;
-assert outs fullBundle.paths == outs (bridges ++ [ hyperionPackages.ryoku-desktop ]);
+assert outs (lib.take bridgeCount fullBundle.paths) == outs bridges;
 
-# The full bundle is still upstream's complete bundle, Hyprland included.
-assert has upstreamPaths hyperionRyoku.wmHyprland;
+assert lib.assertMsg (sorted fullComponents == sorted expectedFull)
+  "full Hyperion bundle no longer matches upstream's bundle with the Ryotunes release";
+assert has fullComponents hyperionRyoku.wmHyprland;
 
-# Niri-only is exactly upstream's bundle minus wmHyprland. A component
-# upstream adds or removes fails here until the list in flake.nix follows.
+# Niri-only is exactly that minus wmHyprland.
 assert lib.assertMsg
-  (sorted niriComponents
-    == sorted (lib.filter (p: out p != hyperionRyoku.wmHyprland.outPath) upstreamPaths))
+  (sorted niriComponents == sorted (without [ hyperionRyoku.wmHyprland ] expectedFull))
   "Niri-only Hyperion bundle no longer matches upstream's bundle without wmHyprland";
+
+# Exactly one Ryotunes: the release build, never upstream's 1.2.0 pin.
+assert !(has fullComponents hyperionRyoku.ryotunes);
+assert !(has niriComponents hyperionRyoku.ryotunes);
+assert has niriComponents hyperionRyotunes;
 
 assert !(has niriPaths hyperionRyoku.wmHyprland);
 assert !(has niriPaths hyperionRyoku.hyprPlugins);

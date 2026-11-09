@@ -1156,6 +1156,12 @@ in
     programs.ryomarket.enable = lib.mkDefault true;
     programs.ryomarket.edition = lib.mkIf cfg.hyperionPackages.enable (lib.mkDefault "hyperion");
 
+    # Ryotunes' daemon is socket-activated like the official package
+    # (90-ryotunes.preset enables ryotunesd.socket). The units, added to
+    # systemd.packages below, run the store path of this generation's
+    # Ryotunes, so no other ryotunesd on PATH can own the session socket.
+    systemd.user.sockets.ryotunesd.wantedBy = lib.mkIf cfg.hyperionPackages.enable [ "sockets.target" ];
+
     # Nixpkgs wraps gsr-kms-server with the narrow capability upstream expects.
     # Installing gpu-screen-recorder as a plain package leaves that helper
     # unprivileged and forces an authentication prompt for every recording.
@@ -1461,9 +1467,10 @@ in
       pkgs.iwd
     ];
 
-    systemd.packages = lib.mkAfter [
-      pkgs.iwd
-    ];
+    systemd.packages = lib.mkAfter (
+      [ pkgs.iwd ]
+      ++ lib.optional cfg.hyperionPackages.enable self.packages.${system}.ryotunes
+    );
 
     # Re-apply a persisted regulatory domain before networking.
     # With no configured country this is intentionally a no-op.
@@ -1629,8 +1636,7 @@ in
     environment.systemPackages =
       runtimePackages
       ++ lib.optional cfg.shima.enable self.packages.${system}.ryoku-shima
-      ++ lib.optional cfg.hyperionPackages.enable self.packages.${system}.ryoku-v2
-      ++ lib.optional cfg.hyperionPackages.enable self.packages.${system}.ryotunes-hyperion;
+      ++ lib.optional cfg.hyperionPackages.enable self.packages.${system}.ryoku-v2;
 
 
     # A fresh installer can choose the initial compositor while all three

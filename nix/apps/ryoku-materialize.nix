@@ -1,4 +1,4 @@
-{ pkgs, ryoku, niriOnly ? false }:
+{ pkgs, ryoku, niriOnly ? false, hyperionRyotunes ? null }:
 
 pkgs.writeShellApplication {
   name = "ryoku-materialize";
@@ -379,6 +379,11 @@ EOF
     if [ "$palette_bridge_enabled" -eq 1 ]; then
       systemctl --user reenable ryoku-palette-bridge.service         >/dev/null 2>&1 || true
     fi
+
+    ${pkgs.lib.optionalString (hyperionRyotunes != null) ''
+      # Hyperion's Ryotunes replaces RyoMarket/preview copies that shadowed it.
+      bash ${../scripts/ryoku-hyperion-retire-ryotunes} ${hyperionRyotunes} "$backup" || true
+    ''}
 
     # ----------------------------------------------------------
     # Seed visible assets without replacing user files
