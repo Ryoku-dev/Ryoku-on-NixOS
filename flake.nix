@@ -3,6 +3,7 @@
 
   inputs = {
     ryokuUpstream.url = "github:Ryoku-dev/ryoku/unstable-dev";
+    ryokuHyperion.url = "github:Ryoku-dev/ryoku/hyperion";
     ryomarket.url = "github:Ryoku-dev/ryomarket/7ca1aa29283c09af0050492c059364c99ccb517b";
 
     # Compatibility input for existing consumers which follow their host
@@ -40,7 +41,7 @@
     };
   };
 
-  outputs = { self, ryokuUpstream, ryomarket, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, inirSrc, ... }:
+  outputs = { self, ryokuUpstream, ryokuHyperion, ryomarket, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, inirSrc, ... }:
     let
       version =
         builtins.replaceStrings
@@ -120,6 +121,16 @@
           ryoku.nixosSystemBridge
           ryoku.nixUpdate
           ryokuUpstream.packages.${system}.ryoku-desktop
+        ];
+      };
+
+      # Isolated v2 composition. It is not part of the active desktop or ISO.
+      ryokuHyperionNixosBundle = pkgs.symlinkJoin {
+        name = "ryoku-hyperion-nixos-bundle";
+        paths = [
+          ryoku.nixosSystemBridge
+          ryoku.nixUpdate
+          ryokuHyperion.packages.${system}.ryoku-desktop
         ];
       };
 
@@ -203,6 +214,8 @@
 
       packages.${system} = {
         ryoku-shima = ryokuShima;
+        ryoku-hyperion-desktop = ryokuHyperion.packages.${system}.ryoku-desktop;
+        ryoku-hyperion-nixos-bundle = ryokuHyperionNixosBundle;
         ryoku-upstream-desktop = ryokuUpstream.packages.${system}.ryoku-desktop;
         ryoku-upstream-nixos-bundle = ryokuUpstreamNixosBundle;
         ryoku-install = ryokuInstall;
