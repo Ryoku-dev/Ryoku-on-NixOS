@@ -1,4 +1,4 @@
-{ self, ryokuNixpkgs, ryokuUpstream, ryomarket }:
+{ self, ryokuNixpkgs, ryokuUpstream, ryokuHyperion, ryomarket }:
 
 { config, lib, pkgs, options, ... }:
 
@@ -19,6 +19,12 @@ let
         ryokuUpstream.packages.${system}.ryoku-wm-hyprland;
       ryoku-wm-niri =
         ryokuUpstream.packages.${system}.ryoku-wm-niri;
+    }) // (lib.optionalAttrs cfg.hyperionPackages.enable {
+      ryoku-bundle = legacyRyokuPkgs.ryoku-hyperion-nixos-bundle;
+      ryoku-shell = ryokuHyperion.packages.${system}.ryoku-shell;
+      ryoku-qml = ryokuHyperion.packages.${system}.ryoku-qml;
+      ryoku-wm-hyprland = ryokuHyperion.packages.${system}.ryoku-wm-hyprland;
+      ryoku-wm-niri = ryokuHyperion.packages.${system}.ryoku-wm-niri;
     });
 
   ryokuShell = ryokuPkgs.ryoku-shell;
@@ -1009,6 +1015,15 @@ in
       '';
     };
 
+    hyperionPackages.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Test Hyperion v2 packages while preserving NixOS-specific system
+        bridges and materialization. Experimental, not enabled by default.
+      '';
+    };
+
     # Kept only so existing /etc/nixos configs that still set
     # `programs.ryoku.binaryCache.enable` keep evaluating. It does nothing.
     binaryCache.enable = lib.mkOption {
@@ -1096,6 +1111,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = !(cfg.upstreamPackages.enable && cfg.hyperionPackages.enable);
+        message = "Ryoku upstream and Hyperion package previews cannot be enabled together.";
+      }
+    ];
+
     programs.ryomarket.enable = lib.mkDefault true;
 
     # Nixpkgs wraps gsr-kms-server with the narrow capability upstream expects.

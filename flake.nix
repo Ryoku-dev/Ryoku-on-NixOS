@@ -138,7 +138,7 @@
 
       ryokuNixosModule =
         import ./nix/modules/ryoku.nix {
-          inherit self ryokuUpstream ryomarket;
+          inherit self ryokuUpstream ryokuHyperion ryomarket;
           ryokuNixpkgs = pkgs;
         };
 
@@ -209,6 +209,14 @@
         (mkIsoConfigSystem { }).extendModules {
           modules = [
             { programs.ryoku.upstreamPackages.enable = true; }
+          ];
+        };
+
+      # Evaluation-only preview. No ISO or installed system follows this.
+      nixosConfigurations.ryoku-iso-hyperion-validation =
+        (mkIsoConfigSystem { }).extendModules {
+          modules = [
+            { programs.ryoku.hyperionPackages.enable = true; }
           ];
         };
 
