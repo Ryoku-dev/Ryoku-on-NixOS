@@ -701,11 +701,39 @@ refresh_runtime() {
     pkill -f 'qs -c hub($| )' >/dev/null 2>&1 || true
 }
 
+verify_hyperion_tester() {
+    command -v gh >/dev/null 2>&1 ||
+        die "GitHub CLI is required for Hyperion tester access"
+
+    login="$(gh api user --jq .login 2>/dev/null)" ||
+        die "sign in to GitHub with gh auth login before entering Hyperion"
+
+    case "$login" in
+        ""|*[!a-zA-Z0-9-]*)
+            die "could not verify your GitHub username"
+            ;;
+    esac
+
+    for team in core ryoku-nixos-team testers; do
+        state="$(gh api "orgs/Ryoku-dev/teams/$team/memberships/$login" --jq .state 2>/dev/null)" || continue
+        if [ "$state" = active ]; then
+            return 0
+        fi
+    done
+
+    die "this GitHub account is not an approved Ryoku Hyperion tester"
+}
+
 track_nix() {
     [ "$#" -eq 1 ] ||
         die "usage: ryoku track <stable|unstable>"
 
     case "$1" in
+        hyperion)
+            verify_hyperion_tester
+            branch="feature/hyperion-v2-nixos"
+            label="hyperion"
+            ;;
         stable|main)
             branch="main"
             label="stable"

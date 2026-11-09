@@ -101,6 +101,12 @@
         inherit pkgs ryoku;
       };
 
+      ryokuV2 = import ./nix/apps/ryoku-v2.nix {
+        inherit pkgs;
+        src = self;
+        ryokuNixUpdate = ryoku.nixUpdate;
+      };
+
       ryokuInstallBackend = import ./nix/apps/ryoku-install-backend.nix {
         inherit pkgs;
       };
@@ -222,6 +228,7 @@
 
       packages.${system} = {
         ryoku-shima = ryokuShima;
+        ryoku-v2 = ryokuV2;
         ryoku-hyperion-desktop = ryokuHyperion.packages.${system}.ryoku-desktop;
         ryoku-hyperion-nixos-bundle = ryokuHyperionNixosBundle;
         ryoku-upstream-desktop = ryokuUpstream.packages.${system}.ryoku-desktop;
@@ -285,6 +292,11 @@
       };
 
       apps.${system} = {
+        ryoku-v2 = {
+          type = "app";
+          program = "${ryokuV2}/bin/ryoku-v2";
+        };
+
         install = {
           type = "app";
           program = "${ryokuInstall}/bin/ryoku-install";

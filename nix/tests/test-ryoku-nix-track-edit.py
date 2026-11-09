@@ -85,5 +85,49 @@ class TrackEditorTests(unittest.TestCase):
         )
 
 
+    def test_hyperion_enables_preview_and_restores_cleanly(self):
+        original = """{
+  inputs.ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";
+  outputs = { self, ryoku, ... }: {
+    programs.ryoku.enable = true;
+  };
+}
+"""
+        hyperion = edit(
+            original,
+            "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos",
+        )
+        self.assertIn("programs.ryoku.hyperionPackages.enable = true;", hyperion)
+        self.assertEqual(
+            edit(hyperion, "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev"),
+            original,
+        )
+
+    def test_hyperion_rejects_external_option(self):
+        original = """{
+  inputs.ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";
+  outputs = { self, ryoku, ... }: {
+    programs.ryoku.enable = true;
+    programs.ryoku.hyperionPackages.enable = false;
+  };
+}
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "flake.nix"
+            path.write_text(original)
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(EDITOR),
+                    str(path),
+                    "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos",
+                ],
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertEqual(path.read_text(), original)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

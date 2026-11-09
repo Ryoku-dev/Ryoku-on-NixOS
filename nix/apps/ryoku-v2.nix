@@ -1,0 +1,46 @@
+{ pkgs, src, ryokuNixUpdate }:
+
+pkgs.writeShellApplication {
+  name = "ryoku-v2";
+
+  runtimeInputs = with pkgs; [
+    coreutils
+    diffutils
+    gh
+    python3
+    ryokuNixUpdate
+  ];
+
+  text = ''
+    case "''${1:-}" in
+      enter)
+        exec ryoku-nix-update track hyperion
+        ;;
+      leave)
+        exec ryoku-nix-update track unstable
+        ;;
+      status)
+        exec ryoku-nix-update status
+        ;;
+      plan)
+        flake_root="''${RYOKU_NIX_FLAKE:-/etc/nixos}"
+        [ -f "$flake_root/flake.nix" ] || {
+          printf 'ryoku-v2: flake.nix not found in %s\n' "$flake_root" >&2
+          exit 1
+        }
+
+        temp="$(mktemp -d)"
+        trap 'rm -rf "$temp"' EXIT
+        cp "$flake_root/flake.nix" "$temp/flake.nix"
+        python3 "${src}/nix/scripts/ryoku-nix-track-edit.py" \
+          "$temp/flake.nix" \
+          "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos"
+        diff -u "$flake_root/flake.nix" "$temp/flake.nix" || [ "$?" -eq 1 ]
+        ;;
+      *)
+        printf '%s\n' 'Usage: ryoku-v2 {plan|enter|leave|status}' >&2
+        exit 2
+        ;;
+    esac
+  '';
+}

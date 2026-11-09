@@ -1589,7 +1589,9 @@ in
     '';
 
     environment.systemPackages =
-      runtimePackages ++ lib.optional cfg.shima.enable self.packages.${system}.ryoku-shima;
+      runtimePackages
+      ++ lib.optional cfg.shima.enable self.packages.${system}.ryoku-shima
+      ++ lib.optional cfg.hyperionPackages.enable self.packages.${system}.ryoku-v2;
 
 
     # A fresh installer can choose the initial compositor while all three
