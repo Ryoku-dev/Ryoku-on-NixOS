@@ -4,6 +4,7 @@
 
 let
   cfg = config.programs.ryoku;
+  niriOnly = cfg.hyperionNiriOnly.enable;
 
   system = pkgs.stdenv.hostPlatform.system;
 
@@ -699,8 +700,6 @@ EOF
 
     ryokuQs
     ryokuQuickshell
-    ryokuHyprPlugins
-    ryokuWmHyprland
     ryokuWmNiri
     ryokuNiri
     ryokuXwaylandSatellite
@@ -831,7 +830,8 @@ EOF
     libnotify
     xdg-utils
   ]
-  ++ lib.optional (ryokuPreviewSharePicker != null) ryokuPreviewSharePicker
+  ++ lib.optionals (!niriOnly) [ ryokuHyprPlugins ryokuWmHyprland ]
+  ++ lib.optional (!niriOnly && ryokuPreviewSharePicker != null) ryokuPreviewSharePicker
   ++ optionalRuntime
   ++ optionalAppPackages
   ++ browserPackages;
@@ -1024,6 +1024,16 @@ in
       '';
     };
 
+    hyperionNiriOnly.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Install only the Niri session for Hyperion package testing. Hyprland,
+        its portal, plugins and display-manager sessions are not installed.
+        Requires hyperionPackages.enable.
+      '';
+    };
+
     # Kept only so existing /etc/nixos configs that still set
     # `programs.ryoku.binaryCache.enable` keep evaluating. It does nothing.
     binaryCache.enable = lib.mkOption {
@@ -1116,7 +1126,18 @@ in
         assertion = !(cfg.upstreamPackages.enable && cfg.hyperionPackages.enable);
         message = "Ryoku upstream and Hyperion package previews cannot be enabled together.";
       }
+      {
+        assertion = niriOnly -> cfg.hyperionPackages.enable;
+        message = "programs.ryoku.hyperionNiriOnly.enable requires programs.ryoku.hyperionPackages.enable.";
+      }
+      {
+        assertion = niriOnly -> cfg.defaultCompositor != "hyprland";
+        message = "programs.ryoku.hyperionNiriOnly.enable cannot use Hyprland as the default compositor.";
+      }
     ];
+
+    # Niri-only Hyperion replaces the host's old desktop choice.
+    services.desktopManager.plasma6.enable = lib.mkIf niriOnly (lib.mkForce false);
 
     programs.ryomarket.enable = lib.mkDefault true;
 
@@ -1158,7 +1179,7 @@ in
     };
 
 
-    programs.hyprland = {
+    programs.hyprland = lib.mkIf (!niriOnly) {
       enable = true;
 
       # Ryoku requires an exact compositor/plugin ABI match. Do not inherit
@@ -1173,6 +1194,8 @@ in
       enable = true;
       package = lib.mkForce ryokuNiri;
     };
+
+    programs.xwayland.enable = lib.mkIf niriOnly true;
 
     hardware.graphics = {
       package = lib.mkForce ryokuNixpkgs.mesa;
@@ -1599,14 +1622,13 @@ in
     # remain available for runtime switching. Manual integrations leave this
     # null and keep the host's existing display-manager preference.
     services.displayManager.defaultSession =
-      lib.mkIf (cfg.defaultCompositor != null)
+      if niriOnly then lib.mkForce compositorSession.niri
+      else lib.mkIf (cfg.defaultCompositor != null)
         (lib.mkOverride 900 compositorSession.${cfg.defaultCompositor});
 
     # Supply a greeter on No Desktop installs, preserving another login manager.
-    services.displayManager.sessionPackages = [
-      ryokuHyprlandSession
-      ryokuNiriSession
-    ];
+    services.displayManager.sessionPackages =
+      lib.optional (!niriOnly) ryokuHyprlandSession ++ [ ryokuNiriSession ];
 
     services.displayManager.sddm = {
       # Only a host without Xserver is a No Desktop install. With Xserver,
@@ -1701,7 +1723,7 @@ in
       # Hyprland plugin binaries are ABI-sensitive generation state.
       # Hub may configure them, but Nix owns compilation and package paths.
       RYOKU_HYPR_PLUGINS_MANAGED = "nix";
-      RYOKU_HYPR_PLUGIN_DIR =
+      RYOKU_HYPR_PLUGIN_DIR = lib.mkIf (!niriOnly)
         "${ryokuHyprPlugins}/lib/hyprland/plugins";
 
       # Ryowalls and Ryoshot normally use Arch's /usr/share
@@ -2117,7 +2139,7 @@ in
       # Hyprland plugin binaries are ABI-sensitive generation state.
       # Hub may configure them, but Nix owns compilation and package paths.
       RYOKU_HYPR_PLUGINS_MANAGED = "nix";
-      RYOKU_HYPR_PLUGIN_DIR =
+      RYOKU_HYPR_PLUGIN_DIR = lib.mkIf (!niriOnly)
         "${ryokuHyprPlugins}/lib/hyprland/plugins";
         RYOKU_WAIFU2X_MODELS = waifu2xModels;
 

@@ -598,6 +598,11 @@
           module = self.nixosModules.default;
         };
 
+        ryoku-hyperion-niri-only = import ./nix/tests/hyperion-niri-only.nix {
+          pkgs = nixpkgs.legacyPackages.${system};
+          module = self.nixosModules.default;
+        };
+
         # The default install's login sessions, read from its evaluated config.
         ryoku-firstboot-session = import ./nix/tests/firstboot-session.nix {
           pkgs = nixpkgs.legacyPackages.${system};
