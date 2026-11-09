@@ -702,8 +702,13 @@ refresh_runtime() {
 }
 
 verify_hyperion_tester() {
+    if [ -n "${RYOKU_HYPERION_INVITE_VERIFIER:-}" ] &&
+       python3 "$RYOKU_HYPERION_INVITE_VERIFIER" check >/dev/null 2>&1; then
+        return 0
+    fi
+
     command -v gh >/dev/null 2>&1 ||
-        die "GitHub CLI is required for Hyperion tester access"
+        die "Hyperion invitation required. Run ryoku-v2 authorize first"
 
     login="$(gh api user --jq .login 2>/dev/null)" ||
         die "sign in to GitHub with gh auth login before entering Hyperion"

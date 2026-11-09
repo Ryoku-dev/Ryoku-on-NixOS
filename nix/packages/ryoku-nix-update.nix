@@ -12,6 +12,7 @@ pkgs.writeShellApplication {
     jq
     nix
     nixos-rebuild
+    openssl
     procps
     python3
     systemd
@@ -20,6 +21,7 @@ pkgs.writeShellApplication {
 
   text = ''
     export RYOKU_NIX_FLAKE_EDITOR="${src}/nix/scripts/ryoku-nix-track-edit.py"
+    export RYOKU_HYPERION_INVITE_VERIFIER="${src}/nix/scripts/ryoku-hyperion-invite.py"
     ${builtins.readFile (src + "/nix/scripts/ryoku-nix-update")}
   '';
 }

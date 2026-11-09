@@ -7,12 +7,16 @@ pkgs.writeShellApplication {
     coreutils
     diffutils
     gh
+    openssl
     python3
     ryokuNixUpdate
   ];
 
   text = ''
     case "''${1:-}" in
+      authorize)
+        exec python3 "${src}/nix/scripts/ryoku-hyperion-invite.py" authorize
+        ;;
       enter)
         exec ryoku-nix-update track hyperion
         ;;
@@ -42,7 +46,7 @@ pkgs.writeShellApplication {
         diff -u "$flake_root/flake.nix" "$temp/flake.nix" || [ "$?" -eq 1 ]
         ;;
       *)
-        printf '%s\n' 'Usage: ryoku-v2 {plan|enter|slim|leave|status}' >&2
+        printf '%s\n' 'Usage: ryoku-v2 {authorize|plan|enter|slim|leave|status}' >&2
         exit 2
         ;;
     esac
