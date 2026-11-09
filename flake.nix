@@ -130,6 +130,29 @@
         ];
       };
 
+      hyperionPkgs = import ryokuHyperion.inputs.nixpkgs {
+        inherit system;
+      };
+
+      hyperionQmlRuntime = import ./nix/packages/hyperion-qml-runtime.nix {
+        pkgs = hyperionPkgs;
+        src = ryokuHyperion;
+        upstreamQml = ryokuHyperion.packages.${system}.ryoku-qml;
+      };
+
+      hyperionRyotunes = hyperionPkgs.writeShellApplication {
+        name = "ryotunes-hyperion";
+        derivationArgs.postInstall = ''
+          mkdir -p "$out/share/applications"
+          cp ${./nix/apps/ryotunes-hyperion.desktop} "$out/share/applications/ryotunes-hyperion.desktop"
+        '';
+        text = ''
+          export QML_IMPORT_PATH="${hyperionQmlRuntime}/lib/qt-6/qml''${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
+          export QML2_IMPORT_PATH="${hyperionQmlRuntime}/lib/qt-6/qml''${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
+          exec ${hyperionPkgs.quickshell}/bin/qs -p ${ryokuHyperion.packages.${system}.ryoku-desktop}/share/ryotunes/client "$@"
+        '';
+      };
+
       # Isolated v2 composition. It is not part of the active desktop or ISO.
       ryokuHyperionNixosBundle = pkgs.symlinkJoin {
         name = "ryoku-hyperion-nixos-bundle";
@@ -229,6 +252,8 @@
       packages.${system} = {
         ryoku-shima = ryokuShima;
         ryoku-v2 = ryokuV2;
+        ryoku-hyperion-qml-runtime = hyperionQmlRuntime;
+        ryotunes-hyperion = hyperionRyotunes;
         ryoku-hyperion-desktop = ryokuHyperion.packages.${system}.ryoku-desktop;
         ryoku-hyperion-nixos-bundle = ryokuHyperionNixosBundle;
         ryoku-upstream-desktop = ryokuUpstream.packages.${system}.ryoku-desktop;

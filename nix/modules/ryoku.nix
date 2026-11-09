@@ -22,7 +22,7 @@ let
     }) // (lib.optionalAttrs cfg.hyperionPackages.enable {
       ryoku-bundle = legacyRyokuPkgs.ryoku-hyperion-nixos-bundle;
       ryoku-shell = ryokuHyperion.packages.${system}.ryoku-shell;
-      ryoku-qml = ryokuHyperion.packages.${system}.ryoku-qml;
+      ryoku-qml = self.packages.${system}.ryoku-hyperion-qml-runtime;
       ryoku-wm-hyprland = ryokuHyperion.packages.${system}.ryoku-wm-hyprland;
       ryoku-wm-niri = ryokuHyperion.packages.${system}.ryoku-wm-niri;
     });
@@ -1591,7 +1591,8 @@ in
     environment.systemPackages =
       runtimePackages
       ++ lib.optional cfg.shima.enable self.packages.${system}.ryoku-shima
-      ++ lib.optional cfg.hyperionPackages.enable self.packages.${system}.ryoku-v2;
+      ++ lib.optional cfg.hyperionPackages.enable self.packages.${system}.ryoku-v2
+      ++ lib.optional cfg.hyperionPackages.enable self.packages.${system}.ryotunes-hyperion;
 
 
     # A fresh installer can choose the initial compositor while all three
