@@ -21,11 +21,21 @@ let
       ryoku-wm-niri =
         ryokuUpstream.packages.${system}.ryoku-wm-niri;
     }) // (lib.optionalAttrs cfg.hyperionPackages.enable {
-      ryoku-bundle = legacyRyokuPkgs.ryoku-hyperion-nixos-bundle;
+      ryoku-bundle =
+        if niriOnly
+        then legacyRyokuPkgs.ryoku-hyperion-niri-nixos-bundle
+        else legacyRyokuPkgs.ryoku-hyperion-nixos-bundle;
       ryoku-shell = ryokuHyperion.packages.${system}.ryoku-shell;
       ryoku-qml = self.packages.${system}.ryoku-hyperion-qml-runtime;
       ryoku-wm-hyprland = ryokuHyperion.packages.${system}.ryoku-wm-hyprland;
       ryoku-wm-niri = ryokuHyperion.packages.${system}.ryoku-wm-niri;
+      # Same derivations as the bundle's, so the services, qylock and the
+      # integration file use Hyperion's data and daemon, not the legacy ones.
+      ryoku-desktop-data = ryokuHyperion.packages.${system}.ryoku-desktop-data;
+      ryoku-ryogami = ryokuHyperion.packages.${system}.ryoku-ryogami;
+      ryoku-materialize =
+        if niriOnly then self.packages.${system}.ryoku-hyperion-niri-materialize
+        else self.packages.${system}.ryoku-hyperion-materialize;
     });
 
   ryokuShell = ryokuPkgs.ryoku-shell;
@@ -33,6 +43,10 @@ let
   ryokuHelpers = ryokuPkgs.ryoku-helpers;
   ryokuSystemBridge = ryokuPkgs.ryoku-nixos-system-bridge;
   ryokuDesktopData = ryokuPkgs.ryoku-desktop-data;
+  # Hyperion's desktop-data package does not install share/ryoku/nomarchy,
+  # so the Nomarchy source stays with the NixOS desktop data.
+  ryokuNomarchySource =
+    "${legacyRyokuPkgs.ryoku-desktop-data}/share/ryoku/nomarchy";
   ryokuRyogami = ryokuPkgs.ryoku-ryogami;
   ryokuSkwdPaper = ryokuPkgs.ryoku-skwd-paper;
   ryokuPaletteBridge = ryokuPkgs.ryoku-palette-bridge;
@@ -1140,6 +1154,7 @@ in
     services.desktopManager.plasma6.enable = lib.mkIf niriOnly (lib.mkForce false);
 
     programs.ryomarket.enable = lib.mkDefault true;
+    programs.ryomarket.edition = lib.mkIf cfg.hyperionPackages.enable (lib.mkDefault "hyperion");
 
     # Nixpkgs wraps gsr-kms-server with the narrow capability upstream expects.
     # Installing gpu-screen-recorder as a plain package leaves that helper
@@ -1707,7 +1722,7 @@ in
       RYOKU_DEFAULT_BROWSER = if cfg.browser == null then "" else cfg.browser;
       RYOKU_UPDATE_BACKEND = "nix";
       RYOKU_I18N_DIR = "${ryokuDesktopData}/share/ryoku/i18n";
-      RYOKU_NOMARCHY_SOURCE = "${ryokuDesktopData}/share/ryoku/nomarchy";
+      RYOKU_NOMARCHY_SOURCE = ryokuNomarchySource;
       RYOKU_NIX_FLAKE = cfg.updateFlake;
       RYOKU_NIX_INPUT = cfg.updateInput;
       RYOKU_NIX_SUDO =
@@ -2117,7 +2132,7 @@ in
         RYOKU_NIX_SYSTEM_BRIDGE = "1";
         RYOKU_NIX_INTEGRATION = "/etc/ryoku/nix-integration.json";
         RYOKU_DEFAULT_BROWSER = if cfg.browser == null then "" else cfg.browser;
-        RYOKU_NOMARCHY_SOURCE = "${ryokuDesktopData}/share/ryoku/nomarchy";
+        RYOKU_NOMARCHY_SOURCE = ryokuNomarchySource;
         RYOKU_POLKIT_AGENT = "1";
         RYOKU_SYSTEMD_RUN = "${pkgs.systemd}/bin/systemd-run";
 

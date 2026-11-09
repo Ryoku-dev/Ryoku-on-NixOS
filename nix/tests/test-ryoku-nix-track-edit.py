@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
+import os
 import subprocess
 import sys
 import tempfile
@@ -14,10 +15,15 @@ EDITOR = (
 )
 
 
-def edit(text, source):
+def edit(text, source, slim=False):
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "flake.nix"
         path.write_text(text)
+
+        env = os.environ.copy()
+        env.pop("RYOKU_NIX_HYPERION_NIRI_ONLY", None)
+        if slim:
+            env["RYOKU_NIX_HYPERION_NIRI_ONLY"] = "1"
 
         proc = subprocess.run(
             [
@@ -28,6 +34,7 @@ def edit(text, source):
             ],
             text=True,
             capture_output=True,
+            env=env,
         )
 
         if proc.returncode != 0:
@@ -102,6 +109,30 @@ class TrackEditorTests(unittest.TestCase):
             edit(hyperion, "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev"),
             original,
         )
+
+    def test_hyperion_slim_keeps_niri_and_removes_legacy_input(self):
+        original = """{
+  inputs.ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";
+  inputs.ryotunesNix.url = "github:Ryoku-dev/RyotunesNix/f706915c68a0b914756db877e0a2aeb0daef41cd";
+  outputs = { self, ryoku, ... }: {
+    programs.ryoku.enable = true;
+  };
+}
+"""
+        hyperion = edit(
+            original,
+            "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos",
+            slim=True,
+        )
+        self.assertIn("programs.ryoku.hyperionNiriOnly.enable = true;", hyperion)
+        self.assertNotIn("inputs.ryotunesNix.url", hyperion)
+        self.assertEqual(
+            edit(hyperion, "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos"),
+            hyperion,
+        )
+        reverted = edit(hyperion, "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev")
+        self.assertNotIn("hyperionNiriOnly", reverted)
+        self.assertNotIn("hyperionPackages.enable", reverted)
 
     def test_hyperion_rejects_external_option(self):
         original = """{

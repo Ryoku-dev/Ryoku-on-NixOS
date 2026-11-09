@@ -4,7 +4,7 @@
   inputs = {
     ryokuUpstream.url = "github:Ryoku-dev/ryoku/unstable-dev";
     ryokuHyperion.url = "github:Ryoku-dev/ryoku/hyperion";
-    ryomarket.url = "github:Ryoku-dev/ryomarket/7ca1aa29283c09af0050492c059364c99ccb517b";
+    ryomarket.url = "github:Ryoku-dev/ryomarket/feature/hyperion-v2";
 
     # Compatibility input for existing consumers which follow their host
     # nixpkgs. Ryoku-owned packages deliberately do not build from this input.
@@ -130,9 +130,53 @@
         ];
       };
 
+      # Hyperion's own package universe: its nixpkgs pin plus the quickshell
+      # overlay its flake applies (identical to ours), so the derivations
+      # imported below are the same ones the Hyperion flake exports.
       hyperionPkgs = import ryokuHyperion.inputs.nixpkgs {
         inherit system;
+        overlays = [ quickshellScreencopyFixOverlay ];
       };
+
+      hyperionRyoku = import ./nix/packages/hyperion-upstream.nix {
+        inherit ryokuHyperion system;
+        pkgs = hyperionPkgs;
+      };
+
+      # Upstream's bundle (Hyperion nix/packages/default.nix) without
+      # wmHyprland. hyprPlugins and Hyprland itself are not in upstream's
+      # bundle. Every v2 app stays until RyoMarket can install them
+      # separately. ryoku-hyperion-bundle-provenance checks this list against
+      # upstream's bundle.
+      hyperionNiriOnlyComponents = with hyperionRyoku; [
+        shell
+        cli
+        hub
+        paletteBridge
+        rashin
+        prowlAgent
+        ryostore
+        ryomotion
+        ryoport
+        livewall
+        ryogami
+        skwdPaper
+        ryotunes
+        ryomanager
+        qmkHid
+        waifu2x
+        desktopData
+        wmNiri
+        helpers
+        qml
+      ];
+
+      # The NixOS bridge must take precedence over upstream helpers with the
+      # same executable names.
+      hyperionNixosBridges = [
+        ryoku.nixosSystemBridge
+        ryoku.nixUpdate
+      ];
 
       hyperionQmlRuntime = import ./nix/packages/hyperion-qml-runtime.nix {
         pkgs = hyperionPkgs;
@@ -145,7 +189,7 @@
         text = ''
           export QML_IMPORT_PATH="${hyperionQmlRuntime}/lib/qt-6/qml''${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
           export QML2_IMPORT_PATH="${hyperionQmlRuntime}/lib/qt-6/qml''${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
-          exec ${hyperionPkgs.quickshell}/bin/qs -p ${ryokuHyperion.packages.${system}.ryoku-desktop}/share/ryotunes/client "$@"
+          exec ${hyperionPkgs.quickshell}/bin/qs -p ${hyperionRyoku.ryotunesUnwrapped}/share/ryotunes/client "$@"
         '';
       };
 
@@ -160,14 +204,33 @@
         ];
       };
 
+      mkHyperionMaterializer = niriOnly:
+        import ./nix/apps/ryoku-materialize.nix {
+          inherit pkgs niriOnly;
+          ryoku = ryoku // {
+            cli = hyperionRyoku.cli;
+            desktopData = hyperionRyoku.desktopData;
+            qml = hyperionQmlRuntime;
+            wmNiri = hyperionRyoku.wmNiri;
+            wmHyprland = hyperionRyoku.wmHyprland;
+          };
+        };
+
+      hyperionMaterializer = mkHyperionMaterializer false;
+      hyperionNiriMaterializer = mkHyperionMaterializer true;
+
       # Isolated v2 composition. It is not part of the active desktop or ISO.
       ryokuHyperionNixosBundle = pkgs.symlinkJoin {
         name = "ryoku-hyperion-nixos-bundle";
-        paths = [
-          ryoku.nixosSystemBridge
-          ryoku.nixUpdate
+        paths = hyperionNixosBridges ++ [
           ryokuHyperion.packages.${system}.ryoku-desktop
         ];
+      };
+
+      # Isolated Niri-only v2 composition for programs.ryoku.hyperionNiriOnly.
+      ryokuHyperionNiriNixosBundle = pkgs.symlinkJoin {
+        name = "ryoku-hyperion-niri-nixos-bundle";
+        paths = hyperionNixosBridges ++ hyperionNiriOnlyComponents;
       };
 
       ryokuShima = import ./nix/packages/ryoku-shima.nix { inherit pkgs; src = inirSrc; };
@@ -261,8 +324,18 @@
         ryoku-v2 = ryokuV2;
         ryoku-hyperion-qml-runtime = hyperionQmlRuntime;
         ryotunes-hyperion = hyperionRyotunes;
+        ryoku-hyperion-materialize = hyperionMaterializer;
+        ryoku-hyperion-niri-materialize = hyperionNiriMaterializer;
+        ryomarket-hyperion = ryomarket.packages.${system}.ryomarket;
+        ryotunes = hyperionRyotunes;
+        ryostore = hyperionRyoku.ryostore;
+        ryoport = hyperionRyoku.ryoport;
+        ryomanager = hyperionRyoku.ryomanager;
+        ryomotion = hyperionRyoku.ryomotion;
+        rashin = hyperionRyoku.rashin;
         ryoku-hyperion-desktop = ryokuHyperion.packages.${system}.ryoku-desktop;
         ryoku-hyperion-nixos-bundle = ryokuHyperionNixosBundle;
+        ryoku-hyperion-niri-nixos-bundle = ryokuHyperionNiriNixosBundle;
         ryoku-upstream-desktop = ryokuUpstream.packages.${system}.ryoku-desktop;
         ryoku-upstream-nixos-bundle = ryokuUpstreamNixosBundle;
         ryoku-install = ryokuInstall;
@@ -601,6 +674,16 @@
         ryoku-hyperion-niri-only = import ./nix/tests/hyperion-niri-only.nix {
           pkgs = nixpkgs.legacyPackages.${system};
           module = self.nixosModules.default;
+          hyperionPackages = ryokuHyperion.packages.${system};
+          ryokuPackages = self.packages.${system};
+        };
+
+        ryoku-hyperion-bundle-provenance = import ./nix/tests/hyperion-bundle-provenance.nix {
+          inherit pkgs hyperionRyoku;
+          hyperionPackages = ryokuHyperion.packages.${system};
+          bridges = hyperionNixosBridges;
+          fullBundle = ryokuHyperionNixosBundle;
+          niriBundle = ryokuHyperionNiriNixosBundle;
         };
 
         # The default install's login sessions, read from its evaluated config.

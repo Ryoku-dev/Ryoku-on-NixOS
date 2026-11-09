@@ -1,4 +1,4 @@
-{ pkgs, ryoku }:
+{ pkgs, ryoku, niriOnly ? false }:
 
 pkgs.writeShellApplication {
   name = "ryoku-materialize";
@@ -188,8 +188,10 @@ EOF
     # Ryoku preserves each provider's settings while switched away, so this also
     # guarantees that a later compositor switch starts from the current
     # generation rather than stale settings.lua/rebinds.lua or settings.kdl.
-    ${ryoku.wmHyprland}/bin/ryoku-wm-hyprland apply \
-      "$config_home/ryoku/desktop.json" >/dev/null
+    ${pkgs.lib.optionalString (!niriOnly) ''
+      ${ryoku.wmHyprland}/bin/ryoku-wm-hyprland apply \
+        "$config_home/ryoku/desktop.json" >/dev/null
+    ''}
 
     ${ryoku.wmNiri}/bin/ryoku-wm-niri apply \
       "$config_home/ryoku/desktop.json" >/dev/null

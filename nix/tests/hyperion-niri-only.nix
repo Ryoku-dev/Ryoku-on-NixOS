@@ -1,4 +1,4 @@
-{ pkgs, module }:
+{ pkgs, module, hyperionPackages, ryokuPackages }:
 let
   inherit (pkgs) lib;
 
@@ -58,6 +58,23 @@ let
   }).config;
 
   shellEnv = config: config.systemd.user.services.ryoku-shell.environment;
+
+  # Reference checks: compare store paths, not package names.
+  hasPkg = list: p: lib.elem p.outPath (map (x: x.outPath) list);
+  ryogamiUnit = config: config.systemd.user.services.ryogami;
+  integration = config: builtins.fromJSON (builtins.unsafeDiscardStringContext
+    config.environment.etc."ryoku/nix-integration.json".text);
+
+  desktopData = hyperionPackages.ryoku-desktop-data;
+  ryogami = hyperionPackages.ryoku-ryogami;
+
+  # Hyperion's Ryogami and desktop data, not the legacy NixOS builds.
+  usesHyperionData = config:
+    (ryogamiUnit config).serviceConfig.ExecStart == "${ryogami}/bin/ryogami"
+    && lib.hasPrefix "${ryogami}/lib/qt-6/qml:" (ryogamiUnit config).environment.QML_IMPORT_PATH
+    && config.environment.sessionVariables.RYOKU_I18N_DIR == "${desktopData}/share/ryoku/i18n"
+    && (shellEnv config).RYOKU_QYLOCK_BUNDLE == "${desktopData}/share/ryoku/lockscreen/qylock"
+    && (integration config).configBase == "${desktopData}/share/ryoku/config";
 in
 
 assert failedAssertions hyperion == [ ];
@@ -91,5 +108,24 @@ assert niriOnly.services.displayManager.sddm.enable;
 assert niriOnly.systemd.user.services ? ryoku-shell;
 assert (shellEnv niriOnly).QML_IMPORT_PATH == (shellEnv hyperion).QML_IMPORT_PATH;
 assert lib.elem "ryoku-wm-niri" (names niriOnly.environment.systemPackages);
+
+# Each mode installs its own bundle and not the other.
+assert hasPkg hyperion.environment.systemPackages ryokuPackages.ryoku-hyperion-nixos-bundle;
+assert !(hasPkg hyperion.environment.systemPackages ryokuPackages.ryoku-hyperion-niri-nixos-bundle);
+assert hasPkg niriOnly.environment.systemPackages ryokuPackages.ryoku-hyperion-niri-nixos-bundle;
+assert !(hasPkg niriOnly.environment.systemPackages ryokuPackages.ryoku-hyperion-nixos-bundle);
+assert hasPkg niriOnly.systemd.user.services.ryoku-shell.path ryokuPackages.ryoku-hyperion-niri-nixos-bundle;
+
+# No Hyprland provider or plugins reach the Niri-only system, by store path.
+assert lib.all (p: !(hasPkg niriOnly.environment.systemPackages p)) [
+  hyperionPackages.ryoku-wm-hyprland
+  ryokuPackages.ryoku-wm-hyprland
+  ryokuPackages.ryoku-hypr-plugins
+  ryokuPackages.ryoku-hyprland
+];
+
+# Both Hyperion modes use Hyperion's Ryogami and desktop data.
+assert usesHyperionData hyperion;
+assert usesHyperionData niriOnly;
 
 pkgs.writeText "ryoku-hyperion-niri-only-check" "ok\n"

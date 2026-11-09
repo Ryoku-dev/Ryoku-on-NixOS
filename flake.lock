@@ -529,17 +529,17 @@
         "ryotunes": "ryotunes"
       },
       "locked": {
-        "lastModified": 1793517662,
-        "narHash": "sha256-mcA86jYX2LHJHvPy8FXgDs4Vhl0hSpZMsrOO1GcPumU=",
+        "lastModified": 1794261021,
+        "narHash": "sha256-wbbPI9AcMVZrenIbbf+rHmcPkK4hPQseU4JLMLav8RY=",
         "owner": "Ryoku-dev",
         "repo": "ryomarket",
-        "rev": "7ca1aa29283c09af0050492c059364c99ccb517b",
+        "rev": "ee87fbbd3e1d8e268c1892b07c75575262bb7089",
         "type": "github"
       },
       "original": {
         "owner": "Ryoku-dev",
+        "ref": "feature/hyperion-v2",
         "repo": "ryomarket",
-        "rev": "7ca1aa29283c09af0050492c059364c99ccb517b",
         "type": "github"
       }
     },

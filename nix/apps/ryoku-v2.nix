@@ -16,6 +16,10 @@ pkgs.writeShellApplication {
       enter)
         exec ryoku-nix-update track hyperion
         ;;
+      slim)
+        export RYOKU_NIX_HYPERION_NIRI_ONLY=1
+        exec ryoku-nix-update track hyperion
+        ;;
       leave)
         exec ryoku-nix-update track unstable
         ;;
@@ -38,7 +42,7 @@ pkgs.writeShellApplication {
         diff -u "$flake_root/flake.nix" "$temp/flake.nix" || [ "$?" -eq 1 ]
         ;;
       *)
-        printf '%s\n' 'Usage: ryoku-v2 {plan|enter|leave|status}' >&2
+        printf '%s\n' 'Usage: ryoku-v2 {plan|enter|slim|leave|status}' >&2
         exit 2
         ;;
     esac
