@@ -1,5 +1,11 @@
 set -euo pipefail
 
+# Nix, nixos-rebuild, systemctl and pkill are the host's. A second Nix client
+# of another version acting on the same store and daemon (as root, for the
+# build and switch) is unsafe, and the host's systemctl matches the running
+# init. Appending keeps any caller-provided tools first.
+PATH="$PATH:/run/wrappers/bin:/run/current-system/sw/bin"
+
 flake_root="${RYOKU_NIX_FLAKE:-/etc/nixos}"
 input="${RYOKU_NIX_INPUT:-ryoku}"
 installed="${RYOKU_NIX_VERSION:-}"
@@ -702,16 +708,18 @@ refresh_runtime() {
 }
 
 verify_hyperion_tester() {
+    # A signed invitation needs no GitHub account.
     if [ -n "${RYOKU_HYPERION_INVITE_VERIFIER:-}" ] &&
        python3 "$RYOKU_HYPERION_INVITE_VERIFIER" check >/dev/null 2>&1; then
         return 0
     fi
 
-    command -v gh >/dev/null 2>&1 ||
-        die "Hyperion invitation required. Run ryoku-v2 authorize first"
-
-    login="$(gh api user --jq .login 2>/dev/null)" ||
-        die "sign in to GitHub with gh auth login before entering Hyperion"
+    # Organisation members may use their existing gh login instead. gh is
+    # optional and never bundled.
+    if ! command -v gh >/dev/null 2>&1 ||
+       ! login="$(gh api user --jq .login 2>/dev/null)"; then
+        die "no valid Hyperion invitation is stored for this user; run: ryoku-v2 authorize"
+    fi
 
     case "$login" in
         ""|*[!a-zA-Z0-9-]*)
@@ -735,7 +743,7 @@ verify_hyperion_tester() {
             ;;
     esac
 
-    die "this GitHub account is not an approved Ryoku Hyperion tester"
+    die "no valid Hyperion invitation is stored, and GitHub account $login is not an approved tester; run: ryoku-v2 authorize"
 }
 
 track_nix() {
@@ -791,6 +799,18 @@ track_nix() {
     cp "$flake_file" "$old_flake"
     cp "$flake_file" "$new_flake"
 
+    # Installer-generated systems declare programs.ryoku in ryoku.nix; the
+    # editor switches Hyperion there when flake.nix does not enable Ryoku.
+    module_file="$flake_root/ryoku.nix"
+    old_module="$work/ryoku.nix"
+    new_module="$work/ryoku.new"
+    module_args=()
+    if [ -f "$module_file" ]; then
+        cp "$module_file" "$old_module"
+        cp "$module_file" "$new_module"
+        module_args=("$new_module")
+    fi
+
     had_lock=false
 
     if [ -f "$lock" ]; then
@@ -798,13 +818,16 @@ track_nix() {
         had_lock=true
     fi
 
-    if ! python3 "$flake_editor" "$new_flake" "$source"; then
+    if ! python3 "$flake_editor" "$new_flake" "$source" "${module_args[@]}"; then
         rm -rf "$work"
         return 1
     fi
 
     restore_track_files() {
         "$sudo_bin" "$cp_bin" "$old_flake" "$flake_file" || true
+        if [ "${#module_args[@]}" -gt 0 ]; then
+            "$sudo_bin" "$cp_bin" "$old_module" "$module_file" || true
+        fi
 
         if [ "$had_lock" = true ]; then
             "$sudo_bin" "$cp_bin" "$old_lock" "$lock" || true
@@ -840,6 +863,14 @@ track_nix() {
 
     track_restore=true
     if ! "$sudo_bin" "$cp_bin" "$new_flake" "$flake_file"; then
+        restore_track_files
+        rm -rf "$work"
+        return 1
+    fi
+    if [ "${#module_args[@]}" -gt 0 ] &&
+       ! cmp -s "$old_module" "$new_module" &&
+       ! "$sudo_bin" "$cp_bin" "$new_module" "$module_file"; then
+        restore_track_files
         rm -rf "$work"
         return 1
     fi

@@ -142,4 +142,37 @@ cmp -s "$work/flake.before" "$flake/flake.nix" || {
 cmp -s "$work/lock.before" "$flake/flake.lock" || { printf 'flake.lock not restored after interrupted channel switch\n' >&2; exit 1; }
 grep -Fq 'Restoring the previous Ryoku flake files.' "$work/track.out"
 
+# --- channel switch on an installer layout ----------------------------------
+# Installer-generated systems enable Ryoku in ryoku.nix, which the switch also
+# edits; a cancelled switch must restore it with flake.nix and the lock.
+printf '{ ... }: { programs.ryoku = { enable = true; }; }\n' >"$flake/ryoku.nix"
+cp "$flake/ryoku.nix" "$work/module.before"
+cat >"$work/editor.py" <<'PY'
+import sys
+for path in sys.argv[1:2] + sys.argv[3:]:
+    with open(path, "a") as f:
+        f.write("# tracking " + sys.argv[2] + "\n")
+PY
+set +e
+PATH="$bin:$PATH" \
+   ROLLBACK_MARKER="$marker" \
+   SWITCH_MARKER="$switch_marker" \
+   RYOKU_NIX_FLAKE="$flake" \
+   RYOKU_NIX_FLAKE_EDITOR="$work/editor.py" \
+   RYOKU_NIX_HOST=testhost \
+   RYOKU_NIX_SUDO="$bin/sudo" \
+   RYOKU_NIX_VERSION=1 \
+   XDG_RUNTIME_DIR="$work" \
+   bash "$helper" track unstable >"$work/track2.out" 2>&1
+status=$?
+set -e
+[ "$status" -ne 0 ] || { printf 'an interrupted installer-layout switch must not succeed\n' >&2; cat "$work/track2.out" >&2; exit 1; }
+cmp -s "$work/flake.before" "$flake/flake.nix" || { printf 'flake.nix not restored (installer layout)\n' >&2; exit 1; }
+cmp -s "$work/module.before" "$flake/ryoku.nix" || {
+    printf 'ryoku.nix was left switched after the interrupt\n' >&2
+    cat "$flake/ryoku.nix" >&2
+    exit 1
+}
+cmp -s "$work/lock.before" "$flake/flake.lock" || { printf 'flake.lock not restored (installer layout)\n' >&2; exit 1; }
+
 printf 'nix-update-interrupt: PASS\n'

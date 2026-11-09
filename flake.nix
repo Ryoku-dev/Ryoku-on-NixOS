@@ -101,11 +101,9 @@
         inherit pkgs ryoku;
       };
 
-      ryokuV2 = import ./nix/apps/ryoku-v2.nix {
-        inherit pkgs;
-        src = self;
-        ryokuNixUpdate = ryoku.nixUpdate;
-      };
+      # Hyperion onboarding. Also published as its own flake under
+      # nix/bootstrap; both evaluate to this derivation.
+      ryokuV2 = import ./nix/bootstrap/package.nix { inherit pkgs; };
 
       ryokuInstallBackend = import ./nix/apps/ryoku-install-backend.nix {
         inherit pkgs;
@@ -856,6 +854,39 @@
           '';
 
         # Nix update helper serialization
+        ryoku-nix-track-edit = pkgs.runCommand "ryoku-nix-track-edit-check"
+          { nativeBuildInputs = [ pkgs.python3 ]; } ''
+            cp -r ${./nix/scripts} scripts
+            cp -r ${./nix/tests} tests
+            mkdir iso-configs && cp ${./nix/iso-configs/ryoku.nix} iso-configs/ryoku.nix
+            python3 tests/test-ryoku-nix-track-edit.py
+            touch "$out"
+          '';
+
+        # Onboarding must not drag in gh (gnupg, pcsclite), a second Nix,
+        # or anything of the desktop, and the bootstrap flake must produce
+        # the same command as this flake.
+        ryoku-v2-bootstrap = pkgs.runCommand "ryoku-v2-bootstrap-check"
+          {
+            closure = pkgs.closureInfo { rootPaths = [ ryokuV2 ]; };
+            bootstrapLock = ./nix/bootstrap/flake.lock;
+            projectLock = ./flake.lock;
+            nativeBuildInputs = [ pkgs.jq ];
+          } ''
+            for forbidden in '-gh-[0-9]' '-gnupg-' '-pcsclite-' '-nix-[0-9]' '-nixos-rebuild' \
+                '-systemd-[0-9]' '-quickshell-' '-ryoku-shell' '-ryoku-qml' '-hyprland-' '-niri-'; do
+              if grep -E -- "$forbidden" "$closure/store-paths"; then
+                echo "ryoku-v2 closure contains $forbidden" >&2
+                exit 1
+              fi
+            done
+            test "$(jq -r .nodes.nixpkgs.locked.rev "$bootstrapLock")" = \
+                 "$(jq -r .nodes.ryokuPackagesNixpkgs.locked.rev "$projectLock")"
+            test "$(jq -r .nodes.nixpkgs.locked.narHash "$bootstrapLock")" = \
+                 "$(jq -r .nodes.ryokuPackagesNixpkgs.locked.narHash "$projectLock")"
+            touch "$out"
+          '';
+
         ryoku-nix-update-lock = pkgs.runCommand
           "ryoku-nix-update-lock-check"
           {

@@ -23,7 +23,11 @@ def encode(data):
 def decode(value):
     if not value or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for c in value):
         raise ValueError("invalid invite encoding")
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    data = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    # One token per invitation: reject encodings with stray padding bits.
+    if encode(data) != value:
+        raise ValueError("invalid invite encoding")
+    return data
 
 
 def openssl(payload, signature=None, private_key=None):

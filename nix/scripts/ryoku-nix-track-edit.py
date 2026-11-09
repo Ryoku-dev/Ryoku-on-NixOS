@@ -69,75 +69,99 @@ def set_source(text: str, source: str) -> str:
 
 
 HYPERION_SOURCE = "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos"
-HYPERION_MARKER = "programs.ryoku.hyperionPackages.enable = true; # ryoku-v2-switcher"
-HYPERION_OPTION = "programs.ryoku.hyperionPackages.enable"
-NIRI_MARKER = "programs.ryoku.hyperionNiriOnly.enable = true; # ryoku-v2-slim"
-NIRI_OPTION = "programs.ryoku.hyperionNiriOnly.enable"
+SWITCHER_TAG = "# ryoku-v2-switcher"
+SLIM_TAG = "# ryoku-v2-slim"
 
 RYOKU_ENABLED = re.compile(
     r"(?m)^([ \t]*)programs\.ryoku\.enable[ \t]*=[ \t]*true;[ \t]*$"
 )
+# The installer's ryoku.nix: programs.ryoku = { enable = true; ... };
+RYOKU_BLOCK_ENABLED = re.compile(
+    r"(?ms)^[ \t]*programs\.ryoku[ \t]*=[ \t]*\{[^{}]*?"
+    r"^([ \t]*)enable[ \t]*=[ \t]*true;[ \t]*$"
+)
 
 
-def set_hyperion_mode(text: str, active: bool) -> str:
+class Target:
+    """Where programs.ryoku is enabled, and how options are spelled there."""
+
+    def __init__(self, enabled, prefix):
+        self.enabled = enabled
+        self.prefix = prefix
+
+    def line(self, option, tag):
+        return f"{self.prefix}{option}.enable = true; {tag}"
+
+    def has_option(self, text, option):
+        return re.search(
+            r"(?m)^[ \t]*" + re.escape(self.prefix + option) + r"\.enable\b", text
+        ) is not None
+
+    def remove(self, text, option, tag):
+        return re.sub(
+            r"(?m)^[ \t]*" + re.escape(self.line(option, tag)) + r"[ \t]*\n",
+            "",
+            text,
+            count=1,
+        )
+
+
+FLAKE_TARGET = Target(RYOKU_ENABLED, "programs.ryoku.")
+MODULE_TARGET = Target(RYOKU_BLOCK_ENABLED, "")
+
+
+def insert_after(text, match, line):
+    return (
+        text[:match.end()]
+        + "\n"
+        + match.group(1)
+        + line
+        + text[match.end():]
+    )
+
+
+def set_hyperion_mode(text: str, active: bool, target: Target = FLAKE_TARGET) -> str:
+    marker = target.line("hyperionPackages", SWITCHER_TAG)
     if active:
-        if HYPERION_MARKER in text:
+        if marker in text:
             return text
-        if HYPERION_OPTION in text:
+        if target.has_option(text, "hyperionPackages"):
             raise ValueError("Hyperion is already managed by another NixOS module")
 
-        matches = list(RYOKU_ENABLED.finditer(text))
+        matches = list(target.enabled.finditer(text))
         if len(matches) != 1:
             raise ValueError(
                 "automatic Hyperion switching needs exactly one "
-                "programs.ryoku.enable = true; declaration in flake.nix"
+                "programs.ryoku.enable = true; declaration"
             )
+        return insert_after(text, matches[0], marker)
 
-        match = matches[0]
-        return (
-            text[:match.end()]
-            + "\n"
-            + match.group(1)
-            + HYPERION_MARKER
-            + text[match.end():]
-        )
-
-    if HYPERION_MARKER in text:
-        pattern = re.compile(
-            r"(?m)^[ \t]*" + re.escape(HYPERION_MARKER) + r"\n"
-        )
-        return pattern.sub("", text, count=1)
-    if HYPERION_OPTION in text:
+    if marker in text:
+        return target.remove(text, "hyperionPackages", SWITCHER_TAG)
+    if target.has_option(text, "hyperionPackages"):
         raise ValueError("refusing to remove a manually managed Hyperion setting")
     return text
 
 
-def set_niri_only(text: str, active: bool) -> str:
+def set_niri_only(text: str, active: bool, target: Target = FLAKE_TARGET) -> str:
+    marker = target.line("hyperionNiriOnly", SLIM_TAG)
     if not active:
-        if NIRI_MARKER in text:
-            return re.sub(
-                r"(?m)^[ \t]*" + re.escape(NIRI_MARKER) + r"\n",
-                "",
-                text,
-                count=1,
-            )
-        if NIRI_OPTION in text:
+        if marker in text:
+            return target.remove(text, "hyperionNiriOnly", SLIM_TAG)
+        if target.has_option(text, "hyperionNiriOnly"):
             raise ValueError("refusing to remove a manually managed Niri-only setting")
         return text
 
-    if NIRI_MARKER in text:
+    if marker in text:
         return text
-    if NIRI_OPTION in text:
+    if target.has_option(text, "hyperionNiriOnly"):
         raise ValueError("Niri-only is already managed by another NixOS module")
 
-    match = re.search(r"(?m)^([ \t]*)" + re.escape(HYPERION_MARKER) + r"$", text)
+    switcher = target.line("hyperionPackages", SWITCHER_TAG)
+    match = re.search(r"(?m)^([ \t]*)" + re.escape(switcher) + r"$", text)
     if not match:
         raise ValueError("enable Hyperion before selecting Niri-only")
-    return (
-        text[:match.end()]
-        + "\n" + match.group(1) + NIRI_MARKER
-        + text[match.end():]
-    )
+    return insert_after(text, match, marker)
 
 
 def remove_legacy_ryotunes_input(text: str) -> str:
@@ -149,32 +173,50 @@ def remove_legacy_ryotunes_input(text: str) -> str:
     )
 
 
+def apply_mode(text: str, source: str, target: Target) -> str:
+    if source == HYPERION_SOURCE:
+        text = set_hyperion_mode(text, True, target)
+        if os.environ.get("RYOKU_NIX_HYPERION_NIRI_ONLY") == "1":
+            text = set_niri_only(text, True, target)
+    elif source in (
+        "github:Ryoku-dev/Ryoku-on-NixOS/main",
+        "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev",
+    ):
+        text = set_niri_only(text, False, target)
+        text = set_hyperion_mode(text, False, target)
+    return text
+
+
+def flake_owns_ryoku(text: str) -> bool:
+    return bool(RYOKU_ENABLED.search(text)) or SWITCHER_TAG in text
+
+
 def main() -> int:
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         print(
-            "usage: ryoku-nix-track-edit.py FLAKE SOURCE",
+            "usage: ryoku-nix-track-edit.py FLAKE SOURCE [RYOKU_MODULE]",
             file=sys.stderr,
         )
         return 2
 
     path = Path(sys.argv[1])
+    module = Path(sys.argv[3]) if len(sys.argv) == 4 else None
 
     try:
         source = sys.argv[2]
-        updated = set_source(path.read_text(), source)
-        if source == HYPERION_SOURCE:
-            updated = set_hyperion_mode(updated, True)
-            if os.environ.get("RYOKU_NIX_HYPERION_NIRI_ONLY") == "1":
-                updated = set_niri_only(updated, True)
-                updated = remove_legacy_ryotunes_input(updated)
-        elif source in (
-            "github:Ryoku-dev/Ryoku-on-NixOS/main",
-            "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev",
-        ):
-            updated = set_niri_only(updated, False)
-            updated = set_hyperion_mode(updated, False)
+        flake = set_source(path.read_text(), source)
+        if source == HYPERION_SOURCE and os.environ.get("RYOKU_NIX_HYPERION_NIRI_ONLY") == "1":
+            flake = remove_legacy_ryotunes_input(flake)
 
-        path.write_text(updated)
+        module_text = None
+        if flake_owns_ryoku(flake) or module is None:
+            flake = apply_mode(flake, source, FLAKE_TARGET)
+        else:
+            module_text = apply_mode(module.read_text(), source, MODULE_TARGET)
+
+        path.write_text(flake)
+        if module_text is not None:
+            module.write_text(module_text)
     except (OSError, ValueError) as exc:
         print(f"ryoku-nix-track-edit: {exc}", file=sys.stderr)
         return 1
