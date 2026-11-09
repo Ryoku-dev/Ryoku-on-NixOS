@@ -68,6 +68,23 @@
         "type": "github"
       }
     },
+    "hyperionRyotunesSrc": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1793862685,
+        "narHash": "sha256-fKKLMLYdU2AOZ5S901ke+Jw6TehbN1c12+Lvfmy8/sM=",
+        "owner": "Ryoku-dev",
+        "repo": "ryotunes",
+        "rev": "7f0929085fef724551048b6ef9483eed64d4cce2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Ryoku-dev",
+        "ref": "v1.2.6",
+        "repo": "ryotunes",
+        "type": "github"
+      }
+    },
     "hyprglassSrc": {
       "flake": false,
       "locked": {
@@ -368,6 +385,7 @@
     "root": {
       "inputs": {
         "bibataMaterialSrc": "bibataMaterialSrc",
+        "hyperionRyotunesSrc": "hyperionRyotunesSrc",
         "hyprglassSrc": "hyprglassSrc",
         "imgbordersSrc": "imgbordersSrc",
         "inirSrc": "inirSrc",
