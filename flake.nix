@@ -140,17 +140,24 @@
         upstreamQml = ryokuHyperion.packages.${system}.ryoku-qml;
       };
 
-      hyperionRyotunes = hyperionPkgs.writeShellApplication {
+      hyperionRyotunesCommand = hyperionPkgs.writeShellApplication {
         name = "ryotunes-hyperion";
-        derivationArgs.postInstall = ''
-          mkdir -p "$out/share/applications"
-          cp ${./nix/apps/ryotunes-hyperion.desktop} "$out/share/applications/ryotunes-hyperion.desktop"
-        '';
         text = ''
           export QML_IMPORT_PATH="${hyperionQmlRuntime}/lib/qt-6/qml''${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
           export QML2_IMPORT_PATH="${hyperionQmlRuntime}/lib/qt-6/qml''${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
           exec ${hyperionPkgs.quickshell}/bin/qs -p ${ryokuHyperion.packages.${system}.ryoku-desktop}/share/ryotunes/client "$@"
         '';
+      };
+
+      hyperionRyotunes = hyperionPkgs.symlinkJoin {
+        name = "ryotunes-hyperion";
+        paths = [
+          hyperionRyotunesCommand
+          (hyperionPkgs.runCommand "ryotunes-hyperion-desktop" { } ''
+            mkdir -p "$out/share/applications"
+            cp ${./nix/apps/ryotunes-hyperion.desktop} "$out/share/applications/ryotunes-hyperion.desktop"
+          '')
+        ];
       };
 
       # Isolated v2 composition. It is not part of the active desktop or ISO.
