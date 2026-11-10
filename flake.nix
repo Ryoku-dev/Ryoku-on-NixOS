@@ -197,10 +197,31 @@
           (builtins.readFile (hyperionRyotunesSrc + "/VERSION"));
       };
 
+      # The QML tree compositor-spawned surfaces see (upstream's binds set
+      # QML_IMPORT_PATH to ~/.local/lib/qt6/qml, where Arch also has
+      # /usr/lib/qt6/qml as fallback): Hyperion's Ryoku modules, Ryogami's
+      # and the Qt add-on modules of Hyperion's own Qt. qtdeclarative and
+      # Quickshell's modules are built into qs.
+      hyperionUserQml = hyperionPkgs.buildEnv {
+        name = "ryoku-hyperion-user-qml";
+        paths = [
+          hyperionQmlRuntime
+          hyperionRyoku.ryogami
+          hyperionPkgs.qt6.qtmultimedia
+          hyperionPkgs.qt6.qtquick3d
+          hyperionPkgs.qt6.qtwayland
+          hyperionPkgs.qt6.qt5compat
+          hyperionPkgs.kdePackages.kirigami.unwrapped
+          hyperionPkgs.kdePackages.syntax-highlighting
+        ];
+        pathsToLink = [ "/lib/qt-6/qml" ];
+      };
+
       mkHyperionMaterializer = niriOnly:
         import ./nix/apps/ryoku-materialize.nix {
           inherit pkgs niriOnly;
           hyperion = true;
+          userQml = hyperionUserQml;
           ryoku = ryoku // {
             cli = hyperionRyoku.cli;
             desktopData = hyperionRyoku.desktopData;
@@ -231,6 +252,7 @@
         import ./nix/modules/ryoku.nix {
           inherit self ryokuUpstream ryokuHyperion ryomarket;
           ryokuNixpkgs = pkgs;
+          ryokuHyperionNixpkgs = hyperionPkgs;
         };
 
       ryokuRepo = "github:Ryoku-dev/Ryoku-on-NixOS";
@@ -315,6 +337,7 @@
         ryoku-shima = ryokuShima;
         ryoku-v2 = ryokuV2;
         ryoku-hyperion-qml-runtime = hyperionQmlRuntime;
+        ryoku-hyperion-user-qml = hyperionUserQml;
         ryoku-hyperion-materialize = hyperionMaterializer;
         ryoku-hyperion-niri-materialize = hyperionNiriMaterializer;
         ryomarket-hyperion = ryomarket.packages.${system}.ryomarket;

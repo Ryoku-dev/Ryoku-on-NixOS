@@ -1,5 +1,13 @@
-{ pkgs, ryoku, niriOnly ? false, hyperion ? false }:
+{ pkgs, ryoku, niriOnly ? false, hyperion ? false, userQml ? null }:
 
+let
+  # Ryoku QML modules linked into ~/.local/lib/qt6/qml/Ryoku: every module of
+  # the complete user QML tree when there is one, the shell's own otherwise.
+  ryokuQmlModules =
+    if userQml == null
+    then pkgs.lib.concatMapStringsSep " " (m: "\"$qml/Ryoku/${m}\"") [ "Ui" "PluginKit" "FrameBars" "Blobs" "Wm" ]
+    else "\"$qml\"/Ryoku/*";
+in
 pkgs.writeShellApplication {
   name = "ryoku-materialize";
 
@@ -17,7 +25,7 @@ pkgs.writeShellApplication {
 
   text = ''
     base="${ryoku.desktopData}/share/ryoku/config"
-    qml="${ryoku.qml}/lib/qt-6/qml"
+    qml="${if userQml == null then "${ryoku.qml}/lib/qt-6/qml" else "${userQml}/lib/qt-6/qml"}"
 
     config_home="''${XDG_CONFIG_HOME:-$HOME/.config}"
     user_units="$config_home/systemd/user"
@@ -295,7 +303,8 @@ EOF
 
     mkdir -p "$user_qml"
 
-    for module in Ui PluginKit FrameBars Blobs Wm; do
+    for module_src in ${ryokuQmlModules}; do
+      module="''${module_src##*/}"
       module_path="$user_qml/$module"
 
       # Older NixOS generations copied these modules out of the Nix store with
@@ -314,9 +323,28 @@ EOF
 
       # Swap the link in with one rename so Quickshell never sees the module
       # missing while a session is already running.
-      ln -sfn "$qml/Ryoku/$module" "$module_path.ryoku-nix.$$"
+      ln -sfn "$module_src" "$module_path.ryoku-nix.$$"
       mv -T -- "$module_path.ryoku-nix.$$" "$module_path"
     done
+
+    ${pkgs.lib.optionalString (userQml != null) ''
+      # Compositor binds replace QML_IMPORT_PATH with ~/.local/lib/qt6/qml
+      # (Arch still has /usr/lib/qt6/qml behind it), so the Qt add-on modules
+      # Hyperion's surfaces import live here too, from Hyperion's own Qt.
+      # A real directory of the same name is the user's and is left alone.
+      user_qml_root="$HOME/.local/lib/qt6/qml"
+      for entry in "$qml"/*; do
+        name="''${entry##*/}"
+        [ "$name" = Ryoku ] && continue
+        target="$user_qml_root/$name"
+        if [ -e "$target" ] && [ ! -L "$target" ]; then
+          printf 'ryoku-materialize: keeping user QML directory %s\n' "$target" >&2
+          continue
+        fi
+        ln -sfn "$entry" "$target.ryoku-nix.$$"
+        mv -T -- "$target.ryoku-nix.$$" "$target"
+      done
+    ''}
 
     # Hyprland's bundled plugins are immutable generation-owned packages.
     # Older Ryoku-on-NixOS revisions exposed them through ~/.local symlinks;
@@ -381,6 +409,19 @@ EOF
     fi
 
     ${pkgs.lib.optionalString hyperion ''
+      # Hyperion owns the shell daemon. A user drop-in that replaces its
+      # ExecStart (a development build, an older subshell preflight) would
+      # keep running another daemon under Hyperion's shell. Disable it by
+      # renaming, never deleting: renaming it back restores it.
+      for dropin in "$user_units/ryoku-shell.service.d"/*.conf; do
+        [ -f "$dropin" ] || continue
+        if grep -Eq '^[[:space:]]*ExecStart[[:space:]]*=[[:space:]]*[^[:space:]]' "$dropin"; then
+          mv -- "$dropin" "$dropin.disabled-by-hyperion"
+          printf 'ryoku-materialize: disabled %s; Hyperion runs its own shell daemon (rename it back to re-enable)\n' "$dropin" >&2
+          systemctl --user daemon-reload 2>/dev/null || true
+        fi
+      done
+
       # Hyperion's Ryotunes replaces RyoMarket/preview copies that shadowed it.
       bash ${../scripts/ryoku-hyperion-retire-ryotunes} "$backup" || true
     ''}

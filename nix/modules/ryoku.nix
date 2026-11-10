@@ -1,4 +1,4 @@
-{ self, ryokuNixpkgs, ryokuUpstream, ryokuHyperion, ryomarket }:
+{ self, ryokuNixpkgs, ryokuHyperionNixpkgs, ryokuUpstream, ryokuHyperion, ryomarket }:
 
 { config, lib, pkgs, options, ... }:
 
@@ -50,13 +50,17 @@ let
   ryokuRyogami = ryokuPkgs.ryoku-ryogami;
   ryokuSkwdPaper = ryokuPkgs.ryoku-skwd-paper;
   ryokuPaletteBridge = ryokuPkgs.ryoku-palette-bridge;
-  ryokuQuickshell = ryokuNixpkgs.quickshell;
+  # Quickshell, Qt and their QML modules come from the package set the
+  # desktop's compiled QML plugins were built against: Hyperion's own for
+  # Hyperion (its Ryoku.* plugins link that Qt), Ryoku's otherwise.
+  qtPkgs = if cfg.hyperionPackages.enable then ryokuHyperionNixpkgs else ryokuNixpkgs;
+  ryokuQuickshell = qtPkgs.quickshell;
 
   # The in-session lock authenticates inside ryokuQuickshell, so its PAM
   # modules must be built against the same glibc as that binary. The host's
   # security.pam.package follows the host nixpkgs and stops loading in the
   # lock once the host glibc moves ahead of Ryoku's pinned package set.
-  qylockPamModules = "${ryokuNixpkgs.linux-pam}/lib/security";
+  qylockPamModules = "${qtPkgs.linux-pam}/lib/security";
 
   # Keep the preview share picker in Ryoku's pinned package universe rather
   # than the host package set. NixOS stable releases may not expose this
@@ -529,15 +533,15 @@ EOF
   };
 
   qtQmlPath = lib.makeSearchPath "lib/qt-6/qml" [
-    ryokuNixpkgs.qt6.qtdeclarative
-    ryokuNixpkgs.qt6.qtmultimedia
-    ryokuNixpkgs.qt6.qtquick3d
-    ryokuNixpkgs.qt6.qtwayland
-    ryokuNixpkgs.qt6.qt5compat
-    ryokuNixpkgs.qt6.qtsvg
-    ryokuNixpkgs.qt6.qtimageformats
-    ryokuNixpkgs.kdePackages.kirigami.unwrapped
-    ryokuNixpkgs.kdePackages.syntax-highlighting
+    qtPkgs.qt6.qtdeclarative
+    qtPkgs.qt6.qtmultimedia
+    qtPkgs.qt6.qtquick3d
+    qtPkgs.qt6.qtwayland
+    qtPkgs.qt6.qt5compat
+    qtPkgs.qt6.qtsvg
+    qtPkgs.qt6.qtimageformats
+    qtPkgs.kdePackages.kirigami.unwrapped
+    qtPkgs.kdePackages.syntax-highlighting
   ];
 
 
@@ -548,7 +552,7 @@ EOF
     export QML_IMPORT_PATH="${qmlRoot}:${qtQmlPath}''${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
     export QML2_IMPORT_PATH="${qmlRoot}:${qtQmlPath}''${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
 
-    export QT_PLUGIN_PATH="${ryokuNixpkgs.qt6.qtimageformats}/lib/qt-6/plugins:${ryokuNixpkgs.qt6.qtbase}/lib/qt-6/plugins''${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+    export QT_PLUGIN_PATH="${qtPkgs.qt6.qtimageformats}/lib/qt-6/plugins:${qtPkgs.qt6.qtbase}/lib/qt-6/plugins''${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
 
     exec ${ryokuQuickshell}/bin/qs "$@"
   '';
@@ -631,7 +635,10 @@ EOF
     ++ lib.optionals (hasOptionalApp "vm") [ pkgs.quickemu pkgs.qemu pkgs.spice-gtk pkgs.xorriso ]
     ++ lib.optionals (hasOptionalApp "go") [ pkgs.go ]
     ++ lib.optionals (hasOptionalApp "pytools") (optionalPkg "pipx")
-    ++ lib.optionals (hasOptionalApp "mise") [ pkgs.mise ];
+    ++ lib.optionals (hasOptionalApp "mise") [ pkgs.mise ]
+    # Hyperion's shell daemon keeps the clipboard alive after the source app
+    # closes with wl-clip-persist (an Arch ryoku-desktop hard dependency).
+    ++ lib.optionals cfg.hyperionPackages.enable [ ryokuNixpkgs.wl-clip-persist ];
 
   optionalRuntime =
     lib.concatMap optionalPkg [
@@ -723,15 +730,15 @@ EOF
     # Qt / QML
     # ─────────────────────────────────────────────────────────
 
-    ryokuNixpkgs.qt6.qtdeclarative
-    ryokuNixpkgs.qt6.qtmultimedia
-    ryokuNixpkgs.qt6.qtquick3d
-    ryokuNixpkgs.qt6.qtwayland
-    ryokuNixpkgs.qt6.qt5compat
-    ryokuNixpkgs.qt6.qtsvg
-    ryokuNixpkgs.qt6Packages.qt6ct
-    ryokuNixpkgs.kdePackages.syntax-highlighting
-    ryokuNixpkgs.kdePackages.kirigami.unwrapped
+    qtPkgs.qt6.qtdeclarative
+    qtPkgs.qt6.qtmultimedia
+    qtPkgs.qt6.qtquick3d
+    qtPkgs.qt6.qtwayland
+    qtPkgs.qt6.qt5compat
+    qtPkgs.qt6.qtsvg
+    qtPkgs.qt6Packages.qt6ct
+    qtPkgs.kdePackages.syntax-highlighting
+    qtPkgs.kdePackages.kirigami.unwrapped
 
     # ─────────────────────────────────────────────────────────
     # Session / portals / secrets
@@ -2195,7 +2202,7 @@ in
         QT_FFMPEG_DECODING_HW_DEVICE_TYPES = ",";
 
         QT_PLUGIN_PATH =
-          "${ryokuNixpkgs.qt6.qtimageformats}/lib/qt-6/plugins:${ryokuNixpkgs.qt6.qtbase}/lib/qt-6/plugins";
+          "${qtPkgs.qt6.qtimageformats}/lib/qt-6/plugins:${qtPkgs.qt6.qtbase}/lib/qt-6/plugins";
 
         QML_IMPORT_PATH =
           "${qmlRoot}:${qtQmlPath}";

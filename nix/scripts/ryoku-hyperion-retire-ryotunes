@@ -12,8 +12,8 @@
 # their daemon owned $XDG_RUNTIME_DIR/ryotunes/ryotunesd.sock.
 #
 # Only what Ryoku itself created is moved (never deleted) into BACKUP_DIR:
-# that exposure, a RyoMarket-managed Ryotunes profile (the system now owns
-# Ryotunes) and the manual Hyperion preview links. Anything unrecognised is
+# that exposure, the old RyoMarket flake-app profile (Hyperion's Ryotunes is
+# a Nix profile app now) and the manual Hyperion preview links. Anything unrecognised is
 # reported and left alone. User data (~/.local/share/dev.ryoku.ryotunes,
 # ~/.config/ryotunes) and unrelated ryotunes-* tools are never touched.
 set -euo pipefail
