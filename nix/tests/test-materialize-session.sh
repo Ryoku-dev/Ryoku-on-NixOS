@@ -48,6 +48,8 @@ out=$("$BEST_EFFORT" 2>&1) || fail "best-effort wrapper blocked startup (existin
 grep -q 'ryoku-materialize failed' <<<"$out" || fail "failure was not reported"
 grep -q '^<3>' <<<"$out" || fail "failure not logged at error priority"
 [ -s "$HOME/$marker" ] || fail "failure marker missing"
+grep -q 'exit=3$' "$HOME/$marker" || fail "failure exit code lost"
+grep -q 'exit 3' <<<"$out" || fail "wrong failure exit code logged"
 grep -q autostart "$XDG_CONFIG_HOME/niri/config.kdl" || fail "existing config damaged by failed run"
 
 # 5. Same failure on a brand-new home still lets the session start.
@@ -86,4 +88,13 @@ RYOKU_STUB_FAIL=1 "$BEST_EFFORT" >/dev/null 2>&1
 RYOKU_STUB_TARGET_ACTIVE=1 "$RETRY" >/dev/null 2>&1 || fail "retry failed (live)"
 [ ! -e "$HOME/$marker" ] || fail "marker not cleared (live)"
 ! grep -q session-start "$RYOKU_STUB_LOG" || fail "running session was restarted"
+# Hyperion has no standalone migration verb. Setup must still reach QML links.
+newhome hyperion
+export RYOKU_STUB_HYPERION=1 RYOKU_PROC_ROOT=$HOME/proc
+mkdir -p "$RYOKU_PROC_ROOT"
+"$HYPERION_MATERIALIZE" >/dev/null 2>&1 || fail "Hyperion materialization failed"
+for module in Ryoku/Bus Qt5Compat/GraphicalEffects; do
+  [ -d "$HOME/.local/lib/qt6/qml/$module" ] || fail "missing Hyperion QML module $module"
+done
+unset RYOKU_STUB_HYPERION RYOKU_PROC_ROOT
 printf 'test-materialize-session: PASS\n'

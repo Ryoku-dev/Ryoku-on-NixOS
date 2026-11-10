@@ -17,9 +17,10 @@ let
   '';
 
   qml = pkgs.runCommand "stub-qml" { } ''
-    for m in Ui PluginKit FrameBars Blobs Wm; do
+    for m in Ui PluginKit FrameBars Blobs Wm Bus; do
       mkdir -p $out/lib/qt-6/qml/Ryoku/$m
     done
+    mkdir -p $out/lib/qt-6/qml/Qt5Compat/GraphicalEffects
   '';
 
   # `ryoku materialize` seeds user files only when absent; it fails on request.
@@ -34,6 +35,10 @@ let
             [ -e "$XDG_CONFIG_HOME/niri/user.kdl" ] || echo '// seed' > "$XDG_CONFIG_HOME/niri/user.kdl"
             sleep 0.05
             ;;
+          migrate-shell-config)
+            [ -z "''${RYOKU_STUB_HYPERION:-}" ] || exit 2
+            ;;
+          *) exit 2 ;;
         esac
       '')
     ];
@@ -44,8 +49,9 @@ let
     paths = [ (stub name "exit 0") ];
   };
 
-  materialize = import (self + "/nix/apps/ryoku-materialize.nix") {
-    inherit pkgs;
+  materializeFor = hyperion: import (self + "/nix/apps/ryoku-materialize.nix") {
+    inherit pkgs hyperion;
+    userQml = if hyperion then qml else null;
     ryoku = {
       inherit desktopData qml cli;
       hub = pkgs.emptyDirectory;
@@ -53,6 +59,9 @@ let
       wmNiri = wm "ryoku-wm-niri";
     };
   };
+
+  materialize = materializeFor false;
+  hyperionMaterialize = materializeFor true;
 
   bestEffort = pkgs.writeShellScript "ryoku-materialize-best-effort"
     (builtins.replaceStrings
@@ -83,6 +92,7 @@ pkgs.runCommand "ryoku-materialize-session-check"
   { nativeBuildInputs = [ pkgs.coreutils pkgs.findutils pkgs.gnugrep ]; }
   ''
     MATERIALIZE=${materialize}/bin/ryoku-materialize \
+    HYPERION_MATERIALIZE=${hyperionMaterialize}/bin/ryoku-materialize \
     BEST_EFFORT=${bestEffort} \
     RETRY=${retry} \
       bash ${self + "/nix/tests/test-materialize-session.sh"}

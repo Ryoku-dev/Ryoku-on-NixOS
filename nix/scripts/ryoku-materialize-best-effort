@@ -17,8 +17,9 @@ marker="$state/materialize-failed"
 if "$materializer"; then
   "$coreutils/rm" -f -- "$marker" 2>/dev/null || true
   exit 0
+else
+  rc=$?
 fi
-rc=$?
 
 if "$coreutils/mkdir" -p -- "$state" 2>/dev/null; then
   printf '%s exit=%s\n' "$("$coreutils/date" -Is)" "$rc" >"$marker" 2>/dev/null || true
