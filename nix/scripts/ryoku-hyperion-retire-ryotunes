@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
 # Retire Ryotunes installs that would shadow Hyperion's.
 #
-# usage: ryoku-hyperion-retire-ryotunes RYOTUNES_PACKAGE BACKUP_DIR
+# usage: ryoku-hyperion-retire-ryotunes BACKUP_DIR
+#
+# The current Ryotunes is whatever the user's Nix profile (RyoMarket or the
+# shipped-apps delivery) or the system provides; anything else is legacy.
 #
 # Older setups exposed Ryotunes through ~/.local/bin links into a RyoMarket
 # flake-app profile or a manual preview, user desktop entries and user units.
 # ~/.local/bin precedes the system profile on PATH, so those copies won and
 # their daemon owned $XDG_RUNTIME_DIR/ryotunes/ryotunesd.sock.
 #
-# Only exposure Ryoku itself created is moved (never deleted) into BACKUP_DIR.
-# Anything unrecognised is reported and left alone. User data
-# (~/.local/share/dev.ryoku.ryotunes, ~/.config/ryotunes), the RyoMarket
-# profile itself and unrelated ryotunes-* tools are never touched.
+# Only what Ryoku itself created is moved (never deleted) into BACKUP_DIR:
+# that exposure, a RyoMarket-managed Ryotunes profile (the system now owns
+# Ryotunes) and the manual Hyperion preview links. Anything unrecognised is
+# reported and left alone. User data (~/.local/share/dev.ryoku.ryotunes,
+# ~/.config/ryotunes) and unrelated ryotunes-* tools are never touched.
 set -euo pipefail
 
-package="${1:?ryotunes package path required}"
-backup="${2:?backup directory required}/ryotunes-legacy"
+backup="${1:?backup directory required}/ryotunes-legacy"
 
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}"
 bin_dir="$HOME/.local/bin"
 apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 units_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
@@ -24,10 +28,27 @@ proc_root="${RYOKU_PROC_ROOT:-/proc}"
 
 moved=0
 
+# Store paths of the Ryotunes the profile and the system provide now.
+current=()
+for provider in "$HOME/.nix-profile" "/etc/profiles/per-user/${USER:-$(id -un)}" /run/current-system/sw; do
+    daemon="$(readlink -e "$provider/bin/ryotunesd" 2>/dev/null)" || continue
+    current+=("${daemon%/bin/*}")
+done
+
+is_current() {
+    local dir
+    for dir in "${current[@]}"; do
+        case "$1" in "$dir"/*) return 0 ;; esac
+    done
+    return 1
+}
+
+# Keeps the path relative to HOME, so restoring is a plain move back.
 retire() {
-    mkdir -p "$backup"
-    mv -- "$1" "$backup/"
-    printf 'ryotunes: retired legacy %s (kept in %s)\n' "$1" "$backup"
+    local dest="$backup/${1#"$HOME"/}"
+    mkdir -p "$(dirname "$dest")"
+    mv -- "$1" "$dest"
+    printf 'ryotunes: retired legacy %s (kept in %s)\n' "$1" "$dest"
     moved=1
 }
 
@@ -37,8 +58,10 @@ legacy_link() {
     local target
     [ -L "$1" ] || return 1
     target="$(readlink -- "$1")"
+    if is_current "$target"; then
+        return 1
+    fi
     case "$target" in
-        "$package"/*) return 1 ;;
         */ryomarket/flake-apps/ryotunes/*|*/ryoku-hyperion/ryotunes-preview/*) return 0 ;;
         /nix/store/*ryotunes*) return 0 ;;
     esac
@@ -86,15 +109,29 @@ elif [ -d "$dropins" ]; then
     printf 'ryotunes: warning: %s overrides the Ryotunes daemon unit\n' "$dropins" >&2
 fi
 
+# The RyoMarket-managed profile those links pointed into.
+market_app="$state_dir/ryomarket/flake-apps/ryotunes"
+if [ -d "$market_app" ] && [ "$(cat "$market_app/managed-by" 2>/dev/null)" = ryomarket:ryotunes ]; then
+    retire "$market_app"
+fi
+
+# Links and copies made by hand while previewing Hyperion.
+for name in ryotunes-preview ryotunes-original-link ryomarket-ryotunes-original.desktop; do
+    path="$state_dir/ryoku-hyperion/$name"
+    if [ -e "$path" ] || [ -L "$path" ]; then
+        retire "$path"
+    fi
+done
+
 # Stop daemons and clients that are not this generation's, so the
 # socket-activated daemon owns the session socket again.
 stopped=0
 for proc in "$proc_root"/[0-9]*; do
     exe="$(readlink "$proc/exe" 2>/dev/null)" || continue
     cmdline="$(tr '\0' ' ' < "$proc/cmdline" 2>/dev/null)" || continue
-    case "$exe" in
-        "$package"/*) continue ;;
-    esac
+    if is_current "$exe"; then
+        continue
+    fi
     case "$exe:$cmdline" in
         *ryotunes-soloist*) continue ;;
         */ryotunesd:*|*/.ryotunesd-wrapped:*|*:*share/ryotunes/client*)

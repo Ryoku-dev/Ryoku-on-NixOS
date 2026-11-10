@@ -68,19 +68,41 @@
         "type": "github"
       }
     },
-    "hyperionRyotunesSrc": {
-      "flake": false,
+    "hyperionRyoport": {
+      "inputs": {
+        "nixpkgs": [
+          "ryokuHyperion",
+          "nixpkgs"
+        ]
+      },
       "locked": {
-        "lastModified": 1793862685,
-        "narHash": "sha256-fKKLMLYdU2AOZ5S901ke+Jw6TehbN1c12+Lvfmy8/sM=",
+        "lastModified": 1794197785,
+        "narHash": "sha256-00q0Rl5bAKc+B+X7diTn1SmI3twJKFBXEiHlHG+t28g=",
         "owner": "Ryoku-dev",
-        "repo": "ryotunes",
-        "rev": "7f0929085fef724551048b6ef9483eed64d4cce2",
+        "repo": "ryoport",
+        "rev": "e24939ed5b45deaf0e1cafb9d6f8c76bc08ff2ac",
         "type": "github"
       },
       "original": {
         "owner": "Ryoku-dev",
-        "ref": "v1.2.6",
+        "ref": "hyperion",
+        "repo": "ryoport",
+        "type": "github"
+      }
+    },
+    "hyperionRyotunesSrc": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794265017,
+        "narHash": "sha256-TiD+p8EQBu9oyunPCo4Qs1ECCYnzlXkMAJ/1f0LMTzQ=",
+        "owner": "Ryoku-dev",
+        "repo": "ryotunes",
+        "rev": "78d41a1e0f70b8a1cd715ab90183bd93c0ec1089",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Ryoku-dev",
+        "ref": "hyperion",
         "repo": "ryotunes",
         "type": "github"
       }
@@ -385,6 +407,7 @@
     "root": {
       "inputs": {
         "bibataMaterialSrc": "bibataMaterialSrc",
+        "hyperionRyoport": "hyperionRyoport",
         "hyperionRyotunesSrc": "hyperionRyotunesSrc",
         "hyprglassSrc": "hyprglassSrc",
         "imgbordersSrc": "imgbordersSrc",
@@ -434,11 +457,11 @@
         "skwdWall": "skwdWall"
       },
       "locked": {
-        "lastModified": 1794202677,
-        "narHash": "sha256-5SUrZpEFrWzIftmO3zRJHF6Fe8DJudUKIoNiYZTTFKk=",
+        "lastModified": 1794264600,
+        "narHash": "sha256-VyZ/oZsD1CHQoZJFwNN2a854dGTOlTOcTqy+EU0VuQA=",
         "owner": "Ryoku-dev",
         "repo": "ryoku",
-        "rev": "83f1d3cf31c49498fc10661079e3d30b47218a5e",
+        "rev": "e6cddb14a23d9b9a9d0f1c59da1c66e26b638b18",
         "type": "github"
       },
       "original": {

@@ -23,6 +23,17 @@ The `?dir=nix/bootstrap` flake evaluates only the onboarding command and one
 pinned nixpkgs, never the desktop. It is the same command as `#ryoku-v2` of
 the main flake.
 
+## Apps
+
+The desktop, Ryogami, Niri, RyoStore and Rashin are part of the system. The
+apps Arch Hyperion treats as optional are in your own Nix profile, managed by
+RyoMarket's Hyperion edition: Ryotunes 2.0, Ryoport, RyoManager, waifu2x and
+QMK HID. The first Hyperion login installs Ryotunes, Ryoport, RyoManager and
+waifu2x once; remove any of them in RyoMarket and they stay removed. Older
+Ryotunes copies (RyoMarket profiles, `~/.local/bin` links, stale menu entries)
+are moved to `~/.local/state/ryoku/nix/backups/<time>/ryotunes-legacy`, and
+your library, settings and sign-ins carry over.
+
 ## Leave or recover
 
 - `ryoku-v2 leave` (installed with Hyperion) switches back to unstable.

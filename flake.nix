@@ -6,12 +6,19 @@
     ryokuHyperion.url = "github:Ryoku-dev/ryoku/hyperion";
     ryomarket.url = "github:Ryoku-dev/ryomarket/feature/hyperion-v2";
 
-    # Ryotunes as Arch Hyperion ships it: the latest official release, which
-    # release/repo/import-ryotunes.sh imports unpatched. Hyperion's own flake
-    # still pins 1.2.0 with patches that no longer apply.
+    # Ryotunes 2.0, the Lithic rewrite Hyperion is built around (its window
+    # rules and docs/lithic target it). Hyperion's own flake still pins the
+    # retired 1.2.0 Rust/Quickshell app.
     hyperionRyotunesSrc = {
-      url = "github:Ryoku-dev/ryotunes/v1.2.6";
+      url = "github:Ryoku-dev/ryotunes/hyperion";
       flake = false;
+    };
+
+    # Ryoport's hyperion branch: the v1.0.0 fixes for the Ryoku v2 line.
+    # Built in Hyperion's package set, as upstream builds the v1.0.0 pin.
+    hyperionRyoport = {
+      url = "github:Ryoku-dev/ryoport/hyperion";
+      inputs.nixpkgs.follows = "ryokuHyperion/nixpkgs";
     };
 
     # Compatibility input for existing consumers which follow their host
@@ -49,7 +56,7 @@
     };
   };
 
-  outputs = { self, ryokuUpstream, ryokuHyperion, ryomarket, hyperionRyotunesSrc, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, inirSrc, ... }:
+  outputs = { self, ryokuUpstream, ryokuHyperion, ryomarket, hyperionRyotunesSrc, hyperionRyoport, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, inirSrc, ... }:
     let
       version =
         builtins.replaceStrings
@@ -149,19 +156,24 @@
         pkgs = hyperionPkgs;
       };
 
-      # Upstream components the NixOS port replaces with the build Arch
-      # Hyperion actually ships (see hyperionRyotunes).
-      hyperionReplaced = [ hyperionRyoku.ryotunes ];
+      # Apps Arch Hyperion treats as optional (ryoku-desktop optdepends and
+      # the independently released Ryotunes and Ryoport). They are not part
+      # of the system: RyoMarket's Hyperion edition installs them into the
+      # user's Nix profile from the packages below, and
+      # ryoku-hyperion-shipped-apps delivers the shipped ones once.
+      hyperionOptionalApps = with hyperionRyoku; [ ryotunes ryoport ryomanager waifu2x qmkHid ];
+      # Retired from Arch Hyperion; upstream's Nix bundle still lists it.
+      hyperionRetired = [ hyperionRyoku.ryomotion ];
+      hyperionRyoportPackage = hyperionRyoport.packages.${system}.default;
 
-      # Upstream's bundle (Hyperion nix/packages/default.nix) with those
-      # replacements. The Niri-only bundle also drops wmHyprland.
+      # Upstream's bundle (Hyperion nix/packages/default.nix) without those.
+      # The Niri-only bundle also drops wmHyprland.
       # ryoku-hyperion-bundle-provenance checks both against upstream.
       # Upstream's bundle lists store path strings, so compare by path.
       withoutPaths = drop: builtins.filter
         (p: !(builtins.elem (toString p) (map toString drop)));
       hyperionComponents =
-        withoutPaths hyperionReplaced hyperionRyoku.bundle.paths
-        ++ [ hyperionRyotunes ];
+        withoutPaths (hyperionOptionalApps ++ hyperionRetired) hyperionRyoku.bundle.paths;
       hyperionNiriOnlyComponents =
         withoutPaths [ hyperionRyoku.wmHyprland ] hyperionComponents;
 
@@ -179,15 +191,16 @@
       };
 
       hyperionRyotunes = import ./nix/packages/hyperion-ryotunes.nix {
-        pkgs = hyperionPkgs;
+        inherit pkgs;
         src = hyperionRyotunesSrc;
-        version = "1.2.6";
-        qmlRuntime = hyperionQmlRuntime;
+        version = builtins.replaceStrings [ "\n" ] [ "" ]
+          (builtins.readFile (hyperionRyotunesSrc + "/VERSION"));
       };
 
       mkHyperionMaterializer = niriOnly:
         import ./nix/apps/ryoku-materialize.nix {
-          inherit pkgs niriOnly hyperionRyotunes;
+          inherit pkgs niriOnly;
+          hyperion = true;
           ryoku = ryoku // {
             cli = hyperionRyoku.cli;
             desktopData = hyperionRyoku.desktopData;
@@ -307,9 +320,10 @@
         ryomarket-hyperion = ryomarket.packages.${system}.ryomarket;
         ryotunes = hyperionRyotunes;
         ryostore = hyperionRyoku.ryostore;
-        ryoport = hyperionRyoku.ryoport;
+        ryoport = hyperionRyoportPackage;
         ryomanager = hyperionRyoku.ryomanager;
-        ryomotion = hyperionRyoku.ryomotion;
+        waifu2x-ncnn-vulkan = hyperionRyoku.waifu2x;
+        qmk-hid = hyperionRyoku.qmkHid;
         rashin = hyperionRyoku.rashin;
         ryoku-hyperion-desktop = ryokuHyperion.packages.${system}.ryoku-desktop;
         ryoku-hyperion-nixos-bundle = ryokuHyperionNixosBundle;
@@ -657,7 +671,7 @@
         };
 
         ryoku-hyperion-bundle-provenance = import ./nix/tests/hyperion-bundle-provenance.nix {
-          inherit pkgs hyperionRyoku hyperionRyotunes;
+          inherit pkgs hyperionRyoku hyperionOptionalApps hyperionRetired;
           hyperionPackages = ryokuHyperion.packages.${system};
           bridges = hyperionNixosBridges;
           fullBundle = ryokuHyperionNixosBundle;
@@ -866,6 +880,23 @@
                  "$(jq -r .nodes.ryokuPackagesNixpkgs.locked.narHash "$projectLock")"
             touch "$out"
           '';
+
+        ryoku-hyperion-shipped-apps = pkgs.runCommand "ryoku-hyperion-shipped-apps-check"
+          { nativeBuildInputs = with pkgs; [ bash coreutils gnugrep jq ]; } ''
+            RYOKU_SHIPPED_APPS=${./nix/scripts/ryoku-hyperion-shipped-apps} \
+              bash ${./nix/tests/test-hyperion-shipped-apps.sh}
+            touch "$out"
+          '';
+
+        # Every app RyoMarket's Hyperion edition offers is a package here.
+        ryoku-hyperion-optional-apps = pkgs.runCommand "ryoku-hyperion-optional-apps-check" { } ''
+          test -x ${hyperionRyotunes}/bin/ryotunes
+          test -x ${hyperionRyoportPackage}/bin/ryoport
+          test -x ${hyperionRyoku.ryomanager}/bin/ryomanager
+          test -x ${hyperionRyoku.waifu2x}/bin/waifu2x-ncnn-vulkan
+          test -x ${hyperionRyoku.qmkHid}/bin/qmk_hid
+          touch "$out"
+        '';
 
         ryoku-hyperion-retire-ryotunes = pkgs.runCommand "ryoku-hyperion-retire-ryotunes-check"
           { nativeBuildInputs = with pkgs; [ bash coreutils gnugrep procps ]; } ''

@@ -622,7 +622,8 @@ EOF
     ++ lib.optionals (hasOptionalApp "pavucontrol") [ pkgs.pavucontrol ]
     ++ lib.optionals (hasOptionalApp "songrec") (optionalPkg "songrec")
     ++ lib.optionals (hasOptionalApp "openrgb") (optionalPkg "openrgb")
-    ++ lib.optionals (hasOptionalApp "upscale") [ ryokuWaifu2x ]
+    # In Hyperion, waifu2x is an optional RyoMarket app in the user's profile.
+    ++ lib.optionals (hasOptionalApp "upscale" && !cfg.hyperionPackages.enable) [ ryokuWaifu2x ]
     ++ lib.optionals (hasOptionalApp "localsend") (optionalPkg "localsend")
     ++ lib.optionals (hasOptionalApp "gamescope") (optionalPkg "gamescope")
     ++ lib.optionals (hasOptionalApp "gamemode") (optionalPkg "gamemode")
@@ -1156,11 +1157,6 @@ in
     programs.ryomarket.enable = lib.mkDefault true;
     programs.ryomarket.edition = lib.mkIf cfg.hyperionPackages.enable (lib.mkDefault "hyperion");
 
-    # Ryotunes' daemon is socket-activated like the official package
-    # (90-ryotunes.preset enables ryotunesd.socket). The units, added to
-    # systemd.packages below, run the store path of this generation's
-    # Ryotunes, so no other ryotunesd on PATH can own the session socket.
-    systemd.user.sockets.ryotunesd.wantedBy = lib.mkIf cfg.hyperionPackages.enable [ "sockets.target" ];
 
     # Nixpkgs wraps gsr-kms-server with the narrow capability upstream expects.
     # Installing gpu-screen-recorder as a plain package leaves that helper
@@ -1469,7 +1465,6 @@ in
 
     systemd.packages = lib.mkAfter (
       [ pkgs.iwd ]
-      ++ lib.optional cfg.hyperionPackages.enable self.packages.${system}.ryotunes
     );
 
     # Re-apply a persisted regulatory domain before networking.
@@ -1749,7 +1744,9 @@ in
 
       # Ryowalls and Ryoshot normally use Arch's /usr/share
       # model path. Point them at the immutable nixpkgs payload.
-      RYOKU_WAIFU2X_MODELS = waifu2xModels;
+      # Hyperion's Ryoshot and Ryogami do not read this, and waifu2x is
+      # an optional RyoMarket app there.
+      RYOKU_WAIFU2X_MODELS = lib.mkIf (!cfg.hyperionPackages.enable) waifu2xModels;
     };
 
     environment.etc."ryoku/nix-system-package-count".text =
@@ -2033,6 +2030,36 @@ in
       pathConfig.PathExists = "%S/ryoku/nix/materialize-failed";
     };
 
+    # Hyperion's optional apps live in the user's Nix profile, managed by
+    # RyoMarket. Like Arch Hyperion's doctor, deliver the shipped ones once
+    # and never bring back one the user removed. Ryotunes and Ryoport carry
+    # their own release lines on Arch and are delivered with Ryoku v2 too.
+    systemd.user.services.ryoku-hyperion-apps = lib.mkIf cfg.hyperionPackages.enable {
+      description = "Deliver Ryoku Hyperion's shipped apps once";
+      after = [ "ryoku-materialize.service" ];
+      wantedBy = [ "ryoku-session.target" ];
+      path = [ config.nix.package pkgs.coreutils pkgs.gnugrep pkgs.jq ];
+      unitConfig = {
+        StartLimitIntervalSec = 3600;
+        StartLimitBurst = 4;
+      };
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${pkgs.bash}/bin/bash ${../scripts/ryoku-hyperion-shipped-apps} "
+          + lib.escapeShellArgs [
+            "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos"
+            "ryotunes"
+            "ryoport"
+            "ryomanager"
+            "waifu2x-ncnn-vulkan"
+          ];
+        # Offline at login: try again later in the session.
+        Restart = "on-failure";
+        RestartSec = 300;
+        Nice = 10;
+      };
+    };
+
     systemd.user.services.ryoku-materialize-retry = {
       description = "Retry a failed Ryoku materialization";
       unitConfig = {
@@ -2075,7 +2102,7 @@ in
       path = runtimePackages;
 
       environment = {
-        RYOKU_WAIFU2X_MODELS = waifu2xModels;
+        RYOKU_WAIFU2X_MODELS = lib.mkIf (!cfg.hyperionPackages.enable) waifu2xModels;
 
         MALLOC_CONF =
           "narenas:2,background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:5000";
@@ -2162,7 +2189,7 @@ in
       RYOKU_HYPR_PLUGINS_MANAGED = "nix";
       RYOKU_HYPR_PLUGIN_DIR = lib.mkIf (!niriOnly)
         "${ryokuHyprPlugins}/lib/hyprland/plugins";
-        RYOKU_WAIFU2X_MODELS = waifu2xModels;
+        RYOKU_WAIFU2X_MODELS = lib.mkIf (!cfg.hyperionPackages.enable) waifu2xModels;
 
         QT_MEDIA_BACKEND = "ffmpeg";
         QT_FFMPEG_DECODING_HW_DEVICE_TYPES = ",";

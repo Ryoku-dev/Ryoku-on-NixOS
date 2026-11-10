@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Deliver Hyperion's shipped optional apps once, as Arch Hyperion's doctor does
+# (ryoku/cli/internal/doctor/reconcile_shipped_apps.go):
+#
+#   in the Nix profile, from Hyperion   -> adopt (record it)
+#   in the Nix profile, from elsewhere  -> legacy: replace it with Hyperion's
+#   recorded but absent                 -> the user removed it: leave it
+#   never seen                          -> install it once
+#
+# The apps install into the user's Nix profile from the same flake reference
+# RyoMarket's Hyperion edition uses, so RyoMarket manages them afterwards.
+#
+# usage: ryoku-hyperion-shipped-apps FLAKE_REF APP...
+set -euo pipefail
+
+ref="${1:?flake reference required}"
+shift
+ledger="${XDG_STATE_HOME:-$HOME/.local/state}/ryoku/nix/hyperion-shipped-apps"
+mkdir -p "$(dirname "$ledger")"
+touch "$ledger"
+
+nix_cmd=(nix --extra-experimental-features "nix-command flakes")
+
+profile="$("${nix_cmd[@]}" profile list --json)"
+# The profile's element for an app: its original flake URL, or nothing.
+source_of() {
+    jq -r --arg name "$1" '(.elements // {})[$name] | select(. != null and .active != false) | .originalUrl // ""' <<< "$profile"
+}
+
+record() {
+    grep -qxF -- "$1" "$ledger" || printf '%s\n' "$1" >> "$ledger"
+}
+
+failed=0
+for app in "$@"; do
+    source="$(source_of "$app")"
+    case "$source" in
+        "$ref"|"$ref?"*)
+            record "$app"
+            continue
+            ;;
+        "")
+            if grep -qxF -- "$app" "$ledger"; then
+                continue
+            fi
+            ;;
+        *)
+            printf 'ryoku: replacing %s from %s with Hyperion'"'"'s\n' "$app" "$source"
+            "${nix_cmd[@]}" profile remove "$app" || { failed=1; continue; }
+            ;;
+    esac
+
+    printf 'ryoku: installing %s\n' "$app"
+    if "${nix_cmd[@]}" profile add "$ref#$app"; then
+        record "$app"
+    else
+        printf 'ryoku: could not install %s; it will be retried at the next login\n' "$app" >&2
+        failed=1
+    fi
+done
+
+exit "$failed"

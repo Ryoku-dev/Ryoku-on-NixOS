@@ -1,157 +1,131 @@
-# Ryotunes as Ryoku Hyperion ships it on Arch: the official Ryoku-dev/ryotunes
-# release (release/repo/import-ryotunes.sh imports releases/latest, unpatched)
-# with the same files as that package: ryotunes (launcher), ryotunesd (daemon,
-# socket-activated user unit), ryotunes-qml (native Quickshell client),
-# ryotunes-cli, ryotunes-sync, the desktop entry, skins and matugen template.
+# Ryotunes 2.0, the Lithic rewrite in Go and Gio that Ryoku Hyperion is built
+# around (Ryoku-dev/ryotunes, branch hyperion). Layout and build follow its
+# own release/arch/PKGBUILD: ryotunes (client), ryotunesd (daemon,
+# socket-activated user unit), ryotunes-cli, ryotunes-sync, the desktop entry,
+# icons and matugen template.
 #
 # NixOS differences, all about ownership:
-# - The launcher starts its own daemon and the daemon spawns its own client by
-#   store path, never through PATH, so an older ryotunes elsewhere on PATH
+# - The client starts its own daemon and the daemon reopens its own client
+#   by store path, never through PATH, so an older Ryotunes elsewhere on PATH
 #   (RyoMarket profiles, ~/.local/bin) cannot take over a session.
-# - The client gets Hyperion's QML runtime (Ryoku.Ui) instead of /usr/lib/qt6.
+# - The tools the package depends on are on the wrapped PATH.
 # - The in-app pacman updater is inert (no /usr/bin/pacman); NixOS updates it.
-{ pkgs, src, version, qmlRuntime }:
+{ pkgs, src, version }:
 
 let
   inherit (pkgs) lib;
 
-  qmlImports = lib.makeSearchPath "lib/qt-6/qml" [
-    qmlRuntime
-    pkgs.qt6.qtdeclarative
-    pkgs.qt6.qtmultimedia
-    pkgs.qt6.qtwayland
-    pkgs.qt6.qt5compat
-    pkgs.qt6.qtsvg
-    pkgs.qt6.qtimageformats
-  ];
-
-  # Tools the official package depends on and the daemon runs by name.
-  daemonPath = lib.makeBinPath [
+  # Arch depends/optdepends that are run as programs.
+  runtimePath = lib.makeBinPath [
     pkgs.yt-dlp
     pkgs.ffmpeg
     pkgs.xdg-utils
+    pkgs.xdg-user-dirs
+    pkgs.libsecret
+    pkgs.cava
+    pkgs.pipewire
+  ];
+
+  # Gio and mpv load these at run time.
+  runtimeLibs = lib.makeLibraryPath [
+    pkgs.vulkan-loader
+    pkgs.libGL
+    pkgs.wayland
+    pkgs.libxkbcommon
+    pkgs.libx11
+    pkgs.libxcursor
+    pkgs.libxfixes
+    pkgs.mpv
   ];
 in
-pkgs.rustPlatform.buildRustPackage {
+pkgs.buildGoModule {
   pname = "ryotunes";
   inherit version src;
 
-  cargoHash = "sha256-quUL+BEGdNnQ9/RsU3/bK+vYLLvqsTFGOD92GSdC3jc=";
+  vendorHash = "sha256-D4H8m37AXRMvEPLlPOssDc0RKW5bWB6bO7A/SjNJZQM=";
 
-  pnpmDeps = pkgs.fetchPnpmDeps {
-    pname = "ryotunes-ui";
-    inherit version;
-    src = src + "/ui";
-    fetcherVersion = 4;
-    hash = "sha256-L0HRYhFO5A0qqwdiYzN+h28kV7vAqB3up+Zu4ShYnBo=";
-  };
-  pnpmRoot = "ui";
+  subPackages = [
+    "cmd/ryotunes"
+    "cmd/ryotunesd"
+    "cmd/ryotunes-cli"
+    "cmd/ryotunes-sync"
+  ];
+
+  ldflags = [
+    "-s"
+    "-w"
+    "-X github.com/ryoku-dev/ryotunes/internal/version.Version=${version}"
+  ];
 
   postPatch = ''
-    substituteInPlace crates/ryotunesd/src/tray.rs \
-      --replace-fail 'Command::new("ryotunes-qml")' "Command::new(\"$out/bin/ryotunes-qml\")"
-    substituteInPlace src-tauri/src/main.rs \
-      --replace-fail 'Command::new("ryotunesd")' "Command::new(\"$out/bin/ryotunesd\")"
+    substituteInPlace internal/client/conn/conn.go \
+      --replace-fail 'exec.Command("ryotunesd")' "exec.Command(\"$out/bin/ryotunesd\")"
+    substituteInPlace internal/daemon/server.go \
+      --replace-fail 'exec.Command("ryotunes")' "exec.Command(\"$out/bin/ryotunes\")"
   '';
 
   nativeBuildInputs = [
     pkgs.pkg-config
-    pkgs.nodejs
-    pkgs.pnpm
-    pkgs.pnpmConfigHook
-    pkgs.wrapGAppsHook3
     pkgs.makeWrapper
-    pkgs.rustPlatform.bindgenHook
   ];
 
   buildInputs = [
-    pkgs.glib
-    pkgs.gtk3
-    pkgs.gdk-pixbuf
-    pkgs.cairo
-    pkgs.pango
-    pkgs.webkitgtk_4_1
-    pkgs.libsoup_3
     pkgs.mpv
-    pkgs.libappindicator-gtk3
-    pkgs.libayatana-appindicator
-    pkgs.openssl
-    pkgs.librsvg
+    pkgs.alsa-lib
+    pkgs.flac
+    pkgs.mpg123
+    pkgs.libvorbis
+    pkgs.libogg
+    pkgs.wayland
+    pkgs.libxkbcommon
+    pkgs.libx11
+    pkgs.libxcursor
+    pkgs.libxfixes
+    pkgs.libxcb
+    pkgs.libGL.dev
+    pkgs.vulkan-headers
+    pkgs.vulkan-loader
+    pkgs.libGL
   ];
 
-  # The Tauri crate embeds the Svelte build even though Linux never runs it.
-  preBuild = ''
-    export HOME="$TMPDIR"
-    (cd ui && pnpm build)
-    test -f ui/build/index.html
-  '';
-
-  cargoBuildFlags = [
-    "--package" "ryotunes"
-    "--package" "sync-server"
-    "--package" "ryotunesd"
-    "--package" "ryotunes-cli"
-  ];
-
-  # Upstream runs the workspace tests at release time.
+  # Upstream runs `go test ./...` at release time; several tests need a
+  # Wayland session.
   doCheck = false;
 
-  installPhase = ''
-    runHook preInstall
+  postInstall = ''
+    install -Dm755 release/diagnostics.sh "$out/bin/ryotunes-diagnostics"
 
-    for bin in ryotunes ryotunes-sync ryotunesd ryotunes-cli; do
-      built="$(find target -type f -path "*/release/$bin" -perm -0100 -print -quit)"
-      [ -n "$built" ] || { echo "ryotunes: built binary missing: $bin" >&2; exit 1; }
-      install -Dm755 "$built" "$out/bin/$bin"
-    done
-    install -Dm755 scripts/diagnostics.sh "$out/bin/ryotunes-diagnostics"
-
-    mkdir -p "$out/share/ryotunes"
-    cp -r client "$out/share/ryotunes/client"
-    rm -rf "$out/share/ryotunes/client/tests"
-    cp -r skins "$out/share/ryotunes/skins"
-    install -Dm644 matugen/ryotunes.json "$out/share/ryotunes/matugen/ryotunes.json"
-
-    install -Dm644 packaging/linux/ryotunesd.socket "$out/lib/systemd/user/ryotunesd.socket"
-    install -Dm644 packaging/linux/ryotunesd.service "$out/lib/systemd/user/ryotunesd.service"
+    install -Dm644 release/linux/ryotunesd.socket "$out/lib/systemd/user/ryotunesd.socket"
+    install -Dm644 release/linux/ryotunesd.service "$out/lib/systemd/user/ryotunesd.service"
     substituteInPlace "$out/lib/systemd/user/ryotunesd.service" \
       --replace-fail "ExecStart=/usr/bin/ryotunesd" "ExecStart=$out/bin/ryotunesd"
 
-    install -Dm644 packaging/linux/ryotunes.desktop "$out/share/applications/ryotunes.desktop"
+    install -Dm644 release/linux/ryotunes.desktop "$out/share/applications/ryotunes.desktop"
     substituteInPlace "$out/share/applications/ryotunes.desktop" \
       --replace-fail "Exec=ryotunes" "Exec=$out/bin/ryotunes"
-    install -Dm644 packaging/linux/dev.ryoku.ryotunes.metainfo.xml \
+    install -Dm644 release/linux/dev.ryoku.ryotunes.metainfo.xml \
       "$out/share/metainfo/dev.ryoku.ryotunes.metainfo.xml"
+    install -Dm644 release/matugen/ryotunes.json "$out/share/ryotunes/matugen/ryotunes.json"
 
-    install -Dm644 src-tauri/icons/32x32.png "$out/share/icons/hicolor/32x32/apps/ryotunes.png"
-    install -Dm644 src-tauri/icons/64x64.png "$out/share/icons/hicolor/64x64/apps/ryotunes.png"
-    install -Dm644 src-tauri/icons/128x128.png "$out/share/icons/hicolor/128x128/apps/ryotunes.png"
-    install -Dm644 "src-tauri/icons/128x128@2x.png" "$out/share/icons/hicolor/256x256/apps/ryotunes.png"
-    install -Dm644 src-tauri/icons/icon.png "$out/share/icons/hicolor/512x512/apps/ryotunes.png"
+    for size in 32x32 64x64 128x128 256x256 512x512; do
+      install -Dm644 "assets/icons/$size.png" "$out/share/icons/hicolor/$size/apps/ryotunes.png"
+    done
+    install -Dm644 assets/icons/ryotunes.svg "$out/share/icons/hicolor/scalable/apps/ryotunes.svg"
 
     install -Dm644 LICENSE "$out/share/licenses/ryotunes/LICENSE"
-
-    runHook postInstall
   '';
 
-  # wrapGAppsHook3 wraps bin/ in fixupPhase; the client wrapper is written
-  # afterwards so it is not wrapped twice.
-  dontWrapGApps = true;
   postFixup = ''
     for bin in ryotunes ryotunesd ryotunes-cli ryotunes-sync; do
-      wrapProgram "$out/bin/$bin" "''${gappsWrapperArgs[@]}" --prefix PATH : ${daemonPath}
+      wrapProgram "$out/bin/$bin" \
+        --prefix PATH : ${runtimePath} \
+        --prefix LD_LIBRARY_PATH : ${runtimeLibs}
     done
-    makeWrapper ${pkgs.quickshell}/bin/qs "$out/bin/ryotunes-qml" \
-      --add-flags "-p $out/share/ryotunes/client" \
-      --prefix QML_IMPORT_PATH : "${qmlImports}" \
-      --prefix QML2_IMPORT_PATH : "${qmlImports}"
-    # The client resolves skins relative to its own directory.
-    test -d "$out/share/ryotunes/skins"
   '';
 
   meta = {
-    description = "Ryoku's music app: daemon, CLI and native Quickshell client";
-    homepage = "https://github.com/Ryoku-dev/ryotunes";
+    description = "Ryoku's native Lithic music player";
+    homepage = "https://github.com/Ryoku-dev/ryotunes/tree/hyperion";
     license = lib.licenses.gpl3Plus;
     platforms = [ "x86_64-linux" ];
     mainProgram = "ryotunes";

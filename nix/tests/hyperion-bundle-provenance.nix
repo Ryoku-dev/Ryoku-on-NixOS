@@ -3,7 +3,8 @@
 {
   pkgs,
   hyperionRyoku,
-  hyperionRyotunes,
+  hyperionOptionalApps,
+  hyperionRetired,
   hyperionPackages,
   bridges,
   fullBundle,
@@ -43,10 +44,10 @@ let
   upstreamPaths = hyperionRyoku.bundle.paths;
   without = drop: lib.filter (p: !(lib.elem (out p) (outs drop)));
 
-  # Upstream's bundle with Ryotunes 1.2.0 replaced by the release Arch ships.
-  expectedFull = without [ hyperionRyoku.ryotunes ] upstreamPaths ++ [ hyperionRyotunes ];
+  # Upstream's bundle without the apps RyoMarket manages and retired ones.
+  expectedFull = without (hyperionOptionalApps ++ hyperionRetired) upstreamPaths;
 
-  # Core shell, CLI, Hub, Ryogami, Niri and every v2 app.
+  # Core shell, CLI, Hub, Ryogami, Niri and the core v2 apps.
   required = with hyperionRyoku; [
     shell
     cli
@@ -60,13 +61,8 @@ let
     rashin
     prowlAgent
     ryostore
-    ryomotion
-    ryoport
     livewall
     skwdPaper
-    ryomanager
-    qmkHid
-    waifu2x
   ];
 in
 
@@ -78,7 +74,7 @@ assert outs (lib.take bridgeCount niriPaths) == outs bridges;
 assert outs (lib.take bridgeCount fullBundle.paths) == outs bridges;
 
 assert lib.assertMsg (sorted fullComponents == sorted expectedFull)
-  "full Hyperion bundle no longer matches upstream's bundle with the Ryotunes release";
+  "full Hyperion bundle no longer matches upstream's bundle without the optional apps";
 assert has fullComponents hyperionRyoku.wmHyprland;
 
 # Niri-only is exactly that minus wmHyprland.
@@ -86,10 +82,9 @@ assert lib.assertMsg
   (sorted niriComponents == sorted (without [ hyperionRyoku.wmHyprland ] expectedFull))
   "Niri-only Hyperion bundle no longer matches upstream's bundle without wmHyprland";
 
-# Exactly one Ryotunes: the release build, never upstream's 1.2.0 pin.
-assert !(has fullComponents hyperionRyoku.ryotunes);
-assert !(has niriComponents hyperionRyoku.ryotunes);
-assert has niriComponents hyperionRyotunes;
+# Optional and retired apps are never part of the system.
+assert lib.all (p: !(has fullComponents p) && !(has niriComponents p))
+  (hyperionOptionalApps ++ hyperionRetired);
 
 assert !(has niriPaths hyperionRyoku.wmHyprland);
 assert !(has niriPaths hyperionRyoku.hyprPlugins);
