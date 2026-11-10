@@ -570,11 +570,11 @@
         "ryotunes": "ryotunes"
       },
       "locked": {
-        "lastModified": 1794261021,
-        "narHash": "sha256-wbbPI9AcMVZrenIbbf+rHmcPkK4hPQseU4JLMLav8RY=",
+        "lastModified": 1794269560,
+        "narHash": "sha256-jLwXrjSEa59O39ByO74CXrpqDR5Oll/YpYuWY2VRLks=",
         "owner": "Ryoku-dev",
         "repo": "ryomarket",
-        "rev": "ee87fbbd3e1d8e268c1892b07c75575262bb7089",
+        "rev": "eeab105c2410eff72ceab7836de49ede5b31ac18",
         "type": "github"
       },
       "original": {
