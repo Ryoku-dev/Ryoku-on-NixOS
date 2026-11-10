@@ -20,11 +20,17 @@ mkdir -p "$(dirname "$ledger")"
 touch "$ledger"
 
 nix_cmd=(nix --extra-experimental-features "nix-command flakes")
+# The user's default profile unless RYOKU_NIX_PROFILE names another.
+profile_args=()
+if [ -n "${RYOKU_NIX_PROFILE:-}" ]; then
+    profile_args=(--profile "$RYOKU_NIX_PROFILE")
+fi
 
-profile="$("${nix_cmd[@]}" profile list --json)"
+profile="$("${nix_cmd[@]}" profile list "${profile_args[@]}" --json)"
 # The profile's element for an app: its original flake URL, or nothing.
+# Nix records the branch URL-encoded (feature%2Fhyperion-v2-nixos).
 source_of() {
-    jq -r --arg name "$1" '(.elements // {})[$name] | select(. != null and .active != false) | .originalUrl // ""' <<< "$profile"
+    jq -r --arg name "$1" '(.elements // {})[$name] | select(. != null and .active != false) | .originalUrl // "" | gsub("%2F"; "/"; "i")' <<< "$profile"
 }
 
 record() {
@@ -46,12 +52,12 @@ for app in "$@"; do
             ;;
         *)
             printf 'ryoku: replacing %s from %s with Hyperion'"'"'s\n' "$app" "$source"
-            "${nix_cmd[@]}" profile remove "$app" || { failed=1; continue; }
+            "${nix_cmd[@]}" profile remove "${profile_args[@]}" "$app" || { failed=1; continue; }
             ;;
     esac
 
     printf 'ryoku: installing %s\n' "$app"
-    if "${nix_cmd[@]}" profile add "$ref#$app"; then
+    if "${nix_cmd[@]}" profile add "${profile_args[@]}" "$ref#$app"; then
         record "$app"
     else
         printf 'ryoku: could not install %s; it will be retried at the next login\n' "$app" >&2

@@ -17,7 +17,7 @@ case "\$1 \$2" in
   "profile list") cat "\$profile" ;;
   "profile add")
     [ -e "$work/offline" ] && exit 1
-    name="\${3#*#}"; url="\${3%#*}"
+    name="\${3#*#}"; url="\${3%#*}"; url="\${url//feature\/hyperion/feature%2Fhyperion}"
     jq --arg n "\$name" --arg u "\$url" '.elements[\$n]={active:true,originalUrl:\$u}' "\$profile" > "\$profile.new" && mv "\$profile.new" "\$profile" ;;
   "profile remove")
     jq --arg n "\$3" 'del(.elements[\$n])' "\$profile" > "\$profile.new" && mv "\$profile.new" "\$profile" ;;
@@ -40,7 +40,7 @@ rm "$work/offline"
 
 run >/dev/null || fail "online run failed"
 for app in ryotunes ryoport ryomanager waifu2x-ncnn-vulkan; do has "$app" || fail "$app not delivered"; done
-[ "$(jq -r .elements.ryotunes.originalUrl "$work/profile.json")" = "$ref" ] || fail "legacy Ryotunes not replaced"
+[ "$(jq -r .elements.ryotunes.originalUrl "$work/profile.json")" = "${ref/feature\/hyperion/feature%2Fhyperion}" ] || fail "legacy Ryotunes not replaced"
 [ "$(grep -c 'profile add.*ryomanager' "$work/nix.log")" = 0 ] || fail "adopted app reinstalled"
 
 # The user removes waifu2x: it stays removed. Nothing is reinstalled.
@@ -48,5 +48,5 @@ jq 'del(.elements["waifu2x-ncnn-vulkan"])' "$work/profile.json" > "$work/p" && m
 : > "$work/nix.log"
 run >/dev/null || fail "steady-state run failed"
 has waifu2x-ncnn-vulkan && fail "removed app delivered again"
-grep -q 'profile add' "$work/nix.log" && fail "steady state installed something"
+grep -q 'profile \(add\|remove\)' "$work/nix.log" && fail "steady state changed the profile (encoded URL not recognised?)"
 printf 'shipped-apps: PASS\n'
