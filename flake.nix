@@ -224,6 +224,7 @@
           userQml = hyperionUserQml;
           ryoku = ryoku // {
             cli = hyperionRyoku.cli;
+            hub = hyperionRyoku.hub;
             desktopData = hyperionRyoku.desktopData;
             qml = hyperionQmlRuntime;
             wmNiri = hyperionRyoku.wmNiri;
@@ -253,6 +254,14 @@
           inherit self ryokuUpstream ryokuHyperion ryomarket;
           ryokuNixpkgs = pkgs;
           ryokuHyperionNixpkgs = hyperionPkgs;
+          ryokuHyperionPackages = hyperionRyoku // {
+            # Keep the existing compositor-free cursor recipe on Hyperion's sources.
+            cursorMaterial = import ./nix/packages/ryoku-cursor-material.nix {
+              pkgs = hyperionPkgs;
+              ryokuSrc = hyperionRyoku.cursorMaterial.src;
+              bibataSrc = ryokuHyperion.inputs.bibataMaterialSrc;
+            };
+          };
         };
 
       ryokuRepo = "github:Ryoku-dev/Ryoku-on-NixOS";

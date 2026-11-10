@@ -73,11 +73,13 @@ class QylockPamMaterializationTests(unittest.TestCase):
                             line,
                         )
 
-    def test_pam_modules_come_from_ryoku_package_set(self):
-        self.assertIn(
-            'qylockPamModules = "${ryokuNixpkgs.linux-pam}/lib/security";',
-            self.source,
-        )
+    def test_pam_modules_follow_quickshell_package_set(self):
+        for binding in (
+            "qtPkgs = if cfg.hyperionPackages.enable then ryokuHyperionNixpkgs else ryokuNixpkgs;",
+            "ryokuQuickshell = qtPkgs.quickshell;",
+            'qylockPamModules = "${qtPkgs.linux-pam}/lib/security";',
+        ):
+            self.assertTrue(binding in self.source, f"Missing runtime binding: {binding}")
         self.assertNotIn("${config.security.pam.package}", self.source)
 
     def test_materializer_runs_before_lock_runtime_activation(self):

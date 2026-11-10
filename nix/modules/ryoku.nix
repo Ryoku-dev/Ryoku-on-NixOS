@@ -1,4 +1,4 @@
-{ self, ryokuNixpkgs, ryokuHyperionNixpkgs, ryokuUpstream, ryokuHyperion, ryomarket }:
+{ self, ryokuNixpkgs, ryokuHyperionNixpkgs, ryokuHyperionPackages, ryokuUpstream, ryokuHyperion, ryomarket }:
 
 { config, lib, pkgs, options, ... }:
 
@@ -36,6 +36,14 @@ let
       ryoku-materialize =
         if niriOnly then self.packages.${system}.ryoku-hyperion-niri-materialize
         else self.packages.${system}.ryoku-hyperion-materialize;
+      # Hyperion's own builds of the remaining desktop components, so no
+      # unstable-dev copy runs beside them. The NixOS system bridge still
+      # owns the commands it replaces (it precedes these on PATH).
+      ryoku-helpers = ryokuHyperionPackages.helpers;
+      ryoku-palette-bridge = ryokuHyperionPackages.paletteBridge;
+      ryoku-skwd-paper = ryokuHyperionPackages.skwdPaper;
+      ryoku-cursor-material = ryokuHyperionPackages.cursorMaterial;
+      ryoku-maple-mono-nf = ryokuHyperionPackages.mapleMonoNF;
     });
 
   ryokuShell = ryokuPkgs.ryoku-shell;
@@ -43,8 +51,8 @@ let
   ryokuHelpers = ryokuPkgs.ryoku-helpers;
   ryokuSystemBridge = ryokuPkgs.ryoku-nixos-system-bridge;
   ryokuDesktopData = ryokuPkgs.ryoku-desktop-data;
-  # Hyperion's desktop-data package does not install share/ryoku/nomarchy,
-  # so the Nomarchy source stays with the NixOS desktop data.
+  # Nomarchy belongs to the unstable-dev desktop; Hyperion does not read
+  # RYOKU_NOMARCHY_SOURCE.
   ryokuNomarchySource =
     "${legacyRyokuPkgs.ryoku-desktop-data}/share/ryoku/nomarchy";
   ryokuRyogami = ryokuPkgs.ryoku-ryogami;
@@ -641,25 +649,27 @@ EOF
     ++ lib.optionals cfg.hyperionPackages.enable [ ryokuNixpkgs.wl-clip-persist ];
 
   optionalRuntime =
-    lib.concatMap optionalPkg [
+    lib.concatMap optionalPkg ([
       "adw-gtk3"
       "gnome-themes-extra"
       "papirus-icon-theme"
       "bibata-cursors"
 
-      "cliphist"
       "yt-dlp"
       "zenity"
       "tesseract"
       "zbar"
-      "wf-recorder"
-      "hyprsunset"
-      "gammastep"
       "wtype"
       "libqalculate"
       "ddcutil"
       "gpu-screen-recorder"
-    ];
+    ]
+    # Hyperion's shell keeps clipboard history itself, records with
+    # gpu-screen-recorder and runs night light with wlsunset on niri; these
+    # are only used by the unstable-dev desktop.
+    ++ lib.optionals (!cfg.hyperionPackages.enable) [ "cliphist" "wf-recorder" "gammastep" ]
+    # Hyprland's night light.
+    ++ lib.optionals (!niriOnly) [ "hyprsunset" ]);
 
   # NixOS cannot keep setuid executables in the immutable Nix store.
   # Expose only the privileged wrappers Ryoku needs through the shell's
@@ -1235,10 +1245,12 @@ in
         pkgs.xdg-desktop-portal-wlr
       ];
 
-      config.hyprland.default = [
-        "hyprland"
-        "gtk"
-      ];
+      config.hyprland = lib.mkIf (!niriOnly) {
+        default = [
+          "hyprland"
+          "gtk"
+        ];
+      };
 
       config.niri = {
         default = [
@@ -1730,7 +1742,7 @@ in
       RYOKU_DEFAULT_BROWSER = if cfg.browser == null then "" else cfg.browser;
       RYOKU_UPDATE_BACKEND = "nix";
       RYOKU_I18N_DIR = "${ryokuDesktopData}/share/ryoku/i18n";
-      RYOKU_NOMARCHY_SOURCE = ryokuNomarchySource;
+      RYOKU_NOMARCHY_SOURCE = lib.mkIf (!cfg.hyperionPackages.enable) ryokuNomarchySource;
       RYOKU_NIX_FLAKE = cfg.updateFlake;
       RYOKU_NIX_INPUT = cfg.updateInput;
       RYOKU_NIX_SUDO =
@@ -2172,7 +2184,7 @@ in
         RYOKU_NIX_SYSTEM_BRIDGE = "1";
         RYOKU_NIX_INTEGRATION = "/etc/ryoku/nix-integration.json";
         RYOKU_DEFAULT_BROWSER = if cfg.browser == null then "" else cfg.browser;
-        RYOKU_NOMARCHY_SOURCE = ryokuNomarchySource;
+        RYOKU_NOMARCHY_SOURCE = lib.mkIf (!cfg.hyperionPackages.enable) ryokuNomarchySource;
         RYOKU_POLKIT_AGENT = "1";
         RYOKU_SYSTEMD_RUN = "${pkgs.systemd}/bin/systemd-run";
 

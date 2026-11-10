@@ -88,6 +88,7 @@ assert lib.any (lib.hasInfix "cannot use Hyprland")
 assert hyperion.programs.hyprland.enable;
 assert hasHyprlandName hyperion.services.displayManager.sessionPackages;
 assert hyperion.environment.sessionVariables ? RYOKU_HYPR_PLUGIN_DIR;
+assert hyperion.xdg.portal.config.hyprland.default == "hyprland;gtk";
 
 # Niri-only removes Hyprland packages, portal, plugins and sessions.
 assert !niriOnly.programs.hyprland.enable;
@@ -95,6 +96,8 @@ assert !hasHyprName niriOnly.services.displayManager.sessionPackages;
 assert !hasHyprlandName niriOnly.environment.systemPackages;
 assert !hasHyprlandName niriOnly.systemd.user.services.ryoku-shell.path;
 assert !hasHyprName niriOnly.xdg.portal.extraPortals;
+assert !(niriOnly.xdg.portal.config ? hyprland);
+assert !(niriOnly.environment.etc ? "xdg/xdg-desktop-portal/hyprland-portals.conf");
 assert !(niriOnly.environment.sessionVariables ? RYOKU_HYPR_PLUGIN_DIR);
 assert !(shellEnv niriOnly ? RYOKU_HYPR_PLUGIN_DIR);
 
