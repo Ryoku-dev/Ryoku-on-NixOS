@@ -439,11 +439,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793427137,
-        "narHash": "sha256-Ht9xEemezlg9eUje6THkeH7TmvYhnOFPnWRDZM5NU+A=",
+        "lastModified": 1794287889,
+        "narHash": "sha256-pu/P/JnAAjlDuY9OLzm/CRBCUZ2e1rGMLZZ14SKHZ08=",
         "owner": "Ryoku-dev",
         "repo": "RyotunesNix",
-        "rev": "8b1b35aa258421ce8dffa3ca16127f7faef82f59",
+        "rev": "59ac80c7d2e92af960486f1c6432d50a0b6f2517",
         "type": "github"
       },
       "original": {
