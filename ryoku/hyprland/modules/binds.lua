@@ -109,6 +109,7 @@ hl.bind(K(mod .. " + Space"),     hl.dsp.global("ryoku:launcher"))              
 hl.bind(K("ALT + Space"),         hl.dsp.global("ryoku:ask"))                      -- ask Rashin
 hl.bind(K(mod .. " + ALT + Space"), hl.dsp.exec_cmd("ryoku-summon Rashin flock -n -o /tmp/rashin-app.lock rashin-app")) -- Rashin app: the AI companion window (a second press focuses it)
 hl.bind(K(mod .. " + K"),         hl.dsp.exec_cmd("ryoku-shell cheatsheet"))          -- Kit, or the bar style's own cheatsheet
+hl.bind(K(mod .. " + SHIFT + G"), hl.dsp.global("ryoku:gamebar"), { dont_inhibit = true }) -- Game Bar: capture, performance and tasks over a fullscreen game
 hl.bind(K(mod .. " + L"),         hl.dsp.exec_cmd("ryoku-shell lock"))             -- lock the screen
 hl.bind(K(mod .. " + Escape"),    hl.dsp.global("ryoku:quicksettings"), { dont_inhibit = true }) -- quick settings: power, logout, restart, shutdown, wifi
 hl.bind(K(mod .. " + W"),         hl.dsp.exec_cmd("ryogami wallpaper ui"))     -- ryogami wallpaper picker (full-screen browser: hero cards, colour filters, effects); the frame-blob menu stays on the bar logo
@@ -172,7 +173,9 @@ hl.bind(K("XF86AudioRaiseVolume"), hl.dsp.exec_cmd("ryoku-volume up"),   { locke
 hl.bind(K("XF86AudioLowerVolume"), hl.dsp.exec_cmd("ryoku-volume down"), { locked = true, repeating = true }) -- lower the volume
 hl.bind(K("XF86AudioMute"),        hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),     { locked = true })
 hl.bind(K("XF86AudioMicMute"),     hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),   { locked = true })
-hl.bind(K("XF86AudioPlay"),        hl.dsp.exec_cmd("playerctl play-pause"),                           { locked = true })
+-- headphones can send both keys for one tap; ryoku-media drops the echo
+hl.bind(K("XF86AudioPlay"),        hl.dsp.exec_cmd("ryoku-media play-pause"),                         { locked = true })
+hl.bind(K("XF86AudioPause"),       hl.dsp.exec_cmd("ryoku-media play-pause"),                         { locked = true })
 hl.bind(K("XF86AudioNext"),        hl.dsp.exec_cmd("playerctl next"),                                 { locked = true })
 hl.bind(K("XF86AudioPrev"),        hl.dsp.exec_cmd("playerctl previous"),                             { locked = true })
 hl.bind(K(mod .. " + SHIFT + A"), hl.dsp.exec_cmd("ryoku-restart-audio")) -- recover audio when sound stops coming back

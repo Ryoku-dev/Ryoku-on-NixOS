@@ -273,11 +273,14 @@ func (a *App) usersAdd(args []string) int {
 			return a.usersFail(err.Error())
 		}
 	}
+	shell := newAccountShell(users, currentUserName(a, users))
 	useradd := []string{"--user-group", "--comment", fullName, "--home-dir", home}
-	// NixOS has no /bin/bash; its useradd defaults name the configured login
-	// shell through /run/current-system, which survives every rebuild.
-	if !sys.NixBackend() {
-		useradd = append(useradd, "--shell", "/bin/bash")
+	// NixOS has no /bin/bash, which is newAccountShell's last resort. Without a
+	// resolved administrator shell, leave --shell off so useradd falls back to the
+	// defaults NixOS configured through /run/current-system, which survive every
+	// rebuild.
+	if !sys.NixBackend() || shell != "/bin/bash" {
+		useradd = append(useradd, "--shell", shell)
 	}
 	if storageCaps.Subvolumes {
 		useradd = append(useradd, "--no-create-home")
@@ -764,6 +767,20 @@ func realLoginShell(shell string) bool {
 	}
 	base := filepath.Base(shell)
 	return base != "false" && base != "nologin"
+}
+
+// the installer gives every account it creates the same login shell, so an
+// account added later follows the administrator adding it
+func newAccountShell(users []localUser, caller string) string {
+	for _, user := range users {
+		if user.Name != caller || !realLoginShell(user.Shell) {
+			continue
+		}
+		if info, err := os.Stat(user.Shell); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+			return user.Shell
+		}
+	}
+	return "/bin/bash"
 }
 
 func userInGroup(user localUser, group *localGroup) bool {

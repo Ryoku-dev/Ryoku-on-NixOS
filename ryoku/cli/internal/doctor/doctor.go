@@ -353,7 +353,7 @@ func reconcilers() []reconciler {
 		{i18n.T("ryotunes"), reconcileRyotunes},
 		{i18n.T("fastfetch OS line"), reconcileFastfetchOSLine},
 		{i18n.T("brand mark image"), reconcileBrandLogo},
-		{i18n.T("decor art"), reconcileRyodecors},
+		{i18n.T("this account's Ryoku files"), reconcileAccountSeed},
 		{i18n.T("Hyprland config integrity"), reconcileHyprlandConfig},
 		{i18n.T("niri config integrity"), reconcileNiriConfig},
 		{i18n.T("window manager plugin builds"), reconcileWmPlugins},
@@ -972,15 +972,35 @@ func reconcileSnapperAccess(checkOnly bool) recResult {
 		return wouldRes(i18n.T("`ryoku status` cannot count snapshots without a cached sudo credential, so it can read as \"0\" on a machine that has them")).
 			withFix(i18n.T("grant %s read access (snapper ALLOW_USERS + SYNC_ACL)"), user)
 	}
+	// ALLOW_USERS is a list; writing only this user locks every other account out
+	contents := snapperRootConfigContents()
+	if contents == "" && sys.Sudo("-v") == nil {
+		contents = snapperRootConfigContents()
+	}
+	if contents == "" {
+		return failRes(i18n.T("could not read the snapper root config, so %s was not added beside the accounts it already allows"), user).
+			withFix(i18n.T("sudo snapper -c root set-config ALLOW_USERS=\"<accounts already listed> %s\" SYNC_ACL=yes"), user)
+	}
+	allow := allowUsersWith(configValue(contents, "ALLOW_USERS"), user)
 	if err := sys.Run("sudo", "snapper", "-c", "root", "set-config",
-		"ALLOW_USERS="+user, "SYNC_ACL=yes"); err != nil {
+		"ALLOW_USERS="+allow, "SYNC_ACL=yes"); err != nil {
 		return failRes(i18n.T("granting %s snapshot read access: %v"), user, err).
-			withFix(i18n.T("sudo snapper -c root set-config ALLOW_USERS=%s SYNC_ACL=yes"), user)
+			withFix(i18n.T("sudo snapper -c root set-config ALLOW_USERS=\"%s\" SYNC_ACL=yes"), allow)
 	}
 	if !snapperReadableUnprivileged() {
 		return warnRes(i18n.T("granted %s snapshot access, but an unprivileged read still fails; the ACL sync may land on the next snapshot"), user)
 	}
 	return fixedRes(i18n.T("granted %s read access to snapshots (ALLOW_USERS, SYNC_ACL); `ryoku status` counts them without sudo now"), user)
+}
+
+func allowUsersWith(current, user string) string {
+	users := strings.Fields(current)
+	for _, u := range users {
+		if u == user {
+			return strings.Join(users, " ")
+		}
+	}
+	return strings.Join(append(users, user), " ")
 }
 
 // snapperReadableUnprivileged reports whether the current user can list the root
@@ -3962,64 +3982,6 @@ func reconcileBrandLogo(checkOnly bool) recResult {
 	return fixedRes(i18n.T("cleared the broken brand image (%s); the mark falls back to the text seal"), img)
 }
 
-// ---- reconciler: decor art (<Pictures>/ryodecors) ----------------------------
-
-// ryodecorsSource is where the shipped decor art set lives: the repo checkout on
-// a dev box (ryoku deploy records it), else /usr/share/ryoku/ryodecors from the
-// ryoku-desktop package. "" when neither is present (a box on a pre-fix package,
-// cured by pulling the update first).
-func ryodecorsSource() string {
-	if repo := sys.ResolveRepo(); repo != "" {
-		if p := filepath.Join(repo, "ryoku", "assets", "ryodecors"); sys.Exists(p) {
-			return p
-		}
-	}
-	if p := "/usr/share/ryoku/ryodecors"; sys.Exists(p) {
-		return p
-	}
-	return ""
-}
-
-// reconcileRyodecors keeps the shipped decor art present in <Pictures>/ryodecors
-// (~/Pictures, or the localized XDG folder such as ~/Imágenes), the folder the Decor and Placard components render from (beside Wallpapers and
-// livewalls). The installer seeds it on a fresh install; this delivers it -- and
-// any art a later release adds -- to a box that updated before it shipped, or one
-// where a file went missing. Missing-only: a file the user swapped or added is
-// left alone, and nothing is pruned (it is a user-owned Pictures folder).
-func reconcileRyodecors(checkOnly bool) recResult {
-	src := ryodecorsSource()
-	if src == "" {
-		return okRes(i18n.T("no decor art source yet (ships with the desktop package)"))
-	}
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return okRes(i18n.T("decor art source unreadable (%v)"), err)
-	}
-	dst := filepath.Join(sys.PicturesDir(), "ryodecors")
-	var missing []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if !sys.Exists(filepath.Join(dst, e.Name())) {
-			missing = append(missing, e.Name())
-		}
-	}
-	if len(missing) == 0 {
-		return okRes(i18n.T("decor art present in %s"), dst)
-	}
-	if checkOnly {
-		return wouldRes(i18n.T("%d decor art file(s) missing from %s"), len(missing), dst).
-			withFix("ryoku doctor")
-	}
-	for _, name := range missing {
-		if err := sys.CopyFile(filepath.Join(src, name), filepath.Join(dst, name)); err != nil {
-			return failRes(i18n.T("could not seed decor art %s: %v"), name, err).withFix("ryoku doctor")
-		}
-	}
-	return fixedRes(i18n.T("seeded %d decor art file(s) into %s"), len(missing), dst)
-}
-
 // ---- reconciler: follow-mouse default ---------------------------------------
 
 // followMouseMarker records that the one-time follow-mouse heal has run, so a
@@ -5137,15 +5099,9 @@ func tailLines(s string, n int) string {
 // ("exists in filesystem") and aborts the whole atomic transaction, so no update
 // lands. `ryoku update` now passes --overwrite for these
 // (updater.RyokuOverwriteGlob), but a box already wedged cannot reach that fixed
-// binary; clearing the copies here lets the next update adopt them.
-var ryokuSystemGlobs = []string{
-	"/usr/bin/ryoku-*",
-	"/usr/lib/systemd/system/ryoku-*",
-	"/usr/share/polkit-1/rules.d/*ryoku*.rules",
-	"/usr/share/plymouth/themes/ryoku/*",
-	"/usr/share/ryoku/boot/*",
-	"/etc/systemd/logind.conf.d/10-ryoku-lid.conf",
-}
+// binary; clearing the copies here lets the next update adopt them. The list is
+// the overwrite glob itself, split: one source of truth, no drift.
+var ryokuSystemGlobs = strings.Split(updater.RyokuOverwriteGlob, ",")
 
 // pkgOwnsFile reports whether an installed package owns path. Only the exit
 // status is the answer: wired to stdio, pacman printed "<path> is owned by
